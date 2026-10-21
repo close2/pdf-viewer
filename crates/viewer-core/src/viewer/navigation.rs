@@ -109,7 +109,7 @@ impl Viewer {
 
     /// Shows another page, or — during a presentation — another *state* of the page being shown.
     ///
-    /// §12.4.4.2 puts a decision in front of every page turn a person asks for: "[i]f the user
+    /// §12.4.4.2 puts a decision in front of every page turn a person asks for: "\[i]f the user
     /// requests to navigate forward (such as an arrow key press) **and there is a current
     /// navigation node**", what happens is the node's own actions and not a page turn. So a
     /// presentation steps through a page's states first and turns the page when they run out,
@@ -179,7 +179,7 @@ impl Viewer {
     /// What §12.4.4 says happens on arriving at a page, where a presentation is running.
     ///
     /// The last paragraph of §12.4.4.2, then its step (c): the page's own navigation node becomes
-    /// current and one request is performed against it, and then "[a]ny page transitions specified
+    /// current and one request is performed against it, and then "\[a]ny page transitions specified
     /// by the Trans entry of the page dictionary shall be performed".
     ///
     /// **The two are gated differently, and the difference is what a host has said.** The node
@@ -375,13 +375,13 @@ impl Viewer {
     /// below.
     ///
     /// **`/PV` and `/PI` coincide with `/PO` and `/PC` here, and that is derived rather than
-    /// conceded.** §12.6.3 says why the pair exists: "[t]he PV and PI entries allow a distinction
+    /// conceded.** §12.6.3 says why the pair exists: "\[t]he PV and PI entries allow a distinction
     /// between pages that are open and pages that are visible. At any one time, while more than
     /// one page may be visible, depending on the page layout." This viewer shows one page at a
     /// time, so the two sets have one member each and they are the same member. A host that drew
     /// a continuous tower of pages would separate them, and the place to do it is here.
     ///
-    /// NOTE 1 is honoured by not consulting Table 167 at all: "[f]or these trigger events, the
+    /// NOTE 1 is honoured by not consulting Table 167 at all: "\[f]or these trigger events, the
     /// values of the flags specified by the annotation's F entry … have no bearing on whether a
     /// given trigger event occurs" — so a hidden annotation's `/PO` is performed.
     ///

@@ -1,6 +1,6 @@
 //! §11.4.7 and §11.7.2: the four-component press a page or group composites in, and the table of presses one interpretation names.
 
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use super::ColourSpace;
 use super::device_cmyk::{CMYK_CORNERS, channel};
@@ -397,22 +397,26 @@ impl Press {
 /// profile of four components always comes back with a press. What is bounded is how many
 /// distinct presses one **interpretation** may name, and that is [`Presses`], which is where
 /// §11.7.2's refusal is decided. ADR 0417.
-#[must_use]
+///
+/// # Errors
+///
+/// [`NoPress::Unsampled`] for a profile of other than four components, and
+/// [`NoPress::Poisoned`] where the process's cache of presses was poisoned (ADR 2170).
 pub fn press_for_profile(
     profile: &crate::icc::Profile,
     rendering: Rendering,
-) -> Option<Arc<Press>> {
+) -> Result<Arc<Press>, NoPress> {
     if profile.channels() != 4 {
-        return None;
+        return Err(NoPress::Unsampled);
     }
     let identity = PressIdentity::Profile(profile.identity(), rendering);
-    if let Some(found) = cached(identity) {
-        return Some(found);
+    if let Some(found) = cached(identity)? {
+        return Ok(found);
     }
     // Sampled with no lock held. That is not an optimisation: a `Mutex` held across work rayon can
     // steal hangs the process (ADR 0269), and it is why the entry is looked up again below rather
     // than assumed absent.
-    let space = sample_press(profile, rendering)?;
+    let space = sample_press(profile, rendering).ok_or(NoPress::Unsampled)?;
     SAMPLINGS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let sampled = Arc::new(Press {
         space,
@@ -426,7 +430,7 @@ pub fn press_for_profile(
         table: OnceLock::new(),
         luminance: OnceLock::new(),
     });
-    let mut held = SAMPLED.lock().ok()?;
+    let mut held = guard(&SAMPLED)?;
     if let Some(found) = held
         .iter()
         .find(|press| press.identity == identity)
@@ -435,23 +439,68 @@ pub fn press_for_profile(
         // Another thread sampled the same profile while this one was working. Its copy wins,
         // so that one identity is one press and `crate::shading`'s cache cannot hold two
         // entries meaning the same thing; this one is dropped.
-        return Some(found);
+        return Ok(found);
     }
     held.insert(0, Arc::clone(&sampled));
     held.truncate(MAX_CACHED_PRESSES);
-    Some(sampled)
+    Ok(sampled)
 }
 
 /// The press already sampled from a profile of this identity, if this process still holds it.
 ///
 /// Moves the entry to the front, which is the whole of the eviction policy: [`SAMPLED`] is
 /// most-recently-used first and [`press_for_profile`] truncates the tail.
-fn cached(identity: PressIdentity) -> Option<Arc<Press>> {
-    let mut held = SAMPLED.lock().ok()?;
-    let at = held.iter().position(|press| press.identity == identity)?;
+fn cached(identity: PressIdentity) -> Result<Option<Arc<Press>>, NoPress> {
+    let mut held = guard(&SAMPLED)?;
+    let Some(at) = held.iter().position(|press| press.identity == identity) else {
+        return Ok(None);
+    };
     let found = held.remove(at);
     held.insert(0, Arc::clone(&found));
-    Some(found)
+    Ok(Some(found))
+}
+
+/// Why no press came back for a profile of four components.
+///
+/// **Three answers, because they are three different sentences to a reader** (principle 1, ADR
+/// 2170). [`NoPress::Spent`] is §11.7.2's budget and a fact about the file: the same page is
+/// refused it on every run. [`NoPress::Poisoned`] is a fact about this process — a thread
+/// panicked while it held one of the tables a press is kept in — and reporting it as the budget
+/// would tell a reader their file named too many presses when it named one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoPress {
+    /// This interpretation has already named [`MAX_PRESSES`] distinct presses.
+    Spent,
+    /// The profile is not four components a press's grid can be sampled from.
+    Unsampled,
+    /// A lock over a table of presses was poisoned: a thread panicked while it held it, so what
+    /// the table holds is not read.
+    Poisoned,
+}
+
+impl NoPress {
+    /// The reason, in the words a report carries after a colon.
+    #[must_use]
+    pub const fn why(self) -> &'static str {
+        match self {
+            Self::Spent => {
+                "it is the ninth distinct press this page names and eight is the budget (§11.7.2)"
+            }
+            Self::Unsampled => {
+                "its profile is not four components a press's grid can be sampled from"
+            }
+            Self::Poisoned => {
+                "a thread of this process panicked while it held the table of presses, so no press \
+                 is read from it — a fault of this program, not of the file"
+            }
+        }
+    }
+}
+
+/// The guard over one of this module's tables, or [`NoPress::Poisoned`] where a thread panicked
+/// holding it — never a poisoned table read as an empty or a spent one.
+fn guard<T>(lock: &Mutex<T>) -> Result<MutexGuard<'_, T>, NoPress> {
+    lock.lock().map_err(|_| NoPress::Poisoned)
 }
 
 /// The distinct presses one interpretation has named, and the budget it spends on them.
@@ -519,47 +568,49 @@ impl Presses {
         Some(built)
     }
 
-    /// The press this profile describes, or `None` if this interpretation has spent its budget.
+    /// The press this profile describes, under this interpretation's budget.
     ///
-    /// `None` is [`MAX_PRESSES`] distinct presses already named, which
+    /// # Errors
+    ///
+    /// [`NoPress::Spent`] is [`MAX_PRESSES`] distinct presses already named, which
     /// `pdf_model::content::transparency` turns into §11.7.2's report. A profile of other than four
-    /// components is not a press at all and also answers `None`; the caller asks that question
-    /// first.
-    #[must_use]
+    /// components is not a press at all and answers [`NoPress::Unsampled`]; the caller asks that
+    /// question first. [`NoPress::Poisoned`] is this table or the process's cache poisoned, which is
+    /// said as itself (ADR 2170).
     pub fn press_for_profile(
         &self,
         profile: &crate::icc::Profile,
         rendering: Rendering,
-    ) -> Option<Arc<Press>> {
+    ) -> Result<Arc<Press>, NoPress> {
         let identity = PressIdentity::Profile(profile.identity(), rendering);
         {
-            let named = self.named.lock().ok()?;
+            let named = guard(&self.named)?;
             if let Some(found) = named.iter().find(|press| press.identity == identity) {
-                return Some(Arc::clone(found));
+                return Ok(Arc::clone(found));
             }
             // Asked before the sampling rather than after it, so that a page naming a hundred
             // presses pays for eight rather than for a hundred: the budget is a refusal and a
             // refusal that costs the work it refused is not one.
             if named.len() >= MAX_PRESSES {
-                return None;
+                return Err(NoPress::Spent);
             }
         }
         // Sampled with no lock of this table held, for ADR 0269's reason: `sample_press` is
         // 83 521 profile evaluations and a lock held across work is a lock rayon can deadlock.
         let sampled = press_for_profile(profile, rendering)?;
-        let mut named = self.named.lock().ok()?;
+        let mut named = guard(&self.named)?;
         if let Some(found) = named
             .iter()
             .find(|press| press.identity == identity)
             .map(Arc::clone)
         {
-            return Some(found);
+            return Ok(found);
         }
         if named.len() >= MAX_PRESSES {
-            return None;
+            return Err(NoPress::Spent);
         }
         named.push(Arc::clone(&sampled));
-        Some(sampled)
+        Ok(sampled)
     }
 
     /// How many distinct presses this interpretation has named, for a test that asks.
@@ -650,4 +701,51 @@ fn sample_press(
 #[must_use]
 pub fn device_cmyk_blending_space() -> pdf_render::BlendingSpace {
     assumed_press().blending_space()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{NoPress, Presses};
+    use crate::icc::Rendering;
+
+    /// A table of presses a panicking thread poisoned answers [`NoPress::Poisoned`], and never
+    /// [`NoPress::Spent`]: the budget is §11.7.2's and a fact about the file, the poison a fact
+    /// about this process (ADR 2170). Fails with `guard`'s error mapped to `Spent`.
+    #[test]
+    fn a_poisoned_table_of_presses_is_said_as_poisoned_and_not_as_a_spent_budget() {
+        let profile = crate::icc::Profile::parse(&crate::icc::fixtures::two_way_cmyk_profile())
+            .expect("the fixture parses");
+        let presses = Presses::default();
+        let panicked = std::thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    let _held = presses.named.lock();
+                    panic!("a thread panics while it holds the table");
+                })
+                .join()
+        });
+        assert!(panicked.is_err(), "the thread panicked holding the lock");
+        assert!(presses.named.is_poisoned());
+        assert_eq!(
+            presses
+                .press_for_profile(&profile, Rendering::compensating())
+                .err(),
+            Some(NoPress::Poisoned)
+        );
+        assert!(NoPress::Poisoned.why().contains("not of the file"));
+    }
+
+    /// The unpoisoned table answers a press, so the test above is about the poison alone.
+    #[test]
+    fn the_same_profile_on_a_whole_table_is_a_press() {
+        let profile = crate::icc::Profile::parse(&crate::icc::fixtures::two_way_cmyk_profile())
+            .expect("the fixture parses");
+        let presses = Presses::default();
+        assert!(
+            presses
+                .press_for_profile(&profile, Rendering::compensating())
+                .is_ok()
+        );
+        assert_eq!(presses.named(), 1);
+    }
 }

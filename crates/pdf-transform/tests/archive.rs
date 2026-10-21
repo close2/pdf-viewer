@@ -789,6 +789,7 @@ fn image_interpolation_is_a_loss_and_needs_authorising() {
         halftone: false,
         overprint_mode: false,
         language_identifier: false,
+        machine_face: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -942,6 +943,7 @@ fn an_annotation_stating_no_flags_is_made_printable_only_with_authorisation() {
         halftone: false,
         overprint_mode: false,
         language_identifier: false,
+        machine_face: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -1022,6 +1024,7 @@ fn a_property_its_own_schema_does_not_define_is_removed_only_with_authorisation(
         halftone: false,
         overprint_mode: false,
         language_identifier: false,
+        machine_face: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -3620,6 +3623,7 @@ fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_st
         halftone: false,
         overprint_mode: false,
         language_identifier: false,
+        machine_face: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -4819,6 +4823,7 @@ fn a_colour_specification_the_part_ignores_is_removed_only_with_authorisation() 
         halftone: false,
         overprint_mode: false,
         language_identifier: false,
+        machine_face: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -4872,6 +4877,7 @@ fn a_file_marking_no_specification_best_keeps_the_one_a_jp2_reader_uses() {
         halftone: false,
         overprint_mode: false,
         language_identifier: false,
+        machine_face: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -4923,6 +4929,7 @@ fn two_specifications_marked_best_stay_refused() {
         halftone: false,
         overprint_mode: false,
         language_identifier: false,
+        machine_face: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -4967,6 +4974,7 @@ fn one_specification_with_a_method_the_part_forbids_stays_refused() {
         halftone: false,
         overprint_mode: false,
         language_identifier: false,
+        machine_face: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -6916,6 +6924,7 @@ fn a_metadata_property_this_target_rejects_is_kept_on_a_page_appended_to_the_doc
         halftone: false,
         overprint_mode: false,
         language_identifier: false,
+        machine_face: false,
     };
     let (lost, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -8163,6 +8172,7 @@ fn an_annotation_of_a_forbidden_subtype_goes_only_with_authorisation() {
         halftone: false,
         overprint_mode: false,
         language_identifier: false,
+        machine_face: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -8484,6 +8494,7 @@ fn an_annotation_that_drew_nothing_refuses_a_preserve_by_name() {
         halftone: false,
         overprint_mode: false,
         language_identifier: false,
+        machine_face: false,
     };
     let (report, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -8521,6 +8532,7 @@ fn every_loss() -> Authorisations {
         halftone: false,
         overprint_mode: false,
         language_identifier: false,
+        machine_face: false,
     }
 }
 
@@ -13902,6 +13914,138 @@ fn a_standard_font_stated_by_name_alone_is_given_its_descriptor_and_the_face_it_
             .and_then(pdf_syntax::object::Object::as_number),
         Some(722.0)
     );
+}
+
+#[test]
+fn a_standard_font_written_inside_its_resource_dictionary_becomes_an_object_holding_its_descriptor()
+{
+    // The same font as above, written directly inside the page's `/Font` subdictionary rather
+    // than as an object. A descriptor is an indirect reference by Table 109's own words, and the
+    // font gains it as an object of its own: §7.3.10 makes a direct and an indirect value
+    // equivalent, so the page still selects the font it selected by the name it used
+    // (`doc/adr/2162`). A form drawn on the page holds the same dictionary in its own resources,
+    // and is given the same object.
+    let font =
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Times-Roman /Encoding /WinAnsiEncoding >>";
+    let form = format!(
+        "/Type /XObject /Subtype /Form /BBox [0 0 200 200] /Resources << /Font << /F2 {font} >> >>"
+    );
+    let form_data = b"BT /F2 12 Tf 10 50 Td (Hello) Tj ET";
+    let source = Conforming {
+        resources: format!(
+            "/Font << /F1 {font} >> /XObject << /X1 6 0 R >> /ColorSpace << /CS0 [/CalGray \
+             << /WhitePoint [0.9505 1.0 1.089] >>] >>"
+        ),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (Hello's) Tj ET /X1 Do".to_vec(),
+        )),
+        binary_objects: vec![stream(
+            &format!("{form} /Length {}", form_data.len()),
+            form_data,
+        )],
+        ..Conforming::part_two()
+    }
+    .build();
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    let output = written(&report, output);
+    assert_eq!(
+        holds(&output, Target::Two(Level::B)).verdict(),
+        Verdict::Conforms,
+        "and what was written is held to the target again"
+    );
+    assert_eq!(
+        conversion(&report).substituted.len(),
+        1,
+        "one font, however many dictionaries hold it"
+    );
+    let held = Document::open_with_limits(output.clone(), Limits::DEFAULT).expect("it opens");
+    let pages = pdf_model::Pages::new(&held).every();
+    let page = pages.first().and_then(Option::as_ref).expect("the page");
+    let fonts = held.get_key(&page.resources, "Font");
+    let fonts = fonts.as_dict().expect("the font subdictionary");
+    let at = fonts
+        .get("F1")
+        .and_then(pdf_syntax::object::Object::as_reference)
+        .expect("the font is now an object of its own");
+    let forms = held.get_key(&page.resources, "XObject");
+    let form = held.get_key(forms.as_dict().expect("the forms"), "X1");
+    let form = form.as_stream().expect("the form");
+    let form_resources = held.get_key(&form.dict, "Resources");
+    let form_fonts = held.get_key(form_resources.as_dict().expect("its resources"), "Font");
+    assert_eq!(
+        form_fonts
+            .as_dict()
+            .and_then(|fonts| fonts.get("F2"))
+            .and_then(pdf_syntax::object::Object::as_reference),
+        Some(at),
+        "the form's equal dictionary is the same object"
+    );
+    let dict = held.get(at);
+    let dict = dict.as_dict().expect("a font dictionary");
+    assert_eq!(name_entry(&held, dict, "BaseFont"), "Times-Roman");
+    assert_eq!(name_entry(&held, dict, "Encoding"), "WinAnsiEncoding");
+    assert!(
+        dict.get("FontDescriptor")
+            .and_then(pdf_syntax::object::Object::as_reference)
+            .is_some(),
+        "Table 109: the descriptor shall be an indirect reference"
+    );
+    assert!(!held.get_key(dict, "Widths").is_null());
+}
+
+#[test]
+fn a_standard_font_drawn_from_a_machines_face_takes_the_shipped_one_only_as_an_authorised_loss() {
+    // The encoding names a Cyrillic glyph at a code the page never shows. ADR 0270 then draws
+    // the font from a face of this machine's that has it, where one is installed; the shipped face
+    // has a glyph for every code shown, so embedding it changes the shapes and loses no mark — the
+    // loss `machine-face`, which a run authorises or is refused over (`doc/adr/2162`).
+    let source = a_standard_font_by_name(
+        "Times-Roman",
+        "/FirstChar 32 /LastChar 200 /Encoding << /Type /Encoding /BaseEncoding /WinAnsiEncoding \
+         /Differences [200 /afii10017] >>",
+    );
+    let document = Document::open_with_limits(source.clone(), Limits::DEFAULT).expect("it opens");
+    let font = document.get(ObjectId::new(6, 0));
+    let font = font.as_dict().expect("the font");
+    let drawn = pdf_font::LoadedFont::load(&document, font, "F1").expect("the font loads");
+    let shipped =
+        pdf_font::standard::shipped_face(&document, font, "F1").expect("a face is shipped");
+    if drawn
+        .substitute_program()
+        .is_none_or(|program| program == shipped.program)
+    {
+        println!("skipped: this machine offers no wider Times face (ADR 0270)");
+        return;
+    }
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    assert!(output.is_none());
+    assert_eq!(
+        decision(&report, "fonts/font-programs-embedded"),
+        Decision::Unauthorised {
+            loss: Loss::MachineFace,
+            rewrite: Rewrite::SubstituteFontProgram,
+        }
+    );
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::MachineFace);
+    let (report, output) = convert(&source, Target::Two(Level::B), authorised);
+    let output = written(&report, output);
+    assert_eq!(
+        holds(&output, Target::Two(Level::B)).verdict(),
+        Verdict::Conforms
+    );
+    let (held, dict) = described_font(&output);
+    let embedded = pdf_font::LoadedFont::load(&held, &dict, "F1").expect("it loads");
+    assert!(!embedded.is_substituted(), "drawn from its own program");
+    for code in b"Hello's" {
+        let code = pdf_font::Code::single_byte(*code);
+        assert_eq!(
+            embedded.glyph_index(code),
+            shipped.glyph(u8::try_from(code.value()).expect("one byte")),
+            "the shipped face's glyph for every code shown"
+        );
+    }
 }
 
 #[test]

@@ -136,8 +136,9 @@ pub enum Action {
     /// be opened or printed", and which of the two it is cannot be told from a file
     /// specification's name. So the file is named here as [`Self::GoToR`]'s is, for whoever owns
     /// a filesystem to resolve or refuse under the same four levels, and what came back decides:
-    /// a PDF is opened and anything else is an application, which the sandbox withholds (ADRs
-    /// 1368, 1358). [`RemoteGoTo::act`] is [`RemoteAct::Launch`] and it names no destination.
+    /// a PDF is opened, a program is started never, and any other file is a document the host may
+    /// hand to this machine's own handler at the reader's level (ADRs 1368, 1358, 2171).
+    /// [`RemoteGoTo::act`] is [`RemoteAct::Launch`] and it names no destination.
     Launch(RemoteGoTo),
     /// §12.6.4.5: show the page a document part begins at.
     GoToDp(DocumentPartJump),

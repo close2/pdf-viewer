@@ -229,7 +229,7 @@ pub struct ReadbackCache {
     pub pages: usize,
     /// How many bytes of readback that is.
     pub bytes: usize,
-    /// The ceiling those bytes are held under, which is [`BUDGET`] for every open document.
+    /// The ceiling those bytes are held under, which is `BUDGET` for every open document.
     pub budget: usize,
     /// How many lookups since the document opened were answered without interpreting a page.
     pub hits: u64,

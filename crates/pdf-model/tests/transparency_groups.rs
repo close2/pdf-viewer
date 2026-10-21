@@ -2082,10 +2082,10 @@ fn the_blending_space_is_the_one_in_force_rather_than_the_one_declared() {
 /// The clause applies Table 57's `/BG`, `/BG2`, `/UCR` and `/UCR2` "only during conversion from
 /// DeviceRGB to DeviceCMYK colour spaces", and names §10.4.2.4 as the conversion they are
 /// parameters of. Its first bullet is carried out — see the test below, which measures the
-/// separation — so what a stated pair costs here is neither the page's blending space nor the
-/// whole of the clause: it is the report about the *second* bullet, a group this tree composites
-/// on the device's three components painted into a four-component parent, which is a conversion
-/// resolved per pixel in a backend where no colour space exists (ADR 1207).
+/// separation, and its second bullet is carried out at the `Do` (ADR 1242) — so what a stated pair
+/// costs here is neither the page's blending space nor either bullet: it is the report about a
+/// press sampled from the document's own bi-directional profile, whose `B2A` table is the
+/// conversion in and has no step for the pair to act on (§8.6.5.5, ADRs 0796, 1207).
 ///
 /// Two halves, and the second is Table 57's rather than §11.7.5.3's: `/BG2`'s second admissible
 /// value is "the name Default, denoting the black-generation function that was in effect at the
@@ -2138,17 +2138,27 @@ fn a_stated_black_generation_is_reported_and_the_page_keeps_its_space() {
     );
 
     // And the report is not dead, which is what says the narrowing above is the clause's: a
-    // press sampled from the document's own bi-directional profile converts in through its
-    // `B2A` (§8.6.5.5, ADR 0796), which is the document's measured transform rather than the
-    // device default §10.4.2.4's last paragraph asks for — so a stated pair reaches no step of
-    // it, and that is what a reader is told.
-    let by_profile = interpret(two_way_press_fixture(
-        "/GB gs 0.5 0.5 0.5 rg 0 0 100 100 re f /GS gs 1 1 1 1 k 0 0 100 100 re f",
-    ));
-    let reported = format!("{:?}", by_profile.unsupported);
+    // `DeviceCMYK` page group that its output intent's bi-directional profile characterises
+    // converts in through that profile's `B2A` (§8.6.5.5, §14.11.5, ADR 0796), which is the
+    // document's measured transform rather than the device default §10.4.2.4's last paragraph
+    // asks for — so a stated pair reaches no step of it, and that is what a reader is told.
+    let content = "/GB gs 0.5 0.5 0.5 rg 0 0 100 100 re f /GS gs 1 1 1 1 k 0 0 100 100 re f";
+    let by_intent = interpret(two_way_intent_fixture(content));
+    let reported = format!("{:?}", by_intent.unsupported);
     assert!(
         reported.contains("BlackGeneration") && reported.contains("B2A table"),
-        "a stated pair over a profile's own conversion in is named: {reported}"
+        "a stated pair over a DeviceCMYK group's profile conversion in is named: {reported}"
+    );
+
+    // An `ICCBased` page group is not `DeviceCMYK`, and the functions "shall be applied only
+    // during conversion from DeviceRGB to DeviceCMYK colour spaces" — so the same content over
+    // the same profile stated as the group's own space carries the clause out, and nothing is
+    // reported (trap 11, ADR 2170).
+    let by_profile = interpret(two_way_press_fixture(content));
+    assert!(
+        !format!("{:?}", by_profile.unsupported).contains("BlackGeneration"),
+        "an ICCBased group's B2A route departs from nothing: {:?}",
+        by_profile.unsupported
     );
 
     // `/GD` names the device's own function, with a `/BG` beside it that Table 57's precedence
@@ -4653,6 +4663,34 @@ fn two_way_press_fixture(content: &str) -> Vec<u8> {
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
          /Group << /S /Transparency /CS [/ICCBased 5 0 R] >> \
+         /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> \
+         /GB << /BG << /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >> >> >> >> \
+         /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
+         5 0 obj\n<< /N 4 /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}\nendstream\n\
+         endobj\n",
+        content.len() + 1,
+        hex.len() + 1
+    );
+    assemble(&body)
+}
+
+/// [`two_way_press_fixture`]'s page with its group stated as `/DeviceCMYK` and the profile as the
+/// catalog's §14.11.5 output intent, so the press is the output device's rather than the group's
+/// own `ICCBased` space.
+fn two_way_intent_fixture(content: &str) -> Vec<u8> {
+    let mut hex = String::new();
+    for byte in two_way_cmyk_profile() {
+        let _ = write!(hex, "{byte:02X}");
+    }
+    hex.push('>');
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OutputIntents [<< /Type /OutputIntent \
+         /S /GTS_PDFX /OutputConditionIdentifier (fixture) /DestOutputProfile 5 0 R >>] >>\n\
+         endobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Group << /S /Transparency /CS /DeviceCMYK >> \
          /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> \
          /GB << /BG << /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >> >> >> >> \
          /Contents 4 0 R >>\nendobj\n\

@@ -9,11 +9,13 @@ using Quorra.Interop;
 
 namespace Quorra.App;
 
-/// <summary>One record of what the window owes: its kind, its text and its document.</summary>
+/// <summary>One record of what the window owes: its kind, its text, its document and what a repaint changed.</summary>
 /// <param name="Kind">A QUORRA_OWED_* kind.</param>
 /// <param name="Text">The record's text, for the kinds quorra_owed_text answers; empty for others.</param>
 /// <param name="Document">The document a PASSWORD, SCRIPT or SCRIPT_WITHDRAWN record is about.</param>
-internal readonly record struct Owed(uint Kind, string Text, ulong Document);
+/// <param name="Changed">A REPAINT record's QUORRA_REPAINT_* bits; zero for others.</param>
+/// <param name="Fresh">For a REPAINT record, whether each picture has pixels this window has not copied (ADR 2168).</param>
+internal readonly record struct Owed(uint Kind, string Text, ulong Document, uint Changed, IReadOnlyList<bool> Fresh);
 
 /// <summary>One picture the page area shows, its pixels QUORRA_FORMAT_RGBA8 with straight alpha.</summary>
 /// <param name="Width">The raster's width in pixels.</param>
@@ -22,7 +24,8 @@ internal readonly record struct Owed(uint Kind, string Text, ulong Document);
 /// <param name="OriginY">Where the window shows it, in device pixels of the viewport.</param>
 /// <param name="ShownWidth">The extent it is shown at, which differs from the raster's for a frame from before a zoom.</param>
 /// <param name="ShownHeight">The extent it is shown at.</param>
-/// <param name="Pixels">Four bytes a pixel, rows top to bottom with no padding.</param>
+/// <param name="Pixels">Four bytes a pixel, rows top to bottom with no padding; null where the
+/// picture's pixels are the ones this window copied last, which the repaint said (ADR 2168).</param>
 internal sealed record Picture(
     uint Width,
     uint Height,
@@ -30,7 +33,7 @@ internal sealed record Picture(
     float OriginY,
     uint ShownWidth,
     uint ShownHeight,
-    byte[] Pixels);
+    byte[]? Pixels);
 
 /// <summary>
 /// What a repaint draws over the pictures, each quadrilateral eight floats — x0, y0 to x3, y3 — in
@@ -40,11 +43,13 @@ internal sealed record Picture(
 /// <param name="Matches">Every occurrence of the find bar's needle on the page shown.</param>
 /// <param name="Highlights">Annex O's highlighted rectangles.</param>
 /// <param name="Focus">§12.5.1's focused annotation, or null where nothing holds the focus.</param>
+/// <param name="Traced">§12.9's traced path while measuring, flat x, y pairs; empty while the mode is off.</param>
 internal sealed record Marks(
     IReadOnlyList<float[]> Selection,
     IReadOnlyList<float[]> Matches,
     IReadOnlyList<float[]> Highlights,
-    float[]? Focus);
+    float[]? Focus,
+    float[] Traced);
 
 /// <summary>One widget of a field on the page shown, which this window places a control over.</summary>
 /// <param name="Field">§12.7.4.2's qualified name, which every commit addresses.</param>
@@ -54,6 +59,7 @@ internal sealed record Marks(
 /// <param name="Value">The field's text value, or null where it has none at all.</param>
 /// <param name="Displayed">The value through Table 199's /F, which a control without the keyboard shows.</param>
 /// <param name="MaxLength">Table 232's /MaxLen, zero where the field states none.</param>
+/// <param name="Cells">Table 231 bit 25's combs, zero where the field is not divided into any.</param>
 /// <param name="Options">Table 234's /Opt labels, in /Opt's own order.</param>
 /// <param name="Selected">Whether each option is chosen.</param>
 /// <param name="Number">The widget annotation's object number.</param>
@@ -68,12 +74,32 @@ internal sealed record Placed(
     string? Value,
     string? Displayed,
     uint MaxLength,
+    uint Cells,
     IReadOnlyList<string> Options,
     IReadOnlyList<bool> Selected,
     uint Number,
     ushort Generation,
     float[] Quad,
     bool On);
+
+/// <summary>One of §12.5.6.14's open popup windows, which this window draws as its own furniture.</summary>
+/// <param name="Number">The popup annotation's object number, which closes it when activated.</param>
+/// <param name="Generation">Its generation.</param>
+/// <param name="Quad">Where the window is, as a mark's quadrilateral is.</param>
+/// <param name="Title">§12.5.6.2's /T, "displayed in the title bar".</param>
+/// <param name="Contents">Table 166's /Contents.</param>
+/// <param name="Modified">Table 166's /M, as the file spells it.</param>
+/// <param name="Colour">Table 166's /C as three DeviceRGB components, or null where none is stated.</param>
+/// <param name="Rich">Whether Table 172's /RC states a rich note, which this window does not draw yet.</param>
+internal sealed record Note(
+    uint Number,
+    ushort Generation,
+    float[] Quad,
+    string Title,
+    string Contents,
+    string Modified,
+    float[]? Colour,
+    bool Rich);
 
 /// <summary>The reader's levels a window opens under, read from command-line words (ADR 2120).</summary>
 internal sealed unsafe class QuorraSettings : IDisposable
@@ -265,7 +291,25 @@ internal sealed unsafe class QuorraWindow : IDisposable
                 {
                     Library.Check("quorra_owed_document", Native.quorra_owed_document(owed, index, &document));
                 }
-                records.Add(new Owed(kind, text, document));
+                uint changed = 0;
+                var fresh = new List<bool>();
+                if (kind == Native.QUORRA_OWED_REPAINT)
+                {
+                    Library.Check("quorra_owed_repaint", Native.quorra_owed_repaint(owed, index, &changed));
+                    // One answer per picture shown, QUORRA_OUT_OF_RANGE past the last.
+                    for (nuint frame = 0; ; frame++)
+                    {
+                        byte isFresh = 0;
+                        int status = Native.quorra_owed_repaint_fresh(owed, index, frame, &isFresh);
+                        if (status == Native.QUORRA_OUT_OF_RANGE)
+                        {
+                            break;
+                        }
+                        Library.Check("quorra_owed_repaint_fresh", status);
+                        fresh.Add(isFresh != 0);
+                    }
+                }
+                records.Add(new Owed(kind, text, document, changed, fresh));
             }
             return records;
         }
@@ -276,7 +320,11 @@ internal sealed unsafe class QuorraWindow : IDisposable
     }
 
     /// <summary>The pictures the page area shows: the viewer's frames and the stand-ins.</summary>
-    internal List<Picture> Pictures()
+    /// <remarks>
+    /// Only the pixels of a picture <paramref name="fresh"/> calls new are copied; a picture past
+    /// its list, which a caller holding no record has, is copied whole.
+    /// </remarks>
+    internal List<Picture> Pictures(IReadOnlyList<bool> fresh)
     {
         var pictures = new List<Picture>();
         nuint count = Native.quorra_window_frame_count(handle);
@@ -298,13 +346,17 @@ internal sealed unsafe class QuorraWindow : IDisposable
             {
                 throw new QuorraException($"quorra_window_frame: picture {frame} is {info.bytes} bytes, past what a .NET array holds");
             }
-            byte[] pixels = new byte[(int)info.bytes];
-            nuint written = 0;
-            fixed (byte* into = pixels)
+            byte[]? pixels = null;
+            if (frame >= (nuint)fresh.Count || fresh[(int)frame])
             {
-                Library.Check(
-                    "quorra_window_frame_copy",
-                    Native.quorra_window_frame_copy(handle, frame, into, info.bytes, &written));
+                pixels = new byte[(int)info.bytes];
+                nuint written = 0;
+                fixed (byte* into = pixels)
+                {
+                    Library.Check(
+                        "quorra_window_frame_copy",
+                        Native.quorra_window_frame_copy(handle, frame, into, info.bytes, &written));
+                }
             }
             pictures.Add(new Picture(
                 info.width,
@@ -340,7 +392,130 @@ internal sealed unsafe class QuorraWindow : IDisposable
             Shapes("quorra_window_selection_quads", selected, selection),
             Occurrences(),
             Shapes("quorra_window_highlight_quads", highlighted, highlight),
-            focused == Native.QUORRA_OK ? corners : null);
+            focused == Native.QUORRA_OK ? corners : null,
+            Traced());
+    }
+
+    /// <summary>
+    /// Each placed control's size, four a control in logical pixels — the width and height it was
+    /// asked to occupy, then the least it can be — and the magnification at which every one fits,
+    /// or zero where they fit now (ADR 2169).
+    /// </summary>
+    internal float ControlsMeasured(IReadOnlyList<int> sizes)
+    {
+        var values = new int[sizes.Count];
+        for (int index = 0; index < values.Length; index++)
+        {
+            values[index] = sizes[index];
+        }
+        float magnification = 0;
+        fixed (int* first = values)
+        {
+            Library.Check(
+                "quorra_window_controls_measured",
+                Native.quorra_window_controls_measured(handle, values.Length == 0 ? null : first, (nuint)(values.Length / 4), &magnification));
+        }
+        return magnification;
+    }
+
+    /// <summary>Activates an object: here, a popup window's, which closes it (quorra.h).</summary>
+    internal void Activate(uint number, ushort generation) =>
+        Library.Check("quorra_window_activate", Native.quorra_window_activate(handle, number, generation));
+
+    /// <summary>§12.5.6.14's open popup windows on the page shown, in /Annots order.</summary>
+    internal List<Note> Popups()
+    {
+        nint taken = 0;
+        int status = Native.quorra_window_popups_read(handle, &taken);
+        var notes = new List<Note>();
+        if (status == Native.QUORRA_NO_ANSWER)
+        {
+            return notes;
+        }
+        Library.Check("quorra_window_popups_read", status);
+        nint popups = taken;
+        try
+        {
+            nuint count = Native.quorra_popups_len(popups);
+            for (nuint index = 0; index < count; index++)
+            {
+                nuint at = index;
+                uint number = 0;
+                ushort generation = 0;
+                byte hasParent = 0;
+                uint parentNumber = 0;
+                ushort parentGeneration = 0;
+                Library.Check(
+                    "quorra_popup_object",
+                    Native.quorra_popup_object(popups, at, &number, &generation, &hasParent, &parentNumber, &parentGeneration));
+                var quad = new float[8];
+                fixed (float* into = quad)
+                {
+                    Library.Check("quorra_popup_quad", Native.quorra_popup_quad(popups, at, into));
+                }
+                var colour = new float[3];
+                int coloured;
+                fixed (float* into = colour)
+                {
+                    coloured = Native.quorra_popup_colour(popups, at, into);
+                }
+                if (coloured != Native.QUORRA_NO_ANSWER)
+                {
+                    Library.Check("quorra_popup_colour", coloured);
+                }
+                nuint paragraphs = 0;
+                nuint unapplied = 0;
+                int rich = Native.quorra_popup_rich(popups, at, 0, &paragraphs, &unapplied);
+                if (rich != Native.QUORRA_NO_ANSWER)
+                {
+                    Library.Check("quorra_popup_rich", rich);
+                }
+                notes.Add(new Note(
+                    number,
+                    generation,
+                    quad,
+                    NoteText(popups, at, Native.QUORRA_NOTE_TITLE),
+                    NoteText(popups, at, Native.QUORRA_NOTE_CONTENTS),
+                    NoteText(popups, at, Native.QUORRA_NOTE_MODIFIED),
+                    coloured == Native.QUORRA_OK ? colour : null,
+                    rich == Native.QUORRA_OK));
+            }
+            return notes;
+        }
+        finally
+        {
+            Native.quorra_popups_free(popups);
+        }
+    }
+
+    // One of a popup's three strings, as quorra_popup_text answers it.
+    private static string NoteText(nint popups, nuint index, uint which) =>
+        Library.ReadText(
+            "quorra_popup_text",
+            (into, cap, needed) => Native.quorra_popup_text(popups, index, which, into, cap, needed));
+
+    // §12.9's traced path, in the two-call idiom over floats.
+    private float[] Traced()
+    {
+        nuint needed = 0;
+        // The sizing call answers QUORRA_BUFFER_TOO_SMALL wherever there is a point to copy.
+        int sized = Native.quorra_window_traced_path(handle, null, 0, &needed);
+        if (sized != Native.QUORRA_BUFFER_TOO_SMALL)
+        {
+            Library.Check("quorra_window_traced_path", sized);
+        }
+        var points = new float[checked((int)needed)];
+        if (points.Length == 0)
+        {
+            return points;
+        }
+        fixed (float* into = points)
+        {
+            Library.Check(
+                "quorra_window_traced_path",
+                Native.quorra_window_traced_path(handle, into, needed, &needed));
+        }
+        return points;
     }
 
     /// <summary>The fields with a widget on the page shown, one record for each widget.</summary>
@@ -399,7 +574,7 @@ internal sealed unsafe class QuorraWindow : IDisposable
                             Native.quorra_field_widget(fields, field, widget, &number, &generation, into, &on));
                     }
                     placed.Add(new Placed(
-                        name, shown, kind, flags, value, displayed, maxLength, options, chosen,
+                        name, shown, kind, flags, value, displayed, maxLength, cells, options, chosen,
                         number, generation, quad, on != 0));
                 }
             }

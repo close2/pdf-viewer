@@ -69,6 +69,14 @@ pub(crate) enum Pending {
         /// Where `viewer_host::resolve_import` put it, which is what would be read.
         path: PathBuf,
     },
+    /// §12.6.4.6's launched document that is not a PDF, answered by handing it to this machine's
+    /// own handler (ADR 2171).
+    LaunchedDocument {
+        /// The file as the *document* named it, for the sentence either answer prints.
+        name: String,
+        /// Where `viewer_host::resolve_import` put it, which is what would be handed over.
+        path: PathBuf,
+    },
     /// §O.2.1's embedded document, answered by opening it in a tab of its own (ADR 1331).
     Embedded {
         /// The document holding it.
@@ -440,6 +448,9 @@ pub(crate) struct App {
     /// beside the one it is in* are two decisions, and one word for both would make each of them
     /// mean the other (ADR 1227).
     pub(crate) remote_documents: viewer_host::RemoteDocuments,
+    /// §12.6.4.6: what this window does with a launched document that is not a PDF, per
+    /// `--launched-documents=` (ADR 2171).
+    pub(crate) launched_documents: viewer_host::LaunchedDocuments,
     /// §12.7.6.2's submissions on the wire, each on a thread of its own, and the answers that have
     /// come back — collected when the thread wakes this loop (ADR 1291).
     pub(crate) submitter: viewer_host::submit::Submitter,

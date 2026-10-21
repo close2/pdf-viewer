@@ -2,8 +2,10 @@
 
 Session 1643, the clause slot of batch one hundred, under the project owner's switch to code
 improvements and bug fixes of 2026-10-14. Status: **proposed** — built, measured exact, priced, and
-held out of the tree: the price is past the fifth the brief set, so the choice between §10.7.4's
-integral and principle two's cost is the owner's (`doc/questions/Q538`). Clause: ISO 32000-2
+held out of the tree: the price is past the fifth the brief set, and the owner chose to wait for a
+cheaper measure (`doc/questions/A538`). Rebased onto `66c6ef23` it prices +145.3%, +45.6% and +16.8%,
+and the levers §5 names do not bring it under the fifth; the patch is now at
+`/home/AI/r1664-folding-union/` (ADR 2164). Clause: ISO 32000-2
 §10.7.4, with §8.5.3.3.2's non-zero rule; the row stays `departed` (ADRs 1060, 1360) and its note
 states the bound the sixteenths give. Context: ADRs 0219, 1082, 1341, 1347, 1348, 2058, 2106.
 

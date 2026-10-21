@@ -168,4 +168,4 @@ pub use session::{
 pub use settings::Stated;
 pub use shapes::Quads;
 pub use status::Status;
-pub use window::{OwedKind, Owing, WheelKind, Window};
+pub use window::{OwedKind, Owing, Repainted, WheelKind, Window};

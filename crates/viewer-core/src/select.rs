@@ -314,7 +314,7 @@ pub(crate) fn rejoined(text: &str) -> std::borrow::Cow<'_, str> {
 /// break reaches the readback by one of two quite different routes, and only one of them is in
 /// the file: §9.3.3's single-byte code 32, which the clause names "the ASCII SPACE character
 /// (20h)" and which `content.rs`'s `Font::text` reads as one; or `separate_text`'s *inference*
-/// from where §9.4.4's text rendering matrix put the next glyph — "[a] content stream has no
+/// from where §9.4.4's text rendering matrix put the next glyph — "\[a] content stream has no
 /// notion of words or lines; it has positions". A line break is always the second. So a phrase
 /// matched against a literal `' '` would sometimes be matched against this crate's own inference,
 /// and "transparency group" broken across a line would not be found on a page that plainly says
@@ -323,7 +323,7 @@ pub(crate) fn rejoined(text: &str) -> std::borrow::Cow<'_, str> {
 ///
 /// **Whole-word matching is deliberately not done**, and the reason is the same sentence from the
 /// other side: `tests/text_extraction.rs` compares words with all whitespace *removed* because
-/// "[w]ord boundaries are deliberately not compared, because a content stream does not record
+/// "\[w]ord boundaries are deliberately not compared, because a content stream does not record
 /// them". A reader that required a boundary would be requiring one this tree reconstructs by
 /// heuristic, so "the" finds the one inside "theme" — which is also what every find bar does.
 ///
@@ -369,7 +369,7 @@ pub(crate) fn find(text: &str, needle: &str, order: &Order) -> Vec<(usize, usize
     kept
 }
 
-/// [`find`] over a readback with no glyph positions: every right-to-left run admits either stored
+/// `find` over a readback with no glyph positions: every right-to-left run admits either stored
 /// order, as a run the positions could not decide does.
 ///
 /// The seam the `find` fuzz target reads (ADR 1495). The text is a page's readback, which is the

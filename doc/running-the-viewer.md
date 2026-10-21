@@ -35,17 +35,17 @@ because a URI is not a person asking: the note says so and names §O.2.1, which 
 "may choose to prompt the user or even prevent opening of the file". The argument is split at its first `#` only when the whole of it does not name
 an existing file, so a document called `a#b.pdf` still opens.
 
-**`--cpu` means *no graphics device*, since the three-hundred-and-eighty-fourth session** (ADR
+**`--cpu` means *no graphics device*** (ADR
 0221): no `wgpu::Instance`, no adapter, no device, nothing that loads a driver — `strace` over a
 `--cpu` run opens 17 shared objects where it opened 56 and three Vulkan libraries before. The page
 is drawn by `render-cpu` and reaches the window through `softbuffer`, with the sidebar, the
 selection and the modal card composited on the processor rather than handed to quorra as geometry
 (`viewer_ui::software`). It is the flag to reach for when the graphics driver is what is broken,
-and until that session it was the one flag that could not help: page one to first present is
-**57 to 68 ms** where it was 128 to 135.
+and it helps there because it loads none: page one to first present is **57 to 68 ms**, against
+the 128 to 135 ADR 0221 measured while it still brought a device up.
 
-**The window shows its own background before it shows a page, since the six-hundred-and-twenty-eighth
-session** (ADR 0462), and the reason is a crash rather than an appearance. The surface is configured
+**The window shows its own background before it shows a page** (ADR 0462), and the reason is
+a crash rather than an appearance. The surface is configured
 by putting one opaque texel of the surround on it, at the one moment in the process where no render
 thread exists to submit beside the configure — because a *first* configure that fails is answered by
 wgpu with a panic rather than a status, which under `panic = "abort"` is the core dump the project
@@ -65,35 +65,33 @@ this project had made. No machine here runs Windows: that default is argued in A
 measured.
 
 **`--trace` prints every window event, command, event and frame with its duration** — the last
-line printed is the step that did not finish, and, since the three-hundred-and-eighty-fourth
-session, two lines about the backend: `backend asked for: dx12 (--backend)`, which is a fact about
+line printed is the step that did not finish, and two lines are about the backend (ADR 0221): `backend asked for: dx12 (--backend)`, which is a fact about
 the command line, and `rendering with llvmpipe (…) (Cpu, Vulkan)`, whose parenthesis is the
 backend actually chosen. `--trace` also installs a receiver for what `wgpu`,
 `vello` and `naga` say about themselves, at `PDFVIEWER_LOG`'s level (default `warn`): those three
 write to the `log` facade and a facade with nothing behind it drops every record, which is how a
 page that would not draw produced no output at all.
 
-**Since the three-hundred-and-ninetieth session it says *what* a slow frame spent its time on, and
-it is no longer all-or-nothing** (ADR 0227, from the project owner's Windows trace of a 30 MB
-document that felt slow). Four things changed:
+**It says *what* a slow frame spent its time on, and it is not all-or-nothing** (ADR 0227, from
+the project owner's Windows trace of a 30 MB document that felt slow), in four parts:
 
 - **Every line carries a clock** — the seconds since `main`'s first instruction — so a gap in the
   log is legible as a gap and the interval a person waited can be read off two lines.
 - **One line per frame, with the stages in it.** `frame p3 2822cmd presented 75.3 | host 0.0 scene
   2.3 device 73.0 settle 0.0 attend 2.9 | 793 up, 12 culled`: this host's own queries, the
   display-list-to-scene walk, `raster_gpu::Device::render`, the cache eviction, and — *outside* the
-  frame's own number, which is the measurement defect that round fixed — the accessibility
+  frame's own number, which is not the frame's to carry (ADR 0227) — the accessibility
   publication. `fallback` and `attend` appear only when they are not zero, so an ordinary frame is
   no longer than the two lines this replaced. A legend prints once. **None of the device's stages
   is a fabricated boundary**: quorra already measured `encode`, `upload` and `execute` and already
   blocked on the device before returning, and `render-raster` was discarding the whole `Frame`.
 - **Percentiles at exit** — median, p90, max and sum for every stage, by nearest rank, plus the
   `elsewhere` inside `Device::render` that its three named phases do not cover. **That row is a
-  bound rather than a duration and the summary says so since the three-hundred-and-ninety-first**:
+  bound rather than a duration and the summary says so**:
   where `execute` came from the adapter's timestamp queries, `elsewhere` subtracts a device clock
   from this host's wall clock, so it carries whatever the two disagree by along with the acquire,
   the present and the readback (ADR 0228 §4, `QUORRA_FEEDBACK.md` §13).
-- **A `handover` row nested under `scene`, since the five-hundred-and-eighty-eighth** (ADR 0423):
+- **A `handover` row nested under `scene`** (ADR 0423):
   of the display-list-to-scene walk, the part spent inside quorra's own `upload_*` calls, which is
   the only part of it this host does not do itself. It is a *subdivision* rather than a stage beside
   the others, so adding it to the rows above it counts the same milliseconds twice. **And
@@ -169,8 +167,7 @@ row on one worker, and it prints what the *host* was told for one it could not o
 interesting case: a document past the worker's message budget comes back as a sentence and leaves
 the worker running. ADR 0597.
 
-**And a sidebar's worth of a document read out of the same confinement**, which is what the
-three-hundred-and-eighty-sixth added:
+**And a sidebar's worth of a document read out of the same confinement** (ADR 0223):
 
 ```sh
 cargo run --release -p viewer-confined --example confined_panels -- doc/PDF20_AN002-AF.pdf
@@ -258,15 +255,15 @@ listed under it where the document carries a packet — both, rather than one, b
 leaves a disagreement between them "at the discretion of the PDF processor". **`?` puts `/NOTICE` over the page**,
 scrollable, which is the About panel and the visible half of what both vendored-font licences
 oblige a binary to carry. Escape quits — **unless a field has the keyboard, where it leaves the
-field**, which ADR 0201 decided and which was dead code until the three-hundred-and-seventy-first
-session found the event handler answering the key three branches earlier. The title bar names how many things on
+field**, which ADR 0201 decided and ADR 0211 made
+hold: the field is asked for the key before any of this host's own bindings. The title bar names how many things on
 the page could not be drawn and the things themselves are printed. **A click inside a form field aims the keyboard at it**, and so does a Tab walk that lands on one:
 characters, Space and Enter go in at the caret, the **left and right arrows, Home and End** move
 it, **Backspace and Delete** take out the character on either side of it, and Escape gives the
 keyboard back to the page (ADRs 0201 and 0211). The caret is a black line where the next character
 will be drawn — the standard states no caret, so its colour and width are this host's, as the focus
 ring's are, and a moving caret redraws the window without re-interpreting the page.
-**And the caret goes where the click went, since the three-hundred-and-eighty-eighth** (ADR 0225):
+**And the caret goes where the click went** (ADR 0225):
 `Query::Offset` is the inverse of `Query::Caret`, so a press names the byte it landed nearest rather
 than the end of the value. **A drag inside a field selects part of it**, highlighted in the same blue
 the page's own selection uses and sending no command at all; **shift with an arrow, Home or End
@@ -274,15 +271,15 @@ extends** that selection, and **Ctrl + C, X and V** copy, cut and paste it — i
 clipboard, because the system's belongs to a platform and a native host owns that end. Those three
 verbs needed no new message: the characters are a slice of the value the host has already read back,
 and the edit is the `Edit::SetField` a keystroke already sends. **While a field has the keyboard it
-takes every character key**, `o` and `?` included — both of them toggled the sidebar and the About
-card from inside a field until that session, which is the third instance of the ordering defect ADR
-0211 found in Escape. A click follows §12.5.6.5's
+takes every character key**, `o` and `?` included — both of them reach the field rather than the
+sidebar and the About card, because the field is asked before any of this host's own bindings (ADR
+0225). A click follows §12.5.6.5's
 links and performs the eleven §12.6 actions this program can, and on a markup annotation it **opens the popup window §12.5.6.14 gives it** — a card over the page with Table 172's `/T` in its title bar, Table 166's `/C` behind that and `/Contents` under it, closed again by a second click (ADR 0191) — printing every refusal — including
 §12.7.6.4's import, which reads an FDF file **beside the open document** and nowhere else. A
 locked document is asked for its password at the terminal (§7.6.4.1), three times, with an empty
 line to give up. **`h` marks up what is selected** with §12.5.6.10's highlight and **`k`** with its strikeout, and the mark is written into the file by `s` — §7.5.6's update, with the appearance stream this program draws beside it, so another reader shows the same marks (ADR 0196). **`f` arms the next drag to draw §12.5.6.6's free text annotation**, and what is drawn takes the keyboard at once: the caret is in the box, the arrow keys and Backspace work there exactly as they work in a field, Escape gives the keyboard back to the page, and a later click inside the box picks it up again. That subtype's text *is* the annotation, so an empty one draws nothing and only the caret says it is there (ADR 0238). **`/` opens the find bar**, and while it is open it takes every key: what is typed highlights every occurrence on the page being shown at once, **Enter** goes to the next occurrence *anywhere in the document* and **shift-Enter** to the previous, and **Escape** closes it. The bar says which page the occurrence is on, or counts down the pages still to read — a search reads one page per turn of the event loop, because interpreting all 1023 pages of ISO 32000-2 is 5.84 s and nothing in this program blocks for it (ADR 0250). Annex O's `#search=%22word%22` starts the same search as the document opens, which is what the standard's "selecting the first matching word in the document" asks for. **A signed document says whether its own bytes moved and whether its signature verifies**: for
 every signature, who signed it, what its range covers, whether the bytes that range names still hash
-to the digest the signature records (ADR 0215), and — since the three-hundred-and-ninety-second —
+to the digest the signature records (ADR 0215), and
 whether the signature verifies under the RSA key in a certificate **the file itself carries** (ADR
 0229); and then, once, that this program answers two of a signature's three questions and not the
 third, because it has no certificate store and makes no network request, so "a signature that
@@ -300,7 +297,7 @@ licences covering the compiled-in standard 14 fonts oblige a binary to carry. `-
 decodes JBIG2 and JPEG 2000 in-process — faster by a spawn and a pipe round trip, appropriate for trusted
 documents, and it prints what it gave up.
 
-**And since the four-hundred-and-eighth there is a second program, with a second toolkit.**
+**And there is a second program, with a second toolkit.**
 
 ```sh
 cargo run --release -p viewer-gtk --bin quorra-gtk -- doc/PDF20_AN001-BPC.pdf
@@ -319,25 +316,25 @@ What it binds: `Left`/`Right`/`Up`/`Down`/`Page_Up`/`Page_Down` to turn pages, `
 `Escape` to select nothing, `s` to save, `z`/`y` to undo and redo, a drag to select, and the sidebar's three tabs to §12.3.3's outline, §8.11.4.3's layers and
 §7.11.4's files — each a real `GtkListView`, with a layer's switch a real `GtkCheckButton` and an
 attachment's row writing the file beside the document. §12.7's fields are real controls placed over
-the page, and since the four-hundred-and-ninth the page underneath them is drawn **without** the
+the page, and the page underneath them is drawn **without** the
 document's own pictures of those fields (ADR 0245) — §6.3.2.2's "unless otherwise instructed", which
 this host instructs by default. `--draw-widget-appearances` puts them back, which is what the
 standard asks of a processor nobody has instructed and what the two pictures in ADR 0245 were taken
 with. **The one thing left to know** is the size: a GTK control has a theme's minimum and a widget's
 `/Rect` can be smaller, so on `160F-2019.pdf` all 76 controls are taller than the rectangle they
-cover. **`w` is what fixes it, since the five-hundred-and-eleventh** (ADR 0346): `--trace=panel`
+cover. **`w` is what fixes it** (ADR 0346): `--trace=panel`
 prints the magnification at which every control would fit, and the key sends it as
 `Zoom::Scale` — no message the vocabulary did not already have. It is offered rather than applied,
 because a viewer that magnified a page by itself because a form is on it would be answering a
 question nobody asked.
 
-**And since the four-hundred-and-tenth there is a third program, with a third toolkit.**
+**And there is a third program, with a third toolkit.**
 
 ```sh
 cargo run --release -p viewer-qt --bin quorra-qt -- doc/PDF20_AN001-BPC.pdf
 ```
 
-**`w` works here too since the six-hundred-and-first** (ADR 0436): the `(asked, minimum)` pairs
+**`w` works here too** (ADR 0436): the `(asked, minimum)` pairs
 cross the `cxx` bridge and `viewer_host::ControlFit` — the same arithmetic, the same trace line —
 answers for both hosts. The magnifications differ (4.667 here, 3.278 in GTK on `160F-2019.pdf`)
 because a control's minimum is its *style's*, which is the point of measuring rather than assuming.
@@ -489,8 +486,7 @@ keyboard back to the page, which is when the control turns to the displayed stri
 **It needs Qt 6's development files to build** — `qmake6`, `moc` and a C++ compiler — which is what a
 native host binding a platform means, and is why it is in none of the three cross-target checks.
 
-**And since the seven-hundred-and-seventy-fifth there is a window whose viewer is not in the
-window's process at all.**
+**And there is a window whose viewer is not in the window's process at all.**
 
 ```sh
 cargo build --release -p viewer-confined --bins    # the worker, found beside the executable
@@ -523,7 +519,7 @@ decisions are now the same on every platform, which the two-backend comparison h
 which was not true. Nothing moved: 856 agree, 68 contradicted, 749 ambiguous, to the number.
 **No gate in this tree could have found it**, because all of them run on one machine with one libm.
 
-**And since the three-hundred-and-eleventh session a person can get it without a toolchain.** Every
+**And a person can get it without a toolchain.** Every
 push to `main` that passes `check` and `test` retags a rolling `snapshot` pre-release carrying
 **every program `tools/batch.sh install` puts in `target/` that the target can build**, with `LICENSE` and `NOTICE` beside
 them because both vendored-font licences oblige a *binary* distribution to carry their notices (ADR
@@ -533,7 +529,7 @@ worker refuses the work — `quorra` refuses JBIG2 and JPEG 2000 rather than dec
 process. What a given target omits, and why, is ADR 1152's table; the short of it is that
 `quorrafs` is Linux's, `pdf-vfs-worker` is absent on Windows because it takes a descriptor over a
 Unix socket, and the two native hosts are built where their toolkits are.
-**Three platforms since the three-hundred-and-fifteenth session** — x86_64 Linux, aarch64 macOS,
+**Three platforms** — x86_64 Linux, aarch64 macOS,
 x86_64 Windows — **and the confinement is Linux's alone.** `pdf-sandbox` used to refuse to compile
 where seccomp-BPF and Landlock do not exist, on the argument that "a sandbox that silently does
 nothing on another platform is worse than no sandbox". The project owner asked for the other two

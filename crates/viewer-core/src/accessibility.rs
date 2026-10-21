@@ -231,8 +231,8 @@ pub struct AccessibilityNode {
     pub cell: Option<TableCell>,
     /// Table 384's `/Summary`, for an element whose mapped type is `Table` and nothing else.
     ///
-    /// §14.8.5.7 makes it "[a] summary of the table's purpose and structure", with the entry's
-    /// own NOTE naming the consumer: "[f]or use in non-visual rendering such as speech or
+    /// §14.8.5.7 makes it "\[a] summary of the table's purpose and structure", with the entry's
+    /// own NOTE naming the consumer: "\[f]or use in non-visual rendering such as speech or
     /// braille." It crosses as its own field rather than riding [`Self::name`], because that
     /// field is deliberately the element's own text — what the table's content items marked —
     /// and this is a statement *about* the table that no descent would ever say.
@@ -240,12 +240,12 @@ pub struct AccessibilityNode {
     /// `None` for an element that states none — every element of doc/pdf.js, while the `SafeDocs`
     /// crawl carries a real witness population, counted and *named* by
     /// `pdf-model --example cell_header_census` — and for one whose mapped type is not `Table`:
-    /// "[t]his entry shall only be used within Table structure elements", and a summary on a
+    /// "\[t]his entry shall only be used within Table structure elements", and a summary on a
     /// paragraph is a statement §14.8.5.7 does not define.
     pub summary: Option<String>,
     /// Table 384's `/Short`, for an element whose mapped type is `TH` and nothing else.
     ///
-    /// §14.8.5.7: "[c]ontains a short form of the content of a TH structure element's content",
+    /// §14.8.5.7: "\[c]ontains a short form of the content of a TH structure element's content",
     /// stated for the moment the entry's EXAMPLE describes — when "for each table cell the
     /// applicable header cells are read to the user", the full contents become cumbersome to
     /// repeat. So it is the *repetition* this abbreviates: a host saying a cell's headers says
@@ -255,7 +255,7 @@ pub struct AccessibilityNode {
     /// is what the element's own sequences marked, and this is the author's substitute for a
     /// specific reading of it.
     ///
-    /// `None` for an element stating none and for one that is not a `TH` — "[t]his entry shall
+    /// `None` for an element stating none and for one that is not a `TH` — "\[t]his entry shall
     /// only have an effect for structure elements of type of TH".
     pub short: Option<String>,
     /// Where the **document says** the element is, in the same device pixels [`Self::quads`] are
@@ -296,7 +296,7 @@ pub struct AccessibilityNode {
     ///
     /// # The second of the two rectangles the standard gives every element
     ///
-    /// ISO 32000-2 §14.8.3.3: "[t]wo enclosing rectangles shall be associated with each BLSE and
+    /// ISO 32000-2 §14.8.3.3: "\[t]wo enclosing rectangles shall be associated with each BLSE and
     /// ILSE (including direct content items that are treated implicitly as ILSEs)". The first is
     /// the content rectangle, which is [`Self::bounds`] where the producer stated one and
     /// [`Self::drawn`] where this program measured it; this is the second, and the clause says
@@ -331,9 +331,9 @@ pub struct AccessibilityNode {
     /// # What it says that the role does not
     ///
     /// The role already says the element is an artifact, and
-    /// [`viewer_accessibility::role`]'s mapping already withholds its text on the strength of it.
+    /// `viewer_accessibility::role`'s mapping already withholds its text on the strength of it.
     /// This says **which kind**, which is the distinction §14.8.2.2.1 draws the whole vocabulary
-    /// for: "[a] text-to-speech engine, for instance, may decide not to speak running heads or
+    /// for: "\[a] text-to-speech engine, for instance, may decide not to speak running heads or
     /// page numbers when the page is turned", and a running head, a footnote rule and a cut mark
     /// are three different things to decide about. A person moving through a page's structure
     /// meets these nodes with no name — an artifact has none by design — and the kind is the only
@@ -423,9 +423,9 @@ pub struct AccessibilityNode {
     /// one.
     ///
     /// §14.8.4.7.2's `Form` is the structure type this exists for. Table 368 makes it one that
-    /// "[e]ncloses a PDF widget annotation and associated content, if any" — Errata Collection 3's
+    /// "\[e]ncloses a PDF widget annotation and associated content, if any" — Errata Collection 3's
     /// Issue #437, which strikes the *association* wording (ADR 0425) — and requires one per
-    /// widget: "[i]n a tagged PDF, Form
+    /// widget: "\[i]n a tagged PDF, Form
     /// shall be used for each PDF widget annotation that belongs to the real content of the
     /// document". So a `Form` is a *control*, and a host that announced it as a group would tell a
     /// person there is a box on the page without saying it is a check box, what it is called, or
@@ -489,13 +489,13 @@ pub struct AccessibilityNode {
     ///
     /// [`Self::bounds`] says where such an element is and [`Self::control`] says what control it
     /// is; neither says *that the element is an annotation*, and after Errata Collection 3's Issue
-    /// #437 that is what Table 368's three annotation types state outright — `Annot` "[e]ncloses
-    /// one or more PDF annotations and associated content, if any", `Form` "[e]ncloses a PDF widget
-    /// annotation and associated content, if any", and §14.8.4.7.2 gives a `Link` element "[o]ne
+    /// #437 that is what Table 368's three annotation types state outright — `Annot` "\[e]ncloses
+    /// one or more PDF annotations and associated content, if any", `Form` "\[e]ncloses a PDF widget
+    /// annotation and associated content, if any", and §14.8.4.7.2 gives a `Link` element "\[o]ne
     /// object reference (see 14.7.5.3, "PDF objects as content items") to one link annotation
     /// associated with the content".
     ///
-    /// §12.5.1 is what makes the distinction worth a field: "[w]hen the user activates the
+    /// §12.5.1 is what makes the distinction worth a field: "\[w]hen the user activates the
     /// annotation by clicking it, it exhibits its associated object". An assistive technology
     /// asking to *act* on an element is asking about that sentence, and a host with only a
     /// rectangle cannot tell an element that would answer a click from a paragraph that would not.
@@ -552,7 +552,7 @@ pub struct AccessibilityNode {
     ///
     /// It is a flag of its own because the predecessor is often not in this answer — the two lists
     /// may be pages apart — and WTPDF's NOTE on the pair says the flag is worth having anyway:
-    /// "[t]here is value to the ContinuedList attribute even when the previous list is not present,
+    /// "\[t]here is value to the ContinuedList attribute even when the previous list is not present,
     /// since it would help to explain the partial nature of the content, for example, partial
     /// numbering."
     ///
@@ -568,9 +568,9 @@ pub struct AccessibilityNode {
     pub continues_a_list: bool,
     /// Which earlier list this one continues, as an index into the answer.
     ///
-    /// Table 382's `/ContinuedFrom` where the element names one — "[t]he ID … of the list for
+    /// Table 382's `/ContinuedFrom` where the element names one — "\[t]he ID … of the list for
     /// which this list is a continuation" — and otherwise the list §14.8.5.5's own fallback names:
-    /// "[i]f the ContinuedFrom attribute is not present, the continuation is from the preceding
+    /// "\[i]f the ContinuedFrom attribute is not present, the continuation is from the preceding
     /// list at the same level in the structure hierarchy."
     ///
     /// **An index rather than an identifier**, for the reason [`Self::headers`] gives: the host
@@ -1391,7 +1391,7 @@ pub(crate) fn ranges(marked: &[MarkedSpan], mcids: &[Sequence]) -> Vec<(usize, u
 /// One value rather than five arguments because it is the *page's* half of the answer and every
 /// element of the page is finished against the same one.
 pub(crate) struct Readback<'a> {
-    /// The page's text, as [`crate::Interpretation::text`] read it back.
+    /// The page's text, as [`pdf_model::Interpretation::text`] read it back.
     pub(crate) text: &'a str,
     /// §14.7.5.2's marked-content sequences, with the range of the readback each covers.
     pub(crate) marked: &'a [MarkedSpan],
@@ -1585,7 +1585,7 @@ pub(crate) fn value_lines(
 ///    widths of the contained characters", which is what [`AccessibilityNode::quads`] are, and one
 ///    containing an illustration or a table has "the bounding box of all graphics objects in the
 ///    content", which is [`AccessibilityNode::drawn`]. **The union where an element has both**,
-///    because the clause's fifth case is exactly that element: "[f]or an ILSE that contains a
+///    because the clause's fifth case is exactly that element: "\[f]or an ILSE that contains a
 ///    mixture of elements, the height of the content rectangle shall be determined by … finding the
 ///    extreme top and bottom for all elements". A `Figure` holding a caption *and* a picture has
 ///    text quadrilaterals covering the caption alone, and answering with those would point a
@@ -1797,7 +1797,7 @@ fn marked_extent(marked: &[MarkedSpan], mcids: &[Sequence]) -> Option<[f32; 4]> 
 /// §14.9.2.3 gives every specification it *does* name. So this wins over the element's own `/Lang`
 /// and over the ancestor it inherited, and an annotation stating none leaves that hierarchy alone.
 ///
-/// **The honest limit, named rather than left to be discovered**: Table 368's `Annot` "[e]ncloses
+/// **The honest limit, named rather than left to be discovered**: Table 368's `Annot` "\[e]ncloses
 /// one or more PDF annotations and associated content, if any", so an element may carry page text
 /// beside the annotation — and a node has one language while the clause states no split. The
 /// annotation's is taken, because the element that names an annotation at all is describing that

@@ -580,18 +580,25 @@ impl Interpreter<'_> {
     /// [`parent_channels`], which takes the pair in effect at the `Do` (ADR 1242).
     ///
     /// One departure is left, and the condition names it rather than the statement alone: **a
-    /// press whose own profile states the conversion in.** §8.6.5.5 requires a blending space's
-    /// profile to carry "from CIE" information and this tree uses it (ADR 0796), so the black
-    /// generation there is the document's own measured transform rather than the device default
-    /// §10.4.2.4's last paragraph asks for — which is what a stated pair substitutes for.
-    /// Replacing a `B2A` table with §10.4.2.4's arithmetic would convert into a profile's space
-    /// by a formula that never reads the profile.
+    /// `DeviceCMYK` page group whose output intent's profile states the conversion in.**
+    /// §8.6.5.5 requires a blending space's profile to carry "from CIE" information and this tree
+    /// uses it (ADR 0796), so the black generation there is the document's own measured
+    /// transform rather than the device default §10.4.2.4's last paragraph asks for — which is
+    /// what a stated pair substitutes for. Replacing a `B2A` table with §10.4.2.4's arithmetic
+    /// would convert into a profile's space by a formula that never reads the profile. A group
+    /// whose own colour space is `ICCBased` is not that case: the pair "shall be applied only
+    /// during conversion from DeviceRGB to DeviceCMYK colour spaces", and converting into an
+    /// `ICCBased` space is not one, so its `B2A` route departs from nothing (ADR 2170).
     ///
     /// The third bullet is neither: it conditions on "the native colour space of the output
     /// device" being `DeviceCMYK`, and this device's is sRGB (ADR 0009).
     ///
     /// Raised once per interpretation, the statement being monotone for the page: the parameters
     /// apply wherever a conversion happens rather than only where a `gs` set them.
+    #[expect(
+        clippy::doc_markdown,
+        reason = "the paragraph quotes §11.7.5.3 verbatim, and a quotation is not marked up"
+    )]
     pub(in crate::content) fn note_black_generation_departure(&mut self) {
         if !self.black_generation_stated {
             return;
@@ -602,11 +609,20 @@ impl Interpreter<'_> {
         ) {
             return;
         }
+        // The functions "shall be applied only during conversion from DeviceRGB to DeviceCMYK
+        // colour spaces", and a page group whose colour space is `ICCBased` — stated so, or a
+        // `DeviceCMYK` that Table 145's `/DefaultCMYK` remaps — is not `DeviceCMYK`: its `B2A`
+        // route is the clause carried out, and only a `DeviceCMYK` group that §14.11.5's output
+        // intent characterises departs (trap 11, ADR 2170).
+        if self.cmyk_group.is_some() {
+            return;
+        }
         self.note(Unsupported::BlackGeneration {
             detail: "an /ExtGState or a pattern states Table 57's /BG, /BG2, /UCR or /UCR2 as a \
-                     function of its own, and this page composites in a press sampled from the \
-                     document's own profile, whose B2A table is the conversion in (§8.6.5.5), so \
-                     the stated pair reaches no step of it (§11.7.5.3). A DeviceRGB colour \
+                     function of its own, and this page's DeviceCMYK group composites in a press \
+                     sampled from its output intent's profile (§14.11.5), whose B2A table is the \
+                     conversion in (§8.6.5.5), so the stated pair reaches no step of it \
+                     (§11.7.5.3). A DeviceRGB colour \
                      painted into a DeviceCMYK group, and a group painted into a DeviceCMYK \
                      parent, are separated with the stated functions and are not affected"
                 .to_owned(),

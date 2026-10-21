@@ -78,7 +78,7 @@ impl CpuRasterizer {
                     triangles,
                     patches.as_ref(),
                     ramp.as_ref(),
-                    to_device.of(shading.transform),
+                    to_device.placed(shading.transform),
                     convert::fill_rule(fill_rule),
                     at,
                     clip,
@@ -155,7 +155,6 @@ impl CpuRasterizer {
         let Some(page_to_path) = pdf_render::paint_space(transform) else {
             return Ok(());
         };
-        let at = to_device.of(transform);
         let cropped = crop_to_mask(source, transform, to_device, admits);
         let source = cropped.as_ref().unwrap_or(source);
         let path = convert::path(source).ok_or(CpuRasterError::InvalidPath)?;
@@ -242,7 +241,7 @@ impl CpuRasterizer {
                 pixmap,
                 (&path, &exact),
                 &brush,
-                convert::transform(at),
+                scan::Place::of(placed),
                 clip,
             );
             return Ok(());

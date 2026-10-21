@@ -46,6 +46,14 @@ pub(crate) enum Asked {
         /// The request, boxed for `Event::Submit`'s reason: the body travels with it.
         submission: Box<Submission>,
     },
+    /// §12.6.4.6's launched document that is not a PDF, which a `yes` hands to this machine's own
+    /// handler (ADR 2171).
+    Launched {
+        /// The file as the document named it, for the sentence either answer prints.
+        name: String,
+        /// Where `viewer_host::resolve_import` put it, which is what would be handed over.
+        path: PathBuf,
+    },
     /// Table Annex O.4's `fdf`, or §12.7.6.4's file, named by an absolute URI, which a `yes`
     /// fetches (ADR 2076).
     Fetch {
@@ -169,6 +177,10 @@ impl Host {
                     bytes: None,
                 });
             }
+            Asked::Launched { name, .. } => eprintln!(
+                "note: {}",
+                viewer_host::remote_note(Purpose::LaunchDocument, &name, Some(why))
+            ),
         }
     }
 
@@ -222,6 +234,33 @@ impl Host {
                     bytes: None,
                 });
             }
+            Asked::Launched { name, path } if proceed => {
+                hand_over(&name, &path, &viewer_host::policy::handed(&name));
+            }
+            Asked::Launched { name, .. } => eprintln!(
+                "note: {}",
+                viewer_host::remote_declined(Purpose::LaunchDocument, &name)
+            ),
+        }
+    }
+
+    /// §12.6.4.6's launched file once read: where it is not a PDF, what `--launched-documents=`
+    /// does with it — a program started never, a document handed over or not (ADR 2171). The bytes
+    /// still cross to the worker, whose sentence says the link opened nothing in this reader.
+    fn launched_elsewhere(&mut self, name: &str, path: &Path, read: &[u8]) {
+        match viewer_host::policy::launched(path, name, read, self.launched_documents) {
+            None => {}
+            Some(viewer_host::Launched::Program(said) | viewer_host::Launched::Refuse(said)) => {
+                eprintln!("note: {said}");
+            }
+            Some(viewer_host::Launched::Hand(said)) => hand_over(name, path, &said),
+            Some(viewer_host::Launched::Ask(question)) => self.put_the_question(
+                Asked::Launched {
+                    name: name.to_owned(),
+                    path: path.to_owned(),
+                },
+                &question,
+            ),
         }
     }
 
@@ -235,6 +274,9 @@ impl Host {
             Ok(bytes) => {
                 if let Some(note) = note {
                     eprintln!("note: {note}");
+                }
+                if purpose == Purpose::LaunchDocument {
+                    self.launched_elsewhere(name, &path, &bytes);
                 }
                 self.offered = Some(Offered { purpose, path });
                 Some(bytes)
@@ -316,4 +358,13 @@ impl Host {
 /// The reason a `no` on the card gives, in the words the other three windows say it in.
 fn you_did_not() -> String {
     format!("you answered \"{}\"", viewer_host::restriction::DO_NOT)
+}
+
+/// Hands `path` to this machine's own handler, printing `said` once it is started and the reason
+/// where it could not be (ADR 2171).
+fn hand_over(name: &str, path: &Path, said: &str) {
+    match viewer_host::policy::hand_over(path) {
+        Ok(()) => eprintln!("note: {said}"),
+        Err(error) => eprintln!("note: Launch: {name} could not be handed over — {error}"),
+    }
 }

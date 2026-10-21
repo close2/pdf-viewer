@@ -9,7 +9,7 @@
 //!
 //! # The choice: the affine map the registration determines
 //!
-//! §12.10.4 says that "[f]or small areas, this distortion may be small enough to allow direct
+//! §12.10.4 says that "\[f]or small areas, this distortion may be small enough to allow direct
 //! mapping between geographic coordinates and PDF object coordinates without requiring the use of
 //! a projected coordinate system". The standard states no form for that direct mapping; the one
 //! function Table 269 does state between an object's coordinates and the earth is `/PCSM`, a

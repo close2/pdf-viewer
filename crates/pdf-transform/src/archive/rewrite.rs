@@ -2968,6 +2968,9 @@ impl Rewriter<'_> {
             count(applied, Rewrite::ToUnicode);
             changed = true;
         }
+        // Last, so that a dictionary an earlier step inserted — a page given the resources it
+        // inherited — is searched too.
+        changed |= self.reference_direct_fonts(&mut out, applied);
         changed.then_some(out)
     }
 

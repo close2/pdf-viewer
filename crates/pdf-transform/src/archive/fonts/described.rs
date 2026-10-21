@@ -161,10 +161,13 @@ pub(super) struct Restatement {
     pub(super) row: Table124,
     /// The entries the font dictionary gains: its new `/Subtype`, and an encoding where one is owed.
     pub(super) entries: Dictionary,
-    /// The font dictionary's object.
-    pub(super) font: ObjectId,
     /// The source font as the viewer draws it, which [`proved`] holds the restatement to.
     pub(super) source: LoadedFont,
+    /// Which face the viewer draws it from, which decides what [`proved`] compares.
+    pub(super) drawn: Drawn,
+    /// The shipped face being embedded, whose glyphs [`proved`] reads where `drawn` is a
+    /// machine's face.
+    face: ShippedFace,
     /// Which of the two restatements it is, for the report.
     pub(super) described: Described,
 }
@@ -193,17 +196,9 @@ pub(super) fn restated_kind(
     let Some(row) = key_for(other, face.format, face.program) else {
         return Ok(None);
     };
-    let font = used
-        .id
-        .ok_or(Because::NotBuiltYet(DIRECT_FONT_DICTIONARY))?;
     let source = LoadedFont::load(document, &used.dict, &used.name)
         .map_err(|_| Because::NotBuiltYet(super::FONT_NOT_READ))?;
-    if source
-        .substitute_program()
-        .is_none_or(|drawn| drawn != face.program)
-    {
-        return Err(Because::NotBuiltYet(ANOTHER_FACE_IS_DRAWN));
-    }
+    let drawn = drawn_from(&source, used, face)?;
     let mut entries = Dictionary::new();
     entries.insert(
         Name::new(&b"Subtype"[..]),
@@ -217,8 +212,9 @@ pub(super) fn restated_kind(
     Ok(Some(Restatement {
         row,
         entries,
-        font,
         source,
+        drawn,
+        face: *face,
         described: if other == "Type1" {
             Described::RestatedAsType1
         } else {
@@ -250,12 +246,73 @@ pub(super) fn restatement_proved(
     proved(
         document,
         used,
-        &restatement.source,
+        HeldTo {
+            source: &restatement.source,
+            drawn: restatement.drawn,
+            face: &restatement.face,
+        },
         &restatement.entries,
         &descriptor,
         restatement.row,
         program,
     )
+}
+
+/// Which face the viewer draws a font from, and so what the converted font is held to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Drawn {
+    /// The face being embedded: the converted font must draw every glyph the page shows with the
+    /// source's own outline.
+    FromTheShippedFace,
+    /// A face of this machine's, which ADR 0270 draws instead where the document's encoding names
+    /// characters the shipped face lacks. The converted font is held to the shipped face's own
+    /// glyph for every code the page shows — the page as a reader without that machine's face
+    /// draws it — and what changes is the shapes, which the loss `machine-face` names
+    /// (`doc/adr/2162`).
+    FromAMachineFace,
+}
+
+/// What [`proved`] holds the converted font to: the source as the viewer draws it, and where that
+/// is from a machine's face, the shipped face's own glyphs.
+#[derive(Clone, Copy)]
+struct HeldTo<'a> {
+    source: &'a LoadedFont,
+    drawn: Drawn,
+    face: &'a ShippedFace,
+}
+
+/// Which face the viewer draws `source` from, refused where it is a machine's and the shipped face
+/// has no glyph for a code the page shows.
+///
+/// ADR 0270 widens to a machine's face over a code the document *declares*, which may be one no
+/// page shows; the shipped face then draws every mark the page makes, in its own shapes. A code
+/// the page does show and the shipped face cannot draw is a mark embedding it would lose, which no
+/// answer here offers.
+fn drawn_from(
+    source: &LoadedFont,
+    used: &SelectedFont,
+    face: &ShippedFace,
+) -> Result<Drawn, Because> {
+    match source.substitute_program() {
+        Some(drawn) if drawn == face.program => return Ok(Drawn::FromTheShippedFace),
+        Some(_) => {}
+        None => return Err(Because::NotBuiltYet(ANOTHER_FACE_IS_DRAWN)),
+    }
+    for text in used.shown.keys() {
+        for code in source.decode(text) {
+            if shipped_glyph(face, code).is_none() {
+                return Err(Because::NotBuiltYet(ANOTHER_FACE_DRAWS_A_SHOWN_CODE));
+            }
+        }
+    }
+    Ok(Drawn::FromAMachineFace)
+}
+
+/// The glyph a code selects in the shipped face, for a code a simple font can show.
+fn shipped_glyph(face: &ShippedFace, code: Code) -> Option<u16> {
+    u8::try_from(code.value())
+        .ok()
+        .and_then(|byte| face.glyph(byte))
 }
 
 /// One font's descriptor, program and widths, prepared and proved.
@@ -268,11 +325,6 @@ pub(super) fn describe(
     spare: &mut Spare,
     substitutes: &mut Substitutes,
 ) -> Result<(), Because> {
-    // The rewriter edits objects; a font dictionary written directly inside a resource
-    // dictionary is no object, and gaining three keys would mean rewriting its container.
-    let font_id = used
-        .id
-        .ok_or(Because::NotBuiltYet(DIRECT_FONT_DICTIONARY))?;
     let requested = base_font(document, &used.dict);
     if name_of(document, &used.dict, "Subtype").as_deref() != Some("Type1")
         || !pdf_font::standard::is_standard_name(&requested)
@@ -283,15 +335,7 @@ pub(super) fn describe(
         .map_err(|_| Because::NotBuiltYet(super::NO_SHIPPED_FACE_COVERS_IT))?;
     let source = LoadedFont::load(document, &used.dict, &used.name)
         .map_err(|_| Because::NotBuiltYet(super::FONT_NOT_READ))?;
-    // **The face embedded is the face drawn**, or this is not the page the reader saw. ADR 0270
-    // lets the viewer replace a compiled-in face by a machine's wider one for a document whose
-    // encoding names characters the compiled-in one lacks, and that face is not ours to embed.
-    if source
-        .substitute_program()
-        .is_none_or(|drawn| drawn != face.program)
-    {
-        return Err(Because::NotBuiltYet(ANOTHER_FACE_IS_DRAWN));
-    }
+    let drawn = drawn_from(&source, used, &face)?;
     let symbolic = matches!(face.request.family, Family::Symbol | Family::ZapfDingbats);
     let (subtype, encoding) = match face.format {
         Format::BareCff => ("Type1", symbolic.then(|| restated_encoding(&source, None))),
@@ -336,11 +380,15 @@ pub(super) fn describe(
         entries.insert(Name::new(&b"LastChar"[..]), Object::Integer(last.into()));
         entries.insert(Name::new(&b"Widths"[..]), Object::Array(widths));
     }
-    advances_are_the_faces(used, &source, &face)?;
+    advances_are_the_faces(used, drawn, &source, &face)?;
     proved(
         document,
         used,
-        &source,
+        HeldTo {
+            source: &source,
+            drawn,
+            face: &face,
+        },
         &entries,
         &descriptor,
         row,
@@ -350,7 +398,10 @@ pub(super) fn describe(
     substitutes
         .written
         .insert(descriptor_at, Object::Dictionary(descriptor));
-    substitutes.described.insert(font_id, entries);
+    super::gains(document, used, entries, spare, substitutes)?;
+    if drawn == Drawn::FromAMachineFace {
+        substitutes.over_machine_faces.push(used.name.clone());
+    }
     substitutes.done.push(SubstitutedFont {
         resource: used.name.clone(),
         requested,
@@ -401,13 +452,19 @@ fn shared_program(
 /// program, and Liberation's licence reserves its name for an unmodified one (`doc/adr/2146`).
 fn advances_are_the_faces(
     used: &SelectedFont,
+    drawn: Drawn,
     source: &LoadedFont,
     face: &ShippedFace,
 ) -> Result<(), Because> {
     for text in used.shown.keys() {
         for code in source.decode(text) {
-            let glyph = source
-                .glyph_index(code)
+            // The glyph the embedded face will draw: the one the viewer draws, or where that is a
+            // machine's face, the shipped face's own for the code.
+            let glyph = match drawn {
+                Drawn::FromTheShippedFace => source.glyph_index(code),
+                Drawn::FromAMachineFace => shipped_glyph(face, code),
+            };
+            let glyph = glyph
                 .filter(|glyph| *glyph != pdf_font::NOTDEF_GLYPH)
                 .ok_or(Because::NotBuiltYet(super::NO_SHIPPED_FACE_COVERS_IT))?;
             let own = pdf_font::restate::advance(face.program, face.format, glyph);
@@ -531,7 +588,7 @@ fn laid_out_widths(source: &LoadedFont) -> (u8, u8, Vec<Object>) {
 fn proved(
     document: &Document,
     used: &SelectedFont,
-    source: &LoadedFont,
+    held_to: HeldTo<'_>,
     entries: &Dictionary,
     descriptor: &Dictionary,
     row: Table124,
@@ -602,7 +659,18 @@ fn proved(
         .map_err(|_| Because::NotBuiltYet(NOT_PROVED))?;
     // Bit for bit, deliberately: each number is one reader's reading of one statement, so any
     // difference at all is a difference in what is drawn.
-    if converted.is_substituted() || converted.stretch().to_bits() != source.stretch().to_bits() {
+    // A machine's face is drawn at whatever scale fits its advances to the widths; the page a
+    // reader without it draws is the shipped face's, at none.
+    let HeldTo {
+        source,
+        drawn,
+        face,
+    } = held_to;
+    let stretch = match drawn {
+        Drawn::FromTheShippedFace => source.stretch(),
+        Drawn::FromAMachineFace => 1.0,
+    };
+    if converted.is_substituted() || converted.stretch().to_bits() != stretch.to_bits() {
         return Err(Because::NotBuiltYet(DRAWN_DIFFERENTLY));
     }
     for code in (0..=u8::MAX).map(Code::single_byte) {
@@ -612,12 +680,19 @@ fn proved(
     }
     for text in used.shown.keys() {
         for code in source.decode(text) {
-            let before = source.outline(code);
-            let after = converted.outline(code);
-            let same = match (&before, &after) {
-                (Some(before), Some(after)) => same_once_wound(before, after),
-                (None, None) => true,
-                _ => false,
+            let same = match drawn {
+                Drawn::FromTheShippedFace => {
+                    match (&source.outline(code), &converted.outline(code)) {
+                        (Some(before), Some(after)) => same_once_wound(before, after),
+                        (None, None) => true,
+                        _ => false,
+                    }
+                }
+                // The same program on both sides, so the same glyph is the same outline.
+                Drawn::FromAMachineFace => {
+                    let glyph = shipped_glyph(face, code);
+                    glyph.is_some() && converted.glyph_index(code) == glyph
+                }
             };
             if !same {
                 return Err(Because::NotBuiltYet(DRAWN_DIFFERENTLY));
@@ -952,13 +1027,6 @@ impl OutlinePen for Bounds {
 // The refusals, each naming what stopped it.
 // ----------------------------------------------------------------------------------------------
 
-/// Why a font written directly inside a resource dictionary is not given a descriptor.
-const DIRECT_FONT_DICTIONARY: &str = "this rendered font states no FontDescriptor and is written \
-     directly inside its resource dictionary rather than as an object of its own. ISO 32000-2 \
-     \u{a7}9.6.2.2 lets one of the standard 14 omit the descriptor, and this conversion writes one \
-     for it — but it does so by adding entries to the font's own object, and a font that is no \
-     object has none for it to add them to";
-
 /// Why a font that is not one of the fourteen is not given a descriptor.
 const NOT_ONE_OF_THE_FOURTEEN: &str = "this rendered font states no FontDescriptor and is not a \
      Type1 font naming one of the fourteen ISO 32000-2 \u{a7}9.6.2.2 lists, so no table of the \
@@ -967,11 +1035,17 @@ const NOT_ONE_OF_THE_FOURTEEN: &str = "this rendered font states no FontDescript
      font without one has given no description to embed a program against";
 
 /// Why a font the viewer draws from another face is not given this one.
-const ANOTHER_FACE_IS_DRAWN: &str = "this rendered font names one of the standard 14 and states \
-     no FontDescriptor, and this viewer does not draw it from the face this program ships for that \
-     name: the document's encoding names characters that face lacks, so a face of the machine's \
-     that has them is drawn instead (ADR 0270). That face is not this program's to embed, and \
-     embedding the shipped one would draw a different page from the one this reader shows";
+const ANOTHER_FACE_IS_DRAWN: &str = "this rendered font names one of the standard 14 and does \
+     not embed it, and this viewer draws it from no substitute face at all, so no face this \
+     program ships is the one the page shows and none is embedded";
+
+/// Why a font the viewer draws from a machine's face is not given the shipped one.
+const ANOTHER_FACE_DRAWS_A_SHOWN_CODE: &str = "this rendered font names one of the standard 14 \
+     and does not embed it, and this viewer draws it from a face of this machine's rather than the \
+     one this program ships, because the document's encoding names characters the shipped face \
+     lacks (ADR 0270) — and the page shows one of them. Embedding the shipped face would lose \
+     that mark, and the machine's face is not this program's to embed, so the font is refused \
+     rather than given a face that draws less than the page";
 
 /// Why a face whose advances are not the widths the page is laid out by is not embedded.
 const WIDTHS_NOT_THE_FACES: &str = "this rendered font names one of the standard 14 and states no \

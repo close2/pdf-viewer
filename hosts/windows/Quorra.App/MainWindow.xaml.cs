@@ -1,5 +1,5 @@
 // The window's loop, as quorra.h states it for a toolkit (RFC 0010 sections 3.2a and 6, step N3a;
-// ADRs 2088, 2136, 2137, 2152, 2153): one call into quorra_window for each thing that happened to
+// ADRs 2088, 2136, 2137, 2152, 2153, 2168, 2169): one call into quorra_window for each thing that happened to
 // the window, then what the window owes taken and acted on in order, then its timer armed at the
 // interval it asks for. Nothing calls back into this file; every record arrives after the call
 // that made it.
@@ -37,6 +37,7 @@ public sealed partial class MainWindow : Window
 
     private readonly DispatcherQueueTimer timer;
     private readonly PageControls controls;
+    private readonly PageNotes notes;
     private readonly List<string> beside = new();
     private readonly HashSet<uint> named = new();
     private QuorraWindow? window;
@@ -61,6 +62,10 @@ public sealed partial class MainWindow : Window
                 field => Commit("a button clicked", open => open.ToggleField(field.Number, field.Generation, !field.On)),
                 (field, chosen) => Commit("an option chosen", open => open.SetFieldOptions(field.Field, chosen))),
             () => Area.Focus(FocusState.Programmatic));
+        notes = new PageNotes(
+            Area.NoteLayer,
+            note => Commit("a popup closed", open => open.Activate(note.Number, note.Generation)),
+            Log);
         timer = DispatcherQueue.CreateTimer();
         timer.IsRepeating = false;
         timer.Tick += (_, _) => Guard("the timer", () =>
@@ -206,11 +211,15 @@ public sealed partial class MainWindow : Window
                 Title = owed.Text;
                 break;
             case Native.QUORRA_OWED_REPAINT:
-                Repaint(open);
+                Repaint(open, owed);
                 break;
             case Native.QUORRA_OWED_CONTROLS:
                 controls.Rebuild(open.Controls(), scale);
                 placedAt = null;
+                Measured(open);
+                break;
+            case Native.QUORRA_OWED_POPUPS:
+                notes.Show(open.Popups(), scale);
                 break;
             case Native.QUORRA_OWED_CLIPBOARD:
                 Copy(owed.Text);
@@ -241,9 +250,9 @@ public sealed partial class MainWindow : Window
             // No dialogue was opened for the script's question, so there is none to close.
             case Native.QUORRA_OWED_SCRIPT_WITHDRAWN:
                 break;
-            // The panels, the popups, the strip, the chrome, a placement and the system sound are
-            // the next steps' (RFC 0010 step N3a). Each is named in the log the first time it is
-            // owed rather than dropped.
+            // The panels, the strip, the chrome, a placement and the system sound are the next
+            // steps' (RFC 0010 step N3a). Each is named in the log the first time it is owed rather
+            // than dropped.
             default:
                 if (named.Add(owed.Kind))
                 {
@@ -253,25 +262,46 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void Repaint(QuorraWindow open)
+    // What the record says changed and nothing else: the pictures read where they or their places
+    // did and copied where they are new, then the marks over them where those moved (quorra.h), and
+    // the controls moved where the page did (ADR 2168).
+    private void Repaint(QuorraWindow open, Owed owed)
     {
         if (scale <= 0)
         {
             return;
         }
-        List<Picture> pictures = open.Pictures();
-        Area.Show(pictures, scale);
-        // The frames, then the marks over them (quorra.h), and the controls moved where the page did.
-        Area.ShowMarks(open.Marks(), scale);
-        string at = Geometry(pictures, scale);
-        if (controls.Count > 0 && at != placedAt && controls.Place(open.Controls(), scale))
+        if ((owed.Changed & (Native.QUORRA_REPAINT_FRAMES | Native.QUORRA_REPAINT_PLACES)) != 0)
         {
-            placedAt = at;
+            List<Picture> pictures = open.Pictures(owed.Fresh);
+            Area.Show(pictures, scale);
+            string at = Geometry(pictures, scale);
+            if (controls.Count > 0 && at != placedAt && controls.Place(open.Controls(), scale))
+            {
+                placedAt = at;
+                Measured(open);
+            }
+        }
+        if ((owed.Changed & Native.QUORRA_REPAINT_MARKS) != 0)
+        {
+            Area.ShowMarks(open.Marks(), scale);
         }
         if (!presentOwed)
         {
             presentOwed = true;
             CompositionTarget.Rendered += OnRendered;
+        }
+    }
+
+    // Each control's size against its rectangle told to the window, which is what W's fit sends; the
+    // finding said in the log, as viewer-qt says it in its trace (ADR 2169).
+    private void Measured(QuorraWindow open)
+    {
+        List<int> sizes = controls.Measure();
+        float fits = open.ControlsMeasured(sizes);
+        if (fits > 0)
+        {
+            Log($"{sizes.Count / 4} control(s) measured; every one fits its /Rect at {fits:0.000}, which W sends");
         }
     }
 

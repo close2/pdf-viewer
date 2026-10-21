@@ -148,6 +148,18 @@ profiles answer it with `preserve` (ADR 1942).
   lets the profile keep the second and remove the first. Until then the profile stops there.
 - **"As close as possible" at the forbidden subtypes.** `as-if-printed` discards them; the owner's
   rule prefers `preserve` (ADR 1123) with `discard` as the one `on-failure` alternative.
+- **A font this machine draws from a face of its own** (ADR 0270), the reading (ADR 2162). The file
+  carries no face and §9.5's NOTE 5 leaves the face of such a font to the processor, so embedding
+  the shipped face loses nothing the file states. What it loses is what this viewer's window
+  showed on this machine: the machine's shapes. A printed copy carries whatever face the machine
+  that printed it had, so `as-if-printed` answers the loss `machine-face` with `discard`. `as-shown`
+  keeps `stop`, since the window drew those shapes. No owner's word is needed: an operator who
+  wants the machine's shapes kept names that face with `--font`, which is already the statement
+  §9.9.1 asks for. Where the page shows a code the shipped face lacks, a mark would be lost, and
+  both profiles refuse. **Owed**: a font that already states a descriptor and whose dictionary
+  needs no restating embeds the shipped face over a machine's face as a statement, unasked. On
+  this machine that is every TrueType font whose name `substitute::find` matches to an installed
+  face. The same loss should name it, and pricing its census is that build.
 - **The `DefaultCMYK` row's sentence is false for this renderer.** Pol.pdf's DeviceCMYK text moves
   by up to 34 of 255 under §10.4.2.5's conversion the converter writes; the sentence says this
   renderer already drew those colours so. Either draw DeviceCMYK the §10.4.2.5 way without an

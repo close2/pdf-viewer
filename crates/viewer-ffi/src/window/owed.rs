@@ -11,6 +11,8 @@
 
 use viewer_core::DocumentId;
 
+use super::repainted::Repainted;
+
 /// What one record asks of the host: `QUORRA_OWED_*`.
 ///
 /// **Numbered by this ABI and counted**, as an event kind is: a caller switches on the number, a
@@ -21,7 +23,8 @@ use viewer_core::DocumentId;
 pub enum OwedKind {
     /// A sentence for where the person reads them: `quorra_owed_text`.
     Said = 0,
-    /// The page area is to be drawn again from `quorra_window_frame_count` and its frames.
+    /// The page area is to be drawn again from `quorra_window_frame_count` and its frames, as far
+    /// as `quorra_owed_repaint` says it changed (ADR 2168).
     Repaint = 1,
     /// The title bar is to say `quorra_owed_text`.
     Title = 2,
@@ -132,8 +135,8 @@ impl OwedKind {
 pub(crate) enum Owed {
     /// A sentence for the status line.
     Said(String),
-    /// The page area drawn again.
-    Repaint,
+    /// The page area drawn again, and what of it changed.
+    Repaint(Repainted),
     /// The title bar's text.
     Title(String),
     /// §7.6.4.1's prompt, about one document.
@@ -201,7 +204,7 @@ impl Owed {
     pub(crate) const fn kind(&self) -> OwedKind {
         match self {
             Self::Said(_) => OwedKind::Said,
-            Self::Repaint => OwedKind::Repaint,
+            Self::Repaint(_) => OwedKind::Repaint,
             Self::Title(_) => OwedKind::Title,
             Self::Password { .. } => OwedKind::Password,
             Self::Question(_) => OwedKind::Question,
@@ -233,7 +236,7 @@ impl Owed {
             | Self::Print { words: text, .. }
             | Self::Archive { words: text, .. } => Some(text),
             Self::ScriptWithdrawn { .. }
-            | Self::Repaint
+            | Self::Repaint(_)
             | Self::Beep
             | Self::Panels
             | Self::Chrome
@@ -249,8 +252,9 @@ impl Owed {
 /// over.
 ///
 /// **A record that only says "again" is kept once**: the page area drawn again twice in one call
-/// is drawn once, and a second title replaces the first where it stands, so a caller acting on
-/// every record in order never draws a page or sets a title it is about to replace.
+/// is drawn once, where the first stood and saying what either changed, and a second title
+/// replaces the first where it stands, so a caller acting on every record in order never draws a
+/// page or sets a title it is about to replace.
 #[derive(Debug, Default)]
 pub struct Owing {
     /// The records.
@@ -261,8 +265,16 @@ impl Owing {
     /// One more record, kept once where its kind says only "again".
     pub(crate) fn owe(&mut self, owed: Owed) {
         match owed {
-            Owed::Repaint
-            | Owed::Panels
+            Owed::Repaint(later) => {
+                match self.records.iter_mut().find_map(|record| match record {
+                    Owed::Repaint(earlier) => Some(earlier),
+                    _ => None,
+                }) {
+                    Some(earlier) => earlier.merge(later),
+                    None => self.records.push(Owed::Repaint(later)),
+                }
+            }
+            Owed::Panels
             | Owed::Chrome
             | Owed::Place
             | Owed::Controls
@@ -364,6 +376,19 @@ impl Owing {
         }
     }
 
+    /// What the repaint at `index` changed.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::document`], for a kind that is not a repaint.
+    pub fn repaint(&self, index: usize) -> Result<&Repainted, crate::Status> {
+        match self.records.get(index) {
+            None => Err(crate::Status::OutOfRange),
+            Some(Owed::Repaint(repainted)) => Ok(repainted),
+            Some(_) => Err(crate::Status::WrongKind),
+        }
+    }
+
     /// The pages and the quality limit of the print let through at `index`.
     ///
     /// # Errors
@@ -382,7 +407,7 @@ impl Owing {
 
 #[cfg(test)]
 mod tests {
-    use super::{Owed, OwedKind, Owing};
+    use super::{Owed, OwedKind, Owing, Repainted};
 
     /// Every kind's number names it back, and the count is one past the last.
     #[test]
@@ -403,9 +428,9 @@ mod tests {
     fn a_record_that_only_says_again_is_kept_once() {
         let mut owing = Owing::default();
         owing.owe(Owed::Title("one".to_owned()));
-        owing.owe(Owed::Repaint);
+        owing.owe(Owed::Repaint(Repainted::default()));
         owing.owe(Owed::Said("a sentence".to_owned()));
-        owing.owe(Owed::Repaint);
+        owing.owe(Owed::Repaint(Repainted::default()));
         owing.owe(Owed::Title("two".to_owned()));
         let taken = owing.take();
         assert!(owing.is_empty());

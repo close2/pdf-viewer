@@ -583,9 +583,9 @@ and none writes (`tests/read_only.rs`, ADR 1487), and `doc/environment.md`'s *Af
 one entry per kind of line `tools/main-checkout.py` prints, in its order (`tests/owner_section.rs`),
 no ledger note names a session, held at zero, because a note states what is, and an
 `out-of-scope` row names its exclusion and quotes its clause (`tests/ledger_notes.rs`, ADRs
-1547, 1548, 1610), no Rust source names a round, spelled out or as `Session <number>`
-(`tests/spelled_ordinals.rs`, ADR 1023), nor a comment a round by its number (`tests/round_numbers.rs`,
-ADR 1698) — which also prints, without holding it, how many lines under
+1547, 1548, 1610), no Rust or C source and no line of `doc/running-the-viewer.md` names a round,
+spelled out or as `Session <number>` (`tests/spelled_ordinals.rs`, ADR 1023), nor a comment or that
+document a round by its number (`tests/round_numbers.rs`, ADR 1698) — which also prints, without holding it, how many lines under
 `doc/todo/` still do, each todo file stating what is owed as of now (ADR 1576) — and a round's record fits its forty lines and states its gates in a `**Gates.**` paragraph with an
 exit status or a pass count (`tests/records.rs`, ADRs 1100, 1499). `ls tools/conformance/tests/`
 is the population, and each file's header says what it holds. The sweeps under `src/bin/` —

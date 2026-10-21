@@ -112,7 +112,7 @@ impl UncapturedErrors {
 
 /// The record, whether or not a thread died holding it.
 ///
-/// A poisoned lock here means some thread panicked between the two lines of [`Self::record`],
+/// A poisoned lock here means some thread panicked between the two lines of [`UncapturedErrors::record`],
 /// which leaves an `Option` that is either the old value or the new one — both of them true
 /// statements about what the device said. There is no invariant to have broken, so recovering is
 /// right and panicking would turn a device's complaint into a second crash.

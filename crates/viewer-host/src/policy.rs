@@ -86,9 +86,14 @@ use pdf_signature::verdict::Acceptance;
 use pdf_signature::x509::Instant;
 use viewer_core::{Extraction, Purpose, ReferenceFiles, TrustPolicy};
 
+mod launched;
 mod settings;
 mod words;
 
+pub use launched::{
+    LAUNCHED_DOCUMENTS, Launched, LaunchedDocuments, RUN_BY_HANDLERS, asked_to_hand_over,
+    hand_over, handed, launched, launched_documents,
+};
 pub use settings::{Level, Policy};
 pub use words::{ReaderWord, Taken, Words};
 
@@ -576,17 +581,18 @@ const fn what_would_happen(purpose: Purpose, beside: bool) -> &'static str {
              §12.6.4.3)."
         }
         // Table 207's `/F` may name an application, and the question has to say what happens to
-        // one as plainly as to a document: nothing is started either way (ADR 1358).
+        // one as plainly as to a document: a program is started never (ADR 1358), and a document
+        // that is not a PDF is `--launched-documents=`'s to hand over or keep (ADR 2171).
         Purpose::LaunchDocument if beside => {
             "This reader would open that file beside the one you are reading, in a tab of its own, \
-             because the launch action asks for a new window — if it is a PDF. If it is anything \
-             else it is an application, and this reader starts none (ISO 32000-2 §12.6.4.6, Table \
-             207)."
+             because the launch action asks for a new window — if it is a PDF. A program it starts \
+             never; any other file it hands to this machine's own handler only as \
+             --launched-documents= says (ISO 32000-2 §12.6.4.6, Table 207)."
         }
         Purpose::LaunchDocument => {
             "This reader would open that file in place of the one you are reading — if it is a PDF. \
-             If it is anything else it is an application, and this reader starts none (ISO 32000-2 \
-             §12.6.4.6, Table 207)."
+             A program it starts never; any other file it hands to this machine's own handler only \
+             as --launched-documents= says (ISO 32000-2 §12.6.4.6, Table 207)."
         }
     }
 }
@@ -1536,14 +1542,21 @@ pub fn open_uri(uri: &str) -> Result<(), String> {
             LINK_SCHEMES.join(", ")
         ));
     }
+    start_handler(std::ffi::OsStr::new(uri), uri.to_owned())
+}
+
+/// Starts [`URI_HANDLER`] on one argument, and waits for it on a thread of its own so that its
+/// exit is said rather than left a zombie — [`open_uri`]'s URI and [`hand_over`]'s path alike.
+///
+/// `handled` is how the argument is named in what is said about it.
+fn start_handler(argument: &std::ffi::OsStr, handled: String) -> Result<(), String> {
     let mut child = std::process::Command::new(URI_HANDLER)
-        .arg(uri)
+        .arg(argument)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
         .map_err(|error| format!("{URI_HANDLER} could not be started: {error}"))?;
-    let handled = uri.to_owned();
     std::thread::Builder::new()
         .name("uri-handler".to_owned())
         .spawn(move || match child.wait() {
@@ -1703,6 +1716,8 @@ pub struct Settings {
     pub separations: bool,
     /// Whether a document's scripts run ([`SCRIPTS`]).
     pub scripts: Scripts,
+    /// What §12.6.4.6's launched document that is not a PDF does ([`LAUNCHED_DOCUMENTS`]).
+    pub launched_documents: LaunchedDocuments,
 }
 
 /// The word a person types to say which PDFs beside their own this reader will parse.

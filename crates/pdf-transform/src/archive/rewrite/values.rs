@@ -56,6 +56,37 @@ impl Rewriter<'_> {
         true
     }
 
+    /// Puts a reference to its own object where each font written directly inside a resource
+    /// dictionary stood, the object being the dictionary with the entries it gained
+    /// ([`super::super::fonts::gains`], `doc/adr/2162`).
+    ///
+    /// **Descended, and matched by value.** The survey met the font as a value inside whatever
+    /// dictionary holds the resources — a page, a form's stream dictionary, a resource dictionary
+    /// of its own, an inherited one a page is given — so every dictionary and array inside this
+    /// object is searched, and a dictionary equal to one written out is the font. Equal
+    /// dictionaries are one font by §7.3.10's equivalence, so they share the one object.
+    pub(super) fn reference_direct_fonts(
+        &self,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        if !self.wants(Rewrite::SubstituteFontProgram) {
+            return false;
+        }
+        let Some(direct) = self
+            .substitutes
+            .map(|substitutes| substitutes.direct.as_slice())
+            .filter(|direct| !direct.is_empty())
+        else {
+            return false;
+        };
+        let written = referenced_in_dictionary(out, direct, 0);
+        for _ in 0..written {
+            count(applied, Rewrite::SubstituteFontProgram);
+        }
+        written > 0
+    }
+
     /// A graphics state's halftone entries ISO 19005 section 6.2.5 forbids, and a PDF/A output
     /// intent's missing profile (`doc/adr/2034`, `doc/adr/2035`).
     pub(super) fn halftone_and_intent_entries(
@@ -565,5 +596,53 @@ impl Rewriter<'_> {
             changed |= super::super::languages::apply(restated, id, out);
         }
         changed
+    }
+}
+
+/// How deep [`referenced_in`] descends looking for a font written directly inside a resource
+/// dictionary: past a page's or a form's `/Resources` and its `/Font` with room to spare, and a
+/// bound on a hostile nesting of arrays.
+const DIRECT_FONT_DEPTH: usize = 32;
+
+/// Every font of `direct` found inside `dict`, replaced by a reference to its object; the count.
+fn referenced_in_dictionary(
+    dict: &mut Dictionary,
+    direct: &[(Dictionary, ObjectId)],
+    depth: usize,
+) -> usize {
+    let entries: Vec<(Name, Object)> = dict
+        .iter()
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect();
+    let mut written: usize = 0;
+    for (name, mut value) in entries {
+        let here = referenced_in(&mut value, direct, depth);
+        if here > 0 {
+            dict.insert(name, value);
+            written = written.saturating_add(here);
+        }
+    }
+    written
+}
+
+/// [`referenced_in_dictionary`] for one value: the value itself where it is one of the fonts, and
+/// what it holds otherwise.
+fn referenced_in(value: &mut Object, direct: &[(Dictionary, ObjectId)], depth: usize) -> usize {
+    if depth > DIRECT_FONT_DEPTH {
+        return 0;
+    }
+    if let Object::Dictionary(dict) = &*value
+        && let Some((_, at)) = direct.iter().find(|(font, _)| font == dict)
+    {
+        *value = Object::Reference(*at);
+        return 1;
+    }
+    match value {
+        Object::Dictionary(dict) => referenced_in_dictionary(dict, direct, depth.saturating_add(1)),
+        Object::Array(items) => items
+            .iter_mut()
+            .map(|item| referenced_in(item, direct, depth.saturating_add(1)))
+            .fold(0, usize::saturating_add),
+        _ => 0,
     }
 }

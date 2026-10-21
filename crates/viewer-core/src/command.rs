@@ -64,7 +64,7 @@ pub enum Command {
     /// Two things happen when it arrives, both the clause's:
     ///
     /// - Entering makes the page's `/PresSteps` node current, in every open document, and saves
-    ///   §8.11's group states. NOTE 2: "[i]nteractive PDF processors need to save the state of
+    ///   §8.11's group states. NOTE 2: "\[i]nteractive PDF processors need to save the state of
     ///   optional content groups when a user enters presentation mode and restore it when
     ///   presentation mode ends."
     /// - Leaving restores them and leaves no current node.
@@ -84,7 +84,7 @@ pub enum Command {
     /// > If no Dur entry is specified in the page object, the page shall not advance
     /// > automatically.
     ///
-    /// So a page stating no `/Dur` swallows every tick, and NOTE 1's other half — "[t]he user
+    /// So a page stating no `/Dur` swallows every tick, and NOTE 1's other half — "\[t]he user
     /// can advance the page manually before the specified time has expired" — is
     /// [`Self::GoTo`], which resets the clock because it changes the page.
     Tick {
@@ -177,7 +177,7 @@ pub enum Command {
     /// Applies to every open document and to every operation after it, until it is sent again.
     /// [`RestrictionPolicy::default`] is what a host that never sends it gets, and every entry of
     /// that is [`RestrictionLevel::Off`] — the level `CLAUDE.md` says "shall always be possible",
-    /// chosen as the default because the sentence before it is "[t]hey are low priority" and the
+    /// chosen as the default because the sentence before it is "\[t]hey are low priority" and the
     /// one after it is "this program is the reader's" (ADR 1144).
     ///
     /// **One level per operation** (ADR 1144), which is a variant's shape rather than a message
@@ -219,7 +219,7 @@ pub enum Command {
     /// A person asked to print: §7.6.4.2's bit 3, asked as an operation, and then the intent
     /// the pages are interpreted under.
     ///
-    /// **A command for [`Self::Copy`]'s reason** — Table 22's bit 3 is "[p]rint the document", so
+    /// **A command for [`Self::Copy`]'s reason** — Table 22's bit 3 is "\[p]rint the document", so
     /// printing has to be refusable, askable and warnable at the four levels `CLAUDE.md` names,
     /// and a [`crate::Query`] can raise no event and so can carry none of them.
     ///
@@ -246,7 +246,7 @@ pub enum Command {
     /// A person asked for this document as ISO 19005 (PDF/A), at one target, under one profile.
     ///
     /// **A command for [`Self::Print`]'s reason**: the conversion is a whole new file made of the
-    /// document's own pages, which is Table 22's bit 11 — "[a]ssemble the document (insert,
+    /// document's own pages, which is Table 22's bit 11 — "\[a]ssemble the document (insert,
     /// rotate, or delete pages …)" — the operation `pdf_transform`'s `archive` verb asks too, so it
     /// has to be refusable, askable and warnable at the reader's level and a [`crate::Query`]
     /// could carry none of them.
@@ -276,7 +276,7 @@ pub enum Command {
     ///
     /// **[`pdf_signature::trust::Supply::none`] is the default and nothing changes for a host that
     /// never sends this**: every signature answers [`pdf_signature::trust::Trust::NoAnchorSupplied`]
-    /// and every sentence [`crate::notes`] prints about the third question is the one it prints
+    /// and every sentence `crate::notes` prints about the third question is the one it prints
     /// with no anchor supplied (ADR 0215).
     ///
     /// Applies to every open document and to every one opened afterwards, until it is sent again,
@@ -328,7 +328,7 @@ pub enum Command {
     ///
     /// **The ninth host-supplied policy value, and the same shape as [`Self::Trust`],
     /// [`Self::References`] and [`Self::Audience`] for the same reason.** Table 166's entry is
-    /// "[t]he date and time when the annotation was most recently modified", and rule 3 gives
+    /// "\[t]he date and time when the annotation was most recently modified", and rule 3 gives
     /// this crate no clock: an instant invented here would be a claim about a machine this crate
     /// cannot see, which is why ADR 0196 wrote no `/M` at all rather than guess one.
     ///
@@ -356,11 +356,11 @@ pub enum Command {
     ///
     /// **The tenth host-supplied policy value, and the same shape as [`Self::Trust`],
     /// [`Self::References`], [`Self::Audience`] and [`Self::Clock`] for the same reason.**
-    /// §10.8.3 conditions the whole simulation on a request no file makes — "[i]f it is
+    /// §10.8.3 conditions the whole simulation on a request no file makes — "\[i]f it is
     /// important for the colours of the display for a PDF, on a device that normally would not
     /// be used to produce separations, to more closely match those produced when using
     /// separations, then a simulation of the separation process can be performed" — and
-    /// §10.8.1 says whose choice that is: "[w]hether separations are produced is up to the
+    /// §10.8.1 says whose choice that is: "\[w]hether separations are produced is up to the
     /// processing software." Neither sentence is answerable from the bytes, so it arrives here.
     ///
     /// **A preference and not a restriction level.** `CLAUDE.md`'s four levels are for what a
@@ -581,7 +581,7 @@ pub enum Command {
     Save,
     /// Ask the focused document what it says about *itself*, and be told in words.
     ///
-    /// Answered with [`crate::Event::Reported`] carrying [`crate::notes::about`]'s clauses
+    /// Answered with [`crate::Event::Reported`] carrying `crate::notes::about`'s clauses
     /// — §12.11's requirements, §12.8's signatures, §7.11.4's embedded files, §14.13.2's
     /// associated files that are not embedded, §7.5's rebuilt cross-reference table, Annex I's
     /// version, Annex K's XFA form, §14.8.6.2's namespaces and §14.8.6.3's unenclosed `MathML` —
@@ -611,7 +611,7 @@ pub enum Command {
     /// **The document-wide half of a text search, and a command rather than a question for two
     /// reasons.** [`crate::Query::Find`] answers for the page being shown, from a readback that
     /// is already there, and that is what a highlight over the screen needs. Annex O asks the
-    /// other one — Table Annex O.4's `search`, "[o]pen the document and search for one or more
+    /// other one — Table Annex O.4's `search`, "\[o]pen the document and search for one or more
     /// words, **selecting the first matching word in the document**" — and answering it means
     /// interpreting pages that are not on the screen and then *changing the view*: the page it
     /// lands on is shown and the occurrence becomes the selection, which is the annex's own verb.
@@ -677,7 +677,7 @@ pub enum Command {
     Presented,
     /// Activate an object the host is showing outside the page — §12.3.3's outline item.
     ///
-    /// The clause: "[c]licking the text of any visible item activates the item, causing the
+    /// The clause: "\[c]licking the text of any visible item activates the item, causing the
     /// interactive PDF processor to jump to a destination **or trigger an action** associated
     /// with the item." A panel row is not a point on a page, so [`Self::Pointer`] cannot express
     /// it; and a host cannot perform the action itself, because `/A` may be any of §12.6's
@@ -772,10 +772,10 @@ pub enum Command {
 
 /// What the pointer did.
 ///
-/// Three, because §12.5.5 names three situations and two of them are the ends of a press: "[t]he
-/// normal appearance shall be used when the annotation is not interacting with the user … [t]he
+/// Three, because §12.5.5 names three situations and two of them are the ends of a press: "\[t]he
+/// normal appearance shall be used when the annotation is not interacting with the user … \[t]he
 /// rollover appearance shall be used when the user moves the cursor into the annotation's active
-/// area without pressing the mouse button … [t]he down appearance shall be used when the mouse
+/// area without pressing the mouse button … \[t]he down appearance shall be used when the mouse
 /// button is pressed or held down within the annotation's active area".
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PointerAction {
@@ -1016,15 +1016,15 @@ pub enum Edit {
 ///
 /// > An embedded file stream shall be included in a PDF file in one of the following ways:
 ///
-/// — "[a]ny file specification dictionary in the document may have an EF entry", which "shall be
+/// — "\[a]ny file specification dictionary in the document may have an EF entry", which "shall be
 /// used for file attachment annotations … which associate the embedded file with a location on a
 /// page in the document", or the `EmbeddedFiles` entry of the name dictionary, which associates
 /// it "with the document as a whole".
 ///
 /// **The two homes read different bits of §7.6.4.2's Table 22, and that is decided from the
-/// table's text.** A file filed in the tree is bit 4's — "[m]odify the contents of the document
+/// table's text.** A file filed in the tree is bit 4's — "\[m]odify the contents of the document
 /// by operations other than those controlled by bits 6, 9, and 11", the residual no other bit
-/// carves out (ADR 0802). A file filed by an annotation is bit 6's, "[a]dd or modify text
+/// carves out (ADR 0802). A file filed by an annotation is bit 6's, "\[a]dd or modify text
 /// annotations": §12.5.6.15 makes the file part of the annotation — it "contains a reference to a
 /// file, which typically shall be embedded" — and bit 4's own row hands whatever bit 6 controls
 /// to bit 6, so the annotation and the file it carries are one act of annotating, exactly as a
@@ -1089,7 +1089,7 @@ pub enum RestrictionLevel {
     ///
     /// **The default**, and it is the project owner's sentence rather than a convenience:
     /// `CLAUDE.md` says a document's restrictions "are low priority" and that "it shall always be
-    /// possible to turn them off", because "[a] restriction a reader cannot switch off is a
+    /// possible to turn them off", because "\[a] restriction a reader cannot switch off is a
     /// restriction imposed on the reader by somebody else's file, and this program is the
     /// reader's". §7.6.4.1's `shall` is not thereby unread: it is the level above, one command
     /// away, and a reader who wants it has it (ADR 1144).
@@ -1237,7 +1237,7 @@ impl RestrictionPolicy {
     /// The word a person types for one operation, and the word a wire spells it as.
     ///
     /// Chosen for the reader rather than for Table 22: `copy` is what a person presses and what
-    /// bit 5's own row calls it first — "[c]opy or otherwise extract text and graphics from the
+    /// bit 5's own row calls it first — "\[c]opy or otherwise extract text and graphics from the
     /// document" — while `pdf_model::restriction::Operation::Extract` is named for the batch
     /// tool's verb. The other five are the operations' own words.
     #[must_use]
@@ -1524,15 +1524,15 @@ pub enum Answered {
 pub enum Purpose {
     /// §12.7.6.4's import-data action: the file holds §12.7.8's form data.
     ImportData,
-    /// §12.6.4.4's embedded go-to: Table 204's `/F`, "[t]he root document of the target relative
+    /// §12.6.4.4's embedded go-to: Table 204's `/F`, "\[t]he root document of the target relative
     /// to the root document of the source".
     ///
-    /// The bytes are a **PDF**, and the clause says so: "[e]mbedded go-to actions work only for
+    /// The bytes are a **PDF**, and the clause says so: "\[e]mbedded go-to actions work only for
     /// files of Type PDF". What comes back replaces the document on the screen, at the
     /// destination the action names inside it, so a host that supplies the wrong file has
     /// answered a different question rather than made a mistake this crate can see.
     TargetRoot,
-    /// §12.6.4.3's remote go-to: Table 203's `/F`, "[t]he file in which the destination shall be
+    /// §12.6.4.3's remote go-to: Table 203's `/F`, "\[t]he file in which the destination shall be
     /// located".
     ///
     /// The bytes are a **PDF**: §12.6.4.3's own NOTE says a remote go-to "cannot be used with
@@ -1541,7 +1541,7 @@ pub enum Purpose {
     /// document instead of a page object in the current document". What comes back replaces the
     /// document on the screen, at the page the action names inside it. ADR 1227.
     RemoteDocument,
-    /// §12.7.8's named page in a second file: Table 253's `/F`, "[t]he file containing the named
+    /// §12.7.8's named page in a second file: Table 253's `/F`, "\[t]he file containing the named
     /// page".
     ///
     /// The bytes are a **PDF**, and one page of it becomes part of the document being read rather
@@ -1550,20 +1550,21 @@ pub enum Purpose {
     /// being applied, which is the second question §12.6.4.4's suspended walk already has a shape
     /// for. ADR 1239.
     NamedPage,
-    /// §12.6.4.7's thread in a second file: Table 209's `/F`, "[t]he file containing the thread".
+    /// §12.6.4.7's thread in a second file: Table 209's `/F`, "\[t]he file containing the thread".
     ///
     /// The bytes are a **PDF**, and what comes back replaces the document on the screen at the
     /// page §12.4.3's bead is on — [`Self::RemoteDocument`]'s act reached through a different
     /// table. ADR 1239.
     ThreadDocument,
-    /// §12.6.4.6's launch action: Table 207's `/F`, "[t]he application that shall be launched or
+    /// §12.6.4.6's launch action: Table 207's `/F`, "\[t]he application that shall be launched or
     /// the document that shall be opened or printed".
     ///
     /// The bytes **may** be a PDF, and only they can say: a file specification's name is no
     /// evidence of what the file is. One whose §7.5.2 header says it is a PDF is opened as
     /// [`Self::RemoteDocument`]'s is, beside the one being read where Table 207's `/NewWindow` asks;
-    /// anything else is an application, and starting one is what the sandbox withholds (ADRs
-    /// 1368, 1358).
+    /// anything else is not opened here, and the host says whether it was a program, started
+    /// never, or a document handed to this machine's own handler at the reader's level (ADRs 1368,
+    /// 1358, 2171).
     LaunchDocument,
 }
 
@@ -1733,7 +1734,7 @@ pub struct Sheet {
     /// lower-left corner is that origin. A host that prints a page at its own size onto a larger
     /// sheet states where the page's corner landed on it.
     ///
-    /// **`None` is Table 193's own other branch and not a missing value**: "[i]f the dimensions of
+    /// **`None` is Table 193's own other branch and not a missing value**: "\[i]f the dimensions of
     /// the target media are not known at the time of drawing, drawing shall be done relative to
     /// the dimensions specified by the page's MediaBox entry". A window that shows what would
     /// print without having a printer is exactly in that position, and saying so is a truer answer

@@ -169,7 +169,7 @@ impl Encoder<'_> {
     /// > intersection of the set of pixels defined by the clipping region with the set of pixels
     /// > for the region to be painted.
     ///
-    /// and §8.5.4 says the same of the shape: "[t]he effective shape is the intersection of the
+    /// and §8.5.4 says the same of the shape: "\[t]he effective shape is the intersection of the
     /// object's intrinsic shape with the clipping path". An intersection with a set that
     /// contains the mark is the mark — `S n C = S` where `S` is inside `C` — at every pixel,
     /// the mark's own anti-aliased boundary included.

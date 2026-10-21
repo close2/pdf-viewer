@@ -50,7 +50,7 @@ pub(crate) struct Outcome {
     /// Table 149's view of that page, where the destination that named it stated one.
     ///
     /// Carried beside the page rather than resolved here because §12.3.2.1's other two items —
-    /// "[t]he location of the document window on that page" and "[t]he magnification (zoom)
+    /// "\[t]he location of the document window on that page" and "\[t]he magnification (zoom)
     /// factor" — need a viewport and a display list, and this function has neither.
     pub(crate) view: Option<pdf_model::destination::View>,
     /// §12.6.4.4: a document from inside this one, which replaces it.
@@ -171,7 +171,7 @@ pub(crate) fn say_unreachable(open: &mut Open, page: usize, at: (f32, f32)) {
 
 /// Activates an object the *host* named, which is §12.3.3's outline item and nothing else yet.
 ///
-/// The clause: "[c]licking the text of any visible item activates the item, causing the
+/// The clause: "\[c]licking the text of any visible item activates the item, causing the
 /// interactive PDF processor to jump to a destination or trigger an action associated with the
 /// item." A host has a row in a panel and no way to read `/A`; what it hands over is the item's
 /// object, and everything about what activation *means* stays on this side with the document —
@@ -257,7 +257,7 @@ pub(crate) fn activate_object(open: &mut Open, id: ObjectId) -> Outcome {
 
 /// Whether a dictionary is one of §12.4.3's article threads.
 ///
-/// Table 162 gives a thread dictionary an optional `/Type /Thread` and a **required** `/F`, "[a]n
+/// Table 162 gives a thread dictionary an optional `/Type /Thread` and a **required** `/F`, "\[a]n
 /// indirect reference to the first bead in the thread", so the entry that must be there is the one
 /// to test and the one that may be there is the one to accept. A bead is not mistaken for a thread
 /// by either: Table 163 names a bead's own first entry `/T`, pointing the other way.
@@ -283,7 +283,7 @@ fn is_thread(document: &Document, dict: &Dictionary) -> bool {
 /// Performs §12.6.3's trigger event on one annotation, where the file states actions for it.
 ///
 /// Table 197's ten events belong to *any* annotation dictionary, and `action::for_annotation`
-/// applies the one precedence rule the table states — "[f]or backward compatibility, the `A`
+/// applies the one precedence rule the table states — "\[f]or backward compatibility, the `A`
 /// entry in an annotation dictionary, if present, takes precedence over" `/AA /U`. What is here
 /// is the other half, the one this crate supplies because it has the pointer (ADR 0117):
 /// **something has to raise the event**.
@@ -350,7 +350,7 @@ pub(crate) fn trigger(
 /// Table 165 makes `/NA` and `/PA` "an action (which may be the first in a sequence of actions)",
 /// which is §12.6.2's chain and therefore the same thing a link's `/A` is — so this is the same
 /// [`perform`] and not a second reading of the same clause. What the node's own subclause adds is
-/// one sentence about the sequence: "[t]ransition effects, similar to the page transitions
+/// one sentence about the sequence: "\[t]ransition effects, similar to the page transitions
 /// described earlier, may be specified as transition actions that are part of the NA or PA
 /// sequence", which is `Outcome::transitions` and needs nothing here.
 pub(crate) fn navigate(open: &mut Open, actions: &[Action]) -> Outcome {
@@ -660,7 +660,7 @@ fn perform(
 /// nothing about *which* files a document may name — because that is a property of the processor
 /// rather than of the document. So the name is handed to the host with the reason it is wanted,
 /// and the host's policy decides. What is decided here is the one thing that is about the
-/// *format*: Table 243 names "[t]he FDF, XFDF or any other data format file", and this program
+/// *format*: Table 243 names "\[t]he FDF, XFDF or any other data format file", and this program
 /// reads the first two — the third is what a processor "supports", and it supports these.
 fn request_file(open: &mut Open, import: &ImportData, outcome: &mut Outcome) {
     use pdf_model::action::DataFormat;
@@ -931,7 +931,7 @@ pub(crate) fn decline_root(open: &mut Open) -> Outcome {
 /// > A remote go-to action is similar to an ordinary go-to action but jumps to a destination in
 /// > another PDF file instead of the current file.
 ///
-/// Table 203's `/F` is "[t]he file in which the destination shall be located", and by rule 2 the
+/// Table 203's `/F` is "\[t]he file in which the destination shall be located", and by rule 2 the
 /// question of whether this machine gives a document a file is never this crate's. So the walk
 /// suspends here and the *name* goes to whoever opened the document, which is exactly what
 /// [`open_embedded`] does with Table 204's `/F` and what §12.7.6.4's import does with Table
@@ -976,8 +976,11 @@ const fn purpose_of(act: RemoteAct) -> Purpose {
 /// be calculated from the PERCENT SIGN (25h)", and its NOTE 1 allows bytes before it — so the
 /// marker is looked for in the first 1024 bytes, the window `pdf_syntax` measures offsets from.
 /// Table 207's `/F` may name an application as well as a document, and the name says nothing
-/// about which: this is the one point at which the file's kind is known (ADR 1358).
-fn states_a_pdf_header(bytes: &[u8]) -> bool {
+/// about which: this is the one point at which the file's kind is known (ADR 1358). Public so that
+/// a host deciding what to do with a launched file that is not a PDF asks the same question of the
+/// same bytes (ADR 2171).
+#[must_use]
+pub fn states_a_pdf_header(bytes: &[u8]) -> bool {
     const WINDOW: usize = 1024;
     bytes
         .get(..bytes.len().min(WINDOW))
@@ -1000,14 +1003,15 @@ pub(crate) fn resume_remote(open: &mut Open, bytes: &[u8]) -> Outcome {
     let name = remote.file.name().to_owned();
     let act = remote.act.action_name();
     // Table 207's `/F` is "[t]he application that shall be launched or the document that shall be
-    // opened or printed", and only the bytes say which. A document is opened below exactly as a
-    // remote go-to's is; anything else is an application, and starting one is what principle 3's
-    // sandbox withholds — Table 207's `/NewWindow` "shall be ignored" for it, which it is, since
-    // nothing is opened (ADRs 1368, 1358).
+    // opened or printed", and only the bytes say whether it is a PDF. A PDF is opened below exactly
+    // as a remote go-to's is; anything else is not this reader's to open, and what becomes of it —
+    // a program started never, a document handed to this machine's own handler at the reader's
+    // level — is the host's, which says so (ADRs 1358, 2171). Table 207's `/NewWindow` "shall be
+    // ignored" for it, which it is, since nothing is opened here.
     if remote.act == RemoteAct::Launch && !states_a_pdf_header(bytes) {
         outcome.notes.push(format!(
-            "this link declines — Launch: {name} is not a PDF document (§7.5.2's header), so \
-             Table 207 makes it an application to launch, which the sandbox withholds"
+            "this link declines — Launch: {name} is not a PDF document (§7.5.2's header), so this \
+             reader does not open it (Table 207)"
         ));
         return outcome;
     }
@@ -1328,7 +1332,7 @@ pub(crate) fn decline_threaded(open: &mut Open) -> Outcome {
 
 /// §12.7.8's named page in a second file, asked for one file at a time.
 ///
-/// Table 253's `/F` is "[t]he file containing the named page", and an import that met one is
+/// Table 253's `/F` is "\[t]he file containing the named page", and an import that met one is
 /// holding it: `pdf_model::view::ViewState::file_awaited` names the next file and this is the
 /// only place that turns it into a question. One at a time because a person answering for two
 /// files at once is answering one question twice, and because each answer may raise the next —
@@ -1435,7 +1439,7 @@ pub(crate) fn decline_named_page(open: &mut Open) -> Outcome {
 /// §7.6.4.1 says the processor "should prompt for a password" and states nothing about a prompt
 /// declined, so this is the file not supplied, said with the reason. For a jump that is a sentence
 /// and nothing else. For §12.7.8's named pages it is the references declined: Table 253's `/F` is
-/// "[t]he file containing the named page", no page arrives from it, and each widget keeps the
+/// "\[t]he file containing the named page", no page arrives from it, and each widget keeps the
 /// appearance its own dictionary states — the one the import found there — which is what
 /// [`decline_named_page`] already does for a file no host would give. The next file an import is
 /// waiting for is then asked for, as after any other answer (ADR 1345).

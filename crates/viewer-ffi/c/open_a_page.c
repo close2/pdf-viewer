@@ -192,7 +192,7 @@ static void say_panel(const char *what, quorra_panel *panel)
 /*
  * THE OTHER HALF OF THE QUERIES (ADR 0576).
  *
- * Eleven of the boundary's questions reached no symbol at all before this round. Every one of them
+ * These are the eleven of the boundary's questions ADR 0576 gave a symbol. Every one of them
  * is asked here, on whatever document the first argument names — most will answer QUORRA_NO_ANSWER,
  * which is not a failure: a document that states no collection has none, and a page with no /Thumb
  * is most pages of most documents. What is being demonstrated is that a C caller can ASK.
@@ -602,8 +602,8 @@ static int retype_the_note(quorra_viewer *viewer)
 }
 
 /*
- * §12.7's form, walked and then *changed*: the one thing a C caller could not do at all before the
- * five-hundred-and-eleventh session. Returns 1 on success.
+ * §12.7's form, walked and then *changed*, which a C caller does through the vocabulary ADR 0346
+ * gave the boundary. Returns 1 on success.
  *
  * The interesting step is the last: a check box's value is the name Table 170's appearance
  * dictionary is keyed by, and those names are the file's own invention — so a caller has to be told
@@ -1447,7 +1447,7 @@ int main(int argc, char **argv)
     }
 
     /* --------------------------------------------------------------------------------------- */
-    /* Everything the four-hundred-and-eleventh session left out of the ABI.                     */
+    /* Everything ADR 0247's first cut of the ABI left out.                                      */
     /* --------------------------------------------------------------------------------------- */
 
     /* The two enumerations this library answers with but does not push, and the name it gives a

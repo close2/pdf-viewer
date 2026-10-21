@@ -1303,13 +1303,37 @@ fn rasterise(device: &[Triangle], ramp: Option<&Ramp>, placed: Placed, divided: 
 impl MeshRaster {
     /// Rasterises a mesh into the part of a `width` by `height` target it covers.
     ///
+    /// [`Self::build_within`] over the whole target, whose first pixel is the grid's origin.
+    #[must_use]
+    pub fn build(
+        triangles: &[Triangle],
+        patches: Option<&PatchMesh>,
+        ramp: Option<&Ramp>,
+        to_device: Transform,
+        width: u32,
+        height: u32,
+    ) -> Option<Self> {
+        Self::build_within(triangles, patches, ramp, to_device, (0, 0, width, height))
+    }
+
+    /// Rasterises a mesh into the part of `within` it covers, `within` a rectangle of the grid
+    /// `to_device` maps onto, as `(left, top, right, bottom)` in its pixels.
+    ///
     /// `triangles` and `patches` are [`ShadingKind::Mesh`]'s, and exactly one of them is
     /// non-empty: a patch mesh is tessellated here, at the fineness `to_device` says its
     /// patches need, and a triangle mesh is drawn as the file states it.
     ///
-    /// `to_device` carries the mesh's own coordinates onto the target. `ramp` is
+    /// `to_device` carries the mesh's own coordinates onto the grid. `ramp` is
     /// [`ShadingKind::Mesh`]'s, and is what turns a [`Corners::Parameters`] corner into a
     /// colour *after* the interpolation §8.7.4.5.5 requires be done on the parameter.
+    ///
+    /// **Why a region of the grid rather than a target at its origin**: a pixel's colour is the
+    /// triangle containing its centre, decided in the grid's own coordinates, so a raster of the
+    /// page's grid confined to a window of it holds the page's pixels there — the triangles mapped
+    /// at the page's magnitude and every centre the page's — where a target at the origin would
+    /// map them at the window's and hold every pixel above and left of it as well (ADR 2167). The
+    /// raster's [`Self::left`] and [`Self::top`] are on the grid; the caller moves them onto its
+    /// surface.
     ///
     /// Returns `None` when the mesh covers no pixel of it, which a clipped-away or degenerate
     /// mesh does — and when a triangle carries parameters with no ramp to resolve them, which
@@ -1319,18 +1343,18 @@ impl MeshRaster {
     #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
-        clippy::cast_precision_loss,
-        reason = "every cast below is between a device pixel index and its coordinate, both                   bounded by the target's extent, which `MAX_EXTENT` keeps under 2^24"
+        reason = "every cast below is of a device coordinate to its pixel index, floored or \
+                  ceiled first and clamped to the region, which `MAX_EXTENT` keeps under 2^24"
     )]
-    pub fn build(
+    pub fn build_within(
         triangles: &[Triangle],
         patches: Option<&PatchMesh>,
         ramp: Option<&Ramp>,
         to_device: Transform,
-        width: u32,
-        height: u32,
+        within: (u32, u32, u32, u32),
     ) -> Option<Self> {
-        if width == 0 || height == 0 {
+        let (region_left, region_top, region_right, region_bottom) = within;
+        if region_right <= region_left || region_bottom <= region_top {
             return None;
         }
         // §8.7.4.5.7's patches are evaluated here rather than by the interpreter, because how
@@ -1373,10 +1397,10 @@ impl MeshRaster {
         }
         // Half a pixel of margin on each side, because a pixel is sampled at its centre and a
         // triangle ending at x = 10.0 still covers the sample at 9.5.
-        let left = (x0 - 0.5).floor().max(0.0) as u32;
-        let top = (y0 - 0.5).floor().max(0.0) as u32;
-        let right = (x1 + 0.5).ceil().max(0.0).min(width as f32) as u32;
-        let bottom = (y1 + 0.5).ceil().max(0.0).min(height as f32) as u32;
+        let left = ((x0 - 0.5).floor().max(0.0) as u32).max(region_left);
+        let top = ((y0 - 0.5).floor().max(0.0) as u32).max(region_top);
+        let right = ((x1 + 0.5).ceil().max(0.0) as u32).min(region_right);
+        let bottom = ((y1 + 0.5).ceil().max(0.0) as u32).min(region_bottom);
         let (span, rows) = (right.checked_sub(left)?, bottom.checked_sub(top)?);
         if span == 0 || rows == 0 {
             return None;
@@ -2789,6 +2813,52 @@ mod tests {
     fn a_parametric_mesh_without_its_ramp_is_refused() {
         let mesh = [triangle(Corners::Parameters([0.0, 1.0, 0.0]))];
         assert!(MeshRaster::build(&mesh, None, None, Transform::IDENTITY, 32, 32).is_none());
+    }
+
+    /// A raster built within a region of the grid is the raster of the whole grid there, pixel for
+    /// pixel, and is placed on the grid rather than at the region's origin: a pixel is the
+    /// triangle holding its own centre, which the region does not move (ADR 2167). The corners
+    /// are thirds and sevenths of a pixel, so no centre lies on an edge by a dyadic accident.
+    #[test]
+    fn a_raster_within_a_region_is_the_whole_raster_there() {
+        let corner = |x: f32, y: f32, colour: Color| (Point::new(x, y), colour);
+        let mesh: Vec<Triangle> = [
+            [
+                corner(1.0 / 3.0, 2.0 / 7.0, Color::rgb(1.0, 0.0, 0.0)),
+                corner(29.0 + 2.0 / 3.0, 3.0 / 7.0, Color::rgb(0.0, 1.0, 0.0)),
+                corner(4.0 / 3.0, 27.0 + 1.0 / 7.0, Color::rgb(0.0, 0.0, 1.0)),
+            ],
+            [
+                corner(29.0 + 2.0 / 3.0, 3.0 / 7.0, Color::rgb(0.0, 1.0, 0.0)),
+                corner(
+                    30.0 + 1.0 / 3.0,
+                    28.0 + 5.0 / 7.0,
+                    Color::rgb(1.0, 1.0, 0.0),
+                ),
+                corner(4.0 / 3.0, 27.0 + 1.0 / 7.0, Color::rgb(0.0, 0.0, 1.0)),
+            ],
+        ]
+        .into_iter()
+        .map(|points| Triangle {
+            points: points.map(|(point, _)| point),
+            corners: Corners::Colours(points.map(|(_, colour)| colour)),
+        })
+        .collect();
+        let whole = MeshRaster::build(&mesh, None, None, Transform::IDENTITY, 32, 32)
+            .expect("the mesh covers the target");
+        let within = (5, 7, 21, 26);
+        let part = MeshRaster::build_within(&mesh, None, None, Transform::IDENTITY, within)
+            .expect("the mesh covers the region");
+        assert_eq!(
+            (part.left, part.top, part.image.width, part.image.height),
+            (5, 7, 16, 19),
+            "the raster is the region, placed on the grid"
+        );
+        for y in within.1..within.3 {
+            for x in within.0..within.2 {
+                assert_eq!(pixel(&part, x, y), pixel(&whole, x, y), "pixel ({x}, {y})");
+            }
+        }
     }
 
     /// §10.7.3's smoothness tolerance moves the sampling in one direction only.

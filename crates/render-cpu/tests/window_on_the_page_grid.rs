@@ -32,9 +32,9 @@
 use std::sync::Arc;
 
 use pdf_render::{
-    BlendMode, Clip, ClipId, Color, Command, DisplayList, FillRule, Image, LineCap, Paint, Path,
-    PathCommand, Point, Ramp, Raster, Rasterizer as _, SampleAlpha, Shading, ShadingKind, Size,
-    Stroke, TargetSpec, Transform,
+    BlendMode, Clip, ClipId, Color, Command, Corners, DisplayList, FillRule, Image, LineCap, Paint,
+    Path, PathCommand, Point, Ramp, Raster, Rasterizer as _, SampleAlpha, Shading, ShadingKind,
+    Size, Stroke, TargetSpec, Transform, Triangle,
 };
 use render_cpu::{CpuRasterizer, Shown};
 
@@ -572,4 +572,209 @@ fn a_window_s_dots_past_two_pixels_are_the_page_s() {
         list.push(stroked(dot, 1.44 / SCALE, LineCap::Round));
     }
     every_window_is_the_page(&list, magnified(), anti_aliased);
+}
+
+/// The `index`th of a scatter of device points well inside both of [`WINDOWS`], so that a mark
+/// placed at one, ten pixels across or less, crosses no window's edge: `tiny-skia`'s converters
+/// cut a path at their pixmap's edge in floating point, which is ADR 2149 §2's bound and not what
+/// the tests below measure.
+fn inside_both(index: u32) -> (f32, f32) {
+    let golden = |k: f32| (k * 0.618_034 + 1.0 / 3.0).fract();
+    let k = index as f32;
+    (
+        9_000.0 + 70.0 * golden(k),
+        8.0 + 70.0 * golden(k * 1.7 + 0.2),
+    )
+}
+
+/// `commands` as the elements of an isolated §11.4.6 knockout group, which this backend composes
+/// as Porter-Duff `Source` and hands to the library's own converters.
+fn knockout(commands: Vec<Command>) -> Command {
+    Command::Group {
+        commands,
+        alpha: 1.0,
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+        isolated: true,
+        knockout: true,
+        alpha_is_shape: false,
+        blending: None,
+    }
+}
+
+/// A knockout group's elements past the library's 8191-pixel range on the page and inside it in
+/// each window: a `0 w` diagonal and curve, a triangle and a rectangle whose edges are thirds of a
+/// pixel (trap 225). The range is asked of the page's grid, so a window draws them as the page
+/// drawn whole does; asked of the surface, the window anti-aliased what the page drew aliased, 620
+/// pixels apart in ADR 2149 §3's probe (ADR 2166).
+#[test]
+fn a_window_s_knockout_element_takes_the_range_the_page_takes() {
+    let mut list = DisplayList::new(Size::new(WIDE as f32 / SCALE, TALL as f32 / SCALE));
+    let mut elements = Vec::new();
+    for index in 0..16 {
+        let (x, y) = inside_both(index);
+        let mut diagonal = Path::new();
+        diagonal.push(PathCommand::MoveTo(user(x, y)));
+        diagonal.push(PathCommand::CurveTo(
+            user(x + 2.9, y - 1.7),
+            user(x + 5.3, y + 6.1),
+            user(x + 8.7, y + 3.9),
+        ));
+        diagonal.push(PathCommand::LineTo(user(x + 1.3, y + 7.7)));
+        elements.push(stroked(diagonal, 0.0, LineCap::Butt));
+        elements.push(filled(triangle_at(x + 1.1, y + 0.4)));
+        let (left, top) = (x + 4.0 + 1.0 / 3.0, y + 4.0 + 2.0 / 3.0);
+        let mut bar = Path::new();
+        bar.push(PathCommand::MoveTo(user(left, top)));
+        bar.push(PathCommand::LineTo(user(left + 3.0 + 1.0 / 3.0, top)));
+        bar.push(PathCommand::LineTo(user(left + 3.0 + 1.0 / 3.0, top + 2.0)));
+        bar.push(PathCommand::LineTo(user(left, top + 2.0)));
+        bar.push(PathCommand::Close);
+        elements.push(filled(bar));
+    }
+    list.push(knockout(elements));
+    every_window_is_the_page(&list, magnified(), anti_aliased);
+}
+
+/// Knockout elements on a page past the range down rather than across, below a column of ordinary
+/// marks that gives the strip planner rows to cut between, drawn whole and in strips: every strip
+/// asks the range of the page's grid, so the last strip, under the range as the page is not, draws
+/// the knockout elements the page drawn whole draws (ADR 2166).
+#[test]
+fn a_strip_of_a_tall_page_draws_a_knockout_element_as_the_page_does() {
+    const NARROW: u32 = 96;
+    const DEEP: u32 = 9_000;
+    let target = TargetSpec {
+        width: NARROW,
+        height: DEEP,
+        transform: Transform::new(1.0, 0.0, 0.0, -1.0, 0.0, DEEP as f32),
+    };
+    let at = |x: f32, y: f32| Point::new(x, DEEP as f32 - y);
+    let mut list = DisplayList::new(Size::new(NARROW as f32, DEEP as f32));
+    for index in 0..160 {
+        let (x, y) = (
+            11.0 + (index % 7) as f32 * 11.0 + 1.0 / 3.0,
+            40.0 + index as f32 * 51.0 + 2.0 / 7.0,
+        );
+        let mut mark = Path::new();
+        mark.push(PathCommand::MoveTo(at(x, y)));
+        mark.push(PathCommand::LineTo(at(x + 7.3, y + 3.1)));
+        mark.push(PathCommand::LineTo(at(x + 2.9, y + 9.7)));
+        mark.push(PathCommand::Close);
+        list.push(filled(mark));
+    }
+    for index in 0..12 {
+        let mut elements = Vec::new();
+        let (x, y) = (
+            8.0 + 6.0 * (index % 12) as f32 + 1.0 / 3.0,
+            8_400.0 + 47.0 * index as f32 + 2.0 / 7.0,
+        );
+        let mut diagonal = Path::new();
+        diagonal.push(PathCommand::MoveTo(at(x, y)));
+        diagonal.push(PathCommand::LineTo(at(x + 9.7, y + 31.3)));
+        elements.push(stroked(diagonal, 0.0, LineCap::Butt));
+        let mut wedge = Path::new();
+        wedge.push(PathCommand::MoveTo(at(x + 0.3, y + 2.1)));
+        wedge.push(PathCommand::LineTo(at(x + 5.9, y + 13.7)));
+        wedge.push(PathCommand::LineTo(at(x + 1.1, y + 21.9)));
+        wedge.push(PathCommand::Close);
+        elements.push(filled(wedge));
+        list.push(knockout(elements));
+    }
+    let page = anti_aliased()
+        .with_strips(1)
+        .rasterize(&list, target)
+        .expect("the page draws");
+    assert!(
+        page.data.chunks_exact(4).any(|pixel| pixel != [255; 4]),
+        "the page holds no mark"
+    );
+    for strips in [2, 4, 8] {
+        let divided = anti_aliased()
+            .with_strips(strips)
+            .rasterize(&list, target)
+            .expect("the page draws in strips");
+        let moved = page
+            .data
+            .chunks_exact(4)
+            .zip(divided.data.chunks_exact(4))
+            .filter(|(whole, strip)| whole != strip)
+            .count();
+        assert_eq!(
+            moved, 0,
+            "{strips} strips: {moved} pixels the page does not have"
+        );
+    }
+}
+
+/// A mesh shading's triangles, their corners at fractions of a pixel no power of two divides,
+/// through a shape: §8.7.4.5.5 colours a pixel by the triangle holding its centre, and the window's
+/// raster is the page's only if the triangles are mapped and the centres taken on the page's grid,
+/// the raster built within the window's part of it (ADR 2167).
+///
+/// The page's target is [`magnified`] moved by a fraction of a pixel across as well as down, as a
+/// crop box off the origin moves a page: a vertex is then a sum the page's matrix and a window's
+/// round at different magnitudes, which a translation of zero across hides — and the fraction is
+/// one whose nearest 2⁻¹⁰ and 2⁻¹¹ differ, the steps of the page's binade and the second window's.
+#[test]
+fn a_window_s_mesh_is_the_page_s() {
+    const ACROSS: f32 = 0.371_6;
+    let target = TargetSpec {
+        transform: Transform::new(SCALE, 0.0, 0.0, -SCALE, ACROSS, TALL as f32 - 0.635_3),
+        ..magnified()
+    };
+    let user = |x: f32, y: f32| user(x - ACROSS, y);
+    let triangle_at = |x: f32, y: f32| triangle_at(x - ACROSS, y);
+    let mut list = DisplayList::new(Size::new(WIDE as f32 / SCALE, TALL as f32 / SCALE));
+    for index in 0..10 {
+        let (x, y) = scattered(index);
+        let colour = |share: f32| Color::rgb(share, 0.6 - 0.5 * share, 1.0 - share);
+        let mut triangles = Vec::new();
+        for row in 0..4 {
+            for column in 0..4 {
+                let (left, top) = (x - 3.1 + 3.7 * column as f32, y - 2.9 + 3.3 * row as f32);
+                let share = (row * 4 + column) as f32 / 16.0;
+                triangles.push(Triangle {
+                    points: [
+                        user(left, top),
+                        user(left + 3.71, top + 0.13),
+                        user(left + 0.29, top + 3.37),
+                    ],
+                    corners: Corners::Colours([colour(share), colour(1.0 - share), colour(0.5)]),
+                });
+                triangles.push(Triangle {
+                    points: [
+                        user(left + 3.71, top + 0.13),
+                        user(left + 4.03, top + 3.41),
+                        user(left + 0.29, top + 3.37),
+                    ],
+                    corners: Corners::Colours([colour(1.0 - share), colour(share), colour(0.5)]),
+                });
+            }
+        }
+        let mut shape = triangle_at(x - 2.3, y - 1.9);
+        shape.push(PathCommand::MoveTo(user(x + 1.1, y + 0.3)));
+        shape.push(PathCommand::LineTo(user(x + 12.9, y + 2.7)));
+        shape.push(PathCommand::LineTo(user(x + 4.4, y + 9.9)));
+        shape.push(PathCommand::Close);
+        list.push(Command::Fill {
+            path: Arc::new(shape),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            paint: Paint::Shading(Arc::new(Shading {
+                background: None,
+                kind: Arc::new(ShadingKind::Mesh {
+                    triangles: triangles.into(),
+                    patches: None,
+                    ramp: None,
+                }),
+                transform: Transform::IDENTITY,
+            })),
+            clip: None,
+            mask: None,
+            blend: BlendMode::Normal,
+        });
+    }
+    every_window_is_the_page(&list, target, anti_aliased);
 }

@@ -171,11 +171,14 @@ struct Arguments {
     /// §12.7.6.2's form and an import named by an absolute URI, per [`viewer_host::SUBMISSIONS`]
     /// (ADR 2076).
     submissions: viewer_host::Submissions,
+    /// §12.6.4.6's launched document that is not a PDF, per [`viewer_host::LAUNCHED_DOCUMENTS`]
+    /// (ADR 2171).
+    launched_documents: viewer_host::LaunchedDocuments,
 }
 
 /// What the usage line names, after the program's name.
-const USAGE: &str =
-    "[--trace[=topics]] [--cpu] [--links=L] [--remote-documents=R] [--submissions=S]";
+const USAGE: &str = "[--trace[=topics]] [--cpu] [--links=L] [--remote-documents=R] \
+                     [--submissions=S] [--launched-documents=D]";
 
 /// A message's `Debug` form cut to a line, for the trace.
 ///
@@ -202,12 +205,14 @@ fn file_name(path: &std::path::Path) -> String {
     )
 }
 
-/// The three of the settings words this window carries out: a link, a file the document names
-/// and a form sent to a server, each put to the reader on a card (ADRs 2040, 2076).
-const CARRIED: [&str; 3] = [
+/// The four of the settings words this window carries out: a link, a file the document names, a
+/// form sent to a server and a launched document handed to this machine's own handler, each put to
+/// the reader on a card (ADRs 2040, 2076, 2171).
+const CARRIED: [&str; 4] = [
     viewer_host::LINKS,
     viewer_host::REMOTE_DOCUMENTS,
     viewer_host::SUBMISSIONS,
+    viewer_host::LAUNCHED_DOCUMENTS,
 ];
 
 /// Why a settings word this window does not carry is refused: what the window does instead.
@@ -306,6 +311,7 @@ fn arguments() -> Arguments {
         links: settings.links,
         remote_documents: settings.remote_documents,
         submissions: settings.submissions,
+        launched_documents: settings.launched_documents,
     }
 }
 
@@ -390,6 +396,8 @@ struct Host {
     /// requests sent under it that have not been answered yet (ADR 2076).
     submissions: viewer_host::Submissions,
     submitter: viewer_host::submit::Submitter,
+    /// §12.6.4.6's level, read off the command line as the other three windows read it (ADR 2171).
+    launched_documents: viewer_host::LaunchedDocuments,
     /// The *ask* level's card — the flagship's, reused whole — and what it is asking about.
     ///
     /// While it is shown it has the keyboard and the pointer, as the password card does.
@@ -513,6 +521,7 @@ impl Host {
             remote_documents: viewer_host::RemoteDocuments::default(),
             submissions: viewer_host::Submissions::default(),
             submitter: viewer_host::submit::Submitter::new(),
+            launched_documents: viewer_host::LaunchedDocuments::default(),
             question: QuestionCard::default(),
             asked: None,
             offered: None,
@@ -2121,12 +2130,14 @@ fn main() {
         links,
         remote_documents,
         submissions,
+        launched_documents,
     } = arguments();
     let mut host = Host::new(path, topics, processor, faces, began);
     host.reader = reader;
     host.links = links;
     host.remote_documents = remote_documents;
     host.submissions = submissions;
+    host.launched_documents = launched_documents;
     host.anticipate();
     let event_loop = EventLoop::new().expect("an event loop");
     event_loop.set_control_flow(ControlFlow::Wait);

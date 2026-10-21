@@ -5,7 +5,9 @@ rounds"). Status: **accepted** and **built** for `render-cpu`, `raster-gpu` and 
 `viewer-device`, `pdf-font` and `viewer-confined` (session 1629, the same answers), and for
 `pdf-model` (session 1641: the two mechanical answers made by `tools/rustdoc-brackets.py` from
 rustdoc's own log, which `cargo test -p conformance` runs on planted cases, and the gate's build
-given `--keep-going`, without which the first failing crate hides every later crate's errors).
+given `--keep-going`, without which the first failing crate hides every later crate's errors), and
+for `viewer-core` and `render-raster` (session 1669: the instrument's pass and eight by hand; a
+name in a crate that depends on the one documented is a code span, as a private item's is).
 Context: ADRs 1023, 1273, 1912, 1914. No clause is read anew and no ledger row changes status.
 
 ## 1. What it was

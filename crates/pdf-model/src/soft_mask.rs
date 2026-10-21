@@ -13,7 +13,9 @@ use std::sync::Arc;
 use pdf_render::{Color, SoftMaskKind, Transfer};
 use pdf_syntax::{Dictionary, Document, Object, Stream};
 
-use crate::colour::{ColourSpace, Compositing, DeviceSpots, GreyRoute, InkScale, Plane, Presses};
+use crate::colour::{
+    ColourSpace, Compositing, DeviceSpots, GreyRoute, InkScale, NoPress, Plane, Presses,
+};
 use crate::function::Function;
 use crate::icc::Rendering;
 
@@ -255,18 +257,24 @@ fn luminosity(
     // painted in the press's own components — §11.4.7's pair, one scope over — and
     // the `Y` is the press's own grid over the four (`Press::luminance`, ADR 0857).
     // `None` where the interpretation may name no further press (§11.7.2's budget) or
-    // the press is not a profile's, both of which `luminosity_departure` then names.
+    // the press is not a profile's, both of which `luminosity_departure` then names; a
+    // poisoned table of presses is kept to be said as itself (ADR 2170).
+    let mut refused = None;
     let ink = match (&space, scale, &route, &additive) {
         (Some(ColourSpace::Icc { profile }), None, None, None) if profile.channels() == 4 => {
-            presses
-                // §11.7.5.3's second bullet names the parameters at a group's `Do`, and a
-                // mask group has none: §11.6.5.1 states it in an `/SMask` dictionary and
-                // §11.5.3 reduces it to one luminosity rather than painting it. So the press
-                // is sampled under Table 51's initial intent with compensation, which is
-                // what `Rendering::compensating()` is, and what the rest of this function
-                // already passes for the same reason.
-                .press_for_profile(profile, Rendering::compensating())
-                .and_then(|press| press.luminance().map(|luminance| (press, luminance)))
+            // §11.7.5.3's second bullet names the parameters at a group's `Do`, and a
+            // mask group has none: §11.6.5.1 states it in an `/SMask` dictionary and
+            // §11.5.3 reduces it to one luminosity rather than painting it. So the press
+            // is sampled under Table 51's initial intent with compensation, which is
+            // what `Rendering::compensating()` is, and what the rest of this function
+            // already passes for the same reason.
+            match presses.press_for_profile(profile, Rendering::compensating()) {
+                Ok(press) => press.luminance().map(|luminance| (press, luminance)),
+                Err(no_press) => {
+                    refused = Some(no_press);
+                    None
+                }
+            }
         }
         _ => blended_ink,
     };
@@ -336,11 +344,7 @@ fn luminosity(
         compositing,
         Compositing::Calibrated(_) | Compositing::Additive(_) | Compositing::Subtractive(..)
     );
-    let departures = space
-        .as_ref()
-        .and_then(|space| luminosity_departure(space, colorimetric))
-        .into_iter()
-        .collect();
+    let departures = mask_departures(space.as_ref(), colorimetric, refused);
     let transfer = match (scale, &route, &space) {
         (Some(scale), _, _) => derivation(scale, transfer),
         (None, Some(_), Some(space)) => Some(luminance_derivation(space, transfer)),
@@ -581,6 +585,26 @@ fn backdrop(
     space.map_or(1.0, |space| {
         space.ink(&backdrop_values(document, mask, space, stated))
     })
+}
+
+/// What a mask group's report says about its `/CS`: [`luminosity_departure`]'s sentence, or the
+/// poisoned table of presses said as itself rather than as a budget the page spent (ADR 2170).
+fn mask_departures(
+    space: Option<&ColourSpace>,
+    colorimetric: bool,
+    refused: Option<NoPress>,
+) -> Vec<String> {
+    if refused == Some(NoPress::Poisoned) {
+        return vec![format!(
+            "a soft mask's group states a four-component ICCBased /CS and {}, so its luminosity \
+             is taken as §11.5.3's device branch on device RGB",
+            NoPress::Poisoned.why()
+        )];
+    }
+    space
+        .and_then(|space| luminosity_departure(space, colorimetric))
+        .into_iter()
+        .collect()
 }
 
 /// Names a mask group's `/CS` where §11.5.3's colorimetric branch was not taken for it.

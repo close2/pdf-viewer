@@ -1,16 +1,19 @@
 // The controls over the page: one platform control for each widget quorra_window hands over,
 // placed over the widget's rectangle, showing what its field holds and handing back what a person
-// does to it (RFC 0010 step N3a, ADRs 2104, 2153). The window opens with the widgets' appearances
+// does to it, and measured against the rectangle it was given (RFC 0010 step N3a, ADRs 2104, 2153,
+// 2169). The window opens with the widgets' appearances
 // delegated, so a text, check box, radio button or choice field's widget is drawn by its control
 // here and by nothing else; a push-button, a signature and a field stating no /FT keep their
 // appearance on the page, which is why they get no control.
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Quorra.Interop;
 using VirtualKey = Windows.System.VirtualKey;
 
@@ -80,11 +83,68 @@ internal sealed class PageControls
                 // §14.9.3: the name "shall be used in place of the actual field name when an
                 // interactive PDF processor identifies the field in a user-interface".
                 ToolTipService.SetToolTip(element, wanted[index].Shown);
-                AutomationProperties.SetName(element, wanted[index].Shown);
+                AutomationProperties.SetName(element is CombBox comb ? comb.Box : element, wanted[index].Shown);
                 layer.Children.Add(element);
             }
         }
         Place(wanted, scale);
+    }
+
+    /// <summary>
+    /// Each placed control against the rectangle it was given, four logical pixels a control: the
+    /// width and height it was asked to occupy, then the least it can be (ADR 2169).
+    /// </summary>
+    /// <remarks>
+    /// A XAML control states no least width of its own once its style's MinWidth is set aside, which
+    /// <see cref="Fitted"/> does because the rectangle is the document's: a text or a choice control
+    /// scrolls what does not fit across. What it cannot be less than is the height its font's line
+    /// and its chrome take, and a check box or radio button its glyph, so those are what is measured.
+    /// </remarks>
+    internal List<int> Measure()
+    {
+        var sizes = new List<int>();
+        foreach (FrameworkElement? element in elements)
+        {
+            if (element is null)
+            {
+                continue;
+            }
+            double width = element.Width;
+            double height = element.Height;
+            (double leastWidth, double leastHeight) = Least(element, width);
+            sizes.Add((int)Math.Round(width));
+            sizes.Add((int)Math.Round(height));
+            sizes.Add((int)Math.Ceiling(leastWidth));
+            sizes.Add((int)Math.Ceiling(leastHeight));
+        }
+        return sizes;
+    }
+
+    // What one control cannot be smaller than, measured with its rectangle's size set aside and put
+    // back after: a glyph's both ways, and for the rest the height at the width it was given.
+    private static (double Width, double Height) Least(FrameworkElement element, double width)
+    {
+        FrameworkElement measured = element switch
+        {
+            CombBox comb => comb.Box,
+            ListBox { Items.Count: > 0 } list when list.ContainerFromIndex(0) is ListBoxItem row => row,
+            _ => element,
+        };
+        double keptWidth = measured.Width;
+        double keptHeight = measured.Height;
+        try
+        {
+            measured.Width = double.NaN;
+            measured.Height = double.NaN;
+            bool glyph = element is CheckBox or RadioButton;
+            measured.Measure(new Windows.Foundation.Size(glyph ? double.PositiveInfinity : width, double.PositiveInfinity));
+            return (glyph ? measured.DesiredSize.Width : width, measured.DesiredSize.Height);
+        }
+        finally
+        {
+            measured.Width = keptWidth;
+            measured.Height = keptHeight;
+        }
     }
 
     /// <summary>
@@ -138,17 +198,11 @@ internal sealed class PageControls
         switch (element)
         {
             case TextBox box:
-                // A control holding the keyboard shows the field's characters, so typing starts
-                // from what the format was made of; one that does not shows what Table 199's /F
-                // displays, which is what the page shows under it everywhere else (ADR 1604).
-                bool holds = box.FocusState != FocusState.Unfocused;
-                string shows = (holds ? field.Value : field.Displayed) ?? string.Empty;
-                if (box.Text != shows && written[index] is Written mine)
-                {
-                    mine.Text = shows;
-                    box.Text = shows;
-                    box.SelectionStart = shows.Length;
-                }
+                WriteText(index, box, field);
+                break;
+            case CombBox comb:
+                WriteText(index, comb.Box, field);
+                comb.ShowCells();
                 break;
             // Table 231 bit 14's field answers with its echo, which written back would be sent as
             // the next value, so a password control is never written to (ADR 0244 finding 3).
@@ -185,6 +239,21 @@ internal sealed class PageControls
         }
     }
 
+    // A control holding the keyboard shows the field's characters, so typing starts from what the
+    // format was made of; one that does not shows what Table 199's /F displays, which is what the
+    // page shows under it everywhere else (ADR 1604).
+    private void WriteText(int index, TextBox box, Placed field)
+    {
+        bool holds = box.FocusState != FocusState.Unfocused;
+        string shows = (holds ? field.Value : field.Displayed) ?? string.Empty;
+        if (box.Text != shows && written[index] is Written mine)
+        {
+            mine.Text = shows;
+            box.Text = shows;
+            box.SelectionStart = shows.Length;
+        }
+    }
+
     // The platform's control for one widget, or null where the page draws the widget itself.
     private FrameworkElement? Make(int index, Placed field)
     {
@@ -193,6 +262,14 @@ internal sealed class PageControls
         {
             case Native.QUORRA_CONTROL_ENTRY when Has(field, Native.QUORRA_FIELD_PASSWORD):
                 return PasswordControl(field);
+            // ISO 32000-2 §12.7.5.3, Table 231 bit 25, may be set "only if the MaxLen entry is
+            // present ... and if the Multiline, Password, and FileSelect flags are clear"; a field
+            // that breaks the rule keeps its plain control (a password field took its own above).
+            case Native.QUORRA_CONTROL_ENTRY when Has(field, Native.QUORRA_FIELD_COMB)
+                && field.Cells > 0
+                && !Has(field, Native.QUORRA_FIELD_MULTILINE)
+                && !Has(field, Native.QUORRA_FIELD_FILE_SELECT):
+                return new CombBox(TextControl(index, field, readOnly), field.Cells);
             case Native.QUORRA_CONTROL_ENTRY:
                 return TextControl(index, field, readOnly);
             case Native.QUORRA_CONTROL_CHECK:
@@ -220,6 +297,9 @@ internal sealed class PageControls
         }
     }
 
+    // Table 231 bit 26's rich text field is shown by its plain value, as every toolkit window shows
+    // it: what /RV's formatting would change is the widget's appearance, which a delegated control
+    // stands in for, and no window of this tree draws it yet.
     private TextBox TextControl(int index, Placed field, bool readOnly)
     {
         // Table 231 bit 13: "the field may contain multiple lines of text"; without it Enter is
@@ -387,6 +467,70 @@ internal sealed class PageControls
             }
         }
         return made;
+    }
+
+    // §12.7.5.3, Table 231 bit 25: "the field shall be automatically divided into as many equally
+    // spaced positions, or combs, as the value of MaxLen, and the text is laid out into those
+    // combs". The page draws no widget under a delegated control, so the combs are this control's:
+    // a cell for each position with a character centred in each, shown while the text box does not
+    // hold the keyboard; while it does, the box's own text, which is what a person types into.
+    private sealed class CombBox : Grid
+    {
+        private readonly TextBlock[] cells;
+        private readonly Grid layout = new() { IsHitTestVisible = false };
+
+        internal CombBox(TextBox box, uint count)
+        {
+            Box = box;
+            cells = new TextBlock[checked((int)count)];
+            Brush? rule = Application.Current.Resources.TryGetValue("TextControlForeground", out object? found)
+                ? found as Brush
+                : null;
+            for (int at = 0; at < cells.Length; at++)
+            {
+                layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                cells[at] = new TextBlock
+                {
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                // Equally spaced positions, a rule between each and the next.
+                var cell = new Border
+                {
+                    BorderBrush = rule,
+                    BorderThickness = new Thickness(at == 0 ? 0 : 1, 0, 0, 0),
+                    Child = cells[at],
+                };
+                Grid.SetColumn(cell, at);
+                layout.Children.Add(cell);
+            }
+            var outline = new Border { BorderBrush = rule, BorderThickness = new Thickness(1), IsHitTestVisible = false };
+            Children.Add(box);
+            Children.Add(layout);
+            Children.Add(outline);
+            box.GotFocus += (_, _) => ShowCells();
+            box.LostFocus += (_, _) => ShowCells();
+            box.TextChanged += (_, _) => ShowCells();
+            ShowCells();
+        }
+
+        /// <summary>The text box a person types into.</summary>
+        internal TextBox Box { get; }
+
+        /// <summary>The cells drawn from the box's text, or the box itself while it holds the keyboard.</summary>
+        internal void ShowCells()
+        {
+            bool holds = Box.FocusState != FocusState.Unfocused;
+            Box.Opacity = holds ? 1 : 0;
+            layout.Visibility = holds ? Visibility.Collapsed : Visibility.Visible;
+            // A position holds one character as a reader sees one, which is a text element rather
+            // than a UTF-16 unit.
+            TextElementEnumerator characters = StringInfo.GetTextElementEnumerator(Box.Text);
+            for (int at = 0; at < cells.Length; at++)
+            {
+                cells[at].Text = characters.MoveNext() ? characters.GetTextElement() : string.Empty;
+            }
+        }
     }
 
     // What this window last wrote into one text control.

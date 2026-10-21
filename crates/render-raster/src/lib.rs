@@ -132,7 +132,7 @@ pub fn options() -> raster_gpu::Options {
 }
 
 /// The raster backend: a persistent device, resource caches keyed by the display
-/// list's own `Arc` identities (pinned and evicted by [`cache::ResourceCaches`],
+/// list's own `Arc` identities (pinned and evicted by `cache::ResourceCaches`,
 /// whose docs carry both the ABA argument for pinning and the eviction policy
 /// `QUORRA_FEEDBACK.md` section 2 asked for), and the medium colour to impose.
 #[derive(Debug)]
@@ -263,7 +263,7 @@ impl QuorraRasterizer {
     /// surface path: a window has an opaque background, and this is a window's frame.
     ///
     /// **It reuses its scene exactly as the surface path does** (ADR 0351) — the same
-    /// [`present::FrameSlot`], the same key — which is what lets a test look at a replayed frame
+    /// `present::FrameSlot`, the same key — which is what lets a test look at a replayed frame
     /// at all: `Device::render_retained` replays into a `Readback` target as readily as onto a
     /// swapchain, and raster's own survival table says the target is not part of the question.
     /// [`QuorraRasterizer::last_frame`] says which of the two this call was.

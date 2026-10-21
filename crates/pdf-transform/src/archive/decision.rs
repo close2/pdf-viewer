@@ -376,11 +376,23 @@ pub enum Loss {
     /// any page moves; the report names every entry with the value it held, and `remedy =
     /// "supply"` with `language` writes the operator's tag instead (`doc/adr/2066`).
     LanguageIdentifier,
+    /// ISO 19005-2 section 6.2.11.4.1, ISO 19005-4 section 6.2.10.4.1: a font this viewer draws
+    /// from a face of this machine's is embedded with the face this program ships instead.
+    ///
+    /// ADR 0270 lets the viewer take a machine's face of the same family where the document's
+    /// encoding names characters the shipped face lacks, and that face is not this program's to
+    /// embed: ISO 32000-2 §9.9.1 makes embeddability a fact about a licence. Where every code the
+    /// page shows has a glyph in the shipped face, embedding it draws every mark the page makes, at
+    /// the same widths — **what changes is the shapes**, from the machine's face to the one a
+    /// reader without it already draws. §9.5's NOTE 5 leaves the face of a font the file does not
+    /// carry to the processor, so nothing the file states is lost; what this viewer's window
+    /// showed on this machine is (`doc/adr/2162`).
+    MachineFace,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 22] = [
+    pub const ALL: [Self; 23] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::MetadataPacket,
@@ -403,6 +415,7 @@ impl Loss {
         Self::Halftone,
         Self::OverprintMode,
         Self::LanguageIdentifier,
+        Self::MachineFace,
     ];
 
     /// The word a caller authorises it by.
@@ -431,6 +444,7 @@ impl Loss {
             Self::Halftone => "halftone",
             Self::OverprintMode => "overprint-mode",
             Self::LanguageIdentifier => "language-identifier",
+            Self::MachineFace => "machine-face",
         }
     }
 
@@ -600,6 +614,15 @@ impl Loss {
                  on any page moves, and the report names every entry with the value it held; \
                  remedy = \"supply\" with language = \"<tag>\" writes the operator's tag instead"
             }
+            Self::MachineFace => {
+                "a font this viewer draws from a face of this machine's, because the document's \
+                 encoding names characters the face this program ships lacks, is embedded with \
+                 the shipped face: every character the pages show is drawn, at the same widths, \
+                 in the shipped face's shapes rather than the machine's — the page a reader \
+                 without that face already shows. Name the machine's face with --font, a \
+                 statement that it may lawfully be embedded, to keep its shapes instead where the \
+                 font states a descriptor"
+            }
         }
     }
 
@@ -667,6 +690,8 @@ pub struct Authorisations {
     pub overprint_mode: bool,
     /// Whether [`Loss::LanguageIdentifier`] was authorised.
     pub language_identifier: bool,
+    /// Whether [`Loss::MachineFace`] was authorised.
+    pub machine_face: bool,
 }
 
 impl Authorisations {
@@ -696,6 +721,7 @@ impl Authorisations {
             Loss::Halftone => self.halftone,
             Loss::OverprintMode => self.overprint_mode,
             Loss::LanguageIdentifier => self.language_identifier,
+            Loss::MachineFace => self.machine_face,
         }
     }
 
@@ -724,6 +750,7 @@ impl Authorisations {
             Loss::Halftone => self.halftone = true,
             Loss::OverprintMode => self.overprint_mode = true,
             Loss::LanguageIdentifier => self.language_identifier = true,
+            Loss::MachineFace => self.machine_face = true,
         }
     }
 }
@@ -2295,6 +2322,10 @@ pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[
         "metadata/extension-schema-container-fields",
         Conditional::PerDocument(Loss::MetadataProperty),
     ),
+    (
+        "fonts/font-programs-embedded",
+        Conditional::PerDocument(Loss::MachineFace),
+    ),
 ];
 
 /// What a row's answer waits on, for the two rows that wait on anything.
@@ -3584,6 +3615,34 @@ fn stated_where_free(
     }
 }
 
+/// ISO 19005 section 6.2.11.4.1's embedded faces: a statement, or where one of them is the shipped
+/// face over a face of this machine's the viewer draws instead, the loss `machine-face`
+/// (`doc/adr/2162`).
+fn embedded_faces(
+    reinterprets: &'static str,
+    authorised: Authorisations,
+    prepared: &Prepared,
+) -> Decision {
+    if let Some(because) = prepared.obstacle(Rewrite::SubstituteFontProgram) {
+        return Decision::Refused(because);
+    }
+    let over_a_machine_face = prepared
+        .substitutes
+        .as_ref()
+        .is_ok_and(|substitutes| !substitutes.over_machine_faces.is_empty());
+    if over_a_machine_face {
+        return answer_of(
+            Answer::Loses(Loss::MachineFace, Rewrite::SubstituteFontProgram),
+            authorised,
+            prepared,
+        );
+    }
+    Decision::Stated {
+        rewrite: Rewrite::SubstituteFontProgram,
+        reinterprets,
+    }
+}
+
 /// What a container missing a field the file states nowhere costs: section 3.9's loss.
 const CONTAINER_DISCARDED: Answer =
     Answer::Loses(Loss::MetadataProperty, Rewrite::ExtensionContainerDiscarded);
@@ -3769,6 +3828,11 @@ fn answer_of(answer: Answer, authorised: Authorisations, prepared: &Prepared) ->
                     prepared,
                 )
             }
+        }
+        // A face embedded for a font this viewer draws from one of the machine's: the same rewrite,
+        // and the shapes it changes are a loss the operator authorises (`doc/adr/2162`).
+        Answer::Stated(_, Rewrite::SubstituteFontProgram, reinterprets) => {
+            embedded_faces(reinterprets, authorised, prepared)
         }
         // Every other `Stated` row is decided by the requirement and the standard, and then by
         // whether *this* document can take the rewrite — an appearance whose subtype clause

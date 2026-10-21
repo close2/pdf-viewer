@@ -221,6 +221,8 @@ pub(crate) fn encode(
 /// processor then measure it by the one closed form (ADR 1857). So the scene keeps each such dot
 /// as a [`DotAsLine`] instead of reading the view, and is kept at another view only where every
 /// one of them is a line there too (ADR 1877).
+///
+/// [`pdf_render::thin_segment`]: fn@pdf_render::thin_segment
 fn thin_line(
     enc: &mut Encoder<'_>,
     builder: &mut SceneBuilder,

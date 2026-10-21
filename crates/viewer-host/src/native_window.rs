@@ -22,6 +22,10 @@
 //! first six are exactly the events a toolkit answers its own way, and an event added to the
 //! vocabulary fails to compile here, then in both hosts if its answer is theirs (ADR 1972).
 //!
+//! **And the launch**: [`Launch`] starts the document opening on a thread of its own before the
+//! toolkit is up, and [`NativeWindow::sized`] takes the viewport's sizes, the first of which joins
+//! it — each toolkit's part a typed parameter rather than a step left in the host (ADR 2172).
+//!
 //! What is *not* here is as deliberate. The widgets, the controls placed over the page, the
 //! popups, §14.7's tree and the loop's own `run` stay each host's: `run` publishes what changed to
 //! the accessibility bridge, whose crate this one does not depend on (ADR 1920 §3).
@@ -36,8 +40,10 @@ use viewer_core::{
 
 use crate::trace::{Topic, Trace};
 
+mod launch;
 mod requests;
 
+pub use launch::{FirstSize, Fitting, Joining, Launch, Refusals, Sizing};
 pub use requests::Asked;
 
 /// The identity a native window gives the one document it opens with.
@@ -271,6 +277,8 @@ pub struct WindowState {
     /// The latest viewport the window was given while the document was still opening, which the
     /// join tells the core rather than the first one.
     pub awaiting: Option<Command>,
+    /// Whether the viewport has had a size, the first of which joins the open (ADR 2172).
+    pub sized: bool,
     /// Whether the first frame has been reported, so that the launch line is printed once.
     pub presented: bool,
     /// Table 29's `/PageMode /FullScreen`, §12.2's chrome flags, and the way back out.
@@ -328,6 +336,9 @@ pub struct WindowState {
     /// on a URL and opening a PDF beside this one in this reader are two decisions, and one word
     /// for both would make each of them mean the other (ADR 1227).
     pub remote_documents: crate::RemoteDocuments,
+    /// §12.6.4.6: what this window does with a launched document that is not a PDF, per
+    /// `--launched-documents=` — a fourth subject, handing a file to another program (ADR 2171).
+    pub launched_documents: crate::LaunchedDocuments,
 }
 
 impl WindowState {
@@ -371,6 +382,7 @@ impl WindowState {
             read_look: None,
             anticipated: None,
             awaiting: None,
+            sized: false,
             presented: false,
             presenting: crate::Presenting::default(),
             submitter: crate::submit::Submitter::new(),
@@ -382,6 +394,7 @@ impl WindowState {
             separations: settings.separations,
             links: settings.links,
             remote_documents: settings.remote_documents,
+            launched_documents: settings.launched_documents,
         }
     }
 
@@ -1181,6 +1194,13 @@ pub trait NativeWindow {
             state.showing.fragment.clone(),
         );
         self.drain(commands);
+    }
+
+    /// The viewport took a size, in device pixels — the first joins the open — under what
+    /// `sizing` says this toolkit does (ADRs 1539, 1811, 1855, 2172). Answers what is left for the
+    /// toolkit to do.
+    fn sized(&mut self, width: u32, height: u32, scale: f32, sizing: Sizing) -> Joining {
+        launch::sized(self, width, height, scale, sizing)
     }
 
     /// Takes in the document the opening thread opened, and tells it its viewport.

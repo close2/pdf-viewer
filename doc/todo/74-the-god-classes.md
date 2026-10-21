@@ -1,6 +1,6 @@
 # 74 — The god classes: what the census finds, in the order to split it
 
-Status: **open** — entries 1 to 11 are split (ADRs 2004, 2018, 2032, 2046, 2064, 2080, 2081, 2096, 2097, 2112, 2128, 2144, 2160); the rest is the order. Ranking rule: ADR 2005.
+Status: **open** — entries 1 to 12 are split (ADRs 2004, 2018, 2032, 2046, 2064, 2080, 2081, 2096, 2097, 2112, 2128, 2144, 2160, 2176); the rest is the order. Ranking rule: ADR 2005.
 Priority: the owner's, 2026-10-19: "Refactor god classes,..." and "Do not fix any bugs.", in a round
 asked to improve code quality for "the 'project which we can show students' part".
 Instrument: `python3 -I -B tools/god-census.py --top <n>`; `tools/state.sh gods` prints the top five
@@ -148,7 +148,17 @@ page showing at a point, the selection's spans), `pages` (a page, its size, the 
 documentation and the types, a different split; `fragments.rs` is the largest module at about 390
 lines and `apply_parameter` in it the next cut if one is wanted.
 
-## 12. Files with no large block
+## 12. Built — `Walk` (`crates/pdf-archive/src/survey.rs`, with `survey/`), ADR 2176
+
+The survey's one `impl Walk` of 1 457 lines and 52 methods, in a 4 300-line file. `survey.rs` is the
+root — `Survey` and the observation types a requirement reads, the walk's state (`Walk`, `State`,
+`Context`, `Operands`), the free functions that classify a space or a profile, and the tests — and
+eleven modules each hold an `impl Walk` for one concern: `pages`, `operators` (the stream loop),
+`fonts`, `xobjects`, `graphics_state`, `colour_spaces`, `painting`, `patterns`, `records`, `literals`
+and `marked_content`. About 1 500 lines of tests and 1 000 of `Survey` and its types remain in the
+root, a different split.
+
+## 13. Files with no large block
 
 `viewer-ffi/src/abi.rs` (7 147 lines: the exported surface, one group per object kind),
 `viewer-confined/src/protocol.rs` (7 820, about 2 890 of them tests, and the two longest functions
@@ -158,7 +168,7 @@ arm per annotation subtype), `pdf-signature/src/signature.rs`. Test files (`pdf-
 the census but not god classes: the remedy is a directory of test modules by clause, and it is a
 different round.
 
-## 13. Functions
+## 14. Functions
 
 `content/run.rs::run_from` (one match over the operator set; split by operator family into
 functions the match calls, keeping its `#[expect]` reasoning true), `linearize.rs::place` and

@@ -160,7 +160,7 @@ pub struct Viewer {
     raising: bool,
     /// Whether §12.4.4.2's navigation nodes are being walked right now.
     ///
-    /// The same bound one clause over, and the clause itself says why one is needed: "[i]f NA
+    /// The same bound one clause over, and the clause itself says why one is needed: "\[i]f NA
     /// specifies an action that navigates to another page, the following actions for navigating to
     /// another page take place, and Next should not be present". *Should*, addressed to a
     /// producer — so a file that states both has stated a walk that arrives at a page whose own

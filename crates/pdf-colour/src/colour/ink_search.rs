@@ -72,7 +72,7 @@ const INK_STEPS: usize = 12;
 /// cube.
 const INK_BACKTRACKS: usize = 6;
 
-/// The side of the grid [`ink_table`] holds, over sRGB.
+/// The side of the grid [`Press::table`] holds, over sRGB.
 ///
 /// 17 × 17 × 17 separations, 78 KB, and the sRGB cube's own corners are grid points — so
 /// paper and `#000000` are looked up rather than interpolated. Chosen by measurement: with
@@ -126,7 +126,7 @@ impl Press {
 /// [`search_ink`] over every point of the [`INK_TABLE_SIDE`] grid.
 ///
 /// **Parallel off a rayon worker and serial on one**, which is the second half of
-/// [`ink_table`]'s deadlock argument rather than a second opinion about speed. The parallelism
+/// [`Press::table`]'s deadlock argument rather than a second opinion about speed. The parallelism
 /// is there for the launch path — 61.7 ms serially against 7.5–10.0 ms across this machine's
 /// 24 threads, on the way to page one — and the launch path is a host's own thread, never a
 /// worker of the pool. Inside a worker, `collect` would run other jobs while it waits and this
@@ -170,7 +170,7 @@ fn build_ink_table(space: &pdf_render::BlendingSpace) -> Vec<[f32; 4]> {
 /// So this is a **right inverse of [`cmyk`]**, which is what §10.3's branch means here — the
 /// ink cube stands in for a press's profile (ADRs 0009, 0042), and converting into the space
 /// it defines is asking which ink that press would lay down to make this colour. [`search_ink`]
-/// is that question answered from nothing; this is it answered from [`ink_table`] and landed
+/// is that question answered from nothing; this is it answered from [`Press::table`] and landed
 /// by [`polish_four_inks`], which is the same answer 998 times in 1000 and **16 times faster**
 /// on the colours a document is made of.
 ///
@@ -221,7 +221,7 @@ pub(super) fn xyz_to_ink(press: &Press, xyz: [f32; 3]) -> [f32; 4] {
     polish_four_inks(&press.space, target, ink_lookup(press, target))
 }
 
-/// [`ink_table`] read at `target`, trilinearly between the eight grid separations around it.
+/// [`Press::table`] read at `target`, trilinearly between the eight grid separations around it.
 fn ink_lookup(press: &Press, target: [f32; 3]) -> [f32; 4] {
     let table = press.table();
     let side = INK_TABLE_SIDE;
@@ -417,7 +417,7 @@ fn ink_at_black(
 
 /// Moves all four inks together, from a starting separation near the answer.
 ///
-/// The ladder fixes the black at one of thirteen values and [`ink_table`] at one of its grid
+/// The ladder fixes the black at one of thirteen values and [`Press::table`] at one of its grid
 /// neighbours', so a colour whose feasible band of black falls *between* those is missed by
 /// both. Here the black moves with the other three: the Jacobian is three rows by four
 /// columns, so the step taken is the smallest one that answers — `Jᵀ(JJᵀ)⁻¹r`, the

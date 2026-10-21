@@ -206,6 +206,7 @@ pub use policy::{
     scripting, scripts, scripts_answered, separations, separations_note, submissions, supply_note,
     trust_anchors, unanswerable, under_remote_documents, uri_note, warned,
 };
+pub use policy::{LAUNCHED_DOCUMENTS, Launched, LaunchedDocuments};
 pub use popup::Window;
 pub use presentation::{Chrome, Placing, Presenting, centred, fitted};
 pub use printing::Defaults as PrintDefaults;

@@ -1522,3 +1522,57 @@ times a frame, not only the one the brief names; the round's one `--clock` hold 
 and `t2-turn_path` with the toolkit gate from the start, so the bands that move are re-taken by the round
 rather than found by the merge.
 
+## 160. "The C# cannot be compiled here" is tested before it is believed
+
+Three rounds wrote the WinUI 3 window on the premise that only CI's Windows runner could compile it;
+round 1666 installed a .NET SDK into its scratch and compiled both C# projects on Linux against the real
+Windows App SDK references with warnings as errors, the XAML stubbed and the packaging tooling off — and
+the first compile found two errors the first CI run would have stopped on (ADR 2168). The SDK and the
+check script are kept at `/home/AI/dotnet-check/` (`cs/check.sh`); a round that writes C# runs it before
+it reports, and leaves to CI only what Linux cannot see — the XAML compiler, the packaging, the MSVC build
+of the ABI's library.
+
+## 161. A drive runs on the export's copy of its script, never the worktree's
+
+Bash reads a script as it runs: a sibling's edit to `tools/drive-windows.sh` during round 1668's drive
+made bash run the steps twice and fail one with `local: can only be used in a function`, and one window's
+step read `wrong` for the edit, not the change (ADRs 2172, 2173). In a shared worktree the drive — and
+every long script a round runs — is started from the round's export (HEAD's copy of the script, or the
+round's own) and not from the worktree's path; the same rule the merge learned for `tools/batch.sh` when a
+resumed round rewrote it mid-chain.
+
+## 162. Where a sibling edits the same crate, the multiset proof is taken from the round's own hunks applied to HEAD
+
+Round 1669 rewrote doc comments across `viewer-core` while slot 5 edited the same crate's code; a
+multiset of the worktree's files would have mixed both rounds' hunks and proved nothing about either.
+The round classified its own hunks — every one a `///` or `//!` line — applied them to HEAD's copies, and
+compared the multiset of non-comment lines there: unchanged in twenty-seven files, with a planted type
+change named (ADR 1938's status line). In a shared worktree the proof that nothing moved is a statement
+about the round's hunks, not about the file, so it is taken from the hunks.
+
+## 163. A census that decides a statement-or-loss row runs before and after under both shipped profiles
+
+Round 1663 made the machine's face a loss the printing profile discards and the `as-shown` profile stops
+at; under `as-if-printed` alone the thirty-six documents simply moved from refused to converted, and only
+the `as-shown` column showed what the change meant for a reader who wants the page as the window drew it —
+a construction refusal becoming a stop at a named loss (ADR 2162). A row that can be a statement under
+one profile and a loss under another is measured under both before and after, or the census answers one
+reader's question and calls it the converter's.
+
+## 164. A cost lever read off a profile's split is priced at its ceiling against the bar before it is built
+
+ADR 2122 §5 read the folding measure's profile — 45 % pair comparisons, 43 % crossings that bound nothing
+— and named discarding those crossings as the lever to bring the measure under a fifth; round 1664 built
+the discard to its end and found the pair comparisons alone cost 80 M instructions a draw against a whole
+budget of 68 M, which the profile's split had said before anything was written (ADR 2164). A lever is a
+claim that removing one share brings the total under a bar; the arithmetic that checks it — the shares that
+cannot be removed, summed, against the bar — is done first, and a lever that fails it is not built.
+
+## 165. A drive step for a new settings word runs in `quorra-confined` too
+
+Round 1667 added `--launched-documents` and drove it through `quorra`, `quorra-gtk` and `quorra-qt`, all
+green; the confined window's `CARRIED` list refuses every word it does not know, so the same step read
+`wrong` four times there until the word was carried (ADR 2170). A new settings word is driven in all four
+windows before it is reported, and the confined window first, since it is the one that refuses by
+construction rather than by accident.
+

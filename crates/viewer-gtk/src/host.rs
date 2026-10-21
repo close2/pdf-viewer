@@ -45,8 +45,10 @@ use std::rc::{Rc, Weak};
 use gtk4::glib;
 use pdf_model::view::WidgetAppearances;
 use render_cpu::CpuRasterizer;
-use viewer_core::{Command, DocumentId, Event, Viewer};
-use viewer_host::native_window::{Asked, DOCUMENT, NativeWindow, Showing, WindowState};
+use viewer_core::{Command, DocumentId};
+use viewer_host::native_window::{
+    Asked, DOCUMENT, Launch, NativeWindow, Refusals, Showing, WindowState,
+};
 
 use crate::controls::Placed;
 use viewer_host::panel::{self, Miniatures};
@@ -104,37 +106,22 @@ pub enum HostError {
 ///
 /// **The launch path's overlap, in this window's shape.** What GTK needs before a first allocation
 /// — the display, the theme, the window, its realisation — is 90 to 140 ms under Xvfb, and none of
-/// it needs the document; the open and page one's interpretation need none of it. So the open is
-/// started before `Application::run`, on a `Viewer` with no viewport, through the same commands
-/// [`NativeWindow::open_document`] sends, and [`viewer_core::Viewer::anticipate`] interprets the page it
-/// stands at (ADR 1531). The first allocation joins it and its `Resize` goes straight to the
-/// render. The core is still single-threaded: it is made on that thread and moved back, which is
-/// `viewer-core`'s rule 4 as `quorra` keeps it.
+/// it needs the document, so the open is started before `Application::run`. The sequence is
+/// [`Launch`], which `viewer-qt` and the C window start alike (ADR 2172); what is this window's is
+/// the path it names and the error an unreadable one is.
 #[derive(Debug)]
 pub struct Opening {
     /// What was named.
     path: PathBuf,
-    /// The open file, held here too for a password's second open.
-    bytes: pdf_syntax::FileBytes,
-    /// Annex O's fragment, as the command line carried it.
-    fragment: Option<String>,
-    /// The thread, until the first allocation joins it — a [`viewer_host::Loading`], so that page
-    /// one publishes how far it has got (ADR 1811).
-    thread: viewer_host::Loading<(Viewer, Vec<Event>)>,
-    /// Page one drawn while it is read on that thread (ADRs 1855, 1867): told the window's size on
-    /// the first allocation, looked at while the bar is up, and handed to the drawing at the join.
-    ahead: viewer_host::Ahead,
-    /// The conversion `--archive` chose, kept for the window's archive key (ADR 1954).
-    archive: Option<viewer_core::Archiving>,
+    /// The document opening on its thread, until the first allocation joins it.
+    launch: Launch,
 }
 
 impl Opening {
     /// Opens the file and starts the thread that opens the document in it.
     ///
-    /// `reader` is the reader's three policy words, which become their commands on that thread:
-    /// reading an anchor or a target directory is not needed to show page one (`CLAUDE.md`
-    /// principle 2), and the commands go before the document because a policy applied halfway
-    /// through is not a policy (ADR 1580).
+    /// `reader` is the reader's policy words, which become their commands on that thread and
+    /// before the document (ADR 1580); what a named directory refused is said on the terminal.
     ///
     /// # Errors
     ///
@@ -153,51 +140,16 @@ impl Opening {
                 path: path.to_owned(),
                 error: error.to_string(),
             })?;
-        let commands = viewer_host::native_window::opening_commands(
-            viewer_host::native_window::standing(settings).window(),
-            widget_appearances,
-            settings.separations,
-            bytes.clone(),
-            None,
-            fragment.clone(),
-        );
-        let ahead = viewer_host::Ahead::page_sized();
-        let drawing_ahead = ahead.clone();
-        let archive = reader.archive.clone();
-        let thread = viewer_host::Loading::start(move || {
-            // No viewport: the window does not exist yet, and the core renders nothing into one
-            // with no extent.
-            let mut viewer = Viewer::new(0, 0, 1.0);
-            let mut events = Vec::new();
-            let supply = reader.commands();
-            for command in supply.commands {
-                events.extend(viewer.handle(command));
-            }
-            // Said where the window says everything else, and before the document so that a
-            // person reading the verdicts that follow knows which files did not take (trap 5).
-            for refusal in supply
-                .refused
-                .into_iter()
-                .chain(viewer.reference_refusals().iter().map(ToString::to_string))
-            {
-                println!("note: {refusal}");
-            }
-            for command in commands {
-                events.extend(viewer.handle(command));
-            }
-            // Page one read here as `Viewer::anticipate` reads it, and drawn beside the read on a
-            // thread of its own once the read has run `GLIMPSE_AFTER` (ADR 1855): the read keeps
-            // the thread the launch placed it on (trap 154).
-            events.extend(drawing_ahead.anticipate(&mut viewer));
-            (viewer, events)
-        });
         Ok(Self {
             path: path.to_owned(),
-            bytes,
-            fragment,
-            thread,
-            ahead,
-            archive,
+            launch: Launch::start(
+                bytes,
+                fragment,
+                widget_appearances,
+                settings,
+                reader,
+                Refusals::Terminal,
+            ),
         })
     }
 }
@@ -407,8 +359,6 @@ pub struct Host {
     /// `Linear` are made of pictures of the attachments, and a preview is an embedded document
     /// opened (ADR 1251).
     previews: Rc<RefCell<panel::Previews<gtk4::gdk::MemoryTexture>>>,
-    /// Whether the document has been opened yet, which waits for the first allocation.
-    opened: bool,
     /// The controls over the page, and which fields they are for.
     placed: Vec<Placed>,
     /// §12.5.6.14's open popup windows, as the widgets placed for them.
@@ -511,7 +461,6 @@ impl std::fmt::Debug for Host {
         formatter
             .debug_struct("Host")
             .field("path", &self.state.showing.path)
-            .field("opened", &self.opened)
             .field("dirty", &self.state.showing.dirty)
             .field("placed", &self.placed.len())
             .finish_non_exhaustive()
@@ -525,25 +474,16 @@ impl Host {
     /// viewport's size decides the resolution page one is rasterised at, and a page drawn at a
     /// guessed size would be drawn twice (ADR 1539).
     #[must_use]
-    pub fn open(
-        app: &gtk4::Application,
-        opening: Opening,
-        widget_appearances: WidgetAppearances,
-        settings: viewer_host::Settings,
-        trace: Trace,
-    ) -> Rc<RefCell<Self>> {
-        let Opening {
-            path,
-            bytes,
-            fragment,
-            thread,
-            ahead,
-            archive,
-        } = opening;
+    pub fn open(app: &gtk4::Application, opening: Opening, trace: Trace) -> Rc<RefCell<Self>> {
+        let Opening { path, launch } = opening;
         let path = path.as_path();
         trace.say(
             Topic::Launch,
-            format_args!("opened {} bytes of {} on disk", bytes.len(), path.display()),
+            format_args!(
+                "opened {} bytes of {} on disk",
+                launch.bytes().len(),
+                path.display()
+            ),
         );
         Rc::new_cyclic(|me| {
             let chrome = Rc::new(RefCell::new(Chrome {
@@ -553,17 +493,7 @@ impl Host {
             let ui = build_window(app, path, me, &chrome);
             trace.say(Topic::Launch, format_args!("window built"));
             RefCell::new(Self {
-                state: WindowState::new(
-                    path,
-                    bytes,
-                    fragment,
-                    trace,
-                    ahead,
-                    widget_appearances,
-                    settings,
-                )
-                .archiving(archive)
-                .opening(thread),
+                state: launch.state(path, trace),
                 pointer_at: None,
                 zoom_wheel: viewer_host::ZoomWheel::default(),
                 panels_due: false,
@@ -577,7 +507,6 @@ impl Host {
                 scale: 1,
                 miniatures: Rc::new(RefCell::new(Miniatures::new())),
                 previews: Rc::new(RefCell::new(panel::Previews::new())),
-                opened: false,
                 placed: Vec::new(),
                 popups: Vec::new(),
                 popups_shown: Vec::new(),

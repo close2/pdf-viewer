@@ -71,7 +71,7 @@ pub(crate) struct Open {
     /// §12.3.3's outline, read the first time something asks for it and never on the launch path.
     ///
     /// **Not read when the document opens, because page one does not need it** — `CLAUDE.md`
-    /// principle 2's "[a]nything not needed to show page one is deferred until first use". It is
+    /// principle 2's "\[a]nything not needed to show page one is deferred until first use". It is
     /// 35.5 M instructions on ISO 32000-2's 988 items, and the title bar's §12.3.3 section, which
     /// was the reason it was read at open, also needs [`Self::page_indices`] — 65.1 M more, the
     /// whole page tree. [`crate::Preparation`] is how a host has both read off the thread that
@@ -408,7 +408,7 @@ pub(crate) struct Open {
     /// expensive one: a signed document's report reads the signed byte ranges and digests them
     /// twice, which on `doc/pdf.js/test/pdfs/xfa_filled_imm1344e.pdf` — three megabytes, one page —
     /// took a `Command::Open` from 99 KiB and 26 read calls to 1304 KiB and 118, and from 1.80 M
-    /// instructions to 47.6 M. `CLAUDE.md` principle 2 says "[a]nything not needed to show page one
+    /// instructions to 47.6 M. `CLAUDE.md` principle 2 says "\[a]nything not needed to show page one
     /// is deferred until first use", and none of those eight sentences is needed to draw a page.
     ///
     /// So [`crate::Command::Report`] is what asks, and this is what makes asking twice cost once.
@@ -569,7 +569,7 @@ pub(crate) struct OnScreen {
 ///
 /// Two fields rather than two state fields on [`Open`], because they are one instruction: Table
 /// Annex O.3 says the processor "shall open the embedded file … identified by name" and then that
-/// "[a]ny remaining parameters after this parameter apply to the selected embedded file", so a name
+/// "\[a]ny remaining parameters after this parameter apply to the selected embedded file", so a name
 /// without its remainder would open the right file at the wrong place.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct OpeningFile {
@@ -990,14 +990,6 @@ pub(crate) struct Read {
     pub(crate) replaceable: Option<pdf_model::content::Replacement>,
 }
 
-/// The interpretation of a page, with its reports already worded.
-///
-/// **`replace` where there is something to replace from, and a whole interpretation otherwise**,
-/// and the two produce the same [`Interpretation`] — which is a property rather than a hope:
-/// `pdf_model::content::replace` restores the interpreter's state at the seam before §12.5.3's
-/// annotation pass and runs that pass again, and `pdf-model`'s
-/// `a_replaced_page_is_the_page_it_would_have_been_interpreted_as` compares the two field by field
-/// over every corpus page the clause is about. ADR 0777.
 /// A page's first read, from the parts of [`Open`] it needs and no others — for a read run on a
 /// thread of its own while the document's state is consulted on another (ADR 1855). The same
 /// read [`interpret`] makes of a page that holds no replacement yet, which page one at launch
@@ -1024,6 +1016,14 @@ pub(crate) fn first_read(
     }
 }
 
+/// The interpretation of a page, with its reports already worded.
+///
+/// **`replace` where there is something to replace from, and a whole interpretation otherwise**,
+/// and the two produce the same [`Interpretation`] — which is a property rather than a hope:
+/// `pdf_model::content::replace` restores the interpreter's state at the seam before §12.5.3's
+/// annotation pass and runs that pass again, and `pdf-model`'s
+/// `a_replaced_page_is_the_page_it_would_have_been_interpreted_as` compares the two field by field
+/// over every corpus page the clause is about. ADR 0777.
 pub(crate) fn interpret(open: &Open, index: usize) -> Option<Read> {
     let page = open.page(index)?;
     let replacement = open

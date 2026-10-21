@@ -599,9 +599,11 @@ fn a_launched_pdf_is_opened_where_opening_it_puts_it() {
     );
 }
 
-/// A launched file that is not a PDF is an application, and starting one is the sandbox's refusal.
+/// A launched file that is not a PDF is not this reader's to open, and the core says only that:
+/// whether it is a program or a document handed to this machine's own handler is the host's
+/// (ADRs 1358, 2171).
 #[test]
-fn a_launched_file_that_is_not_a_pdf_is_an_application_the_sandbox_withholds() {
+fn a_launched_file_that_is_not_a_pdf_is_not_opened_in_this_reader() {
     let (mut viewer, _) = asked(LAUNCH);
     let events: Vec<Event> = viewer
         .handle(Command::Supply {
@@ -613,7 +615,7 @@ fn a_launched_file_that_is_not_a_pdf_is_an_application_the_sandbox_withholds() {
         notes(&events),
         [
             "this link declines — Launch: file1.pdf is not a PDF document (§7.5.2's header), so \
-          Table 207 makes it an application to launch, which the sandbox withholds"
+          this reader does not open it (Table 207)"
                 .to_owned()
         ],
     );

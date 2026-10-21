@@ -6,9 +6,10 @@
 //! flags beside its getters (ADR 0246) and this window's own shape (ADR 2088): a
 //! `QUORRA_OWED_PANELS` says the rows are to be read again, a `QUORRA_OWED_CONTROLS` that the set
 //! of controls moved and the widgets are to be rebuilt rather than moved, a `QUORRA_OWED_POPUPS`
-//! that a popup opened, closed or moved, and every `QUORRA_OWED_REPAINT` that the page area — the
-//! frames, then the marks over them — is drawn again. The rows themselves cross as the handles the
-//! vocabulary layer already hands over, read through the same [`Reads`].
+//! that a popup opened, closed or moved, and a `QUORRA_OWED_REPAINT` which of the page area's
+//! frames, their places and the marks over them changed (`repainted`, ADR 2168). The rows
+//! themselves cross as the handles the vocabulary layer already hands over, read through the same
+//! [`Reads`].
 //!
 //! **A commit is addressed the way the toolkit windows address it**: a field by §12.7.4.2's
 //! qualified name, a check box or radio button by its widget annotation, a layer by its group and
@@ -35,6 +36,11 @@ pub(super) struct Shown {
     controls: Vec<(String, ObjectId)>,
     /// §12.5.6.14's open windows as the viewer last answered them.
     popups: Vec<viewer_core::PopupWindow>,
+    /// The pictures and the marks over them, as the last repaint told them (ADR 2168).
+    pub(super) painted: super::repainted::Painted,
+    /// The magnification at which every control on the page fits its `/Rect`, from what the
+    /// caller last measured, where they do not fit now (ADR 2169).
+    pub(super) fit: Option<f32>,
 }
 
 impl Window {
@@ -218,6 +224,56 @@ impl Window {
             self.shown.popups = popups;
             self.owing.owe(Owed::Popups);
         }
+    }
+
+    /// What the caller measured of each control it placed: the rectangle it asked the control to
+    /// occupy and the least the toolkit says the control can be, `[asked width, asked height,
+    /// minimum width, minimum height]` in logical pixels — `viewer-qt`'s `measured`, through
+    /// `viewer_host::ControlFit` so that no two windows can disagree about the number (ADRs 0245,
+    /// 2169). Answers the magnification at which every control fits, where they do not fit now,
+    /// which is what `w` sends.
+    pub fn controls_measured(&mut self, measured: &[[i32; 4]]) -> Option<f32> {
+        let mut fit = viewer_host::ControlFit::default();
+        for [asked_width, asked_height, least_width, least_height] in measured {
+            fit.record((*asked_width, *asked_height), (*least_width, *least_height));
+        }
+        self.shown.fit = self
+            .showing_at()
+            .and_then(|showing| fit.magnification(showing));
+        self.shown.fit
+    }
+
+    /// `w`: the page magnified until every control fits, from the caller's last measure, or a
+    /// sentence saying they already do — `viewer-qt`'s answer, said in its words.
+    pub(super) fn fit_the_controls(&mut self) {
+        match self.shown.fit {
+            Some(wanted) => {
+                self.say(&format!("fitting §12.7's controls at {wanted:.3}"));
+                self.dispatch(Command::Zoom {
+                    zoom: viewer_core::Zoom::Scale(wanted),
+                    at: None,
+                });
+            }
+            None => self.say("every control on this page already fits its /Rect"),
+        }
+    }
+
+    /// The magnification the page in front is drawn at, in `viewer_core::Zoom::Scale`'s units —
+    /// logical pixels per unit of user space — as `viewer-qt`'s `showing_at` reads it.
+    fn showing_at(&self) -> Option<f32> {
+        let Answer::Page { index, .. } = self.state.viewer.query(Query::CurrentPage) else {
+            return None;
+        };
+        let Answer::Geometry(geometry) = self.state.viewer.query(Query::PageGeometry(index)) else {
+            return None;
+        };
+        let display = if self.scale.is_finite() && self.scale >= 1.0 {
+            self.scale
+        } else {
+            1.0
+        };
+        let logical = geometry.scale / display;
+        (logical.is_finite() && logical > 0.0).then_some(logical)
     }
 
     /// One edit to a field the page shows, by name.

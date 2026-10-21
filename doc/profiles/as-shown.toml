@@ -300,6 +300,9 @@ remedy = "discard"
 #                                  decide what a screen shows (CLAUDE.md, clause 10)
 #   graphics/rendering-intent-*    decides the colour shown
 #   graphics/destination-profile-* the output intent states what the colours mean
+#   fonts/font-programs-embedded   where the window drew a font from a face of this machine's,
+#                                  the shipped face would show other shapes; --font names the
+#                                  machine's face as the operator's statement (doc/adr/2162)
 #   fonts/*                        the window drew glyphs; every font refusal stays. A TrueType
 #                                  code reached only by a mapping of the reader's choosing needs no
 #                                  answer here: the converter names its glyph in the encoding where

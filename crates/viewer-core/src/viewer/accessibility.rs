@@ -74,12 +74,12 @@ impl Viewer {
     /// technology; a field on an untagged page is exactly as interactive as one on a tagged page.
     /// What tagging adds is a *reading order*, and nothing here is one: the order is §12.5.1's
     /// tab order, which the page states for its annotations (Table 31's `/Tabs`) or which its
-    /// default derives, and the name is Table 226's `/TU` — "[a]n alternative field name that
+    /// default derives, and the name is Table 226's `/TU` — "\[a]n alternative field name that
     /// shall be used in place of the actual field name wherever the field shall be identified in
     /// the user interface" — or the §12.7.4.2 name where there is none. ADR 1369.
     ///
     /// **A tagged page's structure may leave a widget out, and the widget is still there.** Table
-    /// 368's "[i]n a tagged PDF, Form shall be used for each PDF widget annotation that belongs to
+    /// 368's "\[i]n a tagged PDF, Form shall be used for each PDF widget annotation that belongs to
     /// the real content of the document" binds the producer; where one did not, the field is still
     /// §12.5.1's interactive content, and nothing in §14.7 lets a reader withhold what the page
     /// lets a person do. `named` is every object the page's published elements name through
@@ -303,7 +303,7 @@ struct Referenced {
 /// The field's control with §12.7.5.2's on state replaced by **this widget's**.
 ///
 /// **§14.7.5.3's object reference names one widget annotation**, so a node built from it is a
-/// button rather than a field — and `pdf_model::form::Control::RadioButton`'s `on` is "[w]hether
+/// button rather than a field — and `pdf_model::form::Control::RadioButton`'s `on` is "\[w]hether
 /// any widget of the set is on", which is the field's answer and the wrong one here.
 /// `pdf_model::form::Widget::on` is the right one and sits beside it, saying so in its own doc
 /// comment: "[`Control::CheckBox`] carries the same fact for the field as a whole; this is the
@@ -321,6 +321,8 @@ struct Referenced {
 ///
 /// The fallback is the one both native hosts already apply to their own buttons: a widget whose
 /// `/AP` names no on state at all cannot be on by name, so the field's answer is what is left.
+///
+/// [`Control::CheckBox`]: pdf_model::form::Control::CheckBox
 fn this_widgets_control(
     control: &pdf_model::form::Control,
     widget: &pdf_model::form::Widget,

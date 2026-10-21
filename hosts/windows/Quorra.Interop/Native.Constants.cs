@@ -457,6 +457,9 @@ internal static partial class Native
     internal const uint QUORRA_OWED_SCRIPT_WITHDRAWN = 15;
     internal const uint QUORRA_OWED_PRINT = 16;
     internal const uint QUORRA_OWED_KIND_COUNT = 17;
+    internal const uint QUORRA_REPAINT_FRAMES = 1;
+    internal const uint QUORRA_REPAINT_PLACES = 2;
+    internal const uint QUORRA_REPAINT_MARKS = 4;
     internal const uint QUORRA_POLICY_LINKS = 0;
     internal const uint QUORRA_POLICY_REMOTE_DOCUMENTS = 1;
     internal const uint QUORRA_POLICY_EMBEDDED_DOCUMENTS = 2;

@@ -146,7 +146,7 @@ impl Viewer {
     /// - **`Proceed`** — the document withholds nothing, or this reader said not to obey it.
     /// - **`Refuse`** — the document withholds bit 12 and this reader obeys it, so the job goes
     ///   ahead degraded and [`Event::Refused`] names the *fidelity* that was withheld. Table 22
-    ///   is what makes a refusal and a grant arrive together: "[w]hen this bit is clear (and bit
+    ///   is what makes a refusal and a grant arrive together: "\[w]hen this bit is clear (and bit
     ///   3 is set), printing shall be limited to a low- level representation of the appearance,
     ///   possibly of degraded quality" — a limit on the job rather than the end of it.
     /// - **`Warn`** — the job is faithful and the document's reasons are said afterwards, which

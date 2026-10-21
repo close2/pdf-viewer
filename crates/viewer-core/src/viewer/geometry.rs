@@ -365,7 +365,7 @@ impl Viewer {
     ///
     /// `None` where the rectangle does not meet the page at all, because then the document has
     /// said nothing about where on this page the element is. A rectangle that merely touches an
-    /// edge crosses as a degenerate one: §7.9.5's own NOTE is that "[r]ectangles can have a width
+    /// edge crosses as a degenerate one: §7.9.5's own NOTE is that "\[r]ectangles can have a width
     /// of zero or height of zero".
     pub(super) fn device_rect(&self, open: &Open, page: usize, rect: [f32; 4]) -> Option<[f32; 4]> {
         let magnification = open.magnification(self.viewport, self.scale)?;

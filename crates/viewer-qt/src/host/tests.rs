@@ -388,6 +388,7 @@ fn opened_under(path: &Path, level: viewer_core::RestrictionLevel) -> Host {
             submissions: viewer_host::Submissions::Refuse,
             separations: false,
             scripts: viewer_host::Scripts::Off,
+            launched_documents: viewer_host::LaunchedDocuments::Refuse,
         },
         viewer_host::ReaderWords::default(),
         Trace::off(std::time::Instant::now()),

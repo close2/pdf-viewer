@@ -54,6 +54,12 @@
 //! side is past the range however small it is, and the page drawn whole would otherwise lose its
 //! anti-aliasing there while a window of the same page, its corner moved to the origin, kept it
 //! (ADR 2058).
+//!
+//! **And the range is asked of the page, not of the surface** — [`library_reaches`]. A mark the
+//! library draws itself, a §11.4.6 knockout element above all, past the range on the page is past
+//! it in every strip, band and window of that page, so each of them draws it as the page drawn
+//! whole does; the surface is asked as well, because it is the surface's coordinates the library
+//! is handed (ADR 2166).
 
 mod surface_edge;
 
@@ -114,6 +120,21 @@ fn expressible(path: &tiny_skia::Path, at: tiny_skia::Transform, outset: f32) ->
             .outset(reach, reach)
             .and_then(|bounds| bounds.transform(at)),
     )
+}
+
+/// Whether the library's converter, handed `path` where `place` says, anti-aliases it: `path`
+/// grown by `outset` inside the range on the page's grid **and** on the surface.
+///
+/// The page's grid decides, because §10.7.4 identifies a pixel by its device coordinates alone and
+/// a strip, a band or a window of a page past the range would otherwise anti-alias a mark the page
+/// drawn whole draws aliased — 620 pixels of a knockout group's stroke on a page 9 000 pixels
+/// across (ADRs 2149, 2166). The surface is asked as well because its coordinates are what the
+/// library is handed, and outside the range they are what its arithmetic cannot hold: a window
+/// whose corner lies more than the range beyond a mark's near side is the one place the two
+/// answers part, and there the library is kept inside its range rather than the window inside
+/// the page's answer.
+fn library_reaches(path: &tiny_skia::Path, place: Place, outset: f32) -> bool {
+    expressible(path, place.grid, outset) && expressible(path, place.at, outset)
 }
 
 /// Anti-aliasing, kept only where the scan converter's arithmetic reaches the geometry.
@@ -260,6 +281,27 @@ impl Exact {
     /// lies inside the range this converter's arithmetic reaches.
     fn usable(&self) -> bool {
         self.is_some() && self.iter().all(|rect| within(Some(rect)))
+    }
+
+    /// [`Self::usable`] on a surface whose corner on the page's grid is `corner`, its rectangles
+    /// stated on that surface: inside the range there and on the page's grid, so that every
+    /// surface of a page takes for a rectangle the converter the page drawn whole takes (ADR 2166).
+    fn usable_on(&self, corner: (u32, u32)) -> bool {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a corner on a target `rasterize` bounds by MAX_EXTENT = 2^24, every integer \
+                      below which is exact in f32"
+        )]
+        let (columns, rows) = (corner.0 as f32, corner.1 as f32);
+        self.usable()
+            && self.iter().all(|rect| {
+                within(tiny_skia::Rect::from_ltrb(
+                    rect.left() + columns,
+                    rect.top() + rows,
+                    rect.right() + columns,
+                    rect.bottom() + rows,
+                ))
+            })
     }
 
     /// Whether a rectangle of this mark lies inside one device row and short of filling it.
@@ -591,10 +633,9 @@ fn fill_as(
 ) {
     let mut paint = paint.clone();
     // The anti-aliasing the mark asked for goes to [`intersected`] wherever `crate::area` can
-    // measure it, and the range withdraws it from the library's converter alone (ADR 2058): the
-    // library's range is the surface's, the measured one the grid's, as the page drawn whole asks
-    // it (ADR 2133).
-    let library = keep_anti_alias(paint.anti_alias, expressible(path, place.at, 0.0));
+    // measure it, and the range withdraws it from the library's converter alone (ADR 2058): both
+    // ranges are asked of the page's grid, as the page drawn whole asks them (ADRs 2133, 2166).
+    let library = keep_anti_alias(paint.anti_alias, library_reaches(path, place, 0.0));
     paint.anti_alias = keep_anti_alias(paint.anti_alias, measurable(path, place.grid));
     // No guard in front of the call, and that is measured rather than assumed: `composable().is_some()`
     // here is exactly [`intersected`]'s own first two declines for an [`Exact::Unknown`] mark, and
@@ -620,9 +661,9 @@ fn fill_as(
 /// [`fill`], for a mark `pdf_render::edge` says is axis-aligned rectangles on the device's own
 /// grid — ISO 32000-2 §10.7.4 and §11.6.2.
 ///
-/// `exact` is those rectangles, already in device space; `path` is the same shape in the space
-/// `at` maps from, and is what every branch below that is not the rectangle scan converter falls
-/// back to. The two are the same mark stated twice, which is what lets this decline without the
+/// `exact` is those rectangles, already on the surface; `path` is the same shape in the space
+/// `place` maps from, and is what every branch below that is not the rectangle scan converter
+/// falls back to. The two are the same mark stated twice, which is what lets this decline without the
 /// caller having to know it did.
 ///
 /// # Several rectangles are one object, and that is why they are one call
@@ -692,8 +733,8 @@ fn fill_as(
 ///
 /// # The two things it does hand back
 ///
-/// - **A mark past the range**, which is `fill`'s range rule: outside [`SUPERSAMPLED_LIMIT`] the
-///   library's rectangle converter is not asked, [`intersected`] measures the mark by
+/// - **A mark past the range**, which is `fill`'s range rule: outside [`SUPERSAMPLED_LIMIT`] on
+///   the page's grid or on the surface the library's rectangle converter is not asked, [`intersected`] measures the mark by
 ///   `crate::area` instead, and only a mark that declines too is drawn by the aliased converter.
 /// - **A page or a surface past [`RECTANGLE_SURFACE_LIMIT`]**, where the library's rectangle call
 ///   is its supersampled converter in disguise: [`intersected`] writes the closed form into its
@@ -713,18 +754,19 @@ pub(crate) fn fill_rectangles(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
     (path, exact): (&tiny_skia::Path, &Exact),
     paint: &tiny_skia::Paint<'_>,
-    at: tiny_skia::Transform,
+    place: Place,
     clip: Clip<'_>,
 ) {
+    let at = place.at;
     let mut paint = paint.clone();
-    let library = keep_anti_alias(paint.anti_alias, exact.usable());
-    paint.anti_alias = keep_anti_alias(paint.anti_alias, measurable(path, at));
+    let library = keep_anti_alias(paint.anti_alias, exact.usable_on(place.corner));
+    paint.anti_alias = keep_anti_alias(paint.anti_alias, measurable(path, place.grid));
     if intersected(
         pixmap,
         path,
         &paint,
         tiny_skia::FillRule::Winding,
-        (Place::surface(at), exact),
+        (place, exact),
         clip,
     ) {
         return;
@@ -842,7 +884,7 @@ fn intersected(
     // measured by the library's rectangle converter where it reaches every surface of the page,
     // and written by [`mask_rectangle`] into the buffer where it does not (ADRs 2058, 2116) and
     // where the converter's one-row branch would state a rectangle under its area (ADR 2117).
-    let exactly = if exact.usable() {
+    let exactly = if exact.usable_on(place.corner) {
         !rectangle_converter_reaches(pixmap, clip.scratch())
             || exact.holds_a_rectangle_inside_one_row()
     } else {
@@ -1284,13 +1326,16 @@ pub(crate) fn stroke(
     path: &tiny_skia::Path,
     paint: &tiny_skia::Paint<'_>,
     style: &tiny_skia::Stroke,
-    at: tiny_skia::Transform,
+    placed: crate::surface::Placed,
     clip: Clip<'_>,
 ) {
     let mut paint = paint.clone();
     let outset = style.width * style.miter_limit.max(1.0);
-    paint.anti_alias = keep_anti_alias(paint.anti_alias, expressible(path, at, outset));
-    pixmap.stroke_path(path, &paint, style, at, clip.mask());
+    // The library's stroker keeps the surface's matrix (ADR 2149); its range is the page's
+    // (ADR 2166).
+    let place = Place::of(placed);
+    paint.anti_alias = keep_anti_alias(paint.anti_alias, library_reaches(path, place, outset));
+    pixmap.stroke_path(path, &paint, style, place.at, clip.mask());
 }
 
 /// [`tiny_skia::Mask::fill_path`], with the range applied to `anti_alias`.
@@ -1367,8 +1412,8 @@ pub(crate) fn mask_fill(
     (place, exact): (Place, &Exact),
 ) {
     let at = place.at;
-    let library = keep_anti_alias(anti_alias, expressible(path, at, 0.0));
-    if library && exact.usable() {
+    let library = keep_anti_alias(anti_alias, library_reaches(path, place, 0.0));
+    if library && exact.usable_on(place.corner) {
         let floor = owed_a_floor(exact.iter());
         match exact {
             Exact::Shared(rectangles) => mask_shared_rectangles(mask, rectangles, floor),
@@ -2068,7 +2113,7 @@ mod tests {
             &mut pixmap.as_mut(),
             (&path, &Exact::Shared(exact)),
             &paint,
-            tiny_skia::Transform::identity(),
+            super::Place::surface(tiny_skia::Transform::identity()),
             clip,
         );
         pixmap

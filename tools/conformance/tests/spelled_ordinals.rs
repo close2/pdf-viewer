@@ -1,4 +1,5 @@
-//! No Rust source under `crates` or `tools` names a round, by ordinal or by number.
+//! No Rust or C source under `crates` or `tools`, and no line of `doc/running-the-viewer.md`, names
+//! a round, by ordinal or by number.
 //!
 //! Not a conformance question; it lives here for `state_sections.rs`'s reason — this is the crate
 //! whose gates read the repository's own files rather than a PDF.
@@ -18,6 +19,12 @@
 //! the same way. The ledger's own notes are not this gate's: they are TOML, and a separate debt.
 //!
 //! This file is the one source the walk leaves out, so that its own wording can never be the hit.
+//!
+//! A C source or header (`.c`, `.h`) is read beside the Rust: the boundary's teaching programs and
+//! headers are read by a person as closely, and a line is a line in either language. So is
+//! `doc/running-the-viewer.md`, the document a person opens to run the programs, where a sentence
+//! that dates a feature by its round is the history the rule keeps out of what a reader meets
+//! first.
 //!
 //! # The second form
 //!
@@ -48,12 +55,13 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// The most lines under `crates` and `tools` that may carry the spelled ordinal, held with `==`
-/// as `CONDITION_UNQUOTED_CEILING` is (ADR 1535), so that a fall is written down rather than banked.
+/// The most lines of the sources and documents read that may carry the spelled ordinal, held with
+/// `==` as `CONDITION_UNQUOTED_CEILING` is (ADR 1535), so that a fall is written down rather than
+/// banked.
 const CEILING: usize = 0;
 
-/// The most lines under `crates` and `tools` that may name a round as `Session <number>` or
-/// `Sessions <number>`, held with `==` for the same reason.
+/// The most lines of the sources and documents read that may name a round as `Session <number>`
+/// or `Sessions <number>`, held with `==` for the same reason.
 const NUMBERED_CEILING: usize = 0;
 
 /// The string `CLAUDE.md`'s sweep searches for, assembled so that this file's own text does not
@@ -70,8 +78,15 @@ fn repository_root() -> &'static Path {
         .expect("the manifest directory of a workspace member has two ancestors")
 }
 
-/// Every `.rs` file under `directory`, build output and hidden directories left out.
-fn rust_sources(directory: &Path, into: &mut Vec<PathBuf>) {
+/// The extensions of the sources the walk reads: Rust, and C's sources and headers.
+const EXTENSIONS: [&str; 3] = ["rs", "c", "h"];
+
+/// The documents read beside the sources, relative to the repository root.
+const DOCUMENTS: [&str; 1] = ["doc/running-the-viewer.md"];
+
+/// Every source under `directory` whose extension is one of [`EXTENSIONS`], build output and hidden
+/// directories left out.
+fn sources_under(directory: &Path, into: &mut Vec<PathBuf>) {
     let entries = fs::read_dir(directory).expect("a directory of the tree is readable");
     for entry in entries {
         let path = entry.expect("a directory entry is readable").path();
@@ -83,8 +98,12 @@ fn rust_sources(directory: &Path, into: &mut Vec<PathBuf>) {
             continue;
         }
         if path.is_dir() {
-            rust_sources(&path, into);
-        } else if path.extension().is_some_and(|extension| extension == "rs") {
+            sources_under(&path, into);
+        } else if path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| EXTENSIONS.contains(&extension))
+        {
             into.push(path);
         }
     }
@@ -109,9 +128,10 @@ fn no_source_spells_a_round_by_ordinal() {
         .expect("this test's own path names a file");
     let mut sources = Vec::new();
     for directory in ["crates", "tools"] {
-        rust_sources(&root.join(directory), &mut sources);
+        sources_under(&root.join(directory), &mut sources);
     }
     sources.sort();
+    sources.extend(DOCUMENTS.iter().map(|document| root.join(document)));
     let needle = spelled_ordinal();
     let mut spelled = Vec::new();
     let mut numbered = Vec::new();
@@ -134,11 +154,24 @@ fn no_source_spells_a_round_by_ordinal() {
             }
         }
     }
+    let c_sources = sources
+        .iter()
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "c" || extension == "h")
+        })
+        .count();
     println!(
-        "{} line(s) spell a round by ordinal (ceiling {CEILING}); {} name one as \
-         `Session <number>` or `Sessions <number>` (ceiling {NUMBERED_CEILING})",
+        "{} source(s) and document(s) read, {c_sources} of them C; {} line(s) spell a round by \
+         ordinal (ceiling {CEILING}); {} name one as `Session <number>` or `Sessions <number>` \
+         (ceiling {NUMBERED_CEILING})",
+        sources.len(),
         spelled.len(),
         numbered.len()
+    );
+    assert!(
+        c_sources > 0,
+        "no C source or header read: the population is not the tree's"
     );
     assert_eq!(
         spelled.len(),

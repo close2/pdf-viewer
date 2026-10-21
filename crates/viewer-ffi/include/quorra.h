@@ -1906,16 +1906,21 @@ int32_t quorra_collection_folder_of(const char *key, uint32_t *id, char *out, si
  *   after each of those: quorra_window_take_owed(window, &owed), act on each record,
  *                      quorra_owed_free(owed), and arm the timer at quorra_window_interval(window)
  *                      milliseconds, or stop it at -1;
- *   on a repaint:      quorra_window_frame_count, quorra_window_frame, quorra_window_frame_copy,
- *                      then the marks over them — quorra_window_selection_quads,
- *                      quorra_window_find_matches, quorra_window_highlight_quads and
- *                      quorra_window_focused_annotation — and quorra_window_presented once the
- *                      pixels are on the screen;
+ *   on a repaint:      quorra_owed_repaint says what changed: on QUORRA_REPAINT_FRAMES or
+ *                      _PLACES quorra_window_frame_count and quorra_window_frame, and
+ *                      quorra_window_frame_copy for each picture quorra_owed_repaint_fresh calls
+ *                      fresh; on QUORRA_REPAINT_MARKS the marks over them —
+ *                      quorra_window_selection_quads, quorra_window_find_matches,
+ *                      quorra_window_highlight_quads, quorra_window_focused_annotation and
+ *                      quorra_window_traced_path — and quorra_window_presented once the pixels
+ *                      are on the screen. A call that changed none of them owes no repaint;
  *   on PANELS:         the rows again, quorra_window_outline_read and the four _read beside it;
  *   on CONTROLS:       the controls over the page rebuilt from quorra_window_fields_read, each
  *                      committed with quorra_window_set_field_text, _set_field_options,
  *                      _clear_field, _commit_field or _toggle_field; a push-button is the page's,
- *                      and a row's object is quorra_window_activate's;
+ *                      and a row's object is quorra_window_activate's; once they are placed or
+ *                      moved, each one's size against its rectangle told with
+ *                      quorra_window_controls_measured;
  *   on POPUPS:         quorra_window_popups_read; on STRIP: quorra_window_document_count;
  *   on ARCHIVE, SCRIPT and PRINT: the chooser, the script's dialogue and the print dialogue,
  *                      answered with quorra_window_archive, quorra_window_answer_script and
@@ -1957,6 +1962,13 @@ typedef struct quorra_owed quorra_owed;
 #define QUORRA_OWED_PRINT     16u  /* §7.6.4.2's bit 3 let a print through: the sentence;
                                     * quorra_owed_print; quorra_window_print_finish */
 #define QUORRA_OWED_KIND_COUNT 17u
+
+/* What a REPAINT record changed since the caller was last told, quorra_owed_repaint's bits
+ * (ADR 2168). */
+#define QUORRA_REPAINT_FRAMES  1u  /* a picture's pixels, or how many pictures there are */
+#define QUORRA_REPAINT_PLACES  2u  /* where a picture is shown, or at what extent */
+#define QUORRA_REPAINT_MARKS   4u  /* the selection, the occurrences, Annex O's highlight, §12.5.1's
+                                    * focus or §12.9's traced path */
 
 /*
  * The reader's levels a window opens under (RFC 0010 section 5, ADR 2120), stated before it opens
@@ -2142,6 +2154,11 @@ int32_t quorra_owed_script_text(const quorra_owed *owed, size_t index, uint32_t 
                                 size_t cap, size_t *needed);
 /* A PRINT record's pages, and whether §7.6.4.2's bit 12 limits the quality. */
 int32_t quorra_owed_print(const quorra_owed *owed, size_t index, size_t *pages, bool *degraded);
+/* A REPAINT record's QUORRA_REPAINT_* bits, and whether its picture `frame` has pixels the caller
+ * has not been handed (QUORRA_OUT_OF_RANGE past the pictures shown): copy only those. */
+int32_t quorra_owed_repaint(const quorra_owed *owed, size_t index, uint32_t *changed);
+int32_t quorra_owed_repaint_fresh(const quorra_owed *owed, size_t index, size_t frame,
+                                  bool *fresh);
 uint32_t quorra_owed_kind_count(void);
 const char *quorra_owed_kind_name(uint32_t kind);
 
@@ -2165,6 +2182,16 @@ int32_t quorra_window_highlight_quads(const quorra_window *window, quorra_quads 
 int32_t quorra_window_find_matches(const quorra_window *window, quorra_matches **matches);
 int32_t quorra_window_focused_annotation(const quorra_window *window, uint32_t *number,
                                          uint16_t *generation, float *quad);
+/* §12.9's traced path while measuring, flat x, y pairs in device pixels of the viewport; none
+ * while the mode is off. Two-call idiom over floats: `needed` is twice the points. */
+int32_t quorra_window_traced_path(const quorra_window *window, float *out, size_t cap,
+                                  size_t *needed);
+/* Each placed control's size, four int32_t a control in logical pixels: the width and height it
+ * was asked to occupy, then the least width and height the toolkit says it can be. `*magnification`
+ * is where every control fits, which QUORRA_KEY_W's fit then sends, or 0 where they fit now
+ * (ADR 2169). */
+int32_t quorra_window_controls_measured(quorra_window *window, const int32_t *sizes, size_t count,
+                                        float *magnification);
 
 /* What a person did to a row or a control. A field is named by its qualified name and must have a
  * widget on the page shown (QUORRA_NO_ANSWER otherwise); a check box or radio button by its

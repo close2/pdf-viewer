@@ -11,7 +11,8 @@
 ///
 /// Table 207 makes `/F` "[t]he application that shall be launched or the document that shall be
 /// opened or printed", so a person asked whether to let it be opened is told what happens to each:
-/// a PDF opens — beside, where `/NewWindow` asks — and anything else starts nothing.
+/// a PDF opens — beside, where `/NewWindow` asks — a program starts never, and any other file is
+/// `--launched-documents=`'s (ADR 2171).
 #[test]
 fn a_launch_actions_file_is_a_remote_document_and_the_question_says_what_it_may_be() {
     use std::path::Path;
@@ -38,7 +39,8 @@ fn a_launch_actions_file_is_a_remote_document_and_the_question_says_what_it_may_
     assert!(
         beside.contains("beside the one you are reading")
             && beside.contains("if it is a PDF")
-            && beside.contains("starts none")
+            && beside.contains("starts never")
+            && beside.contains("--launched-documents=")
             && beside.contains("§12.6.4.6"),
         "{beside}"
     );

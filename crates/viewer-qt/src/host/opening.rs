@@ -4,7 +4,7 @@
 
 use std::collections::VecDeque;
 
-use viewer_core::{Command, Event};
+use viewer_core::Event;
 use viewer_host::native_window::NativeWindow;
 use viewer_host::panel::Tab;
 use viewer_host::trace::Topic;
@@ -13,39 +13,6 @@ use super::panels::flatten;
 use super::{DOCUMENT, Host};
 
 impl Host {
-    /// The first resize: the document the opening thread opened is taken in, and told its
-    /// viewport.
-    ///
-    /// The viewport goes in before any of the open's events is answered, so that each is answered
-    /// against the viewer a first open with a viewport would have left — the order this window
-    /// had when it opened the document here (ADR 1539). A thread that panicked is said, and the
-    /// document opened on this one instead.
-    ///
-    /// **It waits no longer than `viewer_host::drawing::WARN`** (ADR 1811). A document still
-    /// opening then is left to its thread: the status bar carries how far page one has got, Qt's
-    /// loop goes on answering the window, and [`Self::drawing_pump`] joins it on the
-    /// [`viewer_host::loading::TICK`] that finds it ready, with the window's size as it is then.
-    pub(super) fn join_the_opening(&mut self, resize: Command) {
-        // A page that can be drawn while it is read is waited for no longer than `GLIMPSE_AFTER`,
-        // from which its looks are what the window shows (ADR 1855).
-        let drawing_ahead = self.state.ahead.is_some();
-        if self.state.anticipated.as_ref().is_some_and(|opening| {
-            !if drawing_ahead {
-                opening.wait_within(viewer_host::drawing::GLIMPSE_AFTER)
-            } else {
-                opening.wait()
-            }
-        }) {
-            self.state
-                .trace
-                .say(Topic::Launch, format_args!("document still opening"));
-            self.state.awaiting = Some(resize);
-            self.show_the_opening();
-            return;
-        }
-        self.take_the_opening(resize);
-    }
-
     /// Puts how far page one has got on the status bar: the sentence on the label, and the share
     /// [`Self::loading_permille`] hands Qt's own bar.
     pub(super) fn show_the_opening(&mut self) {

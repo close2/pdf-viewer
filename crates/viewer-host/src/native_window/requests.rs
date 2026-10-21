@@ -1,6 +1,6 @@
 //! What a document asks of this machine, carried out under the levels the window holds, and the one
 //! question a person answers at `CLAUDE.md`'s *ask* level (ADRs 1155, 1227, 1291, 1331, 1527, 1616,
-//! 1738; written once for the three windows by ADR 2105).
+//! 1738, 2171; written once for the three windows by ADR 2105).
 //!
 //! **Every decision here was already this crate's** — `may_submit`, `link`, `remote`,
 //! `may_open_extracted` and the rest say whether an act happens and in what words. What this module
@@ -70,6 +70,14 @@ pub enum Asked {
         /// Where `crate::remote` put it, which is what would be read.
         path: PathBuf,
     },
+    /// §12.6.4.6's launched document that is not a PDF, answered by handing it to this machine's
+    /// own handler (ADR 2171).
+    LaunchedDocument {
+        /// The file as the *document* named it, for the sentence either answer says.
+        name: String,
+        /// Where `crate::remote` put it, which is what would be handed over.
+        path: PathBuf,
+    },
     /// §O.2.1's embedded document, answered by opening it in a tab of its own (ADR 1331).
     Embedded {
         /// The document holding it.
@@ -99,7 +107,7 @@ impl Asked {
             Self::Submit { .. } => crate::Subject::Submission,
             Self::Fetch { .. } => crate::Subject::Fetch,
             Self::Policy { .. } => crate::Subject::Policy,
-            Self::RemoteDocument { .. } => crate::Subject::Document,
+            Self::RemoteDocument { .. } | Self::LaunchedDocument { .. } => crate::Subject::Document,
             Self::Embedded { .. } => crate::Subject::Embedded,
             Self::Scripts { .. } => crate::Subject::Scripts,
         }
@@ -204,9 +212,21 @@ pub(super) fn answer<W: NativeWindow + ?Sized>(window: &mut W, about: Asked, pro
             };
             if let Some(read) = bytes.as_deref() {
                 window.offer_a_name(&path, read, purpose, &mut queue);
+                if purpose == Purpose::LaunchDocument {
+                    launched_elsewhere(window, &name, &path, read);
+                }
             }
             queue.push_back(Command::Supply { purpose, bytes });
             window.drain(queue);
+        }
+        // §12.6.4.6: the act is the host's own, handing a file to another program, so the answer
+        // decides whether it is handed over at all (ADR 2171).
+        Asked::LaunchedDocument { name, path } => {
+            if proceed {
+                hand_over(window, &name, &path, &crate::policy::handed(&name));
+            } else {
+                window.say(&crate::remote_declined(Purpose::LaunchDocument, &name));
+            }
         }
     }
 }
@@ -441,6 +461,9 @@ fn remote<W: NativeWindow + ?Sized>(
                     window.say(&note);
                 }
                 window.offer_a_name(&path, read, purpose, queue);
+                if purpose == Purpose::LaunchDocument {
+                    launched_elsewhere(window, name, &path, read);
+                }
             }
             queue.push_back(Command::Supply { purpose, bytes });
         }
@@ -459,6 +482,43 @@ fn remote<W: NativeWindow + ?Sized>(
                 bytes: None,
             });
         }
+    }
+}
+
+/// §12.6.4.6's launched file once read: where it is not a PDF, what the reader's level does with it
+/// — a program started never, a document handed to this machine's own handler or not (ADR 2171).
+///
+/// The bytes still go to the core, whose sentence says the link opened nothing in this reader; what
+/// this adds is what became of the file outside it.
+fn launched_elsewhere<W: NativeWindow + ?Sized>(
+    window: &mut W,
+    name: &str,
+    path: &Path,
+    read: &[u8],
+) {
+    let level = window.state().launched_documents;
+    match crate::policy::launched(path, name, read, level) {
+        None => {}
+        Some(crate::Launched::Program(said) | crate::Launched::Refuse(said)) => window.say(&said),
+        Some(crate::Launched::Hand(said)) => hand_over(window, name, path, &said),
+        Some(crate::Launched::Ask(question)) => window.put_the_question(
+            Asked::LaunchedDocument {
+                name: name.to_owned(),
+                path: path.to_owned(),
+            },
+            &question,
+        ),
+    }
+}
+
+/// Hands `path` to this machine's own handler, saying `said` once it is started and the reason
+/// where it could not be.
+fn hand_over<W: NativeWindow + ?Sized>(window: &mut W, name: &str, path: &Path, said: &str) {
+    match crate::policy::hand_over(path) {
+        Ok(()) => window.say(said),
+        Err(error) => window.say(&format!(
+            "Launch: {name} could not be handed over — {error}"
+        )),
     }
 }
 

@@ -288,9 +288,27 @@ pub(super) struct Substitutes {
     /// widths it is laid out by, and where its face asks for one a `TrueType` `/Subtype` and an
     /// encoding §9.6.5.4 admits (`doc/adr/2146`).
     pub(super) described: BTreeMap<ObjectId, Dictionary>,
+    /// Each font written directly inside a resource dictionary that gains entries, and the object
+    /// it is written out as, entries included; the rewriter puts a reference to that object where
+    /// the dictionary stood (`doc/adr/2162`).
+    pub(super) direct: Vec<(Dictionary, ObjectId)>,
+    /// The resource names of the fonts given a shipped face where this viewer draws them from one
+    /// of the machine's, which is the loss `machine-face` (`doc/adr/2162`).
+    pub(super) over_machine_faces: Vec<String>,
     /// The program stream each shipped face was written to, so that one document's fonts naming
     /// the same face share one copy of it.
     pub(super) programs: BTreeMap<&'static str, ObjectId>,
+}
+
+impl Substitutes {
+    /// Whether this font is a direct dictionary equal to one already written out as an object.
+    ///
+    /// The survey keys a direct font by the page and the name it was selected by, so one
+    /// dictionary inherited by many pages is many selections of the same value; it is written out
+    /// once, and every place it stood is given the one reference (`doc/adr/2162`).
+    fn wrote_out(&self, used: &SelectedFont) -> bool {
+        used.id.is_none() && self.direct.iter().any(|(written, _)| *written == used.dict)
+    }
 }
 
 /// The font programs to replace, by the stream object each is.
@@ -557,9 +575,10 @@ fn disagrees(stated: f32, program: f32) -> bool {
 ///   `CIDFont`'s descriptor, which is [`composite`]'s and carries its own refusals.
 /// - **A font with no descriptor** is the standard 14 stated by name alone, and [`described`]
 ///   writes the descriptor, the widths and the program the viewer draws it with, or refuses by
-///   name where the result would not be the page this reader shows (`doc/adr/2146`). A
-///   descriptor written directly inside the font dictionary is no object to add a key to, and is
-///   refused by name.
+///   name where the result would not be the page this reader shows (`doc/adr/2146`); a font
+///   dictionary written directly inside its resource dictionary is written out as an object of
+///   its own to hold them ([`gains`], `doc/adr/2162`). A descriptor written directly inside the
+///   font dictionary is no object to add a key to, and is refused by name.
 /// - **A dictionary whose subtype the face's format may not go in**, which §9.9's Table 124
 ///   decides rather than this converter.
 /// - **A code the face has no glyph for**, which is `doc/questions/A47`'s "refuse rather than
@@ -574,6 +593,9 @@ pub(super) fn embed_faces(
     let mut substitutes = Substitutes::default();
     for used in survey.fonts() {
         if !used.rendered || !needs_a_program(document, &used.dict) {
+            continue;
+        }
+        if substitutes.wrote_out(used) {
             continue;
         }
         let subtype = name_of(document, &used.dict, "Subtype").unwrap_or_default();
@@ -665,15 +687,58 @@ pub(super) fn embed_faces(
             described: restated.as_ref().map(|restatement| restatement.described),
         });
         if let Some(restatement) = restated {
-            substitutes
-                .described
-                .insert(restatement.font, restatement.entries);
+            // The restatement's route, like the descriptor's, holds a font the viewer draws from
+            // a machine's face to the shipped face's glyphs, which is the loss `machine-face`
+            // (`doc/adr/2162`). The unrestated route's own comparison is of advances, not faces.
+            if restatement.drawn == described::Drawn::FromAMachineFace {
+                substitutes.over_machine_faces.push(used.name.clone());
+            }
+            gains(document, used, restatement.entries, spare, &mut substitutes)?;
         }
     }
-    if substitutes.at.is_empty() && substitutes.described.is_empty() {
+    if substitutes.at.is_empty()
+        && substitutes.described.is_empty()
+        && substitutes.direct.is_empty()
+    {
         return Err(Because::NotBuiltYet(NO_FONT_TO_EMBED));
     }
     Ok(substitutes)
+}
+
+/// Records the entries a font dictionary gains, wherever the dictionary is written.
+///
+/// A font that is an object of its own gains them at that object. **One written directly inside
+/// its resource dictionary is first written out as an object of its own**, the entries included,
+/// and the rewriter puts an indirect reference to it where the dictionary stood. ISO 32000-2
+/// §7.3.10 makes the two spellings one value:
+///
+/// > Except where documented to the contrary, any object value may be a direct or an indirect
+/// > reference; the semantics are equivalent.
+///
+/// Nothing documents the contrary for an entry of a resource dictionary's `/Font` subdictionary,
+/// so the page selects the same font by the same name and no reader can draw the difference
+/// (`doc/adr/2162`).
+pub(super) fn gains(
+    document: &Document,
+    used: &SelectedFont,
+    entries: Dictionary,
+    spare: &mut Spare,
+    substitutes: &mut Substitutes,
+) -> Result<(), Because> {
+    if let Some(font) = used.id {
+        substitutes.described.insert(font, entries);
+        return Ok(());
+    }
+    let at = spare
+        .take(document)
+        .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
+    let mut written = used.dict.clone();
+    for (key, value) in entries.iter() {
+        written.insert(key.clone(), value.clone());
+    }
+    substitutes.written.insert(at, Object::Dictionary(written));
+    substitutes.direct.push((used.dict.clone(), at));
+    Ok(())
 }
 
 /// The Table 124 row a face goes under, and the restatement of the dictionary it needs, if any.

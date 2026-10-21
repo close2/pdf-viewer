@@ -9,9 +9,10 @@
 //! levels.
 
 use super::{
-    EMBEDDED_DOCUMENTS, EmbeddedDocuments, IGNORE_RESTRICTIONS, LINKS, Links, REMOTE_DOCUMENTS,
-    RESTRICTIONS, RemoteDocuments, SEPARATIONS, SUBMISSIONS, Scripts, Settings, Submissions,
-    embedded_documents, links, remote_documents, restrictions, separations, submissions,
+    EMBEDDED_DOCUMENTS, EmbeddedDocuments, IGNORE_RESTRICTIONS, LAUNCHED_DOCUMENTS, LINKS,
+    LaunchedDocuments, Links, REMOTE_DOCUMENTS, RESTRICTIONS, RemoteDocuments, SEPARATIONS,
+    SUBMISSIONS, Scripts, Settings, Submissions, embedded_documents, launched_documents, links,
+    remote_documents, restrictions, separations, submissions,
 };
 
 /// One of the reader's decisions about what a document asks this machine to do, as a host names
@@ -37,6 +38,9 @@ pub enum Policy {
     /// §10.8.3's separation simulation asked for ([`SEPARATIONS`]): a preference with two settings,
     /// [`Level::Refuse`] for `off` and [`Level::Proceed`] for `on`.
     Separations,
+    /// §12.6.4.6's launched document that is not a PDF handed to this machine's own handler
+    /// ([`LAUNCHED_DOCUMENTS`]).
+    LaunchedDocuments,
 }
 
 /// A level on the scale every four-level policy shares, least permissive first: the act refused,
@@ -72,7 +76,8 @@ impl Level {
 impl Settings {
     /// Takes `word` if it is one of the words a window's settings are read from — [`RESTRICTIONS`],
     /// [`IGNORE_RESTRICTIONS`], [`LINKS`], [`REMOTE_DOCUMENTS`], [`EMBEDDED_DOCUMENTS`],
-    /// [`SUBMISSIONS`] and [`SEPARATIONS`] — answering which of those constants it was.
+    /// [`SUBMISSIONS`], [`LAUNCHED_DOCUMENTS`] and [`SEPARATIONS`] — answering which of those
+    /// constants it was.
     ///
     /// `Ok(None)` where `word` is none of them, which leaves it to the window's own parser. `--scripts`
     /// is not among them: it takes the word after it, and [`crate::ReaderWords::take`] reads it
@@ -114,6 +119,11 @@ impl Settings {
             self.submissions = submissions(level)?;
             return Ok(Some(SUBMISSIONS));
         }
+        if let Some(level) = word.strip_prefix(LAUNCHED_DOCUMENTS) {
+            // §12.6.4.6's document that is not a PDF, at four levels of its own (ADR 2171).
+            self.launched_documents = launched_documents(level)?;
+            return Ok(Some(LAUNCHED_DOCUMENTS));
+        }
         if let Some(setting) = word.strip_prefix(SEPARATIONS) {
             // §10.8.3's simulation, which is a preference and has two words (ADR 1228).
             self.separations = separations(setting)?;
@@ -137,6 +147,7 @@ impl Settings {
             Policy::EmbeddedDocuments => self.embedded_documents = EmbeddedDocuments::ALL[place],
             Policy::Submissions => self.submissions = Submissions::ALL[place],
             Policy::Scripts => self.scripts = Scripts::ALL[place],
+            Policy::LaunchedDocuments => self.launched_documents = LaunchedDocuments::ALL[place],
             Policy::Separations => {
                 self.separations = match level {
                     Level::Refuse => false,
@@ -158,8 +169,9 @@ impl Settings {
 mod tests {
     use super::{Level, Policy};
     use crate::policy::{
-        EMBEDDED_DOCUMENTS, EmbeddedDocuments, IGNORE_RESTRICTIONS, LINKS, Links, REMOTE_DOCUMENTS,
-        RESTRICTIONS, RemoteDocuments, SEPARATIONS, SUBMISSIONS, Scripts, Settings, Submissions,
+        EMBEDDED_DOCUMENTS, EmbeddedDocuments, IGNORE_RESTRICTIONS, LAUNCHED_DOCUMENTS, LINKS,
+        LaunchedDocuments, Links, REMOTE_DOCUMENTS, RESTRICTIONS, RemoteDocuments, SEPARATIONS,
+        SUBMISSIONS, Scripts, Settings, Submissions,
     };
     use viewer_core::{RestrictionLevel, RestrictionPolicy};
 
@@ -174,6 +186,7 @@ mod tests {
             ("--submissions=send", SUBMISSIONS),
             ("--separations=on", SEPARATIONS),
             ("--restrictions=copy:ask", RESTRICTIONS),
+            ("--launched-documents=ask", LAUNCHED_DOCUMENTS),
         ];
         for (word, named) in words {
             assert_eq!(settings.take(word), Ok(Some(named)), "{word}");
@@ -183,6 +196,7 @@ mod tests {
         assert_eq!(settings.embedded_documents, EmbeddedDocuments::Warn);
         assert_eq!(settings.submissions, Submissions::Send);
         assert!(settings.separations);
+        assert_eq!(settings.launched_documents, LaunchedDocuments::Ask);
         assert_eq!(
             settings.restrictions,
             RestrictionPolicy::default().with(
@@ -229,6 +243,7 @@ mod tests {
                 Policy::EmbeddedDocuments,
                 Policy::Submissions,
                 Policy::Scripts,
+                Policy::LaunchedDocuments,
             ] {
                 set.set(policy, level)
                     .expect("a four-level policy takes every level");
@@ -242,6 +257,10 @@ mod tests {
                     EmbeddedDocuments::ALL[place].as_str()
                 ),
                 format!("{SUBMISSIONS}{}", Submissions::ALL[place].as_str()),
+                format!(
+                    "{LAUNCHED_DOCUMENTS}{}",
+                    LaunchedDocuments::ALL[place].as_str()
+                ),
             ] {
                 taken.take(&word).expect("the word names a level");
             }

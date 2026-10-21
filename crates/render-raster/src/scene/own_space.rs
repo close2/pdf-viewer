@@ -6,7 +6,7 @@
 //! mode or mask kind of raster's scene states:
 //!
 //! - **A group compositing in a blending colour space of its own** (§11.6.6, §11.7.2). §11.7.2:
-//!   "all blending and compositing computations shall be done in that space", and "[t]he resulting
+//!   "all blending and compositing computations shall be done in that space", and "\[t]he resulting
 //!   colours shall then be interpreted in the group's colour space when the group is subsequently
 //!   composited with its backdrop". The interpretation is a curve (`CalGray`, a 'GRAY' profile), a
 //!   cube (`CalRGB`, an 'RGB ' profile) or, for four components, §11.3.4's per-component pair

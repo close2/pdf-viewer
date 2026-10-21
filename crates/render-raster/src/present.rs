@@ -52,9 +52,9 @@ pub struct PresentFrame<'a> {
     /// backends drawing the same frame.
     ///
     /// **The `Arc` is the identity a frame is reused by, and it is why these are not plain
-    /// references** (ADR 0351). [`FrameSlot`] keeps the pages' scene across frames and decides
+    /// references** (ADR 0351). `FrameSlot` keeps the pages' scene across frames and decides
     /// whether to rebuild it by the address of these samples, so it must be able to *pin* those
-    /// addresses — the same ABA argument [`crate::cache`] makes for every other key in this
+    /// addresses — the same ABA argument `crate::cache` makes for every other key in this
     /// crate. A borrowed `&DisplayList` could be dropped between two frames and the allocator
     /// could hand the same address to the next page, which is a stale page drawn with no
     /// report; holding the `Arc` makes the address unique for as long as the slot keeps it.
@@ -110,7 +110,7 @@ pub struct FrameCost {
     /// The whole call, which is what a host's own timer would have seen alone.
     pub total: std::time::Duration,
     /// Translating this frame's display lists into a [`raster_scene::Scene`] — the walk in
-    /// [`build`], including every resource this crate uploaded on the way through.
+    /// `build`, including every resource this crate uploaded on the way through.
     pub scene: std::time::Duration,
     /// Inside `scene`: the part of it spent *inside* raster's own `upload_*` calls.
     ///
@@ -160,7 +160,7 @@ pub struct FrameCost {
     ///
     /// **An observable rather than an inference from a small [`Self::encode`]** (raster's ADR
     /// 0048). A frame loop that expects to reuse its scene and does not is the failure mode
-    /// [`FrameSlot`] can have, and "encode was small" is not a state a test or a gate can
+    /// `FrameSlot` can have, and "encode was small" is not a state a test or a gate can
     /// assert on. `None` rather than a third variant because a refusal that never reached
     /// [`raster_gpu::Device::render_retained`] has no encode source to report, which is the
     /// same answer [`Self::device`]'s zero gives.
@@ -187,7 +187,7 @@ pub struct FrameCost {
     pub settle: std::time::Duration,
     /// Resources this frame handed the device: cache misses plus its own transients.
     ///
-    /// A count rather than a duration, and the reason is in [`crate::cache`]: the caches are
+    /// A count rather than a duration, and the reason is in `crate::cache`: the caches are
     /// keyed by `Arc` identity, so a display list rebuilt from scratch every frame re-uploads
     /// everything, and a number that stays high on a page that has not changed is what says so.
     pub uploads: u32,
@@ -211,7 +211,7 @@ pub struct FrameCost {
     /// placement away.
     ///
     /// **The one event outside this crate that can make [`Self::encode_source`] read `Encoded`
-    /// on a frame [`FrameSlot`] meant to replay** (raster's ADR 0050). ADR 0351 enumerated every
+    /// on a frame `FrameSlot` meant to replay** (raster's ADR 0050). ADR 0351 enumerated every
     /// input on *this* side of the boundary and gave each its own test, and left the device's own
     /// invalidation unobservable: a window whose retained encode dies every frame looked exactly
     /// like a key that keeps missing. It is not a rate and not a duration — a page that changes
@@ -1061,10 +1061,10 @@ impl QuorraWindowRenderer {
         self.device.startup()
     }
 
-    /// What the last [`Self::present`] cost, stage by stage.
+    /// What the last [`Self::render`] or [`Self::render_page_only`] cost, stage by stage.
     ///
     /// Read after the call rather than returned by it, for the same reason [`Self::startup`] is
-    /// a separate question: `present`'s answer is whether the frame reached the window, and a
+    /// a separate question: the call's answer is whether the frame was drawn, and a
     /// caller that does not care about the accounting should not have to destructure it. The
     /// figures are those of the most recent call, drawn or refused; a refusal that never reached
     /// the device leaves the device's own three at zero, which is itself the answer.
@@ -1117,7 +1117,7 @@ impl QuorraWindowRenderer {
     ///
     /// **A frame whose page, placement, size, medium and chrome are all the ones the last
     /// frame had costs neither a translation nor an encode** (ADR 0351): its scene is the scene
-    /// [`FrameSlot`] is already holding, and raster replays the device commands it made from
+    /// `FrameSlot` is already holding, and raster replays the device commands it made from
     /// it. [`FrameCost::encode_source`] says which of the two happened, for the page — the lane
     /// whose reuse is worth thousands of commands.
     ///

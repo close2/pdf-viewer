@@ -129,8 +129,11 @@ fn sampling_gap(profile: &pdf_model::icc::Profile, side: usize) -> f32 {
 /// `OnceLock` on the press rather than inside `sample_press`, because almost every press a
 /// document names is a page's and never carries a mask.
 fn luminance_gap(profile: &pdf_model::icc::Profile) -> Option<(f32, std::time::Duration)> {
+    // The caller asked for four components, so the only `Err` left is a poisoned cache, which is
+    // no gap of a profile's and is not this census's question (ADR 2170).
     let press =
-        pdf_model::colour::press_for_profile(profile, pdf_model::icc::Rendering::compensating())?;
+        pdf_model::colour::press_for_profile(profile, pdf_model::icc::Rendering::compensating())
+            .ok()?;
     let started = std::time::Instant::now();
     let luminance = press.luminance()?;
     let cost = started.elapsed();

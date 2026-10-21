@@ -4,10 +4,10 @@
 //!
 //! > An interactive PDF processor shall maintain a current navigation node.
 //!
-//! and states four things about it. Where the node comes from — "[w]hen a user navigates to a
+//! and states four things about it. Where the node comes from — "\[w]hen a user navigates to a
 //! page, if the page dictionary has a PresSteps entry, the node specified by that entry shall
 //! become the current node. (Otherwise, there is no current node.)"; what a forward request does —
-//! "[t]he sequence of actions specified by NA (if present) shall be executed" and then "[t]he node
+//! "\[t]he sequence of actions specified by NA (if present) shall be executed" and then "\[t]he node
 //! specified by Next (if present) shall become the new current navigation node"; what a backward
 //! request does, with `/PA` and `/Prev`; and what a page arrived at with a `/PresSteps` does,
 //! which is the two of them run together.
@@ -18,7 +18,7 @@
 //!
 //! # The nodes are respected only while a presentation is running
 //!
-//! NOTE 3: "[a]n interactive PDF processor needs to respect navigation nodes only when in
+//! NOTE 3: "\[a]n interactive PDF processor needs to respect navigation nodes only when in
 //! presentation mode". That is a permission and this program takes it, because the alternative is
 //! not neutral: a reader turning the pages of a document that happens to state `/PresSteps` would
 //! find the arrow key toggling somebody's bullets instead of turning the page. So every function
@@ -63,14 +63,14 @@ fn nodes(open: &Open) -> Vec<Node> {
 
 /// Enters presentation mode for one document.
 ///
-/// Two things, and both are the clause's. NOTE 2 is the first — "[i]nteractive PDF processors need
+/// Two things, and both are the clause's. NOTE 2 is the first — "\[i]nteractive PDF processors need
 /// to save the state of optional content groups when a user enters presentation mode and restore
 /// it when presentation mode ends" — and NOTE 1 says why it matters here rather than anywhere
 /// else: a page's states *are* optional content groups, so walking them is what would otherwise
 /// leave the document changed after the slide show.
 ///
 /// The second is the current node, and it is **this program's reading rather than the clause's
-/// words**: the clause names the primary node as what becomes current "[w]hen a user navigates to
+/// words**: the clause names the primary node as what becomes current "\[w]hen a user navigates to
 /// a page", and entering the mode on a page already showing is not navigating to it. A processor
 /// that then had no current node would not be maintaining one, which is the sentence the whole
 /// subclause opens with — so the page showing supplies its primary node, exactly as an arrival
@@ -205,7 +205,7 @@ fn index_of_a_further_page(open: &Open) -> bool {
 /// **[`Step::onward`] is dropped here, deliberately.** Errata issue #304 makes a request with no
 /// node in that direction navigate to the next or previous page, and an arrival performs one
 /// request against the primary node "as described previously" — but this paragraph ends at its
-/// own step (c), "[t]he interactive PDF processor shall make the new page the current page and
+/// own step (c), "\[t]he interactive PDF processor shall make the new page the current page and
 /// shall display it". A page whose only node has no `/Next` would otherwise be arrived at and
 /// left again in the same breath, and no reader would ever see it.
 pub(crate) fn arrived(open: &mut Open, forward: bool) -> Vec<Action> {

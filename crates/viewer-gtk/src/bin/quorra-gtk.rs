@@ -94,7 +94,8 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
              [{IGNORE_RESTRICTIONS}] [--links=refuse|ask|warn|open] \
              [--remote-documents=refuse|ask|warn|open] \
              [--embedded-documents=refuse|ask|warn|open] \
-             [--submissions=refuse|ask|warn|send] [--separations=on|off] {} \
+             [--submissions=refuse|ask|warn|send] \
+             [--launched-documents=refuse|ask|warn|open] [--separations=on|off] {} \
              [--proxy-pages N] [--cpu] <file.pdf>...",
             viewer_host::ReaderWords::USAGE
         )
@@ -161,7 +162,7 @@ fn main() -> glib::ExitCode {
         let Some(opening) = opening.take() else {
             return;
         };
-        let host = Host::open(app, opening, arguments.widget_appearances, settings, trace);
+        let host = Host::open(app, opening, trace);
         host.borrow_mut().retain_pages(arguments.proxy_pages);
         if let Some(lane) = lane.take() {
             host.borrow_mut().draw_on_the_device(lane);

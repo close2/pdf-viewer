@@ -192,14 +192,7 @@ impl CpuRasterizer {
                 clip,
             ) && !draw_stroked_outline(pixmap, outlined, &style, site, &brush, clip)
             {
-                scan::stroke(
-                    pixmap,
-                    &converted,
-                    &brush,
-                    &style,
-                    convert::transform(at),
-                    clip,
-                );
+                scan::stroke(pixmap, &converted, &brush, &style, placed, clip);
             }
         }
         // The marks are *filled*, not stroked: §8.5.3.2 asks for "a filled circle
@@ -371,7 +364,6 @@ fn draw_stroked_outline(
             &dashed
         }
     };
-    let at_device = convert::transform(at);
     // A curve bending more tightly than the half-width is stroked piece by piece (ADR 1348). The
     // question is not asked of one straight segment, which states no curve and is most strokes:
     // `issue12295.pdf` draws 65 859 of them.
@@ -408,7 +400,7 @@ fn draw_stroked_outline(
             pixmap,
             (outline, &scan::Exact::One(rect).moved(placed.corner)),
             brush,
-            at_device,
+            scan::Place::of(placed),
             clip,
         );
         return true;

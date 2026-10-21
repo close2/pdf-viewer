@@ -253,13 +253,19 @@ Ranked by ADR 0509's criterion; `tools/state.sh windows` prints the window rows 
   step the window carries (ADR 2152). The reader's other words — anchors, target documents, the
   audience, the conversion — reach it on the same handle, read as the binaries read them through
   `viewer_host::policy::Words`, and a file a directory holds that does not take is a `SAID` record
-  (ADR 2156); the print key's decision is `viewer_host::print_key`, every window's (ADR 2157). N3a, the WinUI 3 window the owner chose
+  (ADR 2156); the print key's decision is `viewer_host::print_key`, every window's (ADR 2157). The
+  launch — the open on its thread, the reader's commands and refusals before the document, the first
+  size's wait and join — is `viewer_host::native_window::Launch` and `NativeWindow::sized` for the
+  three windows, each toolkit's part a typed parameter (ADR 2172); a layer drawn for a named reader
+  reaches the C window on the panels record and its frames, which `drive_a_window.c` reads (ADR 2173). N3a, the WinUI 3 window the owner chose
   (`doc/questions/A501`), is `hosts/windows/Quorra.App/`: the page on the processor lane, the marks
   over it in Windows' colours, a control over each widget whose appearance it draws itself, the
   title, the status line, the keys, the pointer, the wheel and Control with it, built by CI's
   `window` job and declining by name each record it has no dialogue for yet (ADRs 2136, 2137,
-  2153). Its controls still lack Table 231 bit 25's cells, bit 21's chooser and the measured fit
-  `viewer-qt` reports; the panels, the popups and the cards are the next steps.
+  2153). A repaint says what changed and the window copies only the pictures it calls fresh; Table
+  231 bit 25's combs, the measured fit `w` sends, §12.5.6.14's popups and §12.9's traced path are
+  drawn (ADRs 2168, 2169). Its controls still lack bit 21's chooser (N4) and a popup's retyping; the
+  panels and the cards are the next steps.
 - **A dmabuf texture in GTK and a `QRhiWidget` in Qt** — ADR 2049's step after the device path,
   which is built: the renderer is the library `crates/viewer-device/` (ADR 2052), and both toolkit
   windows draw on the device, page one by default, and read the frame back into the

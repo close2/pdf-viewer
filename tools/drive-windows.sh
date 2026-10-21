@@ -142,15 +142,15 @@ CONFINED_STEPS=(confined reader_words field_commit combo_commit scripts_levels s
     script_withdrawn script_goto script_timer script_timer_quiet script_beep script_triggers located
     located_displayed signature_policy loading_bar zoom_past_the_bound
     zoom_past_the_bound_uncrossable zoomed_window_processor rendition_click link_levels
-    submission_levels bare_session_start archive_converted)
+    launch_levels submission_levels bare_session_start archive_converted)
 WINDOW_STEPS=(drive accessibility reader_words field_commit combo_commit scripts_levels
     script_painted script_asks script_withdrawn script_goto script_timer script_timer_quiet
     script_beep script_triggers script_keys list_arrows combo_arrows popup_rich popup_face popup_rtl
     popup_spacing popup_scale popup_tall popup_list_rtl popup_tab popup_tab_rtl popup_leader
     note_window note_typed note_caret reply_threaded located located_displayed signature_policy
     loading_bar page_as_built zoom_stand_in retained_page zoomed_window zoom_past_the_bound
-    transition_frames rendition_click link_levels submission_levels bare_session_start
-    archive_converted)
+    transition_frames rendition_click link_levels launch_levels submission_levels
+    bare_session_start archive_converted)
 # Outside every list, run by `--step` alone: each opens `HEAVY_FILE`, a document the drive does not
 # write, and two of the three verdicts are times (ADRs 1815, 1825); each says itself in which
 # windows it is offered.
@@ -4049,6 +4049,103 @@ HANDLER
             fi
         fi
     done
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+# --- step 94: a launched file that is not a PDF, at the reader's level (ADR 2171) ------------------
+# launch_levels: §12.6.4.6's launch action, one link over the drive's own page naming a text file
+# beside the document, and a second naming a `.desktop` entry, clicked at the window's middle under
+# `--remote-documents=open` so that the only question is `--launched-documents=`'s — refused at the
+# default, `ask` answered both ways, and `open`; and the `.desktop` file refused as a program at
+# `open`. Judged in all four windows alike by the sentence `viewer_host::policy::launched` words and
+# by the drive's own `xdg-open`, step 90's, which writes down what it was given and starts nothing.
+launch_fixtures() {
+    [ -s "$FIXTURES/drive-launch-text.pdf" ] && [ -s "$FIXTURES/drive-launch-program.pdf" ] && return
+    printf 'a letter, not a PDF\n' > "$FIXTURES/drive-launched.txt"
+    printf '[Desktop Entry]\nType=Application\nExec=true\n' > "$FIXTURES/drive-launched.desktop"
+    chmod 644 "$FIXTURES/drive-launched.txt" "$FIXTURES/drive-launched.desktop"
+    python3 - "$FIXTURES" <<'PY4'
+import sys, pikepdf
+from pikepdf import Name, Dictionary, Array, String
+def launching(path, named):
+    pdf = pikepdf.new()
+    pdf.pages.append(pikepdf.Page(Dictionary(Type=Name.Page, MediaBox=[0, 0, 612, 792],
+                                             Contents=pdf.make_indirect(pikepdf.Stream(pdf, b"")))))
+    link = pdf.make_indirect(Dictionary(Type=Name.Annot, Subtype=Name.Link,
+                                        Rect=Array([0, 0, 612, 792]), Border=Array([0, 0, 0]),
+                                        A=Dictionary(S=Name.Launch, F=String(named))))
+    pdf.pages[0].obj.Annots = Array([link])
+    pdf.save(path)
+launching(sys.argv[1] + "/drive-launch-text.pdf", "drive-launched.txt")
+launching(sys.argv[1] + "/drive-launch-program.pdf", "drive-launched.desktop")
+PY4
+}
+launch_levels() {
+    local handed="$OUT/handler/handed.log" step before said='^\(note: \)\?Launch: '
+    local -x PATH="$OUT/handler:$PATH"
+    launch_fixtures
+    mkdir -p "$OUT/handler"
+    cat > "$OUT/handler/xdg-open" <<HANDLER
+#!/bin/sh
+printf '%s\n' "\$*" >> '$handed'
+HANDLER
+    chmod +x "$OUT/handler/xdg-open"
+    handed_since() { [ "$(cat "$handed" 2>/dev/null | wc -l)" -gt "$1" ]; }
+    step=94-launch-refuse
+    before=$(cat "$handed" 2>/dev/null | wc -l)
+    if link_clicked "$step" "$FIXTURES/drive-launch-text.pdf" --remote-documents=open; then
+        wait_for 10 said_since "$MARK" "${said}declined — drive-launched.txt is a document"
+        if said_since "$MARK" "${said}declined — drive-launched.txt is a document" \
+                && ! handed_since "$before"; then
+            verdict "$step" works "not asked and not handed over: $(tail -n "+$((MARK + 1))" "$LOG" | grep -m1 -o 'Launch: declined — [^(]*')"
+        else
+            verdict "$step" wrong "handed $(tail -n "+$((before + 1))" "$handed" 2>/dev/null | tr '\n' ' '): $LOG"
+        fi
+    fi
+    for answer in yes no; do
+        step=94-launch-ask-$answer
+        before=$(cat "$handed" 2>/dev/null | wc -l)
+        link_clicked "$step" "$FIXTURES/drive-launch-text.pdf" --remote-documents=open \
+            --launched-documents=ask || continue
+        if [ "$answer" = yes ]; then
+            link_answer "$step" yes "${said}drive-launched.txt was handed" || continue
+            sleep 0.5
+            if handed_since "$before" \
+                    && tail -n "+$((before + 1))" "$handed" | grep -q 'drive-launched.txt$'; then
+                verdict "$step" works "asked, answered yes, and $(tail -n 1 "$handed") handed to the handler"
+            else
+                verdict "$step" wrong "nothing handed: $LOG"
+            fi
+        elif link_answer "$step" no "${said}declined — you answered"; then
+            if ! handed_since "$before"; then
+                verdict "$step" works "asked, answered no: $(tail -n "+$((MARK + 1))" "$LOG" | grep -m1 -o 'Launch: declined — you answered "[^"]*"')"
+            else
+                verdict "$step" wrong "handed $(tail -n 1 "$handed") after a no: $LOG"
+            fi
+        fi
+    done
+    step=94-launch-open
+    before=$(cat "$handed" 2>/dev/null | wc -l)
+    if link_clicked "$step" "$FIXTURES/drive-launch-text.pdf" --remote-documents=open \
+            --launched-documents=open; then
+        wait_for 10 said_since "$MARK" "${said}drive-launched.txt was handed"
+        if said_since "$MARK" "${said}drive-launched.txt was handed" && handed_since "$before"; then
+            verdict "$step" works "not asked, handed over: $(tail -n 1 "$handed")"
+        else
+            verdict "$step" wrong "handed $(tail -n "+$((before + 1))" "$handed" 2>/dev/null | tr '\n' ' '): $LOG"
+        fi
+    fi
+    step=94-launch-program
+    before=$(cat "$handed" 2>/dev/null | wc -l)
+    if link_clicked "$step" "$FIXTURES/drive-launch-program.pdf" --remote-documents=open \
+            --launched-documents=open; then
+        wait_for 10 said_since "$MARK" "${said}drive-launched.desktop is a program"
+        if said_since "$MARK" "${said}drive-launched.desktop is a program" \
+                && ! handed_since "$before"; then
+            verdict "$step" works "refused at open: $(tail -n "+$((MARK + 1))" "$LOG" | grep -m1 -o 'Launch: drive-launched.desktop is a program — [^—]*')"
+        else
+            verdict "$step" wrong "handed $(tail -n "+$((before + 1))" "$handed" 2>/dev/null | tr '\n' ' '): $LOG"
+        fi
+    fi
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
 # --- steps 92 and 93: a form sent to a server and form data fetched from one (ADR 2076) -------------

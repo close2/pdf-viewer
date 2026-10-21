@@ -280,7 +280,7 @@ pub(crate) fn what_a_print_does_not_do(document: &Document) -> Vec<String> {
 /// addressed to processors that decline, and a hybrid form's own calculations and validations
 /// live in the XFA resource, so a reader who is not told sees a notice or a quiet form and no
 /// reason (trap 5). The
-/// sentence names what *is* done, because §K.2 is what makes it the form: "[t]he other entries
+/// sentence names what *is* done, because §K.2 is what makes it the form: "\[t]he other entries
 /// in the interactive form dictionary shall be consistent with the information in the XFA
 /// resource". Both conditions are the annex's own entries — Table 224's `/XFA` in either of
 /// §K.2's two forms, and Table 29's `/NeedsRendering` stated `true` — and
@@ -334,7 +334,7 @@ fn xfa_form(document: &Document, notes: &mut Vec<String>) {
 /// says nothing about reading one, and a `shall` a file breaks is answered by a report here — the
 /// sentence above is the precedent, one subclause away. ADR 0786.
 ///
-/// **Two conditions, both the clause's.** §14.8.1 is what makes a document tagged — "[a] tagged
+/// **Two conditions, both the clause's.** §14.8.1 is what makes a document tagged — "\[a] tagged
 /// PDF document shall contain a mark information dictionary … with a value of true for the Marked
 /// entry" — and a document with a structure tree that does not claim to be tagged is outside the
 /// sentence above, which says *in a tagged PDF*. And the elements are read only where the
@@ -434,7 +434,7 @@ pub(crate) fn losses(open: &mut crate::open::Open) -> Vec<String> {
 
 /// The sentence for a scan the process could not hold the file for.
 ///
-/// §C.4 (informative) licenses the scan — "[w]hen a PDF processor reads a PDF file with a
+/// §C.4 (informative) licenses the scan — "\[w]hen a PDF processor reads a PDF file with a
 /// damaged or missing cross-reference table" — and a scan reads every byte, which the reader
 /// asks for whole and is refused by name (`pdf_syntax::NoRoom`, ADR 0809). Worded here so that
 /// the words say what the reader did rather than what it could not do: read as far as the table
@@ -856,7 +856,7 @@ fn anchors_note(
 /// §12.8.4's document security store: what the file carries for a validation later on.
 ///
 /// **The condition is the clause's and the sentence is a count**, which is what §12.8.4.2 makes
-/// this worth saying at all: "[a] PDF signature may not be successfully verified unless its
+/// this worth saying at all: "\[a] PDF signature may not be successfully verified unless its
 /// collateral validation components are preserved, e.g., certificates, CRLs, timestamp tokens,
 /// revocation lists, and OCSP responses." Whether a document preserved them is a fact about the
 /// document, it decides whether a signature outlives its certificate, and no other sentence in
@@ -933,7 +933,7 @@ fn security_store(
 
 /// §12.8.5's document timestamps, in the order their ranges nest, and what each one covers.
 ///
-/// **The condition is the clause's**: §12.8.5.2 says how a reader finds them — "[t]he existence of
+/// **The condition is the clause's**: §12.8.5.2 says how a reader finds them — "\[t]he existence of
 /// one or more document timestamps shall be determined by examining signature fields" — and
 /// §12.8.5.3 says why there is more than one, which is the sentence this report exists to make
 /// legible. A later token is applied "before the expiry of the certificate and/or before a
@@ -941,7 +941,7 @@ fn security_store(
 /// wants to know is whether the stack actually holds: does the newest one cover the older ones,
 /// and does it cover the material §12.8.4's store carries for them.
 ///
-/// **What it may not say is a time.** §12.8.5.1 makes a timestamp's whole point the instant — "[a]
+/// **What it may not say is a time.** §12.8.5.1 makes a timestamp's whole point the instant — "\[a]
 /// document timestamp dictionary establishes the exact contents of the complete PDF file at the
 /// time indicated in the timestamp token" — and *establishing* one needs an authority somebody
 /// trusts, which is §12.8.1's third question and nobody's answer here (ADR 1039, ADR 1071). So the

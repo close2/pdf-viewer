@@ -39,7 +39,7 @@ use crate::command::FindDirection;
 
 /// A document-wide search, and how far through the document it has got.
 ///
-/// **Any of the needles matching is a match**, because Annex O's argument is a list: "[t]he
+/// **Any of the needles matching is a match**, because Annex O's argument is a list: "\[t]he
 /// wordList argument defines the search words and shall be a string enclosed within quotation
 /// marks comprised of individual words separated by space characters". A find bar starts one with
 /// a single needle, which is the same shape with a list of one.

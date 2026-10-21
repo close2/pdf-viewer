@@ -134,7 +134,7 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
     let exported = exported_names();
     assert_eq!(
         exported.len(),
-        345,
+        349,
         "the count `unsafe_position.rs` also states"
     );
     let missing: Vec<&String> = exported.difference(&declared).collect();
@@ -801,6 +801,14 @@ fn the_window(expected: &mut BTreeMap<String, i64>) {
         "QUORRA_OWED_KIND_COUNT".to_owned(),
         i64::from(OwedKind::COUNT),
     );
+    // What a repaint changed, `quorra_owed_repaint`'s bits (ADR 2168).
+    for (name, bit) in [
+        ("FRAMES", viewer_ffi::Repainted::FRAMES),
+        ("PLACES", viewer_ffi::Repainted::PLACES),
+        ("MARKS", viewer_ffi::Repainted::MARKS),
+    ] {
+        expected.insert(format!("QUORRA_REPAINT_{name}"), i64::from(bit));
+    }
     // The levels a window opens under, `quorra_settings_set`'s two arguments (ADR 2120).
     for (name, policy) in [
         ("LINKS", PolicyKind::Links),

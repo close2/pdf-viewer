@@ -260,6 +260,19 @@ remedy = "discard"
 remedy = "stop"
 
 # ---------------------------------------------------------------------------------------------
+# A font this viewer draws from a face of this machine's. ADR 0270 takes a machine's face of the
+# same family where the document's encoding names characters the shipped face lacks; the file
+# carries no face, ISO 32000-2 9.5's NOTE 5 leaves the face of such a font to the processor, and a
+# printed copy is drawn in whatever face the machine that printed it had. So where the shipped face
+# has a glyph for every code the pages show, embedding it keeps every character at its width and
+# changes only the shapes, which paper made from another machine would have changed anyway. A
+# shown code the shipped face lacks is still refused: that is a mark (doc/adr/2162).
+# ---------------------------------------------------------------------------------------------
+
+[site."fonts/font-programs-embedded"]
+remedy = "discard"
+
+# ---------------------------------------------------------------------------------------------
 # What this profile deliberately leaves at `stop`, because printing WOULD have carried it:
 #
 #   graphics/no-transfer-function-in-a-graphics-state, second-transfer-function-is-default,
@@ -271,7 +284,8 @@ remedy = "stop"
 #                                  (doc/adr/1978)
 #   graphics/rendering-intent-*    decides printed colour
 #   graphics/destination-profile-* the output intent is the statement of what was printed to
-#   fonts/*                        a printed page carried glyphs; every font refusal stays.
+#   fonts/*                        a printed page carried glyphs; every font refusal stays but
+#                                  the machine's face above, which loses shapes and no glyph.
 #                                  A TrueType code reached only by a mapping of the reader's
 #                                  choosing needs no answer here: the converter names its glyph in
 #                                  the encoding where the file says which it is (ADR 1942)

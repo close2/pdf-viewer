@@ -21,7 +21,7 @@ impl Open {
     /// index meaning what it meant.
     ///
     /// **And on §12.2's print pair of boundaries while a print operation stands.** Table 147
-    /// states `/PrintArea` and `/PrintClip` beside `/ViewArea` and `/ViewClip` — "[t]he name of
+    /// states `/PrintArea` and `/PrintClip` beside `/ViewArea` and `/ViewClip` — "\[t]he name of
     /// the page boundary representing the area of a page that shall be rendered when printing
     /// the document" against the same sentence about the screen — so which pair a page carries
     /// is decided by what the output is for, and this is the one place in this crate where a

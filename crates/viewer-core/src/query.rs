@@ -69,7 +69,7 @@ pub enum Query<'a> {
     Attachments,
     /// §12.3.5's portable collection, where the catalog states one.
     ///
-    /// The clause is a `shall` on a *viewer*: "[i]f this dictionary is present in a PDF document,
+    /// The clause is a `shall` on a *viewer*: "\[i]f this dictionary is present in a PDF document,
     /// the interactive PDF processor shall present the document as a portable collection". What
     /// crosses is Table 153 whole — the schema's columns, §12.3.5.2's folder tree, the initial
     /// view — and presenting it is a host's, in the same sense §12.3.3's outline is. **And
@@ -80,7 +80,7 @@ pub enum Query<'a> {
     Collection,
     /// §12.4.3's article threads, as a panel would list them.
     ///
-    /// The clause states the *structure* and leaves the way in to a viewer — "[i]nteractive PDF
+    /// The clause states the *structure* and leaves the way in to a viewer — "\[i]nteractive PDF
     /// processors **may** provide navigation facilities to allow the user to follow a thread from
     /// one bead to the next" — so what crosses is the list and the choosing is a host's.
     /// [`crate::Command::Activate`] on a thread's object follows it, which is the same message an
@@ -95,8 +95,8 @@ pub enum Query<'a> {
     ///
     /// [`Query::CurrentPage`] answers it for the page being shown, which is what a title bar
     /// needs; a list of pages needs it for every row, and the clause is the reason a number will
-    /// not do: "[e]ach page in a PDF document shall be identified by an integer page index …
-    /// [i]t may also be identified by a page label", and a document that labels its front matter
+    /// not do: "\[e]ach page in a PDF document shall be identified by an integer page index …
+    /// \[i]t may also be identified by a page label", and a document that labels its front matter
     /// in roman numerals has said its third page is called `iii`.
     PageLabel(usize),
     /// §12.3.4's thumbnail image for one page, decoded, where the page states one.
@@ -408,7 +408,7 @@ pub enum Query<'a> {
     ///
     /// Only the open ones: Table 186's `/Open` says which start that way and
     /// [`crate::Command::Activate`] on the parent annotation changes it, which is §12.5.1's
-    /// "[w]hen the user activates the annotation by clicking it, it exhibits its associated
+    /// "\[w]hen the user activates the annotation by clicking it, it exhibits its associated
     /// object, such as by opening a popup window displaying a text note".
     Popups,
     /// What is selected: the text, and the shapes to draw over it.
@@ -561,7 +561,7 @@ pub enum Answer<'a> {
     /// Beside it, §12.10's position of the path's **last** point — the one a person just put
     /// down — where the viewport there is geospatial: a latitude and a longitude, or the sentence
     /// saying why none is given (ADR 1593). The numbers are numbers, not strings, because Table
-    /// 269 leaves their formatting to the processor: "[f]ormatting the displayed representation of
+    /// 269 leaves their formatting to the processor: "\[f]ormatting the displayed representation of
     /// these values is controlled by the interactive PDF processor".
     Measured {
         /// What Table 267's arrays make of the path.
@@ -665,7 +665,7 @@ pub enum Answer<'a> {
     /// Annex O's highlighted rectangles on the page being shown, in device pixels.
     ///
     /// `[x0, y0, … x3, y3]` apiece, the same form [`Selected::quads`] takes and drawn the same
-    /// way — in the host's own colour, which is what Table Annex O.4's "[t]he nature of the
+    /// way — in the host's own colour, which is what Table Annex O.4's "\[t]he nature of the
     /// highlighting is implementation-dependent" leaves open. Empty where the fragment named no
     /// rectangle for this page.
     Highlighted(Vec<[f32; 8]>),
@@ -958,16 +958,16 @@ pub struct PopupWindow {
     /// The window's `/Rect` on the screen, `[x0, y0, … x3, y3]` clockwise from the top-left,
     /// y downwards — the same form [`Answer::Focus`] and [`Selected::quads`] take.
     pub quad: [f32; 8],
-    /// §12.5.6.2's `/T`: "[t]he text label that shall be displayed in the title bar".
+    /// §12.5.6.2's `/T`: "\[t]he text label that shall be displayed in the title bar".
     pub title: Option<String>,
     /// Table 166's `/Contents`: the text in the window.
     pub text: Option<String>,
     /// Table 166's `/M`, as the file spells it — the table makes displaying it in *any* format a
     /// `shall`, so this crate does not narrow it to the dates §7.9.4 states.
     pub modified: Option<String>,
-    /// Table 166's `/C`: "[t]he title bar of the annotation's popup window".
+    /// Table 166's `/C`: "\[t]he title bar of the annotation's popup window".
     pub colour: Option<pdf_render::Color>,
-    /// Table 172's `/Subj`: "[t]ext representing a short description of the subject being
+    /// Table 172's `/Subj`: "\[t]ext representing a short description of the subject being
     /// addressed by the annotation".
     ///
     /// Beside the title rather than in the body, because §12.5.6.2 says a markup annotation's
@@ -980,7 +980,7 @@ pub struct PopupWindow {
     /// first and a document's freshness by the second. `pdf_model::popup::Popup::created_date`
     /// is the parsed form for a host that formats it.
     pub created: Option<String>,
-    /// Table 172's `/RC` with its formatting: "[a] rich text string … that shall be displayed in
+    /// Table 172's `/RC` with its formatting: "\[a] rich text string … that shall be displayed in
     /// the popup window when the annotation is opened".
     ///
     /// A host draws this in place of [`Self::text`] where it is `Some`, and says each of its
@@ -988,7 +988,7 @@ pub struct PopupWindow {
     pub rich: Option<pdf_model::popup::RichNote>,
     /// §12.5.6.2's thread: the replies this window shows rather than opening windows of their own.
     ///
-    /// Table 172 makes that a `shall` on a processor — "[i]nteractive PDF processors shall not
+    /// Table 172 makes that a `shall` on a processor — "\[i]nteractive PDF processors shall not
     /// display replies to an annotation individually but together in the form of threaded
     /// comments" — so a host that draws [`Self::text`] and ignores this has left a fifth of a
     /// reviewed document's comments off the screen. Empty for a window nobody replied to.

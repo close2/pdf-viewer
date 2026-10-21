@@ -1143,8 +1143,9 @@ remedy. What the review adds is that the sentence covers **fewer** of these twen
 it looks, and two of them have mitigations nobody had written down.
 
 #### `fonts/font-programs-embedded`
-ISO 19005-2 6.2.11.4.1, ISO 19005-4 6.2.10.4.1 · all six · `Stated`, **built** (`doc/questions/A47`,
-ADRs 1209, 2146, 2147)
+ISO 19005-2 6.2.11.4.1, ISO 19005-4 6.2.10.4.1 · all six · `Stated`, and the loss `machine-face`
+where a font is drawn from this machine's face, **built** (`doc/questions/A47`, ADRs 1209, 2146,
+2147, 2162)
 
 - **A font the file names and does not carry** gets one of the faces this program ships, embedded
   and reported, with the face's own advances or the program restated to the file's widths
@@ -1157,9 +1158,18 @@ ADRs 1209, 2146, 2147)
   by code before anything is written (ADR 2146).
 - **A dictionary of the other kind from its face** (a `TrueType` Times New Roman given Foxit's CFF
   serif) is restated as the face's kind, on the same proof (ADR 2147).
+- **A font written directly inside its resource dictionary** is written out as an object of its
+  own holding what it gains, and a reference stands where it stood; §7.3.10 makes the two spellings
+  equivalent, and equal dictionaries share the one object (ADR 2162).
+- **A font this machine draws from a face of its own** (ADR 0270) on either route above takes the
+  shipped face where that face has a glyph for every code the pages show, held to the shipped
+  face's glyph code by code: every mark kept at its width, the shapes changed — the loss
+  `machine-face`, which `as-if-printed` answers `discard` and `as-shown` leaves at `stop` (ADR 2162).
+  A route that already had a descriptor and needs no restatement embeds the shipped face over a
+  machine's face as a statement still, unasked (`doc/todo/72`).
 - **Still refused, by name**: a composite font nobody named a program for; a font no shipped face
-  covers; a standard font written inside its resource dictionary, or one this machine draws from a
-  face of its own (ADR 0270); and a result the proof finds drawn differently.
+  covers; a machine's face drawn for a code the page shows that the shipped face lacks; and a
+  result the proof finds drawn differently.
 
 #### `fonts/cmap-embedded-or-predefined`
 #### `fonts/cmap-uses-only-predefined-cmaps`

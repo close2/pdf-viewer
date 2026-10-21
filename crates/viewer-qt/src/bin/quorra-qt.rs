@@ -104,7 +104,8 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
              [{IGNORE_RESTRICTIONS}] [--restrictions=copy:ask,annotate:on] \
              [--links=refuse|ask|warn|open] [--remote-documents=refuse|ask|warn|open] \
              [--embedded-documents=refuse|ask|warn|open] [--submissions=refuse|ask|warn|send] \
-             [--separations=on|off] {} [--proxy-pages N] \
+             [--launched-documents=refuse|ask|warn|open] [--separations=on|off] {} \
+             [--proxy-pages N] \
              [--cpu] [--quit-after=<ms>] <file.pdf>...",
             viewer_host::ReaderWords::USAGE
         )

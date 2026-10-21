@@ -335,16 +335,18 @@ section_conformance() {
 # included, as `--document-private-items` builds it — so a link to an item that moved or is compiled
 # only for tests, a bracketed letter rustdoc reads as a link, an ambiguous name and a public page
 # linking a private item fail here rather than on a reader's page (ADR 1938). The list below is the
-# whole ratchet: a crate joins it the round its own build reaches zero, and leaves it never. A small
-# walk, because it checks every dependency of the six: 2.1 GiB at its peak when it held three.
+# whole ratchet: a crate joins it the round its own build reaches zero, and leaves it never. A large
+# walk, because it checks every dependency of the crates listed and documents them in parallel: the
+# heavy-walk log's lines for it (`grep 'cargo doc --keep-going' /home/AI/heavy-walk.log`) peak past
+# half the small lane's 6 GiB, and past the whole of it once a sibling's edit makes it rebuild.
 # `--keep-going`, because without it the first crate that fails ends the build and the crates after
 # it report nothing: one failing crate would hide the next one's errors (ADR 1938).
 section_docs() {
     run "rustdoc with warnings denied, over the crates held at zero (ADR 1938)" \
         '^(error|warning)|Generated|Finished' \
-        walk small -- env RUSTDOCFLAGS="-D warnings" cargo doc --keep-going --no-deps \
+        walk large -- env RUSTDOCFLAGS="-D warnings" cargo doc --keep-going --no-deps \
         --document-private-items -p render-cpu -p raster-gpu -p viewer-ui -p viewer-device \
-        -p pdf-font -p viewer-confined -p pdf-model
+        -p pdf-font -p viewer-confined -p pdf-model -p viewer-core -p render-raster
 }
 
 section_tests() {

@@ -153,7 +153,9 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
             "judging a font program against its own format specification is a validator of \
              sfnt, CFF and Type 1 that nothing in this tree is; `pdf-font` reads those formats \
              to draw from them and reports what it could not use, not whether the program is \
-             well-formed",
+             well-formed. The dictionary half is checkable and owed: Table 109's /Widths holds \
+             LastChar - FirstChar + 1 numbers, which a file can break and this row does not yet \
+             ask (doc/adr/2163)",
         ),
     },
     Requirement {
@@ -1585,6 +1587,13 @@ fn type3_glyph_procedures_state_their_width(exam: &Examination<'_>, findings: &m
 /// - **A code the program states no advance for.** That is a fact about this reader — a bare
 ///   Type 1 program's `hsbw`, a repaired CFF — and naming the file for it would report our gap
 ///   as the producer's fault.
+///
+/// **And one misreading, named.** A Compact Font Format program's `FontMatrix` need not be the
+/// reciprocal of a whole number, and `pdf_font::cff::units_per_em` reads it as one, so such a
+/// program's advance is read off by the rounding. `wp315.pdf`'s `dcbx100120` states `0.00049`: a
+/// 649-unit glyph is 0.31801 text-space units, which `/Widths`' 317 misses by more than the
+/// thousandth, and this rule reads it at a whole number of units per em and passes it
+/// (`doc/adr/2163`).
 fn widths_agree_with_the_program(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for used in exam.survey().fonts() {

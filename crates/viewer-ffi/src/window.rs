@@ -35,6 +35,7 @@
 //! window asking each as every window asks it (ADR 2121).
 
 mod owed;
+mod repainted;
 mod shown;
 mod wheel;
 
@@ -42,16 +43,27 @@ use std::collections::VecDeque;
 use std::path::Path;
 
 use pdf_model::view::WidgetAppearances;
-use viewer_core::{Answer, Command, DocumentId, Event, Query, Viewer};
-use viewer_host::native_window::{Asked, DOCUMENT, NativeWindow, Showing, WindowState};
+use viewer_core::{Answer, Command, DocumentId, Event, Query};
+use viewer_host::native_window::{
+    Asked, DOCUMENT, FirstSize, Fitting, Launch, NativeWindow, Refusals, Showing, Sizing,
+    WindowState,
+};
 use viewer_host::trace::{Topic, Trace};
 
 pub use owed::{OwedKind, Owing};
+pub use repainted::Repainted;
 pub use wheel::WheelKind;
 
 use crate::keyboard::ActKind;
 use crate::status::Status;
 use owed::Owed;
+
+/// The C window's part of the sizes a window takes: its first is a resize, and Table 147's
+/// `/FitWindow` is handed to the caller once as `QUORRA_OWED_PLACE` (ADRs 1429, 2172).
+const SIZING: Sizing = Sizing {
+    first: FirstSize::Resize,
+    fitting: Fitting::Handed,
+};
 
 /// One native window's toolkit-free half, and the whole of what a `quorra_window *` points at.
 ///
@@ -66,8 +78,6 @@ pub struct Window {
     owing: Owing,
     /// Device pixels per logical pixel, from the last resize.
     scale: f32,
-    /// Whether the first resize has joined the document the opening thread opened.
-    joined: bool,
     /// The sentence the status line now says.
     status: String,
     /// The one question at the *ask* level that is waiting for its answer: one at a time, which
@@ -120,62 +130,19 @@ impl Window {
     ) -> Result<Self, Status> {
         let (settings, reader) = words.into_parts();
         let bytes = pdf_syntax::FileBytes::on_disk(path).map_err(|_| Status::Unreadable)?;
-        let widget_appearances = WidgetAppearances::Delegated;
-        let commands = viewer_host::native_window::opening_commands(
-            viewer_host::native_window::standing(settings).window(),
-            widget_appearances,
-            settings.separations,
-            bytes.clone(),
-            None,
-            fragment.clone(),
-        );
-        let ahead = viewer_host::Ahead::page_sized();
-        let drawing_ahead = ahead.clone();
-        let archive = reader.archive.clone();
         let (refusing, refused) = std::sync::mpsc::channel();
-        let anticipated = viewer_host::Loading::start(move || {
-            // No viewport: the core renders nothing into one with no extent, and it is moved back
-            // whole, so it is still single-threaded (ADR 0182).
-            let mut viewer = Viewer::new(0, 0, 1.0);
-            let mut events = Vec::new();
-            let supply = reader.commands();
-            for command in supply.commands {
-                events.extend(viewer.handle(command));
-            }
-            // Before the document, as the toolkit windows say them, so that the verdicts that
-            // follow are read knowing which files did not take; a window freed before it asks has
-            // nobody to say them to.
-            for refusal in supply
-                .refused
-                .into_iter()
-                .chain(viewer.reference_refusals().iter().map(ToString::to_string))
-            {
-                if refusing.send(refusal).is_err() {
-                    break;
-                }
-            }
-            for command in commands {
-                events.extend(viewer.handle(command));
-            }
-            events.extend(drawing_ahead.anticipate(&mut viewer));
-            (viewer, events)
-        });
-        let trace = Trace::off(std::time::Instant::now());
+        let launch = Launch::start(
+            bytes,
+            fragment,
+            WidgetAppearances::Delegated,
+            settings,
+            reader,
+            Refusals::Sent(refusing),
+        );
         Ok(Self {
-            state: WindowState::new(
-                path,
-                bytes,
-                fragment,
-                trace,
-                ahead,
-                widget_appearances,
-                settings,
-            )
-            .opening(anticipated)
-            .archiving(archive),
+            state: launch.state(path, Trace::off(std::time::Instant::now())),
             owing: Owing::default(),
             scale: 1.0,
-            joined: false,
             status: String::new(),
             question: None,
             prompting: None,
@@ -227,32 +194,8 @@ impl Window {
             return Err(Status::OutOfRange64);
         }
         self.scale = scale;
-        self.state.viewport = (width, height);
-        let resize = Command::Resize {
-            width,
-            height,
-            scale,
-        };
-        // Page one's drawing ahead draws into the target the first frame is asked at (ADR 1855).
-        let window = viewer_host::loading::Window {
-            width,
-            height,
-            inset: 0,
-            scale,
-        };
-        self.state.extent = Some(window);
-        if let Some(ahead) = self.state.ahead.as_ref() {
-            ahead.window_is(window);
-        }
-        if !self.joined {
-            self.joined = true;
-            self.join_the_opening(resize);
-        } else if self.state.awaiting.is_some() {
-            // A document still opening past `WARN` is told the size it has when it is taken in.
-            self.state.awaiting = Some(resize);
-        } else {
-            self.dispatch(resize);
-        }
+        // The caller's tick looks at a document still opening, so nothing is armed for it here.
+        let _ = self.sized(width, height, scale, SIZING);
         self.settle();
         Ok(())
     }
@@ -391,6 +334,8 @@ impl Window {
         if self.state.showing.measuring.is_on() {
             if matches!(action, viewer_core::PointerAction::Pressed) {
                 self.measure(at);
+                // A point put down is §12.9's traced path moved, a mark nothing dispatched draws.
+                self.repaint();
             }
         } else {
             self.dispatch(Command::Pointer { at, action });
@@ -751,6 +696,8 @@ impl Window {
             WindowAct::Measure => {
                 let on = self.state.showing.measuring.toggle();
                 self.say(&viewer_host::measuring::switched(on));
+                // The mode ended takes the traced path with it (ADR 2168).
+                self.repaint();
             }
             WindowAct::Separations => {
                 self.state.separations = !self.state.separations;
@@ -782,6 +729,9 @@ impl Window {
             WindowAct::Archive => self.ask_to_archive(),
             WindowAct::ChooseArchive => self.choose_the_archive_again(),
             WindowAct::AbortDrawing => self.stop_the_long_draw(),
+            // What `w` sends is what this page's controls measured, so the window carries it out
+            // from the caller's last measure, as `viewer-qt` does from its own (ADR 2169).
+            WindowAct::FitControls => self.fit_the_controls(),
             // A toolkit's: a widget shown, a dialogue opened, a tab strip's order, a window put
             // full screen — handed back as `quorra_key_press` hands them back.
             WindowAct::Find
@@ -790,7 +740,6 @@ impl Window {
             | WindowAct::Notices
             | WindowAct::Present
             | WindowAct::LeaveFullScreen
-            | WindowAct::FitControls
             | WindowAct::FreeText
             | WindowAct::NextDocument
             | WindowAct::CloseDocument
@@ -814,26 +763,6 @@ impl Window {
         if supplied {
             self.state.arrivals.supplied();
         }
-    }
-
-    /// The first resize: the document the opening thread opened is taken in, waiting no longer
-    /// than `viewer_host::drawing::WARN` — or `GLIMPSE_AFTER` where page one is drawn while it is
-    /// read — and left to its thread past that, joined on the tick that finds it ready (ADRs 1811,
-    /// 1855).
-    fn join_the_opening(&mut self, resize: Command) {
-        let drawing_ahead = self.state.ahead.is_some();
-        if self.state.anticipated.as_ref().is_some_and(|opening| {
-            !if drawing_ahead {
-                opening.wait_within(viewer_host::drawing::GLIMPSE_AFTER)
-            } else {
-                opening.wait()
-            }
-        }) {
-            self.state.awaiting = Some(resize);
-            self.show_the_opening();
-            return;
-        }
-        self.take_the_opening(resize);
     }
 
     /// The launch document's outline and page tree, if the thread reading them has answered.
@@ -945,7 +874,7 @@ impl NativeWindow for Window {
     }
 
     fn repaint(&mut self) {
-        self.owing.owe(Owed::Repaint);
+        self.owe_the_repaint();
     }
 
     fn retitle(&mut self) {

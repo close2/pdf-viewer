@@ -977,23 +977,70 @@ impl App {
                     });
                 }
             }
-            // §12.6.4.3: the act is opening a document in place of this one, so a `no` supplies
-            // nothing and the core says the link declined (ADR 1227).
             crate::app::Pending::RemoteDocument {
                 purpose,
                 name,
                 path,
-            } => {
-                if proceed {
-                    self.supply_remote(purpose, &name, &path);
-                } else {
-                    println!("note: {}", viewer_host::remote_declined(purpose, &name));
-                    self.dispatch(Command::Supply {
-                        purpose,
-                        bytes: None,
-                    });
-                }
+            } => self.remote_answered(purpose, &name, &path, proceed),
+            crate::app::Pending::LaunchedDocument { name, path } => {
+                Self::launch_answered(&name, &path, proceed);
             }
+        }
+    }
+
+    /// §12.6.4.3's question answered: the act is opening a document in place of this one, so a
+    /// `no` supplies nothing and the core says the link declined (ADR 1227).
+    fn remote_answered(&mut self, purpose: Purpose, name: &str, path: &Path, proceed: bool) {
+        if proceed {
+            self.supply_remote(purpose, name, path);
+        } else {
+            println!("note: {}", viewer_host::remote_declined(purpose, name));
+            self.dispatch(Command::Supply {
+                purpose,
+                bytes: None,
+            });
+        }
+    }
+
+    /// §12.6.4.6's question answered: handing a file to another program is the host's own act, so
+    /// the answer decides whether the document is handed over at all (ADR 2171).
+    fn launch_answered(name: &str, path: &Path, proceed: bool) {
+        if proceed {
+            Self::hand_over(name, path, &viewer_host::policy::handed(name));
+        } else {
+            println!(
+                "note: {}",
+                viewer_host::remote_declined(Purpose::LaunchDocument, name)
+            );
+        }
+    }
+
+    /// §12.6.4.6's launched file once read: where it is not a PDF, what `--launched-documents=`
+    /// does with it — a program started never, a document handed over or not (ADR 2171). The bytes
+    /// still go to the core, whose sentence says the link opened nothing in this reader.
+    fn launched_elsewhere(&mut self, name: &str, path: &Path, read: &[u8]) {
+        match viewer_host::policy::launched(path, name, read, self.launched_documents) {
+            None => {}
+            Some(viewer_host::Launched::Program(said) | viewer_host::Launched::Refuse(said)) => {
+                println!("note: {said}");
+            }
+            Some(viewer_host::Launched::Hand(said)) => Self::hand_over(name, path, &said),
+            Some(viewer_host::Launched::Ask(question)) => self.put_a_question(
+                crate::app::Pending::LaunchedDocument {
+                    name: name.to_owned(),
+                    path: path.to_owned(),
+                },
+                &question,
+            ),
+        }
+    }
+
+    /// Hands `path` to this machine's own handler, printing `said` once it is started and the
+    /// reason where it could not be.
+    fn hand_over(name: &str, path: &Path, said: &str) {
+        match viewer_host::policy::hand_over(path) {
+            Ok(()) => println!("note: {said}"),
+            Err(error) => println!("note: Launch: {name} could not be handed over — {error}"),
         }
     }
 
@@ -1022,6 +1069,9 @@ impl App {
                 if bytes.is_some() {
                     if let Some(note) = note {
                         println!("note: {note}");
+                    }
+                    if purpose == Purpose::LaunchDocument {
+                        self.launched_elsewhere(name, &path, bytes.as_deref().unwrap_or_default());
                     }
                     let name = self.arrivals.offer(
                         &mut self.documents,
@@ -1060,6 +1110,9 @@ impl App {
             // Table 203's `/NewWindow true` opens the destination beside this document rather
             // than in place of it, where this window has a name free for one (ADR 1263).
             self.offer_a_name(path, bytes.as_deref().unwrap_or_default(), purpose);
+            if purpose == Purpose::LaunchDocument {
+                self.launched_elsewhere(name, path, bytes.as_deref().unwrap_or_default());
+            }
         }
         self.dispatch(Command::Supply { purpose, bytes });
     }

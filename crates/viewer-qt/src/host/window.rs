@@ -2,14 +2,21 @@
 //! and how large, which chrome Table 29 and §12.2 let it show, and the viewport's size (filed here
 //! by ADR 1908).
 
-use viewer_core::{Answer, Command, Query};
-use viewer_host::native_window::NativeWindow;
+use viewer_core::{Answer, Query};
+use viewer_host::native_window::{FirstSize, Fitting, NativeWindow, Sizing};
 use viewer_host::panel::Tab;
 use viewer_host::trace::Topic;
 
 use crate::bridge::ffi::{QtChrome, QtWindowExtents};
 
 use super::{Host, WINDOW, level};
+
+/// Qt's part of the sizes a window takes: its first is a resize, and it fits itself to Table 147's
+/// `/FitWindow` at the frame [`Host::place_window`] is asked at (ADRs 1429, 2172).
+const SIZING: Sizing = Sizing {
+    first: FirstSize::Resize,
+    fitting: Fitting::Measured,
+};
 
 impl Host {
     /// The viewport changed size, in device pixels.
@@ -18,48 +25,8 @@ impl Host {
             return;
         }
         self.scale = scale;
-        // §12.4.4.1's transition is drawn in the viewport rather than in a page's own rectangle,
-        // so the size the core is told is also the size a frame is shaped for.
-        self.state.viewport = (width, height);
-        let resize = Command::Resize {
-            width,
-            height,
-            scale,
-        };
-        // Page one's drawing ahead draws into the target the first frame will be asked at, which is
-        // this viewport's; a size that changes while the page is read is told again, and a frame
-        // asked at another target than the one drawn is drawn whole (ADR 1855).
-        let window = viewer_host::loading::Window {
-            width,
-            height,
-            inset: 0,
-            scale,
-        };
-        self.state.extent = Some(window);
-        if let Some(ahead) = self.state.ahead.as_ref() {
-            ahead.window_is(window);
-        }
-        if !self.opened {
-            self.opened = true;
-            self.state.trace.say(
-                Topic::Launch,
-                format_args!("first resize {width}x{height} device px, scale {scale}"),
-            );
-            self.join_the_opening(resize);
-            return;
-        }
-        // A document still opening past `WARN` is told the window's size when it is taken in.
-        if self.state.awaiting.is_some() {
-            self.state.awaiting = Some(resize);
-            return;
-        }
-        self.dispatch(resize);
-        // A window asked to fit the first displayed page is measured again once it has taken
-        // the size it was asked for, because a frame is not always drawn for a viewport the page
-        // already fits the width of (ADR 1429).
-        if self.state.presenting.owes_placing() {
-            self.update.placement = true;
-        }
+        // Qt's drawing pump looks at a document still opening, so nothing is armed for it here.
+        let _ = self.sized(width, height, scale, SIZING);
     }
 
     /// Which pieces of chrome this window may show, and whether it is full screen.

@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use pdf_syntax::{Dictionary, Document, Name, Object};
 
-use crate::colour::{ColourSpace, Press, Presses};
+use crate::colour::{ColourSpace, NoPress, Press, Presses};
 use crate::icc::Rendering;
 use crate::page::Page;
 
@@ -42,6 +42,12 @@ pub(in crate::content) struct BeyondPress {
 impl BeyondPress {
     /// A refusal the document decides: the same answer on every run and on every machine.
     pub(super) const fn stated(why: &'static str) -> Self {
+        Self { why }
+    }
+
+    /// The one refusal that is not the document's: a table of presses this process poisoned,
+    /// whose sentence says so rather than naming a budget the file did not spend (ADR 2170).
+    const fn fault(why: &'static str) -> Self {
         Self { why }
     }
 }
@@ -300,19 +306,25 @@ fn named_press(
 /// The refusal is [`crate::colour::MAX_PRESSES`], and since ADR 0417 it is this page's own: a
 /// page naming a ninth distinct press is refused the ninth on every run and on every machine,
 /// where before the ninth press of the *process* was refused and which page that fell on
-/// depended on the order the scheduler ran the others in.
+/// depended on the order the scheduler ran the others in. A poisoned table is said as the
+/// process's fault and never as that budget (ADR 2170).
 fn press_or_beyond(
     profile: &crate::icc::Profile,
     presses: &Presses,
     rendering: Rendering,
 ) -> PagePress {
-    presses.press_for_profile(profile, rendering).map_or(
-        PagePress::Beyond(BeyondPress::stated(
+    match presses.press_for_profile(profile, rendering) {
+        Ok(press) => PagePress::In(press),
+        Err(NoPress::Spent) => PagePress::Beyond(BeyondPress::stated(
             "it is the ninth distinct press this page names and eight is the budget \
              (§11.7.2), so its four components are not converted out",
         )),
-        PagePress::In,
-    )
+        Err(NoPress::Unsampled) => PagePress::Beyond(BeyondPress::stated(
+            "its profile is not four components a press's grid can be sampled from, so its \
+             four components are not converted out",
+        )),
+        Err(NoPress::Poisoned) => PagePress::Beyond(BeyondPress::fault(NoPress::Poisoned.why())),
+    }
 }
 
 impl Interpreter<'_> {

@@ -1,4 +1,5 @@
-//! No comment in the tree's Rust sources names a round by its number.
+//! No comment in the tree's Rust and C sources, and no line of `doc/running-the-viewer.md`, names a
+//! round by its number.
 //!
 //! Not a conformance question; it lives here for `state_sections.rs`'s reason — this is the crate
 //! whose gates read the repository's own files rather than a PDF.
@@ -25,6 +26,15 @@
 //! of the write-side corpus walk's title string. A lifetime is told from a character literal by the
 //! quote that closes the literal and that a lifetime never has.
 //!
+//! A C source or header (`.c`, `.h`) is lexed by the same reader in C's own terms: a `/* */`
+//! comment does not nest, there is no raw string, and the ` * ` a block comment's continuation line
+//! opens with is decoration rather than text, so a number wrapped onto such a line still follows
+//! its word. The C files are the boundary's teaching programs and headers, read by a person as
+//! closely as the Rust is, and the rule is the same for them. `doc/running-the-viewer.md` is prose
+//! throughout, so every character of it is read; it is the document a person opens to run the
+//! programs, and a sentence there that dates a feature by its round is the history the rule keeps
+//! out of what a reader meets first.
+//!
 //! # The held list
 //!
 //! A site in a file another round owns while this sweep lands stays for that file's owner, one
@@ -45,8 +55,14 @@ use std::path::{Path, PathBuf};
 /// The files whose sites are their owners' to rewrite, with the count of comment lines each holds.
 const HELD: [(&str, usize); 0] = [];
 
-/// The directories whose Rust sources the rule reaches.
+/// The directories whose Rust and C sources the rule reaches.
 const ROOTS: [&str; 4] = ["crates", "tools", "raster", "fuzz"];
+
+/// The extensions of the sources the walk reads, each lexed as the language it names.
+const EXTENSIONS: [&str; 3] = ["rs", "c", "h"];
+
+/// The documents read as prose, every character of them, relative to the repository root.
+const PROSE: [&str; 1] = ["doc/running-the-viewer.md"];
 
 /// Where the repository root is, relative to this crate's manifest.
 fn repository_root() -> &'static Path {
@@ -56,8 +72,9 @@ fn repository_root() -> &'static Path {
         .expect("the manifest directory of a workspace member has two ancestors")
 }
 
-/// Every `.rs` file under `directory`, build output and hidden directories left out.
-fn rust_sources(directory: &Path, into: &mut Vec<PathBuf>) {
+/// Every source under `directory` whose extension is one of [`EXTENSIONS`], build output and hidden
+/// directories left out.
+fn sources_under(directory: &Path, into: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(directory) else {
         return;
     };
@@ -71,8 +88,12 @@ fn rust_sources(directory: &Path, into: &mut Vec<PathBuf>) {
             continue;
         }
         if path.is_dir() {
-            rust_sources(&path, into);
-        } else if path.extension().is_some_and(|extension| extension == "rs") {
+            sources_under(&path, into);
+        } else if path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| EXTENSIONS.contains(&extension))
+        {
             into.push(path);
         }
     }
@@ -81,6 +102,16 @@ fn rust_sources(directory: &Path, into: &mut Vec<PathBuf>) {
 /// Whether `character` can continue an identifier, which is what decides where a word starts.
 fn is_identifier(character: char) -> bool {
     character.is_alphanumeric() || character == '_'
+}
+
+/// The language a source is lexed as, which decides the two places Rust and C read differently.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Dialect {
+    /// Rust: block comments nest, and a raw string is a literal.
+    Rust,
+    /// C: a block comment ends at its first `*/`, there is no raw string, and a block comment's
+    /// continuation line opens with a ` * ` that is not part of its text.
+    C,
 }
 
 /// Where the lexer is: in code, in a comment, or inside a literal it skips.
@@ -149,8 +180,9 @@ fn past_quote(chars: &[char], at: usize) -> usize {
 
 /// Every comment character of `source`, each with the line it is on, and a break between two
 /// comments that are not on consecutive lines. A comment's own marker — `//`, a doc comment's third
-/// character, `/*` and `*/` — is not part of it.
-fn comment_text(source: &str) -> Vec<Option<(char, usize)>> {
+/// character, `/*` and `*/` — is not part of it, and in C neither is the ` * ` that opens a block
+/// comment's continuation line.
+fn comment_text(source: &str, dialect: Dialect) -> Vec<Option<(char, usize)>> {
     let chars: Vec<char> = source.chars().collect();
     let mut found: Vec<Option<(char, usize)>> = Vec::new();
     let mut last_line = 0_usize;
@@ -187,7 +219,7 @@ fn comment_text(source: &str) -> Vec<Option<(char, usize)>> {
                 }
                 ('"', _) => state = State::Text,
                 ('\'', _) => step = past_quote(&chars, at).saturating_sub(at),
-                ('r', _) => {
+                ('r', _) if dialect == Dialect::Rust => {
                     if let Some(hashes) = raw_opening(&chars, at) {
                         state = State::Raw(hashes);
                         step = hashes.saturating_add(2);
@@ -203,7 +235,7 @@ fn comment_text(source: &str) -> Vec<Option<(char, usize)>> {
                 }
             }
             State::BlockComment(depth) => match (character, next) {
-                ('/', Some('*')) => {
+                ('/', Some('*')) if dialect == Dialect::Rust => {
                     state = State::BlockComment(depth.saturating_add(1));
                     step = 2;
                 }
@@ -215,6 +247,7 @@ fn comment_text(source: &str) -> Vec<Option<(char, usize)>> {
                     };
                     step = 2;
                 }
+                ('\n', _) if dialect == Dialect::C => step = decoration(&chars, at),
                 ('\n', _) => {}
                 _ => keep(&mut found, character, line),
             },
@@ -246,9 +279,52 @@ fn comment_text(source: &str) -> Vec<Option<(char, usize)>> {
     found
 }
 
-/// The lines of `source` on which a comment names a round by number, in order and each once.
+/// How far past the line break at `at` a C block comment's text resumes: over the indentation and
+/// one `*` that is not the start of the closing `*/`. The `*` of a continuation line is the
+/// comment's decoration, and reading it as text would stand between a word and a number wrapped
+/// onto the next line.
+fn decoration(chars: &[char], at: usize) -> usize {
+    let mut cursor = at.saturating_add(1);
+    while chars
+        .get(cursor)
+        .is_some_and(|character| *character == ' ' || *character == '\t')
+    {
+        cursor = cursor.saturating_add(1);
+    }
+    if chars.get(cursor) == Some(&'*') && chars.get(cursor.saturating_add(1)) != Some(&'/') {
+        cursor = cursor.saturating_add(1);
+    }
+    cursor.saturating_sub(at)
+}
+
+/// Every character of `source` as prose, each with its line, the line breaks joined by a space.
+fn prose_text(source: &str) -> Vec<Option<(char, usize)>> {
+    let mut found = Vec::new();
+    for (index, line) in source.lines().enumerate() {
+        let number = index.saturating_add(1);
+        found.push(Some((' ', number)));
+        found.extend(line.chars().map(|character| Some((character, number))));
+    }
+    found
+}
+
+/// The lines of `source`, a Rust source, on which a comment names a round by number, in order and
+/// each once.
 fn round_numbers(source: &str) -> Vec<usize> {
-    let text = comment_text(source);
+    round_numbers_in(&comment_text(source, Dialect::Rust))
+}
+
+/// The lines `path` names a round by number on, read as its extension or as prose.
+fn sites(path: &Path, source: &str) -> Vec<usize> {
+    match path.extension().and_then(|extension| extension.to_str()) {
+        Some("rs") => round_numbers(source),
+        Some("c" | "h") => round_numbers_in(&comment_text(source, Dialect::C)),
+        _ => round_numbers_in(&prose_text(source)),
+    }
+}
+
+/// The lines of `text` on which it names a round by number, in order and each once.
+fn round_numbers_in(text: &[Option<(char, usize)>]) -> Vec<usize> {
     let character = |index: usize| -> Option<char> {
         text.get(index)
             .copied()
@@ -318,19 +394,58 @@ fn the_reader_is_the_shape_it_states() {
 }
 
 #[test]
+fn a_c_source_is_read_in_c_s_terms() {
+    let planted = r#"/* measured in round 911 */
+// round 912 in a line comment
+const char *title = "round 909 wrote this"; char quote = '"';
+/* outer /* not nested */ int width = 1; // round 913
+#define round 915
+/* the end of the round
+ * 914, wrapped onto a decorated line */
+int r = 1; const char *raw = r"round 916";
+"#;
+    assert_eq!(
+        sites(Path::new("planted.c"), planted),
+        [1, 2, 4, 6],
+        "the reader does not read C as C"
+    );
+    assert_eq!(
+        sites(Path::new("planted.rs"), planted),
+        [1, 2, 4, 5, 8],
+        "read as Rust, the planted C nests past both closings and loses the decorated wrap"
+    );
+}
+
+#[test]
+fn a_document_is_read_as_prose() {
+    let planted = concat!(
+        "**Since round 384** it does this.\n",
+        "`round 385` in a code span\n",
+        "the end of the round\n",
+        "386 wrapped, around 300 times\n",
+    );
+    assert_eq!(
+        sites(Path::new("planted.md"), planted),
+        [1, 2, 3],
+        "the reader does not read a document as prose"
+    );
+}
+
+#[test]
 fn no_comment_names_a_round_by_number() {
     let root = repository_root();
     let mut sources = Vec::new();
     for directory in ROOTS {
-        rust_sources(&root.join(directory), &mut sources);
+        sources_under(&root.join(directory), &mut sources);
     }
     sources.sort();
+    sources.extend(PROSE.iter().map(|document| root.join(document)));
     let mut owed = Vec::new();
     let mut counted: Vec<(String, usize)> = Vec::new();
     let mut total = 0_usize;
     for path in &sources {
         let text = fs::read_to_string(path).expect("a source file of the tree is readable");
-        let lines = round_numbers(&text);
+        let lines = sites(path, &text);
         if lines.is_empty() {
             continue;
         }
@@ -357,8 +472,8 @@ fn no_comment_names_a_round_by_number() {
         counted.push((relative, lines.len()));
     }
     println!(
-        "{} Rust source(s) read under {ROOTS:?}; {total} comment line(s) name a round by number, \
-         {} of them in {} held file(s)",
+        "{} source(s) read, Rust and C under {ROOTS:?} and {PROSE:?} as prose; {total} line(s) \
+         name a round by number, {} of them in {} held file(s)",
         sources.len(),
         total.saturating_sub(owed.len()),
         HELD.len()
@@ -367,6 +482,17 @@ fn no_comment_names_a_round_by_number() {
         sources.len() > 1000,
         "{} source(s) read: the population is not the tree",
         sources.len()
+    );
+    let c_sources = sources
+        .iter()
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "c" || extension == "h")
+        })
+        .count();
+    assert!(
+        c_sources > 0,
+        "no C source or header read: the population is not the tree's"
     );
     assert!(
         owed.is_empty(),

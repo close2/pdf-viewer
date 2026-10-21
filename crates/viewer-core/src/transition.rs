@@ -15,7 +15,7 @@
 //! # What the standard states, and what it does not
 //!
 //! Table 164 states which styles exist, what each one's `/Dm`, `/M`, `/Di`, `/SS` and `/B` mean,
-//! and that `/D` is "[t]he duration of the transition effect, in seconds". It states **not one
+//! and that `/D` is "\[t]he duration of the transition effect, in seconds". It states **not one
 //! word about what a frame in the middle looks like**, so the choices below are recorded as
 //! choices, in the manner ADR 0211 recorded a caret's colour and ADR 0225 its placement. Two are
 //! shared by every style:
@@ -39,12 +39,12 @@
 //!
 //! | style | what the clause names | the quantity it withholds | this program's choice |
 //! |---|---|---|---|
-//! | `Blinds` | "[m]ultiple lines, evenly spaced across the screen" | how many | [`BLINDS`] lines |
-//! | `Dissolve` | "[t]he old page dissolves gradually" | the grain and the order | square cells, [`DISSOLVE_CELLS`] along the longer side, in one fixed pseudo-random order |
+//! | `Blinds` | "\[m]ultiple lines, evenly spaced across the screen" | how many | [`BLINDS`] lines |
+//! | `Dissolve` | "\[t]he old page dissolves gradually" | the grain and the order | square cells, [`DISSOLVE_CELLS`] along the longer side, in one fixed pseudo-random order |
 //! | `Glitter` | a dissolve that "sweeps across the page in a wide band" | how wide | [`GLITTER_BAND`] of the distance swept, over `Dissolve`'s cells and order |
-//! | `Fly` | "[c]hanges are flown out or in" | what the changes are | the pixels in which the two pages differ |
+//! | `Fly` | "\[c]hanges are flown out or in" | what the changes are | the pixels in which the two pages differ |
 //!
-//! [`note`] says so to a person on every page that asks for one of the four, because a quantity
+//! `note` says so to a person on every page that asks for one of the four, because a quantity
 //! the reader chose is not one the producer specified. `R` is the cut by the table's own
 //! definition, "no special transition effect", and is neither drawn nor reported.
 //!
@@ -60,7 +60,7 @@
 //! turns — every value Table 164 gives them is one, with 315 belonging to `Glitter` and the name
 //! `None` to `Fly` where `/SS` is not 1 — and `Glitter`'s band can sweep along any angle. A file
 //! stating a direction none of those expresses has asked for an effect nothing here draws, so
-//! [`frame`] shapes none — and [`note`] therefore asks the *whole* transition rather than its
+//! [`frame`] shapes none — and `note` therefore asks the *whole* transition rather than its
 //! style, since a report keyed on less than what decides the drawing is a report that fires on
 //! the wrong condition (trap 11).
 //!
@@ -134,7 +134,7 @@ pub struct Layer {
     pub offset: (f32, f32),
     /// The size the picture is drawn at, about the viewport's centre, where 1 is its own.
     ///
-    /// Only a `Fly` moves it off 1: Table 164's `/SS` is "[t]he starting or ending scale at which
+    /// Only a `Fly` moves it off 1: Table 164's `/SS` is "\[t]he starting or ending scale at which
     /// the changes shall be drawn". The table names no point to scale about, and the viewport's
     /// centre is this program's choice (ADR 1299).
     pub scale: f32,
@@ -210,10 +210,10 @@ impl Faces {
 
 /// The part of `carried` that differs from `other`, transparent everywhere else.
 ///
-/// Table 164's `Fly` flies "[c]hanges" and does not say what they are; **the pixels in which the
+/// Table 164's `Fly` flies "\[c]hanges" and does not say what they are; **the pixels in which the
 /// two pages differ** is this program's reading (ADR 1299), and it is the one under which the
 /// last frame is the arriving page exactly: the old page with the new page's changes laid on it
-/// is the new page. `/B` is the table's own refinement of it — "[i]f true , the area that shall
+/// is the new page. `/B` is the table's own refinement of it — "\[i]f true , the area that shall
 /// be flown in is rectangular and opaque" — so `rectangular` takes the changes' bounding
 /// rectangle, whole and opaque, instead of their exact shape.
 ///
@@ -378,7 +378,7 @@ pub fn drawable(raster: &Raster) -> Option<Image> {
 ///
 /// `None` is the answer for `R`, which the table defines as a cut, for a name the table does not
 /// define, and for a style asked for in a direction nothing here draws it in — see this module's
-/// own documentation. Every `None` but `R`'s has a sentence in [`note`], and that is a property
+/// own documentation. Every `None` but `R`'s has a sentence in `note`, and that is a property
 /// this module tests rather than asserts.
 #[must_use]
 pub fn frame(transition: &Transition, viewport: Rect, progress: f32) -> Option<Frame> {
@@ -613,15 +613,13 @@ fn travelled(transition: &Transition, viewport: Rect, fraction: f32) -> Option<(
 /// quantity this program chose** is the owner's ruling in `doc/questions/A72`: the number is
 /// ours, and a person watching is told so rather than left to take it for the document's.
 ///
-/// `R` is the one style with nothing to report, because Table 164 defines it as the cut — "[t]he
+/// `R` is the one style with nothing to report, because Table 164 defines it as the cut — "\[t]he
 /// new page simply replaces the old one with no special transition effect".
 ///
 /// **This asks [`frame`] rather than restating its conditions**, because a style is not the whole
 /// of what decides a frame: `note` and `frame` are one decision in two expressions, which is why
-/// [`the_report_fires_on_exactly_what_is_not_drawn`] holds them against each other over every
+/// `the_report_fires_on_exactly_what_is_not_drawn` holds them against each other over every
 /// style and direction rather than against a list written out by hand.
-///
-/// [`the_report_fires_on_exactly_what_is_not_drawn`]: tests::the_report_fires_on_exactly_what_is_not_drawn
 pub(crate) fn note(transition: &Transition) -> Option<String> {
     match &transition.style {
         Style::Replace => return None,
@@ -911,7 +909,7 @@ struct Along {
 
 impl Along {
     /// `/Di`'s angle across `viewport`: counterclockwise from left-to-right, in a device space
-    /// whose y grows downward — so 270, "[t]op to bottom", is a *positive* y.
+    /// whose y grows downward — so 270, "\[t]op to bottom", is a *positive* y.
     fn new(viewport: Rect, degrees: f32) -> Self {
         let radians = degrees.to_radians();
         let direction = (radians.cos(), -radians.sin());

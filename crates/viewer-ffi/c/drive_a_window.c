@@ -8,14 +8,15 @@
  * below is a resize, a timer, some keys and an answer, and each of them is one call followed by
  * the same `act_on_what_is_owed`.
  *
- *   ./drive_a_window <file.pdf> <form.pdf> <script.pdf>
+ *   ./drive_a_window <file.pdf> <form.pdf> <script.pdf> <directory> <audience.pdf>
  *
  * The second document is the fixture `tests/a_c_program_drives_the_abi.rs` writes: a push-button
  * whose §12.7.6.2 submission the reader's default level asks about, which is how the question
  * and its answer are exercised — and, opened again under levels this program states, how a level
  * a host sets is shown to be the one in force (ADR 2120). The third is a text field whose
  * validation asks with app.alert, which a window at the scripts' PROCEED level puts to this
- * program as a record (ADR 2121).
+ * program as a record (ADR 2121). The fourth is a directory holding one file that is neither a
+ * certificate nor a PDF (ADR 2156), and the fifth one layer for a named reader (ADR 2173).
  *
  * Exit status: 0 if every step succeeded, 1 otherwise, with the failing step named on stderr.
  */
@@ -58,6 +59,8 @@ static void wait_ms(int32_t millis)
 /* What the program saw in the batches it took, kept for the steps that ask about it. */
 struct seen {
     int repaints;
+    uint32_t repainted;
+    size_t fresh;
     int questions;
     int panels;
     int controls;
@@ -117,9 +120,23 @@ static int act_on_what_is_owed(quorra_window *window, struct seen *seen)
         case QUORRA_OWED_TITLE:
             snprintf(seen->title, sizeof seen->title, "%s", text);
             break;
-        case QUORRA_OWED_REPAINT:
+        case QUORRA_OWED_REPAINT: {
+            /* What changed, and which pictures are new: a toolkit copies only those. */
+            uint32_t changed = 0;
+            bool fresh = false;
             seen->repaints += 1;
+            if (!check("quorra_owed_repaint", quorra_owed_repaint(owed, index, &changed))) {
+                free(text);
+                quorra_owed_free(owed);
+                return 0;
+            }
+            seen->repainted |= changed;
+            for (size_t frame = 0;
+                 quorra_owed_repaint_fresh(owed, index, frame, &fresh) == QUORRA_OK; ++frame) {
+                seen->fresh += fresh ? 1 : 0;
+            }
             break;
+        }
         case QUORRA_OWED_QUESTION:
             seen->questions += 1;
             snprintf(seen->question, sizeof seen->question, "%s", text);
@@ -357,6 +374,8 @@ static int zoom_with_the_wheel(quorra_window *window, struct seen *seen)
     const float y = 500.0f;
     int32_t steps = 0;
     int32_t inwards = 0;
+    seen->repainted = 0;
+    seen->fresh = 0;
     for (int event = 0; event < 3; ++event) {
         if (!check("quorra_window_zoom_wheel",
                    quorra_window_zoom_wheel(window, 0.4f, QUORRA_WHEEL_LINES, x, y, &steps))
@@ -368,6 +387,10 @@ static int zoom_with_the_wheel(quorra_window *window, struct seen *seen)
     if (!run_the_timer(window, seen) || !copy_the_page(window)) {
         return 0;
     }
+    /* The page drawn larger is new pixels in a new place, which the repaints said (ADR 2168). */
+    printf("window wheel repaints: frames %d, places %d, %s fresh picture\n",
+           (seen->repainted & QUORRA_REPAINT_FRAMES) != 0,
+           (seen->repainted & QUORRA_REPAINT_PLACES) != 0, seen->fresh > 0 ? "a" : "no");
     int32_t unknown = quorra_window_zoom_wheel(window, 1.0f, 7u, x, y, &steps);
     int32_t nonsense = quorra_window_zoom_wheel(window, NAN, QUORRA_WHEEL_LINES, x, y, &steps);
     int32_t outwards = 0;
@@ -381,6 +404,39 @@ static int zoom_with_the_wheel(quorra_window *window, struct seen *seen)
            "%s; not a number: %s\n",
            inwards, outwards, quorra_status_message(unknown), quorra_status_message(nonsense));
     return 1;
+}
+
+/* A repaint says what changed (ADR 2168): the find bar closed takes its occurrences away and
+ * draws no pixel again, and a pointer moved where it already was changes nothing and owes no
+ * repaint at all. */
+static int the_repaint_says_what_changed(quorra_window *window, struct seen *seen, bool *over)
+{
+    seen->repaints = 0;
+    seen->repainted = 0;
+    seen->fresh = 0;
+    if (!check("quorra_window_find_stop", quorra_window_find_stop(window))
+        || !act_on_what_is_owed(window, seen)) {
+        return 0;
+    }
+    int closed = seen->repaints;
+    uint32_t closed_changed = seen->repainted;
+    size_t closed_fresh = seen->fresh;
+    if (!check("quorra_window_pointer",
+               quorra_window_pointer(window, 2.0f, 2.0f, QUORRA_POINTER_MOVED, over))
+        || !act_on_what_is_owed(window, seen)) {
+        return 0;
+    }
+    seen->repaints = 0;
+    if (!check("quorra_window_pointer",
+               quorra_window_pointer(window, 2.0f, 2.0f, QUORRA_POINTER_MOVED, over))
+        || !act_on_what_is_owed(window, seen)) {
+        return 0;
+    }
+    printf("window repaint: the find bar closed owed %d repaint(s) changing %u with %zu fresh "
+           "picture(s); the pointer where it was owed %d\n",
+           closed, closed_changed, closed_fresh, seen->repaints);
+    return closed == 1 && closed_changed == QUORRA_REPAINT_MARKS && closed_fresh == 0
+           && seen->repaints == 0;
 }
 
 /* The application note: opened, drawn, presented, turned with a key, two keys that are not the
@@ -430,11 +486,8 @@ static int the_note(const char *path, const char *beside)
     printf("window search: %s\n", seen.said);
     bool over = true;
     if (!read_the_marks(window, "with the find bar open")
-        || !check("quorra_window_find_stop", quorra_window_find_stop(window))
-        || !read_the_marks(window, "after it closed")
-        || !check("quorra_window_pointer",
-                  quorra_window_pointer(window, 2.0f, 2.0f, QUORRA_POINTER_MOVED, &over))
-        || !act_on_what_is_owed(window, &seen)) {
+        || !the_repaint_says_what_changed(window, &seen, &over)
+        || !read_the_marks(window, "after it closed")) {
         quorra_window_free(window);
         return 0;
     }
@@ -477,6 +530,75 @@ static int the_note(const char *path, const char *beside)
            quorra_window_document_count(window));
     quorra_window_free(window);
     return 1;
+}
+
+/* The measured fit (ADR 2169): a control asked for 100 by 10 logical pixels that cannot be less
+ * than 20 high fits at twice the magnification, which W then sends; once every control fits, W
+ * says so and sends nothing. */
+static int the_measured_fit(quorra_window *window, struct seen *seen)
+{
+    const int32_t taller[4] = {100, 10, 100, 20};
+    const int32_t fitting[4] = {100, 20, 60, 20};
+    float wanted = 0.0f;
+    float none = -1.0f;
+    uint32_t act = QUORRA_ACT_NOTHING;
+    char fitted[sizeof seen->said] = {0};
+    if (!check("quorra_window_controls_measured",
+               quorra_window_controls_measured(window, taller, 1, &wanted))
+        || !press(window, QUORRA_KEY_W, false, &act, seen)) {
+        return 0;
+    }
+    snprintf(fitted, sizeof fitted, "%s", seen->said);
+    if (!check("quorra_window_controls_measured",
+               quorra_window_controls_measured(window, fitting, 1, &none))
+        || !press(window, QUORRA_KEY_W, false, &act, seen)) {
+        return 0;
+    }
+    int32_t unsized = quorra_window_controls_measured(window, NULL, 1, NULL);
+    printf("window fit: %s; W said \"%.24s\", act %s; once they fit %.1f and \"%s\"; no sizes: "
+           "%s\n",
+           wanted > 0.0f ? "a magnification" : "none", fitted, quorra_act_name(act), none,
+           seen->said, quorra_status_message(unsized));
+    return wanted > 0.0f && none == 0.0f && unsized == QUORRA_NULL_ARGUMENT;
+}
+
+/* §12.9's traced path (ADR 2168): M starts measuring, two presses put down two points the repaint
+ * calls marks, and M again ends it and the path with it. */
+static int the_traced_path(quorra_window *window, struct seen *seen)
+{
+    uint32_t act = QUORRA_ACT_NOTHING;
+    bool over = false;
+    float points[8] = {0};
+    size_t traced = 0;
+    size_t after = 99;
+    if (!press(window, QUORRA_KEY_M, false, &act, seen)) {
+        return 0;
+    }
+    seen->repainted = 0;
+    if (!check("quorra_window_pointer",
+               quorra_window_pointer(window, 100.0f, 100.0f, QUORRA_POINTER_PRESSED, &over))
+        || !check("quorra_window_pointer",
+                  quorra_window_pointer(window, 100.0f, 100.0f, QUORRA_POINTER_RELEASED, &over))
+        || !check("quorra_window_pointer",
+                  quorra_window_pointer(window, 200.0f, 100.0f, QUORRA_POINTER_PRESSED, &over))
+        || !check("quorra_window_pointer",
+                  quorra_window_pointer(window, 200.0f, 100.0f, QUORRA_POINTER_RELEASED, &over))
+        || !act_on_what_is_owed(window, seen)
+        || !check("quorra_window_traced_path",
+                  quorra_window_traced_path(window, points, 8, &traced))) {
+        return 0;
+    }
+    uint32_t marked = seen->repainted;
+    if (!press(window, QUORRA_KEY_M, false, &act, seen)
+        || !check("quorra_window_traced_path",
+                  quorra_window_traced_path(window, NULL, 0, &after))) {
+        return 0;
+    }
+    printf("window traced path: %zu float(s), from %.0f,%.0f to %.0f,%.0f, the marks %s; %zu after "
+           "the mode ended\n",
+           traced, points[0], points[1], points[2], points[3],
+           (marked & QUORRA_REPAINT_MARKS) != 0 ? "repainted" : "not repainted", after);
+    return traced == 4 && after == 0 && (marked & QUORRA_REPAINT_MARKS) != 0;
 }
 
 /* The fixture's push-button, reached with Tab and pressed with Space: the reader's default level
@@ -564,8 +686,10 @@ static int the_form(const char *path)
     quorra_fields_free(fields);
     printf("window control committed: %s is \"%s\" (%s)\n", name, value,
            quorra_status_message(valued));
+    int fitted = the_measured_fit(window, &seen) && the_traced_path(window, &seen);
     quorra_window_free(window);
-    return again == QUORRA_NO_ANSWER && unasked == QUORRA_NO_ANSWER && valued == QUORRA_OK;
+    return again == QUORRA_NO_ANSWER && unasked == QUORRA_NO_ANSWER && valued == QUORRA_OK
+           && fitted;
 }
 
 /* The three requests a toolkit answers with a dialogue, on the note at the default levels: ISO
@@ -781,6 +905,96 @@ static int the_reader(const char *path, const char *directory)
            && finished == QUORRA_NO_ANSWER;
 }
 
+/* How many pixels of the page area's first picture are not white. */
+static int count_the_ink(quorra_window *window, size_t *inked)
+{
+    quorra_frame frame;
+    uint32_t shown_width = 0;
+    uint32_t shown_height = 0;
+    if (quorra_window_frame_count(window) == 0
+        || !check("quorra_window_frame",
+                  quorra_window_frame(window, 0, &frame, &shown_width, &shown_height))) {
+        return 0;
+    }
+    uint8_t *pixels = malloc(frame.bytes);
+    size_t written = 0;
+    if (pixels == NULL
+        || !check("quorra_window_frame_copy",
+                  quorra_window_frame_copy(window, 0, pixels, frame.bytes, &written))) {
+        free(pixels);
+        return 0;
+    }
+    *inked = 0;
+    for (size_t at = 0; at + 3 < written; at += 4) {
+        if (pixels[at] != 255 || pixels[at + 1] != 255 || pixels[at + 2] != 255) {
+            ++*inked;
+        }
+    }
+    free(pixels);
+    return 1;
+}
+
+/* The audience a host states, as a named reader sees it (§8.11.4.4, ADR 2173): `path` is one
+ * layer whose /Usage /User names Ada and whose /AS manages it, over a filled rectangle. Opened
+ * under --reader-name Ada, under --reader-name Grace and under nobody, the PANELS record's layer
+ * row says whether it is on, and the page area's picture is drawn under the same answer: on for
+ * Ada, off for Grace, and the configuration's own state where nobody was named. */
+static int the_audience(const char *path)
+{
+    static const char *const readers[3] = {"Ada", "Grace", NULL};
+    int on[3] = {-1, -1, -1};
+    size_t inked[3] = {0, 0, 0};
+    int panels[3] = {0, 0, 0};
+    char name[64] = {0};
+    for (int reader = 0; reader < 3; ++reader) {
+        quorra_settings *settings = NULL;
+        size_t used = 0;
+        if (!check("quorra_settings_new", quorra_settings_new(&settings))
+            || (readers[reader] != NULL
+                && !check("quorra_settings_take_next",
+                          quorra_settings_take_next(settings, "--reader-name", readers[reader],
+                                                    &used)))) {
+            quorra_settings_free(settings);
+            return 0;
+        }
+        quorra_window *window = NULL;
+        struct seen seen = {0};
+        int opened = check("quorra_window_open_under",
+                           quorra_window_open_under(path, NULL, settings, &window));
+        quorra_settings_free(settings);
+        quorra_panel *layers = NULL;
+        uint32_t kind = 0;
+        uint32_t number = 0;
+        uint16_t generation = 0;
+        bool shown = false;
+        bool locked = false;
+        size_t needed = 0;
+        if (!opened || !check("quorra_window_resize", quorra_window_resize(window, 400, 200, 1.0f))
+            || !act_on_what_is_owed(window, &seen) || !run_the_timer(window, &seen)
+            || !check("quorra_window_layers_read", quorra_window_layers_read(window, &layers))
+            || quorra_panel_len(layers) != 1
+            || !check("quorra_panel_text",
+                      quorra_panel_text(layers, 0, 0, name, sizeof name, &needed))
+            || !check("quorra_panel_action", quorra_panel_action(layers, 0, &kind, &number,
+                                                                 &generation, &shown, &locked))
+            || kind != QUORRA_ROW_TOGGLE || !count_the_ink(window, &inked[reader])) {
+            quorra_panel_free(layers);
+            quorra_window_free(window);
+            return 0;
+        }
+        quorra_panel_free(layers);
+        quorra_window_free(window);
+        on[reader] = shown ? 1 : 0;
+        panels[reader] = seen.panels;
+    }
+    printf("window audience: \"%s\" on %d for Ada, %zu inked; on %d for Grace, %zu inked; on %d "
+           "for nobody, %zu inked; %d, %d and %d panels record(s)\n",
+           name, on[0], inked[0], on[1], inked[1], on[2], inked[2], panels[0], panels[1],
+           panels[2]);
+    return on[0] == 1 && on[1] == 0 && on[2] == 1 && inked[0] > 0 && inked[1] == 0
+           && inked[2] == inked[0] && panels[0] > 0 && panels[1] > 0 && panels[2] > 0;
+}
+
 /* One commit of the fixture's field, whose validation asks with app.alert. */
 static int commit_the_question(quorra_window *window, const char *value, struct seen *seen)
 {
@@ -843,8 +1057,9 @@ static int the_script(const char *path)
 
 int main(int argc, char **argv)
 {
-    if (argc < 5) {
-        fprintf(stderr, "usage: %s <file.pdf> <form.pdf> <script.pdf> <directory>\n", argv[0]);
+    if (argc < 6) {
+        fprintf(stderr, "usage: %s <file.pdf> <form.pdf> <script.pdf> <directory> <audience.pdf>\n",
+                argv[0]);
         return 1;
     }
     if (!check("quorra_abi_check", quorra_abi_check(QUORRA_ABI_VERSION, QUORRA_EVENT_KIND_COUNT))) {
@@ -878,7 +1093,8 @@ int main(int argc, char **argv)
         return 1;
     }
     if (!the_note(argv[1], argv[2]) || !the_form(argv[2]) || !the_requests(argv[1])
-        || !the_settings(argv[2]) || !the_reader(argv[1], argv[4]) || !the_script(argv[3])) {
+        || !the_settings(argv[2]) || !the_reader(argv[1], argv[4]) || !the_script(argv[3])
+        || !the_audience(argv[5])) {
         return 1;
     }
     printf("ok\n");

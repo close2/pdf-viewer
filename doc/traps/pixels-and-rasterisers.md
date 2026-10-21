@@ -771,3 +771,12 @@ sixth route the list had folded into "the stroker's" (ADR 2148). A list of route
 where the pixels are; the measurement that decides it is trap 213's — isolate the smallest mark holding
 the worst pixel on the full-size target — and it comes before the list is built on, not after.
 
+### 232. A census of a construction counts what the backend draws by it, not what the display list states
+
+Round 1665 counted the corpus pages the raster library's range reaches by looking for knockout groups past
+8 191 pixels in the display list, and found one; every one of that group's thirteen elements was clipped,
+so the converter drew them as ADR 1320's two stages, which the range never decides. The population was the
+list's, and the construction's was empty (ADR 2166). Before a census takes a population from a display
+list, the decision the converter makes for each candidate — here the blend mode each fill reaches — is
+printed from an instrumented export, and the census counts those.
+

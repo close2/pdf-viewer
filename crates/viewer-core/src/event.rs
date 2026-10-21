@@ -44,7 +44,7 @@ pub enum Event {
     Closed(DocumentId),
     /// The focused document is showing a different page.
     ///
-    /// Carries §12.4.2's label as well as the index, because "[p]age labels and page indices
+    /// Carries §12.4.2's label as well as the index, because "\[p]age labels and page indices
     /// need not coincide": a page of front matter is *iv*, and a host that showed only the
     /// index would be contradicting the document.
     PageChanged {

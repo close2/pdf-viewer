@@ -9153,6 +9153,59 @@ pub unsafe extern "C" fn quorra_owed_print(
     }
 }
 
+/// What a `REPAINT` record changed, a word of `QUORRA_REPAINT_*` bits: the pictures' pixels,
+/// their places, the marks over them (ADR 2168); `QUORRA_WRONG_KIND` for another record.
+///
+/// # Safety
+///
+/// See the module documentation. `changed` is writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_owed_repaint(
+    owed: *const Owing,
+    index: usize,
+    changed: *mut u32,
+) -> c_int {
+    let (Some(owed), Some(changed)) = (owed.as_ref(), changed.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match owed.repaint(index) {
+        Ok(repainted) => {
+            *changed = repainted.changed();
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// Whether a `REPAINT` record's picture `frame` has pixels the caller has not been handed, so that
+/// only those are copied with `quorra_window_frame_copy` (ADR 2168); `QUORRA_OUT_OF_RANGE` past the
+/// pictures the page area shows, `QUORRA_WRONG_KIND` for another record.
+///
+/// # Safety
+///
+/// See the module documentation. `fresh` is writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_owed_repaint_fresh(
+    owed: *const Owing,
+    index: usize,
+    frame: usize,
+    fresh: *mut bool,
+) -> c_int {
+    let (Some(owed), Some(fresh)) = (owed.as_ref(), fresh.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match owed
+        .repaint(index)
+        .and_then(|repainted| repainted.fresh(frame))
+    {
+        Ok(new) => {
+            *fresh = new;
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
 /// How many record kinds this build defines, against the header's `QUORRA_OWED_KIND_COUNT`: a
 /// caller compiled before a kind was added says so at startup rather than meeting it unarmed.
 #[unsafe(no_mangle)]
@@ -9443,6 +9496,66 @@ pub unsafe extern "C" fn quorra_window_focused_annotation(
         }
         Err(status) => status.code(),
     }
+}
+
+/// §12.9's traced path while measuring, in device pixels of the viewport as flat `x, y` pairs,
+/// drawn over the page on a repaint whose marks changed; none while the mode is off (ADR 2168).
+/// Two-call idiom over `float`s: `needed` is twice the points.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` `float`s, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_traced_path(
+    window: *const Window,
+    out: *mut f32,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(window) = window.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    copy_floats(&window.traced_path(), out, cap, needed)
+}
+
+/// What the caller measured of the controls it placed over the page: `count` controls, four
+/// `int32_t`s each — the width and height it asked the control to occupy, then the least width
+/// and height the toolkit says the control can be — in logical pixels (ADR 2169). `*magnification`,
+/// where not null, is the magnification at which every control fits, which `QUORRA_KEY_W`'s fit
+/// sends, or 0 where they fit now.
+///
+/// # Safety
+///
+/// See the module documentation. `sizes` is readable for `4 * count` `int32_t`s, or null where
+/// `count` is 0; `magnification` is writable, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_controls_measured(
+    window: *mut Window,
+    sizes: *const i32,
+    count: usize,
+    magnification: *mut f32,
+) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    let Some(values) = count.checked_mul(4) else {
+        return Status::OutOfRange.code();
+    };
+    let measured: Vec<[i32; 4]> = if values == 0 {
+        Vec::new()
+    } else if sizes.is_null() {
+        return Status::NullArgument.code();
+    } else {
+        core::slice::from_raw_parts(sizes, values)
+            .chunks_exact(4)
+            .filter_map(|four| <[i32; 4]>::try_from(four).ok())
+            .collect()
+    };
+    let fits = window.controls_measured(&measured);
+    if let Some(magnification) = magnification.as_mut() {
+        *magnification = fits.unwrap_or(0.0);
+    }
+    Status::Ok.code()
 }
 
 /// Activates an object: an outline item's or a thread's row, or a push-button's widget.

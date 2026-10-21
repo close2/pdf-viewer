@@ -78,7 +78,7 @@ character its `/ToUnicode` states for it (ADR 1943).
 oracle — and it is one because it computes a path's coverage of a pixel as the **exact integral of
 §8.5.3.3's winding number over §10.7.4's half-open pixel square** rather than sampling it on a
 lattice — a row at a time, so that a page is cut into strips across any stroke it draws
-that way, a curve that cannot fold included, every fill the row walk draws freeing its rows too and a mark's self-overlap judged over the whole mark rather than its strip (ADR 1837), a rectangle stated at a strip's edge row as the library's rectangle converter states it unclipped, so that a cut across one changes no byte (ADR 2084), an unfiltered image's pixel coloured by the sample its centre maps to on the page's own device grid, so a strip takes the sample the page does (ADR 2100), a rectangle's converter chosen by the page rather than by the strip, so the first strip of a page past 8191 rows states its rectangles as the page does (ADR 2116), a rectangle inside one device row written by its closed form, where the library's own branch for it comes out under its area (ADR 2117), a fill, a stroke's outline, a folding stroke's pieces, a rectangle's closed form and an image's square measured on the page's grid in every strip and band, only their write moved by the surface's corner (ADR 2133), and so are §10.7.4's marks and bands, a dot's disc, a long mitre's wedges, a clip's own mask and a cone's or a washed shading's raster (ADR 2148), the library's own converters keeping the surface's range (ADR 2149), and a tall mark is measured in runs of rows rather than handed back (ADR 1819); a single straight stroke whose ink lies within a 2 × 2 block of pixels is painted from its exact closed-form area in the frame where the pen is the unit disc, without entering the library at all (ADR 1829), §8.5.3.2's round dot as the same set at length zero, in every spelling and inside a longer path where no two dots share a pixel (ADRs 1857, 1875), composited at its area and rounded once when stored (ADR 1876), and measured on the page's own grid in every strip, so a cut through one is exact (ADR 1847); a page is cut into as many strips as the pool drawing it is wide (ADR 1859), the cuts decided on one thread from the list read on that pool, every number of it the serial reading's (ADR 1882), the bounds the list keeps borrowed rather than copied (ADR 1940) — leaving the library beneath it the axis-aligned rectangle (ADR 1082) and a stroke some of
+that way, a curve that cannot fold included, every fill the row walk draws freeing its rows too and a mark's self-overlap judged over the whole mark rather than its strip (ADR 1837), a rectangle stated at a strip's edge row as the library's rectangle converter states it unclipped, so that a cut across one changes no byte (ADR 2084), an unfiltered image's pixel coloured by the sample its centre maps to on the page's own device grid, so a strip takes the sample the page does (ADR 2100), a rectangle's converter chosen by the page rather than by the strip, so the first strip of a page past 8191 rows states its rectangles as the page does (ADR 2116), a rectangle inside one device row written by its closed form, where the library's own branch for it comes out under its area (ADR 2117), a fill, a stroke's outline, a folding stroke's pieces, a rectangle's closed form and an image's square measured on the page's grid in every strip and band, only their write moved by the surface's corner (ADR 2133), and so are §10.7.4's marks and bands, a dot's disc, a long mitre's wedges, a clip's own mask and a cone's, a washed shading's or a mesh's raster (ADRs 2148, 2167), the library's own converters keeping the surface's matrix (ADR 2149) and asking their range of the page (ADR 2166), and a tall mark is measured in runs of rows rather than handed back (ADR 1819); a single straight stroke whose ink lies within a 2 × 2 block of pixels is painted from its exact closed-form area in the frame where the pen is the unit disc, without entering the library at all (ADR 1829), §8.5.3.2's round dot as the same set at length zero, in every spelling and inside a longer path where no two dots share a pixel (ADRs 1857, 1875), composited at its area and rounded once when stored (ADR 1876), and measured on the page's own grid in every strip, so a cut through one is exact (ADR 1847); a page is cut into as many strips as the pool drawing it is wide (ADR 1859), the cuts decided on one thread from the list read on that pool, every number of it the serial reading's (ADR 1882), the bounds the list keeps borrowed rather than copied (ADR 1940) — leaving the library beneath it the axis-aligned rectangle (ADR 1082) and a stroke some of
 whose curves bend more tightly than its half-width — those curves as pieces, the stretches between
 as the stroker's outline (ADRs 1348, 1359) — lifts a shape too small to show to one level as a whole
 shape, which is what §10.7.4 asks the lift of, so the sliver beside a shape that does show keeps its
@@ -158,7 +158,7 @@ rather than a clause of the standard (ADR 0820).
 
 §12.3.2's destinations, §12.3.3's outline, §12.4.2's page labels, §12.5.6.5's links
 performing every one of Table 201's actions that is not clause 13's media — `JavaScript` at the
-reader's `Scripts` level, as the scripts below say, and a launch of an application the one half principle 3's sandbox withholds, with
+reader's `Scripts` level, as the scripts below say, and a launch of a program the one half this host never performs, with
 `pdf_model::action`'s table the list — and a rendition action's clip judged by §13.2.2's viability,
 reported with its §14.9.2.4 alternate text and handed to the host at the reader's level for Table
 286's `/TF`, with no player started (ADRs 1960, 1961) — §14.9's accessibility entries, §12.4.4's whole presentation
@@ -485,7 +485,8 @@ because whether this program has a second place to put a document is a fact abou
 sentence saying the destination replaced what was open (ADRs 1227, 1263). **§12.6.4.6's launch action
 is the same act where its Table 207 `/F` names a PDF**: the file is asked for under the same level and
 path rule, its §7.5.2 header decides what it is once it has arrived, a PDF opens where `/NewWindow`
-puts it, and anything else is an application, which the sandbox starts none of (ADRs 1368, 1358). The path
+puts it, a program is started never, and any other file is a document handed to this machine's own
+handler at `--launched-documents=`'s level, `refuse` by default (ADRs 1368, 1358, 2171). The path
 rule admits §7.11.2.2's relative specification into a directory below the document's own and
 refuses `..`, `.`, an empty component and an absolute path (ADR 1369). A file the go-to names
 that asks for a password is asked about under the name it would open under, and the second attempt
@@ -920,6 +921,8 @@ pass.
   handle — the levels, and the reader's anchors, target documents, audience and conversion — by
   the command-line words every binary reads through `viewer_host::policy::Words::take` or by
   number (ADRs 2120, 2156); the print key is `viewer_host::print_key`'s in every window (ADR 2157);
+  the launch is `viewer_host::native_window::Launch` and `NativeWindow::sized` in the three windows
+  (ADR 2172), and a named reader's layer reaches it on the panels record and its frames (ADR 2173);
   and the chooser, a script's dialogue and a print grant are records its caller
   answers (ADR 2121). **And .NET reaches the ABI through `hosts/windows/Quorra.Interop/`**: one
   C# declaration for each function, constant and struct `quorra.h` states, under the header's own
@@ -930,8 +933,10 @@ pass.
   toolkit windows commit it, the title and the status line, the keys, the pointer, the wheel and
   Control with the wheel (`quorra_window_zoom_wheel`, the fraction of a step carried by the
   library), each record it has no dialogue for yet declined in the header's own terms and said;
-  built only by CI's `window` job, on `windows-latest`, with `viewer_ffi.dll` beside it (ADRs 2136,
-  2137, 2152, 2153).
+  the pictures copied only where a repaint calls them fresh (ADR 2168), Table 231's combs, the
+  measured fit, §12.5.6.14's popups and §12.9's traced path drawn (ADR 2169); its C# compiled on
+  Linux against the Windows App SDK's references, its XAML only by CI's `window` job, on
+  `windows-latest`, with `viewer_ffi.dll` beside it (ADRs 2136, 2137, 2152, 2153).
   ADRs 0247, 0509.
 
 ### A password field's value on a save

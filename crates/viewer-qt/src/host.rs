@@ -63,8 +63,10 @@ use std::path::{Path, PathBuf};
 
 use pdf_model::view::WidgetAppearances;
 use render_cpu::CpuRasterizer;
-use viewer_core::{Command, DocumentId, FormField, Viewer};
-use viewer_host::native_window::{Asked, DOCUMENT, NativeWindow, Showing, WindowState};
+use viewer_core::{Command, DocumentId, FormField};
+use viewer_host::native_window::{
+    Asked, DOCUMENT, Launch, NativeWindow, Refusals, Showing, WindowState,
+};
 use viewer_host::panel::Tab;
 use viewer_host::trace::{Topic, Trace};
 
@@ -194,8 +196,6 @@ pub struct Host {
     script_question: Option<(DocumentId, String, viewer_core::ScriptQuestion)>,
     /// What to put above the entry, worded when the prompt is asked for and read once by C++.
     prompt: String,
-    /// Whether the document has been opened yet, which waits for the first resize.
-    opened: bool,
     /// The most recent sentence for a person.
     message: String,
     /// The three trees.
@@ -284,7 +284,6 @@ impl std::fmt::Debug for Host {
         formatter
             .debug_struct("Host")
             .field("path", &self.state.showing.path)
-            .field("opened", &self.opened)
             .field("dirty", &self.state.showing.dirty)
             .field("placed", &self.placed.len())
             .finish_non_exhaustive()
@@ -366,11 +365,12 @@ impl Host {
     /// (ADR 1539): Qt's application, its window and the first resize take longer than the open
     /// does, and need nothing of it. The thread's `Viewer` has no viewport, so nothing is drawn
     /// until the first resize joins it — the viewport's size decides the resolution page one is
-    /// rasterised at, and a page drawn at a guessed size would be drawn twice. That is
-    /// `viewer-gtk`'s shape too, so the two hosts' launch timelines measure the same thing.
+    /// rasterised at, and a page drawn at a guessed size would be drawn twice. The sequence is
+    /// [`Launch`], which `viewer-gtk` and the C window start alike, so the launch timelines
+    /// measure the same thing (ADR 2172).
     ///
-    /// `reader` is the reader's three policy words, which become their commands on that thread
-    /// and before the document, for `viewer-gtk`'s reasons (ADR 1580).
+    /// `reader` is the reader's policy words, which become their commands on that thread and
+    /// before the document (ADR 1580); what a named directory refused is said on the terminal.
     ///
     /// # Errors
     ///
@@ -394,58 +394,16 @@ impl Host {
             Topic::Launch,
             format_args!("opened {} bytes of {} on disk", bytes.len(), path.display()),
         );
-        let commands = viewer_host::native_window::opening_commands(
-            viewer_host::native_window::standing(settings).window(),
+        let launch = Launch::start(
+            bytes,
+            fragment,
             widget_appearances,
-            settings.separations,
-            bytes.clone(),
-            None,
-            fragment.clone(),
+            settings,
+            reader,
+            Refusals::Terminal,
         );
-        let ahead = viewer_host::Ahead::page_sized();
-        let drawing_ahead = ahead.clone();
-        // The conversion `--archive` chose, kept for the window's archive key (ADR 1954).
-        let archive = reader.archive.clone();
-        let anticipated = viewer_host::Loading::start(move || {
-            // No viewport: the window does not exist yet, and the core renders nothing into one
-            // with no extent. The core is made here and moved back, so it is still
-            // single-threaded — `viewer-core`'s rule 4 as `quorra` keeps it (ADR 0182).
-            let mut viewer = Viewer::new(0, 0, 1.0);
-            let mut events = Vec::new();
-            let supply = reader.commands();
-            for command in supply.commands {
-                events.extend(viewer.handle(command));
-            }
-            // Said where the window says everything else, and before the document so that a
-            // person reading the verdicts that follow knows which files did not take (trap 5).
-            for refusal in supply
-                .refused
-                .into_iter()
-                .chain(viewer.reference_refusals().iter().map(ToString::to_string))
-            {
-                println!("note: {refusal}");
-            }
-            for command in commands {
-                events.extend(viewer.handle(command));
-            }
-            // Page one read here as `Viewer::anticipate` reads it, and drawn beside the read on a
-            // thread of its own once the read has run `GLIMPSE_AFTER` (ADR 1855): the read keeps
-            // the thread the launch placed it on (trap 154).
-            events.extend(drawing_ahead.anticipate(&mut viewer));
-            (viewer, events)
-        });
         Ok(Self {
-            state: WindowState::new(
-                path,
-                bytes,
-                fragment,
-                trace,
-                ahead,
-                widget_appearances,
-                settings,
-            )
-            .archiving(archive)
-            .opening(anticipated),
+            state: launch.state(path, trace),
             // No thread and nothing read until a label holds a character the compiled-in face
             // lacks, and then off this thread (ADR 1406).
             faces: viewer_host::machine_faces::MachineFaces::new(),
@@ -466,7 +424,6 @@ impl Host {
             question: None,
             script_question: None,
             prompt: String::new(),
-            opened: false,
             message: String::new(),
             trees: std::array::from_fn(|_| Vec::new()),
             fields: Vec::new(),

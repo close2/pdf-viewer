@@ -301,7 +301,7 @@ impl Open {
     /// choice. Returns whether anything changed, which is what tells the caller to repaint.
     ///
     /// **The click is written where a script's `popupOpen` is**, the view state's map of windows:
-    /// Table 186's `/Open` is "[a] flag specifying whether the popup annotation shall *initially*
+    /// Table 186's `/Open` is "\[a] flag specifying whether the popup annotation shall *initially*
     /// be displayed open", so the file states the first frame and the map every change since, and
     /// whichever of a person and a script wrote last is the window's state (ADR 1720).
     pub(crate) fn toggle_popup(&mut self, annotation: ObjectId) -> bool {

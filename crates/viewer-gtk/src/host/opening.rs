@@ -4,13 +4,20 @@ use std::collections::VecDeque;
 
 use gtk4::glib;
 use gtk4::prelude::*;
-use viewer_core::{Command, Event};
+use viewer_core::Event;
 
-use viewer_host::native_window::NativeWindow;
+use viewer_host::native_window::{FirstSize, Fitting, Joining, NativeWindow, Sizing};
 use viewer_host::panel::Tab;
 use viewer_host::trace::Topic;
 
 use super::{DOCUMENT, Host};
+
+/// GTK's part of the sizes a window takes: its first is an allocation, and it fits itself to
+/// Table 147's `/FitWindow` (ADRs 1429, 2172).
+const SIZING: Sizing = Sizing {
+    first: FirstSize::Allocation,
+    fitting: Fitting::Measured,
+};
 
 impl Host {
     /// The viewport changed size, in logical pixels.
@@ -36,95 +43,30 @@ impl Host {
                       nothing a viewport can express"
         )]
         let scale = scale as f32;
-        // §12.4.4.1's transition is drawn in the viewport rather than in a page's own rectangle,
-        // so the size the core is told is also the size a frame is shaped for.
-        self.state.viewport = (width, height);
-        let resize = Command::Resize {
-            width,
-            height,
-            scale,
-        };
-        // Page one's drawing ahead draws into the target the first frame will be asked at, which is
-        // this viewport's; a size that changes while the page is read is told again, and a frame
-        // asked at another target than the one drawn is drawn whole (ADR 1855).
-        let window = viewer_host::loading::Window {
-            width,
-            height,
-            inset: 0,
-            scale,
-        };
-        self.state.extent = Some(window);
-        if let Some(ahead) = self.state.ahead.as_ref() {
-            ahead.window_is(window);
-        }
-        if !self.opened {
-            self.opened = true;
-            self.state.trace.say(
-                Topic::Launch,
-                format_args!("first allocation {width}x{height} device px, scale {scale}"),
-            );
-            self.join_the_opening(resize);
-            return;
-        }
-        // A document still opening past `WARN` is told the window's size when it is taken in.
-        if self.state.awaiting.is_some() {
-            self.state.awaiting = Some(resize);
-            return;
-        }
-        self.dispatch(resize);
-        // A window asked to fit the first displayed page is measured again once it has taken
-        // the size it was asked for, because a frame is not always drawn for a viewport the page
-        // already fits the width of (ADR 1429).
-        if self.state.presenting.owes_placing() {
-            self.fit_the_window();
+        if self.sized(width, height, scale, SIZING) == Joining::StillOpening {
+            self.look_at_the_opening();
         }
     }
 
-    /// The first allocation: the document [`Opening`](super::Opening) opened is taken in, and told its viewport.
-    ///
-    /// The viewport goes in before any of the open's events is answered, so that each is answered
-    /// against the viewer a first open with a viewport would have left — the order this window
-    /// had when it opened the document here (ADR 1539). A thread that panicked is said, and the
-    /// document opened on this one instead.
-    ///
-    /// **It waits no longer than `viewer_host::drawing::WARN`** (ADR 1811). A document still
-    /// opening then is left to its thread: the status bar carries how far page one has got, GTK's
-    /// loop goes on answering the window, and [`Self::mind_the_opening`] joins it on the
-    /// [`viewer_host::loading::TICK`] that finds it ready, with the window's size as it is then.
-    fn join_the_opening(&mut self, resize: Command) {
-        // A page that can be drawn while it is read is waited for no longer than `GLIMPSE_AFTER`,
-        // from which its looks are what the window shows (ADR 1855).
-        let drawing_ahead = self.state.ahead.is_some();
-        if self.state.anticipated.as_ref().is_some_and(|opening| {
-            !if drawing_ahead {
-                opening.wait_within(viewer_host::drawing::GLIMPSE_AFTER)
+    /// A look at the document still opening on every [`viewer_host::loading::TICK`], until
+    /// [`NativeWindow::mind_the_opening`] has joined it: GTK's loop has no timer of its own already
+    /// looking, as `viewer-qt`'s drawing pump and the C window's tick are (ADR 1811).
+    fn look_at_the_opening(&self) {
+        let me = self.me.clone();
+        glib::timeout_add_local(viewer_host::loading::TICK, move || {
+            let Some(host) = me.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+            // A host busy with one of its own writes is asked again at the next look.
+            let Ok(mut host) = host.try_borrow_mut() else {
+                return glib::ControlFlow::Continue;
+            };
+            if host.mind_the_opening() {
+                glib::ControlFlow::Continue
             } else {
-                opening.wait()
+                glib::ControlFlow::Break
             }
-        }) {
-            self.state
-                .trace
-                .say(Topic::Launch, format_args!("document still opening"));
-            self.state.awaiting = Some(resize);
-            self.show_the_opening();
-            let me = self.me.clone();
-            glib::timeout_add_local(viewer_host::loading::TICK, move || {
-                let Some(host) = me.upgrade() else {
-                    return glib::ControlFlow::Break;
-                };
-                // A host busy with one of its own writes is asked again at the next look.
-                let Ok(mut host) = host.try_borrow_mut() else {
-                    return glib::ControlFlow::Continue;
-                };
-                if host.mind_the_opening() {
-                    glib::ControlFlow::Continue
-                } else {
-                    glib::ControlFlow::Break
-                }
-            });
-            return;
-        }
-        self.take_the_opening(resize);
+        });
     }
 
     /// Hides GTK's own bar where a document still opening put it up, and answers whether it was.

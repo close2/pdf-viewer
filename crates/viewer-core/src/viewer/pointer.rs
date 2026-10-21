@@ -28,7 +28,7 @@ impl Viewer {
     /// instructions — for a picture that cannot differ.
     ///
     /// **Which annotation the pointer is on is `annotation_at`'s answer and not `link_at`'s**
-    /// (ADR 0177). §12.5.5 is written about an annotation — "[a]n annotation may define as many
+    /// (ADR 0177). §12.5.5 is written about an annotation — "\[a]n annotation may define as many
     /// as three separate appearances" — and §12.5.6.19's `/H` is an entry of a *widget*; taking
     /// the region from the link one would mean that neither reached anything but a link, where
     /// `pdf_model` implements both for every annotation (ADR 0123). `over` is also the region
@@ -444,7 +444,7 @@ pub(super) fn is_widget(document: &pdf_syntax::Document, annotation: ObjectId) -
 ///
 /// Two associated objects, and the clause's "such as" is why they are one function rather than
 /// two conditions in the pointer arm. §12.5.6.14's window opens or closes (`Open::toggle_popup`,
-/// ADR 0191). §12.5.6.15's *file* comes out: "[a] file attachment annotation contains a
+/// ADR 0191). §12.5.6.15's *file* comes out: "\[a] file attachment annotation contains a
 /// reference to a file, which typically shall be embedded in the PDF file", and the clause says
 /// what activating one does — "activating the annotation extracts the embedded file and gives
 /// the user an opportunity to view it or store it in the file system". The bytes cross as
@@ -475,7 +475,7 @@ fn exhibit(id: DocumentId, open: &mut Open, annotation: ObjectId, events: &mut V
 /// view it or store it in the file system" — and it belongs to that subtype alone.
 ///
 /// **Then §14.13.9's `/AF`, for every subtype**, which is that clause read through the one above
-/// it: "[t]o associate files with annotations, the annotation dictionary shall contain an AF entry
+/// it: "\[t]o associate files with annotations, the annotation dictionary shall contain an AF entry
 /// which represents the associated files for that annotation", and §12.5.1 says what activating an
 /// annotation does with what belongs to it — "it exhibits its associated object, such as by
 /// opening a popup window displaying a text note … or by playing a sound or a movie". The *such

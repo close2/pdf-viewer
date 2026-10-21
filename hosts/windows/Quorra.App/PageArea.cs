@@ -1,7 +1,8 @@
 // The page area on the processor lane: each picture quorra_window hands over shown in an Image, at
 // the place and the extent the window states, the marks over them drawn in the platform's colours,
-// and the controls over the page above both (RFC 0010 step N3a, ADRs 2136, 2153). The device's
-// SwapChainPanel replaces the Images in step N3c; the area's input and the layers over it stay.
+// the controls over the page above both, and §12.5.6.14's popup windows above everything (RFC 0010
+// step N3a, ADRs 2136, 2153, 2168, 2169). The device's SwapChainPanel replaces the Images in step
+// N3c; the area's input and the layers over it stay.
 
 using System;
 using System.Collections.Generic;
@@ -20,9 +21,9 @@ namespace Quorra.App;
 /// <summary>The page area: the window's pictures, the marks and controls over them, its keyboard focus and its pointer.</summary>
 /// <remarks>
 /// A control rather than a bare panel, because a panel takes no keyboard focus and the cursor over
-/// a link is <c>ProtectedCursor</c>, which only a subclass can set. Three layers, in the order they
-/// are drawn: the pictures, the marks, which the pointer passes through to the page, and the
-/// controls, which take the pointer and the keyboard themselves.
+/// a link is <c>ProtectedCursor</c>, which only a subclass can set. Four layers, in the order they
+/// are drawn: the pictures, the marks, which the pointer passes through to the page, the controls,
+/// which take the pointer and the keyboard themselves, and the popup windows, which do too.
 /// </remarks>
 public sealed partial class PageArea : ContentControl
 {
@@ -41,6 +42,7 @@ public sealed partial class PageArea : ContentControl
     private readonly Canvas pictures = new();
     private readonly Canvas marks = new() { IsHitTestVisible = false };
     private readonly Canvas controls = new();
+    private readonly Canvas notes = new();
     private readonly UISettings colours = new();
     private readonly RectangleGeometry clip = new();
     private readonly List<Image> images = new();
@@ -60,6 +62,7 @@ public sealed partial class PageArea : ContentControl
         canvas.Children.Add(pictures);
         canvas.Children.Add(marks);
         canvas.Children.Add(controls);
+        canvas.Children.Add(notes);
         Content = canvas;
         // The Canvas carries the area's background, because an element with none is transparent to
         // the pointer and a press between two pages would reach nothing.
@@ -68,17 +71,18 @@ public sealed partial class PageArea : ContentControl
         SizeChanged += (_, resized) => clip.Rect = new Rect(0, 0, resized.NewSize.Width, resized.NewSize.Height);
     }
 
-    /// <summary>Shows <paramref name="pictures"/>, in device pixels at <paramref name="scale"/> to a logical one.</summary>
+    /// <summary>Shows <paramref name="shown"/>, in device pixels at <paramref name="scale"/> to a logical one.</summary>
     /// <remarks>
     /// Each picture's pixels are converted in place, so a picture is shown once. The Images and
     /// their bitmaps are kept from one repaint to the next and a bitmap is made again only where a
-    /// picture's size changed.
+    /// picture's size changed; a picture with no pixels is the one this area already holds at that
+    /// index, which the repaint said, and is only moved (ADR 2168).
     /// </remarks>
-    internal void Show(IReadOnlyList<Picture> pictures, double scale)
+    internal void Show(IReadOnlyList<Picture> shown, double scale)
     {
-        for (int index = 0; index < pictures.Count; index++)
+        for (int index = 0; index < shown.Count; index++)
         {
-            Picture picture = pictures[index];
+            Picture picture = shown[index];
             if (index == images.Count)
             {
                 var made = new Image { Stretch = Stretch.Fill };
@@ -86,7 +90,17 @@ public sealed partial class PageArea : ContentControl
                 pictures.Children.Add(made);
             }
             Image image = images[index];
-            image.Source = Bitmap(image.Source as WriteableBitmap, picture);
+            if (picture.Pixels is byte[] pixels)
+            {
+                image.Source = Bitmap(image.Source as WriteableBitmap, picture, pixels);
+            }
+            else if (image.Source is not WriteableBitmap { } held
+                || held.PixelWidth != picture.Width
+                || held.PixelHeight != picture.Height)
+            {
+                throw new QuorraException(
+                    $"picture {index} was said to be unchanged, and this window holds no picture of {picture.Width} by {picture.Height} pixels there");
+            }
             // Logical pixels, which layout rounding puts on the display's own pixel grid, so a
             // picture shown at its raster's extent is drawn one pixel for one.
             Canvas.SetLeft(image, picture.OriginX / scale);
@@ -94,7 +108,7 @@ public sealed partial class PageArea : ContentControl
             image.Width = picture.ShownWidth / scale;
             image.Height = picture.ShownHeight / scale;
         }
-        while (images.Count > pictures.Count)
+        while (images.Count > shown.Count)
         {
             pictures.Children.Remove(images[^1]);
             images.RemoveAt(images.Count - 1);
@@ -103,6 +117,9 @@ public sealed partial class PageArea : ContentControl
 
     /// <summary>The layer the controls over the page are placed in, above the pictures and the marks.</summary>
     internal Canvas ControlLayer => controls;
+
+    /// <summary>The layer §12.5.6.14's popup windows are placed in, above everything else.</summary>
+    internal Canvas NoteLayer => notes;
 
     /// <summary>Whether <paramref name="source"/>, an event's original source, is the page rather than a control over it.</summary>
     /// <remarks>
@@ -113,7 +130,7 @@ public sealed partial class PageArea : ContentControl
     {
         for (DependencyObject? at = source as DependencyObject; at is not null; at = VisualTreeHelper.GetParent(at))
         {
-            if (ReferenceEquals(at, controls))
+            if (ReferenceEquals(at, controls) || ReferenceEquals(at, notes))
             {
                 return false;
             }
@@ -146,6 +163,22 @@ public sealed partial class PageArea : ContentControl
             ring.StrokeThickness = RingThickness;
             marks.Children.Add(ring);
         }
+        // §12.9's traced path, the points a person has put down while measuring: a rubber band in
+        // the accent, which is chrome and not the page's (ADR 1264).
+        if (shown.Traced.Length >= 4)
+        {
+            var points = new PointCollection();
+            for (int at = 0; at + 1 < shown.Traced.Length; at += 2)
+            {
+                points.Add(new Point(shown.Traced[at] / scale, shown.Traced[at + 1] / scale));
+            }
+            marks.Children.Add(new Polyline
+            {
+                Points = points,
+                Stroke = new SolidColorBrush(colours.GetColorValue(UIColorType.Accent)),
+                StrokeThickness = RingThickness,
+            });
+        }
     }
 
     /// <summary>The cursor every window changes over §12.5.6.5's activation region.</summary>
@@ -162,20 +195,20 @@ public sealed partial class PageArea : ContentControl
     }
 
     // The picture's pixels in a bitmap of its size, the one passed in where its size already is.
-    private static WriteableBitmap Bitmap(WriteableBitmap? kept, Picture picture)
+    private static WriteableBitmap Bitmap(WriteableBitmap? kept, Picture picture, byte[] pixels)
     {
-        if ((ulong)picture.Pixels.Length != (ulong)picture.Width * picture.Height * 4)
+        if ((ulong)pixels.Length != (ulong)picture.Width * picture.Height * 4)
         {
             throw new QuorraException(
-                $"a picture of {picture.Width} by {picture.Height} pixels came with {picture.Pixels.Length} bytes");
+                $"a picture of {picture.Width} by {picture.Height} pixels came with {pixels.Length} bytes");
         }
         WriteableBitmap bitmap = kept is not null
             && kept.PixelWidth == picture.Width
             && kept.PixelHeight == picture.Height
                 ? kept
                 : new WriteableBitmap(checked((int)picture.Width), checked((int)picture.Height));
-        ToPremultipliedBgra(picture.Pixels);
-        picture.Pixels.CopyTo(bitmap.PixelBuffer);
+        ToPremultipliedBgra(pixels);
+        pixels.CopyTo(bitmap.PixelBuffer);
         bitmap.Invalidate();
         return bitmap;
     }

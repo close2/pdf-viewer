@@ -313,6 +313,7 @@ fn main() {
         embedded_documents,
         submissions,
         separations,
+        launched_documents,
         ..
     } = settings;
     // Copied rather than moved: the policy goes to the thread that opens the document *and* stays
@@ -468,6 +469,7 @@ fn main() {
         restrictions: standing,
         links,
         remote_documents,
+        launched_documents,
         submitter: viewer_host::submit::Submitter::new(),
         archive,
         archive_card: viewer_ui::chrome::ArchiveCard::default(),

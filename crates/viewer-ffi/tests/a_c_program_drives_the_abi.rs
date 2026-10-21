@@ -97,6 +97,27 @@ fn script_fixture() -> Vec<u8> {
     )
 }
 
+/// One optional content group intended for the individual Ada — Table 100's `/User` with `/Type
+/// /Ind` — whose state §8.11.4.4's `/AS` manages at the `View` event, over a filled rectangle:
+/// "[i]f there is an exact match, the ON state shall be used; otherwise OFF shall be used", so the
+/// rectangle is drawn for a reader named Ada and not for one named Grace; where nobody is named the
+/// comparison is not made and the configuration's own state, on, stands (ADR 2173).
+fn audience_fixture() -> Vec<u8> {
+    let content = "/OC /L BDC 0 0 1 rg 20 20 160 60 re f EMC\n";
+    written(&format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OCProperties << /OCGs [5 0 R] \
+         /D << /Order [5 0 R] /AS [<< /Event /View /Category [/User] /OCGs [5 0 R] >>] >> >> \
+         >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] \
+         /Resources << /Properties << /L 5 0 R >> >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{content}endstream\nendobj\n\
+         5 0 obj\n<< /Type /OCG /Name (For Ada) /Usage << /User << /Type /Ind /Name (Ada) >> >> \
+         >>\nendobj\n",
+        content.len()
+    ))
+}
+
 /// `body`'s objects behind a header, with the cross-reference table and the trailer that index
 /// them.
 fn written(body: &str) -> Vec<u8> {
@@ -450,11 +471,15 @@ fn a_c_program_drives_a_window_one_call_per_thing_that_happened() {
         b"neither a certificate nor a PDF\n",
     )
     .expect("the file is written");
+    let audience = artefacts.join("quorra_window_audience_fixture.pdf");
+    std::fs::write(&audience, audience_fixture())
+        .expect("the fixture is written beside the test binary");
     let ran = Command::new(&program)
         .arg(&document)
         .arg(&form)
         .arg(&script)
         .arg(&directory)
+        .arg(&audience)
         .env("PDF_SCRIPT_WORKER", artefacts.join("pdf-script-worker"))
         // Two seconds rather than the reader's wait, so the question left unanswered is withdrawn
         // inside the test (ADR 1643).
@@ -511,6 +536,11 @@ fn what_the_window_owed(said: &str) {
         // case, as the search counts them, the one it landed on selected; and none once the bar
         // closed, while the selection stays.
         "window marks with the find bar open: 3 match(es), 6 selection quad(s), 0 highlight(s)",
+        // The bar closed takes the occurrences away and draws no pixel again, so its repaint says
+        // the marks and no picture; a pointer moved where it was changes nothing and owes no
+        // repaint (ADR 2168).
+        "window repaint: the find bar closed owed 1 repaint(s) changing 4 with 0 fresh picture(s); \
+         the pointer where it was owed 0",
         "window marks after it closed: 0 match(es), 6 selection quad(s), 0 highlight(s)",
         "window pointer at the corner: over a link 0",
         // An outline row's click: `/Dest` names page 3, so the caption and the count follow.
@@ -521,6 +551,7 @@ fn what_the_window_owed(said: &str) {
         // touchpad's sixty pixels back, with the fifth of a line carried, are one step out and the
         // page is drawn at the size it had (ADR 2152).
         "page 3, 884x1250 shown 884x1250",
+        "window wheel repaints: frames 1, places 1, a fresh picture",
         "window wheel: 1.2 lines in three events, 1 step(s); sixty pixels back, -1; unit 7: the \
          message at that index is not of the kind this accessor reads; not a number: a number \
          does not fit the type this boundary states for it",
@@ -552,6 +583,16 @@ fn what_the_window_owed(said: &str) {
          index is not of the kind this accessor reads; an unknown field: there is nothing to \
          answer with",
         "window control committed: typed is \"typed in C\" (ok)",
+        // The measured fit: a control half the height it needs fits at a magnification `w` then
+        // sends, and once every control fits `w` says so; `viewer_host::ControlFit` is the
+        // arithmetic, as it is `viewer-qt`'s (ADR 2169).
+        "window fit: a magnification; W said \"fitting §12.7's control\", act Nothing; once they \
+         fit 0.0 and \"every control on this page already fits its /Rect\"; no sizes: a required \
+         pointer argument was null",
+        // §12.9's two points, put down by two presses while measuring, are a mark the repaint says;
+        // the mode ended takes them with it (ADR 2168).
+        "window traced path: 4 float(s), from 100,100 to 200,100, the marks repainted; 0 after the \
+         mode ended",
         // ISO 19005's chooser, a record on the six targets and the shipped profiles, starting on
         // the first of each; an index past the list leaves it out, closing it says nothing was
         // converted, and a second answer finds nothing to answer (ADR 2121).
@@ -591,6 +632,12 @@ fn what_the_window_owed(said: &str) {
         "window script: \"Keep it?\", icon 2, buttons 2, closed answers 3",
         "window script again: there is nothing to answer with; the second withdrawn 1, then \
          answered: there is nothing to answer with",
+        // §8.11.4.4's `User` category, at the audience a host states: the layer on and its
+        // rectangle drawn for a reader named Ada, off and undrawn for Grace, and the
+        // configuration's own state where nobody is named — each read on the panels record the
+        // open owed (ADR 2173).
+        "window audience: \"For Ada\" on 1 for Ada, 38400 inked; on 0 for Grace, 0 inked; on 1 \
+         for nobody, 38400 inked; 2, 2 and 2 panels record(s)",
         "ok",
     ] {
         assert!(

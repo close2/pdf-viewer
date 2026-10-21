@@ -202,7 +202,7 @@ fn sampled_shader<'a>(
 ///
 /// The mesh is rasterised once by [`pdf_render::MeshRaster`] — the clause's own linear
 /// interpolation, evaluated at each device pixel's centre, over the triangles the file states
-/// or over the tessellation `to_device` says §8.7.4.5.7's patches need (ADR 1217) — and the
+/// or over the tessellation the page's matrix says §8.7.4.5.7's patches need (ADR 1217) — and the
 /// result is drawn as an image confined to the shape. So the *colour* is `pdf-render`'s, identically on both
 /// backends, and the *edge* is `tiny-skia`'s, antialiased as every other fill's is.
 ///
@@ -219,24 +219,30 @@ pub(crate) fn fill_mesh(
     triangles: &[pdf_render::Triangle],
     patches: Option<&pdf_render::PatchMesh>,
     ramp: Option<&Ramp>,
-    to_device: Transform,
+    mesh_to_device: Placed,
     fill_rule: tiny_skia::FillRule,
     shape: Placed,
     clip: crate::scan::Clip<'_>,
     blend: tiny_skia::BlendMode,
     anti_alias: bool,
 ) {
-    // The raster is the surface's: `MeshRaster::build` paints from the target's origin, so on the
-    // page's grid a window's raster would be every pixel above and left of it as well. Its
-    // triangles are therefore mapped at the surface's magnitude, which the page's do not share;
-    // the shape's edge is the page's (ADR 2148 §3).
-    let Some(raster) = pdf_render::MeshRaster::build(
+    // Evaluated at the page's own pixel centres over the surface's part of the page, the triangles
+    // mapped at the page's magnitude, so a window's or a strip's raster is the page's there; the
+    // shape's edge is the page's as well (ADRs 2148, 2167).
+    let grid = OnSurface::page(mesh_to_device);
+    let (left, top) = grid.corner;
+    let (Some(right), Some(bottom)) = (
+        left.checked_add(pixmap.width()),
+        top.checked_add(pixmap.height()),
+    ) else {
+        return;
+    };
+    let Some(raster) = pdf_render::MeshRaster::build_within(
         triangles,
         patches,
         ramp,
-        to_device,
-        pixmap.width(),
-        pixmap.height(),
+        grid.matrix,
+        (left, top, right, bottom),
     ) else {
         return;
     };
@@ -244,7 +250,7 @@ pub(crate) fn fill_mesh(
         pixmap,
         (path, shape),
         &raster.image,
-        (raster.left, raster.top),
+        grid.onto_surface(raster.left, raster.top),
         fill_rule,
         clip,
         blend,

@@ -1081,19 +1081,26 @@ fn process_planes(
     drawn: &Compositing,
     presses: &crate::colour::Presses,
 ) -> Result<ProcessPlanes, NotSeparated> {
-    let no_press = || {
-        NotSeparated::GivenUp(
-            "the page's output intent is a four-component profile this reader cannot sample into \
-             a press, so step a)'s simulated device has no process colourants"
-                .to_owned(),
-        )
+    let no_press = |refused: crate::colour::NoPress| {
+        NotSeparated::GivenUp(match refused {
+            crate::colour::NoPress::Poisoned => format!(
+                "the page's output intent names a press and {}, so step a)'s simulated device has \
+                 no process colourants",
+                refused.why()
+            ),
+            crate::colour::NoPress::Spent | crate::colour::NoPress::Unsampled => {
+                "the page's output intent is a four-component profile this reader cannot sample \
+                 into a press, so step a)'s simulated device has no process colourants"
+                    .to_owned()
+            }
+        })
     };
     match drawn {
         Compositing::Subtractive(_, press, _) => Ok(ProcessPlanes::Press(Arc::clone(press))),
         Compositing::Device if !page_states_a_space(document, page) => {
             simulated_press(document, page, presses)
                 .map(ProcessPlanes::Press)
-                .ok_or_else(no_press)
+                .map_err(no_press)
         }
         Compositing::Device
         | Compositing::Grey
@@ -1103,7 +1110,7 @@ fn process_planes(
                 compositing: drawn.clone(),
                 spot_press,
             })
-            .ok_or_else(no_press),
+            .map_err(no_press),
         // A mask's channel is never a page's.
         Compositing::Luminosity(_) => Err(NotSeparated::Nothing),
     }
@@ -1365,8 +1372,9 @@ fn page_states_a_space(document: &Document, page: &Page) -> bool {
 /// the process colours to use". So the press is §14.11.5's four-component intent where the
 /// document states one, and the assumed inks of ADR 0263 where it does not. It is the press a
 /// page stating no blending space of its own is separated in, and the press a page stating one
-/// of one or three components has its spot planes drawn on (ADRs 1311, 1329). `None` where the
-/// intent is a four-component profile no press can be sampled from.
+/// of one or three components has its spot planes drawn on (ADRs 1311, 1329). An error where the
+/// intent is a four-component profile no press can be sampled from, or the table of presses was
+/// poisoned (ADR 2170).
 #[expect(
     clippy::doc_markdown,
     reason = "the paragraph quotes §10.8.3 verbatim, and a quotation may not gain backticks"
@@ -1375,12 +1383,12 @@ fn simulated_press(
     document: &Document,
     page: &Page,
     presses: &crate::colour::Presses,
-) -> Option<Arc<crate::colour::Press>> {
+) -> Result<Arc<crate::colour::Press>, crate::colour::NoPress> {
     match output_intent_space(document, Some(&page.dict)) {
         Some(ColourSpace::Icc { profile }) if profile.channels() == 4 => {
             presses.press_for_profile(&profile, Rendering::compensating())
         }
-        _ => Some(crate::colour::assumed_press()),
+        _ => Ok(crate::colour::assumed_press()),
     }
 }
 
