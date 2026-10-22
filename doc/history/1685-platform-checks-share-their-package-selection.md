@@ -18,7 +18,8 @@ to propagate. The same selection serves printing and execution.
 passed. Full Windows check failed exit 101 at the absent MSVC archiver; retry with installed
 LLVM tools failed exit 101 at missing Windows SDK assert.h. These are local prerequisites,
 not successful cross-checks. macOS with LLVM failed exit 101 because the Darwin SDK is absent
-(the C build reached incompatible Linux headers). SDK-independent core subsets remain queued.
+(the C build reached incompatible Linux headers). Windows SDK-independent core subset passed
+(21 s, 0.57 GiB); macOS subset passed after the split import correction (18 s, 0.61 GiB).
 Record conformance passed all 3 tests.
 Full integration conformance, clippy and documentation gates remain the batch's obligation.
 

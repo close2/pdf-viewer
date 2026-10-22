@@ -29,8 +29,12 @@ The strengthened namespace witness passes all four notice tests (6 s, 0.73 GiB).
 Archive catalogue/census and validator pass; converter corpus: six tests pass, 186 s,
 2.31 GiB. Resource cross-check passes, 46 s, 1.02 GiB. Remaining phases ran in separate
 bounded holds after stopping the outer section between populations to free short-job capacity.
-veraPDF samples, sample raster comparison, and final workspace docs/conformance remain
-pending; no full-batch acceptance is claimed here.
+veraPDF 1.30.3 accepts 27 outputs: all ten Foxit faces, unchanged Liberation, and two
+metric-restatement cases at 2b/4, plus real issue6410 at 2b (18 s, 0.22 GiB retry).
+An initial unembedded synthetic metric case hit the existing Q566 fitting refusal;
+embedded metric witnesses exercise the intended restatement route without relaxing it.
+Five baseline/current first-page rasters at 144 dpi are byte-identical; metric witnesses
+and issue6410 were inspected. Final workspace docs/conformance remain the batch gates.
 
 Owned population: scratchpad/r1680/owned-paths.txt; detailed logs/report: /home/AI/report-1680.md.
-Started 2026-10-21T22:50:19+02:00; duration will be finalized after pending validation.
+Duration: 9762 s including bounded queues, from 2026-10-21T22:50:19+02:00.
