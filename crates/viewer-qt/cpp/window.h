@@ -18,6 +18,7 @@
 #include <QListView>
 #include <QFrame>
 #include <QImage>
+#include <QJsonObject>
 #include <QMainWindow>
 #include <QPixmap>
 #include <QPoint>
@@ -425,16 +426,21 @@ public:
     /// The layer the chrome is drawn on, kept last in the child order.
     ChromeOverlay* chrome() const { return chrome_; }
 
+    /// Optional diagnostic identity; no native window identifier or rendering state.
+    void probeRecord(const char* kind, QJsonObject fields = {}) const;
+    void probeGeometry();
+
+
 Q_SIGNALS:
     /// The viewport changed size, in device pixels.
     void resizedTo(unsigned int width, unsigned int height, float scale);
     /// The pointer moved or a button changed: 0 moved, 1 pressed, 2 dragged, 3 released.
-    void pointerAt(float x, float y, unsigned char action);
+    void pointerAt(float x, float y, unsigned char action, quint64 sequence);
     /// The wheel turned, in device pixels of the viewport.
-    void scrolledBy(float dx, float dy);
+    void scrolledBy(float dx, float dy, quint64 sequence);
     /// Control and the wheel: `amount` turned away from the person, in notches or — where
     /// `pixels` — in pixels, about the pointer at `(x, y)` in device pixels of the viewport.
-    void wheelZoomed(float amount, bool pixels, float x, float y);
+    void wheelZoomed(float amount, bool pixels, float x, float y, quint64 sequence);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -449,11 +455,14 @@ protected:
 
 private:
     /// One pointer event, in the device pixels the boundary speaks.
-    void report(const QPointF& at, unsigned char action);
+    void report(const QPointF& at, unsigned char action, quint64 sequence = 0);
 
     QList<QPair<QImage, QRectF>> frames_;
     ChromeOverlay* chrome_;
     bool pressed_ = false;
+    quint64 probeWindow_ = 0;
+    quint64 probeSequence_ = 0;
+    quint64 probeGeometrySequence_ = 0;
 };
 
 /// The window: a splitter, `viewer_host::Tab`'s panels, a page, a status bar, and the host.

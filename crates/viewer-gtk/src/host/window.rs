@@ -1,6 +1,6 @@
 //! The window: its widgets built once, the title, the status sentences, Table 29's catalog entries, and the chrome layer drawn over the page.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::Path;
 use std::rc::{Rc, Weak};
 
@@ -475,7 +475,9 @@ pub(super) fn build_window(
         });
     });
 
-    listen(&window, &overlay, &chrome, me);
+    let probe = ZoomProbe::new();
+    watch_zoom_paints(&fixed, &probe);
+    listen(&window, &overlay, &chrome, me, &probe);
 
     window.present();
     // The page has the keyboard as the window opens, for `Host::page_takes_the_keyboard`'s reason:
@@ -515,7 +517,6 @@ fn page_area(
     let fixed = gtk4::Fixed::new();
     fixed.set_overflow(gtk4::Overflow::Hidden);
     surround(&fixed);
-    watch_zoom_paints(&fixed);
 
     let chrome = gtk4::DrawingArea::new();
     // The chrome layer is over the page and over the controls, so it must not take a click that
@@ -755,15 +756,18 @@ pub(super) fn zoom_probe(message: std::fmt::Arguments<'_>) {
 }
 
 /// Records actual GTK paint cycles only when the toolkit probe was requested.
-fn watch_zoom_paints(fixed: &gtk4::Fixed) {
+fn watch_zoom_paints(fixed: &gtk4::Fixed, probe: &Rc<ZoomProbe>) {
     if zoom_probe_enabled() {
-        fixed.connect_realize(|widget| {
+        let probe = Rc::clone(probe);
+        fixed.connect_realize(move |widget| {
             if let Some(clock) = widget.frame_clock() {
                 let weak = widget.downgrade();
+                let probe = Rc::clone(&probe);
                 clock.connect_after_paint(move |clock| {
                     if let Some(widget) = weak.upgrade() {
+                        probe.geometry(&widget);
                         zoom_probe(format_args!(
-                            "viewport logical={}x{} scale={}",
+                            "fixed allocation logical={}x{} scale={}",
                             widget.width(),
                             widget.height(),
                             widget.scale_factor()
@@ -801,5 +805,80 @@ fn watch_zoom_paints(fixed: &gtk4::Fixed) {
                 });
             }
         });
+    }
+}
+
+/// Probe-only identities and counters, never a second authority for viewport geometry.
+pub(super) struct ZoomProbe {
+    window: u64,
+    sequence: Cell<u64>,
+    geometry_sequence: Cell<u64>,
+}
+
+impl ZoomProbe {
+    fn new() -> Rc<Self> {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        Rc::new(Self {
+            window: if zoom_probe_enabled() {
+                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            } else {
+                0
+            },
+            sequence: Cell::new(0),
+            geometry_sequence: Cell::new(0),
+        })
+    }
+
+    pub(super) fn next(&self) -> u64 {
+        if self.window == 0 {
+            return 0;
+        }
+        let sequence = self.sequence.get().saturating_add(1);
+        self.sequence.set(sequence);
+        sequence
+    }
+
+    #[expect(clippy::print_stderr, reason = "explicitly enabled diagnostic receipt")]
+    pub(super) fn record(&self, kind: &str, fields: std::fmt::Arguments<'_>) {
+        if self.window != 0 {
+            eprintln!(
+                "zoom-record {{\"v\":1,\"host\":\"gtk\",\"pid\":{},\"window\":{},\"us\":{},\"kind\":\"{kind}\",{fields}}}",
+                std::process::id(),
+                self.window,
+                glib::monotonic_time(),
+            );
+        }
+    }
+
+    fn geometry(&self, fixed: &gtk4::Fixed) {
+        let Some(content) = fixed.parent() else {
+            return;
+        };
+        let Some(root) = fixed.root().map(Cast::upcast::<gtk4::Widget>) else {
+            return;
+        };
+        let sequence = self.geometry_sequence.get().saturating_add(1);
+        self.geometry_sequence.set(sequence);
+        let bounds = content.compute_bounds(&root);
+        let scale = f64::from(content.scale_factor());
+        let x = bounds.map_or_else(|| "null".to_owned(), |b| b.x().to_string());
+        let y = bounds.map_or_else(|| "null".to_owned(), |b| b.y().to_string());
+        let dx = bounds.map_or_else(
+            || "null".to_owned(),
+            |b| (f64::from(b.x()) * scale).to_string(),
+        );
+        let dy = bounds.map_or_else(
+            || "null".to_owned(),
+            |b| (f64::from(b.y()) * scale).to_string(),
+        );
+        let surface_scale = fixed.native().and_then(|n| n.surface()).map_or_else(
+            || "null".to_owned(),
+            |surface| surface.scale_factor().to_string(),
+        );
+        self.record("geometry", format_args!(
+            "\"geometry_sequence\":{sequence},\"backend\":\"{}\",\"client_width_logical\":{},\"client_height_logical\":{},\"content_x_logical\":{x},\"content_y_logical\":{y},\"content_width_logical\":{},\"content_height_logical\":{},\"scale\":{scale},\"surface_scale\":{surface_scale},\"content_x_device_derived\":{dx},\"content_y_device_derived\":{dy},\"content_width_device_derived\":{},\"content_height_device_derived\":{},\"fixed_width_logical\":{},\"fixed_height_logical\":{}",
+            fixed.display().type_().name(), root.width(), root.height(), content.width(), content.height(),
+            f64::from(content.width()) * scale, f64::from(content.height()) * scale, fixed.width(), fixed.height(),
+        ));
     }
 }

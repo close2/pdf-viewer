@@ -13,6 +13,8 @@
 #include <QAction>
 #include <QActionGroup>
 #include <QApplication>
+#include <QJsonDocument>
+#include <QWindow>
 #include <QByteArray>
 #include <QCheckBox>
 #include <QClipboard>
@@ -1185,6 +1187,11 @@ void NoteView::paintLeaders(QPainter& painter) const
 
 PageArea::PageArea(QWidget* parent) : QWidget(parent), chrome_(new ChromeOverlay(this))
 {
+    if (zoomProbe()) {
+        static quint64 nextWindow = 0;
+        probeWindow_ = ++nextWindow;
+    }
+
     setMouseTracking(true);
     setAutoFillBackground(true);
     setFocusPolicy(Qt::StrongFocus);
@@ -1200,6 +1207,37 @@ bool PageArea::focusNextPrevChild(bool /*next*/)
     return false;
 }
 
+void PageArea::probeRecord(const char* kind, QJsonObject fields) const
+{
+    if (!zoomProbe()) return;
+    fields.insert("v", 1);
+    fields.insert("host", "qt");
+    fields.insert("pid", QCoreApplication::applicationPid());
+    fields.insert("window", static_cast<qint64>(probeWindow_));
+    fields.insert("us", static_cast<qint64>(zoomMicros()));
+    fields.insert("kind", QString::fromLatin1(kind));
+    const auto bytes = QJsonDocument(fields).toJson(QJsonDocument::Compact);
+    std::fprintf(stderr, "zoom-record %s\n", bytes.constData());
+}
+
+void PageArea::probeGeometry()
+{
+    if (!zoomProbe()) return;
+    const QPoint origin = mapTo(window(), QPoint(0, 0));
+    const auto scale = devicePixelRatioF();
+    probeRecord("geometry", {
+        {"geometry_sequence", static_cast<qint64>(++probeGeometrySequence_)},
+        {"backend", QGuiApplication::platformName()},
+        {"client_width_logical", window()->width()}, {"client_height_logical", window()->height()},
+        {"content_x_logical", origin.x()}, {"content_y_logical", origin.y()},
+        {"content_width_logical", width()}, {"content_height_logical", height()},
+        {"scale", scale},
+        {"surface_scale", window()->windowHandle() ? QJsonValue(window()->windowHandle()->devicePixelRatio()) : QJsonValue()},
+        {"content_x_device_derived", origin.x() * scale}, {"content_y_device_derived", origin.y() * scale},
+        {"content_width_device_derived", width() * scale}, {"content_height_device_derived", height() * scale}
+    });
+}
+
 void PageArea::setFrames(QList<QPair<QImage, QRectF>> frames)
 {
     if (zoomProbe()) {
@@ -1212,6 +1250,7 @@ void PageArea::setFrames(QList<QPair<QImage, QRectF>> frames)
 
 void PageArea::paintEvent(QPaintEvent*)
 {
+    probeGeometry();
     const auto began = zoomProbe() ? zoomMicros() : 0;
     if (frames_.isEmpty()) {
         return;
@@ -1265,6 +1304,17 @@ void PageArea::wheelEvent(QWheelEvent* event)
     // degree, fifteen degrees to a notch; both are turned into the device pixels the boundary
     // speaks. The distance a notch moves is this host's choice — see kScrollStep — and it is the
     // same number `viewer-gtk` chose, because a wheel is not a fact about a toolkit.
+    const quint64 sequence = zoomProbe() ? ++probeSequence_ : 0;
+    if (zoomProbe()) {
+        probeRecord("wheel-entry", {{"sequence", static_cast<qint64>(sequence)},
+            {"logical_x", event->position().x()}, {"logical_y", event->position().y()},
+            {"dpr", devicePixelRatioF()}, {"pixel_dx", event->pixelDelta().x()}, {"pixel_dy", event->pixelDelta().y()},
+            {"angle_dx", event->angleDelta().x()}, {"angle_dy", event->angleDelta().y()},
+            {"modifiers", static_cast<int>(event->modifiers())},
+            {"ctrl", event->modifiers().testFlag(Qt::ControlModifier)},
+            {"phase", static_cast<int>(event->phase())}, {"source", static_cast<int>(event->source())},
+            {"spontaneous", event->spontaneous()}, {"event_timestamp_ms", static_cast<qint64>(event->timestamp())}});
+    }
     const QPoint pixels = event->pixelDelta();
     const qreal scale = devicePixelRatioF();
     // Control is a magnification rather than a movement, as it is in the other two windows; the
@@ -1278,9 +1328,11 @@ void PageArea::wheelEvent(QWheelEvent* event)
             std::fprintf(stderr, "zoom-probe qt wheel us=%lld amount=%.6f at=%.6f,%.6f dpr=%.6f\n",
                 zoomMicros(), amount, at.x() * scale, at.y() * scale, scale);
         }
+        if (zoomProbe()) probeRecord("wheel-branch", {{"sequence", static_cast<qint64>(sequence)},
+            {"branch", "zoom"}, {"amount", amount}, {"pixels", inPixels}});
         event->accept();
         Q_EMIT wheelZoomed(static_cast<float>(amount), inPixels, static_cast<float>(at.x() * scale),
-                           static_cast<float>(at.y() * scale));
+                           static_cast<float>(at.y() * scale), sequence);
         return;
     }
     qreal dx = 0.0;
@@ -1294,17 +1346,19 @@ void PageArea::wheelEvent(QWheelEvent* event)
         dy = -static_cast<qreal>(degrees.y()) / 120.0 * kScrollStep * scale;
     }
     if (dx == 0.0 && dy == 0.0) {
+        if (zoomProbe()) probeRecord("wheel-branch", {{"sequence", static_cast<qint64>(sequence)}, {"branch", "delegate"}});
         QWidget::wheelEvent(event);
         return;
     }
     event->accept();
-    Q_EMIT scrolledBy(static_cast<float>(dx), static_cast<float>(dy));
+    if (zoomProbe()) probeRecord("wheel-branch", {{"sequence", static_cast<qint64>(sequence)}, {"branch", "scroll"}});
+    Q_EMIT scrolledBy(static_cast<float>(dx), static_cast<float>(dy), sequence);
 }
 
-void PageArea::report(const QPointF& at, unsigned char action)
+void PageArea::report(const QPointF& at, unsigned char action, quint64 sequence)
 {
     const qreal scale = devicePixelRatioF();
-    Q_EMIT pointerAt(static_cast<float>(at.x() * scale), static_cast<float>(at.y() * scale), action);
+    Q_EMIT pointerAt(static_cast<float>(at.x() * scale), static_cast<float>(at.y() * scale), action, sequence);
 }
 
 void PageArea::mousePressEvent(QMouseEvent* event)
@@ -1317,7 +1371,11 @@ void PageArea::mouseMoveEvent(QMouseEvent* event)
 {
     // §12.5.5's three appearances follow the pointer, and §12.5.6.19's `/H` with them — which is
     // why a move with no button down is a command and not only a cursor question.
-    report(event->position(), pressed_ ? 2 : 0);
+    const quint64 sequence = zoomProbe() ? ++probeSequence_ : 0;
+    if (zoomProbe()) probeRecord("motion-entry", {{"sequence", static_cast<qint64>(sequence)},
+        {"logical_x", event->position().x()}, {"logical_y", event->position().y()},
+        {"action", pressed_ ? "dragged" : "moved"}});
+    report(event->position(), pressed_ ? 2 : 0, sequence);
 }
 
 void PageArea::mouseReleaseEvent(QMouseEvent* event)
@@ -1559,32 +1617,45 @@ MainWindow::MainWindow(rust::Box<Host> host)
         }
         Busy guard(busy_);
         host_->resized(width, height, scale);
+        if (zoomProbe()) page_->probeRecord("core-viewport", {{"width_device", static_cast<qint64>(width)},
+            {"height_device", static_cast<qint64>(height)}, {"scale", scale}});
         reportPageArea();
         applyUpdates();
     });
-    connect(page_, &PageArea::pointerAt, this, [this](float x, float y, unsigned char action) {
+    connect(page_, &PageArea::pointerAt, this, [this](float x, float y, unsigned char action, quint64 sequence) {
         if (busy_) {
+            if (sequence) page_->probeRecord("motion-outcome", {{"sequence", static_cast<qint64>(sequence)}, {"outcome", "host-busy"}});
             return;
         }
         Busy guard(busy_);
         keys();
         host_->pointer(x, y, action);
+        if (sequence) page_->probeRecord("motion-outcome", {{"sequence", static_cast<qint64>(sequence)},
+            {"outcome", "accepted"}, {"core_x", x}, {"core_y", y}, {"scale", page_->devicePixelRatioF()}});
         applyUpdates();
     });
-    connect(page_, &PageArea::scrolledBy, this, [this](float dx, float dy) {
+    connect(page_, &PageArea::scrolledBy, this, [this](float dx, float dy, quint64 sequence) {
         if (busy_) {
+            if (sequence) page_->probeRecord("wheel-outcome", {{"sequence", static_cast<qint64>(sequence)}, {"outcome", "host-busy"}});
             return;
         }
         Busy guard(busy_);
         host_->scrolled(dx, dy);
+        if (sequence) page_->probeRecord("wheel-outcome", {{"sequence", static_cast<qint64>(sequence)}, {"outcome", "accepted"}});
         applyUpdates();
     });
-    connect(page_, &PageArea::wheelZoomed, this, [this](float amount, bool pixels, float x, float y) {
+    connect(page_, &PageArea::wheelZoomed, this, [this](float amount, bool pixels, float x, float y, quint64 sequence) {
         if (busy_) {
+            if (sequence) page_->probeRecord("wheel-outcome", {{"sequence", static_cast<qint64>(sequence)}, {"outcome", "host-busy"}});
             return;
         }
         Busy guard(busy_);
+        if (sequence) page_->probeRecord("dispatch-begin", {{"sequence", static_cast<qint64>(sequence)}, {"operation", "zoom"}});
         host_->wheel_zoom(amount, pixels, x, y);
+        if (sequence) {
+            page_->probeRecord("dispatch-end", {{"sequence", static_cast<qint64>(sequence)}, {"operation", "zoom"}});
+            page_->probeRecord("wheel-outcome", {{"sequence", static_cast<qint64>(sequence)}, {"outcome", "accepted"}});
+        }
         applyUpdates();
     });
 }

@@ -2,7 +2,7 @@
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::rc::Weak;
+use std::rc::{Rc, Weak};
 
 use gtk4::glib;
 use gtk4::prelude::*;
@@ -452,10 +452,25 @@ pub(super) fn listen(
     overlay: &gtk4::Overlay,
     chrome: &gtk4::DrawingArea,
     me: &Weak<RefCell<Host>>,
+    probe: &Rc<super::window::ZoomProbe>,
 ) {
     let listener = me.clone();
+    let resize_probe = Rc::clone(probe);
     chrome.connect_resize(move |_, width, height| {
-        with(&listener, |host| host.resized(width, height));
+        with(&listener, |host| {
+            host.resized(width, height);
+            if width > 0 && height > 0 {
+                resize_probe.record(
+                    "core-viewport",
+                    format_args!(
+                        "\"width_device\":{},\"height_device\":{},\"scale\":{}",
+                        width.saturating_mul(host.scale),
+                        height.saturating_mul(host.scale),
+                        host.scale,
+                    ),
+                );
+            }
+        });
     });
 
     let keys = gtk4::EventControllerKey::new();
@@ -520,16 +535,50 @@ pub(super) fn listen(
     });
     overlay.add_controller(scrolling);
 
+    listen_motion(overlay, me, probe);
+
+    presses(overlay, me);
+}
+
+/// Observe motion before borrowing the host, without changing its reentrancy policy.
+fn listen_motion(
+    overlay: &gtk4::Overlay,
+    me: &Weak<RefCell<Host>>,
+    probe: &Rc<super::window::ZoomProbe>,
+) {
     // §12.5.5's three appearances follow the pointer, and §12.5.6.19's `/H` with them — which is
     // why a move with no button down is a command and not only a cursor question.
     let motion = gtk4::EventControllerMotion::new();
     let listener = me.clone();
+    let motion_probe = Rc::clone(probe);
     motion.connect_motion(move |_, x, y| {
-        with(&listener, |host| host.pointer(x, y, PointerAction::Moved));
+        let sequence = motion_probe.next();
+        if sequence == 0 {
+            with(&listener, |host| host.pointer(x, y, PointerAction::Moved));
+            return;
+        }
+        motion_probe.record("motion-entry", format_args!(
+            "\"sequence\":{sequence},\"logical_x\":{x},\"logical_y\":{y},\"action\":\"moved\"",
+        ));
+        let Some(host) = listener.upgrade() else {
+            motion_probe.record("motion-outcome", format_args!("\"sequence\":{sequence},\"outcome\":\"host-gone\""));
+            return;
+        };
+        let Ok(mut host) = host.try_borrow_mut() else {
+            eprintln!("note: the host was busy and an action was dropped");
+            motion_probe.record("motion-outcome", format_args!("\"sequence\":{sequence},\"outcome\":\"host-busy\""));
+            return;
+        };
+        let measuring = host.state.showing.measuring.is_on();
+        let scale = host.scale;
+        host.pointer(x, y, PointerAction::Moved);
+        motion_probe.record("motion-outcome", format_args!(
+            "\"sequence\":{sequence},\"outcome\":\"{}\",\"scale\":{scale},\"core_x\":{},\"core_y\":{}",
+            if measuring { "measuring" } else { "accepted" },
+            x * f64::from(scale), y * f64::from(scale),
+        ));
     });
     overlay.add_controller(motion);
-
-    presses(overlay, me);
 }
 
 /// The primary button on the page: the page's own drag, and the press a placed control takes,

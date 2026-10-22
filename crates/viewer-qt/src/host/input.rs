@@ -175,6 +175,13 @@ impl Host {
         } else {
             self.zoom_wheel.lines(amount)
         };
+        if std::env::var_os("PDFVIEWER_ZOOM_PROBE").is_some() {
+            eprintln!(
+                "zoom-record {{\"v\":1,\"host\":\"qt\",\"pid\":{},\"kind\":\"zoom-accumulator\",\"amount\":{amount},\"unit\":\"{}\",\"steps\":{steps},\"core_x\":{x},\"core_y\":{y}}}",
+                std::process::id(),
+                if pixels { "pixels" } else { "notches" },
+            );
+        }
         let zoom = if steps > 0 { Zoom::In } else { Zoom::Out };
         for _ in 0..steps.unsigned_abs() {
             self.dispatch(Command::Zoom {
