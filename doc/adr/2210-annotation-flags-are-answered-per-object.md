@@ -1,6 +1,6 @@
 # 2210 — Annotation flags are answered per object
 
-Session 1688, archive. Status: accepted; implementation under validation.
+Session 1688, archive. Status: accepted; implemented and scoped gates passed.
 
 ISO 19005-2 and ISO 19005-4 §6.3.2 require conforming annotation flags.
 ISO 32000-2 §12.5.3 Table 167 distinguishes screen visibility from printing.

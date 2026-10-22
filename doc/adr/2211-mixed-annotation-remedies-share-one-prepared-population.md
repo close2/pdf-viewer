@@ -1,6 +1,6 @@
 # 2211 — Mixed annotation remedies share one prepared population
 
-Session 1688, archive. Status: accepted; implementation under validation.
+Session 1688, archive. Status: accepted; implemented and scoped gates passed.
 
 The as-shown flag split uses one prepared population from the validator's
 annotations_the_flags_forbid predicate. It partitions object/page occurrences
