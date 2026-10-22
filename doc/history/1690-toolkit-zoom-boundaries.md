@@ -1,35 +1,40 @@
 # 1690 — Toolkit zoom boundaries
 
-Session 1690, 2026-10-22. Host investigation; ADRs 2214/2215. Provisional: live reproduction continues.
+Session 1690, 2026-10-22. Host investigation; ADRs 2214/2215.
 
-**Premise.** The owner reports Qt zoom lag, GTK blurry text and deep-zoom position jumps,
-with ISO_32000-2_sponsored_EC3.pdf as the primary reproduction. These symptoms are not yet
-all attributed. The old GTK allocation contract independently fails at device scale two:
-a 200×160 texture occupies 400×320 physical pixels despite a smaller size request.
+**Change.** An independent GTK allocation witness proves a scale-two defect: a 200×160 texture
+occupies 400×320 physical pixels despite a smaller size request. GTK now allocates texture-native
+dimensions and supplies device-to-logical scaling in every placement transform. Finished origins
+retain device-pixel rounding; previews retain fractional movement. The automatic Linux witness
+checks fifteen reused placements at scales 1, 2 and 1.5; a wrong-filter control rejects zero tests.
+CI explicitly supplies Xvfb, xdpyinfo and GNU timeout. Other native platforms remain unverified.
+Opt-in Qt/GTK traces distinguish input, image retrieval/copy, host follow-up and actual painting.
 
-**Change.** GTK now allocates texture-native dimensions and applies device-to-logical scaling
-in every complete placement transform. Finished origins retain device-pixel rounding; previews
-retain fractional movement. An automatic owned-Xvfb witness checks fifteen reused placements
-at scales 1, 2 and 1.5. A wrong-filter control proves zero child tests cannot pass silently.
-Opt-in toolkit traces separate input, retrieval/copy, host follow-up and paint callbacks.
-The Qt callback comment now accurately describes queued painting, not completed presentation.
+**Gates.** Scoped warnings-denied all-target clippy for viewer-host/GTK/Qt and unit suites passed:
+GTK 10, Qt 23; exit 0, 95 s, 1.29 GiB. Immutable release copy passed, exit 0, 249 s, 3.79 GiB;
+source comparison stayed equal. Later Linux-only test cfg changes no release behavior. YAML
+and scoped formatting checks passed. CPU software smoke7 passed, exit 0, 43 s, 0.29 GiB:
+each toolkit delivered 32 Zoom and six Scroll commands. Earlier failures remain recorded.
 
-**Gates.** Scoped warnings-denied all-target clippy for viewer-host/GTK/Qt and toolkit unit suites
-passed: GTK 10, Qt 23; exit 0, 95 s hold, 1.29 GiB. Immutable release copy passed, exit 0,
-249 s, 3.79 GiB; full-source comparison stayed equal. CPU software smoke7 passed, exit 0,
-43 s, 0.29 GiB: each toolkit delivered 32 Zoom and six Scroll commands, with native-size final
-paint receipts. Earlier smoke failures exposed synthetic no-op input and overly narrow trace
-parsing; all evidence is retained. Exact parser controls reject missing input and scaled previews.
+**Display investigation.** Root-owned GPU/display runs use immutable copies and exclusive holds.
+Initial setup, synthetic-input and coordinate failures were rejected. Separate unmaximize requests
+corrected a harness error; repeated xdotool options had removed only the last named state.
+Probe7 matched Qt's 900×700 viewport at DPR 1.59375 but delivered cumulative 3/7/19/31 zooms
+instead of 4/8/20/32; six pans arrived. Settling, active/focus verification and longer pulses did
+not restore the first event. The run remained invalid: exit 1, 95 s hold, 173 s including queue.
+Qt first-paint medians for the four phases were 1.94/1.27/2.09/1.85 ms, from 3/4/12/12 events;
+these are incomplete Xwayland observations at nominal 120/55 ms cadence, not a speedup verdict.
+GTK matched 900×700 at DPR 1 but failed pointer calibration before gestures: two samples reused
+one old motion event. A future probe must require a new motion receipt after each requested move.
 
-**Display evidence.** The first owner-loop attempt failed permissions before starting viewers.
-Fractional Xwayland discovery reports Qt DPR 1.59375 and compositor vertical maximization.
-Resize and pointer coordinates have different mappings; measured affine input calibration
-reaches the requested anchor. Probe4 delivered only three of four paced commands and was
-rejected. Those three events reached first Qt paint in 6.2–8.1 ms and native-size paint in
-19–30 ms; the incomplete sequence is exploratory, not a performance verdict.
+**Interpretation.** Native-size freshness cannot require every image to be unscaled: a completed
+opaque oversized frame can cover a scaled retained underlay. The original conservative parser
+and its verdicts remain preserved; its native-latency aggregate is not a settled-frame verdict.
+Fixed allocation can exceed its clipped Overlay without viewport drift. Paint is not scanout.
 
-**Limits.** The reported user symptoms remain under investigation. No Qt performance fix is
-asserted. Toolkit paint is not scanout; native-size placement is not pixel-coordinate proof.
-Fixed's oversized allocation is clipped by its Overlay and is not itself viewport drift.
-Xwayland evidence cannot establish native Wayland sharpness. Matched settled-pixel/anchor and
-complete real-display comparisons, final toolkit gates and batch integration remain owed.
+**Owed.** The owner's Qt lag, GTK blur and deep-zoom drift remain unattributed. No Qt performance
+fix is asserted; GTK's observed DPR 1 does not exercise the proved scale-two fix. Next work needs
+widget-to-window geometry, fresh motion receipts, exact Qt/XI2 input diagnosis, within-toolkit
+pixel/anchor comparisons and native Wayland reproduction. Cross-toolkit pixels require normalized
+DPR/zoom. Final toolkit and batch gates remain integration obligations. Total round wall time and
+tool-call count are unavailable; individual hold durations above are measured.
