@@ -23,11 +23,15 @@
 )]
 
 use std::fmt::Write as _;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+
+#[path = "../../../tools/conformance/test-support/cargo_artifacts.rs"]
+mod cargo_artifacts;
+use cargo_artifacts::Artifacts;
 use std::process::Command;
 
 /// A one-page document with §12.7's two commonest fields and a push-button whose §12.7.6.2
-/// submit-form action the keyboard presses, written out beside the test binary.
+/// submit-form action the keyboard presses, written out in the private test directory.
 ///
 /// **The form half of this gate needs a form, and the application note has none.** The other
 /// candidate was a corpus document — `issue17492.pdf` is what `viewer-gtk` and `viewer-qt` were
@@ -141,17 +145,6 @@ fn written(body: &str) -> Vec<u8> {
     out.into_bytes()
 }
 
-/// Where the workspace's build output is, found from this test binary rather than assumed.
-///
-/// `CARGO_TARGET_DIR` is set to a directory outside the tree on the machine this project is
-/// developed on, so the path is taken from the executable that is running: a test binary lives in
-/// `<target>/<profile>/deps/`, and the `cdylib` beside it is two levels up.
-fn artefacts() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    let deps = exe.parent()?;
-    Some(deps.parent()?.to_path_buf())
-}
-
 /// The first of `cc` and `gcc` that answers `--version`.
 fn compiler() -> Option<String> {
     let named = std::env::var("CC").ok();
@@ -174,33 +167,16 @@ fn a_c_program_opens_a_document_turns_a_page_asks_a_query_and_gets_pixels() {
         println!("skipped: no C compiler on this machine");
         return;
     };
-    let Some(artefacts) = artefacts() else {
-        println!("skipped: this test binary is not where cargo puts one");
-        return;
-    };
-
-    // The `cdylib` is a separate artefact from the rlib this test links against, and `cargo test`
-    // does not necessarily produce it. Asking cargo for it is cheap when it is already there and
-    // is the only way to be sure it is: a test that skipped because the library was missing would
-    // be a gate that quietly stops running.
-    let built = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned()))
-        .args(["build", "-p", "viewer-ffi", "--lib"])
-        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
-        .status();
-    assert!(
-        built.is_ok_and(|status| status.success()),
-        "the cdylib has to exist for a C program to link against"
-    );
-
-    let library = artefacts.join("libviewer_ffi.so");
-    assert!(
-        library.exists(),
-        "no cdylib at {}: this test needs one",
-        library.display()
-    );
-
     let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let program = artefacts.join("quorra_open_a_page");
+    let workspace = crate_root.join("../..");
+    let artifacts = Artifacts::new(&workspace).expect("the native Cargo profile is identified");
+    let private = artifacts.fixtures();
+
+    let library = artifacts
+        .library("viewer-ffi")
+        .expect("the matching cdylib is built");
+    let library_dir = library.parent().expect("the cdylib has a parent");
+    let program = private.join("quorra_open_a_page");
     let compiled = Command::new(&cc)
         .arg("-std=c11")
         .arg("-Wall")
@@ -212,12 +188,10 @@ fn a_c_program_opens_a_document_turns_a_page_asks_a_query_and_gets_pixels() {
         .arg(crate_root.join("c/open_a_page.c"))
         .arg("-o")
         .arg(&program)
-        .arg("-L")
-        .arg(&artefacts)
-        .arg("-lviewer_ffi")
+        .arg(&library)
         // The library is not installed anywhere a loader looks, so the path it was linked against
         // is recorded in the program. That is a test fixture's answer and not a shipping one.
-        .arg(format!("-Wl,-rpath,{}", artefacts.display()))
+        .arg(format!("-Wl,-rpath,{}", library_dir.display()))
         .output()
         .expect("the compiler runs");
     assert!(
@@ -234,8 +208,9 @@ fn a_c_program_opens_a_document_turns_a_page_asks_a_query_and_gets_pixels() {
     );
 
     let document = crate_root.join("../../doc/PDF20_AN001-BPC.pdf");
-    let form = artefacts.join("quorra_form_fixture.pdf");
-    std::fs::write(&form, form_fixture()).expect("the fixture is written beside the test binary");
+    let form = private.join("quorra_form_fixture.pdf");
+    std::fs::write(&form, form_fixture())
+        .expect("the fixture is written in the private test directory");
     let ran = Command::new(&program)
         .arg(&document)
         .arg(&form)
@@ -314,7 +289,7 @@ fn what_it_printed(said: &str) {
         "in logical content order, the event's own text: 1",
         "layers: 0 row(s)",
         "attachments: 0 row(s)",
-        // §12.7's form, on the fixture beside the test binary. Two fields, the check box ticked
+        // §12.7's form, on the fixture in the private test directory. Two fields, the check box ticked
         // with the name the library handed over, and the edit read back rather than assumed.
         "form: 3 field(s)",
         "[0] Entry flags 0",
@@ -403,50 +378,27 @@ fn a_c_program_drives_a_window_one_call_per_thing_that_happened() {
         println!("skipped: no C compiler on this machine");
         return;
     };
-    let Some(artefacts) = artefacts() else {
-        println!("skipped: this test binary is not where cargo puts one");
-        return;
-    };
-    // The `cdylib`, for the first test's reason.
-    let built = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned()))
-        .args(["build", "-p", "viewer-ffi", "--lib"])
-        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
-        .status();
-    assert!(
-        built.is_ok_and(|status| status.success()),
-        "the cdylib has to exist for a C program to link against"
-    );
-    // The script worker the window's runner starts, which `PDF_SCRIPT_WORKER` names below: the
-    // engine is the worker program's alone, so no library this test links is built with it (ADR
-    // 1616).
-    let worker = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned()))
-        .args([
-            "build",
-            "-p",
-            "pdf-script-worker",
-            "--features",
-            "engine",
-            "--bin",
-            "pdf-script-worker",
-        ])
-        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
-        .status();
-    assert!(
-        worker.is_ok_and(|status| status.success()),
-        "the script worker has to exist for a script's question to be asked"
-    );
     let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let program = artefacts.join("quorra_drive_a_window");
+    let workspace = crate_root.join("../..");
+    let artifacts = Artifacts::new(&workspace).expect("the native Cargo profile is identified");
+    let private = artifacts.fixtures();
+    // The `cdylib`, for the first test's reason.
+    let library = artifacts
+        .library("viewer-ffi")
+        .expect("the matching cdylib is built");
+    let library_dir = library.parent().expect("the cdylib has a parent");
+    let worker = artifacts
+        .executable("pdf-script-worker", "pdf-script-worker", &["engine"])
+        .expect("the matching script worker is built with its engine");
+    let program = private.join("quorra_drive_a_window");
     let compiled = Command::new(&cc)
         .args(["-std=c11", "-Wall", "-Wextra", "-Werror", "-O2", "-I"])
         .arg(crate_root.join("include"))
         .arg(crate_root.join("c/drive_a_window.c"))
         .arg("-o")
         .arg(&program)
-        .arg("-L")
-        .arg(&artefacts)
-        .arg("-lviewer_ffi")
-        .arg(format!("-Wl,-rpath,{}", artefacts.display()))
+        .arg(&library)
+        .arg(format!("-Wl,-rpath,{}", library_dir.display()))
         .output()
         .expect("the compiler runs");
     assert!(
@@ -457,30 +409,32 @@ fn a_c_program_drives_a_window_one_call_per_thing_that_happened() {
 
     let document = crate_root.join("../../doc/PDF20_AN001-BPC.pdf");
     // A file of the window's own, beside the first test's, so the two may run at once.
-    let form = artefacts.join("quorra_window_form_fixture.pdf");
-    std::fs::write(&form, form_fixture()).expect("the fixture is written beside the test binary");
-    let script = artefacts.join("quorra_window_script_fixture.pdf");
+    let form = private.join("quorra_window_form_fixture.pdf");
+    std::fs::write(&form, form_fixture())
+        .expect("the fixture is written in the private test directory");
+    let script = private.join("quorra_window_script_fixture.pdf");
     std::fs::write(&script, script_fixture())
-        .expect("the fixture is written beside the test binary");
+        .expect("the fixture is written in the private test directory");
     // The reader's directory: one file that is neither a certificate nor a PDF, so that both the
     // anchors and the target documents refuse it by name (ADR 2156).
-    let directory = artefacts.join("quorra_window_reader_words");
-    std::fs::create_dir_all(&directory).expect("the directory is made beside the test binary");
+    let directory = private.join("quorra_window_reader_words");
+    std::fs::create_dir_all(&directory)
+        .expect("the directory is made in the private test directory");
     std::fs::write(
         directory.join("words.txt"),
         b"neither a certificate nor a PDF\n",
     )
     .expect("the file is written");
-    let audience = artefacts.join("quorra_window_audience_fixture.pdf");
+    let audience = private.join("quorra_window_audience_fixture.pdf");
     std::fs::write(&audience, audience_fixture())
-        .expect("the fixture is written beside the test binary");
+        .expect("the fixture is written in the private test directory");
     let ran = Command::new(&program)
         .arg(&document)
         .arg(&form)
         .arg(&script)
         .arg(&directory)
         .arg(&audience)
-        .env("PDF_SCRIPT_WORKER", artefacts.join("pdf-script-worker"))
+        .env("PDF_SCRIPT_WORKER", &worker)
         // Two seconds rather than the reader's wait, so the question left unanswered is withdrawn
         // inside the test (ADR 1643).
         .env("PDF_VIEWER_SCRIPT_ANSWER_WAIT_MS", "2000")

@@ -3907,6 +3907,8 @@ version = "0.1.0"
 dependencies = [
  "pdf-model",
  "pdf-vfs",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -5861,6 +5863,8 @@ dependencies = [
  "pdf-syntax",
  "pdf-transform",
  "render-cpu",
+ "serde_json",
+ "tempfile",
  "viewer-core",
  "viewer-host",
 ]

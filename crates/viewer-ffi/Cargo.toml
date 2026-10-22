@@ -39,5 +39,10 @@ viewer-host.workspace = true
 pdf-archive.workspace = true
 pdf-transform.workspace = true
 
+[dev-dependencies]
+# Native harnesses parse Cargo artifact attestations and isolate writable fixtures.
+serde_json.workspace = true
+tempfile.workspace = true
+
 [lints]
 workspace = true

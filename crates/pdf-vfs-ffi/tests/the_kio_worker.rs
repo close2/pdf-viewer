@@ -34,15 +34,12 @@
               doing nothing"
 )]
 
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::Path;
 
-/// Where the workspace's build output is, found from this test binary rather than assumed.
-fn artefacts() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    let deps = exe.parent()?;
-    Some(deps.parent()?.to_path_buf())
-}
+#[path = "../../../tools/conformance/test-support/cargo_artifacts.rs"]
+mod cargo_artifacts;
+use cargo_artifacts::Artifacts;
+use std::process::Command;
 
 /// Whether a program answers `--version`.
 fn present(program: &str) -> bool {
@@ -66,45 +63,19 @@ fn kio_loads_the_plugin_browses_the_tree_and_writes_two_verbs_through_it() {
         println!("skipped: no cmake on this machine");
         return;
     }
-    let Some(artefacts) = artefacts() else {
-        println!("skipped: this test binary is not where cargo puts one");
-        return;
-    };
-    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
     let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let workspace = crate_root.join("../..");
-
-    // The shared library the plugin links against, and — trap 10 — the confined generator, which
-    // Cargo will not build for another package's test and without which nothing can be answered.
-    for package in [
-        ["build", "-p", "pdf-vfs-ffi", "--lib"],
-        ["build", "-p", "pdf-vfs", "--bins"],
-    ] {
-        let built = Command::new(&cargo)
-            .args(package)
-            .current_dir(&workspace)
-            .status();
-        assert!(
-            built.is_ok_and(|status| status.success()),
-            "{package:?} has to succeed before the plugin can link or answer"
-        );
-    }
-    let library = artefacts.join("libpdf_vfs_ffi.so");
-    assert!(library.exists(), "no cdylib at {}", library.display());
-
-    // One CMake build directory per *checkout*, not per build root. CMake bakes the source
-    // directory into its cache, and two checkouts of this repository share one Cargo build
-    // root under the worktree layout the owner asked for on 2026-09-12 — so a cache generated
-    // from the main checkout refused the worktree's `kio/` outright ("source directory does
-    // not match"), which is trap 15's shape one tool over. The suffix is the checkout's path
-    // hashed, so a second worktree configures its own tree and the first keeps its warm one.
-    let checkout = {
-        use std::hash::{Hash as _, Hasher as _};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        crate_root.hash(&mut hasher);
-        hasher.finish()
-    };
-    let build = artefacts.join(format!("kio-face-{checkout:016x}"));
+    let artifacts = Artifacts::new(&workspace).expect("the native Cargo profile is identified");
+    let private = artifacts.fixtures();
+    let library = artifacts
+        .library("pdf-vfs-ffi")
+        .expect("the matching cdylib is built");
+    let library_dir = library.parent().expect("the cdylib has a parent");
+    let worker = artifacts
+        .executable("pdf-vfs", "pdf-vfs-worker", &[])
+        .expect("the matching confined worker is built");
+    // CMake caches and plugin placement are writable state of this invocation, too.
+    let build = private.join("kio-face");
     let configured = Command::new("cmake")
         .arg("-S")
         .arg(crate_root.join("../../kio"))
@@ -161,9 +132,9 @@ fn kio_loads_the_plugin_browses_the_tree_and_writes_two_verbs_through_it() {
             .env("QT_PLUGIN_PATH", build.join("plugins"))
             // The confined generator is beside cargo's output rather than beside `kioworker`, so
             // it is named. `pdf_vfs::WORKER_PATH_VARIABLE` exists for exactly this.
-            .env("PDF_VFS_WORKER", artefacts.join("pdf-vfs-worker"))
+            .env("PDF_VFS_WORKER", &worker)
             // The plugin was linked against a library in the build tree, which no loader looks in.
-            .env("LD_LIBRARY_PATH", &artefacts);
+            .env("LD_LIBRARY_PATH", library_dir);
         match level {
             "" => command.env_remove("PDF_KIO_RESTRICTIONS"),
             word => command.env("PDF_KIO_RESTRICTIONS", word),

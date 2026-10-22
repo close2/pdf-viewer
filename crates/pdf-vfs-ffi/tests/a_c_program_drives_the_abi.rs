@@ -21,19 +21,12 @@
               doing nothing"
 )]
 
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::Path;
 
-/// Where the workspace's build output is, found from this test binary rather than assumed.
-///
-/// `target-dir` is a directory outside the tree on the machine this project is developed on, so
-/// the path is taken from the executable that is running: a test binary lives in
-/// `<target>/<profile>/deps/`, and the `cdylib` beside it is two levels up.
-fn artefacts() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    let deps = exe.parent()?;
-    Some(deps.parent()?.to_path_buf())
-}
+#[path = "../../../tools/conformance/test-support/cargo_artifacts.rs"]
+mod cargo_artifacts;
+use cargo_artifacts::Artifacts;
+use std::process::Command;
 
 /// The first of `cc` and `gcc` that answers `--version`.
 fn compiler() -> Option<String> {
@@ -57,46 +50,18 @@ fn a_c_program_browses_a_document_reads_a_page_out_of_it_and_writes_two_verbs_ba
         println!("skipped: no C compiler on this machine");
         return;
     };
-    let Some(artefacts) = artefacts() else {
-        println!("skipped: this test binary is not where cargo puts one");
-        return;
-    };
-    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
-    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-
-    // The `cdylib` is a separate artefact from the rlib this test links against, and `cargo test`
-    // does not necessarily produce it. Asking cargo for it is cheap when it is already there and
-    // is the only way to be sure it is: a test that skipped because the library was missing would
-    // be a gate that quietly stops running.
-    let built = Command::new(&cargo)
-        .args(["build", "-p", "pdf-vfs-ffi", "--lib"])
-        .current_dir(&workspace)
-        .status();
-    assert!(
-        built.is_ok_and(|status| status.success()),
-        "the cdylib has to exist for a C program to link against"
-    );
-    // **Trap 10, and it bites harder here than anywhere else in this crate**: not one question
-    // below can be answered without `pdf-vfs-worker`, because RFC 0003 section 6 puts every byte
-    // of parsing in it. Cargo will not build another package's binary for this test.
-    let worker = Command::new(&cargo)
-        .args(["build", "-p", "pdf-vfs", "--bins"])
-        .current_dir(&workspace)
-        .status();
-    assert!(
-        worker.is_ok_and(|status| status.success()),
-        "the confined generator has to exist for the tree to answer anything"
-    );
-
-    let library = artefacts.join("libpdf_vfs_ffi.so");
-    assert!(
-        library.exists(),
-        "no cdylib at {}: this test needs one",
-        library.display()
-    );
-
     let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let program = artefacts.join("quorra_vfs_browse_a_document");
+    let workspace = crate_root.join("../..");
+    let artifacts = Artifacts::new(&workspace).expect("the native Cargo profile is identified");
+    let private = artifacts.fixtures();
+    let library = artifacts
+        .library("pdf-vfs-ffi")
+        .expect("the matching cdylib is built");
+    let library_dir = library.parent().expect("the cdylib has a parent");
+    let worker = artifacts
+        .executable("pdf-vfs", "pdf-vfs-worker", &[])
+        .expect("the matching confined worker is built");
+    let program = private.join("quorra_vfs_browse_a_document");
     let compiled = Command::new(&cc)
         .arg("-std=c11")
         .arg("-Wall")
@@ -108,12 +73,10 @@ fn a_c_program_browses_a_document_reads_a_page_out_of_it_and_writes_two_verbs_ba
         .arg(crate_root.join("c/browse_a_document.c"))
         .arg("-o")
         .arg(&program)
-        .arg("-L")
-        .arg(&artefacts)
-        .arg("-lpdf_vfs_ffi")
+        .arg(&library)
         // The library is not installed anywhere a loader looks, so the path it was linked against
         // is recorded in the program. That is a test fixture's answer and not a shipping one.
-        .arg(format!("-Wl,-rpath,{}", artefacts.display()))
+        .arg(format!("-Wl,-rpath,{}", library_dir.display()))
         .output()
         .expect("the compiler runs");
     assert!(
@@ -130,8 +93,9 @@ fn a_c_program_browses_a_document_reads_a_page_out_of_it_and_writes_two_verbs_ba
     );
 
     let document = crate_root.join("../../doc/PDF20_AN001-BPC.pdf");
-    let scratch = artefacts.join("quorra_vfs_scratch.pdf");
-    std::fs::copy(&document, &scratch).expect("a scratch copy is made beside the test binary");
+    let scratch = private.join("quorra_vfs_scratch.pdf");
+    std::fs::copy(&document, &scratch)
+        .expect("a scratch copy is made in the private test directory");
 
     // `bug1815476.pdf` is encrypted with `/P -1084`, so §7.6.4.2's Table 22 bit 11 is clear and
     // taking a page out of the mount is withheld — which is what makes the *ask* level reachable
@@ -150,7 +114,7 @@ fn a_c_program_browses_a_document_reads_a_page_out_of_it_and_writes_two_verbs_ba
         // The confined generator is beside `cargo build`'s output rather than beside this
         // program, so it is named rather than searched for. `pdf_vfs::WORKER_PATH_VARIABLE`
         // exists for exactly this case.
-        .env("PDF_VFS_WORKER", artefacts.join("pdf-vfs-worker"))
+        .env("PDF_VFS_WORKER", &worker)
         .output()
         .expect("the program runs");
     let said = String::from_utf8_lossy(&ran.stdout).into_owned();

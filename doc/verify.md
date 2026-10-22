@@ -18,6 +18,13 @@ An example a round writes gets its line here in the same round.
 **Nothing here runs in a fresh clone until the specifications are unpacked**, which is one command
 and is in `doc/environment.md`.
 
+The native C and KIO integration tests build libraries and workers in the running test's
+Cargo profile, then consume the exact artifact paths returned by Cargo's JSON output.
+`tools/conformance/test-support/cargo_artifacts.rs` verifies package, target and profile;
+a stale file or an unrelated successful build cannot substitute for that result (ADR 2206).
+Writable fixtures, C executables and KIO CMake/plugin trees belong to each invocation
+(ADR 2207). Missing optional toolchains are reported; artifact mismatches are failures.
+
 ```sh
 cargo run -p conformance --bin ledger      # counts the statuses, writes nothing
 cargo run -p conformance --bin ledger -- --write  # regenerates rows, keeps every status

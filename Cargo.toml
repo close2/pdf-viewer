@@ -14,6 +14,9 @@ repository = "https://github.com/example/pdf-viewer"
 # Dependency versions are pinned once here and referenced as `dep.workspace = true`
 # from member crates, so a version appears in exactly one place in the tree.
 [workspace.dependencies]
+# Native integration harnesses only: Cargo JSON and private writable fixtures.
+serde_json = "1.0.151"
+tempfile = "3.27.0"
 # Internal. Each carries an explicit version as well as a path: a bare path
 # dependency is a wildcard requirement, which the ban policy in deny.toml rejects, and
 # which would also prevent publishing these crates.
