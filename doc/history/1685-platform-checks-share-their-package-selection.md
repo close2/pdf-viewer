@@ -21,7 +21,11 @@ not successful cross-checks. macOS with LLVM failed exit 101 because the Darwin 
 (the C build reached incompatible Linux headers). Windows SDK-independent core subset passed
 (21 s, 0.57 GiB); macOS subset passed after the split import correction (18 s, 0.61 GiB).
 Record conformance passed all 3 tests.
-Full integration conformance, clippy and documentation gates remain the batch's obligation.
+Combined workspace formatting, warnings-denied clippy, conformance and stable/nightly fuzz checks
+passed; nextest passed 7,551 tests, skipped 53 (539 s hold, 8.06 GiB peak). All six final corpus
+arms passed at 625431e7: 968 pages each at 1×, 965 each at 4×; page keys, digests, errors,
+refusals and exclusions match baseline 020a86f3 exactly (1,465 s hold, 3.73 GiB peak).
+Warnings-denied workspace documentation passed; canonical integration/performance gates remain pending.
 
 **Limit.** The full portable UI dependency graph reaches TLS C code; installed Rust targets and
 LLVM alone do not supply native SDK headers. The script retains this coverage and fails on the

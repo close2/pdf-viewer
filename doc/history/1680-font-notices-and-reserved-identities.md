@@ -34,7 +34,7 @@ metric-restatement cases at 2b/4, plus real issue6410 at 2b (18 s, 0.22 GiB retr
 An initial unembedded synthetic metric case hit the existing Q566 fitting refusal;
 embedded metric witnesses exercise the intended restatement route without relaxing it.
 Five baseline/current first-page rasters at 144 dpi are byte-identical; metric witnesses
-and issue6410 were inspected. Final workspace docs/conformance remain the batch gates.
+and issue6410 were inspected. Final workspace conformance and warnings-denied docs passed.
 
 Owned population: scratchpad/r1680/owned-paths.txt; detailed logs/report: /home/AI/report-1680.md.
 Duration: 9762 s including bounded queues, from 2026-10-21T22:50:19+02:00.
