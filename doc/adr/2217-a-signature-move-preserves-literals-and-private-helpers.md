@@ -1,6 +1,6 @@
 # 2217 — A signature move preserves literals and private helpers
 
-Session 1691, docs. Status: accepted; implementation under validation.
+Session 1691, docs. Status: accepted; implemented and scoped gates passed.
 
 A line multiset alone can miss a missing helper, changed literal or accidental
 reordering during a source split. The signature extraction therefore records

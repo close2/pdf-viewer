@@ -21,3 +21,7 @@ Scoped formatting, warnings-denied all-targets clippy, sandbox binaries, model n
 **Limits.** No ledger status changes. Uncoloured tint, nested group planes and profile
 bypass remain separate obligations. Sources: mixed_paint_context.rs and ADR 2208;
 isolated exports and calibration receipts are under scratchpad/r1687/.
+
+**Design review.** ADR 2209 records the observed paint-context, toolkit allocation and native
+artifact boundaries, with narrow follow-ups and remaining hypotheses separated. File splitting
+alone is not treated as proof of reduced coupling. No further production change in this slot.

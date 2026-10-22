@@ -1,6 +1,6 @@
 # 2216 — Signature collateral and attestations have private modules
 
-Session 1691, docs. Status: accepted; implementation under validation.
+Session 1691, docs. Status: accepted; implemented and scoped gates passed.
 
 The signature root combined signature arithmetic and permissions with two
 standalone object-graph readers. ISO 32000-2 §12.8.4.3 defines the document
