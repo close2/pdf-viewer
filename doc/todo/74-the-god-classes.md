@@ -171,12 +171,17 @@ all method signatures and bodies retain their tokens, including literal contents
 ## 14. Files with no large block
 
 `viewer-ffi/src/abi.rs` (7 147 lines: the exported surface, one group per object kind),
-`viewer-confined/src/protocol.rs` (7 820, about 2 890 of them tests, and the two longest functions
+`viewer-confined/src/protocol.rs` (7 951, about 2 890 of them tests, and the two longest functions
 after `run_from` live here), `pdf-colour/src/colour.rs`, `pdf-model/src/appearance.rs` (one `construct`
 arm per annotation subtype), `pdf-signature/src/signature.rs`. Test files (`pdf-model/tests/oracle.rs`,
 `pdf-transform/tests/archive.rs`, `viewer-core/tests/headless.rs`) are lists of scenes, ranked by
 the census but not god classes: the remedy is a directory of test modules by clause, and it is a
 different round.
+
+The confined protocol now keeps four question/answer codecs in private
+`protocol/script_dialogues.rs` and two signature-policy codecs in
+`protocol/published_policy.rs` (ADRs 2226–2227). Routers and original tests remain
+in the root; the move preserves helper bodies, tags and errors.
 
 The signature root's security-store and legal-attestation concerns now live in
 private `signature/security_store.rs` and `signature/legal_information.rs`
