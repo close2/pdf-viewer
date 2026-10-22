@@ -29,3 +29,7 @@ alone is not treated as proof of reduced coupling. No further production change 
 **Integration.** An existing structure test needed an explicit empty Vec<Range<usize>>
 type: core and regex_automata::Span offer competing PartialEq implementations. The
 assertion is unchanged; model all-target check passed in 20 s, 0.95 GiB peak.
+
+The restored fuzz Clippy check found an intentional property panic without its lint
+annotation. A function-scoped expectation preserves the forbidden-window failure
+and every assertion; focused lint validation is recorded with the batch integration.

@@ -49,6 +49,10 @@ use libfuzzer_sys::fuzz_target;
 use viewer_confined::{Payload, Reply, wire};
 
 /// The invariants a decoded answer must satisfy, whatever the bytes said.
+#[expect(
+    clippy::panic,
+    reason = "a decoded window without the negotiated capability must fail the fuzz property"
+)]
 fn check(reply: &Reply) {
     match reply {
         // One `Framed` per page the arrangement shows, since the six-hundred-and-sixth session
