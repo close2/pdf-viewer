@@ -188,6 +188,9 @@ fn pixel(raster: &[u8], x: usize, y: usize) -> [u8; 3] {
 }
 /// IEC sRGB transfer function on the independently encoded PCS midpoint.
 fn expected(mid: [f64; 3]) -> [u8; 3] {
+    expected_unrounded(mid).map(|v| v.round() as u8)
+}
+fn expected_unrounded(mid: [f64; 3]) -> [f64; 3] {
     let xyz = mid.map(|v| (v * 32768.0).floor() / 32768.0);
     let matrix = [
         [3.134_136, -1.617_036, -0.490_662],
@@ -201,8 +204,18 @@ fn expected(mid: [f64; 3]) -> [u8; 3] {
         } else {
             1.055 * linear.powf(1.0 / 2.4) - 0.055
         };
-        (255.0 * encoded).round() as u8
+        255.0 * encoded
     })
+}
+/// Two half-alpha paints into an eight-bit isolated group, then over white.
+/// Quantize the independently calculated *premultiplied* source at each buffer boundary.
+/// tiny-skia 0.12's lowp source-over divides products as (product + 255) >> 8.
+/// Rounding straight RGB before ideal floating composition misses these storage boundaries.
+fn expected_half_overlap(mid: [f64; 3]) -> [u8; 3] {
+    let source = expected_unrounded(mid).map(|v| (v * 0.5).round() as u16);
+    let over = |source: u16, destination: u16| source + ((destination * 127 + 255) >> 8);
+    let group_alpha = over(128, 128);
+    source.map(|v| (over(v, v) + 255 - group_alpha) as u8)
 }
 const RED: [f64; 3] = [0.45, 0.25, 0.05];
 const BLUE: [f64; 3] = [0.12, 0.25, 0.75];
@@ -346,10 +359,7 @@ fn warm_alpha_and_group_return_do_not_reuse_premultiplied_colours() {
         pixel(&actual, 130, 50),
         red.map(|v| f64::midpoint(f64::from(v), 255.0).round() as u8),
     );
-    near(
-        pixel(&actual, 230, 50),
-        red.map(|v| (f64::from(v) * 0.75 + 255.0 * 0.25).round() as u8),
-    );
+    near(pixel(&actual, 230, 50), expected_half_overlap(RED));
     near(pixel(&actual, 330, 50), red);
 }
 

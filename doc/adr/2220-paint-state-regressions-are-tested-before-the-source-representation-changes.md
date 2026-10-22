@@ -40,3 +40,13 @@ ICC, generic ICC tint and mixed-use costs are measured; an RGB timing cannot pri
 This test population does not establish every non-RGB family, multi-channel profile, malformed
 recovery or unsupported target. Those retain their separate witnesses and refusals. In particular,
 an A2B-only source fixture is not evidence for admitting it as an invertible blending space.
+
+The first post-change run passed twelve controls and exposed an error in the overlapping-alpha
+oracle. It rounded straight RGB before applying ideal floating-point composition, bypassing
+the isolated group's eight-bit premultiplied storage. Independently calculated unrounded RGB
+is approximately (252.91,56.54,60.13). Quantizing its half-alpha source gives (126,28,30,128);
+the existing tiny-skia 0.12 lowp source-over arithmetic gives (189,42,45,192) after the second
+paint and (252,105,108) over white. The staged oracle now represents those buffer boundaries;
+the one-level tolerance is unchanged. Cold and inherited selections independently agree.
+This corrects the test's arithmetic, without changing the compositor or accepting an observed
+raster as a golden result.
