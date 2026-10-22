@@ -178,6 +178,12 @@ arm per annotation subtype), `pdf-signature/src/signature.rs`. Test files (`pdf-
 the census but not god classes: the remedy is a directory of test modules by clause, and it is a
 different round.
 
+The signature root's security-store and legal-attestation concerns now live in
+private `signature/security_store.rs` and `signature/legal_information.rs`
+(ADRs 2216–2217). Fourteen items moved with unchanged tokens and literals;
+explicit root re-exports retain the nine public names. The cryptographic
+implementation and original tests remain in `signature.rs`.
+
 ## 15. Functions
 
 `content/run.rs::run_from` (one match over the operator set; split by operator family into
