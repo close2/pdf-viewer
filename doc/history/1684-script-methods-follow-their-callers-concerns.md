@@ -22,7 +22,7 @@ The combined hold exits 0 after 421 seconds, peak 3.91 GiB, two build jobs.
 First Clippy found two unused moved imports; removed. First conformance stopped on
 another round's todo chronology; its owner corrected it before this successful retry.
 The shared model suite includes the separate solid-colour fix; lexical identity
-isolates this split. Final batch corpus and integration checks remain root-owned.
+isolates this split. Workspace and six-arm corpus passed; final integration is in session 1685.
 
 **Paths.** scripts.rs and seven children; todo 74 section 2, crate-map, form-field
 teaching and ledger code pointers for 12.6.3, 12.6.4.17 and 12.7.3 follow the move.

@@ -1,7 +1,7 @@
 # 1680 — Font notices and reserved identities
 
 Archive round, batch one hundred and five, 2026-10-21. ADRs 2194, 2195; owner A550.
-**Implemented; batch validation pending.** ISO 32000-2 §14.3.2 Tables 347–348 and
+**Implemented; final batch receipts in session 1685.** ISO 32000-2 §14.3.2 Tables 347–348 and
 PDF/A-2 §6.6.2.1/PDF/A-4 §6.7.2.1: newly embedded, substituted, or rewritten bundled
 Foxit programs carry LICENSE_FOXIT in their own Metadata/XML stream's UsageTerms.
 One x-default language alternative preserves every character, including the final newline.

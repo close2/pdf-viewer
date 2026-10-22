@@ -25,7 +25,13 @@ Combined workspace formatting, warnings-denied clippy, conformance and stable/ni
 passed; nextest passed 7,551 tests, skipped 53 (539 s hold, 8.06 GiB peak). All six final corpus
 arms passed at 625431e7: 968 pages each at 1×, 965 each at 4×; page keys, digests, errors,
 refusals and exclusions match baseline 020a86f3 exactly (1,465 s hold, 3.73 GiB peak).
-Warnings-denied workspace documentation passed; canonical integration/performance gates remain pending.
+Warnings-denied workspace documentation passed. Canonical batch: 39 of 39 gates green,
+3,166 s gate wall time. Launch: 59 banded, 14 unjudged (13 carve-out), 0 outside; its summary
+lost the other refusal reason. Separate detailed runs retain run-queue/disk refusals. Turn33 passed;
+corrected GTK/Qt: all 14 configured figures judged/in-band, 67 s hold, 0.28 GiB peak.
+Earlier warm-open misses remain recorded in session 1681; fixed full A/B/B/A kept all judged
+timings in band but failed six memory bands on both versions. Shared memory discrepancy remains
+unresolved; supplemental runs are not green. No timing band, corpus fixture or golden changed.
 
 **Limit.** The full portable UI dependency graph reaches TLS C code; installed Rust targets and
 LLVM alone do not supply native SDK headers. The script retains this coverage and fails on the

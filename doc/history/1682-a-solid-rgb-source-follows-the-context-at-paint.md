@@ -29,7 +29,7 @@ These whole-interpretation costs are accepted for correctness, not performance n
 **Gates.** Scoped conformance/fmt/Clippy/rustdoc exit 0; model 2134 passed, 21 skipped.
 Nine paint and two key tests pass; colour all-targets Clippy exit 0. Pinned hold 339s,
 peak 0.02 GiB. Pictures show only the stale blue patch become its clause-derived colour.
-Final combined corpus/six arms/launch remain integration gates owned by the batch.
+Combined corpus and six arms passed; final integration and launch limitations are in session 1685.
 
 **Paths.** content.rs plus colour/pattern/cell/image/run; colour Conversion/context
 export and generation test; black_generation_paint test and black_generation_order

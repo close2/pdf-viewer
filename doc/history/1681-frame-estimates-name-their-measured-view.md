@@ -25,4 +25,9 @@ probe refused before measurement because CPU load exceeded 12, despite quiet GPU
 Held turn checks passed all 33 bands. Launch failed one of 59 banded figures (13 not judged for
 carve-out): opt_demo warm open 0.157 ms against 0.080–0.140 ms. That metric times document opening
 without a renderer; the failure is retained, no band changed, and no blanket launch pass claimed.
-Final combined corpus/integration checks remain the batch's obligation.
+Combined six-arm corpus passed. Final batch integration is recorded in session 1685.
+Supplemental launch missed warm-open again at 0.146 ms; a fixed full A/B/B/A then kept all
+judged timings within bands (opt_demo baseline 0.129/0.124, current 0.132/0.118 ms).
+All four copied-binary runs failed the same six memory bands on both versions; this is not
+a passing supplemental gate. Two runs had additional run-queue/disk refusals; full receipts
+are /home/AI/launch-ab-1680/full-report.md. No material timing regression was demonstrated.

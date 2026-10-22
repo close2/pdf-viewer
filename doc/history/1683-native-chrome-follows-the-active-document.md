@@ -32,7 +32,7 @@ stateful chrome witness, header agreement and unsafe-boundary checks; 539 s hold
 default to dev; custom profiles can test stale libraries/workers. The harness should build the
 matching profile and verify its artifacts. The supported dev rerun avoids that harness defect.
 
-**Limits.** Real Windows SDK compilation and pure managed tests do not prove live XAML behavior.
+**Limits.** Windows managed application SDK compilation and tests do not prove live XAML behavior.
 Native fullscreen/title-bar placement, FitWindow/CenterWindow, modal suppression and the FFI
 presentation timer/transition pump remain unfinished. GTK/Qt have not adopted presentation parking.
 Core mode still applies globally: parked PresSteps continuation is not claimed. §12.2 stays partial.
