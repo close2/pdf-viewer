@@ -34,7 +34,10 @@ fn an_object_gives_up_the_bytes_its_sequences_cover() {
         vec![12..15, 20..25],
         "unordered and overlapping sequences, and two that reach past either end"
     );
-    assert_eq!(outside_sequences(10..30, &[span(5..35)]), Vec::new());
+    assert_eq!(
+        outside_sequences(10..30, &[span(5..35)]),
+        Vec::<std::ops::Range<usize>>::new()
+    );
     assert_eq!(outside_sequences(10..30, &[span(30..40)]), vec![10..30]);
 }
 
