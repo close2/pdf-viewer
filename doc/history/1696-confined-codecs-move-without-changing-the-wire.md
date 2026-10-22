@@ -22,7 +22,7 @@ clippy 29s/private rustdoc 5s pass. Doctests: 0 run, 1 ignored; viewer-host/view
 all-target caller compilation passes (20s). Whole hold 116s, 1.29GiB; queued wall 273s.
 Formatting/diff pass. Shared pointers updated by root. Conformance124s failed
 only records: this count lacked a separating space and another record lacked
-its Gates heading. This count is corrected; focused records retry pending.
+its Gates heading. This count is corrected; focused records retry passed.
 No GPU or raster update is needed for a source-only extraction.
 Owned paths and proof receipts: scratchpad/r1696/owned-paths.txt and proof.log.
 Scoped duration: 348s from 2026-10-22T08:08:23+02:00. Final integration is root-owned.

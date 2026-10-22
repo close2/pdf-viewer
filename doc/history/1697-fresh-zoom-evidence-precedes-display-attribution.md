@@ -10,8 +10,8 @@ Toolkit logical-to-core scale stays separate from observed XTest-to-core mapping
 
 **Gates.** Parser: 9 tests passed, including malformed/nonfinite/stale/reset,
 foreign-window, modifier, suppression and span controls. An empty-discovery
-negative exits1 at the intended guard without a success marker. Initial Rust
-conformance wrapper passed1 test; final two-test wrapper awaits combined gates.
+negative exits1 at the intended guard without a success marker. Final Rust
+conformance wrapper: 2 passed; corrected history records also pass (exit 0).
 Driver CPU Xvfb rehearsals pass on ISO page20 in GTK and Qt at actual scales1/2;
 all four arms observe3fresh pointer positions and4coreZoom commands. Qt additionally
 observes4accepted callback/spans. Scale2 maps logical-to-core2.0 on both axes,

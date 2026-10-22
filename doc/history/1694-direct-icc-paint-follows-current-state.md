@@ -17,12 +17,20 @@ Warnings-denied model all-target clippy/fmt and owned/existing focused controls:
 Isolated candidate13 passed; source-retention/profile-identity/context omissions
 all fail intended assertions with exit 101; unchanged independent tests, exact
 source restoration. Driver exit 0,157s hold/170s elapsed,0.65GiB.
-Full model+colour suite remains pending; no final integration claim.
+Full model+colour:2301 passed,21 skipped,62.615s tests; exit 0,173s hold,
+394s elapsed,3.90GiB. No final integration claim.
 
 **Cost.** Fixed0eb4d278 before/after exports carry identical instrumentation and
 exactly3 production delta paths. OrdinaryICC, genericICCtint, mixed and RGB
 populations remain separate; required-current-state work is labeled explicitly.
-Immutable release builds and twelve balanced pinned pairs are pending.
+Release builds exit 0,116/102s,.88/.82GiB.12balanced CPU2pairs/48guards pass;
+exit 0,343s hold/506elapsed,.08GiB; source/binary hashes unchanged.
+Paired medians repeat1.0471; component/profile restore1.2018/1.2087,
++1.400/1.872ms per20k marks (~70/94ns permark). Root accepts bounded
+correctness cost conditionally; no performance-neutral claim or cache expansion.
+Required intent/BPC work adds2.133/2.401ms; stale-output baseline is separate.
+Generic tint ratios.9816–1.0077,mixed.9999–1.0127,RGB1.0111/1.0193.
+All samples retained, including repeat ratio range.7236–1.4347; ADR2223 table.
 
 **Limits.** Other colour families retain their previous fallback; no broader cache
 unification or clause completion is claimed. Root owns shared ledger and integration.
