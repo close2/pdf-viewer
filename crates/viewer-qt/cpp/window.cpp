@@ -75,6 +75,18 @@
 namespace quorra_qt {
 namespace {
 
+// Opt-in diagnostic timestamps use the monotonic clock. Paint completion is not scanout.
+bool zoomProbe()
+{
+    static const bool enabled = qEnvironmentVariableIsSet("PDFVIEWER_ZOOM_PROBE");
+    return enabled;
+}
+long long zoomMicros()
+{
+    return std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
 /// A `rust::String` as Qt spells one. Both are UTF-8, so this is a length and a pointer.
 QString text(const rust::String& from)
 {
@@ -1190,12 +1202,17 @@ bool PageArea::focusNextPrevChild(bool /*next*/)
 
 void PageArea::setFrames(QList<QPair<QImage, QRectF>> frames)
 {
+    if (zoomProbe()) {
+        std::fprintf(stderr, "zoom-probe qt queued us=%lld count=%lld dpr=%.6f\n",
+                     zoomMicros(), static_cast<long long>(frames.size()), devicePixelRatioF());
+    }
     frames_ = std::move(frames);
     update();
 }
 
 void PageArea::paintEvent(QPaintEvent*)
 {
+    const auto began = zoomProbe() ? zoomMicros() : 0;
     if (frames_.isEmpty()) {
         return;
     }
@@ -1210,6 +1227,15 @@ void PageArea::paintEvent(QPaintEvent*)
         const bool scaled = frame.second.size() != frame.first.deviceIndependentSize();
         painter.setRenderHint(QPainter::SmoothPixmapTransform, scaled);
         painter.drawImage(frame.second, frame.first);
+        if (zoomProbe()) {
+            std::fprintf(stderr, "zoom-probe qt image us=%lld pixels=%dx%d origin=%.6f,%.6f extent=%.6f,%.6f dpr=%.6f scaled=%d\n",
+                zoomMicros(), frame.first.width(), frame.first.height(), frame.second.x(),
+                frame.second.y(), frame.second.width(), frame.second.height(), devicePixelRatioF(), scaled);
+        }
+    }
+    painter.end();
+    if (zoomProbe()) {
+        std::fprintf(stderr, "zoom-probe qt paint-end us=%lld began=%lld\n", zoomMicros(), began);
     }
 }
 
@@ -1223,6 +1249,10 @@ void PageArea::resizeEvent(QResizeEvent* event)
     const int height = static_cast<int>(qRound(event->size().height() * scale));
     if (width <= 0 || height <= 0) {
         return;
+    }
+    if (zoomProbe()) {
+        std::fprintf(stderr, "zoom-probe qt viewport us=%lld physical=%dx%d dpr=%.6f\n",
+            zoomMicros(), width, height, scale);
     }
     Q_EMIT resizedTo(static_cast<unsigned int>(width), static_cast<unsigned int>(height),
                      static_cast<float>(scale));
@@ -1244,6 +1274,10 @@ void PageArea::wheelEvent(QWheelEvent* event)
         const bool inPixels = !pixels.isNull();
         const qreal amount = inPixels ? static_cast<qreal>(pixels.y())
                                       : static_cast<qreal>(event->angleDelta().y()) / 120.0;
+        if (zoomProbe()) {
+            std::fprintf(stderr, "zoom-probe qt wheel us=%lld amount=%.6f at=%.6f,%.6f dpr=%.6f\n",
+                zoomMicros(), amount, at.x() * scale, at.y() * scale, scale);
+        }
         event->accept();
         Q_EMIT wheelZoomed(static_cast<float>(amount), inPixels, static_cast<float>(at.x() * scale),
                            static_cast<float>(at.y() * scale));
@@ -2655,7 +2689,14 @@ void MainWindow::showFrame()
     }
     const qint64 nanos = clock.nsecsElapsed();
     page_->setFrames(std::move(frames));
+    if (zoomProbe()) {
+        std::fprintf(stderr, "zoom-probe qt host-followup-begin us=%lld copy_ns=%lld bytes=%zu\n",
+            zoomMicros(), static_cast<long long>(nanos), bytes);
+    }
     host_->painted(bytes, static_cast<std::uint64_t>(nanos));
+    if (zoomProbe()) {
+        std::fprintf(stderr, "zoom-probe qt host-followup-end us=%lld\n", zoomMicros());
+    }
 }
 
 void MainWindow::rebuildPanels()

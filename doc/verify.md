@@ -89,6 +89,11 @@ tools/dotnet-check.sh
   # same rule: `cargo clippy --workspace` and `cargo test --workspace` build both hosts, so GTK 4's
   # and Qt 6's development files have to be installed to run the gates at all. CI installs
   # `libgtk-4-dev`, `qt6-base-dev` and `qt6-base-dev-tools` for exactly that reason.
+  # The Linux GTK allocation tests additionally require `Xvfb`, `xdpyinfo` (Debian/Ubuntu
+  # `x11-utils`) and GNU `timeout` (`coreutils`). CI provisions these explicitly. The tests
+  # own a Cairo-rendered Xvfb display, bound startup/execution, and require a positive child
+  # receipt; missing dependencies fail rather than skip. The X11 harness is Linux-only;
+  # it does not claim native macOS/Windows display coverage (ADR 2214).
   # **And the toolkit is not the only thing about a machine that decides whether `viewer-qt`
   # links**: `qt-build-utils` picks the first of `lld`, `ld.gold`, `mold` it can run, this machine
   # has `lld` and GitHub's runner has not, and the two choose different archive semantics. That

@@ -215,9 +215,10 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
 - **`AI` has no X authority cookie**, so anything needing *the user's* display fails at
   `XOpenDisplayFailed` — but `Xvfb` and `lavapipe` are installed, so the real window, event loop and
   surface all run headless, `xdotool` drives them and `xwd` photographs the result (ADR 0126).
-  `tools/drive-windows.sh` is that drive for all four windows, step by step with a verdict per
-  step; it is no `cargo` gate, because `Xvfb` and `xdotool` are not build dependencies and a test
-  that skipped silently would be worse than none. **A display number is yours only after
+  `tools/drive-windows.sh` remains an explicit end-to-end drive, not a Cargo gate. Separately,
+  Linux GTK allocation unit tests require Xvfb, xdpyinfo and GNU timeout, provisioned in CI;
+  they own a Cairo display and fail on missing prerequisites rather than skip (ADR 2214).
+  **A display number is yours only after
   `/tmp/.X<n>-lock` was absent and your own Xvfb's pid holds it** (trap 181). By hand:
 
   ```sh

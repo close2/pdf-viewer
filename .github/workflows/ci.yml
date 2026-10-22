@@ -79,7 +79,7 @@ jobs:
       - name: A display, for the backend `wgpu` falls through to
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb libxkbcommon-x11-0
+          sudo apt-get install -y xvfb x11-utils coreutils libxkbcommon-x11-0
 
       # The fourteen specification documents this project is written against. They are
       # free to obtain from the PDF Association and not free to redistribute, so the

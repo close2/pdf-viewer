@@ -515,6 +515,7 @@ fn page_area(
     let fixed = gtk4::Fixed::new();
     fixed.set_overflow(gtk4::Overflow::Hidden);
     surround(&fixed);
+    watch_zoom_paints(&fixed);
 
     let chrome = gtk4::DrawingArea::new();
     // The chrome layer is over the page and over the controls, so it must not take a click that
@@ -736,3 +737,69 @@ fn trace_quad(cr: &gtk4::cairo::Context, quad: [f32; 8], scale: f64) {
 /// word about what a person sees while they trace it. Small enough not to cover the thing being
 /// measured, large enough to find on a dense page.
 const MEASURED_POINT: f64 = 2.5;
+
+/// Opt-in toolkit diagnostics, kept off the ordinary input and frame paths.
+pub(super) fn zoom_probe_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var_os("PDFVIEWER_ZOOM_PROBE").is_some())
+}
+
+#[expect(
+    clippy::print_stderr,
+    reason = "explicitly requested toolkit measurement trace"
+)]
+pub(super) fn zoom_probe(message: std::fmt::Arguments<'_>) {
+    if zoom_probe_enabled() {
+        eprintln!("zoom-probe gtk us={} {message}", glib::monotonic_time());
+    }
+}
+
+/// Records actual GTK paint cycles only when the toolkit probe was requested.
+fn watch_zoom_paints(fixed: &gtk4::Fixed) {
+    if zoom_probe_enabled() {
+        fixed.connect_realize(|widget| {
+            if let Some(clock) = widget.frame_clock() {
+                let weak = widget.downgrade();
+                clock.connect_after_paint(move |clock| {
+                    if let Some(widget) = weak.upgrade() {
+                        zoom_probe(format_args!(
+                            "viewport logical={}x{} scale={}",
+                            widget.width(),
+                            widget.height(),
+                            widget.scale_factor()
+                        ));
+                        let mut child = widget.first_child();
+                        while let Some(slot) = child {
+                            child = slot.next_sibling();
+                            if slot.is::<gtk4::Picture>() && slot.is_visible() {
+                                zoom_probe(format_args!(
+                                    "allocated logical={}x{} bounds={:?}",
+                                    slot.width(),
+                                    slot.height(),
+                                    slot.compute_bounds(&widget)
+                                ));
+                            }
+                        }
+                    }
+                    zoom_probe(format_args!(
+                        "after-paint frame={} frame_us={}",
+                        clock.frame_counter(),
+                        clock.frame_time()
+                    ));
+                    // Presentation feedback can arrive after after-paint; retain the previous
+                    // frame too. A zero timestamp explicitly means feedback is unavailable.
+                    if let Some(previous) = clock.frame_counter().checked_sub(1)
+                        && let Some(timing) = clock.timings(previous)
+                    {
+                        zoom_probe(format_args!(
+                            "feedback frame={} complete={} presented_us={}",
+                            timing.frame_counter(),
+                            timing.is_complete(),
+                            timing.presentation_time()
+                        ));
+                    }
+                });
+            }
+        });
+    }
+}

@@ -350,6 +350,7 @@ impl Host {
         let at = self
             .pointer_at
             .map(|(x, y)| ((x * scale) as f32, (y * scale) as f32));
+        super::window::zoom_probe(format_args!("wheel steps={steps} at={at:?} scale={scale}"));
         for _ in 0..steps.unsigned_abs() {
             self.dispatch(Command::Zoom { zoom, at });
         }

@@ -33,7 +33,8 @@ impl Host {
         self.state.lane = Some(Box::new(lane));
     }
 
-    /// The C++ side finished putting a frame on the screen, with what the copy cost.
+    /// The C++ side copied a frame and queued its widget update, with what the copy cost.
+    /// Actual widget painting follows on Qt's event loop.
     pub(crate) fn painted(&mut self, bytes: usize, nanos: u64) {
         self.state.trace.say(
             Topic::Frames,
@@ -86,8 +87,8 @@ impl Host {
             self.later_open_the_next();
         }
         // After the first frame rather than before it, and after every one after that: §14.7's
-        // tree on AT-SPI. This is the one moment in this host that is on the far side of a paint,
-        // which is exactly what `CLAUDE.md`'s startup rule asks of it (ADR 0623).
+        // tree on AT-SPI. This follows the copy and the request for a widget
+        // update. The toolkit paints later; this work is part of the wait before that paint.
         self.attend();
     }
 

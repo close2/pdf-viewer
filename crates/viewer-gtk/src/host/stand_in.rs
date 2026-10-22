@@ -8,7 +8,6 @@ use viewer_host::trace::Topic;
 use crate::page;
 
 use super::Host;
-use super::window::logical;
 
 impl Host {
     /// The textures to put on the screen, and where.
@@ -111,56 +110,52 @@ impl Host {
     }
 }
 
-/// Puts one picture where its frame belongs: laid out at its texture's size, moved to its origin,
-/// and — for a stand-in only — scaled to the extent the page has now (ADR 1843).
+/// Lays out a picture at its texture's size, then maps device pixels to logical widget units.
+/// A stand-in also scales to the page's current extent; a fresh frame stays on whole device
+/// pixels (ADRs 1843, 1865).
 pub(super) fn place(fixed: &gtk4::Fixed, slot: &gtk4::Picture, picture: &Picture, scale: f64) {
+    super::window::zoom_probe(format_args!(
+        "placement pixels={}x{} origin={:?} extent={:?} scale={scale}",
+        picture.texture.width(),
+        picture.texture.height(),
+        picture.origin,
+        picture.extent
+    ));
     slot.set_paintable(Some(&picture.texture));
     let (width, height) = (picture.texture.width(), picture.texture.height());
-    slot.set_size_request(
-        logical(f64::from(width), scale),
-        logical(f64::from(height), scale),
-    );
+    // GtkFixed allocates the picture at its texture's natural size. A smaller minimum size
+    // request does not shrink that allocation, so device scaling belongs in the transform too.
+    slot.set_size_request(width, height);
     slot.set_visible(true);
-    // `GtkFixed::move` is a translation, and a stand-in is the same translation with
-    // a scale after it: the old frame laid out at its own size and drawn by GSK at the
-    // extent the page has now, linearly, on whichever renderer the window has. A size
-    // request cannot do it, because `GtkFixed` gives a child its natural size and a
-    // picture's is its texture's, so a notch out would have stayed large (ADR 1843).
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "extents are under 2^24 pixels: `MAX_PIXELS` bounds the raster"
-    )]
-    let fill = (
-        picture.extent.0 as f32 / width.max(1) as f32,
-        picture.extent.1 as f32 / height.max(1) as f32,
-    );
-    let (x, y) = (
-        f64::from(picture.origin.0) / scale,
-        f64::from(picture.origin.1) / scale,
-    );
     let scaled = i64::from(picture.extent.0) != i64::from(width)
         || i64::from(picture.extent.1) != i64::from(height);
-    if scaled {
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "a viewport's logical position is far inside an `f32`"
-        )]
-        let at = gtk4::graphene::Point::new(x as f32, y as f32);
-        fixed.set_child_transform(
-            slot,
-            Some(
-                &gtk4::gsk::Transform::new()
-                    .translate(&at)
-                    .scale(fill.0, fill.1),
-            ),
-        );
+    let origin = if scaled {
+        picture.origin
     } else {
-        // The translation alone, to the whole device pixel nearest the origin: GSK draws a
-        // texture at a fractional offset by filtering it, which moves every row of the page by
-        // a fraction and blends the page's edge row with the ground (ADR 1865).
-        let (x, y) = viewer_host::stand_in::whole_pixel(picture.origin);
-        fixed.move_(slot, f64::from(x) / scale, f64::from(y) / scale);
-    }
+        viewer_host::stand_in::whole_pixel(picture.origin)
+    };
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "texture extents and viewport coordinates are bounded by MAX_EXTENT"
+    )]
+    let (at, fill) = (
+        gtk4::graphene::Point::new(
+            (f64::from(origin.0) / scale) as f32,
+            (f64::from(origin.1) / scale) as f32,
+        ),
+        (
+            (f64::from(picture.extent.0) / f64::from(width.max(1)) / scale) as f32,
+            (f64::from(picture.extent.1) / f64::from(height.max(1)) / scale) as f32,
+        ),
+    );
+    fixed.set_child_transform(
+        slot,
+        Some(
+            &gtk4::gsk::Transform::new()
+                .translate(&at)
+                .scale(fill.0, fill.1),
+        ),
+    );
 }
 
 /// One texture a frame puts on the screen.
@@ -185,3 +180,8 @@ pub(super) struct Pictures {
     /// The page shown as it stands, and how much of it is drawn, where one is.
     pub(super) glimpsed: Option<(usize, f64)>,
 }
+
+// The owned X11 display harness uses Linux lock conventions and GNU timeout.
+#[cfg(all(test, target_os = "linux"))]
+#[path = "stand_in_tests.rs"]
+mod tests;
