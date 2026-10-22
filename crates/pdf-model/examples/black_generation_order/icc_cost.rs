@@ -100,7 +100,7 @@ fn fixture(content: &str, step: usize) -> Vec<u8> {
     let objects = [
         "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R /Resources << /ColorSpace << /A [/ICCBased 5 0 R] /B [/ICCBased 6 0 R] /PA [/Pattern [/ICCBased 5 0 R]] /PB [/Pattern [/ICCBased 6 0 R]] >> /Pattern << /Tile 7 0 R >> /ExtGState << /Off << /UseBlackPtComp /OFF >> /On << /UseBlackPtComp /ON >> >> >> >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R /Resources << /ColorSpace << /IA [/Indexed [/ICCBased 5 0 R] 2 <4080C0>] /IB [/Indexed [/ICCBased 6 0 R] 2 <4080C0>] /IT [/Indexed [/ICCBased 5 0 R] 2 <C08040>] /End [/Indexed [/ICCBased 5 0 R] 0 <FF>] /A [/ICCBased 5 0 R] /B [/ICCBased 6 0 R] /PA [/Pattern [/ICCBased 5 0 R]] /PB [/Pattern [/ICCBased 6 0 R]] >> /Pattern << /Tile 7 0 R >> /ExtGState << /Off << /UseBlackPtComp /OFF >> /On << /UseBlackPtComp /ON >> >> >> >>".to_owned(),
         format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()+1),
         encoded_stream("/N 1", &a), encoded_stream("/N 1", &b),
         format!("<< /Type /Pattern /PatternType 1 /PaintType 2 /TilingType 1 /BBox [0 0 {step} {step}] /XStep {step} /YStep {step} /Resources << >> /Length {} >>\nstream\n{cell}\nendstream", cell.len()+1),
@@ -229,6 +229,7 @@ fn workloads() -> Vec<Workload> {
         });
     }
     paired_workloads(&mut out);
+    indexed_workloads(&mut out);
     out
 }
 
@@ -293,5 +294,68 @@ pub(super) fn run() {
             work.name,
             began.elapsed().as_secs_f64() * 1000.0
         );
+    }
+}
+
+// Equal-output source/table/profile restoration is separate from context work that
+// the stale baseline omits. These are whole interpretations, not conversion timings.
+fn indexed_workloads(out: &mut Vec<Workload>) {
+    for (name, population, prefix, even, odd) in [
+        (
+            "indexed-repeat",
+            "same-output-hit",
+            "/Perceptual ri /IA cs 1 scn ",
+            "",
+            "",
+        ),
+        (
+            "indexed-select",
+            "same-output-selection",
+            "/Perceptual ri /IA cs ",
+            "0 scn ",
+            "2 scn ",
+        ),
+        (
+            "indexed-intent",
+            "required-current-state",
+            "/IA cs 1 scn ",
+            "/Perceptual ri ",
+            "/Saturation ri ",
+        ),
+        (
+            "indexed-bpc",
+            "required-current-state",
+            "/RelativeColorimetric ri /End cs 0 scn ",
+            "/Off gs ",
+            "/On gs ",
+        ),
+    ] {
+        let mut content = format!("/Off gs {prefix}");
+        for index in 0..1000 {
+            content.push_str(if index % 2 == 0 { even } else { odd });
+            content.push_str("0 0 50 100 re f ");
+        }
+        out.push(Workload {
+            name,
+            population,
+            content,
+            step: 100,
+        });
+    }
+    for (name, inner) in [
+        ("indexed-entry-restore", "2 scn "),
+        ("indexed-profile-restore", "/IB cs 0 scn "),
+        ("indexed-table-restore", "/IT cs 0 scn "),
+    ] {
+        let mut content = String::from("/Off gs /Perceptual ri /IA cs 0 scn ");
+        for _ in 0..500 {
+            write!(content, "q {inner}0 0 50 100 re f Q 0 0 50 100 re f ").expect("indexed pair");
+        }
+        out.push(Workload {
+            name,
+            population: "same-output-restoration",
+            content,
+            step: 100,
+        });
     }
 }

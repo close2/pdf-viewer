@@ -693,10 +693,10 @@ impl Interpreter<'_> {
 /// device tint value for the output device" — a floating-point requirement about *precision*,
 /// which the tint transform's output satisfies. ADR 1241, amending ADR 1157.
 ///
-/// NOTE 2's `Indexed` clause is not answered here, and the reason is not the clause: reading
-/// the base space's components for an index needs `ColourSpace::entry_of`, which is
-/// `pub(crate)` to `pdf-colour` so that §8.6.6.3's table is rounded in one place. ADR 1241
-/// section 5.
+/// NOTE 2's `Indexed` process-tint handling is not implemented here. The public
+/// `ColourSpace::entry_of` supplies the base components, but retaining a source for
+/// current-context colour conversion does not implement this separate overprint rule.
+/// See ADR 1241 section 5.
 #[expect(
     clippy::doc_markdown,
     reason = "the table cell and the clause sentences above are quotations, and a quotation \
@@ -874,6 +874,14 @@ impl SolidSource {
     fn selected(space: &ColourSpace, values: &[f32]) -> Option<Self> {
         match space {
             ColourSpace::Rgb => values.try_into().ok().map(Self::Rgb),
+            // Retain the decoded entry, not the declared index or its resource name.
+            // §8.6.6.3 rounds/clamps through entry_of; the immediate ICC base then
+            // follows the same current-context paint route as a direct ICC selection.
+            ColourSpace::Indexed { base, .. }
+                if matches!(base.as_ref(), ColourSpace::Icc { .. }) =>
+            {
+                Self::selected(base, &space.entry_of(values))
+            }
             ColourSpace::Icc { profile } if values.len() == profile.channels() => {
                 let values = match *values {
                     [a] => IccValues::One([a]),
