@@ -1,6 +1,6 @@
 # 2213 — Tint state tests cross the pattern boundary
 
-Status: proposed; validation in progress. Session 1689.
+Status: accepted; final combined integration checks remain due. Session 1689.
 Context: ADR 2212; the recurring source-loss failures examined in round 1687.
 
 The first fixture pins a clause-derived colour, rather than comparing two paths
@@ -24,10 +24,10 @@ would have to save and restore manually. The new admission argument carries the
 specific evidence needed by the group boundary, rather than lifting the general
 uncoloured restriction. File splitting alone would not repair either lost input.
 
-Before acceptance, measure complete interpretations of repeated pattern marks,
+The cost comparison measures complete interpretations of repeated pattern marks,
 alternating tints and changing parameters, with one-cell and many-cell lattices.
 Document opening is outside the timer; content parsing and lazy work remain inside.
-Use isolated fixed-baseline and candidate exports, pinned balanced repetitions and
+It uses isolated fixed-baseline and candidate exports, pinned balanced repetitions and
 an exclusive quiet clock hold. No performance-neutral claim follows from correctness.
 Final corpus and launch checks remain separate integration obligations.
 
@@ -54,6 +54,8 @@ ICC-intent control and the actual-paint profile diagnostic. Warnings-denied all-
 Clippy and formatting pass in the same 48-second, 1.75-GiB bounded hold. Independent
 review of the implemented routing and shared-slot witness found no concrete defect.
 The earlier uncached full suite passed 2283 tests with 21 skips. The revised suite
-passes 2285 with 21 skips (58.871 seconds tests; 156-second hold, 3.91 GiB). A fresh
-balanced cost comparison remains pending. The first candidate's measured
-regression is rejected, not hidden by the revision (ADR 2212).
+passes 2285 with 21 skips (58.871 seconds tests; 156-second hold, 3.91 GiB). The fresh
+balanced comparison accepts the bounded cost documented in ADR 2212: all twelve
+pairs and 48 guards pass, with every sample retained. The first candidate's measured
+regression remains rejected and preserved separately. All four revised PNGs match
+the correct uncached candidate byte for byte; the tint picture was also inspected.

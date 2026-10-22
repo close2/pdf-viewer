@@ -1,6 +1,6 @@
 # 2212 — Uncoloured tiling keeps its source through nested targets
 
-Status: proposed; scoped proof and cost evaluation in progress. Session 1689.
+Status: accepted with measured cost; final combined corpus/launch checks remain due. Session 1689.
 Context: ADR 2199; ISO 32000-2 §§8.7.3.3, 11.6.7 and 11.7.5.3.
 
 An uncoloured tiling selection retained only a converted colour. Its conversion used
@@ -55,4 +55,28 @@ added. Cell setup seeds or reuses the fill slot; an initial stroke may miss its 
 slot, which changes cost rather than colour. Twelve focused controls, all-target
 Clippy and formatting pass for this revision; independent code review found no
 concrete cache/lifetime defect. The revised model+colour suite passes 2285 tests
-with 21 skips (156-second hold, 3.91 GiB). Revised cost acceptance remains pending.
+with 21 skips (156-second hold, 3.91 GiB).
+
+The revised comparison accepts a bounded correctness cost. Twelve balanced pairs
+pinned to CPU 2, with the same fixed baseline and identical instrumentation, pass
+all 48 unchanged quiet guards (maximum load 2.82 and mean GPU activity 1%). The
+exclusive nice-0 hold takes 394 seconds, 499 including queue, and 0.07 GiB. Pattern
+whole-interpretation medians before→after are 70.661→71.387 ms for one cell,
+745.647→754.007 ms for many cells, 130.442→134.246 ms for alternating tints and
+143.097→148.880 ms for changed pairs, each over 20,000 marks. Paired median ratios
+are 1.01723, 1.01093, 1.02955 and 1.04436; paired median deltas are 1.209, 8.1575,
+3.874 and 6.267 ms, or approximately 60–408 ns per mark across these cases.
+
+All samples remain included. Changed-pair ratios span 1.020–1.453, including the
+214.685-ms final candidate sample. Ordinary-solid controls have paired medians
+0.94371, 0.98609, 0.98291 and 1.00658; their variability, especially the bimodal RGB
+case, does not establish a speedup. This is not a performance-neutral claim or an
+isolated conversion microbenchmark. Document opening and rasterization are outside
+the timer; content parsing and lazy interpretation work are inside. Existing-cache
+reuse removes the rejected large regression without introducing another state key.
+
+The revised immutable binary produces all four saved PNGs byte-identically to the
+correct uncached candidate. Inspected tint pictures match the independent arithmetic
+above. Exact source/binary manifests, all samples and guards are retained under
+scratchpad/r1689/{cost-before,cost-after,cost-cached,paired,paired-cached}; final
+combined corpus and launch gates remain separate integration obligations.
