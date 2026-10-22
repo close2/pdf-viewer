@@ -44,7 +44,7 @@ fn zoom_receipts_refuse_empty_calibration() {
     assert!(!output.status.success(), "empty discovery must fail");
     assert!(
         String::from_utf8_lossy(&output.stderr)
-            .contains("zoom receipt calibration requires all nine tests"),
+            .contains("zoom receipt calibration requires all ten tests"),
         "the negative must fail at its intended calibration guard"
     );
     assert!(

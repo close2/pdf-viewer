@@ -7,7 +7,7 @@ use viewer_host::trace::Topic;
 
 use crate::page;
 
-use super::Host;
+use super::{Host, observation};
 
 impl Host {
     /// The textures to put on the screen, and where.
@@ -20,12 +20,13 @@ impl Host {
     /// (`viewer_host::drawing::over_frames`, ADR 1825), which is why [`Pictures::held`] counts the
     /// viewer's own pixels apart: the first frame is a finished page, so a page shown part-way is
     /// not what `first frame on the screen` says.
-    pub(super) fn placements(&mut self) -> Pictures {
+    pub(super) fn placements(&mut self, generation: u64) -> Pictures {
         if let Some(frame) = self.transition_placement() {
             return Pictures {
                 placements: vec![frame],
                 held: 1,
                 glimpsed: None,
+                observation: None,
             };
         }
         let frames = match self.state.viewer.query(Query::Frame) {
@@ -43,6 +44,8 @@ impl Host {
             Answer::Geometry(geometry) => Some(geometry),
             _ => None,
         };
+        let sources =
+            super::window::zoom_probe_enabled().then(|| observation::sources(&frames, geometry));
         // A page drawn part-way where it belongs (ADR 1825), a frame from before a zoom scaled to
         // the extent the page has now until its own lands (ADR 1843), and a page with no frame
         // at all shown from its retained picture (ADR 1866).
@@ -87,25 +90,47 @@ impl Host {
                 .trace
                 .say(Topic::Frames, format_args!("{placed}"));
         }
+        let single = frames.len() == 1;
+        let mut observed = Vec::new();
+        if single
+            && let Some(sources) = sources.as_ref()
+            && let Some(placed) = frames.first()
+        {
+            let observation = observation::observe(placed, sources);
+            self.ui
+                .probe
+                .capture(generation, focused.0, &observation, placed.frame.raster);
+        }
         let placements = frames
             .into_iter()
             .filter_map(|placed| match page::texture(placed.frame.raster) {
-                Ok(texture) => Some(Picture {
-                    texture,
-                    origin: placed.frame.origin,
-                    extent: placed.extent,
-                    bytes: placed.frame.raster.data.len(),
-                }),
+                Ok(texture) => {
+                    if let Some(sources) = sources.as_ref() {
+                        observed.push(observation::observe(&placed, sources));
+                    }
+                    Some(Picture {
+                        texture,
+                        origin: placed.frame.origin,
+                        extent: placed.extent,
+                        bytes: placed.frame.raster.data.len(),
+                    })
+                }
                 Err(error) => {
                     eprintln!("note: {error}");
                     None
                 }
             })
             .collect();
+        let observation = (single && observed.len() == 1).then_some(observation::Snapshot {
+            generation,
+            document: focused.0,
+            placements: observed,
+        });
         Pictures {
             placements,
             held,
             glimpsed,
+            observation,
         }
     }
 }
@@ -179,6 +204,8 @@ pub(super) struct Pictures {
     pub(super) held: usize,
     /// The page shown as it stands, and how much of it is drawn, where one is.
     pub(super) glimpsed: Option<(usize, f64)>,
+    /// Eligible only after all textures were successfully applied by refresh.
+    pub(super) observation: Option<observation::Snapshot>,
 }
 
 // The owned X11 display harness uses Linux lock conventions and GNU timeout.

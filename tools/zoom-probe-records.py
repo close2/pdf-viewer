@@ -242,6 +242,84 @@ def stimulus_to_core_mapping(first_request, first, second_request, second):
     return tuple(result)
 
 
+def settled_capture(rows, metadata, expected_page):
+    """Join an exact raw-source dump to a subsequent applied GTK paint.
+
+    This proves provenance at the toolkit paint boundary only. The caller still owes
+    focus, visible unclipped ROI, screenshot dimensions and independent pixel mapping.
+    """
+    integer_keys = ("id", "generation", "document", "page", "width", "height", "source_index")
+    for key in integer_keys:
+        if type(metadata.get(key)) is not int or metadata[key] < 0:
+            raise ValueError("invalid capture metadata integer")
+    if metadata["page"] != expected_page or min(metadata["width"], metadata["height"]) < 4:
+        raise ValueError("wrong capture page or empty dimensions")
+    if metadata.get("format") != "RGBA8-straight":
+        raise ValueError("unknown raw capture format")
+    generation = metadata["generation"]
+    if generation == 0 or not 1 <= metadata["id"] <= 16:
+        raise ValueError("capture request or generation outside bounds")
+    matching_dumps = [(i, row) for i, row in enumerate(rows)
+                      if row.get("kind") == "raster-dump" and row.get("capture_id") == metadata["id"]]
+    if len(matching_dumps) != 1 or matching_dumps[0][1].get("generation") != generation:
+        raise ValueError("missing or ambiguous dump generation")
+    dump_index = matching_dumps[0][0]
+    beginnings = [i for i, row in enumerate(rows) if row.get("kind") == "refresh-begin"
+                  and row.get("generation") == generation]
+    if len(beginnings) != 1 or beginnings[0] >= dump_index:
+        raise ValueError("dump has no unique preceding refresh")
+    paints = [(i, row) for i, row in enumerate(rows) if row.get("kind") == "raster-paint"
+              and row.get("generation") == generation and i > dump_index]
+    if not paints:
+        raise ValueError("dump has no subsequent matching paint")
+    paint_index, paint = paints[-1]
+    if paint.get("native_completed") is not True:
+        raise ValueError("paint is not a native completed raster")
+    for key in ("generation", "document", "page", "width", "height", "source_index"):
+        if type(paint.get(key)) is not int or paint[key] != metadata[key]:
+            raise ValueError("dump and paint metadata differ")
+    for row in rows[dump_index+1:]:
+        if row.get("kind") == "refresh-begin" and row.get("generation") != generation:
+            raise ValueError("another refresh invalidated the captured paint")
+    geometries = [row for row in rows[:paint_index+1] if row.get("kind") == "geometry"]
+    if not geometries:
+        raise ValueError("paint has no toolkit geometry")
+    geometry = geometries[-1]
+    for row, keys in ((paint, ("origin_x", "origin_y", "fixed_x_logical", "fixed_y_logical", "bounds_x_logical", "bounds_y_logical",
+                              "bounds_width_logical", "bounds_height_logical")),
+                      (geometry, ("scale", "content_width_logical", "content_height_logical"))):
+        for key in keys:
+            if type(row.get(key)) not in (int, float) or not math.isfinite(row[key]):
+                raise ValueError("nonfinite or missing capture geometry")
+    scale = geometry["scale"]
+    if scale <= 0:
+        raise ValueError("nonpositive toolkit scale")
+    origin = metadata.get("origin")
+    if not isinstance(origin, list) or len(origin) != 2:
+        raise ValueError("capture origin is missing")
+    roi = metadata.get("roi")
+    if not isinstance(roi, list) or len(roi) != 4 or any(type(v) is not int for v in roi):
+        raise ValueError("invalid raster ROI")
+    x, y, width, height = roi
+    if min(x, y, width, height) <= 0 or x+width >= metadata["width"] or y+height >= metadata["height"]:
+        raise ValueError("ROI is not strictly inside raster")
+    for axis, dimension, offset, extent in (("x", "width", x, width), ("y", "height", y, height)):
+        at = 0 if axis == "x" else 1
+        if paint[f"origin_{axis}"] != origin[at]:
+            raise ValueError("capture and painted origin differ")
+        if paint.get(f"extent_{dimension}") != metadata[dimension]:
+            raise ValueError("paint scales the completed source")
+        if abs(paint[f"bounds_{dimension}_logical"] * scale - metadata[dimension]) > 0.01:
+            raise ValueError("actual widget extent differs from native raster")
+        if abs(paint[f"bounds_{axis}_logical"] * scale - origin[at]) > 0.01:
+            raise ValueError("actual widget origin differs from source placement")
+        begin = paint[f"fixed_{axis}_logical"] + paint[f"bounds_{axis}_logical"] + offset / scale
+        end = begin + extent / scale
+        if begin < 0 or end > geometry[f"content_{dimension}_logical"]:
+            raise ValueError("ROI is clipped by content viewport")
+    return paint, geometry
+
+
 def self_test():
     import unittest
 
@@ -335,9 +413,42 @@ def self_test():
             for tail in (row("wheel-outcome"), row("wheel-branch", branch="delegate") + row("wheel-entry")):
                 with self.assertRaises(ValueError): wheel(self.old+tail, self.mark, "s1")
 
+        def test_settled_capture_requires_matching_source_and_paint(self):
+            import copy
+            check = settled_capture
+            meta=dict(id=1,generation=5,document=2,page=19,width=100,height=120,source_index=0,
+                      origin=[10,20],roi=[25,30,50,60],format='RGBA8-straight')
+            rows=[dict(kind='refresh-begin',generation=5),dict(kind='raster-dump',capture_id=1,generation=5),
+                  dict(kind='geometry',scale=2,content_width_logical=100,content_height_logical=100),
+                  dict(kind='raster-paint',generation=5,document=2,page=19,width=100,height=120,
+                       native_completed=True,source_index=0,origin_x=10,origin_y=20,extent_width=100,extent_height=120,
+                       fixed_x_logical=0,fixed_y_logical=0,bounds_x_logical=5,bounds_y_logical=10,
+                       bounds_width_logical=50,bounds_height_logical=60)]
+            check(rows,meta,19)
+            cases=[]
+            def change_row(index,key,value):
+                value_rows=copy.deepcopy(rows);value_rows[index][key]=value
+                return value_rows,copy.deepcopy(meta)
+            cases += [change_row(3,'native_completed',False),change_row(3,'source_index',1),
+                      change_row(3,'document',3),change_row(3,'generation',6),
+                      change_row(3,'bounds_width_logical',49),change_row(3,'origin_x',float('nan')),
+                      change_row(3,'fixed_x_logical',200),change_row(2,'scale',0),
+                      change_row(3,'bounds_x_logical',6),change_row(3,'extent_width',99)]
+            cases += [(rows+[dict(kind='refresh-begin',generation=6)],meta),(rows[:3],meta),
+                      (rows+[rows[1]],meta)]
+            for key,value in [('roi',[0,30,50,60]),('page',20),('width',False),('format','RGB'),('source_index',None)]:
+                altered=copy.deepcopy(meta);altered[key]=value;cases.append((rows,altered))
+            cases += [(rows[1:],meta),(rows+[rows[0]],meta)]
+            for key,value in [("id",17),("generation",0)]:
+                altered=copy.deepcopy(meta);altered[key]=value;cases.append((rows,altered))
+            for index,(altered_rows,altered_meta) in enumerate(cases):
+                try: check(altered_rows,altered_meta,19)
+                except ValueError: pass
+                else: raise AssertionError(f'negative {index} was accepted')
+
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(Tests)
-    if suite.countTestCases() != 9:
-        raise RuntimeError("zoom receipt calibration requires all nine tests")
+    if suite.countTestCases() != 10:
+        raise RuntimeError("zoom receipt calibration requires all ten tests")
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     if result.wasSuccessful():
         print("zoom records: every case holds")

@@ -33,9 +33,12 @@ def main():
     args.add_argument("--parser", type=Path, required=True)
     args.add_argument("--headless", action="store_true", help="owned Xvfb rehearsal; software graphics permitted")
     args.add_argument("--page", type=int, default=20)
+    args.add_argument("--settled-capture", action="store_true", help="GTK whole-page source/presentation observations; no timing verdict")
     config = args.parse_args()
     if config.page < 1:
         args.error("--page must be positive")
+    if config.settled_capture and config.host != "gtk":
+        args.error("--settled-capture currently requires GTK")
     probe = load_parser(config.parser)
     config.output.mkdir(parents=True, exist_ok=False)
     log = config.output / "viewer.log"
@@ -46,6 +49,10 @@ def main():
     environment.update(PDFVIEWER_ZOOM_PROBE="1", GDK_BACKEND="x11", QT_QPA_PLATFORM="xcb")
     if config.headless:
         environment.update(QT_XCB_NO_XI2="1", GSK_RENDERER="cairo", LIBGL_ALWAYS_SOFTWARE="1")
+    if config.settled_capture:
+        capture_dir = config.output / "pixels"
+        capture_dir.mkdir()
+        environment["PDFVIEWER_ZOOM_CAPTURE_DIR"] = str(capture_dir.resolve())
     command = [str(config.binary.resolve()), "--trace=launch,frames,events", f"{config.pdf.resolve()}#page={config.page}&zoom=100"]
     if config.headless:
         command.insert(1, "--cpu")
@@ -98,18 +105,18 @@ def main():
                               max((r.get("sequence", 0) for r in rows), default=0),
                               max((r.get("us", 0) for r in rows), default=0))
 
-    def focus():
+    def focus(call=run):
         if config.headless:
-            run("xdotool", "windowfocus", "--sync", window)
+            call("xdotool", "windowfocus", "--sync", window)
         else:
-            run("xdotool", "windowactivate", "--sync", window)
-            if run("xdotool", "getactivewindow") != window:
+            call("xdotool", "windowactivate", "--sync", window)
+            if call("xdotool", "getactivewindow") != window:
                 raise RuntimeError("owned window is not active")
         # X input focus may be a child; permit it only when ancestry reaches our window.
-        focused = run("xdotool", "getwindowfocus")
+        focused = call("xdotool", "getwindowfocus")
         if focused != window:
             for _ in range(16):
-                tree = run("xwininfo", "-id", focused, "-tree")
+                tree = call("xwininfo", "-id", focused, "-tree")
                 parent = re.search(r"Parent window id:\s*(0x[0-9a-fA-F]+)", tree)
                 if parent is None:
                     raise RuntimeError("cannot establish focused window ancestry")
@@ -140,6 +147,132 @@ def main():
                 problem = str(error)
                 time.sleep(0.05)
         raise RuntimeError(f"{label}: {problem}")
+
+    def capture_sequence():
+        import hashlib
+        capture_dir = config.output / "pixels"
+        report["captures"] = []
+        next_id = 0
+
+        def fresh_native(mark, previous=None):
+            deadline = time.monotonic()+12
+            problem = "no completed page paint"
+            while time.monotonic() < deadline:
+                try:
+                    rows = probe.records(read(), mark, session)
+                    paints = [r for r in rows if r.get("kind") == "raster-paint"]
+                    if not paints:
+                        raise ValueError("no fresh raster paint")
+                    paint = paints[-1]
+                    size = (paint.get("width"), paint.get("height"))
+                    if paint.get("native_completed") is not True or paint.get("page") != config.page-1:
+                        raise ValueError("paint is not the requested completed page")
+                    if previous is not None and size == previous:
+                        raise ValueError("zoom has not changed raster dimensions")
+                    if any(r.get("kind") == "refresh-begin" and r.get("generation", 0) > paint["generation"] for r in rows):
+                        raise ValueError("newer refresh has not painted")
+                    return paint
+                except ValueError as error:
+                    problem = str(error)
+                    time.sleep(0.05)
+            raise RuntimeError(problem)
+
+        def checkpoint(label, expected):
+            nonlocal next_id
+            problems = []
+            for attempt in range(3):
+                next_id += 1
+                focus()
+                mark = boundary()
+                request = capture_dir / "request"
+                if request.exists():
+                    raise RuntimeError("prior capture request was not consumed")
+                temporary = capture_dir / f"request-{next_id}.tmp"
+                temporary.write_text(str(next_id)+"\n")
+                temporary.rename(request)
+                # A real pointer event requests an ordinary refresh after the settled paint.
+                # It is outside the body ROI and excluded from all latency measurements.
+                point = (round((x+8+next_id)*seed_x), round((y+8+next_id)*seed_y))
+                run("xdotool", "mousemove", "--window", window, str(point[0]), str(point[1]))
+                deadline = time.monotonic()+6
+                metadata_path = capture_dir / f"capture-{next_id}.json"
+                problem = "no dump and matching paint"
+                while time.monotonic() < deadline:
+                    try:
+                        if not metadata_path.exists():
+                            raise ValueError("dump metadata not ready")
+                        metadata = json.loads(metadata_path.read_text())
+                        rows = probe.records(read(), mark, session)
+                        paint, capture_geometry = probe.settled_capture(rows, metadata, config.page-1)
+                        for key in ("document", "page", "width", "height", "origin_x", "origin_y"):
+                            if paint.get(key) != expected.get(key):
+                                raise ValueError("settled phase changed before requested capture")
+                        focus()
+                        image_path = config.output / f"{label}-{next_id}.xwd"
+                        run("xwd", "-id", window, "-silent", "-out", str(image_path))
+                        # Prove no intervening refresh invalidated the source/paint join during capture.
+                        probe.settled_capture(probe.records(read(), mark, session), metadata, config.page-1)
+                        png_path = image_path.with_suffix(".png")
+                        run("magick", "xwd:"+str(image_path), str(png_path))
+                        dimensions = run("magick", "identify", "-format", "%w %h", str(png_path))
+                        raw_path = capture_dir / f"capture-{next_id}.rgba"
+                        raw = raw_path.read_bytes()
+                        if len(raw) != metadata["width"]*metadata["height"]*4:
+                            raise RuntimeError("raw source byte count differs from metadata")
+                        report["captures"].append(dict(label=label, id=next_id, metadata=metadata,
+                            paint=paint, geometry=capture_geometry, native_geometry=run("xdotool", "getwindowgeometry", "--shell", window),
+                            screenshot_dimensions=dimensions, screenshot=str(png_path),
+                            source_sha256=hashlib.sha256(raw).hexdigest(),
+                            screenshot_sha256=hashlib.sha256(png_path.read_bytes()).hexdigest(),
+                            capture_boundary="X11 window/backing pixels via xwd; not compositor scanout",
+                            mapping_verdict="unjudged: independent page-edge or grid check required"))
+                        return
+                    except (ValueError, json.JSONDecodeError) as error:
+                        problem = str(error)
+                        if "invalidated" in problem or "phase changed" in problem:
+                            break
+                        time.sleep(0.05)
+                if request.exists() and request.read_text().strip() == str(next_id):
+                    request.unlink()
+                problems.append(dict(id=next_id, problem=problem))
+                report.setdefault("rejected_capture_attempts", []).append(problems[-1])
+            raise RuntimeError(f"{label}: no accepted capture in three attempts: {problems}")
+
+        # Use the existing user-facing layout action, verified by the core trace.
+        for _ in range(6):
+            focus()
+            mark = boundary()
+            run("xdotool", "key", "l")
+            time.sleep(0.25)
+            data = read()
+            if data.startswith(mark.prefix) and b"Layout(SinglePage)" in data[len(mark.prefix):]:
+                break
+        else:
+            raise RuntimeError("could not verify SinglePage layout")
+        focus()
+        mark = boundary()
+        run("xdotool", "key", "0")
+        initial = fresh_native(mark)
+        checkpoint("fit", initial)
+        previous = initial
+        for index in range(2):
+            focus()
+            mark = boundary()
+            run("xdotool", "key", "minus")
+            painted = fresh_native(mark, (previous["width"], previous["height"]))
+            if painted["width"] >= previous["width"] or painted["height"] >= previous["height"]:
+                raise RuntimeError("zoom-out did not reduce both raster dimensions")
+            checkpoint(f"zoom-out-{index+1}", painted)
+            previous = painted
+        focus()
+        mark = boundary()
+        run("xdotool", "key", "0")
+        restored = fresh_native(mark, (previous["width"], previous["height"]))
+        if (restored["width"], restored["height"]) != (initial["width"], initial["height"]):
+            raise RuntimeError("return to fit did not restore initial raster dimensions")
+        checkpoint("fit-return", restored)
+        report["verdict"] = "settled-source-and-X11-captures-observed"
+        report["limits"] = "No latency or native-wheel claim; screenshot mapping and blur localization require independent image analysis; X11 capture does not observe later compositor scaling."
 
     try:
         with log.open("wb") as output:
@@ -211,6 +344,9 @@ def main():
                 raise RuntimeError("third point does not validate stimulus mapping")
         report["stimulus_to_core"] = transform
         report["logical_to_core"] = probe.logical_to_core_mapping(first, second)
+        if config.settled_capture:
+            capture_sequence()
+            return
         focus()
         mark = boundary()
         control_down = True
@@ -255,12 +391,43 @@ def main():
             except (OSError, subprocess.TimeoutExpired) as error:
                 report["modifier_cleanup_error"] = str(error)
         if process is not None and process.poll() is None:
-            process.terminate()
+            cleanup_deadline = time.monotonic()+12
+
+            def cleanup_call(*arguments):
+                remaining = cleanup_deadline-time.monotonic()
+                if remaining <= 0:
+                    raise RuntimeError("owned-window cleanup deadline")
+                return subprocess.run(arguments, check=True, capture_output=True, text=True,
+                                      timeout=min(2, remaining)).stdout.strip()
+
             try:
+                if window is None:
+                    raise RuntimeError("no identified owned window for Escape")
+                def verify_owner():
+                    owner = cleanup_call("xprop", "-id", window, "_NET_WM_PID")
+                    if not re.search(rf"=\s*{process.pid}\s*$", owner):
+                        raise RuntimeError("cleanup window PID differs")
+                verify_owner()
+                focus(cleanup_call)
+                verify_owner()
+                # Target our verified window explicitly, even if focus changes after the check.
+                cleanup_call("xdotool", "key", "--window", window, "Escape")
+                report["cleanup_escape"] = "sent to verified owned window"
                 process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=3)
+            except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+                report["cleanup_escape_fallback"] = str(error)
+            if process.poll() is None:
+                report["cleanup_termination"] = "TERM fallback"
+                try:
+                    process.terminate()
+                except ProcessLookupError:
+                    pass
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    report["cleanup_termination"] = "KILL after TERM deadline"
+                    process.kill()
+                    process.wait(timeout=3)
         report["elapsed_seconds"] = time.monotonic()-started
         (config.output/"receipt.json").write_text(json.dumps(report, indent=2)+"\n")
 

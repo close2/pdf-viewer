@@ -170,11 +170,13 @@ impl Host {
     /// viewer's state rather than of the order events arrived in.
     pub(super) fn refresh(&mut self) {
         let began = std::time::Instant::now();
+        let generation = self.ui.probe.begin_refresh();
         let Pictures {
             placements,
             held,
             glimpsed,
-        } = self.placements();
+            observation,
+        } = self.placements(generation);
         if !placements.is_empty() {
             // Tier 1's whole cost, in the one place it is paid: `doc/ui-boundary.md` prices the
             // tier at "one copy per frame" and this is that copy, timed rather than assumed
@@ -206,6 +208,7 @@ impl Host {
                 spare.set_visible(false);
             }
             self.ui.fixed.set_visible(true);
+            self.ui.probe.applied(observation);
             if let Some((page, fraction)) = glimpsed {
                 self.state.trace.say(
                     Topic::Frames,

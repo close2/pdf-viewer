@@ -56,6 +56,7 @@ use viewer_host::trace::{Topic, Trace};
 
 mod archiving;
 mod drawing;
+mod observation;
 pub use drawing::device_lane;
 mod find;
 mod forms;
@@ -210,6 +211,8 @@ enum Panel {
 /// The widgets, held so that the loop can put things in them.
 #[derive(Debug)]
 struct Ui {
+    /// Opt-in refresh-to-paint observation, shared with existing input diagnostics.
+    probe: Rc<window::ZoomProbe>,
     /// The toplevel.
     window: gtk4::ApplicationWindow,
     /// The page and the form controls.

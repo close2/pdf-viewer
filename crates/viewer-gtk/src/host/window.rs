@@ -485,6 +485,7 @@ pub(super) fn build_window(
     GtkWindowExt::set_focus(&window, Some(&overlay));
 
     Ui {
+        probe,
         window,
         fixed,
         popups,
@@ -766,6 +767,7 @@ fn watch_zoom_paints(fixed: &gtk4::Fixed, probe: &Rc<ZoomProbe>) {
                 clock.connect_after_paint(move |clock| {
                     if let Some(widget) = weak.upgrade() {
                         probe.geometry(&widget);
+                        probe.painted(&widget, clock.frame_counter());
                         zoom_probe(format_args!(
                             "fixed allocation logical={}x{} scale={}",
                             widget.width(),
@@ -809,10 +811,12 @@ fn watch_zoom_paints(fixed: &gtk4::Fixed, probe: &Rc<ZoomProbe>) {
 }
 
 /// Probe-only identities and counters, never a second authority for viewport geometry.
+#[derive(Debug)]
 pub(super) struct ZoomProbe {
     window: u64,
     sequence: Cell<u64>,
     geometry_sequence: Cell<u64>,
+    observation: super::observation::State,
 }
 
 impl ZoomProbe {
@@ -826,7 +830,89 @@ impl ZoomProbe {
             },
             sequence: Cell::new(0),
             geometry_sequence: Cell::new(0),
+            observation: super::observation::State::default(),
         })
+    }
+
+    pub(super) fn begin_refresh(&self) -> u64 {
+        if self.window == 0 {
+            return 0;
+        }
+        let generation = self.observation.begin();
+        self.record("refresh-begin", format_args!("\"generation\":{generation}"));
+        generation
+    }
+
+    pub(super) fn applied(&self, snapshot: Option<super::observation::Snapshot>) {
+        if self.window != 0 {
+            self.observation.applied(snapshot);
+        }
+    }
+
+    pub(super) fn capture(
+        &self,
+        generation: u64,
+        document: u64,
+        observation: &super::observation::Observation,
+        raster: &pdf_render::Raster,
+    ) {
+        if self.window == 0 {
+            return;
+        }
+        if let Some(directory) = self.observation.directory() {
+            match super::observation::dump(directory, generation, document, observation, raster) {
+                Ok(Some(id)) => self.record(
+                    "raster-dump",
+                    format_args!("\"generation\":{generation},\"capture_id\":{id}"),
+                ),
+                Ok(None) => {}
+                Err(error) => {
+                    self.observation.disable_capture();
+                    zoom_probe(format_args!("raster dump failed: {error}"));
+                }
+            }
+        }
+    }
+
+    fn painted(&self, fixed: &gtk4::Fixed, frame: i64) {
+        let snapshot = self.observation.snapshot();
+        let Some(snapshot) = snapshot.as_ref() else {
+            return;
+        };
+        let Some(observation) = snapshot.placements.first() else {
+            return;
+        };
+        if !fixed.is_visible() {
+            return;
+        }
+        let mut visible = Vec::new();
+        let mut child = fixed.first_child();
+        while let Some(slot) = child {
+            child = slot.next_sibling();
+            if slot.is::<gtk4::Picture>() && slot.is_visible() {
+                visible.push(slot);
+            }
+        }
+        if visible.len() != 1 {
+            return;
+        }
+        let Some(bounds) = visible.first().and_then(|slot| slot.compute_bounds(fixed)) else {
+            return;
+        };
+        let Some(content) = fixed.parent() else {
+            return;
+        };
+        let Some(fixed_bounds) = fixed.compute_bounds(&content) else {
+            return;
+        };
+        let source_index = observation
+            .source_index
+            .map_or_else(|| "null".to_owned(), |index| index.to_string());
+        self.record("raster-paint", format_args!(
+            "\"generation\":{},\"document\":{},\"page\":{},\"source_index\":{source_index},\"native_completed\":{},\"width\":{},\"height\":{},\"origin_x\":{},\"origin_y\":{},\"extent_width\":{},\"extent_height\":{},\"fixed_x_logical\":{},\"fixed_y_logical\":{},\"bounds_x_logical\":{},\"bounds_y_logical\":{},\"bounds_width_logical\":{},\"bounds_height_logical\":{},\"frame\":{frame}",
+            snapshot.generation, snapshot.document, observation.page, observation.native_completed,
+            observation.width, observation.height, observation.origin.0, observation.origin.1,
+            observation.extent.0, observation.extent.1, fixed_bounds.x(), fixed_bounds.y(), bounds.x(), bounds.y(), bounds.width(), bounds.height()));
     }
 
     pub(super) fn next(&self) -> u64 {
