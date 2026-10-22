@@ -627,6 +627,15 @@ ISO 19005-2 6.2.4.3, ISO 19005-4 6.2.4.3 · all six · today **built**: the outp
   `DeviceN` alternate — take the same entry where the survey finds the space drawn in `DeviceRGB`:
   ISO 32000-2 §11.6.6's Table 145 remaps a group's device space through the current resources'
   defaults.
+- **Part 4 page overrides** (ADR 2230) — the same writer can also run beside the
+  actually prepared, byte-identical shipped sRGB profile when a non-RGB page intent
+  overrides it. Admission proves every affected resource context: literal device-colour
+  paths and Forms only, no Form groups, with absent or neutral kTRC Gray page groups
+  and no A2B tables. Existing defaults must be the exact shipped profile. Unsupported,
+  incomplete or over-budget graphs retain refusal. The named veraPDF
+  `6-2-4-3-t04-fail-n` has no catalog intent, a CMYK page intent and a Gray group;
+  its complete output raster is identical. Producer/supplied RGB profiles and general
+  independent colour targets are not admitted by this proof.
 - **The mirror, `supply`** — `DeviceCMYK` beside an RGB profile, under part 4 and for a group
   under part 2: a `DeviceN` default cannot be a blending space (Table 145), and an ICC
   `DefaultCMYK` over the shipped press profile would state a press this reader does not draw

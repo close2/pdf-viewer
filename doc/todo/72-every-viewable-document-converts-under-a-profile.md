@@ -187,10 +187,12 @@ groups, in the order a slot should take them:
    and takes only the incomplete descriptions where the container is one bag holding complete
    ones beside them — ADR 2131.)
    `annotations/subtype-defined-in-iso-32000-1`
-   under `as-shown`, whose `preserve` "by keeping" is section 3's owed item. A part 4 `DeviceRGB`
-   inside a group blending in a CMYK or grey `ICCBased` space beside an RGB intent
-   (`6-2-4-3-t04-fail-n`): the `/DefaultRGB` of ADR 2114 would answer it and is prepared only
-   beside a non-RGB profile.
+   under `as-shown`, whose `preserve` "by keeping" is section 3's owed item. The named part 4
+   `6-2-4-3-t04-fail-n` case is **built** (ADR 2230): it has no catalog intent, a CMYK
+   page intent and a neutral Gray page group. A closed all-context proof permits the
+   existing `/DefaultRGB` writer beside the actually prepared shipped sRGB profile.
+   Other independent targets, arbitrary consumers and producer/supplied RGB profiles
+   remain outside that proof; this is not a general page-intent remedy.
 2. **Converter defects, owed a fix and a test.** None is open. (`6-6-1-t01-fail-m`'s `Trans`
    action in a widget's `/AA` was the last: the edit was tagged with the `/AA` rule nobody failed,
    so the rewriter skipped it, and it is now the type rule's. A PostScript XObject the page invokes
@@ -202,8 +204,8 @@ groups, in the order a slot should take them:
    `--output-intent-profile` with the press's CMYK profile answers every one, as an `ICCBased`
    `/DefaultCMYK` beside the file's own intent (ADR 2130). `a_supplied_press_profile_answers_the_
    colour_family_refusals` is the census with one supplied. `DeviceRGB` inside a group blending in
-   a CMYK or grey `ICCBased` space beside an RGB intent (`6-2-4-3-t04-fail-n`) is not this item's
-   but item 1's.
+   a CMYK or grey `ICCBased` space remains item 1's context-proof obligation, except
+   the narrow page-intent case already handled there.
 4. **Refusals the standard forces.** The content-stream fence (ADR 0816): a `.notdef` glyph or a
    code the embedded program lacks, an undefined operator, an inline image's filter or intent, a
    hexadecimal string's digits, a content stream naming resources it has no dictionary for, an

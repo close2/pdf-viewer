@@ -122,7 +122,7 @@ fn fixture_with_default(content: &str, default_gray: &str) -> Vec<u8> {
 fn fixture_with_supplements(
     content: &str,
     default_gray: &str,
-    extra_xobjects: &str,
+    xobject_entries: &str,
     extra_objects: &[String],
 ) -> Vec<u8> {
     let a = three_table_profile();
@@ -136,10 +136,10 @@ fn fixture_with_supplements(
         &format!("/ColorSpace << {default_gray}"),
         1,
     );
-    let resources = if extra_xobjects.is_empty() {
+    let resources = if xobject_entries.is_empty() {
         resources
     } else {
-        resources.replacen("/XObject <<", &format!("/XObject << {extra_xobjects}"), 1)
+        resources.replacen("/XObject <<", &format!("/XObject << {xobject_entries}"), 1)
     };
     let font = include_bytes!("../../../data/standard-fonts/LiberationSans-Regular.ttf");
     let mut objects = vec![
