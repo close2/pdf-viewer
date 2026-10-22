@@ -188,3 +188,82 @@ pub(super) fn prepare_reference_xobjects(
     }
     Ok(ReferenceXObjects { at, proxied })
 }
+
+/// What a per-object flag policy preserves, and what its separately authorised removal loses.
+pub(super) const BY_SHAPE: &str = "each annotation is answered by its flag shape: preserved \
+    annotations stay on their pages with conforming flags; discarded annotations leave the page. Linked popup/parent structures are refused. The report names each original flag value and each kept value";
+
+/// Splits the one validated population without granting a site-wide loss.
+/// Ambiguous flag shapes and widget removal remain a refusal, never a guessed screen state.
+pub(super) fn partition_flags(
+    document: &Document,
+    answers: super::config::AnnotationFlagAnswers,
+    rows: Vec<RemovedAnnotation>,
+) -> Result<super::prepare::HiddenAnnotations, Because> {
+    use super::config::Kind;
+    const STOP: &str = "the annotation flag shape is stopped or outside the configured Hidden/NoView \
+        and visible-nonprinting shapes; Invisible, ToggleNoView and malformed flags need their own answer";
+    const WIDGET: &str = "removing a hidden widget could leave its field structure inconsistent; \
+        the per-shape flag remedy does not remove form fields";
+    let mut at = BTreeSet::new();
+    let mut removed = Vec::new();
+    let mut kept = Vec::new();
+    for row in rows {
+        let answer = row.flags.and_then(|flags| answers.for_flags(flags));
+        match answer {
+            Some(Kind::Preserve) => kept.push(row),
+            Some(Kind::Discard) => {
+                if row.subtype == "Widget" {
+                    return Err(Because::NotBuiltYet(WIDGET));
+                }
+                at.insert(row.at);
+                if let Some(dict) = document.get(row.at).as_dict()
+                    && (dict.get("Popup").is_some() || dict.get("Parent").is_some())
+                {
+                    return Err(Because::NotBuiltYet(
+                        "the discarded annotation has a popup or parent relationship; the flag-shape plan does not remove linked annotation structures",
+                    ));
+                }
+                removed.push(row);
+            }
+            _ => return Err(Because::NotBuiltYet(STOP)),
+        }
+    }
+    if kept.iter().any(|row| at.contains(&row.at)) {
+        return Err(Because::NotBuiltYet(
+            "a removed popup is also an annotation the flag plan keeps",
+        ));
+    }
+    Ok(super::prepare::HiddenAnnotations {
+        at,
+        removed,
+        kept: Some(kept),
+    })
+}
+
+/// Missing flags have Table 166's default zero; an unreadable value has no proven screen state.
+pub(super) fn validate_flag_types(document: &Document) -> Result<(), Because> {
+    let refused = Because::NotBuiltYet(
+        "the flag-shape plan cannot infer the screen state of malformed annotation flags",
+    );
+    for page in pdf_model::Pages::new(document).every() {
+        let page = page.ok_or(refused)?;
+        let annotations = document.get_key(&page.dict, "Annots");
+        let Some(annotations) = annotations.as_array() else {
+            continue;
+        };
+        for annotation in annotations {
+            let annotation = document.resolve(annotation);
+            let Some(dict) = annotation.as_dict() else {
+                continue;
+            };
+            if !matches!(
+                document.get_key(dict, "F"),
+                Object::Null | Object::Integer(_)
+            ) {
+                return Err(refused);
+            }
+        }
+    }
+    Ok(())
+}

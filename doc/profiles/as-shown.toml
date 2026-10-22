@@ -20,8 +20,8 @@
 #
 # The site where the two genuinely need a per-annotation answer is
 # annotations/printable-and-visible: one remedy covers both a hidden annotation (discarding it is
-# inside this bound) and a visible, non-printing one (discarding it is not). The split is not
-# built, so this profile stops there rather than lose a mark the window showed (doc/todo/72).
+# inside this bound) and a visible, non-printing one (discarding it is not). The two explicit
+# flag shapes below preserve that distinction; other flag combinations remain stopped.
 
 [profile]
 name = "as-shown"
@@ -77,9 +77,15 @@ keep-attachment = true     # the annotation goes and its file stays in the name 
 
 [site."annotations/printable-and-visible"]
 remedy = "stop"
+
+[site."annotations/printable-and-visible".shape."hidden-at-rest"]
+remedy = "discard"
+
+[site."annotations/printable-and-visible".shape."visible-nonprinting"]
+remedy = "preserve"
 # Where the two profiles part. A visible annotation that does not print was shown; one that is
-# hidden or NoView was not. One answer cannot keep the first and remove the second, so this
-# profile stops until the per-annotation split exists (doc/todo/72).
+# hidden or NoView was not. Explicit shapes keep or remove each independently; combinations
+# involving Invisible or ToggleNoView remain stopped, as do unsupported removal structures.
 
 [site."annotations/flags-entry-present"]
 remedy = "preserve"

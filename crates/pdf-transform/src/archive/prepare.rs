@@ -1160,9 +1160,11 @@ impl Prepared {
         });
         // The three section 6.3.2 and 6.3.3 losses, each over the population its own requirement
         // reported, so that none of them can act on an annotation that requirement passed.
-        let hidden_annotations = asked(wanted(Rewrite::HiddenAnnotationRemoved), || {
-            prepare_hidden_annotations(document, plan.target)
-        });
+        let hidden_annotations = asked(
+            wanted(Rewrite::HiddenAnnotationRemoved)
+                || (plan.annotation_flags.is_some() && wanted(Rewrite::AnnotationFlags)),
+            || prepare_hidden_annotations(document, plan.target, plan.annotation_flags),
+        );
         // `doc/adr/1286`: the table refuses the site, so only an operator's `preserve` asks for
         // this, and the streams take object numbers from the same spare range as every addition.
         let shipped_cmaps = asked(
@@ -1595,9 +1597,9 @@ impl Prepared {
             Rewrite::ForbiddenAnnotationRemoved => {
                 self.forbidden_annotations.as_ref().err().copied()
             }
-            Rewrite::HiddenAnnotationRemoved | Rewrite::HiddenAnnotationShown => {
-                self.hidden_annotations.as_ref().err().copied()
-            }
+            Rewrite::HiddenAnnotationRemoved
+            | Rewrite::HiddenAnnotationShown
+            | Rewrite::AnnotationFlagsByShape => self.hidden_annotations.as_ref().err().copied(),
             Rewrite::ReferenceXObjectProxied => self.reference_xobjects.as_ref().err().copied(),
             Rewrite::Jpeg2000TranscodedToFlate => self.transcodes.as_ref().err().copied(),
             Rewrite::ShippedCMapEmbedded => self.shipped_cmaps.as_ref().err().copied(),
@@ -2978,6 +2980,8 @@ fn prepare_forbidden_annotations(
 /// review comment its producer hid.
 #[derive(Debug)]
 pub(super) struct HiddenAnnotations {
+    /// The kept part of an explicitly shaped plan; absent for an unchanged site-wide policy.
+    pub(super) kept: Option<Vec<RemovedAnnotation>>,
     /// The objects to take out of their pages' `/Annots` arrays.
     ///
     /// The popup of a removed annotation is in here beside it, on
@@ -3000,7 +3004,11 @@ const REMOVAL_OF_A_DIRECT_HIDDEN_ANNOTATION: &str = "an annotation whose F entry
 fn prepare_hidden_annotations(
     document: &Document,
     target: Target,
+    answers: Option<super::config::AnnotationFlagAnswers>,
 ) -> Result<HiddenAnnotations, Because> {
+    if answers.is_some() {
+        super::in_place::validate_flag_types(document)?;
+    }
     let mut at = BTreeSet::new();
     let mut removed = Vec::new();
     for hidden in pdf_archive::annotations_the_flags_forbid(document, target) {
@@ -3023,7 +3031,14 @@ fn prepare_hidden_annotations(
             flags: Some(hidden.flags),
         });
     }
-    Ok(HiddenAnnotations { at, removed })
+    if let Some(answers) = answers {
+        return super::in_place::partition_flags(document, answers, removed);
+    }
+    Ok(HiddenAnnotations {
+        at,
+        removed,
+        kept: None,
+    })
 }
 
 /// The appearance dictionaries that lose every key but `/N`.

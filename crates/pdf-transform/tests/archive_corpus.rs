@@ -383,6 +383,7 @@ fn sweep(root: &Path, part: &str, target: Target, authorised: Authorisations) ->
                 derivations: Vec::new(),
                 supplies: Vec::new(),
                 preservations: Vec::new(),
+                annotation_flags: None,
                 resolutions: Vec::new(),
                 tool_outputs: ToolOutputs::new(),
                 external_data: BTreeMap::new(),
@@ -595,6 +596,7 @@ fn convert_under(
             derivations: contribution.derivations.clone(),
             supplies: contribution.supplies.clone(),
             preservations: contribution.preservations.clone(),
+            annotation_flags: contribution.annotation_flags,
             resolutions: contribution.resolutions.clone(),
             tool_outputs: ToolOutputs::new(),
             external_data: BTreeMap::new(),
@@ -877,6 +879,7 @@ fn preserve_sweep(root: &Path, part: &str, target: Target) -> Preserved {
                 forms: FormAnswers::default(),
                 derivations: Vec::new(),
                 supplies: Vec::new(),
+                annotation_flags: None,
                 preservations: sites
                     .iter()
                     .map(|site| Preservation {
@@ -1020,6 +1023,7 @@ fn separation_sweep(root: &Path, part: &str, target: Target, winner: &str) -> Ag
                 derivations: Vec::new(),
                 supplies: config.supplies(target),
                 preservations: Vec::new(),
+                annotation_flags: None,
                 resolutions: Vec::new(),
                 tool_outputs: ToolOutputs::new(),
                 external_data: BTreeMap::new(),

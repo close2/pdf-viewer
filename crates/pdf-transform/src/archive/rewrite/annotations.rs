@@ -146,10 +146,13 @@ impl Rewriter<'_> {
         // `doc/adr/1285`: the annotation the removal would have taken stays, with the flags ISO
         // 19005-2 section 6.3.2 asks for and every other bit its producer's. The population is the
         // removal's, so an annotation the requirement passed is never touched.
-        if self.wants(Rewrite::HiddenAnnotationShown)
+        if (self.wants(Rewrite::HiddenAnnotationShown)
+            || self.wants(Rewrite::AnnotationFlagsByShape))
             && let Some(hidden) = self.hidden_annotations
             && let Some(stated) = hidden
-                .removed
+                .kept
+                .as_ref()
+                .unwrap_or(&hidden.removed)
                 .iter()
                 .find(|row| row.at == id)
                 .and_then(|row| row.flags)
@@ -158,7 +161,14 @@ impl Rewriter<'_> {
                 Name::new(&b"F"[..]),
                 Object::Integer(pdf_archive::flags_permitting(stated)),
             );
-            count(applied, Rewrite::HiddenAnnotationShown);
+            count(
+                applied,
+                if self.wants(Rewrite::AnnotationFlagsByShape) {
+                    Rewrite::AnnotationFlagsByShape
+                } else {
+                    Rewrite::HiddenAnnotationShown
+                },
+            );
             changed = true;
         }
         // `doc/adr/1286`: the operator said the program's writing mode stands, so the dictionary
@@ -205,12 +215,21 @@ impl Rewriter<'_> {
         out: &mut Dictionary,
         applied: &mut BTreeMap<Rewrite, usize>,
     ) -> bool {
-        let Some(hidden) = self
-            .hidden_annotations
-            .filter(|_| self.wants(Rewrite::HiddenAnnotationRemoved))
-        else {
+        let Some(hidden) = self.hidden_annotations.filter(|_| {
+            self.wants(Rewrite::HiddenAnnotationRemoved)
+                || self.wants(Rewrite::AnnotationFlagsByShape)
+        }) else {
             return false;
         };
-        self.take_out_of_the_page(out, applied, &hidden.at, Rewrite::HiddenAnnotationRemoved)
+        self.take_out_of_the_page(
+            out,
+            applied,
+            &hidden.at,
+            if self.wants(Rewrite::AnnotationFlagsByShape) {
+                Rewrite::AnnotationFlagsByShape
+            } else {
+                Rewrite::HiddenAnnotationRemoved
+            },
+        )
     }
 }

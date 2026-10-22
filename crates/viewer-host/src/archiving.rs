@@ -453,6 +453,7 @@ fn planned(asked: &Archiving, lines: &mut Vec<String>) -> Option<(ArchivePlan, &
         derivations: contribution.derivations,
         supplies: contribution.supplies,
         preservations: contribution.preservations,
+        annotation_flags: contribution.annotation_flags,
         resolutions: contribution.resolutions,
         tool_outputs: ToolOutputs::new(),
         external_data: BTreeMap::new(),

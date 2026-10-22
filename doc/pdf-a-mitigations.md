@@ -1614,6 +1614,14 @@ ISO 19005-2 6.3.2, ISO 19005-4 6.3.2 · all six · **the `discard` built** (ADR 
   bit of Table 167 the producer's. The word takes no other key, and the report names every
   annotation shown with the flags it had and has.
 
+- **Per-object flag shapes** (ADRs 2210–2211). `as-shown` discards `hidden-at-rest`
+  and preserves `visible-nonprinting` within one document. The first is Hidden or
+  NoView with Invisible and ToggleNoView clear; the second lacks Print with all
+  four forbidden flags clear. Shape rows accept only stop/discard/preserve with
+  on-failure stop. Typed answers survive until preparation without granting a
+  site-wide loss. Ambiguous, negative or malformed flags refuse; discarded widgets
+  and linked Popup/Parent structures are outside this bounded rewrite.
+
 - **What was built.** `--authorise hidden-annotation`, `Loss::HiddenAnnotation` and
   `Rewrite::HiddenAnnotationRemoved`: the annotation goes out of its page's `/Annots` array, its
   popup with it, by the act the subtype rows are answered with. The population is

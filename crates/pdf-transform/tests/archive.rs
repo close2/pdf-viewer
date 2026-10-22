@@ -346,6 +346,7 @@ fn convert(bytes: &[u8], target: Target, authorised: Authorisations) -> (Report,
             derivations: Vec::new(),
             supplies: Vec::new(),
             preservations: Vec::new(),
+            annotation_flags: None,
             resolutions: Vec::new(),
             tool_outputs: ToolOutputs::new(),
             external_data: std::collections::BTreeMap::new(),
@@ -2010,6 +2011,7 @@ fn a_supplied_profile_is_the_one_embedded_and_its_copyright_tag_is_reported() {
             derivations: Vec::new(),
             supplies: Vec::new(),
             preservations: Vec::new(),
+            annotation_flags: None,
             resolutions: Vec::new(),
             tool_outputs: ToolOutputs::new(),
             external_data: std::collections::BTreeMap::new(),
@@ -2483,6 +2485,7 @@ fn convert_with_profile(
             derivations: Vec::new(),
             supplies: Vec::new(),
             preservations: Vec::new(),
+            annotation_flags: None,
             resolutions: Vec::new(),
             tool_outputs: ToolOutputs::new(),
             external_data: std::collections::BTreeMap::new(),
@@ -2790,6 +2793,7 @@ fn no_substitute_turns_the_font_back_into_a_refusal_the_caller_can_take_back() {
             derivations: Vec::new(),
             supplies: Vec::new(),
             preservations: Vec::new(),
+            annotation_flags: None,
             resolutions: Vec::new(),
             tool_outputs: ToolOutputs::new(),
             external_data: std::collections::BTreeMap::new(),
@@ -5782,6 +5786,7 @@ fn convert_with_departure(
             derivations: Vec::new(),
             supplies: Vec::new(),
             preservations: Vec::new(),
+            annotation_flags: None,
             resolutions: Vec::new(),
             tool_outputs: ToolOutputs::new(),
             external_data: std::collections::BTreeMap::new(),
@@ -6426,6 +6431,7 @@ fn plan_from(text: &str, target: Target) -> ArchivePlan {
         derivations: config.derivations(target),
         supplies: config.supplies(target),
         preservations: config.preservations(target),
+        annotation_flags: config.annotation_flags,
         resolutions: config.resolutions(target),
         tool_outputs: ToolOutputs::new(),
         external_data: std::collections::BTreeMap::new(),
@@ -9299,6 +9305,7 @@ fn a_supplied_font(target: Target, base_font: &str, program: &[u8]) -> ArchivePl
         derivations: Vec::new(),
         supplies: Vec::new(),
         preservations: Vec::new(),
+        annotation_flags: None,
         resolutions: Vec::new(),
         tool_outputs: ToolOutputs::new(),
         external_data: std::collections::BTreeMap::new(),
@@ -14400,3 +14407,6 @@ fn composite_fonts_sharing_a_descriptor_refuse_incompatible_programs() {
 
 #[path = "archive/font_notices.rs"]
 mod font_notices;
+
+#[path = "archive/annotation_flags.rs"]
+mod annotation_flags;

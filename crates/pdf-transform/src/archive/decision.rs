@@ -2489,6 +2489,19 @@ pub(super) struct Shape {
 ///
 /// ADR 1211 is the argument, and what `answered` decides is in `config::applies_to`.
 pub(super) const SHAPES: &[(&str, &[Shape])] = &[
+    (
+        "annotations/printable-and-visible",
+        &[
+            Shape {
+                name: "hidden-at-rest",
+                answered: true,
+            },
+            Shape {
+                name: "visible-nonprinting",
+                answered: true,
+            },
+        ],
+    ),
     // ISO 19005-2 section 6.2.10, ISO 19005-4 section 6.2.9. §11.6.3's Table 136 entry has a
     // reader take the first mode of an array that it recognises, or `Normal` if it recognises
     // none — so an array reduces to a name every reader already used. A bare name the standard

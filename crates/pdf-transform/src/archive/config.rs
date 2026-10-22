@@ -1166,6 +1166,32 @@ pub struct Configuration {
     tools: BTreeMap<String, Tool>,
     /// The departures the file states.
     pub departures: Vec<Departure>,
+    /// Per-annotation flag answers; absent unless this site has explicit shape rows.
+    pub annotation_flags: Option<AnnotationFlagAnswers>,
+}
+
+/// The two bounded Table 167 flag shapes, answered independently within one document.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AnnotationFlagAnswers {
+    /// `Hidden` or `NoView`, with `Invisible` and `ToggleNoView` clear.
+    pub hidden: Kind,
+    /// Missing Print alone, with all four forbidden flags clear.
+    pub visible: Kind,
+}
+
+impl AnnotationFlagAnswers {
+    /// The configured answer, or no answer for a flag combination outside these shapes.
+    pub(super) fn for_flags(self, flags: i64) -> Option<Kind> {
+        if flags < 0 || flags & ((1 << 0) | (1 << 8)) != 0 {
+            None
+        } else if flags & ((1 << 1) | (1 << 5)) != 0 {
+            Some(self.hidden)
+        } else if flags & (1 << 2) == 0 {
+            Some(self.visible)
+        } else {
+            None
+        }
+    }
 }
 
 /// One `[site."…"]` table, read.
@@ -1225,6 +1251,48 @@ struct Row {
     line: usize,
 }
 
+/// Reads the bounded object qualifier without turning it into a site-wide permission.
+fn flag_shape(
+    tbl: &toml::Table,
+    row: &Row,
+    tables: &[toml::Table],
+) -> Result<Option<bool>, ConfigError> {
+    let shaped = row.site == super::in_place::PRINTABLE_AND_VISIBLE
+        && tables.iter().any(|candidate| {
+            candidate.path.get(1) == Some(&row.site)
+                && candidate.path.get(2).is_some_and(|key| key == "shape")
+        });
+    if !shaped {
+        return Ok(None);
+    }
+    if !matches!(row.remedy, Kind::Stop | Kind::Discard | Kind::Preserve)
+        || row.on_failure != Kind::Stop
+        || tbl
+            .entries
+            .iter()
+            .any(|entry| !matches!(entry.key.as_str(), "remedy" | "on-failure"))
+    {
+        return Err(ConfigError::WrongValue {
+            line: tbl.line,
+            site: row.site.clone(),
+            key: "shape".to_owned(),
+            wanted: "only remedy stop, discard or preserve, with on-failure stop",
+            found: "an unsupported flag-shape option",
+        });
+    }
+    match qualifier(tbl, &row.site)? {
+        Qualifier::Shape("hidden-at-rest") => Ok(Some(true)),
+        Qualifier::Shape("visible-nonprinting") => Ok(Some(false)),
+        Qualifier::Shape(shape) => Err(ConfigError::UnknownShapeQualifier {
+            line: tbl.line,
+            site: row.site.clone(),
+            qualifier: shape.to_owned(),
+            shapes: shape_names(&row.site),
+        }),
+        _ => Ok(None),
+    }
+}
+
 impl Configuration {
     /// Reads and validates a configuration against the target it will be used for.
     ///
@@ -1243,6 +1311,7 @@ impl Configuration {
         let mut sentence = None;
         let mut sites: Vec<Row> = Vec::new();
         let mut applicable: Vec<(bool, Row)> = Vec::new();
+        let mut flag_shapes = Vec::new();
         let mut seen_sites: BTreeSet<String> = BTreeSet::new();
         let mut departures = Vec::new();
         let mut tools: BTreeMap<String, Tool> = BTreeMap::new();
@@ -1286,7 +1355,9 @@ impl Configuration {
                     // unqualified row first and the qualified one under it means the same thing
                     // as one written the other way round, and a first-past-the-post reader made
                     // the second row dead text.
-                    if applies_to(tbl, target) {
+                    if let Some(hidden) = flag_shape(tbl, &row, &tables)? {
+                        flag_shapes.push((hidden, row));
+                    } else if applies_to(tbl, target) {
                         applicable.push((
                             !matches!(qualifier(tbl, &row.site), Ok(Qualifier::None)),
                             row,
@@ -1315,12 +1386,31 @@ impl Configuration {
             }
         }
         check_rows(&sites, &tools, target)?;
+        let annotation_flags = (!flag_shapes.is_empty()).then(|| {
+            let fallback = sites
+                .iter()
+                .find(|row| row.site == super::in_place::PRINTABLE_AND_VISIBLE)
+                .map_or(Kind::Stop, |row| row.remedy);
+            let mut answers = AnnotationFlagAnswers {
+                hidden: fallback,
+                visible: fallback,
+            };
+            for (hidden, row) in flag_shapes {
+                if hidden {
+                    answers.hidden = row.remedy;
+                } else {
+                    answers.visible = row.remedy;
+                }
+            }
+            answers
+        });
         Ok(Self {
             name,
             sentence,
             sites,
             tools,
             departures,
+            annotation_flags,
         })
     }
 

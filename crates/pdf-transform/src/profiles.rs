@@ -111,6 +111,8 @@ pub struct Contribution {
     pub supplies: Vec<Supply>,
     /// The `preserve` remedies it names that append pages.
     pub preservations: Vec<Preservation>,
+    /// Per-object annotation flag answers, where the profile names shape rows.
+    pub annotation_flags: Option<crate::archive::AnnotationFlagAnswers>,
     /// The `preserve` remedies it names that fetch what a stream keeps outside the file.
     pub resolutions: Vec<Resolution>,
     /// The sites it answers with a remedy this version does not carry out yet.
@@ -136,6 +138,7 @@ impl Contribution {
             derivations: config.derivations(target),
             supplies: config.supplies(target),
             preservations: config.preservations(target),
+            annotation_flags: config.annotation_flags,
             resolutions: config.resolutions(target),
             unbuilt: config.unbuilt(target),
             tools: config.tools().cloned().collect(),

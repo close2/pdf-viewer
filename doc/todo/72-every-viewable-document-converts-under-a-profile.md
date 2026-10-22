@@ -143,9 +143,12 @@ as it is). The site,
 `annotations/flags-entry-present`, asks for `--authorise annotation-printing`; the three keeping
 profiles answer it with `preserve` (ADR 1942).
 
-- **`as-shown`'s `printable-and-visible` split.** One answer covers a hidden annotation (removing
-  it is inside the bound) and a visible, non-printing one (it is not); a `shape` per Table 167 bit
-  lets the profile keep the second and remove the first. Until then the profile stops there.
+- **`as-shown`'s `printable-and-visible` split is built** (ADRs 2210–2211).
+  `hidden-at-rest` discards Hidden/NoView with Invisible/ToggleNoView clear;
+  `visible-nonprinting` preserves missing Print with forbidden flags clear.
+  Mixed objects retain separate report decisions. Negative/malformed flags,
+  Invisible/ToggleNoView, discarded widgets and linked Popup/Parent structures
+  remain refused. Missing F keeps the independent flags-entry-present policy.
 - **"As close as possible" at the forbidden subtypes.** `as-if-printed` discards them; the owner's
   rule prefers `preserve` (ADR 1123) with `discard` as the one `on-failure` alternative.
 - **A font this machine draws from a face of its own** (ADR 0270), the reading (ADR 2162). The file

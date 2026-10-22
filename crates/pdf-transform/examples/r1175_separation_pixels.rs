@@ -45,6 +45,7 @@ fn convert(bytes: &[u8], target: Target, winner: &str) -> Option<Vec<u8>> {
             derivations: Vec::new(),
             supplies: config.supplies(target),
             preservations: Vec::new(),
+            annotation_flags: None,
             resolutions: Vec::new(),
             tool_outputs: ToolOutputs::new(),
             external_data: std::collections::BTreeMap::new(),

@@ -957,6 +957,7 @@ fn archive_plan(
         derivations: read.derivations,
         supplies: read.supplies,
         preservations: read.preservations,
+        annotation_flags: read.annotation_flags,
         resolutions: read.resolutions,
         tool_outputs: pdf_transform::tool::ToolOutputs::new(),
         // Empty until a pass says which streams keep their data outside the file; `run` resolves
@@ -979,6 +980,8 @@ struct FromConfig {
     supplies: Vec<pdf_transform::archive::Supply>,
     /// The `preserve` remedies it names that append pages.
     preservations: Vec<pdf_transform::archive::Preservation>,
+    /// Independent answers to bounded annotation flag shapes.
+    annotation_flags: Option<pdf_transform::archive::AnnotationFlagAnswers>,
     /// The `preserve` remedies it names that fetch what a stream keeps outside the file.
     resolutions: Vec<pdf_transform::archive::Resolution>,
 }
@@ -1058,6 +1061,7 @@ fn read_config(
             derivations: Vec::new(),
             supplies: Vec::new(),
             preservations: Vec::new(),
+            annotation_flags: None,
             resolutions: Vec::new(),
         });
     };
@@ -1115,6 +1119,7 @@ fn read_config(
         derivations: config.derivations,
         supplies: config.supplies,
         preservations: config.preservations,
+        annotation_flags: config.annotation_flags,
         resolutions: config.resolutions,
     })
 }

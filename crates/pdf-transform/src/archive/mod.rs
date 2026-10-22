@@ -187,9 +187,9 @@ pub use boundaries::RemovedBoundary;
 pub use census::{Kind, Standing, census, standing, unconsidered};
 pub use cmaps::EmbeddedCMap;
 pub use config::{
-    ConfigError, Configuration, Coverage, Departure, Derivation, Kind as RemedyKind, Original,
-    Placement, Preservation, Resolution, Site, SiteShape, Supplied, Supply,
-    UNTRUSTED_INPUT_WARNING, Unbuilt, Unmapped, Winner, WriteModeSource, sites,
+    AnnotationFlagAnswers, ConfigError, Configuration, Coverage, Departure, Derivation,
+    Kind as RemedyKind, Original, Placement, Preservation, Resolution, Site, SiteShape, Supplied,
+    Supply, UNTRUSTED_INPUT_WARNING, Unbuilt, Unmapped, Winner, WriteModeSource, sites,
 };
 pub use decision::{
     Authorisations, Because, Conditional, Decision, Loss, answered, conditional, refused_by_name,
@@ -345,6 +345,9 @@ pub struct ArchivePlan {
     /// preserves nothing, which is every conversion until an operator's file says otherwise, and
     /// a site named here whose requirement the document meets is inert — there is nothing to keep.
     pub preservations: Vec<Preservation>,
+    /// Optional per-object answers for the two bounded annotation flag shapes.
+    /// Without shape rows, existing site-wide authorisations and preservation apply unchanged.
+    pub annotation_flags: Option<AnnotationFlagAnswers>,
     /// The font program the caller states for each `/BaseFont` the document does not embed.
     ///
     /// **`doc/rfc/0007`'s `supply` in its oldest form** (`doc/adr/1200` section 4,
@@ -720,17 +723,8 @@ fn configured(
     // states*. A `preserve` by attachment files one — out of the document's own bytes — so the
     // sentence is not true of this conversion and the requirement is met by its output
     // (`doc/adr/1270`).
-    if id == FOUR_F_EMBEDDED_FILES
-        && prepared
-            .attached
-            .as_ref()
-            .is_ok_and(|attached| !attached.rows.is_empty())
-    {
-        return Some(Decision::Configured {
-            kind: RemedyKind::Preserve,
-            rewrite: Rewrite::PreservedAsAttachment,
-            warns: PRESERVED_AS_AN_ATTACHMENT,
-        });
+    if let Some(answer) = configured_prepared(plan, id, prepared) {
+        return Some(answer);
     }
     // **The attachment is asked first, and for the page's own reason.** `doc/rfc/0007` section
     // 4.6.1 makes the two mechanisms a choice rather than a fallback, so a row asking for the
@@ -1136,7 +1130,8 @@ fn apply_the_decisions(
     // The section 6.3.2 removal names its annotations in the same list and for the same reason,
     // each carrying the `/F` its producer wrote so that a reader of the report can see which of
     // Table 167's bits took it off the page (`doc/adr/1234`).
-    if wanted.contains(&Rewrite::HiddenAnnotationRemoved)
+    if (wanted.contains(&Rewrite::HiddenAnnotationRemoved)
+        || wanted.contains(&Rewrite::AnnotationFlagsByShape))
         && let Ok(hidden) = &prepared.hidden_annotations
     {
         conversion
@@ -1146,11 +1141,14 @@ fn apply_the_decisions(
     // The other future of the same population: an annotation shown rather than removed is named
     // with the flags it had and the flags it has, because the page now carries a mark its
     // producer kept off it (`doc/adr/1285`).
-    if wanted.contains(&Rewrite::HiddenAnnotationShown)
+    if (wanted.contains(&Rewrite::HiddenAnnotationShown)
+        || wanted.contains(&Rewrite::AnnotationFlagsByShape))
         && let Ok(hidden) = &prepared.hidden_annotations
     {
         conversion.shown_annotations = hidden
-            .removed
+            .kept
+            .as_ref()
+            .unwrap_or(&hidden.removed)
             .iter()
             .filter_map(ShownAnnotation::of)
             .collect();
@@ -1661,6 +1659,42 @@ fn version_for(document: &Document, target: Target) -> Result<Version, Because> 
          every construct PDF 2.0 added would have to be translated or refused one at a time — \
          doc/pdf-a-conversion-limits.md section 6 — and this converter translates none of them",
     ))
+}
+
+/// Prepared attachments and shape answers precede unrelated blanket authorisations.
+fn configured_prepared(
+    plan: &ArchivePlan,
+    id: &'static str,
+    prepared: &Prepared,
+) -> Option<Decision> {
+    if id == FOUR_F_EMBEDDED_FILES
+        && prepared
+            .attached
+            .as_ref()
+            .is_ok_and(|attached| !attached.rows.is_empty())
+    {
+        return Some(Decision::Configured {
+            kind: RemedyKind::Preserve,
+            rewrite: Rewrite::PreservedAsAttachment,
+            warns: PRESERVED_AS_AN_ATTACHMENT,
+        });
+    }
+    plan.annotation_flags?;
+    if id == in_place::FLAGS_ENTRY_PRESENT {
+        return prepared
+            .hidden_annotations
+            .as_ref()
+            .err()
+            .map(|because| Decision::Refused(*because));
+    }
+    (id == in_place::PRINTABLE_AND_VISIBLE).then_some(match &prepared.hidden_annotations {
+        Ok(_) => Decision::Configured {
+            kind: RemedyKind::Preserve,
+            rewrite: Rewrite::AnnotationFlagsByShape,
+            warns: in_place::BY_SHAPE,
+        },
+        Err(because) => Decision::Refused(*because),
+    })
 }
 
 #[cfg(test)]

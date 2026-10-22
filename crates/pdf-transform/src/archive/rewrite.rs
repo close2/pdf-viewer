@@ -984,6 +984,9 @@ pub enum Rewrite {
     /// now on both, which is why the report names every annotation shown with the flags it had
     /// (`doc/adr/1285`).
     HiddenAnnotationShown,
+    /// Each forbidden annotation flag shape takes its own configured preserve or discard answer.
+    /// The preparation refuses unsupported shapes before any object is changed.
+    AnnotationFlagsByShape,
     /// Every reference `XObject` keeps its form and loses the `Ref` entry that made it one.
     ///
     /// ISO 19005-2 section 6.2.9.2 and ISO 19005-4 section 6.2.8.2 forbid reference `XObject`s,
@@ -1489,6 +1492,10 @@ impl Rewrite {
                 "the producer's own bytes stay in the archive as an embedded file, filed in the \
                  EmbeddedFiles name tree and associated with the document by the catalog's AF"
             }
+            Self::AnnotationFlagsByShape => {
+                "annotations are preserved or removed by their independently configured flag shapes; \
+                 kept annotations receive conforming flags, and removed annotations are named"
+            }
             Self::HiddenAnnotationShown => {
                 "an annotation whose F entry ISO 19005 forbids stays on its page with the Print \
                  bit set and Hidden, Invisible, NoView and ToggleNoView clear, every other bit \
@@ -1678,6 +1685,7 @@ impl Rewrite {
             Self::InformationMovedIntoThePacket => "information-moved-into-the-packet",
             Self::PreservedAsAttachment => "preserved-as-attachment",
             Self::HiddenAnnotationShown => "hidden-annotation-shown",
+            Self::AnnotationFlagsByShape => "annotation-flags-by-shape",
             Self::ReferenceXObjectProxied => "reference-xobject-proxied",
             Self::Jpeg2000TranscodedToFlate => "jpeg2000-transcoded-to-flate",
             Self::ShippedCMapEmbedded => "shipped-cmap-embedded",
