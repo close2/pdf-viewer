@@ -1,5 +1,5 @@
-//! A `/DefaultRGB` naming the ICC sRGB profile, where the profile in hand is of another family
-//! (`doc/adr/2114`).
+//! A `/DefaultRGB` naming the ICC sRGB profile where the current destination cannot
+//! license RGB (`doc/adr/2114`, `doc/adr/2230`).
 //!
 //! # The licence
 //!
@@ -41,7 +41,10 @@ use pdf_syntax::Document;
 use pdf_syntax::object::{Name, Object, ObjectId};
 
 use super::decision::Because;
-use super::prepare::{Intent, Spare};
+use super::prepare::{Intent, ProfileSource, Spare};
+
+mod page_contexts;
+pub(super) use page_contexts::PageContexts;
 
 /// The `/DefaultRGB` a conversion is in a position to write, and the objects it needs.
 #[derive(Debug)]
@@ -55,12 +58,13 @@ pub(super) struct DefaultRgb {
 /// What writing the `/DefaultRGB` asserts, which `doc/adr/0927` makes travel with the decision.
 pub(super) const REINTERPRETS: &str = "every DeviceRGB value in this file, and every \
      transparency group blending in DeviceRGB, is now read through the ICC sRGB profile, because \
-     this file's destination profile is of another colour family and ISO 19005 section 6.2.4.3's \
-     other licence for DeviceRGB is a device independent DefaultRGB. This renderer already showed \
-     those colours as sRGB, to within one level of 255; a reader that had shown them through some \
-     other device shows them as sRGB now";
+     the current page's destination profile is of another colour family and ISO 19005 section 6.2.4.3's \
+     other licence for DeviceRGB is a device independent DefaultRGB. Those source values already \
+     used this renderer's sRGB convention before conversion into the current blending space; the \
+     shipped profile's source route agrees to within one level of 255. A reader that used another \
+     device convention now reads the values as sRGB";
 
-/// Why no `/DefaultRGB` is written where the profile in hand is an RGB one.
+/// Why the existing RGB-intent route writes no default without a proved page override.
 const BY_THE_INTENT: &str = "the destination profile in hand is an RGB one, which licenses \
      DeviceRGB itself, so no DefaultRGB is written";
 
@@ -92,15 +96,46 @@ pub(super) fn draws_in_rgb(survey: &Survey) -> bool {
         })
 }
 
+/// The extra route only states this program's own shipped source convention.
+/// Producer/supplied profiles and part 2 retain their existing decisions.
+pub(super) fn page_contexts(
+    document: &Document,
+    target: pdf_archive::Target,
+    intent: &Intent,
+) -> Result<Option<PageContexts>, Because> {
+    if target.part() != pdf_archive::Part::Four
+        || intent.family != DeviceFamily::Rgb
+        || intent.reported.source != ProfileSource::Shipped
+    {
+        return Ok(None);
+    }
+    let Some(Object::Stream(profile)) = &intent.written else {
+        return Ok(None);
+    };
+    if document
+        .decoded_stream_data(profile)
+        .is_none_or(|bytes| bytes.as_ref() != super::prepare::SRGB)
+    {
+        return Ok(None);
+    }
+    PageContexts::of(document)
+}
+
 /// Prepares the `/DefaultRGB`: the shipped sRGB profile as a stream, and the `ICCBased` array.
 pub(super) fn prepare(
     document: &Document,
     intent: &Intent,
     survey: Option<&Survey>,
+    page_contexts: &Result<Option<PageContexts>, Because>,
     spare: &mut Spare,
 ) -> Result<DefaultRgb, Because> {
     if intent.family == DeviceFamily::Rgb {
-        return Err(Because::NotBuiltYet(BY_THE_INTENT));
+        let contexts = page_contexts
+            .as_ref()
+            .map_err(|because| *because)?
+            .as_ref()
+            .ok_or(Because::NotBuiltYet(BY_THE_INTENT))?;
+        contexts.selected(survey.ok_or(Because::NotBuiltYet(NOTHING_IN_RGB))?)?;
     }
     if !survey.is_some_and(draws_in_rgb) {
         return Err(Because::NotBuiltYet(NOTHING_IN_RGB));

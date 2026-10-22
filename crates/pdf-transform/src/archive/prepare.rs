@@ -992,13 +992,18 @@ impl Prepared {
         // The repair `super::hexadecimal` makes needs the same walk the font rewrites do, so the
         // one survey answers both: a document that fails neither is never walked.
         let odd_digits = super::decision::odd_hexadecimal_digits_on_a_page(input);
-        // The `/DefaultRGB` asks the survey only where the profile in hand is of another family,
-        // so the commonest conversion — an sRGB intent for a document in `DeviceRGB` — walks
-        // nothing more than it did (`doc/adr/2114`).
+        // A non-RGB intent, or a proved part-4 page override, can need `/DefaultRGB`.
+        // Ordinary sRGB output with no override still requests no extra content survey
+        // (`doc/adr/2114`, `doc/adr/2230`).
+        let rgb_page_contexts = match (wanted(Rewrite::DefaultRgb), intent.as_ref()) {
+            (true, Ok(intent)) => super::default_rgb::page_contexts(document, plan.target, intent),
+            _ => Ok(None),
+        };
         let rgb_by_default = wanted(Rewrite::DefaultRgb)
             && intent
                 .as_ref()
-                .is_ok_and(|intent| intent.family != DeviceFamily::Rgb);
+                .is_ok_and(|intent| intent.family != DeviceFamily::Rgb)
+            || matches!(&rgb_page_contexts, Ok(Some(_)));
         let survey = (SURVEYED.iter().any(|rewrite| wanted(*rewrite))
             || odd_digits
             || rgb_by_default
@@ -1027,9 +1032,13 @@ impl Prepared {
             (false, _) => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
         };
         let default_rgb = match (wanted(Rewrite::DefaultRgb), intent.as_ref()) {
-            (true, Ok(intent)) => {
-                super::default_rgb::prepare(document, intent, survey.as_ref(), &mut spare)
-            }
+            (true, Ok(intent)) => super::default_rgb::prepare(
+                document,
+                intent,
+                survey.as_ref(),
+                &rgb_page_contexts,
+                &mut spare,
+            ),
             (true, Err(because)) => Err(*because),
             (false, _) => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
         };

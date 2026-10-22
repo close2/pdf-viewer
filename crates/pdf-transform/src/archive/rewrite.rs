@@ -1208,8 +1208,8 @@ impl Rewrite {
             }
             Self::DefaultRgb => {
                 "every resource dictionary explicitly associated with a content stream states a \
-                 DefaultRGB: an ICCBased space over the ICC sRGB profile, beside a destination \
-                 profile of another colour family"
+                 DefaultRGB: an ICCBased space over the ICC sRGB profile, beside a current page \
+                 destination profile of another colour family"
             }
             Self::SuppliedDefaultCmyk => {
                 "every resource dictionary explicitly associated with a content stream states a \

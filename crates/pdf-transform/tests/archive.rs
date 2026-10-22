@@ -14413,3 +14413,6 @@ mod annotation_flags;
 
 #[path = "archive/linked_popups.rs"]
 mod linked_popups;
+
+#[path = "archive/default_rgb_page_intent.rs"]
+mod default_rgb_page_intent;
