@@ -34,6 +34,9 @@
 //! chooser, a script's question and a print let through — are records the caller answers, the
 //! window asking each as every window asks it (ADR 2121).
 
+mod chrome;
+#[cfg(test)]
+mod chrome_tests;
 mod owed;
 mod repainted;
 mod restrictions;
@@ -51,6 +54,7 @@ use viewer_host::native_window::{
 };
 use viewer_host::trace::{Topic, Trace};
 
+pub use chrome::WindowChrome;
 pub use owed::{OwedKind, Owing};
 pub use repainted::Repainted;
 pub use wheel::WheelKind;
@@ -89,6 +93,8 @@ pub struct Window {
     prompting: Option<DocumentId>,
     /// Whether the next document waiting may open once the call now running returns.
     arrival_due: bool,
+    /// A document swap owes the core mode and effective chrome after focus has settled.
+    presentation_due: bool,
     /// Whether the bar of a document still opening past `WARN` has been said, which it is once.
     bar_said: bool,
     /// The launch document's outline and placed page tree, read beside page one (ADR 1553).
@@ -148,6 +154,7 @@ impl Window {
             question: None,
             prompting: None,
             arrival_due: false,
+            presentation_due: false,
             bar_said: false,
             preparing: None,
             shown: shown::Shown::default(),
@@ -398,7 +405,7 @@ impl Window {
             .documents
             .id_at(index)
             .ok_or(Status::OutOfRange)?;
-        if self.take_the_front(id) {
+        if self.take_the_front(id, false) {
             self.dispatch(Command::Focus(id));
             self.owing.owe(Owed::Panels);
         }
@@ -420,11 +427,13 @@ impl Window {
     /// was the last — closing the window, which is the caller's to do.
     pub fn close_document(&mut self) -> bool {
         let closing = self.state.documents.focused();
+        self.state.park_presentation();
         self.state.showing.departures = self.state.restrictions.document();
         let last = match self.state.documents.close(closing, &mut self.state.showing) {
             viewer_host::Close::Last => true,
             viewer_host::Close::Unknown => false,
             viewer_host::Close::Done { state, focused } => {
+                self.restore_document_presentation(false);
                 self.state
                     .restrictions
                     .depart(self.state.showing.departures);
@@ -735,12 +744,14 @@ impl Window {
             WindowAct::FitControls => self.fit_the_controls(),
             // A toolkit's: a widget shown, a dialogue opened, a tab strip's order, a window put
             // full screen — handed back as `quorra_key_press` hands them back.
+            WindowAct::Present | WindowAct::LeaveFullScreen => {
+                self.presentation(matches!(act, WindowAct::LeaveFullScreen));
+                return ActKind::of(act);
+            }
             WindowAct::Find
             | WindowAct::Panel
             | WindowAct::Restrictions
             | WindowAct::Notices
-            | WindowAct::Present
-            | WindowAct::LeaveFullScreen
             | WindowAct::FreeText
             | WindowAct::NextDocument
             | WindowAct::CloseDocument
@@ -813,6 +824,7 @@ impl Window {
             self.state.documents.relabel(id, label);
             if id == self.state.documents.focused() {
                 self.state.showing = Showing::new(path, bytes, None);
+                self.restore_document_presentation(false);
             }
             self.retitle();
             return None;
@@ -821,7 +833,7 @@ impl Window {
             .documents
             .add(id, label.clone(), Showing::new(path, bytes, None));
         self.owing.owe(Owed::Strip);
-        if self.take_the_front(id) {
+        if self.take_the_front(id, behind.is_some()) {
             self.owing.owe(Owed::Panels);
         }
         self.say(&viewer_host::documents::opened_beside(
@@ -833,7 +845,8 @@ impl Window {
 
     /// Brings a document's tab to the front, its departures from the window's levels with it
     /// (ADR 1145); `false` where it is already there or is not one of this window's.
-    fn take_the_front(&mut self, id: DocumentId) -> bool {
+    fn take_the_front(&mut self, id: DocumentId, temporary: bool) -> bool {
+        self.state.park_presentation();
         self.state.showing.departures = self.state.restrictions.document();
         if !self.state.documents.focus(id, &mut self.state.showing) {
             return false;
@@ -841,6 +854,7 @@ impl Window {
         self.state
             .restrictions
             .depart(self.state.showing.departures);
+        self.restore_document_presentation(temporary);
         self.retitle();
         self.owing.owe(Owed::Strip);
         true
@@ -898,6 +912,7 @@ impl NativeWindow for Window {
     }
 
     fn opened(&mut self, document: DocumentId, pages: usize, queue: &mut VecDeque<Command>) {
+        let presentation_was_due = self.presentation_due;
         let behind = self.opened_beside(document);
         if pages == 0 {
             self.say(&viewer_host::no_pages(&self.named()));
@@ -906,12 +921,15 @@ impl NativeWindow for Window {
         self.state.restrictions.opened();
         self.state.showing.report_due.opened();
         self.obey_the_catalog(queue, behind.is_none());
+        self.presentation_due = true;
         self.state.showing.catalog_due = behind.is_some();
         self.owing.owe(Owed::Panels);
         if let Some(front) = behind
-            && self.take_the_front(front)
+            && self.take_the_front(front, true)
         {
             queue.push_back(Command::Focus(front));
+            // A temporary background-open swap did not change the active presentation.
+            self.presentation_due = presentation_was_due;
         }
         if document != DOCUMENT || pages == 0 {
             self.later_open_the_next();
@@ -1050,11 +1068,16 @@ impl NativeWindow for Window {
         self.owing.owe(Owed::Place);
     }
 
-    fn show_the_page_mode(&mut self, _mode: pdf_model::viewer_preferences::PageMode) {
+    fn show_the_page_mode(&mut self, mode: pdf_model::viewer_preferences::PageMode) {
         if self.state.presenting.full_screen() {
             self.say("presenting full screen (§7.7.2's FullScreen page mode) — Escape comes back");
         }
-        self.owing.owe(Owed::Chrome);
+        let panel = (mode != pdf_model::viewer_preferences::PageMode::FullScreen).then(|| {
+            viewer_host::Tab::of_page_mode(mode)
+                .and_then(|tab| i32::try_from(tab.index()).ok())
+                .unwrap_or(-1)
+        });
+        self.owing.owe(Owed::Chrome(panel));
     }
 
     /// Runs commands until nothing is left, reacting to what each produces; a page that finished
@@ -1075,6 +1098,10 @@ impl NativeWindow for Window {
             self.take_the_drawn(&mut queue);
             if queue.is_empty() && std::mem::take(&mut self.state.showing.catalog_due) {
                 self.obey_the_catalog(&mut queue, true);
+                self.presentation_due = true;
+            }
+            if queue.is_empty() && std::mem::take(&mut self.presentation_due) {
+                self.synchronize_presentation(&mut queue);
             }
             if queue.is_empty() {
                 break;

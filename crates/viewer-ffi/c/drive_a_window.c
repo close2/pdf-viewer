@@ -208,7 +208,21 @@ static int act_on_what_is_owed(quorra_window *window, struct seen *seen)
             break;
         case QUORRA_OWED_CLIPBOARD:
         case QUORRA_OWED_BEEP:
-        case QUORRA_OWED_CHROME:
+            break;
+        case QUORRA_OWED_CHROME: {
+            int32_t panel = -99;
+            int32_t status = quorra_owed_chrome_panel(owed, index, &panel);
+            if ((status != QUORRA_OK && status != QUORRA_NO_ANSWER)
+                || (status == QUORRA_NO_ANSWER && panel != -99)
+                || (status == QUORRA_OK && (panel < -1 || panel >= (int32_t)quorra_tab_count()))
+                || quorra_owed_chrome_panel(owed, index, NULL) != QUORRA_NULL_ARGUMENT
+                || quorra_owed_chrome_panel(NULL, index, &panel) != QUORRA_NULL_ARGUMENT) {
+                free(text);
+                quorra_owed_free(owed);
+                return 0;
+            }
+            break;
+        }
         case QUORRA_OWED_PLACE:
             break;
         default:
@@ -247,6 +261,20 @@ static int press(quorra_window *window, uint32_t key, bool command, uint32_t *ac
     float by = 0.0f;
     return check("quorra_window_press", quorra_window_press(window, key, false, command, act, &by))
            && act_on_what_is_owed(window, seen) && run_the_timer(window, seen);
+}
+
+/* The new output is an additive, fixed-layout snapshot; null pointers never write it. */
+static int chrome_contract(quorra_window *window)
+{
+    quorra_window_chrome_state chrome = {7, 7, 7, 7};
+    if (quorra_window_chrome(NULL, &chrome) != QUORRA_NULL_ARGUMENT
+        || chrome.menu_bar != 7 || chrome.other_windows != 7
+        || quorra_window_chrome(window, NULL) != QUORRA_NULL_ARGUMENT
+        || !check("quorra_window_chrome", quorra_window_chrome(window, &chrome))) return 0;
+    printf("window chrome: %u %u %u %u\n", chrome.menu_bar, chrome.tool_bar,
+           chrome.window_ui, chrome.other_windows);
+    return sizeof chrome == 16 && chrome.menu_bar <= 1 && chrome.tool_bar <= 1
+        && chrome.window_ui <= 1 && chrome.other_windows <= 1;
 }
 
 /* Copies the page area's first picture out and counts the pixels that are not white. */
@@ -516,7 +544,8 @@ static int the_note(const char *path, const char *beside)
         return 0;
     }
     printf("window title: %s\n", seen.title);
-    if (!read_the_panels(window, &seen) || !choose_a_page(window, &seen) || !choose_permissions(window)) {
+    if (!chrome_contract(window) || !read_the_panels(window, &seen)
+        || !choose_a_page(window, &seen) || !choose_permissions(window)) {
         quorra_window_free(window);
         return 0;
     }

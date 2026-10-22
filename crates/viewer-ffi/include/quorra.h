@@ -2063,7 +2063,8 @@ int32_t quorra_window_interval(const quorra_window *window);
 /* A key, as a QUORRA_KEY_*, with Shift and the platform's command modifier (Ctrl here, ⌘ on
  * macOS). `*act` is what only the caller's window can do, QUORRA_ACT_NOTHING where the window did
  * all of it; `*by`, where not null, a scroll's distance in logical pixels. QUORRA_WRONG_KIND for a
- * key this build does not define. */
+ * key this build does not define. PRESENT and LEAVE_FULL_SCREEN already update library mode
+ * and effective chrome; the returned act still asks the caller for physical window placement. */
 int32_t quorra_window_press(quorra_window *window, uint32_t key, bool shift, bool command,
                             uint32_t *act, float *by);
 /* The wheel or a scroll bar, in device pixels. QUORRA_NUMBER_OUT_OF_RANGE where not finite. */
@@ -2121,6 +2122,23 @@ int32_t quorra_window_print_finish(quorra_window *window);
 /* The page area is on the screen; the first call that shows a page is the launch's first frame. */
 int32_t quorra_window_presented(quorra_window *window);
 int32_t quorra_window_title(const quorra_window *window, char *out, size_t cap, size_t *needed);
+/* Effective chrome after QUORRA_OWED_CHROME: zero hides, one shows. Window controls and
+ * panels are independent. This resolves presentation mode as well as document preferences. */
+typedef struct quorra_window_chrome_state {
+    uint32_t menu_bar;
+    uint32_t tool_bar;
+    uint32_t window_ui;
+    uint32_t other_windows;
+} quorra_window_chrome_state;
+/* Both pointers are required; QUORRA_NULL_ARGUMENT leaves the output untouched. */
+int32_t quorra_window_chrome(const quorra_window *window, quorra_window_chrome_state *out);
+/* One-shot request attached to this CHROME record: -1 closes the panel, a nonnegative
+ * QUORRA_TAB_* opens it. QUORRA_NO_ANSWER preserves the reader's pane choice. QUORRA_WRONG_KIND
+ * for another record, QUORRA_OUT_OF_RANGE past the batch; failed reads leave *panel untouched.
+ * The immutable payload lasts until quorra_owed_free, not until the next window update. */
+int32_t quorra_owed_chrome_panel(const quorra_owed *owed, size_t index, int32_t *panel);
+
+
 int32_t quorra_window_status(const quorra_window *window, char *out, size_t cap, size_t *needed);
 /* The pictures the page area shows: the viewer's frames and the stand-ins every window paints
  * where a page has no frame yet. `origin_x` and `origin_y` are where the window shows one, and

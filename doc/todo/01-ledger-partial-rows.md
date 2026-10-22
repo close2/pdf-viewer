@@ -36,9 +36,12 @@ reading in one line per row, and the note is where it is argued. The membership 
   only a default-converted colour. Carry the tint source to painting; test selection/use order
   and cache hits. ADR 2199 preserves the witness; ADR 2198 fixes ordinary solids and stencils.
   The deliberate output-intent profile bypass remains separate.
-- **§12.2** — the WinUI host consumes neither chrome nor placement records yet. Connect
-  Table 147's entries and test each on Windows; the deliberate menu/placement departures
-  in the other hosts remain.
+- **§12.2** — WinUI consumes effective chrome, preserves pane choice across temporary
+  hiding, and restores chrome on Escape and document changes. Native full-screen/title-bar
+  placement, FitWindow/CenterWindow and modal suppression remain unfinished; live Windows
+  behavior is unverified. The FFI presentation timer/transition pump remains unfinished,
+  and GTK/Qt have not adopted shared presentation parking. Deliberate menu/placement
+  departures remain; the existing DisplayDocTitle title binding is unchanged.
 - **§12.8.3.4.4** — no signature in reach states a policy whose constraints could be enforced;
   moves when one does and its named specification is held. The network is not what is missing
   (ADR 1291).

@@ -132,10 +132,10 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     // 1252, 1263, 1335, 1553, 1602, 1604, 1655, 1667, 1702, 1726, 1753, 1954, 1966, 2060, 2072,
     // 2088, 2104, 2120, 2121, 2152, 2156, 2168, 2169 and 2185. The thumbnail page selection
     // and the permissions menu add four pointer-taking entry points, checked by the C driver.
-    assert_eq!(no_mangle, 353, "one `#[unsafe(no_mangle)]` per entry point");
+    assert_eq!(no_mangle, 355, "one `#[unsafe(no_mangle)]` per entry point");
     assert_eq!(
-        signatures, 334,
-        "331 `unsafe` entry points and three helpers"
+        signatures, 336,
+        "333 `unsafe` entry points and three helpers"
     );
 }
 

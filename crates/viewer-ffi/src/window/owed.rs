@@ -40,7 +40,7 @@ pub enum OwedKind {
     Beep = 6,
     /// The panels are to be built again, because §7.11.4's list moved.
     Panels = 7,
-    /// The window's chrome is to follow Table 29's `/PageMode` and §12.2's flags as they now stand.
+    /// Read effective chrome and apply the optional one-shot `quorra_owed_chrome_panel` request.
     Chrome = 8,
     /// Table 147's `/FitWindow` or `/CenterWindow` is owed at this frame.
     Place = 9,
@@ -155,7 +155,7 @@ pub(crate) enum Owed {
     /// The panels built again.
     Panels,
     /// The chrome as Table 29 and §12.2 now permit it.
-    Chrome,
+    Chrome(Option<i32>),
     /// Table 147's placement.
     Place,
     /// The controls over the page rebuilt.
@@ -211,7 +211,7 @@ impl Owed {
             Self::Clipboard(_) => OwedKind::Clipboard,
             Self::Beep => OwedKind::Beep,
             Self::Panels => OwedKind::Panels,
-            Self::Chrome => OwedKind::Chrome,
+            Self::Chrome(_) => OwedKind::Chrome,
             Self::Place => OwedKind::Place,
             Self::Controls => OwedKind::Controls,
             Self::Popups => OwedKind::Popups,
@@ -239,7 +239,7 @@ impl Owed {
             | Self::Repaint(_)
             | Self::Beep
             | Self::Panels
-            | Self::Chrome
+            | Self::Chrome(_)
             | Self::Place
             | Self::Controls
             | Self::Popups
@@ -274,12 +274,7 @@ impl Owing {
                     None => self.records.push(Owed::Repaint(later)),
                 }
             }
-            Owed::Panels
-            | Owed::Chrome
-            | Owed::Place
-            | Owed::Controls
-            | Owed::Popups
-            | Owed::Strip
+            Owed::Panels | Owed::Place | Owed::Controls | Owed::Popups | Owed::Strip
                 if self.records.contains(&owed) => {}
             Owed::Title(title) => {
                 match self
@@ -293,6 +288,12 @@ impl Owing {
             }
             owed => self.records.push(owed),
         }
+    }
+
+    /// A real document activation supersedes the previous document's pending chrome commands.
+    pub(crate) fn forget_chrome(&mut self) {
+        self.records
+            .retain(|record| !matches!(record, Owed::Chrome(_)));
     }
 
     /// Everything owed so far, leaving nothing owed.
@@ -317,6 +318,20 @@ impl Owing {
     #[must_use]
     pub fn kind(&self, index: usize) -> Option<OwedKind> {
         self.records.get(index).map(Owed::kind)
+    }
+
+    /// A chrome notification's one-shot panel request: -1 closes, a tab index opens it.
+    ///
+    /// # Errors
+    ///
+    /// `NoAnswer` preserves the reader's pane choice; `WrongKind` names another record,
+    /// and `OutOfRange` is past the batch. Reading does not consume the immutable record.
+    pub fn chrome_panel(&self, index: usize) -> Result<i32, crate::Status> {
+        match self.records.get(index).ok_or(crate::Status::OutOfRange)? {
+            Owed::Chrome(Some(panel)) => Ok(*panel),
+            Owed::Chrome(None) => Err(crate::Status::NoAnswer),
+            _ => Err(crate::Status::WrongKind),
+        }
     }
 
     /// The text of the record at `index`.
@@ -442,5 +457,20 @@ mod tests {
         assert_eq!(taken.text(2), Ok("a sentence"));
         assert_eq!(taken.document(2), Err(crate::Status::WrongKind));
         assert_eq!(taken.kind(3), None);
+    }
+    #[test]
+    fn chrome_commands_survive_refresh_and_are_consumed_with_the_batch() {
+        let mut owing = Owing::default();
+        owing.owe(Owed::Chrome(Some(1)));
+        owing.owe(Owed::Chrome(None));
+        owing.owe(Owed::Chrome(Some(-1)));
+        let taken = owing.take();
+        assert_eq!(taken.chrome_panel(0), Ok(1));
+        assert_eq!(taken.chrome_panel(1), Err(crate::Status::NoAnswer));
+        assert_eq!(taken.chrome_panel(2), Ok(-1));
+        assert_eq!(taken.chrome_panel(0), Ok(1));
+        assert!(owing.is_empty());
+        owing.owe(Owed::Chrome(None));
+        assert_eq!(owing.take().chrome_panel(0), Err(crate::Status::NoAnswer));
     }
 }

@@ -41,6 +41,7 @@ public sealed partial class MainWindow : Window
     private readonly WindowDialogs dialogs;
     private readonly WindowPanels panels;
     private readonly WindowPermissions permissions;
+    private readonly ChromeState chrome = new();
     private readonly List<string> beside = new();
     private readonly HashSet<uint> named = new();
     private QuorraWindow? window;
@@ -204,6 +205,15 @@ public sealed partial class MainWindow : Window
         Say($"the window was still owing records after {SettleBound} batches, so this window stopped taking them");
     }
 
+    private void ApplyChrome(WindowChrome state, int? panel)
+    {
+        ChromeLayout shown = chrome.Apply(state, Navigation.IsPaneOpen, panel);
+        PermissionsButton.Visibility = shown.Menu ? Visibility.Visible : Visibility.Collapsed;
+        StatusLine.Visibility = shown.Status ? Visibility.Visible : Visibility.Collapsed;
+        Navigation.IsPaneToggleButtonVisible = shown.Navigation;
+        panels.SetAvailable(shown.Panels, shown.PaneOpen, panel);
+    }
+
     private void Act(Owed owed)
     {
         if (window is not QuorraWindow open)
@@ -220,6 +230,9 @@ public sealed partial class MainWindow : Window
                 break;
             case Native.QUORRA_OWED_REPAINT:
                 Repaint(open, owed);
+                break;
+            case Native.QUORRA_OWED_CHROME:
+                ApplyChrome(open.Chrome, owed.Panel);
                 break;
             case Native.QUORRA_OWED_CONTROLS:
                 controls.Rebuild(open.Controls(), scale);
@@ -245,7 +258,7 @@ public sealed partial class MainWindow : Window
             case Native.QUORRA_OWED_SCRIPT_WITHDRAWN:
                 dialogs.Withdraw(owed.Document);
                 break;
-            // The strip, the chrome, a placement and the system sound are later steps
+            // The strip, a placement and the system sound are later steps
             // (RFC 0010 step N3a). Each is named in the log the first time it is owed rather
             // than dropped.
             default:
@@ -375,6 +388,10 @@ public sealed partial class MainWindow : Window
         {
             case Native.QUORRA_ACT_NOTHING:
                 return;
+            case Native.QUORRA_ACT_PRESENT:
+            case Native.QUORRA_ACT_LEAVE_FULL_SCREEN:
+                Say("Presentation chrome updated; native full-screen placement is not implemented yet.");
+                break;
             case Native.QUORRA_ACT_RESTRICTIONS:
                 permissions.Show();
                 break;

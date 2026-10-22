@@ -77,3 +77,8 @@ for name in ('Quorra.Interop', 'Quorra.App'):
 PY
 "$check_sdk" build "$check_work/Quorra.App/Check.csproj" --nologo \
     -p:AppxGeneratePriEnabled=false -p:GenerateLibraryLayout=false
+
+# Run the pure mapping on this host, without loading Windows runtime or fabricating SDK types.
+cp -R "$check_root/hosts/windows/Quorra.Chrome.Tests" "$check_work/Quorra.Chrome.Tests"
+cp "$check_root/hosts/windows/Quorra.App/Chrome.cs" "$check_work/Quorra.App/Chrome.cs"
+"$check_sdk" run --project "$check_work/Quorra.Chrome.Tests/Quorra.Chrome.Tests.csproj" --no-launch-profile

@@ -26,6 +26,7 @@ internal sealed class WindowPanels
     private bool labels;
     private bool changing;
     private bool dirty = true;
+    private bool available = true;
 
     internal WindowPanels(NavigationView navigation, ComboBox choice, ListView list,
         Func<QuorraWindow?> window, Action<string, Action> guard,
@@ -60,7 +61,29 @@ internal sealed class WindowPanels
         };
     }
 
-    internal void Toggle() => navigation.IsPaneOpen = !navigation.IsPaneOpen;
+    internal void SetAvailable(bool shown, bool open, int? panel)
+    {
+        available = shown;
+        if (shown && panel is >= 0)
+        {
+            changing = true;
+            try
+            {
+                if (!labels) { choice.ItemsSource = QuorraWindow.PanelLabels(); labels = true; }
+                choice.SelectedIndex = panel.Value;
+                dirty = true;
+            }
+            finally { changing = false; }
+        }
+        navigation.IsPaneVisible = shown;
+        navigation.IsPaneOpen = shown && open;
+        if (shown && open) guard("a requested panel shown", Refresh);
+    }
+
+    internal void Toggle()
+    {
+        if (available) navigation.IsPaneOpen = !navigation.IsPaneOpen;
+    }
 
     internal void Changed()
     {

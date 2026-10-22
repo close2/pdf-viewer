@@ -17,9 +17,10 @@ namespace Quorra.App;
 /// <param name="Fresh">For a REPAINT record, whether each picture has pixels this window has not copied (ADR 2168).</param>
 /// <param name="Script">The copied script question, for a SCRIPT record.</param>
 /// <param name="Archive">The archive chooser's starting selections and choices.</param>
+/// <param name="Panel">A one-shot CHROME panel request: null preserves choice, -1 closes, otherwise selects a tab.</param>
 /// <param name="Print">The print preview's page count and quality restriction.</param>
 internal readonly record struct Owed(uint Kind, string Text, ulong Document, uint Changed, IReadOnlyList<bool> Fresh,
-    ScriptQuestion? Script, ArchiveChoice? Archive, PrintGrant? Print);
+    ScriptQuestion? Script, ArchiveChoice? Archive, PrintGrant? Print, int? Panel = null);
 
 /// <summary>One picture the page area shows, its pixels QUORRA_FORMAT_RGBA8 with straight alpha.</summary>
 /// <param name="Width">The raster's width in pixels.</param>
@@ -185,6 +186,18 @@ internal sealed unsafe partial class QuorraWindow : IDisposable
     internal void Resize(uint width, uint height, float scale) =>
         Library.Check("quorra_window_resize", Native.quorra_window_resize(handle, width, height, scale));
 
+    /// <summary>Effective chrome after document preferences and presentation mode are resolved.</summary>
+    internal WindowChrome Chrome
+    {
+        get
+        {
+            quorra_window_chrome_state chrome;
+            Library.Check("quorra_window_chrome", Native.quorra_window_chrome(handle, &chrome));
+            return new(chrome.menu_bar != 0, chrome.tool_bar != 0,
+                chrome.window_ui != 0, chrome.other_windows != 0);
+        }
+    }
+
     /// <summary>One look at what runs beside the window.</summary>
     internal void Tick() => Library.Check("quorra_window_tick", Native.quorra_window_tick(handle));
 
@@ -313,10 +326,21 @@ internal sealed unsafe partial class QuorraWindow : IDisposable
                         fresh.Add(isFresh != 0);
                     }
                 }
+                int? panel = null;
+                if (kind == Native.QUORRA_OWED_CHROME)
+                {
+                    int requested = 0;
+                    int status = Native.quorra_owed_chrome_panel(owed, index, &requested);
+                    if (status != Native.QUORRA_NO_ANSWER)
+                    {
+                        Library.Check("quorra_owed_chrome_panel", status);
+                        panel = requested;
+                    }
+                }
                 records.Add(new Owed(kind, text, document, changed, fresh,
                     kind == Native.QUORRA_OWED_SCRIPT ? ReadScript(owed, at) : null,
                     kind == Native.QUORRA_OWED_ARCHIVE ? ReadArchive(owed, at) : null,
-                    kind == Native.QUORRA_OWED_PRINT ? ReadPrint(owed, at) : null));
+                    kind == Native.QUORRA_OWED_PRINT ? ReadPrint(owed, at) : null, panel));
             }
             return records;
         }

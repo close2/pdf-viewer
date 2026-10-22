@@ -105,3 +105,12 @@ internal unsafe struct quorra_rich_run
     internal byte line_through;
     internal nuint families;
 }
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct quorra_window_chrome_state
+{
+    internal uint menu_bar;
+    internal uint tool_bar;
+    internal uint window_ui;
+    internal uint other_windows;
+}

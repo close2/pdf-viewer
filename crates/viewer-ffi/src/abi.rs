@@ -71,7 +71,7 @@ use crate::session::{self, FrameInfo, Session};
 use crate::settings::Stated;
 use crate::shapes::Quads;
 use crate::status::Status;
-use crate::window::{OwedKind, Owing, WheelKind, Window};
+use crate::window::{OwedKind, Owing, WheelKind, Window, WindowChrome};
 
 /// The revision of everything in this header that a caller compiles against.
 ///
@@ -8396,7 +8396,8 @@ pub unsafe extern "C" fn quorra_window_interval(window: *const Window) -> i32 {
 /// A key, as a `QUORRA_KEY_*`, with Shift and the platform's command modifier: acted on as every
 /// window acts on it, and `*act` the `QUORRA_ACT_*` that only the caller's window can do —
 /// `QUORRA_ACT_NOTHING` where the window did all of it. `*by` is a scroll's distance, where it is
-/// not null.
+/// not null. Presentation acts already update library mode and effective chrome; the returned
+/// act still asks the caller for physical window placement.
 ///
 /// # Safety
 ///
@@ -8804,6 +8805,24 @@ pub unsafe extern "C" fn quorra_window_title(
     copy_out(&window.title(), out, cap, needed)
 }
 
+/// The effective chrome to apply after a chrome record. This reads resolved window state,
+/// including presentation mode; it is not the document's raw preference dictionary.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable, and neither pointer may be null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_chrome(
+    window: *const Window,
+    out: *mut WindowChrome,
+) -> c_int {
+    let (Some(window), Some(out)) = (window.as_ref(), out.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    *out = window.chrome();
+    Status::Ok.code()
+}
+
 /// The status line's sentence as it now stands, in the two-call idiom.
 ///
 /// # Safety
@@ -9147,6 +9166,30 @@ pub unsafe extern "C" fn quorra_owed_print(
             if let Some(degraded) = degraded.as_mut() {
                 *degraded = limited;
             }
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// A chrome notification's one-shot panel request: -1 closes, a tab index opens.
+/// `NoAnswer` preserves the reader's pane choice. The record lives until the batch is freed.
+///
+/// # Safety
+///
+/// See the module documentation. `panel` is writable and both pointers are required.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_owed_chrome_panel(
+    owed: *const Owing,
+    index: usize,
+    panel: *mut c_int,
+) -> c_int {
+    let (Some(owed), Some(panel)) = (owed.as_ref(), panel.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match owed.chrome_panel(index) {
+        Ok(requested) => {
+            *panel = requested;
             Status::Ok.code()
         }
         Err(status) => status.code(),

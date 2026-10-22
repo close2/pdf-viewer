@@ -165,6 +165,10 @@ pub struct Showing {
     /// document shall be displayed when opened" — so its full screen and its panel wait for the
     /// pump that first brings it to the front (ADR 1303).
     pub catalog_due: bool,
+    /// The active presentation state parked by hosts that restore it with this document.
+    /// `None` means its catalog has not supplied a remembered state yet. The active window's
+    /// `presenting` remains authoritative until `WindowState::park_presentation` copies it here.
+    parked_presentation: Option<crate::Presenting>,
 }
 
 impl Showing {
@@ -185,6 +189,7 @@ impl Showing {
             layout: pdf_model::viewer_preferences::PageLayout::SinglePage,
             departures: viewer_core::RestrictionOverride::NONE,
             catalog_due: false,
+            parked_presentation: None,
         }
     }
 }
@@ -342,6 +347,19 @@ pub struct WindowState {
 }
 
 impl WindowState {
+    /// Saves the active document's current state before its `Showing` is parked or replaced.
+    pub fn park_presentation(&mut self) {
+        if self.showing.parked_presentation.is_some() {
+            self.showing.parked_presentation = Some(self.presenting);
+        }
+    }
+
+    /// Restores the newly focused document's state without replaying its catalog or panel commands.
+    /// The adopting host must synchronize core mode, clock, transient frames and effective chrome.
+    pub fn restore_presentation(&mut self) {
+        self.presenting = self.showing.parked_presentation.unwrap_or_default();
+    }
+
     /// A window's state before its document has been read: a viewer with no viewport yet, one tab
     /// for the file at `path` under [`DOCUMENT`], and no thread started for anything but `ahead`,
     /// page one's drawing beside the opening thread's read. `widget_appearances` and `settings` are
@@ -1117,6 +1135,8 @@ pub trait NativeWindow {
         }
         if let Answer::Preferences(preferences) = self.state().viewer.query(Query::Preferences) {
             self.state_mut().presenting = crate::Presenting::opening(opening, &preferences);
+            let presenting = self.state().presenting;
+            self.state_mut().showing.parked_presentation = Some(presenting);
             // Trap 5: a document asking for something and getting silence. Two of Table 147's
             // three flags name widgets the window hides on request, and the third names one it
             // keeps on purpose — the menu holding this reader's own restriction levels
