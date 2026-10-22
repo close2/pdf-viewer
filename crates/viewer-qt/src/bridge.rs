@@ -4,10 +4,10 @@
 //!
 //! Everything the Qt side needs to draw is a value: rows, controls, quadrilaterals, a frame's
 //! dimensions and a slice of its pixels. Everything a person does arrives as a call on
-//! [`Host`]. There is no path from Rust back into C++ except the one function that starts the
-//! application, which is what makes the ownership story simple enough to state in a sentence:
+//! [`Host`]. Rust starts the application and can append borrowed pixels to a caller-local image
+//! sink. That sink cannot call the host or enter the event loop. The ownership rule remains:
 //! **C++ owns the [`Host`] for the life of `QApplication::exec`, and Rust never calls a Qt
-//! object.**
+//! window object.**
 //!
 //! That is the opposite of `viewer-gtk`, where the Rust side owns the widgets and every callback
 //! is a `'static` closure holding the host weakly — which is why that host needs an
@@ -28,10 +28,11 @@
 //!
 //! **One `unsafe` token in this crate is written by hand**, and it is the `unsafe extern "C++"`
 //! header below. `cxx` requires it, and what it requires is a *statement*: that the C++
-//! declarations inside are the ones C++ actually has and are safe to call with these types. That
-//! is discharged in the smallest way available — `cpp/host.h` declares one function, taking the
-//! host and an integer and naming no Qt type at all, and `cpp/window.cpp` defines exactly that
-//! one. Everything else the lint sees is the macro's expansion, which no source line contains.
+//! declarations inside are the ones C++ actually has and are safe to call with these types.
+//! `cpp/host.h` names no Qt type: it declares the application entry and an opaque image sink.
+//! The sink copies each borrowed slice synchronously, retains no Rust reference, and cannot
+//! re-enter the host or the event loop. Everything else the lint sees is the macro's expansion,
+//! which no source line contains.
 //!
 //! `tests/unsafe_position.rs` reads this crate's own sources back and asserts the file and line
 //! of that single token — because a `deny` with an exemption is a rule that has to be checked
@@ -159,9 +160,8 @@ pub mod ffi {
 
     /// Where the pixels the viewer is holding belong, and how big they are.
     ///
-    /// The pixels themselves are not in here: they come back from `frame_pixels` as a borrowed
-    /// slice, so tier 1 costs exactly the one copy `doc/ui-boundary.md` prices it at — the
-    /// `QImage`'s — and not two.
+    /// The pixel slice accompanies this metadata in the synchronous image-sink call, so tier 1
+    /// costs exactly the one copy `doc/ui-boundary.md` prices it at: the `QImage`'s.
     #[derive(Debug, Clone, Copy)]
     struct QtFrame {
         /// Whether the viewer has a frame at all.
@@ -945,12 +945,8 @@ pub mod ffi {
         /// §7.7.2 when the document opens and §12.2's `/NonFullScreenPageMode` when full screen
         /// ends.
         fn panel_wanted(self: &Host) -> i32;
-        /// How many pages Table 29's arrangement is showing pixels for.
-        fn frame_count(self: &Host) -> usize;
-        /// Where one page's pixels belong and how big they are.
-        fn frame(self: &Host, index: usize) -> QtFrame;
-        /// The pixels themselves, borrowed rather than copied.
-        fn frame_pixels(self: &Host, index: usize) -> &[u8];
+        /// One placement snapshot, copied synchronously before any host mutation or reentry.
+        fn collect_frames(self: &Host, sink: Pin<&mut QtFrameSink>, probing: bool);
         /// Panel `tree`'s rows, depth first. §12.3.4's panel has none — see `page_row`.
         fn rows(self: &Host, tree: u8) -> Vec<QtRow>;
         /// What panel `tab` is called, from the one place the six words are written down.
@@ -1164,6 +1160,10 @@ pub mod ffi {
 
     unsafe extern "C++" {
         include!("viewer-qt/host.h");
+        /// Caller-local image storage; it holds no host or window and cannot dispatch events.
+        type QtFrameSink;
+        /// Copies the checked raster bytes once; retains no reference to Rust-owned storage.
+        fn append_frame(sink: Pin<&mut QtFrameSink>, frame: QtFrame, pixels: &[u8]);
 
         /// Builds the window, shows it, and runs `QApplication::exec` until it is closed.
         ///

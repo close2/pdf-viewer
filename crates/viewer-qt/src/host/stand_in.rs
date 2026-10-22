@@ -4,25 +4,33 @@
 
 use viewer_core::{Answer, Query};
 
-use crate::bridge::ffi::QtFrame;
+use crate::bridge::ffi::{self, QtFrame};
 use crate::page;
+use std::pin::Pin;
 
 use super::Host;
 
+/// A refresh-local descriptor; pixel ownership remains in the host.
+pub(super) struct QtFrameView<'a> {
+    pub(super) frame: QtFrame,
+    pub(super) pixels: &'a [u8],
+}
+
 impl Host {
-    /// How many pages Table 29's arrangement is showing pixels for.
-    ///
-    /// One under `SinglePage`; more under a column or a spread, and the window paints each of them
-    /// where [`Self::frame`] says.
-    pub(crate) fn frame_count(&self) -> usize {
-        // §12.4.4.1: while one of Table 164's effects is in flight the window shows the effect and
-        // not the page — one picture, because a frame is already two pages placed where they
-        // belong. Answered here rather than pushed across the bridge, so the C++ side draws a
-        // transition with the code it already draws a page with.
-        if self.playing.is_some() {
-            return 1;
+    /// Copies one placement snapshot into a caller-local, non-reentrant image sink.
+    pub(crate) fn collect_frames(&self, mut sink: Pin<&mut ffi::QtFrameSink>, probing: bool) {
+        let began = probing.then(std::time::Instant::now);
+        let views = self.frame_views();
+        if let Some(began) = began {
+            eprintln!(
+                "zoom-probe qt snapshot retrieval_ns={} frames={}",
+                began.elapsed().as_nanos(),
+                views.len()
+            );
         }
-        self.frames().len()
+        for view in views {
+            ffi::append_frame(sink.as_mut(), view.frame, view.pixels);
+        }
     }
 
     /// The pages this window paints and the rectangle each fills: the viewer's frames, with a page
@@ -32,6 +40,8 @@ impl Host {
     /// retained picture — `viewer_host::stand_in::Retained` (ADR 1866), the rules `viewer-gtk`
     /// paints by too.
     pub(super) fn frames(&self) -> Vec<viewer_host::stand_in::Placed<'_>> {
+        #[cfg(test)]
+        tests::placement_query();
         let geometry = |page| match self.state.viewer.query(Query::PageGeometry(page)) {
             Answer::Geometry(geometry) => Some(geometry),
             _ => None,
@@ -77,65 +87,47 @@ impl Host {
         )
     }
 
-    /// Where one page's pixels belong and how big they are.
-    pub(crate) fn frame(&self, index: usize) -> QtFrame {
+    /// One immutable placement snapshot with pixel slices borrowing this host.
+    ///
+    /// The caller copies the pixels before mutating the host or re-entering the event loop.
+    pub(super) fn frame_views(&self) -> Vec<QtFrameView<'_>> {
         if let Some(raster) = self.playing.as_ref() {
-            return match page::describe(raster) {
-                // A transition frame is already in the viewport's own pixels, so its origin is
-                // the viewport's own.
-                Ok((width, height)) => QtFrame {
-                    present: index == 0,
-                    width,
-                    height,
-                    origin_x: 0.0,
-                    origin_y: 0.0,
-                    shown_width: width,
-                    shown_height: height,
-                },
-                Err(error) => {
-                    eprintln!("note: {error}");
-                    no_frame()
-                }
-            };
+            return vec![describe(raster, (0.0, 0.0), (raster.width, raster.height))];
         }
-        let frames = self.frames();
-        let Some(placed) = frames.get(index) else {
-            return no_frame();
-        };
-        match page::describe(placed.frame.raster) {
-            Ok((width, height)) => QtFrame {
+        self.frames()
+            .into_iter()
+            .map(|placed| describe(placed.frame.raster, placed.shown_at(), placed.extent))
+            .collect()
+    }
+}
+
+/// A descriptor borrows only raster storage, never the temporary placement vector.
+fn describe(
+    raster: &pdf_render::Raster,
+    origin: (f32, f32),
+    extent: (u32, u32),
+) -> QtFrameView<'_> {
+    match page::describe(raster) {
+        Ok((width, height)) => QtFrameView {
+            frame: QtFrame {
                 present: true,
                 width,
                 height,
-                origin_x: placed.shown_at().0,
-                origin_y: placed.shown_at().1,
-                shown_width: placed.extent.0,
-                shown_height: placed.extent.1,
+                origin_x: origin.0,
+                origin_y: origin.1,
+                shown_width: extent.0,
+                shown_height: extent.1,
             },
-            Err(error) => {
-                // Trap 5: a host that quietly showed the previous page would be telling a
-                // person something false about this one.
-                eprintln!("note: {error}");
-                no_frame()
+            pixels: raster.data.as_slice(),
+        },
+        Err(error) => {
+            // A malformed raster is refused by name, before C++ can read its bytes.
+            eprintln!("note: {error}");
+            QtFrameView {
+                frame: no_frame(),
+                pixels: &[],
             }
         }
-    }
-
-    /// The pixels themselves, borrowed rather than copied.
-    ///
-    /// Tier 1 is priced at "one copy per frame" and this is what keeps it to one: the `QImage`
-    /// the C++ side builds copies out of this slice, and nothing on this side copies into it.
-    pub(crate) fn frame_pixels(&self, index: usize) -> &[u8] {
-        if let Some(raster) = self.playing.as_ref() {
-            return if index == 0 {
-                raster.data.as_slice()
-            } else {
-                &[]
-            };
-        }
-        self.frames()
-            .get(index)
-            .map_or(&[][..], |placed| placed.frame.raster.data.as_slice())
     }
 }
 
@@ -151,3 +143,7 @@ fn no_frame() -> QtFrame {
         shown_height: 0,
     }
 }
+
+#[cfg(test)]
+#[path = "stand_in_tests.rs"]
+mod tests;

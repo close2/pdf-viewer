@@ -624,16 +624,15 @@ fn several_items_of_a_list_box_are_chosen_and_read_back() {
 #[test]
 fn the_frame_and_its_pixels_agree_about_how_many_bytes_there_are() {
     let host = opened(&committed());
-    let frame = host.frame(0);
+    let views = host.frame_views();
+    let view = views.first().expect("a page has been rasterised");
+    let frame = &view.frame;
     assert!(frame.present, "a page has been rasterised");
     let need =
         usize::try_from(frame.width).unwrap_or(0) * usize::try_from(frame.height).unwrap_or(0) * 4;
     assert!(
-        host.frame_pixels(0).len() >= need,
-        "{} bytes for {}x{}",
-        host.frame_pixels(0).len(),
-        frame.width,
-        frame.height
+        view.pixels.len() >= need,
+        "a whole raster crosses the bridge"
     );
 }
 

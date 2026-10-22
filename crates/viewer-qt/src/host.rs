@@ -261,7 +261,7 @@ pub struct Host {
     /// The frame of a transition in flight, which is what this window shows instead of a page.
     ///
     /// A whole `Raster` rather than a display list, because what crosses this bridge is pixels:
-    /// `frame_pixels` hands the C++ side a borrowed slice and a transition frame has to be
+    /// `collect_frames` hands the C++ sink borrowed slices and a transition frame has to be
     /// somewhere for that borrow to point at.
     playing: Option<pdf_render::Raster>,
     /// Whether the bar of a document still opening past `WARN` has been said on the terminal,

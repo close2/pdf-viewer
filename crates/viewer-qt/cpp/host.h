@@ -1,4 +1,4 @@
-// The one function Rust calls, declared without naming a single Qt type.
+// The application entry and local image sink, declared without naming a Qt type.
 //
 // `#[cxx::bridge]`'s `include!` names this file, and the header cxx generates from the bridge
 // includes it — so anything Qt in here would put Qt in front of the generated header and make the
@@ -21,6 +21,10 @@ struct QtControl;
 struct QtMeasure;
 struct QtQuad;
 struct QtUpdate;
+
+// Defined only in window.cpp; a local value, never a host-owned cache.
+class QtFrameSink;
+void append_frame(QtFrameSink& sink, QtFrame frame, rust::Slice<const std::uint8_t> pixels);
 
 /// Builds the window around `host`, shows it, and runs `QApplication::exec`.
 ///

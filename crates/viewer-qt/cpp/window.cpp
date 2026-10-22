@@ -2715,56 +2715,62 @@ void MainWindow::applyChrome()
     }
 }
 
-void MainWindow::showFrame()
-{
-    const std::size_t count = host_->frame_count();
-    if (count == 0) {
-        return;
-    }
-    // Tier 1's whole cost, in the one place it is paid. `Raster` is row-major RGBA with straight
-    // alpha and no padding, which is `QImage::Format_RGBA8888` exactly — so this is a `memcpy`
-    // and no conversion, the same crossing `viewer-gtk` makes into a `gdk::MemoryTexture`.
-    // `QImage::copy` is what performs it: the constructor below only wraps the borrowed slice.
-    // One copy per page of Table 29's arrangement, which under `SinglePage` is the one it
-    // always was.
-    QElapsedTimer clock;
-    clock.start();
+// Value-only image storage: no Host/window pointer and no callback or event-loop access.
+class QtFrameSink {
+public:
+    explicit QtFrameSink(qreal scale) : scale(scale), measuring(zoomProbe()) {}
     QList<QPair<QImage, QRectF>> frames;
     std::size_t bytes = 0;
-    const qreal scale = page_->devicePixelRatioF();
-    for (std::size_t index = 0; index < count; ++index) {
-        const QtFrame frame = host_->frame(index);
-        if (!frame.present || frame.width == 0 || frame.height == 0) {
-            continue;
-        }
-        const rust::Slice<const std::uint8_t> pixels = host_->frame_pixels(index);
-        const qsizetype stride = static_cast<qsizetype>(frame.width) * 4;
-        if (static_cast<qsizetype>(pixels.size()) < stride * static_cast<qsizetype>(frame.height)) {
-            // The Rust side checks this too, in `page::describe`. Checked twice deliberately: this
-            // is the one number that decides how many bytes are read out of somebody else's
-            // allocation.
-            continue;
-        }
-        const QImage borrowed(pixels.data(), static_cast<int>(frame.width),
-                              static_cast<int>(frame.height), static_cast<int>(stride),
-                              QImage::Format_RGBA8888);
-        QImage owned = borrowed.copy();
-        owned.setDevicePixelRatio(scale);
-        frames.append(qMakePair(std::move(owned),
-                                QRectF(frame.origin_x / scale, frame.origin_y / scale,
-                                       frame.shown_width / scale, frame.shown_height / scale)));
-        bytes += static_cast<std::size_t>(stride) * static_cast<std::size_t>(frame.height);
+    qint64 copyNanos = 0;
+    std::size_t copies = 0;
+    qreal scale;
+    bool measuring;
+};
+
+void append_frame(QtFrameSink& sink, QtFrame frame, rust::Slice<const std::uint8_t> pixels)
+{
+    if (!frame.present || frame.width == 0 || frame.height == 0) {
+        return;
     }
-    if (frames.isEmpty()) {
+    const qsizetype stride = static_cast<qsizetype>(frame.width) * 4;
+    if (static_cast<qsizetype>(pixels.size()) < stride * static_cast<qsizetype>(frame.height)) {
+        // Independent of Rust's page::describe: this length bounds the borrowed C++ read.
+        return;
+    }
+    QElapsedTimer copyClock;
+    if (sink.measuring) { copyClock.start(); }
+    const QImage borrowed(pixels.data(), static_cast<int>(frame.width),
+                          static_cast<int>(frame.height), static_cast<int>(stride),
+                          QImage::Format_RGBA8888);
+    // The only pixel copy; no borrowed slice or image escapes this call.
+    QImage owned = borrowed.copy();
+    ++sink.copies;
+    if (sink.measuring) { sink.copyNanos += copyClock.nsecsElapsed(); }
+    owned.setDevicePixelRatio(sink.scale);
+    sink.frames.append(qMakePair(std::move(owned),
+                                QRectF(frame.origin_x / sink.scale, frame.origin_y / sink.scale,
+                                       frame.shown_width / sink.scale, frame.shown_height / sink.scale)));
+    sink.bytes += static_cast<std::size_t>(stride) * static_cast<std::size_t>(frame.height);
+}
+
+void MainWindow::showFrame()
+{
+    QElapsedTimer clock;
+    clock.start();
+    QtFrameSink sink(page_->devicePixelRatioF());
+    host_->collect_frames(sink, sink.measuring);
+    // All Rust borrows ended on return; only owned QImages survive into widget/host calls.
+    if (sink.frames.isEmpty()) {
         return;
     }
     const qint64 nanos = clock.nsecsElapsed();
-    page_->setFrames(std::move(frames));
+    page_->setFrames(std::move(sink.frames));
     if (zoomProbe()) {
-        std::fprintf(stderr, "zoom-probe qt host-followup-begin us=%lld copy_ns=%lld bytes=%zu\n",
-            zoomMicros(), static_cast<long long>(nanos), bytes);
+        std::fprintf(stderr, "zoom-probe qt host-followup-begin us=%lld copy_ns=%lld bytes=%zu collection_ns=%lld copies=%zu\n",
+            zoomMicros(), static_cast<long long>(sink.copyNanos), sink.bytes,
+            static_cast<long long>(nanos), sink.copies);
     }
-    host_->painted(bytes, static_cast<std::uint64_t>(nanos));
+    host_->painted(sink.bytes, static_cast<std::uint64_t>(nanos));
     if (zoomProbe()) {
         std::fprintf(stderr, "zoom-probe qt host-followup-end us=%lld\n", zoomMicros());
     }
