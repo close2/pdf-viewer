@@ -56,6 +56,7 @@ fn background_open_preserves_clock_and_face_replacement_clears_old_mode() {
     while window.state.anticipated.is_some() && Instant::now() < until {
         window.tick();
     }
+    await_face(&mut window, until);
     window.press(viewer_host::Key::P, viewer_host::Modifiers::NONE);
     assert!(window.state.presenting.full_screen());
     let anchor = Instant::now()
@@ -126,10 +127,9 @@ fn background_open_preserves_clock_and_face_replacement_clears_old_mode() {
     assert!(!window.state.presenting.full_screen());
     assert!(window.state.clock.is_none());
     assert!(window.state.arming.is_none());
-    assert!(
-        window.state.shown.is_some(),
-        "replacement's incoming face must survive synchronization"
-    );
+    // Open may finish before its worker. The unchanged test deadline bounds real completion;
+    // the direct synchronization control below separately protects an already-arrived face.
+    await_face(&mut window, until);
     // Direct core ticks distinguish an actual Off synchronization from merely changing chrome.
     // The FFI timer does not yet drive presentation clocks; this does not claim that feature.
     window.dispatch(Command::Tick { millis: 1000 });
@@ -144,19 +144,57 @@ fn background_open_preserves_clock_and_face_replacement_clears_old_mode() {
         Answer::Page { index: 1, .. }
     ));
     window.press(viewer_host::Key::Escape, viewer_host::Modifiers::NONE);
-    incoming_action_clock_survives(&mut window);
     drop(window);
     std::fs::remove_file(path).expect("remove fixture");
 }
 
-fn incoming_action_clock_survives(window: &mut Window) {
+fn await_face(window: &mut Window, until: Instant) {
+    let ready = |window: &Window| {
+        window.state.shown.is_some()
+            && matches!(window.state.viewer.query(Query::Frame), Answer::Frame(frames) if !frames.is_empty())
+    };
+    while !ready(window) && Instant::now() < until {
+        window.tick();
+    }
+    assert!(
+        ready(window),
+        "drawing must supply an accepted frame and face before the deadline"
+    );
+}
+
+#[test]
+fn synchronization_preserves_an_already_arrived_face_and_action_clock() {
+    let path = std::env::temp_dir().join(format!(
+        "quorra-presentation-sync-{}.pdf",
+        std::process::id()
+    ));
+    document(&path);
+    let mut window =
+        Window::open(&path, None, viewer_host::policy::Words::default()).expect("open");
+    // Seed a completed incoming face independently of the worker's completion order.
+    let face = std::sync::Arc::new(pdf_render::DisplayList::new(pdf_render::Size::new(
+        40.0, 40.0,
+    )));
+    let target = pdf_render::TargetSpec::for_page(&face, 1.0, 1 << 20).expect("small face");
+    window.state.shown = Some((std::sync::Arc::clone(&face), target, (0.0, 0.0)));
     // An incoming transition action may arm this after the outgoing activation state was cleared.
     window.state.clock = Some(viewer_host::Clock::for_one_transition(Instant::now()));
     let mut queue = std::collections::VecDeque::new();
     window.synchronize_presentation(&mut queue);
     assert!(window.state.clock.is_some());
+    assert!(std::sync::Arc::ptr_eq(
+        &face,
+        &window
+            .state
+            .shown
+            .as_ref()
+            .expect("synchronization must preserve the incoming face")
+            .0
+    ));
     assert!(matches!(
         queue.pop_front(),
         Some(Command::Present(viewer_core::PresentationMode::Off))
     ));
+    drop(window);
+    std::fs::remove_file(path).expect("remove fixture");
 }

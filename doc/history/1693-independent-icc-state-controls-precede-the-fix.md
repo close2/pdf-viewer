@@ -30,3 +30,10 @@ was corrected to direct rustfmt on the owned file. Isolated mutation controls,
 separate ICC/tint/mixed costs and combined gates remain subsequent obligations.
 Round1694 owns production code and supplementary multi-channel/recovery tests.
 Durations above are measured command times, not total round wall time.
+
+Integration found a pre-existing FFI test assumed immediate replacement rendering.
+A held real draw proves dispatch can precede completion; the repair keeps its
+original deadline and separately seeds an incoming face/clock for synchronization.
+A planted face-clear fails the exact new preservation assertion (ADR2221).
+Runtime is unchanged; original workspace failure and first rejected calibration
+are preserved. FFI: 49 passed; all-target Clippy passed. Full retry remains owed.

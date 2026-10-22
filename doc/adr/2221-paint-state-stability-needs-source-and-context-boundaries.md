@@ -39,3 +39,19 @@ This does not establish universal colour support or remove the remaining partial
 Additional colour families, unsupported blending profiles and native toolkit presentation
 require their own witnesses. Future fixes should extend this transition/consumer coverage at
 the boundary they change, rather than duplicate state or add consumer-specific cache rules.
+
+Integration also exposed a different stability problem: the FFI presentation test asserted an
+incoming face immediately after replacement Open. Its test and relevant runtime files were
+identical to the fixed baseline. Opening clears the old face; rendering completes on a worker.
+The initial settling budget is bounded and cumulative, so dispatch cannot guarantee completion.
+A controlled test lane held the real replacement request: dispatch returned with no face and a
+pending draw, then explicit release and CPU completion supplied the face. No delay or larger
+timeout was needed to establish that ordering.
+
+The lifecycle test now waits for both an accepted nonempty frame and its face within the same
+original deadline. This wait alone would weaken its synchronization claim, so a separate control
+seeds an already-arrived immutable face and action clock, invokes synchronization, and checks the
+same Arc survives with the Off command queued. An isolated deliberate face-clear fails that
+exact assertion immediately. The first calibration attempt failed only at the lifecycle deadline
+and was retained but excluded from the preservation proof. This is a test repair, not a runtime
+scheduling change; it separates asynchronous completion from preservation of completed state.
