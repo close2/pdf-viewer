@@ -14410,3 +14410,6 @@ mod font_notices;
 
 #[path = "archive/annotation_flags.rs"]
 mod annotation_flags;
+
+#[path = "archive/linked_popups.rs"]
+mod linked_popups;

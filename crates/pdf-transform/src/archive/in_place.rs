@@ -38,6 +38,8 @@ use crate::json::Value;
 use super::decision::Because;
 use super::prepare::RemovedAnnotation;
 
+mod linked_popups;
+
 /// The requirement whose `preserve` shows an annotation its producer hid.
 pub(super) const PRINTABLE_AND_VISIBLE: &str = "annotations/printable-and-visible";
 
@@ -191,7 +193,7 @@ pub(super) fn prepare_reference_xobjects(
 
 /// What a per-object flag policy preserves, and what its separately authorised removal loses.
 pub(super) const BY_SHAPE: &str = "each annotation is answered by its flag shape: preserved \
-    annotations stay on their pages with conforming flags; discarded annotations leave the page. Linked popup/parent structures are refused. The report names each original flag value and each kept value";
+    annotations stay on their pages with conforming flags; discarded annotations leave the page. Closed reciprocal hidden markup/popup pairs may leave together; other linked structures are refused. The report names each original flag value and each kept value";
 
 /// Splits the one validated population without granting a site-wide loss.
 /// Ambiguous flag shapes and widget removal remain a refusal, never a guessed screen state.
@@ -217,18 +219,12 @@ pub(super) fn partition_flags(
                     return Err(Because::NotBuiltYet(WIDGET));
                 }
                 at.insert(row.at);
-                if let Some(dict) = document.get(row.at).as_dict()
-                    && (dict.get("Popup").is_some() || dict.get("Parent").is_some())
-                {
-                    return Err(Because::NotBuiltYet(
-                        "the discarded annotation has a popup or parent relationship; the flag-shape plan does not remove linked annotation structures",
-                    ));
-                }
                 removed.push(row);
             }
             _ => return Err(Because::NotBuiltYet(STOP)),
         }
     }
+    linked_popups::prove(document, &removed)?;
     if kept.iter().any(|row| at.contains(&row.at)) {
         return Err(Because::NotBuiltYet(
             "a removed popup is also an annotation the flag plan keeps",
