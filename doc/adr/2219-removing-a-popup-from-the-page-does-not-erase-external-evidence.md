@@ -21,6 +21,6 @@ and PDF/A-4 run the control in either Annots order. A second conversion also
 succeeds. Separate raster and decoded appearance-byte checks protect the kept
 annotation; no writer deletion or reference-renumbering algorithm changes.
 
-This boundary keeps the pair proof linear in page annotation occurrences and
-relationships, with one graph construction only when a linked removal exists.
+This boundary builds the page membership and relationship indexes once, avoiding
+repeated whole-document scans; the graph is built only when a linked removal exists.
 It does not generalise to widgets, replies, multiple parents or visible popups.

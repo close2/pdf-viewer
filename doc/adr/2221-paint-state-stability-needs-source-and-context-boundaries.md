@@ -55,3 +55,36 @@ same Arc survives with the Off command queued. An isolated deliberate face-clear
 exact assertion immediately. The first calibration attempt failed only at the lifecycle deadline
 and was retained but excluded from the preservation proof. This is a test repair, not a runtime
 scheduling change; it separates asynchronous completion from preservation of completed state.
+
+The canonical launch gate also failed four judged warm-open bands. Its summary listed five
+OUTSIDE values, but device bring-up was not in the judged failure list. Root retained the
+original run and froze the exact Cargo-identified executable, workers, inputs and unchanged
+bands. The fixed baseline used the previous candidate artifact: its source differs from
+`0eb4d278` only in ten documentation files. This is source-equivalent evidence, not a rebuild
+labelled as that exact commit.
+
+A predeclared baseline/candidate/candidate/baseline hold ran all six documents and all 59
+banded figures four times, retaining four exit-101 results. The warm-open medians in milliseconds
+were baseline/candidate: BPC .384/.3835, WTPDF 1.100/1.1055, bug1815476 .363/.3635,
+and opt_demo .1565/.154. Both populations failed the last two timing bands. One baseline run
+also exceeded the open-memory band, 9.008 MiB against 9.000. Instructions remained in-band.
+All eight guards passed; the hold cost 165 s and peaked at .20 GiB. This supports no material
+candidate warm-open regression in the compared contexts, not identical performance.
+
+A second predeclared hold used the same candidate bytes and explicit workers in
+original/copy/copy/original order. Inner exits were 101/0/101/101, with all eight guards passing;
+163 s held, .19 GiB peak. Original opt_demo opens were .186/.182 ms and copied opens .140/.144;
+BPC was .418/.409 versus .374/.385. Copied executables also had higher resident footprints,
+although their rounded allocation figures agreed. Every memory band passed in this hold.
+Device bring-up was explicitly unjudged for the adapter carve-out in all eight follow-up runs.
+The one passing copy does not erase the other failures or the initial larger canonical timings.
+
+Root accepts this diagnosed launch finding without changing product code or thresholds.
+The canonical gate remains FAILED. Exact pathname, inode, loader/mapping and per-executable
+input-cache effects are not isolated, and baseline-original versus candidate-original interaction
+was not measured. No universal performance-neutral claim follows from two repetitions per
+condition. Future harness work must make execution and input-cache context repeatable and
+separate allocated from mapped memory before interpreting these narrow absolute bands.
+Full logs, artifact/source-equivalence receipts and independent reviews are retained under
+`/home/AI/launch-ab-1692` and in the batch evidence archive. Other integration gates retain
+their own verdicts; this diagnosis is not a substitute for them.
