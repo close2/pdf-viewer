@@ -3,13 +3,11 @@
 
 use std::rc::Rc;
 
-use pdf_render::{Color, Transform};
+use pdf_render::Transform;
 use pdf_syntax::{Dictionary, Object, ObjectId};
 
 use crate::colour::ColourSpace;
-use crate::icc::Rendering;
 
-use crate::content::colour::convert;
 use crate::content::report::Unsupported;
 use crate::content::run::narrow;
 use crate::content::{GraphicsState, Interpreter};
@@ -51,7 +49,16 @@ pub(in crate::content) struct Tiling {
     /// The colour an uncoloured pattern is poured through, if it is uncoloured.
     ///
     /// `/PaintType 2` cells carry no colour of their own; the colour comes from `scn`.
-    pub(super) tint: Option<Color>,
+    pub(super) tint: Option<Rc<TintSource>>,
+}
+
+/// Immutable source selected alongside an uncoloured tiling pattern.
+#[derive(Debug)]
+pub(in crate::content) struct TintSource {
+    /// The resolved selection space, independent of later resource dictionaries.
+    pub(in crate::content) space: ColourSpace,
+    /// Only components the selected space can consume are retained.
+    pub(in crate::content) values: Box<[f32]>,
 }
 
 impl Interpreter<'_> {
@@ -177,6 +184,7 @@ impl Interpreter<'_> {
                 // only evidence of what the colour is — the same fallback `scn` uses when
                 // a declared space and its operands disagree.
                 let space = match space {
+                    ColourSpace::Pattern { base: Some(base) } => (**base).clone(),
                     ColourSpace::Pattern { base: None } => match tint.len() {
                         3 => ColourSpace::Rgb,
                         4 => ColourSpace::Cmyk,
@@ -184,21 +192,11 @@ impl Interpreter<'_> {
                     },
                     other => other.clone(),
                 };
-                // Through `convert`, so that an uncoloured cell painted inside a
-                // `/Luminosity` mask group is poured through §11.5.3's luminosity like every
-                // other colour there. The default rendering: the tint arrived with `scn`, and
-                // §8.6.5.8's intent and §8.6.5.9's setting both belong to the state that
-                // paints the cell.
-                Some(convert(
-                    &space,
-                    tint,
-                    Rendering::default(),
-                    (&self.compositing, &self.spots_beside),
-                    // And §10.4.2.4's pair for the same reason: §11.7.5.3 names it "in effect in
-                    // the graphics state at the time of the painting operation", which for an
-                    // uncoloured cell is the state that paints the cell rather than this one.
-                    None,
-                ))
+                let count = space.components();
+                Some(Rc::new(TintSource {
+                    space,
+                    values: tint.iter().take(count).copied().collect(),
+                }))
             }
             _ => None,
         };

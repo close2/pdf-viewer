@@ -17,6 +17,7 @@
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
+use std::rc::Rc;
 use std::sync::Arc;
 
 use pdf_render::{
@@ -189,6 +190,8 @@ struct GraphicsState {
     fill: Color,
     /// Source components survive selection: §11.7.5.3 uses the pair current at paint.
     fill_rgb: Option<[f32; 3]>,
+    /// An uncoloured cell retains its selected source across nested target changes.
+    pattern_tint: Option<Rc<pattern::TintBinding>>,
     /// The stroking source, saved with the colour by `q`/`Q`.
     stroke_rgb: Option<[f32; 3]>,
     /// The pattern set as the fill colour, if the fill space is `/Pattern`.
@@ -373,6 +376,7 @@ impl GraphicsState {
             stroke_pattern: None,
             stroke_colour: Color::BLACK,
             fill_rgb: None,
+            pattern_tint: None,
             stroke_rgb: None,
             stroke: Stroke::default(),
             blend: BlendMode::Normal,

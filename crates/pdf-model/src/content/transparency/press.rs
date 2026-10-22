@@ -348,10 +348,8 @@ impl Interpreter<'_> {
     ///   subdictionary, which is why the group's resources are consulted rather than the
     ///   page's — and Errata Collection 3's Issue #134 is what makes that reading of
     ///   *current* the clause's rather than this tree's (see [`named_press`]).
-    /// - **No figure is supplying this content's colour from outside it** (§8.6.8's
-    ///   `uncoloured`): the marks inside carry a colour resolved for the *parent's*
-    ///   compositing, and reinterpreting them in ink would convert a colour that was never
-    ///   stated here.
+    /// - An uncoloured figure must retain its selected source. A Type 3 glyph with only
+    ///   a resolved parent colour still cannot be reinterpreted in another target.
     ///
     /// # A knockout group used to be a fourth condition
     ///
@@ -375,19 +373,17 @@ impl Interpreter<'_> {
     /// pattern painted inside a press is resolved in that press's half like every other colour
     /// there.
     ///
-    /// **[`Interpreter::uncoloured`] stays, and the difference is which way the colour travels.**
-    /// §8.6.8's uncoloured cell takes its colour from the `scn` *outside* — "the pattern's
-    /// content stream shall not specify any colour" — so there is nothing inside the group to
-    /// rebuild from; the tint is a resolved [`pdf_render::Color`] and reinterpreting it as ink
-    /// would state one the file never did. A shading pattern carries its whole definition, which
-    /// is exactly what made the rebuild possible.
+    /// An uncoloured tiling cell now carries its immutable source and mark binding,
+    /// so `tint_source` admits re-resolution in each group plane. Uncoloured content
+    /// without that binding retains the refusal: a resolved colour is not a source.
     pub(super) fn group_press(
         &mut self,
         group: &TransparencyGroup,
         resources: &Dictionary,
         rendering: Rendering,
+        tint_source: bool,
     ) -> Option<Arc<Press>> {
-        if !group.isolated || self.uncoloured {
+        if !group.isolated || (self.uncoloured && !tint_source) {
             return None;
         }
         // The page's own §14.11.5 intent, resolved once when this interpretation began — a

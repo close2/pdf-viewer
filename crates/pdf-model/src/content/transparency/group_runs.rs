@@ -229,7 +229,13 @@ impl<'a> Interpreter<'a> {
         // Saved first: on a spot plane the question below may narrow what the group's content
         // resolves colours in without drawing the group in a space of its own (ADR 1329).
         let saved = self.compositing.clone();
-        let own = self.spot_group_compositing(group, resources, outer.rendering(), changed);
+        let own = self.spot_group_compositing(
+            group,
+            resources,
+            outer.rendering(),
+            changed,
+            outer.pattern_tint.is_some(),
+        );
         let own_space = own.is_some();
         // Scoped only where the group is being drawn in a space of its own: everywhere else
         // the record has to propagate *up* to whatever such run this group may be inside.

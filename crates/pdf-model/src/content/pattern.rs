@@ -32,6 +32,40 @@ pub(super) use initial::PatternInitial;
 use lattice::{as_f32, bounds_of, spans};
 use tiling::Tiling;
 
+/// The selected tint and the parameters of the mark using it, separate from cell state.
+#[derive(Debug)]
+pub(super) struct TintBinding {
+    source: Rc<tiling::TintSource>,
+    rendering: crate::icc::Rendering,
+    generation: Option<Arc<crate::black_generation::BlackGeneration>>,
+}
+
+impl TintBinding {
+    /// The mark's conversion parameters combined with the current target.
+    fn conversion(&self, interpreter: &Interpreter<'_>) -> crate::colour::Conversion {
+        interpreter
+            .conversion_under(self.rendering)
+            .under_black_generation(self.generation.clone())
+    }
+
+    /// Whether this same effective conversion bypasses its stated pair.
+    pub(super) fn bypasses_black_generation(&self, interpreter: &Interpreter<'_>) -> bool {
+        self.conversion(interpreter)
+            .bypasses_black_generation(&self.source.space)
+    }
+
+    /// Resolves the source in the current nested target without replacing definition state.
+    pub(super) fn paint(&self, interpreter: &mut Interpreter<'_>, fill: bool) -> pdf_render::Color {
+        if matches!(self.source.space, crate::colour::ColourSpace::Rgb)
+            && let Ok(values) = self.source.values.as_ref().try_into()
+        {
+            return interpreter.rgb_paint(values, self.rendering, self.generation.as_ref(), fill);
+        }
+        self.conversion(interpreter)
+            .paint(&self.source.space, &self.source.values)
+    }
+}
+
 /// What a `/Pattern` colour space's `scn` selected.
 ///
 /// The two kinds are drawn in completely different ways. A shading pattern is a paint and
@@ -282,19 +316,15 @@ impl Interpreter<'_> {
         // multiplied by a coverage that is below 1.0 wherever the outline is anti-aliased, so
         // the marks inside such a cell are not opaque and §11.7.5.2's sixth condition cannot be
         // met through them.
-        let inside = self.opaque_ancestry
-            && shape.is_none()
-            && alpha >= 1.0
-            && state.blend == BlendMode::Normal
-            && state.soft_mask.is_none();
-        // Asked before the cell runs, because the clause asks it of the mark that paints the
-        // pattern and `run_cell` starts from `Interpreter::cell_state` (§11.6.7).
-        let transfer = self.mark_transfer(
+        let (inside, transfer) = self.cell_paint_parameters(state, region, shape.is_none(), alpha);
+        let (box_clip, transfer, reading) = self.run_cell_scoped(
+            tiling,
             state,
-            Painted::of(state, matches!(region, Tiled::Stroke(_))),
+            offset.then(tiling.to_page),
+            clip,
+            inside,
+            transfer,
         );
-        let (box_clip, transfer, reading) =
-            self.run_cell_scoped(tiling, offset.then(tiling.to_page), clip, inside, transfer);
         // Table 74's box, and the marks it halves: both are settled on the cell itself, so
         // every site is a copy of the settled figure rather than a repetition of the question.
         if let Some(corners) = tiling.bbox {
@@ -482,9 +512,7 @@ impl Interpreter<'_> {
     /// applies them ([`Interpreter::mark_transfer`], ADR 1266).
     pub(super) fn fill_paint(&mut self, state: &GraphicsState) -> Paint {
         let Some(PatternPaint::Shading(pattern)) = &state.fill_pattern else {
-            self.black_generation_painted |= self
-                .conversion(state)
-                .bypasses_black_generation(&state.fill_space);
+            self.black_generation_painted |= self.solid_bypasses_black_generation(state, true);
             let colour = self.solid_colour(state, true);
             return Paint::Solid(pdf_render::Color {
                 a: colour.a * state.fill_alpha,
@@ -514,12 +542,30 @@ impl Interpreter<'_> {
         self.transfer_for_mark(state, painted).cloned()
     }
 
+    /// Reads the invoking mark's opacity and transfer before definition-state evaluation.
+    fn cell_paint_parameters(
+        &mut self,
+        state: &GraphicsState,
+        region: Tiled<'_>,
+        no_shape_mask: bool,
+        alpha: f32,
+    ) -> (bool, Option<Arc<crate::content::Transfer>>) {
+        let inside = self.opaque_ancestry
+            && no_shape_mask
+            && alpha >= 1.0
+            && state.blend == BlendMode::Normal
+            && state.soft_mask.is_none();
+        let transfer = self.mark_transfer(
+            state,
+            Painted::of(state, matches!(region, Tiled::Stroke(_))),
+        );
+        (inside, transfer)
+    }
+
     /// As [`Interpreter::fill_paint`], for a stroking mark and §11.6.4.4's stroking constant.
     pub(super) fn stroke_paint(&mut self, state: &GraphicsState) -> Paint {
         let Some(PatternPaint::Shading(pattern)) = &state.stroke_pattern else {
-            self.black_generation_painted |= self
-                .conversion(state)
-                .bypasses_black_generation(&state.stroke_space);
+            self.black_generation_painted |= self.solid_bypasses_black_generation(state, false);
             let colour = self.solid_colour(state, false);
             return Paint::Solid(pdf_render::Color {
                 a: colour.a * state.stroke_alpha,

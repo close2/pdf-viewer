@@ -1,6 +1,7 @@
 //! §8.7.3.2: one tiling cell run once: the graphics state it starts from, its bounding box, the
 //! clip its repeats can drop, and whether anything in it composites (ADR 2081).
 
+use std::rc::Rc;
 use std::sync::Arc;
 
 use pdf_render::{BlendMode, ClipId, Command, Point, Rect, Transform};
@@ -98,6 +99,7 @@ impl Interpreter<'_> {
     fn run_cell(
         &mut self,
         tiling: &Tiling,
+        mark: &GraphicsState,
         to_page: Transform,
         outer: Option<ClipId>,
     ) -> (Option<ClipId>, AlphaSourcesSeen) {
@@ -116,10 +118,17 @@ impl Interpreter<'_> {
         // the colour operators inside it "shall be ignored" exactly as they are inside a `d1`
         // glyph description.
         let saved_uncoloured = self.uncoloured;
-        if let Some(tint) = tiling.tint {
+        if let Some(source) = &tiling.tint {
+            let binding = Rc::new(super::TintBinding {
+                source: source.clone(),
+                rendering: mark.rendering(),
+                generation: mark.black_generation.clone(),
+            });
+            let tint = binding.paint(self, true);
             cell.fill = tint;
             cell.stroke_colour = tint;
-            // This tint is already converted; inherited RGB components are not its source.
+            cell.pattern_tint = Some(binding);
+            // The selected tint owns its source; inherited RGB is unrelated.
             cell.fill_rgb = None;
             cell.stroke_rgb = None;
             // The colour poured through the stencil is the tint alone, whatever colour the
@@ -258,6 +267,7 @@ impl Interpreter<'_> {
     pub(super) fn run_cell_scoped(
         &mut self,
         tiling: &Tiling,
+        mark: &GraphicsState,
         to_page: Transform,
         clip: Option<ClipId>,
         inside: bool,
@@ -270,7 +280,7 @@ impl Interpreter<'_> {
         let ancestry = std::mem::replace(&mut self.opaque_ancestry, inside);
         let outer_cell = std::mem::replace(&mut self.tiling_cell, true);
         let outer_opaque = std::mem::replace(&mut self.tiling_cell_opaque, true);
-        let (box_clip, reading) = self.run_cell(tiling, to_page, clip);
+        let (box_clip, reading) = self.run_cell(tiling, mark, to_page, clip);
         let cell_opaque = std::mem::replace(&mut self.tiling_cell_opaque, outer_opaque);
         self.tiling_cell = outer_cell;
         self.opaque_ancestry = ancestry;

@@ -364,15 +364,16 @@ impl Interpreter<'_> {
     ///
     /// Two of [`Interpreter::group_press`]'s conditions stay, for the reasons given there: the
     /// group must be isolated, because §11.6.6 gives a non-isolated group's `/CS` no effect;
-    /// and no uncoloured cell may be supplying the colour from outside. Which parents it may
+    /// and uncoloured content must retain its tint source. Which parents it may
     /// be asked under is [`Interpreter::group_compositing`]'s question. A grey group inside a
     /// grey page is not this function's: it inherits, and [`group_blending`] says so.
     fn group_own_space(
         &mut self,
         group: &TransparencyGroup,
         resources: &Dictionary,
+        tint_source: bool,
     ) -> Option<Compositing> {
-        if !group.isolated || self.uncoloured {
+        if !group.isolated || (self.uncoloured && !tint_source) {
             return None;
         }
         match own_space_compositing(self.document, &group.colour_space, resources, self.presses) {
@@ -415,6 +416,7 @@ impl Interpreter<'_> {
         resources: &Dictionary,
         rendering: Rendering,
         changed: bool,
+        tint_source: bool,
     ) -> Option<Compositing> {
         let nested = self.compositing != Compositing::Device;
         // `None` for the black generation: this asks only whether a route into the parent
@@ -424,7 +426,7 @@ impl Interpreter<'_> {
         {
             return None;
         }
-        if let Some(press) = self.group_press(group, resources, rendering) {
+        if let Some(press) = self.group_press(group, resources, rendering, tint_source) {
             if let Compositing::Subtractive(_, parent, _) = &self.compositing
                 && parent.identity() == press.identity()
             {
@@ -440,7 +442,7 @@ impl Interpreter<'_> {
                 self.spots_beside.clone(),
             ));
         }
-        if let Some(own) = self.group_own_space(group, resources) {
+        if let Some(own) = self.group_own_space(group, resources, tint_source) {
             return Some(own);
         }
         // §11.7.2 folds a device space of the parent's own count into the parent
@@ -449,7 +451,7 @@ impl Interpreter<'_> {
         // three components are the group's own here.
         (nested
             && group.isolated
-            && !self.uncoloured
+            && (!self.uncoloured || tint_source)
             && matches!(
                 ColourSpace::parse(self.document, &group.colour_space, resources),
                 Some(ColourSpace::Rgb)

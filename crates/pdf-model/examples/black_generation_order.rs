@@ -45,6 +45,17 @@ fn page_group_fixture(
     form: &str,
     page: &str,
 ) -> Vec<u8> {
+    fixture_with_step(page_group, form_group, form_resources, form, page, 100)
+}
+
+fn fixture_with_step(
+    page_group: &str,
+    form_group: &str,
+    form_resources: &str,
+    form: &str,
+    page: &str,
+    step: u32,
+) -> Vec<u8> {
     let body = format!(
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
@@ -57,7 +68,7 @@ fn page_group_fixture(
          /XObject << /Fm 5 0 R >> >> /Contents 4 0 R >>\nendobj\n\
          4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
          5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] {form_group} \
-         /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> >> \
+         /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> /GB << /BG << /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >> /UCR << /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [0.5] /N 1 >> >> >> \
          {form_resources} /XObject << /In 6 0 R >> >> /Length {} >>\n\
          stream\n{form}\nendstream\nendobj\n\
          6 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] \
@@ -71,7 +82,7 @@ fn page_group_fixture(
 
     let cell = "0 0 100 100 re f";
     let body = format!(
-        "{body}7 0 obj\n<< /Type /Pattern /PatternType 1 /PaintType 2 /TilingType 1 /BBox [0 0 100 100] /XStep 100 /YStep 100 /Resources << >> /Length {} >>\nstream\n{cell}\nendstream\nendobj\n",
+        "{body}7 0 obj\n<< /Type /Pattern /PatternType 1 /PaintType 2 /TilingType 1 /BBox [0 0 {step} {step}] /XStep {step} /YStep {step} /Resources << >> /Length {} >>\nstream\n{cell}\nendstream\nendobj\n",
         cell.len() + 1
     );
     let mut out = String::from("%PDF-1.7\n");
@@ -95,6 +106,10 @@ fn page_group_fixture(
 }
 /// Prints the clause-derived colour beside the operator-order witnesses.
 fn main() {
+    if std::env::args().any(|argument| argument == "--pattern-cost") {
+        repeated_pattern_cost();
+        return;
+    }
     if std::env::args().any(|argument| argument == "--cost") {
         repeated_paint_cost();
         return;
@@ -122,7 +137,7 @@ fn main() {
             drawn.unsupported
         );
     }
-    // The tint path still stores a default-converted colour (ADR 2199); print, do not bless it.
+    // ADR 2212 retains the tint source; print it beside the independent press conversion.
     let pattern = interpret(page_group_fixture(
         "/Group << /S /Transparency /CS /DeviceCMYK >>",
         "",
@@ -209,4 +224,52 @@ fn save_picture(name: &str, interpretation: &pdf_model::Interpretation) {
         .expect("PNG header")
         .write_image_data(&raster.data)
         .expect("PNG pixels");
+}
+
+/// Whole interpretations; document opening and rasterisation remain outside the timer.
+fn repeated_pattern_cost() {
+    for (name, step, alternating, changing_pair) in [
+        ("pattern-one", 100, false, false),
+        ("pattern-many", 10, false, false),
+        ("pattern-tints", 100, true, false),
+        ("pattern-pairs", 100, false, true),
+    ] {
+        let mut form = String::from("/Pat cs .2 .4 .6 /P scn ");
+        for index in 0..1000 {
+            if alternating {
+                form.push_str(if index % 2 == 0 {
+                    ".2 .4 .6 /P scn "
+                } else {
+                    ".6 .4 .2 /P scn "
+                });
+            }
+            if changing_pair {
+                form.push_str("q /GB gs ");
+            }
+            form.push_str("0 0 50 100 re f ");
+            if changing_pair {
+                form.push_str("Q ");
+            }
+        }
+        let resources = "/ColorSpace << /Pat [/Pattern /DeviceRGB] >> /Pattern << /P 7 0 R >>";
+        let document = Document::open(fixture_with_step(
+            "/Group << /S /Transparency /CS /DeviceCMYK >>",
+            "",
+            resources,
+            &form,
+            "/Fm Do /GS gs 0 0 0 0 k 60 0 40 100 re f",
+            step,
+        ))
+        .expect("valid pattern cost fixture");
+        let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+        std::hint::black_box(pdf_model::interpret(&document, &page));
+        let began = std::time::Instant::now();
+        for _ in 0..20 {
+            std::hint::black_box(pdf_model::interpret(&document, &page));
+        }
+        println!(
+            "{name}: 20 interpretations x 1000 marks: {:.3} ms",
+            began.elapsed().as_secs_f64() * 1000.0
+        );
+    }
 }

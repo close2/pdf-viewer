@@ -6057,3 +6057,44 @@ fn an_images_rgb_samples_use_the_black_generation_pair_at_its_do() {
         );
     }
 }
+
+/// §11.7.5.3 reports the tint's effective source and pair at actual paint, including stencils.
+#[test]
+fn a_profiled_pattern_reports_the_bound_rgb_tint_only_when_painted() {
+    for cell in ["0 0 100 100 re f", "q 100 0 0 100 0 0 cm /Mask Do Q"] {
+        let objects = format!(
+            "6 0 obj\n<< /Type /Pattern /PatternType 1 /PaintType 2 /TilingType 1 \
+             /BBox [0 0 100 100] /XStep 100 /YStep 100 \
+             /Resources << /XObject << /Mask 7 0 R >> >> /Length {} >>\n\
+             stream\n{cell}\nendstream\nendobj\n\
+             7 0 obj\n<< /Type /XObject /Subtype /Image /Width 1 /Height 1 \
+             /ImageMask true /BitsPerComponent 1 /Filter /ASCIIHexDecode /Length 3 >>\n\
+             stream\n00>\nendstream\nendobj\n",
+            cell.len() + 1
+        );
+        let resources = "/ColorSpace << /Tint [/Pattern /DeviceRGB] /GreyTint [/Pattern /DeviceGray] >> \
+                         /Pattern << /P 6 0 R >> /XObject << /Mask 7 0 R >>";
+        for (content, reported) in [
+            ("/GB gs /Tint cs .2 .4 .6 /P scn", false),
+            ("/GB gs /Tint cs .2 .4 .6 /P scn 0 0 100 100 re f", true),
+            ("/GB gs /GreyTint cs .5 /P scn 0 0 100 100 re f", false),
+            (
+                "/Tint cs .2 .4 .6 /P scn /GB gs q 100 0 0 100 0 0 cm /Mask Do Q",
+                true,
+            ),
+        ] {
+            let page = interpret(two_way_intent_resources(content, resources, &objects));
+            let count = page
+                .unsupported
+                .iter()
+                .filter(|item| matches!(item, pdf_model::Unsupported::BlackGeneration { .. }))
+                .count();
+            assert_eq!(
+                count,
+                usize::from(reported),
+                "{cell}; {content}: {:?}",
+                page.unsupported
+            );
+        }
+    }
+}

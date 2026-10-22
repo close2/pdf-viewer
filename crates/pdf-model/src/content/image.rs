@@ -378,9 +378,8 @@ impl Interpreter<'_> {
             }) => {
                 self.black_generation_painted |= black_generation_bypassed;
                 if stencil {
-                    self.black_generation_painted |= self
-                        .conversion(state)
-                        .bypasses_black_generation(&state.fill_space);
+                    self.black_generation_painted |=
+                        self.solid_bypasses_black_generation(state, true);
                 }
                 // §7.4.8 puts a JPEG's dimensions in the codestream and this tree draws them from
                 // there, so an image whose dictionary says something else is *drawn* rather than

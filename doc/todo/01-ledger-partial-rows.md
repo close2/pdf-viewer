@@ -32,9 +32,10 @@ reading in one line per row, and the note is where it is argued. The membership 
 - **§7.6.5.1, §7.6.5.2, §7.6.5.3** (`reported`) — the handler is refused by name; the build
   waits on `doc/questions/A66`'s trigger, which `doc/questions/A168` reads as unlit.
 - **§7.6.6** — Table 27, which is the handler's; moves on the same trigger.
-- **§11.7.5.3** — uncoloured tiling-pattern tints discard the current BG/UCR pair and retain
-  only a default-converted colour. Carry the tint source to painting; test selection/use order
-  and cache hits. ADR 2199 preserves the witness; ADR 2198 fixes ordinary solids and stencils.
+- **§11.7.5.3** — non-RGB solid colours retain selection-time conversion: the ICC
+  rendering-intent order witness remains different. Retain the source through painting and
+  cover current intent/BPC, q/Q, Forms/groups and all paint consumers (ADR 2213).
+  Uncoloured pattern tints now retain their source (ADR 2212).
   The deliberate output-intent profile bypass remains separate.
 - **§12.2** — WinUI consumes effective chrome, preserves pane choice across temporary
   hiding, and restores chrome on Escape and document changes. Native full-screen/title-bar

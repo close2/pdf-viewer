@@ -134,6 +134,9 @@ impl Interpreter<'_> {
     /// A solid source is converted in the context of its paint, including a stencil image.
     /// Non-RGB colours retain their existing conversion; §11.7.5.3's BG/UCR rule names RGB.
     pub(super) fn solid_colour(&mut self, state: &GraphicsState, fill: bool) -> Color {
+        if let Some(tint) = &state.pattern_tint {
+            return tint.paint(self, fill);
+        }
         let (rgb, converted) = if fill {
             (state.fill_rgb, state.fill)
         } else {
@@ -142,16 +145,49 @@ impl Interpreter<'_> {
         let Some(values) = rgb else {
             return converted;
         };
+        self.rgb_paint(
+            values,
+            state.rendering(),
+            state.black_generation.as_ref(),
+            fill,
+        )
+    }
+
+    /// Ordinary RGB and bound RGB tints share the existing two full-context slots.
+    pub(super) fn rgb_paint(
+        &mut self,
+        values: [f32; 3],
+        rendering: Rendering,
+        generation: Option<&std::sync::Arc<BlackGeneration>>,
+        fill: bool,
+    ) -> Color {
         let context = ConversionContext {
             into: &self.compositing,
-            rendering: state.rendering(),
+            rendering,
             output_intent: profile_of(self.output_intent.as_ref()),
             cmyk_group: profile_of(self.cmyk_group.as_ref()),
-            black_generation: state.black_generation.as_ref(),
+            black_generation: generation,
             separations: self.separations(),
             spots: &self.spots_beside,
         };
         self.solid_colours.paint(context, values, fill)
+    }
+
+    /// Reports against the same source and parameters as the actual solid or stencil paint.
+    pub(super) fn solid_bypasses_black_generation(
+        &self,
+        state: &GraphicsState,
+        fill: bool,
+    ) -> bool {
+        if let Some(tint) = &state.pattern_tint {
+            tint.bypasses_black_generation(self)
+        } else {
+            self.conversion(state).bypasses_black_generation(if fill {
+                &state.fill_space
+            } else {
+                &state.stroke_space
+            })
+        }
     }
 
     /// How an object painted under `state` converts its colours.
@@ -308,10 +344,11 @@ impl Interpreter<'_> {
         resources: &Dictionary,
         rendering: Rendering,
         changed: bool,
+        tint_source: bool,
     ) -> Option<Compositing> {
         if self.on_a_spot_plane() {
             if self
-                .group_compositing(group, resources, rendering, changed)
+                .group_compositing(group, resources, rendering, changed, tint_source)
                 .is_some()
                 && let Compositing::Subtractive(plane, press, spots) = &self.compositing
             {
@@ -323,7 +360,7 @@ impl Interpreter<'_> {
             }
             return None;
         }
-        self.group_compositing(group, resources, rendering, changed)
+        self.group_compositing(group, resources, rendering, changed, tint_source)
     }
 
     /// Sets a colour space, which decides how the operands of `sc`/`scn` are read.

@@ -875,3 +875,37 @@ fn an_absolute_intent_draws_unprinted_paper_as_the_paper() {
         );
     }
 }
+
+/// §11.7.5.3's current intent reaches the retained ICC tint, independently of selection order.
+#[test]
+fn an_uncoloured_icc_tint_uses_the_intent_at_each_paint() {
+    let cell = "0 0 20 20 re f";
+    let extra = format!(
+        "{}6 0 obj\n<< /Type /Pattern /PatternType 1 /PaintType 2 /TilingType 1 \
+         /BBox [0 0 20 20] /XStep 20 /YStep 20 /Resources << >> /Length {} >>\n\
+         stream\n{cell}\nendstream\nendobj\n",
+        table_object(5),
+        cell.len().saturating_add(1)
+    );
+    let resources = "/ColorSpace << /Tint [/Pattern [/ICCBased 5 0 R]] >> /Pattern << /P 6 0 R >>";
+    for intent in ["Perceptual", "Saturation"] {
+        let expected = centre_colour(pdf_with(
+            &table_object(5),
+            "/ColorSpace << /CS0 [/ICCBased 5 0 R] >>",
+            &format!("/{intent} ri /CS0 cs .5 scn 0 0 20 20 re f"),
+        ));
+        for content in [
+            format!("/Tint cs .5 /P scn /{intent} ri 0 0 20 20 re f"),
+            format!("/{intent} ri /Tint cs .5 /P scn 0 0 20 20 re f"),
+            format!(
+                "/Tint cs .5 /P scn q /AbsoluteColorimetric ri 0 0 5 20 re f Q /{intent} ri 5 0 15 20 re f"
+            ),
+        ] {
+            assert_eq!(
+                centre_colour(pdf_with(&extra, resources, &content)),
+                expected,
+                "{content}"
+            );
+        }
+    }
+}
