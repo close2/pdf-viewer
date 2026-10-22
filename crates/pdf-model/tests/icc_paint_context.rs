@@ -116,6 +116,15 @@ fn fixture(content: &str) -> Vec<u8> {
     fixture_with_default(content, "")
 }
 fn fixture_with_default(content: &str, default_gray: &str) -> Vec<u8> {
+    fixture_with_supplements(content, default_gray, "", &[])
+}
+
+fn fixture_with_supplements(
+    content: &str,
+    default_gray: &str,
+    extra_xobjects: &str,
+    extra_objects: &[String],
+) -> Vec<u8> {
     let a = three_table_profile();
     let mut b = a.clone();
     // Exchange A2B0/A2B2 tag signatures, leaving the encoded tables untouched.
@@ -127,8 +136,13 @@ fn fixture_with_default(content: &str, default_gray: &str) -> Vec<u8> {
         &format!("/ColorSpace << {default_gray}"),
         1,
     );
+    let resources = if extra_xobjects.is_empty() {
+        resources
+    } else {
+        resources.replacen("/XObject <<", &format!("/XObject << {extra_xobjects}"), 1)
+    };
     let font = include_bytes!("../../../data/standard-fonts/LiberationSans-Regular.ttf");
-    let objects = [
+    let mut objects = vec![
         "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
         format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 100] /Resources << {resources} >> /Contents 4 0 R >>"),
@@ -145,6 +159,7 @@ fn fixture_with_default(content: &str, default_gray: &str) -> Vec<u8> {
         content_stream("/Type /XObject /Subtype /Form /BBox [0 0 80 80] /Group << /S /Transparency /I true /CS /DeviceGray >> /Resources << /ExtGState << /Half << /ca 0.5 >> >> >>", "/Half gs 0 0 60 80 re f 20 0 60 80 re f"),
         content_stream("/Type /XObject /Subtype /Form /BBox [0 0 80 80] /Group << /S /Transparency /I true /CS /DeviceGray >> /Resources << /ColorSpace << /A [/ICCBased 5 0 R] >> /ExtGState << /Half << /ca 0.5 >> >> >>", "/A cs 0.5 scn /Half gs 0 0 60 80 re f 20 0 60 80 re f"),
     ];
+    objects.extend_from_slice(extra_objects);
     let mut out = String::from("%PDF-2.0\n");
     let mut offsets = Vec::new();
     for (index, object) in objects.iter().enumerate() {
@@ -192,6 +207,11 @@ fn expected(mid: [f64; 3]) -> [u8; 3] {
 }
 fn expected_unrounded(mid: [f64; 3]) -> [f64; 3] {
     let xyz = mid.map(|v| (v * 32768.0).floor() / 32768.0);
+    decoded_xyz_to_srgb(xyz)
+}
+
+/// Pure matrix/transfer stage; input XYZ is already decoded, with no further quantization.
+fn decoded_xyz_to_srgb(xyz: [f64; 3]) -> [f64; 3] {
     let matrix = [
         [3.134_136, -1.617_036, -0.490_662],
         [-0.978_755, 1.916_142, 0.033_454],
@@ -443,3 +463,6 @@ fn device_gray_operators_retain_the_resolved_default_icc_source() {
         near(pixel(&device, 130, 50), [128, 128, 128]);
     }
 }
+
+#[path = "icc_paint_context/indexed.rs"]
+mod indexed;
