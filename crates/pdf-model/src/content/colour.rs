@@ -132,21 +132,21 @@ impl Interpreter<'_> {
     }
 
     /// A solid source is converted in the context of its paint, including a stencil image.
-    /// Non-RGB colours retain their existing conversion; §11.7.5.3's BG/UCR rule names RGB.
+    /// Other source families retain their existing conversion; pattern bindings take precedence.
     pub(super) fn solid_colour(&mut self, state: &GraphicsState, fill: bool) -> Color {
         if let Some(tint) = &state.pattern_tint {
             return tint.paint(self, fill);
         }
-        let (rgb, converted) = if fill {
-            (state.fill_rgb, state.fill)
+        let (source, converted) = if fill {
+            (state.fill_source.as_ref(), state.fill)
         } else {
-            (state.stroke_rgb, state.stroke_colour)
+            (state.stroke_source.as_ref(), state.stroke_colour)
         };
-        let Some(values) = rgb else {
+        let Some(source) = source else {
             return converted;
         };
-        self.rgb_paint(
-            values,
+        self.solid_paint(
+            source,
             state.rendering(),
             state.black_generation.as_ref(),
             fill,
@@ -161,6 +161,17 @@ impl Interpreter<'_> {
         generation: Option<&std::sync::Arc<BlackGeneration>>,
         fill: bool,
     ) -> Color {
+        self.solid_paint(&SolidSource::Rgb(values), rendering, generation, fill)
+    }
+
+    /// Source identity and current target context are separate dependencies of solid paint.
+    fn solid_paint(
+        &mut self,
+        source: &SolidSource,
+        rendering: Rendering,
+        generation: Option<&std::sync::Arc<BlackGeneration>>,
+        fill: bool,
+    ) -> Color {
         let context = ConversionContext {
             into: &self.compositing,
             rendering,
@@ -170,7 +181,7 @@ impl Interpreter<'_> {
             separations: self.separations(),
             spots: &self.spots_beside,
         };
-        self.solid_colours.paint(context, values, fill)
+        self.solid_colours.paint(context, source, fill)
     }
 
     /// Reports against the same source and parameters as the actual solid or stencil paint.
@@ -463,15 +474,16 @@ impl Interpreter<'_> {
         } else {
             self.colour(&space, initial, state)
         };
-        self.seed_solid_colour(state, fill, &space, initial, colour);
+        let source = SolidSource::selected(&space, initial);
+        self.seed_solid_colour(state, fill, source.as_ref(), colour);
         if fill {
-            state.fill_rgb = rgb_source(&space, initial);
+            state.fill_source = source;
             state.fill_tints = cmyk_tints(&space, initial);
             state.fill_space = space;
             state.fill = colour;
             state.fill_pattern = None;
         } else {
-            state.stroke_rgb = rgb_source(&space, initial);
+            state.stroke_source = source;
             state.stroke_tints = cmyk_tints(&space, initial);
             state.stroke_space = space;
             state.stroke_colour = colour;
@@ -555,15 +567,16 @@ impl Interpreter<'_> {
             }
         };
 
-        self.seed_solid_colour(state, fill, &read_in, &values, colour);
+        let source = SolidSource::selected(&read_in, &values);
+        self.seed_solid_colour(state, fill, source.as_ref(), colour);
         let tints = cmyk_tints(&read_in, &values);
         if fill {
             state.fill = colour;
-            state.fill_rgb = rgb_source(&read_in, &values);
+            state.fill_source = source;
             state.fill_tints = tints;
         } else {
             state.stroke_colour = colour;
-            state.stroke_rgb = rgb_source(&read_in, &values);
+            state.stroke_source = source;
             state.stroke_tints = tints;
         }
     }
@@ -604,17 +617,18 @@ impl Interpreter<'_> {
         space: ColourSpace,
         values: &[f32],
     ) {
-        self.seed_solid_colour(state, fill, &space, values, colour);
+        let source = SolidSource::selected(&space, values);
+        self.seed_solid_colour(state, fill, source.as_ref(), colour);
         let tints = cmyk_tints(&space, values);
         if fill {
             state.fill = colour;
-            state.fill_rgb = rgb_source(&space, values);
+            state.fill_source = source;
             state.fill_space = space;
             state.fill_pattern = None;
             state.fill_tints = tints;
         } else {
             state.stroke_colour = colour;
-            state.stroke_rgb = rgb_source(&space, values);
+            state.stroke_source = source;
             state.stroke_space = space;
             state.stroke_pattern = None;
             state.stroke_tints = tints;
@@ -625,14 +639,13 @@ impl Interpreter<'_> {
         &mut self,
         state: &GraphicsState,
         fill: bool,
-        space: &ColourSpace,
-        values: &[f32],
+        source: Option<&SolidSource>,
         colour: Color,
     ) {
-        if let Some(values) = rgb_source(space, values) {
+        if let Some(source) = source {
             let held = SolidColour {
                 conversion: self.conversion(state),
-                components: values.map(f32::to_bits),
+                source: source.clone(),
                 colour,
             };
             if fill {
@@ -823,12 +836,87 @@ fn is_icc_based(document: &Document, id: ObjectId) -> bool {
         .is_some_and(|name| name.as_bytes() == b"ICCBased")
 }
 
-/// Only the resolved device space is governed by §11.7.5.3's black-generation bullet.
-fn rgb_source(space: &ColourSpace, values: &[f32]) -> Option<[f32; 3]> {
-    if matches!(space, ColourSpace::Rgb) {
-        values.try_into().ok()
-    } else {
-        None
+/// The ordinary source families whose current paint parameters are retained here.
+///
+/// RGB stays inline; an ICC selection owns its profile and bounded components so q/Q and
+/// nested streams share immutable input without resolving a resource name again.
+#[derive(Debug, Clone)]
+pub(super) enum SolidSource {
+    Rgb([f32; 3]),
+    Icc(std::rc::Rc<IccSource>),
+}
+
+#[derive(Debug)]
+pub(super) struct IccSource {
+    profile: std::sync::Arc<crate::icc::Profile>,
+    values: IccValues,
+}
+
+/// The component counts admitted by the resolved ICC profile reader.
+#[derive(Debug)]
+enum IccValues {
+    One([f32; 1]),
+    Three([f32; 3]),
+    Four([f32; 4]),
+}
+
+impl IccValues {
+    fn as_slice(&self) -> &[f32] {
+        match self {
+            Self::One(values) => values,
+            Self::Three(values) => values,
+            Self::Four(values) => values,
+        }
+    }
+}
+
+impl SolidSource {
+    fn selected(space: &ColourSpace, values: &[f32]) -> Option<Self> {
+        match space {
+            ColourSpace::Rgb => values.try_into().ok().map(Self::Rgb),
+            ColourSpace::Icc { profile } if values.len() == profile.channels() => {
+                let values = match *values {
+                    [a] => IccValues::One([a]),
+                    [a, b, c] => IccValues::Three([a, b, c]),
+                    [a, b, c, d] => IccValues::Four([a, b, c, d]),
+                    _ => return None,
+                };
+                Some(Self::Icc(std::rc::Rc::new(IccSource {
+                    profile: profile.clone(),
+                    values,
+                })))
+            }
+            _ => None,
+        }
+    }
+
+    fn matches(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Rgb(left), Self::Rgb(right)) => {
+                left.map(f32::to_bits) == right.map(f32::to_bits)
+            }
+            (Self::Icc(left), Self::Icc(right)) => {
+                left.profile.identity() == right.profile.identity()
+                    && left.values.as_slice().iter().map(|v| v.to_bits()).eq(right
+                        .values
+                        .as_slice()
+                        .iter()
+                        .map(|v| v.to_bits()))
+            }
+            _ => false,
+        }
+    }
+
+    fn paint(&self, conversion: &Conversion) -> Color {
+        match self {
+            Self::Rgb(values) => conversion.paint(&ColourSpace::Rgb, values),
+            Self::Icc(source) => conversion.paint(
+                &ColourSpace::Icc {
+                    profile: source.profile.clone(),
+                },
+                source.values.as_slice(),
+            ),
+        }
     }
 }
 
@@ -843,29 +931,28 @@ pub(super) struct SolidColours {
 #[derive(Debug)]
 struct SolidColour {
     conversion: Conversion,
-    components: [u32; 3],
+    source: SolidSource,
     colour: Color,
 }
 
 impl SolidColours {
-    fn paint(&mut self, context: ConversionContext<'_>, values: [f32; 3], fill: bool) -> Color {
+    fn paint(&mut self, context: ConversionContext<'_>, source: &SolidSource, fill: bool) -> Color {
         let slot = if fill {
             &mut self.fill
         } else {
             &mut self.stroke
         };
-        let components = values.map(f32::to_bits);
         if let Some(held) = slot
-            && held.components == components
+            && held.source.matches(source)
             && context.matches(&held.conversion)
         {
             return held.colour;
         }
         let conversion = context.to_owned();
-        let colour = conversion.paint(&ColourSpace::Rgb, &values);
+        let colour = source.paint(&conversion);
         *slot = Some(SolidColour {
             conversion,
-            components,
+            source: source.clone(),
             colour,
         });
         colour

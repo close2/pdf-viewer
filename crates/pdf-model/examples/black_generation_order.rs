@@ -15,6 +15,9 @@
     reason = "generated 100-unit fixture, bounded pixel indices and byte conversion; a malformed fixture must stop the instrument"
 )]
 
+#[path = "black_generation_order/icc_cost.rs"]
+mod icc_cost;
+
 use pdf_render::{Rasterizer, TargetSpec};
 use pdf_syntax::Document;
 use std::fmt::Write as _;
@@ -106,6 +109,10 @@ fn fixture_with_step(
 }
 /// Prints the clause-derived colour beside the operator-order witnesses.
 fn main() {
+    if std::env::args().any(|argument| argument == "--icc-cost") {
+        icc_cost::run();
+        return;
+    }
     if std::env::args().any(|argument| argument == "--pattern-cost") {
         repeated_pattern_cost();
         return;

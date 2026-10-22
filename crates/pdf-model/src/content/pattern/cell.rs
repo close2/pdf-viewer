@@ -128,9 +128,9 @@ impl Interpreter<'_> {
             cell.fill = tint;
             cell.stroke_colour = tint;
             cell.pattern_tint = Some(binding);
-            // The selected tint owns its source; inherited RGB is unrelated.
-            cell.fill_rgb = None;
-            cell.stroke_rgb = None;
+            // The selected tint owns its source; inherited ordinary sources are unrelated.
+            cell.fill_source = None;
+            cell.stroke_source = None;
             // The colour poured through the stencil is the tint alone, whatever colour the
             // parent stream began with — a pattern colour among them.
             cell.fill_pattern = None;

@@ -909,3 +909,174 @@ fn an_uncoloured_icc_tint_uses_the_intent_at_each_paint() {
         }
     }
 }
+
+/// Current-source and cold-selection controls for an isolated RGB group's alpha stages.
+#[test]
+fn an_icc_solid_in_an_rgb_group_matches_cold_selection_at_each_alpha_stage() {
+    let resources = "/ColorSpace << /CS0 [/ICCBased 5 0 R] >> /XObject << /G 6 0 R >> /ExtGState << /Off << /UseBlackPtComp /OFF >> >>";
+    for (name, paint) in [
+        ("opaque", "0 0 20 20 re f"),
+        ("half", "/Half gs 0 0 20 20 re f"),
+        ("overlap", "/Half gs 0 0 20 20 re f 0 0 20 20 re f"),
+    ] {
+        let draw = |cold: bool| {
+            let content = format!("{} {paint}", if cold { "/CS0 cs .5 scn" } else { "" });
+            let extra = format!(
+                "{}6 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 20 20] \
+                 /Group << /S /Transparency /I true /CS /DeviceRGB >> \
+                 /Resources << /ColorSpace << /CS0 [/ICCBased 5 0 R] >> \
+                 /ExtGState << /Half << /ca .5 >> >> >> /Length {} >>\nstream\n{content}\nendstream\nendobj\n",
+                table_object(5),
+                content.len().saturating_add(1)
+            );
+            centre_colour(pdf_with(
+                &extra,
+                resources,
+                "/Off gs /CS0 cs .5 scn /Perceptual ri /G Do",
+            ))
+        };
+        let inherited = draw(false);
+        let cold = draw(true);
+        println!("ICC RGB group {name}: inherited={inherited:?}, cold={cold:?}");
+        assert_eq!(inherited, cold, "group {name}");
+    }
+}
+
+/// The three intent knots depend on one named input axis, so every retained component is observable.
+fn multi_channel_tables(channels: usize, axis: usize) -> Vec<u8> {
+    let mut profile = vec![0u8; 128];
+    profile[8] = 2;
+    profile[16..20].copy_from_slice(if channels == 3 { b"RGB " } else { b"CMYK" });
+    profile[20..24].copy_from_slice(b"XYZ ");
+    profile[36..40].copy_from_slice(b"acsp");
+    profile.extend_from_slice(&3u32.to_be_bytes());
+    let mut offset = 168usize;
+    let mut data = Vec::new();
+    for (name, middle) in [
+        (b"A2B0", [0.45f32, 0.25, 0.05]),
+        (b"A2B1", [0.25, 0.25, 0.25]),
+        (b"A2B2", [0.12, 0.25, 0.75]),
+    ] {
+        let mut table = Vec::from(*b"mft2\0\0\0\0");
+        table.extend_from_slice(&[channels as u8, 3, 3, 0]);
+        for value in [1.0f32, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0] {
+            table.extend_from_slice(&((value * 65536.0) as i32).to_be_bytes());
+        }
+        table.extend_from_slice(&2u16.to_be_bytes());
+        table.extend_from_slice(&2u16.to_be_bytes());
+        for _ in 0..channels {
+            table.extend_from_slice(&[0, 0, 255, 255]);
+        }
+        let stride = 3usize.pow((channels - axis - 1) as u32);
+        for index in 0..3usize.pow(channels as u32) {
+            let xyz = match index / stride % 3 {
+                0 => [0.9642, 1.0, 0.8249],
+                1 => middle,
+                _ => [0.09642, 0.1, 0.08249],
+            };
+            for value in xyz {
+                table.extend_from_slice(&((value * 32768.0) as u16).to_be_bytes());
+            }
+        }
+        for _ in 0..3 {
+            table.extend_from_slice(&[0, 0, 255, 255]);
+        }
+        profile.extend_from_slice(name);
+        profile.extend_from_slice(&(offset as u32).to_be_bytes());
+        profile.extend_from_slice(&(table.len() as u32).to_be_bytes());
+        offset += table.len();
+        data.extend_from_slice(&table);
+    }
+    profile.extend_from_slice(&data);
+    profile
+}
+
+/// §11.7.5.3 applies to each direct ICC channel count; the key must retain every component.
+#[test]
+fn multi_channel_icc_solids_keep_every_component_across_restore_and_late_intent() {
+    let resources =
+        "/ColorSpace << /CS0 [/ICCBased 5 0 R] >> /ExtGState << /Off << /UseBlackPtComp /OFF >> >>";
+    for channels in [3, 4] {
+        for axis in 0..channels {
+            let object = icc_object(5, &multi_channel_tables(channels, axis))
+                .replace("/N 1 ", &format!("/N {channels} "));
+            let middle = vec![".5"; channels].join(" ");
+            let mut white = vec![".5"; channels];
+            white[axis] = "0";
+            let white = white.join(" ");
+            let cold = centre_colour(pdf_with(
+                &object,
+                resources,
+                &format!("/Off gs /Perceptual ri /CS0 cs {middle} scn 0 0 20 20 re f"),
+            ));
+            assert!(
+                cold.0 > 250 && cold.1 < 65 && cold.2 < 65,
+                "perceptual knot {cold:?}"
+            );
+            let actual = centre_colour(pdf_with(
+                &object,
+                resources,
+                &format!(
+                    "/Off gs /CS0 cs {middle} scn /Perceptual ri q {white} scn 0 0 20 20 re f Q 0 0 20 20 re f"
+                ),
+            ));
+            assert_eq!(actual, cold, "{channels} channels, restored axis {axis}");
+            let white_paint = centre_colour(pdf_with(
+                &object,
+                resources,
+                &format!(
+                    "/Off gs 0 0 0 rg 0 0 20 20 re f /CS0 cs {middle} scn /Perceptual ri {white} scn 0 0 20 20 re f"
+                ),
+            ));
+            assert!(
+                white_paint.0 > 250 && white_paint.1 > 250 && white_paint.2 > 250,
+                "{channels} channels, changed axis {axis}: {white_paint:?}"
+            );
+        }
+    }
+}
+
+/// Malformed sc/scn preserves the previous effective source and its diagnostic, not the intent.
+#[test]
+fn empty_and_invalid_icc_operands_keep_the_previous_source_and_report() {
+    let resources =
+        "/ColorSpace << /CS0 [/ICCBased 5 0 R] >> /ExtGState << /Off << /UseBlackPtComp /OFF >> >>";
+    let expected = centre_colour(pdf_with(
+        &table_object(5),
+        resources,
+        "/Off gs /Perceptual ri /CS0 cs .5 scn 0 0 20 20 re f",
+    ));
+    for bad in ["scn", "1 2 scn"] {
+        let document = Document::open(pdf_with(
+            &table_object(5),
+            resources,
+            &format!("/Off gs /CS0 cs .5 scn {bad} /Perceptual ri 0 0 20 20 re f"),
+        ))
+        .expect("valid PDF container");
+        let page = pdf_model::Pages::new(&document).get(0).expect("page");
+        let interpretation = pdf_model::interpret(&document, &page);
+        let reports = format!("{:?}", interpretation.unsupported);
+        assert_eq!(
+            interpretation.unsupported.len(),
+            usize::from(bad != "scn"),
+            "{reports}"
+        );
+        if bad != "scn" {
+            assert!(
+                reports.contains("2 colour components (expected 1)"),
+                "{reports}"
+            );
+        }
+        let target =
+            TargetSpec::for_page(&interpretation.display_list, 1.0, GENEROUS).expect("target");
+        let raster = CpuRasterizer::new()
+            .rasterize(&interpretation.display_list, target)
+            .expect("raster");
+        let at = ((10 * raster.width) + 10) as usize * 4;
+        assert_eq!(
+            (raster.data[at], raster.data[at + 1], raster.data[at + 2]),
+            expected,
+            "{bad}"
+        );
+    }
+}

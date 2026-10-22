@@ -1,0 +1,29 @@
+# 1694 — Direct ICC paint follows current state
+
+Session1694,2026-10-22. ADR2222/2223; §§8.6.5.8,8.6.5.9,11.7.5.3.
+
+**Change.** Retain resolved direct ICC profile and exact operands alongside inline
+RGB sources; actual `read_in`, initial/reset and malformed-operand semantics survive.
+Existing two pre-alpha slots compare source family/profile/components and complete
+current conversion context. Selection seeds them; save/restore retains ownership.
+Pattern binding remains first, generic ICC tints convert directly, and cell setup
+clears unrelated ordinary sources. Alpha and actual-paint reports stay outside caches.
+
+**Gates.** Independent baseline13:2 passed,11 failed with stale colour.
+Candidate13 passed after root corrected intermediate8bit alpha oracle (ADR2220),
+without loosening tolerance; cold and inherited group paints agree at all3stages.
+Warnings-denied model all-target clippy/fmt and owned/existing focused controls:
+22 rendering-intent,2 mixed-paint,10 pattern-tint passed; exit 0,33s,0.57GiB.
+Isolated candidate13 passed; source-retention/profile-identity/context omissions
+all fail intended assertions with exit 101; unchanged independent tests, exact
+source restoration. Driver exit 0,157s hold/170s elapsed,0.65GiB.
+Full model+colour suite remains pending; no final integration claim.
+
+**Cost.** Fixed0eb4d278 before/after exports carry identical instrumentation and
+exactly3 production delta paths. OrdinaryICC, genericICCtint, mixed and RGB
+populations remain separate; required-current-state work is labeled explicitly.
+Immutable release builds and twelve balanced pinned pairs are pending.
+
+**Limits.** Other colour families retain their previous fallback; no broader cache
+unification or clause completion is claimed. Root owns shared ledger and integration.
+Scope:/home/AI/paths-1694.txt. Receipts:scratchpad/r1694/.

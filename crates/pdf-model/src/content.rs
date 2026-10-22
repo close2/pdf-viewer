@@ -188,12 +188,12 @@ struct GraphicsState {
     /// command list and the same mask commonly applies to every object on a page.
     soft_mask: Option<SoftMaskId>,
     fill: Color,
-    /// Source components survive selection: §11.7.5.3 uses the pair current at paint.
-    fill_rgb: Option<[f32; 3]>,
+    /// Resolved RGB/ICC sources survive selection; §11.7.5.3 uses current paint parameters.
+    fill_source: Option<colour::SolidSource>,
     /// An uncoloured cell retains its selected source across nested target changes.
     pattern_tint: Option<Rc<pattern::TintBinding>>,
     /// The stroking source, saved with the colour by `q`/`Q`.
-    stroke_rgb: Option<[f32; 3]>,
+    stroke_source: Option<colour::SolidSource>,
     /// The pattern set as the fill colour, if the fill space is `/Pattern`.
     fill_pattern: Option<PatternPaint>,
     /// As above, for stroking.
@@ -375,9 +375,9 @@ impl GraphicsState {
             fill_pattern: None,
             stroke_pattern: None,
             stroke_colour: Color::BLACK,
-            fill_rgb: None,
+            fill_source: None,
             pattern_tint: None,
-            stroke_rgb: None,
+            stroke_source: None,
             stroke: Stroke::default(),
             blend: BlendMode::Normal,
             fill_alpha: 1.0,
