@@ -20,8 +20,8 @@ each toolkit delivered 32 Zoom and six Scroll commands. Earlier failures remain 
 Initial setup, synthetic-input and coordinate failures were rejected. Separate unmaximize requests
 corrected a harness error; repeated xdotool options had removed only the last named state.
 Probe7 matched Qt's 900×700 viewport at DPR 1.59375 but delivered cumulative 3/7/19/31 zooms
-instead of 4/8/20/32; six pans arrived. Settling, active/focus verification and longer pulses did
-not restore the first event. The run remained invalid: exit 1, 95 s hold, 173 s including queue.
+instead of 4/8/20/32; six pans arrived. Settling, focus checks and longer pulses left one Zoom
+missing; non-Ctrl wheel delivery is unobserved. Invalid: exit 1, 95 s hold, 173 s including queue.
 Qt first-paint medians for the four phases were 1.94/1.27/2.09/1.85 ms, from 3/4/12/12 events;
 these are incomplete Xwayland observations at nominal 120/55 ms cadence, not a speedup verdict.
 GTK matched 900×700 at DPR 1 but failed pointer calibration before gestures: two samples reused
@@ -36,5 +36,5 @@ Fixed allocation can exceed its clipped Overlay without viewport drift. Paint is
 fix is asserted; GTK's observed DPR 1 does not exercise the proved scale-two fix. Next work needs
 widget-to-window geometry, fresh motion receipts, exact Qt/XI2 input diagnosis, within-toolkit
 pixel/anchor comparisons and native Wayland reproduction. Cross-toolkit pixels require normalized
-DPR/zoom. Final toolkit and batch gates remain integration obligations. Total round wall time and
+DPR/zoom. Final toolkit gate passes; launch follow-up: ADR 2209. Total round wall time and
 tool-call count are unavailable; individual hold durations above are measured.

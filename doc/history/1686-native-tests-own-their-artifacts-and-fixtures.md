@@ -19,7 +19,7 @@ The client chain exited 0 after 639 s hold, 1.40 GiB peak, 1262 s including queu
 Six isolated helper controls passed, including separate-process fixture cleanup.
 Removing profile verification caused the stale/wrong-profile control to fail
 with exit 101 as required; calibration driver exit 0. Shared conformance passed
-in round 1687 after final helper placement; final batch records checks remain due.
+in round 1687 after final helper placement; final integration accepted with launch follow-up in ADR 2209.
 
 **Attempts and limits.** Earlier attempts stopped on initial helper placement and
 sibling in-flight transform errors; final placement and scoped checks resolved them.

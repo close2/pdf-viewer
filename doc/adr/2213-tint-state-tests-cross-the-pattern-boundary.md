@@ -1,6 +1,6 @@
 # 2213 — Tint state tests cross the pattern boundary
 
-Status: accepted; final combined integration checks remain due. Session 1689.
+Status: accepted; final integration accepted with launch follow-up. Session 1689.
 Context: ADR 2212; the recurring source-loss failures examined in round 1687.
 
 The first fixture pins a clause-derived colour, rather than comparing two paths
@@ -29,7 +29,9 @@ alternating tints and changing parameters, with one-cell and many-cell lattices.
 Document opening is outside the timer; content parsing and lazy work remain inside.
 It uses isolated fixed-baseline and candidate exports, pinned balanced repetitions and
 an exclusive quiet clock hold. No performance-neutral claim follows from correctness.
-Final corpus and launch checks remain separate integration obligations.
+Final six-arm corpus comparisons pass with identical frames/errors/populations; ADR 2212
+records immutable-source provenance. Remaining canonical gates pass; ADR 2209 records the
+launch follow-up, original failures and measurement limitations.
 
 A separate non-RGB solid defect remains under §11.7.5.3. The generated three-table
 ICC witness selects component .5, then sets Perceptual before painting: it produces

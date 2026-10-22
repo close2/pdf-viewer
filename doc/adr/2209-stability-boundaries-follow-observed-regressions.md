@@ -43,6 +43,51 @@ source population and runtime configuration identities verified before execution
 remaining risk, not proof that every prior measurement mixed revisions. Extend the existing
 receipt approach rather than adding another independently inferred companion path.
 
+### Execution context is more than identical bytes
+
+Two fixed launch comparisons make this limitation concrete. The first runs baseline,
+candidate, candidate, baseline with matching workers and complete input receipts. Its
+baseline is production-equivalent to fixed `b9d05ee8` (the recorded build commit differs
+only in six history files). The judged `opt_demo.pdf` warm-open figures are
+0.135/0.137/0.137/0.138 ms. This balanced comparison supports no differential slowdown;
+it does not erase the canonical candidate's earlier 0.144 ms failure against 0.140 ms.
+Both copied candidate runs fail memory bands, whereas both baseline runs pass them.
+
+The second comparison uses the same candidate bytes in original/copy/copy/original order,
+with identical explicit original workers and environment. Executable, worker and input
+hashes match before and after. Original-path memory passes for all six documents twice;
+both copies fail the PDF20 and bug1815476 memory ceilings. The selected-child allocated
+figures remain 0.8 MiB for PDF20 and 0.6 MiB for opt_demo at the output's displayed
+precision, while whole-process resident measurements and approximate mapped remainders
+rise for the copies. This establishes sensitivity to execution location/context, not its
+exact mechanism: inode/path, argument layout and the harness-derived cold-file directory
+change together, and rounded residency figures cannot prove precise mapped-memory deltas.
+
+Timing must be judged separately. The same original artifact records 0.145 ms and then
+0.129 ms in that predeclared sequence; path alone cannot determine the warm-open result.
+The two copies record 0.131/0.139 ms. Near-equal instruction counts and identical read-call
+counts show no substantial added-work signal, but cannot exclude code-layout/cache latency.
+The final original run passes its test, with a WTPDF turn still unjudged for scheduling;
+all eight runs decline graphics bring-up for carve-out placement. Neither wrapper exit 0
+nor an in-band unjudged value establishes that every gate or figure passed. Preserve all
+prior timing failures, copied-memory failures and refusal reasons alongside positive runs.
+
+Artifact hashes establish byte identity, not memory/timing-context equivalence. A future
+bounded harness investigation should retain raw child measurements and the selected-child
+identity, then separately control equal-length paths/arguments, same-inode hardlinks and
+cold-file placement. Keep executable/worker/input receipts, balanced fixed ordering and
+unchanged quiet guards; do not change product bands or select favorable repetitions to
+resolve a measurement question. No such follow-up is implemented here. Full raw receipts,
+independent parses and qualified interpretations remain in `/home/AI/launch-ab-1686`:
+`full-abba`, `location-occa`, `cross-hold-opt-demo.json` and `location-report.md`.
+
+Final integration records 38/39 original canonical gates passing; the other result is the
+launch failure above. The fixed original-location follow-up passes, supporting acceptance
+without product or band changes while keeping that original failure. Every other canonical
+gate passes. Workspace nextest passes 7594 tests (53 skips), all six renderer arms retain
+identical frames/errors/populations, and the restored fuzz lint passes after its intentional
+property-panic annotation. No single-run all-figure or copied-memory pass is claimed.
+
 These narrow changes can reduce invalid combinations at construction boundaries. File splits
 alone do not provide that guarantee; round 1691 is a mechanical navigation improvement with
 its behavior preserved, not evidence that all signature coupling is resolved.

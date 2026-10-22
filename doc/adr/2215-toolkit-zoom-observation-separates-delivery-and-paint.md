@@ -11,6 +11,11 @@ interval includes Rust frame getters and geometry queries. Its paint-end is not 
 scanout. GTK reports available presentation feedback separately; a zero timestamp is unavailable.
 Normal execution does not install the additional GTK frame observer.
 
+The current Qt wheel receipt is inside the Ctrl-modifier branch, not an unconditional census
+of wheel events. A missing Zoom command therefore does not establish missing toolkit delivery:
+a wheel arriving without Ctrl is unobserved by that receipt. Further input diagnosis needs an
+entry receipt before modifier branching and an accepted/rejected receipt at the host busy guard.
+
 A display probe must verify actual core Zoom and Scroll commands, not successful input-tool
 exit codes. Synthetic window events and XTest events can behave differently. Input coordinates
 must be calibrated from observed core pointer positions independently of resize coordinates;

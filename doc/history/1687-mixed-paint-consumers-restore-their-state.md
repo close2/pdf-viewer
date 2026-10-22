@@ -32,4 +32,5 @@ assertion is unchanged; model all-target check passed in 20 s, 0.95 GiB peak.
 
 The restored fuzz Clippy check found an intentional property panic without its lint
 annotation. A function-scoped expectation preserves the forbidden-window failure
-and every assertion; focused lint validation is recorded with the batch integration.
+and every assertion. Original tier1 fuzz lint exited 101; focused retry exits 0, 1 s hold,
+0.02 GiB (122s including queue). Final integration accepted; launch follow-up: ADR 2209.

@@ -24,8 +24,9 @@ Revision build exit 0,114s,0.83GiB. Fixed b9d05ee8, identical instrumentation,
 Revised paired median ratios1.01723/1.01093/1.02955/1.04436; deltas per20k marks
 1.209/8.1575/3.874/6.267ms. Accept bounded correctness cost, not performance-neutral.
 All samples retained, including214.685ms changed-pair outlier and noisy ordinaryRGB.
-Original candidate/export receipts remain preserved. Final combined corpus/launch
-checks are integration obligations; source checkpoint c76e3bdd precedes cost verdict.
+Original candidate/export receipts remain preserved. Final six arms from immutable 5cdd57c3
+match baseline b9d05ee8 frames/errors: 968 pages per 1x arm, 965 per 4x; 1658 s hold, 3.73 GiB.
+Final integration accepted (launch follow-up: ADR 2209); c76e3bdd precedes cost verdict.
 
 **Residual.** Ordinary ICC selection-before-Perceptual still fails [116,111,133]
 versus expected[253,0,0]; retain partial separately from deliberate profile bypass.

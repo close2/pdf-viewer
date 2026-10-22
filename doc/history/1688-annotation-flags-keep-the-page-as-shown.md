@@ -1,7 +1,7 @@
 # 1688 — Annotation flags keep the page as shown
 
 Archive round, batch one hundred and six, 2026-10-22. ADRs 2210–2211; no new question.
-**Implemented and scoped gates passed; final batch gates pending.** PDF/A-2/-4 §6.3.2 and
+**Implemented; scoped gates passed and final integration accepted (ADR 2209).** PDF/A-2/-4 §6.3.2 and
 ISO 32000-2 §12.5.3 Table 167 require a distinction between visibility and printing.
 As-shown now discards Hidden/NoView with Invisible/ToggleNoView clear and preserves
 visible missing-Print annotations in the same document by setting Print in place.
@@ -33,7 +33,7 @@ Resource cross-check: 13547 selections, zero disagreements, 59 s; one-sided walk
 13 soft-mask selections remain explicitly outside that comparison.
 Scoped warnings-denied rustdoc passes, 22 s; workspace conformance passes, 137 s.
 Host caller all-targets clippy passes; formatting/diff and doctest invocation pass.
-Root owns final six arms and combined integration.
+Final six arms: identical frames/errors/populations against fixed b9d05ee8; remaining gates pass; launch follow-up: ADR 2209.
 
 Owned paths: scratchpad/r1688/owned-paths.txt. Logs: scratchpad/r1688/.
 Duration: 2361 s from 2026-10-22T04:17:17+02:00, including queue and coordination.

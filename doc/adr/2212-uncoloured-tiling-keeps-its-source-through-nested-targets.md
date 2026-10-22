@@ -1,6 +1,6 @@
 # 2212 — Uncoloured tiling keeps its source through nested targets
 
-Status: accepted with measured cost; final combined corpus/launch checks remain due. Session 1689.
+Status: accepted with measured cost; final integration accepted with launch follow-up. Session 1689.
 Context: ADR 2199; ISO 32000-2 §§8.7.3.3, 11.6.7 and 11.7.5.3.
 
 An uncoloured tiling selection retained only a converted colour. Its conversion used
@@ -78,5 +78,11 @@ reuse removes the rejected large regression without introducing another state ke
 The revised immutable binary produces all four saved PNGs byte-identically to the
 correct uncached candidate. Inspected tint pictures match the independent arithmetic
 above. Exact source/binary manifests, all samples and guards are retained under
-scratchpad/r1689/{cost-before,cost-after,cost-cached,paired,paired-cached}; final
-combined corpus and launch gates remain separate integration obligations.
+scratchpad/r1689/{cost-before,cost-after,cost-cached,paired,paired-cached}. Final six
+CPU/GPU/compute arms from immutable source 5cdd57c3 pass against fixed b9d05ee8:
+frames, errors and populations are identical (968 pages per 1x arm, 965 per 4x arm).
+The export held 1658 seconds, 3.73 GiB; /home/AI/arms-comparison-1686.json records all
+six comparisons. Later fuzz-lint/documentation edits do not change those renderer bytes.
+Original canonical gates pass 38/39; the launch follow-up and retained failures are in ADR 2209.
+Workspace nextest passes 7594 tests with 53 skips; restored fuzz lint passes after its scoped
+intentional-panic annotation. All six arms and remaining canonical gates pass unchanged.
