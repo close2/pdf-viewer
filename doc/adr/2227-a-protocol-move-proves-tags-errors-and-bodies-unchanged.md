@@ -1,6 +1,6 @@
 # 2227 — A protocol move proves tags, errors and bodies unchanged
 
-Session 1696, docs. Status: implemented; scoped gates pass; final conformance pending.
+Session 1696, docs. Status: implemented; scoped gates pass; full conformance passes.
 
 The protocol split starts from a hashed source snapshot. A syn parser identifies
 exactly six function items, including attributes and documentation; source spans

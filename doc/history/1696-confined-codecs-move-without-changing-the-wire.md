@@ -1,7 +1,7 @@
 # 1696 — Confined codecs move without changing the wire
 
 Docs round, batch one hundred and seven, 2026-10-22. ADRs 2226–2227; no question.
-**Implemented; scoped gates pass; final conformance pending.** Four script dialogue and two published
+**Implemented; scoped gates pass; full conformance passes.** Four script dialogue and two published
 signature-policy helpers move from protocol.rs into two private children.
 Parent imports are explicit; helper visibility becomes pub(super), while Reader,
 Writer and ProtocolError retain their existing visibility. No public API changes.

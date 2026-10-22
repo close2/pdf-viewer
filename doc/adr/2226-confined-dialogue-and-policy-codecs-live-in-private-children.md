@@ -1,6 +1,6 @@
 # 2226 — Confined dialogue and policy codecs live in private children
 
-Session 1696, docs. Status: implemented; scoped gates pass; final conformance pending.
+Session 1696, docs. Status: implemented; scoped gates pass; full conformance passes.
 
 The confined protocol root contains routing, primitives, codecs and their tests.
 Two already independent vocabularies can move without decomposing its exhaustive

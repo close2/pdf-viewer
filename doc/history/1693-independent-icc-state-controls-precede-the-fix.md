@@ -1,7 +1,7 @@
 # 1693 — Independent ICC state controls precede the fix
 
 Stability clause round, batch107, 2026-10-22; ADRs2220–2221, no question.
-ISO32000-2 §§8.6.5.8–9 and11.7.5.3; status remains partial pending integration.
+ISO32000-2 §§8.6.5.8–9 and11.7.5.3; status remains partial; integration accepted (1697).
 The recurring defect is a converted result surviving changes to its inputs.
 Source identity, current paint context and derived cache contents need separate
 ownership; a smaller source file alone does not enforce that invariant.
@@ -27,7 +27,7 @@ No renderer change or observed-raster golden was used to resolve that error.
 (staged-alpha.log, exit0,1s; test runtime0.03s). Warnings-denied focused Clippy
 passes,32.50s; root scoped rustfmt passes. An invalid cargo fmt --test invocation
 was corrected to direct rustfmt on the owned file. Isolated mutation controls,
-separate ICC/tint/mixed costs and combined gates remain subsequent obligations.
+separate ICC/tint/mixed costs pass; combined acceptance and launch limits:1697.
 Round1694 owns production code and supplementary multi-channel/recovery tests.
 Durations above are measured command times, not total round wall time.
 
@@ -36,4 +36,4 @@ A held real draw proves dispatch can precede completion; the repair keeps its
 original deadline and separately seeds an incoming face/clock for synchronization.
 A planted face-clear fails the exact new preservation assertion (ADR2221).
 Runtime is unchanged; original workspace failure and first rejected calibration
-are preserved. FFI: 49 passed; all-target Clippy passed. Full retry remains owed.
+are preserved. FFI: 49 passed; all-target Clippy passed. Full retry:7619 passed,54 skipped.

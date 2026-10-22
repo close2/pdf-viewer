@@ -1,6 +1,6 @@
 # 2223 — ICC cache proof separates source, context and workload
 
-Status: accepted with measured correctness cost; final integration pending. Session 1694.
+Status: accepted with measured correctness cost; integration accepted with the launch limits in ADR 2221. Session 1694.
 
 ## Decision
 
@@ -12,7 +12,7 @@ Cost populations remain separate: ordinary direct ICC, existing generic ICC patt
 
 Both cost exports are verified against fixed baseline `0eb4d278`, with identical instrumentation and exactly the three production source files changed in the candidate. Document opening and representative raster samples are outside each timer; content interpretation and lazy resource work remain inside. Build each immutable release binary before the exclusive clock, retain binary/source hashes, use fixed settling and balanced pinned runs, and preserve every sample and quiet-guard refusal. Median cost and absolute deltas must accompany ratios; an aggregate must not hide regressions in a smaller population.
 
-The current focused proof is not the combined corpus, launch or platform verdict. Those integration gates remain separately owed. No extension of this source enum to indirect or calibrated colour families, and no generic ICC tint cache unification, is justified merely by this implementation's availability.
+The focused proof is separate from the combined verdict: history 1697 records workspace and corpus acceptance; ADR 2221 retains the launch failure and its controlled diagnosis. No additional platform claim follows. No extension of this source enum to indirect or calibrated colour families, and no generic ICC tint cache unification, is justified merely by this implementation's availability.
 
 ## Calibrated receipt
 
@@ -42,6 +42,6 @@ These are whole interpretations of generated one-channel ICC fixtures, not isola
 | icc-mixed-context | 49.045 | 49.046 | 1.00784 | +0.379 | 0.95864–1.03108 |
 | icc-mixed-profile | 48.650 | 48.660 | 0.99992 | -0.004 | 0.97211–1.07498 |
 
-Root accepts the scoped correctness tradeoff provisionally, subject to combined corpus and launch gates. Same-output ordinary component/profile restore costs about 20–21% more in these synthetic cases, or 1.400/1.872 ms per 20,000 marks (about 70/94 ns per mark). Restoring an earlier source can require a fresh conversion after the other source occupied the bounded slot. This cost is retained explicitly; there is no performance-neutral claim and no broader cache expansion.
+Root accepts the correctness tradeoff after combined rendering and workspace checks, retaining the diagnosed launch failure and limits in ADR 2221. Same-output ordinary component/profile restore costs about 20–21% more in these synthetic cases, or 1.400/1.872 ms per 20,000 marks (about 70/94 ns per mark). Restoring an earlier source can require a fresh conversion after the other source occupied the bounded slot. This cost is retained explicitly; there is no performance-neutral claim and no broader cache expansion.
 
 The intent/BPC populations require work the stale baseline omitted: representative pixels change from [139,135,152] to Saturation [0,167,255] or BPC [116,111,133]. Their additional 2.133/2.401 ms per 20,000 marks is not an equal-output comparison. All other representative samples agree across both artifacts. Generic ICC tints remain direct, and their paired median ratios span 0.98159–1.00770; mixed-use ratios span 0.99992–1.01268. RGB controls are 1.01111/1.01928. Short repeated-solid samples remain noisy (paired range 0.72358–1.43466); no sample was discarded or chosen to improve the verdict.

@@ -29,5 +29,7 @@ No owner-loop GPU job was published during these CPU instrument rehearsals.
 rehearsal. Scale2 core viewports differ: GTK1218×2038 versusQt1238×1994, so these
 are not matched pixel/timing arms. No native-Wayland, scanout, settled-sharpness,
 deep-zoom drift or responsiveness result follows. User symptoms remain unresolved.
-Combined workspace, fixed corpus arms and canonical gates remain pending.
+Integration: workspace7619 passed/54skipped; all six arms exactly match baseline.
+Canonical38/39 passed,2833s gate wall; failed launch retained (ADR2221).
+Fixed ABBA and same-byte OCCA support acceptance with explicit context limits.
 Quoted holds are measured; total round wall duration is not inferred from queue time.

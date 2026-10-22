@@ -23,7 +23,7 @@ zero-test rejection witnesses. Tests plus immutable debug-bin copy exited 0, 287
 CPU-only Xvfb input rehearsals passed for both hosts at scale one and two: fresh motion pairs,
 independent third-point mapping and four Zoom commands each. Qt also passed four callback/span
 checks. Holds: 6 s/0.29 GiB and 5 s/0.44 GiB, exit 0. An absent requested page was rejected before
-input; the expected-refusal control exited 0, 25 s/0.25 GiB. Final integration remains pending.
+input; the expected-refusal control exited 0, 25 s/0.25 GiB. Integration accepted with launch limits (1697).
 
 **Owed.** The owner's Qt lag, GTK blur and deep-zoom drift remain unattributed. The first missing
 Zoom cannot be called a missing wheel callback from the old Ctrl-only trace. Root's separate
