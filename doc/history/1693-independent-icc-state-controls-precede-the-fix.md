@@ -23,7 +23,7 @@ wrongly skipped eight-bit premultiplied group storage; independently staged
 integer arithmetic explains it exactly (ADR2220). Tolerance remains one level.
 No renderer change or observed-raster golden was used to resolve that error.
 
-With the corrected oracle and candidate implementation, all thirteen pass
+**Gates.** With the corrected oracle and candidate implementation: 13 passed
 (staged-alpha.log, exit0,1s; test runtime0.03s). Warnings-denied focused Clippy
 passes,32.50s; root scoped rustfmt passes. An invalid cargo fmt --test invocation
 was corrected to direct rustfmt on the owned file. Isolated mutation controls,

@@ -1,7 +1,7 @@
 # 1692 — Hidden popup pairs require two discard answers
 
 Archive round, batch one hundred and seven, 2026-10-22. ADRs 2218–2219; no question.
-**Implemented; scoped gates pass; canonical archive gates pending.** ISO 32000-2
+**Implemented; scoped and canonical archive gates pass; integration pending.** ISO 32000-2
 §§12.5.3,12.5.6.2,12.5.6.4,12.5.6.14 and ISO 19005-2/-4 §6.3.2.
 The existing typed plan may unlink a closed reciprocal indirect markup/Popup
 pair only when both members independently qualify as hidden and discarded.
@@ -27,7 +27,10 @@ the named case passes when explicitly selected. Final parent Open controls pass.
 Transform nextest: 646 passed,14 skipped; warnings-denied clippy/private rustdoc
 and doctests pass. Whole scoped hold94s,1.87GiB; test runtime2.602s. Fixed-baseline 0eb4d278 positive control fails at the former
 linked refusal: exit101,83s,0.59GiB. An earlier export missing submodules failed
-setup and is not counted as evidence. The canonical archive walk
-is pending; root owns combined six arms and integration acceptance.
+setup and is not counted as evidence. Canonical archive passes: 816s total;
+validator21s/0.78GiB, converter230s/2.27GiB, cross-check70s/1.06GiB.
+Cross-check: 2908 documents, 13547 selections compared, zero disagreements;
+13 soft-mask selections remain unjudged under A61. Conformance passes139s.
+Root owns combined six arms and final integration acceptance.
 Owned production/test paths and logs: scratchpad/r1692/owned-paths.txt.
-Scoped duration:601s from 2026-10-22T07:54:47+02:00; corpus continues.
+Scoped duration:601s from 2026-10-22T07:54:47+02:00; canonical archive wall816s.

@@ -1,6 +1,6 @@
 # 2219 — Removing a popup from the page does not erase external evidence
 
-Session 1692, archive. Status: implemented; scoped gates pass; corpus gates pending.
+Session 1692, archive. Status: accepted; implemented; scoped and canonical archive gates pass.
 
 The bounded popup proof establishes ownership in the page annotation graph.
 It does not establish that no other PDF object references either member.

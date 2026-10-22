@@ -17,10 +17,12 @@ including documentation, match; remaining-root tokens and original tests match.
 Changed-tag, changed-error and omitted-helper scratch controls each fail101.
 The positive proof passes; no new behavioural test or expected wire regeneration.
 
-**Gates.** Nextest117 passed,1 skipped (3.479s); warnings-denied all-target
-clippy29s/private rustdoc5s pass. Doctests0 run,1 ignored; viewer-host/viewer-ffi
-all-target caller compilation passes20s. Whole hold116s,1.29GiB; queued wall273s.
-Formatting/diff pass. Shared pointers updated by root; final conformance running.
+**Gates.** Nextest: 117 passed, 1 skipped (3.479s); warnings-denied all-target
+clippy 29s/private rustdoc 5s pass. Doctests: 0 run, 1 ignored; viewer-host/viewer-ffi
+all-target caller compilation passes (20s). Whole hold 116s, 1.29GiB; queued wall 273s.
+Formatting/diff pass. Shared pointers updated by root. Conformance124s failed
+only records: this count lacked a separating space and another record lacked
+its Gates heading. This count is corrected; focused records retry pending.
 No GPU or raster update is needed for a source-only extraction.
 Owned paths and proof receipts: scratchpad/r1696/owned-paths.txt and proof.log.
-Scoped duration348s from 2026-10-22T08:08:23+02:00. Final integration is root-owned.
+Scoped duration: 348s from 2026-10-22T08:08:23+02:00. Final integration is root-owned.

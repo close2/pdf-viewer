@@ -1,6 +1,6 @@
 # 2218 — Hidden popup pairs need independent discard consent
 
-Session 1692, archive. Status: implemented; scoped gates pass; corpus gates pending.
+Session 1692, archive. Status: accepted; implemented; scoped and canonical archive gates pass.
 
 ISO 32000-2 §12.5.3 defines annotation visibility flags; §12.5.6.2 links a
 markup annotation to its popup; §§12.5.6.4 and 12.5.6.14 define their initial

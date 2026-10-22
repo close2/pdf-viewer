@@ -147,8 +147,11 @@ profiles answer it with `preserve` (ADR 1942).
   `hidden-at-rest` discards Hidden/NoView with Invisible/ToggleNoView clear;
   `visible-nonprinting` preserves missing Print with forbidden flags clear.
   Mixed objects retain separate report decisions. Negative/malformed flags,
-  Invisible/ToggleNoView, discarded widgets and linked Popup/Parent structures
-  remain refused. Missing F keeps the independent flags-entry-present policy.
+  Invisible/ToggleNoView and discarded widgets remain refused. Closed reciprocal
+  hidden markup/Popup pairs may leave together only with independent discard answers,
+  once-only same-page membership and no extra relationships (ADRs 2218–2219);
+  other linked structures remain refused. Missing F keeps the independent
+  flags-entry-present policy.
 - **"As close as possible" at the forbidden subtypes.** `as-if-printed` discards them; the owner's
   rule prefers `preserve` (ADR 1123) with `discard` as the one `on-failure` alternative.
 - **A font this machine draws from a face of its own** (ADR 0270), the reading (ADR 2162). The file

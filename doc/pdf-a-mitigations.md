@@ -1619,8 +1619,11 @@ ISO 19005-2 6.3.2, ISO 19005-4 6.3.2 · all six · **the `discard` built** (ADR 
   NoView with Invisible and ToggleNoView clear; the second lacks Print with all
   four forbidden flags clear. Shape rows accept only stop/discard/preserve with
   on-failure stop. Typed answers survive until preparation without granting a
-  site-wide loss. Ambiguous, negative or malformed flags refuse; discarded widgets
-  and linked Popup/Parent structures are outside this bounded rewrite.
+  site-wide loss. Ambiguous, negative or malformed flags and discarded widgets refuse.
+  Closed reciprocal hidden markup/Popup pairs may leave together only with independent
+  discard answers, once-only same-page membership and no extra relationships
+  (ADRs 2218–2219); other linked structures remain refused. The writer unlinks Annots;
+  surviving external references retain the original pair dictionaries.
 
 - **What was built.** `--authorise hidden-annotation`, `Loss::HiddenAnnotation` and
   `Rewrite::HiddenAnnotationRemoved`: the annotation goes out of its page's `/Annots` array, its

@@ -32,10 +32,10 @@ reading in one line per row, and the note is where it is argued. The membership 
 - **§7.6.5.1, §7.6.5.2, §7.6.5.3** (`reported`) — the handler is refused by name; the build
   waits on `doc/questions/A66`'s trigger, which `doc/questions/A168` reads as unlit.
 - **§7.6.6** — Table 27, which is the handler's; moves on the same trigger.
-- **§11.7.5.3** — non-RGB solid colours retain selection-time conversion: the ICC
-  rendering-intent order witness remains different. Retain the source through painting and
-  cover current intent/BPC, q/Q, Forms/groups and all paint consumers (ADR 2213).
-  Uncoloured pattern tints now retain their source (ADR 2212).
+- **§11.7.5.3** — ordinary RGB/direct ICC solids and uncoloured pattern tints retain
+  their source through painting (ADRs 2212,2220–2223). Ordinary calibrated/Lab, Indexed
+  and Separation/DeviceN families remain outside that retention boundary; establish
+  their current-state obligations with independent witnesses before extending it.
   The deliberate output-intent profile bypass remains separate.
 - **§12.2** — WinUI consumes effective chrome, preserves pane choice across temporary
   hiding, and restores chrome on Escape and document changes. Native full-screen/title-bar

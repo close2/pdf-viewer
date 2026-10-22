@@ -20,7 +20,10 @@ passed, exit 0, 4 s, peak 0.84 GiB. Earlier failed cast/lint attempts remain in 
 The C++ build still reports generated-bridge maybe-uninitialized warnings, not owned diagnostics.
 Full toolkit nextest passed: 57 tests, 2 skipped, including the owned-Xvfb allocation and
 zero-test rejection witnesses. Tests plus immutable debug-bin copy exited 0, 287 s, 1.42 GiB.
-Positive input rehearsal and final integration remain pending.
+CPU-only Xvfb input rehearsals passed for both hosts at scale one and two: fresh motion pairs,
+independent third-point mapping and four Zoom commands each. Qt also passed four callback/span
+checks. Holds: 6 s/0.29 GiB and 5 s/0.44 GiB, exit 0. An absent requested page was rejected before
+input; the expected-refusal control exited 0, 25 s/0.25 GiB. Final integration remains pending.
 
 **Owed.** The owner's Qt lag, GTK blur and deep-zoom drift remain unattributed. The first missing
 Zoom cannot be called a missing wheel callback from the old Ctrl-only trace. Root's separate
