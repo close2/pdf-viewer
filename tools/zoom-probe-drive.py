@@ -128,10 +128,48 @@ def main():
             else:
                 raise RuntimeError("focused window ancestry exceeds bound")
 
+    def diagnose(label):
+        # Read-only X11 observations; they never substitute for fresh toolkit callbacks.
+        entry = dict(label=label, elapsed_seconds=time.monotonic()-started)
+        commands = {
+            "pointer": ("xdotool", "getmouselocation", "--shell"),
+            "active_window": ("xdotool", "getactivewindow"),
+            "focused_window": ("xdotool", "getwindowfocus"),
+        }
+        if window is not None:
+            commands.update(
+                native_geometry=("xdotool", "getwindowgeometry", "--shell", window),
+                frame_extents=("xprop", "-id", window, "_NET_FRAME_EXTENTS", "_GTK_FRAME_EXTENTS", "_NET_WM_PID"))
+        for name, command in commands.items():
+            try:
+                result = subprocess.run(command, capture_output=True, text=True, timeout=2)
+                entry[name] = dict(exit=result.returncode, stdout=result.stdout, stderr=result.stderr)
+            except (OSError, subprocess.TimeoutExpired) as error:
+                entry[name] = dict(error=str(error))
+        report.setdefault("diagnostics", []).append(entry)
+
+    def refusal_capture():
+        if window is None or process is None or process.poll() is not None:
+            return
+        try:
+            owner = run("xprop", "-id", window, "_NET_WM_PID")
+            if not re.search(rf"=\s*{process.pid}\s*$", owner):
+                raise RuntimeError("refusal screenshot window PID differs")
+            image = config.output / "refusal-owned-window.xwd"
+            subprocess.run(["xwd", "-id", window, "-silent", "-out", str(image)],
+                           capture_output=True, timeout=2, check=True)
+            report["refusal_screenshot"] = dict(path=str(image),
+                boundary="owned X11 window/backing pixels only; rejected trial, no measurement verdict")
+        except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+            report["refusal_screenshot_error"] = str(error)
+
     def move(request, label):
         focus()
         mark = boundary()
+        diagnose(label+"-before-warp")
+        report["diagnostics"][-1]["requested_window_point"] = list(request)
         run("xdotool", "mousemove", "--window", window, str(round(request[0])), str(round(request[1])))
+        diagnose(label+"-after-warp")
         deadline = time.monotonic()+3
         problem = "no observation"
         while time.monotonic() < deadline:
@@ -382,6 +420,8 @@ def main():
         report["limits"] = "No matched viewport/DPR, latency, settled sharpness, drift or native Wayland conclusion."
     except Exception as error:
         report["error"] = f"{type(error).__name__}: {error}"
+        diagnose("trial-refused")
+        refusal_capture()
         raise
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0)
