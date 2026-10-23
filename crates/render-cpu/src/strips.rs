@@ -387,8 +387,10 @@ fn strips_in(boundaries: Option<&[u32]>) -> u32 {
 ///   moving only its rows to the surface — so it asks under the transform this question is asked
 ///   under, and every division draws the same bytes for it (ADR 1847, trap 146).
 /// - **A curve that may fold**: one bending tighter than its half-width is stroked as convex pieces
-///   (ADR 1348), which `scan::mask_fill` leaves to `tiny-skia`, so a curved stroke is asked the
-///   draw's own question of it ([`outlined_whole`], ADR 1847); one that cannot fold is the
+///   (ADR 1348), which `scan::mask_fill` measures from their union's boundary unless that declines
+///   the mark to `tiny-skia`'s converter (ADR 2122), and a mark's decline is not known before it is
+///   drawn, so a curved stroke is asked the draw's own question of it ([`outlined_whole`], ADR
+///   1847); one that cannot fold is the
 ///   stroker's outline, and the round caps and joins a stroker puts on any path reach [`area`] as
 ///   every outline does. A *filled* curve is never pieces: it reaches [`area`] as a glyph does,
 ///   flattened there.

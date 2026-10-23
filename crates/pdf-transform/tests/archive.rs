@@ -3273,6 +3273,125 @@ fn a_composite_font_is_refused_for_its_kind_rather_than_for_a_missing_glyph_name
     assert!(output.is_none(), "and nothing is written");
 }
 
+/// A part 4 fixture under the header given, whose one composite font embeds its `TrueType`
+/// program and states no `/CIDToGIDMap`.
+///
+/// Code `<0024>` under `Identity-H` is CID 36, which the identity mapping makes glyph 36 of
+/// Liberation Sans — its `A`, whose advance of 1366 units in 2048 is the 667 `/W` states. A
+/// `/ToUnicode` `CMap` names the character, so the entry under test is the one the fixture lacks.
+fn an_embedded_cid_font_stating_no_map_under(header: &'static str) -> Vec<u8> {
+    let cmap = "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
+                /CMapName /Test def\n/CMapType 2 def\n\
+                1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n\
+                1 beginbfchar\n<0024> <0041>\nendbfchar\n\
+                endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n";
+    Conforming {
+        resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td <0024> Tj ET".to_vec(),
+        )),
+        objects: vec![
+            "<< /Type /Font /Subtype /Type0 /BaseFont /LiberationSans /Encoding /Identity-H \
+             /DescendantFonts [7 0 R] /ToUnicode 9 0 R >>"
+                .to_owned(),
+            "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /LiberationSans /CIDSystemInfo \
+             << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 8 0 R \
+             /DW 1000 /W [36 [667]] >>"
+                .to_owned(),
+            "<< /Type /FontDescriptor /FontName /LiberationSans /Flags 32 \
+             /FontBBox [-543 -303 1300 980] /ItalicAngle 0 /Ascent 905 /Descent -212 \
+             /CapHeight 716 /StemV 80 /FontFile2 10 0 R >>"
+                .to_owned(),
+        ],
+        binary_objects: vec![
+            stream(&format!("/Length {}", cmap.len()), cmap.as_bytes()),
+            stream(
+                &format!("/Length {}", LIBERATION_SANS.len()),
+                LIBERATION_SANS,
+            ),
+        ],
+        header: Some(header),
+        ..Conforming::default()
+    }
+    .build()
+}
+
+#[test]
+fn a_cid_to_gid_map_a_pdf_one_file_left_out_is_written_as_identity_at_part_four() {
+    // ISO 32000-1's table gives `/CIDToGIDMap` the default `Identity`; ISO 32000-2's Table 115
+    // requires the entry and gives none. ISO 32000-2 §I.2 makes a file's label the version
+    // "from the PDF standard that describes the set of functionality used by the PDF file", so a
+    // file labelled 1.7 said `Identity` by leaving the entry out, and relabelling it as PDF 2.0
+    // for a part 4 target writes what it said (ADR 2246).
+    let source = an_embedded_cid_font_stating_no_map_under("%PDF-1.7");
+    let row = "fonts/cid-to-gid-map-present";
+    assert!(
+        holds(&source, Target::Four(Flavour::Plain))
+            .failures()
+            .any(|failed| failed.id == row),
+        "the absent entry fails the rule before anything is converted"
+    );
+    let (report, output) = to_part_four(&source);
+    assert!(
+        matches!(
+            decision(&report, row),
+            Decision::Stated {
+                rewrite: Rewrite::CidToGidIdentity,
+                ..
+            }
+        ),
+        "a statement of what the file said: {:?}",
+        decision(&report, row)
+    );
+    let output = output.expect("the document converts");
+    assert_eq!(
+        holds(&output, Target::Four(Flavour::Plain)).verdict(),
+        Verdict::Conforms
+    );
+    let held = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let descendant = held
+        .resolve(
+            held.get_key(&font_resource(&held), "DescendantFonts")
+                .as_array()
+                .and_then(|array| array.first())
+                .expect("§9.7.6.2's one-element array"),
+        )
+        .as_dict()
+        .cloned()
+        .expect("the descendant CIDFont");
+    assert_eq!(
+        held.get_key(&descendant, "CIDToGIDMap")
+            .as_name()
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"Identity".to_vec()),
+        "the first edition's default, now stated"
+    );
+}
+
+#[test]
+fn a_cid_to_gid_map_a_pdf_two_file_left_out_stays_refused_at_part_four() {
+    // The control: labelled 2.0, the file is one ISO 32000-2 describes, whose Table 115 has no
+    // default for the entry to restate — so writing `Identity` would be this converter's reading
+    // of the program, and the row refuses with the sentence that says so.
+    let source = an_embedded_cid_font_stating_no_map_under("%PDF-2.0");
+    let row = "fonts/cid-to-gid-map-present";
+    let (report, output) = to_part_four(&source);
+    let Decision::Refused(Because::NotBuiltYet(because)) = decision(&report, row) else {
+        panic!(
+            "no edition supplies the mapping: {:?}",
+            decision(&report, row)
+        );
+    };
+    assert!(
+        because.contains("labelled PDF 2.0"),
+        "and the refusal names the label that decided it: {because}"
+    );
+    assert!(output.is_none(), "and nothing is written");
+}
+
 /// The `/ToUnicode` `CMap` the font in a converted output names, as text.
 fn derived_cmap(output: &[u8]) -> String {
     let held = Document::open_with_limits(output.to_vec(), Limits::DEFAULT).expect("it opens");

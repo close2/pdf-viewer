@@ -582,3 +582,13 @@ and no gate said so because the C program checks the record, not the screen (rou
 5's shape). A host that asks the page to leave the widgets out owes the controls in the same change, or
 opens with the widgets drawn until it has them.
 
+### 234. A monitor capture on the owner's display shows what is in front, not this program's window
+
+Round 1708 asked the owner's loop for one display run and had it capture the monitor to compare the
+window's pixels with the compositor's; the viewer window was not in front, and six captures of the
+owner's own desktop landed under `tmp/r1708/loop/`, in directories the agent account cannot delete
+(ADR 2251). A capture made on the owner's display is of the window by its own identity, after a check
+that it is the surface in front, and never of the monitor; the one verdict that needed the monitor —
+the window's pixels against the compositor's output — is taken on the nested compositor
+(`tools/zoom-probe-wayland.py`), where nothing else is on the screen.
+

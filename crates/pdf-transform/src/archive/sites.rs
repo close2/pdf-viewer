@@ -32,8 +32,8 @@ use pdf_archive::survey::Survey;
 use pdf_archive::{Outcome, Part, Target};
 use pdf_font::LoadedFont;
 use pdf_model::Pages;
-use pdf_syntax::Document;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId};
+use pdf_syntax::{Document, Version};
 
 use super::decision::Because;
 use super::prepare::Spare;
@@ -560,29 +560,48 @@ fn descriptor_object(document: &Document, font: ObjectId, descendant: bool) -> O
     dict.get("FontDescriptor").and_then(Object::as_reference)
 }
 
-/// Why a `/CIDToGIDMap` is not written at a part 4 target, and why a stated one is not replaced.
+/// Why a `/CIDToGIDMap` is not written, and why a stated one is not replaced.
 const CID_TO_GID_MAP_NOT_DERIVED: &str = "an embedded Type 2 CIDFont here states no \
      CIDToGIDMap, or states one that is neither a stream nor the name Identity, and which of \
-     those two it is decides the answer together with the target. ISO 19005-2 section 5.1 makes \
-     a PDF/A-2 file one that adheres to ISO 32000-1, whose own table gives Identity as this \
-     entry's default — so at a part 2 target an *absent* entry is written as Identity, which \
-     restates what a reader of that edition already applies. ISO 32000-2's Table 121 requires \
-     the entry and states no default, so the same write at a part 4 target would assert a \
-     mapping its base document does not supply, and deriving the map from the embedded program \
-     is a reading of the font this converter does not make. An entry that is *there* and is \
-     neither shape is the producer's statement, and replacing it would change which glyph every \
-     code selects";
+     those two it is decides the answer together with the file's own version. ISO 32000-1's table \
+     gives Identity as this entry's default, so an *absent* entry is written as Identity wherever \
+     that edition is the one describing the file: at a part 2 target, which ISO 19005-2 section \
+     5.1 builds on that edition, and at a part 4 target when the file is labelled PDF 1.7 or earlier, which \
+     ISO 32000-2 \u{a7}I.2 makes the statement that ISO 32000-1 describes it. ISO 32000-2's Table \
+     115 requires the entry and states no default, so for a file labelled PDF 2.0, or labelled \
+     with no version at all, the same write would assert a mapping the file's own base document \
+     does not supply, and deriving the map from the embedded program is a reading of the font \
+     this converter does not make. An entry that is *there* and is neither shape is the \
+     producer's statement, and replacing it would change which glyph every code selects";
+
+/// The first version ISO 32000-2 describes; every earlier one is ISO 32000-1's (§I.2).
+const FIRST_VERSION_WITHOUT_THE_DEFAULT: Version = Version { major: 2, minor: 0 };
 
 /// Every embedded Type 2 `CIDFont` that is to be given `/CIDToGIDMap` `/Identity`.
 ///
-/// ISO 19005-2 section 6.2.11.3.2. **Part 2 targets only**, and only where the entry is absent
-/// altogether: both halves of that are in [`CID_TO_GID_MAP_NOT_DERIVED`].
+/// ISO 19005-2 section 6.2.11.3.2, ISO 19005-4 section 6.2.10.3.2. Only where the entry is absent
+/// altogether, and only where ISO 32000-1 — whose table gives the entry its `Identity` default —
+/// is the edition describing the file: always at a part 2 target, and at a part 4 one when the
+/// file's own label is below PDF 2.0. ISO 32000-2 §I.2:
+///
+/// > A PDF file is labelled with the version number from the PDF standard that describes the set of functionality used by the PDF file.
+///
+/// So relabelling such a file as PDF 2.0 is a translation of what it said, and the absent entry
+/// said `Identity`; the write carries that into the edition that has no default (ADR 2246). The
+/// label is [`Document::version`]'s — the header raised by any catalog's `/Version` — and a file
+/// that states none never said which edition describes it.
 pub(super) fn cid_to_gid_maps(
     document: &Document,
     input: &pdf_archive::Report,
     target: Target,
 ) -> Result<Sites, Because> {
-    if target.part() != Part::Two {
+    let described_by_the_first_edition = match target.part() {
+        Part::Two => true,
+        Part::Four => document
+            .version()
+            .is_some_and(|version| version < FIRST_VERSION_WITHOUT_THE_DEFAULT),
+    };
+    if !described_by_the_first_edition {
         return Err(Because::NotBuiltYet(CID_TO_GID_MAP_NOT_DERIVED));
     }
     let (named, elsewhere) = objects_named(input, &["fonts/cid-to-gid-map-present"]);

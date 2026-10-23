@@ -213,9 +213,9 @@ impl Host {
             // does for a wheel notch.
             viewer_host::WindowAct::ScrollBy(by) => {
                 #[expect(
-                    clippy::cast_precision_loss,
-                    reason = "GTK's scale factor is a whole number, one or two, which an f32 holds \
-                              exactly"
+                    clippy::cast_possible_truncation,
+                    reason = "a compositor's scale is a small ratio stated in 120ths, which f32 \
+                              holds to far below a pixel"
                 )]
                 let scale = self.scale as f32;
                 self.dispatch(viewer_host::scroll_by(by, scale));
@@ -319,7 +319,7 @@ impl Host {
     /// distance is this host's choice and `SCROLL_STEP` is where it is written down. Device
     /// pixels out, because that is what `Command::Scroll` speaks.
     fn scrolled(&mut self, dx: f64, dy: f64) {
-        let step = f64::from(self.scale) * SCROLL_STEP;
+        let step = self.scale * SCROLL_STEP;
         #[expect(
             clippy::cast_possible_truncation,
             reason = "a notch count times a step in pixels, which is tens"
@@ -342,7 +342,7 @@ impl Host {
         )]
         let steps = self.zoom_wheel.lines(-dy as f32);
         let zoom = if steps > 0 { Zoom::In } else { Zoom::Out };
-        let scale = f64::from(self.scale);
+        let scale = self.scale;
         #[expect(
             clippy::cast_possible_truncation,
             reason = "a pointer position inside a window is far inside f32's exact integer range"
@@ -359,7 +359,7 @@ impl Host {
     /// The pointer, in logical pixels of the overlay.
     fn pointer(&mut self, x: f64, y: f64, action: PointerAction) {
         self.pointer_at = Some((x, y));
-        let scale = f64::from(self.scale);
+        let scale = self.scale;
         #[expect(
             clippy::cast_possible_truncation,
             reason = "a pointer position inside a window is far inside f32's exact integer range"
@@ -464,12 +464,41 @@ pub(super) fn listen(
                     "core-viewport",
                     format_args!(
                         "\"width_device\":{},\"height_device\":{},\"scale\":{}",
-                        width.saturating_mul(host.scale),
-                        height.saturating_mul(host.scale),
+                        super::window::device(width, host.scale)
+                            .map_or_else(|| "null".to_owned(), |d| d.to_string()),
+                        super::window::device(height, host.scale)
+                            .map_or_else(|| "null".to_owned(), |d| d.to_string()),
                         host.scale,
                     ),
                 );
             }
+        });
+    });
+
+    // A compositor states a surface's fractional scale after its first configure, and again when
+    // the window moves to another output; neither needs to change the logical size the resize above
+    // reads, so the viewport is measured again on the scale itself (ADR 2250).
+    let listener = me.clone();
+    chrome.connect_realize(move |area| {
+        let Some(surface) = area.native().and_then(|native| native.surface()) else {
+            return;
+        };
+        let property = if surface.find_property("scale").is_some() {
+            "scale"
+        } else {
+            "scale-factor"
+        };
+        let listener = listener.clone();
+        let area = area.downgrade();
+        surface.connect_notify_local(Some(property), move |_, _| {
+            let Some(area) = area.upgrade() else {
+                return;
+            };
+            with(&listener, |host| {
+                if (super::window::surface_scale(&area) - host.scale).abs() > f64::EPSILON {
+                    host.resized(area.width(), area.height());
+                }
+            });
         });
     });
 
@@ -575,7 +604,7 @@ fn listen_motion(
         motion_probe.record("motion-outcome", format_args!(
             "\"sequence\":{sequence},\"outcome\":\"{}\",\"scale\":{scale},\"core_x\":{},\"core_y\":{}",
             if measuring { "measuring" } else { "accepted" },
-            x * f64::from(scale), y * f64::from(scale),
+            x * scale, y * scale,
         ));
     });
     overlay.add_controller(motion);

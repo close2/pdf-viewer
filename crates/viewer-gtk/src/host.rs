@@ -346,8 +346,9 @@ pub struct Host {
     suppress: Rc<Cell<bool>>,
     /// This host, so that a dialogue's callback can reach it after the borrow that opened it ends.
     me: Weak<RefCell<Self>>,
-    /// Device pixels per logical pixel, from the display GTK put the window on.
-    scale: i32,
+    /// Device pixels per logical pixel: the surface's own scale, fractional where the compositor
+    /// states one ([`window::surface_scale`], ADR 2250).
+    scale: f64,
     /// §12.3.4's miniatures, decoded when a row is drawn and bounded by [`viewer_host::Miniatures`].
     ///
     /// Beside the host's own fields rather than among them, because the closure a `GtkListView`
@@ -507,7 +508,7 @@ impl Host {
                 chrome,
                 suppress: Rc::new(Cell::new(false)),
                 me: me.clone(),
-                scale: 1,
+                scale: 1.0,
                 miniatures: Rc::new(RefCell::new(Miniatures::new())),
                 previews: Rc::new(RefCell::new(panel::Previews::new())),
                 placed: Vec::new(),

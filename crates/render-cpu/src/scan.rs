@@ -208,10 +208,9 @@ pub(crate) enum Exact {
     Outline,
     /// Not rectangles, and a union of convex pieces that overlap one another almost everywhere:
     /// the stroke of a curve bending more tightly than its half-width, stated as its chords' bands
-    /// and joins (ADR 1348). `crate::area` would settle nearly every row of it pair by pair, which
-    /// is quadratic in pieces that all overlap; the library's converter applies the non-zero rule
-    /// per sample and is linear in them, and measures the union to a sixteenth of a pixel, which
-    /// is departure (1)'s quantum where ADR 1082 does not reach.
+    /// and joins (ADR 1348). `crate::area`'s second measurement would settle nearly every row of
+    /// it pair by pair, which is quadratic in pieces that all overlap, so `crate::area::fill_union`
+    /// finds the union's boundary once for the whole mark and measures that (ADR 2122).
     Pieces,
     /// One rectangle, which is the common case and allocates nothing.
     One(tiny_skia::Rect),
@@ -1431,10 +1430,18 @@ pub(crate) fn mask_fill(
     // library's arithmetic and not this one's (ADR 2058). The library's converter is what draws a
     // mark [`crate::area`] declines — one past its cell budget or past [`MEASURED_LIMIT`], one the
     // transform states no bounds for — and it draws it aliased where the range withdrew its
-    // anti-aliasing.
+    // anti-aliasing. A folding stroke's pieces, which overlap one another almost everywhere, are
+    // measured from their union's boundary, which is the non-zero rule's set (ADR 2122).
     let extent = (mask.width(), mask.height());
-    if keep_anti_alias(anti_alias, measurable(path, place.grid))
-        && !matches!(exact, Exact::Pieces)
+    if matches!(exact, Exact::Pieces) {
+        if keep_anti_alias(anti_alias, measurable(path, place.grid))
+            && fill_rule == tiny_skia::FillRule::Winding
+            && let Some(region) = crate::area::region(path, place.grid, extent, place.corner)
+            && crate::area::fill_union(cells, mask.data_mut(), (extent.0, region), path, place.grid)
+        {
+            return;
+        }
+    } else if keep_anti_alias(anti_alias, measurable(path, place.grid))
         && let Some(region) = crate::area::region(path, place.grid, extent, place.corner)
         && crate::area::fill(
             cells,

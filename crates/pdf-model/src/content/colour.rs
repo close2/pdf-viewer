@@ -132,7 +132,8 @@ impl Interpreter<'_> {
     }
 
     /// A solid source is converted in the context of its paint, including a stencil image.
-    /// Other source families retain their existing conversion; pattern bindings take precedence.
+    /// [`SolidSource`] names the families retained; the others paint the colour converted at
+    /// selection, and pattern bindings take precedence.
     pub(super) fn solid_colour(&mut self, state: &GraphicsState, fill: bool) -> Color {
         if let Some(tint) = &state.pattern_tint {
             return tint.paint(self, fill);
@@ -567,9 +568,9 @@ impl Interpreter<'_> {
             }
         };
 
-        let source = SolidSource::selected(&read_in, &values);
-        self.seed_solid_colour(state, fill, source.as_ref(), colour);
         let tints = cmyk_tints(&read_in, &values);
+        let source = SolidSource::selected_owned(read_in, &values);
+        self.seed_solid_colour(state, fill, source.as_ref(), colour);
         if fill {
             state.fill = colour;
             state.fill_source = source;
@@ -840,10 +841,33 @@ fn is_icc_based(document: &Document, id: ObjectId) -> bool {
 ///
 /// RGB stays inline; an ICC selection owns its profile and bounded components so q/Q and
 /// nested streams share immutable input without resolving a resource name again.
+/// `Separation`, `DeviceN` and the calibrated and Lab spaces keep the resolved space itself,
+/// because their conversion is owed at the paint: ISO 32000-2 §8.6.6.4 has the tint
+/// transform called "\[d]uring subsequent painting operations", and §11.7.5.3's first bullet
+/// gives a CIE-based colour the intent "in effect in the graphics state at the time of the
+/// painting operation", into whatever group that operation paints (ADR 2248).
 #[derive(Debug, Clone)]
 pub(super) enum SolidSource {
     Rgb([f32; 3]),
     Icc(std::rc::Rc<IccSource>),
+    Space(std::rc::Rc<SpaceSource>),
+}
+
+/// A selection whose conversion reads its whole space: a tint transform, a `DeviceN`'s
+/// colourant names for a spot plane, or a CIE-based space's parameters.
+///
+/// Compared by allocation rather than by value (ADR 2249): a `Function` has no identity to
+/// compare, and the memo holds its own `Rc`, so an allocation it compares against cannot be
+/// reused while it is held. A selection of equal values is a new allocation, which its own
+/// selection-time conversion seeds; what is lost is only a hit after a restore.
+///
+/// What it costs is ADR 2249's paired measurement over whole interpretations: a selection
+/// about 20–60 ns a mark more, the upper figure a sampled tint transform's, and a restored
+/// source after another took the slot about 70–90 ns, the price ADR 2235 paid for `Indexed`.
+#[derive(Debug)]
+pub(super) struct SpaceSource {
+    space: ColourSpace,
+    values: Box<[f32]>,
 }
 
 #[derive(Debug)]
@@ -871,7 +895,28 @@ impl IccValues {
 }
 
 impl SolidSource {
+    /// [`SolidSource::selected`] for a space the caller no longer needs, which a family that
+    /// keeps its whole space takes without the clone a borrowed one costs: `sc` and `scn` run
+    /// once per colour, and a sampled tint transform is a table.
+    fn selected_owned(space: ColourSpace, values: &[f32]) -> Option<Self> {
+        if keeps_whole_space(&space, values) {
+            Some(Self::whole_space(space, values))
+        } else {
+            Self::selected(&space, values)
+        }
+    }
+
+    fn whole_space(space: ColourSpace, values: &[f32]) -> Self {
+        Self::Space(std::rc::Rc::new(SpaceSource {
+            space,
+            values: values.into(),
+        }))
+    }
+
     fn selected(space: &ColourSpace, values: &[f32]) -> Option<Self> {
+        if keeps_whole_space(space, values) {
+            return Some(Self::whole_space(space.clone(), values));
+        }
         match space {
             ColourSpace::Rgb => values.try_into().ok().map(Self::Rgb),
             // Retain the decoded entry, not the declared index or its resource name.
@@ -911,6 +956,7 @@ impl SolidSource {
                         .iter()
                         .map(|v| v.to_bits()))
             }
+            (Self::Space(left), Self::Space(right)) => std::rc::Rc::ptr_eq(left, right),
             _ => false,
         }
     }
@@ -924,8 +970,25 @@ impl SolidSource {
                 },
                 source.values.as_slice(),
             ),
+            Self::Space(source) => conversion.paint(&source.space, &source.values),
         }
     }
+}
+
+/// Whether a selection is one [`SpaceSource`] carries: a `Separation` or `DeviceN` that
+/// reverts to its alternate, its §10.8.3 simulation, `/All`, and the three CIE-based families
+/// without a profile. `/None` paints nothing in any context, and `Indexed` over these bases,
+/// `DeviceGray` and `DeviceCMYK` keep their selection-time colour (ADR 2248).
+fn keeps_whole_space(space: &ColourSpace, values: &[f32]) -> bool {
+    matches!(
+        space,
+        ColourSpace::Separation { .. }
+            | ColourSpace::Simulated { .. }
+            | ColourSpace::AllColourants
+            | ColourSpace::CalGray { .. }
+            | ColourSpace::CalRgb { .. }
+            | ColourSpace::Lab { .. }
+    ) && values.len() == space.components()
 }
 
 /// Two bounded memos of pre-alpha paint, keyed by every existing conversion dependency.

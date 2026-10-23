@@ -22,7 +22,7 @@ impl Host {
     /// takes the keyboard away from whatever a person is typing into and the page moves under
     /// them on every scroll.
     pub(super) fn place_fields(&mut self, fields: &[FormField]) {
-        let scale = f64::from(self.scale);
+        let scale = self.scale;
         if controls::signature(fields)
             != self
                 .placed
@@ -132,12 +132,12 @@ impl Host {
         let Answer::Geometry(geometry) = self.state.viewer.query(Query::PageGeometry(index)) else {
             return None;
         };
-        let display = self.scale.max(1);
         #[expect(
-            clippy::cast_precision_loss,
-            reason = "a display scale is 1, 2 or 3; the lint is about the general case"
+            clippy::cast_possible_truncation,
+            reason = "a compositor's scale is a small ratio stated in 120ths, which f32 holds to \
+                      far below a pixel"
         )]
-        let logical = geometry.scale / display as f32;
+        let logical = geometry.scale / self.scale as f32;
         (logical.is_finite() && logical > 0.0).then_some(logical)
     }
 

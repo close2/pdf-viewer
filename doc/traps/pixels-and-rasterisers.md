@@ -780,3 +780,14 @@ list's, and the construction's was empty (ADR 2166). Before a census takes a pop
 list, the decision the converter makes for each candidate — here the blend mode each fill reaches — is
 printed from an instrumented export, and the census counts those.
 
+### 236. A resolution constant is changed only after the construction's pages are drawn at two scales
+
+A559 ordered the folding stroke's chords coarsened from a sixty-fourth to a twentieth of a pixel, priced
+and gated; round 1709 drew the twenty-six pages that moved and found three faults the finer chords had
+hidden — a mitre decided from a chord's direction grew 160-level spikes at 4x, a cap turned from a chord
+leaned, and the boundary walk dropped a stretch (ADR 2252). The price and the correctness gate measure
+the construction's *area*; what a chord *decides* — a mitre's angle, a cap's square, where a boundary
+closes — moves with the chord and no area gate sees it. Before a constant that sets a construction's
+resolution changes, its moved pages are drawn at two scales and looked at (trap 1), and every decision
+taken from a chord is taken from the path's own tangent instead.
+

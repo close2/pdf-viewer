@@ -259,10 +259,11 @@ package, no cross-round architecture. Membership is re-derived from the ledger r
 row is in this bucket when its note names none of those three.
 
 
-- §11.7.5.3 — uncoloured tiling-pattern tints retain only a default-converted colour,
-  discarding the current BG/UCR pair. Carry the tint source to painting; test selection/use
-  order and cache hits against ADR 2199's witness. Ordinary solids and image stencils now
-  resolve RGB components at paint (ADR 2198). The profile bypass remains a separate departure.
+- §11.7.5.3 — RGB, ICC, Indexed-to-ICC, `Separation`/`DeviceN` and calibrated/Lab solids and
+  uncoloured pattern tints convert at paint (ADRs 2198, 2212, 2222, 2234, 2248). Plain
+  `DeviceCMYK` and `DeviceGray` solids and other Indexed bases still convert at selection; a
+  `k` colour inherited into a `DeviceGray` group is the demonstrated case. The profile bypass
+  remains a separate departure.
 
 §7.4.9 has a buildable part: implement e-sRGB and e-sYCC from the held PIMA 7667 (A348),
 with extended-range and non-neutral fixtures. Its CIEJab part remains in the unheld-text bucket;

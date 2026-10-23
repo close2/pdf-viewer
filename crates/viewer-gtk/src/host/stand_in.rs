@@ -155,19 +155,19 @@ pub(super) fn place(fixed: &gtk4::Fixed, slot: &gtk4::Picture, picture: &Picture
     let scaled = i64::from(picture.extent.0) != i64::from(width)
         || i64::from(picture.extent.1) != i64::from(height);
     let origin = if scaled {
-        picture.origin
+        (f64::from(picture.origin.0), f64::from(picture.origin.1))
     } else {
-        viewer_host::stand_in::whole_pixel(picture.origin)
+        on_the_surface_grid(
+            viewer_host::stand_in::whole_pixel(picture.origin),
+            fixed_on_the_surface(fixed, scale),
+        )
     };
     #[expect(
         clippy::cast_possible_truncation,
         reason = "texture extents and viewport coordinates are bounded by MAX_EXTENT"
     )]
     let (at, fill) = (
-        gtk4::graphene::Point::new(
-            (f64::from(origin.0) / scale) as f32,
-            (f64::from(origin.1) / scale) as f32,
-        ),
+        gtk4::graphene::Point::new((origin.0 / scale) as f32, (origin.1 / scale) as f32),
         (
             (f64::from(picture.extent.0) / f64::from(width.max(1)) / scale) as f32,
             (f64::from(picture.extent.1) / f64::from(height.max(1)) / scale) as f32,
@@ -181,6 +181,25 @@ pub(super) fn place(fixed: &gtk4::Fixed, slot: &gtk4::Picture, picture: &Picture
                 .scale(fill.0, fill.1),
         ),
     );
+}
+
+/// Where `fixed`'s top-left corner falls on its surface, in the surface's device pixels: a
+/// texture placed a whole number of pixels from a page area that begins part-way through a pixel
+/// would be sampled between pixels (ADR 2250).
+fn fixed_on_the_surface(fixed: &gtk4::Fixed, scale: f64) -> (f64, f64) {
+    let (x, y) = super::window::on_the_surface(fixed);
+    (x * scale, y * scale)
+}
+
+/// A finished frame's origin moved by less than a device pixel, so that its first pixel lands on
+/// one of the surface's own: `whole` is its origin in the page area's device pixels and `fixed`
+/// where the page area begins on the surface, whose first whole pixel is the area's own first
+/// (`window::device_extent`; ADRs 1865, 2250).
+fn on_the_surface_grid(whole: (f32, f32), fixed: (f64, f64)) -> (f64, f64) {
+    (
+        f64::from(whole.0) + fixed.0.ceil() - fixed.0,
+        f64::from(whole.1) + fixed.1.ceil() - fixed.1,
+    )
 }
 
 /// One texture a frame puts on the screen.

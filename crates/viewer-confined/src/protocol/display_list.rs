@@ -213,7 +213,7 @@ pub(crate) fn crossing(list: &DisplayList, raster_bytes: u64) -> Crossing {
             raster: raster_bytes,
         }),
         Err(refusal) => Crossing::Raster(RasterReason::Uncodable(refusal)),
-        Ok(bytes) if super::as_u64(bytes.len()) >= raster_bytes => {
+        Ok(bytes) if super::frame::as_u64(bytes.len()) >= raster_bytes => {
             Crossing::Raster(RasterReason::Larger {
                 list: bytes.len(),
                 raster: raster_bytes,
@@ -3082,7 +3082,8 @@ mod tests {
         let list = a_whole_page();
         let encoded = encode(&list).expect("a codable list").len();
 
-        let Crossing::List(bytes) = crossing(&list, super::super::as_u64(encoded) + 1) else {
+        let Crossing::List(bytes) = crossing(&list, super::super::frame::as_u64(encoded) + 1)
+        else {
             panic!("a raster one byte larger than the list is the case a list is for")
         };
         assert_eq!(bytes.len(), encoded);

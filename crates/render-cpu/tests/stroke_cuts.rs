@@ -335,8 +335,9 @@ fn a_thin_segment_cut_by_a_strip_draws_the_page() {
 }
 
 /// And the other side of [`rings`]: a ring whose pen is wider than its radius bends more tightly
-/// than its half-width, which ADR 1348 strokes as convex pieces that `tiny-skia`'s converter draws,
-/// so it keeps its rows — the backend's answer is the draw's own question, not "a curve is fine".
+/// than its half-width, which ADR 1348 strokes as convex pieces, measured from their union's
+/// boundary unless that declines the mark to `tiny-skia`'s converter (ADR 2122), so it keeps its
+/// rows — the backend's answer is the draw's own question, not "a curve is fine".
 #[test]
 fn a_curve_that_may_fold_keeps_its_rows() {
     let list = rings(14.0);

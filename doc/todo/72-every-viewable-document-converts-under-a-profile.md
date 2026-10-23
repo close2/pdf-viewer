@@ -216,7 +216,8 @@ groups, in the order a slot should take them:
    `as-if-printed`, image interpolation: section 3's argument stands, and an operator's
    `--authorise` answers each.
 6. **`not-built-yet` sites each reached by one to three witnesses**: the JPEG 2000 rows, the
-   composite font rows (`cid-to-gid-map-present`, `embedded-cmap-states-its-own-write-mode`,
+   composite font rows (`cid-to-gid-map-present` for a file labelled PDF 2.0, ADR 2246 writing it
+   for a 1.x label, `embedded-cmap-states-its-own-write-mode`,
    `font-programs-embedded`'s shapes, the TrueType route), `spot-colourants-appear-in-the-colorants-dictionary`
    with no Separation of its own, `graphics-state-blend-modes-are-defined`, `no-reference-xobjects`,
    `normal-appearance-shape`, the `to-unicode` rows at 2u, `role-map-terminates-at-a-standard-type`
@@ -235,6 +236,10 @@ code-to-name table when TrueType became CFF; stating the source selections clear
 refusal, while their independent content-stream fences remain. The direct-resource and
 machine-face cases were addressed in ADR 2162; `machine-face` remains a named loss, accepted by
 `as-if-printed` and stopped by `as-shown`.
+Its largest refusal at part 4 over the two corpora together, an embedded Type 2 CIDFont stating
+no `/CIDToGIDMap` in a file labelled PDF 1.x, is built as a statement under both profiles (ADR
+2246). Its largest in pdf.js alone, a composite font nobody named a program for, stays refused by
+name: every shipped face is a simple font's, and `doc/history/1706` says what a remedy would need.
 
 Table 109's widths-array count is checked independently for simple fonts. A nonempty short
 array narrows LastChar; a long array loses only entries beyond it. This `Stated` rewrite keeps

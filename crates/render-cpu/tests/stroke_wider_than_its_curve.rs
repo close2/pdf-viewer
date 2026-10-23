@@ -17,11 +17,13 @@
 //!   half-width: 413.99 and 565.50. The counting is `numpy` over the path's own control points,
 //!   and no renderer enters it.
 //!
-//! The tolerance is the construction's own, stated in ADR 1348: its chords and arcs lie within
-//! 1/64 and 1/256 of a pixel of the set's boundary, and the
-//! library's supersampled converter it is measured by states a boundary pixel's coverage in
-//! sixteenths — under a unit of ink over the disk's rim of a hundred and sixty boundary pixels,
-//! where the ring the stroker drew for it was three hundred and fourteen short.
+//! The tolerance is the construction's own: its chords lie within a twentieth of a pixel of the
+//! curve and its arcs within 1/256 (ADRs 1348, 2252), and the pieces are measured exactly as the
+//! set they fill (ADR 2122). A band's outer edge lies outside its chord, so a rim of bands and
+//! joins comes within a unit of ink over the disk's rim of a hundred and sixty boundary pixels,
+//! where the ring the stroker drew for it was three hundred and fourteen short; a rim the
+//! stroker's own outline draws is flattened to the chords' tolerance inscribed, and is held to its
+//! length times that tolerance.
 //!
 //! Before ADR 1348 the circle read a ring: `tiny-skia`'s stroker offsets a closed curve's inside
 //! as a second contour, reversed, which turns inside out once the half-width passes the radius,
@@ -47,8 +49,12 @@ const GENEROUS: u64 = 1 << 30;
 /// Page side, in PDF units, drawn at one device pixel per unit.
 const PAGE: f32 = 100.0;
 
-/// The ink the flattening and the converter's sixteenths may move, in pixels.
+/// The ink the flattening may move on a rim of bands and joins, in pixels.
 const TOLERANCE: f64 = 1.0;
+
+/// How far the chords, and the stroker's outlines between them, lie from the set's boundary, in
+/// device pixels: `stroke::folding`'s `FOLD_FLATNESS` (ADR 2252).
+const FLATNESS: f64 = 1.0 / 20.0;
 
 /// The constant that makes four cubics a circle, as the fixtures state it.
 const KAPPA: f32 = 0.5523;
@@ -197,8 +203,8 @@ fn a_circle_stroked_narrower_than_it_bends_is_its_ring() {
 /// joins: the straight stretches are the stroker's and the curve is pieces (ADR 1359), and their
 /// union is still the one distance set — 2024.62, counted by `numpy` on a grid a sixty-fourth of a
 /// unit apart against the lines and two thousand chords of the cubic. Its boundary is some two
-/// hundred and eighty pixels long, near twice the disk's rim, so the converter's sixteenths are
-/// allowed twice the disk's unit; the stroke stated wholly as pieces reads 2025.86 here.
+/// hundred and eighty pixels long, near twice the disk's rim, so it is allowed twice the disk's
+/// unit; the stroke stated wholly as pieces reads 2025.86 here.
 #[test]
 fn a_folding_curve_between_straight_stretches_is_one_distance_set() {
     let mut path = Path::new();
@@ -223,9 +229,10 @@ fn a_folding_curve_between_straight_stretches_is_one_distance_set() {
 /// `16 w` is the stroker's ring from 7 to 23, a circle of radius 5 inside it folds into the disk of
 /// radius 13, and their union is the disk of radius 23, `529π` = 1661.90 — whichever way the ring
 /// runs, since a ring wound against the pieces would cancel them where the two overlap. The rim is
-/// a hundred and forty-five pixels, the disk's; the stroker's own offset curves, cut at its default
-/// resolution, overshot this ring by four units, which is why the stretches are stroked at sixteen
-/// times the device's resolution (ADR 1359).
+/// a hundred and forty-five pixels, the disk's, and it is the stroker's outline flattened to
+/// [`FLATNESS`] inscribed, so the disk may come in short by up to the rim times that; the stroker's
+/// own offset curves, cut at its default resolution, overshot this ring by four units, which is why
+/// the stretches are stroked at sixteen times the device's resolution (ADR 1359).
 #[test]
 fn a_ring_the_stroker_draws_adds_to_the_pieces_whichever_way_it_runs() {
     for reversed in [false, true] {
@@ -236,7 +243,7 @@ fn a_ring_the_stroker_draws_adds_to_the_pieces_whichever_way_it_runs() {
         let raster = drawn(&stroked(path, 16.0, (LineCap::Butt, LineJoin::Miter)));
         let ink = ink(&raster);
         assert!(
-            (ink - 1661.90).abs() < 2.0 * TOLERANCE,
+            (ink - 1661.90).abs() < 145.0 * FLATNESS,
             "reversed {reversed}: the disk of radius 23 is 1661.90 units; drawn {ink:.2}"
         );
     }

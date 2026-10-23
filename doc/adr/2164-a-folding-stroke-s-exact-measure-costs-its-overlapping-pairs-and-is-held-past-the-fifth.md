@@ -5,6 +5,8 @@ Session 1664, the pixels slot of batch one hundred and three, under the project 
 a fifth more on `inks.pdf`, `rotated_ink.pdf` and `issue14415.pdf`, by the levers ADR 2122 §5 named.
 Status: **proposed** — both constructions built and measured exact, priced past the fifth, and held
 out of the tree; the lever that reaches the fifth is the owner's to take (`doc/questions/Q559`).
+The owner took it (`doc/questions/A559`), and ADR 2252 routes the walk with it; §4's second lever is
+priced at its ceiling, zero, by ADR 2253.
 Clause: ISO 32000-2 §10.7.4, with §8.5.3.3.2's non-zero rule and §10.7.2's flatness; the row stays
 `departed` (ADRs 1060, 1360). Context: ADRs 1348, 1374, 2106, 2122, 2133.
 

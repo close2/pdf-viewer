@@ -466,3 +466,5 @@ fn device_gray_operators_retain_the_resolved_default_icc_source() {
 
 #[path = "icc_paint_context/indexed.rs"]
 mod indexed;
+#[path = "icc_paint_context/tints_and_cie.rs"]
+mod tints_and_cie;

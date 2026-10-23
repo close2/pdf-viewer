@@ -1214,26 +1214,28 @@ ISO 19005-2 6.2.11.3.3, ISO 19005-4 6.2.10.3.3 · all six · the first **built**
   does not determine what its codes select, which is the font half of the format's central promise.
 
 #### `fonts/cid-to-gid-map-present`
-ISO 19005-2 6.2.11.3.2, ISO 19005-4 6.2.10.3.2 · all six · **part 2 half built in session 957**
-(`Stated`); part 4 stays `not-built-yet`
+ISO 19005-2 6.2.11.3.2, ISO 19005-4 6.2.10.3.2 · all six · **built** (`Stated`) wherever ISO
+32000-1 describes the file — every part 2 target, and part 4 for a file labelled PDF 1.7 or
+earlier (ADR 2246); a part 4 file labelled 2.0, or with no version, stays `not-built-yet`
 
-- **Mitigation** — **differs by target in kind, and the difference is a reading nobody had made.**
-  ADR 0955 records that §9.7.4.2's Table 121 makes the entry required and states **no default**, so
-  writing `Identity` would assert a mapping ISO 32000-2 does not supply. But ISO 19005-2 5.1 makes a
-  PDF/A-2 file one that adheres to **ISO 32000-1**, whose own table gives `Identity` as the entry's
-  default — so at 2b, 2u and 2a, writing `Identity` restates the base document that target actually
-  names, which is `Stated` rather than invention. At a part 4 target the base document is ISO
-  32000-2 and the same write is an invention. One requirement, two answers, decided by which edition
-  the target is built on.
-- **By target** — as above: `Stated` rewrite at 2b/2u/2a, no mitigation at 4/4f/4e except deriving
-  the map from the embedded program, which is a reading of the font this converter does not make.
-- **From a configuration** — nothing at the part 2 targets, where it is owed code. At a part 4
-  target, `remedy = "supply"` with `cid-to-gid = "identity"` is expressible and is the operator
-  asserting that their producer's fonts are identity-ordered — which for a subset-embedded TrueType
-  CIDFont is nearly always true and is exactly the kind of fact a fleet operator knows.
-- **Departure** — **B** at part 4, narrowed by the same predicate; **A**-shaped at part 2 in the
-  sense that the other part's base document answers it, though the better route there is the
-  rewrite.
+- **Mitigation** — **decided by which edition describes the file.** ISO 32000-1's table gives the
+  entry `Identity` as its default; ISO 32000-2's Table 115 requires it and gives none (ADR 0955).
+  ADR 0955 read the answer off the target's base document, so part 4 refused every absent entry.
+  ADR 2246 reads it off the source instead: ISO 32000-2 §I.2 makes a file's label the version of
+  the standard describing it, so a file labelled 1.x said `Identity` by leaving the entry out, and
+  a part 4 conversion that relabels it PDF 2.0 writes what it said. At a part 2 target ISO 19005-2
+  section 5.1 makes ISO 32000-1 the base document whatever the label. This reader draws an absent
+  entry as the identity already, so no glyph moves (`doc/history/1706`'s witnesses).
+- **By target** — the `Stated` rewrite at 2b/2u/2a, and at 4/4f/4e for a 1.x label; at 4/4f/4e for
+  a 2.0 label no mitigation except deriving the map from the embedded program, which is a reading
+  of the font this converter does not make. An entry that is present and neither shape is the
+  producer's statement, refused at every target.
+- **From a configuration** — at a part 4 target with a 2.0 label, `remedy = "supply"` with
+  `cid-to-gid = "identity"` is expressible and is the operator asserting that their producer's
+  fonts are identity-ordered — which for a subset-embedded TrueType CIDFont is nearly always true
+  and is exactly the kind of fact a fleet operator knows.
+- **Departure** — **B** at part 4 for a 2.0 label, narrowed by the same predicate; elsewhere the
+  rewrite answers it.
 
 #### `fonts/cid-system-info-agrees-with-the-cmap`
 ISO 19005-2 6.2.11.3.1, ISO 19005-4 6.2.10.3.1 · all six · today `the-fence`

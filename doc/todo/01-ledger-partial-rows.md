@@ -34,9 +34,11 @@ reading in one line per row, and the note is where it is argued. The membership 
 - **§7.6.6** — Table 27, which is the handler's; moves on the same trigger.
 - **§11.7.5.3** — ordinary RGB/direct ICC solids and uncoloured pattern tints retain
   their source through painting (ADRs 2212,2220–2223). Immediate Indexed-to-ICC
-  selections also retain their decoded source (ADRs 2232–2235). Other Indexed bases,
-  ordinary calibrated/Lab and Separation/DeviceN remain outside that boundary; establish
-  their current-state obligations with independent witnesses before extending it.
+  selections also retain their decoded source (ADRs 2232–2235), and `Separation`/`DeviceN`
+  tints and calibrated/Lab colours their resolved space (ADRs 2248, 2249). Other Indexed
+  bases and plain DeviceGray/DeviceCMYK solids remain outside that boundary — a DeviceCMYK
+  colour inherited into a DeviceGray group is a demonstrated stale paint (ADR 2248), the
+  next family to take with an inline source and its own cost.
   The deliberate output-intent profile bypass remains separate.
 - **§12.2** — WinUI consumes effective chrome, preserves pane choice across temporary
   hiding, and restores chrome on Escape and document changes. Native full-screen/title-bar

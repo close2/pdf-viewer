@@ -20,8 +20,8 @@
 #
 # **Five of each row's figures cannot be moved by the machine, and those are judged on any
 # machine.** How many bytes an open reads (`read_kib`), how many read calls it makes
-# (`read_calls`), how many instructions it executes (`open_kinstructions`), what the open costs
-# in memory (`open_peak_mib`) and how much this
+# (`read_calls`), how many instructions it executes (`open_kinstructions`), how much this program
+# has allocated when the open is done (`open_anon_mib`) and how much this
 # program has allocated when page one is drawn (`peak_anon_mib`) are properties of the reader
 # rather than of the afternoon: the first three came back identical, or within a hundredth of a
 # per cent, in every run the bands were derived from, and the fourth held to 30 KiB across a
@@ -422,7 +422,14 @@ script_first_run_ms = none
 # In small pages (ADR 1902, see the header): 17.38 to 18.14 MiB over twelve children, the machine's
 # huge pages beside them 19.37 to 20.79.
 peak_anon_mib = 15.5 .. 20.0
-open_peak_mib = 5 .. 9
+# **What an open allocates, and no longer the open's whole `VmHWM`** (ADR 2244). That figure was
+# seven parts in eight the test binary's and the C library's resident text, so it moved with the
+# page cache: one binary at one path read 8.51 and then 9.89 MiB here in one hold on 2026-10-22,
+# and this row's band was 5 .. 9, while what the open allocated stayed at 0.8 MiB. The figure is
+# now the anonymous high-water of a child of its own with its huge pages off (ADR 1902's child),
+# the whole one printed beside it. This file's allocation rule over twelve children of HEAD on
+# 2026-10-23, 0.801 to 0.805 MiB; the base of batches 104 to 108, `5ded4916`, read the same.
+open_anon_mib = 0.5 .. 1.0
 read_kib = 86 .. 92
 read_calls = 23 .. 27
 # ADR 1543's band over 4029.3 three times (see the clocks above); ADR 1044 took §12.8's signature
@@ -457,7 +464,8 @@ script_first_run_ms = none
 # In small pages (ADR 1902, see the header): 20.65 to 21.60 MiB over twelve children, the machine's
 # huge pages beside them 22.76 to 24.11.
 peak_anon_mib = 18.5 .. 24.0
-open_peak_mib = 6 .. 11
+# ADR 2244 (see the first row): 1.273 MiB in all twelve children.
+open_anon_mib = 1.0 .. 1.5
 read_kib = 115 .. 121
 read_calls = 28 .. 32
 # Moved down for ADR 1833: the content lexer's fast path for a number and a keyword takes this
@@ -493,8 +501,9 @@ script_first_run_ms = none
 # In small pages (ADR 1902, see the header): 25.9 to 26.73 MiB over twelve children, the machine's
 # huge pages beside them 27.69 to 28.32.
 peak_anon_mib = 23.0 .. 29.5
-# 18 → 11 to 12 MiB, of which 11.6 → 3.9 allocated: the outline and the placed tree are no longer held.
-open_peak_mib = 9 .. 14
+# ADR 2244 (see the first row): 3.637 to 4.047 MiB over twelve children, varying from child to
+# child as `5ded4916`'s did, 3.637 to 4.051.
+open_anon_mib = 3.0 .. 4.5
 read_kib = 99 .. 105
 read_calls = 25 .. 29
 # The floor is batch eighty-one's merge figure, 68847.151 thousand, less one per cent, this file's rule;
@@ -556,7 +565,8 @@ script_first_run_ms = none
 # In small pages (ADR 1902, see the header): 43.29 to 53.0 MiB over twelve children, the machine's
 # huge pages beside them 44.99 to 54.80.
 peak_anon_mib = 38.5 .. 58.5
-open_peak_mib = 5 .. 9
+# ADR 2244 (see the first row): 0.730 MiB in all twelve children.
+open_anon_mib = 0.5 .. 1.0
 read_kib = 83 .. 87
 read_calls = 23 .. 27
 # The same saving here, and it is 52.1 thousand: 3446.5 before and 3394.4 after. It left the
@@ -592,7 +602,8 @@ script_first_run_ms = none
 # In small pages (ADR 1902, see the header): 10.52 to 11.33 MiB over twelve children, the machine's
 # huge pages beside them 12.57 to 13.19.
 peak_anon_mib = 9.0 .. 12.5
-open_peak_mib = 4 .. 9
+# ADR 2244 (see the first row): 0.590 to 0.594 MiB over twelve children.
+open_anon_mib = 0.5 .. 1.0
 # Moved for ADR 1543 (see the first row): 99 → 87 KiB in 26 → 24 calls, and 1821.4 → 1160.3
 # thousand instructions.
 read_kib = 85 .. 90
@@ -628,7 +639,8 @@ script_first_run_ms = 0.38 .. 0.57
 # In small pages (ADR 1902, see the header): 13.96 to 14.60 MiB over twelve children, the machine's
 # huge pages beside them 15.35 to 16.16.
 peak_anon_mib = 12.5 .. 16.5
-open_peak_mib = 5 .. 9
+# ADR 2244 (see the first row): 0.582 MiB in all twelve children.
+open_anon_mib = 0.5 .. 1.0
 read_kib = 40 .. 44
 read_calls = 29 .. 33
 # Ceiling raised by four for the figure read at batch seventy-nine's merge, 1 369.5, which is

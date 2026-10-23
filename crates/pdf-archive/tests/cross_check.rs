@@ -18,14 +18,18 @@
 //! The comparison is confined to **the constructs the survey walks**: the page's content, form
 //! `XObject`s reached through `Do`, tiling patterns, Type 3 glyph descriptions and annotation
 //! appearance streams. A soft mask's transparency group is one the survey deliberately does not
-//! walk, so a selection the interpreter made under one is not something the survey failed to
-//! judge; an unscoped comparison would turn every such selection into a false failure, which is
-//! the one direction `survey.rs`'s own header says the crate may not err in. Symmetrically, a
-//! stream only one machine ran — an appearance state the annotation is not showing, a glyph no
-//! text-showing operator reached, a form under optional content the default configuration hides
-//! — has no second reading to disagree with, so it is counted and printed by route rather than
-//! judged. A selection defect in the *invoking* stream is always caught there, in a place both
-//! machines ran. ADR 1055 states the rules and the two calibrations that were run against them.
+//! walk, so a selection the interpreter made under one is not something the survey failed to judge;
+//! an unscoped comparison would turn every such selection into a false failure, which is the one
+//! direction `survey.rs`'s own header says the crate may not err in. Each such selection is still
+//! accounted for, by the place that set the mask: the `gs` that installed it is a selection of that
+//! place, so where both machines ran it the mask was compared there, and the gate holds the
+//! survey's own selections under a soft mask at zero, which is the premise the scope rests on (ADR
+//! 2247). Symmetrically, a stream only one machine ran — an appearance state the annotation is not
+//! showing, a glyph no text-showing operator reached, a form under optional content the default
+//! configuration hides — has no second reading to disagree with, so it is counted and printed by
+//! route rather than judged. A selection defect in the *invoking* stream is always caught there, in
+//! a place both machines ran. ADR 1055 states the rules and the two calibrations that were run
+//! against them.
 //!
 //! Two rules narrow the selections compared, and each is a clause rather than a convenience:
 //!
@@ -228,6 +232,17 @@ struct Tally {
     /// silence: the calibration ADR 1055 records plants a defect there and reads this line.
     soft_mask_places: usize,
     soft_mask_selections: usize,
+    /// Of those selections, the ones whose mask was set from a place both machines ran and
+    /// compared — so the `gs` that set the mask, and the `/SMask` it found, were judged there,
+    /// which is A61's own account of why the selections under the mask need not be
+    /// (`doc/adr/2247`).
+    soft_mask_set_where_compared: usize,
+    /// The rest, named: a mask set from a place one machine alone ran, whose own selections the
+    /// one-sided tallies already count.
+    soft_mask_set_elsewhere: Vec<String>,
+    /// Selections the survey made under a soft mask's group. A61's scope rests on there being
+    /// none, so the corpus gate holds it at zero rather than assuming it.
+    survey_under_soft_mask: usize,
     truncated_ledgers: usize,
     disagreements: Vec<String>,
     /// Every place one machine alone ran, named, where `PDFVIEWER_CROSS_CHECK_VERBOSE` is set.
@@ -300,12 +315,19 @@ fn cross_check(path: &Path, tally: &mut Tally) {
     if survey_ledger.truncated() {
         tally.truncated_ledgers = tally.truncated_ledgers.saturating_add(1);
     }
+    tally.survey_under_soft_mask = tally.survey_under_soft_mask.saturating_add(
+        survey_ledger
+            .selections()
+            .filter(|(selection, _)| under_a_soft_mask(selection).is_some())
+            .count(),
+    );
     by_place(Machine::Survey, &survey_ledger, &mut survey_places);
 
     let verbose = std::env::var_os("PDFVIEWER_CROSS_CHECK_VERBOSE").is_some();
     let pages = Pages::new(&document);
     let mut interpreter_places: BTreeMap<Place, Selected> = BTreeMap::new();
     let mut appearance_pages: BTreeMap<ObjectId, usize> = BTreeMap::new();
+    let mut mask_setters: Vec<(Place, usize)> = Vec::new();
     for index in 0..pages.len() {
         let Some(page) = pages.get(index) else {
             continue;
@@ -323,11 +345,8 @@ fn cross_check(path: &Path, tally: &mut Tally) {
             {
                 appearance_pages.entry(id).or_insert(index);
             }
-            if selection
-                .frames
-                .iter()
-                .any(|frame| frame.route == Route::SoftMask)
-            {
+            if let Some(setter) = under_a_soft_mask(selection) {
+                mask_setters.push((setter.to_vec(), index));
                 masked.insert(&selection.frames);
                 tally.soft_mask_selections = tally.soft_mask_selections.saturating_add(1);
                 if verbose {
@@ -346,6 +365,19 @@ fn cross_check(path: &Path, tally: &mut Tally) {
         by_place(Machine::Interpreter, &ledger, &mut interpreter_places);
     }
 
+    for (setter, index) in mask_setters {
+        if survey_places.contains_key(&setter) && interpreter_places.contains_key(&setter) {
+            tally.soft_mask_set_where_compared =
+                tally.soft_mask_set_where_compared.saturating_add(1);
+        } else {
+            tally.soft_mask_set_elsewhere.push(format!(
+                "{name} page {}: a soft mask set from {}, which one machine alone ran",
+                index.saturating_add(1),
+                describe(&setter),
+            ));
+        }
+    }
+
     compare(
         &name,
         &pages,
@@ -354,6 +386,16 @@ fn cross_check(path: &Path, tally: &mut Tally) {
         &interpreter_places,
         tally,
     );
+}
+
+/// The place that set the soft mask a selection was made under, where it was made under one: the
+/// frames before the first soft-mask group, which is the stream whose `gs` installed the mask.
+fn under_a_soft_mask(selection: &Selection) -> Option<&[Frame]> {
+    let first = selection
+        .frames
+        .iter()
+        .position(|frame| frame.route == Route::SoftMask)?;
+    selection.frames.get(..first)
 }
 
 /// Holds the two machines' places to each other: paired ones selection by selection, and the
@@ -487,6 +529,16 @@ fn report(tally: &Tally, elapsed: std::time::Duration) {
         "cross-check: {} places under a soft mask's group with {} selections, not judged (A61's scope)",
         tally.soft_mask_places, tally.soft_mask_selections
     );
+    println!(
+        "cross-check: {} of them under a mask set from a place both machines compared, {} from a \
+         place one machine alone ran; the survey made {} selections under a soft mask",
+        tally.soft_mask_set_where_compared,
+        tally.soft_mask_set_elsewhere.len(),
+        tally.survey_under_soft_mask
+    );
+    for line in &tally.soft_mask_set_elsewhere {
+        println!("  {line}");
+    }
     for line in &tally.unpaired {
         println!("  {line}");
     }
@@ -575,6 +627,12 @@ fn the_survey_and_the_interpreter_select_the_same_resources() {
     assert!(
         tally.paired_places > 0,
         "no content stream was run by both machines, so nothing was compared"
+    );
+    assert_eq!(
+        tally.survey_under_soft_mask, 0,
+        "doc/questions/A61 scopes this gate to the constructs the survey walks, and the survey \
+         does not walk a soft mask's group — one that now does is comparable there, and the scope \
+         above has to be narrowed before this gate can pass"
     );
     assert!(
         tally.disagreements.is_empty(),

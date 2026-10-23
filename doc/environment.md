@@ -218,6 +218,10 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
   `tools/drive-windows.sh` remains an explicit end-to-end drive, not a Cargo gate. Separately,
   Linux GTK allocation unit tests require Xvfb, xdpyinfo and GNU timeout, provisioned in CI;
   they own a Cairo display and fail on missing prerequisites rather than skip (ADR 2214).
+  `tools/zoom-probe-drive.py --headless --host gtk|qt` is the same kind of drive for one toolkit
+  window's zoom input and geometry on an Xvfb of its own, software graphics permitted, and judges
+  no latency or sharpness; without `--headless` it refuses a software adapter, so it runs only on the
+  owner's display through the loop below (ADRs 2228, 2229).
   **A display number is yours only after
   `/tmp/.X<n>-lock` was absent and your own Xvfb's pid holds it** (trap 181). By hand:
 

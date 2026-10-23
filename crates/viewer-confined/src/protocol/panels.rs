@@ -2111,7 +2111,7 @@ pub(super) fn decode_accessibility(
                 }
                 other => other,
             },
-            quads: super::read_quads(reader, "a node's shapes")?,
+            quads: super::wire::read_quads(reader, "a node's shapes")?,
             lines: read_lines(reader)?,
             value_lines: read_lines(reader)?,
         })

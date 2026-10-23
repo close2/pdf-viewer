@@ -18,7 +18,7 @@
 //!
 //! The paperclip of veraPDF's `PDF_A-4` `6-3-1-t01-fail-f`, a `0.59 w` round-joined stroke whose
 //! top bends more tightly than its half-width at 10x, so `render_cpu` strokes it as ADR 1348's
-//! union of convex pieces and `tiny-skia`'s supersampled converter measures them. The target's
+//! union of convex pieces, measured from their union's boundary (ADR 2122). The target's
 //! transform is that page's at 10x, to the bit, and the clip is the appearance's own `/BBox`,
 //! which `Do` keeps (§8.10.2).
 //!
@@ -28,8 +28,28 @@
 //! (ADR 2106). A band is a surface that starts some rows down the page, and the page's matrix
 //! reaches it with those rows taken off its translation — the same real number, rounded in
 //! another binade (ADR 0219). This stroke has an edge within an `ulp` of one of the library's
-//! sixteen samples at pixel `(798, 567)`: drawn in the 173 rows of its `/BBox` that pixel was 240,
-//! and on the page 255.
+//! sixteen samples at pixel `(798, 567)`, so the library's converter, drawing it in the 173 rows of
+//! its `/BBox`, reads 240 there, and on the page 255.
+//!
+//! # And what a folding stroke's pixel is owed at all
+//!
+//! The same pixel is the witness for the second test. §10.7.4 measures a shape after its curves
+//! are flattened:
+//!
+//! > At this level, curves have been flattened to sequences of straight lines, and all
+//! > "insideness" computations have been performed.
+//!
+//! and §10.7.2 leaves how finely to this processor:
+//!
+//! > PDF processors may choose to ignore any flatness tolerance specified within a PDF file.
+//!
+//! So a pixel is owed the area of the **flattened** set over its square, which `render_cpu`
+//! measures exactly from the union's boundary (ADR 2122) — `stroke::folding`'s own tests hold that
+//! measure to the same pieces drawn sixteen times finer — and the flattened set lies within the
+//! chords' flatness, a twentieth of a device pixel (`doc/questions/A559`, ADR 2252), of the curve's.
+//! The test here holds the page to the curve by that bound: the stroke drawn sixteen times finer,
+//! its own chords sixteen times closer, averaged over the sixteen-by-sixteen block that becomes
+//! each pixel.
 
 #![expect(
     clippy::expect_used,
@@ -183,5 +203,86 @@ fn a_clip_that_removes_nothing_leaves_a_folding_stroke_as_it_was() {
         worst.1,
         ink(&bare, worst.1),
         ink(&clipped, worst.1)
+    );
+}
+
+/// The witness pixel's neighbourhood, in device pixels: the fold at the paperclip's top.
+const WINDOW: (u32, u32) = (794, 563);
+
+/// Its side, in device pixels.
+const WINDOW_SIDE: u32 = 8;
+
+/// How much finer the ladder draws the window.
+const LADDER: u32 = 16;
+
+/// The witness pixel itself, whose integral ADR 2106 §1 measured.
+const WITNESS: (u32, u32) = (798, 567);
+
+/// How far a pixel may read from its ladder, in levels of 255: the flattening's, not the
+/// measure's. A boundary crosses one pixel over at most `√2` of it, so two sets whose boundaries lie
+/// within `d` of each other differ inside a pixel by at most `√2 · d` of its area: the page's chords
+/// lie within a twentieth of a device pixel of their curve and the ladder's sixteen times closer
+/// (ADR 2252), and each drawing rounds its level once, half a level apiece.
+const FLATTENING: f64 = 255.0 * std::f64::consts::SQRT_2 * (1.0 / 20.0 + 1.0 / 320.0) + 1.0;
+
+/// §10.7.4 and §10.7.2: a folding stroke covers each pixel by the area of its flattened set there,
+/// which lies within the chords' flatness of the curve's, as the stroke drawn [`LADDER`] times finer
+/// measures it.
+#[test]
+fn a_folding_stroke_covers_a_pixel_by_its_area() {
+    let page = drawn(&scene(false), (WIDTH, HEIGHT), AT_TEN);
+    // The page's matrix scaled by the ladder and moved so that the window's corner is the
+    // ladder's origin.
+    let side = WINDOW_SIDE * LADDER;
+    let scale = LADDER as f32;
+    let finer = Transform {
+        a: AT_TEN.a * scale,
+        b: 0.0,
+        c: 0.0,
+        d: AT_TEN.d * scale,
+        e: (AT_TEN.e - WINDOW.0 as f32) * scale,
+        f: (AT_TEN.f - WINDOW.1 as f32) * scale,
+    };
+    let ladder = drawn(&scene(false), (side, side), finer);
+    let mut worst = (0.0_f64, (0, 0), 0_u8, 0.0_f64);
+    let mut witness = (0_u8, 0.0_f64);
+    for y in 0..WINDOW_SIDE {
+        for x in 0..WINDOW_SIDE {
+            let mut sum = 0_u32;
+            for v in 0..LADDER {
+                for u in 0..LADDER {
+                    sum += u32::from(ink(&ladder, (x * LADDER + u, y * LADDER + v)));
+                }
+            }
+            let area = f64::from(sum) / f64::from(LADDER * LADDER);
+            let drawn = ink(&page, (WINDOW.0 + x, WINDOW.1 + y));
+            let apart = (f64::from(drawn) - area).abs();
+            if (WINDOW.0 + x, WINDOW.1 + y) == WITNESS {
+                witness = (drawn, area);
+            }
+            if apart > worst.0 {
+                worst = (apart, (WINDOW.0 + x, WINDOW.1 + y), drawn, area);
+            }
+        }
+    }
+    assert!(
+        (f64::from(witness.0) - witness.1).abs() <= FLATTENING,
+        "the witness pixel {WITNESS:?} reads {} where the stroke drawn {LADDER} times finer covers \
+         {:.1} of 255 — past the flatness §10.7.2 leaves to this processor",
+        witness.0,
+        witness.1
+    );
+    assert!(
+        worst.0 <= FLATTENING,
+        "pixel {:?} reads {} where the stroke drawn {LADDER} times finer covers {:.1} of 255 — \
+         past the flatness §10.7.2 leaves to this processor",
+        worst.1,
+        worst.2,
+        worst.3
+    );
+    // Printed, so that a run states the figures the bound holds and not only that it held.
+    println!(
+        "witness {WITNESS:?}: {} against {:.1}; worst {:?}: {} against {:.1}, bound {FLATTENING:.1}",
+        witness.0, witness.1, worst.1, worst.2, worst.3
     );
 }

@@ -70,7 +70,11 @@ machine face ranked by its descriptor — Table 120's weight, slope and width ag
 face's own `OS/2` — among the faces that draw as much of its script as any, which is one search
 for a page's font and an interface's label alike (ADR 1441). A non-symbolic TrueType font's code
 that none of §9.6.5.4's steps reaches is drawn through the glyph the (3, 1) subtable gives the one
-character its `/ToUnicode` states for it (ADR 1943).
+character its `/ToUnicode` states for it (ADR 1943). A simple font's widths are Table 109's from
+`/FirstChar` through `/LastChar` and no further, a code past a stated `/LastChar` taking the
+descriptor's `/MissingWidth` however long the array runs (ADR 2181), and a CFF program's units per em
+is its `FontMatrix`'s scale kept fractional, so its outlines and advances are read under the matrix
+the program states (ADR 2180).
 
 ### Three rasterisers behind one display list
 
@@ -78,9 +82,10 @@ character its `/ToUnicode` states for it (ADR 1943).
 oracle — and it is one because it computes a path's coverage of a pixel as the **exact integral of
 §8.5.3.3's winding number over §10.7.4's half-open pixel square** rather than sampling it on a
 lattice — a row at a time, so that a page is cut into strips across any stroke it draws
-that way, a curve that cannot fold included, every fill the row walk draws freeing its rows too and a mark's self-overlap judged over the whole mark rather than its strip (ADR 1837), a rectangle stated at a strip's edge row as the library's rectangle converter states it unclipped, so that a cut across one changes no byte (ADR 2084), an unfiltered image's pixel coloured by the sample its centre maps to on the page's own device grid, so a strip takes the sample the page does (ADR 2100), a rectangle's converter chosen by the page rather than by the strip, so the first strip of a page past 8191 rows states its rectangles as the page does (ADR 2116), a rectangle inside one device row written by its closed form, where the library's own branch for it comes out under its area (ADR 2117), a fill, a stroke's outline, a folding stroke's pieces, a rectangle's closed form and an image's square measured on the page's grid in every strip and band, only their write moved by the surface's corner (ADR 2133), and so are §10.7.4's marks and bands, a dot's disc, a long mitre's wedges, a clip's own mask and a cone's, a washed shading's or a mesh's raster (ADRs 2148, 2167), the library's own converters keeping the surface's matrix (ADR 2149) and asking their range of the page (ADR 2166), and a tall mark is measured in runs of rows rather than handed back (ADR 1819); a single straight stroke whose ink lies within a 2 × 2 block of pixels is painted from its exact closed-form area in the frame where the pen is the unit disc, without entering the library at all (ADR 1829), §8.5.3.2's round dot as the same set at length zero, in every spelling and inside a longer path where no two dots share a pixel (ADRs 1857, 1875), composited at its area and rounded once when stored (ADR 1876), and measured on the page's own grid in every strip, so a cut through one is exact (ADR 1847); a page is cut into as many strips as the pool drawing it is wide (ADR 1859), the cuts decided on one thread from the list read on that pool, every number of it the serial reading's (ADR 1882), the bounds the list keeps borrowed rather than copied (ADR 1940) — leaving the library beneath it the axis-aligned rectangle (ADR 1082) and a stroke some of
+that way, a curve that cannot fold included, every fill the row walk draws freeing its rows too and a mark's self-overlap judged over the whole mark rather than its strip (ADR 1837), a rectangle stated at a strip's edge row as the library's rectangle converter states it unclipped, so that a cut across one changes no byte (ADR 2084), an unfiltered image's pixel coloured by the sample its centre maps to on the page's own device grid, so a strip takes the sample the page does (ADR 2100), a rectangle's converter chosen by the page rather than by the strip, so the first strip of a page past 8191 rows states its rectangles as the page does (ADR 2116), a rectangle inside one device row written by its closed form, where the library's own branch for it comes out under its area (ADR 2117), a fill, a stroke's outline, a folding stroke's pieces, a rectangle's closed form and an image's square measured on the page's grid in every strip and band, only their write moved by the surface's corner (ADR 2133), and so are §10.7.4's marks and bands, a dot's disc, a long mitre's wedges, a clip's own mask and a cone's, a washed shading's or a mesh's raster (ADRs 2148, 2167), the library's own converters keeping the surface's matrix (ADR 2149) and asking their range of the page (ADR 2166), and a tall mark is measured in runs of rows rather than handed back (ADR 1819); a single straight stroke whose ink lies within a 2 × 2 block of pixels is painted from its exact closed-form area in the frame where the pen is the unit disc, without entering the library at all (ADR 1829), §8.5.3.2's round dot as the same set at length zero, in every spelling and inside a longer path where no two dots share a pixel (ADRs 1857, 1875), composited at its area and rounded once when stored (ADR 1876), and measured on the page's own grid in every strip, so a cut through one is exact (ADR 1847); a page is cut into as many strips as the pool drawing it is wide (ADR 1859), the cuts decided on one thread from the list read on that pool, every number of it the serial reading's (ADR 1882), the bounds the list keeps borrowed rather than copied (ADR 1940) — leaving the library beneath it the axis-aligned rectangle (ADR 1082), measures a stroke some of
 whose curves bend more tightly than its half-width — those curves as pieces, the stretches between
-as the stroker's outline (ADRs 1348, 1359) — lifts a shape too small to show to one level as a whole
+as the stroker's outline (ADRs 1348, 1359) — from the boundary of the set the pieces fill, its
+chords at a twentieth of a pixel and its mitres and caps the path's own (ADRs 2122, 2252), lifts a shape too small to show to one level as a whole
 shape, which is what §10.7.4 asks the lift of, so the sliver beside a shape that does show keeps its
 own level rather than being painted as ink (ADR 1374), and measures a path
 whose portions overlap as the set its fill rule declares inside rather than composite the portions
@@ -103,7 +108,7 @@ geometry (ADR 1435), an isolated group that composites in a blending colour spac
 as a frame of its own on the same device and placed back as device pixels, which §11.4.5 makes
 exact (ADR 1471), and a target past the adapter's side limit drawn in tiles and stitched (ADR
 1472), a frame's budget being the largest buffer the adapter can make rather than a fixed figure
-(ADR 1823), and the same thin stroke the processor paints in closed form drawn as the device's own line primitive, its area per pixel computed in the shader and its budget counted per mark (ADR 1835), §8.5.3.2's round dot among them as that line at length zero (ADR 1857), every one-segment stroke a line at every view with its width resolved per placement, so a page of lines keeps its scene across a zoom and a step only re-encodes it, its lines' closed forms made on other threads ahead of the walk (ADRs 1877, 1878, 1884), a replay of an unchanged view reading its instance streams from the device rather than sending them again (ADR 1993), those streams charged against a residency budget the device states and a page past it sending them every frame and saying so once (ADR 2030), the op list built once only after the line lane maps on the device because the host's cull ties it to the view (ADR 2008), and each frame's cost carrying the stream every byte crossed in, said at the end of the trace's frame line (ADR 2009), and an offscreen frame drawn from the marks that reach it as a window's is (ADR 1858) — its strokes, fills, clips and images each drawn as the set the clause defines rather
+(ADR 1823), and the same thin stroke the processor paints in closed form drawn as the device's own line primitive, its area per pixel computed in the shader and its budget counted per mark (ADR 1835), §8.5.3.2's round dot among them as that line at length zero (ADR 1857), every one-segment stroke a line at every view with its width resolved per placement, so a page of lines keeps its scene across a zoom and a step only re-encodes it, its lines' closed forms made on other threads ahead of the walk (ADRs 1877, 1878, 1884), a replay of an unchanged view reading its instance streams from the device rather than sending them again (ADR 1993), those streams charged against a residency budget the device states and a page past it sending them every frame and saying so once (ADR 2030), a resident view drawing only the runs of line instances whose conservative bounds reach it, the instances' bytes, their order and the shader's arithmetic unchanged (ADR 2188), the op list built once only after the line lane maps on the device because the host's cull ties it to the view (ADR 2008), and each frame's cost carrying the stream every byte crossed in, said at the end of the trace's frame line (ADR 2009), a cropped read-back's straight alpha rounded to nearest as the whole page's is (ADR 2183), and an offscreen frame drawn from the marks that reach it as a window's is (ADR 1858) — its strokes, fills, clips and images each drawn as the set the clause defines rather
 than as a sample of it, a clip meeting a mark's coverage as §10.7.4's intersection, and every
 frame the same bytes at every thread count, which the corpus gate holds by drawing each page again
 at one thread; `doc/crate-map.md`'s `raster-gpu` row names the module of each construction (ADRs
@@ -486,7 +491,8 @@ sentence saying the destination replaced what was open (ADRs 1227, 1263). **§12
 is the same act where its Table 207 `/F` names a PDF**: the file is asked for under the same level and
 path rule, its §7.5.2 header decides what it is once it has arrived, a PDF opens where `/NewWindow`
 puts it, a program is started never, and any other file is a document handed to this machine's own
-handler at `--launched-documents=`'s level, `refuse` by default (ADRs 1368, 1358, 2171). The path
+handler at `--launched-documents=`'s level, `ask` by default, since every window's restriction
+menu sets it (ADRs 1368, 1358, 2171, 2185). The path
 rule admits §7.11.2.2's relative specification into a directory below the document's own and
 refuses `..`, `.`, an empty component and an absolute path (ADR 1369). A file the go-to names
 that asks for a password is asked about under the name it would open under, and the second attempt
@@ -600,7 +606,8 @@ ISO 18619's procedure, whose source black is read from an output-capable profile
 ink converts to the destination's black point (ADR 1253). `/UseBlackPtComp` joins
 Table 69's four intents in selecting the conversion, which is why `colour::MAX_PRESSES` is stated
 against the standard's own floor of seven pairs per profile rather than against a round number
-(ADR 1254).
+(ADR 1254). A press table a panicked thread poisoned is `NoPress::Poisoned`, carried to the caller as the
+program's fault, never a route that cannot be built or a count of zero (ADR 2186).
 
 **A page paints under §11.7.4's overprinting, and it is not a seventeenth blend mode.** Table 57's
 `/OP`, `/op` and `/OPM` are read, §8.6.7's zero test is made before quantisation, and §11.7.4.3's
@@ -636,7 +643,20 @@ reach both routes into a subtractive space — the graphics state's and §11.6.7
 puts the default back on Table 57's own precedence, and a function this tree cannot evaluate is
 `Unsupported::BlackGeneration` rather than a silent substitution (ADR 1207). The pair in force at a
 `Do` reaches the conversion of a group's result into a four-component parent as well, which is
-§11.7.5.3's second bullet and is sampled into the cube the backends already take (ADR 1242).
+§11.7.5.3's second bullet and is sampled into the cube the backends already take (ADR 1242). **And the
+pair is the one in force when the mark paints**, which is §11.7.5.3's first bullet: an image takes
+the pair into its decoder's conversion beside its own rendering intent, and the departure ADR 1242
+keeps — a `DeviceCMYK` target the output intent characterises converting through its profile — is
+reported at a paint that bypasses the pair, never at a `gs` that only sets one (ADR 2187). A colour
+is therefore kept as its source until it paints and converted under the context in force then: a
+solid `DeviceRGB` colour's components (ADR 2198), an uncoloured tiling pattern's tint through every
+nested target (ADR 2212), a direct `ICCBased` colour's profile and components, so an `ri`, `RI` or
+`/UseBlackPtComp` set after the colour still decides its conversion (ADR 2222), and an `Indexed`
+colour over an immediate `ICCBased` base as its decoded entry (ADR 2234), and a `Separation`,
+`DeviceN`, calibrated or `Lab` colour as its resolved space and operands (ADR 2248), each restored
+by `Q` and across a Form's resources (ADRs 2208, 2221). The other `Indexed` bases and plain
+`DeviceGray` and `DeviceCMYK` solids are not yet kept this way, which is why §11.7.5.3's row stays
+`partial` (ADR 2248).
 
 ### A mesh patch on the backend
 
@@ -778,7 +798,7 @@ refuses is paid once** in `quorra`: the device is not asked again for those page
 magnification — nor, where the adapter refused the compute lane's pipelines, for any frame of that
 coverage while the window's device lives (ADR 1968), nor for a retained page's picture of that lane
 (ADR 1984), and a refusal the retained layer heard first is told to the window once so both memories agree (ADR 2000) — the processor's draw is taken back at the first notch of zoom that leaves it, and past
-`WARN` it is warned of and Escape stops it, as on `--cpu` (ADR 1821); the lane is chosen by each lane's last measured cost per command for the pages, a frame the device is predicted to draw within `WARN` staying on the device and the device asked once on pages the processor has drawn — a frame finished from its drawing ahead or taken back included — before the processor keeps them (ADR 1860), and the device priced by building its scene or by drawing the one it holds, whichever the frame does, every frame's lane said on the trace (ADR 1886), that scene built after a processor frame while nobody waits and a processor frame's upload drawn through a lane of its own so that it does not replace it (ADR 1898), and a processor draw is shown as it is built, its whole-page picture drawn on the processor too (ADR 1831; page one on the processor where it is the faster lane is `CLAUDE.md` principle 2's, `doc/questions/A393`); a processor window's stand-in is resampled on every core and a refusal holds for its view (ADR 1832). **Page one that reads for seconds is drawn while it is read** in `quorra`: the reader hands its list over in parts, the opening thread draws each into the first frame's target from half a second into the read and the window shows it, and the first frame is finished from it — drawn in as many even strips as the pool is wide, each batch of waiting parts in one pass on the pool and the rest of the list there once the read ends, the page drawn whole at those cuts byte for byte, and a mark across a cut ends it; the toolkit windows call the same `viewer_host::Ahead` (ADRs 1855, 1867, 1896). **A page turn is drawn while it is read** in `quorra`, on either surface, and in the toolkit windows (ADRs 1871, 1886): the core leaves the turned page's read to the host (`Viewer::handle_unread`), the toolkit thread reads it beside a drawer and the frame is finished from that drawing; and `quorra --cpu` draws page one while it is read and shows its composer's frames as they are built (ADR 1871), each
+`WARN` it is warned of and Escape stops it, as on `--cpu` (ADR 1821); the lane is chosen by each lane's last measured cost per command for the pages, a frame the device is predicted to draw within `WARN` staying on the device and the device asked once on pages the processor has drawn — a frame finished from its drawing ahead or taken back included — before the processor keeps them (ADR 1860), and the device priced by building its scene or by drawing the one it holds, whichever the frame does, every frame's lane said on the trace (ADR 1886), that scene built after a processor frame while nobody waits and a processor frame's upload drawn through a lane of its own so that it does not replace it (ADR 1898), and a processor draw is shown as it is built, its whole-page picture drawn on the processor too (ADR 1831; page one on the processor where it is the faster lane is `CLAUDE.md` principle 2's, `doc/questions/A393`); a processor window's stand-in is resampled on every core and a refusal holds for its view (ADR 1832). **A measured price prices only the view that measured it**: a sample carries each page's target size and transform, the window's extent, its command count and the device's coverage lane, and a view with no compatible sample takes its bucket's seed, said to be a seed, rather than another zoom's or another coverage's measurement — nor is a whole device frame's price scaled by the share of the page a view reaches (ADRs 2196, 2197). **Page one that reads for seconds is drawn while it is read** in `quorra`: the reader hands its list over in parts, the opening thread draws each into the first frame's target from half a second into the read and the window shows it, and the first frame is finished from it — drawn in as many even strips as the pool is wide, each batch of waiting parts in one pass on the pool and the rest of the list there once the read ends, the page drawn whole at those cuts byte for byte, and a mark across a cut ends it; the toolkit windows call the same `viewer_host::Ahead` (ADRs 1855, 1867, 1896). **A page turn is drawn while it is read** in `quorra`, on either surface, and in the toolkit windows (ADRs 1871, 1886): the core leaves the turned page's read to the host (`Viewer::handle_unread`), the toolkit thread reads it beside a drawer and the frame is finished from that drawing; and `quorra --cpu` draws page one while it is read and shows its composer's frames as they are built (ADR 1871), each
 finished frame and look waking the window's loop rather than waiting for its next tick (ADR 1936). The confined worker draws a turn beside its read too, with the two types the arrangement is made of rather than `viewer-host`, which a confined process does not link; its launch still reads page one before the window has a size (ADR 1871 §4). **The
 document chooses what opens**: all six of Table 29's `/PageMode` values reach a window in all three
 hosts — four name a panel, `UseNone` names none and `FullScreen` is §12.4.4's presentation — and
@@ -866,7 +886,9 @@ pass.
   window's own and read back onto its medium by the device's own pass (ADR 2150), by the drawing
   thread under `--cpu` or where the device refuses or is predicted the slower lane (ADRs 2049, 2070,
   2071), its launch held to bands on both lanes (ADR 2125) — becomes a `gdk::MemoryTexture` with no
-  conversion at all. A form host draws the page *without* its widget
+  conversion at all, placed at one device pixel per texel: each placement gives its picture the
+  whole translation and scale from device to logical pixels, a stand-in scaled to the extent asked
+  for until its raster arrives (ADR 2214). A form host draws the page *without* its widget
   appearances — §6.3.2.2's "unless otherwise instructed" as `Command::Delegate` — and at the
   *scale* it states. ADRs 0244, 0245.
 - **`viewer-qt`'s `quorra-qt`**, a real Qt 6 Widgets application whose pages are drawn and read
@@ -876,7 +898,16 @@ pass.
   workspace names, every other crate still *forbidding* it. **The claim is about this crate rather
   than about the tree**: a C ABI writes its entry points as `pub unsafe extern "C" fn`, which is
   what a C ABI is, and the crates and worker programs that lift the denial are read off
-  `tests/unsafe_position.rs`'s `only_the_named_crates_in_the_tree_lift_the_denial`.
+  `tests/unsafe_position.rs`'s `only_the_named_crates_in_the_tree_lift_the_denial`. A refresh's
+  placements are taken once and copied into `QImage`s by one synchronous C++ image sink local to
+  `showFrame`, before the borrowed slices end (ADRs 2236, 2237). **Both toolkit windows can say
+  what a zoom reached**: under `PDFVIEWER_ZOOM_PROBE=1` each writes versioned `zoom-record` lines —
+  a wheel callback, its modifiers, the branch taken and the host's outcome counted apart, and the
+  content widget's geometry in each coordinate space it is measured in — and `quorra-gtk` with
+  `PDFVIEWER_ZOOM_CAPTURE_DIR` also keeps each settled whole-page source joined to the generation
+  that painted it; `tools/zoom-probe-drive.py` drives an owned window through them and
+  `tools/zoom-probe-records.py` refuses a stale, foreign or ambiguous record. They observe input and
+  geometry and judge no latency and no sharpness (ADRs 2224, 2225, 2228, 2229, 2240, 2241).
   **`crates/viewer-host`** holds what the hosts decide alike and no toolkit type names — the panel
   rows, the control decision, §12.7.6.4's file policy and the launch timeline among them. ADR 0246.
   **`viewer-host` also decides the *shape* of a thread for both hosts**:
@@ -932,10 +963,16 @@ pass.
   platform control over each widget whose appearance the window draws itself, committed as the
   toolkit windows commit it, the title and the status line, the keys, the pointer, the wheel and
   Control with the wheel (`quorra_window_zoom_wheel`, the fraction of a step carried by the
-  library), each record it has no dialogue for yet declined in the header's own terms and said;
+  library), each owed record copied into managed memory before the library frees it and answered on
+  a card — a password, a question, an archive target and profile, a script's dialogue, a print
+  preview — one at a time, a withdrawn or replaced one never answered, the open panel's rows read and
+  only its realised thumbnails, and the shared restriction menu as its Permissions menu (ADR 2185);
+  the chrome the library says is in effect, read through the native window rather than from the
+  document's preferences (ADR 2200), Table 29's `HideWindowUI` hiding the navigation toggle and the
+  status line and never the document or its outline (ADR 2201);
   the pictures copied only where a repaint calls them fresh (ADR 2168), Table 231's combs, the
   measured fit, §12.5.6.14's popups and §12.9's traced path drawn (ADR 2169); its C# compiled on
-  Linux against the Windows App SDK's references, its XAML only by CI's `window` job, on
+  Linux against the Windows App SDK's references by `tools/dotnet-check.sh` (ADR 2184), its XAML only by CI's `window` job, on
   `windows-latest`, with `viewer_ffi.dll` beside it (ADRs 2136, 2137, 2152, 2153).
   ADRs 0247, 0509.
 
@@ -1025,7 +1062,19 @@ output's own `xmpMM:History` (ADRs 1964, 1965), a halftone's own `TransferFuncti
 two answers where §10.6.5.6 does not require it (ADR 2007), and a `/TR2` other than `Default` is written
 `Default` under the same two answers (ADR 1978); overprint mode 1 under an `ICCBased` CMYK mark is set
 to 0 as a statement where the states govern no `DeviceCMYK` mark and as a press's loss where they do
-(ADR 1978). The validator enumerates a page tree in one walk, so a flat `/Kids` array costs it
+(ADR 1978). A simple font's widths array is made as long as the range it states — a short one narrowing
+`/LastChar`, a long one losing the entries past it — since this reader already gives a code outside
+the range the descriptor's `/MissingWidth` (Table 109, ADR 2178); a bundled Foxit program carries
+its notice in an XMP Rights Management packet on the font file it describes (§14.3.2, ADR 2194), and
+a Liberation program whose metrics the conversion changed is renamed, its licence reserving the
+family name for unmodified versions (ADR 2195) — both the owner's `A550`. Annotation flags are
+answered per object under `as-shown`: an annotation hidden at rest is removed and a visible one
+without `Print` is kept with the flag set, from one prepared population (ADRs 2210, 2211), and a
+hidden markup annotation and its popup are removed together only where each was authorised on its
+own, which says nothing about references to them elsewhere in the file (ADRs 2218, 2219). Under a
+part 4 page output intent that overrides the catalogue's, an RGB mark is given a `/DefaultRGB` only
+where every resource context the page and its Forms reach is proved and a neutral `Gray` page group
+is shown preserved first; any other context still refuses (ADRs 2230, 2231). The validator enumerates a page tree in one walk, so a flat `/Kids` array costs it
 linear rather than quadratic time (ADR 1953).
 [`doc/pdf-a-mitigations.md`](pdf-a-mitigations.md) is the catalogue of each, with its clause. A
 refusal is a question answered in advance: a configuration names each refusal site and its remedy,

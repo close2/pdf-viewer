@@ -494,6 +494,27 @@ a **vocabulary and not a trait** (ADR 0116, `doc/ui-boundary.md`): a host sends 
    no filesystem and no network (`crates/viewer-confined`, ADR 0218). A page then crosses to the
    host as the smaller of pixels and marks (ADR 0607), and a page past the bound as the window it
    shows (ADR 1944, ADR 1986).
+   What crosses is one codec per concern under `crates/viewer-confined/src/protocol/` (ADR 2256).
+   A host sends a command or a question; the worker answers with events or an answer, and a frame
+   answer carries the page as pixels, as marks or as a window:
+
+   ```mermaid
+   flowchart LR
+       H[host] -->|command, query| F[frame.rs<br/>header, greeting]
+       F --> C[command.rs / query.rs]
+       C --> V[viewer in the worker]
+       V --> E[event.rs]
+       V --> A[answer.rs]
+       A --> M[marks.rs<br/>pixels or marks?]
+       M --> P[payload.rs<br/>raster, list, window]
+       P --> D[display_list.rs / windowed.rs]
+       E -->|events| H
+       A -->|answer| H
+       W[wire.rs<br/>Writer, Reader] -.- C
+       W -.- E
+       W -.- A
+   ```
+
 6. The frame is presented: the page and the window's chrome are two textures, the medium (the
    window's background, never page white) goes under them, and a stale stand-in is drawn while the
    exact frame is being made (`crates/render-raster/src/present.rs`, ADR 0378, ADR 0443).
@@ -521,7 +542,7 @@ sequenceDiagram
 `crates/viewer-core/src/command.rs`, `crates/viewer-core/src/event.rs`,
 `crates/viewer-core/src/open.rs`, `crates/viewer-host/src/drawing.rs`,
 `crates/viewer-device/src/renderer.rs`, `crates/viewer-ui/src/bin/quorra/dispatch.rs`,
-`crates/viewer-confined/src/lib.rs`, `doc/ui-boundary.md`, ADR 0116, ADR 0391, ADR 0461, ADR 0607 and
+`crates/viewer-confined/src/lib.rs`, `crates/viewer-confined/src/protocol.rs` and its modules, `doc/ui-boundary.md`, ADR 2256, ADR 0116, ADR 0391, ADR 0461, ADR 0607 and
 ADR 1986. Redraw it when a host stops answering a `Rendered` it answered, when the render thread's
 duties move, or when `Command` or `Event` gain a variant on the path from `NeedsRender` to a
 present. This is the stage that changed most often, and the one to check first.

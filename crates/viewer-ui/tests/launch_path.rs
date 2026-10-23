@@ -27,6 +27,7 @@
 //! | **the script stage** | after page one's frame, `Command::Presented` to a viewer that was handed a runner before it opened the document (`Command::Scripts`, a window at `on`): RFC 0008 section 6.5's open sequence, which starts `pdf-script-worker` at its first trigger — `OpenCost::line()`'s `script_open spawn_ms=<f> first_run_ms=<f>`, the worker's start through its greeting and the first run's exchange with the realm constructed inside it (ADR 1620) | time to first page, which every row's child measures with the same runner supplied and whose clock has stopped before the stage begins; a worker started before the frame is a failure of its own |
 //! | **page turn** | `Command::GoTo(Next)`, the interpretation it causes, and the frame drawn on the device | — |
 //! | **memory high-water** | `VmHWM` of a process that drew page one with its transparent huge pages off, less the resident pages of the files it has mapped — what the program touched of what the allocator asked the kernel for ([`SMALL_PAGES`], ADR 1902) | every shared object the Vulkan loader brought in, which is nine tenths of the process's own `VmHWM` and is the kernel's decision rather than this program's (ADR 0910) |
+//! | **what an open allocates** | `VmHWM` of a process that only opened the document, with its transparent huge pages off, less the resident pages of the files it has mapped ([`Row::open_anon_mib`], ADR 2244) | the test binary's and the C library's resident text, seven parts in eight of that process's `VmHWM`, whose size is the page cache's decision |
 //! | **bytes read** | `rchar` from `/proc/self/io` across the open, which is what principle 2's "reads the trailer and the objects page one needs — not the whole file" is a claim about | the binary's own loading, which is `mmap` rather than `read` |
 //! | **instructions an open executes** | the whole of a process that opens the document and stops, counted under callgrind — what principle 2's "cold open" asks about, with no clock in it (see [`open_kinstructions`]) | the disk, and how fast this machine happens to be executing today |
 //!
@@ -1561,19 +1562,21 @@ struct Row {
     /// first-page children's own allocation**, which carries the machine's huge pages: see
     /// [`SMALL_PAGES`]. Both are printed.
     peak_anon_mib: Pin,
-    /// The band on the peak resident size of the process that only *opened* it, in mebibytes.
+    /// The band on how much *this program* had allocated at the high-water of a process that
+    /// only *opened* it, in mebibytes, in a child whose transparent huge pages are off.
     ///
     /// The one memory figure with no graphics driver in it, and so the one that answers what a
     /// *document* costs: a device's own allocations are an order of magnitude larger than any
     /// document here and would hide the whole question.
     ///
-    /// **This one is still the whole process's `VmHWM` where [`Row::peak_anon_mib`] is not**, and
-    /// that is deliberate rather than an oversight: it was identical across all forty-four runs
-    /// its band was derived from and has not moved since, because the only large file this
-    /// process maps is the test binary itself. It is what the same figure looks like when no
-    /// driver is in the process, which is why ADR 0910's finding does not reach it — and the
-    /// line prints its allocated share beside it so that a reader can see both halves here too.
-    open_peak_mib: Pin,
+    /// **The anonymous share, as [`Row::peak_anon_mib`] is, and for ADR 0910's reason** (ADR
+    /// 2244). The process's whole `VmHWM` is seven parts in eight the test binary's and the C
+    /// library's resident text, and how much of a mapped file a fault brings in is the page
+    /// cache's decision: the same bytes at the same path read 1.0 to 1.4 MiB apart from one run
+    /// to the next while what the open allocated stayed the same to the kibibyte. The whole
+    /// figure is printed beside this one, unbanded; [`SMALL_PAGES`] is why the child is one of
+    /// its own.
+    open_anon_mib: Pin,
     /// The band on how many bytes of the file an open reads, in kibibytes.
     read_kib: Pin,
     /// The band on how many read calls an open makes.
@@ -1689,8 +1692,8 @@ struct Partial {
     script_first_run_ms: Option<Pin>,
     /// See [`Row::peak_anon_mib`]. `None` here is "the key was not stated at all".
     peak_anon_mib: Option<Pin>,
-    /// See [`Row::open_peak_mib`]. `None` here is "the key was not stated at all".
-    open_peak_mib: Option<Pin>,
+    /// See [`Row::open_anon_mib`]. `None` here is "the key was not stated at all".
+    open_anon_mib: Option<Pin>,
     /// See [`Row::read_kib`]. `None` here is "the key was not stated at all".
     read_kib: Option<Pin>,
     /// See [`Row::read_calls`]. `None` here is "the key was not stated at all".
@@ -1714,7 +1717,7 @@ fn finish(partial: Partial, at: usize, into: &mut Vec<Row>) -> Result<(), String
         script_spawn_ms: Some(script_spawn_ms),
         script_first_run_ms: Some(script_first_run_ms),
         peak_anon_mib: Some(peak_anon_mib),
-        open_peak_mib: Some(open_peak_mib),
+        open_anon_mib: Some(open_anon_mib),
         read_kib: Some(read_kib),
         read_calls: Some(read_calls),
         open_kinstructions: Some(open_kinstructions),
@@ -1724,7 +1727,7 @@ fn finish(partial: Partial, at: usize, into: &mut Vec<Row>) -> Result<(), String
         return Err(format!(
             "the row ending at line {at} is missing one of path, pages, cold_open_ms, \
              warm_open_ms, first_page_ms, cold_first_page_ms, turn_ms, script_spawn_ms, \
-             script_first_run_ms, peak_anon_mib, open_peak_mib, read_kib, read_calls, \
+             script_first_run_ms, peak_anon_mib, open_anon_mib, read_kib, read_calls, \
              open_kinstructions, why"
         ));
     };
@@ -1739,7 +1742,7 @@ fn finish(partial: Partial, at: usize, into: &mut Vec<Row>) -> Result<(), String
         script_spawn_ms,
         script_first_run_ms,
         peak_anon_mib,
-        open_peak_mib,
+        open_anon_mib,
         read_kib,
         read_calls,
         open_kinstructions,
@@ -1800,7 +1803,7 @@ fn parse(text: &str) -> Result<Check, String> {
                 "script_spawn_ms" => row.script_spawn_ms = Some(band(value, at)?),
                 "script_first_run_ms" => row.script_first_run_ms = Some(band(value, at)?),
                 "peak_anon_mib" => row.peak_anon_mib = Some(band(value, at)?),
-                "open_peak_mib" => row.open_peak_mib = Some(band(value, at)?),
+                "open_anon_mib" => row.open_anon_mib = Some(band(value, at)?),
                 "read_kib" => row.read_kib = Some(band(value, at)?),
                 "read_calls" => row.read_calls = Some(band(value, at)?),
                 "open_kinstructions" => row.open_kinstructions = Some(band(value, at)?),
@@ -3384,6 +3387,8 @@ fn the_launch_path_stays_inside_its_bands() {
         // The memory high-water's own child, one beside them, with its huge pages off: see
         // [`SMALL_PAGES`]. One, because the figure has no clock in it.
         let allocation = run_phase(&format!("first-page{SMALL_PAGES}"), Some(cold_source));
+        // And the open's, for the same reason (ADR 2244).
+        let open_allocation = run_phase(&format!("open{SMALL_PAGES}"), Some(cold_source));
         // A one-page document has no page to turn to, and asking for one is not a defect to
         // report. Its row states `turn_ms = none` and this is the other half of that.
         let turn = if row.pages > 1 && clocks {
@@ -3470,18 +3475,6 @@ fn the_launch_path_stays_inside_its_bands() {
                 "read_calls",
                 calls,
                 row.read_calls,
-                true,
-                Sample {
-                    fields,
-                    waited: None,
-                },
-            );
-            band_it(
-                &mut judged,
-                format!("{}: what an open costs in memory", row.path),
-                "open_peak_mib",
-                peak,
-                row.open_peak_mib,
                 true,
                 Sample {
                     fields,
@@ -3650,6 +3643,39 @@ fn the_launch_path_stays_inside_its_bands() {
                  open above could not drop the document's cache"
             ),
             None => {}
+        }
+        match open_allocation {
+            Ok(fields) if field(&fields, "small_pages") == Some(1.0) => {
+                let touched = anonymous_high_water_mib(&fields);
+                println!(
+                    "launch-path:   {touched:.2} MiB allocated by the same open in a child with \
+                     transparent huge pages off, the figure banded (ADR 2244)"
+                );
+                band_it(
+                    &mut judged,
+                    format!("{}: what an open allocates", row.path),
+                    "open_anon_mib",
+                    touched,
+                    row.open_anon_mib,
+                    true,
+                    Sample {
+                        fields: &fields,
+                        waited: None,
+                    },
+                );
+            }
+            Ok(fields) => complaints.push(format!(
+                "{}: the open's allocation child says its huge pages were {}, not off, so its \
+                 figure is not the one the band was taken from",
+                row.path,
+                fields
+                    .iter()
+                    .find(|(key, _)| key == "small_pages")
+                    .map_or("not reported", |(_, value)| value.as_str())
+            )),
+            Err(complaint) => {
+                complaints.push(format!("{}: what an open allocates: {complaint}", row.path));
+            }
         }
         match allocation {
             Ok(fields) if field(&fields, "small_pages") == Some(1.0) => {

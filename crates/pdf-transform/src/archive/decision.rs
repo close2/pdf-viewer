@@ -1211,11 +1211,13 @@ const APPEARANCE_STATE_REINTERPRETS: &str = "an annotation's normal appearance w
 
 /// What writing `/CIDToGIDMap` `/Identity` asserts, which is `doc/adr/0948`'s condition on it.
 const CID_TO_GID_REINTERPRETS: &str = "an embedded Type 2 CIDFont in this file stated no \
-     CIDToGIDMap, and now states Identity. ISO 19005-2 section 5.1 makes a PDF/A-2 file one that \
-     adheres to ISO 32000-1, whose table gives Identity as that entry's own default, so every \
-     reader of this file was already mapping CIDs to glyphs that way and no glyph changes. What \
-     changes is that the file now says so, which is what makes it readable the same way under \
-     ISO 32000-2 — where the entry is required and has no default";
+     CIDToGIDMap, and now states Identity. ISO 32000-1's table gives Identity as that entry's own \
+     default, and that edition is the one describing this file: ISO 19005-2 section 5.1 makes a \
+     PDF/A-2 file one that adheres to ISO 32000-1, and a file labelled PDF 1.7 or earlier is one \
+     ISO 32000-2 \u{a7}I.2 says ISO 32000-1 describes. So every reader of this file was already \
+     mapping CIDs to glyphs that way and no glyph changes. What changes is that the file now says \
+     so, which is what makes it readable the same way under ISO 32000-2 — where the entry is \
+     required and has no default";
 
 /// The one requirement identifier that will not fit beside its key inside 100 columns.
 const CMYK_UNDER_PART_FOUR: &str =
@@ -2123,8 +2125,8 @@ pub(super) const REMEDIES: &[Remedy] = &[
         requirement: "fonts/cidset-lists-every-cid-in-the-program",
         answer: Answer::Mechanical(Rewrite::DescriptorSetRemoved),
     },
-    // ISO 19005-2 section 6.2.11.3.2, ISO 19005-4 section 6.2.10.3.2 — written at a part 2
-    // target, where `super::sites` refuses it at a part 4 one and says why.
+    // ISO 19005-2 section 6.2.11.3.2, ISO 19005-4 section 6.2.10.3.2 — written where ISO
+    // 32000-1 describes the file, and `super::sites` refuses it elsewhere and says why (ADR 2246).
     Remedy {
         requirement: "fonts/cid-to-gid-map-present",
         answer: Answer::Stated(None, Rewrite::CidToGidIdentity, CID_TO_GID_REINTERPRETS),

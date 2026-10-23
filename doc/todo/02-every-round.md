@@ -916,6 +916,15 @@ memory of the session the quota ended. `tools/batch.sh` is the command; this is 
    printed by the line as not summed rather than quietly left out of the sum (ADR 1500). The gates
    line goes in as the log printed it. A moved ratchet is moved *with its reason above the constant*; a bare
    count that can only rise is replaced by a named population (`REFUSED_OPEN` is the shape).
+   **A red gate is never accepted by an ADR** (ADR 2242). It takes one of four answers and the batch
+   commit names which: *the machine's* — HEAD in the same `--clock` hold is red by the same amount and
+   the instruction count beside the figure is in its band (habit 101), and the batch merges once on
+   that sentence; *persistent* — the same gate red the machine's way at a second merge running has its
+   bands re-taken by ADR 1969's rule or its instrument recalibrated before the merge; *the batch's* —
+   the cause is fixed or the change taken back; *none shown* — a `Q` to the owner and the batch held.
+   What a record, an ADR or this commit claims rests on evidence in the tree or reproduced by a
+   command in the tree; a path under `/home/AI/` or `scratchpad/` is a pointer for the session that
+   wrote it, never the evidence. The paragraph above states every round's duration *and* tool uses.
 5. **Commit in the worktree, then fast-forward `main` — from the main checkout,
    `git merge --ff-only <branch>`, never from inside the
    worktree.** **The commit, the fast-forward and the close are three commands, run separately,

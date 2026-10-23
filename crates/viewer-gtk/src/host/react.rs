@@ -190,7 +190,7 @@ impl Host {
                     began.elapsed()
                 ),
             );
-            let scale = f64::from(self.scale);
+            let scale = self.scale;
             while self.ui.pictures.len() < placements.len() {
                 let picture = gtk4::Picture::new();
                 picture.set_content_fit(gtk4::ContentFit::Fill);

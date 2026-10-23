@@ -82,7 +82,7 @@ the project owner's Windows trace of a 30 MB document that felt slow), in four p
   display-list-to-scene walk, `raster_gpu::Device::render`, the cache eviction, and — *outside* the
   frame's own number, which is not the frame's to carry (ADR 0227) — the accessibility
   publication. `fallback` and `attend` appear only when they are not zero, so an ordinary frame is
-  no longer than the two lines this replaced. A legend prints once. **None of the device's stages
+  two lines. A legend prints once. **None of the device's stages
   is a fabricated boundary**: quorra already measured `encode`, `upload` and `execute` and already
   blocked on the device before returning, and `render-raster` was discarding the whole `Frame`.
 - **Percentiles at exit** — median, p90, max and sum for every stage, by nearest rank, plus the
@@ -95,18 +95,28 @@ the project owner's Windows trace of a 30 MB document that felt slow), in four p
   of the display-list-to-scene walk, the part spent inside quorra's own `upload_*` calls, which is
   the only part of it this host does not do itself. It is a *subdivision* rather than a stage beside
   the others, so adding it to the rows above it counts the same milliseconds twice. **And
-  `--trace=launch`'s table now ends with the first frame's own phases** — scene, handover, encode,
+  `--trace=launch`'s table ends with the first frame's own phases** — scene, handover, encode,
   transfer, execute, elsewhere and present — because `first scene built` and `first present` are one
   frame, and the percentiles above are medians over a run rather than an answer about the frame a
   person waited for.
 - **`--trace=<topics>`**, comma-separated, of `launch, frames, events, window, pointer, access,
   selection` or `all`; a `-` prefix subtracts, and a list starting with one means "everything
-  except". `--trace` alone is still everything. `--trace=frames` is 64 lines where `--trace` is
+  except". `--trace` alone is everything. `--trace=frames` is 64 lines where `--trace` is
   453 on the same session; `--trace=-pointer` is the answer to the 285 pointer-move lines that
   raised the item. It costs **0.30 µs a frame unconditionally** (seven clock reads and a copy) and
   **0.23 µs** for each line printed; over three identical scripted sessions the viewer's own CPU
   time was 5.51/4.87/4.89 s with no flag against 5.17/4.68/4.90 with `--trace`, which is inside
   the spread of either.
+
+**`PDFVIEWER_ZOOM_PROBE=1` makes the two toolkit windows say what a zoom reached** (ADRs 2224,
+2225): versioned `zoom-record` lines beside the trace's own — a wheel callback, its modifiers, the
+branch taken and the host's outcome counted apart, and the content widget's geometry in each
+coordinate space it is measured in — and `quorra-gtk` with `PDFVIEWER_ZOOM_CAPTURE_DIR=<dir>` also
+writes each settled whole-page source joined to the generation that painted it (ADR 2240).
+`tools/zoom-probe-drive.py --host gtk|qt --binary <program> --pdf <file> --output <dir> --parser
+tools/zoom-probe-records.py` drives an owned window through them, `--headless` on an Xvfb of its
+own; the records say what input and geometry reached and nothing about latency or sharpness (ADRs
+2228, 2229).
 
 **The binaries a person runs are the merge's to install, and one command does it.** At a batch
 boundary — after the fast-forward, before `close` — the orchestrator runs, from the main checkout:
@@ -189,27 +199,23 @@ the incident it is argued from; this was a second copy of both.
 itself, and the page arrived at has its `/Trans` **drawn** — every one of Table 164's twelve
 styles, `R` being the cut the table defines it as (ADRs 0230, 1299). Press it again to stop.
 
-**And it is a mode rather than only a clock, since ADR 0316.** `p` sends
+**And it is a mode rather than only a clock** (ADR 0316). `p` sends
 `Command::Present(PresentationMode::On)`, which is §12.4.4.2's own condition — NOTE 3 respects a
 page's navigation nodes "only when in presentation mode" — so while it is running the **arrow keys
-walk a page's states before they turn the page**, a page turned by hand plays its `/Trans` where
-only the clock's advance used to, and §8.11's groups are put back as they were when the
+walk a page's states before they turn the page**, a page turned by hand plays its `/Trans` as the
+clock's advance does, and §8.11's groups are put back as they were when the
 presentation stops.
 
-**And it is a window, since ADR 0470.** This paragraph used to end "[f]ull screen is still not part
-of it", on the reasoning that §12.4.4 states the timing and the transitions and nothing about a
-window — which is true of §12.4.4 and false of the standard. `p` now takes the window full screen
-and hides the chrome Table 29's `FullScreen` names — "no menu bar, window controls, or any other
+**And it is a window** (ADR 0470): §12.4.4 states the timing and the transitions and nothing
+about a window, and Table 29 states the window, so `p` takes the window full screen and hides the chrome Table 29's `FullScreen` names — "no menu bar, window controls, or any other
 window visible" — with §12.2's `/HideToolbar`, `/HideMenubar` and `/HideWindowUI` obeyed whether a
 presentation is running or not. **Escape comes back**, which no clause states and which this program
 chooses so that a file cannot keep a reader there; on the way out §12.2's `/NonFullScreenPageMode`
 says which panel opens. **All three hosts do it, on the same letter**: `quorra`, `quorra-gtk`
 and `quorra-qt`.
 
-**And all three drive the clock, since ADR 0473.** This paragraph used to end "[t]he two native
-hosts have the mode and not the clock", which made a presentation in GTK or Qt full screen and
-static. `/Dur` advances the page and Table 164's effects animate in all three now, on one shared
-decision — `viewer_host::Clock`, because how often to tick and when `/D` has elapsed are the
+**And all three drive the clock** (ADR 0473): `/Dur` advances the page and Table 164's effects
+animate in `quorra`, `quorra-gtk` and `quorra-qt` alike, on one shared decision — `viewer_host::Clock`, because how often to tick and when `/D` has elapsed are the
 clause's questions and not a toolkit's. Nothing is armed when nothing is presenting, and a page
 stating no `/Dur` costs a still window a wakeup and no repaint.
 
@@ -506,18 +512,24 @@ many threads as the machine has, the pool built inside the confinement (ADR 1554
 outline on a thread of its own after an open, so the caption names page one's section once the
 next answer arrives (ADR 1553).
 
-**The pipeline is a gate this project had stopped reading, and both its failures were real** (ADR
-0189). It had been red since 2026-08-02. `render-gpu`'s bounded wait was one second rather than the
-sixty its constant and comment claimed, because `wgpu::PollError::Timeout` from the *slice* was
-returned as a failure instead of looping — invisible on this machine and fatal on a CI runner's
-`lavapipe`. And Miri's deliberate float non-determinism failed four `pdf-render` tests on the
-runner and a different three here, all of them tracing to `f32::hypot`, which libm does not
-promise to round correctly and which this crate used to decide **whether an image is magnified,
-how far its grid reduces, whether a miter passed §8.4.3.5's limit and whether a dash has no
-length**. `geom::length` is `(dx * dx + dy * dy).sqrt()` — IEEE operations only — so those four
-decisions are now the same on every platform, which the two-backend comparison had assumed and
-which was not true. Nothing moved: 856 agree, 68 contradicted, 749 ambiguous, to the number.
-**No gate in this tree could have found it**, because all of them run on one machine with one libm.
+**And there is a fourth window, on Windows alone.** `hosts/windows/Quorra.App/` is the WinUI 3
+window over the C ABI (RFC 0010, `doc/questions/A501`): CI's `window` job builds it on
+`windows-latest` with `viewer_ffi.dll` beside it, and it is not in the snapshot until RFC 0010's
+step N4 packages it. On this machine `tools/dotnet-check.sh` compiles its C# against the real SDK
+references, with the XAML-generated parts stubbed (ADR 2184).
+
+**CI is the gate on what this machine cannot see** (ADR 0189), because every other gate here runs
+on one machine with one libm and one driver. `render-gpu`'s bounded wait takes
+`wgpu::PollError::Timeout` from the *slice* as "still working" and loops for the sixty seconds its
+constant states, which a CI runner's `lavapipe` needs; and `pdf-render` decides **whether an image
+is magnified, how far its grid reduces, whether a miter passed §8.4.3.5's limit and whether a dash
+has no length** with `geom::length`, `(dx * dx + dy * dy).sqrt()` — IEEE operations only — rather
+than `f32::hypot`, which libm does not promise to round correctly and Miri's deliberate float
+non-determinism varies, so those four decisions are the same on every platform, as the two-backend
+comparison assumes. Before a push, `tools/platform-check.sh x86_64-pc-windows-msvc` and
+`tools/platform-check.sh aarch64-apple-darwin` are the cross-target compile CI runs, over the same
+packages (ADR 2204), and `tools/dotnet-check.sh` compiles the WinUI window's C# where a .NET SDK is
+present (ADR 2184); `doc/verify.md` has both.
 
 **And a person can get it without a toolchain.** Every
 push to `main` that passes `check` and `test` retags a rolling `snapshot` pre-release carrying
@@ -530,10 +542,10 @@ process. What a given target omits, and why, is ADR 1152's table; the short of i
 `quorrafs` is Linux's, `pdf-vfs-worker` is absent on Windows because it takes a descriptor over a
 Unix socket, and the two native hosts are built where their toolkits are.
 **Three platforms** — x86_64 Linux, aarch64 macOS,
-x86_64 Windows — **and the confinement is Linux's alone.** `pdf-sandbox` used to refuse to compile
-where seccomp-BPF and Landlock do not exist, on the argument that "a sandbox that silently does
-nothing on another platform is worse than no sandbox". The project owner asked for the other two
-executables and accepted that; what makes it not that failure is that nothing is silent (ADR 0194).
+x86_64 Windows — **and the confinement is Linux's alone.** `pdf-sandbox` compiles where
+seccomp-BPF and Landlock do not exist because the project owner asked for the other two
+executables, and the argument against it — "a sandbox that silently does nothing on another
+platform is worse than no sandbox" — is answered by nothing being silent (ADR 0194).
 The **worker process** is there on all three, so a decoder panic still costs one image rather than
 the viewer, and so is the request deadline — rebuilt on Windows as a reader thread, because `poll`
 is POSIX and on a platform with no address-space ceiling that deadline is the only bound left on a

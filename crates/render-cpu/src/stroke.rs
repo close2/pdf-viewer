@@ -539,7 +539,8 @@ fn draw_long_mitres(
 }
 
 /// Whether a curved stroke reaches [`area`] as one outline, the stroker's, rather than as ADR 1348's
-/// convex pieces, which `scan::mask_fill` leaves to `tiny-skia`.
+/// convex pieces, which `scan::mask_fill` measures from their union's boundary unless that declines
+/// the mark to `tiny-skia`'s converter (ADR 2122).
 ///
 /// [`draw_stroked_outline`] cuts a stroke into pieces only where [`curves_may_fold`] says a curve
 /// may bend more tightly than the half-width, and that test reads the path in its own space and

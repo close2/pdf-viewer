@@ -1576,3 +1576,58 @@ green; the confined window's `CARRIED` list refuses every word it does not know,
 windows before it is reported, and the confined window first, since it is the one that refuses by
 construction rather than by accident.
 
+## 166. A review script that divides by a count first prints the commits it read nothing from
+
+Round 1704 ran `doc/reviews/1456/slots.py` over batches 104–108 and it crashed dividing by zero: five
+batch commits wrote "Round durations … not available", and the script had never met a batch body without
+a figure. The crash *was* the finding — eight of thirty-two durations stated, no tool-use counts — but a
+script that stops at the first empty body hides how many there are. A review instrument that averages,
+sums or divides over a span prints first the commits or records it could read nothing from, by name, and
+only then the figure over the rest (`doc/reviews/1704/slots.py`; ADR 2242).
+
+## 167. A split that moves `#[cfg(test)] mod tests;` into files of its own runs the `flags` gate
+
+`tools/conformance/src/flags.rs` read every user-facing string for a flag the binary does not accept and
+skipped only the inline `#[cfg(test)] mod tests { … }`; round 1711's split of the confined wire put the
+tests into `protocol/tests/*.rs` behind `#[cfg(test)] mod tests;`, and a fixture string naming
+`--trust-anchors` read as a message of the program's (ADR 2256). The sweep now skips the files such a
+declaration names; a split that moves tests out of line runs `cargo test -p conformance --test flags`
+before it reports, and reads the sweep to see that it still treats the moved files as test code.
+
+## 168. An export whose sources change while its tests run builds into a private `--target-dir`
+
+Cargo's lock protects a build, not a test binary that is already running: in batch one hundred and eight a
+mutation export built on the shared target directory replaced nextest's executable in the middle of its
+suite, and twenty tests failed on a binary that was no longer the one under test (ADR 2233, the
+"Test infrastructure" section). A round whose export's sources will change while a suite runs — a
+mutation, a plant, a bisect — gives the export a target directory of its own by `--target-dir` on the
+command line, never by exporting `CARGO_TARGET_DIR` (ADR 0344), and names the tested binary's hash in
+its report.
+
+## 169. An Xvfb started with `-displayfd` names its display on that descriptor, and trap 181's check is made on that number's lock
+
+Batch one hundred and eight's first display wrapper started Xvfb with `-displayfd` and then waited for the
+lock file of a display number it had chosen itself; `-displayfd` picks the number and writes it to the
+descriptor, the lock it creates is that number's, and the wrapper waited on a file that never came,
+stopping before the viewer launched (record 1703). The display is read off the descriptor first, and
+the ownership check trap 181 asks for — the lock absent before, the wrapper's own pid in it after — is
+made on that number.
+
+## 170. A test selection that runs zero tests is a failure, not a pass
+
+GTK's first binary-target invocation in round 1690 selected zero tests and exited 0; the corrected
+library selection ran four (ADR 2214). A gate or a round's own check that filters tests by name or by
+target prints the count it ran and treats zero as the selection's failure — `cargo nextest run` prints
+`0 tests run` and exits 0 unless `--no-tests=fail` is given, so the flag or the count is part of the
+command.
+
+## 171. Before a band is held to a whole-process memory figure, its file-backed and anonymous shares are read apart
+
+The launch gate banded `open_peak_mib`, the open child's whole `VmHWM`, and was red at four merges running;
+round 1705 read the child's `smaps_rollup` and found seven parts in eight of that high-water file-backed —
+the test binary's own text and the C library's — moving 7 to 11 MiB with the page cache while the
+anonymous share was identical to the kibibyte between the base and HEAD. A megabyte held live across the
+open moved the old figure from 8.8 to 8.8 inside its 5..9 band and the anonymous figure from 0.805 to
+1.812 (ADR 2244). A band on memory names the share it holds — anonymous for what the program asked for,
+file-backed never — and the plant that proves the instrument sees a megabyte is run before the band is.
+

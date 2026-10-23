@@ -26,7 +26,7 @@ impl Host {
         for placed in self.popups.drain(..) {
             self.ui.popups.remove(&placed.widget);
         }
-        let scale = f64::from(self.scale);
+        let scale = self.scale;
         let placed = viewer_host::popup::windows(popups);
         let editing = self.note_editor.as_ref().map(|editor| editor.note);
         for window in &placed {
@@ -152,7 +152,7 @@ impl Host {
         frame.append(&scroller);
         frame.append(&said);
         frame.set_overflow(gtk4::Overflow::Hidden);
-        let scale = f64::from(self.scale);
+        let scale = self.scale;
         frame.set_size_request(
             logical(f64::from(width), scale),
             logical(f64::from(height), scale),

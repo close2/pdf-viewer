@@ -69,6 +69,12 @@
 //! weight. The sum over that boundary is the area of the filled set itself (ADR 1341), taken one
 //! cluster of a row at a time (ADR 1347).
 //!
+//! A mark stated as many portions that overlap one another almost everywhere — ADR 1348's pieces
+//! of a stroke folding tighter than its half-width — would cost that second measurement a pair of
+//! its pieces at every height, so [`fill_union`] finds the filled set's boundary for the whole
+//! mark first, in [`union`], and accumulates that instead: the same closed form, over a boundary
+//! that no longer overlaps itself, and no second measurement (ADR 2122).
+//!
 //! # What it declines, and why each
 //!
 //! - **An overlapping row past [`SET_WORK`].** The second measurement is quadratic in the edges
@@ -90,6 +96,8 @@
 //!   precision this integral is built on (ADR 2058).
 
 use tiny_skia::{FillRule, Path, PathSegment, Point, Transform};
+
+mod union;
 
 /// The largest accumulator this module will build, in cells.
 ///
@@ -301,6 +309,83 @@ pub(crate) fn fill(
     true
 }
 
+/// [`fill`], for a mark stated as portions that overlap one another almost everywhere — ADR
+/// 1348's pieces — measured from the boundary of the set they fill under the non-zero rule, found
+/// once for the whole mark by [`union`] (ADR 2122). `false` where [`union`] declines the mark,
+/// before anything is written.
+///
+/// The boundary winds once round every point of the set and round no other, so the integral the
+/// accumulator takes of it is the set's area in every pixel, which is what §10.7.4 owes the pixel
+/// and what [`fill`]'s second measurement would have reached a pair of pieces at a time. It is
+/// found from the whole mark and not from the region, so a strip and the page find the same one.
+pub(crate) fn fill_union(
+    buffers: &mut Buffers,
+    target: &mut [u8],
+    (width, region): (u32, Region),
+    path: &Path,
+    at: Transform,
+) -> bool {
+    let Buffers { cells, union, .. } = buffers;
+    union.start();
+    trace(union, path, at);
+    if !union.settle() {
+        return false;
+    }
+    // Every row is checked closed before any is written, so that a declined mark leaves the
+    // target as it found it for the converter that draws it instead: in the one pass that writes
+    // where the region is one run, which is nearly every mark, and in a pass of its own before it
+    // where it is several.
+    let several = region.runs().nth(1).is_some();
+    if several {
+        for run in region.runs() {
+            if !boundary_accumulated(cells, &union.boundary, run)
+                .is_some_and(|accumulator| accumulator.every_row_closes())
+            {
+                return false;
+            }
+        }
+    }
+    for run in region.runs() {
+        let Some(accumulator) = boundary_accumulated(cells, &union.boundary, run) else {
+            return false;
+        };
+        if !several && !accumulator.every_row_closes() {
+            return false;
+        }
+        read_off(&accumulator, target, (width, run), FillRule::Winding);
+    }
+    true
+}
+
+/// `boundary` accumulated over `run`, in `cells`; `None` where the run states no accumulator.
+fn boundary_accumulated<'a>(
+    cells: &'a mut Vec<f32>,
+    boundary: &[[Point; 2]],
+    run: Region,
+) -> Option<Accumulator<'a>> {
+    let (Some(count), Some(columns)) = (run.cells(), (run.width as usize).checked_add(1)) else {
+        return None;
+    };
+    cells.clear();
+    cells.resize(count, 0.0);
+    let mut accumulator = Accumulator {
+        values: cells,
+        columns,
+        rows: run.height as usize,
+        origin: (f32_of(run.left), f32_of(run.top)),
+        limit: f32_of(run.width),
+    };
+    for &[from, to] in boundary {
+        accumulator.accumulate(from, to);
+    }
+    Some(accumulator)
+}
+
+/// How far a row of a closed boundary's accumulator may sum from zero: half a level of 255,
+/// which no pixel of the row can show, and far above the `f32` residue of the deposits a row of
+/// a mark takes.
+const CLOSED: f32 = 1.0 / 510.0;
+
 /// Whether the rows of the mark **outside** `region` show it overlapping itself — the suspicion
 /// [`Accumulator::measure_overlapping_rows`] takes of a mark as a whole, asked of the rows the
 /// surface clamped away.
@@ -402,7 +487,7 @@ fn fill_run(
     let Some(count) = region.cells() else {
         return false;
     };
-    let Buffers { cells, set } = buffers;
+    let Buffers { cells, set, .. } = buffers;
     cells.clear();
     cells.resize(count, 0.0);
     let Some(columns) = (region.width as usize).checked_add(1) else {
@@ -434,6 +519,8 @@ pub(crate) struct Buffers {
     cells: Vec<f32>,
     /// The second measurement's buffers.
     set: SetBuffers,
+    /// What [`fill_union`] finds a mark's boundary with.
+    union: union::Union,
 }
 
 /// The buffers the second measurement is made in; see [`Buffers`].
@@ -494,6 +581,9 @@ fn level_of(coverage: f32) -> u8 {
 trait Edges {
     /// One straight edge, directed from `from` to `to`, in device space.
     fn line(&mut self, from: Point, to: Point);
+
+    /// The edges after this belong to another subpath, which only [`union`] needs to know.
+    fn subpath(&mut self) {}
 }
 
 impl Edges for Vec<[Point; 2]> {
@@ -522,6 +612,7 @@ fn trace(into: &mut impl Edges, path: &Path, at: Transform) {
                 if open {
                     into.line(current, start);
                 }
+                into.subpath();
                 let point = mapped(point, at);
                 start = point;
                 current = point;
@@ -545,6 +636,7 @@ fn trace(into: &mut impl Edges, path: &Path, at: Transform) {
             }
             PathSegment::Close => {
                 into.line(current, start);
+                into.subpath();
                 current = start;
                 open = false;
             }
@@ -654,6 +746,19 @@ struct Accumulator<'a> {
 }
 
 impl Accumulator<'_> {
+    /// Whether every row sums to nothing, as every row of a closed boundary does: a horizontal line
+    /// crosses a closed boundary as often upwards as downwards, so the winding a row's deposits
+    /// carry past its last column is zero. A row that does not is a boundary with a stretch
+    /// missing, whose winding would run on to the region's edge as a streak, and the union that
+    /// found it declines the mark to the library's converter as it declines a walk that does not
+    /// close (ADR 2252).
+    fn every_row_closes(&self) -> bool {
+        self.values
+            .chunks_exact(self.columns)
+            .take(self.rows)
+            .all(|row| row.iter().sum::<f32>().abs() <= CLOSED)
+    }
+
     /// Accumulates one device-space edge, row by row.
     ///
     /// The edge is taken in increasing `y` with its direction carried in the weight, because the
@@ -2146,7 +2251,7 @@ mod tests {
                   the test itself, and an index that is out of range is the test failing"
     )]
 
-    use super::{Region, fill, region};
+    use super::{Region, boundary_accumulated, fill, region};
 
     thread_local! {
         /// Whether [`super::Accumulator::measure_row`] walks every row of a suspect mark, which is
@@ -2493,6 +2598,42 @@ mod tests {
             levels[4 + 1],
             128,
             "half of one pixel, to the nearest level"
+        );
+    }
+
+    /// The guard `fill_union` declines a mark by, where it acts (ADR 2252): every row of a closed
+    /// boundary sums to nothing, here a square with fractional sides, and a boundary with one of
+    /// its stretches missing — the streak a mis-walked union draws to the region's edge — does
+    /// not.
+    #[test]
+    fn a_boundary_with_a_stretch_missing_does_not_close() {
+        let corners = [(1.25, 1.5), (5.5, 1.5), (5.5, 4.75), (1.25, 4.75)];
+        let edges: Vec<[tiny_skia::Point; 2]> = (0..4)
+            .map(|at| {
+                let (from, to) = (corners[at], corners[(at + 1) % 4]);
+                [
+                    tiny_skia::Point::from_xy(from.0, from.1),
+                    tiny_skia::Point::from_xy(to.0, to.1),
+                ]
+            })
+            .collect();
+        let whole = Region {
+            left: 0,
+            top: 0,
+            width: 8,
+            height: 8,
+            corner: (0, 0),
+        };
+        let mut cells = Vec::new();
+        assert!(
+            boundary_accumulated(&mut cells, &edges, whole)
+                .expect("an accumulator")
+                .every_row_closes()
+        );
+        assert!(
+            !boundary_accumulated(&mut cells, &edges[..3], whole)
+                .expect("an accumulator")
+                .every_row_closes()
         );
     }
 }

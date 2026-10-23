@@ -199,9 +199,10 @@ can explain. [`A29`](../questions/A29-a-clock-gate-on-a-machine-three-rounds-sha
 
 So the three floors this section argues about are not a question any more, and `A32` is applied:
 `peak_mib` is banded nowhere and printed on every run, `peak_anon_mib` is what each row of
-`doc/checks/launch-path.toml` states, and `open_peak_mib` carries the two-sided band — an owner's
+`doc/checks/launch-path.toml` states, and the open's memory carries the two-sided band — an owner's
 decision rather than another measurement, so nothing above is a reason to put a `peak_mib` floor
-back (ADRs 0910, 0911).
+back (ADRs 0910, 0911). That figure is `open_anon_mib`, the open's anonymous high-water, because
+its whole `VmHWM` moved with the page cache as well (ADR 2244).
 
 **One thing is left and it now has an instrument**: `bug1815476.pdf`'s cold open, a per cent or two
 over its ceiling on quiet machines with every probe in band. Either the program's open grew or

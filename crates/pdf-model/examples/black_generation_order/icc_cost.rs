@@ -1,4 +1,5 @@
-//! Whole-interpretation costs for ordinary ICC solids, generic ICC tints and mixed use.
+//! Whole-interpretation costs for ordinary ICC solids, generic ICC tints and mixed use, and
+//! for the `Separation`, `DeviceN`, calibrated and Lab solids ADR 2248 retains.
 //! The generated tables match the independently tested intent fixture; this is no oracle.
 
 use pdf_syntax::Document;
@@ -100,10 +101,12 @@ fn fixture(content: &str, step: usize) -> Vec<u8> {
     let objects = [
         "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R /Resources << /ColorSpace << /IA [/Indexed [/ICCBased 5 0 R] 2 <4080C0>] /IB [/Indexed [/ICCBased 6 0 R] 2 <4080C0>] /IT [/Indexed [/ICCBased 5 0 R] 2 <C08040>] /End [/Indexed [/ICCBased 5 0 R] 0 <FF>] /A [/ICCBased 5 0 R] /B [/ICCBased 6 0 R] /PA [/Pattern [/ICCBased 5 0 R]] /PB [/Pattern [/ICCBased 6 0 R]] >> /Pattern << /Tile 7 0 R >> /ExtGState << /Off << /UseBlackPtComp /OFF >> /On << /UseBlackPtComp /ON >> >> >> >>".to_owned(),
+        format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R /Resources << /ColorSpace << /IA [/Indexed [/ICCBased 5 0 R] 2 <4080C0>] /IB [/Indexed [/ICCBased 6 0 R] 2 <4080C0>] /IT [/Indexed [/ICCBased 5 0 R] 2 <C08040>] /End [/Indexed [/ICCBased 5 0 R] 0 <FF>] /A [/ICCBased 5 0 R] /B [/ICCBased 6 0 R] /PA [/Pattern [/ICCBased 5 0 R]] /PB [/Pattern [/ICCBased 6 0 R]] {TINT_SPACES}>> /Pattern << /Tile 7 0 R >> /ExtGState << /Off << /UseBlackPtComp /OFF >> /On << /UseBlackPtComp /ON >> >> >> >>"),
         format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()+1),
         encoded_stream("/N 1", &a), encoded_stream("/N 1", &b),
         format!("<< /Type /Pattern /PatternType 1 /PaintType 2 /TilingType 1 /BBox [0 0 {step} {step}] /XStep {step} /YStep {step} /Resources << >> /Length {} >>\nstream\n{cell}\nendstream", cell.len()+1),
+        encoded_stream("/FunctionType 0 /Domain [0 1] /Range [0 1 0 1 0 1] /Size [256] /BitsPerSample 8", &sampled_ramp()),
+        "<< /FunctionType 4 /Domain [0 1 0 1] /Range [0 1] /Length 8 >>\nstream\n{ pop }\nendstream".to_owned(),
     ];
     let mut out = String::from("%PDF-2.0\n");
     let mut offsets = Vec::new();
@@ -230,7 +233,125 @@ fn workloads() -> Vec<Workload> {
     }
     paired_workloads(&mut out);
     indexed_workloads(&mut out);
+    tint_and_cie_workloads(&mut out);
     out
+}
+
+/// The spaces ADR 2248 retains whole: an identity tint into profile A, a `DeviceN` keeping its
+/// first tint, a 256-entry sampled tint into `DeviceRGB` (whose table a selection clones), and
+/// D50 `CalRGB` and Lab.
+const TINT_SPACES: &str = "/S [/Separation /Spot [/ICCBased 5 0 R] << /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [1] /N 1 >>] /N [/DeviceN [/Spot /Other] [/ICCBased 5 0 R] 9 0 R] /SS [/Separation /Spot /DeviceRGB 8 0 R] /C [/CalRGB << /WhitePoint [0.9642 1 0.8249] /Matrix [1 0 0 0 1 0 0 0 1] >>] /L [/Lab << /WhitePoint [0.9642 1 0.8249] /Range [-100 100 -100 100] >>] ";
+
+/// Object 8's samples: tint `t` to RGB `(1 - t, 1 - t / 2, 1)`, one byte per output.
+fn sampled_ramp() -> Vec<u8> {
+    (0..=255u8)
+        .flat_map(|tint| [255 - tint, 255 - tint / 2, 255])
+        .collect()
+}
+
+// Same-output hits, selections and restorations are separate from the intent and black-point
+// changes the stale baseline did not perform. Whole interpretations, not conversion timings.
+fn tint_and_cie_workloads(out: &mut Vec<Workload>) {
+    for (name, population, prefix, even, odd) in [
+        (
+            "sep-repeat",
+            "same-output-hit",
+            "/Perceptual ri /S cs .5 scn ",
+            "",
+            "",
+        ),
+        (
+            "sep-select",
+            "same-output-selection",
+            "/Perceptual ri /S cs ",
+            ".25 scn ",
+            ".75 scn ",
+        ),
+        (
+            "sep-intent",
+            "required-current-state",
+            "/S cs .5 scn ",
+            "/Perceptual ri ",
+            "/Saturation ri ",
+        ),
+        (
+            "sep-bpc",
+            "required-current-state",
+            "/RelativeColorimetric ri /S cs 1 scn ",
+            "/Off gs ",
+            "/On gs ",
+        ),
+        (
+            "devicen-select",
+            "same-output-selection",
+            "/Perceptual ri /N cs ",
+            ".25 .5 scn ",
+            ".75 .5 scn ",
+        ),
+        (
+            "sampled-select",
+            "same-output-selection",
+            "/SS cs ",
+            ".25 scn ",
+            ".75 scn ",
+        ),
+        (
+            "sampled-cs",
+            "same-output-initial-selection",
+            "",
+            "/SS cs ",
+            "/SS cs ",
+        ),
+        (
+            "cal-repeat",
+            "same-output-hit",
+            "/C cs .45 .25 .05 scn ",
+            "",
+            "",
+        ),
+        (
+            "cal-select",
+            "same-output-selection",
+            "/C cs ",
+            ".45 .25 .05 scn ",
+            ".12 .25 .75 scn ",
+        ),
+        (
+            "lab-select",
+            "same-output-selection",
+            "/L cs ",
+            "50 60 -20 scn ",
+            "50 -20 60 scn ",
+        ),
+    ] {
+        let mut content = format!("/Off gs {prefix}");
+        for index in 0..1000 {
+            content.push_str(if index % 2 == 0 { even } else { odd });
+            content.push_str("0 0 50 100 re f ");
+        }
+        out.push(Workload {
+            name,
+            population,
+            content,
+            step: 100,
+        });
+    }
+    for (name, outer, inner) in [
+        ("sep-restore", "/Perceptual ri /S cs .5 scn ", ".75 scn "),
+        ("sampled-restore", "/SS cs .5 scn ", ".75 scn "),
+        ("cal-restore", "/C cs .45 .25 .05 scn ", ".12 .25 .75 scn "),
+    ] {
+        let mut content = format!("/Off gs {outer}");
+        for _ in 0..500 {
+            write!(content, "q {inner}0 0 50 100 re f Q 0 0 50 100 re f ").expect("restore pair");
+        }
+        out.push(Workload {
+            name,
+            population: "same-output-restoration",
+            content,
+            step: 100,
+        });
+    }
 }
 
 fn paired_workloads(out: &mut Vec<Workload>) {

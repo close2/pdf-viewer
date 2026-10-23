@@ -25,13 +25,12 @@ impl Host {
     /// The first one opens the document, which is what makes page one's raster the size of the
     /// window it will be shown in rather than of a guess.
     pub(super) fn resized(&mut self, width: i32, height: i32) {
-        self.scale = self.ui.chrome.scale_factor().max(1);
-        let scale = f64::from(self.scale);
+        self.scale = super::window::surface_scale(&self.ui.chrome);
+        let scale = self.scale;
         self.chrome.borrow_mut().scale = scale;
-        let (Ok(width), Ok(height)) = (
-            u32::try_from(width.saturating_mul(self.scale)),
-            u32::try_from(height.saturating_mul(self.scale)),
-        ) else {
+        let Some((width, height)) =
+            super::window::device_extent(&self.ui.chrome, width, height, scale)
+        else {
             return;
         };
         if width == 0 || height == 0 {
@@ -39,8 +38,8 @@ impl Host {
         }
         #[expect(
             clippy::cast_possible_truncation,
-            reason = "a display's scale factor is a small integer, so f64 to f32 here loses \
-                      nothing a viewport can express"
+            reason = "a compositor's scale is a small ratio stated in 120ths \
+                      (`wp_fractional_scale_v1`), which f32 holds to far below a pixel"
         )]
         let scale = scale as f32;
         if self.sized(width, height, scale, SIZING) == Joining::StillOpening {

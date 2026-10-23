@@ -159,7 +159,8 @@ These are the places where a native host's shape differs from the tier-2 host's,
   scrolled back into a column — is shown from `viewer_host::stand_in::Retained`, a 512-pixel
   reduction of its last finished frame at the document's ink, eight pages by default and
   `--proxy-pages N` in both windows, until its frame lands (ADR 1866). No window has a view rotation,
-  so a turn has nothing to stand in for. **A page's own pixels are shown at a whole device pixel**,
+  so a turn has nothing to stand in for. **A page's own pixels are shown at a whole device pixel**
+  — in GTK the surface's own pixel, at the fractional scale the compositor states (ADR 2250) —
   and a transition's faces are that picture (`viewer_host::clock::face_as_shown`), so the effect's
   last frame meets the page without a seam (ADR 1865). **A page zoomed until its largest window — the
   viewport and a quarter round it — keeps at most seven eighths of its commands or half its pixels

@@ -57,7 +57,7 @@ impl Host {
             chrome.highlights = highlights;
             chrome.focus = focus;
             chrome.measuring = self.state.showing.measuring.points().to_vec();
-            chrome.scale = f64::from(self.scale);
+            chrome.scale = self.scale;
         }
         self.ui.chrome.queue_draw();
     }
@@ -259,6 +259,82 @@ pub(super) fn named(path: &Path) -> String {
 )]
 pub(super) fn logical(device: f64, scale: f64) -> i32 {
     (device / scale).round().max(1.0) as i32
+}
+
+/// Device pixels per logical pixel, as the compositor will show this widget's surface (ADR 2250).
+///
+/// GTK 4.12's `GdkSurface:scale` is the fractional scale a compositor states through
+/// `wp_fractional_scale_v1`, and `gtk_widget_get_scale_factor` is that scale rounded *up* to a
+/// whole number: a page rastered at the whole number is resampled by GSK on its way to an output
+/// at 1.6, which is a blur by construction. The property is read by its name rather than through
+/// the `v4_12` binding, so the feature floor stays `v4_10` (`Cargo.toml`): a GTK older than 4.12
+/// has no such property, and its whole factor is then the scale its surface is drawn at.
+pub(super) fn surface_scale(widget: &impl IsA<gtk4::Widget>) -> f64 {
+    let whole = f64::from(widget.scale_factor().max(1));
+    let Some(surface) = widget.native().and_then(|native| native.surface()) else {
+        return whole;
+    };
+    let stated = surface
+        .find_property("scale")
+        .filter(|spec| spec.value_type() == f64::static_type())
+        .and_then(|_| surface.property_value("scale").get::<f64>().ok());
+    match stated {
+        Some(scale) if scale.is_finite() && scale > 0.0 => scale,
+        _ => whole,
+    }
+}
+
+/// A logical extent in device pixels at `scale`, rounded to the nearest whole pixel; `None` for a
+/// negative or unrepresentable extent.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the value is checked to be finite, non-negative and inside u32's range first"
+)]
+pub(super) fn device(logical: i32, scale: f64) -> Option<u32> {
+    let device = (f64::from(logical) * scale).round();
+    (device.is_finite() && device >= 0.0 && device <= f64::from(u32::MAX)).then_some(device as u32)
+}
+
+/// Where `widget`'s top-left corner falls on its surface, in the surface's logical units.
+///
+/// GTK positions widgets in logical units, so at a fractional scale a widget can begin part-way
+/// through a device pixel — 381 logical pixels are 609.6 at 1.6 (ADR 2250). A widget not yet in a
+/// window has no surface to fall on, and is taken to begin at its corner, which is where a whole
+/// scale always puts a device pixel.
+pub(super) fn on_the_surface(widget: &impl IsA<gtk4::Widget>) -> (f64, f64) {
+    let Some(native) = widget.native() else {
+        return (0.0, 0.0);
+    };
+    let Some(at) = widget.compute_point(&native, &gtk4::graphene::Point::new(0.0, 0.0)) else {
+        return (0.0, 0.0);
+    };
+    let (x, y) = native.surface_transform();
+    (f64::from(at.x()) + x, f64::from(at.y()) + y)
+}
+
+/// The device pixels a widget of this logical size covers whole on its surface: from the first
+/// pixel at or after its top-left edge to the last before its bottom-right edge, so that a page
+/// area from 476.25 to 1250 is 773 pixels and not 774 (ADR 2250). GSK clips the area to those
+/// pixels, and a texture this size put at that first pixel (`stand_in::place`) fills them.
+pub(super) fn device_extent(
+    widget: &impl IsA<gtk4::Widget>,
+    width: i32,
+    height: i32,
+    scale: f64,
+) -> Option<(u32, u32)> {
+    let (x, y) = on_the_surface(widget);
+    let across = |start: f64, length: i32| {
+        let pixels = ((start + f64::from(length)) * scale).floor() - (start * scale).ceil();
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "the value is checked to be finite, non-negative and inside u32's range first"
+        )]
+        (pixels.is_finite() && pixels >= 0.0 && pixels <= f64::from(u32::MAX))
+            .then_some(pixels as u32)
+    };
+    Some((across(x, width)?, across(y, height)?))
 }
 
 /// Paints [`pdf_render::SURROUND`] behind the pages, so that a reader can see a page's edge.
@@ -946,7 +1022,7 @@ impl ZoomProbe {
         let sequence = self.geometry_sequence.get().saturating_add(1);
         self.geometry_sequence.set(sequence);
         let bounds = content.compute_bounds(&root);
-        let scale = f64::from(content.scale_factor());
+        let scale = surface_scale(&content);
         let x = bounds.map_or_else(|| "null".to_owned(), |b| b.x().to_string());
         let y = bounds.map_or_else(|| "null".to_owned(), |b| b.y().to_string());
         let dx = bounds.map_or_else(
@@ -961,8 +1037,9 @@ impl ZoomProbe {
             || "null".to_owned(),
             |surface| surface.scale_factor().to_string(),
         );
+        let whole_scale = content.scale_factor();
         self.record("geometry", format_args!(
-            "\"geometry_sequence\":{sequence},\"backend\":\"{}\",\"client_width_logical\":{},\"client_height_logical\":{},\"content_x_logical\":{x},\"content_y_logical\":{y},\"content_width_logical\":{},\"content_height_logical\":{},\"scale\":{scale},\"surface_scale\":{surface_scale},\"content_x_device_derived\":{dx},\"content_y_device_derived\":{dy},\"content_width_device_derived\":{},\"content_height_device_derived\":{},\"fixed_width_logical\":{},\"fixed_height_logical\":{}",
+            "\"geometry_sequence\":{sequence},\"backend\":\"{}\",\"client_width_logical\":{},\"client_height_logical\":{},\"content_x_logical\":{x},\"content_y_logical\":{y},\"content_width_logical\":{},\"content_height_logical\":{},\"scale\":{scale},\"whole_scale\":{whole_scale},\"surface_scale\":{surface_scale},\"content_x_device_derived\":{dx},\"content_y_device_derived\":{dy},\"content_width_device_derived\":{},\"content_height_device_derived\":{},\"fixed_width_logical\":{},\"fixed_height_logical\":{}",
             fixed.display().type_().name(), root.width(), root.height(), content.width(), content.height(),
             f64::from(content.width()) * scale, f64::from(content.height()) * scale, fixed.width(), fixed.height(),
         ));

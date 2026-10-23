@@ -1731,3 +1731,22 @@ round's archive code inside the stale worker and printed the old refusal, with n
 binaries disagreed (ADR 2146). Trap 10's shape, now for the suite's own worker: build the package with
 `--bins`, and when a verb's answer looks like yesterday's, check the worker's build time before the code.
 
+### 233. A re-export replaces the directory a queued walk of yours will run in
+
+Round 1706 queued a cross-check inside its export, re-exported the same name to pick up an edit while the
+walk waited on the lock, and the walk died with "Could not locate working directory" after the whole
+wait: `tools/batch.sh export <n> --as <name>` removes and rebuilds the export's tree, and a process whose
+current directory was inside it has no directory any more. Re-export only when no walk of yours in that
+export is queued or running; otherwise make the edit in the export's copy and in the worktree, identically.
+Related: `cargo test -p conformance --test bounded` reads git's file population and cannot pass inside an
+export, which has no index — run it in the worktree.
+
+### 235. `bounded.sh --build` builds where the wrapper starts, not where the gate runs
+
+Round 1707 ran `raster_golden` inside its export, the wrapper asked to build the sandbox worker with its
+`--build` option, from the worktree's directory; the worker was built into the worktree's target, the export's gate
+looked beside its own binaries, found no worker and refused loudly (trap 10 caught it, ADR 2248). The
+wrapper's `--build` runs `cargo` in the directory it is started from: a walk of an export is started with
+the shell already inside the export, and the first line of its log — the build's target path — is read
+before the walk is believed.
+

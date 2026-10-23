@@ -84,7 +84,7 @@ impl Host {
                 return;
             }
         };
-        let scale = f64::from(self.scale.max(1));
+        let scale = self.scale;
         let window = (
             f64::from(self.ui.window.width()),
             f64::from(self.ui.window.height()),

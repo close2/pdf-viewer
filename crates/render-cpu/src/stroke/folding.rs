@@ -85,7 +85,7 @@ pub(crate) fn folding_stroke_outline(
     butt.line_cap = tiny_skia::LineCap::Butt;
     for (run, closed) in non_folding_runs(path, &folds) {
         // Sixteen times the device's resolution: at its own, the stroker's offset curves overshot a
-        // ring of radius 23 by four units of ink, where the chords are held to a sixty-fourth.
+        // ring of radius 23 by four units of ink, where the chords are held to [`FOLD_FLATNESS`].
         let Some(outline) = run.stroke(if closed { style } else { &butt }, scale * 16.0) else {
             continue;
         };
@@ -430,34 +430,38 @@ impl Pieces {
                 .flatten();
             let from = into.map_or(from, |direction| minus(at, direction));
             let to = onward.map_or(to, |direction| plus(at, direction));
-            let join = if subpath.stated.get(vertex).copied().unwrap_or(false) {
+            let stated = subpath.stated.get(vertex).copied().unwrap_or(false);
+            let join = if stated {
                 self.join
             } else {
                 tiny_skia::LineJoin::Round
             };
+            let tangents = stated.then(|| subpath.tangents_at(vertex)).flatten();
             self.push_join(
                 out,
                 (from, at, to),
-                join,
+                (join, tangents),
                 (into.is_some(), onward.is_some()),
             );
         }
         if !subpath.closed {
             // A cap on a stretch the stroker draws is square to its exact tangent, as the
             // stretch's butt end is, and reaches a little into it (ADR 1359).
+            // A cap is turned from the path's own tangent at its end, as §8.4.3.3 draws it about
+            // the endpoint, and not from a folding curve's last chord (ADR 2252).
             if let (Some(&first), Some(&second)) = (points.first(), points.get(1)) {
-                let exact = (!folds(1))
-                    .then(|| subpath.leaving.first().copied().flatten())
-                    .flatten();
-                let from = exact.map_or(second, |direction| plus(first, direction));
-                self.push_cap(out, (from, first), exact.is_some());
+                let exact = subpath.leaving.first().copied().flatten();
+                let outward = exact.map_or(minus(first, second), |leaving| scaled(leaving, -1.0));
+                self.push_cap(out, (outward, first), exact.is_some() && !folds(1));
             }
             if let Some(&before) = points.get(count.saturating_sub(2)) {
-                let exact = (!folds(count.saturating_sub(1)))
-                    .then(|| subpath.arriving.last().copied().flatten())
-                    .flatten();
-                let from = exact.map_or(before, |direction| minus(last, direction));
-                self.push_cap(out, (from, last), exact.is_some());
+                let exact = subpath.arriving.last().copied().flatten();
+                let outward = exact.unwrap_or_else(|| minus(last, before));
+                self.push_cap(
+                    out,
+                    (outward, last),
+                    exact.is_some() && !folds(count.saturating_sub(1)),
+                );
             }
         }
     }
@@ -475,12 +479,17 @@ impl Pieces {
     }
 
     /// Adds the join at `at` between the chords from `from` and to `to`, on the outer side of their
-    /// turn — ISO 32000-2 §8.4.3.4, with §8.4.3.5's limit on a mitre.
+    /// turn — ISO 32000-2 §8.4.3.4, with §8.4.3.5's limit on a mitre, decided and shaped by
+    /// `tangents`, the directions the path itself arrives and leaves along, where it states the
+    /// vertex.
     fn push_join(
         &self,
         out: &mut tiny_skia::PathBuilder,
         (from, at, to): (tiny_skia::Point, tiny_skia::Point, tiny_skia::Point),
-        join: tiny_skia::LineJoin,
+        (join, tangents): (
+            tiny_skia::LineJoin,
+            Option<(tiny_skia::Point, tiny_skia::Point)>,
+        ),
         (into_a_stretch, onward_a_stretch): (bool, bool),
     ) {
         let (first, second) = (unit_normal(from, at), unit_normal(at, to));
@@ -519,14 +528,34 @@ impl Pieces {
                 push_convex(out, &corners);
             }
             tiny_skia::LineJoin::Miter | tiny_skia::LineJoin::MiterClip => {
+                // The bevel between the chords' own bands, which their corners need whatever the
+                // mitre is; and beyond it the mitre, which is the segments' own: decided, shaped and
+                // put on its side by the path's tangents where it states the vertex. Near a vertex
+                // a curve's first chord may lean off its tangent far enough to turn the other way,
+                // so nothing of the mitre is taken from the chords there (ADR 2252).
+                push_convex(out, &[centre, near_corner, far_corner]);
+                let (first, second, outward) =
+                    tangents.map_or((first, second, outward), |(arriving, leaving)| {
+                        let outward = if arriving.cross(leaving) > 0.0 {
+                            -self.half
+                        } else {
+                            self.half
+                        };
+                        // As vectors, for `push_cap`'s reason.
+                        (
+                            unit_normal(tiny_skia::Point::zero(), arriving),
+                            unit_normal(tiny_skia::Point::zero(), leaving),
+                            outward,
+                        )
+                    });
+                let (near, far) = (scaled(first, outward), scaled(second, outward));
+                let cosine = first.dot(second).clamp(-1.0, 1.0);
                 // §8.4.3.5: the mitre's length over the line width is 1 / sin(φ / 2), φ the angle
                 // between the segments, which is 1 / cos(θ / 2) of the turn θ between normals.
                 let half_turn = f32::midpoint(1.0, cosine).sqrt();
                 if half_turn > 0.0 && 1.0 / half_turn <= self.limit {
                     let tip = scaled(plus(near, far), 1.0 / (1.0 + cosine));
-                    push_convex(out, &[centre, near_corner, plus(at, tip), far_corner]);
-                } else {
-                    push_convex(out, &[centre, near_corner, far_corner]);
+                    push_convex(out, &[at, plus(at, near), plus(at, tip), plus(at, far)]);
                 }
             }
             tiny_skia::LineJoin::Bevel => {
@@ -535,21 +564,24 @@ impl Pieces {
         }
     }
 
-    /// Adds the cap at the end `end` of the chord from `from` — ISO 32000-2 §8.4.3.3.
+    /// Adds the cap at `end`, the path leaving it along `outward` — ISO 32000-2 §8.4.3.3.
+    ///
+    /// The direction is taken as a vector and never as a point beside the end: a curve's tangent
+    /// there runs to its nearest distinct control point, which may lie a part in a million away,
+    /// and added to the end in `f32` it would be the end again and state no direction at all.
     fn push_cap(
         &self,
         out: &mut tiny_skia::PathBuilder,
-        (from, end): (tiny_skia::Point, tiny_skia::Point),
+        (outward, end): (tiny_skia::Point, tiny_skia::Point),
         on_a_stretch: bool,
     ) {
-        let normal = scaled(unit_normal(from, end), self.half);
-        // The chord's own direction at the half-width's length.
-        let beyond = tiny_skia::Point::from_xy(normal.y, -normal.x);
-        let beyond = if beyond.dot(minus(end, from)) >= 0.0 {
-            beyond
-        } else {
-            scaled(beyond, -1.0)
-        };
+        let length = outward.length();
+        if !(length.is_finite() && length > 0.0) {
+            return;
+        }
+        // The path's own direction at the half-width's length, and square to it.
+        let beyond = scaled(outward, self.half / length);
+        let normal = tiny_skia::Point::from_xy(-beyond.y, beyond.x);
         // A cap on a stretch the stroker draws reaches back into its butt end.
         let back = |corner: tiny_skia::Point| {
             if on_a_stretch {
@@ -815,6 +847,19 @@ impl Flattened {
         }
     }
 
+    /// The directions the path arrives at and leaves `vertex` along, where it records both.
+    ///
+    /// §8.4.3.5's angle is the one "between the segments", which at a vertex the path states is
+    /// its own tangents', not its chords': a chord leans off its curve's tangent by more as the
+    /// flatness coarsens, and a mitre decided from it appears or vanishes with the chords (ADR
+    /// 2252).
+    fn tangents_at(&self, vertex: usize) -> Option<(tiny_skia::Point, tiny_skia::Point)> {
+        Some((
+            self.arriving.get(vertex).copied().flatten()?,
+            self.leaving.get(vertex).copied().flatten()?,
+        ))
+    }
+
     /// Adds a curve's chords: `steps` points along it, the last its end point.
     fn push_curve(
         &mut self,
@@ -976,16 +1021,20 @@ fn end_tangents(control: &[tiny_skia::Point]) -> (tiny_skia::Point, tiny_skia::P
 /// `crate::area` flattens every fill to, chosen there against the raster's own depth.
 const ARC_FLATNESS: f32 = 1.0 / 256.0;
 
-/// How far a chord of a folding curve may lie from it, in device pixels.
+/// How far a chord of a folding curve may lie from it, in device pixels — the flatness §10.7.2
+/// leaves to this processor, chosen by the project owner (`doc/questions/A559`, ADR 2252).
 ///
-/// A quarter of the quantum the pieces are measured to: [`scan::Exact::Pieces`] goes to the
-/// library's converter, which states a boundary pixel's coverage in sixteenths, so a chord within a
-/// sixty-fourth of its curve moves no coverage by as much as that converter's own step. Finer
-/// chords would buy nothing that converter can show and cost it edges: on `issue14415.pdf`, whose
-/// one-point strokes fold at a hundred and seventy-five cusps, each chord is a band and a join.
+/// [`scan::Exact::Pieces`] is measured exactly from its union's boundary (ADR 2122), so what a
+/// pixel reads is the flattened set's area, and the chords' own error is the only distance from
+/// the curve's: a boundary crosses a pixel over at most `√2` of it, so a pixel is within `√2 / 20`
+/// of its area, 18 levels of 255. The exact measure's cost is the pairs of pieces that overlap
+/// (ADR 2164 §3), and a chord's band overlaps every band within its half-width either side, so
+/// the twentieth is what holds that measure under a fifth more than the library's sixteenths cost
+/// at a sixty-fourth: on `issue14415.pdf`, whose one-point strokes fold at a hundred and
+/// seventy-five cusps, each chord is a band and a join.
 ///
 /// [`scan::Exact::Pieces`]: crate::scan::Exact::Pieces
-const FOLD_FLATNESS: f32 = 1.0 / 64.0;
+const FOLD_FLATNESS: f32 = 1.0 / 20.0;
 
 /// The most chords one folding curve, or sides one arc, is cut into: a cost guard, reached only by
 /// a curve whose bend is millions of times the flatness in device pixels.
@@ -1189,13 +1238,14 @@ mod tests {
     /// (§8.4.3.2's set; the first's inside is within the half-width of its curve), and the union of
     /// the pieces `folding_stroke_outline` states for them is measured exactly by `crate::area`
     /// under the non-zero rule, at the scale the pieces were flattened for. The shortfall is held
-    /// to what [`FOLD_FLATNESS`] promises: the set's rim, in device pixels, times a sixty-fourth of
-    /// one. The expected areas are the Bézier circle's own — its area plus its length times the
-    /// half-width plus `πh²`, the outer parallel body of a convex region — computed from the control
-    /// points (`numpy`, 200 000 samples a curve): 201.0910 and 78.5398 (ADR 1374).
+    /// to what [`FOLD_FLATNESS`] promises: the set's rim, in device pixels, times that flatness.
+    /// The expected areas are the Bézier circle's own — its area plus its length times the
+    /// half-width plus `πh²`, the outer parallel body of a convex region — computed from the
+    /// control points (`numpy`, 200 000 samples a curve): 201.0910 and 78.5398 (ADR 1374).
     ///
     /// Measured at scales 1 and 2 only: from 4 up the pieces overlap in every row past
-    /// `crate::area`'s work bound, which is why ADR 1348 hands them to the library's converter.
+    /// `crate::area`'s work bound, which is why `scan::mask_fill` measures them from their union's
+    /// boundary instead (ADR 2122), and the test below holds that measure to the flattened set.
     #[test]
     fn a_small_disc_s_pieces_add_up_to_its_set_within_the_flatness() {
         let kappa = 0.5523_f32;
@@ -1238,6 +1288,159 @@ mod tests {
                      {set:.4}, past {bound:.4}"
                 );
             }
+        }
+    }
+
+    /// ISO 32000-2 §10.7.4 measures a shape once "curves have been flattened to sequences of
+    /// straight lines", so a pixel is owed the area of the flattened set over its square, and the
+    /// measure `scan::mask_fill` takes of the pieces (ADR 2122) is held to it: the same pieces,
+    /// flattened for the page's scale, drawn sixteen times finer and averaged over the block that
+    /// becomes each pixel, within the two drawings' roundings, half a level apiece (ADR 2252).
+    ///
+    /// The disk of radius 5 at scale 10, a radius-1 circle stroked at `8 w`, whose every chord
+    /// folds; one window on its rim where the boundary runs at a slant and one where it runs
+    /// level, each eight pixels square and holding pixels the rim crosses.
+    #[test]
+    fn a_folding_stroke_s_pieces_are_measured_as_their_flattened_set() {
+        const SCALE: f32 = 10.0;
+        const LADDER: u32 = 16;
+        const SIDE: u32 = 8;
+        let (cx, cy, r, k) = (20.0_f32, 20.0_f32, 1.0_f32, 0.5523_f32);
+        let mut builder = tiny_skia::PathBuilder::new();
+        builder.move_to(cx + r, cy);
+        builder.cubic_to(cx + r, cy + k, cx + k, cy + r, cx, cy + r);
+        builder.cubic_to(cx - k, cy + r, cx - r, cy + k, cx - r, cy);
+        builder.cubic_to(cx - r, cy - k, cx - k, cy - r, cx, cy - r);
+        builder.cubic_to(cx + k, cy - r, cx + r, cy - k, cx + r, cy);
+        builder.close();
+        let circle = builder.finish().expect("a circle");
+        let style = tiny_skia::Stroke {
+            width: 8.0,
+            line_join: tiny_skia::LineJoin::Round,
+            ..tiny_skia::Stroke::default()
+        };
+        let pieces = folding_stroke_outline(&circle, &style, SCALE).expect("it folds");
+        let drawn = |(width, height): (u32, u32), at: tiny_skia::Transform| {
+            let mut mask = tiny_skia::Mask::new(width, height).expect("a mask");
+            crate::scan::mask_fill(
+                &mut mask,
+                &mut crate::area::Buffers::default(),
+                &pieces,
+                tiny_skia::FillRule::Winding,
+                true,
+                (crate::scan::Place::surface(at), &crate::scan::Exact::Pieces),
+            );
+            mask
+        };
+        let page = drawn((400, 400), tiny_skia::Transform::from_scale(SCALE, SCALE));
+        for corner in [(231_u32, 231_u32), (196, 146)] {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "a window corner under 400, exact in f32"
+            )]
+            let finer = tiny_skia::Transform::from_row(
+                SCALE * LADDER as f32,
+                0.0,
+                0.0,
+                SCALE * LADDER as f32,
+                -((corner.0 * LADDER) as f32),
+                -((corner.1 * LADDER) as f32),
+            );
+            let ladder = drawn((SIDE * LADDER, SIDE * LADDER), finer);
+            let mut rim = 0;
+            for y in 0..SIDE {
+                for x in 0..SIDE {
+                    let mut sum = 0_u32;
+                    for v in 0..LADDER {
+                        for u in 0..LADDER {
+                            let at = (y * LADDER + v) * SIDE * LADDER + x * LADDER + u;
+                            sum += u32::from(ladder.data()[at as usize]);
+                        }
+                    }
+                    let area = f64::from(sum) / f64::from(LADDER * LADDER);
+                    let level = page.data()[((corner.1 + y) * 400 + corner.0 + x) as usize];
+                    if level > 0 && level < u8::MAX {
+                        rim += 1;
+                    }
+                    assert!(
+                        (f64::from(level) - area).abs() <= 1.0,
+                        "pixel {:?} reads {level} where the same pieces drawn {LADDER} times \
+                         finer cover {area:.2} of 255",
+                        (corner.0 + x, corner.1 + y)
+                    );
+                }
+            }
+            assert!(
+                rim > 0,
+                "the window at {corner:?} holds no pixel the rim crosses"
+            );
+        }
+    }
+
+    /// ISO 32000-2 §8.4.3.5 decides a mitre by the angle φ "between the segments", and at a vertex
+    /// the path states that is the angle between its own tangents. A line arriving straight down
+    /// at `(8, 12)` and a curve leaving it straight up — the collar of the push pin in
+    /// `annotation-fileattachment.pdf`, `0.6 w`, mitred under the default limit of 10 — meet at
+    /// `φ = 0`, past every limit, so the join is a bevel and nothing of the stroke lies further
+    /// below the vertex than the line's band, `h` and the bands' overlap. The curve's first chord
+    /// leans off that tangent, and decided from the chord the join was a mitre reaching a unit down
+    /// (ADR 2252).
+    #[test]
+    fn a_mitre_is_decided_by_the_path_s_tangents_and_not_by_its_chords() {
+        let mut builder = tiny_skia::PathBuilder::new();
+        builder.move_to(8.0, 18.48);
+        builder.line_to(8.0, 12.0);
+        builder.cubic_to(8.0, 12.8, 12.0, 12.8, 12.0, 12.0);
+        builder.line_to(12.0, 18.48);
+        let collar = builder.finish().expect("a collar");
+        let style = tiny_skia::Stroke {
+            width: 0.6,
+            line_join: tiny_skia::LineJoin::Miter,
+            miter_limit: 10.0,
+            ..tiny_skia::Stroke::default()
+        };
+        for scale in [1.0_f32, 4.0, 10.0] {
+            let pieces = folding_stroke_outline(&collar, &style, scale).expect("it folds");
+            let lowest = pieces
+                .points()
+                .iter()
+                .map(|point| point.y)
+                .fold(f32::INFINITY, f32::min);
+            assert!(
+                lowest >= 12.0 - 0.3 - FOLD_FLATNESS / scale,
+                "at scale {scale} a piece reaches down to {lowest}, below the bevel at 11.7"
+            );
+        }
+    }
+
+    /// ISO 32000-2 §8.4.3.3's projecting square cap: "The stroke shall continue beyond the
+    /// endpoint of the path for a distance equal to half the line width and shall be squared
+    /// off", so it is square to the path's own tangent at its end: an arch leaving `(10, 10)`
+    /// straight up and arriving at `(14, 10)` straight down, `0.6 w`, is capped down to `y = 9.7`
+    /// and no further at either end. Its chords lean off those tangents, and a cap turned from
+    /// them reached below that.
+    #[test]
+    fn a_cap_is_square_to_the_path_s_tangent_and_not_to_its_chord() {
+        let mut builder = tiny_skia::PathBuilder::new();
+        builder.move_to(10.0, 10.0);
+        builder.cubic_to(10.0, 10.8, 14.0, 10.8, 14.0, 10.0);
+        let arch = builder.finish().expect("an arch");
+        let style = tiny_skia::Stroke {
+            width: 0.6,
+            line_cap: tiny_skia::LineCap::Square,
+            ..tiny_skia::Stroke::default()
+        };
+        for scale in [1.0_f32, 4.0, 10.0] {
+            let pieces = folding_stroke_outline(&arch, &style, scale).expect("it folds");
+            let lowest = pieces
+                .points()
+                .iter()
+                .map(|point| point.y)
+                .fold(f32::INFINITY, f32::min);
+            assert!(
+                lowest >= 10.0 - 0.3 - FOLD_FLATNESS / scale,
+                "at scale {scale} a cap reaches down to {lowest}, below the square cap at 9.7"
+            );
         }
     }
 

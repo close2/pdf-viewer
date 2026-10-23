@@ -38,7 +38,7 @@ your contract needs and the list did not give you.
 ## 4. The report
 Rows moved (from → to) with the clause sentence; the premise that did not hold, if any; files
 touched (full list); gates with exit statuses; what is unfinished and why; a proposed trap or
-habit, if any; the record's `wc -l`; the duration as `<n> s`.
+habit, if any; the record's `wc -l`; the duration as `<n> s` and the tool-use count.
 ```
 
 ## A slot's part
@@ -60,6 +60,8 @@ habit, if any; the record's `wc -l`; the duration as `<n> s`.
   the lock. A figure a gate already holds is read from it, not re-taken.
 - **Wall budget**: <n> h. At the budget, leave every file compiling and report what is done.
 - **Numbers**: ADRs <a>, <b>; Q<n> only if the owner's word is needed.
+  An ADR states a decision under a Status line and its title names it; an assessment, a survey or
+  an experiment is a review in `doc/reviews/` or a record's paragraph (ADR 2242).
 ```
 
 ## What the orchestrator does not write

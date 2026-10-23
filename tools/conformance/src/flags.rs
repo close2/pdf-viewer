@@ -281,10 +281,15 @@ pub fn sweep(root: &Path) -> Result<Report, Error> {
             report.packages_without_a_binary = report.packages_without_a_binary.saturating_add(1);
             continue;
         };
-        for path in rust_sources(&root.join(member).join("src"))? {
+        let sources = rust_sources(&root.join(member).join("src"))?;
+        let out_of_line = out_of_line_tests(&sources)?;
+        for path in sources
+            .iter()
+            .filter(|path| !out_of_line.iter().any(|test| path.starts_with(test)))
+        {
             report.sources_read = report.sources_read.saturating_add(1);
-            let text = read(root, &path)?;
-            let relative = relative(root, &path);
+            let text = read(root, path)?;
+            let relative = relative(root, path);
             for literal in literals(&text) {
                 for (before, flag) in flags(&literal.text) {
                     report.mentions = report.mentions.saturating_add(1);
@@ -911,6 +916,49 @@ fn document_lines(text: &str) -> Vec<Literal> {
         joining = continues;
     }
     found
+}
+
+/// The files and directories of every `#[cfg(test)] mod name;` the sources declare, which are
+/// condition 1's "not the program" for a test module kept in a file of its own.
+///
+/// A module declared in `parent/stem.rs` lives at `parent/stem/name.rs` or `parent/stem/name/`;
+/// one declared in a `lib.rs`, `main.rs` or `mod.rs` lives beside it.
+fn out_of_line_tests(sources: &[PathBuf]) -> Result<Vec<PathBuf>, Error> {
+    let mut found = Vec::new();
+    for path in sources {
+        let text = std::fs::read_to_string(path).map_err(|source| Error::Unreadable {
+            path: path.display().to_string(),
+            source,
+        })?;
+        let Some(parent) = path.parent() else {
+            continue;
+        };
+        let stem = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("");
+        let home = if matches!(stem, "lib" | "main" | "mod") {
+            parent.to_path_buf()
+        } else {
+            parent.join(stem)
+        };
+        let mut lines = text.lines().map(str::trim);
+        while let Some(line) = lines.next() {
+            if line != "#[cfg(test)]" {
+                continue;
+            }
+            let Some(name) = lines
+                .next()
+                .and_then(|next| next.strip_prefix("mod "))
+                .and_then(|rest| rest.strip_suffix(';'))
+            else {
+                continue;
+            };
+            found.push(home.join(format!("{name}.rs")));
+            found.push(home.join(name));
+        }
+    }
+    Ok(found)
 }
 
 /// Every `.rs` under a directory, sorted, or nothing where the directory does not exist.

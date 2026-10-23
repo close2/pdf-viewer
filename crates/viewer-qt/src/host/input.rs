@@ -175,7 +175,7 @@ impl Host {
         } else {
             self.zoom_wheel.lines(amount)
         };
-        if std::env::var_os("PDFVIEWER_ZOOM_PROBE").is_some() {
+        if zoom_probe_enabled() {
             eprintln!(
                 "zoom-record {{\"v\":1,\"host\":\"qt\",\"pid\":{},\"kind\":\"zoom-accumulator\",\"amount\":{amount},\"unit\":\"{}\",\"steps\":{steps},\"core_x\":{x},\"core_y\":{y}}}",
                 std::process::id(),
@@ -335,4 +335,12 @@ impl Host {
     pub(crate) fn over_link(&self) -> bool {
         self.over_link
     }
+}
+
+/// Whether the opt-in zoom receipts are written, read from the environment once per process —
+/// as `viewer-gtk`'s probe and `cpp/window.cpp`'s `zoomProbe()` read it — rather than on every
+/// wheel step the receipt describes (ADR 2251).
+fn zoom_probe_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var_os("PDFVIEWER_ZOOM_PROBE").is_some())
 }
