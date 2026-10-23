@@ -5,12 +5,6 @@
 use super::error::ProtocolError;
 use super::wire::{Reader, Writer};
 
-/// Reads one answer.
-///
-/// # Errors
-///
-/// [`ProtocolError`] where a field is truncated, a discriminant is not one this build defines,
-/// or bytes are left over.
 /// §12.9's measurement, written out.
 ///
 /// Every field is a string §12.9.2's algorithm produced or one Table 265 states for a person,

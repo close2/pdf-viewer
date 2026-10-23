@@ -267,6 +267,13 @@ remedy = "stop"
 # has a glyph for every code the pages show, embedding it keeps every character at its width and
 # changes only the shapes, which paper made from another machine would have changed anyway. A
 # shown code the shipped face lacks is still refused: that is a mark (doc/adr/2162).
+#
+# And a font this viewer draws from the face this program ships, narrowed to the file's widths
+# (ADR 0358): embedding the face unmodified keeps every position and every glyph and draws each at
+# the face's own width — the loss `substitute-stretch`, which the owner allowed this profile in
+# doc/questions/A566. One decision carries every loss the embedding incurs, so this one `discard`
+# authorises both, and the report and the file's own xmpMM:History name each font with what it
+# lost and the scale it was drawn at (doc/adr/2262).
 # ---------------------------------------------------------------------------------------------
 
 [site."fonts/font-programs-embedded"]

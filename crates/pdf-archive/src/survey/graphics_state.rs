@@ -4,6 +4,8 @@ use pdf_syntax::Dictionary;
 use pdf_syntax::Object;
 use pdf_syntax::ObjectId;
 
+use pdf_model::content::ledger::Route as Via;
+
 use super::{Context, State, Walk, below_one, blends};
 
 impl Walk<'_> {
@@ -19,6 +21,39 @@ impl Walk<'_> {
             self.survey.transparent.insert(context.page);
         }
         self.overprint(&dict, entry.as_reference(), state);
+        self.soft_mask(&dict, context);
+    }
+
+    /// The transparency group of the soft mask a `gs` sets, walked as the content it is.
+    ///
+    /// ISO 32000-2 §11.6.5.1 makes the mask's `/G` a transparency group `XObject`, so its content
+    /// selects resources and paints colours exactly as a form's does, and a colour it paints is a
+    /// use of that colour space under ISO 19005-2 section 6.2.4.3 and ISO 19005-4 section 6.2.4.3,
+    /// neither of which exempts a mask's group (`doc/adr/2263`). It is walked where the `gs` sets
+    /// it, which is where §11.6.5.1 fixes the mask and where the interpreter evaluates it, and it
+    /// starts from §8.4.1's initial state rather than the invoking stream's: the group is not
+    /// painted into the stream that set it, so nothing of that stream's colour or blending space
+    /// reaches inside (§11.5.3 turns its result into one luminosity or alpha per point).
+    ///
+    /// The soft-mask *image* an image's `/SMask` names stays outside the walk, for the reason the
+    /// module comment gives.
+    fn soft_mask(&mut self, dict: &Dictionary, context: &Context<'_>) {
+        let mask = self.document.get_key(dict, "SMask");
+        let Some(mask) = mask.as_dict() else {
+            return;
+        };
+        let group = mask.get("G").and_then(Object::as_reference);
+        let Object::Stream(stream) = self.document.get_key(mask, "G") else {
+            return;
+        };
+        self.form(
+            &stream,
+            group,
+            context.page,
+            context.depth,
+            &State::default(),
+            Via::SoftMask,
+        );
     }
 
     /// ISO 32000-2 §8.4.5, Table 58's `OP`, `op` and `OPM`, as a `gs` operator sets them.

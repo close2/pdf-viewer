@@ -522,7 +522,11 @@ impl Pieces {
         match join {
             tiny_skia::LineJoin::Round => {
                 let mut corners = vec![centre, near_corner];
-                let turning = near.cross(far);
+                // The outer arc turns from `near` towards the way the path arrives, whichever way
+                // it then leaves: at a turn of nearly a half turn `near` and `far` are opposite,
+                // and the sign of their cross product, a rounding, put the arc behind the vertex
+                // and left a notch where the path doubles back (ADR 2269).
+                let turning = near.cross(minus(at, from));
                 corners.extend(arc(at, (near, turning), cosine.acos(), self.step));
                 corners.push(far_corner);
                 push_convex(out, &corners);
@@ -696,13 +700,31 @@ fn unit_normal(start: tiny_skia::Point, end: tiny_skia::Point) -> tiny_skia::Poi
 
 /// Adds a convex polygon as a closed subpath wound so that its signed area is positive, which is
 /// what makes every piece of one outline add rather than cancel under the non-zero rule.
+///
+/// The area is taken about the first corner and in `f64`, where each product of two differences
+/// of `f32` coordinates is exact. Taken about the origin in `f32`, each product is a coordinate
+/// squared, rounded to a part in `2^24` of that: at the coordinates a page states, a sixteenth of
+/// a unit and more, which is more than a small join has, so such a piece came out wound the other
+/// way and took its area out of the bands it overlaps (ADR 2269).
 fn push_convex(out: &mut tiny_skia::PathBuilder, corners: &[tiny_skia::Point]) {
-    let twice_area: f32 = corners
+    let Some(&origin) = corners.first() else {
+        return;
+    };
+    let about = |corner: &tiny_skia::Point| {
+        (
+            f64::from(corner.x) - f64::from(origin.x),
+            f64::from(corner.y) - f64::from(origin.y),
+        )
+    };
+    let twice_area: f64 = corners
         .iter()
         .zip(corners.iter().cycle().skip(1))
-        .map(|(one, next)| one.cross(*next))
+        .map(|(one, next)| {
+            let (one, next) = (about(one), about(next));
+            one.0 * next.1 - one.1 * next.0
+        })
         .sum();
-    if !twice_area.is_finite() || twice_area.abs() <= f32::EPSILON {
+    if !twice_area.is_finite() || twice_area == 0.0 {
         return;
     }
     let mut ordered: Vec<tiny_skia::Point> = corners.to_vec();
@@ -918,6 +940,9 @@ fn flattened_subpaths(
     let mut current = tiny_skia::Point::zero();
     for (index, segment) in path.segments().enumerate() {
         let folding = folds.get(index).copied().unwrap_or(false);
+        if states_no_length(segment, current) {
+            continue;
+        }
         match segment {
             tiny_skia::PathSegment::MoveTo(to) => {
                 subpaths.push(Flattened::at(to));
@@ -995,6 +1020,26 @@ fn flattened_subpaths(
         }
     }
     subpaths
+}
+
+/// Whether `segment`, begun at `start`, is a curve every control point of which is `start`: a
+/// point, which adds nothing to the stroke and states no direction to join.
+///
+/// Its chords would not be the point. A Bézier's points are weighted sums, and weights summing to
+/// one in exact arithmetic sum to a part in `2^24` either side of it in `f32`, so such a curve's
+/// chords are a few steps of a rounding long and point anywhere, and the joins at either end of
+/// them were turned from those directions: `issue14438.pdf`'s ink states its corners with such
+/// curves, and lost the round join at them at most scales (ADR 2269).
+fn states_no_length(segment: tiny_skia::PathSegment, start: tiny_skia::Point) -> bool {
+    match segment {
+        tiny_skia::PathSegment::QuadTo(control, to) => control == start && to == start,
+        tiny_skia::PathSegment::CubicTo(first, second, to) => {
+            first == start && second == start && to == start
+        }
+        tiny_skia::PathSegment::MoveTo(_)
+        | tiny_skia::PathSegment::LineTo(_)
+        | tiny_skia::PathSegment::Close => false,
+    }
 }
 
 /// The directions a Bézier leaves its first control point along and arrives at its last along:
@@ -1232,7 +1277,64 @@ fn distance_to_triangle([one, two, three]: [tiny_skia::Point; 3]) -> f32 {
 #[cfg(test)]
 mod tests {
 
-    use super::{FOLD_FLATNESS, folding_stroke_outline, push_wound_positively};
+    use super::{FOLD_FLATNESS, folding_stroke_outline, push_convex, push_wound_positively};
+
+    /// Whether the pieces cover `(x, y)` under the non-zero rule, counted in `f64` along a ray to
+    /// the right — a reference that shares nothing with `crate::area`.
+    fn covers(pieces: &tiny_skia::Path, (x, y): (f64, f64)) -> bool {
+        let mut winding = 0_i32;
+        let (mut start, mut current) = ((0.0, 0.0), (0.0, 0.0));
+        let cross = |from: (f64, f64), to: (f64, f64), winding: &mut i32| {
+            if (from.1 <= y) != (to.1 <= y)
+                && from.0 + (y - from.1) * (to.0 - from.0) / (to.1 - from.1) > x
+            {
+                *winding = winding.saturating_add(if to.1 > from.1 { 1 } else { -1 });
+            }
+        };
+        for segment in pieces.segments() {
+            match segment {
+                tiny_skia::PathSegment::MoveTo(point) => {
+                    start = (f64::from(point.x), f64::from(point.y));
+                    current = start;
+                }
+                tiny_skia::PathSegment::LineTo(point) => {
+                    let next = (f64::from(point.x), f64::from(point.y));
+                    cross(current, next, &mut winding);
+                    current = next;
+                }
+                tiny_skia::PathSegment::Close => {
+                    cross(current, start, &mut winding);
+                    current = start;
+                }
+                tiny_skia::PathSegment::QuadTo(..) | tiny_skia::PathSegment::CubicTo(..) => {
+                    panic!("the pieces are polygons")
+                }
+            }
+        }
+        winding != 0
+    }
+
+    /// The points `(radius, degrees)` about `centre` that the pieces leave out.
+    fn left_out(
+        pieces: &tiny_skia::Path,
+        centre: (f64, f64),
+        (radii, degrees): (&[f64], std::ops::RangeInclusive<i32>),
+    ) -> Vec<(f64, i32)> {
+        let mut missing = Vec::new();
+        for &radius in radii {
+            for angle in degrees.clone().step_by(5) {
+                let turned = f64::from(angle).to_radians();
+                let point = (
+                    centre.0 + radius * turned.cos(),
+                    centre.1 + radius * turned.sin(),
+                );
+                if !covers(pieces, point) {
+                    missing.push((radius, angle));
+                }
+            }
+        }
+        missing
+    }
 
     /// A circle of radius 4 and one of radius 1, stroked at `8 w`, are the disks of radius 8 and 5
     /// (§8.4.3.2's set; the first's inside is within the half-width of its curve), and the union of
@@ -1286,6 +1388,113 @@ mod tests {
                     (union - set).abs() <= bound,
                     "radius {radius} at scale {scale}: the pieces' union is {union:.4} against \
                      {set:.4}, past {bound:.4}"
+                );
+            }
+        }
+    }
+
+    /// The witness of `tests/folding_stroke_under_a_clip.rs` held to its flattened set, where the
+    /// pieces can be reached: veraPDF's paperclip, `0.59 w` with round joins, at that page's
+    /// matrix at 10x, and its pieces drawn sixteen times finer over the eight pixels square about
+    /// the witness pixel `(798, 567)`, each pixel within the two drawings' roundings. That test
+    /// holds the page to the curve, whose bound the library's converter passes; this one is red
+    /// on it, `(796, 563)` reading 128 against the finer drawing's 130.65 (ADR 2269).
+    #[test]
+    fn the_paperclip_s_pieces_are_measured_as_their_flattened_set() {
+        const LADDER: u32 = 16;
+        const SIDE: u32 = 8;
+        const WINDOW: (u32, u32) = (794, 563);
+        // The paperclip test's `PAPERCLIP`, in the appearance stream's own space.
+        const PAPERCLIP: &str = "0.51 13.63 m 0.51 13.25 0.48 4.38 0.48 3.74 c 0.48 3.29 0.49 \
+            1.93 1.38 1.05 c 1.89 0.55 2.59 0.31 3.45 0.32 c 5.46 0.36 6.60 1.61 6.57 3.76 c 6.56 \
+            4.66 6.57 10.39 6.57 10.45 c 6.57 10.70 6.36 10.90 6.11 10.90 c 5.86 10.90 5.65 10.70 \
+            5.65 10.44 c 5.65 10.21 5.64 4.66 5.65 3.75 c 5.67 2.09 4.95 1.27 3.44 1.24 c 2.83 \
+            1.23 2.35 1.39 2.03 1.71 c 1.40 2.32 1.40 3.39 1.40 3.75 c 1.40 4.37 1.43 13.24 1.43 \
+            13.63 c 1.43 13.97 1.52 15.65 3.03 15.65 c 3.91 15.65 4.29 15.09 4.29 13.77 c 4.29 \
+            13.63 l 4.30 13.30 4.28 9.30 4.27 7.24 c 4.27 7.23 4.27 7.22 4.27 7.21 c 4.28 7.00 \
+            4.25 6.32 3.96 6.03 c 3.87 5.94 3.76 5.89 3.60 5.90 c 2.85 5.91 2.86 7.23 2.86 7.24 c \
+            2.84 10.81 l 2.83 11.07 2.63 11.27 2.37 11.27 c 2.12 11.27 1.92 11.06 1.92 10.81 c \
+            1.94 7.24 l 1.93 6.47 2.26 5.00 3.59 4.98 c 3.99 4.97 4.35 5.12 4.62 5.40 c 5.21 6.01 \
+            5.20 7.06 5.19 7.24 c 5.19 7.50 5.22 13.24 5.20 13.66 c 5.20 13.77 l 5.21 14.92 4.92 \
+            15.61 4.51 16.03 c 4.08 16.45 3.53 16.57 3.03 16.57 c 1.05 16.57 0.52 14.72 0.51 \
+            13.63 c h";
+        let mut builder = tiny_skia::PathBuilder::new();
+        let mut operands: Vec<f32> = Vec::new();
+        for word in PAPERCLIP.split_whitespace() {
+            match word {
+                "m" => builder.move_to(operands[0], operands[1]),
+                "l" => builder.line_to(operands[0], operands[1]),
+                "c" => builder.cubic_to(
+                    operands[0],
+                    operands[1],
+                    operands[2],
+                    operands[3],
+                    operands[4],
+                    operands[5],
+                ),
+                "h" => builder.close(),
+                number => {
+                    operands.push(number.parse().expect("an operand"));
+                    continue;
+                }
+            }
+            operands.clear();
+        }
+        let paperclip = builder.finish().expect("a paperclip");
+        let style = tiny_skia::Stroke {
+            width: 0.59,
+            line_join: tiny_skia::LineJoin::Round,
+            ..tiny_skia::Stroke::default()
+        };
+        let pieces = folding_stroke_outline(&paperclip, &style, 10.0).expect("it folds");
+        let drawn = |(width, height): (u32, u32), at: tiny_skia::Transform| {
+            let mut mask = tiny_skia::Mask::new(width, height).expect("a mask");
+            crate::scan::mask_fill(
+                &mut mask,
+                &mut crate::area::Buffers::default(),
+                &pieces,
+                tiny_skia::FillRule::Winding,
+                true,
+                (crate::scan::Place::surface(at), &crate::scan::Exact::Pieces),
+            );
+            mask
+        };
+        // The paperclip test's `AT_TEN`, to the bit.
+        let (e, f) = (750.341_06_f32, 717.119_6_f32);
+        let page = drawn(
+            (830, 720),
+            tiny_skia::Transform::from_row(10.0, 0.0, 0.0, -10.0, e, f),
+        );
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a ladder of 16 and a window corner under 830, exact in f32"
+        )]
+        let (ladder, corner) = (LADDER as f32, (WINDOW.0 as f32, WINDOW.1 as f32));
+        let finer = tiny_skia::Transform::from_row(
+            10.0 * ladder,
+            0.0,
+            0.0,
+            -10.0 * ladder,
+            (e - corner.0) * ladder,
+            (f - corner.1) * ladder,
+        );
+        let fine = drawn((SIDE * LADDER, SIDE * LADDER), finer);
+        for y in 0..SIDE {
+            for x in 0..SIDE {
+                let mut sum = 0_u32;
+                for v in 0..LADDER {
+                    for u in 0..LADDER {
+                        let at = (y * LADDER + v) * SIDE * LADDER + x * LADDER + u;
+                        sum += u32::from(fine.data()[at as usize]);
+                    }
+                }
+                let area = f64::from(sum) / f64::from(LADDER * LADDER);
+                let level = page.data()[((WINDOW.1 + y) * 830 + WINDOW.0 + x) as usize];
+                assert!(
+                    (f64::from(level) - area).abs() <= 1.0,
+                    "pixel {:?} reads {level} where the same pieces drawn {LADDER} times finer \
+                     cover {area:.2} of 255",
+                    (WINDOW.0 + x, WINDOW.1 + y)
                 );
             }
         }
@@ -1441,6 +1650,112 @@ mod tests {
                 lowest >= 10.0 - 0.3 - FOLD_FLATNESS / scale,
                 "at scale {scale} a cap reaches down to {lowest}, below the square cap at 9.7"
             );
+        }
+    }
+
+    /// §8.4.3.2's stroke holds every point within the half-width of the path, so the disk about a
+    /// vertex is in it whatever the join. `issue14438.pdf`'s ink, `2 w` with round joins, turns a
+    /// corner at `(399.299, 518.497)` and states the corner twice more as curves of no length: its
+    /// chords were each a rounding long and pointed anywhere, the joins at either end of them were
+    /// turned from those directions, and the outer side of the corner was left out at scales 1, 4
+    /// and 64 (ADR 2269). The segments are the file's, as the stroke reaches `stroke::folding`.
+    #[test]
+    fn a_corner_stated_again_as_curves_of_no_length_keeps_its_join() {
+        let mut builder = tiny_skia::PathBuilder::new();
+        builder.move_to(400.749, 519.946);
+        builder.cubic_to(400.507, 519.705, 400.507, 519.705, 400.265, 519.463);
+        builder.cubic_to(399.782, 518.98, 399.782, 518.98, 399.299, 518.497);
+        builder.cubic_to(399.299, 518.497, 399.299, 518.497, 399.299, 518.497);
+        builder.cubic_to(399.299, 518.497, 399.299, 518.497, 399.299, 518.497);
+        builder.cubic_to(399.299, 518.255, 399.299, 518.255, 399.299, 518.013);
+        builder.cubic_to(399.299, 517.772, 399.299, 517.772, 399.299, 517.53);
+        let ink = builder.finish().expect("a corner");
+        let style = tiny_skia::Stroke {
+            width: 2.0,
+            line_cap: tiny_skia::LineCap::Round,
+            line_join: tiny_skia::LineJoin::Round,
+            ..tiny_skia::Stroke::default()
+        };
+        for scale in [1.0_f32, 4.0, 16.0, 64.0] {
+            let pieces = folding_stroke_outline(&ink, &style, scale).expect("it folds");
+            let missing = left_out(
+                &pieces,
+                (399.299, 518.497),
+                (&[0.3, 0.6, 0.9, 0.98], 0..=355),
+            );
+            assert!(missing.is_empty(), "at scale {scale}: {missing:?}");
+        }
+    }
+
+    /// Where a curve doubles back the round join between its chords turns through nearly a half
+    /// turn, and its arc belongs beyond the vertex, through the way the path arrives. `inks.pdf`'s
+    /// red ink, `4.5 w`, doubles back inside a curve near `(198.616, 426.803)`; its arc was turned
+    /// by the sign of the cross product of two nearly opposite normals, a rounding, and at some
+    /// scales — 16 among those below — went behind the vertex and left a notch in the end of the
+    /// ink (ADR 2269).
+    #[test]
+    fn a_curve_that_doubles_back_is_rounded_beyond_the_turn() {
+        let mut builder = tiny_skia::PathBuilder::new();
+        builder.move_to(197.849_84, 426.816_04);
+        builder.cubic_to(
+            198.0122, 426.813_54, 198.131, 426.811_34, 198.238_72, 426.809_54,
+        );
+        builder.cubic_to(
+            198.346_44, 426.8077, 198.433_67, 426.8063, 198.496_17, 426.8051,
+        );
+        builder.cubic_to(
+            198.558_65, 426.803_96, 198.6186, 426.803_16, 198.613_75, 426.8025,
+        );
+        builder.cubic_to(
+            198.6089, 426.801_85, 198.5731, 426.8015, 198.4671, 426.801_24,
+        );
+        builder.cubic_to(
+            198.361_08, 426.800_93, 198.194_78, 426.8009, 197.977_69, 426.800_84,
+        );
+        let ink = builder.finish().expect("an ink that doubles back");
+        let style = tiny_skia::Stroke {
+            width: 4.5,
+            line_cap: tiny_skia::LineCap::Round,
+            line_join: tiny_skia::LineJoin::Round,
+            ..tiny_skia::Stroke::default()
+        };
+        for scale in [1.0_f32, 4.0, 16.0, 64.0] {
+            let pieces = folding_stroke_outline(&ink, &style, scale).expect("it folds");
+            let missing = left_out(&pieces, (198.6, 426.803), (&[1.0, 2.0], -60..=60));
+            assert!(missing.is_empty(), "at scale {scale}: {missing:?}");
+        }
+    }
+
+    /// A piece is wound positively however far from the origin it lies: a triangle of a fifty-
+    /// thousandth of a square unit at `(10 000, 10 000)`, whose area about the origin is a sum of
+    /// products each rounded by more than a unit in `f32`, comes out wound positively both ways it
+    /// is stated (ADR 2269).
+    #[test]
+    fn a_small_piece_far_from_the_origin_is_wound_positively() {
+        let corners = [
+            (10_000.0, 10_000.0),
+            (10_000.01, 10_000.0),
+            (10_000.0, 10_000.01),
+        ];
+        for order in [[0, 1, 2], [0, 2, 1], [1, 2, 0], [2, 1, 0]] {
+            let stated: Vec<tiny_skia::Point> = order
+                .iter()
+                .map(|&at| tiny_skia::Point::from_xy(corners[at].0, corners[at].1))
+                .collect();
+            let mut out = tiny_skia::PathBuilder::new();
+            push_convex(&mut out, &stated);
+            let piece = out.finish().expect("a triangle");
+            let points: Vec<(f64, f64)> = piece
+                .points()
+                .iter()
+                .map(|point| (f64::from(point.x) - 10_000.0, f64::from(point.y) - 10_000.0))
+                .collect();
+            let twice: f64 = points
+                .iter()
+                .zip(points.iter().cycle().skip(1))
+                .map(|(one, next)| one.0 * next.1 - one.1 * next.0)
+                .sum();
+            assert!(twice > 0.0, "{order:?} is wound with area {}", twice / 2.0);
         }
     }
 

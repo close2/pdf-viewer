@@ -170,7 +170,7 @@ all method signatures and bodies retain their tokens, including literal contents
 
 ## 14. Files with no large block
 
-`viewer-ffi/src/abi.rs` (the exported surface, one group per object kind; `wc -l` sizes it),
+`viewer-ffi/src/abi/` (the exported surface, one child per concern since ADR 2272; `wc -l` sizes them),
 `pdf-colour/src/colour.rs`, `pdf-model/src/appearance.rs` (one `construct`
 arm per annotation subtype), `pdf-signature/src/signature.rs`. Test files (`pdf-model/tests/oracle.rs`,
 `pdf-transform/tests/archive.rs`, `viewer-core/tests/headless.rs`) are lists of scenes, ranked by

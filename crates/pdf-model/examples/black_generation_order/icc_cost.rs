@@ -1,5 +1,6 @@
 //! Whole-interpretation costs for ordinary ICC solids, generic ICC tints and mixed use, and
-//! for the `Separation`, `DeviceN`, calibrated and Lab solids ADR 2248 retains.
+//! for the `Separation`, `DeviceN`, calibrated and Lab solids ADR 2248 retains and the
+//! `DeviceGray`, `DeviceCMYK` and `Indexed` ones ADR 2264 does.
 //! The generated tables match the independently tested intent fixture; this is no oracle.
 
 use pdf_syntax::Document;
@@ -101,7 +102,7 @@ fn fixture(content: &str, step: usize) -> Vec<u8> {
     let objects = [
         "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
-        format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R /Resources << /ColorSpace << /IA [/Indexed [/ICCBased 5 0 R] 2 <4080C0>] /IB [/Indexed [/ICCBased 6 0 R] 2 <4080C0>] /IT [/Indexed [/ICCBased 5 0 R] 2 <C08040>] /End [/Indexed [/ICCBased 5 0 R] 0 <FF>] /A [/ICCBased 5 0 R] /B [/ICCBased 6 0 R] /PA [/Pattern [/ICCBased 5 0 R]] /PB [/Pattern [/ICCBased 6 0 R]] {TINT_SPACES}>> /Pattern << /Tile 7 0 R >> /ExtGState << /Off << /UseBlackPtComp /OFF >> /On << /UseBlackPtComp /ON >> >> >> >>"),
+        format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R /Resources << /ColorSpace << /IA [/Indexed [/ICCBased 5 0 R] 2 <4080C0>] /IB [/Indexed [/ICCBased 6 0 R] 2 <4080C0>] /IT [/Indexed [/ICCBased 5 0 R] 2 <C08040>] /End [/Indexed [/ICCBased 5 0 R] 0 <FF>] /A [/ICCBased 5 0 R] /B [/ICCBased 6 0 R] /PA [/Pattern [/ICCBased 5 0 R]] /PB [/Pattern [/ICCBased 6 0 R]] {TINT_SPACES}{DEVICE_SPACES}>> /Pattern << /Tile 7 0 R >> /ExtGState << /Off << /UseBlackPtComp /OFF >> /On << /UseBlackPtComp /ON >> >> >> >>"),
         format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()+1),
         encoded_stream("/N 1", &a), encoded_stream("/N 1", &b),
         format!("<< /Type /Pattern /PatternType 1 /PaintType 2 /TilingType 1 /BBox [0 0 {step} {step}] /XStep {step} /YStep {step} /Resources << >> /Length {} >>\nstream\n{cell}\nendstream", cell.len()+1),
@@ -234,7 +235,77 @@ fn workloads() -> Vec<Workload> {
     paired_workloads(&mut out);
     indexed_workloads(&mut out);
     tint_and_cie_workloads(&mut out);
+    device_workloads(&mut out);
     out
+}
+
+/// ADR 2264's `Indexed` bases: `DeviceCMYK`, inline like the device families, and an identity
+/// `Separation` into profile A, whose entry is carried with its whole space.
+const DEVICE_SPACES: &str = "/IK [/Indexed /DeviceCMYK 1 <00000000 00FF0000>] /IS [/Indexed [/Separation /Spot [/ICCBased 5 0 R] << /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [1] /N 1 >>] 1 <4080>] ";
+
+// `g`, `k` and `Indexed` selections, hits and restorations, every one painting on the device
+// the colour its selection painted: the baseline converted these at selection and kept no
+// source, so these price the source and the memo alone.
+fn device_workloads(out: &mut Vec<Workload>) {
+    for (name, population, prefix, even, odd) in [
+        ("gray-repeat", "same-output-hit", ".6 g ", "", ""),
+        (
+            "gray-select",
+            "same-output-selection",
+            "",
+            ".25 g ",
+            ".75 g ",
+        ),
+        ("cmyk-repeat", "same-output-hit", "0 1 0 0 k ", "", ""),
+        (
+            "cmyk-select",
+            "same-output-selection",
+            "",
+            "0 1 0 0 k ",
+            "1 0 0 0 k ",
+        ),
+        (
+            "indexed-cmyk-select",
+            "same-output-selection",
+            "/IK cs ",
+            "0 scn ",
+            "1 scn ",
+        ),
+        (
+            "indexed-sep-select",
+            "same-output-selection",
+            "/Perceptual ri /IS cs ",
+            "0 scn ",
+            "1 scn ",
+        ),
+    ] {
+        let mut content = format!("/Off gs {prefix}");
+        for index in 0..1000 {
+            content.push_str(if index % 2 == 0 { even } else { odd });
+            content.push_str("0 0 50 100 re f ");
+        }
+        out.push(Workload {
+            name,
+            population,
+            content,
+            step: 100,
+        });
+    }
+    for (name, outer, inner) in [
+        ("gray-restore", ".6 g ", ".25 g "),
+        ("cmyk-restore", "0 1 0 0 k ", "1 0 0 0 k "),
+    ] {
+        let mut content = format!("/Off gs {outer}");
+        for _ in 0..500 {
+            write!(content, "q {inner}0 0 50 100 re f Q 0 0 50 100 re f ").expect("restore pair");
+        }
+        out.push(Workload {
+            name,
+            population: "same-output-restoration",
+            content,
+            step: 100,
+        });
+    }
 }
 
 /// The spaces ADR 2248 retains whole: an identity tint into profile A, a `DeviceN` keeping its

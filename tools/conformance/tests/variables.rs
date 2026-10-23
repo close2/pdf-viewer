@@ -115,8 +115,10 @@ fn sweep(root: &Path) -> (BTreeSet<String>, Vec<Mention>, usize) {
     let mut read = BTreeSet::new();
     let mut mentions = Vec::new();
     let mut sources = Vec::new();
+    // The C++ halves of the Qt window read variables of their own (`qEnvironmentVariable`), and
+    // their comments name them as the Rust ones do (ADR 2266).
     for top in ["crates", "tools", "raster"] {
-        files(&root.join(top), &["rs"], &mut sources);
+        files(&root.join(top), &["rs", "cpp", "h"], &mut sources);
     }
     for path in &sources {
         let relative = path

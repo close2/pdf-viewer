@@ -430,7 +430,6 @@ public:
     void probeRecord(const char* kind, QJsonObject fields = {}) const;
     void probeGeometry();
 
-
 Q_SIGNALS:
     /// The viewport changed size, in device pixels.
     void resizedTo(unsigned int width, unsigned int height, float scale);
@@ -449,6 +448,8 @@ protected:
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
+    /// A device-pixel ratio that changes with no change of size is a new viewport too.
+    bool event(QEvent* event) override;
     /// Declines Qt's own focus chain, so that Tab on the page — and in a control over it, which
     /// asks its parent — reaches the window's key handler and walks §12.5.1's annotations.
     bool focusNextPrevChild(bool next) override;
@@ -463,6 +464,24 @@ private:
     quint64 probeWindow_ = 0;
     quint64 probeSequence_ = 0;
     quint64 probeGeometrySequence_ = 0;
+    /// Tells the core the viewport the widget has now, in device pixels, where it changed.
+    void viewportChanged();
+    /// Whether the viewport the core holds is the window's settled one: on Wayland the first
+    /// size Qt states precedes the compositor's first configure, at the output's whole-number
+    /// scale, and is held back until a later size or scale replaces it or the first paint shows
+    /// it stands (ADR 2267).
+    bool settled_ = false;
+    /// A first Wayland size held back, and the scale it was stated at.
+    bool held_ = false;
+    QSize heldSize_;
+    qreal heldScale_ = 0.0;
+    /// What the core was last told, so a repeated statement is not sent twice.
+    QSize toldDevice_;
+    qreal toldScale_ = 0.0;
+    /// Whether `PDFVIEWER_ZOOM_DRIVE`'s notches were scheduled, which the first frame does once.
+    bool driveArmed_ = false;
+    /// Posts one of `PDFVIEWER_ZOOM_DRIVE`'s notches and schedules the next while `left` remain.
+    void driveNotch(int index, int left);
 };
 
 /// The window: a splitter, `viewer_host::Tab`'s panels, a page, a status bar, and the host.

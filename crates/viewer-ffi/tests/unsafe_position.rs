@@ -71,8 +71,8 @@ fn lines_using_the_permission() -> Vec<(String, String)> {
     for path in sources() {
         let text = std::fs::read_to_string(&path).expect("a source file of this crate");
         let named = path
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
+            .strip_prefix(Path::new(env!("CARGO_MANIFEST_DIR")).join("src"))
+            .map(|relative| relative.to_string_lossy().replace('\\', "/"))
             .unwrap_or_default();
         for line in text.lines() {
             if code_only(line).contains("unsafe") {
@@ -92,7 +92,7 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     let mut signatures = 0usize;
     let mut blocks = Vec::new();
     for (file, line) in &found {
-        if file != "abi.rs" {
+        if file != "abi.rs" && !file.starts_with("abi/") {
             elsewhere.push(format!("{file}: {line}"));
             continue;
         }
@@ -100,7 +100,10 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
             lift = lift.saturating_add(1);
         } else if line.starts_with("#[unsafe(no_mangle)]") {
             no_mangle = no_mangle.saturating_add(1);
-        } else if line.starts_with("pub unsafe extern \"C\" fn") || line.starts_with("unsafe fn ") {
+        } else if line.starts_with("pub unsafe extern \"C\" fn")
+            || line.starts_with("unsafe fn ")
+            || line.starts_with("pub(super) unsafe fn ")
+        {
             signatures = signatures.saturating_add(1);
         } else {
             blocks.push(format!("{file}: {line}"));
@@ -110,7 +113,7 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     assert_eq!(
         elsewhere,
         Vec::<String>::new(),
-        "the permission is used outside `src/abi.rs`"
+        "the permission is used outside `src/abi.rs` and `src/abi/`"
     );
     assert!(
         blocks.is_empty(),

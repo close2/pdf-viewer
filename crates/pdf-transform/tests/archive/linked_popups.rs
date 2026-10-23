@@ -1,4 +1,12 @@
 //! Closed reciprocal popup pairs require independent hidden-object answers.
+//!
+//! The expected values come from four places, named on each test: ISO 19005-2 section 6.3.2 and ISO
+//! 19005-4 section 6.3.2 (every annotation but a `Popup` sets Print and clears Hidden, Invisible,
+//! `ToggleNoView` and `NoView`), ISO 32000-2 §12.5.3's Table 167 (the flag values: Invisible 1,
+//! Hidden 2, Print 4, `NoZoom` 8, `NoRotate` 16, `NoView` 32, `ToggleNoView` 256), Table 172's
+//! markup `/Popup` and `/IRT` and Table 186's popup `/Parent` and `/Open` (§§12.5.6.2, 12.5.6.14),
+//! and the fixture's own policy, `SHAPES`, which discards a hidden annotation and keeps a visible,
+//! nonprinting one. `/F 30` is Hidden, Print, `NoZoom` and `NoRotate`.
 use super::{
     Conforming, Decision, Flavour, Level, Target, Verdict, conversion, convert_with_plan, decision,
     holds, plan_from, stream,
@@ -34,6 +42,12 @@ fn fixture(target: Target, parent: &str, popup: &str, annots: &str, catalog: &st
     }.build()
 }
 
+/// A Text annotation and its popup, both `/F 30` (Hidden), leave the page together and the
+/// output conforms: section 6.3.2 meets no hidden annotation in it, and Table 172's `/Popup` and
+/// Table 186's `/Parent` name only each other. Two objects are removed, 6 and 7, with the
+/// flags they stated, and the Square stays. An object outside the page that names the parent
+/// keeps both, flags unchanged, because removing an annotation from `/Annots` is not deleting
+/// the object; and the output converts again.
 #[test]
 fn closed_hidden_pairs_leave_together_without_erasing_external_references() {
     for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
@@ -94,6 +108,15 @@ fn closed_hidden_pairs_leave_together_without_erasing_external_references() {
     }
 }
 
+/// Every popup or parent that is not a closed, hidden, sole-linked member is refused rather than
+/// guessed at: by Table 167, `/F 28`, an absent or null `/F`, and `/F 0` are not hidden, `/F 31`
+/// sets Invisible, `/F 286` sets `ToggleNoView`, and `/F -1` read as bits sets every flag and
+/// every bit §12.5.3 says "shall be set to 0"; Table 186's `/Open` is a boolean defaulting to
+/// false, so `true` is open and `0` is not its type; a direct `/Parent` breaks Table 186's
+/// indirect reference, and a dangling one or none at all leaves no parent to pair with; an
+/// appearance, an `/AA` or a `/Popup` of the popup's own is a relationship the proof does not
+/// infer. A parent stating `/Open` likewise, and a popup the page does not hold or holds
+/// twice.
 #[test]
 fn linked_pair_proof_refuses_unconsented_or_ambiguous_companions() {
     let target = Target::Four(Flavour::Plain);
@@ -145,6 +168,8 @@ fn linked_pair_proof_refuses_unconsented_or_ambiguous_companions() {
     }
 }
 
+/// A third annotation naming the popup through Table 172's `/Popup` or `/IRT` or Table 186's
+/// `/Parent` would be left naming an object no page holds, so each of the three is refused.
 #[test]
 fn linked_pair_proof_refuses_other_incoming_page_relationships() {
     let target = Target::Four(Flavour::Plain);
@@ -178,6 +203,10 @@ fn raster(bytes: &[u8]) -> pdf_render::Raster {
         .expect("raster")
 }
 
+/// Removing the pair moves no pixel: Table 167's Hidden (`/F 34` is Hidden and `NoView`) says
+/// "do not render the annotation", and the popup states no `/Open`, which Table 186 defaults
+/// to false (closed). The page before and after is the same raster, and the one mark on it is
+/// the Square's appearance stream, `0 0 1 rg`, so full blue [0, 0, 255, 255] by §8.6.4.3.
 #[test]
 fn linked_pair_removal_preserves_actual_page_marks_and_closed_default() {
     for (label, target) in [
@@ -241,6 +270,9 @@ fn linked_pair_removal_preserves_actual_page_marks_and_closed_default() {
     }
 }
 
+/// A second page referencing the same pair breaks §12.5.2's "\[a] given annotation dictionary
+/// shall be referenced from the Annots array of only one page", and the proof refuses it rather
+/// than choose a page.
 #[test]
 fn linked_pair_members_cannot_be_shared_across_pages() {
     let target = Target::Four(Flavour::Plain);
@@ -273,6 +305,10 @@ fn linked_pair_members_cannot_be_shared_across_pages() {
     assert!(matches!(decision(&report, SITE), Decision::Refused(_)));
 }
 
+/// Two corpus pairs, their object numbers and flags read from the files' own bytes: under the
+/// shipped `as-shown` profile, `ZapfDingbats.pdf`'s `/F 30` pair leaves the site's decision
+/// configured, and `OrphanPopups`' `/F 28` companion is Print, `NoZoom` and `NoRotate` by
+/// Table 167, not hidden, so its conversion is refused.
 #[test]
 #[ignore = "named corpus witnesses; run explicitly when the external corpora are present"]
 #[expect(
@@ -344,6 +380,8 @@ fn named_popup_witnesses_use_the_project_parser_without_expanding_consent() {
     }
 }
 
+/// A policy that discards visible shapes too does not make a visible popup (`/F 0`) a member of
+/// a hidden pair: the proof needs both members hidden by Table 167, so it refuses.
 #[test]
 fn discarding_visible_shapes_does_not_grant_hidden_pair_consent() {
     let target = Target::Four(Flavour::Plain);

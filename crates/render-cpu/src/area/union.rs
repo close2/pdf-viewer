@@ -37,16 +37,23 @@
 //! determinant of zero — a vertex on another piece's edge, which the pieces' own construction
 //! makes common — is answered by Edelsbrunner and Mücke's simulation of simplicity: every vertex
 //! is moved by its own infinitesimal, in an order fixed by its index, so that every question has
-//! an answer and every answer is about one configuration. Where two edges cross along a common
-//! line the crossing has no position, and the mark is declined, to the converter that drew it
-//! before this existed; so is a mark whose walk does not return to the winding it started from,
-//! which no consistent arithmetic allows.
+//! an answer and every answer is about one configuration.
 //!
-//! Where along an edge a crossing lies is a ratio rounded once in `f64`, and two crossings closer
-//! than that rounding may be taken in the wrong order. That costs the stretch between them, which
-//! is a part in `2^50` of the edge, and nothing else: the walk passes both either way. It would
-//! cost a whole contour if the walk *started* between them, so a crossing is a starting point only
-//! where no other crossing of either edge lies within [`SEPARATION`] of it.
+//! # What it declines
+//!
+//! Two inputs the construction cannot place, each degenerate, go to the converter that drew a
+//! mark before this existed. Where two edges cross along a common line the crossing has no
+//! position. And a contour may have no point to start from: every point tried on every edge that
+//! is not horizontal lies on another edge as well, which is a path that retraces itself and so
+//! states each of its pieces twice, or a piece whose upright sides all lie along other pieces'
+//! (ADR 2268). A mark whose walk does not return to the winding it started from is declined too,
+//! and that one no consistent arithmetic allows, so a build with debug assertions stops on it.
+//!
+//! Where along an edge a crossing lies is a ratio of two determinants, each rounded once to
+//! `f64`, so two crossings closer than a part in about `2^50` of the edge may be taken in the
+//! wrong order. That costs the stretch between them and nothing else: the walk passes both either
+//! way. It would cost a whole contour if the walk *started* between them, so a crossing is a
+//! starting point only where no other crossing of either edge lies within [`SEPARATION`] of it.
 //!
 //! The boundary's own coordinates are the device coordinates the path was traced to — a vertex
 //! where the path states it, a crossing at one point computed once and shared by its two edges —
@@ -285,7 +292,12 @@ impl Union {
             self.queue.clear();
             self.queue.push(seed);
             while let Some(contour) = self.queue.pop() {
-                if !self.walk(contour) {
+                let closes = self.walk(contour);
+                debug_assert!(
+                    closes,
+                    "the walk of contour {contour} does not close (ADR 2268)"
+                );
+                if !closes {
                     return false;
                 }
             }
@@ -1111,22 +1123,29 @@ fn ratio(numerator: i128, other: i128) -> Option<f64> {
     (denominator != 0).then(|| (approximate(numerator) / approximate(denominator)).clamp(0.0, 1.0))
 }
 
-/// A determinant as an `f64`, from its two halves: two conversions the processor makes in one
+/// A determinant as an `f64`, from two parts: two conversions the processor makes in one
 /// instruction each, where the whole `i128` is a call into the compiler's runtime — 67 million
-/// instructions of `inks.pdf`'s three draws, measured under callgrind. Two roundings rather than
-/// one, which a ratio of two such values compares to a part in `2^51`.
+/// instructions of `inks.pdf`'s three draws, measured under callgrind.
+///
+/// The parts are split at bit 32, so that each converts exactly whatever the value's sign — the
+/// high part of a value under `2^78` is under `2^46` and the low part is under `2^32` — and the
+/// sum is the one rounding. Split at bit 64, a small negative value's low part is `2^64` less its
+/// magnitude, which rounds by up to `2^10` before `2^64` is taken off again: two crossings of one
+/// point read `2.3e-9` apart, past [`SEPARATION`], and a contour's walk started from the wrong
+/// winding (ADR 2268).
 #[expect(
     clippy::cast_possible_truncation,
     clippy::cast_precision_loss,
     clippy::cast_sign_loss,
-    reason = "the high half of a value under 2^78 fits an i64 after the shift, the low half is \
-              the value's own low 64 bits, and each is rounded once to the nearest f64"
+    reason = "the high part of a value under 2^78 is under 2^46 after the shift, which an i64 \
+              holds and an f64 holds exactly, and the low part is the value's own low 32 bits"
 )]
 fn approximate(value: i128) -> f64 {
-    const HALF: f64 = 18_446_744_073_709_551_616.0;
+    const LOW: f64 = 4_294_967_296.0;
     // A multiplication and an addition rather than `mul_add`, which is a call into the platform's
-    // maths library on a target without the fused instruction.
-    ((value >> 64) as i64 as f64) * HALF + value as u64 as f64
+    // maths library on a target without the fused instruction; the product is exact, being a
+    // power of two times an integer under 2^53.
+    ((value >> 32) as i64 as f64) * LOW + f64::from(value as u32)
 }
 
 /// The side of a line a point lies on, from the line's exact determinant with it where that is
@@ -1328,5 +1347,53 @@ impl Grid {
             .and_then(|row| u32::try_from(row).ok())
             .unwrap_or(0);
         (column.min(last(self.columns)), row.min(last(self.rows)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::approximate;
+
+    /// A determinant converts to the nearest `f64` whatever its sign, which is what the `as`
+    /// conversion of the whole `i128` gives; the negative values are the ones a split at bit 64
+    /// rounded by up to `2^10` (ADR 2268), the first of them a determinant of the mark
+    /// `three_pieces_meeting_at_one_point_leave_a_closed_boundary` holds.
+    #[test]
+    fn a_determinant_converts_to_the_nearest_f64_whatever_its_sign() {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "the reference: Rust's conversion of an i128 rounds to the nearest f64"
+        )]
+        let nearest = |value: i128| value as f64;
+        let mut values = vec![
+            -652_948_884_480,
+            -13_453_138_944,
+            -1,
+            0,
+            1,
+            (1 << 53) + 1,
+            -(1 << 53) - 1,
+            (1 << 77) - 1,
+            -(1 << 77) + 1,
+        ];
+        let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+        for _ in 0..10_000 {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            let magnitude = i128::from(state >> (state % 40));
+            values.push(if state & 1 == 0 {
+                magnitude
+            } else {
+                -magnitude
+            });
+        }
+        for value in values {
+            assert_eq!(
+                approximate(value).to_bits(),
+                nearest(value).to_bits(),
+                "{value}"
+            );
+        }
     }
 }

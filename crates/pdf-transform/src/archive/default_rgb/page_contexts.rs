@@ -1,7 +1,16 @@
 //! A closed page/Form footprint for a part-4 page output-intent override.
 //!
-//! Global default placement needs every resource context proved, including Forms
-//! the survey deduplicates. Unsupported consumers remain refused (ADR 2230).
+//! ISO 19005-4 section 6.2.3 makes a page's PDF/A output intent the current one on that page,
+//! and its section 6.2.4.3 admits `DeviceRGB` where a device-independent `DefaultRGB` is set,
+//! the remapping ISO 32000-2 §8.6.5.6 defines:
+//!
+//! > When a device colour space is selected, the ColorSpace subdictionary of the current
+//! > resource dictionary (see 7.8.3, "Resource dictionaries") is checked for the presence of an
+//! > entry designating a corresponding default colour space
+//!
+//! The writer places that default in every resource dictionary, so every resource context is
+//! proved first, including Forms the survey deduplicates. Unsupported consumers remain refused
+//! (ADR 2230).
 use super::super::{decision::Because, prepare::SRGB};
 use pdf_archive::survey::{DeviceFamily, Route, SpaceKind, Survey};
 use pdf_syntax::{
@@ -115,6 +124,11 @@ impl PageContexts {
 }
 
 /// No page intent uses the shipped catalog fallback. A present array is proved in full.
+///
+/// The array is ISO 32000-2 Table 31's page `/OutputIntents` and each entry §14.11.5's Table
+/// 401 dictionary. ISO 19005-4 section 6.2.3 is read entry by entry: no `/DestOutputProfileRef`, a
+/// `GTS_PDFA1` entry with a `/DestOutputProfile`, every entry naming one indirect profile, and
+/// that profile a `prtr` or `mntr` class in `GRAY`, `RGB ` or `CMYK`.
 fn page_intent(document: &Document, page: &Dictionary) -> Result<bool, Because> {
     let Some(value) = page.get("OutputIntents") else {
         return Ok(false);
@@ -175,6 +189,8 @@ fn page_intent(document: &Document, page: &Dictionary) -> Result<bool, Because> 
     Ok(other)
 }
 
+/// The page's resource dictionary as ISO 32000-2 §7.7.3.4 finds it: the page's own, else the
+/// first an ancestor states, "used in its entirety".
 fn resources_of_page(document: &Document, page: &Dictionary) -> Result<Object, Because> {
     let mut node = page.clone();
     let mut seen = BTreeSet::new();
@@ -197,6 +213,12 @@ fn resources_of_page(document: &Document, page: &Dictionary) -> Result<Object, B
 }
 
 /// Each shared Form is checked under every path. Ancestors distinguish cycles from sharing.
+///
+/// A Form that states no `/Resources` is walked under the resources it was invoked with. For a
+/// Form the page invokes that is ISO 32000-2 §7.8.3's rule for a form written to an earlier
+/// version, whose resources "shall be inherited from the resource dictionary of the page on
+/// which they are used"; for a nested one it is the stricter proof, because `defaults` holds every
+/// dictionary on every path to the same `DefaultRGB`.
 fn footprint(
     document: &Document,
     resources: Object,
@@ -256,6 +278,11 @@ fn footprint(
 
 /// A lexical gate, not another interpreter: only path geometry, literal device
 /// colour selection and ordinary Form invocation can occur in this new route.
+///
+/// The operators are drawn from seven of ISO 32000-2 §8.2's Table 50 categories — general and
+/// special graphics state, path construction, path painting, clipping paths, colour, and the
+/// category holding `Do` — each narrowed to the operators named below; `cs`, `scn`, `sh`, `gs`
+/// and every text operator are absent.
 fn content(bytes: &[u8], remaining: &mut usize) -> Result<(), Because> {
     if bytes.len() > *remaining {
         return Err(CONTEXT);
@@ -284,6 +311,8 @@ fn content(bytes: &[u8], remaining: &mut usize) -> Result<(), Because> {
 /// No named colour spaces or nonidentity inherited defaults enter this route.
 /// Identical defaults make explicit insertion and fallback equivalent on every
 /// resource path, including paths the survey deduplicates.
+///
+/// The one name admitted is ISO 32000-2 §8.6.5.6's `DefaultRGB`, as the shipped sRGB profile.
 fn defaults(document: &Document, resources: &Dictionary) -> Result<(), Because> {
     let Some(value) = resources.get("ColorSpace") else {
         return Ok(());
@@ -304,6 +333,9 @@ fn defaults(document: &Document, resources: &Dictionary) -> Result<(), Because> 
 
 /// Only a page's supported independent gray target is admitted. Forms cannot
 /// change blending context, so all paths on one page have this same target.
+///
+/// The group is ISO 32000-2 §11.4.7's page group, its attributes §11.6.6's, and its `/CS` the
+/// blending space ISO 19005-4 section 6.2.4.3 names as the other licence for a device colour.
 fn page_group(document: &Document, page: &Dictionary) -> Result<(), Because> {
     let Some(value) = page.get("Group") else {
         return Ok(());
@@ -337,6 +369,8 @@ fn page_group(document: &Document, page: &Dictionary) -> Result<(), Because> {
     Ok(())
 }
 
+/// An ISO 32000-2 §8.6.5.5 `ICCBased` space of `components` channels, admitted only where
+/// Table 65's `/Range` and `/Alternate` are absent, so the profile alone states the colour.
 fn icc(document: &Document, value: &Object, components: i64) -> Result<Vec<u8>, Because> {
     let value = document.resolve(value);
     let array = value.as_array().ok_or(CONTEXT)?;

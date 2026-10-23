@@ -1,5 +1,9 @@
 # ADR 2215 — Toolkit zoom observation separates delivery and paint
 
+Status: **assessment** at the merge that took it, `0eb4d278`: it records no decision a later round
+must not re-litigate, as `doc/reviews/1704-batches-104-to-108-against-the-principles.md` finding 5
+reads it (line added by ADR 2260).
+
 A frame copied into a toolkit image is not yet a frame painted by the widget. Qt schedules an
 update, performs host follow-up work, and later enters its paint callback. GTK similarly submits
 textures before its frame-clock callback. Diagnose zoom latency with those boundaries visible;

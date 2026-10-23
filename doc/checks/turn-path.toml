@@ -47,9 +47,9 @@
 # trap 110, which no band here is widened for. A third gate run on these bands judged 33 of 33.
 #
 # The calibration probe is the launch gate's, the same work on the same document, run by every
-# child after its rounds; its band is `launch-path.toml`'s, and over the 240 children of the runs
-# above it read 0.659 to 0.802 ms, the one child past 0.78 being the first of a run. A child outside
-# it is printed and not used.
+# child after its rounds. Its band is its own, because these children read higher than the launch
+# gate's (ADR 2259): over the 240 children of the runs above it read 0.659 to 0.802 ms, the one
+# child past 0.78 being the first of a run. A child outside it is printed and not used.
 
 machine = "AMD Ryzen AI 9 HX 370 (4 Zen 5 + 8 Zen 5c cores, 24 threads), 61 GiB, Radeon 890M through RADV, Linux 7.2"
 profile = "release"

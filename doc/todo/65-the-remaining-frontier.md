@@ -259,11 +259,11 @@ package, no cross-round architecture. Membership is re-derived from the ledger r
 row is in this bucket when its note names none of those three.
 
 
-- §11.7.5.3 — RGB, ICC, Indexed-to-ICC, `Separation`/`DeviceN` and calibrated/Lab solids and
-  uncoloured pattern tints convert at paint (ADRs 2198, 2212, 2222, 2234, 2248). Plain
-  `DeviceCMYK` and `DeviceGray` solids and other Indexed bases still convert at selection; a
-  `k` colour inherited into a `DeviceGray` group is the demonstrated case. The profile bypass
-  remains a separate departure.
+- §11.7.5.3 — every solid family (device, ICC, `Indexed` over any base, `Separation`/`DeviceN`,
+  calibrated/Lab) and uncoloured pattern tints convert at paint (ADRs 2198, 2212, 2222, 2234,
+  2248, 2264). §11.7.2's `DeviceCMYK` redefinition is still read at selection, so an
+  output-intent `k` inherited into an `ICCBased` CMYK group is the next control; the profile
+  bypass then remains as a departure, and the row would be `departed`.
 
 §7.4.9 has a buildable part: implement e-sRGB and e-sYCC from the held PIMA 7667 (A348),
 with extended-range and non-neutral fixtures. Its CIEJab part remains in the unheld-text bucket;

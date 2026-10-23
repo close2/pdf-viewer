@@ -1,4 +1,12 @@
 //! Proof that unlinking a hidden popup pair removes only independently authorised annotations.
+//!
+//! ISO 19005-2 section 6.3.2 and ISO 19005-4 section 6.3.2 require every annotation but a `Popup`
+//! to set the Print flag and clear Hidden, Invisible, `ToggleNoView` and `NoView`, so a hidden
+//! markup annotation is discarded when its shape's remedy says so. Its popup is tied to it both
+//! ways: ISO 32000-2 §12.5.6.2's Table 172 gives the markup annotation `/Popup`, "\[a]n indirect
+//! reference to a popup annotation for entering or editing the text associated with this
+//! annotation", and §12.5.6.14's Table 186 gives the popup `/Parent`. Removing one member leaves
+//! the other naming an object no page holds, so the pair leaves together or not at all.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -11,7 +19,9 @@ const REFUSED: Because = Because::NotBuiltYet(
     "the linked annotation removal needs one closed reciprocal markup/Popup pair on one page, with both members independently hidden and discarded; malformed, shared, visible or interactive relationships are not inferred",
 );
 
-/// The page occurrence and every page annotation naming an object through Popup, Parent or IRT.
+/// The page occurrence and every page annotation naming an object through Popup, Parent or IRT:
+/// ISO 32000-2 Table 172's `/Popup` and `/IRT` (§12.5.6.2) and Table 186's `/Parent`
+/// (§12.5.6.14), the three entries by which one annotation names another.
 #[derive(Default)]
 struct Graph {
     pages: BTreeMap<ObjectId, Vec<usize>>,
@@ -72,6 +82,9 @@ pub(super) fn prove(document: &Document, removed: &[RemovedAnnotation]) -> Resul
     let graph = Graph::read(document)?;
     let hidden: BTreeSet<_> = removed
         .iter()
+        // ISO 32000-2 §12.5.3's Table 167 bit positions: Invisible (bit 1, value 1) and
+        // ToggleNoView (bit 9, value 256) clear, and Hidden (bit 2, value 2) or NoView (bit 6,
+        // value 32) set, so the annotation is not drawn on screen whatever a pointer does.
         .filter(|row| {
             row.flags
                 .is_some_and(|flags| flags >= 0 && flags & (1 | 256) == 0 && flags & (2 | 32) != 0)
@@ -115,7 +128,7 @@ fn pair(
     let popup_dict = popup_object.as_dict().ok_or(REFUSED)?;
     let parent_pages = graph.pages.get(&parent).ok_or(REFUSED)?;
     let popup_pages = graph.pages.get(&popup).ok_or(REFUSED)?;
-    // Table 171's markup subtypes with popup semantics; §12.5.6.2 excludes Sound.
+    // ISO 32000-2 Table 171's markup subtypes with popup semantics; §12.5.6.2 excludes Sound.
     let subtype = document.get_key(parent_dict, "Subtype");
     let markup = subtype.as_name().is_some_and(|name| {
         matches!(
@@ -155,6 +168,8 @@ fn pair(
             .iter()
             .any(|key| parent_dict.get(key).is_some() || popup_dict.get(key).is_some())
         || popup_dict.get("AP").is_some()
+        // Table 186's popup `/Open` and Table 175's text annotation `/Open` both default to
+        // false (closed); a pair a reader would display open is not a hidden pair.
         || [parent_dict, popup_dict].iter().any(|dict| {
             !matches!(
                 document.get_key(dict, "Open"),

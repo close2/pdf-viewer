@@ -234,14 +234,22 @@ profile = "release"
 # page interpreted, fifty times, the quickest — in a child of its own, pinned like every other.
 # No I/O after the first read, no device, no subprocess.
 #
-# **Its upper edge was 0.82 and cost a false failure before this round ended, which is how it
-# came to be 0.78.** A post-merge run at a load average of 39 read exactly 0.820, was admitted by
-# a band that includes its own edge, and reported twelve clock figures out of band. Every quiet
-# run recorded here reads 0.701 to 0.750 and every run whose figures were in band read at most
-# 0.750, so the edge is now a little over 4% above the slowest good reading: this machine may be
-# a twentieth slower than it was when the bands were taken and no more.
+# **The upper edge is a little over 4% above the slowest child whose figure was judged in band**:
+# this machine may be a twentieth slower than its good readings and no more. The edge was 0.82
+# until a run at a load average of 39 read exactly 0.820 and reported twelve figures out of band;
+# it was 0.78 while the good readings reached 0.750. The probe is an interpretation, so it reads
+# what the code costs as well as what the machine is, and the good readings moved down with the
+# code: in one clock hold on 2026-10-23, HEAD and ADR 2258's change interleaved, the 57 clock
+# figures the change's runs judged in band had children reading 0.667 to 0.715 ms, so the edge is
+# 0.74 (ADR 2259).
+# **Not 0.72, though seven of fifteen failures over that hold and an earlier one read above it.**
+# Eight read 0.675 to 0.715, inside the passes' own range, so the warm-open mode that fails is
+# not what this probe sees (ADR 2245); an edge at 0.72 sits 0.7% over the slowest good child,
+# inside the probe's own quiet spread, and would decline failures the probe did not cause.
+# `turn-path.toml` keeps 0.78 for its own children, which run the probe after their device rounds
+# and read a median of 0.735 in the same hold.
 calibration_document = "doc/PDF20_AN001-BPC.pdf"
-calibration_ms = 0.62 .. 0.78
+calibration_ms = 0.62 .. 0.74
 
 # **And this probe answers only half of the question it is asked, which the nine-hundred-and-
 # thirty-first session measured.** "Is this the machine" it answers very well — its spread over

@@ -1,6 +1,7 @@
 # 2234 — Indexed ICC paint retains the decoded entry
 
-Status: proposed for integration; independent controls and paired cost complete. Session 1700.
+Status: **accepted** at the merge that took it, `b17ea075` (line amended by ADR 2260). The round
+wrote “proposed for integration; independent controls and paired cost complete”. Session 1700.
 
 ## Decision
 

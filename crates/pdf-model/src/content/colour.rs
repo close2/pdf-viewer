@@ -185,20 +185,52 @@ impl Interpreter<'_> {
         self.solid_colours.paint(context, source, fill)
     }
 
-    /// Reports against the same source and parameters as the actual solid or stencil paint.
-    pub(super) fn solid_bypasses_black_generation(
-        &self,
-        state: &GraphicsState,
-        fill: bool,
-    ) -> bool {
+    /// Records §11.7.5.3's bypass for a solid fill, stroke or stencil about to be painted under
+    /// `state`, against the same source and parameters as the paint itself (ADR 2187).
+    ///
+    /// Asked once per mark and per glyph, so it asks nothing once the flag is set — the flag is
+    /// monotone within its scope, and a checkpoint's rollback restores the value this reads — and
+    /// asks it of a borrowed context rather than an owned [`Conversion`]. Building and dropping
+    /// that conversion cost 136 instructions a mark on page 101 of ISO 32000-2, 1.7 % of its
+    /// interpretation; the borrow costs 5 (ADR 2258, `examples/callgrind_interpret`).
+    pub(super) fn report_solid_black_generation(&mut self, state: &GraphicsState, fill: bool) {
+        if !self.black_generation_painted && self.solid_bypasses_black_generation(state, fill) {
+            self.black_generation_painted = true;
+        }
+    }
+
+    /// Whether the solid paint [`Interpreter::report_solid_black_generation`] reports bypasses
+    /// the stated pair.
+    fn solid_bypasses_black_generation(&self, state: &GraphicsState, fill: bool) -> bool {
         if let Some(tint) = &state.pattern_tint {
             tint.bypasses_black_generation(self)
         } else {
-            self.conversion(state).bypasses_black_generation(if fill {
-                &state.fill_space
-            } else {
-                &state.stroke_space
-            })
+            self.paint_context(state.rendering(), state.black_generation.as_ref())
+                .bypasses_black_generation(if fill {
+                    &state.fill_space
+                } else {
+                    &state.stroke_space
+                })
+        }
+    }
+
+    /// The borrowed context a solid paint converts under, for a question asked of it.
+    ///
+    /// [`Interpreter::solid_paint`] spells the same fields out itself, because it hands them to
+    /// the memo it borrows mutably beside them.
+    pub(super) fn paint_context<'a>(
+        &'a self,
+        rendering: Rendering,
+        generation: Option<&'a std::sync::Arc<BlackGeneration>>,
+    ) -> ConversionContext<'a> {
+        ConversionContext {
+            into: &self.compositing,
+            rendering,
+            output_intent: profile_of(self.output_intent.as_ref()),
+            cmyk_group: profile_of(self.cmyk_group.as_ref()),
+            black_generation: generation,
+            separations: self.separations(),
+            spots: &self.spots_beside,
         }
     }
 
@@ -839,8 +871,18 @@ fn is_icc_based(document: &Document, id: ObjectId) -> bool {
 
 /// The ordinary source families whose current paint parameters are retained here.
 ///
-/// RGB stays inline; an ICC selection owns its profile and bounded components so q/Q and
-/// nested streams share immutable input without resolving a resource name again.
+/// The three device families stay inline; an ICC selection owns its profile and bounded
+/// components so q/Q and nested streams share immutable input without resolving a resource
+/// name again. `DeviceGray` and `DeviceCMYK` are inline because `g` and `k` are the
+/// commonest selections in print files, and because a colour inherited into a group of
+/// another space converts there: §11.6.6 converts source colours into the group's space,
+/// §10.4.2.3 gives `0 1 0 0 k` grey 105 in a `DeviceGray` group, and the colour converted
+/// at selection was the device's magenta (ADR 2264).
+///
+/// What the inline device families cost is ADR 2265's paired measurement over whole
+/// interpretations of 20 000 marks: a repeated `g` or `k` paint about 4 ns a mark, a selection
+/// 24–30 ns, a restore 15–24 ns; an `Indexed` entry over `DeviceCMYK` about 40 ns a selection,
+/// and over a `Separation`, whose base space a selection clones, about 72 ns.
 /// `Separation`, `DeviceN` and the calibrated and Lab spaces keep the resolved space itself,
 /// because their conversion is owed at the paint: ISO 32000-2 §8.6.6.4 has the tint
 /// transform called "\[d]uring subsequent painting operations", and §11.7.5.3's first bullet
@@ -848,7 +890,9 @@ fn is_icc_based(document: &Document, id: ObjectId) -> bool {
 /// painting operation", into whatever group that operation paints (ADR 2248).
 #[derive(Debug, Clone)]
 pub(super) enum SolidSource {
+    Gray(f32),
     Rgb([f32; 3]),
+    Cmyk([f32; 4]),
     Icc(std::rc::Rc<IccSource>),
     Space(std::rc::Rc<SpaceSource>),
 }
@@ -870,6 +914,14 @@ pub(super) struct SpaceSource {
     values: Box<[f32]>,
 }
 
+/// An `ICCBased` selection, or an `Indexed` one's decoded entry over an immediate `ICCBased`
+/// base, retained with its profile so that its conversion follows the paint's context.
+///
+/// What it costs is two paired measurements over whole interpretations of 20 000 marks: an
+/// ordinary direct selection restored after another took the slot pays about 70–94 ns a mark,
+/// 20–21 % on those fixtures (ADR 2223), and an `Indexed` entry, profile or table restored the
+/// same way about 76–109 ns, 6–20 % (ADR 2235). Accepted for §11.7.5.3's current-state
+/// correctness; `black_generation_order --icc-cost` runs the populations.
 #[derive(Debug)]
 pub(super) struct IccSource {
     profile: std::sync::Arc<crate::icc::Profile>,
@@ -918,15 +970,16 @@ impl SolidSource {
             return Some(Self::whole_space(space.clone(), values));
         }
         match space {
+            ColourSpace::Gray => match *values {
+                [grey] => Some(Self::Gray(grey)),
+                _ => None,
+            },
             ColourSpace::Rgb => values.try_into().ok().map(Self::Rgb),
-            // Retain the decoded entry, not the declared index or its resource name.
-            // §8.6.6.3 rounds/clamps through entry_of; the immediate ICC base then
-            // follows the same current-context paint route as a direct ICC selection.
-            ColourSpace::Indexed { base, .. }
-                if matches!(base.as_ref(), ColourSpace::Icc { .. }) =>
-            {
-                Self::selected(base, &space.entry_of(values))
-            }
+            ColourSpace::Cmyk => values.try_into().ok().map(Self::Cmyk),
+            // Retain the decoded entry, not the declared index or its resource name: §8.6.6.3
+            // rounds and clamps through `entry_of`, and the entry is then a selection in the
+            // base, which follows the base's own current-context route (ADRs 2234, 2264).
+            ColourSpace::Indexed { base, .. } => Self::selected(base, &space.entry_of(values)),
             ColourSpace::Icc { profile } if values.len() == profile.channels() => {
                 let values = match *values {
                     [a] => IccValues::One([a]),
@@ -944,8 +997,15 @@ impl SolidSource {
     }
 
     fn matches(&self, other: &Self) -> bool {
+        // The device families compare by value: their conversion reads the family, the
+        // operands and the context the memo already keys, and no object, so two equal
+        // selections paint alike in every context and a restore keeps its hit (ADR 2265).
         match (self, other) {
+            (Self::Gray(left), Self::Gray(right)) => left.to_bits() == right.to_bits(),
             (Self::Rgb(left), Self::Rgb(right)) => {
+                left.map(f32::to_bits) == right.map(f32::to_bits)
+            }
+            (Self::Cmyk(left), Self::Cmyk(right)) => {
                 left.map(f32::to_bits) == right.map(f32::to_bits)
             }
             (Self::Icc(left), Self::Icc(right)) => {
@@ -963,7 +1023,9 @@ impl SolidSource {
 
     fn paint(&self, conversion: &Conversion) -> Color {
         match self {
+            Self::Gray(grey) => conversion.paint(&ColourSpace::Gray, &[*grey]),
             Self::Rgb(values) => conversion.paint(&ColourSpace::Rgb, values),
+            Self::Cmyk(values) => conversion.paint(&ColourSpace::Cmyk, values),
             Self::Icc(source) => conversion.paint(
                 &ColourSpace::Icc {
                     profile: source.profile.clone(),
@@ -977,8 +1039,8 @@ impl SolidSource {
 
 /// Whether a selection is one [`SpaceSource`] carries: a `Separation` or `DeviceN` that
 /// reverts to its alternate, its §10.8.3 simulation, `/All`, and the three CIE-based families
-/// without a profile. `/None` paints nothing in any context, and `Indexed` over these bases,
-/// `DeviceGray` and `DeviceCMYK` keep their selection-time colour (ADR 2248).
+/// without a profile. `/None` paints nothing in any context; an `Indexed` entry over one of
+/// these bases is a selection in the base and is carried here too (ADR 2264).
 fn keeps_whole_space(space: &ColourSpace, values: &[f32]) -> bool {
     matches!(
         space,
@@ -992,6 +1054,12 @@ fn keeps_whole_space(space: &ColourSpace, values: &[f32]) -> bool {
 }
 
 /// Two bounded memos of pre-alpha paint, keyed by every existing conversion dependency.
+///
+/// Resolving a retained source at the paint rather than at its selection is what ADR 2198
+/// accepted and priced: paired whole interpretations of 5 000 fills read median ratios of
+/// 1.085 for ordinary RGB, 1.039 and 1.044 for default and stated `DeviceCMYK`, and 1.016 for
+/// RGB alternating in a CMYK target — about 17–42 ns a paint, interpretation included.
+/// `black_generation_order --cost` runs the four populations.
 #[derive(Debug, Default)]
 pub(super) struct SolidColours {
     fill: Option<SolidColour>,
@@ -1019,7 +1087,7 @@ impl SolidColours {
         {
             return held.colour;
         }
-        let conversion = context.to_owned();
+        let conversion = context.to_conversion();
         let colour = source.paint(&conversion);
         *slot = Some(SolidColour {
             conversion,

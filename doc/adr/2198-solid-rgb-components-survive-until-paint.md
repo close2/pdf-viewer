@@ -1,6 +1,6 @@
 # 2198 — Solid RGB components survive until paint
 
-Status: accepted; final batch integration pending. Session 1682.
+Status: **accepted** at the merge that took it, `b9d05ee8` (line amended by ADR 2260). The round wrote “accepted; final batch integration pending”. Session 1682.
 Context: ADR 2187; ISO 32000-2 §11.7.5.3; stability review 1679.
 
 The black-generation bullet puts the functions at the painting operation. A cached

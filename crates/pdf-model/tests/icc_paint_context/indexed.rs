@@ -6,9 +6,9 @@ use super::{
 };
 
 // Literal u1Fixed15 knots emitted by the independently generated profile fixture.
-const RED: [u32; 3] = [14745, 8192, 1638];
+pub(super) const RED: [u32; 3] = [14745, 8192, 1638];
 const BLUE: [u32; 3] = [3932, 8192, 24576];
-const NEUTRAL: [u32; 3] = [8192, 8192, 8192];
+pub(super) const NEUTRAL: [u32; 3] = [8192, 8192, 8192];
 
 const RESOURCES: &str = "/IA [/Indexed [/ICCBased 5 0 R] 2 <4080C0>] /IB [/Indexed [/ICCBased 6 0 R] 2 <4080C0>] /IT [/Indexed [/ICCBased 5 0 R] 2 <C08040>] /Initial [/Indexed [/ICCBased 5 0 R] 0 <80>]";
 
@@ -33,7 +33,7 @@ fn expected_entry_unrounded(mid: [u32; 3], byte: u8) -> [f64; 3] {
     });
     decoded_xyz_to_srgb(xyz)
 }
-fn expected_entry(mid: [u32; 3], byte: u8) -> [u8; 3] {
+pub(super) fn expected_entry(mid: [u32; 3], byte: u8) -> [u8; 3] {
     expected_entry_unrounded(mid, byte).map(|v| v.round() as u8)
 }
 

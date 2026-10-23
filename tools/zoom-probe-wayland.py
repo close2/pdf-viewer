@@ -9,7 +9,8 @@ is the independent map of ADR 2241 taken one step further, to the compositor: th
 width against the source's, and where they agree, the byte comparison of the whole page.
 
 Run as `python3 -I -B tools/zoom-probe-wayland.py --binary <quorra-gtk> --pdf <one-page.pdf>
---output <new dir> [--scale 1.6 ...]`. It judges no latency and no zoom input — a Wayland
+--output <new dir> [--scale 1.6 ...]`; `--rescale 1.6:1.25` instead changes the output's scale under
+one open window and passes only where no resize reached the core, which is the scale hook alone. It judges no latency and no zoom input — a Wayland
 compositor admits no synthetic input from an unprivileged client — and needs `kwin_wayland`,
 `kscreen-doctor`, `dbus-run-session` and python-dbus, refusing at once where one is missing.
 """
@@ -111,12 +112,63 @@ def verdict(source_meta, source, shot):
                 verdict="1:1 exact" if difference.max() == 0 else "shown at size, not byte-identical")
 
 
+def rescaled(config, client):
+    """The scale hook alone: the output's scale changed under one open window whose logical size stays,
+    so a resize cannot be what re-measured the viewport; the core-viewport records count that."""
+    first, second = (float(part) for part in config.rescale.split(":"))
+    subprocess.run(["kscreen-doctor", f"output.Virtual-0.scale.{first:g}"], env=client, check=True,
+                   capture_output=True, timeout=20)
+    pixels = config.output / f"rescale-{first:g}-{second:g}"
+    pixels.mkdir()
+    (pixels / "request").write_text("1\n")
+    log = pixels / "viewer.log"
+    viewer = subprocess.Popen([str(config.binary.resolve()), str(config.pdf.resolve())],
+                              env=dict(client, PDFVIEWER_ZOOM_PROBE="1", PDFVIEWER_ZOOM_CAPTURE_DIR=str(pixels.resolve())),
+                              stdout=log.open("wb"), stderr=subprocess.STDOUT, start_new_session=True)
+
+    def settled(n):
+        for _ in range(100):
+            if (pixels / f"capture-{n}.json").exists() or viewer.poll() is not None:
+                break
+            time.sleep(0.2)
+        time.sleep(2)  # the dump is taken as the frame is placed; its paint lands a tick later
+        if not (pixels / f"capture-{n}.json").exists():
+            return None
+        meta = json.loads((pixels / f"capture-{n}.json").read_text())
+        source = np.fromfile(pixels / f"capture-{n}.rgba", dtype=np.uint8).reshape(meta["height"], meta["width"], 4)
+        shot = capture("Virtual-0")
+        write_png(pixels / f"output-{n}.png", shot)
+        return verdict(meta, source, shot)
+
+    def resizes():
+        return sum(1 for line in log.read_text(errors="replace").splitlines() if '"kind":"core-viewport"' in line)
+
+    try:
+        before = settled(1)
+        counted = resizes()
+        (pixels / "request").write_text("2\n")
+        subprocess.run(["kscreen-doctor", f"output.Virtual-0.scale.{second:g}"], env=client, check=True,
+                       capture_output=True, timeout=20)
+        after = settled(2)
+        moved = resizes() - counted
+    finally:
+        os.killpg(viewer.pid, signal.SIGTERM)
+        viewer.wait(timeout=10)
+    exact = all(v is not None and v.get("verdict") == "1:1 exact" for v in (before, after))
+    return dict(rescale=config.rescale, before=before, after=after, resizes_after_the_change=moved,
+                verdict="1:1 exact" if exact and moved == 0 else "the hook is not what this shows")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--pdf", type=Path, required=True, help="a one-page document: the dump wants a single frame")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--scale", type=float, action="append", help="default: 1 1.25 1.5 1.6 1.7 1.75 2")
+    parser.add_argument("--rescale", metavar="FROM:TO",
+                        help="instead: one window opened at FROM, the output set to TO under it; passes only if "
+                             "no resize reached the core and the page is 1:1 at both, which is the surface's "
+                             "scale hook alone (ADR 2250)")
     config = parser.parse_args()
     for tool in ("kwin_wayland", "kscreen-doctor", "dbus-run-session"):
         if shutil.which(tool) is None:
@@ -150,6 +202,10 @@ def main():
             raise RuntimeError("the nested compositor did not come up")
         client = dict(base, WAYLAND_DISPLAY=socket, DBUS_SESSION_BUS_ADDRESS=bus_file.read_text().strip())
         os.environ["DBUS_SESSION_BUS_ADDRESS"] = client["DBUS_SESSION_BUS_ADDRESS"]
+        if config.rescale:
+            results.append(rescaled(config, client))
+            print(json.dumps(results[-1]), flush=True)
+            scales = []
         for scale in scales:
             subprocess.run(["kscreen-doctor", f"output.Virtual-0.scale.{scale:g}"], env=client, check=True,
                            capture_output=True, timeout=20)

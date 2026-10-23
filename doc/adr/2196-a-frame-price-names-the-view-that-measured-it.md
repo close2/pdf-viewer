@@ -1,5 +1,7 @@
 # ADR 2196 — A frame price names the view that measured it
 
+Status: **accepted** at the merge that took it, `b9d05ee8` (line added by ADR 2260).
+
 The owner's GPU-estimate report (todo75 §8) has a concrete cause the model permits: lane prices
 were keyed by document/page/ink and multiplied by the whole arrangement's command count. When
 CPU drew successive views it updated only its price, while an older GPU price remained a measured

@@ -53,19 +53,23 @@ in runs. Last in the idle turn, after the sharp pass and the whole page drawn sm
 puts its own encode in the page's place; under the lane the step will take; declined once a scene
 where it would keep nothing or would pass the residency budget.
 
-**Selection built and measured** (ADR 2188): conservative 256-instance blocks omit
-3,218,004 and 3,624,276 of the witness's 4,398,932 resident lines at 3× and 3.6×, without reordering
-or re-uploading them. Three quiet cache-free pairs improve the content pass and retained whole frame;
-idle construction costs another 5.0–13.4 ms. Optional metadata refusal preserves whole-run drawing.
-Final turn, reference-window launch and both toolkit launch timing gates pass.
+**A step draws only the line blocks its view admits** (ADR 2188): the resident line stream is
+bounded in blocks of 256 instances, and a kept run draws the ranges whose block the view admits,
+nothing reordered or uploaded again; a frame whose budget refuses the bounds draws its whole runs
+and says `line_bounds_refused`. What a step omits is the instrument's to print, not this file's:
+`ZOOM_FRAME_COVERAGE=compute ZOOM_FRAME_IDLE=1 ZOOM_FRAME_WINDOW=900x1100
+ZOOM_FRAME_SEQUENCE=2.4,3.0,3.6 cargo run --release -p render-raster --example zoom_frame --
+<witness> 1 0.3775` prints each frame's `lines kept` and `omitted` on its `lanes:` line and the idle
+build's time apart. ADR 2188 holds the paired timings and the gates that accepted it.
 
-**Record replay remains deferred** (ADR 2189). The census now establishes the population: 957 of
-968 first pages drew, 850 record-replayed, and 61 carried lines; eleven refusals remain uncensused.
-The tested prototype eliminated 983,040 uploaded line bytes per changed view on its largest witness,
-but did not consistently improve whole-frame latency, so its extra reuse was removed. The exact
-patch, tests, exports and all timing attempts are preserved at `/home/AI/r1676-deferred-replay/`.
-A future attempt must explain the measured variance and demonstrate worthwhile benefit; it no
-longer needs to rediscover whether this population exists.
+**Record replay keeps no runs, and taking them is deferred** (ADR 2189): a prototype that let a
+record-replayed page take its lines in runs sent no line byte on a changed view, but did not improve
+the whole frame consistently, and was removed. The population it would serve is counted by
+`cargo run --release -p render-raster --example replay_line_census -- @<paths>` over the pages a
+compute-1× arm compares (`tools/batch.sh arms`), which prints the pages that drew, record-replayed
+and carried lines, and every refusal by name. ADR 2189 holds the census, the paired timings and
+where the removed prototype was kept; a future attempt explains the measured variance and shows a
+benefit worth its state.
 
 ## 4. §10.7.4's dot asked per view on the device
 

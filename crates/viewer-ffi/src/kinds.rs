@@ -779,7 +779,7 @@ impl LayoutKind {
 ///
 /// A kind of its own, for the reason [`LayoutKind`] is one: this is the answer to a call the
 /// caller wrote rather than something that arrives unasked, so it needs no place in
-/// [`crate::abi::quorra_abi_check`].
+/// [`crate::abi::identity::quorra_abi_check`].
 ///
 /// **And it has no `name` or `count` entry point, unlike [`ControlKind`] and [`RowKind`].** Those
 /// exist for an enumeration that may *grow* under a compiled caller; §14.8.2.5.1 defines exactly
@@ -1366,7 +1366,7 @@ pub enum DuplexKind {
 /// **One keyed accessor rather than nineteen symbols or one struct**, and the argument is
 /// [`crate::abi`]'s own, transposed from a command to a table. A struct passed by value would put
 /// Table 147's *size* in the ABI, so an entry added by a later part of ISO 32000 would change a
-/// type every caller has already compiled — the hazard [`crate::abi::QUORRA_ABI_VERSION`] exists to
+/// type every caller has already compiled — the hazard [`crate::abi::layouts::QUORRA_ABI_VERSION`] exists to
 /// catch and the one this header has only two instances of. A symbol apiece would be nineteen
 /// exports for one table. A key is a **number**: an entry added later is a new constant beside a
 /// function every caller already links, and a caller that meets a key it does not know prints it

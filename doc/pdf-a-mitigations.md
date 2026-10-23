@@ -1152,9 +1152,10 @@ remedy. What the review adds is that the sentence covers **fewer** of these twen
 it looks, and two of them have mitigations nobody had written down.
 
 #### `fonts/font-programs-embedded`
-ISO 19005-2 6.2.11.4.1, ISO 19005-4 6.2.10.4.1 · all six · `Stated`, and the loss `machine-face`
-where a font is drawn from this machine's face, **built** (`doc/questions/A47`, ADRs 1209, 2146,
-2147, 2162)
+ISO 19005-2 6.2.11.4.1, ISO 19005-4 6.2.10.4.1 · all six · `Stated`, the loss `machine-face`
+where a font is drawn from this machine's face, and the loss `substitute-stretch` where the shipped
+face is drawn narrowed to the file's widths, **built** (`doc/questions/A47`, `A566`, ADRs 1209,
+2146, 2147, 2162, 2262)
 
 - **A font the file names and does not carry** gets one of the faces this program ships, embedded
   and reported, with the face's own advances or the program restated to the file's widths
@@ -1176,6 +1177,14 @@ where a font is drawn from this machine's face, **built** (`doc/questions/A47`, 
   `machine-face`, which `as-if-printed` answers `discard` and `as-shown` leaves at `stop` (ADR 2162).
   A route that already had a descriptor and needs no restatement embeds the shipped face over a
   machine's face as a statement still, unasked (`doc/todo/72`).
+- **A font this viewer draws from the shipped face at a horizontal scale** (ADR 0358's fitting to
+  the file's widths) takes that face unmodified on every route: every position and every glyph kept,
+  each glyph drawn at the face's own width — the loss `substitute-stretch`, which `as-if-printed`
+  answers `discard` (`doc/questions/A566`) and `as-shown` leaves at `stop`. The proof holds the
+  output's outline, drawn at the viewer's scale, to the source's. **One decision carries every loss
+  the embedding incurs**: a document needing both losses names both in the report and in the file's
+  own `xmpMM:History`, per font with the scale it lost, and converts only where both are authorised
+  (ADR 2262).
 - **Still refused, by name**: a composite font nobody named a program for; a font no shipped face
   covers; a machine's face drawn for a code the page shows that the shipped face lacks; and a
   result the proof finds drawn differently.

@@ -1,6 +1,7 @@
 # 2235 — Indexed source proof separates entry and context
 
-Status: proposed for integration; scoped correctness and paired cost measured. Session 1700.
+Status: **accepted** at the merge that took it, `b17ea075` (line amended by ADR 2260). The round
+wrote “proposed for integration; scoped correctness and paired cost measured”. Session 1700.
 
 ## Decision
 

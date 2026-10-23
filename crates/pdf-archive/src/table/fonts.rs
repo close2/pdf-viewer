@@ -1632,8 +1632,9 @@ fn type3_glyph_procedures_state_their_width(exam: &Examination<'_>, findings: &m
 /// A Compact Font Format program's `FontMatrix` need not be the reciprocal of a whole number.
 /// `pdf_font::cff::units_per_em` preserves that fractional scale (ADR 2180): `wp315.pdf`'s
 /// `dcbx100120` states `0.00049`, so its 649-unit glyph is 0.31801 text-space units. The
-/// dictionary's 317 misses that by more than the thousandth; rounding the reciprocal to a whole
-/// number previously hid this failure (`doc/adr/2163`).
+/// dictionary's 317, which is 0.317 units, misses that by 0.00101, more than the thousandth, and
+/// the file is named. A whole-number reciprocal would read the advance a fraction of a unit short
+/// and pass it, which is why the scale is the program's own (ADRs 2163, 2180).
 fn widths_agree_with_the_program(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for used in exam.survey().fonts() {

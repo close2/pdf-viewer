@@ -1,5 +1,7 @@
 # ADR 2214 — GTK texture placement converts device pixels once
 
+Status: **accepted** at the merge that took it, `0eb4d278` (line added by ADR 2260).
+
 A raster's dimensions and placement extent are device pixels. `GtkFixed` positions and
 allocations are logical pixels. A `GtkPicture` that cannot shrink still requests its texture's
 natural dimensions; setting a smaller size request does not reduce that natural allocation.

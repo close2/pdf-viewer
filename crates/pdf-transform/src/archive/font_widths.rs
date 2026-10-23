@@ -1,4 +1,14 @@
-//! Table 109's widths array made as long as the simple font's stated character range.
+//! ISO 32000-2 §9.6.2.1's Table 109 `/Widths` made as long as the simple font's stated character
+//! range, which ISO 19005-2 section 6.2.11.2 and ISO 19005-4 section 6.2.10.2 require by requiring
+//! every font to conform to the base standard's font clauses (ADR 2178). §9.6.3 gives a TrueType
+//! font dictionary the same entries, which is why the validator's rule reads `Type1`, `MMType1` and
+//! `TrueType` alike. §9.6.2.1's Table 109 states both the length and what a code outside it
+//! advances by:
+//!
+//! > An array of ( LastChar - FirstChar + 1) numbers, each element being the glyph width for the
+//! > character code that equals FirstChar plus the array index. For character codes outside the
+//! > range FirstChar to LastChar , the value of MissingWidth from the FontDescriptor entry for
+//! > this font shall be used.
 //!
 //! A short array narrows `/LastChar`; a long array loses entries past `/LastChar`. Both
 //! state the same advances this reader uses: codes without a stated width use `/MissingWidth`.

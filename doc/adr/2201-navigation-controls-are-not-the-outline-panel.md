@@ -1,5 +1,7 @@
 # ADR 2201 — Navigation controls are not the outline panel
 
+Status: **accepted** at the merge that took it, `b9d05ee8` (line added by ADR 2260).
+
 A NavigationView packages a pane, its toggle and the document area in one toolkit widget.
 Hiding that whole widget for HideWindowUI would also hide the document; closing its pane would
 remove an outline even though ordinary-window preferences leave `other_windows` enabled.

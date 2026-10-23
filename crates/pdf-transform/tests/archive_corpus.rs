@@ -547,7 +547,7 @@ struct UnderProfile {
 fn kind_of_no(decision: &Decision) -> Option<(&'static str, String)> {
     match decision {
         Decision::Refused(because) => Some((because.word(), first_clause(because.sentence()))),
-        Decision::Unauthorised { loss, .. } => Some(("unauthorised", loss.word().to_owned())),
+        Decision::Unauthorised { losses, .. } => Some(("unauthorised", losses.words())),
         _ => None,
     }
 }

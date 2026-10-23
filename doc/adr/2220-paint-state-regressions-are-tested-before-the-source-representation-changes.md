@@ -1,5 +1,9 @@
 # ADR 2220 — Paint-state regressions are tested before the source representation changes
 
+Status: **assessment** at the merge that took it, `9cd2c665`: it records no decision a later round
+must not re-litigate, as `doc/reviews/1704-batches-104-to-108-against-the-principles.md` finding 5
+reads it (line added by ADR 2260).
+
 The sequence of RGB solid, pattern tint and ordinary ICC defects has a common boundary:
 selection retains a converted colour while painting can change the conversion's inputs.
 Fixing one consumer leaves another plausible-looking picture wrong. Splitting a large module

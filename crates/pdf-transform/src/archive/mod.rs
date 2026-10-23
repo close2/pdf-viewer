@@ -192,7 +192,8 @@ pub use config::{
     Supply, UNTRUSTED_INPUT_WARNING, Unbuilt, Unmapped, Winner, WriteModeSource, sites,
 };
 pub use decision::{
-    Authorisations, Because, Conditional, Decision, Loss, answered, conditional, refused_by_name,
+    Authorisations, Because, Conditional, Decision, Loss, Losses, answered, conditional,
+    refused_by_name,
 };
 pub use fonts::{Described, FaceAuthority, MetricRoute, RestatedFont, SubstitutedFont};
 pub use in_place::{ProxiedReference, ShownAnnotation};
@@ -954,11 +955,11 @@ fn signature_decision(plan: &ArchivePlan, prepared: &Prepared) -> Option<Signatu
     let decision = match found.obstacle {
         Some(because) => Decision::Refused(because),
         None if plan.authorised.grants(Loss::SignatureAssertion) => Decision::Authorised {
-            loss: Loss::SignatureAssertion,
+            losses: Losses::one(Loss::SignatureAssertion),
             rewrite: Rewrite::SignatureValueRemoved,
         },
         None => Decision::Unauthorised {
-            loss: Loss::SignatureAssertion,
+            losses: Losses::one(Loss::SignatureAssertion),
             rewrite: Rewrite::SignatureValueRemoved,
         },
     };

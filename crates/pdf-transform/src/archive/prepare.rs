@@ -4916,9 +4916,22 @@ pub(super) fn substituted_fonts_recorded(fonts: &[fonts::SubstitutedFont]) -> St
                 .described
                 .map(|described| format!(" ({})", described.describe()))
                 .unwrap_or_default();
+            // Every loss the font's embedding incurred is in the file's own history as well as
+            // the run's report, the fitting with the scale it removed (`doc/adr/2262`).
+            let lost = if font.losses.is_empty() {
+                String::new()
+            } else {
+                format!(", losing {}", font.losses.words())
+            };
+            let fitting = font
+                .fitting
+                .map(|fitting| {
+                    format!(" (the face had been drawn at the horizontal scale {fitting})")
+                })
+                .unwrap_or_default();
             format!(
                 "{} was not embedded and {} was embedded in its place, {}, taking the {} \
-                 route{described}",
+                 route{described}{lost}{fitting}",
                 font.requested,
                 font.face,
                 font.authority.describe(),

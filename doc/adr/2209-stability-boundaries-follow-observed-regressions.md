@@ -1,6 +1,8 @@
 # 2209 — Stability boundaries follow observed regressions
 
 Status: accepted direction, 2026-10-22; follow-up implementations remain separate rounds.
+Amended 2026-10-23: its acceptance of the merge with the launch gate red is superseded by ADR 2242
+decision 2 — a red gate takes one of four answers and is never accepted by an ADR; the rest stands.
 
 The batch's stability review found three concrete boundaries where independently updated
 values or inferred identities can make an apparently local change affect another consumer.

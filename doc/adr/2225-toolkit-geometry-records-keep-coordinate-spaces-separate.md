@@ -1,5 +1,7 @@
 # ADR 2225 — Toolkit geometry records keep coordinate spaces separate
 
+Status: **accepted** at the merge that took it, `9cd2c665` (line added by ADR 2260).
+
 Toolkit logical coordinates, core device pixels, input-tool coordinates and screenshot pixels
 are different spaces. Fractional compositor scaling can give input movement and window resize
 different mappings. Do not derive screenshot crops from an input calibration.

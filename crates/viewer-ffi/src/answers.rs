@@ -25,7 +25,7 @@
 //! - a **buffer the caller copies out of**, for the one answer that is pixels — [`Miniature`].
 //!
 //! Nothing here is a struct passed by value, which is the one kind of change
-//! [`crate::abi::QUORRA_ABI_VERSION`] exists to protect and which this round therefore adds none of.
+//! [`crate::abi::layouts::QUORRA_ABI_VERSION`] exists to protect and which this round therefore adds none of.
 
 use viewer_core::{AccessibilityNode, PageStructure, PopupWindow};
 
@@ -766,7 +766,7 @@ pub struct Collection {
 ///
 /// A named alias rather than a bare tuple because five values in a row is where a reader stops
 /// counting — and deliberately not a `#[repr(C)]` struct, which is the one kind of change
-/// [`crate::abi::QUORRA_ABI_VERSION`] exists to guard: `quorra_collection_column` writes five
+/// [`crate::abi::layouts::QUORRA_ABI_VERSION`] exists to guard: `quorra_collection_column` writes five
 /// out-parameters instead.
 pub type ColumnFacts = (ColumnKind, bool, Option<i64>, bool, bool);
 

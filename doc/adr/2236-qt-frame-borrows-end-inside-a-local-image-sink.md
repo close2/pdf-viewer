@@ -1,5 +1,7 @@
 # ADR 2236 — Qt frame borrows end inside a local image sink
 
+Status: **accepted** at the merge that took it, `b17ea075` (line added by ADR 2260).
+
 Preparing each image must not reconstruct the entire placement list for its count, descriptor
 and pixels. The host takes one immutable placement snapshot and sends its descriptors and
 borrowed pixel slices to a synchronous C++ image sink, in the existing painter order.

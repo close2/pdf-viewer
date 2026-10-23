@@ -168,6 +168,10 @@ pub(super) fn embed(
         authority: FaceAuthority::Operator,
         route,
         described: None,
+        // The operator's face is the operator's statement (`doc/adr/1209`), and a composite font
+        // is drawn at no stretch.
+        losses: super::Losses::default(),
+        fitting: None,
     });
     Ok(())
 }

@@ -1,5 +1,7 @@
 # ADR 2228 — Zoom probes correlate fresh owned callbacks
 
+Status: **accepted** at the merge that took it, `9cd2c665` (line added by ADR 2260).
+
 A whole-log search for the last pointer position can reuse a stale event and make a failed
 calibration appear successful. A missing core Zoom command also cannot establish that Qt never
 received a wheel callback: modifiers, the host busy guard and fractional accumulation intervene.

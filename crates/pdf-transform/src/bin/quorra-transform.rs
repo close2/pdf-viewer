@@ -1257,7 +1257,14 @@ fn print_remedy_sites(io: &mut dyn World, arguments: &Arguments) -> Result<(), F
 /// order an operator weighs the answers in (`doc/todo/66`).
 fn first_answer(site: &pdf_transform::archive::Site) -> String {
     match site.built_discard {
-        Some(loss) => format!("discard (authorises --authorise {})", loss.word()),
+        Some(losses) => format!(
+            "discard (authorises {})",
+            losses
+                .iter()
+                .map(|loss| format!("--authorise {}", loss.word()))
+                .collect::<Vec<_>>()
+                .join(" ")
+        ),
         None if site.takes_a_tool => {
             "derive, with `tool = \"<name>\"` and a [tool.<name>] block — never a default, and \
              refused unless the configuration names the site AND the tool (doc/questions/A55); \

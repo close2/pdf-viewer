@@ -1,5 +1,7 @@
 # ADR 2197 — Visible share does not scale a whole graphics frame
 
+Status: **accepted** at the merge that took it, `b9d05ee8` (line added by ADR 2260).
+
 A zoom-dependent number is not necessarily a better prediction. `FrameCost` already records
 scene, encode, upload and execute phases plus command culling, but those facts arrive after a
 real graphics frame. They do not describe a new view that only the processor has drawn.

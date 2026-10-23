@@ -57,7 +57,7 @@ use skrifa::raw::FontRead as _;
 use skrifa::raw::ps::cff::CffFontRef;
 use skrifa::raw::ps::cff::dict::{Entry, entries};
 
-use super::super::decision::Because;
+use super::super::decision::{Because, Loss, Losses};
 use super::super::prepare::Spare;
 use super::{
     MetricRoute, SubstitutedFont, Substitutes, Table124, base_font, key_for, name_of, no_row,
@@ -408,9 +408,7 @@ pub(super) fn describe(
         .written
         .insert(descriptor_at, Object::Dictionary(descriptor));
     super::gains(document, used, entries, spare, substitutes)?;
-    if drawn == Drawn::FromAMachineFace {
-        substitutes.over_machine_faces.push(used.name.clone());
-    }
+    let (losses, fitting) = losses_of(drawn, &source);
     substitutes.done.push(SubstitutedFont {
         resource: used.name.clone(),
         requested,
@@ -423,8 +421,48 @@ pub(super) fn describe(
             (_, false) => Described::TrueType,
             (_, true) => Described::TrueTypeEncodingRestated,
         }),
+        losses,
+        fitting,
     });
     Ok(())
+}
+
+/// What embedding the shipped face loses for a font the viewer draws `drawn`, and the horizontal
+/// scale it removes where it removes one.
+///
+/// A machine's face is the loss `machine-face` whatever it was fitted at, because the shapes the
+/// output draws are another face's altogether (`doc/adr/2162`). The shipped face, fitted to the
+/// file's widths, is the loss `substitute-stretch`: the output draws the same glyph of the same
+/// face at the same position, at the face's own width (`doc/questions/A566`, `doc/adr/2262`).
+pub(super) fn losses_of(drawn: Drawn, source: &LoadedFont) -> (Losses, Option<f32>) {
+    match drawn {
+        Drawn::FromAMachineFace => (Losses::one(Loss::MachineFace), None),
+        Drawn::FromTheShippedFace if fitted(source) => {
+            (Losses::one(Loss::SubstituteStretch), Some(source.stretch()))
+        }
+        Drawn::FromTheShippedFace => (Losses::default(), None),
+    }
+}
+
+/// Whether the viewer draws this substitute's outlines at a horizontal scale (ADR 0358).
+fn fitted(source: &LoadedFont) -> bool {
+    source.stretch().to_bits() != 1.0_f32.to_bits()
+}
+
+/// Which face the viewer draws `source` from, where that is the shipped face or a machine's, for
+/// the route into a file's own descriptor that restates nothing.
+///
+/// [`drawn_from`]'s question without its refusals: that route has already refused a shown code
+/// the shipped face lacks (`super::face_widths`), and a font the viewer draws from no program at
+/// all is not one embedding changes the drawing of.
+pub(super) fn drawn_by_the_viewer(source: &LoadedFont, face: &ShippedFace) -> Option<Drawn> {
+    source.substitute_program().map(|drawn| {
+        if drawn == face.program {
+            Drawn::FromTheShippedFace
+        } else {
+            Drawn::FromAMachineFace
+        }
+    })
 }
 
 /// The program stream a shipped face was written to in this document, written now if it was not.
@@ -675,21 +713,28 @@ fn proved(
         .map_err(|_| Because::NotBuiltYet(NOT_PROVED))?;
     // Bit for bit, deliberately: each number is one reader's reading of one statement, so any
     // difference at all is a difference in what is drawn.
-    // A machine's face is drawn at whatever scale fits its advances to the widths; the page a
-    // reader without it draws is the shipped face's, at none.
+    // The converted font is held to no stretch on both routes: an embedded program is drawn as
+    // its producer shipped it. Whatever scale the viewer fitted the source at — a machine's face
+    // or the shipped one — is what embedding removes, and `losses_of` names it as the loss it is
+    // rather than this proof refusing it (`doc/adr/2262`).
     let HeldTo {
         source,
         drawn,
         face,
     } = held_to;
-    let stretch = match drawn {
-        Drawn::FromTheShippedFace => source.stretch(),
-        Drawn::FromAMachineFace => 1.0,
-    };
-    same_metrics(source, &converted, stretch)?;
+    same_metrics(source, &converted)?;
     for text in used.shown.keys() {
         for code in source.decode(text) {
             let same = match drawn {
+                Drawn::FromTheShippedFace if fitted(source) => {
+                    match (&source.outline(code), &converted.outline(code)) {
+                        (Some(before), Some(after)) => {
+                            same_once_fitted(before, after, source.stretch())
+                        }
+                        (None, None) => true,
+                        _ => false,
+                    }
+                }
                 Drawn::FromTheShippedFace => {
                     match (&source.outline(code), &converted.outline(code)) {
                         (Some(before), Some(after)) => same_once_wound(before, after),
@@ -711,12 +756,12 @@ fn proved(
     Ok(())
 }
 
-/// Holds every code's advance and the fitted outline scale to the selected source.
-fn same_metrics(source: &LoadedFont, converted: &LoadedFont, stretch: f32) -> Result<(), Because> {
+/// Holds every code's advance to the selected source, and the converted font to no stretch.
+fn same_metrics(source: &LoadedFont, converted: &LoadedFont) -> Result<(), Because> {
     if converted.is_substituted() {
         return Err(Because::NotBuiltYet(NOT_PROVED));
     }
-    if converted.stretch().to_bits() != stretch.to_bits() {
+    if converted.stretch().to_bits() != 1.0_f32.to_bits() {
         return Err(Because::NotBuiltYet(FITTED_DIFFERENTLY));
     }
     for code in (0..=u8::MAX).map(Code::single_byte) {
@@ -742,6 +787,55 @@ fn same_once_wound(substituted: &pdf_render::Path, embedded: &pdf_render::Path) 
         substituted.commands() == embedded.commands()
     }
 }
+
+/// Whether an embedded program's outline, drawn at the horizontal scale the viewer fitted the
+/// substitute at, is the substitute's outline.
+///
+/// The viewer's pen places every point a program states at `(x · scale) · stretch` and an
+/// embedded program's at `(x · scale) · 1`, so a stated point times the stretch is the
+/// substitute's point **bit for bit**, and every vertical coordinate is equal outright. The one
+/// thing that is not is a `TrueType` quadratic's elevation to a cubic, whose two control points
+/// the pen computes from points already scaled: `s·a + ⅔(s·c − s·a)` against `s·(a + ⅔(c − a))`,
+/// the same number up to the rounding of the two orders of operation. So a control point's
+/// horizontal coordinate is held to [`ELEVATION_ROUNDING`] and nothing else is given any room —
+/// this proves that the output draws the same glyph, and that what differs is the stretch alone,
+/// which `losses_of` names (`doc/adr/2262`). Winding is undone as [`same_once_wound`] does.
+fn same_once_fitted(
+    substituted: &pdf_render::Path,
+    embedded: &pdf_render::Path,
+    stretch: f32,
+) -> bool {
+    use pdf_render::PathCommand;
+    let embedded = if embedded.signed_area() < 0.0 {
+        embedded.reversed()
+    } else {
+        embedded.clone()
+    };
+    let (before, after) = (substituted.commands(), embedded.commands());
+    let stated = |source: pdf_render::Point, point: pdf_render::Point| {
+        source.x.to_bits() == (point.x * stretch).to_bits()
+            && source.y.to_bits() == point.y.to_bits()
+    };
+    let elevated = |source: pdf_render::Point, point: pdf_render::Point| {
+        (source.x - point.x * stretch).abs() <= ELEVATION_ROUNDING
+            && source.y.to_bits() == point.y.to_bits()
+    };
+    before.len() == after.len()
+        && before.iter().zip(after).all(|pair| match pair {
+            (PathCommand::MoveTo(a), PathCommand::MoveTo(b))
+            | (PathCommand::LineTo(a), PathCommand::LineTo(b)) => stated(*a, *b),
+            (PathCommand::CurveTo(a1, a2, a), PathCommand::CurveTo(b1, b2, b)) => {
+                elevated(*a1, *b1) && elevated(*a2, *b2) && stated(*a, *b)
+            }
+            (PathCommand::Close, PathCommand::Close) => true,
+            _ => false,
+        })
+}
+
+/// The rounding two orders of one quadratic-to-cubic elevation can differ by, in ems: a few
+/// units in the last place of a coordinate within a glyph's few ems, 2⁻²⁰ — a millionth of the
+/// em, a thousandth of a pixel on a glyph a thousand pixels tall.
+const ELEVATION_ROUNDING: f32 = 1.0 / 1_048_576.0;
 
 /// A value with every reference in it replaced by what it names, to a depth.
 ///
@@ -1095,10 +1189,11 @@ const DRAWN_DIFFERENTLY: &str = "the embedded font read back by this program doe
      the selected glyph or outline for a code the page shows, so it is not written: the \
      conversion would change the page";
 
-/// A shipped substitute's fitting is part of the outlines the viewer draws.
-const FITTED_DIFFERENTLY: &str = "embedding the shipped face would remove the source font's \
-     horizontal fitting and change its drawn outlines even when character advances stay the \
-     same; no authorised loss covers that change (doc/questions/Q566), so the font is not written";
+/// An embedded program is drawn at no stretch, so one read back at another is not the program
+/// this conversion wrote.
+const FITTED_DIFFERENTLY: &str = "the embedded font read back by this program is drawn at a \
+     horizontal scale, which an embedded program never is, so what it would draw is not known and \
+     it is not written";
 
 /// Width preservation is checked separately from the painted outlines.
 const ADVANCES_DIFFER: &str = "the embedded font read back by this program advances at least one \

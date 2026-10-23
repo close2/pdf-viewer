@@ -1559,7 +1559,7 @@ section_hosts() {
             printf '         a C caller cannot ask for: %s\n' "$(printf '%s\n' "$missing" | paste -sd' ')"
         fi
     done
-    printf '%-8s %s\n' "symbols:" "$(grep -c 'unsafe(no_mangle)' crates/viewer-ffi/src/abi.rs) entry points in abi.rs"
+    printf '%-8s %s\n' "symbols:" "$(cat crates/viewer-ffi/src/abi.rs crates/viewer-ffi/src/abi/*.rs | grep -c 'unsafe(no_mangle)') entry points in abi.rs and abi/"
 }
 
 

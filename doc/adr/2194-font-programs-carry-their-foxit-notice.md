@@ -1,6 +1,6 @@
 # 2194 — Font programs carry their Foxit notice
 
-Session 1680, archive. Status: accepted; implementation under validation.
+Session 1680, archive. Status: **accepted** at the merge that took it, `b9d05ee8` (line amended by ADR 2260). The round wrote “accepted; implementation under validation”.
 Owner answer A550 accepts Q550's notice recommendation.
 
 ISO 32000-2 §14.3.2 Tables 347–348 permits an object-level metadata stream on

@@ -1750,3 +1750,21 @@ wrapper's `--build` runs `cargo` in the directory it is started from: a walk of 
 the shell already inside the export, and the first line of its log — the build's target path — is read
 before the walk is believed.
 
+### 237. A `--clock` hold stops locked walks only, and a loop figure carries the load average beside it
+
+Round 1716 measured the Qt wheel chain on the owner's display inside one `--clock` hold and read the
+same binary's scene encode at 6.2 ms in one arm and 52.7 ms in another a few minutes later: seven sibling
+rounds' bare `cargo` builds — crate-scoped checks, which habit 107 rightly keeps off the lock — had the
+machine at a load average of 30 to 44 on 24 threads (ADR 2266). The hold excludes other *walks*, not other
+work. A figure taken on the loop or in a clock hold is written with the load average beside it, a quiet
+arm (load under 4) is repeated before any term is attributed, and a figure whose spread exceeds its
+quiet reading is the machine's until a quiet arm shows otherwise.
+
+### 238. A clock hold is granted ahead of the build it depends on
+
+`tools/bounded.sh --lock --clock` takes both lanes and is granted before queued walks; round 1712 queued
+its A/B hold while its export's release build was still waiting on the lock, the hold ran first, and
+every arm of the round's own tree exited 127 for want of a binary while HEAD's arms ran — one whole hold
+wasted (ADR 2259). A clock hold is queued only once `ls` shows every binary it will run, and the script it
+runs checks for each at the top and exits, naming the missing one, before the clock is held.
+

@@ -334,13 +334,20 @@ pub(crate) fn fill_union(
     // Every row is checked closed before any is written, so that a declined mark leaves the
     // target as it found it for the converter that draws it instead: in the one pass that writes
     // where the region is one run, which is nearly every mark, and in a pass of its own before it
-    // where it is several.
+    // where it is several. A boundary [`union`] returns closes by construction, so a row that does
+    // not is a defect, and a build with debug assertions stops on it (ADR 2268).
     let several = region.runs().nth(1).is_some();
     if several {
         for run in region.runs() {
-            if !boundary_accumulated(cells, &union.boundary, run)
-                .is_some_and(|accumulator| accumulator.every_row_closes())
-            {
+            let Some(accumulator) = boundary_accumulated(cells, &union.boundary, run) else {
+                return false;
+            };
+            let closes = accumulator.every_row_closes();
+            debug_assert!(
+                closes,
+                "a row of the union's boundary does not close (ADR 2268)"
+            );
+            if !closes {
                 return false;
             }
         }
@@ -349,8 +356,15 @@ pub(crate) fn fill_union(
         let Some(accumulator) = boundary_accumulated(cells, &union.boundary, run) else {
             return false;
         };
-        if !several && !accumulator.every_row_closes() {
-            return false;
+        if !several {
+            let closes = accumulator.every_row_closes();
+            debug_assert!(
+                closes,
+                "a row of the union's boundary does not close (ADR 2268)"
+            );
+            if !closes {
+                return false;
+            }
         }
         read_off(&accumulator, target, (width, run), FillRule::Winding);
     }
@@ -749,9 +763,8 @@ impl Accumulator<'_> {
     /// Whether every row sums to nothing, as every row of a closed boundary does: a horizontal line
     /// crosses a closed boundary as often upwards as downwards, so the winding a row's deposits
     /// carry past its last column is zero. A row that does not is a boundary with a stretch
-    /// missing, whose winding would run on to the region's edge as a streak, and the union that
-    /// found it declines the mark to the library's converter as it declines a walk that does not
-    /// close (ADR 2252).
+    /// missing, whose winding would run on to the region's edge as a streak; [`fill_union`] asks
+    /// it before anything is written (ADRs 2252, 2268).
     fn every_row_closes(&self) -> bool {
         self.values
             .chunks_exact(self.columns)
@@ -2599,6 +2612,87 @@ mod tests {
             128,
             "half of one pixel, to the nearest level"
         );
+    }
+
+    /// The smallest mark that dropped a stretch of its boundary (ADR 2268): three of the pieces of
+    /// a folding stroke on `pr12564.pdf`'s first page at 1x, their device coordinates taken from
+    /// the drawing as bits, every vertex the walk could do without taken out. The second and third
+    /// meet at one point, `(342.13284, 46.43763)`, and on the predicates' grid the second's edge
+    /// leaving it lies along the third's edge arriving at it; the first's edge crosses both at one
+    /// point. Each such crossing's place along the first edge was read from a negative determinant
+    /// rounded by up to `2^10`, so the two read `2.3e-9` apart, one of them was taken as a
+    /// starting point, and the third piece was walked one winding off: none of its edges bounded
+    /// anything, and the rows it spans did not close. Its boundary now closes at every point, and
+    /// so does every row.
+    #[test]
+    fn three_pieces_meeting_at_one_point_leave_a_closed_boundary() {
+        const PIECES: [[(u32, u32); 3]; 3] = [
+            [
+                (0x43ab_05d7, 0x423a_fc6d),
+                (0x43ab_10fa, 0x4239_bcf1),
+                (0x43aa_d26b, 0x4239_da61),
+            ],
+            [
+                (0x43ab_11b6, 0x423a_2084),
+                (0x43ab_1101, 0x4239_c022),
+                (0x43aa_d271, 0x4239_dd93),
+            ],
+            [
+                (0x43aa_93e1, 0x4239_fb04),
+                (0x43ab_1101, 0x4239_c022),
+                (0x43aa_7ac9, 0x420d_ddd1),
+            ],
+        ];
+        let mut builder = tiny_skia::PathBuilder::new();
+        for piece in PIECES {
+            let [first, rest @ ..] = piece.map(|(x, y)| (f32::from_bits(x), f32::from_bits(y)));
+            builder.move_to(first.0, first.1);
+            for (x, y) in rest {
+                builder.line_to(x, y);
+            }
+            builder.close();
+        }
+        let path = builder.finish().expect("three triangles");
+        let mut union = super::union::Union::default();
+        union.start();
+        super::trace(&mut union, &path, tiny_skia::Transform::identity());
+        assert!(union.settle(), "the mark is not declined");
+        // Every point the boundary passes through is left as often as it is reached.
+        let mut balance = std::collections::BTreeMap::<(u32, u32), i32>::new();
+        for [from, to] in &union.boundary {
+            *balance
+                .entry((from.x.to_bits(), from.y.to_bits()))
+                .or_default() += 1;
+            *balance.entry((to.x.to_bits(), to.y.to_bits())).or_default() -= 1;
+        }
+        balance.retain(|_, count| *count != 0);
+        assert!(balance.is_empty(), "the boundary is open at {balance:?}");
+        let around = Region {
+            left: 340,
+            top: 35,
+            width: 4,
+            height: 13,
+            corner: (0, 0),
+        };
+        let mut cells = Vec::new();
+        assert!(
+            boundary_accumulated(&mut cells, &union.boundary, around)
+                .expect("an accumulator")
+                .every_row_closes()
+        );
+        // And drawn: a build with debug assertions stops inside `fill_union` on a row that does
+        // not close, and one without declines the mark, so either way this is the guard's test.
+        let (width, height) = (400_u32, 60_u32);
+        let at = tiny_skia::Transform::identity();
+        let drawn = region(&path, at, (width, height), (0, 0)).expect("a region");
+        let mut target = vec![0_u8; (width * height) as usize];
+        assert!(super::fill_union(
+            &mut super::Buffers::default(),
+            &mut target,
+            (width, drawn),
+            &path,
+            at,
+        ));
     }
 
     /// The guard `fill_union` declines a mark by, where it acts (ADR 2252): every row of a closed

@@ -6,8 +6,13 @@ use super::{
 };
 
 impl ViewState {
-    /// Commits what a person typed into a field: Table 199's `/K` in its commit form, then `/V`,
-    /// then Table 224's `/CO`, then `/F` wherever a runner formats.
+    /// Commits what a person typed into a field: ISO 32000-2 §12.6.3's Table 199 `/K` in its commit
+    /// form, then `/V`, then §12.7.3's Table 224 `/CO`, then `/F` wherever a runner formats. The
+    /// order is that of §12.6.3's Table 199: `/V` is "performed when the field's value is changed",
+    /// and `/C`'s row hands the recalculation that follows to `/CO`:
+    ///
+    /// > The order in which the document's fields are recalculated shall be defined by the CO
+    /// > entry in the interactive form dictionary (see 12.7.3, "Interactive form dictionary").
     ///
     /// What a host calls when a person leaves the field or presses Enter — the moment Adobe's
     /// "Form event processing" sets `willCommit`. Where the keystroke's commit form or the validate

@@ -76,7 +76,7 @@ use pdf_syntax::object::ObjectId;
 
 use crate::tool::{Bounds, PLACEHOLDERS, Tool};
 
-use super::decision::{self, Answer, Loss, REMEDIES};
+use super::decision::{self, Answer, Losses, REMEDIES};
 use super::toml::{self, Value};
 
 /// `doc/rfc/0007` section 2's remedy vocabulary, closed and small so a configuration is legible.
@@ -1426,10 +1426,12 @@ impl Configuration {
         let mut authorised = Authorisations::default();
         for row in &self.sites {
             if row.remedy == Kind::Discard
-                && let Some(loss) = losses.get(row.site.as_str())
+                && let Some(answered) = losses.get(row.site.as_str())
                 && requirement_binds(&row.site, target)
             {
-                authorised.authorise(*loss);
+                for loss in answered.iter() {
+                    authorised.authorise(loss);
+                }
             }
         }
         authorised
@@ -2660,23 +2662,25 @@ fn string_list(tbl: &toml::Table, key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// The requirement identifier → [`Loss`] map, read off the decision table.
+/// The requirement identifier → [`Losses`] map, read off the decision table.
 ///
 /// The one place a `discard` becomes a built authorisation. Read off [`REMEDIES`] so it cannot
 /// disagree with what the converter actually authorises — a site is a built `discard` exactly
 /// where the decision table answers its requirement with `Answer::Loses`.
-fn loss_sites() -> BTreeMap<&'static str, Loss> {
+fn loss_sites() -> BTreeMap<&'static str, Losses> {
     REMEDIES
         .iter()
         .filter_map(|remedy| match remedy.answer {
-            Answer::Loses(loss, _) => Some((remedy.requirement, loss)),
-            // A row whose answer the table does not settle still costs a named loss where the
-            // document makes it one, and a `discard` there authorises exactly that loss
-            // (`doc/adr/1209`). A row waiting on bytes rather than on a document costs nothing
-            // and contributes none.
+            Answer::Loses(loss, _) => Some((remedy.requirement, Losses::one(loss))),
+            // A row whose answer the table does not settle still costs named losses where the
+            // document makes it costly, and a `discard` there authorises exactly those
+            // (`doc/adr/1209`): every one the row can incur, because `discard` says *I accept
+            // what this site costs* and one decision there carries them all (`doc/adr/2262`). A
+            // row waiting on bytes rather than on a document costs nothing and contributes none.
             _ => decision::conditional(remedy.requirement)
-                .and_then(decision::Conditional::loss)
-                .map(|loss| (remedy.requirement, loss)),
+                .map(decision::Conditional::losses)
+                .filter(|losses| !losses.is_empty())
+                .map(|losses| (remedy.requirement, losses)),
         })
         .collect()
 }
@@ -2777,8 +2781,8 @@ pub struct Site {
     pub requirement: &'static str,
     /// Its clause, as cited for the target asked for.
     pub citation: String,
-    /// The remedy a built `discard` at this site authorises, where one is built.
-    pub built_discard: Option<Loss>,
+    /// The losses a built `discard` at this site authorises, where one is built.
+    pub built_discard: Option<Losses>,
     /// Whether this site is one of the two the XML departure may name.
     pub departable: bool,
     /// Whether a configuration may answer this site with `derive`, which runs an external program.
@@ -2900,6 +2904,7 @@ pub fn sites(target: Target) -> Vec<Site> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::archive::Loss;
     use pdf_archive::{Flavour, Level};
 
     const TWO_B: Target = Target::Two(Level::B);

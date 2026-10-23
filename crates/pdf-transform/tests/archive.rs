@@ -33,7 +33,7 @@ use pdf_archive::{Flavour, Level, Outcome, Target, Verdict};
 use pdf_syntax::object::ObjectId;
 use pdf_syntax::{Document, Limits};
 use pdf_transform::archive::{
-    ArchivePlan, Authorisations, Because, Decision, FormAnswers, Loss, Rewrite,
+    ArchivePlan, Authorisations, Because, Decision, FormAnswers, Loss, Losses, Rewrite,
 };
 use pdf_transform::tool::ToolOutputs;
 use pdf_transform::{Budget, Exit, MemorySinks, Plan, Policy, Report, Source, apply};
@@ -762,7 +762,7 @@ fn image_interpolation_is_a_loss_and_needs_authorising() {
     assert_eq!(
         decision(&report, "graphics/image-interpolation-is-off"),
         Decision::Unauthorised {
-            loss: Loss::ImageSmoothing,
+            losses: Losses::one(Loss::ImageSmoothing),
             rewrite: Rewrite::InterpolationOff,
         }
     );
@@ -791,12 +791,13 @@ fn image_interpolation_is_a_loss_and_needs_authorising() {
         overprint_mode: false,
         language_identifier: false,
         machine_face: false,
+        substitute_stretch: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
         decision(&report, "graphics/image-interpolation-is-off"),
         Decision::Authorised {
-            loss: Loss::ImageSmoothing,
+            losses: Losses::one(Loss::ImageSmoothing),
             rewrite: Rewrite::InterpolationOff,
         }
     );
@@ -916,7 +917,7 @@ fn an_annotation_stating_no_flags_is_made_printable_only_with_authorisation() {
     assert_eq!(
         decision(&report, "annotations/flags-entry-present"),
         Decision::Unauthorised {
-            loss: Loss::AnnotationPrinting,
+            losses: Losses::one(Loss::AnnotationPrinting),
             rewrite: Rewrite::AnnotationFlags,
         }
     );
@@ -945,12 +946,13 @@ fn an_annotation_stating_no_flags_is_made_printable_only_with_authorisation() {
         overprint_mode: false,
         language_identifier: false,
         machine_face: false,
+        substitute_stretch: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
         decision(&report, "annotations/flags-entry-present"),
         Decision::Authorised {
-            loss: Loss::AnnotationPrinting,
+            losses: Losses::one(Loss::AnnotationPrinting),
             rewrite: Rewrite::AnnotationFlags,
         }
     );
@@ -997,7 +999,7 @@ fn a_property_its_own_schema_does_not_define_is_removed_only_with_authorisation(
     assert_eq!(
         decision(&report, "metadata/properties-use-known-schemas"),
         Decision::Unauthorised {
-            loss: Loss::MetadataProperty,
+            losses: Losses::one(Loss::MetadataProperty),
             rewrite: Rewrite::PropertyOutsideItsSchema,
         }
     );
@@ -1026,12 +1028,13 @@ fn a_property_its_own_schema_does_not_define_is_removed_only_with_authorisation(
         overprint_mode: false,
         language_identifier: false,
         machine_face: false,
+        substitute_stretch: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
         decision(&report, "metadata/properties-use-known-schemas"),
         Decision::Authorised {
-            loss: Loss::MetadataProperty,
+            losses: Losses::one(Loss::MetadataProperty),
             rewrite: Rewrite::PropertyOutsideItsSchema,
         }
     );
@@ -1230,9 +1233,9 @@ fn a_container_missing_a_field_outright_is_discarded_with_what_it_described() {
         matches!(
             decided,
             Decision::Unauthorised {
-                loss: Loss::MetadataProperty,
+                losses,
                 ..
-            }
+            } if losses == Losses::one(Loss::MetadataProperty)
         ),
         "the discard is section 3.9's loss, asked of the caller: {decided:?}"
     );
@@ -3770,7 +3773,7 @@ fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_st
             "signatures/signature-widgets-meet-the-annotation-rules"
         ),
         Decision::Unauthorised {
-            loss: Loss::AnnotationPrinting,
+            losses: Losses::one(Loss::AnnotationPrinting),
             rewrite: Rewrite::AnnotationFlags,
         },
         "the compound row takes the most constraining of the rules it names"
@@ -3801,6 +3804,7 @@ fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_st
         overprint_mode: false,
         language_identifier: false,
         machine_face: false,
+        substitute_stretch: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -3809,7 +3813,7 @@ fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_st
             "signatures/signature-widgets-meet-the-annotation-rules"
         ),
         Decision::Authorised {
-            loss: Loss::AnnotationPrinting,
+            losses: Losses::one(Loss::AnnotationPrinting),
             rewrite: Rewrite::AnnotationFlags,
         }
     );
@@ -4971,7 +4975,7 @@ fn a_colour_specification_the_part_ignores_is_removed_only_with_authorisation() 
     assert_eq!(
         decision(&report, "graphics/jpeg2000-colour-specification-method"),
         Decision::Unauthorised {
-            loss: Loss::Jpeg2000ColourFallback,
+            losses: Losses::one(Loss::Jpeg2000ColourFallback),
             rewrite: Rewrite::Jpeg2000ColourSpecifications,
         }
     );
@@ -5001,12 +5005,13 @@ fn a_colour_specification_the_part_ignores_is_removed_only_with_authorisation() 
         overprint_mode: false,
         language_identifier: false,
         machine_face: false,
+        substitute_stretch: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
         decision(&report, "graphics/jpeg2000-colour-specification-method"),
         Decision::Authorised {
-            loss: Loss::Jpeg2000ColourFallback,
+            losses: Losses::one(Loss::Jpeg2000ColourFallback),
             rewrite: Rewrite::Jpeg2000ColourSpecifications,
         }
     );
@@ -5055,6 +5060,7 @@ fn a_file_marking_no_specification_best_keeps_the_one_a_jp2_reader_uses() {
         overprint_mode: false,
         language_identifier: false,
         machine_face: false,
+        substitute_stretch: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -5063,7 +5069,7 @@ fn a_file_marking_no_specification_best_keeps_the_one_a_jp2_reader_uses() {
             "graphics/jpeg2000-one-best-colour-space-specification"
         ),
         Decision::Authorised {
-            loss: Loss::Jpeg2000ColourFallback,
+            losses: Losses::one(Loss::Jpeg2000ColourFallback),
             rewrite: Rewrite::Jpeg2000ColourSpecifications,
         }
     );
@@ -5107,6 +5113,7 @@ fn two_specifications_marked_best_stay_refused() {
         overprint_mode: false,
         language_identifier: false,
         machine_face: false,
+        substitute_stretch: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -5152,6 +5159,7 @@ fn one_specification_with_a_method_the_part_forbids_stays_refused() {
         overprint_mode: false,
         language_identifier: false,
         machine_face: false,
+        substitute_stretch: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -5387,7 +5395,7 @@ fn a_signed_source_asks_before_it_is_rewritten_even_where_no_row_names_the_signa
     assert_eq!(
         signed.decision,
         Decision::Unauthorised {
-            loss: Loss::SignatureAssertion,
+            losses: Losses::one(Loss::SignatureAssertion),
             rewrite: Rewrite::SignatureValueRemoved,
         }
     );
@@ -5442,7 +5450,7 @@ fn a_signed_source_asks_before_it_is_rewritten_even_where_no_row_names_the_signa
     assert_eq!(
         signed.decision,
         Decision::Authorised {
-            loss: Loss::SignatureAssertion,
+            losses: Losses::one(Loss::SignatureAssertion),
             rewrite: Rewrite::SignatureValueRemoved,
         }
     );
@@ -5518,7 +5526,7 @@ fn the_digest_keys_a_certification_signature_states_go_with_the_signature() {
             "file-structure/document-signature-states-no-digest"
         ),
         Decision::Unauthorised {
-            loss: Loss::SignatureAssertion,
+            losses: Losses::one(Loss::SignatureAssertion),
             rewrite: Rewrite::SignatureValueRemoved,
         }
     );
@@ -5546,7 +5554,7 @@ fn the_digest_keys_a_certification_signature_states_go_with_the_signature() {
             "file-structure/document-signature-states-no-digest"
         ),
         Decision::Authorised {
-            loss: Loss::SignatureAssertion,
+            losses: Losses::one(Loss::SignatureAssertion),
             rewrite: Rewrite::SignatureValueRemoved,
         }
     );
@@ -6252,7 +6260,7 @@ fn a_static_xfa_form_loses_its_packet_and_keeps_its_fields() {
     assert_eq!(
         decision(&report, "forms/no-xfa-key"),
         Decision::Unauthorised {
-            loss: Loss::XfaForm,
+            losses: Losses::one(Loss::XfaForm),
             rewrite: Rewrite::XfaRemoved,
         },
         "the template's calculations and validations go, so somebody has to say so"
@@ -6265,7 +6273,7 @@ fn a_static_xfa_form_loses_its_packet_and_keeps_its_fields() {
     assert_eq!(
         decision(&report, "forms/no-xfa-key"),
         Decision::Authorised {
-            loss: Loss::XfaForm,
+            losses: Losses::one(Loss::XfaForm),
             rewrite: Rewrite::XfaRemoved,
         }
     );
@@ -6412,7 +6420,7 @@ fn a_dynamic_xfa_form_is_refused_until_the_configuration_says_otherwise() {
     assert_eq!(
         decision(&report, "forms/no-xfa-key"),
         Decision::Authorised {
-            loss: Loss::XfaForm,
+            losses: Losses::one(Loss::XfaForm),
             rewrite: Rewrite::XfaRemoved,
         },
         "and the operator's own answer is what lets it through"
@@ -6437,7 +6445,7 @@ fn an_embedded_file_the_target_does_not_admit_is_taken_out_of_the_document() {
             "embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile"
         ),
         Decision::Unauthorised {
-            loss: Loss::EmbeddedFile,
+            losses: Losses::one(Loss::EmbeddedFile),
             rewrite: Rewrite::EmbeddedFileRemoved,
         }
     );
@@ -7104,6 +7112,7 @@ fn a_metadata_property_this_target_rejects_is_kept_on_a_page_appended_to_the_doc
         overprint_mode: false,
         language_identifier: false,
         machine_face: false,
+        substitute_stretch: false,
     };
     let (lost, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -7229,7 +7238,7 @@ fn a_packet_this_tree_cannot_read_is_replaced_only_with_authorisation() {
     assert_eq!(
         decision(&report, "metadata/xmp-packets-well-formed"),
         Decision::Unauthorised {
-            loss: Loss::MetadataPacket,
+            losses: Losses::one(Loss::MetadataPacket),
             rewrite: Rewrite::FreshMetadataPacket,
         }
     );
@@ -7242,7 +7251,7 @@ fn a_packet_this_tree_cannot_read_is_replaced_only_with_authorisation() {
     assert_eq!(
         decision(&report, "metadata/xmp-packets-well-formed"),
         Decision::Authorised {
-            loss: Loss::MetadataPacket,
+            losses: Losses::one(Loss::MetadataPacket),
             rewrite: Rewrite::FreshMetadataPacket,
         }
     );
@@ -7506,7 +7515,7 @@ fn a_packet_that_is_two_rdf_elements_is_replaced_and_the_other_streams_are_not()
     assert_eq!(
         decision(&report, "metadata/xmp-packets-state-one-rdf-element"),
         Decision::Authorised {
-            loss: Loss::MetadataPacket,
+            losses: Losses::one(Loss::MetadataPacket),
             rewrite: Rewrite::FreshMetadataPacket,
         }
     );
@@ -7896,7 +7905,7 @@ fn a_malformed_amendment_identifier_is_cut_out_of_the_identification_schema() {
     assert_eq!(
         decision(&report, "metadata/identification-amendment-form"),
         Decision::Unauthorised {
-            loss: Loss::AmendmentIdentifier,
+            losses: Losses::one(Loss::AmendmentIdentifier),
             rewrite: Rewrite::AmendmentIdentifierRemoved,
         }
     );
@@ -7912,7 +7921,7 @@ fn a_malformed_amendment_identifier_is_cut_out_of_the_identification_schema() {
     assert_eq!(
         decision(&report, "metadata/identification-amendment-form"),
         Decision::Authorised {
-            loss: Loss::AmendmentIdentifier,
+            losses: Losses::one(Loss::AmendmentIdentifier),
             rewrite: Rewrite::AmendmentIdentifierRemoved,
         }
     );
@@ -8323,7 +8332,7 @@ fn an_annotation_of_a_forbidden_subtype_goes_only_with_authorisation() {
     assert_eq!(
         decision(&report, row),
         Decision::Unauthorised {
-            loss: Loss::ForbiddenAnnotation,
+            losses: Losses::one(Loss::ForbiddenAnnotation),
             rewrite: Rewrite::ForbiddenAnnotationRemoved,
         }
     );
@@ -8352,12 +8361,13 @@ fn an_annotation_of_a_forbidden_subtype_goes_only_with_authorisation() {
         overprint_mode: false,
         language_identifier: false,
         machine_face: false,
+        substitute_stretch: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
         decision(&report, row),
         Decision::Authorised {
-            loss: Loss::ForbiddenAnnotation,
+            losses: Losses::one(Loss::ForbiddenAnnotation),
             rewrite: Rewrite::ForbiddenAnnotationRemoved,
         }
     );
@@ -8674,6 +8684,7 @@ fn an_annotation_that_drew_nothing_refuses_a_preserve_by_name() {
         overprint_mode: false,
         language_identifier: false,
         machine_face: false,
+        substitute_stretch: false,
     };
     let (report, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -8712,6 +8723,7 @@ fn every_loss() -> Authorisations {
         overprint_mode: false,
         language_identifier: false,
         machine_face: false,
+        substitute_stretch: false,
     }
 }
 
@@ -8745,7 +8757,7 @@ fn an_annotation_the_removal_takes_away_is_not_owed_an_appearance() {
     assert_eq!(
         decision(&report, appearance_row),
         Decision::Unauthorised {
-            loss: Loss::ForbiddenAnnotation,
+            losses: Losses::one(Loss::ForbiddenAnnotation),
             rewrite: Rewrite::ForbiddenAnnotationRemoved,
         },
         "the appearance row's places are the removal's, so its question is the removal's too"
@@ -8755,14 +8767,14 @@ fn an_annotation_the_removal_takes_away_is_not_owed_an_appearance() {
     assert_eq!(
         decision(&report, appearance_row),
         Decision::Authorised {
-            loss: Loss::ForbiddenAnnotation,
+            losses: Losses::one(Loss::ForbiddenAnnotation),
             rewrite: Rewrite::ForbiddenAnnotationRemoved,
         }
     );
     assert_eq!(
         decision(&report, subtype_row),
         Decision::Authorised {
-            loss: Loss::ForbiddenAnnotation,
+            losses: Losses::one(Loss::ForbiddenAnnotation),
             rewrite: Rewrite::ForbiddenAnnotationRemoved,
         },
         "and it is the same answer the section 6.3.1 row gives, because it is the same act"
@@ -8889,7 +8901,7 @@ fn a_launch_action_goes_and_the_actions_behind_it_stay() {
     assert_eq!(
         decision(&report, "actions/no-launch-multimedia-or-form-actions"),
         Decision::Unauthorised {
-            loss: Loss::InteractiveBehaviour,
+            losses: Losses::one(Loss::InteractiveBehaviour),
             rewrite: Rewrite::ForbiddenActionRemoved,
         }
     );
@@ -8898,7 +8910,7 @@ fn a_launch_action_goes_and_the_actions_behind_it_stay() {
     assert_eq!(
         decision(&report, "actions/no-launch-multimedia-or-form-actions"),
         Decision::Authorised {
-            loss: Loss::InteractiveBehaviour,
+            losses: Losses::one(Loss::InteractiveBehaviour),
             rewrite: Rewrite::ForbiddenActionRemoved,
         }
     );
@@ -8942,7 +8954,7 @@ fn a_trans_action_in_a_widgets_additional_actions_goes_at_part_four() {
     assert_eq!(
         decision(&report, "actions/no-launch-multimedia-or-form-actions"),
         Decision::Authorised {
-            loss: Loss::InteractiveBehaviour,
+            losses: Losses::one(Loss::InteractiveBehaviour),
             rewrite: Rewrite::ForbiddenActionRemoved,
         }
     );
@@ -8988,7 +9000,7 @@ fn a_page_additional_actions_dictionary_goes_under_part_two_and_is_pruned_under_
         assert_eq!(
             decision(&report, requirement),
             Decision::Authorised {
-                loss: Loss::InteractiveBehaviour,
+                losses: Losses::one(Loss::InteractiveBehaviour),
                 rewrite: Rewrite::AdditionalActionsRemoved,
             },
             "{target}"
@@ -9034,7 +9046,7 @@ fn a_widget_loses_its_action_entry_and_keeps_everything_else() {
     assert_eq!(
         decision(&report, "forms/no-action-on-widget-or-field"),
         Decision::Authorised {
-            loss: Loss::InteractiveBehaviour,
+            losses: Losses::one(Loss::InteractiveBehaviour),
             rewrite: Rewrite::WidgetActionEntryRemoved,
         }
     );
@@ -9071,7 +9083,7 @@ fn an_ecmascript_action_part_four_permits_is_left_where_part_two_removes_it() {
     assert_eq!(
         decision(&report, "actions/no-javascript-action"),
         Decision::Authorised {
-            loss: Loss::InteractiveBehaviour,
+            losses: Losses::one(Loss::InteractiveBehaviour),
             rewrite: Rewrite::ForbiddenActionRemoved,
         }
     );
@@ -9795,7 +9807,7 @@ fn a_crop_box_too_small_for_the_limit_moves_what_a_reader_shows_and_needs_author
     assert_eq!(
         decision(&report, "implementation-limits/page-boundary-sizes"),
         Decision::Unauthorised {
-            loss: Loss::PageBoundary,
+            losses: Losses::one(Loss::PageBoundary),
             rewrite: Rewrite::PageBoundaryRemoved
         },
         "a reader would clip to a different region, so nobody does it silently"
@@ -10383,7 +10395,7 @@ fn an_annotation_its_producer_hid_goes_only_with_authorisation() {
     assert_eq!(
         decision(&report, row),
         Decision::Unauthorised {
-            loss: Loss::HiddenAnnotation,
+            losses: Losses::one(Loss::HiddenAnnotation),
             rewrite: Rewrite::HiddenAnnotationRemoved,
         }
     );
@@ -10396,7 +10408,7 @@ fn an_annotation_its_producer_hid_goes_only_with_authorisation() {
     assert_eq!(
         decision(&report, row),
         Decision::Authorised {
-            loss: Loss::HiddenAnnotation,
+            losses: Losses::one(Loss::HiddenAnnotation),
             rewrite: Rewrite::HiddenAnnotationRemoved,
         }
     );
@@ -10939,9 +10951,9 @@ fn a_transfer_function_that_is_not_the_identity_is_a_loss_nobody_authorised() {
     assert!(matches!(
         decision(&report, "graphics/no-transfer-function-in-a-graphics-state"),
         Decision::Unauthorised {
-            loss: Loss::TransferFunction,
+            losses,
             rewrite: Rewrite::TransferFunctionRemoved,
-        }
+        } if losses == Losses::one(Loss::TransferFunction)
     ));
     assert!(output.is_none());
 }
@@ -10961,9 +10973,9 @@ fn an_authorised_transfer_function_goes_and_what_it_said_stays_in_the_history() 
     assert!(matches!(
         decision(&report, "graphics/no-transfer-function-in-a-graphics-state"),
         Decision::Authorised {
-            loss: Loss::TransferFunction,
+            losses,
             rewrite: Rewrite::TransferFunctionRemoved,
-        }
+        } if losses == Losses::one(Loss::TransferFunction)
     ));
     let output = output.expect("the document converts");
     let held = holds(&output, Target::Four(Flavour::Plain));
@@ -11050,9 +11062,9 @@ fn a_second_transfer_function_that_is_a_function_is_the_transfer_functions_loss(
     assert!(matches!(
         decision(&report, row),
         Decision::Unauthorised {
-            loss: Loss::TransferFunction,
+            losses,
             ..
-        }
+        } if losses == Losses::one(Loss::TransferFunction)
     ));
     assert!(output.is_none());
     let mut authorised = Authorisations::default();
@@ -11061,9 +11073,9 @@ fn a_second_transfer_function_that_is_a_function_is_the_transfer_functions_loss(
     assert!(matches!(
         decision(&report, row),
         Decision::Authorised {
-            loss: Loss::TransferFunction,
+            losses,
             rewrite: Rewrite::TransferFunctionRemoved,
-        }
+        } if losses == Losses::one(Loss::TransferFunction)
     ));
     let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
     let held = holds(&output, Target::Four(Flavour::Plain));
@@ -11146,9 +11158,9 @@ fn a_halftones_transfer_function_that_is_a_function_is_the_transfer_functions_lo
     assert!(matches!(
         decision(&report, row),
         Decision::Unauthorised {
-            loss: Loss::TransferFunction,
+            losses,
             ..
-        }
+        } if losses == Losses::one(Loss::TransferFunction)
     ));
     assert!(output.is_none());
     let mut authorised = Authorisations::default();
@@ -11157,9 +11169,9 @@ fn a_halftones_transfer_function_that_is_a_function_is_the_transfer_functions_lo
     assert!(matches!(
         decision(&report, row),
         Decision::Authorised {
-            loss: Loss::TransferFunction,
+            losses,
             rewrite: Rewrite::TransferFunctionRemoved,
-        }
+        } if losses == Losses::one(Loss::TransferFunction)
     ));
     let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
     let held = holds(&output, Target::Two(Level::B));
@@ -11224,9 +11236,9 @@ fn a_halftone_name_is_a_loss_and_once_authorised_goes_with_its_screen_kept() {
     assert!(matches!(
         decision(&report, row),
         Decision::Unauthorised {
-            loss: Loss::HalftoneName,
+            losses,
             ..
-        }
+        } if losses == Losses::one(Loss::HalftoneName)
     ));
     assert!(output.is_none());
     let mut authorised = Authorisations::default();
@@ -11239,9 +11251,9 @@ fn a_halftone_name_is_a_loss_and_once_authorised_goes_with_its_screen_kept() {
     assert!(matches!(
         decision(&report, row),
         Decision::Authorised {
-            loss: Loss::HalftoneName,
+            losses,
             rewrite: Rewrite::HalftoneNameRemoved,
-        }
+        } if losses == Losses::one(Loss::HalftoneName)
     ));
     let output = output.expect("the document converts");
     let held = holds(&output, Target::Four(Flavour::Plain));
@@ -11278,9 +11290,9 @@ fn a_threshold_halftone_is_a_loss_and_once_authorised_its_states_set_the_devices
     assert!(matches!(
         decision(&report, row),
         Decision::Unauthorised {
-            loss: Loss::Halftone,
+            losses,
             ..
-        }
+        } if losses == Losses::one(Loss::Halftone)
     ));
     assert!(output.is_none());
     let mut authorised = Authorisations::default();
@@ -11289,9 +11301,9 @@ fn a_threshold_halftone_is_a_loss_and_once_authorised_its_states_set_the_devices
     assert!(matches!(
         decision(&report, row),
         Decision::Authorised {
-            loss: Loss::Halftone,
+            losses,
             rewrite: Rewrite::HalftoneWrittenDefault,
-        }
+        } if losses == Losses::one(Loss::Halftone)
     ));
     let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
     let held = holds(&output, Target::Four(Flavour::Plain));
@@ -11396,9 +11408,9 @@ fn a_halftone_origin_is_a_loss_at_part_four() {
     assert!(matches!(
         decision(&report, row),
         Decision::Authorised {
-            loss: Loss::Halftone,
+            losses,
             rewrite: Rewrite::HalftoneOriginRemoved,
-        }
+        } if losses == Losses::one(Loss::Halftone)
     ));
     let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
     let held = holds(&output, Target::Four(Flavour::Plain));
@@ -11562,9 +11574,9 @@ fn an_overprint_mode_also_governing_a_device_cmyk_mark_is_a_loss_to_authorise() 
     assert!(matches!(
         decision(&report, row),
         Decision::Unauthorised {
-            loss: Loss::OverprintMode,
+            losses,
             ..
-        }
+        } if losses == Losses::one(Loss::OverprintMode)
     ));
     assert!(output.is_none());
     let mut authorised = Authorisations::default();
@@ -11573,9 +11585,9 @@ fn an_overprint_mode_also_governing_a_device_cmyk_mark_is_a_loss_to_authorise() 
     assert!(matches!(
         decision(&report, row),
         Decision::Authorised {
-            loss: Loss::OverprintMode,
+            losses,
             rewrite: Rewrite::OverprintModeZeroed,
-        }
+        } if losses == Losses::one(Loss::OverprintMode)
     ));
     let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
     let held = holds(&output, Target::Two(Level::B));
@@ -11729,7 +11741,7 @@ fn a_rollover_appearance_goes_only_with_authorisation() {
     assert_eq!(
         decision(&report, row),
         Decision::Unauthorised {
-            loss: Loss::AppearanceStates,
+            losses: Losses::one(Loss::AppearanceStates),
             rewrite: Rewrite::ExtraAppearanceStatesRemoved,
         }
     );
@@ -11742,7 +11754,7 @@ fn a_rollover_appearance_goes_only_with_authorisation() {
     assert_eq!(
         decision(&report, row),
         Decision::Authorised {
-            loss: Loss::AppearanceStates,
+            losses: Losses::one(Loss::AppearanceStates),
             rewrite: Rewrite::ExtraAppearanceStatesRemoved,
         }
     );
@@ -11824,7 +11836,7 @@ fn an_automatic_optional_content_state_goes_only_with_authorisation() {
     assert_eq!(
         decision(&report, row),
         Decision::Unauthorised {
-            loss: Loss::AutomaticStates,
+            losses: Losses::one(Loss::AutomaticStates),
             rewrite: Rewrite::AutomaticStatesRemoved,
         }
     );
@@ -11837,7 +11849,7 @@ fn an_automatic_optional_content_state_goes_only_with_authorisation() {
     assert_eq!(
         decision(&report, row),
         Decision::Authorised {
-            loss: Loss::AutomaticStates,
+            losses: Losses::one(Loss::AutomaticStates),
             rewrite: Rewrite::AutomaticStatesRemoved,
         }
     );
@@ -13288,9 +13300,9 @@ fn a_three_dimensional_annotation_outside_the_engineering_flavour_is_the_forbidd
             matches!(
                 decision(&report, row),
                 Decision::Unauthorised {
-                    loss: Loss::ForbiddenAnnotation,
+                    losses,
                     ..
-                }
+                } if losses == Losses::one(Loss::ForbiddenAnnotation)
             ),
             "{:?}",
             decision(&report, row)
@@ -13374,7 +13386,7 @@ fn a_malformed_language_identifier_states_an_unknown_language_once_the_loss_is_a
         assert_eq!(
             decision(&report, row),
             Decision::Unauthorised {
-                loss: Loss::LanguageIdentifier,
+                losses: Losses::one(Loss::LanguageIdentifier),
                 rewrite,
             }
         );
@@ -13463,9 +13475,9 @@ fn a_language_the_configuration_states_is_held_to_bcp_47_and_an_empty_one_stops(
     assert!(matches!(
         decision(&report, CATALOG_LANG),
         Decision::Unauthorised {
-            loss: Loss::LanguageIdentifier,
+            losses,
             ..
-        }
+        } if losses == Losses::one(Loss::LanguageIdentifier)
     ));
 }
 
@@ -13568,9 +13580,9 @@ fn a_file_attachment_annotation_outside_its_flavour_goes_and_its_file_stays_in_t
     assert!(matches!(
         decision(&report, row),
         Decision::Unauthorised {
-            loss: Loss::ForbiddenAnnotation,
+            losses,
             rewrite: Rewrite::ForbiddenAnnotationRemoved,
-        }
+        } if losses == Losses::one(Loss::ForbiddenAnnotation)
     ));
     let authorised = Authorisations {
         forbidden_annotation: true,
@@ -14203,7 +14215,7 @@ fn a_standard_font_drawn_from_a_machines_face_takes_the_shipped_one_only_as_an_a
     assert_eq!(
         decision(&report, "fonts/font-programs-embedded"),
         Decision::Unauthorised {
-            loss: Loss::MachineFace,
+            losses: Losses::one(Loss::MachineFace),
             rewrite: Rewrite::SubstituteFontProgram,
         }
     );
@@ -14415,23 +14427,209 @@ fn a_truetype_dictionary_given_a_cff_face_is_restated_as_the_type1_font_its_face
     assert_eq!(stated_widths(&output), stated_widths(&source));
 }
 
-/// ISO 19005-2 section 6.2.11.5's metric tolerance does not permit changing fitted outlines.
-#[test]
-fn a_shipped_face_fitted_horizontally_is_refused_for_that_reason() {
-    let source = Conforming {
+/// A Helvetica stated by name alone whose one width, 721.9, is narrower than the shipped face's
+/// own 722 for `H`: ADR 0358 has the viewer draw that face at the scale fitting it to the width.
+fn a_fitted_helvetica(descriptor: bool) -> Vec<u8> {
+    let font = if descriptor {
+        "<< /Type /Font /Subtype /TrueType /BaseFont /Helvetica /Encoding /WinAnsiEncoding \
+         /FirstChar 72 /LastChar 72 /Widths [721.9] /FontDescriptor 7 0 R >>"
+    } else {
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding \
+         /FirstChar 72 /LastChar 72 /Widths [721.9] >>"
+    };
+    let mut objects = vec![font.to_owned()];
+    if descriptor {
+        objects.push(
+            "<< /Type /FontDescriptor /FontName /Helvetica /Flags 32 \
+             /FontBBox [-166 -225 1000 931] /ItalicAngle 0 /Ascent 718 /Descent -207 \
+             /CapHeight 718 /StemV 88 >>"
+                .to_owned(),
+        );
+    }
+    Conforming {
         resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint [0.9505 1.0 1.089] >>] >>".to_owned(),
         contents: Some((String::new(), b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (H) Tj ET".to_vec())),
-        objects: vec!["<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding /FirstChar 72 /LastChar 72 /Widths [721.9] >>".to_owned()],
+        objects,
         ..Conforming::part_two()
-    }.build();
+    }
+    .build()
+}
+
+/// The control the two fitting tests rest on: the viewer really does draw the source fitted.
+fn drawn_fitted(source: &[u8]) -> f32 {
+    let document = Document::open(source.to_vec()).expect("the fixture opens");
+    let dict = document
+        .get(ObjectId::new(6, 0))
+        .as_dict()
+        .cloned()
+        .expect("object 6 is the font");
+    let stretch = pdf_font::LoadedFont::load(&document, &dict, "F1")
+        .expect("the font loads")
+        .stretch();
+    assert!(
+        stretch < 1.0,
+        "the source is drawn at no stretch: {stretch}"
+    );
+    stretch
+}
+
+/// `doc/questions/A566`: embedding the shipped face unmodified removes the viewer's horizontal
+/// fitting, which is the loss `substitute-stretch` — withheld, the font row stops on it by name;
+/// authorised, the output embeds the face and the report names the font with the scale it lost.
+#[test]
+fn a_shipped_face_fitted_horizontally_is_the_loss_substitute_stretch() {
+    let source = a_fitted_helvetica(false);
+    let stretch = drawn_fitted(&source);
     let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
     assert!(output.is_none());
-    let Decision::Refused(because) = decision(&report, "fonts/font-programs-embedded") else {
-        panic!("the fitted outlines need a separate loss or an exact program transformation");
+    assert_eq!(
+        decision(&report, "fonts/font-programs-embedded"),
+        Decision::Unauthorised {
+            losses: Losses::one(Loss::SubstituteStretch),
+            rewrite: Rewrite::SubstituteFontProgram,
+        }
+    );
+    // `machine-face` alone is not this loss: authorising it leaves the font row stopped.
+    let only_the_machine = Authorisations {
+        machine_face: true,
+        ..Authorisations::default()
     };
+    let (_, output) = convert(&source, Target::Two(Level::B), only_the_machine);
+    assert!(output.is_none());
+
+    let authorised = Authorisations {
+        substitute_stretch: true,
+        ..Authorisations::default()
+    };
+    let (report, output) = convert(&source, Target::Two(Level::B), authorised);
+    let output = written(&report, output);
+    assert_eq!(
+        holds(&output, Target::Two(Level::B)).verdict(),
+        Verdict::Conforms
+    );
+    let font = conversion(&report)
+        .substituted
+        .first()
+        .cloned()
+        .expect("the font was substituted");
+    assert_eq!(font.losses, Losses::one(Loss::SubstituteStretch));
+    assert_eq!(font.fitting.map(f32::to_bits), Some(stretch.to_bits()));
+    assert_eq!(stated_widths(&output), vec![721.9]);
+}
+
+/// `doc/questions/A566`'s precondition: one embedding decision carries every loss it incurs. A page
+/// with a Times drawn from a machine's face and a fitted Helvetica needs both `machine-face` and
+/// `substitute-stretch`, names both, and converts only once both are authorised.
+#[test]
+fn one_embedding_decision_names_every_loss_it_incurs() {
+    let source = Conforming {
+        resources: "/Font << /F1 6 0 R /F2 7 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (Hello's) Tj /F2 12 Tf 0 20 Td (H) Tj ET"
+                .to_vec(),
+        )),
+        objects: vec![
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Times-Roman /FirstChar 32 /LastChar 200 \
+             /Encoding << /Type /Encoding /BaseEncoding /WinAnsiEncoding \
+             /Differences [200 /afii10017] >> >>"
+                .to_owned(),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding \
+             /FirstChar 72 /LastChar 72 /Widths [721.9] >>"
+                .to_owned(),
+        ],
+        ..Conforming::part_two()
+    }
+    .build();
+    let document = Document::open_with_limits(source.clone(), Limits::DEFAULT).expect("it opens");
+    let times = document.get(ObjectId::new(6, 0));
+    let times = times.as_dict().expect("the font");
+    let drawn = pdf_font::LoadedFont::load(&document, times, "F1").expect("the font loads");
+    let shipped =
+        pdf_font::standard::shipped_face(&document, times, "F1").expect("a face is shipped");
+    if drawn
+        .substitute_program()
+        .is_none_or(|program| program == shipped.program)
+    {
+        println!("skipped: this machine offers no wider Times face (ADR 0270)");
+        return;
+    }
+    let both = Losses::one(Loss::MachineFace).with(Loss::SubstituteStretch);
+    for (machine_face, substitute_stretch) in [(false, false), (true, false), (false, true)] {
+        let partial = Authorisations {
+            machine_face,
+            substitute_stretch,
+            ..Authorisations::default()
+        };
+        let (report, output) = convert(&source, Target::Two(Level::B), partial);
+        assert!(
+            output.is_none(),
+            "{partial:?} authorises half of what is lost"
+        );
+        assert_eq!(
+            decision(&report, "fonts/font-programs-embedded"),
+            Decision::Unauthorised {
+                losses: both,
+                rewrite: Rewrite::SubstituteFontProgram,
+            }
+        );
+    }
+    let authorised = Authorisations {
+        machine_face: true,
+        substitute_stretch: true,
+        ..Authorisations::default()
+    };
+    let (report, output) = convert(&source, Target::Two(Level::B), authorised);
+    let output = written(&report, output);
+    assert_eq!(
+        decision(&report, "fonts/font-programs-embedded"),
+        Decision::Authorised {
+            losses: both,
+            rewrite: Rewrite::SubstituteFontProgram,
+        }
+    );
+    let named: Vec<Losses> = conversion(&report)
+        .substituted
+        .iter()
+        .map(|font| font.losses)
+        .collect();
+    assert_eq!(
+        named,
+        vec![
+            Losses::one(Loss::MachineFace),
+            Losses::one(Loss::SubstituteStretch)
+        ]
+    );
+    // The file's own history names both, so the archive says what it lost without the run's
+    // report beside it.
+    let recorded = conversion(&report).recorded.clone().unwrap_or_default();
     assert!(
-        because.sentence().contains("horizontal fitting"),
-        "{because:?}"
+        recorded.contains("losing machine-face"),
+        "the history names the machine's face: {recorded}"
+    );
+    assert!(
+        recorded.contains("losing substitute-stretch"),
+        "and the fitting: {recorded}"
+    );
+    assert!(!output.is_empty());
+}
+
+/// The route into a file's own descriptor embeds the same face the viewer fits, so it owes the
+/// same answer; before `doc/adr/2262` it embedded the face as a statement and named nothing.
+#[test]
+fn a_described_font_fitted_horizontally_names_the_fitting_it_loses() {
+    let source = a_fitted_helvetica(true);
+    drawn_fitted(&source);
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    assert!(output.is_none());
+    assert_eq!(
+        decision(&report, "fonts/font-programs-embedded"),
+        Decision::Unauthorised {
+            losses: Losses::one(Loss::SubstituteStretch),
+            rewrite: Rewrite::SubstituteFontProgram,
+        }
     );
 }
 

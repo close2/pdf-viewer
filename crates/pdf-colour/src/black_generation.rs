@@ -276,7 +276,7 @@ mod tests {
                 assert_eq!(left.context().matches(right), same);
                 assert_eq!(left.context().matches(right), left == right);
             }
-            assert_eq!(left.context().to_owned(), *left);
+            assert_eq!(left.context().to_conversion(), *left);
         }
     }
 

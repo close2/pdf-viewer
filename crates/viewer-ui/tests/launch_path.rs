@@ -3896,6 +3896,15 @@ fn the_launch_path_stays_inside_its_bands() {
                 "launch-path:   ({what}) not judged: {}",
                 why_not(declined, figure)
             );
+        } else if held && !figure.steady {
+            // **A clock figure judged inside its band prints its child's readings too**, so that
+            // whether a tighter guard would have declined it is asked of the figures that passed
+            // as well as of the ones that failed: the calibration band's edge is decided from both
+            // (ADR 2259).
+            println!(
+                "launch-path:   ({what}) judged in band: {}",
+                why_not(Declined::Nothing, figure)
+            );
         }
         // **Every figure outside its band is named on a line of the report's own prefix, and
         // again in the summary**, judged or not. The complaint below reaches only the panic's

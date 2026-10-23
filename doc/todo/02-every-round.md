@@ -801,7 +801,22 @@ same commit moved. `grep` what you wrote back out of the file before committing 
 same rule as trap 1 one directory over: the instrument that says a change happened is not the
 change.
 
-- The ADR, if the round made a decision. The argument goes there, not in the handover.
+- The ADR, if the round made a decision. The argument goes there, not in the handover. **It opens
+  with a `Status:` line** whose first word is the decision's state — `accepted`, `rejected`,
+  `deferred`, `superseded` by ADR N, `amended`, `implemented`, or `proposed` to a named `Q` — and
+  nothing the merge passes, such as "pending" or "under validation"; an assessment, a survey, a test
+  plan or a diagnostic experiment is a review or a record's paragraph instead (ADR 2242 decision 3;
+  `cargo test -p conformance --test adr_status` holds it from ADR 2242 on). **Its numbers are the
+  brief's**, two ADRs and one `Q` per slot (`doc/orchestrator-handover.md` section 3 step 2). A
+  number a slot does not take is said in its record's opening line ("ADR 2261 unused"), and nothing
+  is filed under it: a file saying only that a number is unused is a record that says nothing.
+  Review 1704's four gaps are each allocated and unused: 2205 (its slot's record, `doc/history/1685`,
+  names ADR 2204 alone), 2238 and 2239 (their slot never ran, review 1704 says) and 2243 (ADR 2242's
+  opening declares it). **A path under `/home/AI/` or `scratchpad/` is
+  never evidence**: a record, a review or an ADR names one only in a sentence saying the session
+  "worked in" it, as a directory with its closing `/`, and the figure, comparison or receipt a claim rests on is a
+  committed file or a command in the tree (ADR 2242 decision 4; `--test evidence` holds it from
+  record 1712 and ADR 2258 on, ADR 2260).
 - **The session's record is one new file in [`doc/history/`](../history/README.md)**, named
   `<session>-<slug>.md`, and nowhere else, and it states the round's gates in a paragraph opening
   `**Gates.**` with each one's exit status or pass count (ADR 1499). **Created, not appended to**: a round adds a file that

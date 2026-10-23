@@ -1,5 +1,7 @@
 # 2188 — Conservative line blocks select resident draw ranges
 
+Status: **accepted** at the merge that took it, `020a86f3` (line added by ADR 2260).
+
 Session 1676, slot 6 of batch 1671–1678. Context: ADRs 2022, 2056, 2134 and `doc/todo/75` item 3.
 Accepted: quiet comparison, final correctness and canonical shipping timing gates passed. No clause or ledger row changes: the selected frame must be
 byte-identical to the existing frame on the same adapter.

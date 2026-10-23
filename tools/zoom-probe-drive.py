@@ -34,7 +34,15 @@ def main():
     args.add_argument("--headless", action="store_true", help="owned Xvfb rehearsal; software graphics permitted")
     args.add_argument("--page", type=int, default=20)
     args.add_argument("--settled-capture", action="store_true", help="GTK whole-page source/presentation observations; no timing verdict")
+    args.add_argument("--x11", action="store_true",
+                      help="required: the window runs under X11 (GDK_BACKEND=x11, QT_QPA_PLATFORM=xcb, no Wayland "
+                           "socket), because XTest is the only synthetic input this drive has; a question about a "
+                           "Wayland session goes to tools/zoom-probe-wayland.py or PDFVIEWER_ZOOM_DRIVE (ADR 2266)")
     config = args.parse_args()
+    if not config.x11:
+        args.error("this drive moves the pointer by XTest and so measures an X11 window, which on a Wayland "
+                   "session is Xwayland's: pass --x11 to say so, or ask the Wayland question with "
+                   "tools/zoom-probe-wayland.py or quorra-qt's PDFVIEWER_ZOOM_DRIVE (ADR 2266)")
     if config.page < 1:
         args.error("--page must be positive")
     if config.settled_capture and config.host != "gtk":
@@ -44,6 +52,7 @@ def main():
     log = config.output / "viewer.log"
     session = str(config.output.resolve())
     environment = dict(os.environ)
+    # The `--x11` arm, stated by its caller: XTest reaches only an X11 client.
     for key in ("WAYLAND_DISPLAY", "WAYLAND_SOCKET"):
         environment.pop(key, None)
     environment.update(PDFVIEWER_ZOOM_PROBE="1", GDK_BACKEND="x11", QT_QPA_PLATFORM="xcb")
@@ -56,7 +65,7 @@ def main():
     command = [str(config.binary.resolve()), "--trace=launch,frames,events", f"{config.pdf.resolve()}#page={config.page}&zoom=100"]
     if config.headless:
         command.insert(1, "--cpu")
-    report = dict(session=session, host=config.host, command=command, headless=config.headless,
+    report = dict(session=session, host=config.host, command=command, headless=config.headless, backend="x11",
                   environment={key: environment.get(key) for key in ("GDK_BACKEND", "QT_QPA_PLATFORM", "GDK_SCALE", "QT_SCALE_FACTOR", "QT_XCB_NO_XI2", "GSK_RENDERER", "LIBGL_ALWAYS_SOFTWARE")},
                   verdict="incomplete", phases=[])
     process = None

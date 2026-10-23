@@ -1,5 +1,7 @@
 # ADR 2200 — The native window lends effective chrome
 
+Status: **accepted** at the merge that took it, `b9d05ee8` (line added by ADR 2260).
+
 WinUI received `QUORRA_OWED_CHROME` but could not read the state it was told to apply. The
 vocabulary-layer preference query takes a different handle and returns document preferences,
 not `Presenting`'s effective state. Casting handles or duplicating the preference decision would

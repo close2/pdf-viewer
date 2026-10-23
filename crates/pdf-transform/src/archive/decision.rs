@@ -388,11 +388,23 @@ pub enum Loss {
     /// carry to the processor, so nothing the file states is lost; what this viewer's window
     /// showed on this machine is (`doc/adr/2162`).
     MachineFace,
+    /// ISO 19005-2 section 6.2.11.4.1, ISO 19005-4 section 6.2.10.4.1: a font this viewer draws
+    /// from the face this program ships, narrowed to the file's widths, is embedded with that face
+    /// as it is.
+    ///
+    /// ADR 0358 has the viewer draw a substitute's outlines at the horizontal scale that fits its
+    /// advances to the file's `/Widths` (`pdf_font::LoadedFont::stretch`); an embedded program is
+    /// drawn as its producer shipped it, at none. Embedding the unmodified face keeps every
+    /// position the file states and every glyph the page selects, and draws each glyph at the
+    /// face's own width instead of the fitted one. §9.5's NOTE 5 leaves the face of a font the
+    /// file does not carry to the processor, so nothing the file states is lost; what this
+    /// viewer's window showed is (`doc/questions/A566`, `doc/adr/2262`).
+    SubstituteStretch,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 23] = [
+    pub const ALL: [Self; 24] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::MetadataPacket,
@@ -416,6 +428,7 @@ impl Loss {
         Self::OverprintMode,
         Self::LanguageIdentifier,
         Self::MachineFace,
+        Self::SubstituteStretch,
     ];
 
     /// The word a caller authorises it by.
@@ -445,6 +458,7 @@ impl Loss {
             Self::OverprintMode => "overprint-mode",
             Self::LanguageIdentifier => "language-identifier",
             Self::MachineFace => "machine-face",
+            Self::SubstituteStretch => "substitute-stretch",
         }
     }
 
@@ -623,6 +637,13 @@ impl Loss {
                  statement that it may lawfully be embedded, to keep its shapes instead where the \
                  font states a descriptor"
             }
+            Self::SubstituteStretch => {
+                "a font this viewer draws from the face this program ships, narrowed to the \
+                 widths the file states, is embedded with that face unmodified: every character \
+                 sits where the file puts it and selects the glyph it selected, and each glyph is \
+                 drawn at the face's own width rather than the fitted one. The report names every \
+                 such font with the horizontal scale it was drawn at"
+            }
         }
     }
 
@@ -630,6 +651,72 @@ impl Loss {
     #[must_use]
     pub fn parse(word: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|loss| loss.word() == word)
+    }
+}
+
+/// The losses one decision incurs: one for most rows, and every one a rewrite costs where it
+/// costs more than one.
+///
+/// **One decision carries every loss it incurs** (`doc/questions/A566`, `doc/adr/2262`). A
+/// document's fonts are embedded by one rewrite, and one font may be drawn from a machine's face
+/// while another is drawn from the shipped face narrowed to its widths — two losses with two
+/// names, each of which a caller may withhold. Reporting the first alone would let a caller
+/// authorise half of what the conversion does, so the decision holds the set and proceeds only
+/// where every member was authorised.
+///
+/// Indexed by a loss's position in [`Loss::ALL`], which is its declaration order; the set
+/// iterates in that order, so the report names the losses the same way every time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Losses(u32);
+
+// Room for every loss in the bits of one word, checked where the word is chosen.
+const _: () = assert!(Loss::ALL.len() <= u32::BITS as usize);
+
+impl Losses {
+    /// The set holding one loss.
+    #[must_use]
+    pub const fn one(loss: Loss) -> Self {
+        Self(1 << (loss as u32))
+    }
+
+    /// This set with one more loss in it.
+    #[must_use]
+    pub const fn with(self, loss: Loss) -> Self {
+        Self(self.0 | (1 << (loss as u32)))
+    }
+
+    /// Whether the set holds this loss.
+    #[must_use]
+    pub const fn contains(self, loss: Loss) -> bool {
+        self.0 & (1 << (loss as u32)) != 0
+    }
+
+    /// Whether the set holds no loss.
+    #[must_use]
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// The losses in the set, in [`Loss::ALL`]'s order.
+    pub fn iter(self) -> impl Iterator<Item = Loss> {
+        Loss::ALL
+            .into_iter()
+            .filter(move |loss| self.contains(*loss))
+    }
+
+    /// The words a caller authorises the set by, separated by commas.
+    #[must_use]
+    pub fn words(self) -> String {
+        self.iter().map(Loss::word).collect::<Vec<_>>().join(", ")
+    }
+
+    /// What the set loses, one sentence per loss, separated by semicolons.
+    #[must_use]
+    pub fn describe(self) -> String {
+        self.iter()
+            .map(Loss::describe)
+            .collect::<Vec<_>>()
+            .join("; ")
     }
 }
 
@@ -692,6 +779,8 @@ pub struct Authorisations {
     pub language_identifier: bool,
     /// Whether [`Loss::MachineFace`] was authorised.
     pub machine_face: bool,
+    /// Whether [`Loss::SubstituteStretch`] was authorised.
+    pub substitute_stretch: bool,
 }
 
 impl Authorisations {
@@ -722,7 +811,14 @@ impl Authorisations {
             Loss::OverprintMode => self.overprint_mode,
             Loss::LanguageIdentifier => self.language_identifier,
             Loss::MachineFace => self.machine_face,
+            Loss::SubstituteStretch => self.substitute_stretch,
         }
+    }
+
+    /// Whether every loss of the set was authorised.
+    #[must_use]
+    pub fn grants_all(self, losses: Losses) -> bool {
+        losses.iter().all(|loss| self.grants(loss))
     }
 
     /// Authorises one loss.
@@ -751,6 +847,7 @@ impl Authorisations {
             Loss::OverprintMode => self.overprint_mode = true,
             Loss::LanguageIdentifier => self.language_identifier = true,
             Loss::MachineFace => self.machine_face = true,
+            Loss::SubstituteStretch => self.substitute_stretch = true,
         }
     }
 }
@@ -841,17 +938,18 @@ impl Because {
 pub enum Decision {
     /// The *Mechanical* class: the requirement is met by a rewrite that loses nothing, every time.
     Mechanical(Rewrite),
-    /// section 3: it can be done, it loses something, and the caller authorised it.
+    /// section 3: it can be done, it loses something, and the caller authorised every loss.
     Authorised {
         /// What is lost.
-        loss: Loss,
+        losses: Losses,
         /// The rewrite that loses it.
         rewrite: Rewrite,
     },
-    /// section 3: the same, and nobody authorised it. The conversion stops.
+    /// section 3: the same, and at least one of its losses nobody authorised. The conversion
+    /// stops.
     Unauthorised {
         /// What would have been lost.
-        loss: Loss,
+        losses: Losses,
         /// The rewrite that would have lost it.
         rewrite: Rewrite,
     },
@@ -2254,7 +2352,7 @@ pub enum Conditional {
     /// `doc/adr/1210`: removing an out-of-range optional page boundary moves no mark where
     /// §14.11.2.1 has already made the entry its intersection with the media box, and changes
     /// what a reader shows where it has not.
-    PerDocument(Loss),
+    PerDocument(Losses),
     /// The rewrite states an interpretation under one answer the site admits and costs [`Loss`]
     /// under the other, and which is the **operator's** to say rather than the file's.
     ///
@@ -2262,7 +2360,7 @@ pub enum Conditional {
     /// appearance streams have been provided, so `construct = true` builds them and loses
     /// nothing, and `construct = false` clears the flag alone and leaves a field its producer
     /// gave no stream blank.
-    PerConfiguration(Loss),
+    PerConfiguration(Losses),
 }
 
 impl Conditional {
@@ -2285,12 +2383,13 @@ impl Conditional {
         }
     }
 
-    /// The loss this answer costs where the document makes it one.
+    /// The losses this answer may cost where the document makes it costly: empty for a row
+    /// waiting on bytes rather than on a document.
     #[must_use]
-    pub const fn loss(self) -> Option<Loss> {
+    pub const fn losses(self) -> Losses {
         match self {
-            Self::CallerSuppliesTheBytes => None,
-            Self::PerDocument(loss) | Self::PerConfiguration(loss) => Some(loss),
+            Self::CallerSuppliesTheBytes => Losses(0),
+            Self::PerDocument(losses) | Self::PerConfiguration(losses) => losses,
         }
     }
 }
@@ -2308,35 +2407,35 @@ pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[
     ),
     (
         "implementation-limits/page-boundary-sizes",
-        Conditional::PerDocument(Loss::PageBoundary),
+        Conditional::PerDocument(Losses::one(Loss::PageBoundary)),
     ),
     (
         "forms/need-appearances-absent-or-false",
-        Conditional::PerConfiguration(Loss::FieldAppearances),
+        Conditional::PerConfiguration(Losses::one(Loss::FieldAppearances)),
     ),
     (
         "graphics/no-transfer-function-in-a-graphics-state",
-        Conditional::PerDocument(Loss::TransferFunction),
+        Conditional::PerDocument(Losses::one(Loss::TransferFunction)),
     ),
     (
         "graphics/second-transfer-function-is-default",
-        Conditional::PerDocument(Loss::TransferFunction),
+        Conditional::PerDocument(Losses::one(Loss::TransferFunction)),
     ),
     (
         "graphics/halftone-transfer-function-only-where-required",
-        Conditional::PerDocument(Loss::TransferFunction),
+        Conditional::PerDocument(Losses::one(Loss::TransferFunction)),
     ),
     (
         "graphics/no-overprint-mode-one-under-icc-cmyk",
-        Conditional::PerDocument(Loss::OverprintMode),
+        Conditional::PerDocument(Losses::one(Loss::OverprintMode)),
     ),
     (
         "metadata/extension-schema-container-fields",
-        Conditional::PerDocument(Loss::MetadataProperty),
+        Conditional::PerDocument(Losses::one(Loss::MetadataProperty)),
     ),
     (
         "fonts/font-programs-embedded",
-        Conditional::PerDocument(Loss::MachineFace),
+        Conditional::PerDocument(Losses::one(Loss::MachineFace).with(Loss::SubstituteStretch)),
     ),
 ];
 
@@ -3640,9 +3739,11 @@ fn stated_where_free(
     }
 }
 
-/// ISO 19005 section 6.2.11.4.1's embedded faces: a statement, or where one of them is the shipped
-/// face over a face of this machine's the viewer draws instead, the loss `machine-face`
-/// (`doc/adr/2162`).
+/// ISO 19005 section 6.2.11.4.1's embedded faces: a statement, or every loss the embedding
+/// incurs — `machine-face` where the shipped face goes over a face of this machine's the viewer
+/// draws instead (`doc/adr/2162`), `substitute-stretch` where it goes in without the fitting the
+/// viewer draws it with (`doc/adr/2262`) — carried by the one decision, so a caller authorises
+/// all of them or the font row stops.
 fn embedded_faces(
     reinterprets: &'static str,
     authorised: Authorisations,
@@ -3651,20 +3752,26 @@ fn embedded_faces(
     if let Some(because) = prepared.obstacle(Rewrite::SubstituteFontProgram) {
         return Decision::Refused(because);
     }
-    let over_a_machine_face = prepared
+    let losses = prepared
         .substitutes
         .as_ref()
-        .is_ok_and(|substitutes| !substitutes.over_machine_faces.is_empty());
-    if over_a_machine_face {
-        return answer_of(
-            Answer::Loses(Loss::MachineFace, Rewrite::SubstituteFontProgram),
-            authorised,
-            prepared,
-        );
+        .map_or_else(|_| Losses::default(), super::fonts::Substitutes::losses);
+    if losses.is_empty() {
+        return Decision::Stated {
+            rewrite: Rewrite::SubstituteFontProgram,
+            reinterprets,
+        };
     }
-    Decision::Stated {
-        rewrite: Rewrite::SubstituteFontProgram,
-        reinterprets,
+    losing(losses, Rewrite::SubstituteFontProgram, authorised)
+}
+
+/// A rewrite that loses `losses`: authorised where every one of them was, and the question a
+/// person has to answer otherwise.
+fn losing(losses: Losses, rewrite: Rewrite, authorised: Authorisations) -> Decision {
+    if authorised.grants_all(losses) {
+        Decision::Authorised { losses, rewrite }
+    } else {
+        Decision::Unauthorised { losses, rewrite }
     }
 }
 
@@ -3873,8 +3980,7 @@ fn answer_of(answer: Answer, authorised: Authorisations, prepared: &Prepared) ->
         // `--authorise` would allow something this file cannot have is worse than saying why.
         Answer::Loses(loss, rewrite) => match prepared.obstacle(rewrite) {
             Some(because) => Decision::Refused(because),
-            None if authorised.grants(loss) => Decision::Authorised { loss, rewrite },
-            None => Decision::Unauthorised { loss, rewrite },
+            None => losing(Losses::one(loss), rewrite, authorised),
         },
         // Resolved by `decide` before this function is reached, so that the routing is one place
         // rather than two. A row reaching here is one `decide_as_underlying` passed over.

@@ -10,8 +10,9 @@ impl ViewState {
     /// once, in the order it was met.
     ///
     /// A field's script that is not one call of the library, a call whose arguments the library
-    /// refuses, a `/CO` entry whose `/C` is either, a runner's refusals, throws and stops — each
-    /// named with its field, never raised as a dialog and never repeated (RFC 0008 section 6.8).
+    /// refuses, a `/CO` entry (ISO 32000-2 §12.7.3, Table 224) whose `/C` (§12.6.3, Table 199)
+    /// is either, a runner's refusals, throws and stops — each named with its field, never
+    /// raised as a dialog and never repeated (RFC 0008 section 6.8).
     #[must_use]
     pub fn script_reports(&self) -> &[String] {
         &self.script_reports
@@ -22,10 +23,11 @@ impl ViewState {
     ///
     /// The focus is the host's — which widget a key reaches, and the page turned or the view
     /// scrolled to show it, as Adobe's "Field methods" page describes `setFocus` — so a view state
-    /// holds the request and a host carries it out after any call that ran scripts, raising Table
-    /// 197's `/Bl` and `/Fo` as a press would (ADR 1615). The latest request stands: a script that
-    /// asks twice has asked for the second. The widget is the one the script's `Field` stood for
-    /// (ADR 1688).
+    /// holds the request and a host carries it out after any call that ran scripts, raising
+    /// ISO 32000-2 §12.6.3's Table 197 `/Bl` and `/Fo` as a press would (ADR 1615): the actions
+    /// performed when a widget loses and receives the input focus. The latest request stands: a
+    /// script that asks twice has asked for the second. The widget is the one the script's
+    /// `Field` stood for (ADR 1688).
     pub fn take_focus_request(&mut self) -> Option<FocusRequest> {
         self.scripting.focus.take()
     }
@@ -35,9 +37,14 @@ impl ViewState {
     ///
     /// Which page is shown is the host's, as the focus is, so a view state holds the request and a
     /// host carries it out after any call that ran scripts, as the page turn a person asks for —
-    /// Table 198's `/C` of the page left and `/O` of the page reached run as they would for a
-    /// person's turn. The page is one of the document's, checked when the script's run was applied;
-    /// the latest request stands (ADR 1640).
+    /// ISO 32000-2 §12.6.3's Table 198 `/C` of the page left and `/O` of the page reached run as
+    /// they would for a person's turn, the order the table fixes for `/C`:
+    ///
+    /// > This action applies to the page being closed and shall be executed before any other
+    /// > page is opened.
+    ///
+    /// The page is one of the document's, checked when the script's run was applied; the latest
+    /// request stands (ADR 1640).
     pub fn take_page_request(&mut self) -> Option<usize> {
         self.scripting.page.take()
     }

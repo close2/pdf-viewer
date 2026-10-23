@@ -1,6 +1,8 @@
 # 2233 — Stability follows source and context lifetimes
 
-Status: accepted. Session 1699, 2026-10-22.
+Status: accepted. Session 1699, 2026-10-22. Amended 2026-10-23: the orchestrator's acceptance of
+the launch gate FAILED is superseded by ADR 2242 decision 2 — a red gate takes one of four answers
+and is never accepted by an ADR; the bounded correctness and ownership changes stand.
 
 ## Assessment
 

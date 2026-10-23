@@ -791,3 +791,14 @@ closes — moves with the chord and no area gate sees it. Before a constant that
 resolution changes, its moved pages are drawn at two scales and looked at (trap 1), and every decision
 taken from a chord is taken from the path's own tangent instead.
 
+### 239. A two-part integer-to-float conversion rounds small negatives past any separation threshold
+
+The union walk's crossings are ordered by an exact i128 determinant turned into an f64 ratio;
+`union::approximate` split the i128 at bit 64 and converted the halves, and for a small negative value
+the low half is 2^64 less the magnitude, so the sum rounded by up to 2^10. Two crossings at one grid
+point then read 2.3e-9 apart — past `SEPARATION` — one was taken as a starting point in the wrong order
+and a contour was walked one winding off, which was the "dropped stretch" round 1709 guarded and round
+1717 found (ADR 2268). An exact predicate that feeds a float is converted so the float is the nearest
+representable value whatever the sign (split at bit 32, with a test on a small negative), and a
+separation threshold is never trusted before that conversion is.
+

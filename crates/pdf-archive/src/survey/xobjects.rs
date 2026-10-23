@@ -126,7 +126,11 @@ impl Walk<'_> {
         let origin = self.open_record(page, id, place, description, own_resources);
         let mut reader = content.reader();
         if let Some(ledger) = &mut self.ledger {
-            ledger.enter(route, id);
+            // The interpreter's frame for a soft mask's group names no object — it holds the
+            // group resolved rather than the reference — and the ledger is compared frame for
+            // frame, so the survey's says the same (`doc/adr/2263`).
+            let frame = if route == Via::SoftMask { None } else { id };
+            ledger.enter(route, frame);
         }
         self.run(
             &mut reader,

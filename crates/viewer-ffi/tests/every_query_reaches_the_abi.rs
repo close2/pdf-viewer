@@ -253,10 +253,27 @@ fn the_samples_cover_the_whole_enumeration() {
     );
 }
 
+/// The text of `src/abi.rs` and of every module under `src/abi/`, joined: the entry points are
+/// spread over the children by concern, and the module root holds none of them (ADR 2272).
+fn abi_source() -> String {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut names: Vec<_> = std::fs::read_dir(src.join("abi"))
+        .expect("this crate has an abi directory")
+        .flatten()
+        .map(|entry| entry.path())
+        .collect();
+    names.sort();
+    let mut text =
+        std::fs::read_to_string(src.join("abi.rs")).expect("this crate has an abi module");
+    for path in names {
+        text.push_str(&std::fs::read_to_string(&path).expect("an abi child reads"));
+    }
+    text
+}
+
 #[test]
 fn every_entry_point_named_exists_in_the_library_and_in_the_header() {
-    let abi = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/abi.rs"))
-        .expect("this crate has an abi module");
+    let abi = abi_source();
     let header =
         std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("include/quorra.h"))
             .expect("this crate has a header");

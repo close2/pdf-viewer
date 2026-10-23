@@ -83,7 +83,7 @@ use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
 use pdf_syntax::serialize::flate_encode;
 
 use super::COMPRESSION_LEVEL;
-use super::decision::Because;
+use super::decision::{Because, Losses};
 use super::prepare::Spare;
 
 /// The tolerance both parts allow between a dictionary's width and its program's, in ems.
@@ -133,8 +133,11 @@ impl MetricRoute {
 ///
 /// `doc/pdf-a-conversion-limits.md` section 4.9 asks for exactly these four things per font: the
 /// face requested, the face used, which metric route was taken, and — through
-/// [`super::Conversion::recorded`] — an `xmpMM:History` entry saying so.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// [`super::Conversion::recorded`] — an `xmpMM:History` entry saying so. Beside them, what
+/// embedding it lost, so that the report and the history name every loss per font.
+// `Eq` is deliberately absent: `fitting` is the reader's own horizontal scale, a real number, and
+// a type holding one has no reflexive equality to claim (`doc/adr/1210`'s reason).
+#[derive(Debug, Clone, PartialEq)]
 pub struct SubstitutedFont {
     /// The resource name the content stream selected the font by.
     pub resource: String,
@@ -149,6 +152,13 @@ pub struct SubstitutedFont {
     /// What this conversion wrote around the program for a font that stated no descriptor, or
     /// `None` where the file's own descriptor received it (`doc/adr/2146`).
     pub described: Option<Described>,
+    /// What embedding this font lost: `machine-face` where the viewer drew it from a face of this
+    /// machine's (`doc/adr/2162`), `substitute-stretch` where it drew the shipped face narrowed to
+    /// the file's widths (`doc/adr/2262`), and nothing where the output draws what the viewer did.
+    pub losses: Losses,
+    /// The horizontal scale the viewer drew the shipped face at, where embedding the face
+    /// unmodified removed it: the figure the loss `substitute-stretch` is about.
+    pub fitting: Option<f32>,
 }
 
 /// Whose font program a substitution embedded.
@@ -293,15 +303,21 @@ pub(super) struct Substitutes {
     /// it is written out as, entries included; the rewriter puts a reference to that object where
     /// the dictionary stood (`doc/adr/2162`).
     pub(super) direct: Vec<(Dictionary, ObjectId)>,
-    /// The resource names of the fonts given a shipped face where this viewer draws them from one
-    /// of the machine's, which is the loss `machine-face` (`doc/adr/2162`).
-    pub(super) over_machine_faces: Vec<String>,
     /// The program stream each shipped face was written to, so that one document's fonts naming
     /// the same face share one copy of it.
     pub(super) programs: BTreeMap<&'static str, ObjectId>,
 }
 
 impl Substitutes {
+    /// Every loss the embedding incurs, over every font it embedded a face into: what the one
+    /// decision at `fonts/font-programs-embedded` carries (`doc/adr/2262`).
+    pub(super) fn losses(&self) -> Losses {
+        self.done
+            .iter()
+            .flat_map(|font| font.losses.iter())
+            .fold(Losses::default(), Losses::with)
+    }
+
     /// Whether this font is a direct dictionary equal to one already written out as an object.
     ///
     /// The survey keys a direct font by the page and the name it was selected by, so one
@@ -734,6 +750,22 @@ pub(super) fn embed_faces(
             .as_ref()
             .map_or_else(Dictionary::new, |restatement| restatement.entries.clone());
         entries.insert(Name::new(&b"FontDescriptor"[..]), Object::Reference(own));
+        // Which face the viewer drew the font from decides what embedding the shipped one loses:
+        // the restatement's proof has already held the font to it (`doc/adr/2162`). The unrestated
+        // route, whose own comparison is of advances, reads the same answer off the font as
+        // loaded and names the fitting it removes from the shipped face (`doc/adr/2262`); a
+        // machine's face on that route is still embedded over as a statement, the owed half of
+        // `doc/todo/72`'s machine-face entry, priced by a census of its own. An operator's face is
+        // the operator's statement and costs neither.
+        let drawn = match (&face, &restated) {
+            (Face::Supplied(..), _) => None,
+            (Face::Shipped(_), Some(restatement)) => Some(restatement.drawn),
+            (Face::Shipped(shipped), None) => described::drawn_by_the_viewer(&font, shipped)
+                .filter(|drawn| *drawn == described::Drawn::FromTheShippedFace),
+        };
+        let (losses, fitting) = drawn.map_or((Losses::default(), None), |drawn| {
+            described::losses_of(drawn, &font)
+        });
         substitutes.done.push(SubstitutedFont {
             resource: used.name.clone(),
             requested,
@@ -741,15 +773,9 @@ pub(super) fn embed_faces(
             authority: face.authority(),
             route,
             described: restated.as_ref().map(|restatement| restatement.described),
+            losses,
+            fitting,
         });
-        if let Some(restatement) = restated {
-            // The restatement's route, like the descriptor's, holds a font the viewer draws from
-            // a machine's face to the shipped face's glyphs, which is the loss `machine-face`
-            // (`doc/adr/2162`). The unrestated route's own comparison is of advances, not faces.
-            if restatement.drawn == described::Drawn::FromAMachineFace {
-                substitutes.over_machine_faces.push(used.name.clone());
-            }
-        }
         if !entries.is_empty() {
             gains(document, used, entries, spare, &mut substitutes)?;
         }

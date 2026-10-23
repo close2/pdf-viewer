@@ -8,6 +8,8 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdint>
+#include <cstdlib>
+#include <optional>
 #include <vector>
 
 #include <QAction>
@@ -87,6 +89,56 @@ long long zoomMicros()
 {
     return std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+// Control+wheel notches delivered from inside the program, where no compositor admits synthetic
+// pointer input (a Wayland session) and an X11 drive would measure Xwayland instead. Opt-in and
+// diagnostic like `zoomProbe()`, read once, and only beside it: the notches are worth nothing
+// without the records that time them. `PDFVIEWER_ZOOM_DRIVE=notches=8,every=133,after=3000`
+// posts eight notches 133 ms apart, starting 3000 ms after the page's first frame; `angle` is
+// Qt's eighths of a degree per event (120 a notch, 15 an eighth of one, as a high-resolution
+// wheel sends them), a negative `notches` turns towards the person, and `x`, `y` place the
+// pointer as fractions of the page area. A posted event is not spontaneous, and the wheel's own
+// handler does not look (ADR 2266).
+struct ZoomDrive
+{
+    int notches = 0;
+    int every = 133;
+    int after = 3000;
+    int angle = 120;
+    double x = 0.5;
+    double y = 0.5;
+};
+
+const ZoomDrive* zoomDrive()
+{
+    static const std::optional<ZoomDrive> drive = []() -> std::optional<ZoomDrive> {
+        if (!zoomProbe() || !qEnvironmentVariableIsSet("PDFVIEWER_ZOOM_DRIVE")) return std::nullopt;
+        ZoomDrive parsed;
+        const QString stated = qEnvironmentVariable("PDFVIEWER_ZOOM_DRIVE");
+        for (const QString& pair : stated.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+            const auto parts = pair.split(QLatin1Char('='));
+            bool ok = parts.size() == 2;
+            const QString key = ok ? parts[0].trimmed() : QString();
+            if (ok && key == QLatin1String("notches")) parsed.notches = parts[1].toInt(&ok);
+            else if (ok && key == QLatin1String("every")) parsed.every = parts[1].toInt(&ok);
+            else if (ok && key == QLatin1String("after")) parsed.after = parts[1].toInt(&ok);
+            else if (ok && key == QLatin1String("angle")) parsed.angle = parts[1].toInt(&ok);
+            else if (ok && key == QLatin1String("x")) parsed.x = parts[1].toDouble(&ok);
+            else if (ok && key == QLatin1String("y")) parsed.y = parts[1].toDouble(&ok);
+            else ok = false;
+            if (!ok || parsed.every < 0 || parsed.after < 0 || parsed.angle <= 0) {
+                // Refused by name: a drive that silently posted nothing would read as a window
+                // that received no wheel.
+                std::fprintf(stderr, "note: PDFVIEWER_ZOOM_DRIVE's \"%s\" is not a drive; nothing is posted\n",
+                             qPrintable(pair));
+                return std::nullopt;
+            }
+        }
+        if (parsed.notches == 0) return std::nullopt;
+        return parsed;
+    }();
+    return drive ? &*drive : nullptr;
 }
 
 /// A `rust::String` as Qt spells one. Both are UTF-8, so this is a length and a pointer.
@@ -1246,11 +1298,45 @@ void PageArea::setFrames(QList<QPair<QImage, QRectF>> frames)
     }
     frames_ = std::move(frames);
     update();
+    if (!driveArmed_ && !frames_.isEmpty() && zoomDrive() != nullptr) {
+        driveArmed_ = true;
+        const ZoomDrive* drive = zoomDrive();
+        // One posted event per eighth-degree step, so that a high-resolution wheel's parts of a
+        // notch arrive as it sends them.
+        const int perNotch = std::max(1, 120 / drive->angle);
+        const int events = std::abs(drive->notches) * perNotch;
+        QTimer::singleShot(drive->after, this, [this, events] { driveNotch(0, events); });
+    }
+}
+
+void PageArea::driveNotch(int index, int left)
+{
+    const ZoomDrive* drive = zoomDrive();
+    if (drive == nullptr || left <= 0) return;
+    const QPointF at(width() * drive->x, height() * drive->y);
+    const int angle = drive->notches > 0 ? drive->angle : -drive->angle;
+    probeRecord("drive-post", {{"index", index}, {"angle", angle},
+        {"logical_x", at.x()}, {"logical_y", at.y()}});
+    QCoreApplication::postEvent(this, new QWheelEvent(at, mapToGlobal(at), QPoint(), QPoint(0, angle),
+        Qt::NoButton, Qt::ControlModifier, Qt::NoScrollPhase, false));
+    const int perNotch = std::max(1, 120 / drive->angle);
+    // The parts of one notch follow each other at once; the notches are `every` apart.
+    const int wait = (index + 1) % perNotch == 0 ? drive->every : 0;
+    QTimer::singleShot(wait, this, [this, index, left] { driveNotch(index + 1, left - 1); });
 }
 
 void PageArea::paintEvent(QPaintEvent*)
 {
     probeGeometry();
+    // The first paint follows the compositor's first configure: a first size still held is the
+    // window's, and is told now — after this paint, so that the core's answer is not drawn inside
+    // it (ADR 2267).
+    if (!settled_) {
+        settled_ = true;
+        if (held_) {
+            QTimer::singleShot(0, this, [this] { viewportChanged(); });
+        }
+    }
     const auto began = zoomProbe() ? zoomMicros() : 0;
     if (frames_.isEmpty()) {
         return;
@@ -1283,12 +1369,58 @@ void PageArea::resizeEvent(QResizeEvent* event)
     QWidget::resizeEvent(event);
     chrome_->setGeometry(rect());
     chrome_->raise();
+    // **The first Wayland size is the client's guess, not the window.** Qt states it before the
+    // compositor's first configure, at the output's scale rounded up — 2 on the owner's 1.6 panel
+    // — and the configure then brings the size and the fractional scale. Told to the core, that
+    // guess was drawn: page one at the wrong scale, 27 to 88 ms of the device's time on the
+    // owner's adapter, in front of the page at the right one (ADR 2267). So it is held until a
+    // later size or scale replaces it, or until the first paint, which follows the configure and
+    // says the guess stood. X11 states the window's own size first, and is told at once.
+    // An empty size is the widget before its layout, which states no viewport at all.
+    if (!settled_ && !event->size().isEmpty() && QGuiApplication::platformName() == QLatin1String("wayland")) {
+        const qreal scale = devicePixelRatioF();
+        if (!held_) {
+            held_ = true;
+            heldSize_ = event->size();
+            heldScale_ = scale;
+            if (zoomProbe()) probeRecord("viewport-held", {{"width_logical", heldSize_.width()},
+                {"height_logical", heldSize_.height()}, {"scale", scale}});
+            return;
+        }
+        if (event->size() == heldSize_ && scale == heldScale_) {
+            return;
+        }
+        settled_ = true;
+    }
+    viewportChanged();
+}
+
+bool PageArea::event(QEvent* event)
+{
+    const bool handled = QWidget::event(event);
+    // Qt 6.6's own notice that the ratio moved: a window taken to another output, or the
+    // compositor's fractional scale arriving with no change of logical size, which no resize
+    // states (the Qt half of what `viewer-gtk` reads on `notify::scale`, ADR 2250).
+    if (event->type() == QEvent::DevicePixelRatioChange && (settled_ || held_)) {
+        settled_ = true;
+        viewportChanged();
+    }
+    return handled;
+}
+
+void PageArea::viewportChanged()
+{
     const qreal scale = devicePixelRatioF();
-    const int width = static_cast<int>(qRound(event->size().width() * scale));
-    const int height = static_cast<int>(qRound(event->size().height() * scale));
+    const int width = static_cast<int>(qRound(size().width() * scale));
+    const int height = static_cast<int>(qRound(size().height() * scale));
     if (width <= 0 || height <= 0) {
         return;
     }
+    if (QSize(width, height) == toldDevice_ && scale == toldScale_) {
+        return;
+    }
+    toldDevice_ = QSize(width, height);
+    toldScale_ = scale;
     if (zoomProbe()) {
         std::fprintf(stderr, "zoom-probe qt viewport us=%lld physical=%dx%d dpr=%.6f\n",
             zoomMicros(), width, height, scale);

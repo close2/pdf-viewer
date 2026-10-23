@@ -18,14 +18,16 @@
 //!
 //! Walked: each page's content streams; the form `XObject`s reached through `Do`; the tiling
 //! patterns selected through `scn`/`SCN`; the glyph procedures of a Type 3 font a show operator
-//! ran with; the appearance streams under a page annotation's `/AP`.
+//! ran with; the appearance streams under a page annotation's `/AP`; and the transparency group of
+//! a soft mask a `gs` sets, which §11.6.5.1 makes a form `XObject` and whose colours ISO 19005-2
+//! and ISO 19005-4 section 6.2.4.3 exempt nowhere (ADR 2263).
 //!
-//! Not walked: the group of a soft mask, the image an `SMask` entry names, and the content of a
-//! shading's function. A colour reached only through one of those is not reported, which is this
-//! crate's standing direction of error — **under-report rather than mis-report**, because a
-//! requirement that invents a failure tells a user their conforming file does not conform.
+//! Not walked: the image an `SMask` entry names, and the content of a shading's function. A colour
+//! reached only through one of those is not reported, which is this crate's standing direction of
+//! error — **under-report rather than mis-report**, because a requirement that invents a failure
+//! tells a user their conforming file does not conform.
 //!
-//! The soft-mask image is the one of the three the standard has since answered, and a round that
+//! The soft-mask image is the one of the two the standard has since answered, and a round that
 //! widens the walk to it has to bring the answer along: `TechNote 0010` A026 resolves that
 //! `DeviceGray` as the `ColorSpace` of a soft-mask image dictionary needs neither a default space
 //! nor an output intent, so reaching one without exempting it would turn today's silence into a
@@ -2234,6 +2236,39 @@ mod tests {
         assert_eq!(
             gray.default.explicit, None,
             "A028: the form has no explicitly associated resources dictionary"
+        );
+    }
+
+    /// §11.6.5.1's mask group is a transparency group `XObject`, so a colour it paints is a use of
+    /// that colour space, found from the `gs` that sets the mask (ADR 2263) — and only from there:
+    /// the same page without the `gs` reaches no `DeviceRGB` at all.
+    #[test]
+    fn a_soft_masks_group_is_walked_from_the_graphics_state_that_sets_it() {
+        let inner = "1 0 0 rg 0 0 1 1 re f";
+        let group = format!(
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 1 1] /Group << /S /Transparency \
+             /CS /DeviceGray >> /Length {} >> stream\n{inner}\nendstream",
+            inner.len()
+        );
+        let resources = "/Resources << /ExtGState << /GS0 << /SMask << /S /Luminosity \
+                         /G 5 0 R >> >> >> >>";
+        let rgb = |content: &str| {
+            let document = page_with(content, resources, &[&group]);
+            Survey::of(&document)
+                .device_colours()
+                .iter()
+                .filter(|colour| colour.family == DeviceFamily::Rgb)
+                .count()
+        };
+        assert_eq!(
+            rgb("/GS0 gs 0 g 0 0 1 1 re f"),
+            1,
+            "the mask's `rg` is found"
+        );
+        assert_eq!(
+            rgb("0 g 0 0 1 1 re f"),
+            0,
+            "no mask is set, so none is walked"
         );
     }
 

@@ -1,5 +1,10 @@
 # ADR 2221 — Paint-state stability needs source and context boundaries
 
+Status: **assessment** at the merge that took it, `9cd2c665`: it records no decision a later round
+must not re-litigate, as `doc/reviews/1704-batches-104-to-108-against-the-principles.md` finding 5
+reads it; its acceptance of the red launch gate is superseded by ADR 2242 decision 2 (line added by
+ADR 2260).
+
 The recurring colour regressions are an ownership problem before they are a file-size problem.
 A selected colour has immutable source facts: its resolved colour space, profile and component
 values. Painting has mutable context: target, rendering intent, compensation and the other

@@ -426,6 +426,12 @@ pub(crate) fn encode_answer(answer: &Answer<'_>, marks: &Marks) -> Result<Vec<u8
     Ok(writer.finish())
 }
 
+/// Reads one answer.
+///
+/// # Errors
+///
+/// [`ProtocolError`] where a field is truncated, a discriminant is not one this build defines,
+/// or bytes are left over.
 pub(crate) fn decode_answer(bytes: &[u8]) -> Result<Reply, ProtocolError> {
     decode_answer_reusing(bytes, &mut HeldLists::default())
 }

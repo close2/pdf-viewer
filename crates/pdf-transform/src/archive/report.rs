@@ -1404,6 +1404,15 @@ impl Conversion {
                 if let Some(described) = font.described {
                     let _ = write!(out, "; {}", described.describe());
                 }
+                if !font.losses.is_empty() {
+                    let _ = write!(out, "; it loses {}", font.losses.words());
+                }
+                if let Some(fitting) = font.fitting {
+                    let _ = write!(
+                        out,
+                        ", the horizontal scale {fitting} this viewer drew the face at"
+                    );
+                }
                 let _ = writeln!(out);
             }
         }
@@ -1556,6 +1565,20 @@ fn substituted_to_json(font: &SubstitutedFont) -> Value {
     ];
     if let Some(described) = font.described {
         fields.push(("described".to_owned(), Value::text(described.word())));
+    }
+    if !font.losses.is_empty() {
+        fields.push((
+            "losses".to_owned(),
+            Value::Array(
+                font.losses
+                    .iter()
+                    .map(|loss| Value::text(loss.word()))
+                    .collect(),
+            ),
+        ));
+    }
+    if let Some(fitting) = font.fitting {
+        fields.push(("fitting".to_owned(), Value::text(fitting.to_string())));
     }
     Value::Object(fields)
 }
@@ -1728,18 +1751,24 @@ fn describe(decision: Decision, changed: usize, repeated: bool) -> String {
                 sentence
             )
         }
-        Decision::Authorised { loss, rewrite } => format!(
+        Decision::Authorised { losses, rewrite } => format!(
             "changed with your authorisation: {} — {} ({} done)",
             rewrite.describe(),
-            loss.describe(),
+            losses.describe(),
             changed
         ),
-        Decision::Unauthorised { loss, rewrite } => format!(
+        // Every loss the rewrite incurs is named, and the flag for each: one decision is
+        // authorised whole or not at all (`doc/adr/2262`).
+        Decision::Unauthorised { losses, rewrite } => format!(
             "not done, because it loses something nobody authorised: {} — {}; \
-             --authorise {} allows it",
+             {} allows it",
             rewrite.describe(),
-            loss.describe(),
-            loss.word()
+            losses.describe(),
+            losses
+                .iter()
+                .map(|loss| format!("--authorise {}", loss.word()))
+                .collect::<Vec<_>>()
+                .join(" ")
         ),
         Decision::Refused(because) => format!("refused: {}", because.sentence()),
         Decision::Configured {
@@ -1764,10 +1793,11 @@ impl SignatureDecision {
             ("changed".to_owned(), Value::count(self.changed)),
         ];
         match self.decision {
-            Decision::Authorised { loss, rewrite } | Decision::Unauthorised { loss, rewrite } => {
+            Decision::Authorised { losses, rewrite }
+            | Decision::Unauthorised { losses, rewrite } => {
                 fields.push(("rewrite".to_owned(), Value::text(rewrite.word())));
-                fields.push(("loss".to_owned(), Value::text(loss.word())));
-                fields.push(("loses".to_owned(), Value::text(loss.describe())));
+                fields.push(("loss".to_owned(), Value::text(losses.words())));
+                fields.push(("loses".to_owned(), Value::text(losses.describe())));
             }
             Decision::Refused(because) => {
                 fields.push(("because".to_owned(), Value::text(because.word())));
@@ -1858,10 +1888,11 @@ impl Decided {
                 fields.push(("rewrite".to_owned(), Value::text(rewrite.word())));
                 fields.push(("reinterprets".to_owned(), Value::text(reinterprets)));
             }
-            Decision::Authorised { loss, rewrite } | Decision::Unauthorised { loss, rewrite } => {
+            Decision::Authorised { losses, rewrite }
+            | Decision::Unauthorised { losses, rewrite } => {
                 fields.push(("rewrite".to_owned(), Value::text(rewrite.word())));
-                fields.push(("loss".to_owned(), Value::text(loss.word())));
-                fields.push(("loses".to_owned(), Value::text(loss.describe())));
+                fields.push(("loss".to_owned(), Value::text(losses.words())));
+                fields.push(("loses".to_owned(), Value::text(losses.describe())));
             }
             Decision::Refused(because) => {
                 fields.push(("because".to_owned(), Value::text(because.word())));

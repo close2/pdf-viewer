@@ -131,6 +131,13 @@ pub static SHIFTS: &[Shift] = &[
                   10.6.5.6",
     },
     Shift {
+        clause: "11.6.5.1",
+        earlier: Earlier::Numbered("11.6.5.2"),
+        subject: "soft-mask dictionaries, whose G entry names the transparency group the survey \
+                  walks; ISO 32000-1's own 11.6.5.1 is *General*, the subclause ISO 32000-2 folded \
+                  into 11.6.5",
+    },
+    Shift {
         clause: "12.6.4.17",
         earlier: Earlier::NumberedAndRetitled("12.6.4.16"),
         subject: "ECMAScript actions, which ISO 32000-1 calls *JavaScript actions*; its own \

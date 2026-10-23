@@ -1,5 +1,7 @@
 # 2189 — Record replay keeps the lines it used to walk again
 
+Status: **deferred** at the merge that took it, `020a86f3` (line added by ADR 2260).
+
 Session 1676, slot 6 of batch 1671–1678. Context: ADRs 0087, 2056, 2134 and 2188;
 `doc/todo/75` item 3. Deferred: the measured prototype was removed; selection remains. No clause or ledger status changes:
 this changes how an unchanged scene is rendered at another view.

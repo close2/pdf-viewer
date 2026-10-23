@@ -228,6 +228,11 @@ const FLATTENING: f64 = 255.0 * std::f64::consts::SQRT_2 * (1.0 / 20.0 + 1.0 / 3
 /// §10.7.4 and §10.7.2: a folding stroke covers each pixel by the area of its flattened set there,
 /// which lies within the chords' flatness of the curve's, as the stroke drawn [`LADDER`] times finer
 /// measures it.
+///
+/// The library's converter passes this bound too, the witness reading 255 against 242.4; what is
+/// red on it is the same pieces held to their own flattened set, which only `render_cpu`'s own
+/// tests can reach: `stroke::folding`'s `the_paperclip_s_pieces_are_measured_as_their_flattened_set`
+/// (ADR 2269).
 #[test]
 fn a_folding_stroke_covers_a_pixel_by_its_area() {
     let page = drawn(&scene(false), (WIDTH, HEIGHT), AT_TEN);

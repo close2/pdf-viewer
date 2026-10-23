@@ -1631,3 +1631,46 @@ open moved the old figure from 8.8 to 8.8 inside its 5..9 band and the anonymous
 1.812 (ADR 2244). A band on memory names the share it holds — anonymous for what the program asked for,
 file-backed never — and the plant that proves the instrument sees a megabyte is run before the band is.
 
+## 172. A gate that reads one named source file is taught the directory in the round that splits the file
+
+Three tests of `viewer-ffi` read `src/abi.rs` by name — the unsafe positions, the header against the
+library, every query reaching the ABI — and round 1719's split of that file into eighteen children would
+have left each reading an 88-line root and passing on nothing (ADR 2272). A split lists, before it moves a
+line, every gate and every `tools/state.sh` section that names the file (`grep -rn '<file>' tools crates
+doc/todo/02-every-round.md`), and the same round makes each read the root and its children joined, with
+the counts it held before — 355 entry points — printed unchanged after.
+
+## 173. A conformance test that reads `git ls-files` runs in the worktree, and the report says which tests ran where
+
+An export made by `tools/batch.sh export` sits under the ignored `scratchpad/`, so `bounded`,
+`state_sections`, `submodules` and `workspaces` — the tests that read git's file population — cannot pass
+there, and rounds 1706, 1713 and 1719 each lost a run finding that out (ADR 2260). When a sibling's
+mid-edit forces a round's gates into its export (habit 138), the tests that read git run in the worktree,
+the rest in the export, and the record's `**Gates.**` paragraph names which ran where.
+
+## 174. A rustdoc quotation is attributed to the nearest `§` before it, so the quoted clause's own sign stands directly before the quote
+
+`every_quotation_is_the_standards_own_words` finds the clause a blockquote belongs to by the nearest
+`§` above it; round 1718 put two verbatim quotations under the right clause with a neighbouring clause's
+`§` between, and both failed as not that clause's words (record 1718). The quoted clause's `§` goes on
+the line that introduces the quote and no other clause sign sits between them; and an ISO 19005 clause is
+written "section 6.2.11.2", never with `§`, which the checker reserves for ISO 32000-2.
+
+## 175. A corpus census whose per-document lines are read back runs one test at a time
+
+`tools/state.sh archive` runs `archive_corpus`'s tests in parallel, and their stdout interleaves; round
+1714's first per-document diff of HEAD against its export was garbled by two tests' lines crossing (ADR
+2262). A census whose lines are going to be read document by document — a diff against HEAD, a refusal
+keyed by file — runs with `--test-threads=1`, or writes one file per test; the parallel run is for the
+verdict alone.
+
+## 176. A control for a colour inherited into a group makes the group composite
+
+An opaque single fill alone in a `DeviceCMYK` group gives the group's space up and draws in the parent's,
+so round 1715's first control for a `g` inherited into a CMYK group was green on HEAD and on the fix
+alike and proved nothing; painted at half alpha over a colour the group restores from, it went red on
+HEAD with the expected pixel worked from ADR 0263's four corners (ADR 2264). A control that claims a
+group's colour space decides a pixel first makes that group composite — a partial alpha, a blend, or a
+second mark under it — and shows the expected pixel differs from the parent-space one before it is
+believed.
+

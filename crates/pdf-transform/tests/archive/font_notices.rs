@@ -154,9 +154,17 @@ fn both_metric_restatement_routes_attach_foxit_notice_and_preserve_other_object_
     // A550 includes programs written after metric restatement, not only the unmodified shared
     // stream. Existing metadata belongs to the font and must survive the additional notice.
     let packet = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\"><xmp:CreatorTool>font producer</xmp:CreatorTool></rdf:Description></rdf:RDF></x:xmpmeta>";
+    // The fixture's one width, 500 for an `A` the face draws at 722, has the viewer draw the
+    // substituted face narrowed to it, so the restated route loses that fitting and says so: the
+    // loss `substitute-stretch`, authorised here because the notice is what this test is about
+    // (`doc/adr/2262`).
+    let authorised = Authorisations {
+        substitute_stretch: true,
+        ..Authorisations::default()
+    };
     for embedded in [false, true] {
         let source = foxit_with_descriptor(embedded, embedded.then_some(packet));
-        let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+        let (report, output) = convert(&source, Target::Two(Level::B), authorised);
         let output = written(&report, output);
         assert_eq!(
             holds(&output, Target::Two(Level::B)).verdict(),

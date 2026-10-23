@@ -1,5 +1,7 @@
 # ADR 2224 — Toolkit input receipts name the boundary they observe
 
+Status: **accepted** at the merge that took it, `9cd2c665` (line added by ADR 2260).
+
 A missing core Zoom command does not establish a missing toolkit wheel callback. The callback
 may carry different modifiers, the host may be busy, or the wheel accumulator may retain a
 fractional step. Observe these boundaries separately before changing input handling.

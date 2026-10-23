@@ -113,10 +113,21 @@ the project owner's Windows trace of a 30 MB document that felt slow), in four p
 branch taken and the host's outcome counted apart, and the content widget's geometry in each
 coordinate space it is measured in — and `quorra-gtk` with `PDFVIEWER_ZOOM_CAPTURE_DIR=<dir>` also
 writes each settled whole-page source joined to the generation that painted it (ADR 2240).
-`tools/zoom-probe-drive.py --host gtk|qt --binary <program> --pdf <file> --output <dir> --parser
-tools/zoom-probe-records.py` drives an owned window through them, `--headless` on an Xvfb of its
-own; the records say what input and geometry reached and nothing about latency or sharpness (ADRs
-2228, 2229).
+`tools/zoom-probe-drive.py --x11 --host gtk|qt --binary <program> --pdf <file> --output <dir>
+--parser tools/zoom-probe-records.py` drives an owned window through them by XTest, so only an X11
+window — on a Wayland session that is Xwayland's, which is why `--x11` is required to say so —
+`--headless` on an Xvfb of its own; the records say what input and geometry reached and nothing
+about latency or sharpness (ADRs 2228, 2229). **On Wayland the wheel is driven from inside the
+program**, because no compositor admits synthetic pointer input: `quorra-qt` with
+`PDFVIEWER_ZOOM_PROBE=1 PDFVIEWER_ZOOM_DRIVE=notches=8,every=133,after=3000` posts eight
+Control+wheel notches 133 ms apart, three seconds after its first frame (`angle=15` sends each as a
+high-resolution wheel's eighths, a negative `notches` zooms out, `x`, `y` place the pointer as
+fractions of the page area), through the same handler a real wheel reaches (ADR 2266).
+`tools/zoom-probe-wayland.py` compares the GTK window's settled page with a nested KWin's output at
+each scale, and `--rescale 1.6:1.25` changes the scale under one open window to test the surface's
+scale hook alone (ADRs 2250, 2251). On a KDE session `tools/zoom-probe-activate.py <pid> <file>`
+activates one window and confirms it is the active one, so that a capture of the active window is
+of that window (ADR 2266).
 
 **The binaries a person runs are the merge's to install, and one command does it.** At a batch
 boundary — after the fast-forward, before `close` — the orchestrator runs, from the main checkout:

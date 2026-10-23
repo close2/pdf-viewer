@@ -1937,9 +1937,9 @@ pub(crate) struct HexadecimalSpan {
 ///
 /// Streams whose data this reader cannot decode are skipped, with the consequence that follows:
 /// a filter chain nothing here can run is a stream this rule says nothing about. So is the
-/// content of a soft mask's group and of a shading's function, which the survey does not walk
-/// anywhere. That is the crate's standing direction of error and not a claim that the clause
-/// exempts them.
+/// content of a shading's function, which the survey does not walk anywhere. That is the crate's
+/// standing direction of error and not a claim that the clause exempts it. A soft mask's group
+/// is walked from the `gs` that sets it, so its stream is in the record (ADR 2263).
 ///
 /// # What it costs, measured, and where the halving came from
 ///

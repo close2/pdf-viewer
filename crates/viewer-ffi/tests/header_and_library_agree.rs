@@ -1,4 +1,4 @@
-//! `include/quorra.h` against `src/abi.rs`, read back as text.
+//! `include/quorra.h` against `src/abi.rs` and `src/abi/`, read back as text.
 //!
 //! **This is what buys back the one thing `cbindgen` would have given.** The header is
 //! hand-written on purpose — it is the artefact a C programmer reads, with the reason for each
@@ -82,10 +82,27 @@ fn called_names(text: &str) -> BTreeSet<String> {
     found
 }
 
+/// The text of `src/abi.rs` and of every module under `src/abi/`, joined: the entry points are
+/// spread over the children by concern, and the module root holds none of them (ADR 2272).
+fn abi_source() -> String {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut names: Vec<_> = std::fs::read_dir(src.join("abi"))
+        .expect("this crate has an abi directory")
+        .flatten()
+        .map(|entry| entry.path())
+        .collect();
+    names.sort();
+    let mut text =
+        std::fs::read_to_string(src.join("abi.rs")).expect("this crate has an abi module");
+    for path in names {
+        text.push_str(&std::fs::read_to_string(&path).expect("an abi child reads"));
+    }
+    text
+}
+
 /// Every entry point the Rust exports, taken from the attribute rather than from a list.
 fn exported_names() -> BTreeSet<String> {
-    let abi = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/abi.rs"))
-        .expect("this crate has an abi module");
+    let abi = abi_source();
     let mut found = BTreeSet::new();
     let mut lines = abi.lines();
     while let Some(line) = lines.next() {

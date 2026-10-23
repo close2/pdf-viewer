@@ -1,5 +1,7 @@
 # ADR 2229 — Display rehearsal separates coordinates from performance
 
+Status: **accepted** at the merge that took it, `9cd2c665` (line added by ADR 2260).
+
 The owner's ISO document is the primary witness for Qt zoom lag and GTK blur/deep-zoom drift.
 A useful test must first establish that its input reached the intended viewport. A screenshot's
 size, a GTK Fixed natural allocation or a requested backend does not establish that viewport.

@@ -228,10 +228,12 @@ producers wrote — are swept at each part's lowest level by
 `the_shipped_profiles_list_what_real_producers_files_refuse_on`, which prints the same census and
 names as `FAILED` any document the verb errors or panics on. Its counts are `doc/history/1655`'s.
 Its largest refusal, a standard font stating no descriptor, is built (ADR 2146), and so is the
-Table 124 pairing a shipped face of the other kind met (ADR 2147). What `fonts/font-programs-embedded`
-still refuses there includes eight documents whose shipped substitute has horizontal fitting
-that embedding would remove. This is a change to outlines, not hinting; Q566 asks about an
-explicit loss and neither profile assumes one (ADR 2179). The two Symbol refusals had a missing
+Table 124 pairing a shipped face of the other kind met (ADR 2147). `fonts/font-programs-embedded`
+no longer refuses over the viewer's horizontal fitting: removing it is the loss
+`substitute-stretch` on every route that embeds the shipped face (A566, ADR 2262), `as-if-printed`
+discards it and `as-shown` stops on it, and one decision names it beside `machine-face` where a
+document needs both. Of ADR 2179's eight, four convert; three now fail the output's second verdict
+on a font rule the fitting refusal had hidden (ADR 2262 names them), owed. The two Symbol refusals had a missing
 code-to-name table when TrueType became CFF; stating the source selections clears that font
 refusal, while their independent content-stream fences remain. The direct-resource and
 machine-face cases were addressed in ADR 2162; `machine-face` remains a named loss, accepted by

@@ -1,4 +1,7 @@
 //! Script-event dispatch, runner replies and resumed events.
+//!
+//! The events are ISO 32000-2 §12.6.3's trigger events and the scripts §12.6.4.17's ECMAScript
+//! actions; what a script may reach is RFC 0008's and the reader's level, never this module's.
 
 use super::{
     Applied, Arc, BTreeMap, BTreeSet, Dictionary, Displayed, Document, DocumentState, FieldState,
@@ -20,7 +23,10 @@ impl ViewState {
     }
 
     /// Hands a field event to the runner with the field's own script for its trigger, where there
-    /// is a runner and the trigger's action is one ECMAScript action whose text can be read.
+    /// is a runner and the trigger's action is one ECMAScript action whose text can be read: the
+    /// trigger is a key of ISO 32000-2 §12.6.3's Table 199, and the action §12.6.4.17's, whose
+    /// Table 221 `/JS` is "\[a] text string or text stream containing the ECMAScript script to be
+    /// executed".
     pub(in crate::view::scripts) fn run_field_script(
         &mut self,
         document: &Document,
@@ -202,7 +208,7 @@ impl ViewState {
     /// typing began, unless a person has begun typing into it again; a commit's keystroke that
     /// rewrites the value writes the rewrite; a calculation's value is set; and a format's text is
     /// what the field displays. Every other site takes its edits alone, as it would have at once.
-    /// Table 224's `/CO` is walked again where a value changed.
+    /// ISO 32000-2 §12.7.3's Table 224 `/CO` is walked again where a value changed.
     pub fn apply_resumed(&mut self, document: &Document) -> bool {
         let Some(runner) = self.runner.0.clone() else {
             return false;

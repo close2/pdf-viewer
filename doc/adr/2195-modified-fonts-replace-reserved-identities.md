@@ -1,6 +1,6 @@
 # 2195 — Modified fonts replace reserved identities
 
-Session 1680, archive. Status: accepted; implementation under validation.
+Session 1680, archive. Status: **accepted** at the merge that took it, `b9d05ee8` (line amended by ADR 2260). The round wrote “accepted; implementation under validation”.
 Owner answer A550 accepts Q550's modified-Liberation recommendation.
 
 The shipped Liberation license reserves its family name in Modified Versions.

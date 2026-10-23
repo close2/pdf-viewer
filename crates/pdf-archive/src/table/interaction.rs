@@ -195,8 +195,8 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
              profiles and fonts it uses because those are objects a cross-reference section \
              names. A predicate here would report those same failures under a clause number \
              that adds nothing to them. Two limits, and they are the survey's rather than this \
-             row's: an appearance on no page's /Annots is not walked, nor is a soft mask's \
-             group or a shading's function anywhere; and a fault inside an appearance is \
+             row's: an appearance on no page's /Annots is not walked, nor is a shading's \
+             function anywhere; and a fault inside an appearance is \
              reported against the page the annotation is on",
         ),
     },

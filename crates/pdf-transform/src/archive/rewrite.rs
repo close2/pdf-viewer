@@ -2492,6 +2492,25 @@ impl DefaultSites {
                 }
             }
         }
+        // And the transparency group of every soft mask a graphics state names: ISO 32000-2
+        // §11.6.5.1 makes the mask's `/G` a transparency group form `XObject`, so it is A003's
+        // form dictionary like any other, and the survey judges what it paints (`doc/adr/2263`).
+        if let Some(states) = document.get_key(resources, "ExtGState").as_dict().cloned() {
+            for (_, state) in states.iter() {
+                let state = document.resolve(state);
+                let mask = state
+                    .as_dict()
+                    .map(|state| document.get_key(state, "SMask"));
+                if let Some(group) = mask
+                    .as_ref()
+                    .and_then(Object::as_dict)
+                    .and_then(|mask| mask.get("G"))
+                    .filter(|group| group.as_reference().is_some())
+                {
+                    queue.push_back(group.clone());
+                }
+            }
+        }
     }
 
     /// A page with no `Resources` entry of its own, given the one §7.7.3.4 already puts in force.

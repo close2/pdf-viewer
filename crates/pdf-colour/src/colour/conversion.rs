@@ -107,6 +107,10 @@ type ConversionKey<'a> = (
 
 /// A borrowed complete conversion context, for cache lookups without reference-count churn.
 /// Owning conversions retain the identities after a cache miss; both use the same key.
+///
+/// The fields are `pub` because `pdf_model`'s interpreter builds the context by name, and named
+/// fields are the construction that cannot be got wrong silently: `output_intent` and
+/// `cmyk_group` share a type, so a positional constructor would accept the two swapped.
 #[derive(Debug, Clone, Copy)]
 pub struct ConversionContext<'a> {
     /// The compositing target, including its press and native spots.
@@ -146,9 +150,25 @@ impl<'a> ConversionContext<'a> {
         self.key() == conversion.key()
     }
 
-    /// Retains this complete context, including identity-bearing references.
+    /// [`Conversion::bypasses_black_generation`], asked of the borrowed context.
+    ///
+    /// The one definition: the interpreter asks it of every solid fill, stroke and glyph until
+    /// the page has reported a bypass, and an owned conversion built only to ask it would clone
+    /// up to five `Arc`s per mark (review 1704, finding 2; ADR 2258).
     #[must_use]
-    pub fn to_owned(self) -> Conversion {
+    pub fn bypasses_black_generation(self, space: &ColourSpace) -> bool {
+        self.black_generation.is_some()
+            && matches!(space, ColourSpace::Rgb)
+            && self.cmyk_group.is_none()
+            && matches!(self.into, Compositing::Subtractive(_, press, _) if press.converts_in_by_profile())
+    }
+
+    /// Retains this complete context, including identity-bearing references.
+    ///
+    /// Named for what it returns: `ToOwned::to_owned` would return this type's owned form, and
+    /// the owned form of a borrowed context is a different type, [`Conversion`].
+    #[must_use]
+    pub fn to_conversion(self) -> Conversion {
         Conversion {
             into: self.into.clone(),
             rendering: self.rendering,
@@ -164,7 +184,7 @@ impl<'a> ConversionContext<'a> {
 impl Conversion {
     /// Borrows every field used by equality and cache lookup.
     #[must_use]
-    pub fn context(&self) -> ConversionContext<'_> {
+    pub(crate) fn context(&self) -> ConversionContext<'_> {
         ConversionContext {
             into: &self.into,
             rendering: self.rendering,
@@ -363,10 +383,7 @@ impl Conversion {
     /// profile's B2A table, where the pair has no step to act on (ADR 2187).
     #[must_use]
     pub fn bypasses_black_generation(&self, space: &ColourSpace) -> bool {
-        self.black_generation.is_some()
-            && matches!(space, ColourSpace::Rgb)
-            && self.cmyk_group().is_none()
-            && matches!(&self.into, Compositing::Subtractive(_, press, _) if press.converts_in_by_profile())
+        self.context().bypasses_black_generation(space)
     }
 
     /// The colour `values` become, through [`Compositing::paint_beside`].
@@ -534,10 +551,10 @@ mod context_tests {
             },
         ];
         for (i, left) in variants.iter().enumerate() {
-            let owned = (*left).to_owned();
-            assert_eq!(owned.context().to_owned(), owned);
+            let owned = (*left).to_conversion();
+            assert_eq!(owned.context().to_conversion(), owned);
             for (j, right) in variants.iter().enumerate() {
-                let other = (*right).to_owned();
+                let other = (*right).to_conversion();
                 assert_eq!(left.matches(&other), i == j);
                 assert_eq!(left.matches(&other), owned == other);
             }

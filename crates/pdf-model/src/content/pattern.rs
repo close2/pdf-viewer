@@ -33,6 +33,11 @@ use lattice::{as_f32, bounds_of, spans};
 use tiling::Tiling;
 
 /// The selected tint and the parameters of the mark using it, separate from cell state.
+///
+/// Binding the retained tint to each mark's parameters is what ADR 2212 accepted and priced:
+/// paired whole interpretations of 20 000 cell marks read median ratios of 1.017 for one cell,
+/// 1.011 for many, 1.030 for alternating tints and 1.044 for changed pairs — about 60–408 ns a
+/// mark. `black_generation_order --pattern-cost` runs the four populations.
 #[derive(Debug)]
 pub(super) struct TintBinding {
     source: Rc<tiling::TintSource>,
@@ -50,7 +55,8 @@ impl TintBinding {
 
     /// Whether this same effective conversion bypasses its stated pair.
     pub(super) fn bypasses_black_generation(&self, interpreter: &Interpreter<'_>) -> bool {
-        self.conversion(interpreter)
+        interpreter
+            .paint_context(self.rendering, self.generation.as_ref())
             .bypasses_black_generation(&self.source.space)
     }
 
@@ -512,7 +518,7 @@ impl Interpreter<'_> {
     /// applies them ([`Interpreter::mark_transfer`], ADR 1266).
     pub(super) fn fill_paint(&mut self, state: &GraphicsState) -> Paint {
         let Some(PatternPaint::Shading(pattern)) = &state.fill_pattern else {
-            self.black_generation_painted |= self.solid_bypasses_black_generation(state, true);
+            self.report_solid_black_generation(state, true);
             let colour = self.solid_colour(state, true);
             return Paint::Solid(pdf_render::Color {
                 a: colour.a * state.fill_alpha,
@@ -565,7 +571,7 @@ impl Interpreter<'_> {
     /// As [`Interpreter::fill_paint`], for a stroking mark and §11.6.4.4's stroking constant.
     pub(super) fn stroke_paint(&mut self, state: &GraphicsState) -> Paint {
         let Some(PatternPaint::Shading(pattern)) = &state.stroke_pattern else {
-            self.black_generation_painted |= self.solid_bypasses_black_generation(state, false);
+            self.report_solid_black_generation(state, false);
             let colour = self.solid_colour(state, false);
             return Paint::Solid(pdf_render::Color {
                 a: colour.a * state.stroke_alpha,
