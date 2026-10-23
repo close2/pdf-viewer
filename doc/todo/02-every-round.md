@@ -886,7 +886,9 @@ memory of the session the quota ended. `tools/batch.sh` is the command; this is 
    `scratchpad/open/build.log`: write the briefs while it runs, and the rounds find it warm rather
    than six of them meeting it cold behind one lock (ADR 1451). It then starts `tools/batch.sh
    arms`, detached, into `scratchpad/open/arms.log`: HEAD's six corpus arms, digest by page, into
-   `/home/AI/arms-<first>/`, which a pixels round compares against and never exports (ADR 1650).
+   `/home/AI/arms-<first>/`, which a pixels round compares against and never exports (ADR 1650). A
+   round's record and ADRs say it compared "against HEAD's six arms (`tools/batch.sh arms`)" and
+   name no path for them, because a path outside the tree is never the evidence (ADR 2260).
 2. **Brief each round with the ledger rows it must close — by number, never by topic — from
    `doc/todo/_brief-template.md`, and from nothing else.** A round briefed "work on partial rows"
    writes prose; one briefed "close §8.4.5 and §9.9.1" writes code. Over 58 sessions of topic

@@ -32,6 +32,9 @@ your contract needs and the list did not give you.
 - Model: <name>. Numbers: ADRs <range>, Q<range>, one pair per slot, assigned below.
 - The owner's answers since the last batch: <A files by name, where to read them, read-only>.
 - Open questions nobody builds on: <Q numbers>.
+- HEAD's six corpus arms (`tools/batch.sh arms`), digest by page, at <path> once its README ends
+  `done`: a round compares by page against them, exports none, and its record and ADRs say
+  "against HEAD's six arms (`tools/batch.sh arms`)", naming no path for them (ADR 2260).
 - What changed in the tree since the last brief that every slot must know, as pointers:
   <"section 0 item 5 now says …", "environment rule block, line on …", "trap <n>"> — at most five.
 

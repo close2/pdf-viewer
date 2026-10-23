@@ -36,13 +36,10 @@ use crate::substitute;
 /// > For character codes outside the range FirstChar to LastChar , the value of
 /// > MissingWidth from the FontDescriptor entry for this font shall be used.
 ///
-/// It used to be half an em here, on the reasoning that spacing degrades more gracefully
-/// than it does collapsing to zero. That is a plausible thing to want and not a reading of
-/// anything: the clause states the default, and a producer wanting half an em can write
-/// it. `issue7439.pdf` is what the difference costs — its one line of text shows code 2
-/// six times against a `/FirstChar` of 3 and a descriptor with no `/MissingWidth`, so half
-/// an em of invented space opened six times between `Issue` and `7439`. The page was
-/// contradicted by the reference consensus and now agrees.
+/// The default is the clause's and not a preference about how spacing degrades: a producer
+/// wanting another width can write it. `issue7439.pdf` is the witness — its one line of text
+/// shows code 2 six times against a `/FirstChar` of 3 and a descriptor with no `/MissingWidth`,
+/// so any default but 0 opens space six times between `Issue` and `7439` (ADR 0039).
 const DEFAULT_WIDTH: f32 = 0.0;
 
 /// Narrows a PDF number to `f32`.

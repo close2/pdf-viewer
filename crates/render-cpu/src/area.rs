@@ -99,6 +99,8 @@ use tiny_skia::{FillRule, Path, PathSegment, Point, Transform};
 
 mod union;
 
+pub use union::UnionCondition;
+
 /// The largest accumulator this module will build, in cells.
 ///
 /// Four million is a page of ISO 32000-2 at 150 dpi with room over, and sixteen megabytes of
@@ -149,6 +151,11 @@ pub(crate) struct Region {
 }
 
 impl Region {
+    /// The region on the page's grid: its first column and row, its columns and its rows.
+    fn on_the_page(self) -> [u32; 4] {
+        [self.left, self.top, self.width, self.height]
+    }
+
     /// The region's first column and row on the surface it is written into.
     fn on_surface(self) -> (usize, usize) {
         (
@@ -311,8 +318,8 @@ pub(crate) fn fill(
 
 /// [`fill`], for a mark stated as portions that overlap one another almost everywhere — ADR
 /// 1348's pieces — measured from the boundary of the set they fill under the non-zero rule, found
-/// once for the whole mark by [`union`] (ADR 2122). `false` where [`union`] declines the mark,
-/// before anything is written.
+/// once for the whole mark by [`union`] (ADR 2122). Where [`union`] declines the mark, which mark
+/// and why, before anything is written (ADR 2280).
 ///
 /// The boundary winds once round every point of the set and round no other, so the integral the
 /// accumulator takes of it is the set's area in every pixel, which is what §10.7.4 owes the pixel
@@ -324,51 +331,95 @@ pub(crate) fn fill_union(
     (width, region): (u32, Region),
     path: &Path,
     at: Transform,
-) -> bool {
+) -> Result<(), UnionDecline> {
     let Buffers { cells, union, .. } = buffers;
     union.start();
     trace(union, path, at);
-    if !union.settle() {
-        return false;
+    let settled = union.settle();
+    // A test plants a boundary with a stretch missing here, to hold the decline's route.
+    if tests::an_open_row_is_planted() {
+        union.boundary.pop();
     }
+    let union = &*union;
+    let declined = |condition| UnionDecline {
+        condition,
+        pieces: union.pieces(),
+        pixels: region.on_the_page(),
+    };
+    settled.map_err(declined)?;
     // Every row is checked closed before any is written, so that a declined mark leaves the
     // target as it found it for the converter that draws it instead: in the one pass that writes
     // where the region is one run, which is nearly every mark, and in a pass of its own before it
     // where it is several. A boundary [`union`] returns closes by construction, so a row that does
     // not is a defect, and a build with debug assertions stops on it (ADR 2268).
+    // `region` has stated its accumulator, and a run's is no larger, so a run that states none is
+    // past the budget the region was checked against.
     let several = region.runs().nth(1).is_some();
     if several {
         for run in region.runs() {
-            let Some(accumulator) = boundary_accumulated(cells, &union.boundary, run) else {
-                return false;
-            };
-            let closes = accumulator.every_row_closes();
-            debug_assert!(
-                closes,
-                "a row of the union's boundary does not close (ADR 2268)"
-            );
-            if !closes {
-                return false;
-            }
+            let accumulator = boundary_accumulated(cells, &union.boundary, run)
+                .ok_or(UnionCondition::PastTheBudget)
+                .map_err(declined)?;
+            closed(&accumulator).map_err(declined)?;
         }
     }
     for run in region.runs() {
-        let Some(accumulator) = boundary_accumulated(cells, &union.boundary, run) else {
-            return false;
-        };
+        let accumulator = boundary_accumulated(cells, &union.boundary, run)
+            .ok_or(UnionCondition::PastTheBudget)
+            .map_err(declined)?;
         if !several {
-            let closes = accumulator.every_row_closes();
-            debug_assert!(
-                closes,
-                "a row of the union's boundary does not close (ADR 2268)"
-            );
-            if !closes {
-                return false;
-            }
+            closed(&accumulator).map_err(declined)?;
         }
         read_off(&accumulator, target, (width, run), FillRule::Winding);
     }
-    true
+    Ok(())
+}
+
+/// `Ok` where every row of a boundary's accumulator sums to nothing, which every boundary
+/// [`union`] returns does by construction: a row that does not is a defect, and a build with debug
+/// assertions stops on it (ADR 2268).
+fn closed(accumulator: &Accumulator<'_>) -> Result<(), UnionCondition> {
+    let closes = accumulator.every_row_closes();
+    debug_assert!(
+        closes || tests::an_open_row_is_planted(),
+        "a row of the union's boundary does not close (ADR 2268)"
+    );
+    if closes {
+        Ok(())
+    } else {
+        Err(UnionCondition::RowDoesNotClose)
+    }
+}
+
+/// A mark the union of its pieces declined to the library's converter: which condition, how many
+/// pieces, and where — ADR 2280.
+///
+/// **Said rather than only drawn**, because the library's converter draws such a mark at its own
+/// sixteenths and a page drawn that way looks finished: a decline nobody hears is the silent
+/// fallback `CLAUDE.md`'s first principle forbids. `scan::mask_fill` keeps every one in the
+/// `area::Buffers` it was handed, and the draw hands them to its caller
+/// ([`crate::CpuRasterizer::declined`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct UnionDecline {
+    /// Why the union declined it.
+    pub condition: UnionCondition,
+    /// How many pieces — subpaths holding an edge — the mark states.
+    pub pieces: usize,
+    /// The device pixels it reaches on the surface it was drawn on, on the page's grid: its first
+    /// column, its first row, and how many columns and rows.
+    pub pixels: [u32; 4],
+}
+
+impl std::fmt::Display for UnionDecline {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let [left, top, width, height] = self.pixels;
+        write!(
+            formatter,
+            "a mark of {} pieces, {width}×{height} pixels from ({left}, {top}), was drawn at the \
+             library's sixteenths rather than at its exact area because {}",
+            self.pieces, self.condition
+        )
+    }
 }
 
 /// `boundary` accumulated over `run`, in `cells`; `None` where the run states no accumulator.
@@ -535,6 +586,20 @@ pub(crate) struct Buffers {
     set: SetBuffers,
     /// What [`fill_union`] finds a mark's boundary with.
     union: union::Union,
+    /// The marks declined to the library's converter since these buffers were last asked.
+    declined: Vec<UnionDecline>,
+}
+
+impl Buffers {
+    /// Keeps a decline for the draw's caller.
+    pub(crate) fn keep(&mut self, declined: UnionDecline) {
+        self.declined.push(declined);
+    }
+
+    /// The declines kept since the last time this was asked.
+    pub(crate) fn take_declined(&mut self) -> Vec<UnionDecline> {
+        std::mem::take(&mut self.declined)
+    }
 }
 
 /// The buffers the second measurement is made in; see [`Buffers`].
@@ -2250,6 +2315,11 @@ mod tests {
     pub(super) const fn walk_every_row() -> bool {
         false
     }
+
+    /// See the test module's own.
+    pub(super) const fn an_open_row_is_planted() -> bool {
+        false
+    }
 }
 
 #[cfg(test)]
@@ -2275,6 +2345,108 @@ mod tests {
     /// See [`WALK_EVERY_ROW`].
     pub(super) fn walk_every_row() -> bool {
         WALK_EVERY_ROW.with(std::cell::Cell::get)
+    }
+
+    thread_local! {
+        /// Whether [`super::fill_union`] takes a stretch off every boundary the union returns on
+        /// this thread: the fault a defect of the walk would leave, planted where it acts.
+        static OPEN_ROW: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+
+    /// See [`OPEN_ROW`].
+    pub(super) fn an_open_row_is_planted() -> bool {
+        OPEN_ROW.with(std::cell::Cell::get)
+    }
+
+    /// A circle of radius 1 stroked at `8 w` with round joins, which bends more tightly than its
+    /// half-width and so is stroked as ADR 1348's pieces and measured from their union.
+    fn a_folding_stroke() -> pdf_render::DisplayList {
+        use pdf_render::{Path, PathCommand, Point};
+        let (cx, cy, r) = (20.0_f32, 20.0_f32, 1.0_f32);
+        let k = 0.5523 * r;
+        let mut path = Path::new();
+        path.push(PathCommand::MoveTo(Point::new(cx + r, cy)));
+        path.push(PathCommand::CurveTo(
+            Point::new(cx + r, cy + k),
+            Point::new(cx + k, cy + r),
+            Point::new(cx, cy + r),
+        ));
+        path.push(PathCommand::CurveTo(
+            Point::new(cx - k, cy + r),
+            Point::new(cx - r, cy + k),
+            Point::new(cx - r, cy),
+        ));
+        path.push(PathCommand::CurveTo(
+            Point::new(cx - r, cy - k),
+            Point::new(cx - k, cy - r),
+            Point::new(cx, cy - r),
+        ));
+        path.push(PathCommand::CurveTo(
+            Point::new(cx + k, cy - r),
+            Point::new(cx + r, cy - k),
+            Point::new(cx + r, cy),
+        ));
+        path.push(PathCommand::Close);
+        let mut list = pdf_render::DisplayList::new(pdf_render::Size::new(40.0, 40.0));
+        list.push(pdf_render::Command::Stroke {
+            path: std::sync::Arc::new(path),
+            transform: pdf_render::Transform::IDENTITY,
+            stroke: pdf_render::Stroke {
+                width: 8.0,
+                cap: pdf_render::LineCap::Butt,
+                join: pdf_render::LineJoin::Round,
+                miter_limit: 4.0,
+                dash_array: Vec::new(),
+                dash_phase: 0.0,
+                adjust: false,
+            },
+            paint: pdf_render::Paint::Solid(pdf_render::Color::BLACK),
+            clip: None,
+            mask: None,
+            blend: pdf_render::BlendMode::Normal,
+        });
+        list
+    }
+
+    /// A mark the union declines is said by the draw and still drawn (ADR 2280): a row that does
+    /// not close, planted where `fill_union` checks it, reaches [`crate::CpuRasterizer::declined`]
+    /// as [`super::UnionCondition::RowDoesNotClose`] with the mark's pieces and pixels, and the
+    /// library's converter draws the mark; the same draw unplanted declines nothing. The stroke's
+    /// set is §8.4.3.2's disk of radius 5 about `(20, 20)`, so its centre pixel is black either
+    /// way.
+    #[test]
+    fn a_planted_open_row_is_said_by_the_draw_and_the_mark_is_drawn() {
+        let list = a_folding_stroke();
+        let target = pdf_render::TargetSpec {
+            width: 40,
+            height: 40,
+            transform: pdf_render::Transform::IDENTITY,
+        };
+        let draw = |rasterizer: &mut crate::CpuRasterizer| {
+            pdf_render::Rasterizer::rasterize(rasterizer, &list, target).expect("drawn")
+        };
+        let mut rasterizer = crate::CpuRasterizer::new().with_strips(1);
+        let measured = draw(&mut rasterizer);
+        assert_eq!(rasterizer.declined(), &[]);
+        OPEN_ROW.with(|planted| planted.set(true));
+        let declined = draw(&mut rasterizer);
+        OPEN_ROW.with(|planted| planted.set(false));
+        let [said] = rasterizer.declined() else {
+            panic!("one decline, not {:?}", rasterizer.declined());
+        };
+        assert_eq!(said.condition, super::UnionCondition::RowDoesNotClose);
+        assert!(said.condition.is_defect());
+        assert!(said.pieces > 1, "{said:?}");
+        let [left, top, width, height] = said.pixels;
+        assert!(left <= 15 && top <= 15 && left + width >= 25 && top + height >= 25);
+        assert!(said.to_string().contains("did not close"), "{said}");
+        for raster in [&measured, &declined] {
+            let centre = ((20 * 40 + 20) * 4) as usize;
+            assert_eq!(&raster.data[centre..centre + 3], &[0, 0, 0]);
+        }
+        // And the next draw says only what it declined itself.
+        draw(&mut rasterizer);
+        assert_eq!(rasterizer.declined(), &[]);
     }
 
     /// The coverage of a `width` by `height` mask, as levels.
@@ -2656,7 +2828,7 @@ mod tests {
         let mut union = super::union::Union::default();
         union.start();
         super::trace(&mut union, &path, tiny_skia::Transform::identity());
-        assert!(union.settle(), "the mark is not declined");
+        assert_eq!(union.settle(), Ok(()), "the mark is not declined");
         // Every point the boundary passes through is left as often as it is reached.
         let mut balance = std::collections::BTreeMap::<(u32, u32), i32>::new();
         for [from, to] in &union.boundary {
@@ -2686,13 +2858,16 @@ mod tests {
         let at = tiny_skia::Transform::identity();
         let drawn = region(&path, at, (width, height), (0, 0)).expect("a region");
         let mut target = vec![0_u8; (width * height) as usize];
-        assert!(super::fill_union(
-            &mut super::Buffers::default(),
-            &mut target,
-            (width, drawn),
-            &path,
-            at,
-        ));
+        assert_eq!(
+            super::fill_union(
+                &mut super::Buffers::default(),
+                &mut target,
+                (width, drawn),
+                &path,
+                at,
+            ),
+            Ok(())
+        );
     }
 
     /// The guard `fill_union` declines a mark by, where it acts (ADR 2252): every row of a closed

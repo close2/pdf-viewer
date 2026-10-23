@@ -86,7 +86,9 @@ that way, a curve that cannot fold included, every fill the row walk draws freei
 whose curves bend more tightly than its half-width — those curves as pieces, the stretches between
 as the stroker's outline (ADRs 1348, 1359) — from the boundary of the set the pieces fill, its
 chords at a twentieth of a pixel, its mitres and caps the path's own and its round joins turned
-through the way the path arrives (ADRs 2122, 2252, 2268, 2269), lifts a shape too small to show to one level as a whole
+through the way the path arrives (ADRs 2122, 2252, 2268, 2269), a piece the path states twice
+weighed twice and a thin piece entered from a vertical ray, every mark it still declines named to
+the draw's caller (ADRs 2280, 2281), lifts a shape too small to show to one level as a whole
 shape, which is what §10.7.4 asks the lift of, so the sliver beside a shape that does show keeps its
 own level rather than being painted as ink (ADR 1374), and measures a path
 whose portions overlap as the set its fill rule declares inside rather than composite the portions
@@ -635,7 +637,9 @@ with Table 140's group alpha kept beside the accumulation (ADR 1305); every elem
 shape on every route, a stencil painted through a pattern included, and §11.6.4.3's reading of
 `/AIS` is kept by the scope that paints under it — a tiling cell, a text object, each glyph pair —
 restored by `Q`, and read element by element where one scope paints under both (ADRs 1301, 1306,
-1319). A tiling cell starts from the graphics state its parent stream began with (ADR 1320). The
+1319). A tiling cell starts from the graphics state its parent stream began with (ADR 1320). A knockout
+element that is a fill or a stroke is drawn in the clause's two stages, so its fractional shape is the
+area `crate::area` measures rather than the library's lattice of sixteenths (ADR 2286). The
 two graphics backends refuse a non-isolated knockout group by name, because each of its elements
 composites with the group's own initial backdrop. **And where the file states a
 black generation, it replaces the device's default**: Table 57's `/BG`, `/BG2`, `/UCR` and `/UCR2`
@@ -655,9 +659,11 @@ nested target (ADR 2212), a direct `ICCBased` colour's profile and components, s
 `/UseBlackPtComp` set after the colour still decides its conversion (ADR 2222), and an `Indexed`
 colour over an immediate `ICCBased` base as its decoded entry (ADR 2234), and a `Separation`,
 `DeviceN`, calibrated or `Lab` colour as its resolved space and operands (ADR 2248), each restored
-by `Q` and across a Form's resources (ADRs 2208, 2221). The other `Indexed` bases and plain
-`DeviceGray` and `DeviceCMYK` solids are not yet kept this way, which is why §11.7.5.3's row stays
-`partial` (ADR 2248).
+by `Q` and across a Form's resources (ADRs 2208, 2221). So is an `Indexed` entry over any base and a
+plain `DeviceGray` or `DeviceCMYK` colour (ADR 2264), and `DeviceCMYK` itself is read where a colour
+paints: a `k` the output intent resolved on the page is an `ICCBased` CMYK group's own components
+inside it, §11.7.2's redefinition (ADR 2276). §11.7.5.3's row is `departed` on the one target ADR
+1242 keeps.
 
 ### A mesh patch on the backend
 
@@ -706,7 +712,7 @@ runs, so the power-up an idle GPU starts on an open runs beside it (ADR 1658) �
 page one is interpreted on the document's thread beside it (`Viewer::anticipate`, ADR 1531), so
 the first resize goes straight to the render. Nothing on the device's thread waits for warmth:
 the warm-up's state has a lock of its own rather than the pipeline store's compile lock, so a
-window reading its bring-up as it detaches its presenter is answered at once (ADR 1558). The other three windows do the same in their own
+window reading its bring-up as it detaches its presenter is answered at once (ADR 1558). Where a display is named, Mesa's device-selection layer asks its server for the device on each of the launch's two enumerations — the display's share of a window's bring-up, which the headless gate does not hold — and the toolkit windows print the device thread's steps on their bring-up line (ADRs 2282, 2283). The other three windows do the same in their own
 shape (ADR 1539): `quorra-gtk` and `quorra-qt` open and interpret on a thread while the toolkit
 comes up, and `quorra-confined` starts its worker and opens the document in it before the window,
 the worker interpreting page one with no viewport. What page one does not need the open does not read: §12.3.3's outline
@@ -764,7 +770,11 @@ corpus states a thread is `crates/pdf-model/tests/articles.rs`'s to say — not 
 font programs, whose licences it carries. **What a key means is one
 value, `viewer_host::keys`, that all three hosts translate their toolkit's key into**, each with a
 test that fails when it stops translating the whole of it (ADR 0526), and Control with the wheel zooms about the
-pointer in all three through one `viewer_host::ZoomWheel` (ADR 1466). **A draw a person is waiting for says so and
+pointer in all three through one `viewer_host::ZoomWheel` (ADR 1466). **A wheel counts whole notches in both toolkit
+windows** — `viewer_host::WheelTravel::of` takes a wheel's angle and a touchpad's pixels, `DiscreteWheel` counts the
+fractions as GTK's `DISCRETE` controller does, a notch scrolls `SCROLL_NOTCH`'s 48 logical pixels, a click zooms one
+step and less than a click zooms by that part of a step at once (`ZoomTravel`) — and a zoom gesture holds the page
+point it was pointed at through the steps on which the page is centred (ADRs 2274, 2275). **A draw a person is waiting for says so and
 offers a key**: a page — or, on the window that draws whole frames, a view — still being drawn
 after `viewer_host::drawing::WARN` puts a sentence in the status bar naming Escape, and Escape then
 takes the drawing thread back without reporting anything to the core, so the page keeps its picture

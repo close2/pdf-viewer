@@ -116,7 +116,7 @@ pub use command::{
 pub use event::{Event, Extraction, Found, Media, RenderRequest};
 pub use interact::states_a_pdf_header;
 pub use located::Located;
-pub use open::{Preparation, Prepared};
+pub use open::{Preparation, Prepared, ZOOM_STEP};
 /// What [`Edit::SetField`] puts into a field: §12.7.5.3's characters, §12.7.5.4's chosen options,
 /// or nothing.
 ///

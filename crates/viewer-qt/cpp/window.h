@@ -435,8 +435,9 @@ Q_SIGNALS:
     void resizedTo(unsigned int width, unsigned int height, float scale);
     /// The pointer moved or a button changed: 0 moved, 1 pressed, 2 dragged, 3 released.
     void pointerAt(float x, float y, unsigned char action, quint64 sequence);
-    /// The wheel turned, in device pixels of the viewport.
-    void scrolledBy(float dx, float dy, quint64 sequence);
+    /// The wheel turned away from the person: in logical pixels where `pixels`, otherwise in
+    /// notches, which the host carries until they complete one (ADR 2274).
+    void scrolledBy(float dx, float dy, bool pixels, quint64 sequence);
     /// Control and the wheel: `amount` turned away from the person, in notches or — where
     /// `pixels` — in pixels, about the pointer at `(x, y)` in device pixels of the viewport.
     void wheelZoomed(float amount, bool pixels, float x, float y, quint64 sequence);

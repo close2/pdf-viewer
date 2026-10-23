@@ -340,6 +340,14 @@ calibration_ms = 0.62 .. 0.74
 # carve-out was not placed there, the figure is printed with that reading and not judged, named
 # for the carve-out, which is the guard made of what moves the figure (trap 34); the processor
 # probes cannot see it. An adapter that reports no placement is judged as before.
+#
+# **What this band does not hold is the display's share, and it is named** (ADR 2282). The children
+# carry no `DISPLAY` and no `WAYLAND_DISPLAY`, so Mesa's device-selection layer asks no display
+# server for its device; where one is named it asks on each of the launch's two enumerations, 13 to
+# 25 ms on the owner's Wayland session against this child's 26.1 to 30.7 there. No pipeline is in
+# this figure: raster returns the device before its warm set, and the first frame's own compiles
+# are the first page's. `quorra-qt` and `quorra-gtk` print the same steps on their `graphics
+# device up in` line, and ADR 2283 prices the levers.
 bring_up_ms = 13.6 .. 20.6
 
 # What the device costs in *allocated* memory, in the same process that has done nothing else.

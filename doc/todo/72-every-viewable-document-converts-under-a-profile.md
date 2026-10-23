@@ -162,10 +162,9 @@ profiles answer it with `preserve` (ADR 1942).
   keeps `stop`, since the window drew those shapes. No owner's word is needed: an operator who
   wants the machine's shapes kept names that face with `--font`, which is already the statement
   §9.9.1 asks for. Where the page shows a code the shipped face lacks, a mark would be lost, and
-  both profiles refuse. **Owed**: a font that already states a descriptor and whose dictionary
-  needs no restating embeds the shipped face over a machine's face as a statement, unasked. On
-  this machine that is every TrueType font whose name `substitute::find` matches to an installed
-  face. The same loss should name it, and pricing its census is that build.
+  both profiles refuse. A font that already states a descriptor and whose dictionary needs no
+  restating — on this machine, every TrueType font whose name `substitute::find` matches to an
+  installed face — is the same loss and is named by it (ADR 2279, which has the census).
 - **The `DefaultCMYK` row's sentence is false for this renderer.** Pol.pdf's DeviceCMYK text moves
   by up to 34 of 255 under §10.4.2.5's conversion the converter writes; the sentence says this
   renderer already drew those colours so. Either draw DeviceCMYK the §10.4.2.5 way without an
@@ -232,8 +231,11 @@ Table 124 pairing a shipped face of the other kind met (ADR 2147). `fonts/font-p
 no longer refuses over the viewer's horizontal fitting: removing it is the loss
 `substitute-stretch` on every route that embeds the shipped face (A566, ADR 2262), `as-if-printed`
 discards it and `as-shown` stops on it, and one decision names it beside `machine-face` where a
-document needs both. Of ADR 2179's eight, four convert; three now fail the output's second verdict
-on a font rule the fitting refusal had hidden (ADR 2262 names them), owed. The two Symbol refusals had a missing
+document needs both. Of ADR 2179's eight, four convert; the other three failed the output's second
+verdict on a font rule the fitting refusal had hidden, each the converter's, and now convert under
+`as-if-printed` (ADR 2278): a `Differences` array naming `.notdef` is restated once the dictionary
+is `TrueType`, and a descriptor flagged Symbolic beside the Latin encoding it is given says
+Nonsymbolic. The two Symbol refusals had a missing
 code-to-name table when TrueType became CFF; stating the source selections clears that font
 refusal, while their independent content-stream fences remain. The direct-resource and
 machine-face cases were addressed in ADR 2162; `machine-face` remains a named loss, accepted by

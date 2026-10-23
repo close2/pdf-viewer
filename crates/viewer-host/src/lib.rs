@@ -219,7 +219,9 @@ pub use status::{
     cannot_open, drew_after_all, no_pages, on_screen, still_drawing, stopped_drawing,
 };
 pub use trace::{Topic, Trace, parse_topics};
-pub use wheel::{ZOOM_PIXELS, ZoomWheel};
+pub use wheel::{
+    DiscreteWheel, SCROLL_NOTCH, WheelTravel, ZOOM_PIXELS, ZoomTravel, ZoomWheel, placement_receipt,
+};
 
 /// The third-party notices every binary in this tree is obliged to carry with it.
 ///

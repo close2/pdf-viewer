@@ -473,6 +473,12 @@ impl Scratch {
             ..Self::default()
         }
     }
+
+    /// The marks the band's fills declined to the library's converter since this was last
+    /// asked ([`mask_fill`], ADR 2280).
+    pub(crate) fn take_declined(&mut self) -> Vec<crate::area::UnionDecline> {
+        self.cells.get_mut().take_declined()
+    }
 }
 
 /// [`tiny_skia::PixmapMut::fill_path`], with the range applied to `paint.anti_alias` and
@@ -1431,15 +1437,25 @@ pub(crate) fn mask_fill(
     // mark [`crate::area`] declines — one past its cell budget or past [`MEASURED_LIMIT`], one the
     // transform states no bounds for — and it draws it aliased where the range withdrew its
     // anti-aliasing. A folding stroke's pieces, which overlap one another almost everywhere, are
-    // measured from their union's boundary, which is the non-zero rule's set (ADR 2122).
+    // measured from their union's boundary, which is the non-zero rule's set (ADR 2122); a mark
+    // the union declines is kept in `cells`, which mark and why, for the draw's caller to say
+    // (ADR 2280).
     let extent = (mask.width(), mask.height());
     if matches!(exact, Exact::Pieces) {
         if keep_anti_alias(anti_alias, measurable(path, place.grid))
             && fill_rule == tiny_skia::FillRule::Winding
             && let Some(region) = crate::area::region(path, place.grid, extent, place.corner)
-            && crate::area::fill_union(cells, mask.data_mut(), (extent.0, region), path, place.grid)
         {
-            return;
+            match crate::area::fill_union(
+                cells,
+                mask.data_mut(),
+                (extent.0, region),
+                path,
+                place.grid,
+            ) {
+                Ok(()) => return,
+                Err(declined) => cells.keep(declined),
+            }
         }
     } else if keep_anti_alias(anti_alias, measurable(path, place.grid))
         && let Some(region) = crate::area::region(path, place.grid, extent, place.corner)

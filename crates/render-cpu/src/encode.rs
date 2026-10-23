@@ -124,9 +124,18 @@ impl CpuRasterizer {
         // stages instead, with an opaque twin of itself as the shape: `(1 − f) × P + S`,
         // which is what the bare draw means and what Destination-Out then Plus compute
         // through a mask exactly (ADR 1320).
+        //
+        // **A path is drawn in the two stages whether or not a clip cuts it**, because the
+        // bare draw's coverage is the library's: Source is the one mode `scan::intersected`
+        // cannot deliver a measured coverage under, so a knockout element's edges were the
+        // supersampled converter's lattice of sixteenths where every other mark's are the
+        // area `crate::area` measures — `f` read a quarter for a 0.13-pixel band. The two
+        // stages are Over-family modes, so both reach that measurement (ADR 2286).
         if compose == Compose::Knockout
-            && let Some(clip) = command.clip()
-            && !masks.cuts_nothing(list, clip, marks_reach(command, surface.page.transform))
+            && (matches!(command, Command::Fill { .. } | Command::Stroke { .. })
+                || command.clip().is_some_and(|clip| {
+                    !masks.cuts_nothing(list, clip, marks_reach(command, surface.page.transform))
+                }))
             && let Some(shape) = coverage_twin(command)
         {
             self.encode_shaped(

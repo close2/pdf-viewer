@@ -67,8 +67,16 @@ impl TintBinding {
         {
             return interpreter.rgb_paint(values, self.rendering, self.generation.as_ref(), fill);
         }
-        self.conversion(interpreter)
-            .paint(&self.source.space, &self.source.values)
+        let conversion = self.conversion(interpreter);
+        let read = super::colour::read_where_painted(
+            &conversion,
+            &self.source.space,
+            self.source.device_cmyk.as_ref(),
+        );
+        conversion.paint(
+            read.as_ref().unwrap_or(&self.source.space),
+            &self.source.values,
+        )
     }
 }
 

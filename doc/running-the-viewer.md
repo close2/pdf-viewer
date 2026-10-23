@@ -125,7 +125,11 @@ high-resolution wheel's eighths, a negative `notches` zooms out, `x`, `y` place 
 fractions of the page area), through the same handler a real wheel reaches (ADR 2266).
 `tools/zoom-probe-wayland.py` compares the GTK window's settled page with a nested KWin's output at
 each scale, and `--rescale 1.6:1.25` changes the scale under one open window to test the surface's
-scale hook alone (ADRs 2250, 2251). On a KDE session `tools/zoom-probe-activate.py <pid> <file>`
+scale hook alone (ADRs 2250, 2251). On that nested KWin the probe sends input itself, through
+KWin's own EIS interface: `--wheel` reads a window's count of a wheel off the output — zoom steps of
+four Control notches, a notch's scroll, the eighths that moved the page — and `--drift` puts the
+pointer on a marker, sends ten notches in and ten out, and splits the marker's offset into the core's
+anchor and the window's placement (ADRs 2274, 2275). On a KDE session `tools/zoom-probe-activate.py <pid> <file>`
 activates one window and confirms it is the active one, so that a capture of the active window is
 of that window (ADR 2266).
 

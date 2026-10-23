@@ -765,8 +765,14 @@ impl Drop for Descent {
 /// What is left undecided is written down rather than hidden, and it is the part-1 case: an
 /// embedded file declaring ISO 19005-1 is passed over, because part 1 is not a target
 /// (`doc/questions/A17`) and refusing it would be refusing a document over a text this project
-/// does not hold. A file declaring nothing is passed over for the weaker version of the same
-/// reason — it may be a part 1 or part 3 file, and this crate cannot tell.
+/// does not hold.
+///
+/// **A PDF declaring no part at all fails.** Section 6.8 admits an embedded file on the condition
+/// that it complies, and section 6.9 requires that it conform: the compliance is the condition, and
+/// the file's own identification is the one statement of it both parts this crate holds require of
+/// a conforming file. A document that states none has established nothing the condition can rest
+/// on, and passing it would be the validator supplying a claim the producer never made
+/// (`doc/adr/2278`).
 ///
 /// The rule is also **wider than part 2's sentence in one direction and narrower in another**, and
 /// deliberately: section 6.8 admits only ISO 19005-1 and part 2 where section 6.9 admits parts 1, 2
@@ -818,6 +824,14 @@ fn judge_embedded(place: &Where, bytes: Arc<[u8]>, findings: &mut Findings) {
         return;
     };
     let Some(target) = super::metadata::declared_target(&embedded) else {
+        if !super::metadata::declares_a_part(&embedded) {
+            findings.record(
+                place.clone(),
+                "an embedded PDF document states no part of ISO 19005 in its identification \
+                 schema, so nothing establishes the conformance the clause makes the condition of \
+                 embedding it",
+            );
+        }
         return;
     };
     let Some(_descent) = Descent::one_level() else {
@@ -1361,9 +1375,9 @@ mod tests {
     /// ISO 19005-2 section 6.8, ISO 19005-4 section 6.9: the half of the rule that needs no
     /// recursion.
     ///
-    /// A stream that is not a PDF at all conforms to no part of ISO 19005, and a stream that
-    /// declares no part is passed over — it may be the part 1 or part 3 file this crate cannot
-    /// judge, and refusing it would be refusing a document over a text the project does not hold.
+    /// A stream that is not a PDF at all conforms to no part of ISO 19005; one that is a PDF and
+    /// declares no part has established nothing the clause's condition rests on
+    /// (`doc/adr/2278`); one declaring part 1 is passed over, the part this crate cannot judge.
     #[test]
     fn an_embedded_file_that_is_not_a_pdf_conforms_to_no_part_of_iso_19005() {
         let embedding = |data: &str| {
@@ -1386,6 +1400,38 @@ mod tests {
             found(embedded_file_is_itself_pdfa, &document("", "")),
             0,
             "a document that embeds nothing has nothing to be judged"
+        );
+        let pdf = |catalog: &str, more: &str| {
+            format!(
+                "%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R{catalog} >>\nendobj\n\
+                 2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n{more}\
+                 trailer\n<< /Root 1 0 R >>\n%%EOF"
+            )
+        };
+        assert_eq!(
+            found(embedded_file_is_itself_pdfa, &embedding(&pdf("", ""))),
+            1,
+            "a PDF document stating no part of ISO 19005 has not established the condition"
+        );
+        let packet = "<?xpacket begin=\"\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\
+                      <x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF \
+                      xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
+                      <rdf:Description rdf:about=\"\" \
+                      xmlns:pdfaid=\"http://www.aiim.org/pdfa/ns/id/\">\
+                      <pdfaid:part>1</pdfaid:part><pdfaid:conformance>B</pdfaid:conformance>\
+                      </rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end=\"w\"?>";
+        let declared = pdf(
+            " /Metadata 3 0 R",
+            &format!(
+                "3 0 obj\n<< /Type /Metadata /Subtype /XML /Length {} >>\nstream\n{packet}\n\
+                 endstream\nendobj\n",
+                packet.len()
+            ),
+        );
+        assert_eq!(
+            found(embedded_file_is_itself_pdfa, &embedding(&declared)),
+            0,
+            "a PDF document declaring part 1 is the claim this crate cannot judge"
         );
     }
 

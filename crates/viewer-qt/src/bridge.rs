@@ -40,7 +40,9 @@
 //! is the only crate permitted `unsafe`" was a rule about promises a reviewer has to check, and
 //! that one promise in one place, with a test on it, is what keeps it.
 
-use crate::host::{Host, leader_cycles, reached_stop, rule_pieces, rule_thickness};
+use crate::host::{
+    Host, leader_cycles, reached_stop, rule_pieces, rule_thickness, wheel_in_pixels,
+};
 
 /// The generated bridge.
 ///
@@ -729,8 +731,9 @@ pub mod ffi {
         /// an arrow key is making a choice control's selection, which the window says around the
         /// selection alone (ADR 1786).
         fn keys(self: &mut Host, shift: bool, control: bool, arrows: bool);
-        /// The wheel turned, in device pixels of the viewport.
-        fn scrolled(self: &mut Host, dx: f32, dy: f32);
+        /// The wheel turned away from the person by `(dx, dy)`: in logical pixels where `pixels`,
+        /// otherwise in notches, which the host carries until they complete one (ADR 2274).
+        fn scrolled(self: &mut Host, dx: f32, dy: f32, pixels: bool);
         /// Control and the wheel: `amount` turned away from the person, in notches or — where
         /// `pixels` — in device pixels, about the pointer at `(x, y)` in device pixels.
         fn wheel_zoom(self: &mut Host, amount: f32, pixels: bool, x: f32, y: f32);
@@ -1156,6 +1159,16 @@ pub mod ffi {
         /// `viewer_host::popup::rule_thickness`: `stated`, or where it is below zero the
         /// thickness this program draws an underline at in a run `em` pixels tall.
         fn rule_thickness(stated: f32, em: f32) -> f32;
+        /// `viewer_host::WheelTravel::of`: whether a wheel event that stated `angle` eighths of a
+        /// degree and `pixel` logical pixels is counted in pixels, which is a touchpad `gesture`'s
+        /// unit, rather than in notches, which is a wheel's (ADR 2274).
+        fn wheel_in_pixels(
+            angle_x: i32,
+            angle_y: i32,
+            pixel_x: i32,
+            pixel_y: i32,
+            gesture: bool,
+        ) -> bool;
     }
 
     unsafe extern "C++" {

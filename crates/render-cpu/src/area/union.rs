@@ -39,15 +39,27 @@
 //! is moved by its own infinitesimal, in an order fixed by its index, so that every question has
 //! an answer and every answer is about one configuration.
 //!
+//! # A piece stated twice
+//!
+//! A path that retraces itself states some of its pieces twice, vertex for vertex, and every point
+//! of such a piece's edges lies on its twin's, so no ray can start a walk beside one and two of
+//! their edges may cross along a common line. Under the non-zero rule a contour stated `k` times
+//! is one contour whose edges each change the winding by `k`, so where the walk declines a mark for
+//! either reason the twins are taken as one contour of that **weight** and the mark is tried again:
+//! the winding is the same at every point off the edges, so the set and its boundary are too. A
+//! mark the walk measures at the first attempt is measured as it was, twins or none (ADR 2281).
+//!
 //! # What it declines
 //!
 //! Two inputs the construction cannot place, each degenerate, go to the converter that drew a
-//! mark before this existed. Where two edges cross along a common line the crossing has no
-//! position. And a contour may have no point to start from: every point tried on every edge that
-//! is not horizontal lies on another edge as well, which is a path that retraces itself and so
-//! states each of its pieces twice, or a piece whose upright sides all lie along other pieces'
-//! (ADR 2268). A mark whose walk does not return to the winding it started from is declined too,
-//! and that one no consistent arithmetic allows, so a build with debug assertions stops on it.
+//! mark before this existed, and each is said: [`UnionCondition`] names it, and `scan::mask_fill`
+//! keeps it for the draw's caller (ADR 2280). Where two edges cross along a common line that no
+//! twin explains, the crossing has no position. And a contour may have no point to start from:
+//! every point tried on every edge lies on another edge as well — an upright edge's from a
+//! horizontal ray, and where none is free a horizontal edge's from a vertical one, which is what
+//! enters a thin piece whose upright sides lie along its neighbours' (ADR 2281). A mark whose walk
+//! does not return to the winding it started from is declined too, and that one no consistent
+//! arithmetic allows, so a build with debug assertions stops on it.
 //!
 //! Where along an edge a crossing lies is a ratio of two determinants, each rounded once to
 //! `f64`, so two crossings closer than a part in about `2^50` of the edge may be taken in the
@@ -168,6 +180,8 @@ struct Edge {
     bounds: Bounds,
     /// Its contour.
     contour: u32,
+    /// How many times the path states its contour: what crossing it changes the winding by.
+    weight: i8,
 }
 
 /// Consecutive edges of one contour, filed together.
@@ -192,7 +206,8 @@ struct Crossing {
     other: u32,
     /// Where along the edge, from `0` at its start to `1` at its end.
     t: f64,
-    /// What it adds to the winding on either side of the edge, walking the edge's way.
+    /// What it adds to the winding on either side of the edge, walking the edge's way: the other
+    /// edge's weight, signed.
     step: i8,
     /// Where it is, computed once for both edges.
     at: Point,
@@ -233,6 +248,11 @@ pub(super) struct Union {
     queue: Vec<usize>,
     /// The last ray cast, which is what [`Union::stamps`] are marked with.
     ray: u32,
+    /// Per vertex count and sums of coordinates, the last contour with them, while twins are
+    /// merged: what a contour is compared with before its vertices are.
+    twin_keys: std::collections::HashMap<(usize, i64, i64), u32>,
+    /// Per contour, the one before it with the same key, while twins are merged.
+    same_key: Vec<Option<u32>>,
     /// The boundary, as directed device-space edges.
     pub(super) boundary: Vec<[Point; 2]>,
 }
@@ -257,18 +277,46 @@ impl Union {
     }
 
     /// Replaces the traced edges by the boundary of the set they fill under the non-zero rule,
-    /// left in [`Union::boundary`]; `false` where the mark is declined — see the module's comment.
-    pub(super) fn settle(&mut self) -> bool {
+    /// left in [`Union::boundary`]; the condition the mark is declined for where it is — see the
+    /// module's comment.
+    pub(super) fn settle(&mut self) -> Result<(), UnionCondition> {
+        match self.settle_as(Twins::Apart) {
+            // Only where the walk could not place the mark, so that a mark it measures stays
+            // measured to the bit: a twin is what both of these are where a path retraces itself.
+            Err(UnionCondition::NoStartingPoint | UnionCondition::CrossingAlongALine)
+                if self.has_twins() =>
+            {
+                self.settle_as(Twins::Merged)
+            }
+            settled => settled,
+        }
+    }
+
+    /// The pieces the traced path states: its subpaths that hold an edge.
+    pub(super) fn pieces(&self) -> usize {
+        let spans = self
+            .subpaths
+            .windows(2)
+            .filter(|pair| matches!(pair, [from, until] if from < until))
+            .count();
+        let open = self
+            .subpaths
+            .last()
+            .is_some_and(|&last| last < self.lines.len());
+        spans.saturating_add(usize::from(open))
+    }
+
+    /// [`Union::settle`], with twin contours apart or merged.
+    fn settle_as(&mut self, twins: Twins) -> Result<(), UnionCondition> {
         self.boundary.clear();
-        if !self.contours_on_the_grid() {
-            return false;
-        }
+        self.contours_on_the_grid(twins)?;
         let Some(grid) = self.chunk() else {
-            return true;
+            return Ok(());
         };
-        if !self.file(&grid) || !self.cross(&grid) {
-            return false;
+        if !self.file(&grid) {
+            return Err(UnionCondition::PastTheBudget);
         }
+        self.cross(&grid)?;
         self.order_crossings();
         self.entries.clear();
         self.entries.resize(self.contours.len(), None);
@@ -287,7 +335,7 @@ impl Union {
                 }
                 // A contour of horizontal edges alone encloses nothing.
                 Entry::Nothing => continue,
-                Entry::Degenerate => return false,
+                Entry::Degenerate => return Err(UnionCondition::NoStartingPoint),
             }
             self.queue.clear();
             self.queue.push(seed);
@@ -298,28 +346,77 @@ impl Union {
                     "the walk of contour {contour} does not close (ADR 2268)"
                 );
                 if !closes {
-                    return false;
+                    return Err(UnionCondition::WalkDoesNotReturn);
                 }
             }
         }
-        true
+        Ok(())
+    }
+
+    /// Whether two of the contours found are the same vertices in the same order round.
+    fn has_twins(&mut self) -> bool {
+        self.twin_keys.clear();
+        self.same_key.clear();
+        (0..self.contours.len()).any(|contour| self.twin_of(contour).is_some())
+    }
+
+    /// The contour before `contour` that is its twin, filing `contour` under its key where none
+    /// is: the same number of vertices, the same sums of their coordinates, and then the same
+    /// vertices from one of its own.
+    fn twin_of(&mut self, contour: usize) -> Option<usize> {
+        let &(first, end) = self.contours.get(contour)?;
+        let here = self.vertices.get(first..end)?;
+        let key = here
+            .iter()
+            .fold((here.len(), 0_i64, 0_i64), |(n, x, y), v| {
+                (n, x.wrapping_add(v.x), y.wrapping_add(v.y))
+            });
+        let mut candidate = self.twin_keys.get(&key).copied();
+        while let Some(earlier) = candidate {
+            if let Some(&(from, until)) = self.contours.get(earlier as usize)
+                && let Some(there) = self.vertices.get(from..until)
+                && same_round(here, there)
+            {
+                return Some(earlier as usize);
+            }
+            candidate = self.same_key.get(earlier as usize).copied().flatten();
+        }
+        let filed = u32::try_from(contour).ok()?;
+        let before = self.twin_keys.insert(key, filed);
+        if self.same_key.len() <= contour {
+            self.same_key.resize(contour.saturating_add(1), None);
+        }
+        if let Some(slot) = self.same_key.get_mut(contour) {
+            *slot = before;
+        }
+        None
     }
 
     /// The traced subpaths as closed contours of vertices on the grid, each vertex once: a vertex
     /// the grid cannot tell from the one before it is that one, and a contour of fewer than three
-    /// encloses nothing and changes the winding of no point off a line. `false` where a coordinate
-    /// is not finite or is off the grid.
-    fn contours_on_the_grid(&mut self) -> bool {
+    /// encloses nothing and changes the winding of no point off a line. A coordinate that is not
+    /// finite or is off the grid declines the mark.
+    ///
+    /// With [`Twins::Merged`] a contour that is the twin of one before it is not kept, and the
+    /// earlier one's weight counts it instead — up to `i8::MAX`, past which a twin stays a contour
+    /// of its own (see the module's comment).
+    fn contours_on_the_grid(&mut self, twins: Twins) -> Result<(), UnionCondition> {
         self.vertices.clear();
         self.edges.clear();
         self.contours.clear();
+        self.twin_keys.clear();
+        self.same_key.clear();
         let (mut left, mut top) = (f32::INFINITY, f32::INFINITY);
         for &[from, to] in &self.lines {
             left = left.min(from.x).min(to.x);
             top = top.min(from.y).min(to.y);
         }
         if !(left.is_finite() && top.is_finite()) {
-            return self.lines.is_empty();
+            return if self.lines.is_empty() {
+                Ok(())
+            } else {
+                Err(UnionCondition::OffTheGrid)
+            };
         }
         let origin = (left.floor(), top.floor());
         self.subpaths.push(self.lines.len());
@@ -333,7 +430,7 @@ impl Union {
             let first = self.vertices.len();
             for line in self.lines.get(from..until).unwrap_or_default() {
                 let Some(vertex) = on_grid(line[0], origin) else {
-                    return false;
+                    return Err(UnionCondition::OffTheGrid);
                 };
                 let repeated = self
                     .vertices
@@ -361,8 +458,19 @@ impl Union {
                 continue;
             }
             let Ok(contour) = u32::try_from(self.contours.len()) else {
-                return false;
+                return Err(UnionCondition::PastTheBudget);
             };
+            if twins == Twins::Merged {
+                self.contours.push((first, end));
+                let twin = self.twin_of(self.contours.len().saturating_sub(1));
+                self.contours.pop();
+                if let Some(twin) = twin
+                    && self.add_weight(twin)
+                {
+                    self.vertices.truncate(first);
+                    continue;
+                }
+            }
             for vertex in first..end {
                 let after = if vertex.saturating_add(1) == end {
                     first
@@ -371,7 +479,7 @@ impl Union {
                 };
                 let (Some(a), Some(b)) = (self.vertices.get(vertex), self.vertices.get(after))
                 else {
-                    return false;
+                    return Err(UnionCondition::OffTheGrid);
                 };
                 let from = Site {
                     x: a.x,
@@ -388,9 +496,28 @@ impl Union {
                     to,
                     bounds: Bounds::of(from, to),
                     contour,
+                    weight: 1,
                 });
             }
             self.contours.push((first, end));
+        }
+        Ok(())
+    }
+
+    /// Counts one more statement of `contour` in its edges' weight; `false` where that is past
+    /// `i8::MAX`.
+    fn add_weight(&mut self, contour: usize) -> bool {
+        let Some(&(first, end)) = self.contours.get(contour) else {
+            return false;
+        };
+        let Some(edges) = self.edges.get_mut(first..end) else {
+            return false;
+        };
+        if edges.iter().any(|edge| edge.weight == i8::MAX) {
+            return false;
+        }
+        for edge in edges {
+            edge.weight = edge.weight.saturating_add(1);
         }
         true
     }
@@ -486,7 +613,7 @@ impl Union {
     /// Finds every crossing of two edges that do not share a vertex. Two chunks are compared in
     /// the one cell where both their reaches begin, so a pair filed together in several cells is
     /// compared once; the edges of one chunk are compared with one another once.
-    fn cross(&mut self, grid: &Grid) -> bool {
+    fn cross(&mut self, grid: &Grid) -> Result<(), UnionCondition> {
         let Self {
             vertices,
             edges,
@@ -505,9 +632,7 @@ impl Union {
             work: &mut work,
         };
         for chunk in chunks.iter() {
-            if !pairs.compare(chunk, chunk) {
-                return false;
-            }
+            pairs.compare(chunk, chunk)?;
         }
         for (cell, reach) in cell_starts.windows(2).enumerate() {
             let &[from, until] = reach else {
@@ -530,13 +655,11 @@ impl Union {
                     {
                         continue;
                     }
-                    if !pairs.compare(a, b) {
-                        return false;
-                    }
+                    pairs.compare(a, b)?;
                 }
             }
         }
-        true
+        Ok(())
     }
 
     /// Takes the crossings found into [`Union::crossings`], edge by edge and in order along each.
@@ -603,74 +726,101 @@ impl Union {
     /// quarters, eighths and so on to [`RAY_DEPTH`], on a grid that much finer, where two pieces'
     /// edges along one line — which the pieces of a straight stretch are — leave the point on
     /// one of them; and then at the next edge.
+    ///
+    /// A piece whose every upright edge lies along other pieces' edges — a thin one between two
+    /// neighbours — has no such point on them, so its horizontal edges are tried after them, each
+    /// from a vertical ray, in the same way (ADR 2281). Only after: a mark the horizontal rays
+    /// enter is entered as it was.
     fn ray_entry(&mut self, contour: usize, grid: &Grid) -> Entry {
         let Some(&(first, end)) = self.contours.get(contour) else {
             return Entry::Nothing;
         };
-        let mut any = false;
-        for reference in first..end {
-            let Some(&e) = self.edges.get(reference) else {
-                continue;
-            };
-            if e.from.y == e.to.y {
-                continue;
-            }
-            any = true;
-            for depth in 1..=RAY_DEPTH {
-                let denominator = 1_i64 << depth;
-                for numerator in (1..denominator).step_by(2) {
-                    let along = (numerator, denominator);
-                    let point = Site {
-                        x: e.from
-                            .x
-                            .wrapping_mul(denominator.wrapping_sub(numerator))
-                            .wrapping_add(e.to.x.wrapping_mul(numerator)),
-                        y: e.from
-                            .y
-                            .wrapping_mul(denominator.wrapping_sub(numerator))
-                            .wrapping_add(e.to.y.wrapping_mul(numerator)),
-                        index: self.vertices.len(),
-                    };
-                    let Some(beside) = self.winding_at((point, depth), reference, grid) else {
-                        continue;
-                    };
-                    let (from, to) = (finer(e.from, depth), finer(e.to, depth));
-                    // The negative side of an edge winds one more than its positive side.
-                    let mut winding = if positive(from, to, point) {
-                        beside
-                    } else {
-                        beside.saturating_sub(1)
-                    };
-                    let (start, until) = self.crossings_of(reference);
-                    for index in start..until {
-                        let Some(&crossing) = self.crossings.get(index) else {
-                            continue;
-                        };
-                        let Some(&f) = self.edges.get(crossing.other as usize) else {
-                            continue;
-                        };
-                        if before_the_point(e, f, (point, depth), along) {
-                            winding = winding.saturating_sub(i32::from(crossing.step));
-                        }
-                    }
-                    return Entry::Found(reference, winding);
+        let upright = |edge: &Edge| edge.from.y != edge.to.y;
+        if !self
+            .edges
+            .get(first..end)
+            .unwrap_or_default()
+            .iter()
+            .any(upright)
+        {
+            return Entry::Nothing;
+        }
+        for across in [Ray::Across, Ray::Down] {
+            for reference in first..end {
+                let Some(&e) = self.edges.get(reference) else {
+                    continue;
+                };
+                // A ray is never along the edge it reads the winding beside.
+                if upright(&e) != (across == Ray::Across) {
+                    continue;
+                }
+                if let Some(entry) = self.entry_beside((reference, e), across, grid) {
+                    return entry;
                 }
             }
         }
-        if any {
-            Entry::Degenerate
-        } else {
-            Entry::Nothing
+        Entry::Degenerate
+    }
+
+    /// [`Union::ray_entry`] on one edge, from rays `across` it: the first point tried that no other
+    /// edge passes through.
+    fn entry_beside(
+        &mut self,
+        (reference, e): (usize, Edge),
+        across: Ray,
+        grid: &Grid,
+    ) -> Option<Entry> {
+        for depth in 1..=RAY_DEPTH {
+            let denominator = 1_i64 << depth;
+            for numerator in (1..denominator).step_by(2) {
+                let along = (numerator, denominator);
+                let point = Site {
+                    x: e.from
+                        .x
+                        .wrapping_mul(denominator.wrapping_sub(numerator))
+                        .wrapping_add(e.to.x.wrapping_mul(numerator)),
+                    y: e.from
+                        .y
+                        .wrapping_mul(denominator.wrapping_sub(numerator))
+                        .wrapping_add(e.to.y.wrapping_mul(numerator)),
+                    index: self.vertices.len(),
+                };
+                let Some(beside) = self.winding_at((point, depth), (reference, across), grid)
+                else {
+                    continue;
+                };
+                let (from, to) = (finer(e.from, depth), finer(e.to, depth));
+                // The negative side of an edge winds its weight more than its positive side.
+                let mut winding = if positive(from, to, point) {
+                    beside
+                } else {
+                    beside.saturating_sub(i32::from(e.weight))
+                };
+                let (start, until) = self.crossings_of(reference);
+                for index in start..until {
+                    let Some(&crossing) = self.crossings.get(index) else {
+                        continue;
+                    };
+                    let Some(&f) = self.edges.get(crossing.other as usize) else {
+                        continue;
+                    };
+                    if before_the_point(e, f, (point, depth), along) {
+                        winding = winding.saturating_sub(i32::from(crossing.step));
+                    }
+                }
+                return Some(Entry::Found(reference, winding));
+            }
         }
+        None
     }
 
     /// The winding at `point`, on the grid `depth` binary places finer, moved by the smallest
-    /// infinitesimal: the crossings of a horizontal ray to it from outside the mark, from the
-    /// nearer side; `None` where an edge other than `reference` passes through the unmoved point.
+    /// infinitesimal: the crossings of a ray `across` the mark to it from outside, from the nearer
+    /// side; `None` where an edge other than `reference` passes through the unmoved point.
     fn winding_at(
         &mut self,
         (point, depth): (Site, u32),
-        reference: usize,
+        (reference, across): (usize, Ray),
         grid: &Grid,
     ) -> Option<i32> {
         // A ray of its own for every attempt, so that one declined at a point another edge passes
@@ -678,32 +828,46 @@ impl Union {
         self.ray = self.ray.saturating_add(1);
         let ray = self.ray;
         let coarse = (point.x >> depth, point.y >> depth);
-        let leftwards = coarse.0.wrapping_sub(grid.left) <= grid.right.wrapping_sub(coarse.0);
-        let outside = Site {
-            x: if leftwards {
-                (grid.left.wrapping_sub(2)) << depth
-            } else {
-                (grid.right.wrapping_add(2)) << depth
+        let side = Side::nearer(across, coarse, grid);
+        let outside = match side {
+            Side::Left => Site {
+                x: (grid.left.wrapping_sub(2)) << depth,
+                ..point
             },
-            y: point.y,
+            Side::Right => Site {
+                x: (grid.right.wrapping_add(2)) << depth,
+                ..point
+            },
+            Side::Top => Site {
+                y: (grid.top.wrapping_sub(2)) << depth,
+                ..point
+            },
+            Side::Bottom => Site {
+                y: (grid.bottom.wrapping_add(2)) << depth,
+                ..point
+            },
+        };
+        let outside = Site {
             index: point.index.saturating_add(1),
+            ..outside
         };
         let (column, row) = grid.at(coarse.0, coarse.1);
         let (column, row) = (column as usize, row as usize);
-        let reached = if leftwards {
-            column.saturating_add(1)
-        } else {
-            grid.columns.saturating_sub(column)
+        let reached = match side {
+            Side::Left => column.saturating_add(1),
+            Side::Right => grid.columns.saturating_sub(column),
+            Side::Top => row.saturating_add(1),
+            Side::Bottom => grid.rows.saturating_sub(row),
         };
         let alone = Bounds::of(point, point);
         let mut winding = 0_i32;
         for step in 0..reached {
-            let column = if leftwards {
-                column.saturating_sub(step)
-            } else {
-                column.saturating_add(step)
+            let cell = match side {
+                Side::Left => grid.cell(column.saturating_sub(step), row),
+                Side::Right => grid.cell(column.saturating_add(step), row),
+                Side::Top => grid.cell(column, row.saturating_sub(step)),
+                Side::Bottom => grid.cell(column, row.saturating_add(step)),
             };
-            let cell = grid.cell(column, row);
             let (Some(&from), Some(&until)) = (
                 self.cell_starts.get(cell),
                 self.cell_starts.get(cell.saturating_add(1)),
@@ -724,14 +888,14 @@ impl Union {
                 let Some(&chunk) = self.chunks.get(index as usize) else {
                     continue;
                 };
-                if !reaches(chunk.bounds, coarse, leftwards) {
+                if !reaches(chunk.bounds, coarse, side) {
                     continue;
                 }
                 for edge in chunk.first..chunk.end {
                     let Some(&f) = self.edges.get(edge as usize) else {
                         continue;
                     };
-                    if !reaches(f.bounds, coarse, leftwards) {
+                    if !reaches(f.bounds, coarse, side) {
                         continue;
                     }
                     let (f0, f1) = (finer(f.from, depth), finer(f.to, depth));
@@ -747,7 +911,12 @@ impl Union {
                     let (from_outside, at_point) =
                         (positive(f0, f1, outside), positive(f0, f1, point));
                     if from_outside != at_point {
-                        winding = winding.saturating_add(if from_outside { 1 } else { -1 });
+                        let weight = i32::from(f.weight);
+                        winding = if from_outside {
+                            winding.saturating_add(weight)
+                        } else {
+                            winding.saturating_sub(weight)
+                        };
                     }
                 }
             }
@@ -795,14 +964,14 @@ impl Union {
         };
         let (first, until) = self.crossings_of(edge);
         let mut stretch_from = from;
-        let mut side = side_of(winding);
+        let mut side = side_of(winding, e.weight);
         for index in first..until {
             let Some(&crossing) = self.crossings.get(index) else {
                 continue;
             };
             self.enter_across(crossing, (index, first, until), winding);
             winding = winding.saturating_add(i32::from(crossing.step));
-            let now = side_of(winding);
+            let now = side_of(winding, e.weight);
             if now != side {
                 deposit(&mut self.boundary, side, stretch_from, crossing.at);
                 stretch_from = crossing.at;
@@ -818,9 +987,9 @@ impl Union {
     /// the crossing, walking `crossing.edge`.
     ///
     /// Round the crossing point the two edges make four windings, and the negative side of each
-    /// edge winds one more than its positive side, so the one beside the walked edge just before
-    /// the crossing fixes all four, and with them the winding beside the other edge just before
-    /// the crossing; every crossing earlier on the other edge is then taken back off.
+    /// edge winds its weight more than its positive side, so the one beside the walked edge just
+    /// before the crossing fixes all four, and with them the winding beside the other edge just
+    /// before the crossing; every crossing earlier on the other edge is then taken back off.
     fn enter_across(
         &mut self,
         crossing: Crossing,
@@ -851,16 +1020,17 @@ impl Union {
             return;
         };
         // The walked edge's start lies on the other edge's positive side exactly where crossing
-        // the other edge adds one, and likewise the other edge's start and the walked edge.
-        let both_positive = if crossing.step == 1 {
+        // the other edge adds to the winding, and likewise the other edge's start and the walked
+        // edge; what a crossing adds is the crossed edge's weight.
+        let both_positive = if crossing.step > 0 {
             winding
         } else {
-            winding.saturating_sub(1)
+            winding.saturating_add(i32::from(crossing.step))
         };
-        let mut beside = if twin_crossing.step == 1 {
+        let mut beside = if twin_crossing.step > 0 {
             both_positive
         } else {
-            both_positive.saturating_add(1)
+            both_positive.saturating_sub(i32::from(twin_crossing.step))
         };
         for slot in from..twin {
             if let Some(earlier) = self.crossings.get(slot) {
@@ -889,12 +1059,12 @@ struct Pairs<'a> {
 
 impl Pairs<'_> {
     /// Records every crossing between an edge of `a` and an edge of `b` — of one chunk with
-    /// itself where the two are the same, each pair once; `false` where [`UNION_WORK`] is spent
+    /// itself where the two are the same, each pair once; declined where [`UNION_WORK`] is spent
     /// or two edges cross along one line.
-    fn compare(&mut self, a: &Chunk, b: &Chunk) -> bool {
+    fn compare(&mut self, a: &Chunk, b: &Chunk) -> Result<(), UnionCondition> {
         let same = a.first == b.first;
         let Some(theirs) = self.edges.get(b.first as usize..b.end as usize) else {
-            return true;
+            return Ok(());
         };
         for one in a.first..a.end {
             let Some(e) = self.edges.get(one as usize) else {
@@ -911,7 +1081,7 @@ impl Pairs<'_> {
             for (offset, f) in theirs.iter().enumerate().skip(skip) {
                 *self.work = self.work.saturating_add(1);
                 if *self.work > UNION_WORK {
-                    return false;
+                    return Err(UnionCondition::PastTheBudget);
                 }
                 if !e.bounds.meets(f.bounds) || shares_a_vertex(e, f) {
                     continue;
@@ -921,7 +1091,7 @@ impl Pairs<'_> {
                 };
                 match self.crossing((one, e), (b.first.saturating_add(offset), f)) {
                     Meeting::None => {}
-                    Meeting::Collinear => return false,
+                    Meeting::Collinear => return Err(UnionCondition::CrossingAlongALine),
                     Meeting::At(on_one, on_other) => {
                         self.found.push(on_one);
                         self.found.push(on_other);
@@ -929,7 +1099,7 @@ impl Pairs<'_> {
                 }
             }
         }
-        true
+        Ok(())
     }
 
     /// Whether the edges `one` and `other` cross, and where, as each of them sees it.
@@ -967,14 +1137,22 @@ impl Pairs<'_> {
                 edge: one,
                 other,
                 t: t_one,
-                step: if s3 { 1 } else { -1 },
+                step: if s3 {
+                    f.weight
+                } else {
+                    f.weight.saturating_neg()
+                },
                 at,
             },
             Crossing {
                 edge: other,
                 other: one,
                 t: t_other,
-                step: if s1 { 1 } else { -1 },
+                step: if s1 {
+                    e.weight
+                } else {
+                    e.weight.saturating_neg()
+                },
                 at,
             },
         )
@@ -1005,6 +1183,85 @@ fn in_order(list: &mut [Crossing]) {
     }
 }
 
+/// Whether contours stated twice are walked apart or as one of twice the weight.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Twins {
+    /// Every contour as the path states it.
+    Apart,
+    /// A contour stated again, vertex for vertex, counted in the weight of the first.
+    Merged,
+}
+
+/// Why the union of a mark's pieces declined it — what [`crate::UnionDecline`] names (ADR 2280).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum UnionCondition {
+    /// A coordinate is not finite, or lies past the grid the predicates are exact on.
+    OffTheGrid,
+    /// The mark costs more than `UNION_WORK` pairs of edges, or more cells than an accumulator
+    /// states: a cost guard, not a condition of the mark.
+    PastTheBudget,
+    /// Two edges cross along a common line, where the crossing has no position.
+    CrossingAlongALine,
+    /// A contour has no point to start its walk from: every point tried on every one of its edges
+    /// lies on another edge as well.
+    NoStartingPoint,
+    /// A walk does not return to the winding it started from, which no consistent arithmetic
+    /// allows: a defect, and a build with debug assertions stops on it.
+    WalkDoesNotReturn,
+    /// A row of the boundary's accumulator does not sum to nothing, which a boundary the walk
+    /// returns cannot do: a defect, and a build with debug assertions stops on it.
+    RowDoesNotClose,
+}
+
+impl UnionCondition {
+    /// Whether no input should reach it: the walk's arithmetic has gone wrong, and the mark is
+    /// declined only because a release build draws it rather than stop.
+    #[must_use]
+    pub fn is_defect(self) -> bool {
+        matches!(self, Self::WalkDoesNotReturn | Self::RowDoesNotClose)
+    }
+}
+
+impl std::fmt::Display for UnionCondition {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::OffTheGrid => "a coordinate lies off the grid the union is exact on",
+            Self::PastTheBudget => "it costs more than the union's budget",
+            Self::CrossingAlongALine => "two of its edges cross along a common line",
+            Self::NoStartingPoint => {
+                "every edge of one of its pieces lies along another's, so its walk has no start"
+            }
+            Self::WalkDoesNotReturn => {
+                "a walk did not return to its winding, which is a defect of the union"
+            }
+            Self::RowDoesNotClose => {
+                "a row of its boundary did not close, which is a defect of the union"
+            }
+        })
+    }
+}
+
+/// Whether `here` and `there` are the same vertices in the same order round, from any start.
+fn same_round(here: &[Vertex], there: &[Vertex]) -> bool {
+    let same = |a: &Vertex, b: &Vertex| a.x == b.x && a.y == b.y;
+    let (Some(start), true) = (here.first(), here.len() == there.len()) else {
+        return false;
+    };
+    (0..there.len()).any(|offset| {
+        there.get(offset).is_some_and(|v| same(v, start))
+            && here.iter().enumerate().all(|(index, v)| {
+                there
+                    .get(
+                        offset
+                            .saturating_add(index)
+                            .checked_rem(there.len())
+                            .unwrap_or(0),
+                    )
+                    .is_some_and(|w| same(v, w))
+            })
+    })
+}
+
 /// How a walk of a contour is started.
 enum Entry {
     /// From this edge, with this winding beside its start.
@@ -1032,25 +1289,74 @@ fn separated(crossings: &[Crossing], (index, first, until): (usize, usize, usize
     !(before || after)
 }
 
-/// Whether a box reaches a horizontal ray from `(x, y)` out to one side.
-fn reaches(bounds: Bounds, (x, y): (i64, i64), leftwards: bool) -> bool {
-    bounds.top <= y
-        && bounds.bottom >= y
-        && if leftwards {
-            bounds.left <= x
-        } else {
-            bounds.right >= x
+/// Whether a box reaches a ray from `(x, y)` out to `side`.
+fn reaches(bounds: Bounds, (x, y): (i64, i64), side: Side) -> bool {
+    match side {
+        Side::Left | Side::Right => {
+            bounds.top <= y
+                && bounds.bottom >= y
+                && if side == Side::Left {
+                    bounds.left <= x
+                } else {
+                    bounds.right >= x
+                }
         }
+        Side::Top | Side::Bottom => {
+            bounds.left <= x
+                && bounds.right >= x
+                && if side == Side::Top {
+                    bounds.top <= y
+                } else {
+                    bounds.bottom >= y
+                }
+        }
+    }
 }
 
-/// What a stretch of an edge is to the filled set, from the winding on its positive side: `1`
-/// where that side winds zero and the other one, `-1` where it winds minus one and the other zero,
-/// and `0` where the edge bounds nothing.
-fn side_of(positive_side: i32) -> i8 {
-    match positive_side {
-        0 => 1,
-        -1 => -1,
-        _ => 0,
+/// Which way a ray runs to the point it reads the winding at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Ray {
+    /// Horizontally, beside an edge that is not horizontal.
+    Across,
+    /// Vertically, beside a horizontal edge.
+    Down,
+}
+
+/// The side of the mark a ray comes in from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Side {
+    /// From the left, horizontally.
+    Left,
+    /// From the right, horizontally.
+    Right,
+    /// From above, vertically.
+    Top,
+    /// From below, vertically.
+    Bottom,
+}
+
+impl Side {
+    /// The nearer side for a ray `across` to the grid point `(x, y)`, which crosses fewer cells.
+    fn nearer(across: Ray, (x, y): (i64, i64), grid: &Grid) -> Self {
+        match across {
+            Ray::Across if x.wrapping_sub(grid.left) <= grid.right.wrapping_sub(x) => Self::Left,
+            Ray::Across => Self::Right,
+            Ray::Down if y.wrapping_sub(grid.top) <= grid.bottom.wrapping_sub(y) => Self::Top,
+            Ray::Down => Self::Bottom,
+        }
+    }
+}
+
+/// What a stretch of an edge of `weight` is to the filled set, from the winding on its positive
+/// side, the negative side winding `weight` more: `1` where the positive side winds zero, `-1`
+/// where the negative side does, and `0` where neither does and the edge bounds nothing.
+fn side_of(positive_side: i32, weight: i8) -> i8 {
+    if positive_side == 0 {
+        1
+    } else if positive_side == i32::from(weight).saturating_neg() {
+        -1
+    } else {
+        0
     }
 }
 
@@ -1263,6 +1569,8 @@ struct Grid {
     top: i64,
     /// The largest `x`.
     right: i64,
+    /// The largest `y`.
+    bottom: i64,
     /// A cell's side.
     side: i64,
     /// Cells across.
@@ -1317,6 +1625,7 @@ impl Grid {
             left: bounds.left,
             top: bounds.top,
             right: bounds.right,
+            bottom: bounds.bottom,
             side,
             columns,
             rows,
@@ -1352,7 +1661,124 @@ impl Grid {
 
 #[cfg(test)]
 mod tests {
-    use super::approximate;
+    use super::{Twins, Union, UnionCondition, approximate};
+
+    /// A square's `(left, top, right, bottom)`, and whether it is wound clockwise.
+    type Square = ((f32, f32, f32, f32), bool);
+
+    /// Squares as one path, each `(left, top, right, bottom)` wound the way it is written: from
+    /// its top left corner along the top where `clockwise`, down the left side otherwise.
+    fn squares(squares: &[Square]) -> tiny_skia::Path {
+        let mut builder = tiny_skia::PathBuilder::new();
+        for &((left, top, right, bottom), clockwise) in squares {
+            builder.move_to(left, top);
+            if clockwise {
+                builder.line_to(right, top);
+                builder.line_to(right, bottom);
+                builder.line_to(left, bottom);
+            } else {
+                builder.line_to(left, bottom);
+                builder.line_to(right, bottom);
+                builder.line_to(right, top);
+            }
+            builder.close();
+        }
+        builder.finish().expect("squares")
+    }
+
+    /// The union's coverage of `path` on a 16 by 16 surface, or why it declined.
+    fn measured(path: &tiny_skia::Path) -> Result<Vec<u8>, super::super::UnionDecline> {
+        let at = tiny_skia::Transform::identity();
+        let region = super::super::region(path, at, (16, 16), (0, 0)).expect("a region");
+        let mut target = vec![0_u8; 16 * 16];
+        super::super::fill_union(
+            &mut super::super::Buffers::default(),
+            &mut target,
+            (16, region),
+            path,
+            at,
+        )
+        .map(|()| target)
+    }
+
+    /// A piece the path states twice is measured as one piece of twice the weight (ADR 2281):
+    /// §8.5.3.3.2's non-zero rule counts a contour's crossings once for each time the path
+    /// states it, so `A`, `A` and a square `L` inside it wound the other way winds `2 − 1` inside
+    /// `L` and fills it, where `A` and `L` alone wind `0` there and leave it out. Every pixel of
+    /// the first is `A`'s alone, to the bit, which a twin merely left out would not be; and with
+    /// the twins walked apart the mark has no point to start from, which is the decline this
+    /// replaces.
+    #[test]
+    fn a_piece_stated_twice_is_one_piece_of_twice_the_weight() {
+        let outer = ((2.25, 2.5, 12.75, 11.5), true);
+        let inner = ((5.5, 5.25, 8.75, 8.5), false);
+        let alone = measured(&squares(&[outer])).expect("a square");
+        let holed = measured(&squares(&[outer, inner])).expect("a square with a hole");
+        assert_ne!(alone, holed);
+        assert_eq!(measured(&squares(&[outer, outer, inner])), Ok(alone));
+        let mut union = Union::default();
+        union.start();
+        super::super::trace(
+            &mut union,
+            &squares(&[outer, outer, inner]),
+            tiny_skia::Transform::identity(),
+        );
+        assert_eq!(
+            union.settle_as(Twins::Apart),
+            Err(UnionCondition::NoStartingPoint)
+        );
+        assert_eq!(union.settle(), Ok(()));
+        assert_eq!(union.pieces(), 3);
+    }
+
+    /// A thin piece between two others, its upright sides along theirs — `inks.pdf`'s at 1x, a
+    /// piece four and a half pixels long and a hundredth tall — is entered from a vertical ray
+    /// beside its horizontal edge, the only point no other edge passes through (ADR 2281). The
+    /// three meet only along their sides, so §8.5.3.3.2's set covers a pixel by the sum of the
+    /// three rectangles' areas in it, and §10.7.4's anti-aliasing paints it at that area, rounded
+    /// to the nearest of 255 levels.
+    #[test]
+    fn a_thin_piece_between_two_others_is_entered_from_above() {
+        // The thin one first, so that its walk is the first and no crossing with a contour already
+        // walked can enter it, as none entered `inks.pdf`'s.
+        let rectangles = [
+            (4.5, 5.375, 9.75, 5.625),
+            (1.25, 2.5, 4.5, 10.75),
+            (9.75, 2.5, 12.5, 10.75),
+        ];
+        let path = squares(&rectangles.map(|rectangle| (rectangle, true)));
+        let mut union = Union::default();
+        union.start();
+        super::super::trace(&mut union, &path, tiny_skia::Transform::identity());
+        assert_eq!(union.settle(), Ok(()));
+        let drawn = measured(&path).expect("the three are measured");
+        for row in 0..16_u32 {
+            for column in 0..16_u32 {
+                let (x, y) = (f64::from(column), f64::from(row));
+                let area: f64 = rectangles
+                    .iter()
+                    .map(|&(left, top, right, bottom)| {
+                        let across =
+                            (f64::from(right).min(x + 1.0) - f64::from(left).max(x)).max(0.0);
+                        let down =
+                            (f64::from(bottom).min(y + 1.0) - f64::from(top).max(y)).max(0.0);
+                        across * down
+                    })
+                    .sum();
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "an area between 0 and 1 times 255, rounded"
+                )]
+                let owed = (area.min(1.0) * 255.0).round() as u8;
+                assert_eq!(
+                    drawn[(row * 16 + column) as usize],
+                    owed,
+                    "({column}, {row})"
+                );
+            }
+        }
+    }
 
     /// A determinant converts to the nearest `f64` whatever its sign, which is what the `as`
     /// conversion of the whole `i128` gives; the negative values are the ones a split at bit 64

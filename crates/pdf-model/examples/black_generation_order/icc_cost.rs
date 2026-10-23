@@ -1,6 +1,7 @@
 //! Whole-interpretation costs for ordinary ICC solids, generic ICC tints and mixed use, and
 //! for the `Separation`, `DeviceN`, calibrated and Lab solids ADR 2248 retains and the
-//! `DeviceGray`, `DeviceCMYK` and `Indexed` ones ADR 2264 does.
+//! `DeviceGray`, `DeviceCMYK` and `Indexed` ones ADR 2264 does, and, under an output intent,
+//! the `DeviceCMYK` family §11.7.2 redefines at the paint (ADR 2276).
 //! The generated tables match the independently tested intent fixture; this is no oracle.
 
 use pdf_syntax::Document;
@@ -487,6 +488,214 @@ pub(super) fn run() {
             began.elapsed().as_secs_f64() * 1000.0
         );
     }
+    for work in redefinition_workloads() {
+        let document = Document::open(intent_fixture(&work.content)).expect("valid intent fixture");
+        let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+        let warm = pdf_model::interpret(&document, &page);
+        assert!(warm.is_complete(), "{}: {:?}", work.name, warm.unsupported);
+        assert!(warm.display_list.command_count() > 0, "empty {}", work.name);
+        println!(
+            "population {}: {}, tile-step {}, commands {}",
+            work.name,
+            work.population,
+            work.step,
+            warm.display_list.command_count()
+        );
+        println!("sample {}: {:?}", work.name, super::pixel(&warm, 25, 50));
+        std::hint::black_box(warm);
+        let began = std::time::Instant::now();
+        for _ in 0..20 {
+            std::hint::black_box(pdf_model::interpret(&document, &page));
+        }
+        println!(
+            "{}: 20 interpretations x 1000 primary marks: {:.3} ms",
+            work.name,
+            began.elapsed().as_secs_f64() * 1000.0
+        );
+    }
+}
+
+/// A v2 CMYK output profile whose one tag is a two-point `A2B1` `mft2` over a multiplicative
+/// press: small, so that what a population measures is the paint rather than the profile's
+/// decoding, which a full press characterisation makes most of an interpretation.
+fn press_profile() -> Vec<u8> {
+    let mut tag = Vec::from(*b"mft2");
+    tag.extend_from_slice(&[0, 0, 0, 0, 4, 3, 2, 0]);
+    for value in [1i32, 0, 0, 0, 1, 0, 0, 0, 1] {
+        tag.extend_from_slice(&(value * 65536).to_be_bytes());
+    }
+    tag.extend_from_slice(&[0, 2, 0, 2]);
+    for _ in 0..4 {
+        tag.extend_from_slice(&[0, 0, 0xFF, 0xFF]);
+    }
+    for corner in 0..16usize {
+        let ink = |axis: usize| {
+            if (corner >> (3 - axis)) & 1 == 1 {
+                1.0f32
+            } else {
+                0.0
+            }
+        };
+        let absorb = [
+            [0.60f32, 0.10, 0.10, 0.80],
+            [0.10, 0.60, 0.20, 0.80],
+            [0.10, 0.20, 0.70, 0.80],
+        ];
+        for (white, row) in [0.964_2f32, 1.0, 0.824_9].into_iter().zip(absorb) {
+            let xyz = (0..4).fold(white, |xyz, axis| xyz * (1.0 - row[axis] * ink(axis)));
+            let encoded = (xyz * 32768.0).clamp(0.0, 65535.0) as u16;
+            tag.extend_from_slice(&encoded.to_be_bytes());
+        }
+    }
+    for _ in 0..3 {
+        tag.extend_from_slice(&[0, 0, 0xFF, 0xFF]);
+    }
+    let mut out = vec![0u8; 128];
+    out[8] = 2;
+    out[12..16].copy_from_slice(b"prtr");
+    out[16..20].copy_from_slice(b"CMYK");
+    out[20..24].copy_from_slice(b"XYZ ");
+    out[36..40].copy_from_slice(b"acsp");
+    out.extend_from_slice(&1u32.to_be_bytes());
+    out.extend_from_slice(b"A2B1");
+    out.extend_from_slice(&144u32.to_be_bytes());
+    out.extend_from_slice(&u32::try_from(tag.len()).expect("a small tag").to_be_bytes());
+    out.extend_from_slice(&tag);
+    out
+}
+
+/// A page under an output intent whose profile is [`press_profile`], with
+/// `/G` an isolated group in the same profile stated as `ICCBased`, `/SC` a `Separation` over
+/// `DeviceCMYK` and `/PK` an uncoloured pattern over it. `content` is the page's, and a
+/// `/G Do` in it paints `/G`'s own stream, which is `content` after its `%G` marker.
+fn intent_fixture(content: &str) -> Vec<u8> {
+    let profile = press_profile();
+    let (page, group) = content.split_once("%G\n").unwrap_or((content, ""));
+    let resources = "/ColorSpace << /SC [/Separation /Spot /DeviceCMYK << /FunctionType 2 \
+        /Domain [0 1] /C0 [0 0 0 0] /C1 [0 1 0 0] /N 1 >>] /PK [/Pattern /DeviceCMYK] >> \
+        /Pattern << /Tile 7 0 R >> /ExtGState << /Off << /UseBlackPtComp /OFF >> >>";
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R /OutputIntents [<< /Type /OutputIntent /S /GTS_PDFX \
+         /OutputConditionIdentifier (GRACoL) /DestOutputProfile 5 0 R >>] >>"
+            .to_owned(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+        format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R \
+             /Resources << {resources} /XObject << /G 6 0 R >> >> >>"
+        ),
+        format!(
+            "<< /Length {} >>\nstream\n{page}\nendstream",
+            page.len() + 1
+        ),
+        encoded_stream("/N 4", &profile),
+        format!(
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+             /Group << /S /Transparency /I true /CS [/ICCBased 5 0 R] >> \
+             /Resources << {resources} >> /Length {} >>\nstream\n{group}\nendstream",
+            group.len() + 1
+        ),
+        "<< /Type /Pattern /PatternType 1 /PaintType 2 /TilingType 1 /BBox [0 0 100 100] \
+         /XStep 100 /YStep 100 /Resources << >> /Length 15 >>\nstream\n0 0 100 100 re f\nendstream"
+            .to_owned(),
+    ];
+    let mut out = String::from("%PDF-2.0\n");
+    let mut offsets = Vec::new();
+    for (index, object) in objects.iter().enumerate() {
+        offsets.push(out.len());
+        writeln!(out, "{} 0 obj\n{object}\nendobj", index + 1).expect("object");
+    }
+    let xref = out.len();
+    writeln!(out, "xref\n0 {}\n0000000000 65535 f ", objects.len() + 1).expect("xref");
+    for offset in offsets {
+        writeln!(out, "{offset:010} 00000 n ").expect("offset");
+    }
+    write!(
+        out,
+        "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+        objects.len() + 1
+    )
+    .expect("trailer");
+    out.into_bytes()
+}
+
+/// ADR 2276's populations: `DeviceCMYK` read as the output intent's profile — selected,
+/// restored, as a `Separation`'s alternate and an uncoloured pattern's underlying space — and
+/// inherited into an `ICCBased` CMYK group, where a restored colour is read again at each
+/// paint. Whole interpretations of 1 000 primary marks, not conversion timings.
+fn redefinition_workloads() -> Vec<Workload> {
+    let mark = "0 0 50 100 re f ";
+    let alternate = |prefix: &str, even: &str, odd: &str| {
+        let mut content = format!("/Off gs {prefix}");
+        for index in 0..1000 {
+            content.push_str(if index % 2 == 0 { even } else { odd });
+            content.push_str(mark);
+        }
+        content
+    };
+    let restored = |outer: &str, inner: &str| {
+        let mut content = format!("/Off gs {outer}");
+        for _ in 0..500 {
+            write!(content, "q {inner}{mark}Q {mark}").expect("restore pair");
+        }
+        content
+    };
+    let inherited = |outer: &str, inner: &str| {
+        let mut content = format!("/Off gs {outer}/G Do\n%G\n");
+        for _ in 0..500 {
+            write!(content, "q {inner}{mark}Q {mark}").expect("inherited pair");
+        }
+        content
+    };
+    [
+        (
+            "cmyk-oi-repeat",
+            "same-output-hit",
+            alternate("0 1 0 0 k ", "", ""),
+        ),
+        (
+            "cmyk-oi-select",
+            "same-output-selection",
+            alternate("", "0 1 0 0 k ", "1 0 0 0 k "),
+        ),
+        (
+            "cmyk-oi-restore",
+            "same-output-restoration",
+            restored("0 1 0 0 k ", "1 0 0 0 k "),
+        ),
+        (
+            "sep-cmyk-select",
+            "same-output-selection",
+            alternate("/SC cs ", ".25 scn ", ".75 scn "),
+        ),
+        (
+            "sep-cmyk-restore",
+            "same-output-restoration",
+            restored("/SC cs .5 scn ", ".75 scn "),
+        ),
+        (
+            "tint-cmyk-repeat",
+            "generic-tint-control",
+            alternate("/PK cs 0 1 0 0 /Tile scn ", "", ""),
+        ),
+        (
+            "cmyk-oi-inherit",
+            "required-current-state",
+            inherited("0 1 0 0 k ", "1 0 0 0 k "),
+        ),
+        (
+            "sep-oi-inherit",
+            "required-current-state",
+            inherited("/SC cs .5 scn ", ".75 scn "),
+        ),
+    ]
+    .into_iter()
+    .map(|(name, population, content)| Workload {
+        name,
+        population,
+        content,
+        step: 100,
+    })
+    .collect()
 }
 
 // Equal-output source/table/profile restoration is separate from context work that

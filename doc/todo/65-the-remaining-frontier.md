@@ -259,11 +259,10 @@ package, no cross-round architecture. Membership is re-derived from the ledger r
 row is in this bucket when its note names none of those three.
 
 
-- §11.7.5.3 — every solid family (device, ICC, `Indexed` over any base, `Separation`/`DeviceN`,
-  calibrated/Lab) and uncoloured pattern tints convert at paint (ADRs 2198, 2212, 2222, 2234,
-  2248, 2264). §11.7.2's `DeviceCMYK` redefinition is still read at selection, so an
-  output-intent `k` inherited into an `ICCBased` CMYK group is the next control; the profile
-  bypass then remains as a departure, and the row would be `departed`.
+§11.7.5.3 was here, and is `departed`: every solid family and uncoloured pattern tint converts
+at the paint, §11.7.2's redefinition of `DeviceCMYK` included (ADR 2276), and the one sentence not
+carried out is the first black-generation bullet for a `DeviceCMYK` group whose press is its output
+intent's bi-directional profile, converted in through the profile's `B2A` (ADRs 1242, 1622, 2170).
 
 §7.4.9 has a buildable part: implement e-sRGB and e-sYCC from the held PIMA 7667 (A348),
 with extended-range and non-neutral fixtures. Its CIEJab part remains in the unheld-text bucket;
@@ -304,7 +303,7 @@ exactly the rows `Ledger::is_aggregate` names and the frontier gate fails on any
 "Aggregate of the rows below" and the reason is the owing row's. They are not independently actionable
 — do not brief a round to *take* one; they flip when the last binding row flips.
 
-§7.4, §7.6, §7.6.5, §11.7, §11.7.5, §12.8, §12.8.3, §12.8.3.4.
+§7.4, §7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4.
 
 
 ### Not owed — a documented choice, an exclusion, a deprecation, or a standard-gap

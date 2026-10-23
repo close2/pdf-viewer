@@ -277,6 +277,25 @@ impl Interpreter<'_> {
             .under_separations(self.separations())
     }
 
+    /// The reading of the `DeviceCMYK` family `space` is, or holds as a component, where it is
+    /// selected here, for a source painted later under [`read_where_painted`] (ADR 2276).
+    pub(super) fn device_cmyk_selected(&self, space: &ColourSpace) -> Option<ColourSpace> {
+        let readings = self.device_cmyk_readings();
+        if readings.reads(space) {
+            Some(space.clone())
+        } else {
+            readings.held_by(space).cloned()
+        }
+    }
+
+    /// The two allocations `DeviceCMYK` is read as here, for [`SolidSource::selected`].
+    fn device_cmyk_readings(&self) -> DeviceCmykReadings<'_> {
+        DeviceCmykReadings {
+            group: profile_of(self.cmyk_group.as_ref()),
+            intent: profile_of(self.output_intent.as_ref()),
+        }
+    }
+
     /// The profile identity of [`Interpreter::cmyk_group`], which [`Interpreter::icc_spaces`] is
     /// keyed by beside the object: an `ICCBased` space whose profile does not parse is its
     /// `/Alternate`, and an alternate of `/DeviceCMYK` is redefined inside such a group, so the
@@ -445,7 +464,7 @@ impl Interpreter<'_> {
         {
             let space = space.clone();
             let initial = space.initial_colour();
-            self.take_colour_space(space, &initial, state, fill);
+            self.take_colour_space(space, &initial, state, fill, true);
             return;
         }
 
@@ -474,7 +493,7 @@ impl Interpreter<'_> {
             (ColourSpace::Gray, ColourSpace::Gray.initial_colour())
         };
 
-        self.take_colour_space(space, &initial, state, fill);
+        self.take_colour_space(space, &initial, state, fill, false);
     }
 
     /// Puts a space into the graphics state, with §8.6.8's initial colour.
@@ -483,12 +502,18 @@ impl Interpreter<'_> {
     /// [`Interpreter::icc_spaces`] and one parsed on the spot take exactly the same path: a
     /// memo that skipped this would set the space and leave the *previous* space's colour, and
     /// the clause is explicit that it must not.
+    ///
+    /// `remembered` is a space [`Interpreter::icc_spaces`] answered, whose allocation a group's
+    /// own space may share, so only the output intent's is evidence that it is the `DeviceCMYK`
+    /// family ([`DeviceCmykReadings`]); a parsed `ICCBased` profile is a fresh allocation and
+    /// reads as the family only where its `/Alternate` stood in for it.
     fn take_colour_space(
         &mut self,
         space: ColourSpace,
         initial: &[f32],
         state: &mut GraphicsState,
         fill: bool,
+        remembered: bool,
     ) {
         // §8.6.8: `cs` and `CS` "shall also set the current colour to its initial value,
         // which depends on the colour space". Omitting this leaves the previous space's
@@ -507,7 +532,12 @@ impl Interpreter<'_> {
         } else {
             self.colour(&space, initial, state)
         };
-        let source = SolidSource::selected(&space, initial);
+        let readings = if remembered {
+            self.device_cmyk_readings().intent_only()
+        } else {
+            self.device_cmyk_readings()
+        };
+        let source = SolidSource::selected(&space, initial, readings);
         self.seed_solid_colour(state, fill, source.as_ref(), colour);
         if fill {
             state.fill_source = source;
@@ -566,6 +596,16 @@ impl Interpreter<'_> {
             .filter_map(|index| number_at(operands, index))
             .collect();
 
+        // Whether the selection of the current space read it as the `DeviceCMYK` family
+        // (`take_colour_space`), which a whole `ICCBased` space cannot say of itself.
+        let selected_as_family = matches!(
+            if fill {
+                &state.fill_source
+            } else {
+                &state.stroke_source
+            },
+            Some(SolidSource::Cmyk(_))
+        );
         // Where the operand count disagrees with the declared space, the operands win:
         // producers get `/CS` wrong more often than they get the operand count wrong, and
         // a device space with a matching component count is the likeliest intent — the
@@ -574,23 +614,24 @@ impl Interpreter<'_> {
         // The space the operands were actually read in, which is the current colour space
         // §11.7.4.3 NOTE 2 means and is not always the one `cs` selected — see the recovery
         // above. [`Interpreter::overprint_blend`] asks §8.6.7's question of it.
-        let (colour, read_in) = match (values.len(), space.components()) {
+        let (colour, read_in, named_profile) = match (values.len(), space.components()) {
             (0, _) => return,
             (given, expected) if given == expected => {
                 let space = space.clone();
-                (self.colour(&space, &values, state), space)
+                let named_profile = matches!(space, ColourSpace::Icc { .. }) && !selected_as_family;
+                (self.colour(&space, &values, state), space, named_profile)
             }
             (1, _) => {
                 let space = self.device_space("DeviceGray", resources);
-                (self.colour(&space, &values, state), space)
+                (self.colour(&space, &values, state), space, false)
             }
             (3, _) => {
                 let space = self.device_space("DeviceRGB", resources);
-                (self.colour(&space, &values, state), space)
+                (self.colour(&space, &values, state), space, false)
             }
             (4, _) => {
                 let space = self.device_space("DeviceCMYK", resources);
-                (self.colour(&space, &values, state), space)
+                (self.colour(&space, &values, state), space, false)
             }
             (given, expected) => {
                 self.note(Unsupported::Shading {
@@ -601,7 +642,12 @@ impl Interpreter<'_> {
         };
 
         let tints = cmyk_tints(&read_in, &values);
-        let source = SolidSource::selected_owned(read_in, &values);
+        let readings = if named_profile {
+            DeviceCmykReadings::default()
+        } else {
+            self.device_cmyk_readings()
+        };
+        let source = SolidSource::selected_owned(read_in, &values, readings);
         self.seed_solid_colour(state, fill, source.as_ref(), colour);
         if fill {
             state.fill = colour;
@@ -650,7 +696,7 @@ impl Interpreter<'_> {
         space: ColourSpace,
         values: &[f32],
     ) {
-        let source = SolidSource::selected(&space, values);
+        let source = SolidSource::selected(&space, values, self.device_cmyk_readings());
         self.seed_solid_colour(state, fill, source.as_ref(), colour);
         let tints = cmyk_tints(&space, values);
         if fill {
@@ -879,6 +925,19 @@ fn is_icc_based(document: &Document, id: ObjectId) -> bool {
 /// §10.4.2.3 gives `0 1 0 0 k` grey 105 in a `DeviceGray` group, and the colour converted
 /// at selection was the device's magenta (ADR 2264).
 ///
+/// `Cmyk` is the `DeviceCMYK` *family*, which no default stood in for, and it is read as a
+/// space where it is painted rather than where it was selected: ISO 32000-2 §11.7.2 —
+///
+/// > If an isolated transparency group or page has an ICCBased 'CMYK' colour space ,
+/// > DeviceCMYK shall be redefined within the transparency group to be the same as the
+/// > blending colour space
+///
+/// — makes the family a property of the group a colour is painted in, so `0 1 0 1 k` resolved
+/// to §14.11.5's output intent on the page is the group's own `0 1 0 1` inside such a group
+/// (ADR 2276). A selection the family was read for — the device, the intent or the group —
+/// is kept as `Cmyk`, and a whole space holding the family keeps which reading it held
+/// ([`SpaceSource`]).
+///
 /// What the inline device families cost is ADR 2265's paired measurement over whole
 /// interpretations of 20 000 marks: a repeated `g` or `k` paint about 4 ns a mark, a selection
 /// 24–30 ns, a restore 15–24 ns; an `Indexed` entry over `DeviceCMYK` about 40 ns a selection,
@@ -912,6 +971,10 @@ pub(super) enum SolidSource {
 pub(super) struct SpaceSource {
     space: ColourSpace,
     values: Box<[f32]>,
+    /// The space `DeviceCMYK` was read as where this was selected, where `space` holds the
+    /// family — an `Indexed` base, a tint transform's alternate, §10.8.3's process space — and
+    /// which the paint reads again where it is (ADR 2276).
+    device_cmyk: Option<ColourSpace>,
 }
 
 /// An `ICCBased` selection, or an `Indexed` one's decoded entry over an immediate `ICCBased`
@@ -950,24 +1013,36 @@ impl SolidSource {
     /// [`SolidSource::selected`] for a space the caller no longer needs, which a family that
     /// keeps its whole space takes without the clone a borrowed one costs: `sc` and `scn` run
     /// once per colour, and a sampled tint transform is a table.
-    fn selected_owned(space: ColourSpace, values: &[f32]) -> Option<Self> {
+    fn selected_owned(
+        space: ColourSpace,
+        values: &[f32],
+        readings: DeviceCmykReadings<'_>,
+    ) -> Option<Self> {
         if keeps_whole_space(&space, values) {
-            Some(Self::whole_space(space, values))
+            Some(Self::whole_space(space, values, readings))
         } else {
-            Self::selected(&space, values)
+            Self::selected(&space, values, readings)
         }
     }
 
-    fn whole_space(space: ColourSpace, values: &[f32]) -> Self {
+    fn whole_space(space: ColourSpace, values: &[f32], readings: DeviceCmykReadings<'_>) -> Self {
+        let device_cmyk = readings.held_by(&space).cloned();
         Self::Space(std::rc::Rc::new(SpaceSource {
             space,
             values: values.into(),
+            device_cmyk,
         }))
     }
 
-    fn selected(space: &ColourSpace, values: &[f32]) -> Option<Self> {
+    /// The source `values` in `space` paint from, where its family is one kept here;
+    /// `readings` are the allocations `DeviceCMYK` was read as at this selection.
+    fn selected(
+        space: &ColourSpace,
+        values: &[f32],
+        readings: DeviceCmykReadings<'_>,
+    ) -> Option<Self> {
         if keeps_whole_space(space, values) {
-            return Some(Self::whole_space(space.clone(), values));
+            return Some(Self::whole_space(space.clone(), values, readings));
         }
         match space {
             ColourSpace::Gray => match *values {
@@ -975,11 +1050,16 @@ impl SolidSource {
                 _ => None,
             },
             ColourSpace::Rgb => values.try_into().ok().map(Self::Rgb),
-            ColourSpace::Cmyk => values.try_into().ok().map(Self::Cmyk),
+            // The family itself, however this selection read it (§11.7.2, ADR 2276).
+            ColourSpace::Cmyk | ColourSpace::Icc { .. } if readings.reads(space) => {
+                values.try_into().ok().map(Self::Cmyk)
+            }
             // Retain the decoded entry, not the declared index or its resource name: §8.6.6.3
             // rounds and clamps through `entry_of`, and the entry is then a selection in the
             // base, which follows the base's own current-context route (ADRs 2234, 2264).
-            ColourSpace::Indexed { base, .. } => Self::selected(base, &space.entry_of(values)),
+            ColourSpace::Indexed { base, .. } => {
+                Self::selected(base, &space.entry_of(values), readings)
+            }
             ColourSpace::Icc { profile } if values.len() == profile.channels() => {
                 let values = match *values {
                     [a] => IccValues::One([a]),
@@ -1025,14 +1105,83 @@ impl SolidSource {
         match self {
             Self::Gray(grey) => conversion.paint(&ColourSpace::Gray, &[*grey]),
             Self::Rgb(values) => conversion.paint(&ColourSpace::Rgb, values),
-            Self::Cmyk(values) => conversion.paint(&ColourSpace::Cmyk, values),
+            Self::Cmyk(values) => conversion.paint(&device_cmyk_at(conversion), values),
             Self::Icc(source) => conversion.paint(
                 &ColourSpace::Icc {
                     profile: source.profile.clone(),
                 },
                 source.values.as_slice(),
             ),
-            Self::Space(source) => conversion.paint(&source.space, &source.values),
+            Self::Space(source) => {
+                let read =
+                    read_where_painted(conversion, &source.space, source.device_cmyk.as_ref());
+                conversion.paint(read.as_ref().unwrap_or(&source.space), &source.values)
+            }
+        }
+    }
+}
+
+/// The allocations `DeviceCMYK` can have been read as where a colour was selected: the
+/// `ICCBased` CMYK group space ISO 32000-2 §11.7.2 redefines the family to, and §14.11.5's
+/// output intent — each the very profile `ColourSpace::device_family` hands out for the
+/// family, plus `ColourSpace::Cmyk`, the family read on the device.
+///
+/// Compared by allocation, which is exact because the family's reading is the only way those
+/// two allocations reach a selected space: a default, an `Indexed` base, a tint transform's
+/// alternate or a resource stating `ICCBased` is a profile parsed afresh, and an `ICCBased`
+/// whose profile fails is read as its `/Alternate`, which may be the family (ADR 2012). The one
+/// exception is a space [`Interpreter::icc_spaces`] remembers, whose allocation a group's own
+/// space may share; it is asked about the output intent alone (ADR 2277).
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct DeviceCmykReadings<'a> {
+    group: Option<&'a std::sync::Arc<crate::icc::Profile>>,
+    intent: Option<&'a std::sync::Arc<crate::icc::Profile>>,
+}
+
+impl DeviceCmykReadings<'_> {
+    /// The same readings less the group's, for a space whose allocation a group may share.
+    fn intent_only(self) -> Self {
+        Self {
+            group: None,
+            ..self
+        }
+    }
+
+    /// Whether `space` is the `DeviceCMYK` family as this selection read it.
+    fn reads(self, space: &ColourSpace) -> bool {
+        match space {
+            ColourSpace::Cmyk => true,
+            ColourSpace::Icc { profile } => {
+                profile.channels() == 4
+                    && [self.group, self.intent]
+                        .into_iter()
+                        .flatten()
+                        .any(|read| std::sync::Arc::ptr_eq(read, profile))
+            }
+            _ => false,
+        }
+    }
+
+    /// The reading of the family `space` holds as a component — an `Indexed` base, a tint
+    /// transform's alternate (a `DeviceN`'s process space included), §10.8.3's process space
+    /// or a colourant's own space — if it holds one.
+    fn held_by<'s>(self, space: &'s ColourSpace) -> Option<&'s ColourSpace> {
+        let component = |inner: &'s ColourSpace| {
+            if self.reads(inner) {
+                Some(inner)
+            } else {
+                self.held_by(inner)
+            }
+        };
+        match space {
+            ColourSpace::Indexed { base, .. } => component(base),
+            ColourSpace::Separation { alternate, .. } => component(alternate),
+            ColourSpace::Simulated { process, spots, .. } => process
+                .as_deref()
+                .into_iter()
+                .chain(spots.iter().flatten())
+                .find_map(component),
+            _ => None,
         }
     }
 }
@@ -1095,6 +1244,116 @@ impl SolidColours {
             colour,
         });
         colour
+    }
+}
+
+/// `DeviceCMYK` read where a colour is painted: §11.7.2's group space inside an `ICCBased`
+/// CMYK group, §14.11.5's output intent outside one, and the device without either — the
+/// ranking `ColourSpace::device_family` reads a selection by, less §8.6.5.6's default, which
+/// was decided at the selection (ADR 2276). Spelt out rather than asked of the parser because
+/// an uncoloured pattern's tint has no memo and asks it at every mark; the controls in
+/// `tests/icc_paint_context/cmyk_redefinition.rs` compare the two rankings, a colour inherited
+/// against the same colour selected where it is painted.
+fn device_cmyk_at(conversion: &Conversion) -> ColourSpace {
+    conversion
+        .cmyk_group()
+        .or_else(|| {
+            conversion
+                .output_intent()
+                .filter(|intent| intent.components() == 4)
+        })
+        .unwrap_or(ColourSpace::Cmyk)
+}
+
+/// The space a colour selected in `space`, holding `selected`'s reading of the `DeviceCMYK`
+/// family, is painted in under `conversion`, where that differs from `space`; `None` where the
+/// selection held no reading of the family or the paint reads it the same way.
+pub(super) fn read_where_painted(
+    conversion: &Conversion,
+    space: &ColourSpace,
+    selected: Option<&ColourSpace>,
+) -> Option<ColourSpace> {
+    let selected = selected?;
+    let painted = device_cmyk_at(conversion);
+    if same_reading(selected, &painted) {
+        None
+    } else if same_reading(space, selected) {
+        Some(painted)
+    } else {
+        read_family_as(space, selected, &painted)
+    }
+}
+
+/// Whether two readings of the `DeviceCMYK` family are one: the device's, or one allocation.
+fn same_reading(left: &ColourSpace, right: &ColourSpace) -> bool {
+    match (left, right) {
+        (ColourSpace::Cmyk, ColourSpace::Cmyk) => true,
+        (ColourSpace::Icc { profile: left }, ColourSpace::Icc { profile: right }) => {
+            std::sync::Arc::ptr_eq(left, right)
+        }
+        _ => false,
+    }
+}
+
+/// `space` with each component that is `selected`'s reading of the `DeviceCMYK` family read
+/// as `painted` instead; `None` where it holds none.
+fn read_family_as(
+    space: &ColourSpace,
+    selected: &ColourSpace,
+    painted: &ColourSpace,
+) -> Option<ColourSpace> {
+    let component = |inner: &ColourSpace| -> Option<ColourSpace> {
+        if same_reading(inner, selected) {
+            Some(painted.clone())
+        } else {
+            read_family_as(inner, selected, painted)
+        }
+    };
+    match space {
+        ColourSpace::Indexed { base, lookup, high } => {
+            component(base).map(|base| ColourSpace::Indexed {
+                base: Box::new(base),
+                lookup: lookup.clone(),
+                high: *high,
+            })
+        }
+        ColourSpace::Separation {
+            inputs,
+            names,
+            alternate,
+            tints,
+        } => component(alternate).map(|alternate| ColourSpace::Separation {
+            inputs: *inputs,
+            names: names.clone(),
+            alternate: Box::new(alternate),
+            tints: tints.clone(),
+        }),
+        ColourSpace::Simulated {
+            names,
+            process,
+            spots,
+        } => {
+            let new_process = process.as_deref().map(component);
+            let new_spots: Vec<Option<ColourSpace>> = spots
+                .iter()
+                .map(|spot| spot.as_ref().and_then(component))
+                .collect();
+            let changed = new_process.as_ref().is_some_and(Option::is_some)
+                || new_spots.iter().any(Option::is_some);
+            changed.then(|| ColourSpace::Simulated {
+                names: names.clone(),
+                process: match (new_process, process) {
+                    (Some(Some(read)), _) => Some(Box::new(read)),
+                    (_, kept) => kept.clone(),
+                },
+                spots: new_spots
+                    .into_iter()
+                    .zip(spots)
+                    .map(|(read, kept)| read.or_else(|| kept.clone()))
+                    .collect(),
+            })
+        }
+        _ => None,
     }
 }
 

@@ -464,6 +464,8 @@ fn device_gray_operators_retain_the_resolved_default_icc_source() {
     }
 }
 
+#[path = "icc_paint_context/cmyk_redefinition.rs"]
+mod cmyk_redefinition;
 #[path = "icc_paint_context/device_solids.rs"]
 mod device_solids;
 #[path = "icc_paint_context/indexed.rs"]

@@ -474,3 +474,34 @@ fn the_batches_section_reads_a_grouped_figure_whole() {
         "gates: 34 of 36 gates green at the run, 2248 s of gate wall time  rounds: 12000 s over 1 figure(s) for 1 round(s)"
     );
 }
+
+/// **`tools/state.sh batches` counts what a batch commit names outside the tree** (ADR 2242 decision
+/// 4), word by word as `evidence.rs` reads a record: a quoted path is one path, a word holding both
+/// markers is one, counted under `/home/AI/`, and a marker on its own names a kind of place and is
+/// none. The body is planted, so each count is the one written into it.
+#[test]
+fn the_batches_section_counts_the_paths_a_body_names_outside_the_tree() {
+    use std::io::Write as _;
+    let body = "The six arms held against `/home/AI/arms-9999/`, and a gate's log is \
+        scratchpad/r9999/gates.log. The export worked under \
+        /home/AI/pdf-viewer-rounds/scratchpad/r9999/export/. A path under `/home/AI/` or \
+        `scratchpad/` is never the evidence.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\n";
+    let mut child = Command::new("bash")
+        .arg(repository_root().join("tools/state.sh"))
+        .arg("--outside-paths")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("bash runs tools/state.sh");
+    child
+        .stdin
+        .take()
+        .expect("the child's standard input is piped")
+        .write_all(body.as_bytes())
+        .expect("the body is written");
+    let output = child.wait_with_output().expect("tools/state.sh ends");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "outside the tree: 3 path(s) named, 2 under /home/AI/ and 1 under scratchpad/"
+    );
+}

@@ -73,6 +73,16 @@ impl Open {
     ///
     /// The scroll it produces may exceed what the new raster permits; `Viewer::settle` clamps it
     /// against the target it is about to ask for, which is where the new raster's size is known.
+    ///
+    /// **A gesture holds the point it was pointed at, not the point the last step left there**
+    /// (ADR 2275). While the page is narrower or shorter than the viewport the arrangement centres
+    /// it and no scroll can keep the pointer's point under the pointer; reading the point afresh at
+    /// every step would then take the one the centring left, and every later step would hold that
+    /// one exactly — a step or two of centring would be a drift growing by a step's ratio each notch
+    /// after (51.8 units of a Letter page, 926 device pixels at 17.9 times, in a window 2560 pixels
+    /// wide). So a step about the same pointer, from the magnification and the scroll the
+    /// last step settled at, puts the first step's point under the pointer as far as the clamp
+    /// lets it, and anything that moved the page in between starts a new gesture.
     pub(crate) fn hold(
         &mut self,
         viewport: (u32, u32),
@@ -82,11 +92,66 @@ impl Open {
         at: Option<(f32, f32)>,
     ) {
         let origin = self.origin(viewport, scale, before);
+        let pointer = at;
         let at = at.unwrap_or((px(viewport.0) / 2.0, px(viewport.1) / 2.0));
-        let ratio = after / before;
-        let hold = |at: f32, origin: f32| ((at - origin) * ratio - at).max(0.0);
-        self.scroll = (hold(at.0, origin.0), hold(at.1, origin.1));
+        // Exactly the values the last step left, not near ones: a gesture goes on only where
+        // nothing but this step has touched the view since.
+        let going_on = pointer.and_then(|pointer| {
+            self.pointed.filter(|pointed| {
+                pointed.at == pointer
+                    && pointed.magnification.to_bits() == before.to_bits()
+                    && pointed.viewport == viewport
+                    && pointed.page == self.page_index
+                    && pointed.settled == Some(self.scroll)
+            })
+        });
+        let point = if let Some(pointed) = going_on {
+            let hold = |point: f32, at: f32| (point * after - at).max(0.0);
+            self.scroll = (hold(pointed.point.0, at.0), hold(pointed.point.1, at.1));
+            pointed.point
+        } else {
+            let ratio = after / before;
+            let hold = |at: f32, origin: f32| ((at - origin) * ratio - at).max(0.0);
+            self.scroll = (hold(at.0, origin.0), hold(at.1, origin.1));
+            ((at.0 - origin.0) / before, (at.1 - origin.1) / before)
+        };
+        self.pointed = pointer.map(|at| Pointed {
+            at,
+            point,
+            magnification: after,
+            viewport,
+            page: self.page_index,
+            settled: None,
+        });
     }
+
+    /// The scroll the settle after a zoom step left, which is what the next step of the same
+    /// gesture has to find unmoved (ADR 2275).
+    pub(crate) fn settled_pointed(&mut self) {
+        if let Some(pointed) = &mut self.pointed
+            && pointed.settled.is_none()
+        {
+            pointed.settled = Some(self.scroll);
+        }
+    }
+}
+
+/// The point of the page a zoom gesture about the pointer was pointed at (ADR 2275).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Pointed {
+    /// The viewport point the steps are about, in device pixels.
+    at: (f32, f32),
+    /// The page point under it when the gesture began, in user space units from the top-left of
+    /// the page's raster.
+    point: (f32, f32),
+    /// The magnification the last step resolved to.
+    magnification: f32,
+    /// The viewport the gesture is in.
+    viewport: (u32, u32),
+    /// The page it is on.
+    page: usize,
+    /// The scroll the settle after the last step left; `None` until that settle has run.
+    settled: Option<(f32, f32)>,
 }
 
 /// The raster a page of this size occupies at this magnification.

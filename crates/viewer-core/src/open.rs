@@ -41,8 +41,10 @@ const INITIAL_ZOOM: Zoom = Zoom::FitPage;
 /// How far one [`Zoom::In`] or [`Zoom::Out`] step moves.
 ///
 /// A quarter larger each press, which is the step every viewer this project's owner uses has
-/// converged on. Nothing derives it; it is a choice, and it is written down as one.
-const ZOOM_STEP: f32 = 1.25;
+/// converged on. Nothing derives it; it is a choice, and it is written down as one. Public because a
+/// host that magnifies by part of a step — a high-resolution wheel's eighth of a notch — states the
+/// magnification it wants as a power of it (ADR 2274).
+pub const ZOOM_STEP: f32 = 1.25;
 
 /// The smallest and largest magnification a person may reach.
 ///
@@ -143,6 +145,9 @@ pub(crate) struct Open {
     /// Positive means the content has moved up and left — the top-left of the raster is off the
     /// top-left of the viewport — which is what scrolling down and right does.
     pub(crate) scroll: (f32, f32),
+    /// The page point a zoom about the pointer was pointed at, held while the steps go on about
+    /// the same point and nothing else moves the page (ADR 2275).
+    pub(crate) pointed: Option<magnification::Pointed>,
     /// How many times this document's page has been interpreted.
     ///
     /// What makes a render request stale for a reason other than the page or the resolution: an
@@ -937,6 +942,7 @@ impl Open {
             scripts_said: 0,
             pending_views: open_view.into_iter().collect(),
             scroll: (0.0, 0.0),
+            pointed: None,
             on_screen: Vec::new(),
             shown_for: 0.0,
             node: None,

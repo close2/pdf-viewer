@@ -2558,6 +2558,31 @@ fn a_font_stating(widths: &str, embedded: bool) -> Vec<u8> {
     a_font_range_stating(widths, embedded, 65)
 }
 
+/// Whether the viewer draws the fixture's font `F1` (object 6) from a face of this machine's rather
+/// than the shipped one: a TrueType font named for a face the machine has installed is drawn from
+/// it, and embedding the shipped face over it is then the loss `machine-face` (`doc/adr/2279`).
+fn drawn_from_a_machine_face(source: &[u8]) -> bool {
+    let document = Document::open_with_limits(source.to_vec(), Limits::DEFAULT).expect("it opens");
+    let font = document.get(ObjectId::new(6, 0));
+    let font = font.as_dict().expect("object 6 is the font");
+    let drawn = pdf_font::LoadedFont::load(&document, font, "F1").expect("the font loads");
+    let shipped =
+        pdf_font::standard::shipped_face(&document, font, "F1").expect("a face is shipped");
+    drawn
+        .substitute_program()
+        .is_some_and(|program| program != shipped.program)
+}
+
+/// The two losses embedding a shipped face can incur, for a test about something else: which of
+/// them a fixture incurs depends on the faces the machine running it has installed.
+fn the_face_losses_authorised() -> Authorisations {
+    Authorisations {
+        machine_face: true,
+        substitute_stretch: true,
+        ..Authorisations::default()
+    }
+}
+
 /// The same font with a range independent of its array's length, for Table 109's count.
 fn a_font_range_stating(widths: &str, embedded: bool, last: u8) -> Vec<u8> {
     let program = if embedded { "/FontFile2 8 0 R" } else { "" };
@@ -2662,13 +2687,30 @@ fn a_font_the_file_never_embedded_is_given_a_face_the_report_names() {
     // this program ships the **default** rather than a refusal — `doc/questions/A47` settled
     // that. The width the fixture states is the face's own, so this is section 4.9's *first*
     // metric route and nothing inside the program is touched.
+    // Where this machine has a Liberation Sans of its own, the viewer draws that, and embedding
+    // the shipped one over it is the loss `machine-face` instead (`doc/adr/2279`).
     let source = a_font_stating("667", false);
-    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    let machine = drawn_from_a_machine_face(&source);
+    let authorised = Authorisations {
+        machine_face: true,
+        ..Authorisations::default()
+    };
+    let (report, output) = convert(&source, Target::Two(Level::B), authorised);
     let decided = decision(&report, "fonts/font-programs-embedded");
-    assert!(
-        matches!(decided, Decision::Stated { .. }),
-        "embedding a face states an interpretation rather than losing something: {decided:?}"
-    );
+    if machine {
+        assert_eq!(
+            decided,
+            Decision::Authorised {
+                losses: Losses::one(Loss::MachineFace),
+                rewrite: Rewrite::SubstituteFontProgram,
+            }
+        );
+    } else {
+        assert!(
+            matches!(decided, Decision::Stated { .. }),
+            "embedding a face states an interpretation rather than losing something: {decided:?}"
+        );
+    }
     let output = output.expect("the document converts");
     assert_eq!(
         holds(&output, Target::Two(Level::B)).verdict(),
@@ -2715,7 +2757,7 @@ fn an_embedded_face_whose_metrics_differ_has_the_program_restated_and_not_the_wi
     // ISO 32000-2 §9.2.4 makes `/Widths` what positions the glyphs and rewriting it would move
     // every line of the page.
     let source = a_font_stating("500", false);
-    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    let (report, output) = convert(&source, Target::Two(Level::B), the_face_losses_authorised());
     let output = output.expect("the document converts");
     assert_eq!(
         holds(&output, Target::Two(Level::B)).verdict(),
@@ -9530,7 +9572,10 @@ fn a_program_named_for_another_font_is_not_reached_and_the_shipped_face_answers(
     // document *does* state takes ISO 19005-2 section 6.2.11.4.1's shipped-face route exactly as
     // it would have without the flag.
     let source = a_font_stating("667", false);
-    let plan = a_supplied_font(Target::Two(Level::B), "Garamond", LIBERATION_SANS);
+    let plan = ArchivePlan {
+        authorised: the_face_losses_authorised(),
+        ..a_supplied_font(Target::Two(Level::B), "Garamond", LIBERATION_SANS)
+    };
     let (report, output) = convert_with_plan(&source, &plan);
     assert!(output.is_some(), "the document converts");
     let font = conversion(&report)
@@ -14672,6 +14717,168 @@ fn a_symbolic_truetype_font_embedded_as_cff_keeps_its_code_to_name_table() {
     }
 }
 
+/// One font on a page showing `H`, its dictionary object 6 and its descriptor, where one is
+/// passed, object 7.
+fn one_font_showing_h(font: &str, descriptor: Option<&str>) -> Vec<u8> {
+    let mut objects = vec![font.to_owned()];
+    objects.extend(descriptor.map(str::to_owned));
+    Conforming {
+        resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (H) Tj ET".to_vec(),
+        )),
+        objects,
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+/// The fitting the viewer draws a shipped Helvetica at is not what these tests are about.
+fn the_fitting_authorised() -> Authorisations {
+    Authorisations {
+        substitute_stretch: true,
+        ..Authorisations::default()
+    }
+}
+
+/// ISO 19005-2 section 6.2.11.6 and ISO 19005-4 section 6.2.10.6 let a non-symbolic TrueType font
+/// state a `/Differences` array only of names the Adobe Glyph List holds, and `.notdef` is not one.
+/// A `Type1` dictionary may state it; once the dictionary is restated as `TrueType` for the face's
+/// sake, its encoding is restated with no code named `.notdef`, and every shown code still reaches
+/// the glyph it did (`doc/adr/2278`).
+#[test]
+fn a_differences_array_naming_notdef_is_restated_once_the_font_is_truetype() {
+    let source = one_font_showing_h(
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding << /Type /Encoding \
+         /BaseEncoding /WinAnsiEncoding /Differences [0 /.notdef /.notdef 65 /B 72 /H] >> >>",
+        None,
+    );
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        let (report, output) = convert(&source, target, the_fitting_authorised());
+        let output = written(&report, output);
+        assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+        let (document, dict) = described_font(&output);
+        assert_eq!(name_entry(&document, &dict, "Subtype"), "TrueType");
+        let encoding = document.get_key(&dict, "Encoding");
+        let encoding = encoding.as_dict().expect("a restated encoding dictionary");
+        let names: Vec<String> = document
+            .get_key(encoding, "Differences")
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_name())
+                    .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
+                    .collect()
+            })
+            .unwrap_or_default();
+        assert_eq!(
+            names,
+            vec!["B".to_owned()],
+            "the one name WinAnsi does not give its code"
+        );
+        let loaded = pdf_font::LoadedFont::load(&document, &dict, "F1").expect("embedded font");
+        assert_eq!(
+            loaded.selected_glyph_name(pdf_font::Code::single_byte(72)),
+            Some("H")
+        );
+    }
+}
+
+/// A `Type1` Helvetica whose own descriptor is flagged Symbolic, restated as `TrueType` with a
+/// `WinAnsiEncoding`: ISO 19005-2 section 6.2.11.6 and ISO 19005-4 section 6.2.10.6 give a symbolic
+/// TrueType font no `/Encoding`, and §9.6.5.4 builds no code-to-name table for an encoding
+/// dictionary beside a Symbolic flag, so the descriptor the face is embedded into says
+/// Nonsymbolic, every other bit the file's own (`doc/adr/2278`).
+#[test]
+fn a_symbolic_descriptor_restated_as_truetype_is_made_nonsymbolic() {
+    let source = one_font_showing_h(
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /FirstChar 72 /LastChar 72 \
+         /Widths [722] /FontDescriptor 7 0 R >>",
+        Some(
+            "<< /Type /FontDescriptor /FontName /Helvetica /Flags 262148 \
+             /FontBBox [-166 -225 1000 931] /ItalicAngle 0 /Ascent 718 /Descent -207 \
+             /CapHeight 718 /StemV 88 >>",
+        ),
+    );
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        let (report, output) = convert(&source, target, the_fitting_authorised());
+        let output = written(&report, output);
+        assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+        let (document, dict) = described_font(&output);
+        assert_eq!(name_entry(&document, &dict, "Subtype"), "TrueType");
+        let descriptor = document.get_key(&dict, "FontDescriptor");
+        let descriptor = descriptor.as_dict().expect("the descriptor");
+        assert_eq!(
+            document.get_key(descriptor, "Flags").as_integer(),
+            Some(262_176),
+            "Symbolic cleared, Nonsymbolic set, ForceBold kept"
+        );
+        assert_eq!(stated_widths(&output), stated_widths(&source));
+    }
+}
+
+/// `doc/todo/72`'s owed entry: a TrueType font whose own descriptor states no program and needs no
+/// restating, drawn by the viewer from a face of this machine's, loses that face's shapes when the
+/// shipped one is embedded — the loss `machine-face`, as on the other two routes (`doc/adr/2279`).
+#[test]
+fn the_unrestated_route_over_a_machines_face_is_the_loss_machine_face() {
+    let source = one_font_showing_h(
+        "<< /Type /Font /Subtype /TrueType /BaseFont /LiberationSans /Encoding /WinAnsiEncoding \
+         /FirstChar 72 /LastChar 72 /Widths [722] /FontDescriptor 7 0 R >>",
+        Some(
+            "<< /Type /FontDescriptor /FontName /LiberationSans /Flags 32 \
+             /FontBBox [-543 -303 1300 980] \
+             /ItalicAngle 0 /Ascent 905 /Descent -212 /CapHeight 716 /StemV 80 >>",
+        ),
+    );
+    let document = Document::open_with_limits(source.clone(), Limits::DEFAULT).expect("it opens");
+    let font = document.get(ObjectId::new(6, 0));
+    let font = font.as_dict().expect("the font");
+    let drawn = pdf_font::LoadedFont::load(&document, font, "F1").expect("the font loads");
+    let shipped =
+        pdf_font::standard::shipped_face(&document, font, "F1").expect("a face is shipped");
+    if drawn
+        .substitute_program()
+        .is_none_or(|program| program == shipped.program)
+    {
+        println!("skipped: this machine offers no Liberation Sans of its own");
+        return;
+    }
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    assert!(
+        output.is_none(),
+        "the machine's shapes are not embedded over unasked"
+    );
+    assert_eq!(
+        decision(&report, "fonts/font-programs-embedded"),
+        Decision::Unauthorised {
+            losses: Losses::one(Loss::MachineFace),
+            rewrite: Rewrite::SubstituteFontProgram,
+        }
+    );
+    let authorised = Authorisations {
+        machine_face: true,
+        ..Authorisations::default()
+    };
+    let (report, output) = convert(&source, Target::Two(Level::B), authorised);
+    let output = written(&report, output);
+    assert_eq!(
+        holds(&output, Target::Two(Level::B)).verdict(),
+        Verdict::Conforms
+    );
+    let font = conversion(&report)
+        .substituted
+        .first()
+        .cloned()
+        .expect("the font was substituted");
+    assert_eq!(font.losses, Losses::one(Loss::MachineFace));
+    assert_eq!(font.fitting, None);
+}
+
 /// Each font's proved program must survive even when the producer shared its descriptor.
 #[test]
 fn fonts_sharing_a_descriptor_keep_their_own_prepared_programs() {
@@ -14686,7 +14893,7 @@ fn fonts_sharing_a_descriptor_keep_their_own_prepared_programs() {
         ..Conforming::part_two()
     }.build();
     for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
-        let (report, output) = convert(&source, target, Authorisations::default());
+        let (report, output) = convert(&source, target, the_face_losses_authorised());
         let output = written(&report, output);
         assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
         assert_eq!(stated_widths(&output), stated_widths(&source));

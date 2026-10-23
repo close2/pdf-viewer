@@ -5,10 +5,11 @@ the rest are the order; the window's trace prints each frame's streams (ADR 2009
 Priority: the owner's, 2026-10-19: "evaluate: keep the page's intermediate representation resident
 on the GPU and have a compute stage re-rasterise it at the new transform, so a zoom sends only a
 matrix."
-Witness: `/home/AI/witness/demo_heavy_engineering_A1.pdf`, the owner's, **not in the repository**
-(4 408 406 commands, 4 398 932 of them the line lane's). Instrument: `render-raster`'s
-`examples/zoom_frame.rs`, whose `crossed:` line divides `bytes_uploaded` by stream and whose `lanes:`
-line counts the marks behind each (ADR 1992). The rows of `doc/checks/turn-path.toml` are the second
+Witness: `/home/AI/witness/demo_heavy_engineering_A1.pdf`, the owner's, **not in the repository**.
+Instrument: `render-raster`'s `examples/zoom_frame.rs`, whose `crossed:` line divides
+`bytes_uploaded` by stream and whose `lanes:` line counts the marks behind each (ADR 1992); a
+frame's `command(s) encoded` line counts the page's commands, and `lanes: line` the line lane's
+share of them. The rows of `doc/checks/turn-path.toml` are the second
 population. Clauses the design touches: §8.4.3.2, §8.5.3.2, §10.7.4, §10.7.5.
 
 **What crosses on a zoom step today** is ADR 1992 section 2's table: on the witness the line lane's
@@ -42,8 +43,10 @@ A walk that culled no line — the fit a page opens at — wrote the page's whol
 runs: consecutive top-level commands, consecutive instances, one chain, one soft mask. The encode of
 another view of the scene walks every other command and takes each run in one step — the batch noted
 once, the stream shared and adopted on the device, the plan's box asked per line only while it can
-still grow — so a step from the fit sends no line byte and walks 9 474 commands where it walked
-4 408 406. A line the new view does not admit stays in the kept stream and draws nothing.
+still grow — so a step from the fit sends no line byte and walks only the commands outside the runs where it
+walked all of them: `zoom_frame`'s `command(s) encoded` less its `lanes: line` on the fit's frame,
+with `ZOOM_FRAME_COVERAGE=compute ZOOM_FRAME_WINDOW=900x1100 ZOOM_FRAME_SEQUENCE=1,2.4` and the
+witness at `1 0.3775`. A line the new view does not admit stays in the kept stream and draws nothing.
 
 **A window opened zoomed keeps its lines from the idle build** (ADR 2134): its first frame culls as
 before, and once the view has been still as long as that frame took, the render thread walks the
@@ -73,7 +76,9 @@ benefit worth its state.
 
 ## 4. §10.7.4's dot asked per view on the device
 
-ADR 1877 asks every dot drawn as a line again at the new view (13–40 ms for 28 684 on the witness).
+ADR 1877 asks every dot drawn as a line again at the new view, and prices it on the witness;
+`cargo run --release -p pdf-model --example sub_pixel_width_census -- <witness> 1` counts the dots,
+on its `§8.5.3.2 dots` line.
 Under item 3's runs the ask is the shader's: a dot whose disc reaches no level at this view takes the
 substitution in the vertex stage, so no mark disappears and the host asks nothing.
 

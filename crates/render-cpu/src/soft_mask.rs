@@ -114,6 +114,7 @@ impl CpuRasterizer {
                     depth,
                     Compose::Over,
                 )?;
+                masks.absorb(&mut own);
             } else {
                 self.encode(
                     &mut buffer.as_mut(),

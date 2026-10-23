@@ -743,6 +743,7 @@ pub(super) fn embed_faces(
             document,
             descriptor,
             Embedding { key: row.key, at },
+            restated.as_ref().map(|restatement| &restatement.descriptor),
             spare,
             &mut substitutes,
         )?;
@@ -753,15 +754,14 @@ pub(super) fn embed_faces(
         // Which face the viewer drew the font from decides what embedding the shipped one loses:
         // the restatement's proof has already held the font to it (`doc/adr/2162`). The unrestated
         // route, whose own comparison is of advances, reads the same answer off the font as
-        // loaded and names the fitting it removes from the shipped face (`doc/adr/2262`); a
-        // machine's face on that route is still embedded over as a statement, the owed half of
-        // `doc/todo/72`'s machine-face entry, priced by a census of its own. An operator's face is
-        // the operator's statement and costs neither.
+        // loaded: the fitting it removes from the shipped face (`doc/adr/2262`), or a machine's
+        // face it embeds over, which is the loss `machine-face` there exactly as on the other two
+        // routes (`doc/adr/2279`). An operator's face is the operator's statement and costs
+        // neither.
         let drawn = match (&face, &restated) {
             (Face::Supplied(..), _) => None,
             (Face::Shipped(_), Some(restatement)) => Some(restatement.drawn),
-            (Face::Shipped(shipped), None) => described::drawn_by_the_viewer(&font, shipped)
-                .filter(|drawn| *drawn == described::Drawn::FromTheShippedFace),
+            (Face::Shipped(shipped), None) => described::drawn_by_the_viewer(&font, shipped),
         };
         let (losses, fitting) = drawn.map_or((Losses::default(), None), |drawn| {
             described::losses_of(drawn, &font)
@@ -790,10 +790,14 @@ pub(super) fn embed_faces(
 }
 
 /// Gives each simple font its own descriptor: even unused aliases must keep their old value.
+///
+/// `gains` is what a restated dictionary's descriptor states beside the program — the
+/// non-symbolic `/Flags` of `doc/adr/2278` — written into this font's copy alone.
 fn embed_at_descriptor(
     document: &Document,
     descriptor: ObjectId,
     embedding: Embedding,
+    gains: Option<&Dictionary>,
     spare: &mut Spare,
     substitutes: &mut Substitutes,
 ) -> Result<ObjectId, Because> {
@@ -803,6 +807,9 @@ fn embed_at_descriptor(
         .cloned()
         .ok_or(Because::NotBuiltYet(DESCRIPTOR_NOT_AN_OBJECT))?;
     embedding.write_into(&mut own);
+    for (key, value) in gains.into_iter().flat_map(Dictionary::iter) {
+        own.insert(key.clone(), value.clone());
+    }
     let at = spare
         .take(document)
         .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;

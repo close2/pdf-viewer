@@ -802,3 +802,13 @@ and a contour was walked one winding off, which was the "dropped stretch" round 
 representable value whatever the sign (split at bit 32, with a test on a small negative), and a
 separation threshold is never trusted before that conversion is.
 
+### 241. A colour defect named for one operator is checked over every route to the same family
+
+Round 1715 found a `0 1 0 0 k` inherited into a differently-spaced group reading the wrong space and the
+brief for round 1721 named the fix for `k`; the controls found the same reading stale for `cs`/`sc`, for an
+`Indexed` entry over `DeviceCMYK`, for a `Separation` whose alternate is `DeviceCMYK` and for an uncoloured
+pattern over it — four of the five routes to one family (ADRs 2276, 2277). A colour family is selected by
+operators, by bases, by alternates and by tints; a defect found through one of them is a defect of the
+family until each route has a control of its own, and the fix is placed where the family is read, not
+where the one operator is.
+

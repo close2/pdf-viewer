@@ -7132,6 +7132,85 @@ fn a_zoom_holds_the_point_it_is_given() {
     );
 }
 
+/// A zoom gesture about the pointer holds the point it was pointed at, through steps on which the
+/// page is centred and cannot hold it (ADR 2275).
+///
+/// The 600×800 page fitted into a 1000×400 viewport is 300 pixels wide and centred, so the
+/// pointer at (400, 100) is over the page point (100, 200), and the page stays narrower than the
+/// viewport for five steps of 1.25. A step that read the point afresh would read the one the
+/// centring left; the gesture's point comes back under the pointer once the page can put it there,
+/// and ten steps back out land on the fitted page again. A scroll in between is a new gesture.
+#[test]
+fn a_zoom_gesture_holds_the_point_it_was_pointed_at() {
+    let geometry = |viewer: &Viewer| {
+        let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
+            panic!("the page on the screen has a geometry");
+        };
+        geometry
+    };
+    let under = |geometry: &viewer_core::PageGeometry, at: (f32, f32)| {
+        (
+            (at.0 - geometry.origin.0) / geometry.scale,
+            (at.1 - geometry.origin.1) / geometry.scale,
+        )
+    };
+    let step = |viewer: &mut Viewer, zoom: Zoom, at: (f32, f32)| {
+        viewer
+            .handle(Command::Zoom { zoom, at: Some(at) })
+            .for_each(drop);
+    };
+    let mut viewer = Viewer::new(1000, 400, 1.0);
+    let _ = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: with_open_action("[3 0 R /Fit]").into(),
+            password: None,
+            fragment: None,
+        })
+        .count();
+    let at = (400.0, 100.0);
+    let fitted = geometry(&viewer);
+    assert_eq!(under(&fitted, at), (100.0, 200.0), "{fitted:?}");
+
+    for _ in 0..10 {
+        step(&mut viewer, Zoom::In, at);
+    }
+    let deep = geometry(&viewer);
+    let (x, y) = under(&deep, at);
+    assert!(
+        (x - 100.0).abs() < 0.01 && (y - 200.0).abs() < 0.01,
+        "the pointed point under the pointer at {}: {x},{y}",
+        deep.scale
+    );
+    for _ in 0..10 {
+        step(&mut viewer, Zoom::Out, at);
+    }
+    let back = geometry(&viewer);
+    assert!(
+        (back.scale - fitted.scale).abs() < 1e-4 && back.origin == fitted.origin,
+        "ten steps out are the fitted page: {fitted:?} then {back:?}"
+    );
+
+    // Seven steps in, then the wheel moves the page: the next step holds what is under the pointer
+    // now, which is ten device pixels further down the page.
+    for _ in 0..7 {
+        step(&mut viewer, Zoom::In, at);
+    }
+    viewer
+        .handle(Command::Scroll { dx: 0.0, dy: 10.0 })
+        .for_each(drop);
+    let scrolled = geometry(&viewer);
+    let pointed = under(&scrolled, at);
+    step(&mut viewer, Zoom::In, at);
+    let (x, y) = under(&geometry(&viewer), at);
+    assert!(
+        (x - pointed.0).abs() < 0.01
+            && (y - pointed.1).abs() < 0.01
+            && (pointed.1 - 200.0).abs() > 1.0,
+        "a scroll starts a new gesture: {pointed:?} then {x},{y}"
+    );
+}
+
 /// A page with a `NoZoom` annotation is interpreted again on a zoom, and no other page is.
 ///
 /// §12.5.3 makes that one annotation's placement a function of the magnification, which is the

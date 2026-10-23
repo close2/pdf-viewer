@@ -32,15 +32,6 @@ reading in one line per row, and the note is where it is argued. The membership 
 - **§7.6.5.1, §7.6.5.2, §7.6.5.3** (`reported`) — the handler is refused by name; the build
   waits on `doc/questions/A66`'s trigger, which `doc/questions/A168` reads as unlit.
 - **§7.6.6** — Table 27, which is the handler's; moves on the same trigger.
-- **§11.7.5.3** — ordinary RGB/direct ICC solids and uncoloured pattern tints retain
-  their source through painting (ADRs 2212,2220–2223). Immediate Indexed-to-ICC
-  selections also retain their decoded source (ADRs 2232–2235), and `Separation`/`DeviceN`
-  tints and calibrated/Lab colours their resolved space (ADRs 2248, 2249), and plain
-  DeviceGray/DeviceCMYK solids ride inline, with an Indexed entry over any base taking its
-  base's route (ADRs 2264, 2265). Next: a control for §11.7.2's redefinition, which is read
-  at selection, so an output-intent `k` inherited into an `ICCBased` CMYK group keeps the
-  intent's profile (a scratch probe sees it, ADR 2264). After it the deliberate output-intent profile bypass is
-  the one requirement left, and the row is `departed`.
 - **§12.2** — WinUI consumes effective chrome, preserves pane choice across temporary
   hiding, and restores chrome on Escape and document changes. Native full-screen/title-bar
   placement, FitWindow/CenterWindow and modal suppression remain unfinished; live Windows

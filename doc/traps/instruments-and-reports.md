@@ -1768,3 +1768,23 @@ every arm of the round's own tree exited 127 for want of a binary while HEAD's a
 wasted (ADR 2259). A clock hold is queued only once `ls` shows every binary it will run, and the script it
 runs checks for each at the top and exits, naming the missing one, before the clock is held.
 
+### 240. A bring-up figure under a display is not the headless gate's figure
+
+Round 1716 read the device's bring-up on the owner's session at 135–227 ms and round 1724 took it apart:
+26–31 ms is the loader and the drivers, which is what the headless gate measures; under a display Mesa's
+`VK_LAYER_MESA_device_select` asks the compositor on both of the launch's enumerations and adds 13–25 ms;
+on an idle Xvfb each of the four X connections a window opens waits 38–56 ms for the server's setup reply,
+145–220 ms in all; and the rest was the machine's load (ADR 2282, trap 237). A window's bring-up is compared
+only with a child run under the same display variables, never with the gate's headless band, and the
+`graphics device up in` trace line's per-step figures say which share is the display's before any term is
+named.
+
+### 242. An export's name is a directory the export owns
+
+`tools/batch.sh export <session> --as <name>` builds the export under `scratchpad/r<session>/<name>/`, and
+makes that directory its own: round 1720 staged HEAD's binaries under `head/` for an A/B and then exported
+HEAD `--as head`, and the export emptied the directory first, so HEAD's figures in the record come from
+the run made before it (ADR 2274). A round names its exports with names nothing else under
+`scratchpad/r<session>/` uses, stages what it keeps under a name the export will never take
+(`staged-head/`, `bin/`), and reads trap 233 before re-exporting while anything of its own runs there.
+

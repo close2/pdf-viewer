@@ -24,6 +24,17 @@ remedy = "preserve"
 "#;
 
 fn fixture(target: Target, parent: &str, popup: &str, annots: &str, catalog: &str) -> Vec<u8> {
+    fixture_of(target, "Text", parent, popup, annots, catalog)
+}
+
+fn fixture_of(
+    target: Target,
+    subtype: &str,
+    parent: &str,
+    popup: &str,
+    annots: &str,
+    catalog: &str,
+) -> Vec<u8> {
     let base = if matches!(target, Target::Two(_)) {
         Conforming::part_two()
     } else {
@@ -33,7 +44,7 @@ fn fixture(target: Target, parent: &str, popup: &str, annots: &str, catalog: &st
         catalog: catalog.to_owned(),
         page: format!("/Annots [{annots}]"),
         objects: vec![
-            format!("<< /Type /Annot /Subtype /Text /Rect [0 0 20 20] /F 30 /AP << /N 9 0 R >> {parent} >>"),
+            format!("<< /Type /Annot /Subtype /{subtype} /Rect [0 0 20 20] /F 30 /AP << /N 9 0 R >> {parent} >>"),
             format!("<< /Type /Annot /Subtype /Popup /Rect [0 0 20 20] {popup} >>"),
             "<< /Type /Annot /Subtype /Square /Rect [30 0 50 20] /F 0 /AP << /N 9 0 R >> >>".to_owned(),
         ],
@@ -396,4 +407,66 @@ fn discarding_visible_shapes_does_not_grant_hidden_pair_consent() {
     let (report, output) = convert_with_plan(&source, &plan_from(&policy, target));
     assert!(output.is_none());
     assert!(matches!(decision(&report, SITE), Decision::Refused(_)));
+}
+
+/// The parent may be any subtype ISO 32000-2 Table 171's Markup column says `Yes` of, because
+/// §12.5.6.14's popup "is associated with a markup annotation" and §12.5.6.2 says Table 172's
+/// entries, `/Popup` among them, "apply to all markup annotations": `FreeText`, `Redact` and
+/// `Projection` pair as `Text` does. `FileAttachment` is markup too and is left out here only
+/// because ISO 19005-4 section 6.3.1's own site answers it first. Sound is refused, §12.5.6.2
+/// saying "Sound annotations do not have a popup window", and so are `Link` and `Widget`, which
+/// Table 171 makes no markup (ADR 2284).
+#[test]
+fn a_popup_pairs_with_every_markup_subtype_but_sound() {
+    let target = Target::Four(Flavour::Plain);
+    for subtype in [
+        "Text",
+        "FreeText",
+        "Line",
+        "Square",
+        "Circle",
+        "Polygon",
+        "PolyLine",
+        "Highlight",
+        "Underline",
+        "Squiggly",
+        "StrikeOut",
+        "Caret",
+        "Stamp",
+        "Ink",
+        "Redact",
+        "Projection",
+    ] {
+        let source = fixture_of(
+            target,
+            subtype,
+            "/Popup 7 0 R",
+            "/F 30 /Parent 6 0 R /Open false",
+            "6 0 R 7 0 R 8 0 R",
+            "",
+        );
+        let (report, output) = convert_with_plan(&source, &plan_from(SHAPES, target));
+        assert!(
+            output.is_some(),
+            "{subtype}: {}",
+            conversion(&report).render()
+        );
+        assert_eq!(
+            conversion(&report).removed_annotations.len(),
+            2,
+            "{subtype}"
+        );
+    }
+    for subtype in ["Sound", "Link", "Widget"] {
+        let source = fixture_of(
+            target,
+            subtype,
+            "/Popup 7 0 R",
+            "/F 30 /Parent 6 0 R /Open false",
+            "6 0 R 7 0 R 8 0 R",
+            "",
+        );
+        let (_, output) = convert_with_plan(&source, &plan_from(SHAPES, target));
+        assert!(output.is_none(), "{subtype}");
+    }
 }

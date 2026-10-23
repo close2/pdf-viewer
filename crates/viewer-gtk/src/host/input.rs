@@ -316,10 +316,10 @@ impl Host {
     /// One notch of the wheel, in whichever direction it turned.
     ///
     /// The deltas GTK reports for a discrete device are notches rather than pixels, so the
-    /// distance is this host's choice and `SCROLL_STEP` is where it is written down. Device
-    /// pixels out, because that is what `Command::Scroll` speaks.
+    /// distance is the one `viewer_host::SCROLL_NOTCH` writes down for every window (ADR 2274).
+    /// Device pixels out, because that is what `Command::Scroll` speaks.
     fn scrolled(&mut self, dx: f64, dy: f64) {
-        let step = self.scale * SCROLL_STEP;
+        let step = self.scale * f64::from(viewer_host::SCROLL_NOTCH);
         #[expect(
             clippy::cast_possible_truncation,
             reason = "a notch count times a step in pixels, which is tens"
@@ -328,20 +328,16 @@ impl Host {
         self.dispatch(Command::Scroll { dx, dy });
     }
 
-    /// Control and the wheel: whole zoom steps about the point under the pointer.
+    /// Control and the wheel: a step a click and a proportion of one between, about the point
+    /// under the pointer.
     ///
-    /// GTK reports a discrete wheel in notches, positive turned towards the person, and a notch is
-    /// one step out — `viewer_host::ZoomWheel` spends the travel, so the three windows count a
-    /// gesture alike (ADR 1118). The point kept still is the pointer's, in device pixels of the
-    /// page area, which is the one rule `quorra` keeps; before the pointer has entered there is
-    /// no such point and the core holds the centre.
-    fn wheel_zoom(&mut self, dy: f64) {
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "a notch count, which is a handful"
-        )]
-        let steps = self.zoom_wheel.lines(-dy as f32);
-        let zoom = if steps > 0 { Zoom::In } else { Zoom::Out };
+    /// `travel` is turned away from the person, in notches or a touchpad's pixels as the smooth
+    /// controller reported them; `viewer_host::ZoomTravel` turns it into the commands `quorra-qt`
+    /// sends for the same event (ADR 2274). The point kept still is the pointer's, in device pixels
+    /// of the page area, which is the one rule `quorra` keeps; before the pointer has entered there
+    /// is no such point and the core holds the centre.
+    fn wheel_zoom(&mut self, travel: viewer_host::WheelTravel) {
+        let zoom = viewer_host::ZoomTravel::of(travel);
         let scale = self.scale;
         #[expect(
             clippy::cast_possible_truncation,
@@ -350,9 +346,29 @@ impl Host {
         let at = self
             .pointer_at
             .map(|(x, y)| ((x * scale) as f32, (y * scale) as f32));
-        super::window::zoom_probe(format_args!("wheel steps={steps} at={at:?} scale={scale}"));
-        for _ in 0..steps.unsigned_abs() {
-            self.dispatch(Command::Zoom { zoom, at });
+        let steps = match zoom {
+            viewer_host::ZoomTravel::Steps(steps) => steps,
+            viewer_host::ZoomTravel::Factor(_) => 0,
+        };
+        super::window::zoom_probe(format_args!(
+            "wheel steps={steps} zoom={zoom:?} at={at:?} scale={scale}"
+        ));
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a window's scale factor, a small number exact in f32 to the digits it has"
+        )]
+        let commands = zoom.commands(&self.state.viewer, scale as f32, at);
+        let zoomed = !commands.is_empty();
+        for command in commands {
+            self.dispatch(command);
+        }
+        if zoomed
+            && let Some((x, y)) = at
+            && let Some(placed) = viewer_host::placement_receipt(&self.state.viewer)
+        {
+            super::window::zoom_probe(format_args!(
+                "zoom-geometry {{\"anchor_x\":{x},\"anchor_y\":{y},{placed}}}"
+            ));
         }
     }
 
@@ -539,34 +555,124 @@ pub(super) fn listen(
     });
     window.add_controller(tabs);
 
-    // **The wheel, which this host had no binding for until Table 29's `/PageLayout` was
-    // obeyed.** Under `SinglePage` at `Zoom::FitPage` there is nothing to scroll, so the gap was
-    // invisible; a continuous arrangement is a thing a person moves through and a viewer that
-    // could not would be offering an arrangement it cannot use. GTK reports a discrete wheel in
-    // notches, so a notch is a distance this host chooses — see `SCROLL_STEP`.
-    let scrolling = gtk4::EventControllerScroll::new(
-        gtk4::EventControllerScrollFlags::BOTH_AXES | gtk4::EventControllerScrollFlags::DISCRETE,
-    );
-    let listener = me.clone();
-    scrolling.connect_scroll(move |controller, dx, dy| {
-        // Control is a magnification rather than a movement, as it is in the other two windows.
-        let control = controller
-            .current_event_state()
-            .contains(gtk4::gdk::ModifierType::CONTROL_MASK);
-        with(&listener, |host| {
-            if control {
-                host.wheel_zoom(dy);
-            } else {
-                host.scrolled(dx, dy);
-            }
-        });
-        glib::Propagation::Stop
-    });
-    overlay.add_controller(scrolling);
+    listen_wheel(overlay, me, probe);
 
     listen_motion(overlay, me, probe);
 
     presses(overlay, me);
+}
+
+/// The wheel: a scroll on one controller and Control's zoom on another (ADR 2274).
+fn listen_wheel(
+    overlay: &gtk4::Overlay,
+    me: &Weak<RefCell<Host>>,
+    probe: &Rc<super::window::ZoomProbe>,
+) {
+    // **The wheel, which this host had no binding for until Table 29's `/PageLayout` was
+    // obeyed.** Under `SinglePage` at `Zoom::FitPage` there is nothing to scroll, so the gap was
+    // invisible; a continuous arrangement is a thing a person moves through and a viewer that
+    // could not would be offering an arrangement it cannot use. GTK reports a discrete wheel in
+    // notches, so a notch is a distance — `viewer_host::SCROLL_NOTCH`, the same in every window,
+    // and `viewer_host::DiscreteWheel` is this controller's count, kept for a window whose
+    // toolkit hands over the fractions (ADR 2274).
+    let scrolling = gtk4::EventControllerScroll::new(
+        gtk4::EventControllerScrollFlags::BOTH_AXES | gtk4::EventControllerScrollFlags::DISCRETE,
+    );
+    let listener = me.clone();
+    let wheel_probe = Rc::clone(probe);
+    scrolling.connect_scroll(move |controller, dx, dy| {
+        // Control is a magnification rather than a movement, as it is in the other two windows,
+        // and the controller below makes it; this one only scrolls.
+        if controlled(controller) {
+            return glib::Propagation::Stop;
+        }
+        wheel_probe.record(
+            "wheel-branch",
+            format_args!("\"branch\":\"scroll\",\"notches_dx\":{dx},\"notches_dy\":{dy}"),
+        );
+        with(&listener, |host| host.scrolled(dx, dy));
+        glib::Propagation::Stop
+    });
+    overlay.add_controller(scrolling);
+    // **Control and the wheel read the travel as the device reported it**, on a controller of its
+    // own without `DISCRETE`: a high-resolution wheel's eighth of a notch is an eighth of a zoom
+    // step at once rather than a share of the click `DISCRETE` would wait for, a whole notch is
+    // one step, and a touchpad's surface pixels are a proportion (ADR 2274). GTK runs every
+    // controller of a widget on each event, so the two each take their half.
+    let zooming = gtk4::EventControllerScroll::new(gtk4::EventControllerScrollFlags::BOTH_AXES);
+    let listener = me.clone();
+    let zoom_probe = Rc::clone(probe);
+    zooming.connect_scroll(move |controller, dx, dy| {
+        if !controlled(controller) {
+            return glib::Propagation::Proceed;
+        }
+        let pixels = controller.unit() == gtk4::gdk::ScrollUnit::Surface;
+        zoom_probe.record(
+            "wheel-branch",
+            format_args!(
+                "\"branch\":\"zoom\",\"amount_dx\":{dx},\"amount_dy\":{dy},\"pixels\":{pixels}"
+            ),
+        );
+        // GTK's positive is towards the person, and a zoom in is the wheel turned away.
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a wheel's notches or a touchpad's pixels of one event"
+        )]
+        let away = -dy as f32;
+        let travel = if pixels {
+            viewer_host::WheelTravel::Pixels { x: 0.0, y: away }
+        } else {
+            viewer_host::WheelTravel::Notches { x: 0.0, y: away }
+        };
+        with(&listener, |host| host.wheel_zoom(travel));
+        glib::Propagation::Stop
+    });
+    overlay.add_controller(zooming);
+    if super::window::zoom_probe_enabled() {
+        overlay.add_controller(wheel_receipts(probe));
+    }
+}
+
+/// Whether Control is held for the event a scroll controller is handling.
+fn controlled(controller: &gtk4::EventControllerScroll) -> bool {
+    controller
+        .current_event_state()
+        .contains(gtk4::gdk::ModifierType::CONTROL_MASK)
+}
+
+/// Every scroll event as the compositor delivered it, under the probe alone.
+///
+/// The `DISCRETE` controller above calls back only when the travel completes a notch, so what a
+/// high-resolution wheel or a touchpad sent between two callbacks is invisible to it; this observer
+/// sees each event before the controller spends it and lets it through. The receipt is the GTK
+/// half of the comparison `cpp/window.cpp`'s `wheel-entry` makes for Qt (ADR 2274).
+fn wheel_receipts(probe: &Rc<super::window::ZoomProbe>) -> gtk4::EventControllerLegacy {
+    let observer = gtk4::EventControllerLegacy::new();
+    observer.set_propagation_phase(gtk4::PropagationPhase::Capture);
+    let probe = Rc::clone(probe);
+    observer.connect_event(move |_, event| {
+        if let Some(scroll) = event.downcast_ref::<gtk4::gdk::ScrollEvent>() {
+            let (dx, dy) = scroll.deltas();
+            let source = event
+                .device()
+                .map_or_else(|| "none".to_owned(), |device| format!("{:?}", device.source()));
+            probe.record(
+                "wheel-entry",
+                format_args!(
+                    "\"sequence\":{},\"direction\":\"{:?}\",\"unit\":\"{:?}\",\"delta_x\":{dx},\"delta_y\":{dy},\"stop\":{},\"source\":\"{source}\",\"ctrl\":{}",
+                    probe.next(),
+                    scroll.direction(),
+                    scroll.unit(),
+                    scroll.is_stop(),
+                    event
+                        .modifier_state()
+                        .contains(gtk4::gdk::ModifierType::CONTROL_MASK),
+                ),
+            );
+        }
+        glib::Propagation::Proceed
+    });
+    observer
 }
 
 /// Observe motion before borrowing the host, without changing its reentrancy policy.
@@ -606,6 +712,13 @@ fn listen_motion(
             if measuring { "measuring" } else { "accepted" },
             x * scale, y * scale,
         ));
+    });
+    // A pointer that arrives without moving — a jump, or a window opened under it — is told by
+    // `enter` alone, and a Control+wheel step before the first motion would be anchored at the
+    // centre rather than at the pointer (ADR 2275).
+    let listener = me.clone();
+    motion.connect_enter(move |_, x, y| {
+        with(&listener, |host| host.pointer(x, y, PointerAction::Moved));
     });
     overlay.add_controller(motion);
 }
@@ -756,10 +869,3 @@ pub(super) fn modifiers(held: gtk4::gdk::ModifierType) -> viewer_host::Modifiers
         ctrl: held.contains(gtk4::gdk::ModifierType::CONTROL_MASK),
     }
 }
-
-/// How far one notch of the wheel moves the page, in logical pixels.
-///
-/// A choice, and written down as one: the standard says nothing about a wheel. Three lines of a
-/// document's body text is what every reader the project owner uses has converged on, and this is
-/// about that.
-const SCROLL_STEP: f64 = 48.0;

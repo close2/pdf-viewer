@@ -101,7 +101,7 @@ fn only_metric_modified_liberation_programs_are_renamed_in_both_embedding_routes
         for width in ["667", "500"] {
             let source = a_font_stating(width, embedded);
             let (report, output) =
-                convert(&source, Target::Two(Level::B), Authorisations::default());
+                convert(&source, Target::Two(Level::B), the_face_losses_authorised());
             let output = written(&report, output);
             let (document, stream) = program(&output);
             let bytes = document.decoded_stream_data(&stream).expect("program");

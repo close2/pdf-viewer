@@ -59,6 +59,9 @@ pub(in crate::content) struct TintSource {
     pub(in crate::content) space: ColourSpace,
     /// Only components the selected space can consume are retained.
     pub(in crate::content) values: Box<[f32]>,
+    /// The reading of the `DeviceCMYK` family the space is or holds where it was selected,
+    /// which a cell mark reads again where it is painted (§11.7.2, ADR 2276).
+    pub(in crate::content) device_cmyk: Option<ColourSpace>,
 }
 
 impl Interpreter<'_> {
@@ -194,6 +197,7 @@ impl Interpreter<'_> {
                 };
                 let count = space.components();
                 Some(Rc::new(TintSource {
+                    device_cmyk: self.device_cmyk_selected(&space),
                     space,
                     values: tint.iter().take(count).copied().collect(),
                 }))

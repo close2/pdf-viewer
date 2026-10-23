@@ -161,12 +161,6 @@ constexpr int kExpansionLimit = 4096;
 constexpr int kMiniatureWidth = 120;
 constexpr int kMiniatureHeight = 140;
 
-/// How far one notch of a wheel moves the page, in logical pixels.
-///
-/// A choice, and the same number `viewer-gtk` chose: the standard says nothing about a wheel, and
-/// what a notch is worth is not a fact about a toolkit.
-constexpr double kScrollStep = 48.0;
-
 /// How far ISO 32000-2 §12.5.6.14's text sits from the edge of its window, in logical pixels.
 ///
 /// A choice, and the same one `viewer-gtk` makes: the clause states a rectangle and not one word
@@ -1432,10 +1426,12 @@ void PageArea::viewportChanged()
 void PageArea::wheelEvent(QWheelEvent* event)
 {
     // **The wheel, which this host had no binding for until Table 29's `/PageLayout` was
-    // obeyed.** Qt reports a high-resolution device in pixels and a notched one in eighths of a
-    // degree, fifteen degrees to a notch; both are turned into the device pixels the boundary
-    // speaks. The distance a notch moves is this host's choice — see kScrollStep — and it is the
-    // same number `viewer-gtk` chose, because a wheel is not a fact about a toolkit.
+    // obeyed.** Qt states a wheel's travel in eighths of a degree, a hundred and twenty to a
+    // notch, and from 6.12 on a Wayland wheel's pixel delta beside it (KWin's fifteen a notch);
+    // a touchpad's gesture it marks by a scroll phase or by naming the system as the source. Which
+    // unit an event counts in is `viewer_host::WheelTravel::of`'s one rule, asked across the
+    // bridge, and a notch's distance and its carry are the Rust side's, so a notch moves this
+    // window as far as it moves `viewer-gtk`'s (ADR 2274).
     const quint64 sequence = zoomProbe() ? ++probeSequence_ : 0;
     if (zoomProbe()) {
         probeRecord("wheel-entry", {{"sequence", static_cast<qint64>(sequence)},
@@ -1448,14 +1444,17 @@ void PageArea::wheelEvent(QWheelEvent* event)
             {"spontaneous", event->spontaneous()}, {"event_timestamp_ms", static_cast<qint64>(event->timestamp())}});
     }
     const QPoint pixels = event->pixelDelta();
+    const QPoint degrees = event->angleDelta();
     const qreal scale = devicePixelRatioF();
+    const bool gesture = event->phase() != Qt::NoScrollPhase
+                         || event->source() == Qt::MouseEventSynthesizedBySystem;
+    const bool inPixels = wheel_in_pixels(degrees.x(), degrees.y(), pixels.x(), pixels.y(), gesture);
     // Control is a magnification rather than a movement, as it is in the other two windows; the
     // steps are counted on the Rust side by the one accumulator all three share.
     if (event->modifiers().testFlag(Qt::ControlModifier)) {
         const QPointF at = event->position();
-        const bool inPixels = !pixels.isNull();
         const qreal amount = inPixels ? static_cast<qreal>(pixels.y())
-                                      : static_cast<qreal>(event->angleDelta().y()) / 120.0;
+                                      : static_cast<qreal>(degrees.y()) / 120.0;
         if (zoomProbe()) {
             std::fprintf(stderr, "zoom-probe qt wheel us=%lld amount=%.6f at=%.6f,%.6f dpr=%.6f\n",
                 zoomMicros(), amount, at.x() * scale, at.y() * scale, scale);
@@ -1467,24 +1466,20 @@ void PageArea::wheelEvent(QWheelEvent* event)
                            static_cast<float>(at.y() * scale), sequence);
         return;
     }
-    qreal dx = 0.0;
-    qreal dy = 0.0;
-    if (!pixels.isNull()) {
-        dx = -static_cast<qreal>(pixels.x()) * scale;
-        dy = -static_cast<qreal>(pixels.y()) * scale;
-    } else {
-        const QPoint degrees = event->angleDelta();
-        dx = -static_cast<qreal>(degrees.x()) / 120.0 * kScrollStep * scale;
-        dy = -static_cast<qreal>(degrees.y()) / 120.0 * kScrollStep * scale;
-    }
-    if (dx == 0.0 && dy == 0.0) {
+    // A phase's opening and closing events state no travel at all, and go on to the parent.
+    if (pixels.isNull() && degrees.isNull()) {
         if (zoomProbe()) probeRecord("wheel-branch", {{"sequence", static_cast<qint64>(sequence)}, {"branch", "delegate"}});
         QWidget::wheelEvent(event);
         return;
     }
+    // Turned away from the person, in the unit the rule chose; a fraction of a notch is accepted
+    // and carried, so it is not the parent's either.
+    const qreal dx = inPixels ? static_cast<qreal>(pixels.x()) : static_cast<qreal>(degrees.x()) / 120.0;
+    const qreal dy = inPixels ? static_cast<qreal>(pixels.y()) : static_cast<qreal>(degrees.y()) / 120.0;
     event->accept();
-    if (zoomProbe()) probeRecord("wheel-branch", {{"sequence", static_cast<qint64>(sequence)}, {"branch", "scroll"}});
-    Q_EMIT scrolledBy(static_cast<float>(dx), static_cast<float>(dy), sequence);
+    if (zoomProbe()) probeRecord("wheel-branch", {{"sequence", static_cast<qint64>(sequence)}, {"branch", "scroll"},
+        {"amount_x", dx}, {"amount_y", dy}, {"pixels", inPixels}, {"gesture", gesture}});
+    Q_EMIT scrolledBy(static_cast<float>(dx), static_cast<float>(dy), inPixels, sequence);
 }
 
 void PageArea::report(const QPointF& at, unsigned char action, quint64 sequence)
@@ -1766,13 +1761,13 @@ MainWindow::MainWindow(rust::Box<Host> host)
             {"outcome", "accepted"}, {"core_x", x}, {"core_y", y}, {"scale", page_->devicePixelRatioF()}});
         applyUpdates();
     });
-    connect(page_, &PageArea::scrolledBy, this, [this](float dx, float dy, quint64 sequence) {
+    connect(page_, &PageArea::scrolledBy, this, [this](float dx, float dy, bool pixels, quint64 sequence) {
         if (busy_) {
             if (sequence) page_->probeRecord("wheel-outcome", {{"sequence", static_cast<qint64>(sequence)}, {"outcome", "host-busy"}});
             return;
         }
         Busy guard(busy_);
-        host_->scrolled(dx, dy);
+        host_->scrolled(dx, dy, pixels);
         if (sequence) page_->probeRecord("wheel-outcome", {{"sequence", static_cast<qint64>(sequence)}, {"outcome", "accepted"}});
         applyUpdates();
     });

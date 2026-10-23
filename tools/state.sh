@@ -1306,6 +1306,7 @@ section_batches() {
     for commit in $commits; do
         printf '%s %s  %s\n' "$commit" "$(git log -1 --format=%cs "$commit")" \
             "$(git log -1 --format=%B "$commit" | batch_figures)"
+        printf '                   %s\n' "$(git log -1 --format=%B "$commit" | outside_paths)"
     done
 }
 
@@ -1337,6 +1338,31 @@ batch_figures() {
     printf 'gates: %s  rounds: %s s over %s figure(s) for %s round(s)%s%s\n' \
         "${gates:-no gate wall-time line}" "$seconds" "$figures" "$named" "${bare:+  no <n> s: $bare}" \
         "${unsummed:+  not summed, no unit: $unsummed}"
+}
+
+# What one batch commit's body names outside the tree, read on standard input: ADR 2242 decision 4
+# puts a batch commit under the rule a record is under — a path under `/home/AI/` or `scratchpad/` is
+# a pointer for the session that wrote it and never the evidence — and the body is not in the tree
+# for `tools/conformance/tests/evidence.rs` to read, so this counts it instead. A path is counted
+# as that test counts one: a whitespace-separated word holding a marker, the quoting around it
+# trimmed, and a marker on its own not one, because it names a kind of place and points at nothing;
+# a word holding both markers is one path, counted under `/home/AI/`. `tools/state.sh
+# --outside-paths` is this function, which `tools/conformance/tests/state_sections.rs` asks of a
+# planted body.
+outside_paths() {
+    perl -CSD -ne '
+        for my $word (split /\s+/) {
+            $word =~ s/^[`\x27"()\[\]{},.;:*\x{201c}\x{201d}]+//;
+            $word =~ s/[`\x27"()\[\]{},.;:*\x{201c}\x{201d}]+$//;
+            for my $marker ("/home/AI/", "scratchpad/") {
+                if (index($word, $marker) >= 0 && $word ne $marker) { $named{$marker}++; last }
+            }
+        }
+        END {
+            my ($home, $scratch) = ($named{"/home/AI/"} // 0, $named{"scratchpad/"} // 0);
+            printf "outside the tree: %d path(s) named, %d under /home/AI/ and %d under scratchpad/\n",
+                $home + $scratch, $home, $scratch;
+        }'
 }
 
 # What the last drive of the three windows found (`tools/drive-windows.sh`): its `results.tsv`'s
@@ -1543,6 +1569,16 @@ names_in_code() {
         | sort -u
 }
 
+# **A question can reach a C caller without its name**, and `Query::LogicalSelection` is the one
+# that does: a copy is `quorra_copy`, `viewer-core` puts the same answer on `Event::Copied`'s
+# `logical` (one function, `logical_selection`, answers both), and `quorra_selection_copy_text`
+# reads it back with an `order` out-parameter saying which of §14.8.2.5's two orders it is (ADR
+# 0519). An entry point asking the query again would walk the structure tree a second time for a
+# string the event already holds, so there is none. Each pair below is `Variant:Event`, and it is
+# checked rather than trusted: the event has to be named in `viewer-ffi`'s code, or the variant is
+# printed with the ones a C caller cannot ask for (trap 25).
+carried_by_an_event='LogicalSelection:Copied'
+
 section_hosts() {
     heading "viewer-core's vocabulary, and how much of it the C ABI offers" \
         "Command:: and Query:: named in crates/viewer-ffi/src code (comments stripped), against the two enums"
@@ -1552,9 +1588,26 @@ section_hosts() {
         all=$(sed -n "/^pub enum $kind/,/^}/p" "$file" | grep -oE '^    [A-Z][A-Za-z]*' | tr -d ' ' | sort -u)
         named=$(names_in_code "$kind" crates/viewer-ffi/src)
         missing=$(comm -23 <(printf '%s\n' "$all") <(printf '%s\n' "$named" | grep -Fx -f <(printf '%s\n' "$all")))
+        carried=''
+        if [ "$kind" = Query ] && [ -n "$missing" ]; then
+            local events variant event unreached=''
+            events=$(names_in_code Event crates/viewer-ffi/src)
+            for variant in $missing; do
+                event=$(printf '%s\n' $carried_by_an_event | sed -n "s/^$variant://p")
+                if [ -n "$event" ] && printf '%s\n' "$events" | grep -qx "$event"; then
+                    carried="$carried $variant (Event::$event)"
+                else
+                    unreached="$unreached $variant"
+                fi
+            done
+            missing=$(printf '%s\n' $unreached)
+        fi
         printf '%-8s %s of %s reach the ABI\n' "$kind:" \
             "$(($(printf '%s\n' "$all" | grep -c .) - $(printf '%s\n' "$missing" | grep -c .)))" \
             "$(printf '%s\n' "$all" | grep -c .)"
+        if [ -n "$carried" ]; then
+            printf '         carried by an event rather than asked:%s\n' "$carried"
+        fi
         if [ -n "$missing" ]; then
             printf '         a C caller cannot ask for: %s\n' "$(printf '%s\n' "$missing" | paste -sd' ')"
         fi
@@ -1869,6 +1922,7 @@ case ${1-} in
 --list) printf '%s\n' $all $composed; exit 0 ;;
 --walk-worker) shift; walk_worker "$@"; exit 0 ;;
 --batch-figures) batch_figures; exit 0 ;;
+--outside-paths) outside_paths; exit 0 ;;
 esac
 
 case ${1-all} in

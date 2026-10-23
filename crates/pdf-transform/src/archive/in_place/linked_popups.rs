@@ -128,7 +128,11 @@ fn pair(
     let popup_dict = popup_object.as_dict().ok_or(REFUSED)?;
     let parent_pages = graph.pages.get(&parent).ok_or(REFUSED)?;
     let popup_pages = graph.pages.get(&popup).ok_or(REFUSED)?;
-    // ISO 32000-2 Table 171's markup subtypes with popup semantics; §12.5.6.2 excludes Sound.
+    // A popup's parent is any subtype Table 171's Markup column says `Yes` of: §12.5.6.14's popup
+    // "is associated with a markup annotation", and §12.5.6.2 says Table 172, which holds
+    // `/Popup`, lists entries "that apply to all markup annotations". §12.5.6.2's groups are not
+    // the list (`Redact` is in none of them); the one exclusion is Sound, of which §12.5.6.2 says
+    // "Sound annotations do not have a popup window" (ADR 2284).
     let subtype = document.get_key(parent_dict, "Subtype");
     let markup = subtype.as_name().is_some_and(|name| {
         matches!(
@@ -149,6 +153,7 @@ fn pair(
                 | b"Ink"
                 | b"FileAttachment"
                 | b"Redact"
+                | b"Projection"
         )
     });
     if parent == popup

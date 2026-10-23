@@ -59,6 +59,7 @@ use rayon::iter::{IndexedParallelIterator as _, ParallelIterator as _};
 use rayon::slice::ParallelSliceMut as _;
 use std::sync::Arc;
 
+pub use area::{UnionCondition, UnionDecline};
 pub use glimpse::{Glance, Glimpse, Underway};
 pub use strips::MAX_STRIPS;
 use strips::{PIXEL_PASS_ROWS, drawn_row_by_row, plan_strips};
@@ -125,6 +126,8 @@ pub struct CpuRasterizer {
     /// deliberately. Behind an `Arc` because `Clone` on this type means another handle on the
     /// same rasteriser rather than a second one that has to warm up again.
     reduced_images: Arc<reduced_images::ReducedImages>,
+    /// What the last draw declined to the library's converter — [`Self::declined`].
+    declined: Vec<UnionDecline>,
 }
 
 impl CpuRasterizer {
@@ -149,6 +152,7 @@ impl CpuRasterizer {
             interrupt: None,
             showing: None,
             reduced_images: Arc::default(),
+            declined: Vec::new(),
         }
     }
 
@@ -292,6 +296,20 @@ impl CpuRasterizer {
         self
     }
 
+    /// The marks the last draw — [`Rasterizer::rasterize`] or [`Self::rasterize_window`] — left to
+    /// the library's converter because the exact measure of their area declined them: which
+    /// condition, how many pieces and where, each mark once (ADR 2280).
+    ///
+    /// **Drawn, and said**: the library's converter draws such a mark at its own sixteenths, so the
+    /// page looks finished, and nothing but this says it is not measured as §10.7.4's area is —
+    /// the silent fallback `CLAUDE.md`'s first principle forbids. Empty after a draw that declined
+    /// nothing and after one that failed. [`UnionDecline`]'s `Display` is the sentence a host
+    /// says it with; [`UnionCondition::is_defect`] names the two that no input should reach.
+    #[must_use]
+    pub fn declined(&self) -> &[UnionDecline] {
+        &self.declined
+    }
+
     /// Whether a caller has asked for this draw to be abandoned.
     ///
     /// `None` where no interrupt was handed over, which is every gate in this tree — and where the
@@ -418,6 +436,7 @@ impl CpuRasterizer {
     /// is what that is to everything but a mark's geometry — the page's own target, for a page.
     fn draw_shown(&mut self, list: &DisplayList, whole: Surface) -> Result<Raster, CpuRasterError> {
         let target = whole.shown.target(whole.page);
+        self.declined.clear();
         // Before the pixmap, because a target may be a gibibyte and an interrupt already raised
         // is an allocation nobody wants the answer to.
         if self.interrupted() {
@@ -457,7 +476,12 @@ impl CpuRasterizer {
             .showing
             .as_ref()
             .filter(|_| glimpse::Showing::admits(list));
-        self.encode_in_strips_watched(&mut pixmap, drawn, whole, showing)?;
+        let mut declined = self.encode_in_strips_watched(&mut pixmap, drawn, whole, showing)?;
+        // One mark crosses one strip's rows at most where it is a folding stroke's (ADR 2253),
+        // but a soft mask's group is drawn once for each surface that reads it.
+        declined.sort_unstable();
+        declined.dedup();
+        self.declined = declined;
 
         // §11.4.7 puts a colour space under the whole page — "[a]ll page-level compositing
         // shall be done in the default blending colour space of the page, and the entire

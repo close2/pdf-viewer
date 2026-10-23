@@ -184,6 +184,7 @@ impl Viewer {
         // and a page becoming current is a page turn however it happened — §12.6.3's `/O` and
         // `/C` are owed for it exactly as they are owed for an arrow key.
         let left = crate::layout::settle_scroll(open, viewport, scale, magnification);
+        open.settled_pointed();
         if let Some(left) = left {
             self.announce_page(events);
             self.page_events(id, Some(left), events);

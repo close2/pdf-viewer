@@ -155,39 +155,75 @@ impl Host {
         }
     }
 
-    /// The wheel turned, already in the device pixels the boundary speaks.
+    /// The wheel turned away from the person, in logical pixels where `pixels` says so and in
+    /// notches otherwise.
     ///
-    /// The conversion from Qt's notches is C++'s, beside the event that states them; what is here
-    /// is the message, so that the two hosts differ in the toolkit and in nothing else.
-    pub(crate) fn scrolled(&mut self, dx: f32, dy: f32) {
-        self.dispatch(Command::Scroll { dx, dy });
-    }
-
-    /// Control and the wheel: whole zoom steps about the point under the pointer.
-    ///
-    /// `amount` is Qt's travel turned away from the person, in notches, or in pixels where
-    /// `pixels` says the device reported those; `viewer_host::ZoomWheel` spends it, so the three
-    /// windows count a gesture alike (ADR 1118). `(x, y)` is the pointer in device pixels of the
-    /// viewport, the point `quorra` and `quorra-gtk` keep still too.
-    pub(crate) fn wheel_zoom(&mut self, amount: f32, pixels: bool, x: f32, y: f32) {
-        let steps = if pixels {
-            self.zoom_wheel.pixels(amount)
+    /// A notch moves `viewer_host::SCROLL_NOTCH`, counted by `viewer_host::DiscreteWheel` as
+    /// `viewer-gtk`'s `DISCRETE` controller counts it, so a notch moves the two windows alike
+    /// (ADR 2274); a touchpad's pixels move the page as far as the finger went. Device pixels out, because that is what `Command::Scroll` speaks, and
+    /// turned towards the person, which is the boundary's positive.
+    pub(crate) fn scrolled(&mut self, dx: f32, dy: f32, pixels: bool) {
+        let (dx, dy) = if pixels {
+            (-dx * self.scale, -dy * self.scale)
         } else {
-            self.zoom_wheel.lines(amount)
+            let (x, y) = self.discrete_wheel.notches(dx, dy);
+            let step = viewer_host::SCROLL_NOTCH * self.scale;
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "a notch count, which `DiscreteWheel` clamps to sixty-four"
+            )]
+            let moved = (-(x as f32) * step, -(y as f32) * step);
+            moved
         };
         if zoom_probe_enabled() {
             eprintln!(
-                "zoom-record {{\"v\":1,\"host\":\"qt\",\"pid\":{},\"kind\":\"zoom-accumulator\",\"amount\":{amount},\"unit\":\"{}\",\"steps\":{steps},\"core_x\":{x},\"core_y\":{y}}}",
+                "zoom-record {{\"v\":1,\"host\":\"qt\",\"pid\":{},\"kind\":\"scroll-dispatch\",\"unit\":\"{}\",\"dx_device\":{dx},\"dy_device\":{dy}}}",
                 std::process::id(),
                 if pixels { "pixels" } else { "notches" },
             );
         }
-        let zoom = if steps > 0 { Zoom::In } else { Zoom::Out };
-        for _ in 0..steps.unsigned_abs() {
-            self.dispatch(Command::Zoom {
-                zoom,
-                at: Some((x, y)),
-            });
+        if dx != 0.0 || dy != 0.0 {
+            self.dispatch(Command::Scroll { dx, dy });
+        }
+    }
+
+    /// Control and the wheel: a step a click and a proportion of one between, about the point
+    /// under the pointer.
+    ///
+    /// `amount` is Qt's travel turned away from the person, in notches, or in pixels where
+    /// `pixels` says the device reported those; `viewer_host::ZoomTravel` turns it into the
+    /// commands `viewer-gtk` sends for the same event — one step for a whole notch, a proportion of
+    /// one for a high-resolution wheel's part of a notch or a touchpad's pixels (ADR 2274). `(x,
+    /// y)` is the pointer in device pixels of the viewport, the point `quorra` and `quorra-gtk`
+    /// keep still too.
+    pub(crate) fn wheel_zoom(&mut self, amount: f32, pixels: bool, x: f32, y: f32) {
+        let travel = if pixels {
+            viewer_host::WheelTravel::Pixels { x: 0.0, y: amount }
+        } else {
+            viewer_host::WheelTravel::Notches { x: 0.0, y: amount }
+        };
+        let zoom = viewer_host::ZoomTravel::of(travel);
+        let (steps, factor) = match zoom {
+            viewer_host::ZoomTravel::Steps(steps) => (steps, 1.0),
+            viewer_host::ZoomTravel::Factor(factor) => (0, factor),
+        };
+        if zoom_probe_enabled() {
+            eprintln!(
+                "zoom-record {{\"v\":1,\"host\":\"qt\",\"pid\":{},\"kind\":\"zoom-accumulator\",\"amount\":{amount},\"unit\":\"{}\",\"steps\":{steps},\"factor\":{factor},\"core_x\":{x},\"core_y\":{y}}}",
+                std::process::id(),
+                if pixels { "pixels" } else { "notches" },
+            );
+        }
+        let commands = zoom.commands(&self.state.viewer, self.scale, Some((x, y)));
+        let zoomed = !commands.is_empty();
+        for command in commands {
+            self.dispatch(command);
+        }
+        if zoomed
+            && zoom_probe_enabled()
+            && let Some(placed) = viewer_host::placement_receipt(&self.state.viewer)
+        {
+            eprintln!("zoom-probe qt zoom-geometry {{\"anchor_x\":{x},\"anchor_y\":{y},{placed}}}");
         }
     }
 
@@ -335,6 +371,28 @@ impl Host {
     pub(crate) fn over_link(&self) -> bool {
         self.over_link
     }
+}
+
+/// Whether a Qt wheel event is counted in pixels rather than in notches, by
+/// `viewer_host::WheelTravel::of`'s one rule; the angle is Qt's eighths of a degree, a hundred and
+/// twenty to a notch (ADR 2274).
+pub(crate) fn wheel_in_pixels(
+    angle_x: i32,
+    angle_y: i32,
+    pixel_x: i32,
+    pixel_y: i32,
+    gesture: bool,
+) -> bool {
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "eighths of a degree and pixels of one event, far inside f32's exact integers"
+    )]
+    let travel = viewer_host::WheelTravel::of(
+        (angle_x as f32 / 120.0, angle_y as f32 / 120.0),
+        (pixel_x as f32, pixel_y as f32),
+        gesture,
+    );
+    matches!(travel, viewer_host::WheelTravel::Pixels { .. })
 }
 
 /// Whether the opt-in zoom receipts are written, read from the environment once per process —

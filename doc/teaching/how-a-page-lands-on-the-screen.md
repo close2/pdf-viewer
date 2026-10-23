@@ -202,7 +202,7 @@ This is where PDF's *meaning* lives. In `crates/pdf-model/src/content/`:
 | the operator loop, one flat dispatch | `crates/pdf-model/src/content/run.rs` (`Interpreter::run`) | Annex A |
 | path construction and painting | `crates/pdf-model/src/content/path.rs` (`begin_subpath`, `end_path`) | §8.5 |
 | colour operators | `crates/pdf-model/src/content/colour.rs` | §8.6 |
-| text | `crates/pdf-model/src/content/text.rs`, `crates/pdf-model/src/content/font.rs` | clause 9 |
+| text | `crates/pdf-model/src/content/text.rs` with `text/`, `crates/pdf-model/src/content/font.rs` | clause 9 |
 | images and forms | `crates/pdf-model/src/content/image.rs`, `crates/pdf-model/src/content/xobject.rs` | §8.9, §8.10 |
 | transparency and overprint | `crates/pdf-model/src/content/transparency.rs` (its group entry points, with a module per concern beside it in `transparency/`, ADR 2080), `crates/pdf-model/src/content/overprint.rs` | clause 11 |
 | patterns | `crates/pdf-model/src/content/pattern.rs` (the `scn` and the paints, with a module per concern beside it in `pattern/`, ADR 2081) | §8.7 |
@@ -247,7 +247,7 @@ flowchart TD
     STATE["GraphicsState: CTM, colour, clip, font<br/>clause 8.4"]
     PATH["current path<br/>pdf-model/src/content/path.rs<br/>clause 8.5.2"]
     COLOUR["fill colour<br/>pdf-colour/src/colour/to_rgb.rs<br/>clause 8.6"]
-    TEXT["glyph outlines<br/>pdf-font, pdf-model/src/content/text.rs<br/>clause 9"]
+    TEXT["glyph outlines<br/>pdf-font, pdf-model/src/content/text.rs, text/<br/>clause 9"]
     MARK["end_path then draw_mark<br/>pdf-model/src/content/marked.rs<br/>clause 8.5.3"]
     LIST["DisplayList::push Command::Fill<br/>pdf-render/src/display_list.rs"]
 
@@ -267,7 +267,7 @@ flowchart TD
 
 **Maintenance note.** Depends on: `crates/pdf-model/src/content/reader.rs`,
 `crates/pdf-model/src/content/run.rs`, `crates/pdf-model/src/content/path.rs`,
-`crates/pdf-model/src/content/marked.rs`, `crates/pdf-model/src/content/text.rs`,
+`crates/pdf-model/src/content/marked.rs`, `crates/pdf-model/src/content/text.rs` with `text/`,
 `crates/pdf-colour/src/colour.rs` with `colour/`, `crates/pdf-render/src/display_list.rs`, ADR 1507 and ADR 0365.
 Redraw it when an operator family moves to another module, when `draw_mark` stops being the single
 way a mark reaches the list, or when a stage between the lexer and the loop appears. The table above

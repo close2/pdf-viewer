@@ -13,7 +13,26 @@ Run as `python3 -I -B tools/zoom-probe-wayland.py --binary <quorra-gtk> --pdf <o
 one open window and passes only where no resize reached the core, which is the scale hook alone. It judges no latency and no zoom input — a Wayland
 compositor admits no synthetic input from an unprivileged client — and needs `kwin_wayland`,
 `kscreen-doctor`, `dbus-run-session` and python-dbus, refusing at once where one is missing.
+
+`--drift` instead drives the zoom anchor with real compositor input (ADR 2275): the nested KWin is
+this probe's own, and its `org.kde.KWin.EIS.RemoteDesktop` hands this process a libei sender, so
+the pointer, Control and the wheel reach the window through the compositor exactly as a person's
+do (`libei.so.1` is then needed too). The window shows a page this probe writes — one red square —
+the pointer is put on the square, and `--notches` Control+wheel notches go in and as many come
+back out; after each, the settled output's square is found again and its offset from the pointer
+is the drift, in device pixels. `--binary` is either window, `--pdf` is not read.
+
+`--wheel` drives the same page through the same input and reads the wheel's count off the output
+alone, so a window built before any receipt existed is measured as it is (ADR 2274): how many zoom
+steps four Control+wheel notches make (the square's area grows by 1.25 squared a step), how far one
+notch scrolls the page, and after which of sixteen eighths of a notch — what a high-resolution
+wheel sends — the page moved. It passes where the window counts as `viewer_host::DiscreteWheel`
+and `viewer_host::SCROLL_NOTCH` say: four steps, 48 logical pixels a notch, a move on the
+fourth and the twelfth eighth.
 """
+import math
+import ctypes
+import select
 import argparse
 import json
 import os
@@ -67,6 +86,299 @@ def capture(output_name):
     data = np.frombuffer(received[0], dtype=np.uint8)[: stride * height].reshape(height, stride)
     bgra = data[:, : width * 4].reshape(height, width, 4)
     return np.ascontiguousarray(bgra[..., [2, 1, 0]])
+
+
+class Eis:
+    """A libei sender on the nested KWin's EIS socket, through ctypes: the pointer, a key, a wheel."""
+
+    POINTER_ABSOLUTE, KEYBOARD, SCROLL = 1 << 1, 1 << 2, 1 << 4
+    SEAT_ADDED, DEVICE_ADDED, DEVICE_RESUMED, DISCONNECT = 3, 5, 8, 2
+
+    def __init__(self):
+        import dbus
+
+        self.lib = ctypes.CDLL("libei.so.1")
+        lib = self.lib
+        for name, result in (("ei_new_sender", ctypes.c_void_p), ("ei_get_event", ctypes.c_void_p),
+                             ("ei_event_get_seat", ctypes.c_void_p), ("ei_event_get_device", ctypes.c_void_p),
+                             ("ei_device_ref", ctypes.c_void_p), ("ei_now", ctypes.c_uint64),
+                             ("ei_event_get_type", ctypes.c_int), ("ei_get_fd", ctypes.c_int),
+                             ("ei_setup_backend_fd", ctypes.c_int), ("ei_device_has_capability", ctypes.c_bool)):
+            getattr(lib, name).restype = result
+        lib.ei_event_get_type.argtypes = [ctypes.c_void_p]
+        lib.ei_event_get_seat.argtypes = lib.ei_event_get_device.argtypes = [ctypes.c_void_p]
+        lib.ei_event_unref.argtypes = lib.ei_device_ref.argtypes = [ctypes.c_void_p]
+        lib.ei_device_has_capability.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        lib.ei_device_start_emulating.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+        lib.ei_device_pointer_motion_absolute.argtypes = [ctypes.c_void_p, ctypes.c_double, ctypes.c_double]
+        lib.ei_device_keyboard_key.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_bool]
+        lib.ei_device_scroll_discrete.argtypes = [ctypes.c_void_p, ctypes.c_int32, ctypes.c_int32]
+        lib.ei_device_frame.argtypes = [ctypes.c_void_p, ctypes.c_uint64]
+        lib.ei_get_fd.argtypes = lib.ei_dispatch.argtypes = lib.ei_now.argtypes = [ctypes.c_void_p]
+        lib.ei_get_event.argtypes = [ctypes.c_void_p]
+        lib.ei_setup_backend_fd.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        lib.ei_configure_name.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+        proxy = dbus.SessionBus().get_object("org.kde.KWin", "/org/kde/KWin/EIS/RemoteDesktop")
+        handed, _cookie = dbus.Interface(proxy, "org.kde.KWin.EIS.RemoteDesktop").connectToEIS(63)
+        self.ei = lib.ei_new_sender(None)
+        lib.ei_configure_name(self.ei, b"zoom-probe-wayland")
+        if lib.ei_setup_backend_fd(self.ei, handed.take()) != 0:
+            raise RuntimeError("libei refused KWin's EIS descriptor")
+        self.devices, self.resumed, self.sequence = [], 0, 1
+        for _ in range(100):
+            self.pump(50)
+            if self.resumed >= 3:
+                break
+        if not self.resumed:
+            raise RuntimeError("the nested KWin resumed no EIS device")
+
+    def pump(self, ms):
+        select.select([self.lib.ei_get_fd(self.ei)], [], [], ms / 1000)
+        self.lib.ei_dispatch(self.ei)
+        while event := self.lib.ei_get_event(self.ei):
+            kind = self.lib.ei_event_get_type(event)
+            if kind == self.SEAT_ADDED:
+                self.lib.ei_seat_bind_capabilities(ctypes.c_void_p(self.lib.ei_event_get_seat(event)),
+                                                   *[ctypes.c_int(1 << bit) for bit in range(6)], None)
+            elif kind == self.DEVICE_ADDED:
+                self.devices.append(self.lib.ei_device_ref(self.lib.ei_event_get_device(event)))
+            elif kind == self.DEVICE_RESUMED:
+                self.lib.ei_device_start_emulating(self.lib.ei_event_get_device(event), self.sequence)
+                self.sequence += 1
+                self.resumed += 1
+            elif kind == self.DISCONNECT:
+                raise RuntimeError("the nested KWin disconnected the EIS sender")
+            self.lib.ei_event_unref(event)
+
+    def _device(self, capability):
+        for device in self.devices:
+            if self.lib.ei_device_has_capability(device, capability):
+                return device
+        raise RuntimeError(f"no EIS device with capability {capability}")
+
+    def _frame(self, device):
+        self.lib.ei_device_frame(device, self.lib.ei_now(self.ei))
+        self.pump(0)
+
+    def move(self, x, y):
+        """The pointer to `(x, y)` in the compositor's logical pixels."""
+        device = self._device(self.POINTER_ABSOLUTE)
+        self.lib.ei_device_pointer_motion_absolute(device, x, y)
+        self._frame(device)
+
+    def key(self, code, down):
+        device = self._device(self.KEYBOARD)
+        self.lib.ei_device_keyboard_key(device, code, down)
+        self._frame(device)
+
+    def wheel(self, value120):
+        """One wheel event, in `wl_pointer.axis_value120`'s units: 120 a notch towards the person."""
+        device = self._device(self.SCROLL)
+        self.lib.ei_device_scroll_discrete(device, 0, value120)
+        self._frame(device)
+
+
+def marker_pdf(path):
+    """One US Letter page, white but for a red 2 pt square centred at (200, 500)."""
+    content = b"1 0 0 rg 199 499 2 2 re f"
+    bodies = [b"<< /Type /Catalog /Pages 2 0 R >>", b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+              b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << >> >>",
+              b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream"]
+    data, offsets = bytearray(b"%PDF-1.7\n"), []
+    for number, body in enumerate(bodies, 1):
+        offsets.append(len(data))
+        data += b"%d 0 obj\n" % number + body + b"\nendobj\n"
+    table = len(data)
+    data += b"xref\n0 %d\n0000000000 65535 f \n" % (len(bodies) + 1) + b"".join(b"%010d 00000 n \n" % o for o in offsets)
+    data += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(bodies) + 1, table)
+    Path(path).write_bytes(bytes(data))
+
+
+def red_centroid(shot):
+    """The red square's centre in the output, in device pixels, and how many pixels it covers."""
+    red = (shot[..., 0] > 200) & (shot[..., 1] < 90) & (shot[..., 2] < 90)
+    rows, columns = np.nonzero(red)
+    if rows.size == 0:
+        return None
+    return float(columns.mean()) + 0.5, float(rows.mean()) + 0.5, int(rows.size)
+
+
+def settled(output_name, deadline=8.0):
+    """The output once two captures 300 ms apart agree, or the last one at the deadline."""
+    end = time.monotonic() + deadline
+    shot = capture(output_name)
+    while time.monotonic() < end:
+        time.sleep(0.3)
+        again = capture(output_name)
+        if np.array_equal(again, shot):
+            return again
+        shot = again
+    return shot
+
+
+def placements(log):
+    """Each `zoom-geometry` receipt a window wrote after a zoom step: where the core put the page."""
+    found = []
+    for line in log.read_text(errors="replace").splitlines():
+        if "zoom-geometry " in line:
+            found.append(json.loads(line.split("zoom-geometry ", 1)[1]))
+    return found
+
+
+def drifted(config, client, scale):
+    """The point of the page under the pointer, followed through `--notches` steps in and back.
+
+    Three numbers a step: `dx`, `dy`, the marker's offset from the pointer on the output, which is
+    what a person sees; `core_dx`, `core_dy`, the offset the core's own placement predicts, from the
+    window's `zoom-geometry` receipt, which is the anchor's arithmetic alone; and `shown_dx`,
+    `shown_dy`, the output against that prediction, less the first step's, which is the window's
+    placement of the frame alone."""
+    pixels = config.output / f"drift-{config.binary.name}-{scale:g}"
+    pixels.mkdir()
+    document = pixels / "marker.pdf"
+    marker_pdf(document)
+    environment = dict(client, PDFVIEWER_ZOOM_PROBE="1", QT_QPA_PLATFORM="wayland", GDK_BACKEND="wayland")
+    viewer = subprocess.Popen([str(config.binary.resolve()), str(document.resolve())], env=environment,
+                              stdout=(pixels / "viewer.log").open("wb"), stderr=subprocess.STDOUT,
+                              start_new_session=True)
+    steps = []
+    try:
+        found = None
+        for _ in range(60):
+            time.sleep(0.5)
+            if viewer.poll() is not None:
+                raise RuntimeError(f"viewer exited {viewer.returncode}")
+            found = red_centroid(settled("Virtual-0", 3.0))
+            if found:
+                break
+        if found is None:
+            return dict(binary=config.binary.name, scale=scale, verdict="no marker on the output")
+        sender = Eis()
+        # A whole logical pixel, which is where a compositor's pointer stands after an absolute move.
+        pointer = (round(found[0] / scale), round(found[1] / scale))
+        sender.move(pointer[0] + 4, pointer[1] + 4)  # a motion GTK reads, then the place itself
+        sender.pump(200)
+        sender.move(*pointer)
+        sender.pump(300)
+        at = (pointer[0] * scale, pointer[1] * scale)
+        sender.key(29, True)  # KEY_LEFTCTRL
+        sender.pump(200)
+        plan = [-120] * config.notches + [120] * config.notches
+        for index, value120 in enumerate([0] + plan):
+            if value120:
+                sender.wheel(value120)
+            shot = settled("Virtual-0")
+            centre = red_centroid(shot)
+            level = sum(1 if v < 0 else -1 for v in plan[:index])
+            row = dict(step=index, level=level)
+            if centre is None:
+                row["marker"] = "not on the output"
+            else:
+                row.update(dx=round(centre[0] - at[0], 3), dy=round(centre[1] - at[1], 3), covered=centre[2])
+            placed = placements(pixels / "viewer.log")
+            if index and len(placed) >= index:
+                last = placed[index - 1]
+                # The marker is centred on (200, 500) in default user space, y up (`marker_pdf`).
+                predicted = (last["origin_x"] + 200 * last["scale"],
+                             last["origin_y"] + (last["page_height"] - 500) * last["scale"])
+                row.update(core_dx=round(predicted[0] - last["anchor_x"], 3),
+                           core_dy=round(predicted[1] - last["anchor_y"], 3), scale=last["scale"])
+                if centre is not None:
+                    row["_shown"] = (centre[0] - predicted[0], centre[1] - predicted[1])
+            steps.append(row)
+            write_png(pixels / f"step-{index:02d}.png", shot)
+            print(json.dumps(row), flush=True)
+        sender.key(29, False)
+        sender.pump(100)
+    finally:
+        os.killpg(viewer.pid, signal.SIGTERM)
+        viewer.wait(timeout=10)
+    shown = [row for row in steps if "_shown" in row]
+    for row in shown:
+        first = shown[0]["_shown"]
+        row["shown_dx"], row["shown_dy"] = (round(row["_shown"][0] - first[0], 3), round(row["_shown"][1] - first[1], 3))
+    for row in steps:
+        row.pop("_shown", None)
+    # The verdict is read where the page is far wider and taller than the viewport, so nothing
+    # centres it: the marker's offset from the anchor there, in user space units, against what one
+    # device pixel is worth on the fitted page, which is how far from the marker a pointer standing
+    # on a whole logical pixel can be put. And ten steps out have to land where the gesture began.
+    held = [row for row in steps if "core_dx" in row]
+    deepest = max(held, key=lambda row: row["level"], default=None)
+    fitted = held[0]["scale"] / 1.25 if held else None
+    offset = None if deepest is None else max(abs(deepest["core_dx"]), abs(deepest["core_dy"])) / deepest["scale"]
+    first, back = steps[0], steps[-1]
+    returned = "dx" in first and "dx" in back and max(abs(back["dx"] - first["dx"]), abs(back["dy"] - first["dy"])) <= 1.0
+    stays = offset is not None and offset <= 1 / fitted and returned
+    return dict(binary=config.binary.name, scale=scale, pointer_device=[round(v, 3) for v in at], steps=steps,
+                deepest_offset_units=None if offset is None else round(offset, 4),
+                one_fitted_pixel_units=None if fitted is None else round(1 / fitted, 4), returned=returned,
+                verdict="the point stays" if stays else "the point moves")
+
+
+def wheel_count(config, client, scale):
+    """One window's count of a wheel, read off the output (see `--wheel`)."""
+    pixels = config.output / f"wheel-{config.binary.name}-{scale:g}"
+    pixels.mkdir()
+    document = pixels / "marker.pdf"
+    marker_pdf(document)
+    environment = dict(client, QT_QPA_PLATFORM="wayland", GDK_BACKEND="wayland")
+    viewer = subprocess.Popen([str(config.binary.resolve()), str(document.resolve())], env=environment,
+                              stdout=(pixels / "viewer.log").open("wb"), stderr=subprocess.STDOUT,
+                              start_new_session=True)
+    try:
+        found = None
+        for _ in range(60):
+            time.sleep(0.5)
+            if viewer.poll() is not None:
+                raise RuntimeError(f"viewer exited {viewer.returncode}")
+            found = red_centroid(settled("Virtual-0", 3.0))
+            if found:
+                break
+        if found is None:
+            return dict(binary=config.binary.name, scale=scale, verdict="no marker on the output")
+        sender = Eis()
+        pointer = (round(found[0] / scale), round(found[1] / scale))
+        sender.move(pointer[0] + 4, pointer[1] + 4)
+        sender.pump(200)
+        sender.move(*pointer)
+        sender.pump(300)
+        sender.key(29, True)
+        sender.pump(200)
+        # Four notches in first, so that the square is large enough for its area to count steps,
+        # then four more measured; away from the person is in.
+        for _ in range(4):
+            sender.wheel(-120)
+            sender.pump(100)
+        start = red_centroid(settled("Virtual-0"))
+        for _ in range(4):
+            sender.wheel(-120)
+            sender.pump(100)
+        four = red_centroid(settled("Virtual-0"))
+        steps = round(math.log(four[2] / start[2]) / math.log(1.5625)) if four and start else None
+        sender.key(29, False)
+        sender.pump(200)
+        before = red_centroid(settled("Virtual-0"))
+        sender.wheel(120)  # towards the person: the page moves up
+        after = red_centroid(settled("Virtual-0"))
+        notch = None if before is None or after is None else round(before[1] - after[1], 2)
+        moved_at, last = [], after
+        for eighth in range(1, 17):
+            sender.wheel(15)
+            now = red_centroid(settled("Virtual-0", 3.0))
+            if now is None or last is None:
+                break
+            if abs(now[1] - last[1]) > 0.5:
+                moved_at.append(eighth)
+            last = now
+    finally:
+        os.killpg(viewer.pid, signal.SIGTERM)
+        viewer.wait(timeout=10)
+    wanted = 48 * scale
+    passes = steps == 4 and notch is not None and abs(notch - wanted) <= 1.0 and moved_at == [4, 12]
+    return dict(binary=config.binary.name, scale=scale, zoom_steps_of_four_notches=steps, notch_device_pixels=notch,
+                notch_wanted=round(wanted, 2), eighths_that_moved=moved_at,
+                verdict="one wheel" if passes else "another wheel")
 
 
 def page_columns(shot):
@@ -162,14 +474,22 @@ def rescaled(config, client):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--binary", type=Path, required=True)
-    parser.add_argument("--pdf", type=Path, required=True, help="a one-page document: the dump wants a single frame")
+    parser.add_argument("--pdf", type=Path, help="a one-page document: the dump wants a single frame (not with --drift)")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--scale", type=float, action="append", help="default: 1 1.25 1.5 1.6 1.7 1.75 2")
     parser.add_argument("--rescale", metavar="FROM:TO",
                         help="instead: one window opened at FROM, the output set to TO under it; passes only if "
                              "no resize reached the core and the page is 1:1 at both, which is the surface's "
                              "scale hook alone (ADR 2250)")
+    parser.add_argument("--drift", action="store_true",
+                        help="instead: the zoom anchor driven in and back out through KWin's own EIS input, "
+                             "at each --scale (default 1.6), the marker's offset from the pointer after each notch")
+    parser.add_argument("--notches", type=int, default=10, help="with --drift: steps in, then as many out (10: 9.3x)")
+    parser.add_argument("--wheel", action="store_true",
+                        help="instead: one notch's zoom steps and scroll and sixteen eighths' moves, read off the output")
     config = parser.parse_args()
+    if not (config.drift or config.wheel) and config.pdf is None:
+        parser.error("--pdf is needed unless --drift or --wheel")
     for tool in ("kwin_wayland", "kscreen-doctor", "dbus-run-session"):
         if shutil.which(tool) is None:
             parser.error(f"{tool} is not installed; this probe needs a nested KWin")
@@ -177,7 +497,7 @@ def main():
         import dbus  # noqa: F401
     except ImportError:
         parser.error("python-dbus is not installed; the output is read through KWin's ScreenShot2")
-    scales = config.scale or [1, 1.25, 1.5, 1.6, 1.7, 1.75, 2]
+    scales = config.scale or ([1.6] if config.drift or config.wheel else [1, 1.25, 1.5, 1.6, 1.7, 1.75, 2])
     config.output.mkdir(parents=True, exist_ok=False)
     runtime = config.output / "runtime"
     runtime.mkdir(mode=0o700)
@@ -205,6 +525,19 @@ def main():
         if config.rescale:
             results.append(rescaled(config, client))
             print(json.dumps(results[-1]), flush=True)
+            scales = []
+        if config.drift:
+            for scale in scales:
+                subprocess.run(["kscreen-doctor", f"output.Virtual-0.scale.{scale:g}"], env=client, check=True,
+                               capture_output=True, timeout=20)
+                results.append(drifted(config, client, scale))
+            scales = []
+        if config.wheel:
+            for scale in scales:
+                subprocess.run(["kscreen-doctor", f"output.Virtual-0.scale.{scale:g}"], env=client, check=True,
+                               capture_output=True, timeout=20)
+                results.append(wheel_count(config, client, scale))
+                print(json.dumps(results[-1]), flush=True)
             scales = []
         for scale in scales:
             subprocess.run(["kscreen-doctor", f"output.Virtual-0.scale.{scale:g}"], env=client, check=True,
@@ -241,7 +574,8 @@ def main():
         compositor.wait(timeout=20)
         signal.alarm(0)
     (config.output / "report.json").write_text(json.dumps(results, indent=1) + "\n")
-    return 0 if all(r.get("verdict") == "1:1 exact" for r in results) else 1
+    passed = ("the point stays",) if config.drift else ("one wheel",) if config.wheel else ("1:1 exact",)
+    return 0 if results and all(r.get("verdict") in passed for r in results) else 1
 
 
 if __name__ == "__main__":

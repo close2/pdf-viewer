@@ -101,6 +101,55 @@ enum Device {
     Absent(String),
 }
 
+/// What each step of the device's bring-up cost, as raster and this host timed them on the
+/// device's thread — the launch gate's bring-up child prints the same steps (ADR 2282).
+///
+/// **Said in the window's trace because the window's figure is not the child's.** The child brings
+/// a device up in a process that has done nothing else; a window brings it up while the toolkit
+/// starts on the main thread, and the difference between the two is a term only this line can
+/// split.
+#[derive(Debug, Clone, Copy)]
+struct Steps {
+    /// The instance and its adapter check, where this host made them.
+    launch: Option<raster_gpu::LaunchSteps>,
+    /// The device's own steps.
+    startup: raster_gpu::StartupTimings,
+}
+
+impl Steps {
+    /// The steps in the order they ran, and what of `took` none of them names: the device's
+    /// assembly and the host's caches.
+    fn said(&self, took: Duration) -> String {
+        let shown = |step: Option<Duration>| {
+            step.map_or_else(
+                || "-".to_owned(),
+                |step| format!("{:.1}", step.as_secs_f64() * 1e3),
+            )
+        };
+        let launch = self.launch;
+        let named = [
+            launch.map(|steps| steps.render_node_wake),
+            launch.map(|steps| steps.instance_creation),
+            launch.map(|steps| steps.adapter_check),
+            Some(self.startup.adapter_selection),
+            Some(self.startup.device_creation),
+        ]
+        .into_iter()
+        .flatten()
+        .fold(Duration::ZERO, Duration::saturating_add);
+        format!(
+            "render-node wake {} + instance {} + adapter check {} + adapter {} + request_device {} \
+             + the device's assembly and the host's {} ms",
+            shown(launch.map(|steps| steps.render_node_wake)),
+            shown(launch.map(|steps| steps.instance_creation)),
+            shown(launch.map(|steps| steps.adapter_check)),
+            shown(Some(self.startup.adapter_selection)),
+            shown(Some(self.startup.device_creation)),
+            shown(Some(took.saturating_sub(named))),
+        )
+    }
+}
+
 /// The channels to the device's thread.
 #[derive(Debug)]
 struct Link {
@@ -144,8 +193,8 @@ struct Flight {
 /// What the device's thread sends back.
 #[derive(Debug)]
 enum Message {
-    /// The device is up, on this adapter, after this long.
-    Up(String, Duration),
+    /// The device is up, on this adapter, after this long, and what each of its steps cost.
+    Up(String, Duration, Steps),
     /// No device could be made: what refused.
     Absent(String),
     /// A job answered: the page read back, or the device's refusal and what it is a fact about,
@@ -318,10 +367,11 @@ impl ReadBack {
     /// Takes in one thing the thread sent.
     fn land(&mut self, message: Message) {
         match message {
-            Message::Up(adapter, took) => {
-                self.handed
-                    .traced
-                    .push(format!("graphics device up in {took:?}: {adapter}"));
+            Message::Up(adapter, took, steps) => {
+                self.handed.traced.push(format!(
+                    "graphics device up in {took:?}: {adapter}; {}",
+                    steps.said(took)
+                ));
                 self.device = Device::Up(adapter);
             }
             Message::Absent(said) => self.absent(said),
@@ -577,9 +627,11 @@ fn draw_until_told_to_stop(
             return;
         }
     };
+    let (launch, startup) = device.startup();
     if !send(Message::Up(
         device.adapter_description().to_owned(),
         began.elapsed(),
+        Steps { launch, startup },
     )) {
         return;
     }
@@ -614,7 +666,7 @@ mod tests {
 
     use render_raster::FrameCost;
 
-    use super::{Device, Job, Kept, Link, Message, ReadBack};
+    use super::{Device, Job, Kept, Link, Message, ReadBack, Steps};
 
     /// A request the core minted for page one of a document every checkout has, as
     /// `viewer_host::drawing`'s tests take theirs.
@@ -659,6 +711,46 @@ mod tests {
     /// Takes the job the lane would have sent, as the thread would.
     fn in_flight(lane: &ReadBack) -> u64 {
         lane.in_flight.as_ref().expect("a page in flight").serial
+    }
+
+    /// The window's bring-up line names each step the launch gate's child names, in its order, and
+    /// what of the whole none of them is — and `-` for the steps a host that did not make the
+    /// instance has no figure for (ADR 2282).
+    #[test]
+    fn the_bring_up_line_names_each_step_and_the_remainder() {
+        let millis = Duration::from_millis;
+        let startup = raster_gpu::StartupTimings {
+            instance_creation: None,
+            surface_creation: Duration::ZERO,
+            adapter_selection: millis(1),
+            device_creation: millis(10),
+            pipeline_compilation: None,
+        };
+        let launch = raster_gpu::LaunchSteps {
+            render_node_wake: millis(2),
+            render_nodes_opened: 1,
+            instance_creation: millis(15),
+            adapter_check: millis(5),
+            every_backend: false,
+        };
+        let made = Steps {
+            launch: Some(launch),
+            startup,
+        };
+        assert_eq!(
+            made.said(millis(40)),
+            "render-node wake 2.0 + instance 15.0 + adapter check 5.0 + adapter 1.0 + \
+             request_device 10.0 + the device's assembly and the host's 7.0 ms"
+        );
+        let borrowed = Steps {
+            launch: None,
+            startup,
+        };
+        assert_eq!(
+            borrowed.said(millis(12)),
+            "render-node wake - + instance - + adapter check - + adapter 1.0 + request_device \
+             10.0 + the device's assembly and the host's 1.0 ms"
+        );
     }
 
     #[test]

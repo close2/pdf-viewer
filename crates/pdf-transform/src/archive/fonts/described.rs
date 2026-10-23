@@ -170,6 +170,10 @@ pub(super) struct Restatement {
     face: ShippedFace,
     /// Which of the two restatements it is, for the report.
     pub(super) described: Described,
+    /// The entries the file's own descriptor gains in the copy the face is embedded into: the
+    /// `/Flags` that make the restated `TrueType` font the non-symbolic one its encoding is, or
+    /// nothing (`doc/adr/2278`).
+    pub(super) descriptor: Dictionary,
 }
 
 /// The restatement a font whose descriptor states no program needs when Table 124 admits its
@@ -204,10 +208,14 @@ pub(super) fn restated_kind(
         Name::new(&b"Subtype"[..]),
         Object::Name(Name::new(other.as_bytes())),
     );
-    if other == "TrueType"
-        && let Some(restated) = truetype_encoding(document, &used.dict, &source)
-    {
-        entries.insert(Name::new(&b"Encoding"[..]), Object::Dictionary(restated));
+    let mut descriptor = Dictionary::new();
+    if other == "TrueType" {
+        if let Some(restated) = truetype_encoding(document, &used.dict, &source) {
+            entries.insert(Name::new(&b"Encoding"[..]), Object::Dictionary(restated));
+        }
+        if let Some(flags) = nonsymbolic_flags(document, &used.dict) {
+            descriptor.insert(Name::new(&b"Flags"[..]), Object::Integer(flags));
+        }
     } else if other == "Type1" && document.get_key(&used.dict, "Encoding").is_null() {
         // With no Encoding, §9.6.5.1 uses the embedded program's built-in table. The source
         // TrueType substitute may instead use Annex D's symbolic names, so carrying the
@@ -229,7 +237,35 @@ pub(super) fn restated_kind(
         } else {
             Described::RestatedAsTrueType
         },
+        descriptor,
     }))
+}
+
+/// The `/Flags` a `Type1` dictionary's own descriptor states once it is restated as `TrueType`
+/// over a Liberation face, where they are not already the non-symbolic ones.
+///
+/// **The restated font is non-symbolic, and the descriptor is made to say so.** ISO 32000-2
+/// §9.6.5.4 builds the code-to-name table a TrueType font reaches its glyphs through only where the
+/// encoding is one of the two named ones or the descriptor's Nonsymbolic flag is set; for an
+/// encoding *dictionary* beside a descriptor flagged Symbolic it builds none, and ISO 19005-2
+/// section 6.2.11.6 and ISO 19005-4 section 6.2.10.6 forbid a symbolic TrueType font an `/Encoding`
+/// at all. The conversion states a `WinAnsiEncoding` one, the guideline §9.6.5.4 gives a
+/// non-symbolic font, over a face whose every glyph that encoding reaches is in Annex D.2's Latin
+/// set; Table 121 then makes the Nonsymbolic flag the true one and requires the two flags never
+/// both set nor both clear. So Symbolic (bit 3) is cleared and Nonsymbolic (bit 6) set, and every
+/// other bit is the file's. The descriptor this conversion writes for a font that stated none takes
+/// the same reading ([`Measured::descriptor`]), and [`proved`] holds the font to the source with
+/// these flags in place (`doc/adr/2278`).
+fn nonsymbolic_flags(document: &Document, font: &Dictionary) -> Option<i64> {
+    const SYMBOLIC: i64 = 1 << 2;
+    const NONSYMBOLIC: i64 = 1 << 5;
+    let descriptor = document.get_key(font, "FontDescriptor");
+    let stated = descriptor
+        .as_dict()
+        .and_then(|descriptor| document.get_key(descriptor, "Flags").as_integer())
+        .unwrap_or(0);
+    let flags = (stated & !SYMBOLIC) | NONSYMBOLIC;
+    (flags != stated).then_some(flags)
 }
 
 /// Holds a restated dictionary, beside its own descriptor and the program about to be embedded,
@@ -248,9 +284,13 @@ pub(super) fn restatement_proved(
     ) else {
         return Err(Because::NotBuiltYet(NOT_PROVED));
     };
-    // What the rewriter takes out of the descriptor it embeds into, taken out here too.
+    // What the rewriter takes out of the descriptor it embeds into, taken out here too, and what
+    // it writes into it, written here too.
     for key in ["FontFile", "FontFile2", "FontFile3", "CharSet", "CIDSet"] {
         descriptor.remove(key);
+    }
+    for (key, value) in restatement.descriptor.iter() {
+        descriptor.insert(key.clone(), value.clone());
     }
     proved(
         document,
@@ -543,9 +583,10 @@ fn truetype_encoding(
         name.is_some_and(|name| matches!(name.as_bytes(), b"WinAnsiEncoding" | b"MacRomanEncoding"))
     };
     if admitted(stated.as_name())
-        || stated
-            .as_dict()
-            .is_some_and(|dict| admitted(document.get_key(dict, "BaseEncoding").as_name()))
+        || stated.as_dict().is_some_and(|encoding| {
+            admitted(document.get_key(encoding, "BaseEncoding").as_name())
+                && differences_are_listed_names(document, encoding)
+        })
     {
         return None;
     }
@@ -553,6 +594,27 @@ fn truetype_encoding(
         source,
         Some((BaseEncoding::WinAnsi, "WinAnsiEncoding")),
     ))
+}
+
+/// Whether every name an encoding dictionary's `/Differences` states is one the Adobe Glyph List
+/// answers for.
+///
+/// ISO 19005-2 section 6.2.11.6 and ISO 19005-4 section 6.2.10.6 let a non-symbolic TrueType font
+/// state a `/Differences` array only where every glyph name in it is in the Adobe Glyph List — and
+/// `.notdef`, which producers write over the codes they leave unused, is not. A `Type1` font may
+/// state one freely, so the restatement as `TrueType` is where the rule first binds it, and an
+/// encoding that fails it is restated rather than carried ([`restated_encoding`] names no code
+/// `.notdef`). The reading is the validator's own, [`pdf_font::encoding::text_for`], and a name
+/// that is not text is not one the list holds (`doc/adr/2278`).
+fn differences_are_listed_names(document: &Document, encoding: &Dictionary) -> bool {
+    let differences = document.get_key(encoding, "Differences");
+    differences.as_array().is_none_or(|items| {
+        items.iter().all(|item| match document.resolve(item) {
+            Object::Name(name) => std::str::from_utf8(name.as_bytes())
+                .is_ok_and(|name| pdf_font::encoding::text_for(name).is_some()),
+            _ => true,
+        })
+    })
 }
 
 /// The source's code-to-name table, written as an encoding dictionary on `base`.

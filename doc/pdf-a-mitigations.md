@@ -1155,7 +1155,7 @@ it looks, and two of them have mitigations nobody had written down.
 ISO 19005-2 6.2.11.4.1, ISO 19005-4 6.2.10.4.1 · all six · `Stated`, the loss `machine-face`
 where a font is drawn from this machine's face, and the loss `substitute-stretch` where the shipped
 face is drawn narrowed to the file's widths, **built** (`doc/questions/A47`, `A566`, ADRs 1209,
-2146, 2147, 2162, 2262)
+2146, 2147, 2162, 2262, 2278, 2279)
 
 - **A font the file names and does not carry** gets one of the faces this program ships, embedded
   and reported, with the face's own advances or the program restated to the file's widths
@@ -1164,19 +1164,22 @@ face is drawn narrowed to the file's widths, **built** (`doc/questions/A47`, `A5
   it is drawn from, unmodified. Beside it go a descriptor read off that program (Table 120) and the
   widths the page is already laid out by, which Table 109 obliges once a descriptor is present. A
   Liberation face goes under a `TrueType` dictionary, its encoding restated as names on
-  `WinAnsiEncoding` where section 6.2.11.6 asks. The font is read back and held to the source code
-  by code before anything is written (ADR 2146).
+  `WinAnsiEncoding` where section 6.2.11.6 asks — including an admitted base whose `Differences`
+  names a glyph the Adobe Glyph List does not hold, `.notdef` above all (ADR 2278). The font is read
+  back and held to the source code by code before anything is written (ADR 2146).
 - **A dictionary of the other kind from its face** (a `TrueType` Times New Roman given Foxit's CFF
-  serif) is restated as the face's kind, on the same proof (ADR 2147).
+  serif) is restated as the face's kind, on the same proof (ADR 2147). A `Type1` dictionary restated
+  as `TrueType` has its descriptor copy flagged Nonsymbolic and not Symbolic, since its encoding is
+  a Latin one over a Latin face and section 6.2.11.6 gives a symbolic TrueType font none (ADR 2278).
 - **A font written directly inside its resource dictionary** is written out as an object of its
   own holding what it gains, and a reference stands where it stood; §7.3.10 makes the two spellings
   equivalent, and equal dictionaries share the one object (ADR 2162).
-- **A font this machine draws from a face of its own** (ADR 0270) on either route above takes the
-  shipped face where that face has a glyph for every code the pages show, held to the shipped
-  face's glyph code by code: every mark kept at its width, the shapes changed — the loss
+- **A font this machine draws from a face of its own** (ADR 0270, or a TrueType name
+  `substitute::find` matches to an installed face) takes the shipped face where that face has a
+  glyph for every code the pages show: every mark kept at its width, the shapes changed — the loss
   `machine-face`, which `as-if-printed` answers `discard` and `as-shown` leaves at `stop` (ADR 2162).
-  A route that already had a descriptor and needs no restatement embeds the shipped face over a
-  machine's face as a statement still, unasked (`doc/todo/72`).
+  The route into a descriptor the file already states, needing no restatement, names it too (ADR
+  2279), so no route embeds over a machine's face unasked.
 - **A font this viewer draws from the shipped face at a horizontal scale** (ADR 0358's fitting to
   the file's widths) takes that face unmodified on every route: every position and every glyph kept,
   each glyph drawn at the face's own width — the loss `substitute-stretch`, which `as-if-printed`
@@ -2221,6 +2224,10 @@ ISO 19005-2 6.7.4 · PDF/A-2a · today **`discard` built, `supply` built** (ADRs
 #### `embedded-files/embedded-file-is-itself-pdfa` (PDF/A-2b, 2u, 2a)
 #### `embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile` (PDF/A-4)
 ISO 19005-2 6.8, ISO 19005-4 6.9 · today **`derive` built, `discard` built** (ADR 1258)
+
+- **What the rule reaches.** An embedded PDF is held to the part its own identification names; one
+  naming part 1 or 3 is passed over, a claim this validator cannot judge, and one naming no part
+  fails, because it has established nothing the section's condition rests on (ADR 2278).
 
 - **Mitigation** — this is `doc/rfc/0007` section 4.6's flagship and the catalogue confirms its four
   answers, in order of preference: **attach unchanged** (4f and 4e, nothing lost and nothing

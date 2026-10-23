@@ -72,6 +72,7 @@ use viewer_host::trace::{Topic, Trace};
 
 use crate::bridge::ffi::{QtQuad, QtUpdate};
 
+pub(crate) use input::wheel_in_pixels;
 pub(crate) use notes::{leader_cycles, reached_stop, rule_pieces, rule_thickness};
 
 use forms::Placement;
@@ -242,8 +243,9 @@ pub struct Host {
     pub(crate) page_at: (f32, f32),
     /// Set from `accesskit_unix`'s own thread when a client asks for something.
     pub(crate) access_pending: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    /// The travel a Control + wheel gesture has made and not yet spent on a zoom step.
-    zoom_wheel: viewer_host::ZoomWheel,
+    /// A wheel's travel counted into whole notches of scroll as `viewer-gtk`'s controller counts
+    /// it (ADR 2274).
+    discrete_wheel: viewer_host::DiscreteWheel,
     /// The magnification at which every control on this page would fit its `/Rect`, where they do
     /// not fit now.
     ///
@@ -439,7 +441,7 @@ impl Host {
             aimed: None,
             page_at: (0.0, 0.0),
             access_pending: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            zoom_wheel: viewer_host::ZoomWheel::default(),
+            discrete_wheel: viewer_host::DiscreteWheel::default(),
             fit_magnification: None,
             script_ticker: viewer_host::script_timers::Ticker::default(),
             playing: None,

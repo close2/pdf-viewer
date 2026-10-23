@@ -310,8 +310,6 @@ pub struct Host {
     /// GTK puts no position in a scroll event, so the point a Control + wheel zoom keeps still is
     /// the last one the motion controller reported; `None` before the pointer has entered.
     pointer_at: Option<(f64, f64)>,
-    /// The travel a Control + wheel gesture has made and not yet spent on a zoom step.
-    zoom_wheel: viewer_host::ZoomWheel,
     /// Whether the panels are to be built again when the pump now running has finished.
     ///
     /// A tab brought to the front sends `Command::Focus` on the pump's queue, and every panel is an
@@ -499,7 +497,6 @@ impl Host {
             RefCell::new(Self {
                 state: launch.state(path, trace),
                 pointer_at: None,
-                zoom_wheel: viewer_host::ZoomWheel::default(),
                 panels_due: false,
                 rasterizer: CpuRasterizer::new(),
                 drawing_armed: None,

@@ -89,8 +89,8 @@ fifth is *leaving* — a copy asked as an operation, and four clipboards.
 ```mermaid
 flowchart TD
     TJ["(Dru) Tj in the page's content stream"]
-    READ["codes to characters, glyph boxes and word gaps<br/>stage 1: pdf-font/src/loading/codes.rs, pdf-model/src/content/text.rs<br/>clause 9.4.4, 9.10.2, 14.8.2.6.2, ADR 1502, ADR 1515"]
-    MARK["what the producer stated over the glyphs<br/>stage 2: pdf-model/src/content/run.rs, marked.rs, text.rs<br/>clause 14.6, 14.9.4, 14.8.2.3, 14.7.5.2, ADR 1948"]
+    READ["codes to characters, glyph boxes and word gaps<br/>stage 1: pdf-font/src/loading/codes.rs, pdf-model/src/content/text/readback.rs<br/>clause 9.4.4, 9.10.2, 14.8.2.6.2, ADR 1502, ADR 1515"]
+    MARK["what the producer stated over the glyphs<br/>stage 2: pdf-model/src/content/run.rs, marked.rs, pdf-model/src/content/text/readback.rs<br/>clause 14.6, 14.9.4, 14.8.2.3, 14.7.5.2, ADR 1948"]
     PAGE["the page walk, its stage 3: the same glyphs drawn<br/>doc/teaching/how-a-page-lands-on-the-screen.md"]
     DRAG["a drag becomes a range of the readback<br/>stage 3: viewer-core/src/viewer/pointer.rs, select.rs, open.rs<br/>clause 9.4.4, Table 120, ADR 0118, ADR 0225"]
     TREE["the structure's order over the range<br/>stage 4: pdf-model/src/structure.rs, viewer-core/src/select.rs<br/>clause 14.8.2.5, 14.8.3.3, ADR 1948, ADR 1970, ADR 2042"]
@@ -107,7 +107,7 @@ flowchart TD
 ```
 
 **Maintenance note.** Depends on: `crates/pdf-font/src/loading/codes.rs`,
-`crates/pdf-model/src/content/text.rs`, `crates/pdf-model/src/content/run.rs`,
+`crates/pdf-model/src/content/text/`, `crates/pdf-model/src/content/run.rs`,
 `crates/pdf-model/src/content/marked.rs`, `crates/pdf-model/src/content/report.rs`,
 `crates/viewer-core/src/viewer/pointer.rs`, `crates/viewer-core/src/select.rs`,
 `crates/viewer-core/src/open.rs`, `crates/pdf-model/src/structure.rs`,
@@ -123,7 +123,7 @@ the structure states — is the one to keep true above all.
 spaces and line breaks in it come from?
 
 `crates/pdf-model/src/content/run.rs::run_reader` dispatches `Tj`, `'`, `"` and `TJ` to
-`crates/pdf-model/src/content/text.rs::show_text`, and the strings of a `TJ` array one by one, each
+`crates/pdf-model/src/content/text/show.rs::show_text`, and the strings of a `TJ` array one by one, each
 number between them moving the text matrix by §9.4.3's adjustment. `show_text` does two things with
 one string, and the module's own first paragraph is why: *one pass places the glyphs and extracts
 the page's text from the same code-to-glyph decisions*, so what the readback says is evidence about
@@ -151,7 +151,7 @@ what was drawn. The drawing half is the page walk's stage 3; this is the other h
    included — the OCR layer under a scanned page is invisible and is what a person most wants to
    select — and text on an optional-content layer that is off is not.
 4. **The gaps between show operations become spaces and line breaks.** A content stream has
-   positions, not words, so `crates/pdf-model/src/content/text.rs::separate_text` reads the step
+   positions, not words, so `crates/pdf-model/src/content/text/readback.rs::separate_text` reads the step
    from where the last glyph left the pen to where this string starts, once per show operation:
    inside one string nothing but code 32 can state a word gap. The step is measured in text space
    (ADR 1490), because §9.4.4 says so of the displacement it is compared with:
@@ -163,7 +163,7 @@ what was drawn. The drawing half is the page walk's stage 3; this is the other h
    `(druckt eine Seiten\255)` moves the pen 3 units at 12 points; Helvetica's space is 0.278 em,
    3.336 units, so the step is 0.9 of a space and the readback gets " ".
 5. **Which provisional spaces stay is decided when the page is finished.**
-   `crates/pdf-model/src/content/text.rs::settle_word_gaps` reads each font's own threshold off
+   `crates/pdf-model/src/content/text/readback.rs::settle_word_gaps` reads each font's own threshold off
    every step it showed on the page (`own_threshold`, once a font shows `STEPS_TO_DECIDE` steps;
    half a space, `WORD_GAP_SHARE`, below that), takes back the spaces under it and moves every range
    over the text to match (ADRs 1502 and 1515 have the measurements). It is a heuristic and the
@@ -177,12 +177,12 @@ what was drawn. The drawing half is the page walk's stage 3; this is the other h
 ```mermaid
 flowchart LR
     OP["Tj, quote, TJ<br/>pdf-model/src/content/run.rs::run_reader<br/>clause 9.4.3"]
-    SHOW["show_text<br/>pdf-model/src/content/text.rs"]
+    SHOW["show_text<br/>pdf-model/src/content/text/show.rs"]
     CODES["string to codes<br/>pdf-font/src/loading/codes.rs::decode<br/>clause 9.7.1"]
     CHARS["code to characters<br/>codes.rs::text, pdf-model/src/content/font.rs::text<br/>clause 9.10.2, 9.3.3"]
-    QUAD["code to a box: Placed in text_layer<br/>text.rs::glyph_quad, pdf-model/src/content/report.rs<br/>clause 9.4.4, Table 120, ADR 0118"]
-    GAP["step between show operations<br/>text.rs::separate_text<br/>clause 9.4.4, ADR 1490"]
-    SETTLE["provisional spaces kept or taken back<br/>text.rs::settle_word_gaps<br/>clause 14.8.2.6.2, ADR 1502, ADR 1515"]
+    QUAD["code to a box: Placed in text_layer<br/>pdf-model/src/content/text/readback.rs::glyph_quad, pdf-model/src/content/report.rs<br/>clause 9.4.4, Table 120, ADR 0118"]
+    GAP["step between show operations<br/>pdf-model/src/content/text/readback.rs::separate_text<br/>clause 9.4.4, ADR 1490"]
+    SETTLE["provisional spaces kept or taken back<br/>pdf-model/src/content/text/readback.rs::settle_word_gaps<br/>clause 14.8.2.6.2, ADR 1502, ADR 1515"]
 
     OP --> SHOW
     SHOW --> GAP
@@ -193,7 +193,7 @@ flowchart LR
 ```
 
 **Maintenance note.** Depends on: `crates/pdf-model/src/content/run.rs`,
-`crates/pdf-model/src/content/text.rs`, `crates/pdf-model/src/content/font.rs`,
+`crates/pdf-model/src/content/text/`, `crates/pdf-model/src/content/font.rs`,
 `crates/pdf-model/src/content/report.rs`, `crates/pdf-font/src/loading/codes.rs`, ADR 0118,
 ADR 1490, ADR 1502 and ADR 1515. Redraw it when the readback stops being written by the drawing
 pass, when §9.10.2's methods change order, when the word gap stops being decided per font at the
@@ -212,8 +212,8 @@ arm takes §14.9's `/ActualText`, `/Alt`, `/E` and `/Lang`, an `/MCID`, whether 
 section began. Everything else happens at the `EMC`.
 
 1. **A replacement cuts what the section read back and writes the stated text in its place.**
-   `crates/pdf-model/src/content/text.rs::cut_replaced` takes away `k-`, and
-   `crates/pdf-model/src/content/text.rs::push_replacement` writes `c` — and gives **each** code the
+   `crates/pdf-model/src/content/text/readback.rs::cut_replaced` takes away `k-`, and
+   `crates/pdf-model/src/content/text/readback.rs::push_replacement` writes `c` — and gives **each** code the
    section showed the whole replacement as its range, so both the `k` and the `-` read back as `c`
    and a drag over either finds it (ADR 1515).
 2. **What the cut leaves alone is the reader's, not the content's** (ADR 1948). The separator
@@ -259,8 +259,8 @@ flowchart TD
     BDC["BDC: property list inline or named<br/>pdf-model/src/content/run.rs, pdf-model/src/content/marked.rs::property_list<br/>clause 14.6.2, ADR 0060"]
     OPEN["Marked: where the section began<br/>its ActualText, MCID, artifact, ReversedChars"]
     EMC["EMC"]
-    CUT["the content's readback cut<br/>text.rs::cut_replaced<br/>clause 14.9.4, ADR 1948"]
-    REPL["the replacement written, every code spanning all of it<br/>text.rs::push_replacement<br/>ADR 1515"]
+    CUT["the content's readback cut<br/>pdf-model/src/content/text/readback.rs::cut_replaced<br/>clause 14.9.4, ADR 1948"]
+    REPL["the replacement written, every code spanning all of it<br/>pdf-model/src/content/text/readback.rs::push_replacement<br/>ADR 1515"]
     SHY["U+00AD stays in the readback<br/>clause 14.8.2.3"]
     SPANS["MarkedSpan, ArtifactSpan, Described, ObjectSpan<br/>pdf-model/src/content/report.rs<br/>clause 14.7.5.2, 14.8.2.2, ADR 1970"]
     KEPT["Interpreted: text, placed, marked, artifacts<br/>viewer-core/src/open.rs"]
@@ -276,7 +276,7 @@ flowchart TD
 ```
 
 **Maintenance note.** Depends on: `crates/pdf-model/src/content/run.rs`,
-`crates/pdf-model/src/content/marked.rs`, `crates/pdf-model/src/content/text.rs`,
+`crates/pdf-model/src/content/marked.rs`, `crates/pdf-model/src/content/text/readback.rs`,
 `crates/pdf-model/src/content/report.rs`, `crates/viewer-core/src/open.rs`, ADR 0060, ADR 1515,
 ADR 1948 and ADR 1970. Redraw it when a replacement stops being applied to the readback during
 interpretation, when the line-end rule changes, when the soft hyphen starts being removed before a

@@ -1674,3 +1674,42 @@ group's colour space decides a pixel first makes that group composite — a part
 second mark under it — and shows the expected pixel differs from the parent-space one before it is
 believed.
 
+## 177. A vocabulary item a census reports unreached is first looked for in the events
+
+`tools/state.sh hosts` printed "Query: 35 of 36 reach the ABI" for two batches, and the one it named,
+`LogicalSelection`, needed no entry point: `quorra_copy` raises `Event::Copied`, whose `logical` field is
+the same answer, read back by `quorra_selection_copy_text` (ADR 0519; round 1725, ADR 2284). A census of
+a vocabulary against the entry points that ask it counts the answers an event carries too, by a checked
+list of its own, so that an item answered without being asked is not reported as a gap and not given a
+second way to be asked.
+
+## 178. When a loss becomes machine-dependent, the fixtures are grepped for the faces this machine has
+
+Five archive tests passed on HEAD only because the unrestated embedding route silently dropped the
+`machine-face` loss: their fixtures named `/LiberationSans` and `/Tahoma-Bold`, faces installed on the
+test machine, so the shipped face was never needed and no loss was ever stated (round 1722, ADR 2279). A
+change that makes a loss or a refusal depend on what the machine has installed — a font, a profile, a
+codec — greps the fixtures for the names `fc-list` (or the equivalent census) prints, and either names the
+loss in the test or chooses a fixture no machine supplies; a test green for want of a statement is a
+statement.
+
+## 179. The arms are ranked for defects with the glyph quantum off
+
+Ranked by their worst lane's mean error, HEAD's arms put three pages at the head — `copy_paste_ligatures`,
+`issue16316`, `endchar` — each a single line of type cropped to its own box, reading 0.6 to 1.1 of 255;
+with ADR 0498's glyph quantum off they read 0.002 to 0.07, and the first page a defect explained was
+fifth (round 1726, ADR 2286). The quantum is a trade ADR 0498 made and not a defect, and it dominates any
+page small enough that its glyph edges are most of its pixels; a round that ranks the arms to find a
+defect ranks them with the quantum off (the `--no-glyph-quantum` arm, or the oracle's own switch), and
+reads the gpu lane's 4x glyph pages as raster's sample grid (ADR 0076) before anything else.
+
+## 180. Before a brief routes a backend's finding into a report type, `cargo tree -i` says whether the report can see it
+
+Batch one hundred and eleven's brief routed a folding-union decline into `pdf_model::Unsupported`, the
+page's unsupported-features report; that report is worded before anything is drawn and lives in a crate
+above `render-cpu` (`pdf-model` depends on it, not the reverse), so the planned route did not exist and
+round 1723 typed the decline where the draw returns instead, with the hosts still to carry it (ADR 2280).
+A brief or a round that plans to carry a finding from one crate into another's report runs `cargo tree -i
+<producer>` first and reads whether the report's crate is above or below it; if above, the finding travels
+in the draw's return value and the report is the host's.
+

@@ -224,6 +224,9 @@ pub(crate) struct MaskCache {
     ///
     /// [`mask_consumer_reach`]: crate::soft_mask::mask_consumer_reach
     pub(crate) reach: Arc<HashMap<SoftMaskId, MaskReach>>,
+    /// The marks a clip chain's own buffers declined to the library's converter, kept until the
+    /// draw asks (ADR 2280); the marks [`MaskCache::scratch`]'s buffers declined are kept there.
+    declined: Vec<area::UnionDecline>,
 }
 
 /// Largest total size of the masks a [`MaskCache`] holds, in bytes.
@@ -266,7 +269,23 @@ impl MaskCache {
             admits_wholly: HashMap::new(),
             scratch: scan::Scratch::for_page(surface.page.width, surface.page.height),
             reach: Arc::new(HashMap::new()),
+            declined: Vec::new(),
         }
+    }
+
+    /// The marks this cache's draws declined to the library's converter since it was last
+    /// asked, for the draw's caller to say (ADR 2280).
+    pub(crate) fn take_declined(&mut self) -> Vec<area::UnionDecline> {
+        let mut declined = std::mem::take(&mut self.declined);
+        declined.extend(self.scratch.take_declined());
+        declined
+    }
+
+    /// Keeps what another cache's draws declined — one built for a narrower surface inside a
+    /// draw of this one's.
+    pub(crate) fn absorb(&mut self, other: &mut Self) {
+        let declined = other.take_declined();
+        self.declined.extend(declined);
     }
 
     /// The same cache, restricting each soft mask to the rows its consumers can read.
@@ -818,7 +837,7 @@ impl MaskCache {
     /// That costs no departure of any kind — nothing is shifted between bands, so ADR 0219's
     /// arithmetic never enters — and it is what [`scan::admits_every_pixel`] answers.
     fn build(
-        &self,
+        &mut self,
         list: &DisplayList,
         id: ClipId,
         chain: &[ClipId],
@@ -959,7 +978,7 @@ impl MaskCache {
     /// A step whose region is §10.7.4's union of two fills contributes both, composed before the
     /// intersection rather than after it, because the clipping region *is* the union (ADR 1231).
     fn compose(
-        &self,
+        &mut self,
         mask: &mut tiny_skia::Mask,
         (root, nested): (&Shape<'_>, &[Shape<'_>]),
         band: Band,
@@ -1002,6 +1021,7 @@ impl MaskCache {
             );
         }
         let Some(scratch) = scratch.as_mut() else {
+            self.declined.extend(cells.take_declined());
             return Ok(());
         };
         for shape in nested {
@@ -1020,6 +1040,7 @@ impl MaskCache {
                 union,
             );
         }
+        self.declined.extend(cells.take_declined());
         Ok(())
     }
 

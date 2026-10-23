@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use pdf_render::{DisplayList, Selection, TargetSpec};
 
+use crate::area::UnionDecline;
 use crate::mask_cache::{MASK_BUDGET, MaskCache};
 use crate::soft_mask::mask_consumer_reach;
 use crate::stroke::outlined_whole;
@@ -104,6 +105,11 @@ impl CpuRasterizer {
     /// That rule is about *geometry*, and it was not the whole of it: the *arithmetic* had to
     /// be the page's too, which is [`Surface`] and ADR 0219.
     ///
+    /// What the strips declined to the library's converter is not kept here: this draws a plane
+    /// of the page — §11.4.7's fourth component, a spot plane, the marks' shapes for a transfer —
+    /// whose marks are the page's on the page's geometry, so the page's own draw,
+    /// [`Self::encode_in_strips_watched`], has kept every one of them already (ADR 2280).
+    ///
     /// # Errors
     ///
     /// As [`CpuRasterizer::encode`]. A strip that fails takes the render with it: half a page
@@ -115,6 +121,7 @@ impl CpuRasterizer {
         whole: Surface,
     ) -> Result<(), CpuRasterError> {
         self.encode_in_strips_watched(pixmap, Selection::whole(list), whole, None)
+            .map(drop)
     }
 
     /// [`Self::encode_in_strips`] of a selection of a list's commands — the page's, or a window's
@@ -123,13 +130,14 @@ impl CpuRasterizer {
     ///
     /// `whole` is what the rasterisation shows — the page, or a window of it on the page's own grid
     /// (ADR 2132) — and the cuts are planned on the target that is to a caller, in its own rows.
+    /// What it returns is every mark the strips declined to the library's converter (ADR 2280).
     pub(crate) fn encode_in_strips_watched(
         &self,
         pixmap: &mut tiny_skia::Pixmap,
         drawn: Selection<'_>,
         whole: Surface,
         showing: Option<&glimpse::Showing>,
-    ) -> Result<(), CpuRasterError> {
+    ) -> Result<Vec<UnionDecline>, CpuRasterError> {
         let list = drawn.list();
         let (page, target) = (whole.page, whole.shown.target(whole.page));
         let boundaries = self.selection_plan(drawn, target);
@@ -150,13 +158,14 @@ impl CpuRasterizer {
         if strips < 2 {
             let surface = whole;
             let mut masks = MaskCache::new(surface, self.anti_alias, MASK_BUDGET).with_reach(reach);
-            return self.encode_page(
+            self.encode_page(
                 &mut pixmap.as_mut(),
                 (drawn, &bounds, 0),
                 surface,
                 &mut masks,
                 showing,
-            );
+            )?;
+            return Ok(masks.take_declined());
         }
 
         // A strip is a replay of the whole list, so a deeply reduced image is reduced once per
@@ -185,32 +194,39 @@ impl CpuRasterizer {
 
         pieces
             .into_par_iter()
-            .try_for_each(|(top, rows, piece)| -> Result<(), CpuRasterError> {
-                // The page's own target travels into the strip, not a shifted copy of it:
-                // where the strip starts is [`Surface`]'s other field, and it reaches the
-                // geometry once, last. ADR 0219 is what a shifted copy cost.
-                let surface = Surface {
-                    rows: Band {
-                        top: whole.rows.top.saturating_add(top),
-                        height: rows,
-                    },
-                    ..whole
-                };
-                let mut piece = tiny_skia::PixmapMut::from_bytes(piece, width, rows).ok_or(
-                    CpuRasterError::Allocation {
-                        width,
-                        height: rows,
-                    },
-                )?;
-                let mut masks =
-                    MaskCache::new(surface, self.anti_alias, budget).with_reach(Arc::clone(&reach));
-                self.encode_page(
-                    &mut piece,
-                    (drawn, &bounds, 0),
-                    surface,
-                    &mut masks,
-                    showing,
-                )
+            .map(
+                |(top, rows, piece)| -> Result<Vec<UnionDecline>, CpuRasterError> {
+                    // The page's own target travels into the strip, not a shifted copy of it:
+                    // where the strip starts is [`Surface`]'s other field, and it reaches the
+                    // geometry once, last. ADR 0219 is what a shifted copy cost.
+                    let surface = Surface {
+                        rows: Band {
+                            top: whole.rows.top.saturating_add(top),
+                            height: rows,
+                        },
+                        ..whole
+                    };
+                    let mut piece = tiny_skia::PixmapMut::from_bytes(piece, width, rows).ok_or(
+                        CpuRasterError::Allocation {
+                            width,
+                            height: rows,
+                        },
+                    )?;
+                    let mut masks = MaskCache::new(surface, self.anti_alias, budget)
+                        .with_reach(Arc::clone(&reach));
+                    self.encode_page(
+                        &mut piece,
+                        (drawn, &bounds, 0),
+                        surface,
+                        &mut masks,
+                        showing,
+                    )?;
+                    Ok(masks.take_declined())
+                },
+            )
+            .try_reduce(Vec::new, |mut kept, more| {
+                kept.extend(more);
+                Ok(kept)
             })
     }
 }

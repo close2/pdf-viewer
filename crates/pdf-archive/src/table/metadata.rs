@@ -1006,6 +1006,19 @@ fn identification_schema_prefix(exam: &Examination<'_>, findings: &mut Findings)
     }
 }
 
+/// Whether a document's own identification schema names a part of ISO 19005 at all, whichever.
+///
+/// The question [`declared_target`] leaves open where it answers `None`: a file naming part 1 or
+/// part 3 has made a claim this crate cannot judge, and a file naming none has made no claim
+/// (`doc/adr/2278`).
+pub(super) fn declares_a_part(document: &Document) -> bool {
+    document_packet(document).is_some_and(|packet| {
+        identification(&packet, "part")
+            .and_then(as_text)
+            .is_some_and(|part| !part.trim().is_empty())
+    })
+}
+
 /// The target a document's own identification schema claims, where it claims one this crate owns.
 ///
 /// Both parts require a conforming file to say which part it conforms to — ISO 19005-2 section
