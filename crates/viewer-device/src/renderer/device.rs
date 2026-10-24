@@ -69,6 +69,7 @@ pub(super) fn draw(
     let mut processor_drew = None;
     let mut finished_ahead = false;
     let mut abandoned = false;
+    let mut declined = Vec::new();
     // **A refusal already known is not asked again** (ADR 1821): the device's attempt is the
     // whole scene built and priced before it says no, and it would say the same thing — of these
     // pages at this magnification, or of every frame of a lane the adapter refused (ADR 1968).
@@ -119,6 +120,7 @@ pub(super) fn draw(
         processor_drew = drawn.drew.filter(|_| !finished_ahead);
         abandoned = drawn.abandoned;
         refused = drawn.refused;
+        declined = drawn.declined;
     }
     Done {
         coverage,
@@ -142,6 +144,7 @@ pub(super) fn draw(
         abandoned,
         refused,
         function_refusals: renderer.last_function_paints().refusals().to_vec(),
+        declined,
         pipelines: renderer.startup().pipeline_compilation,
         started,
         finished: Instant::now(),

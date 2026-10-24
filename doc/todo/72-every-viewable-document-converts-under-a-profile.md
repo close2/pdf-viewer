@@ -244,6 +244,22 @@ Its largest refusal at part 4 over the two corpora together, an embedded Type 2 
 no `/CIDToGIDMap` in a file labelled PDF 1.x, is built as a statement under both profiles (ADR
 2246). Its largest in pdf.js alone, a composite font nobody named a program for, stays refused by
 name: every shipped face is a simple font's, and `doc/history/1706` says what a remedy would need.
+The next two are answered (ADR 2294). `fonts/to-unicode-values-are-usable` at part 4 — 32 pdf.js
+composite fonts whose `CMap` states U+0000, U+FEFF or U+FFFE, nothing derivable from a CID — is a
+restatement of the producer's `CMap` without those statements, which part 4 admits because it only
+recommends a mapping; part 2 at Level U and A takes it only where no shown code loses its mapping.
+The content-stream fence's 33 `doc/corpora` documents are damaged streams (§7.8.2 makes the page an
+error), named in the mitigations entry and refused. **Owed from this**: five of the newly converting
+part 4 outputs fail veraPDF's 6.2.10.4.1 on a `CIDFontType0` whose `FontFile3` states no `Subtype`,
+which this validator passes (`bug921409`, `issue13193`, `issue5751`, `issue9262_reduced`,
+`issue9949`); read Table 125 against the row before building on it.
+
+veraPDF's two disagreements on `me450f12project10_report` were this validator's (ADR 2295): an
+`xmpMM` structure is now held to the September 2005 edition's `ResourceEvent`, `ResourceRef` and
+`Version` fields, and a stream with no profile file signature is short of it at part 2. **Owed**: the
+edition's other structured types (`Thumbnail`, `Dimensions`, `Font`, `Colorant`, `Job`, the Dynamic
+Media and EXIF types) held to their fields the same way; and the part 4 tag row's answer to a stream
+that is no profile, which still reads as no finding.
 
 Table 109's widths-array count is checked independently for simple fonts. A nonempty short
 array narrows LastChar; a long array loses only entries beyond it. This `Stated` rewrite keeps

@@ -1230,7 +1230,10 @@ impl Rewrite {
             }
             Self::ToUnicode => {
                 "a font states a ToUnicode CMap derived from its own encoding, by ISO 32000-2 \
-                 \u{a7}9.10.2's glyph-name route, over the codes its content streams showed"
+                 \u{a7}9.10.2's glyph-name route, over the codes its content streams showed — or, \
+                 where nothing can be derived and the target leaves the codes free to go \
+                 unmapped, its producer's own CMap without the statements that mapped a code to \
+                 U+0000, U+FEFF or U+FFFE, every other statement kept"
             }
             Self::PropertyOutsideItsSchema => {
                 "a metadata property whose predefined schema does not define the value it holds \

@@ -5,10 +5,10 @@
 use super::shared::owned_text;
 use crate::events::Events;
 use crate::kinds::{PageTargetKind, ZoomKind};
+use crate::session::Drawn;
 use crate::session::Session;
 use crate::status::Status;
 use core::ffi::{c_char, c_int};
-use pdf_render::Raster;
 use viewer_core::RenderRequest;
 
 // ---------------------------------------------------------------------------------------------
@@ -311,7 +311,7 @@ pub unsafe extern "C" fn quorra_activate(
 pub unsafe extern "C" fn quorra_render_ready_raster(
     viewer: *mut Session,
     request: *mut RenderRequest,
-    raster: *mut Raster,
+    raster: *mut Drawn,
     events: *mut *mut Events,
 ) -> c_int {
     let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {

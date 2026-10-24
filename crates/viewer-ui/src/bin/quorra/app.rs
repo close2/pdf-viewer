@@ -670,7 +670,7 @@ pub(crate) struct App {
     /// **`None` under `--cpu`, where it was never spawned** — the one place in this program that
     /// distinguishes "the instance is not ready yet" from "there will not be one", and both read
     /// as `None` here only because `resumed` asks `processor` first.
-    pub(crate) instancing: Option<std::thread::JoinHandle<raster_gpu::wgpu::Instance>>,
+    pub(crate) instancing: Option<std::thread::JoinHandle<raster_gpu::LaunchInstance>>,
     /// The launch path's milestones, printed once under `--trace` when the first frame lands.
     pub(crate) launch: Launch,
     /// §14.7's structure on AT-SPI, once there is a page to put there.

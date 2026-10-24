@@ -204,6 +204,8 @@ struct Done<R> {
     request: R,
     /// `None` where the interrupt came back instead of a picture — see [`Finished::outcome`].
     outcome: Option<Rendered>,
+    /// See [`Finished::declined`].
+    declined: Vec<viewer_core::Declined>,
     cost: Duration,
     /// [`Job::window`], where the job drew one.
     window: Option<Window>,
@@ -402,6 +404,10 @@ pub struct Finished<R = RenderRequest> {
     /// draw the host merely chose not to finish freezes the page (trap 20). Nothing is owed for an
     /// abandoned draw, because the token it would carry is one the viewer has already dropped.
     pub outcome: Option<Rendered>,
+    /// The marks the draw left to the library's converter, in the words a host hands
+    /// [`viewer_core::Command::Declined`] (ADRs 2280, 2290); empty for nearly every draw, and for
+    /// one taken back.
+    pub declined: Vec<viewer_core::Declined>,
     /// What drawing it cost on the drawing thread — the whole of it, abandoned or not.
     pub cost: Duration,
     /// How long the toolkit's thread waited for it, from the request being handed over.
@@ -1047,6 +1053,7 @@ fn landed<R>(done: Done<R>, asked: Option<Instant>) -> Finished<R> {
     Finished {
         request: done.request,
         outcome: done.outcome,
+        declined: done.declined,
         cost: done.cost,
         waited: asked.map_or(Duration::ZERO, |asked| asked.elapsed()),
     }
@@ -1121,10 +1128,11 @@ fn draw<R: DrawRequest>(job: Job<R>, shown: Option<&Sender<(u64, Glimpse)>>) -> 
     }
     // Page one drawn while it was read is finished here, from the list it was read into; a page
     // whose drawing ahead cannot be its picture is drawn whole below, as every page is (ADR 1855).
-    if let Some(Ok(raster)) = ahead.map(|ahead| ahead.finish(request.list())) {
+    if let Some(Ok(finished)) = ahead.map(|ahead| ahead.finish(request.list())) {
         return Done {
             request,
-            outcome: Some(Rendered::Raster(raster)),
+            outcome: Some(Rendered::Raster(finished.raster)),
+            declined: said(&finished.declined),
             cost: began.elapsed(),
             window: None,
         };
@@ -1165,19 +1173,31 @@ fn draw<R: DrawRequest>(job: Job<R>, shown: Option<&Sender<(u64, Glimpse)>>) -> 
     Done {
         request,
         outcome,
+        declined: said(rasteriser.declined()),
         cost: began.elapsed(),
         window: None,
     }
 }
 
-/// What drawing a window came to, before it is a [`Done`].
-struct WindowDrawn(Option<Rendered>);
+/// What the marks a draw left to the library's converter are called where a host says them — the
+/// condition and `render_cpu::UnionDecline`'s own sentence (ADR 2290).
+#[must_use]
+pub fn said(declined: &[render_cpu::UnionDecline]) -> Vec<viewer_core::Declined> {
+    declined
+        .iter()
+        .map(|decline| viewer_core::Declined::new(decline.condition, decline))
+        .collect()
+}
+
+/// What drawing a window came to, before it is a [`Done`]: the outcome, and what the draw declined.
+struct WindowDrawn(Option<Rendered>, Vec<viewer_core::Declined>);
 
 impl WindowDrawn {
     fn into_done<R>(self, request: R, began: Instant, window: Window) -> Done<R> {
         Done {
             request,
             outcome: self.0,
+            declined: self.1,
             cost: began.elapsed(),
             window: Some(window),
         }
@@ -1203,13 +1223,13 @@ fn draw_window<R: DrawRequest>(
             let _ = shown.send((serial, glimpse));
         });
     }
-    WindowDrawn(
+    let outcome =
         match rasteriser.rasterize_window(request.list(), request.target(), window.shown()) {
             Ok(raster) => Some(Rendered::Raster(raster)),
             Err(problem) if was_interrupted(&problem) => None,
             Err(problem) => Some(Rendered::Failed(problem.to_string())),
-        },
-    )
+        };
+    WindowDrawn(outcome, said(rasteriser.declined()))
 }
 
 /// The rows of `target` a viewport `viewport_height` device pixels tall shows, where the

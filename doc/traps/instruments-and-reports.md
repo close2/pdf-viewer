@@ -1777,7 +1777,7 @@ on an idle Xvfb each of the four X connections a window opens waits 38–56 ms f
 145–220 ms in all; and the rest was the machine's load (ADR 2282, trap 237). A window's bring-up is compared
 only with a child run under the same display variables, never with the gate's headless band, and the
 `graphics device up in` trace line's per-step figures say which share is the display's before any term is
-named.
+named. Since ADR 2298 the launch enumerates the adapters once, so the probe is paid once rather than twice.
 
 ### 242. An export's name is a directory the export owns
 
@@ -1787,4 +1787,29 @@ HEAD `--as head`, and the export emptied the directory first, so HEAD's figures 
 the run made before it (ADR 2274). A round names its exports with names nothing else under
 `scratchpad/r<session>/` uses, stages what it keeps under a name the export will never take
 (`staged-head/`, `bin/`), and reads trap 233 before re-exporting while anything of its own runs there.
+
+### 244. A patch for a shared file keeps only the hunks that name the round's own words
+
+Rounds 1728 and 1733 both edited GTK's `input.rs` and `native_window.rs`; round 1733 made its `-U0` patch by
+filtering the worktree's diff for the sibling's identifiers and keeping the rest, and the sibling's hunks
+that used none of those identifiers stayed in (ADR 2300). A hand-off patch for a shared file is built the
+other way round — keep the hunks that name the round's *own* identifiers, listed in its `touching.txt` —
+and each kept hunk is read once against that list before the patch is handed over, because a filter by
+the other party's words describes what the other party wrote, not what this round did.
+
+### 246. A round's clock hold is queued before its own large walk
+
+Round 1732 queued its six-arm walk and then its A/B clock hold, and the hold would have waited out the
+walk's whole queue on the first lane before its own grant; it withdrew the walk and queued the hold first
+(ADR 2298). Clock holds take both lanes and are granted ahead of waiting walks, but not ahead of what is
+already running — so a round that needs both queues the clock hold first, once its binaries exist (trap
+238), and its large walk after, and reads the lock's line for each to see the order it got.
+
+### 247. `py_compile` writes a bytecode cache whatever `-B` says
+
+`python3 -B` keeps the interpreter from writing bytecode when it *imports*; the `py_compile` module's whole
+job is to write it, and `python3 -I -B -m py_compile` on a tools script leaves `tools/__pycache__/` behind, which
+the merge check refuses (round 1728, ADR 2290). A tools script is syntax-checked by parsing it —
+`PYTHONDONTWRITEBYTECODE=1 python3 -I -c 'import ast, sys; ast.parse(open(sys.argv[1]).read())' <file>` —
+or by running it with `-I -B` on its own `--help`, and never by `py_compile`.
 

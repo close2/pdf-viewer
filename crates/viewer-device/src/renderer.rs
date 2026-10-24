@@ -266,6 +266,8 @@ struct Done {
     refused: Option<String>,
     /// §8.7.4.5.2 programs the device declined, in raster's own words (ADR 0376).
     function_refusals: Vec<String>,
+    /// See [`Landed::declined`].
+    declined: Vec<(crate::stale::Picture, Vec<viewer_core::Declined>)>,
     /// What compiling the pipelines cost, once raster's own background thread has finished.
     pipelines: Option<Duration>,
     /// When the render thread took this frame up — the start of [`Landed::drew`]'s span.
@@ -414,6 +416,10 @@ pub struct Landed {
     /// What the device said of each function paint it refused on this frame, which the processor
     /// drew instead (`QuorraWindowRenderer::last_function_paints`).
     pub function_refusals: Vec<String>,
+    /// The pages whose processor draw left marks to the library's converter, each with what it
+    /// declined — what a window tells the viewer by `viewer_core::Command::Declined` (ADR 2290).
+    /// Empty for a frame the device drew, whose measure is not the union's.
+    pub declined: Vec<(crate::stale::Picture, Vec<viewer_core::Declined>)>,
 }
 
 impl Landed {

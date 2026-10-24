@@ -177,6 +177,15 @@ impl App {
         if landed.refused.is_some() {
             return landed.refused;
         }
+        // What the draw of these pages left to the library's converter, told to the viewer, which
+        // says each condition once and keeps it with the page's notes (ADR 2290).
+        for (picture, declined) in &landed.declined {
+            self.dispatch(viewer_core::Command::Declined {
+                document: picture.document(),
+                page: picture.page(),
+                declined: declined.clone(),
+            });
+        }
         if landed.finished_ahead {
             self.trace.say(
                 Topic::Frames,

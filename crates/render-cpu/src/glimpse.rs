@@ -347,6 +347,15 @@ pub struct Underway {
     stopped: Option<&'static str>,
 }
 
+/// A page drawn ahead and finished: [`Underway::finish`]'s answer.
+#[derive(Debug)]
+pub struct Finished {
+    /// The page.
+    pub raster: Raster,
+    /// The marks its draw left to the library's converter, each once (ADR 2280).
+    pub declined: Vec<crate::UnionDecline>,
+}
+
 /// One strip of a page drawn ahead: its rows, their pixels and the masks built for them.
 struct Strip {
     rows: crate::surface::Band,
@@ -628,12 +637,14 @@ impl Underway {
     }
 
     /// The page, finished from `list` — the list the parts were handed from, once its read has
-    /// ended — or `Err` with why it cannot be, where the caller draws `list` whole instead.
+    /// ended — with every mark its strips declined to the library's converter, as
+    /// [`crate::CpuRasterizer::declined`] gives a whole draw's (ADRs 2280, 2290); or `Err` with
+    /// why it cannot be, where the caller draws `list` whole instead.
     ///
     /// # Errors
     ///
     /// Every reason in this type's own documentation, each named.
-    pub fn finish(mut self, list: &DisplayList) -> Result<Raster, &'static str> {
+    pub fn finish(mut self, list: &DisplayList) -> Result<Finished, &'static str> {
         if let Some(reason) = self.stopped {
             return Err(reason);
         }
@@ -652,13 +663,25 @@ impl Underway {
         }
         let from = self.drawn.commands;
         self.draw_from(list, from)?;
+        // What every strip's masks kept since the page began to be drawn ahead, each mark once,
+        // as the whole draw sorts its own — taken before a single strip is taken apart.
+        let mut declined: Vec<crate::UnionDecline> = self
+            .strips
+            .iter_mut()
+            .flat_map(|strip| strip.masks.take_declined())
+            .collect();
+        declined.sort_unstable();
+        declined.dedup();
         let mut whole = match self.strips.len() {
             1 => self.strips.pop().map(|strip| strip.pixmap),
             _ => self.joined(),
         }
         .ok_or("the finished target could not be allocated")?;
         finish_rows(whole.data_mut(), list, self.target, self.rasterizer.medium);
-        Ok(raster_of(whole, self.target))
+        Ok(Finished {
+            raster: raster_of(whole, self.target),
+            declined,
+        })
     }
 
     fn stop(&mut self, reason: &'static str) -> bool {

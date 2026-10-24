@@ -50,6 +50,29 @@ pub fn on_screen(pages: &[PageReports<'_>]) -> String {
         .join(" · ")
 }
 
+/// What a title bar says of the pages a draw of which left marks to the library's converter — the
+/// title's half of ADR 2290, beside ADR 1831's lane sentence; `None` where no page's did.
+///
+/// A list of pages and not the sentences, which are long and name pixels: the core says each one
+/// once, where the window says things, and the title says only that the page holds such a mark.
+#[must_use]
+pub fn declined_pages(pages: &std::collections::BTreeSet<usize>) -> Option<String> {
+    let named: Vec<String> = pages
+        .iter()
+        .map(|page| page.saturating_add(1).to_string())
+        .collect();
+    match named.as_slice() {
+        [] => None,
+        [page] => Some(format!(
+            "marks drawn at the library's sixteenths on page {page}"
+        )),
+        _ => Some(format!(
+            "marks drawn at the library's sixteenths on pages {}",
+            named.join(", ")
+        )),
+    }
+}
+
 /// What a window says about a draw that has outlasted [`crate::drawing::WARN`], and how to stop
 /// it.
 ///

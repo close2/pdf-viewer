@@ -28,11 +28,13 @@ const DEFAULT_LANE: [f64; 6] = [33.122, 49.602, 66.083, 82.567, 99.047, 115.531]
 /// records it as "identical to the oracle".
 const SAMPLED_LANE: [f64; 6] = [33.000, 49.500, 66.000, 82.500, 99.000, 115.500];
 
-/// Where the sampled lane puts the centroid of an axis-aligned band of `width` device
-/// pixels centred at `centre`, on a grid of `samples` samples.
+/// Where the sampled lane put the centroid of an axis-aligned band of `width` device
+/// pixels centred at `centre`, on the ordered grid of `samples` samples their table was
+/// measured on.
 ///
-/// **Derived from `winding::sample_offsets`, not fitted.** That function lays `n` samples
-/// on a `√n × √n` ordered grid and puts the k-th row at `(k + ½)/√n` of a pixel, so across
+/// **Derived from the grid, not fitted.** The caller's section 31.2 was taken before ADR 2296
+/// moved the lane to a lattice, when `winding::sample_offsets` laid `n` samples on a `√n × √n`
+/// ordered grid and put the k-th row at `(k + ½)/√n` of a pixel, so across
 /// the whole device the sample rows are the lattice `(k + ½)/√n` for integer `k`. A band
 /// covers exactly the lattice points inside it; every pixel row it reaches contributes
 /// `√n` samples per lattice point it holds, so the coverage-weighted centroid of the whole

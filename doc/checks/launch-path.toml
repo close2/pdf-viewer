@@ -343,11 +343,13 @@ calibration_ms = 0.62 .. 0.74
 #
 # **What this band does not hold is the display's share, and it is named** (ADR 2282). The children
 # carry no `DISPLAY` and no `WAYLAND_DISPLAY`, so Mesa's device-selection layer asks no display
-# server for its device; where one is named it asks on each of the launch's two enumerations, 13 to
-# 25 ms on the owner's Wayland session against this child's 26.1 to 30.7 there. No pipeline is in
-# this figure: raster returns the device before its warm set, and the first frame's own compiles
-# are the first page's. `quorra-qt` and `quorra-gtk` print the same steps on their `graphics
-# device up in` line, and ADR 2283 prices the levers.
+# server for its device; where one is named it asks on the launch's one enumeration, the adapter
+# check, whose list the constructor chooses from (ADR 2298), and its share is printed beneath this
+# figure as `device_check_ms`. A second enumeration's return would read as a `device_adapter_ms`
+# of 0.2 to 0.35 ms headless against one enumeration's 0.001, inside this band (ADR 2299). No
+# pipeline is in this figure: raster returns the device before its warm set, and the first frame's
+# own compiles are the first page's. `quorra-qt` and `quorra-gtk` print the same steps on their
+# `graphics device up in` line, and ADR 2283 prices the levers.
 bring_up_ms = 13.6 .. 20.6
 
 # What the device costs in *allocated* memory, in the same process that has done nothing else.

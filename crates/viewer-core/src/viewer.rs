@@ -594,6 +594,11 @@ impl Viewer {
                 bytes,
             } => self.respond(document, answers, source, format, &bytes, events),
             Command::RenderReady { token, rendered } => self.rendered(token, rendered, events),
+            Command::Declined {
+                document,
+                page,
+                declined,
+            } => self.declined(document, page, declined, events),
         }
     }
 

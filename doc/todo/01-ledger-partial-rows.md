@@ -25,19 +25,19 @@ reading in one line per row, and the note is where it is argued. The membership 
 
 - **§7.4, §7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4** — headings whose status their leaves
   derive (ADR 1599); each moves when the last row below it that owes does.
-- **§7.4.9** — e-sRGB and e-sYCC await extraction and implementation from held PIMA 7667
-  (A348); CIE Jab stays on the device fallback because CIE 131 is unheld and the owner declines
-  to buy it. CIE Lab's named illuminants are implemented. The irreversible path's one-level
-  differences are not debt. ADR 2187 records the remaining build and its required fixtures.
+- **§7.4.9** — CIE Jab (19) alone: it stays on the device fallback because CIE 131 is unheld
+  and the owner declines to buy it (A348), and only the owner's word moves it. e-sRGB and e-sYCC
+  are drawn from the held PIMA 7667 (ADRs 2292, 2293), and CIE Lab's named illuminants are
+  implemented. The irreversible path's one-level differences are not debt.
 - **§7.6.5.1, §7.6.5.2, §7.6.5.3** (`reported`) — the handler is refused by name; the build
   waits on `doc/questions/A66`'s trigger, which `doc/questions/A168` reads as unlit.
 - **§7.6.6** — Table 27, which is the handler's; moves on the same trigger.
-- **§12.2** — WinUI consumes effective chrome, preserves pane choice across temporary
-  hiding, and restores chrome on Escape and document changes. Native full-screen/title-bar
-  placement, FitWindow/CenterWindow and modal suppression remain unfinished; live Windows
-  behavior is unverified. The FFI presentation timer/transition pump remains unfinished,
-  and GTK/Qt have not adopted shared presentation parking. Deliberate menu/placement
-  departures remain; the existing DisplayDocTitle title binding is unchanged.
+- **§12.2** — owed by the WinUI window alone: native full-screen and title-bar placement,
+  `/FitWindow` and `/CenterWindow` answered to `QUORRA_OWED_PLACE`, and modal suppression while
+  presenting, each run on Windows rather than compiled against its SDK; `partial` rather than
+  `departed`, because nothing decided against them (ADR 2301). §12.4.4's pump and its parking —
+  a hidden window, another document in front — are one module the C window, GTK and Qt share
+  (ADR 2300). The deliberate menu and placement departures remain (ADRs 1145, 1429).
 - **§12.8.3.4.4** — no signature in reach states a policy whose constraints could be enforced;
   moves when one does and its named specification is held. The network is not what is missing
   (ADR 1291).

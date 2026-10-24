@@ -96,7 +96,21 @@ pub fn compose_pages_interruptibly(
     let Some((first, rest)) = pages.split_first() else {
         return Err(ComposeError::NoExtent);
     };
-    compose_pages_showing(*first, rest, interrupt, None).map_err(PageRefused::into_error)
+    // A picture nobody is shown at this size — a proxy, a retained page — says nothing of what its
+    // draw declined; the frame a person sees is [`compose_pages_watched`]'s, which does (ADR 2290).
+    compose_pages_showing(*first, rest, interrupt, None)
+        .map(|composed| composed.raster)
+        .map_err(PageRefused::into_error)
+}
+
+/// An arrangement composed: the picture, and what each of its pages' draws declined.
+#[derive(Debug)]
+pub struct Composed {
+    /// Every page of the arrangement, composed as [`compose_pages`] composes them.
+    pub raster: Raster,
+    /// Per page of the arrangement, in its order, the marks its draw left to the library's
+    /// converter (ADRs 2280, 2290); empty lists for nearly every page.
+    pub declined: Vec<Vec<render_cpu::UnionDecline>>,
 }
 
 /// What a draw of Table 29's arrangement says about itself while somebody is looking at it.
@@ -163,7 +177,7 @@ fn compose_pages_showing(
     rest: &[(&DisplayList, TargetSpec)],
     interrupt: Option<&Interrupt>,
     showing: Option<&Sink>,
-) -> Result<Raster, PageRefused> {
+) -> Result<Composed, PageRefused> {
     /// Which page of the arrangement refused, counting from zero.
     fn refused(index: usize) -> impl Fn(CpuRasterError) -> PageRefused {
         move |problem| PageRefused { index, problem }
@@ -207,9 +221,10 @@ fn compose_pages_showing(
         }
     }
     let medium = Medium::WINDOW;
-    let mut composed = drawing(interrupt, medium, showing, 0)
-        .rasterize(first, target)
-        .map_err(refused(0))?;
+    let mut declined = Vec::with_capacity(rest.len().saturating_add(1));
+    let mut rasterizer = drawing(interrupt, medium, showing, 0);
+    let mut composed = rasterizer.rasterize(first, target).map_err(refused(0))?;
+    declined.push(rasterizer.declined().to_vec());
     match composed.format {
         RasterFormat::Rgba8 => {}
     }
@@ -218,16 +233,19 @@ fn compose_pages_showing(
         let page = index.saturating_add(1);
         // Its own 𝑊 and no surround: this is a layer over what is already drawn, and the
         // ground between the pages was painted once by the page below.
-        let over = drawing(interrupt, medium.on_transparency(), showing, page)
-            .rasterize(list, *placed)
-            .map_err(refused(page))?;
+        let mut rasterizer = drawing(interrupt, medium.on_transparency(), showing, page);
+        let over = rasterizer.rasterize(list, *placed).map_err(refused(page))?;
+        declined.push(rasterizer.declined().to_vec());
         match over.format {
             RasterFormat::Rgba8 => {}
         }
         source_over(&mut composed, &over);
         through(showing, page, &composed);
     }
-    Ok(composed)
+    Ok(Composed {
+        raster: composed,
+        declined,
+    })
 }
 
 /// When a draw is first looked at, and how often after that.
@@ -270,7 +288,7 @@ pub fn compose_pages_watched(
     interrupt: Option<&Interrupt>,
     looks: Looks,
     mut shown: impl FnMut(&Assembly),
-) -> Result<Raster, ComposeError> {
+) -> Result<Composed, ComposeError> {
     use std::sync::mpsc::{RecvTimeoutError, channel};
     use std::time::Instant;
 
@@ -792,7 +810,8 @@ mod tests {
                 assert_eq!(assembly.picture().data.len(), 32 * 16 * 4);
             },
         )
-        .expect("drawn");
+        .expect("drawn")
+        .raster;
         assert_eq!(
             looked,
             compose_pages(&pages).expect("drawn unobserved"),

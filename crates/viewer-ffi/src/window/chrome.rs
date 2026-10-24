@@ -56,9 +56,8 @@ impl Window {
             ));
             self.owing.owe(super::owed::Owed::Chrome(None));
         } else {
-            self.state.clock = None;
-            self.state.arming = None;
-            self.state.shown = None;
+            viewer_host::PresentationPump::drop_the_clock(self);
+            self.playing = None;
             self.dispatch(viewer_core::Command::Present(
                 viewer_core::PresentationMode::Off,
             ));
@@ -73,28 +72,14 @@ impl Window {
 }
 
 impl Window {
-    /// A document swap restores state, while the command pump owns the resulting mode change.
+    /// A document swap restores the arriving document's presentation, and the pump owes its mode
+    /// and chrome once the queue has settled (`viewer_host::presentation_pump`, ADR 2300); a real
+    /// swap also forgets the chrome records the document left had not yet delivered.
     pub(super) fn restore_document_presentation(&mut self, temporary: bool) {
         if !temporary {
             self.owing.forget_chrome();
-            self.state.clock = None;
-            self.state.arming = None;
-            self.state.shown = None;
+            self.playing = None;
         }
-        self.state.restore_presentation();
-        self.presentation_due = true;
-    }
-
-    /// Synchronizes mode after focus; incoming render events may already have supplied a fresh face.
-    pub(super) fn synchronize_presentation(
-        &mut self,
-        queue: &mut std::collections::VecDeque<viewer_core::Command>,
-    ) {
-        use viewer_host::native_window::NativeWindow as _;
-        if self.state.presenting.full_screen() {
-            self.start_the_clock();
-        }
-        queue.push_back(viewer_core::Command::Present(self.state.presenting.mode()));
-        self.owing.owe(super::owed::Owed::Chrome(None));
+        viewer_host::PresentationPump::bring_the_presentation_forward(self, temporary);
     }
 }

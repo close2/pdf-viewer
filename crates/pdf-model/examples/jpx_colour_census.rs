@@ -2,9 +2,11 @@
 //! enumeration, and how many of them §7.4.9 lets decide anything.
 //!
 //! ISO 32000-2 §7.4.9 asks a reader to "support the JPX baseline set of enumerated colour spaces",
-//! and three of them — e-sRGB (20), e-sYCC (24) and CIE Jab (19) — are defined by texts this
-//! project does not hold; CIE Lab (14) is drawn under whichever illuminant it states (ADR 1713),
-//! and is counted here by illuminant for the same reason as the others. This is the
+//! and CIE Jab (19) is defined by a text this project does not hold; e-sRGB (20) and e-sYCC (24)
+//! are drawn from the held PIMA 7667 (ADR 2292), and are still listed by document, because the
+//! fixtures that hold them are generated and a document stating one is the first witness; CIE Lab
+//! (14) is drawn under whichever illuminant it states (ADR 1713), and is counted here by
+//! illuminant for the same reason. This is the
 //! command that says whether any document in reach states one where it decides the colour: a
 //! `/ColorSpace` on the image dictionary sets every `colr` box aside ("the colour space
 //! specifications in the JPEG 2000 data shall be ignored"), so each box is counted twice — once

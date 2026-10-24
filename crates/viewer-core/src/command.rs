@@ -768,6 +768,54 @@ pub enum Command {
         /// What the worker did with it.
         rendered: Rendered,
     },
+    /// A draw of `page` left marks to a coarser measure than the one the page is drawn by, and
+    /// the backend that drew it said which and why (ADR 2280, ADR 2290).
+    ///
+    /// **A value only the host has**, which is the freeze's test for a message: the core hands
+    /// out a display list and never sees the draw, and a draw at one magnification can decline
+    /// what a draw at another measures exactly. Keyed by the page rather than by a
+    /// [`RenderToken`] because a window of a page drawn past [`crate::MAX_PIXELS`] answers no
+    /// token, and that is where the largest marks are drawn.
+    ///
+    /// Answered by [`crate::Event::Reported`] for the page, **once for each condition while the
+    /// page's reading stands**: a zoom gesture draws the page at every magnification it stops at,
+    /// and a person needs the sentence once rather than a frame's worth of them. What is said is
+    /// kept with the page's other notes, so [`crate::Query::Reports`] says it again. A page that
+    /// is not open, or whose reading has gone, takes nothing: the draw was of a page the reader is
+    /// no longer looking at.
+    Declined {
+        /// Which document the page belongs to.
+        document: DocumentId,
+        /// Which page, zero-based.
+        page: usize,
+        /// What the draw declined, as many as it named.
+        declined: Vec<Declined>,
+    },
+}
+
+/// One mark a draw left to a coarser measure than the one the page is drawn by, in the words of
+/// the backend that drew it — [`Command::Declined`]'s value (ADR 2290).
+///
+/// **Words rather than the backend's own type**, because this crate names no backend: a draw is a
+/// host's, by whichever of them the host chose, and what crosses here is what a person is told.
+/// The condition is kept apart from the sentence because the sentence names the mark's pixels,
+/// which move with every magnification, and a page is told each condition once.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Declined {
+    /// Why the mark was declined, in the backend's words: what a page is told once by.
+    pub condition: String,
+    /// The sentence for a person: the condition, the mark, and where on the page it is.
+    pub sentence: String,
+}
+
+impl Declined {
+    /// A decline from what the backend says of its condition and of the whole.
+    pub fn new(condition: impl std::fmt::Display, sentence: impl std::fmt::Display) -> Self {
+        Self {
+            condition: condition.to_string(),
+            sentence: sentence.to_string(),
+        }
+    }
 }
 
 /// What the pointer did.

@@ -315,6 +315,41 @@ impl Viewer {
         }
     }
 
+    /// Tells the page what a draw of it declined, each condition once while its reading stands
+    /// (`Command::Declined`, ADR 2290).
+    pub(super) fn declined(
+        &mut self,
+        document: DocumentId,
+        page: usize,
+        declined: Vec<crate::Declined>,
+        events: &mut Vec<Event>,
+    ) {
+        let Some(interpreted) = self
+            .documents
+            .get_mut(&document)
+            .and_then(|open| open.on_screen.iter_mut().find(|shown| shown.page == page))
+            .and_then(|shown| shown.interpreted.as_mut())
+        else {
+            return;
+        };
+        let mut notes = Vec::new();
+        for decline in declined {
+            if interpreted.declined.contains(&decline.condition) {
+                continue;
+            }
+            interpreted.declined.push(decline.condition);
+            interpreted.reports.push(decline.sentence.clone());
+            notes.push(decline.sentence);
+        }
+        if !notes.is_empty() {
+            events.push(Event::Reported {
+                document,
+                page: Some(page),
+                notes,
+            });
+        }
+    }
+
     /// Records what a worker did with a request, or drops it for being about the past.
     pub(super) fn rendered(
         &mut self,
@@ -464,6 +499,7 @@ impl Viewer {
                 described: interpretation.described,
                 language: interpretation.language,
                 view_dependent: interpretation.view_dependent,
+                declined: Vec::new(),
             });
         }
         open.on_screen

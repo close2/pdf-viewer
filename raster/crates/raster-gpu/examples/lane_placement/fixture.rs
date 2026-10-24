@@ -60,7 +60,7 @@ pub(crate) const HAIRLINE: f32 = 1.0;
 /// `issue16500.pdf` witness states, 0.439 + 0.439 (the caller's section 31.2).
 ///
 /// **Not a multiple of any sample pitch**, and that is the whole point. The device
-/// lane's samples lie on a lattice of period `1/√n` down the pixel, so a band whose
+/// lane's samples lie on a lattice of period `1/n` down the pixel (ADR 2296), so a band whose
 /// height is a multiple of that period contains the same number of lattice points
 /// wherever it lands and loses no ink at any position — a sweep at [`HAIRLINE`] measures
 /// the fixed points of the quantiser and reports zero, which is the trap

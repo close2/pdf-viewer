@@ -3,7 +3,6 @@
 use super::{FrameInfo, Session};
 use crate::events::Events;
 use crate::status::Status;
-use pdf_render::Raster;
 use viewer_core::{Answer, Command, Query, RenderRequest, Rendered};
 
 impl Session {
@@ -12,13 +11,23 @@ impl Session {
     /// The request carries the token, which is how a token that is opaque in Rust stays out of
     /// the header entirely: a caller returns what it was given. A stale one is dropped by the
     /// viewer, which is what stops a page turned mid-render from being overwritten by the frame
-    /// the previous page produced.
+    /// the previous page produced. What the draw declined is told to the viewer after the frame,
+    /// which says each condition once as [`viewer_core::Event::Reported`] (ADR 2290).
     #[must_use]
-    pub fn render_ready_raster(&mut self, request: &RenderRequest, raster: Raster) -> Events {
-        self.handle(Command::RenderReady {
+    pub fn render_ready_raster(&mut self, request: &RenderRequest, drawn: super::Drawn) -> Events {
+        let super::Drawn { raster, declined } = drawn;
+        let events = self.handle(Command::RenderReady {
             token: request.token,
             rendered: Rendered::Raster(raster),
-        })
+        });
+        if declined.is_empty() {
+            return events;
+        }
+        events.followed_by(self.handle(Command::Declined {
+            document: request.document,
+            page: request.page,
+            declined,
+        }))
     }
 
     /// Says that a request could not be drawn, and why.

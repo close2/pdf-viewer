@@ -88,13 +88,9 @@ impl Host {
     /// What the title bar should say.
     pub(crate) fn title(&self) -> String {
         let mark = if self.state.showing.dirty { "• " } else { "" };
-        // ADR 1831's sentence, where a page was drawn on the processor rather than the device.
-        let lane = self
-            .state
-            .lane
-            .as_ref()
-            .and_then(|lane| lane.title())
-            .map_or_else(String::new, |lane| format!(" — {lane}"));
+        // ADR 1831's sentence, where a page was drawn on the processor rather than the device, and
+        // the pages whose marks a draw left to the library's converter (ADR 2290).
+        let lane = self.state.title_notes();
         if self.state.showing.caption.is_empty() {
             return format!("{mark}{}{lane}", self.named());
         }

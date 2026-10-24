@@ -194,23 +194,26 @@ pub enum Coverage {
     /// # What sampled coverage costs, and the clause it does not meet (ADR 0076)
     ///
     /// "Sampled rather than exact" is a stronger statement than a level count, and it is
-    /// stated here because this variant is where it is chosen. The samples lie on one
-    /// lattice of period `p = 1/√`[`coverage_samples`] across the whole device — **0.25 of
-    /// a device pixel at the default sixteen** — so for an axis-aligned mark:
+    /// stated here because this variant is where it is chosen. The samples lie on a
+    /// rank-1 lattice ([`SampleLattice`](crate::SampleLattice), the viewer's ADR 2296):
+    /// every one in a column and a row of its own, so across the whole device the columns
+    /// are one lattice of period `p = 1/`[`coverage_samples`] — **a sixteenth of a device
+    /// pixel at the default sixteen** — and for an axis-aligned mark:
     ///
-    /// - its **coverage** is a count of lattice rows times `p`, and so within one `p` of
+    /// - its **coverage** is a count of sample columns times `p`, and so within one `p` of
     ///   the area ISO 32000-2 §8.5.3.3 gives it, in either direction. A rule 0.878 pixels
-    ///   thick draws 0.75 or 1.0 depending only on where it lands.
+    ///   thick draws 0.875 or 0.9375 depending only on where it lands.
     /// - its **placement** — the centroid of its coverage — moves by up to `p`, and by up
     ///   to `p/2` where its width is a multiple of `p`, which a one-pixel hairline is.
     /// - **a pixel the mark intersects may receive nothing at all.** ISO 32000-2 §10.7.4
     ///   requires "painting any pixel whose half-open square region intersects the shape,
     ///   no matter how small the intersection is", and its NOTE 1 puts a pixel the mark's
     ///   *boundary* crosses inside that requirement. This lane leaves such a pixel at zero
-    ///   whenever no sample row falls in it. **That is a non-conformance and it is
-    ///   recorded as one**; the mark itself cannot disappear, which is the part ADR 0070
-    ///   guarantees by keeping anything narrower than `p` on the [`Cpu`](Coverage::Cpu)
-    ///   lane.
+    ///   whenever no sample column falls in the mark's part of it. **That is a
+    ///   non-conformance and it is recorded as one**; the mark itself cannot disappear,
+    ///   which is the part ADR 0070 guarantees by keeping anything narrower than the
+    ///   lattice's [`vanishing_width`](crate::SampleLattice::vanishing_width) — 0.316 of a
+    ///   pixel at sixteen samples — on the [`Cpu`](Coverage::Cpu) lane.
     ///
     /// Raising [`coverage_samples`] narrows `p` and costs one pass pair per four samples;
     /// it does not remove the last point, because a finer lattice still has gaps. Only
@@ -236,9 +239,10 @@ pub enum Coverage {
     Compute,
 }
 
-/// The GPU lane's default sample count: sixteen, on a 4×4 grid.
+/// The GPU lane's default sample count: sixteen, on the rank-1 lattice of generator three.
 ///
-/// Seventeen coverage levels. Wallace's article reached eight samples by packing them
+/// Seventeen coverage levels, and an axis-aligned edge reaches every one of them, because
+/// each sample has a column and a row of its own (the viewer's ADR 2296). Wallace's article reached eight samples by packing them
 /// into the bits of one byte; a float target has no such ceiling, and sixteen is where
 /// a half-covered pixel lands on exactly 128 while the pass still runs four times.
 pub const DEFAULT_COVERAGE_SAMPLES: u32 = 16;
@@ -400,9 +404,9 @@ pub struct StartupTimings {
     /// of what a single "adapter enumeration" number used to hide.
     ///
     /// `None` when the caller supplied the instance
-    /// ([`Device::headless_with_instance`], [`Device::for_surface_with_instance`]) —
-    /// the step happened, but not here, and reporting zero for work someone else
-    /// timed would be a number that lies about what it measured.
+    /// ([`Device::headless_with_instance`], [`Device::for_surface_with_instance`] and their
+    /// [`LaunchInstance`] forms) — the step happened, but not here, and reporting zero for work
+    /// someone else timed would be a number that lies about what it measured.
     ///
     /// [`Device::headless_with_instance`]: crate::device::Device::headless_with_instance
     /// [`Device::for_surface_with_instance`]: crate::device::Device::for_surface_with_instance
@@ -412,9 +416,10 @@ pub struct StartupTimings {
     /// a `Duration` and `instance_creation` is an `Option`.
     pub surface_creation: Duration,
     /// Physical-device enumeration and the choice among the results: `request_adapter`,
-    /// or `enumerate_adapters` plus the [`Options::adapter`] filter. A different cause
-    /// from instance creation — the loader versus the devices — and it moves for
-    /// different reasons.
+    /// or `enumerate_adapters` plus the [`Options::adapter`] filter — or, on a
+    /// [`LaunchInstance`] that carries its check's adapters, the choice alone, because the
+    /// enumeration was the check's. A different cause from instance creation — the loader
+    /// versus the devices — and it moves for different reasons.
     pub adapter_selection: Duration,
     /// `request_device`: getting a queue on the chosen adapter.
     pub device_creation: Duration,
@@ -582,7 +587,7 @@ fn instance_flags() -> wgpu::InstanceFlags {
 /// only a GL driver — the primary instance is dropped and every backend is loaded, so such
 /// a machine draws on the adapter it would have had and pays one extra enumeration for it.
 #[must_use]
-pub fn create_launch_instance() -> wgpu::Instance {
+pub fn create_launch_instance() -> LaunchInstance {
     create_launch_instance_timed().0
 }
 
@@ -598,8 +603,12 @@ pub fn create_launch_instance() -> wgpu::Instance {
 /// Before either, the machine's awake render nodes are opened (`wake_render_nodes`); they are
 /// closed after the check. The power-up the kernel driver starts on an open then runs beside the
 /// loader rather than in front of the adapter check (ADR 1658).
+///
+/// **The check's adapters are kept in the result**, so that the constructor taking it chooses
+/// among them rather than enumerating again ([`LaunchInstance`], the caller's ADR 2298). Where the
+/// fallback replaced the instance, the list was the dropped instance's and none is carried.
 #[must_use]
-pub fn create_launch_instance_timed() -> (wgpu::Instance, LaunchSteps) {
+pub fn create_launch_instance_timed() -> (LaunchInstance, LaunchSteps) {
     let waking = Instant::now();
     let woken = wake_render_nodes();
     let mut render_node_wake = waking.elapsed();
@@ -608,7 +617,8 @@ pub fn create_launch_instance_timed() -> (wgpu::Instance, LaunchSteps) {
     let primary = create_instance_with(wgpu::Backends::PRIMARY);
     let made = started.elapsed();
     let checking = Instant::now();
-    let on_hardware = pollster::block_on(primary.enumerate_adapters(wgpu::Backends::PRIMARY))
+    let adapters = pollster::block_on(primary.enumerate_adapters(wgpu::Backends::PRIMARY));
+    let on_hardware = adapters
         .iter()
         .any(|adapter| adapter.get_info().device_type != wgpu::DeviceType::Cpu);
     let adapter_check = checking.elapsed();
@@ -624,8 +634,13 @@ pub fn create_launch_instance_timed() -> (wgpu::Instance, LaunchSteps) {
             adapter_check,
             every_backend: false,
         };
-        return (primary, steps);
+        let launch = LaunchInstance {
+            instance: primary,
+            adapters,
+        };
+        return (launch, steps);
     }
+    drop(adapters);
     drop(primary);
     let again = Instant::now();
     let instance = create_instance();
@@ -636,7 +651,53 @@ pub fn create_launch_instance_timed() -> (wgpu::Instance, LaunchSteps) {
         adapter_check,
         every_backend: true,
     };
-    (instance, steps)
+    (LaunchInstance::from(instance), steps)
+}
+
+/// An instance a launch made, and the adapters its check enumerated on it.
+///
+/// **Why the list travels with the instance.** The adapter check is a physical-device enumeration
+/// and so is `request_adapter`, and under a display each enumeration is a question Mesa's
+/// device-selection layer puts to the display server: on the caller's measuring machine 5.5 to
+/// 13.0 ms of a window's bring-up was the second asking (the caller's ADRs 2282, 2283). The
+/// constructors that take a `LaunchInstance` choose among the carried adapters the way
+/// `request_adapter` would (`preferred`), so a launch enumerates once (the caller's ADR 2298).
+///
+/// **What still waits for the window is the surface check**, which no enumeration answers: the
+/// carried adapters are filtered by whether they can present to the surface the constructor
+/// made, and where none can, the constructor asks `wgpu` as it always did, so the refusal it
+/// reports is `wgpu`'s own.
+///
+/// An instance made any other way becomes one through [`From`], carrying no adapters, and its
+/// constructor enumerates.
+#[derive(Debug)]
+pub struct LaunchInstance {
+    instance: wgpu::Instance,
+    adapters: Vec<wgpu::Adapter>,
+}
+
+impl LaunchInstance {
+    /// The instance itself, for a surface of the caller's own or a list of what it can see.
+    #[must_use]
+    pub const fn instance(&self) -> &wgpu::Instance {
+        &self.instance
+    }
+
+    /// The adapters the launch's check enumerated, empty where it carried none.
+    pub(crate) fn adapters(&self) -> &[wgpu::Adapter] {
+        &self.adapters
+    }
+}
+
+impl From<wgpu::Instance> for LaunchInstance {
+    /// An instance no check enumerated: its constructor enumerates, as one taking a bare
+    /// instance does.
+    fn from(instance: wgpu::Instance) -> Self {
+        Self {
+            instance,
+            adapters: Vec::new(),
+        }
+    }
 }
 
 /// What [`create_launch_instance_timed`] spent, one field per step that can regress on its
@@ -736,15 +797,22 @@ fn render_nodes_awake(dri: &std::path::Path, class: &std::path::Path) -> Vec<std
 /// The `Backends::all()` passed to `enumerate_adapters` is not a second backend
 /// decision: `wgpu::Instance` only holds the backends it was built with, so the mask
 /// means "everything this instance has" and [`create_instance_with`]'s restriction is
-/// already inside it.
+/// already inside it. The same is why `enumerated` — a [`LaunchInstance`]'s check, made
+/// over the primary backends of an instance that holds only those — stands in for that
+/// enumeration wherever it is not empty.
 pub(crate) fn select_adapter(
     instance: &wgpu::Instance,
+    enumerated: &[wgpu::Adapter],
     surface: Option<&wgpu::Surface<'static>>,
     options: &Options,
 ) -> Result<wgpu::Adapter, DeviceError> {
     match &options.adapter {
         Some(pattern) => {
-            let adapters = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all()));
+            let adapters = if enumerated.is_empty() {
+                pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all()))
+            } else {
+                enumerated.to_vec()
+            };
             let available: Vec<String> = adapters.iter().map(|a| a.get_info().name).collect();
             let needle = pattern.to_lowercase();
             let mut matches: Vec<wgpu::Adapter> = adapters
@@ -760,21 +828,62 @@ pub(crate) fn select_adapter(
                     available,
                 })
         }
-        None => pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: surface,
-            ..Default::default()
-        }))
-        .map_err(|_| {
-            let available = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all()))
-                .iter()
-                .map(|a| a.get_info().name)
-                .collect();
-            DeviceError::NoAdapter {
-                requested: None,
-                available,
-            }
-        }),
+        None => match preferred(enumerated, surface) {
+            Some(adapter) => Ok(adapter),
+            None => pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: HIGH_PERFORMANCE,
+                compatible_surface: surface,
+                ..Default::default()
+            }))
+            .map_err(|_| {
+                let available =
+                    pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all()))
+                        .iter()
+                        .map(|a| a.get_info().name)
+                        .collect();
+                DeviceError::NoAdapter {
+                    requested: None,
+                    available,
+                }
+            }),
+        },
+    }
+}
+
+/// The preference this crate asks `request_adapter` for, and the one [`preferred`] restates.
+const HIGH_PERFORMANCE: wgpu::PowerPreference = wgpu::PowerPreference::HighPerformance;
+
+/// What `request_adapter` would choose under [`HIGH_PERFORMANCE`] among adapters already
+/// enumerated on the same instance: those that can present to `surface` where there is one, and
+/// of them the first of the best-ranked device type. `None` where none can, which
+/// [`select_adapter`] answers by asking `wgpu`.
+///
+/// `wgpu-core`'s `Instance::request_adapter` keeps the adapters whose surface capabilities can be
+/// read, sorts them stably by [`high_performance_rank`] and takes the first; `min_by_key` returns
+/// the first of equal minima, which is the same choice. Its other filters — the limits and
+/// features it adjusts and the adapters the instance's flags allow — are applied by
+/// `enumerate_adapters` as well, and a forced fallback adapter is never asked for here.
+/// `the_carried_choice_is_request_adapters_choice` holds the two to the same answer.
+fn preferred(
+    adapters: &[wgpu::Adapter],
+    surface: Option<&wgpu::Surface<'static>>,
+) -> Option<wgpu::Adapter> {
+    adapters
+        .iter()
+        .filter(|adapter| surface.is_none_or(|surface| adapter.is_surface_supported(surface)))
+        .min_by_key(|adapter| high_performance_rank(adapter.get_info().device_type))
+        .cloned()
+}
+
+/// `wgpu-core`'s order of device types under [`HIGH_PERFORMANCE`], lowest first: a discrete GPU,
+/// an integrated one, a type its backend could not state, a virtual one, a processor.
+const fn high_performance_rank(device_type: wgpu::DeviceType) -> u8 {
+    match device_type {
+        wgpu::DeviceType::DiscreteGpu => 0,
+        wgpu::DeviceType::IntegratedGpu => 1,
+        wgpu::DeviceType::Other => 2,
+        wgpu::DeviceType::VirtualGpu => 3,
+        wgpu::DeviceType::Cpu => 4,
     }
 }
 
@@ -821,6 +930,26 @@ mod tests {
                 into.push((path.display().to_string(), text));
             }
         }
+    }
+
+    /// The launch's own choice among the adapters its check enumerated is the one `wgpu`'s
+    /// `request_adapter` makes on the same instance, so that carrying the check's list changes
+    /// which enumeration answers and not which adapter does (the caller's ADR 2298). Headless,
+    /// as the caller's launch gate brings its device up; a machine with no adapter holds the
+    /// two to the same `None`.
+    #[test]
+    fn the_carried_choice_is_request_adapters_choice() {
+        let instance = super::create_instance_with(wgpu::Backends::PRIMARY);
+        let adapters = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::PRIMARY));
+        let asked = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: super::HIGH_PERFORMANCE,
+            ..Default::default()
+        }));
+        let carried = super::preferred(&adapters, None);
+        assert_eq!(
+            carried.map(|adapter| adapter.get_info()),
+            asked.ok().map(|adapter| adapter.get_info())
+        );
     }
 
     /// `instance_flags` drops `wgpu`'s validation of indirect calls on the ground that raster

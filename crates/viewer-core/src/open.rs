@@ -839,6 +839,9 @@ pub(crate) struct Interpreted {
     /// This is what keeps the breakage where the clause put it: 51 of the 974 corpus documents
     /// carry such an annotation and the other 923 never re-interpret on a zoom.
     pub(crate) view_dependent: bool,
+    /// The conditions a draw of this reading has declined and the page has been told of, each
+    /// once (`Command::Declined`, ADR 2290). Empty on nearly every page.
+    pub(crate) declined: Vec<String>,
 }
 
 /// A render the host has not answered yet.

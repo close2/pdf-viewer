@@ -142,7 +142,7 @@ CONFINED_STEPS=(confined reader_words field_commit combo_commit scripts_levels s
     script_withdrawn script_goto script_timer script_timer_quiet script_beep script_triggers located
     located_displayed signature_policy loading_bar zoom_past_the_bound
     zoom_past_the_bound_uncrossable zoomed_window_processor rendition_click link_levels
-    launch_levels launch_menu submission_levels bare_session_start archive_converted)
+    launch_levels launch_menu submission_levels bare_session_start archive_converted union_declined)
 WINDOW_STEPS=(drive accessibility reader_words field_commit combo_commit scripts_levels
     script_painted script_asks script_withdrawn script_goto script_timer script_timer_quiet
     script_beep script_triggers script_keys list_arrows combo_arrows popup_rich popup_face popup_rtl
@@ -150,11 +150,13 @@ WINDOW_STEPS=(drive accessibility reader_words field_commit combo_commit scripts
     note_window note_typed note_caret reply_threaded located located_displayed signature_policy
     loading_bar page_as_built zoom_stand_in retained_page zoomed_window zoom_past_the_bound
     transition_frames rendition_click link_levels launch_levels launch_menu submission_levels
-    bare_session_start archive_converted)
+    bare_session_start archive_converted union_declined)
 # Outside every list, run by `--step` alone: each opens `HEAVY_FILE`, a document the drive does not
 # write, and two of the three verdicts are times (ADRs 1815, 1825); each says itself in which
 # windows it is offered.
 OUTSIDE_STEPS=(heavy_open page_as_built_heavy zoom_past_the_bound_heavy)
+# §12.4.4's presentation pump, at the end of the windows' list (ADR 2300).
+WINDOW_STEPS+=(presentation_advances presentation_hidden presentation_behind)
 in_list() { # name item…
     local name=$1 item
     shift
@@ -4435,6 +4437,8 @@ zoom_past() { # file step judged|counted
 # reprojected by the arriving page's placement (round 1508's reproduction). Three settled pages and
 # a moving picture in each transition say the camera saw the transitions at all; the window's
 # rectangle only, because the frames are the window's. `quorra-confined` never fires a transition.
+# The first slide is displayed for two seconds: the camera starts after `p`, a loaded machine takes
+# most of a second to start it, and a first page seen for less than 0.4 s is no settled page.
 transition_frames() {
     local step=83-transition-frames file="$FIXTURES/drive-transitions.pdf" judged
     if [ "$WINDOW" = quorra-confined ]; then
@@ -4445,7 +4449,7 @@ transition_frames() {
 import sys, pikepdf
 from pikepdf import Name, Dictionary, Array
 pdf = pikepdf.new()
-slides = [(b"1 0 0", (40, 380), None, 1),
+slides = [(b"1 0 0", (40, 380), None, 2),
           (b"0 0 1", (520, 380), Dictionary(Type=Name.Trans, S=Name.Wipe, D=1.5, Di=0), 1),
           (b"0 0.6 0", (280, 20), Dictionary(Type=Name.Trans, S=Name.Split, D=1.5, Dm=Name.H,
                                              M=Name.O), None)]
@@ -4490,6 +4494,18 @@ while time.monotonic() - began < seconds:
 def unpack(packed):
     return np.frombuffer(zlib.decompress(packed), dtype=np.uint8).reshape(height, width, 3)
 settled = [i for i, (_, first, last) in enumerate(seen) if last - first >= 0.4]
+# A tick the machine's load holds back keeps a transition's last frame up as long as a page, and that
+# frame differs from the page it ends on by the image draw's rounding, inside the one unit the
+# judgement below allows: two settled pictures with nothing between them that close are one page,
+# the later kept.
+merged = []
+for i in settled:
+    if merged and i == merged[-1] + 1 and np.abs(unpack(seen[i][0]).astype(int)
+                                                 - unpack(seen[merged[-1]][0]).astype(int)).max() <= 1:
+        merged[-1] = i
+    else:
+        merged.append(i)
+settled = merged
 moving, neither = [], []
 for before, after in zip(settled, settled[1:]):
     a, b = unpack(seen[before][0]).astype(int), unpack(seen[after][0]).astype(int)
@@ -4515,8 +4531,15 @@ PY2
         # shellcheck disable=SC2086 # an empty arm is no argument at all
         launch "$file" $arm
         eval "$(xdotool getwindowgeometry --shell "$(main_window)" | grep -E '^(X|Y|WIDTH|HEIGHT)=')"
-        xdotool windowfocus --sync "$(main_window)" 2>/dev/null; xdotool key p
-        judged=$(timeout 60 python3 "$OUT/transition_watch.py" 7 "$X" "$Y" "$WIDTH" "$HEIGHT")
+        # The window's own line that it presents before the camera starts, so a `p` that did not
+        # land, or landed twice, is said as itself (trap 120) rather than as a camera that saw one
+        # picture; the first slide's two seconds cover the wait.
+        if ! present_now; then
+            verdict "$step$arm" wrong "no line said the window presents after p"
+            kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+            continue
+        fi
+        judged=$(timeout 60 python3 "$OUT/transition_watch.py" 9 "$X" "$Y" "$WIDTH" "$HEIGHT")
         IFS=$'\t' read -r settled moving neither which <<< "$judged"
         if [ -z "$judged" ]; then
             verdict "$step$arm" wrong "the camera judged nothing"
@@ -5005,6 +5028,192 @@ archive_converted() {
     [ "$WINDOW" = quorra-confined ] && return
     archive_chosen
     archive_with_a_password
+}
+
+# --- steps 97–99: §12.4.4's presentation pump (ADR 2300) ------------------------------------------
+# presentation_fixture FILE SECONDS MODE: three slides, red, blue and green, the first two displayed
+# for SECONDS each (§12.4.4.1's `/Dur`) and the third with none, so a presentation ends on it; MODE
+# `FullScreen` states Table 29's `/PageMode /FullScreen` in the catalog, and `-` states none.
+presentation_fixture() {
+    [ -s "$1" ] || python3 - "$1" "$2" "$3" <<'PY2'
+import sys, pikepdf
+from pikepdf import Name, Dictionary
+pdf = pikepdf.new()
+for colour, dur in ((b"1 0 0", float(sys.argv[2])), (b"0 0 1", float(sys.argv[2])), (b"0 0.6 0", None)):
+    page = Dictionary(Type=Name.Page, MediaBox=[0, 0, 640, 480],
+                      Contents=pdf.make_stream(colour + b" rg 0 0 640 480 re f"))
+    if dur is not None:
+        page.Dur = dur
+    pdf.pages.append(pikepdf.Page(page))
+if sys.argv[3] == "FullScreen":
+    pdf.Root.PageMode = Name.FullScreen
+pdf.save(sys.argv[1])
+PY2
+}
+# page_of ID: the page the title of window ID says it shows — `page N of` — or 0; by the window's id
+# rather than `title`'s search, because a window unmapped is not one `--onlyvisible` finds.
+page_of() { xdotool getwindowname "$1" 2>/dev/null | grep -o 'page [0-9]* of' | head -1 | grep -o '[0-9]*' || echo 0; }
+# pages_seen ID SECONDS: the pages window ID's title named over SECONDS, each change once, in order;
+# a title naming no page yet — the file's name alone, before the first caption — is not a page.
+pages_seen() {
+    local id=$1 until=$(( ${EPOCHREALTIME/[.,]/} + $2 * 1000000 )) page last= seen=
+    while [ "${EPOCHREALTIME/[.,]/}" -lt "$until" ]; do
+        page=$(page_of "$id")
+        [ "$page" != 0 ] && [ "$page" != "$last" ] && { seen="$seen $page"; last=$page; }
+        [ "$page" = 3 ] && break
+        sleep 0.1
+    done
+    echo "${seen# }"
+}
+# present_now: `p` pressed once, with no settle after it — the settle `key` takes is a second of a
+# slide — and the window's own line that it presents (trap 120).
+present_now() {
+    local mark
+    mark=$(lines)
+    xdotool windowfocus --sync "$(main_window)" 2>/dev/null; xdotool key p
+    wait_for 5 said_since "$mark" "FullScreen page mode"
+}
+# --- step 97: a presentation advances on the pump's tick: `p`, and §12.4.4.1's `/Dur 1` turns the
+# first two slides in about two seconds in every window (ADR 2300).
+presentation_advances() {
+    local step=97-presentation-advances file="$FIXTURES/drive-present.pdf" id seen began took
+    presentation_fixture "$file" 1 -
+    launch "$file"
+    id=$(main_window)
+    began=${EPOCHREALTIME/[.,]/}
+    if ! present_now; then
+        verdict "$step" wrong "no line said the window presents after p"
+    else
+        seen=$(pages_seen "$id" 8)
+        took=$(( (${EPOCHREALTIME/[.,]/} - began) / 100000 ))
+        if [ "$seen" = "1 2 3" ]; then
+            verdict "$step" works "the title named pages $seen, page 3 at $((took / 10)).$((took % 10)) s after p"
+        else
+            verdict "$step" wrong "the title named pages ${seen:-none} in 8 s after p"
+        fi
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+# --- step 98: a hidden window parks its presentation. `p` on slides of two seconds, the window
+# unmapped at once for four seconds and mapped again: the title still names page 1 when it comes
+# back, because a page nobody could see was not displayed (§12.4.4.1), and page 2 follows within
+# its two seconds of display. Under no window manager an unmap is GDK's minimised state and Qt's
+# unexposed window, so both toolkits are driven by it; `quorra`'s presentation is `viewer-ui`'s own
+# winit loop, which the pump does not run.
+presentation_hidden() {
+    local step=98-presentation-hidden file="$FIXTURES/drive-present-hidden.pdf" id hidden shown took
+    if [ "$WINDOW" = quorra ]; then
+        verdict "$step" "not offered" "this window's presentation runs on viewer-ui's own loop, not viewer_host::presentation_pump"
+        return
+    fi
+    presentation_fixture "$file" 2 -
+    launch "$file"
+    id=$(main_window)
+    if ! present_now; then
+        verdict "$step" wrong "no line said the window presents after p"
+    else
+        xdotool windowunmap --sync "$id"
+        sleep 4
+        hidden=$(page_of "$id")
+        xdotool windowmap --sync "$id"
+        local began=${EPOCHREALTIME/[.,]/}
+        wait_for 6 eval '[ "$(page_of "$id")" = 2 ]'
+        shown=$(page_of "$id")
+        took=$(( (${EPOCHREALTIME/[.,]/} - began) / 100000 ))
+        if [ "$hidden" = 1 ] && [ "$shown" = 2 ]; then
+            verdict "$step" works "page 1 after four seconds hidden, page 2 $((took / 10)).$((took % 10)) s after the window came back"
+        else
+            verdict "$step" wrong "page $hidden after four seconds hidden, page $shown $((took / 10)).$((took % 10)) s after it came back"
+        fi
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+# --- step 99: a document opened behind a presentation leaves its clock running. A deck whose catalog
+# states Table 29's `/PageMode /FullScreen` opens presenting, and a second file named after it opens
+# beside it in a tab of its own, taking the front only to give it back (ADR 1303): the deck still
+# turns its slides, in about two seconds.
+presentation_behind() {
+    local step=99-presentation-behind file="$FIXTURES/drive-present-deck.pdf" id seen beside
+    presentation_fixture "$file" 1 FullScreen
+    launch "$FIXTURES/drive.pdf" "$file"
+    id=$(main_window)
+    seen=$(pages_seen "$id" 8)
+    beside=$(said "drive.pdf opened beside")
+    if [ "$seen" = "1 2 3" ] && [ "${beside:-0}" -ge 1 ]; then
+        verdict "$step" works "the deck's title named pages $seen with drive.pdf opened beside it"
+    elif [ "${beside:-0}" -lt 1 ]; then
+        verdict "$step" wrong "drive.pdf was not said to open beside the deck; pages ${seen:-none}"
+    else
+        verdict "$step" wrong "the deck's title named pages ${seen:-none} in 8 s with drive.pdf opened beside it"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+# union_fixture FILE: the drive's own folding strokes — five circles of radius one to three points
+# stroked eight points wide with round joins, each bending more tightly than its half-width and so
+# measured from the union of its pieces (ADR 1348) — written to FILE where nothing is there yet.
+# Five rather than one because which of them the union measures moves with the magnification, and
+# three or more are at every window width from 609 to 1300 device pixels.
+union_fixture() {
+    [ -s "$1" ] || python3 - "$1" <<'PY2'
+import sys, pikepdf
+from pikepdf import Name, Dictionary
+def circle(cx, cy, r):
+    k = 0.5523 * r
+    return (f"{cx + r} {cy} m {cx + r} {cy + k} {cx + k} {cy + r} {cx} {cy + r} c "
+            f"{cx - k} {cy + r} {cx - r} {cy + k} {cx - r} {cy} c "
+            f"{cx - r} {cy - k} {cx - k} {cy - r} {cx} {cy - r} c "
+            f"{cx + k} {cy - r} {cx + r} {cy - k} {cx + r} {cy} c h S\n")
+body = "8 w 1 j 1 J 0 G\n" + "".join(circle(60 + 70 * i, 200, r)
+                                     for i, r in enumerate((1.0, 1.3, 1.7, 2.2, 2.9)))
+pdf = pikepdf.new()
+pdf.pages.append(pikepdf.Page(Dictionary(Type=Name.Page, MediaBox=[0, 0, 400, 400],
+                                         Contents=pdf.make_indirect(pikepdf.Stream(pdf, body.encode())))))
+pdf.save(sys.argv[1])
+PY2
+}
+# A mark the union declines is said to the reader (ADR 2290): the drive's folding stroke, launched
+# with ADR 2280's open row planted where the union checks it — a fault no input can produce, so it
+# is planted, `PDFVIEWER_PLANT_OPEN_ROW` — and once without it, the control that must stay silent
+# (trap 13). Planted, the window prints the condition's sentence for page 1 and its title names
+# the page; unplanted, neither. Every window is launched under `--cpu`, since only the processor
+# measures a mark by its union and the toolkit windows' device lane would take the page. The
+# confined window's title names a page its own drawing thread drew; a page its worker drew as
+# pixels is said on the terminal alone.
+union_declined() {
+    local file="$FIXTURES/drive-union.pdf" step=89-union-declined said title control quiet=yes title_pattern
+    local said_pattern="a row of its boundary did not close" arguments
+    union_fixture "$file"
+    arguments=(--cpu)
+    export PDFVIEWER_PLANT_OPEN_ROW=1
+    launch "$file" "${arguments[@]}"
+    unset PDFVIEWER_PLANT_OPEN_ROW
+    wait_for 20 said_since 0 "$said_pattern"
+    case "$WINDOW" in
+        quorra) title_pattern="incomplete: [0-9]* item(s) not drawn" ;;
+        *) title_pattern="marks drawn at the library's sixteenths on page 1" ;;
+    esac
+    wait_for 5 eval 'title | grep -q -- "$title_pattern"'
+    shot "$step"
+    said=$(grep -o "a mark of [0-9]* pieces.*$said_pattern" "$LOG" | head -1)
+    title=$(title)
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+    launch "$file" "${arguments[@]}"
+    sleep 2
+    control=$(title)
+    grep -q -- "$said_pattern" "$LOG" && quiet=no
+    printf '%s' "$control" | grep -q -- "sixteenths\|incomplete" && quiet=no
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+    if [ -z "$said" ]; then
+        verdict "$step" wrong "planted, the window never said the decline: $LOG"
+    elif [ "$quiet" != yes ]; then
+        verdict "$step" wrong "unplanted, the window said a decline all the same (title \"$control\"): $LOG"
+    elif printf '%s' "$title" | grep -q -- "$title_pattern"; then
+        verdict "$step" works "said \"${said:0:90}…\"; title \"$title\"; unplanted, silent"
+    elif [ "$WINDOW" = quorra-confined ]; then
+        verdict "$step" works "said \"${said:0:90}…\" (its worker drew the page, so the title is \"$title\"); unplanted, silent"
+    else
+        verdict "$step" wrong "said the decline, and the title \"$title\" does not name it"
+    fi
 }
 
 # A list can name a function that is not there; the drive stops before its first window rather

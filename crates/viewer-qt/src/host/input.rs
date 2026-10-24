@@ -160,21 +160,27 @@ impl Host {
     ///
     /// A notch moves `viewer_host::SCROLL_NOTCH`, counted by `viewer_host::DiscreteWheel` as
     /// `viewer-gtk`'s `DISCRETE` controller counts it, so a notch moves the two windows alike
-    /// (ADR 2274); a touchpad's pixels move the page as far as the finger went. Device pixels out, because that is what `Command::Scroll` speaks, and
+    /// (ADR 2274); a touchpad's pixels move the page as far as the finger went, by the distance
+    /// `viewer_host::WheelTravel::distance` gives both windows (ADR 2291). Device pixels out, because that is what `Command::Scroll` speaks, and
     /// turned towards the person, which is the boundary's positive.
     pub(crate) fn scrolled(&mut self, dx: f32, dy: f32, pixels: bool) {
-        let (dx, dy) = if pixels {
-            (-dx * self.scale, -dy * self.scale)
+        let travel = if pixels {
+            viewer_host::WheelTravel::Pixels { x: dx, y: dy }
         } else {
             let (x, y) = self.discrete_wheel.notches(dx, dy);
-            let step = viewer_host::SCROLL_NOTCH * self.scale;
             #[expect(
                 clippy::cast_precision_loss,
                 reason = "a notch count, which `DiscreteWheel` clamps to sixty-four"
             )]
-            let moved = (-(x as f32) * step, -(y as f32) * step);
-            moved
+            let counted = viewer_host::WheelTravel::Notches {
+                x: x as f32,
+                y: y as f32,
+            };
+            counted
         };
+        // The one distance both windows spend (ADR 2291), turned towards the person.
+        let (x, y) = travel.distance();
+        let (dx, dy) = (-x * self.scale, -y * self.scale);
         if zoom_probe_enabled() {
             eprintln!(
                 "zoom-record {{\"v\":1,\"host\":\"qt\",\"pid\":{},\"kind\":\"scroll-dispatch\",\"unit\":\"{}\",\"dx_device\":{dx},\"dy_device\":{dy}}}",

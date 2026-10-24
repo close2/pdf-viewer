@@ -1121,6 +1121,9 @@ pub mod ffi {
         fn presentation_wait(self: &mut Host) -> i32;
         /// One turn of that clock. Called from a `QTimer`.
         fn presentation_tick(self: &mut Host);
+        /// The window's `QWindow` was exposed or stopped being, which parks §12.4.4's
+        /// presentation while nobody can see it (ADR 2300).
+        fn exposure(self: &mut Host, exposed: bool);
         /// What the title bar should say.
         fn title(self: &Host) -> String;
         /// The most recent sentence for a person.

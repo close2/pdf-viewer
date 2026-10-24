@@ -133,13 +133,18 @@ struct InFlight {
 /// about its own thread, and the frame that replaces it is already being asked for. ADR 0657.
 #[derive(Debug)]
 enum Drawn {
-    /// The window's own pixels, in the arrangement's placements.
-    Frame(Box<Raster>),
+    /// The window's own pixels, in the arrangement's placements, and the pages whose draw left
+    /// marks to the library's converter with what each declined (ADR 2290).
+    Frame(Box<Raster>, Declined),
     /// A page of the arrangement would not rasterise, in the processor's own words.
     Refused(String),
     /// The event thread raised the interrupt it handed over, and this thread honoured it.
     Abandoned,
 }
+
+/// The pages of a frame whose draw left marks to the library's converter, each with what it
+/// declined — what the window tells the viewer by `viewer_core::Command::Declined` (ADR 2290).
+type Declined = Vec<(crate::stale::Picture, Vec<viewer_core::Declined>)>;
 
 /// One finished window frame, on its way back to the thread that will present it.
 #[derive(Debug)]
@@ -253,6 +258,8 @@ pub(crate) struct Landed {
     /// Whether it was finished from the page drawn while it was read, so that what it cost — its
     /// last part — predicts nothing about the next frame (trap 143, ADR 1855).
     pub(crate) finished_ahead: bool,
+    /// See [`Declined`]; empty for a frame that refused or was taken back.
+    pub(crate) declined: Declined,
 }
 
 /// This window's half of the arrangement: the surface, the pixels it is showing, and a handle on
@@ -577,8 +584,10 @@ impl Composer {
         });
         let mut refused = None;
         let mut abandoned = false;
+        let mut declined = Vec::new();
         match done.drawn {
-            Drawn::Frame(raster) => {
+            Drawn::Frame(raster, said) => {
+                declined = said;
                 self.held.keep(*raster);
                 self.shown.clone_from(&done.pages);
                 self.presented = false;
@@ -598,6 +607,7 @@ impl Composer {
             refused,
             abandoned,
             finished_ahead: done.finished_ahead,
+            declined,
         })
     }
 
@@ -852,12 +862,22 @@ fn compose(job: Job, done: &Sender<Finished>, wake: &dyn Fn()) -> Done {
     let began = Instant::now();
     // A drawing ahead that cannot become this frame is drawn whole, as every other frame is.
     let finished = match (ahead, pages.as_slice()) {
-        (Some(ahead), [placed]) => ahead.finish(&placed.list).ok(),
+        (Some(ahead), [placed]) => ahead
+            .finish(&placed.list)
+            .ok()
+            .map(|finished| (placed.of, finished)),
         _ => None,
     };
     let finished_ahead = finished.is_some();
-    let drawn = if let Some(raster) = finished {
-        Drawn::Frame(Box::new(raster))
+    let drawn = if let Some((picture, finished)) = finished {
+        let declined = viewer_host::drawing::said(&finished.declined);
+        Drawn::Frame(
+            Box::new(finished.raster),
+            [(picture, declined)]
+                .into_iter()
+                .filter(|(_, declined)| !declined.is_empty())
+                .collect(),
+        )
     } else {
         let borrowed: Vec<(&DisplayList, TargetSpec)> = pages
             .iter()
@@ -885,7 +905,15 @@ fn compose(job: Job, done: &Sender<Finished>, wake: &dyn Fn()) -> Done {
             viewer_ui::software::Looks::SHIPPED,
             looked,
         ) {
-            Ok(raster) => Drawn::Frame(Box::new(raster)),
+            Ok(composed) => Drawn::Frame(
+                Box::new(composed.raster),
+                pages
+                    .iter()
+                    .zip(&composed.declined)
+                    .filter(|(_, declined)| !declined.is_empty())
+                    .map(|(placed, declined)| (placed.of, viewer_host::drawing::said(declined)))
+                    .collect(),
+            ),
             // **Asked of the error rather than of the flag**, and that is not fastidiousness: the
             // flag can be raised in the moment between the last command and the return, and a
             // frame that was finished before it went up is a frame this window can present.

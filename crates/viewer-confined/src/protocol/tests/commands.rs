@@ -311,6 +311,23 @@ fn every_carried_command_round_trips() {
             format: DataFormat::Other,
             bytes: b"<p>thanks</p>".to_vec(),
         },
+        // What a draw of a page the window drew from its marks declined, and a draw that
+        // declined nothing (ADR 2290).
+        Command::Declined {
+            document: DocumentId(5),
+            page: 3,
+            declined: vec![viewer_core::Declined {
+                condition: "two of its edges cross along a common line".to_owned(),
+                sentence: "a mark of 3 pieces, 4×5 pixels from (6, 7), was drawn at the \
+                           library's sixteenths"
+                    .to_owned(),
+            }],
+        },
+        Command::Declined {
+            document: DocumentId(5),
+            page: 0,
+            declined: Vec::new(),
+        },
         Command::Activate(ObjectId::new(12, 1)),
         Command::SetGroup {
             group: ObjectId::new(3, 0),

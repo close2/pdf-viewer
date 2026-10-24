@@ -663,6 +663,12 @@ profile
   description or copyright, on our authority*. The alternate route needs no configuration.
 - **Witnesses** — `issue14814.pdf` (no `cprt`) converts to 2b under `as-shown`, pages identical, and
   veraPDF passes it; `435321.pdf` (two unreadable profiles) is answered here and refused elsewhere.
+- **A stream that is no profile at all is short of everything** (ADR 2295): both held editions put
+  the profile file signature at bytes 36 to 39, so a stream without it is reported as lacking that,
+  and it takes the alternate route, since this reader draws nothing through it.
+  `me450f12project10_report.pdf`'s two Lab profiles begin 24 bytes late; its 2b output was passed
+  here and failed veraPDF's 6.2.4.2, and now writes their `/DeviceRGB` alternate, pages 156 and 157
+  identical, and veraPDF passes it.
 
 #### `graphics/icc-profiles-claim-a-permitted-edition` (PDF/A-2)
 #### `graphics/icc-profiles-carry-the-tags-their-version-requires` (part 4)
@@ -1102,6 +1108,13 @@ ISO 19005-2 6.2.2, ISO 19005-4 6.2.2 · all six · today `the-fence`
   standard does not define at all.
 - **By target** — none.
 - **From a configuration** — nothing.
+- **What the real corpora hold** (ADR 2294): every one of the 33 `doc/corpora` documents it refuses
+  is a damaged content stream rather than a producer's extension — 28 from the format corpus's
+  `govdocs1-error-pdfs`, four hand-built malformed tests and one JHOVE error file — whose spellings
+  are numbers run into operators (`0.059998re`, `11522559l`), words of text outside a string and
+  unbalanced `)`. §7.8.2 makes an unrecognised operator outside a compatibility section an error for
+  a reader, so such a page has no rendering its producer specified, and which bytes the damage took
+  is nowhere in the file; no edit of them would be this program's to choose.
 - **Departure** — **B**, and unusually well grounded when the operator sits inside `BX`/`EX`.
   §7.8.2: "They bracket a compatibility section, a portion of a content stream within which
   unrecognised operators shall be ignored without error." A departed file containing only such
@@ -1502,6 +1515,24 @@ ISO 19005-2 6.2.11.3.3, ISO 19005-4 6.2.10.3.3 · all six · **built** as `suppl
   exactly the owner's question having a good answer.
 - **Departure** — **B**, and weak: departing leaves both statements in the file and every reader
   choosing for itself, which is the ambiguity the clause removes. Prefer `supply`.
+
+#### `fonts/to-unicode-values-are-usable`
+ISO 19005-2 6.2.11.7.2, ISO 19005-4 6.2.10.7 · PDF/A-2u, 2a, 4, 4f, 4e · **built** as a mechanical
+rewrite
+
+- **Mitigation** — §9.10.2's second method, the glyph name through the Adobe Glyph List, derives a
+  `CMap` over the shown codes of a simple font and keeps every usable value the producer stated
+  (ADR 1115). Where nothing derives — a composite font, whose CID names no character, or a private
+  glyph name — the producer's own `CMap` is restated without the statements of U+0000, U+FEFF and
+  U+FFFE, a span split around the value it passed through, every other byte kept and the rewrite
+  proved code by code (ADR 2294). The code is left unmapped, which part 4 admits outright, its
+  mapping being a recommendation there; part 2 at Level U and A admits it only where no content
+  stream showed the code.
+- **By target** — 2b states no Unicode rule.
+- **From a configuration** — nothing: the removal states nothing about any character.
+- **Witnesses** — 26 of the 32 pdf.js documents part 4 refused on it convert, page 1 within one
+  level of the source; veraPDF passes 21 and fails five on a descendant font program
+  (6.2.10.4.1), a disagreement of its own.
 
 #### `fonts/actual-text-covers-private-use-characters`
 ISO 19005-2 6.2.11.7.3 · PDF/A-2a · today `the-fence`
@@ -1969,6 +2000,12 @@ ISO 19005-2 6.6.2.1, ISO 19005-4 6.7.2.1 · all six · **built in session 962**
 
 #### `metadata/properties-use-known-schemas`
 ISO 19005-2 6.6.2.3.1 · PDF/A-2b, 2u, 2a · today **`discard` built, `preserve` built**
+
+A structured value of the Media Management schema is held to the fields the September 2005
+edition's `ResourceEvent`, `ResourceRef` and `Version` tables define (ADR 2295), so an
+`xmpMM:History` whose events carry the later editions' `stEvt:changed`, or an `xmpMM:DerivedFrom`
+carrying `stRef:originalDocumentID`, is a property this row reports and the answers below remove.
+The edition's other structured types are not yet held to their fields (`doc/todo/72`).
 
 **The largest single refusal the corpus meets** (the limits document's section 3.9: 273 of the
 PDF/A-2b documents refused, and for 272 of them it was the only one), and it is in this catalogue

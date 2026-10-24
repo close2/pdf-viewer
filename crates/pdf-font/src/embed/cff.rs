@@ -1131,6 +1131,24 @@ mod tests {
         assert_eq!(system.ordering, b"Identity");
     }
 
+    /// A CID-keyed subset's advances restated read back as stated, and its glyphs still draw:
+    /// each Font DICT names its Private DICT by absolute offset, so the restatement that moves the
+    /// program's bytes owes every Font DICT the same shift (`doc/adr/2302`).
+    #[test]
+    fn a_cid_keyed_subsets_advances_restate_against_each_font_dicts_own_private_dict() {
+        let identity = cid_keyed([1, 2]);
+        let embedded =
+            for_embedding(&wrapped(&identity, 0), &BTreeSet::from([1, 2])).expect("installable");
+        let restated =
+            crate::cff::with_advances(&embedded.program, &BTreeMap::from([(1, 600), (2, 700)]))
+                .expect("both widths are restated");
+        assert_eq!(
+            crate::cff::advances(&restated, &[1, 2]).expect("the program reads"),
+            vec![Some(600.0), Some(700.0)]
+        );
+        assert_same_outlines(&identity, &restated, &embedded.glyphs);
+    }
+
     /// A name-keyed CFF whose glyph 3, `Aacute`, is `450 30 600 65 194 endchar` — Appendix C's
     /// accented character over `A` (glyph 1, the square under an `hstem`) and `acute` (glyph 2,
     /// `200 0 rmoveto 100 hlineto 50 100 rlineto endchar`), its width 450 past a `nominalWidthX` of

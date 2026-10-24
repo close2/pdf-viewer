@@ -5,10 +5,10 @@
 use crate::events::Events;
 use crate::kinds::PixelFormat;
 use crate::session;
+use crate::session::Drawn;
 use crate::session::Session;
 use crate::status::Status;
 use core::ffi::c_int;
-use pdf_render::Raster;
 use viewer_core::RenderRequest;
 
 // ---------------------------------------------------------------------------------------------
@@ -71,7 +71,7 @@ pub unsafe extern "C" fn quorra_render_request_page(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn quorra_render_request_rasterise(
     request: *const RenderRequest,
-    raster: *mut *mut Raster,
+    raster: *mut *mut Drawn,
 ) -> c_int {
     let (Some(request), Some(raster)) = (request.as_ref(), raster.as_mut()) else {
         return Status::NullArgument.code();
@@ -91,7 +91,7 @@ pub unsafe extern "C" fn quorra_render_request_rasterise(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn quorra_raster_free(raster: *mut Raster) {
+pub unsafe extern "C" fn quorra_raster_free(raster: *mut Drawn) {
     if !raster.is_null() {
         drop(Box::from_raw(raster));
     }
@@ -176,7 +176,7 @@ pub unsafe extern "C" fn quorra_render_request_rasterise_window(
     y: u32,
     width: u32,
     height: u32,
-    raster: *mut *mut Raster,
+    raster: *mut *mut Drawn,
 ) -> c_int {
     let (Some(request), Some(raster)) = (request.as_ref(), raster.as_mut()) else {
         return Status::NullArgument.code();
@@ -225,7 +225,7 @@ pub unsafe extern "C" fn quorra_render_ready_listed(
 /// See the module documentation. Every out-parameter is writable, or null.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn quorra_raster_info(
-    raster: *const Raster,
+    raster: *const Drawn,
     width: *mut u32,
     height: *mut u32,
     format: *mut u32,
@@ -235,16 +235,16 @@ pub unsafe extern "C" fn quorra_raster_info(
         return Status::NullArgument.code();
     };
     if let Some(width) = width.as_mut() {
-        *width = raster.width;
+        *width = raster.raster.width;
     }
     if let Some(height) = height.as_mut() {
-        *height = raster.height;
+        *height = raster.raster.height;
     }
     if let Some(format) = format.as_mut() {
-        *format = PixelFormat::of(raster.format).code();
+        *format = PixelFormat::of(raster.raster.format).code();
     }
     if let Some(bytes) = bytes.as_mut() {
-        *bytes = raster.data.len();
+        *bytes = raster.raster.data.len();
     }
     Status::Ok.code()
 }
@@ -257,7 +257,7 @@ pub unsafe extern "C" fn quorra_raster_info(
 /// null.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn quorra_raster_copy(
-    raster: *const Raster,
+    raster: *const Drawn,
     into: *mut u8,
     cap: usize,
     written: *mut usize,
@@ -265,7 +265,7 @@ pub unsafe extern "C" fn quorra_raster_copy(
     let (Some(raster), false) = (raster.as_ref(), into.is_null()) else {
         return Status::NullArgument.code();
     };
-    let pixels = &raster.data;
+    let pixels = &raster.raster.data;
     if cap < pixels.len() {
         return Status::BufferTooSmall.code();
     }

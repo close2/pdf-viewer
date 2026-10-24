@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use gtk4::prelude::*;
 use gtk4::{gio, glib};
 use viewer_core::{Command, DocumentId};
+use viewer_host::PresentationPump as _;
 use viewer_host::native_window::NativeWindow;
 
 use super::{Host, Showing, with};
@@ -43,7 +44,7 @@ impl Host {
             return;
         };
         let mut queue = VecDeque::new();
-        self.show_document(id, &mut queue);
+        self.show_document(id, &mut queue, false);
         if !queue.is_empty() {
             self.pump(queue);
         }
@@ -55,7 +56,17 @@ impl Host {
     /// holds about the document ([`Showing`]), the document scope of the restriction menu — which
     /// `viewer_core` already keeps beside the document it is about (ADR 1145) — and the view
     /// itself, which is one widget tree moved into the notebook page that is now current.
-    pub(super) fn show_document(&mut self, id: DocumentId, queue: &mut VecDeque<Command>) {
+    ///
+    /// **And the presentation**: the one left waits beside its tab, and the arriving document's is
+    /// brought forward by `viewer_host::presentation_pump` — `temporary` for a document opened
+    /// behind, which takes the front only to give it back and keeps the front's clock (ADR 2300).
+    pub(super) fn show_document(
+        &mut self,
+        id: DocumentId,
+        queue: &mut VecDeque<Command>,
+        temporary: bool,
+    ) {
+        self.state.park_presentation();
         self.state.showing.departures = self.state.restrictions.document();
         if !self.state.documents.focus(id, &mut self.state.showing) {
             return;
@@ -63,6 +74,10 @@ impl Host {
         self.state
             .restrictions
             .depart(self.state.showing.departures);
+        if !temporary {
+            self.playing = None;
+        }
+        self.bring_the_presentation_forward(temporary);
         self.hold_the_view(self.state.documents.focused_index());
         // §12.7's controls and §12.5.6.14's windows are **not** taken down here. Each is rebuilt
         // from the answer that follows `Command::Focus`, and both rebuilds are guarded by a
@@ -146,6 +161,8 @@ impl Host {
             }
             if id == self.state.documents.focused() {
                 self.state.showing = Showing::new(path, bytes, None);
+                self.playing = None;
+                self.bring_the_presentation_forward(false);
             }
             return None;
         }
@@ -159,7 +176,7 @@ impl Host {
         self.show_the_tabs();
         // `Documents::focus` is what swaps this window's fields; the core has moved its own focus
         // already, and `Command::Focus` on a document that is already focused does nothing.
-        self.show_document(id, queue);
+        self.show_document(id, queue, behind.is_some());
         self.say(&viewer_host::documents::opened_beside(
             &label,
             self.state.documents.len(),
@@ -236,6 +253,7 @@ impl Host {
         // The menu's document scope goes into the state that is about to be swapped, exactly as
         // it does on a switch: the value the menu holds is this document's and the one that comes
         // back belongs to whichever tab takes the front.
+        self.state.park_presentation();
         self.state.showing.departures = self.state.restrictions.document();
         match self.state.documents.close(closing, &mut self.state.showing) {
             viewer_host::Close::Last => self.ui.window.close(),
@@ -244,6 +262,8 @@ impl Host {
                 self.state
                     .restrictions
                     .depart(self.state.showing.departures);
+                self.playing = None;
+                self.bring_the_presentation_forward(false);
                 // **The view leaves the page before the page is destroyed.** A notebook page
                 // owns its child, and the page being removed is the one holding the splitter —
                 // so removing it first would take the panels and the page area down with it.

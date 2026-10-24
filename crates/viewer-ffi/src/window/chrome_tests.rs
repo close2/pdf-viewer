@@ -5,13 +5,22 @@ use std::fmt::Write as _;
 use std::path::Path;
 use std::time::{Duration, Instant};
 use viewer_core::{Answer, Command, Query};
+use viewer_host::PresentationPump as _;
 use viewer_host::native_window::NativeWindow as _;
 
 fn document(path: &Path) {
+    document_lasting(path, "0.01");
+}
+
+/// Two pages, the first displayed for `dur` seconds in a presentation (§12.4.4.1).
+fn document_lasting(path: &Path, dur: &str) {
+    let first = format!(
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 40 40] /Resources << >> /Dur {dur} >>"
+    );
     let objects = [
         "<< /Type /Catalog /Pages 2 0 R >>",
         "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 40 40] /Resources << >> /Dur 0.01 >>",
+        first.as_str(),
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 40 40] /Resources << >> >>",
     ];
     let mut pdf = String::from("%PDF-1.7\n");
@@ -131,7 +140,6 @@ fn background_open_preserves_clock_and_face_replacement_clears_old_mode() {
     // the direct synchronization control below separately protects an already-arrived face.
     await_face(&mut window, until);
     // Direct core ticks distinguish an actual Off synchronization from merely changing chrome.
-    // The FFI timer does not yet drive presentation clocks; this does not claim that feature.
     window.dispatch(Command::Tick { millis: 1000 });
     assert!(matches!(
         window.state.viewer.query(Query::CurrentPage),
@@ -180,7 +188,8 @@ fn synchronization_preserves_an_already_arrived_face_and_action_clock() {
     // An incoming transition action may arm this after the outgoing activation state was cleared.
     window.state.clock = Some(viewer_host::Clock::for_one_transition(Instant::now()));
     let mut queue = std::collections::VecDeque::new();
-    window.synchronize_presentation(&mut queue);
+    window.state.pump.owe_synchronizing();
+    window.synchronize_if_owed(&mut queue);
     assert!(window.state.clock.is_some());
     assert!(std::sync::Arc::ptr_eq(
         &face,
@@ -195,6 +204,87 @@ fn synchronization_preserves_an_already_arrived_face_and_action_clock() {
         queue.pop_front(),
         Some(Command::Present(viewer_core::PresentationMode::Off))
     ));
+    drop(window);
+    std::fs::remove_file(path).expect("remove fixture");
+}
+
+/// The page a window shows, zero-based.
+fn page(window: &Window) -> usize {
+    match window.state.viewer.query(Query::CurrentPage) {
+        Answer::Page { index, .. } => index,
+        _ => usize::MAX,
+    }
+}
+
+/// §12.4.4.1's `/Dur` advances a presenting C window through the pump its own tick turns, and the
+/// time a hidden window is not shown is not time the page was displayed (ADR 2300): hidden for a
+/// second, a page displayed for half of one is still the page a tenth of a second after the window
+/// comes back, and advances once its half second has been displayed.
+#[test]
+fn the_pump_advances_a_presentation_and_parks_it_while_the_window_is_hidden() {
+    let path = std::env::temp_dir().join(format!(
+        "quorra-presentation-pump-{}.pdf",
+        std::process::id()
+    ));
+    document_lasting(&path, "0.5");
+    let mut window =
+        Window::open(&path, None, viewer_host::policy::Words::default()).expect("open");
+    window.resize(80, 80, 1.0).expect("resize");
+    let until = Instant::now()
+        .checked_add(Duration::from_secs(10))
+        .expect("bounded deadline");
+    while window.state.anticipated.is_some() && Instant::now() < until {
+        window.tick();
+    }
+    await_face(&mut window, until);
+    assert_eq!(
+        window.presentation_wait(Instant::now()),
+        None,
+        "a still window arms nothing"
+    );
+    window.press(viewer_host::Key::P, viewer_host::Modifiers::NONE);
+    let start = Instant::now();
+    let at = |millis| {
+        start
+            .checked_add(Duration::from_millis(millis))
+            .expect("bounded instant")
+    };
+    assert_eq!(
+        window.presentation_wait(start),
+        Some(viewer_host::Clock::RESTING),
+        "presenting, the pump is armed"
+    );
+    assert!(window.window_shown(false, start));
+    assert!(!window.window_shown(false, start), "hidden once");
+    assert_eq!(
+        window.presentation_wait(at(500)),
+        None,
+        "parked: nothing armed"
+    );
+    assert!(matches!(
+        window.turn_the_presentation(at(1000)),
+        viewer_host::Turned::Still
+    ));
+    assert_eq!(page(&window), 0, "hidden, the page is not displayed");
+    assert!(window.window_shown(true, at(1000)));
+    assert!(matches!(
+        window.turn_the_presentation(at(1100)),
+        viewer_host::Turned::Still
+    ));
+    assert_eq!(
+        page(&window),
+        0,
+        "a tenth of a second displayed, of half a second"
+    );
+    assert!(matches!(
+        window.turn_the_presentation(at(1600)),
+        viewer_host::Turned::Advanced
+    ));
+    assert_eq!(
+        page(&window),
+        1,
+        "half a second displayed: the presentation advances"
+    );
     drop(window);
     std::fs::remove_file(path).expect("remove fixture");
 }

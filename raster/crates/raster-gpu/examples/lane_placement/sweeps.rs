@@ -40,7 +40,7 @@ pub(crate) fn byte_drift(samples: u32) -> f64 {
 ///
 /// **A prime, and that is the point.** The atlas quantises a phase to
 /// `Options::glyph_quantum` of a pixel (default 1/16) and the device lane's samples lie on
-/// a lattice of 1/4, so a sweep of 16 steps lands every sample exactly on both grids and
+/// a lattice of 1/16, so a sweep of 16 steps lands every sample exactly on both grids and
 /// measures zero error at every one of them — which is what the first run of this
 /// instrument did. A step that shares no factor with either visits the whole of each
 /// bucket instead.
@@ -250,9 +250,9 @@ pub(crate) fn grid_sweep(
         uncached: false,
         width: WITNESS_WIDTH,
     };
-    let pitch = 1.0 / f64::from(samples).sqrt();
+    let pitch = f64::from(raster_gpu::SampleLattice::of(samples).edge_pitch());
     println!(
-        "== a {WITNESS_WIDTH}-pixel rule at {samples} samples: the grid's pitch is 1/√{samples} = {pitch:.4} =="
+        "== a {WITNESS_WIDTH}-pixel rule at {samples} samples: the lattice's pitch is 1/{samples} = {pitch:.4} =="
     );
     println!(
         "{:>8}  {:>8} {:>8} {:>8}  {:>8} {:>8} {:>8} {:>8}",

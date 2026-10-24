@@ -44,6 +44,10 @@
 //!   the three event loops that could supply one — `glib::timeout_add_local`, `QTimer`, winit's
 //!   `ControlFlow::WaitUntil` — agree about every question the clause asks and differ in every
 //!   letter of how it is asked.
+//! - [`presentation_pump`] — the turn between those two clocks and a document's script timers,
+//!   which each window used to write for itself: what a tick tells the core, when a transition's
+//!   frame is due, and the two states that park a presentation without ending it — a hidden
+//!   window, and another document in front (ADR 2300).
 //! - [`documents`] — the documents one window has open, in the order it shows them, and which of
 //!   them is in front. `viewer_core` has held a map of them since it existed and every window put
 //!   one name in it; what a second tab needs is the bookkeeping no toolkit supplies — which names
@@ -155,6 +159,7 @@ pub mod password;
 pub mod policy;
 pub mod popup;
 pub mod presentation;
+pub mod presentation_pump;
 pub mod printing;
 pub mod reader;
 pub mod report;
@@ -209,6 +214,7 @@ pub use policy::{
 pub use policy::{LAUNCHED_DOCUMENTS, Launched, LaunchedDocuments};
 pub use popup::Window;
 pub use presentation::{Chrome, Placing, Presenting, centred, fitted};
+pub use presentation_pump::{PresentationPump, Turned};
 pub use printing::Defaults as PrintDefaults;
 pub use reader::{ReaderSupply, ReaderWords};
 pub use restriction::{

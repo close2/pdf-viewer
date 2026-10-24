@@ -2308,7 +2308,8 @@ fn read_off(
 /// below the second whole winding a crossing adds. See [`overlaps`].
 const OVERLAPPED: f32 = 1.001;
 
-/// The row filter is always consulted outside this module's own tests.
+/// The row filter is always consulted outside this module's own tests, and an open row is planted
+/// only where a drive asks for one.
 #[cfg(not(test))]
 mod tests {
     /// See the test module's own.
@@ -2316,9 +2317,16 @@ mod tests {
         false
     }
 
-    /// See the test module's own.
-    pub(super) const fn an_open_row_is_planted() -> bool {
-        false
+    /// Whether a drive has planted the test module's open row in this process:
+    /// `PDFVIEWER_PLANT_OPEN_ROW` in the environment it was started with, read once (ADR 2290).
+    ///
+    /// **An instrument, not a setting**: the route from a decline to a window's title runs through
+    /// four hosts and a pipe, and a fault no input can produce is driven through them only by
+    /// planting it where it acts (trap 13). Unset, which is every run but the drive's, it costs a
+    /// load of a cell already written.
+    pub(super) fn an_open_row_is_planted() -> bool {
+        static PLANTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *PLANTED.get_or_init(|| std::env::var_os("PDFVIEWER_PLANT_OPEN_ROW").is_some())
     }
 }
 

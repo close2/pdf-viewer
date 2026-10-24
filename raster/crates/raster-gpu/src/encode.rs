@@ -171,14 +171,14 @@ struct Encoder<'a> {
     /// ADR 0090: under [`Coverage::Cpu`], tiles the atlas will not hold flatten on
     /// the device instead of the processor.
     compute_assist: bool,
-    /// The device lane's sample-column spacing in device pixels, from the frame's own
-    /// sample count — the width ADR 0070's fifth lane condition compares a mark's thin
-    /// axis against.
+    /// The narrowest mark the device lane's sample lattice cannot lose, in device pixels,
+    /// from the frame's own sample count — the width ADR 0070's fifth lane condition
+    /// compares a mark's thin axis against (ADR 2296).
     ///
-    /// Computed once here rather than per mark: it is a square root, and the condition it
-    /// feeds is asked at both of [`Encoder::take_gpu_lane`]'s call sites for every solid
-    /// fill and every stroke on a page.
-    sample_spacing: f32,
+    /// Computed once here rather than per mark: it is a search over the lattice's corners,
+    /// and the condition it feeds is asked at both of [`Encoder::take_gpu_lane`]'s call
+    /// sites for every solid fill and every stroke on a page.
+    vanishing_width: f32,
     /// The GPU lane's triangles and tiles, empty under [`Coverage::Cpu`].
     winding: crate::winding::Sheet,
     /// The compute lane's edges and tiles, empty except under [`Coverage::Compute`]
@@ -731,7 +731,7 @@ fn encoder_for<'a>(
         visible: target_rect(viewport),
         coverage,
         compute_assist,
-        sample_spacing: thin::sample_column_spacing(coverage_samples),
+        vanishing_width: thin::vanishing_width(coverage_samples),
         winding: crate::winding::Sheet::default(),
         compute: crate::compute::ComputeSheet::default(),
         // One pass over the commands before the walk: the lane a fill takes depends on

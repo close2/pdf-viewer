@@ -91,6 +91,10 @@ What follows is why each later addition passed the test.
   arrives when the server answers; the network is a host's (ADRs 1291, 1527, 2076).
 - **`Event::SignaturePoliciesPublished`** — §12.8.3.4.4's published policy copies, answered under
   the submissions level (ADR 1738).
+- **`Command::Declined`** — what a host's draw of a page left to a coarser measure (§10.7.4's union
+  declines), a value only the host has; keyed by the page because a window of a page past its
+  window answers no token, answered by `Event::Reported` once for each condition, and carried by the
+  confined wire for a page the window drew from crossed marks (ADRs 2280, 2290).
 
 #### Shapes changed and fields added
 

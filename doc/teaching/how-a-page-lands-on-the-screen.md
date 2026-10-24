@@ -199,7 +199,7 @@ This is where PDF's *meaning* lives. In `crates/pdf-model/src/content/`:
 |---|---|---|
 | the bytes arrive a window at a time, parts of `/Contents` chained | `crates/pdf-model/src/content/reader.rs::ContentReader` (`for_page`) | §7.8.2, Table 31 |
 | a keyword becomes an operator | `crates/pdf-model/src/content/reader.rs::Operator` (`Operator::of`) | Annex A |
-| the operator loop, one flat dispatch | `crates/pdf-model/src/content/run.rs` (`Interpreter::run`) | Annex A |
+| the operator loop, one dispatch to one method per family of Table 50 | `crates/pdf-model/src/content/run.rs` (`Interpreter::run_from`, `Interpreter::run_operator`) | Annex A, §8.2 |
 | path construction and painting | `crates/pdf-model/src/content/path.rs` (`begin_subpath`, `end_path`) | §8.5 |
 | colour operators | `crates/pdf-model/src/content/colour.rs` | §8.6 |
 | text | `crates/pdf-model/src/content/text.rs` with `text/`, `crates/pdf-model/src/content/font.rs` | clause 9 |
@@ -243,7 +243,7 @@ flowchart TD
     CONTENT["decoded /Contents<br/>Page::content in pdf-model/src/page.rs"]
     READER["ContentReader<br/>pdf-model/src/content/reader.rs<br/>clause 7.8.2, ADR 0365"]
     OPERATOR["Operator::of<br/>pdf-model/src/content/reader.rs"]
-    RUN["Interpreter::run<br/>pdf-model/src/content/run.rs"]
+    RUN["Interpreter::run_from, run_operator<br/>one method per operator family<br/>pdf-model/src/content/run.rs"]
     STATE["GraphicsState: CTM, colour, clip, font<br/>clause 8.4"]
     PATH["current path<br/>pdf-model/src/content/path.rs<br/>clause 8.5.2"]
     COLOUR["fill colour<br/>pdf-colour/src/colour/to_rgb.rs<br/>clause 8.6"]

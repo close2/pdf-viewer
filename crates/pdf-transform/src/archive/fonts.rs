@@ -68,6 +68,9 @@
 mod composite;
 mod described;
 mod notices;
+mod pack;
+
+pub use pack::{CjkPack, Collection, PackFiles, PackGap};
 
 pub use described::Described;
 
@@ -306,6 +309,9 @@ pub(super) struct Substitutes {
     /// The program stream each shipped face was written to, so that one document's fonts naming
     /// the same face share one copy of it.
     pub(super) programs: BTreeMap<&'static str, ObjectId>,
+    /// What the CJK pack's route wrote into each descriptor, so that a font met again widens the
+    /// one subset rather than writing a second (`doc/adr/2302`).
+    packed: BTreeMap<ObjectId, pack::Packed>,
 }
 
 impl Substitutes {
@@ -645,6 +651,7 @@ pub(super) fn embed_faces(
     survey: &Survey,
     spare: &mut Spare,
     supplied: &BTreeMap<String, std::sync::Arc<[u8]>>,
+    pack: Option<&CjkPack>,
 ) -> Result<Substitutes, Because> {
     let mut substitutes = Substitutes::default();
     for used in survey.fonts() {
@@ -659,7 +666,7 @@ pub(super) fn embed_faces(
             continue;
         }
         if subtype == "Type0" {
-            composite::embed(document, used, spare, supplied, &mut substitutes)?;
+            composite::embed(document, used, spare, supplied, pack, &mut substitutes)?;
             continue;
         }
         let requested = base_font(document, &used.dict);

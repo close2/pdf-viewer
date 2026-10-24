@@ -9,12 +9,13 @@
 //! because brief section 5's rule reaches startup as well: a caller waiting for a warm set has to
 //! be able to learn that it is never coming, and a boolean cannot say that.
 //!
-//! Four entry points and one body. Two are headless and two present to a window; the
-//! difference within each pair is only who created the [`wgpu::Instance`], which is the
+//! Six entry points and one body. Three are headless and three present to a window; the
+//! difference within each set is who created the [`wgpu::Instance`], which is the
 //! startup lever the caller measured 20 ms of a 145 ms launch inside (their feedback
-//! section 8.2). What cannot be hoisted is stated where it is claimed rather than left to be
-//! discovered: `request_adapter` takes the surface, so adapter selection is genuinely
-//! downstream of the window.
+//! section 8.2), and whether its adapters were enumerated already ([`LaunchInstance`], the
+//! caller's ADR 2298). What cannot be hoisted is stated where it is claimed rather than left to
+//! be discovered: whether an adapter can present to the surface is a question about the
+//! surface, so that half of adapter selection is genuinely downstream of the window.
 //!
 //! Dropping a device is here too, because it is the far end of the same thread: one
 //! compiling inside the driver may not outlive the device it compiles for (ADR 0018).
@@ -29,7 +30,7 @@ use crate::error::DeviceError;
 use crate::layers;
 use crate::pipeline::PipelineStore;
 use crate::resources::ResourceStore;
-use crate::startup::{self, Options, PreSteps, StartupTimings, WarmUp};
+use crate::startup::{self, LaunchInstance, Options, PreSteps, StartupTimings, WarmUp};
 use crate::surface::{SurfaceSlot, SurfaceState};
 use crate::timing::{PassQuery, TimestampSupport};
 
@@ -103,7 +104,7 @@ impl Device {
             instance_creation: Some(started.elapsed()),
             surface_creation: Duration::ZERO,
         };
-        Self::build(&instance, None, pre, options)
+        Self::build(&instance, &[], None, pre, options)
     }
 
     /// A headless device on an instance the caller already has.
@@ -120,7 +121,26 @@ impl Device {
         instance: &wgpu::Instance,
         options: &Options,
     ) -> Result<Self, DeviceError> {
-        Self::build(instance, None, PreSteps::BORROWED_INSTANCE, options)
+        Self::build(instance, &[], None, PreSteps::BORROWED_INSTANCE, options)
+    }
+
+    /// [`Device::headless_with_instance`] on a launch's instance, choosing among the adapters
+    /// its check enumerated rather than enumerating again ([`LaunchInstance`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`Device::headless`].
+    pub fn headless_on_launch(
+        launch: &LaunchInstance,
+        options: &Options,
+    ) -> Result<Self, DeviceError> {
+        Self::build(
+            launch.instance(),
+            launch.adapters(),
+            None,
+            PreSteps::BORROWED_INSTANCE,
+            options,
+        )
     }
 
     /// A device that presents to a window. `raw-window-handle` and nothing more
@@ -140,7 +160,7 @@ impl Device {
         let started = Instant::now();
         let instance = startup::create_instance();
         let instance_creation = started.elapsed();
-        Self::on_surface(&instance, Some(instance_creation), window, options)
+        Self::on_surface(&instance, &[], Some(instance_creation), window, options)
     }
 
     /// A device that presents to a window, on an instance the caller made earlier.
@@ -164,13 +184,29 @@ impl Device {
         window: impl Into<wgpu::SurfaceTarget<'static>>,
         options: &Options,
     ) -> Result<Self, DeviceError> {
-        Self::on_surface(instance, None, window, options)
+        Self::on_surface(instance, &[], None, window, options)
     }
 
-    /// The shared body of the two surface constructors: create the surface, then
+    /// [`Device::for_surface_with_instance`] on a launch's instance: the surface is made on it,
+    /// and the adapter is chosen among those its check enumerated that can present to that
+    /// surface, rather than by a second enumeration ([`LaunchInstance`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`Device::for_surface`].
+    pub fn for_surface_on_launch(
+        launch: &LaunchInstance,
+        window: impl Into<wgpu::SurfaceTarget<'static>>,
+        options: &Options,
+    ) -> Result<Self, DeviceError> {
+        Self::on_surface(launch.instance(), launch.adapters(), None, window, options)
+    }
+
+    /// The shared body of the surface constructors: create the surface, then
     /// build, keeping each step's cost separate.
     fn on_surface(
         instance: &wgpu::Instance,
+        enumerated: &[wgpu::Adapter],
         instance_creation: Option<Duration>,
         window: impl Into<wgpu::SurfaceTarget<'static>>,
         options: &Options,
@@ -183,7 +219,7 @@ impl Device {
             instance_creation,
             surface_creation: started.elapsed(),
         };
-        Self::build(instance, Some(surface), pre, options)
+        Self::build(instance, enumerated, Some(surface), pre, options)
     }
 
     /// The names of every adapter wgpu can see on this machine, for choosing an
@@ -219,12 +255,13 @@ impl Device {
 
     fn build(
         instance: &wgpu::Instance,
+        enumerated: &[wgpu::Adapter],
         surface: Option<wgpu::Surface<'static>>,
         pre: PreSteps,
         options: &Options,
     ) -> Result<Self, DeviceError> {
         let adapter_started = Instant::now();
-        let adapter = startup::select_adapter(instance, surface.as_ref(), options)?;
+        let adapter = startup::select_adapter(instance, enumerated, surface.as_ref(), options)?;
         let adapter_selection = adapter_started.elapsed();
 
         let info = adapter.get_info();

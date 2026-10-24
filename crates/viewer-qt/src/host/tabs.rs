@@ -5,6 +5,7 @@
 use std::path::PathBuf;
 
 use viewer_core::{Command, DocumentId};
+use viewer_host::PresentationPump as _;
 use viewer_host::native_window::NativeWindow;
 
 use super::{Host, Showing};
@@ -47,7 +48,7 @@ impl Host {
     /// about the document ([`Showing`]), and the document scope of the restriction menu — which
     /// `viewer_core` already keeps beside the document it is about (ADR 1145).
     pub(super) fn show_document(&mut self, id: DocumentId) {
-        if self.take_the_front(id) {
+        if self.take_the_front(id, false) {
             self.dispatch(Command::Focus(id));
             self.build_panels();
         }
@@ -59,7 +60,12 @@ impl Host {
     /// is already settling the command that opened it: the core has moved its own focus by then,
     /// so what is left is this window's own swap and a nested `pump` would be a second command
     /// loop inside the first. Answers whether anything moved.
-    pub(super) fn take_the_front(&mut self, id: DocumentId) -> bool {
+    ///
+    /// **And the presentation**: the one left waits beside its tab, and the arriving document's is
+    /// brought forward by `viewer_host::presentation_pump` — `temporary` for a document opened
+    /// behind, which takes the front only to give it back and keeps the front's clock (ADR 2300).
+    pub(super) fn take_the_front(&mut self, id: DocumentId, temporary: bool) -> bool {
+        self.state.park_presentation();
         self.state.showing.departures = self.state.restrictions.document();
         if !self.state.documents.focus(id, &mut self.state.showing) {
             return false;
@@ -67,6 +73,10 @@ impl Host {
         self.state
             .restrictions
             .depart(self.state.showing.departures);
+        if !temporary && self.playing.take().is_some() {
+            self.update.frame = true;
+        }
+        self.bring_the_presentation_forward(temporary);
         // §12.7's controls and §12.5.6.14's windows are **not** taken down here. Each is rebuilt
         // from the answer that follows `Command::Focus`, and both rebuilds are guarded by a
         // comparison against what is on the screen.
@@ -106,6 +116,8 @@ impl Host {
             self.state.documents.relabel(id, label);
             if id == self.state.documents.focused() {
                 self.state.showing = Showing::new(path, bytes, None);
+                self.playing = None;
+                self.bring_the_presentation_forward(false);
             }
             self.documents_moved = true;
             self.update.title = true;
@@ -116,7 +128,7 @@ impl Host {
             .add(id, label.clone(), Showing::new(path, bytes, None));
         // `Documents::focus` is what swaps this window's fields; the core has moved its own focus
         // already, so nothing is sent from inside the settling of the command that opened it.
-        if self.take_the_front(id) {
+        if self.take_the_front(id, behind.is_some()) {
             self.build_panels();
         }
         self.say(&viewer_host::documents::opened_beside(
@@ -183,6 +195,7 @@ impl Host {
         let closing = self.state.documents.focused();
         // The menu's document scope goes into the state that is about to be swapped, exactly as
         // it does on a switch.
+        self.state.park_presentation();
         self.state.showing.departures = self.state.restrictions.document();
         match self.state.documents.close(closing, &mut self.state.showing) {
             viewer_host::Close::Last => self.closing = true,
@@ -191,6 +204,8 @@ impl Host {
                 self.state
                     .restrictions
                     .depart(self.state.showing.departures);
+                self.playing = None;
+                self.bring_the_presentation_forward(false);
                 let label = viewer_host::documents::label(&state.path);
                 drop(state);
                 self.state.kept.forget(closing);

@@ -487,6 +487,7 @@ fn perform(
                 Event::NeedsRender(request) => {
                     let ahead = turning.take_for(&request);
                     let origin = placement(viewer, request.page);
+                    let mut declined = Vec::new();
                     let rendered = match marks.decide(&request, origin) {
                         // **The render that does not happen.** The host is being handed this
                         // page's own display list, so pixels of it would be drawn, held and
@@ -515,15 +516,26 @@ fn perform(
                         // toolkit windows would draw it so, for a host that places a window
                         // (ADRs 1994, 2016); every other page is drawn whole.
                         protocol::Carries::Pixels => {
-                            match origin.filter(|_| turning.draws_a_window_of(&request)) {
-                                Some(origin) => {
-                                    marks.hold_window(&request, origin);
-                                    Rendered::Listed
-                                }
-                                None => drawn_whole(rasterizer, &request, ahead),
+                            if let Some(origin) =
+                                origin.filter(|_| turning.draws_a_window_of(&request))
+                            {
+                                marks.hold_window(&request, origin);
+                                Rendered::Listed
+                            } else {
+                                let (rendered, said) = drawn_whole(rasterizer, &request, ahead);
+                                declined = said;
+                                rendered
                             }
                         }
                     };
+                    // Popped after the answer, so the page is told of its draw once it holds it.
+                    if !declined.is_empty() {
+                        pending.push(Command::Declined {
+                            document: request.document,
+                            page: request.page,
+                            declined,
+                        });
+                    }
                     pending.push(Command::RenderReady {
                         token: request.token,
                         rendered,
@@ -556,7 +568,7 @@ fn perform(
     // zoom's first, a scroll's past the margin — so that the frame the host asks for next is of
     // the view as it stands (ADR 1986).
     if let Some((viewport, _)) = turning.viewport {
-        draw_windows(marks, rasterizer, viewport, &mut outgoing);
+        draw_windows(viewer, marks, rasterizer, viewport, &mut outgoing);
     }
 
     match protocol::encode_events(&outgoing) {
@@ -566,27 +578,42 @@ fn perform(
 }
 
 /// A page drawn whole: the page drawn while it was read, finished from where its read ended, or a
-/// drawing that cannot become the page drawn from the start.
+/// drawing that cannot become the page drawn from the start — with what the draw declined
+/// (ADR 2290).
 fn drawn_whole(
     rasterizer: &mut CpuRasterizer,
     request: &viewer_core::RenderRequest,
     ahead: Option<render_cpu::Underway>,
-) -> Rendered {
-    let finished = ahead.and_then(|underway| underway.finish(&request.list).ok());
-    match finished.map_or_else(|| rasterizer.rasterize(&request.list, request.target), Ok) {
-        Ok(raster) => Rendered::Raster(raster),
+) -> (Rendered, Vec<viewer_core::Declined>) {
+    if let Some(finished) = ahead.and_then(|underway| underway.finish(&request.list).ok()) {
+        return (Rendered::Raster(finished.raster), said(&finished.declined));
+    }
+    match rasterizer.rasterize(&request.list, request.target) {
+        Ok(raster) => (Rendered::Raster(raster), said(rasterizer.declined())),
         // Named rather than swallowed: a viewer that silently showed the previous page when a
         // render failed would be telling a person something false.
-        Err(error) => Rendered::Failed(error.to_string()),
+        Err(error) => (Rendered::Failed(error.to_string()), Vec::new()),
     }
+}
+
+/// What the marks a draw left to the library's converter are called where the viewer is told of
+/// them — `viewer_host::drawing::said`'s words, stated here because this process links no host crate (ADR
+/// 1871).
+fn said(declined: &[render_cpu::UnionDecline]) -> Vec<viewer_core::Declined> {
+    declined
+        .iter()
+        .map(|decline| viewer_core::Declined::new(decline.condition, decline))
+        .collect()
 }
 
 /// Draws every window `marks` owes at a viewport `viewport` across, from the marks it holds.
 ///
 /// A window the rasteriser refuses lets its page go and is said in the rasteriser's words, as a
 /// page's refusal is (trap 5): the viewer was told the host took that render, so the sentence is
-/// the only thing left to say it was not drawn.
+/// the only thing left to say it was not drawn. What a window's draw declined is told to the viewer,
+/// which says it as it says a whole page's (ADR 2290).
 fn draw_windows(
+    viewer: &mut Viewer,
     marks: &mut protocol::Marks,
     rasterizer: &mut CpuRasterizer,
     viewport: (u32, u32),
@@ -601,7 +628,18 @@ fn draw_windows(
             height: window.height,
         };
         match rasterizer.rasterize_window(&list, target, shown) {
-            Ok(raster) => marks.drew(page, window, raster),
+            Ok(raster) => {
+                let declined = said(rasterizer.declined());
+                if let Some(document) = marks.drew(page, window, raster)
+                    && !declined.is_empty()
+                {
+                    outgoing.extend(viewer.handle(Command::Declined {
+                        document,
+                        page,
+                        declined,
+                    }));
+                }
+            }
             Err(error) => {
                 if let Some(document) = marks.refused_window(page) {
                     outgoing.push(Event::Reported {
@@ -1059,7 +1097,10 @@ mod tests {
             .take_for(request)
             .expect("page two was drawn while it was read");
         assert!(turning.take_for(request).is_none(), "and is taken once");
-        let finished = underway.finish(&request.list).expect("it becomes the page");
+        let finished = underway
+            .finish(&request.list)
+            .expect("it becomes the page")
+            .raster;
         let whole = rasterizer
             .rasterize(&request.list, request.target)
             .expect("the page draws");

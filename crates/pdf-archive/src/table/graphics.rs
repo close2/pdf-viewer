@@ -1889,13 +1889,25 @@ impl IccTagShortfall {
 }
 
 /// What ISO 19005-2 section 6.2.4.2's tag row finds missing from one profile, or `None` where the
-/// profile satisfies one of the two held editions or is not a profile at all.
+/// profile satisfies one of the two held editions.
 ///
 /// The clause is a disjunction, so a profile is short only where both ICC.1:1998-09 and
 /// ICC.1:2001-12 find a tag missing; the list given is the first edition's, which is the one the
 /// row's findings name.
+///
+/// **A stream that is not a profile at all is short of everything**, and is reported as missing
+/// the profile file signature: both held editions' header tables put `acsp` at bytes 36 to 39 of
+/// every profile (section 6.1 of each), so bytes without it conform to neither, and no tag table
+/// can be read out of them to say more (`doc/adr/2295`).
 #[must_use]
 pub fn icc_tag_shortfall(data: &[u8]) -> Option<IccTagShortfall> {
+    if data.get(36..40) != Some(&b"acsp"[..]) {
+        return Some(IccTagShortfall {
+            missing: vec![PROFILE_FILE_SIGNATURE],
+            description: false,
+            copyright: false,
+        });
+    }
     let (class, _) = profile_header(data)?;
     let missing = missing_required_tags(IccEdition::Nineteen98, data, class);
     if missing.is_empty() || missing_required_tags(IccEdition::TwoThousand1, data, class).is_empty()
@@ -2094,6 +2106,10 @@ const ICC_1998_TAG_TYPES: [([u8; 4], &[[u8; 4]]); 45] = [
 
 /// ICC.1:1998-09 section 6.4.30's tag, as a finding names it.
 const DESCRIPTION_TAG: &str = "profileDescriptionTag";
+
+/// The header field ICC.1:1998-09 and ICC.1:2001-12 each place at bytes 36 to 39 (section 6.1),
+/// as a finding names it — what a stream that is not a profile lacks.
+const PROFILE_FILE_SIGNATURE: &str = "profile file signature acsp at bytes 36 to 39";
 
 /// ICC.1:1998-09 section 6.4.11's tag, as a finding names it.
 const COPYRIGHT_TAG: &str = "copyrightTag";
@@ -4920,8 +4936,9 @@ mod tests {
     use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 
     use super::{
-        BLEND_MODES, IccEdition, Position, Site, equivalent, halftone_type_is_one_or_five, icc,
-        is_halftone, missing_required_tags, profile_header,
+        BLEND_MODES, IccEdition, PROFILE_FILE_SIGNATURE, Position, Site, equivalent,
+        halftone_type_is_one_or_five, icc, icc_tag_shortfall, is_halftone, missing_required_tags,
+        profile_header,
     };
     use crate::finding::Findings;
     use crate::table::requirements;
@@ -4938,6 +4955,20 @@ mod tests {
     /// A name object, which is most of what these rules are about.
     fn name(text: &str) -> Object {
         Object::Name(Name::new(text.as_bytes().to_vec()))
+    }
+
+    /// A stream whose bytes 36 to 39 are not `acsp` is no profile of either held edition, and the
+    /// part 2 tag row names the signature as what it lacks (`doc/adr/2295`). The witness is
+    /// `me450f12project10_report.pdf`'s, whose two Lab profiles begin 24 bytes late.
+    #[test]
+    fn a_stream_without_the_profile_file_signature_is_short_of_it() {
+        let mut shifted = vec![0u8; 24];
+        shifted.extend_from_slice(b"\0\0\0\0ADBE\x02\x10\0\0spacLab Lab ");
+        shifted.resize(3144, 0);
+        shifted[60..64].copy_from_slice(b"acsp");
+        let shortfall = icc_tag_shortfall(&shifted).expect("not a profile");
+        assert_eq!(shortfall.missing, vec![PROFILE_FILE_SIGNATURE]);
+        assert!(!shortfall.only_text(), "no supply of text tags answers it");
     }
 
     #[test]

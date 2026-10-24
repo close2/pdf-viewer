@@ -564,8 +564,14 @@ impl Layout {
     /// by the difference, and the table being replaced is appended past the end. The program's own
     /// `CharStrings` INDEX stays where it was and is no longer reached — Adobe Technical Note
     /// #5176 locates it by the Top DICT's offset alone, so bytes nothing points at are inert.
+    ///
+    /// **A CID-keyed program's `FDArray` is written afresh as well**, after the `CharStrings`, each
+    /// Font DICT's `Private` offset shifted as [`Self::with_font_dicts`] shifts it: that offset is
+    /// absolute (Adobe Technical Note #5176, section 19), so an `FDArray` copied verbatim would
+    /// name, for every Font DICT, bytes `delta` away from its Private DICT — its `nominalWidthX`,
+    /// against which every restated width is stated, and its local subroutines.
     fn with_charstrings(&self, data: &[u8], charstrings: &[Vec<u8>]) -> Vec<u8> {
-        let placeholder = self.top_dict(Moved::by(0).charstrings_to(0));
+        let placeholder = self.top_dict(Moved::by(0).charstrings_to(0).fd_array_to(0));
         let new_index_len = 3usize
             .saturating_add(2 * 4)
             .saturating_add(placeholder.len());
@@ -574,13 +580,33 @@ impl Layout {
             .unwrap_or(0)
             .saturating_sub(i64::try_from(old_index_len).unwrap_or(0));
         let charstrings_at = i64::try_from(data.len()).unwrap_or(0).saturating_add(delta);
-        let top_dict = self.top_dict(Moved::by(delta).charstrings_to(charstrings_at));
+        let mut charstrings_index = Vec::new();
+        push_index(&mut charstrings_index, charstrings);
+        let font_dicts: Option<Vec<Vec<u8>>> = self.fd_array_at.map(|at| {
+            index_items(data, at)
+                .unwrap_or_default()
+                .iter()
+                .map(|dict| font_dict_shifted(dict, delta))
+                .collect()
+        });
+        let mut moved = Moved::by(delta).charstrings_to(charstrings_at);
+        if font_dicts.is_some() {
+            moved =
+                moved
+                    .fd_array_to(charstrings_at.saturating_add(
+                        i64::try_from(charstrings_index.len()).unwrap_or(i64::MAX),
+                    ));
+        }
+        let top_dict = self.top_dict(moved);
 
         let mut out = Vec::with_capacity(data.len().saturating_mul(2));
         out.extend_from_slice(data.get(..self.top_index.start).unwrap_or(data));
         push_index(&mut out, std::slice::from_ref(&top_dict));
         out.extend_from_slice(data.get(self.top_index.end..).unwrap_or(&[]));
-        push_index(&mut out, charstrings);
+        out.extend_from_slice(&charstrings_index);
+        if let Some(font_dicts) = font_dicts {
+            push_index(&mut out, &font_dicts);
+        }
         out
     }
 

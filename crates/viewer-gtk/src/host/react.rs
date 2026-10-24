@@ -5,6 +5,7 @@ use std::collections::VecDeque;
 use gtk4::prelude::*;
 use viewer_core::{Answer, Command, DocumentId, Event, Query};
 
+use viewer_host::PresentationPump as _;
 use viewer_host::native_window::NativeWindow;
 use viewer_host::trace::Topic;
 
@@ -43,7 +44,11 @@ impl Host {
             // which is when the core answers `Query::Opening` for it (ADR 1303).
             if queue.is_empty() && std::mem::take(&mut self.state.showing.catalog_due) {
                 self.obey_the_catalog(&mut queue, true);
+                self.state.pump.owe_synchronizing();
             }
+            // A tab brought to the front owes the core its presentation's mode and the window its
+            // chrome once the change's own commands have run (ADR 2300).
+            self.synchronize_if_owed(&mut queue);
             if queue.is_empty() {
                 break;
             }
@@ -132,7 +137,7 @@ impl Host {
         // the next one waiting starts. The first document's own start is its first frame,
         // unless it has no page to put in one (ADR 1275).
         if let Some(front) = behind {
-            self.show_document(front, queue);
+            self.show_document(front, queue, true);
         }
         if document != DOCUMENT || pages == 0 {
             self.later_open_the_next();

@@ -62,7 +62,6 @@ use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 
 use pdf_model::view::WidgetAppearances;
-use render_cpu::CpuRasterizer;
 use viewer_core::{Command, DocumentId, FormField};
 use viewer_host::native_window::{
     Asked, DOCUMENT, Launch, NativeWindow, Refusals, Showing, WindowState,
@@ -149,14 +148,6 @@ pub struct Host {
     documents_moved: bool,
     /// Whether the last document was closed, so the window should go with it.
     closing: bool,
-    /// Tier 1's worker for the pictures this window makes *for itself* — §12.3.4's miniatures and
-    /// §12.4.4.1's two transition faces.
-    ///
-    /// **The page is no longer drawn here**, which is ADR 0668: a display list this program did not
-    /// write is drawn on [`WindowState::drawing`]'s thread, so that a page written to be expensive
-    /// cannot take `QApplication::exec` with it. What is left on this thread is bounded by *this
-    /// host's* own asking rather than by what a document chose to state.
-    rasterizer: CpuRasterizer,
     /// Device pixels per logical pixel, from the screen Qt put the window on.
     scale: f32,
     /// Whether the reader wants the panel of three trees on the screen.
@@ -257,10 +248,8 @@ pub struct Host {
     /// rather than applied, because a viewer that magnified a page by itself because a form is on
     /// it would be answering a question nobody asked (rule 5).
     fit_magnification: Option<f32>,
-    /// When this window last told the core that time passed for a document's script timers, which
-    /// the same `QTimer` wakes for while no presentation does (ADR 1702).
-    script_ticker: viewer_host::script_timers::Ticker,
-    /// The frame of a transition in flight, which is what this window shows instead of a page.
+    /// The frame of a transition in flight, which is what this window shows instead of a page;
+    /// the presentation pump rasterises it (`viewer_host::presentation_pump`, ADR 2300).
     ///
     /// A whole `Raster` rather than a display list, because what crosses this bridge is pixels:
     /// `collect_frames` hands the C++ sink borrowed slices and a transition frame has to be
@@ -415,7 +404,6 @@ impl Host {
             panels_due: false,
             documents_moved: false,
             closing: false,
-            rasterizer: CpuRasterizer::new(),
             scale: 1.0,
             // The panel is what this window opens with, and `o` is what takes it away.
             panel_shown: true,
@@ -443,7 +431,6 @@ impl Host {
             access_pending: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             discrete_wheel: viewer_host::DiscreteWheel::default(),
             fit_magnification: None,
-            script_ticker: viewer_host::script_timers::Ticker::default(),
             playing: None,
             bar_said: false,
             preparing: None,
@@ -534,6 +521,11 @@ impl NativeWindow for Host {
 
     /// The window's chrome and panel are the C++ side's, read from `Host::chrome` on the flag,
     /// and full screen is said here, where `viewer-gtk` says it as it shows the mode.
+    /// Flagged, and the window asks `Host::chrome` what it may look like now.
+    fn apply_the_chrome(&mut self) {
+        self.update.window = true;
+    }
+
     fn show_the_page_mode(&mut self, _mode: pdf_model::viewer_preferences::PageMode) {
         if self.state.presenting.full_screen() {
             self.say("presenting full screen (§7.7.2's FullScreen page mode) — Escape comes back");

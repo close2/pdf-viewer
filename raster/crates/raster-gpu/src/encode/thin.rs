@@ -8,29 +8,28 @@
 //! > shape ever disappears as a result of unfavourable placement relative to the device
 //! > pixel grid, as might happen with other possible scan conversion rules.
 //!
-//! The device lane of ADR 0016 counts samples on an ordered grid, so it answers *is this
+//! The device lane of ADR 0016 counts samples on a lattice, so it answers *is this
 //! sample point inside the shape* and never *does this shape intersect this pixel*. A
-//! mark narrower than the grid's own step can therefore fall entirely between two
-//! columns of sample points and read zero — which is the disappearance the sentence above
-//! forbids, reached by the route it names. The processor lane computes the exact area
-//! (ADR 0005) and cannot lose such a mark.
+//! mark narrower than the gaps between the samples can therefore fall entirely between
+//! them and read zero — which is the disappearance the sentence above forbids, reached by
+//! the route it names. The processor lane computes the exact area (ADR 0005) and cannot
+//! lose such a mark.
 //!
 //! So this module is the two numbers ADR 0070's fifth lane condition compares:
-//! [`sample_column_spacing`], derived from the grid rather than written down, and
+//! [`vanishing_width`], derived from the lattice rather than written down, and
 //! [`ThinAxis`], which is the one definition of *how thin a mark is* in this tree.
 
-/// The distance between neighbouring columns of the device lane's sample grid, in
-/// device pixels — and so the narrowest mark that lane can promise to draw wherever it
-/// lands.
+use crate::winding::SampleLattice;
+
+/// The narrowest mark the device lane can promise not to lose wherever it lands, in device
+/// pixels: [`SampleLattice::vanishing_width`] of the lattice `samples` lays out.
 ///
-/// **Derived from the grid, not chosen.** `crate::winding::sample_offsets` lays `n`
-/// samples on a `√n × √n` ordered grid and puts the k-th column at `(k + ½)/√n` of a
-/// pixel. Consecutive columns are therefore `1/√n` apart, and so is the wrap across a
-/// pixel boundary: the last column of one pixel sits `1/(2√n)` from its right edge and
-/// the first column of the next sits `1/(2√n)` past it, because the grid is symmetric
-/// about the pixel centre. The columns are one lattice of period `1/√n` across the whole
-/// device, so a half-open interval of that length contains a column **wherever it
-/// lands**, and one shorter than it has placements that contain none.
+/// **Derived from the pattern, not chosen** (the viewer's ADR 2296). The samples lie on a
+/// rank-1 lattice, so the widest band at any angle that can fall between them is the spacing
+/// of its lattice lines, `1/√10` at sixteen samples, and the widest axis-aligned square is
+/// `5/16`; this is the larger, so a mark whose thin axis — the narrower side of its device
+/// box, or a stroke's own width — reaches it holds a sample under either reading. Below it
+/// there are placements that hold none.
 ///
 /// `tests/thin_marks.rs` holds both halves of that on the device rather than on paper:
 /// `at_the_sample_spacing_the_device_lane_holds_the_clause_at_every_position` sweeps ten
@@ -39,15 +38,13 @@
 ///
 /// **What the extremes of [`Options::coverage_samples`] make of it.** That field is
 /// public and settable; construction rounds it down to a square and clamps it to
-/// `4..=64`, so the grid's side is 2 to 8 and this is **0.5 at four samples** down to
-/// **0.125 at sixty-four**. The condition therefore narrows as a caller buys quality,
-/// which is the direction it should move in: more samples is a grid that misses fewer
-/// marks, and so fewer marks that need the other lane.
+/// `4..=64`, so this runs from **0.75 at four samples** — whose only lattice with a row to
+/// each sample is a diagonal — down to **0.141 at sixty-four**. The condition narrows as a
+/// caller buys quality, which is the direction it should move in.
 ///
 /// [`Options::coverage_samples`]: crate::startup::Options::coverage_samples
-#[expect(clippy::cast_precision_loss)] // a sample count clamped to 4..=64 at construction
-pub(super) fn sample_column_spacing(samples: u32) -> f32 {
-    1.0 / (samples.max(1) as f32).sqrt()
+pub(super) fn vanishing_width(samples: u32) -> f32 {
+    SampleLattice::of(samples).vanishing_width()
 }
 
 /// How narrow a mark is across its thinnest known axis, in device pixels.
@@ -109,11 +106,11 @@ impl ThinAxis {
         })
     }
 
-    /// Whether the device lane's sample grid could miss this mark entirely.
+    /// Whether the device lane's sample lattice could miss this mark entirely.
     ///
-    /// Strictly below the spacing: at exactly one column spacing the grid catches the
-    /// mark wherever it lands, which is the arithmetic
-    /// [`sample_column_spacing`] states and `tests/thin_marks.rs` measures.
+    /// Strictly below the width: at exactly the [`vanishing_width`] the lattice catches the
+    /// mark wherever it lands, which is the arithmetic that function states and
+    /// `tests/thin_marks.rs` measures.
     ///
     /// **A non-finite thin axis answers `false`**, because `f32` comparison against a
     /// `NaN` is false — the mark keeps whichever lane the four cost conditions choose,
@@ -121,69 +118,69 @@ impl ThinAxis {
     /// this condition exists to *decline* a lane, and a mark whose geometry is already
     /// beyond the encoder's coordinate ceiling is refused elsewhere by name rather than
     /// being routed on a comparison that means nothing.
-    pub(super) fn can_fall_between_sample_columns(self, spacing: f32) -> bool {
-        self.0 < spacing
+    pub(super) fn can_miss_every_sample(self, vanishing_width: f32) -> bool {
+        self.0 < vanishing_width
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ThinAxis, sample_column_spacing};
+    use super::{ThinAxis, vanishing_width};
 
-    /// The spacing at each sample count `Options::coverage_samples` can become, including
-    /// both ends of the clamp — the numbers the condition's reach is stated in.
+    /// The width at each sample count `Options::coverage_samples` can become, including
+    /// both ends of the clamp — the numbers the condition's reach is stated in, and wider
+    /// than the ordered grid's `1/√n` at every one of them (ADR 2296).
     #[test]
-    fn the_spacing_is_one_over_the_grids_side_at_every_admitted_sample_count() {
-        for (samples, side) in [(4, 2.0_f32), (9, 3.0), (16, 4.0), (36, 6.0), (64, 8.0)] {
-            let spacing = sample_column_spacing(samples);
+    fn the_vanishing_width_at_every_admitted_sample_count() {
+        for (samples, expected) in [
+            (4, 0.75_f32),
+            (9, 1.0 / 5.0_f32.sqrt()),
+            (16, 1.0 / 10.0_f32.sqrt()),
+            (36, 1.0 / 26.0_f32.sqrt()),
+        ] {
+            let width = vanishing_width(samples);
             assert!(
-                (spacing - 1.0 / side).abs() <= f32::EPSILON,
-                "{samples} samples sit on a {side} × {side} grid, so its columns are \
-                 1/{side} apart; got {spacing}"
+                (width - expected).abs() <= f32::EPSILON,
+                "{samples} samples: expected {expected}, got {width}"
             );
         }
-        // The two extremes the option admits, written out because they are what the
-        // condition's reach is quoted as.
-        assert!((sample_column_spacing(4) - 0.5).abs() <= f32::EPSILON);
-        assert!((sample_column_spacing(64) - 0.125).abs() <= f32::EPSILON);
+        assert!(vanishing_width(64) < vanishing_width(16));
     }
 
     /// A stroke is measured by its own resolved device width as well as by its box, so a
     /// turned hairline — whose box is wide — is still read as thin.
     #[test]
     fn a_strokes_width_is_read_where_it_is_thinner_than_the_box() {
-        let spacing = sample_column_spacing(16);
+        let width = vanishing_width(16);
         let turned = (0.0, 0.0, 100.0, 100.0);
         assert!(
-            !ThinAxis::of(turned, None).can_fall_between_sample_columns(spacing),
+            !ThinAxis::of(turned, None).can_miss_every_sample(width),
             "a fill with a 100-pixel box is not thin by any bound this type has — which \
              is the residual the type's own documentation states"
         );
         assert!(
-            ThinAxis::of(turned, Some(0.1)).can_fall_between_sample_columns(spacing),
+            ThinAxis::of(turned, Some(0.1)).can_miss_every_sample(width),
             "a stroke a tenth of a pixel wide is thin however its box is turned"
         );
         // And the box still decides where it is the narrower of the two: a wide stroke
         // clipped to a sliver of a tile is as losable as a thin one.
         assert!(
-            ThinAxis::of((0.0, 0.0, 0.1, 100.0), Some(9.0))
-                .can_fall_between_sample_columns(spacing),
+            ThinAxis::of((0.0, 0.0, 0.1, 100.0), Some(9.0)).can_miss_every_sample(width),
             "the smaller of the two bounds is the one that decides"
         );
     }
 
-    /// The boundary is *below*, not *at*: a mark exactly one column spacing wide catches
-    /// a column wherever it lands, so it keeps the lane the cost conditions choose.
+    /// The boundary is *below*, not *at*: a mark exactly the vanishing width wide catches
+    /// a sample wherever it lands, so it keeps the lane the cost conditions choose.
     #[test]
     fn a_mark_at_exactly_the_spacing_is_not_declined() {
-        let spacing = sample_column_spacing(16);
+        let width = vanishing_width(16);
         assert!(
-            !ThinAxis::of((0.0, 0.0, spacing, 10.0), None).can_fall_between_sample_columns(spacing),
-            "at exactly one column spacing the grid cannot miss the mark"
+            !ThinAxis::of((0.0, 0.0, width, 10.0), None).can_miss_every_sample(width),
+            "at exactly the vanishing width the lattice cannot miss the mark"
         );
         assert!(
-            ThinAxis::of((0.0, 0.0, spacing * 0.99, 10.0), None)
-                .can_fall_between_sample_columns(spacing),
+            ThinAxis::of((0.0, 0.0, width * 0.99, 10.0), None).can_miss_every_sample(width),
             "just below it, it can"
         );
     }
@@ -202,8 +199,7 @@ mod tests {
     #[test]
     fn a_non_finite_thin_axis_declines_nothing() {
         assert!(
-            !ThinAxis::of((0.0, 0.0, f32::NAN, f32::NAN), None)
-                .can_fall_between_sample_columns(0.25),
+            !ThinAxis::of((0.0, 0.0, f32::NAN, f32::NAN), None).can_miss_every_sample(0.25),
             "a NaN extent answers false, leaving the four cost conditions to choose"
         );
     }

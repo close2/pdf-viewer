@@ -61,6 +61,7 @@ use core::fmt::Write as _;
 use std::collections::BTreeMap;
 
 use pdf_archive::survey::Survey;
+use pdf_archive::{Part, Target};
 use pdf_font::LoadedFont;
 use pdf_font::cmap::Code;
 use pdf_font::encoding::{self, SymbolicEncoding};
@@ -70,6 +71,8 @@ use pdf_syntax::{Document, serialize::flate_encode};
 
 use super::COMPRESSION_LEVEL;
 use super::prepare::Spare;
+
+mod placeholders;
 
 /// The three values ISO 19005-2 section 6.2.11.7.2 names as placeholders rather than mappings.
 ///
@@ -86,7 +89,9 @@ pub(super) struct DerivedMaps {
     pub(super) written: BTreeMap<ObjectId, Object>,
 }
 
-/// Derives a `/ToUnicode` `CMap` for each of the fonts the validator named.
+/// Derives a `/ToUnicode` `CMap` for each of the fonts the validator named, or restates the
+/// producer's own without its placeholders where nothing can be derived and `target` admits the
+/// codes it leaves unmapped ([`placeholders`], ADR 2294).
 ///
 /// `fonts` is the set of font objects the two Unicode requirements failed at, taken from the
 /// validator's own findings — **not** from a walk of this converter's own. The clause has four
@@ -103,6 +108,7 @@ pub(super) struct DerivedMaps {
 pub(super) fn derive(
     document: &Document,
     fonts: &[ObjectId],
+    target: Target,
     spare: &mut Spare,
 ) -> Result<DerivedMaps, &'static str> {
     if fonts.is_empty() {
@@ -114,22 +120,76 @@ pub(super) fn derive(
         written: BTreeMap::new(),
     };
     for id in fonts {
-        let Some(used) = survey
+        let used = survey
             .fonts()
-            .find(|used| used.id == Some(*id) && used.shown_complete)
-        else {
-            // Either no content stream selected this font — in which case there is no set of
-            // referenced codes to write a CMap over — or the survey's own budget stopped before
-            // its strings were read, in which case the set is a prefix and a CMap built on it
-            // would be silently short.
-            return Err(CODES_NOT_KNOWN);
+            .find(|used| used.id == Some(*id) && used.shown_complete);
+        // Either no content stream selected this font — in which case there is no set of
+        // referenced codes to write a CMap over — or the survey's own budget stopped before its
+        // strings were read, in which case the set is a prefix and a CMap built on it would be
+        // silently short.
+        let derived = used
+            .ok_or(CODES_NOT_KNOWN)
+            .and_then(|used| derive_one(document, used))
+            .map(|mapping| cmap_stream(&mapping));
+        let stream = match derived {
+            Ok(stream) => stream,
+            Err(why) => restated(document, *id, used, target).ok_or(why)?,
         };
-        let mapping = derive_one(document, used)?;
         let at = spare.take(document).ok_or(NO_SPARE_OBJECT)?;
-        maps.written.insert(at, cmap_stream(&mapping));
+        maps.written.insert(at, stream);
         maps.at.insert(*id, at);
     }
     Ok(maps)
+}
+
+/// The font's own `/ToUnicode` `CMap` without its placeholder values, where `target` admits the
+/// codes that leaves unmapped.
+///
+/// ISO 19005-4 section 6.2.10.7 states its mapping of every referenced code as a `should`, so a
+/// part 4 file may leave any code unmapped. ISO 19005-2 section 6.2.11.7.2 states it as a `shall`
+/// of every referenced glyph, so a part 2 target takes the restatement only where none of the codes
+/// it unmaps was shown — read off the font's whole set of shown strings, decoded by the font
+/// itself. `None` keeps the reason the derivation gave, which is the one the refusal names.
+fn restated(
+    document: &Document,
+    id: ObjectId,
+    used: Option<&pdf_archive::survey::SelectedFont>,
+    target: Target,
+) -> Option<Object> {
+    let Object::Stream(stream) = document.get_key_of(id, "ToUnicode")? else {
+        return None;
+    };
+    let data = document.decoded_stream_data(&stream)?;
+    let restated = placeholders::restate(&data).ok()?;
+    if target.part() == Part::Two {
+        // An unshown font references no glyph, and a font shown in part leaves the question open.
+        if let Some(used) = used {
+            let font = LoadedFont::load(document, &used.dict, &used.name).ok()?;
+            let shown = used
+                .shown
+                .keys()
+                .flat_map(|text| font.decode(text))
+                .any(|code| restated.unmapped.contains(&code.value()));
+            if shown {
+                return None;
+            }
+        } else if survey_saw_font(document, id) {
+            return None;
+        }
+    }
+    // §9.10.3's Table 118 gives `UseCMap` as the one entry of the stream dictionary that means
+    // anything here, so the producer's dictionary is kept but for the entries that describe the
+    // encoding of the old bytes rather than the map.
+    let mut dict = stream.dict.clone();
+    for entry in ["Filter", "DecodeParms", "Length", "DL"] {
+        dict.remove(entry);
+    }
+    Some(stream_object_with(dict, restated.data))
+}
+
+/// Whether any content stream selected this font at all, read whole or not.
+fn survey_saw_font(document: &Document, id: ObjectId) -> bool {
+    Survey::of(document).fonts().any(|used| used.id == Some(id))
 }
 
 /// One font's code-to-text table, or the reason it has none.
@@ -334,16 +394,20 @@ const BFCHAR_LIMIT: usize = 100;
 
 /// The stream object a `CMap` goes in, compressed where that is worth doing.
 fn stream_object(data: Vec<u8>) -> Object {
-    let (dict, data) = match flate_encode(&data, COMPRESSION_LEVEL) {
+    stream_object_with(Dictionary::new(), data)
+}
+
+/// [`stream_object`] over a dictionary the caller already holds entries of.
+fn stream_object_with(mut dict: Dictionary, data: Vec<u8>) -> Object {
+    let data = match flate_encode(&data, COMPRESSION_LEVEL) {
         Some(encoded) if encoded.len() < data.len() => {
-            let mut dict = Dictionary::new();
             dict.insert(
                 Name::new(&b"Filter"[..]),
                 Object::Name(Name::new(&b"FlateDecode"[..])),
             );
-            (dict, encoded)
+            encoded
         }
-        _ => (Dictionary::new(), data),
+        _ => data,
     };
     Object::Stream(std::sync::Arc::new(Stream {
         dict,

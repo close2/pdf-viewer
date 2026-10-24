@@ -52,9 +52,9 @@ use std::path::{Path, PathBuf};
 /// because a stale exemption is an exemption nobody re-read.
 const COLD_SITES: [(&str, &str); 2] = [
     (
-        "raster-gpu/src/winding.rs",
-        "sample_offsets: at most 256 offsets, built once when the winding lane's uniform \
-         buffers are made, not per fragment and not per segment",
+        "raster-gpu/src/winding/lattice.rs",
+        "SampleLattice::offsets: at most 64 offsets, built once when the winding lane's \
+         uniform buffers are made, not per fragment and not per segment",
     ),
     (
         "raster-gpu/src/mask.rs",

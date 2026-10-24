@@ -1387,7 +1387,7 @@ impl Prepared {
         // failing at more fonts than the cap is one `doc/adr/0947`'s third stage refuses rather
         // than one this rewrite half-finishes.
         let to_unicode = asked(wanted(Rewrite::ToUnicode), || {
-            to_unicode::derive(document, &unicode_fonts(input), &mut spare)
+            to_unicode::derive(document, &unicode_fonts(input), plan.target, &mut spare)
                 .map_err(Because::NotBuiltYet)
         });
         // **Prepared after the removal and from it**, for the reason the composed pages are:
@@ -3126,18 +3126,38 @@ fn button_widget(document: &Document, annotation: &Dictionary) -> bool {
 ///
 /// The validator's own findings rather than a walk of this converter's, for
 /// [`unicode_fonts`]'s reason: which properties a predefined schema defines is `pdf_archive`'s
-/// reading. The *list* it names is capped, so a document failing at more streams than the cap
-/// leaves one uncleaned — and `doc/adr/0947`'s third stage refuses that file rather than this
-/// preparation half-finishing it.
-fn schema_packets(input: &pdf_archive::Report, requirement: &str) -> Vec<ObjectId> {
-    let mut out: Vec<ObjectId> = input
+/// reading. **The list it names is capped**, so where the requirement failed at more places than
+/// the list kept, the population is every metadata stream the validator walks
+/// (`pdf_archive::metadata_streams`) — each caller asks `pdf_archive` about each packet again and
+/// passes over one with nothing to do, so the wider population changes nothing but which packets
+/// are reached (ADR 2295).
+fn schema_packets(
+    document: &Document,
+    input: &pdf_archive::Report,
+    requirement: &str,
+) -> Vec<ObjectId> {
+    let failed: Vec<_> = input
         .failures()
         .filter(|judgement| judgement.id == requirement)
         .filter_map(|judgement| match &judgement.outcome {
-            Outcome::Failed { places, .. } => Some(places),
+            Outcome::Failed { places, total } => Some((places, *total)),
             _ => None,
         })
-        .flatten()
+        .collect();
+    if failed.iter().any(|(places, total)| *total > places.len()) {
+        // A stream that does not decode is a fault of another row's (section 6.6.2.1's), which
+        // the callers would refuse on as though this row had named it.
+        return pdf_archive::metadata_streams(document)
+            .into_iter()
+            .filter(|id| match document.get(*id) {
+                Object::Stream(stream) => document.decoded_stream_data(&stream).is_some(),
+                _ => false,
+            })
+            .collect();
+    }
+    let mut out: Vec<ObjectId> = failed
+        .into_iter()
+        .flat_map(|(places, _)| places)
         .filter_map(|finding| finding.place.object)
         .collect();
     out.sort_unstable();
@@ -3163,7 +3183,7 @@ fn prepare_properties(
 ) -> Result<Cleaned, Because> {
     let mut packets = BTreeMap::new();
     let mut removed = Vec::new();
-    for at in schema_packets(input, SCHEMA_REQUIREMENT) {
+    for at in schema_packets(document, input, SCHEMA_REQUIREMENT) {
         // The fresh packet states no property at all, so there is nothing here to cut out of it
         // and the producer's own bytes are not what this stream will carry.
         if fresh.is_some_and(|fresh| fresh.packet(at).is_some()) {
@@ -4022,7 +4042,7 @@ fn prepare_respellings(
     let mut fields = 0usize;
     let mut removed = Vec::new();
     let mut discarded = 0usize;
-    for at in schema_packets(input, CONTAINER_REQUIREMENT) {
+    for at in schema_packets(document, input, CONTAINER_REQUIREMENT) {
         // Replaced rather than edited, for [`prepare_properties`]'s reason: a fresh packet
         // describes no extension schema, so it states no container field to respell.
         if fresh.is_some_and(|fresh| fresh.packet(at).is_some()) {
@@ -4880,7 +4900,13 @@ fn prepare_fonts(
 ) -> PreparedFonts {
     let substitutes = match (wants_substitutes, survey) {
         (true, _) if !plan.substitute_fonts => Err(Because::Declined(SUBSTITUTION_DECLINED)),
-        (true, Some(survey)) => fonts::embed_faces(document, survey, spare, &plan.supplied_fonts),
+        (true, Some(survey)) => fonts::embed_faces(
+            document,
+            survey,
+            spare,
+            &plan.supplied_fonts,
+            plan.cjk_pack.as_ref(),
+        ),
         _ => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
     };
     let metrics = match (wants_metrics.widths || wants_metrics.vertical, survey) {

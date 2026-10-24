@@ -210,7 +210,7 @@ impl App {
     fn no_device(
         &self,
         window: &Arc<Window>,
-        instance: Option<&raster_gpu::wgpu::Instance>,
+        instance: Option<&raster_gpu::LaunchInstance>,
         problem: &render_raster::QuorraRasterError,
     ) -> Option<Surface> {
         eprintln!("the graphics device could not be brought up: {problem}");
@@ -218,7 +218,7 @@ impl App {
         if let Some(instance) = instance {
             // What *this* instance could see, which is the number that distinguishes a backend
             // this machine does not have (none) from a driver that failed later (some).
-            let visible = QuorraWindowRenderer::adapters_on(instance);
+            let visible = QuorraWindowRenderer::adapters_on(instance.instance());
             eprintln!(
                 "  adapters behind it: {}",
                 if visible.is_empty() {

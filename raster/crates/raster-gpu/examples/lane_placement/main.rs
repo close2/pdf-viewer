@@ -72,7 +72,9 @@ mod measure;
 mod sweeps;
 mod witness;
 
-use raster_gpu::{Coverage, DEFAULT_COVERAGE_SAMPLES, DEFAULT_GLYPH_QUANTUM, Device};
+use raster_gpu::{
+    Coverage, DEFAULT_COVERAGE_SAMPLES, DEFAULT_GLYPH_QUANTUM, Device, SampleLattice,
+};
 
 use fixture::{ACROSS, ALONG, HAIRLINE, TINY_ATLAS, WITNESS_WIDTH, device};
 use sweeps::{
@@ -173,7 +175,7 @@ fn report(placement: &[Worst; 2], grid: &[(u32, Vec<f64>, Worst)]) {
         placement[0].ink, placement[1].ink
     );
     for (samples, ladder, worst) in grid {
-        let pitch = 1.0 / f64::from(*samples).sqrt();
+        let pitch = f64::from(SampleLattice::of(*samples).edge_pitch());
         println!(
             "phase 2 at {samples:>2} samples: {} rungs, worst ink {:+.4} and worst centroid \
              {:+.4}, against the pitch's own {pitch:.4}",
@@ -202,17 +204,17 @@ fn assert_placement(worst: &[Worst; 2], samples: u32) {
         worst[0].centroid
     );
     // **The sampled column, and its bound is a different number for a different reason.**
-    // The device lane counts samples on an ordered grid whose rows are `1/√n` apart
-    // (`winding::sample_offsets`), so a band covers the lattice points inside it and its
+    // The device lane counts samples on a lattice whose rows are `1/n` apart — every sample
+    // has a row of its own (`SampleLattice`, ADR 2296) — so a band covers the rows inside it and its
     // centroid can only be their mean. **Half a pitch holds here because [`HAIRLINE`] is a
     // multiple of the pitch**: the band then contains the same count of lattice points
     // wherever it lands, the mean is the first point plus a fixed offset, and the first
     // point is within one pitch of the band's edge — so the mean is within half a pitch of
     // its centre. At a width the pitch does not divide the count itself changes and the
     // bound is a whole pitch, which is what `assert_grid` states and phase 2 measures.
-    // This is not the atlas's quantum and it is four times larger at the default sample
-    // count; ADR 0076 is the decision.
-    let half_pitch = 0.5 / f64::from(samples).sqrt();
+    // At the default sample count it is the atlas's quantum's own size, for a different
+    // reason; ADR 0076 is the decision and ADR 2296 the lattice.
+    let half_pitch = 0.5 * f64::from(SampleLattice::of(samples).edge_pitch());
     assert!(
         worst[1].centroid.abs() <= half_pitch + BYTE_SLACK,
         "the sampled column moved a hairline by {:+.4} device pixels, past half the sample \
@@ -225,7 +227,7 @@ fn assert_placement(worst: &[Worst; 2], samples: u32) {
 /// arithmetic and not a constant that happens to be a quarter.
 fn assert_grid(grid: &[(u32, Vec<f64>, Worst)]) {
     for (samples, ladder, worst) in grid {
-        let pitch = 1.0 / f64::from(*samples).sqrt();
+        let pitch = f64::from(SampleLattice::of(*samples).edge_pitch());
         let slack = byte_drift(*samples) + BYTE_SLACK;
         // Reachability first, and it is the property this round added. A rule shorter than
         // `ALONG` fails `triangles_under_coverage`'s floor and is answered by the processor
@@ -267,7 +269,8 @@ fn assert_grid(grid: &[(u32, Vec<f64>, Worst)]) {
              {:+.4}, past the grid's own pitch of {pitch:.4}",
             worst.centroid
         );
-        // Every rung on a lattice of `1/√n`, which is the claim ADR 0076 records: the ink
+        // Every rung on a lattice of `1/n`, which is the claim ADR 0076 records at ADR 2296's
+        // pitch: the ink
         // is a count of sample rows and therefore a multiple of the pitch, never a
         // constant fitted to one sample count.
         for rung in ladder {

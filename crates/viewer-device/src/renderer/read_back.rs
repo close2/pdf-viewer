@@ -406,6 +406,9 @@ impl ReadBack {
                         self.handed.finished.push(Finished {
                             request: flight.request,
                             outcome: Some(Rendered::Raster(raster)),
+                            // The union's exact measure is the processor's (ADR 2280); what the
+                            // device will not draw is a refusal, said below, not a decline.
+                            declined: Vec::new(),
                             cost: took,
                             waited: flight.asked.elapsed(),
                         });

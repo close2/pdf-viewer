@@ -60,27 +60,28 @@
 //! # The two lanes do not agree, and one shape class is settled by the clause
 //!
 //! `Coverage::Cpu` computes the exact area a shape covers of each pixel; `Coverage::Gpu`
-//! counts samples on an ordered grid (`Options::coverage_samples`, sixteen on a 4 × 4 grid
-//! by default). A mark narrower than the grid's spacing falls **between** the sample
-//! columns, and the device lane then reads zero — which is the disappearance §10.7.4's
+//! counts samples on a lattice (`Options::coverage_samples`, sixteen by default, each in a
+//! column and a row of its own — raster's `SampleLattice`, the viewer's ADR 2296). A mark
+//! narrower than the gaps between them can fall **between** the
+//! samples, and the device lane then reads zero — which is the disappearance §10.7.4's
 //! rule exists to forbid, reached by the route the clause names. No sample count removes
-//! the effect: halving the spacing halves the width at which it starts.
+//! the effect: halving the gaps halves the width at which it starts.
 //!
 //! **ADR 0070 closes it in the lane chooser rather than in the sample grid.** A mark whose
-//! thin axis is below `1/√coverage_samples` of a device pixel keeps the processor lane, so
+//! thin axis is below the lattice's vanishing width keeps the processor lane, so
 //! a `Coverage::Gpu` frame draws such a mark with the exact area the processor lane
 //! computes. Two things are therefore asserted here and they are different assertions:
 //!
 //! - **the clause, on both lanes** —
 //!   [`a_mark_below_the_sample_spacing_is_drawn_at_every_position_on_both_lanes`] sweeps
 //!   ten sub-pixel positions at every sub-pixel width and requires ink at all of them;
-//! - **that the condition is what did it, and only below the spacing** —
+//! - **that the condition is what did it, and only below the vanishing width** —
 //!   [`the_lane_is_declined_exactly_below_the_sample_spacing`] and
 //!   [`a_turned_hairline_stroke_is_declined_by_its_own_width`], which read the lane
 //!   from the frame's own counters rather than from its pixels. A fixture whose subject
 //!   is a lane choice has to assert the lane (`raster/doc/HANDOVER.md`'s `m45.rs` trap), and a
 //!   fixture whose subject is a *difference* has to show the difference is reachable —
-//!   so each of those two measures the width above the spacing as well and requires the
+//!   so each of those two measures the width at the vanishing width as well and requires the
 //!   device lane to be taken there.
 //!
 //! The residual ADR 0070 states and does not close: a hairline at 45° given as a **fill**
@@ -107,7 +108,7 @@
     clippy::arithmetic_side_effects
 )]
 
-use raster_gpu::{Coverage, Device, Options, RenderError, Target, Viewport};
+use raster_gpu::{Coverage, Device, Options, RenderError, SampleLattice, Target, Viewport};
 use raster_scene::{
     Affine, BlendMode, Color, Compose, FillRule, LineCap, LineJoin, Paint, Point, Rect, Scene,
     SceneBuilder, Segment, Stroke,
@@ -135,8 +136,8 @@ const TALL: u32 = 768;
 
 /// The device-space left edge every thin mark in this file starts at.
 ///
-/// Deliberately not on a pixel boundary and not on a quarter either: 0.2 into pixel 20 is
-/// between the first and second columns of a 4 × 4 sample grid, which is the "unfavourable
+/// Deliberately not on a pixel boundary and not on a sixteenth either: 0.2 into pixel 20 is
+/// between the third and fourth columns of the sample lattice, which is the "unfavourable
 /// placement relative to the device pixel grid" §10.7.4 names.
 const LEFT: f32 = 20.2;
 
@@ -144,22 +145,22 @@ const LEFT: f32 = 20.2;
 /// stopped working below here".
 const SUB_PIXEL_WIDTHS: [f32; 6] = [0.75, 0.5, 0.25, 0.125, 0.1, 0.05];
 
-/// Widths at or above the sample spacing that the grid's own pitch does **not** divide.
+/// Widths at or above the vanishing width that the lattice's own pitch does **not** divide.
 ///
-/// **Every width in [`SUB_PIXEL_WIDTHS`] at or above the spacing is a multiple of a
-/// quarter** — 0.75, 0.5 and 0.25 — and a quarter is exactly the default grid's pitch. A
-/// band whose width is a multiple of the pitch contains the same number of sample rows
-/// *wherever it lands*, so the device lane draws its exact area at every position and the
-/// two tests below have been measuring the quantiser's own fixed points since they were
-/// written. That is the aliasing trap `raster/doc/notes-glyph-phase-carry.md` section 2 records
-/// having already been paid for once in the glyph phase, standing here in the coverage grid.
+/// **Every width in [`SUB_PIXEL_WIDTHS`] at or above the vanishing width is a multiple of a
+/// sixteenth** — 0.75 and 0.5 — and a sixteenth is exactly the default lattice's column
+/// pitch. A band whose width is a multiple of the pitch contains the same number of sample
+/// columns *wherever it lands*, so the device lane draws its exact area at every position and
+/// the tests that sweep those widths measure the quantiser's own fixed points. That is the
+/// aliasing trap `raster/doc/notes-glyph-phase-carry.md` section 2 records having already been
+/// paid for once in the glyph phase, standing here in the coverage lattice.
 ///
-/// These are the widths that can see it. 0.878 is the caller's own witness —
-/// `QUORRA_FEEDBACK.md` section 31.2, `issue16500.pdf`'s table rule, where they measured 0.753 of
-/// ink for 0.878 of shape — and the other two are a wide and a narrow one either side of
-/// it. None of the three is a multiple of ¼, ½ or ⅛, so none is a fixed point of any grid
-/// `Options::coverage_samples` admits. ADR 0076 is what they measure.
-const OFF_LATTICE_WIDTHS: [f32; 3] = [0.878, 0.6, 0.31];
+/// These are the widths that can see it: a wide, a middle and a narrow one, each at least the
+/// vanishing width so that the device lane draws it, and none within a twentieth of a pitch of
+/// a multiple of one. The caller's own witness, `issue16500.pdf`'s 0.878-pixel rule
+/// (`QUORRA_FEEDBACK.md` section 31.2), is 14.05 sixteenths, too near a fixed point to say
+/// anything here; ADR 0076 is what these measure, at the lattice's pitch (ADR 2296).
+const OFF_LATTICE_WIDTHS: [f32; 3] = [0.9, 0.6, 0.35];
 
 fn device_with(coverage: Coverage) -> Device {
     Device::headless(&Options {
@@ -305,7 +306,7 @@ fn assert_the_clause_holds(ink: f32, w: f32, lane: &str) {
     // rounding allowed for by ADR 0006's store.
     //
     // **Not asserted of the device lane at an arbitrary width**, and ADR 0076 is why: that
-    // lane's ink is a count of sample rows times the grid's pitch, so it is below the
+    // lane's ink is a count of sample columns times the lattice's pitch, so it is below the
     // shape's area whenever the pitch does not divide the width. Every device-lane caller
     // of this function passes a width the pitch *does* divide, which is what made the
     // requirement hold there; `the_device_lanes_ink_is_quantised_to_one_sample_row` is the
@@ -386,8 +387,8 @@ fn a_rasterised_mark_thinner_than_a_pixel_keeps_ink_proportional_to_its_width() 
 /// The control for the tests below, and the reason [`TALL`] is as large as it is: under
 /// `Coverage::Gpu` this fixture really is drawn by the device lane.
 ///
-/// Its bar is **half a device pixel**, which is above the sample-column spacing at every
-/// sample count `Options::coverage_samples` admits — so ADR 0070's fifth condition does not
+/// Its bar is **half a device pixel**, which is above the lattice's vanishing width at the
+/// default sixteen samples and at every larger count — so ADR 0070's fifth condition does not
 /// fire here, and this stays a statement about the four cost conditions alone.
 ///
 /// The proof is the one `tests/coverage_lanes.rs` uses — only the device lane allocates the
@@ -429,25 +430,31 @@ fn the_device_lane_really_is_what_draws_the_tall_bar() {
     }
 }
 
-/// The width of one cell of the device lane's sample grid, in device pixels.
+/// The narrowest mark the device lane's sample lattice cannot lose, in device pixels: the
+/// width ADR 0070's condition compares a mark's thin axis with.
 ///
-/// `Options::coverage_samples` is sixteen by default, laid out 4 × 4, so the columns of
-/// sample points sit a quarter of a pixel apart. Derived from the constant rather than
-/// written as `0.25`, because the constant is what would move.
-fn sample_column_spacing() -> f32 {
-    1.0 / (raster_gpu::DEFAULT_COVERAGE_SAMPLES as f32).sqrt()
+/// Asked of raster's own [`SampleLattice`] rather than written as `0.316`, because the
+/// lattice is what would move (the viewer's ADR 2296).
+fn vanishing_width() -> f32 {
+    SampleLattice::of(raster_gpu::DEFAULT_COVERAGE_SAMPLES).vanishing_width()
 }
 
-/// The device lane, on the widths its sample grid can represent: a mark at least one column
-/// spacing wide catches at least one column of samples wherever it sits, so §10.7.4 holds
-/// there.
+/// The distance between neighbouring sample columns, in device pixels: every sample has a
+/// column of its own, so an axis-aligned band's ink is a count of columns times this, a
+/// sixteenth of a pixel at the default count.
+fn edge_pitch() -> f32 {
+    SampleLattice::of(raster_gpu::DEFAULT_COVERAGE_SAMPLES).edge_pitch()
+}
+
+/// The device lane, on the widths its sample lattice can represent: a mark at least the
+/// vanishing width wide catches a sample wherever it sits, so §10.7.4 holds there.
 ///
 /// **And it holds there for a narrower reason than the name suggests**, which ADR 0076
 /// found and this comment records rather than leaving to be inferred. The widths this sweep
-/// reaches are 0.75, 0.5 and 0.25 — every one of them a multiple of the grid's own ¼ pitch —
-/// and a band whose width the pitch divides holds the same count of sample rows *wherever it
-/// lands*. Its ink is therefore exact at every position by arithmetic, not by fidelity, and
-/// the clause's area floor cannot fail here whatever the lane does elsewhere.
+/// reaches are 0.75 and 0.5 — both multiples of the lattice's sixteenth — and a band whose
+/// width the pitch divides holds the same count of sample columns *wherever it lands*. Its
+/// ink is therefore exact at every position by arithmetic, not by fidelity, and the clause's
+/// area floor cannot fail here whatever the lane does elsewhere.
 /// [`the_device_lanes_ink_is_quantised_to_one_sample_row`] is the sweep at widths the pitch
 /// does not divide, and there it does fail.
 #[test]
@@ -455,7 +462,7 @@ fn the_device_lane_meets_the_clause_down_to_its_sample_spacing() {
     let mut device = device_with(Coverage::Gpu);
     let mut checked = 0_u32;
     for w in SUB_PIXEL_WIDTHS {
-        if w < sample_column_spacing() {
+        if w < vanishing_width() {
             continue;
         }
         checked += 1;
@@ -464,41 +471,40 @@ fn the_device_lane_meets_the_clause_down_to_its_sample_spacing() {
         let ink = row_ink(&pixels, TALL, TALL / 2);
         assert_the_clause_holds(ink, w, "the device lane");
         // The device lane's answer is `k` of `n` samples rather than an area, so the bound
-        // is the grid's own step and not ADR 0005's rounding.
+        // is the lattice's own pitch and not ADR 0005's rounding.
         assert!(
-            (ink - w).abs() <= sample_column_spacing(),
+            (ink - w).abs() <= edge_pitch(),
             "the device lane, width {w}: {ink} of ink, further from the shape's area than \
              one sample column"
         );
     }
     assert!(
-        checked >= 3,
-        "the sweep no longer contains widths the sample grid can represent, so this test \
+        checked >= 2,
+        "the sweep no longer contains widths the sample lattice can represent, so this test \
          asserted nothing"
     );
 }
 
-/// **What the device lane's grid does to a mark whose width its pitch does not divide** —
+/// **What the device lane's lattice does to a mark whose width its pitch does not divide** —
 /// ADR 0076, and the half of §10.7.4 that lane does not meet.
 ///
-/// The neighbouring tests sweep 0.75, 0.5 and 0.25, every one of them a multiple of the
-/// default grid's ¼ pitch, so a band of any of them holds the same number of sample rows at
-/// every position and the clause's area floor holds there by arithmetic rather than by
-/// fidelity. [`OFF_LATTICE_WIDTHS`] is what that leaves out, and what it leaves out is the
-/// caller's `issue16500.pdf`.
+/// The neighbouring tests sweep 0.75 and 0.5, both multiples of the default lattice's
+/// sixteenth, so a band of either holds the same number of sample columns at every position
+/// and the clause's area floor holds there by arithmetic rather than by fidelity.
+/// [`OFF_LATTICE_WIDTHS`] is what that leaves out.
 ///
 /// **What this asserts, and what it deliberately does not.** The ink is a count of sample
-/// rows times the pitch, so it is within one pitch of the shape's area and no closer — that
-/// is the bound, and it is two-sided. The clause's *floor* is not asserted here because it
-/// does not hold: a band of 0.878 pixels covering three sample rows draws 0.75, which is
-/// less area than the shape has, and no arrangement of a sample-counting rasteriser avoids
+/// columns times the pitch, so it is within one pitch of the shape's area and no closer —
+/// that is the bound, and it is two-sided. The clause's *floor* is not asserted here because
+/// it does not hold: a band of 0.9 pixels covering fourteen sample columns draws 0.875, which
+/// is less area than the shape has, and no arrangement of a sample-counting rasteriser avoids
 /// it. §10.7.4's first requirement is asserted, because the mark still cannot disappear —
-/// ADR 0070's condition guarantees it above the spacing — and it is the requirement this
-/// lane does keep.
+/// ADR 0070's condition guarantees it at and above the vanishing width — and it is the
+/// requirement this lane does keep.
 #[test]
 fn the_device_lanes_ink_is_quantised_to_one_sample_row() {
     let mut device = device_with(Coverage::Gpu);
-    let pitch = sample_column_spacing();
+    let pitch = edge_pitch();
     // Ten sub-pixel positions per width, so no single placement carries the result — the
     // quantiser's answer is a function of where the band's edges fall between the columns,
     // which is the whole subject.
@@ -508,8 +514,8 @@ fn the_device_lanes_ink_is_quantised_to_one_sample_row() {
         // because 3.99 pitches is as near a fixed point as 4.01 is.
         let pitches = (w / pitch).fract();
         assert!(
-            w > pitch && (0.05..=0.95).contains(&pitches),
-            "{w} is {pitches:.3} of a pitch from a multiple of the grid's {pitch}, so it is a \
+            w >= vanishing_width() && (0.05..=0.95).contains(&pitches),
+            "{w} is {pitches:.3} of a pitch from a multiple of the lattice's {pitch}, so it is a \
              fixed point of the quantiser and this sweep would assert nothing"
         );
         for step in 0..10 {
@@ -519,56 +525,61 @@ fn the_device_lanes_ink_is_quantised_to_one_sample_row() {
             let named = format!("the device lane at {left}");
             assert_the_shape_did_not_disappear(ink, w, &named);
             // The bound ADR 0076 states, and the reason a `Coverage::Gpu` caller can price
-            // this lane: the answer is `k` sample rows of `pitch` each, so it is inside one
+            // this lane: the answer is `k` sample columns of `pitch` each, so it is inside one
             // pitch of the area either way. The 8-bit store adds `n/8` levels on top, which
-            // at sixteen samples is four hundredths of a pitch.
+            // at sixteen samples is an eighth of a pitch.
             assert!(
                 (ink - w).abs() <= pitch + 4.0 / 255.0,
                 "{named}, width {w}: {ink} of ink, further from the shape's area than the \
-                 sample grid's own pitch of {pitch}"
+                 sample lattice's own pitch of {pitch}"
             );
         }
     }
 }
 
-/// The **upper edge of the recorded gap below**, which is the width every option in
-/// `raster/doc/notes-thin-mark-options.md` is priced against: at exactly one sample-column spacing
-/// the device lane holds §10.7.4 at *every* sub-pixel position, where a tenth of a pixel
-/// holds it at four of ten.
+/// The **upper edge of the recorded gap below**: at exactly the lattice's vanishing width the
+/// device lane draws the mark at *every* sub-pixel position, where a tenth of a pixel would
+/// draw it at a few.
 ///
 /// The boundary is arithmetic rather than empirical, and stating it is the point of the
-/// test: `Options::coverage_samples` lays `n` samples on a `√n × √n` grid whose columns sit
-/// at `(k + ½)/√n` of a pixel, so consecutive columns are `1/√n` apart — and so is the wrap
-/// across a pixel boundary, because the grid is symmetric about the centre. An interval of
-/// length `1/√n` therefore contains a column wherever it lands, and a mark that catches a
-/// column has ink.
+/// test: raster's [`SampleLattice`] gives every sample a column of its own, `1/n` apart, so
+/// an axis-aligned band of this width holds five of the sixteen columns wherever it lands,
+/// and its ink is five or six sixteenths. The width itself is set by the two readings ADR
+/// 0070's condition must hold for — a band at the lattice's worst angle and an axis-aligned
+/// square (ADR 2296) — and this bar, being neither, catches more than it needs to.
+///
+/// **The floor of §10.7.4 is not asserted here**, because the width is not a multiple of the
+/// pitch: five sixteenths is less than `1/√10` (ADR 0076). The mark not disappearing is, and
+/// the two-sided bound is.
 ///
 /// [`the_device_lane_meets_the_clause_down_to_its_sample_spacing`] asserts widths at or
-/// above the spacing at **one** position; this asserts that the position is not what carries
-/// them, which is what any rule keyed on this width would rely on.
+/// above the vanishing width at **one** position; this asserts that the position is not what
+/// carries them, which is what any rule keyed on this width would rely on.
 #[test]
 fn at_the_sample_spacing_the_device_lane_holds_the_clause_at_every_position() {
-    let w = sample_column_spacing();
+    let w = vanishing_width();
     let mut device = device_with(Coverage::Gpu);
     for step in 0..10 {
         let left = 20.0 + step as f32 / 10.0;
         let scene = rasterised_bar_at(&mut device, left, w);
         let ink = row_ink(&render(&mut device, &scene, TALL), TALL, TALL / 2);
-        assert_the_clause_holds(ink, w, &format!("the device lane at {left}"));
-        // And no further from the shape's area than the grid's own step, which is the
-        // bound the neighbouring test states for this lane.
+        let named = format!("the device lane at {left}");
+        assert_the_shape_did_not_disappear(ink, w, &named);
+        // And no further from the shape's area than one sample column, with the 8-bit
+        // store's `n/8` levels on top, which is the bound the neighbouring test states.
         assert!(
-            (ink - w).abs() <= sample_column_spacing(),
-            "the device lane at {left}: {ink} of ink for a mark of {w}, further from the \
-             shape's area than one sample column"
+            (ink - w).abs() <= edge_pitch() + 4.0 / 255.0,
+            "{named}: {ink} of ink for a mark of {w}, further from the shape's area than one \
+             sample column"
         );
     }
 }
 
 /// **The requirement, on both lanes** (ADR 0070), where this file recorded a gap until
-/// 2026-08-18. Below one sample-column spacing the device lane's own grid can miss a mark
-/// entirely — it fell between two columns and read zero at six of the ten positions swept
-/// below — which is the disappearance §10.7.4's rule exists to forbid:
+/// 2026-08-18. Below the vanishing width the device lane's own lattice can miss a mark
+/// entirely — on the ordered grid it replaced, a tenth of a pixel fell between two columns and
+/// read zero at six of the ten positions swept below — which is the disappearance §10.7.4's
+/// rule exists to forbid:
 ///
 /// > This ensures that no shape ever disappears as a result of unfavourable placement
 /// > relative to the device pixel grid, as might happen with other possible scan conversion
@@ -581,7 +592,7 @@ fn at_the_sample_spacing_the_device_lane_holds_the_clause_at_every_position() {
 ///
 /// Ten sub-pixel positions across one pixel, because "unfavourable placement" is a property
 /// of where the mark lands and a single position would say nothing about how often; every
-/// sub-pixel width in [`SUB_PIXEL_WIDTHS`], because the widths above the spacing are the
+/// sub-pixel width in [`SUB_PIXEL_WIDTHS`], because the widths above the vanishing width are the
 /// control that the sweep is not asserting one lane against itself.
 #[test]
 fn a_mark_below_the_sample_spacing_is_drawn_at_every_position_on_both_lanes() {
@@ -590,7 +601,7 @@ fn a_mark_below_the_sample_spacing_is_drawn_at_every_position_on_both_lanes() {
         let mut device = device_with(coverage);
         let lane = format!("{coverage:?}");
         for w in SUB_PIXEL_WIDTHS {
-            if w < sample_column_spacing() && coverage == Coverage::Cpu {
+            if w < vanishing_width() && coverage == Coverage::Cpu {
                 below += 1;
             }
             for step in 0..10 {
@@ -598,14 +609,14 @@ fn a_mark_below_the_sample_spacing_is_drawn_at_every_position_on_both_lanes() {
                 let scene = rasterised_bar_at(&mut device, left, w);
                 let ink = row_ink(&render(&mut device, &scene, TALL), TALL, TALL / 2);
                 assert_the_clause_holds(ink, w, &format!("{lane} at {left}"));
-                // Below the spacing the mark is on the processor lane under **either**
+                // Below the vanishing width the mark is on the processor lane under **either**
                 // setting, so ADR 0005's exact area is the answer both must give; at or
-                // above it the device lane may still draw it, and then the grid's own step
+                // above it the device lane may still draw it, and then the lattice's own pitch
                 // is the bound (the neighbouring tests state that one).
-                let bound = if w < sample_column_spacing() {
+                let bound = if w < vanishing_width() {
                     1.0 / 255.0
                 } else {
-                    sample_column_spacing()
+                    edge_pitch()
                 };
                 assert!(
                     (ink - w).abs() <= bound,
@@ -617,26 +628,32 @@ fn a_mark_below_the_sample_spacing_is_drawn_at_every_position_on_both_lanes() {
     }
     assert!(
         below >= 3,
-        "the sweep no longer contains widths below the sample spacing, so the property \
+        "the sweep no longer contains widths below the vanishing width, so the property \
          this test exists for was not exercised"
     );
 }
 
 /// **The lane, read from the frame rather than from its pixels** — and the control that
-/// ADR 0070's condition fires *only* below the sample spacing.
+/// ADR 0070's condition fires *only* below the vanishing width.
 ///
 /// The subject here is a lane choice, so the lane is asserted (`raster/doc/HANDOVER.md`'s
-/// `m45.rs` trap), and the subject is a *difference*, so the width above the spacing is
+/// `m45.rs` trap), and the subject is a *difference*, so the width at the vanishing width is
 /// measured too and required to miss: a condition that declined every thin mark, or none,
 /// fails one of these two halves. [`uploaded`] is the instrument and says why it needs no
 /// constant.
 #[test]
 fn the_lane_is_declined_exactly_below_the_sample_spacing() {
-    let spacing = sample_column_spacing();
+    // The vanishing width as a bar at `LEFT` can state it: `1/√10` is not dyadic, so the
+    // box's own width `(LEFT + w) − LEFT` rounds, and the narrowest `w` whose box is not
+    // below the width is what "exactly" can mean for this fixture.
+    let mut spacing = vanishing_width();
+    while (LEFT + spacing) - LEFT < vanishing_width() {
+        spacing = spacing.next_up();
+    }
     let mut processor = device_with(Coverage::Cpu);
     let mut sampled = device_with(Coverage::Gpu);
 
-    // At exactly one column spacing the grid catches the mark wherever it lands, so the
+    // At exactly the vanishing width the lattice catches the mark wherever it lands, so the
     // condition must not fire and the four cost conditions choose — and for this fixture
     // they choose the device.
     let scene = rasterised_bar(&mut processor, spacing);
@@ -659,7 +676,7 @@ fn the_lane_is_declined_exactly_below_the_sample_spacing() {
     let thin_on_device = uploaded(&mut sampled, &scene, TALL);
     assert_eq!(
         thin_on_device, thin_on_processor,
-        "a mark of {thin} device pixels is narrower than the grid's column spacing of \
+        "a mark of {thin} device pixels is narrower than the lattice's vanishing width of \
          {spacing}, so §10.7.4 requires the producer that cannot lose it: the frame \
          uploaded {thin_on_device} bytes where the processor lane uploads \
          {thin_on_processor}"
@@ -672,7 +689,7 @@ fn the_lane_is_declined_exactly_below_the_sample_spacing() {
 ///
 /// The rejected reading is a condition keyed on the device box alone, and it is measured
 /// here and required to miss: the *same fixture at the same angle*, a stroke wide enough
-/// that the grid can find it, must take the device lane. A condition keyed on the box would
+/// that the lattice can find it, must take the device lane. A condition keyed on the box would
 /// leave both halves on the device; one that declined every stroke would leave neither.
 #[test]
 fn a_turned_hairline_stroke_is_declined_by_its_own_width() {
@@ -704,11 +721,11 @@ fn a_turned_hairline_stroke_is_declined_by_its_own_width() {
         builder.finish()
     }
 
-    let spacing = sample_column_spacing();
+    let spacing = vanishing_width();
     let mut processor = device_with(Coverage::Cpu);
     let mut sampled = device_with(Coverage::Gpu);
 
-    // Wide enough for the grid: the device lane, which is what says this diagonal fixture
+    // Wide enough for the lattice: the device lane, which is what says this diagonal fixture
     // reaches the lane at all.
     let scene = diagonal(&mut processor, spacing);
     let wide_on_processor = uploaded(&mut processor, &scene, SIZE);
@@ -721,7 +738,7 @@ fn a_turned_hairline_stroke_is_declined_by_its_own_width() {
          {wide_on_processor}"
     );
 
-    // Thinner than the grid's step. Its device box is unchanged and still 60 pixels
+    // Thinner than the vanishing width. Its device box is unchanged and still 60 pixels
     // across, so only the stroke's own width can decline it.
     let thin = spacing * 0.4;
     let scene = diagonal(&mut processor, thin);
@@ -730,7 +747,7 @@ fn a_turned_hairline_stroke_is_declined_by_its_own_width() {
     let thin_on_device = uploaded(&mut sampled, &scene, SIZE);
     assert_eq!(
         thin_on_device, thin_on_processor,
-        "a stroke {thin} device pixels wide is below the grid's column spacing at every \
+        "a stroke {thin} device pixels wide is below the lattice's vanishing width at every \
          angle, and its box says nothing about that: {thin_on_device} bytes against the \
          processor lane's {thin_on_processor}"
     );

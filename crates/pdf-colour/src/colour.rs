@@ -36,6 +36,7 @@ mod compositing;
 mod conversion;
 mod device_cmyk;
 mod entries;
+mod extended_srgb;
 mod grey_route;
 mod ink_search;
 mod parsing;
@@ -51,6 +52,7 @@ pub use cie::cie_to_srgb;
 pub(crate) use cie::{D50, lab_to_xyz, xyz_d50_to_srgb, xyz_to_lab};
 pub use compositing::{Compositing, Plane};
 pub use conversion::{Conversion, ConversionContext, InkScale};
+pub use extended_srgb::{ExtendedEncoding, ExtendedSrgb};
 pub use grey_route::{GreyIdentity, GreyRoute};
 pub(crate) use ink_search::solve_three;
 pub use press::{

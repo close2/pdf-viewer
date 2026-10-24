@@ -60,7 +60,7 @@ use rayon::slice::ParallelSliceMut as _;
 use std::sync::Arc;
 
 pub use area::{UnionCondition, UnionDecline};
-pub use glimpse::{Glance, Glimpse, Underway};
+pub use glimpse::{Finished, Glance, Glimpse, Underway};
 pub use strips::MAX_STRIPS;
 use strips::{PIXEL_PASS_ROWS, drawn_row_by_row, plan_strips};
 pub use surface::Shown;

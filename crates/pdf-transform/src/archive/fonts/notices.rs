@@ -32,6 +32,19 @@ pub(super) fn attach(
     if !is_foxit(original) {
         return Ok(());
     }
+    attach_notice(document, FOXIT, stream, spare, written)
+}
+
+/// Adds the packet carrying `notice` to a program stream: [`attach`]'s for a Foxit face, and the
+/// CJK pack's for a program of that pack, whose SIL Open Font License asks each copy to carry it
+/// (`doc/adr/2302`).
+pub(super) fn attach_notice(
+    document: &Document,
+    notice: &str,
+    stream: &mut Object,
+    spare: &mut Spare,
+    written: &mut BTreeMap<ObjectId, Object>,
+) -> Result<(), Because> {
     let existing = stream
         .as_stream()
         .and_then(|stream| stream.dict.get("Metadata"));
@@ -49,7 +62,7 @@ pub(super) fn attach(
             property.name.namespace == RIGHTS && property.name.local == "UsageTerms"
         }) {
             // Recognize the exact property even when unrelated metadata surrounds it.
-            if exact_terms(&bytes) {
+            if exact_terms(&bytes, notice) {
                 return Ok(());
             }
             return Err(Because::NotBuiltYet(EXISTING_NOTICE));
@@ -60,14 +73,14 @@ pub(super) fn attach(
                 namespace: RIGHTS,
                 prefix: "xmpRights",
                 local: "UsageTerms",
-                value: FOXIT.to_owned(),
+                value: notice.to_owned(),
                 form: pdf_model::xmp::Form::Alternative,
             }],
         )
         .map_err(|_| Because::NotBuiltYet(EXISTING_NOTICE))?;
         metadata_stream(&existing.dict, &bytes)
     } else {
-        metadata_stream(&Dictionary::new(), packet().as_bytes())
+        metadata_stream(&Dictionary::new(), packet(notice).as_bytes())
     };
     let at = if let Some((at, _)) = written.iter().find(|(_, object)| **object == metadata) {
         *at
@@ -90,7 +103,7 @@ pub(super) fn attach(
 /// Uses the namespace-aware writer only as a structural witness; no metadata is removed from
 /// the output. Equality proves that the canonical element is the property actually selected,
 /// rather than a matching string in a comment, CDATA, or a differently bound namespace.
-fn exact_terms(bytes: &[u8]) -> bool {
+fn exact_terms(bytes: &[u8], notice: &str) -> bool {
     let Ok(properties) = pdf_model::xmp::Xmp::parse_detail(bytes) else {
         return false;
     };
@@ -109,7 +122,7 @@ fn exact_terms(bytes: &[u8]) -> bool {
     let [(language, value)] = alternatives else {
         return false;
     };
-    if language.as_deref() != Some("x-default") || value.text() != Some(FOXIT.trim()) {
+    if language.as_deref() != Some("x-default") || value.text() != Some(notice.trim()) {
         return false;
     }
     let Ok(text) = std::str::from_utf8(bytes) else {
@@ -117,7 +130,7 @@ fn exact_terms(bytes: &[u8]) -> bool {
     };
     let element = format!(
         "<xmpRights:UsageTerms><rdf:Alt>{}</rdf:Alt></xmpRights:UsageTerms>",
-        terms(FOXIT)
+        terms(notice)
     );
     if !text.contains(&element) {
         return false;
@@ -159,8 +172,8 @@ fn is_foxit(program: &[u8]) -> bool {
 }
 
 /// ISO 16684-1's `UsageTerms` is a language alternative, with one default-language item here.
-fn packet() -> String {
-    let text = terms(FOXIT);
+fn packet(notice: &str) -> String {
+    let text = terms(notice);
     format!(
         "<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
         <x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
@@ -216,7 +229,7 @@ mod tests {
 
     #[test]
     fn the_notice_is_a_default_language_alternative_with_every_license_character() {
-        let packet = super::packet();
+        let packet = super::packet(super::FOXIT);
         let properties = pdf_model::xmp::Xmp::parse_detail(packet.as_bytes()).expect("XMP");
         let property = properties.first().expect("UsageTerms");
         assert_eq!(property.name.namespace, super::RIGHTS);
@@ -240,22 +253,22 @@ mod tests {
     }
     #[test]
     fn exact_terms_rejects_trimmed_text_and_copies_outside_the_property() {
-        let packet = super::packet();
-        assert!(super::exact_terms(packet.as_bytes()));
+        let packet = super::packet(super::FOXIT);
+        assert!(super::exact_terms(packet.as_bytes(), super::FOXIT));
         let trimmed = packet.replace(super::FOXIT, super::FOXIT.trim());
-        assert!(!super::exact_terms(trimmed.as_bytes()));
+        assert!(!super::exact_terms(trimmed.as_bytes(), super::FOXIT));
         let element = format!(
             "<xmpRights:UsageTerms><rdf:Alt>{}</rdf:Alt></xmpRights:UsageTerms>",
             super::terms(super::FOXIT)
         );
         let wrong = packet.replace(super::FOXIT, "different terms");
         let decoy = wrong.replace("</rdf:RDF>", &format!("<!--{element}--></rdf:RDF>"));
-        assert!(!super::exact_terms(decoy.as_bytes()));
+        assert!(!super::exact_terms(decoy.as_bytes(), super::FOXIT));
         let duplicate = packet.replace(
             "</rdf:Description>",
             &format!("{element}</rdf:Description>"),
         );
-        assert!(!super::exact_terms(duplicate.as_bytes()));
+        assert!(!super::exact_terms(duplicate.as_bytes(), super::FOXIT));
         // Keep Description in the real RDF namespace through another prefix, while rebinding
         // rdf for the otherwise canonical Alt/li element spellings inside the rights property.
         let rebound = packet
@@ -264,6 +277,6 @@ mod tests {
                 "<r:Description xmlns:r=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" xmlns:rdf=\"urn:wrong-rdf\" r:about=\"\"",
             )
             .replace("</rdf:Description>", "</r:Description>");
-        assert!(!super::exact_terms(rebound.as_bytes()));
+        assert!(!super::exact_terms(rebound.as_bytes(), super::FOXIT));
     }
 }

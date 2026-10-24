@@ -592,3 +592,12 @@ that it is the surface in front, and never of the monitor; the one verdict that 
 the window's pixels against the compositor's output — is taken on the nested compositor
 (`tools/zoom-probe-wayland.py`), where nothing else is on the screen.
 
+### 245. A drive's camera starts before the key that starts the clock it photographs
+
+Step 83 of the windows' drive was flaky on HEAD at load 20 to 53: six wrong verdicts in thirty-two. Two
+were the camera, started after the `p` that starts the presentation, seeing page one for under 0.4 s and
+never counting it settled; four were a load-delayed tick holding a transition's last frame — one unit off
+the final page in one edge row — long enough to count as a fourth page (ADR 2300). A camera that judges a
+clock is started before the key that starts the clock, the first interval it must see carries a margin the
+load can eat, and two settled pictures within one unit of each other count as one page.
+

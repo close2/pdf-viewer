@@ -282,6 +282,17 @@ impl Clock {
         }
     }
 
+    /// Counts from `now` again, for a window shown after it was hidden; a transition in flight
+    /// ends, on the page it was moving to.
+    ///
+    /// §12.4.4.1's `/Dur` is "the maximum length of time, in seconds, that the page shall be
+    /// displayed before the presentation automatically advances to the next page", and a page in
+    /// a window nobody can see is not displayed: the next tick carries only the time since the
+    /// window came back, and the core keeps what the page was displayed before it went (ADR 2300).
+    pub fn resume(&mut self, now: Instant) {
+        self.ended(now);
+    }
+
     /// Puts the clock back on the page, which is where §12.4.4.1's EXAMPLE says it starts.
     fn ended(&mut self, now: Instant) {
         self.playing = None;

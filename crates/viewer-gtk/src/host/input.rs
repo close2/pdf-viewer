@@ -230,7 +230,7 @@ impl Host {
             viewer_host::WindowAct::NextDocument => {
                 let next = self.state.documents.next_id();
                 let mut queue = VecDeque::new();
-                self.show_document(next, &mut queue);
+                self.show_document(next, &mut queue, false);
                 if !queue.is_empty() {
                     self.pump(queue);
                 }
@@ -313,19 +313,23 @@ impl Host {
         }
     }
 
-    /// One notch of the wheel, in whichever direction it turned.
+    /// The wheel's whole notches, or a finger's surface pixels, in GTK's signs — towards the
+    /// person, which is the boundary's positive.
     ///
-    /// The deltas GTK reports for a discrete device are notches rather than pixels, so the
-    /// distance is the one `viewer_host::SCROLL_NOTCH` writes down for every window (ADR 2274).
-    /// Device pixels out, because that is what `Command::Scroll` speaks.
-    fn scrolled(&mut self, dx: f64, dy: f64) {
-        let step = self.scale * f64::from(viewer_host::SCROLL_NOTCH);
+    /// The distance is `viewer_host::WheelTravel::distance`'s, the one `quorra-qt` spends: a notch
+    /// the `DISCRETE` controller counted moves `viewer_host::SCROLL_NOTCH`, and a finger's pixel a
+    /// pixel (ADRs 2274, 2291). Device pixels out, because that is what `Command::Scroll` speaks.
+    fn scrolled(&mut self, travel: viewer_host::WheelTravel) {
+        let (dx, dy) = travel.distance();
         #[expect(
             clippy::cast_possible_truncation,
-            reason = "a notch count times a step in pixels, which is tens"
+            reason = "the window's scale, which is a small number"
         )]
-        let (dx, dy) = ((dx * step) as f32, (dy * step) as f32);
-        self.dispatch(Command::Scroll { dx, dy });
+        let scale = self.scale as f32;
+        self.dispatch(Command::Scroll {
+            dx: dx * scale,
+            dy: dy * scale,
+        });
     }
 
     /// Control and the wheel: a step a click and a proportion of one between, about the point
@@ -586,11 +590,24 @@ fn listen_wheel(
         if controlled(controller) {
             return glib::Propagation::Stop;
         }
+        // A finger's surface pixels are the smooth controller's below: counted here, ten of them
+        // would be a notch of forty-eight (ADR 2291).
+        if in_surface_pixels(controller) {
+            return glib::Propagation::Proceed;
+        }
         wheel_probe.record(
             "wheel-branch",
             format_args!("\"branch\":\"scroll\",\"notches_dx\":{dx},\"notches_dy\":{dy}"),
         );
-        with(&listener, |host| host.scrolled(dx, dy));
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "whole notches the controller counted, a handful"
+        )]
+        let travel = viewer_host::WheelTravel::Notches {
+            x: dx as f32,
+            y: dy as f32,
+        };
+        with(&listener, |host| host.scrolled(travel));
         glib::Propagation::Stop
     });
     overlay.add_controller(scrolling);
@@ -602,11 +619,31 @@ fn listen_wheel(
     let zooming = gtk4::EventControllerScroll::new(gtk4::EventControllerScrollFlags::BOTH_AXES);
     let listener = me.clone();
     let zoom_probe = Rc::clone(probe);
+    let wheel_probe_pixels = Rc::clone(probe);
     zooming.connect_scroll(move |controller, dx, dy| {
-        if !controlled(controller) {
-            return glib::Propagation::Proceed;
-        }
         let pixels = controller.unit() == gtk4::gdk::ScrollUnit::Surface;
+        // **A finger scrolls by what it travelled**, through the distance `quorra-qt` spends: the
+        // `DISCRETE` controller above passes surface pixels over, and they are taken here as they
+        // come (ADR 2291).
+        if !controlled(controller) {
+            if !pixels {
+                return glib::Propagation::Proceed;
+            }
+            wheel_probe_pixels.record(
+                "wheel-branch",
+                format_args!("\"branch\":\"scroll\",\"pixels_dx\":{dx},\"pixels_dy\":{dy}"),
+            );
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "a finger's surface pixels of one event"
+            )]
+            let travel = viewer_host::WheelTravel::Pixels {
+                x: dx as f32,
+                y: dy as f32,
+            };
+            with(&listener, |host| host.scrolled(travel));
+            return glib::Propagation::Stop;
+        }
         zoom_probe.record(
             "wheel-branch",
             format_args!(
@@ -631,6 +668,16 @@ fn listen_wheel(
     if super::window::zoom_probe_enabled() {
         overlay.add_controller(wheel_receipts(probe));
     }
+}
+
+/// Whether the event a scroll controller is handling states its travel in surface pixels — a
+/// finger's, or a continuous device's — which a `DISCRETE` controller's own `unit` never says,
+/// since it answers `Wheel` for everything it counts (ADR 2291).
+fn in_surface_pixels(controller: &gtk4::EventControllerScroll) -> bool {
+    controller
+        .current_event()
+        .and_then(|event| event.downcast::<gtk4::gdk::ScrollEvent>().ok())
+        .is_some_and(|scroll| scroll.unit() == gtk4::gdk::ScrollUnit::Surface)
 }
 
 /// Whether Control is held for the event a scroll controller is handling.

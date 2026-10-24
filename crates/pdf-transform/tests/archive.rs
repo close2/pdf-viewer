@@ -340,6 +340,7 @@ fn convert(bytes: &[u8], target: Target, authorised: Authorisations) -> (Report,
             profile: None,
             substitute_fonts: true,
             supplied_fonts: std::collections::BTreeMap::new(),
+            cjk_pack: None,
             departures: Vec::new(),
             claim_conformance: false,
             forms: FormAnswers::default(),
@@ -2008,6 +2009,7 @@ fn a_supplied_profile_is_the_one_embedded_and_its_copyright_tag_is_reported() {
             profile: Some(profile),
             substitute_fonts: true,
             supplied_fonts: std::collections::BTreeMap::new(),
+            cjk_pack: None,
             departures: Vec::new(),
             claim_conformance: false,
             forms: FormAnswers::default(),
@@ -2482,6 +2484,7 @@ fn convert_with_profile(
             profile: Some(std::sync::Arc::clone(profile)),
             substitute_fonts: true,
             supplied_fonts: std::collections::BTreeMap::new(),
+            cjk_pack: None,
             departures: Vec::new(),
             claim_conformance: false,
             forms: FormAnswers::default(),
@@ -2832,6 +2835,7 @@ fn no_substitute_turns_the_font_back_into_a_refusal_the_caller_can_take_back() {
             profile: None,
             substitute_fonts: false,
             supplied_fonts: std::collections::BTreeMap::new(),
+            cjk_pack: None,
             departures: Vec::new(),
             claim_conformance: false,
             forms: FormAnswers::default(),
@@ -3158,6 +3162,32 @@ fn a_code_whose_glyph_name_is_nobodys_refuses_rather_than_inventing_a_meaning() 
     assert!(
         output.is_none(),
         "and no file is written wearing a claim it has not earned"
+    );
+}
+
+#[test]
+fn at_part_four_a_placeholder_nothing_derives_is_taken_out_of_the_producers_cmap() {
+    // ISO 19005-4 section 6.2.10.7 states its mapping of every referenced code as a `should` and
+    // its usable values as a `shall`, so where §9.10.2 derives nothing — a Type 3 glyph's private
+    // name — the producer's own statement of U+0000 is what goes, and the code stays unmapped (ADR
+    // 2294). The part 2 control is the Type 3 refusal test below: Level U requires the referenced
+    // code mapped, so the same fixture is refused there.
+    let source = a_type_three_font_naming("g4711");
+    let target = Target::Four(Flavour::Plain);
+    let (report, output) = convert(&source, target, Authorisations::default());
+    let decided = decision(&report, "fonts/to-unicode-values-are-usable");
+    assert_eq!(decided.rewrite(), Some(Rewrite::ToUnicode), "{decided:?}");
+    let output = output.expect("the document converts");
+    assert!(
+        holds(&output, target)
+            .failures()
+            .all(|judgement| judgement.id != "fonts/to-unicode-values-are-usable"),
+        "and the CMap written states no placeholder"
+    );
+    let restated = derived_cmap(&output);
+    assert!(
+        !restated.contains("<41> <0000>") && restated.contains("begincodespacerange"),
+        "the placeholder's statement is gone and the producer's codespace kept: {restated}"
     );
 }
 
@@ -5949,6 +5979,7 @@ fn convert_with_departure(
             profile: None,
             substitute_fonts: true,
             supplied_fonts: std::collections::BTreeMap::new(),
+            cjk_pack: None,
             departures,
             claim_conformance: claim,
             forms: FormAnswers::default(),
@@ -6594,6 +6625,7 @@ fn plan_from(text: &str, target: Target) -> ArchivePlan {
         profile: None,
         substitute_fonts: true,
         supplied_fonts: std::collections::BTreeMap::new(),
+        cjk_pack: None,
         departures: Vec::new(),
         claim_conformance: false,
         forms: FormAnswers::default(),
@@ -9472,6 +9504,7 @@ fn a_supplied_font(target: Target, base_font: &str, program: &[u8]) -> ArchivePl
         profile: None,
         substitute_fonts: true,
         supplied_fonts: supplied,
+        cjk_pack: None,
         departures: Vec::new(),
         claim_conformance: false,
         forms: FormAnswers::default(),
@@ -14940,3 +14973,6 @@ mod linked_popups;
 
 #[path = "archive/default_rgb_page_intent.rs"]
 mod default_rgb_page_intent;
+
+#[path = "archive/cjk_pack.rs"]
+mod cjk_pack;

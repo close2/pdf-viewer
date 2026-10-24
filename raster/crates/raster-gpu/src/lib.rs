@@ -87,12 +87,13 @@ pub use report::{Report, ReportKind};
 pub use retained::RetainedScene;
 pub use startup::{
     Coverage, DEFAULT_ATLAS_BUDGET, DEFAULT_COVERAGE_SAMPLES, DEFAULT_GLYPH_QUANTUM,
-    DEFAULT_MAX_FRAME_BYTES, DEFAULT_MAX_RESOURCE_BYTES, LaunchSteps, Options, StartupTimings,
-    WarmUp, create_instance, create_instance_with, create_launch_instance,
+    DEFAULT_MAX_FRAME_BYTES, DEFAULT_MAX_RESOURCE_BYTES, LaunchInstance, LaunchSteps, Options,
+    StartupTimings, WarmUp, create_instance, create_instance_with, create_launch_instance,
     create_launch_instance_timed,
 };
 pub use target::{Backdrop, Target};
 pub use viewport::Viewport;
+pub use winding::SampleLattice;
 
 /// The exact `wgpu` this crate was built against, re-exported so a tier-3 host can
 /// name the types [`Device::wgpu`] hands it — and a windowing host the

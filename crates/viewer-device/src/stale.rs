@@ -254,6 +254,12 @@ impl Picture {
         self.page
     }
 
+    /// Which document this is a picture of — what a decline of its draw is told to (ADR 2290).
+    #[must_use]
+    pub fn document(self) -> DocumentId {
+        self.document
+    }
+
     /// Whether the two were drawn against the same state of the same document's ink.
     ///
     /// What [`Proxies::keep`] evicts by: a picture of another ink is not a picture that may be

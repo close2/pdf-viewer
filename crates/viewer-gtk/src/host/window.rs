@@ -83,13 +83,9 @@ impl Host {
     /// Puts the caption in the title bar.
     pub(super) fn retitle(&self) {
         let mark = if self.state.showing.dirty { "• " } else { "" };
-        // ADR 1831's sentence, where a page was drawn on the processor rather than the device.
-        let lane = self
-            .state
-            .lane
-            .as_ref()
-            .and_then(|lane| lane.title())
-            .map_or_else(String::new, |lane| format!(" — {lane}"));
+        // ADR 1831's sentence, where a page was drawn on the processor rather than the device, and
+        // the pages whose marks a draw left to the library's converter (ADR 2290).
+        let lane = self.state.title_notes();
         self.ui.window.set_title(Some(&format!(
             "{mark}{} — {}{lane}",
             self.named(),
@@ -554,6 +550,7 @@ pub(super) fn build_window(
     let probe = ZoomProbe::new();
     watch_zoom_paints(&fixed, &probe);
     listen(&window, &overlay, &chrome, me, &probe);
+    super::presentation::watch_visibility(&window, me);
 
     window.present();
     // The page has the keyboard as the window opens, for `Host::page_takes_the_keyboard`'s reason:

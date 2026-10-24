@@ -94,6 +94,13 @@ public sealed partial class MainWindow : Window
                 }
             };
         };
+        // A minimised or hidden window parks its presentation: §12.4.4.1's /Dur counts the time a
+        // page is displayed, and the library's pump decides the rest (ADR 2300).
+        VisibilityChanged += (_, changed) => Guard("a change of visibility", () =>
+        {
+            window?.Shown(changed.Visible);
+            Settle();
+        });
         Closed += (_, _) =>
         {
             timer.Stop();

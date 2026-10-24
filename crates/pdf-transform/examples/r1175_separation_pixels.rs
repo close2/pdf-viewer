@@ -39,6 +39,7 @@ fn convert(bytes: &[u8], target: Target, winner: &str) -> Option<Vec<u8>> {
             profile: None,
             substitute_fonts: true,
             supplied_fonts: std::collections::BTreeMap::new(),
+            cjk_pack: None,
             departures: Vec::new(),
             claim_conformance: false,
             forms: FormAnswers::default(),

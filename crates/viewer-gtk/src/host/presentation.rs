@@ -1,11 +1,14 @@
-//! §12.4.4's presentation: the clock that turns the pages, the script timers it carries, and the transitions' faces.
+//! §12.4.4's presentation: the full-screen window, the timer `viewer_host::presentation_pump` is
+//! turned on, and the transition's frame as a texture.
 
-use std::collections::VecDeque;
+use std::cell::RefCell;
+use std::rc::Weak;
 
-use gtk4::glib;
-use pdf_render::Rasterizer;
-use viewer_core::{Command, Event, PresentationMode};
+use gtk4::prelude::*;
+use gtk4::{gdk, glib};
+use viewer_core::{Command, PresentationMode};
 use viewer_host::native_window::NativeWindow;
+use viewer_host::{PresentationPump, Turned};
 
 use crate::page;
 
@@ -57,48 +60,31 @@ impl Host {
         }
     }
 
-    /// Stops it, and takes the timer with it.
+    /// Stops it, and takes the timer and the frame in flight with it.
     ///
     /// **The source is removed rather than left to fire on a `None` clock.** A window that is not
     /// presenting has nothing to advance, and `CLAUDE.md`'s principle 2 makes a wakeup with
     /// nothing behind it a defect rather than a rounding error.
     fn stop_the_clock(&mut self) {
-        self.state.clock = None;
-        self.state.arming = None;
-        self.state.shown = None;
+        self.drop_the_clock();
+        self.playing = None;
         self.disarm();
     }
 
-    /// Arms the next turn of the clock on GTK's own main loop.
+    /// Arms the next turn of `viewer_host::presentation_pump` on GTK's own main loop: §12.4.4's
+    /// clock while a presentation or a transition runs, a document's script timers while none does,
+    /// and nothing at all for a still window or a hidden one whose documents set no timer.
     ///
-    /// A one-shot that is re-armed after every turn, which is the shape [`Host::pump_search`]
+    /// A one-shot that is re-armed after every pump, which is the shape [`Host::pump_search`]
     /// already uses and which answers what a repeating source cannot: the interval changes when a
     /// transition starts and stops, and a presentation that ends leaves nothing armed at all.
     pub(super) fn pump_presentation(&mut self) {
         self.disarm();
-        // §12.6.4.15's clock exists for one effect. `Clock::spent` is the frame after it ended,
-        // and dropping it here is what leaves a window that is not presenting with no timer
-        // armed at all (ADR 1216).
-        // Armed and not yet begun is not spent: the effect is drawn when the page it moves *to*
-        // arrives, which is one render request away.
-        if self.state.arming.is_none()
-            && self
-                .state
-                .clock
-                .as_ref()
-                .is_some_and(viewer_host::Clock::spent)
-        {
-            self.state.clock = None;
-            self.state.shown = None;
-        }
-        let Some(interval) = self.state.clock.as_ref().map(viewer_host::Clock::interval) else {
-            self.arm_script_timers();
+        let Some(wait) = self.presentation_wait(std::time::Instant::now()) else {
             return;
         };
-        // The presentation's clock carries the time, and a second clock would count it twice.
-        self.script_ticker.stand_down();
         let me = self.me.clone();
-        self.armed = Some(glib::timeout_add_local_once(interval, move || {
+        self.armed = Some(glib::timeout_add_local_once(wait, move || {
             with(&me, |host| {
                 host.armed = None;
                 host.turn_the_clock();
@@ -106,67 +92,25 @@ impl Host {
         }));
     }
 
-    /// Arms the one-shot for the soonest timer a document's script set, or nothing where none is
-    /// held, which is every window whose documents set none (ADR 1702).
-    fn arm_script_timers(&mut self) {
-        let Some(wait) = self
-            .script_ticker
-            .wake(&self.state.viewer, std::time::Instant::now())
-        else {
-            return;
-        };
-        let me = self.me.clone();
-        self.armed = Some(glib::timeout_add_local_once(wait, move || {
-            with(&me, |host| {
-                host.armed = None;
-                host.tick_the_scripts();
-            });
-        }));
-    }
-
-    /// Tells the core how much time passed for the script timers, and reacts to what the runs
-    /// that came due did; [`Self::pump`] arms the next one.
-    fn tick_the_scripts(&mut self) {
-        match self.script_ticker.tick(std::time::Instant::now()) {
-            Some(millis) => self.dispatch(Command::Tick { millis }),
-            None => self.pump_presentation(),
-        }
-    }
-
-    /// One turn of §12.4.4.1's clock: tell the core how much time passed, and draw what is due.
-    ///
-    /// **A tick that produces no events repaints nothing**, and that is the whole of this host's
-    /// answer to a viewer that must idle. A page stating no `/Dur` — "the page shall not advance
-    /// automatically" — swallows every tick, so the window wakes ten times a second, adds a
-    /// number, and goes back to sleep without touching a pixel. Repainting a still page at that
-    /// rate would copy a page's worth of samples into a fresh texture for a picture that has not
-    /// changed.
+    /// One turn of the pump: what is due on the screen is drawn, and the next turn armed.
     fn turn_the_clock(&mut self) {
-        let now = std::time::Instant::now();
-        let animating = self
-            .state
-            .clock
-            .as_ref()
-            .is_some_and(viewer_host::Clock::animating);
-        let Some(millis) = self.state.clock.as_mut().and_then(|clock| clock.tick(now)) else {
-            // Held: a transition is being drawn, and §12.4.4.1's EXAMPLE puts that before the
-            // page is displayed. What is due is a frame.
-            if animating {
-                self.refresh();
-            }
-            self.pump_presentation();
-            return;
-        };
-        let events: Vec<Event> = self.state.viewer.handle(Command::Tick { millis }).collect();
-        if events.is_empty() {
-            self.pump_presentation();
+        if let Turned::Frame(frame) = self.turn_the_presentation(std::time::Instant::now()) {
+            self.playing = frame;
+            self.refresh();
+        }
+        self.pump_presentation();
+    }
+
+    /// The window was minimised or came back: the pump parks the presentation while nobody can see
+    /// it, and the frame of a transition in flight goes with the effect (ADR 2300).
+    fn shown_or_hidden(&mut self, shown: bool) {
+        if !self.window_shown(shown, std::time::Instant::now()) {
             return;
         }
-        let mut queue = VecDeque::new();
-        for event in events {
-            self.react(event, &mut queue);
+        if self.playing.take().is_some() {
+            self.refresh();
         }
-        self.pump(queue);
+        self.pump_presentation();
     }
 
     /// The frame of a transition in flight, as one texture filling the viewport.
@@ -174,38 +118,8 @@ impl Host {
     /// `None` where there is nothing being drawn, and then the window shows the page — which is
     /// the transition's own end state, so the two answers meet without a seam.
     pub(super) fn transition_placement(&mut self) -> Option<Picture> {
-        let viewport = self.viewport_rect();
-        let now = std::time::Instant::now();
-        let shaped = self
-            .state
-            .clock
-            .as_mut()
-            .map(|clock| clock.frame(viewport, now));
-        let list = match shaped {
-            Some(Ok(Some(list))) => list,
-            Some(Err(problem)) => {
-                // Not reachable from a frame — the largest one adds four clips — and said rather
-                // than swallowed for the reason every refusal in this tree is.
-                self.say(&format!("transition: this frame would not draw: {problem}"));
-                return None;
-            }
-            None | Some(Ok(None)) => return None,
-        };
-        let target = pdf_render::TargetSpec {
-            width: self.state.viewport.0,
-            height: self.state.viewport.1,
-            transform: pdf_render::Transform::IDENTITY,
-        };
-        let raster = match self.rasterizer.rasterize(&list, target) {
-            Ok(raster) => raster,
-            Err(error) => {
-                self.say(&format!(
-                    "transition: this frame would not rasterise: {error}"
-                ));
-                return None;
-            }
-        };
-        match page::texture(&raster) {
+        let raster = self.playing.as_ref()?;
+        match page::texture(raster) {
             Ok(texture) => Some(Picture {
                 extent: (raster.width, raster.height),
                 texture,
@@ -218,4 +132,30 @@ impl Host {
             }
         }
     }
+}
+
+/// Parks the presentation while the window is minimised, and turns it again when it comes back
+/// (ADR 2300).
+///
+/// GDK states a toplevel's minimised state as `ToplevelState::MINIMIZED`, and under X11 an unmap
+/// of a mapped window reads as one where no window manager states `_NET_WM_STATE_HIDDEN`. The
+/// notice is taken on the idle queue, because GDK may raise it from inside a call this host makes
+/// while borrowed — the find bar's reason — and the state is read when the idle runs, so two
+/// notices in one turn of the loop cannot be read out of order.
+pub(super) fn watch_visibility(window: &gtk4::ApplicationWindow, me: &Weak<RefCell<Host>>) {
+    let me = me.clone();
+    window.connect_realize(move |window| {
+        let Some(toplevel) = window.surface().and_downcast::<gdk::Toplevel>() else {
+            return;
+        };
+        let me = me.clone();
+        toplevel.connect_state_notify(move |toplevel| {
+            let toplevel = toplevel.clone();
+            let me = me.clone();
+            glib::idle_add_local_once(move || {
+                let shown = !toplevel.state().contains(gdk::ToplevelState::MINIMIZED);
+                with(&me, |host| host.shown_or_hidden(shown));
+            });
+        });
+    });
 }

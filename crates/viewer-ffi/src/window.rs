@@ -48,6 +48,7 @@ use std::path::Path;
 
 use pdf_model::view::WidgetAppearances;
 use viewer_core::{Answer, Command, DocumentId, Event, Query};
+use viewer_host::PresentationPump as _;
 use viewer_host::native_window::{
     Asked, DOCUMENT, FirstSize, Fitting, Launch, NativeWindow, Refusals, Showing, Sizing,
     WindowState,
@@ -93,8 +94,12 @@ pub struct Window {
     prompting: Option<DocumentId>,
     /// Whether the next document waiting may open once the call now running returns.
     arrival_due: bool,
-    /// A document swap owes the core mode and effective chrome after focus has settled.
-    presentation_due: bool,
+    /// When the presentation pump wants its next turn, as the last entry point left it: the
+    /// interval is a pull through `&self`, so the wait is asked where the window may change
+    /// (ADR 2300).
+    presentation_at: Option<std::time::Instant>,
+    /// The frame of a transition in flight, which the page area shows in place of the pages.
+    playing: Option<pdf_render::Raster>,
     /// Whether the bar of a document still opening past `WARN` has been said, which it is once.
     bar_said: bool,
     /// The launch document's outline and placed page tree, read beside page one (ADR 1553).
@@ -154,7 +159,8 @@ impl Window {
             question: None,
             prompting: None,
             arrival_due: false,
-            presentation_due: false,
+            presentation_at: None,
+            playing: None,
             bar_said: false,
             preparing: None,
             shown: shown::Shown::default(),
@@ -234,6 +240,25 @@ impl Window {
         } else {
             self.drain(queue);
         }
+        // §12.4.4's pump, at its own time: the tick also wakes for a page being drawn, and a
+        // transition's frame is rasterised once a frame interval, not once a drawing poll.
+        let now = std::time::Instant::now();
+        if self.presentation_at.is_some_and(|at| at <= now)
+            && let viewer_host::Turned::Frame(frame) = self.turn_the_presentation(now)
+        {
+            self.playing = frame;
+            self.repaint();
+        }
+        self.settle();
+    }
+
+    /// The window was hidden or shown again: the presentation parks while nobody can see it, and
+    /// the time it was hidden is not display time (ADR 2300).
+    pub fn shown(&mut self, shown: bool) {
+        if self.window_shown(shown, std::time::Instant::now()) && !shown && self.playing.is_some() {
+            self.playing = None;
+            self.repaint();
+        }
         self.settle();
     }
 
@@ -262,6 +287,11 @@ impl Window {
         // (ADR 1643): `viewer-gtk`'s one timeout, as an interval.
         if let Some((.., looked)) = self.script.as_ref() {
             let left = viewer_host::script_asks::wake_after().saturating_sub(looked.elapsed());
+            interval = Some(interval.map_or(left, |interval| interval.min(left)));
+        }
+        // §12.4.4's pump: a presentation's clock, a transition's frames, a script's timers.
+        if let Some(at) = self.presentation_at {
+            let left = at.saturating_duration_since(std::time::Instant::now());
             interval = Some(interval.map_or(left, |interval| interval.min(left)));
         }
         // A search with pages left takes its next page as soon as the caller's loop is idle.
@@ -648,6 +678,23 @@ impl Window {
     /// shown from its retained picture — the rules `viewer-gtk` and `viewer-qt` paint by (ADRs
     /// 1825, 1843, 1866, 1867, 1930).
     fn frames(&self) -> Vec<viewer_host::stand_in::Placed<'_>> {
+        // A transition in flight is the whole viewport, and the pages behind it are its faces.
+        if let Some(raster) = self.playing.as_ref() {
+            // The page the effect moves to, whose frame the transition's last one becomes.
+            let page = match self.state.viewer.query(Query::CurrentPage) {
+                Answer::Page { index, .. } => index,
+                _ => 0,
+            };
+            return vec![viewer_host::stand_in::Placed {
+                frame: viewer_core::FrameView {
+                    page,
+                    raster,
+                    origin: (0.0, 0.0),
+                },
+                extent: (raster.width, raster.height),
+                retained: false,
+            }];
+        }
         let geometry = |page| match self.state.viewer.query(Query::PageGeometry(page)) {
             Answer::Geometry(geometry) => Some(geometry),
             _ => None,
@@ -691,6 +738,10 @@ impl Window {
         while std::mem::take(&mut self.arrival_due) {
             self.open_the_next();
         }
+        let now = std::time::Instant::now();
+        self.presentation_at = self
+            .presentation_wait(now)
+            .and_then(|wait| now.checked_add(wait));
     }
 
     /// The half of the key table that is a window's rather than a message: carried out where the
@@ -912,7 +963,7 @@ impl NativeWindow for Window {
     }
 
     fn opened(&mut self, document: DocumentId, pages: usize, queue: &mut VecDeque<Command>) {
-        let presentation_was_due = self.presentation_due;
+        let presentation_was_due = self.state.pump.synchronizing();
         let behind = self.opened_beside(document);
         if pages == 0 {
             self.say(&viewer_host::no_pages(&self.named()));
@@ -921,7 +972,7 @@ impl NativeWindow for Window {
         self.state.restrictions.opened();
         self.state.showing.report_due.opened();
         self.obey_the_catalog(queue, behind.is_none());
-        self.presentation_due = true;
+        self.state.pump.owe_synchronizing();
         self.state.showing.catalog_due = behind.is_some();
         self.owing.owe(Owed::Panels);
         if let Some(front) = behind
@@ -929,7 +980,9 @@ impl NativeWindow for Window {
         {
             queue.push_back(Command::Focus(front));
             // A temporary background-open swap did not change the active presentation.
-            self.presentation_due = presentation_was_due;
+            if !presentation_was_due {
+                self.state.pump.take_synchronizing();
+            }
         }
         if document != DOCUMENT || pages == 0 {
             self.later_open_the_next();
@@ -1068,6 +1121,11 @@ impl NativeWindow for Window {
         self.owing.owe(Owed::Place);
     }
 
+    /// Owed as a record the caller answers by reading `quorra_window_chrome` (ADR 2200).
+    fn apply_the_chrome(&mut self) {
+        self.owing.owe(Owed::Chrome(None));
+    }
+
     fn show_the_page_mode(&mut self, mode: pdf_model::viewer_preferences::PageMode) {
         if self.state.presenting.full_screen() {
             self.say("presenting full screen (§7.7.2's FullScreen page mode) — Escape comes back");
@@ -1098,11 +1156,9 @@ impl NativeWindow for Window {
             self.take_the_drawn(&mut queue);
             if queue.is_empty() && std::mem::take(&mut self.state.showing.catalog_due) {
                 self.obey_the_catalog(&mut queue, true);
-                self.presentation_due = true;
+                self.state.pump.owe_synchronizing();
             }
-            if queue.is_empty() && std::mem::take(&mut self.presentation_due) {
-                self.synchronize_presentation(&mut queue);
-            }
+            self.synchronize_if_owed(&mut queue);
             if queue.is_empty() {
                 break;
             }

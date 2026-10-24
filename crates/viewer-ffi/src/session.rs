@@ -179,6 +179,17 @@ pub struct FrameInfo {
     pub origin: (f32, f32),
 }
 
+/// What [`rasterise`] and [`rasterise_window`] draw: the pixels, and the marks the draw left to the
+/// library's converter (ADRs 2280, 2290) — the value behind C's opaque `quorra_raster`, so that
+/// [`Session::render_ready_raster`] can tell the viewer of them with the frame.
+#[derive(Debug)]
+pub struct Drawn {
+    /// The pixels.
+    pub raster: Raster,
+    /// What the draw declined, in the words the viewer is told them in.
+    pub declined: Vec<viewer_core::Declined>,
+}
+
 /// Draws a request with the processor rasteriser.
 ///
 /// **This is why this crate depends on `render-cpu` and it is the only reason.** A
@@ -191,13 +202,18 @@ pub struct FrameInfo {
 ///
 /// [`Status::RenderRefused`] where the rasteriser declined — a coverage or budget refusal, which
 /// `CLAUDE.md` requires be reported rather than approximated.
-pub fn rasterise(request: &RenderRequest) -> Result<Raster, Status> {
+pub fn rasterise(request: &RenderRequest) -> Result<Drawn, Status> {
     // `Rasterizer` is the trait `rasterize` is on, and it takes `&mut self` because a backend may
     // keep scratch buffers between frames. One rasteriser per call is what a C caller's own
     // thread wants anyway: the handle it was given is the only state the drawing needs.
-    CpuRasterizer::new()
+    let mut rasterizer = CpuRasterizer::new();
+    let raster = rasterizer
         .rasterize(&request.list, request.target)
-        .map_err(|_| Status::RenderRefused)
+        .map_err(|_| Status::RenderRefused)?;
+    Ok(Drawn {
+        raster,
+        declined: viewer_host::drawing::said(rasterizer.declined()),
+    })
 }
 
 /// Draws one window of a request's target with the processor rasteriser: what a caller under
@@ -213,7 +229,7 @@ pub fn rasterise(request: &RenderRequest) -> Result<Raster, Status> {
 pub fn rasterise_window(
     request: &RenderRequest,
     window: viewer_host::oversize::Window,
-) -> Result<Raster, Status> {
+) -> Result<Drawn, Status> {
     let whole = viewer_host::oversize::Window {
         x: 0,
         y: 0,
@@ -223,9 +239,14 @@ pub fn rasterise_window(
     if window.width == 0 || window.height == 0 || !whole.holds(window) {
         return Err(Status::OutOfRange);
     }
-    CpuRasterizer::new()
+    let mut rasterizer = CpuRasterizer::new();
+    let raster = rasterizer
         .rasterize_window(&request.list, request.target, window.shown())
-        .map_err(|_| Status::RenderRefused)
+        .map_err(|_| Status::RenderRefused)?;
+    Ok(Drawn {
+        raster,
+        declined: viewer_host::drawing::said(rasterizer.declined()),
+    })
 }
 
 /// The window of a request's target to draw for a page whose top-left corner sits at `origin` in
@@ -798,7 +819,9 @@ mod tests {
         assert!(viewer_host::oversize::oversized(&request, (800, 1000)));
         let window = super::window_for(&request, (0.0, 0.0), (800, 1000))
             .expect("the page's corner is in the viewport");
-        let raster = super::rasterise_window(&request, window).expect("the window draws");
+        let raster = super::rasterise_window(&request, window)
+            .expect("the window draws")
+            .raster;
         assert_eq!((raster.width, raster.height), (window.width, window.height));
         let past = viewer_host::oversize::Window {
             x: request.target.width,

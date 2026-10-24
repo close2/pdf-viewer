@@ -421,6 +421,11 @@ pub(crate) fn describe_command(command: &Command) -> String {
         ),
         Command::Find(find) => format!("find {find:?}"),
         Command::RenderReady { token, .. } => format!("render ready {token:?}"),
+        Command::Declined { page, declined, .. } => format!(
+            "declined on page {}: {} mark(s)",
+            page.saturating_add(1),
+            declined.len()
+        ),
     }
 }
 

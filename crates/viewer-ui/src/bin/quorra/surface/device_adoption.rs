@@ -97,6 +97,15 @@ impl App {
             );
         }
         self.say_the_lane(&landed);
+        // What the processor's draw of these pages left to the library's converter, told to the
+        // viewer, which says each condition once and keeps it with the page's notes (ADR 2290).
+        for (picture, declined) in &landed.declined {
+            self.dispatch(viewer_core::Command::Declined {
+                document: picture.document(),
+                page: picture.page(),
+                declined: declined.clone(),
+            });
+        }
         // **An abandoned frame is answered to nobody and settles nothing** — `adopt_composed`'s
         // rule, for its reason (ADR 0657, trap 20): no pixels of it exist, so recording it as the
         // base would reproject a picture that was never drawn. The refusal it learned is kept by

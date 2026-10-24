@@ -385,6 +385,22 @@ pub unsafe extern "C" fn quorra_window_tick(window: *mut Window) -> c_int {
     Status::Ok.code()
 }
 
+/// The window was hidden (`shown` false: minimised, or no longer visible) or shown again: §12.4.4's
+/// presentation parks while nobody can see it, and the time it was hidden is not time its page
+/// was displayed (ADR 2300). Called from the platform's own visibility notice.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_shown(window: *mut Window, shown: bool) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    window.shown(shown);
+    Status::Ok.code()
+}
+
 /// In how many milliseconds the window wants [`quorra_window_tick`] again: `-1` while nothing
 /// beside it is running, which is when the caller's timer stops. Asked after every call.
 ///

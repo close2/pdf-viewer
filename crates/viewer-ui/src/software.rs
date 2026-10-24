@@ -168,8 +168,8 @@ fn pixels(raster: &Raster) -> usize {
 // `viewer-device` (ADR 2052); it is named here too so that a window with no device reads it where
 // it always has.
 pub use viewer_device::compose::{
-    Assembly, ComposeError, Looks, Seen, compose, compose_pages, compose_pages_interruptibly,
-    compose_pages_watched, over_the_ground, surround, was_interrupted,
+    Assembly, ComposeError, Composed, Looks, Seen, compose, compose_pages,
+    compose_pages_interruptibly, compose_pages_watched, over_the_ground, surround, was_interrupted,
 };
 
 impl From<ComposeError> for SoftwareError {

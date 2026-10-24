@@ -293,11 +293,17 @@ impl Marks {
         }
     }
 
-    /// The window drawn for `page`, kept until the next one replaces it.
-    pub(crate) fn drew(&mut self, page: usize, window: windowed::Window, raster: Raster) {
-        if let Some(held) = self.windows.get_mut(&page) {
-            held.drawn = Some((window, raster));
-        }
+    /// The window drawn for `page`, kept until the next one replaces it — and the document the
+    /// page is of, for what its draw declined (ADR 2290).
+    pub(crate) fn drew(
+        &mut self,
+        page: usize,
+        window: windowed::Window,
+        raster: Raster,
+    ) -> Option<DocumentId> {
+        let held = self.windows.get_mut(&page)?;
+        held.drawn = Some((window, raster));
+        Some(held.document)
     }
 
     /// A window of `page` the rasteriser refused: the page is let go, and the document it is of

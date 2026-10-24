@@ -337,6 +337,9 @@ struct Host {
     /// graphics device refused their frame, or nothing — principle 2's "reported out loud", in
     /// the window as well as on standard error (ADR 1466).
     on_the_processor: Option<String>,
+    /// The pages a draw of which here left marks to the library's converter, which the title
+    /// names (ADR 2290); the sentences are the confined viewer's, said once per page and condition.
+    declined: std::collections::BTreeSet<usize>,
     /// Whether the device has refused a frame of the pages the screen took last. A device frame
     /// that lands after a refusal draws the pages *beside* the ones handed to the processor, so it
     /// withdraws the sentence only when nothing since the last take was refused.
@@ -348,7 +351,7 @@ struct Host {
     /// The thread creating the graphics instance — roughly 80% of what device bring-up blocks
     /// for, started before the window exists (the flagship's arrangement, raster's ADR 0014).
     /// `None` under `--cpu`, where no driver may be loaded at all.
-    instancing: Option<std::thread::JoinHandle<raster_gpu::wgpu::Instance>>,
+    instancing: Option<std::thread::JoinHandle<raster_gpu::LaunchInstance>>,
     /// The thread starting the worker and opening the document in it while the window and the
     /// device come up (ADR 1539), until `resumed` joins it — or, for a page still being read in the
     /// worker past `viewer_host::drawing::WARN`, until the tick that finds it ready (ADR 1811).
@@ -497,6 +500,7 @@ impl Host {
             confined: None,
             stopped: None,
             on_the_processor: None,
+            declined: std::collections::BTreeSet::new(),
             refused_since_take: false,
             window: None,
             presentation: None,
@@ -769,6 +773,22 @@ impl Host {
     /// The file's own name, for the title.
     fn name(&self) -> String {
         file_name(&self.path)
+    }
+
+    /// What a draw here of a page whose marks crossed declined, told to the confined viewer —
+    /// which says each condition once, as an event — and named in the title (ADR 2290).
+    fn declined_in(&mut self, page: usize, declined: Vec<viewer_core::Declined>) {
+        if declined.is_empty() {
+            return;
+        }
+        self.dispatch(Command::Declined {
+            document: DOCUMENT,
+            page,
+            declined,
+        });
+        if self.declined.insert(page) {
+            self.retitle();
+        }
     }
 
     /// Sends one command, hands its events on, and pulls the frame the view now shows — or, while
@@ -1565,10 +1585,14 @@ impl Host {
 
     fn retitle(&self) {
         if let Some(window) = self.window.as_ref() {
-            let drawn = self
+            let mut drawn = self
                 .on_the_processor
                 .as_ref()
                 .map_or_else(String::new, |said| format!(" — {said}"));
+            if let Some(declined) = viewer_host::status::declined_pages(&self.declined) {
+                drawn.push_str(" — ");
+                drawn.push_str(&declined);
+            }
             let loading = self
                 .loading
                 .as_deref()
@@ -1838,7 +1862,11 @@ impl Host {
         {
             self.frame_landed(landed);
         }
-        for finished in self.drawing.settle(viewer_host::drawing::SETTLE) {
+        for mut finished in self.drawing.settle(viewer_host::drawing::SETTLE) {
+            self.declined_in(
+                finished.request.page,
+                std::mem::take(&mut finished.declined),
+            );
             self.screen.landed(finished);
         }
         self.redraw();
@@ -2043,7 +2071,7 @@ impl ApplicationHandler for Host {
         // (ADRs 1944, 2026), each said in the toolkit windows' words, so a drive tells the two
         // apart as it does theirs; a window's line ends with the page it is of, which is what says
         // whether the page was under the bound.
-        for finished in self.drawing.collect() {
+        for mut finished in self.drawing.collect() {
             self.trace.say(
                 Topic::Frames,
                 format_args!(
@@ -2060,9 +2088,13 @@ impl ApplicationHandler for Host {
                     finished.waited
                 ),
             );
+            self.declined_in(
+                finished.request.page,
+                std::mem::take(&mut finished.declined),
+            );
             changed |= self.screen.landed(finished);
         }
-        for (finished, window) in self.drawing.windows() {
+        for (mut finished, window) in self.drawing.windows() {
             self.trace.say(
                 Topic::Frames,
                 format_args!(
@@ -2082,6 +2114,10 @@ impl ApplicationHandler for Host {
                     finished.request.target.width,
                     finished.request.target.height
                 ),
+            );
+            self.declined_in(
+                finished.request.page,
+                std::mem::take(&mut finished.declined),
             );
             changed |= self.screen.landed_window(finished, window);
         }

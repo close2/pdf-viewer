@@ -25,6 +25,7 @@ recalled:
 | Adobe predefined `CMap`s | `poppler-data`'s `COPYING.adobe` (1990–2019), `doc/pdf.js/external/bcmaps/LICENSE` (2009), `hayro-cmap`'s `assets/LICENSE.txt` (2023) | **BSD-3-Clause** |
 | Foxit standard-14 programs | `doc/pdf.js/external/standard_fonts/LICENSE_FOXIT`, from PDFium | **BSD-3-Clause** |
 | Liberation Sans | `LICENSE_LIBERATION` | **SIL OFL 1.1** (reserved font name: ship and use freely, do not modify and keep the name) |
+| Source Han Sans 2.005R, the CJK pack's source — not vendored: the pack is a second download (`doc/cjk-pack.md`), and the tree holds only `data/cjk-pack/LICENSE.txt` | the family's `LICENSE.txt` from `adobe-fonts/source-han-sans`, read before the family was chosen | **SIL OFL 1.1**, Reserved Font Name "Source": the pack's programs are a Modified Version and are renamed `QuorraCJK-<Ordering>` (condition 3); each copy carries the notice and the licence, in the pack and in every subset's `/Metadata` (condition 2, A550's pattern; ADR 2302); the documents made with it are outside the licence by its own preamble |
 | poppler's `cidToUnicode`, `nameToUnicode`, `unicodeMap` | `poppler-data`'s `COPYING` | **GPL-2 or GPL-3** — Glyph & Cog's, *not* Adobe's |
 
 Archive output follows owner answer A550 (ADRs 2194–2195): newly embedded or
@@ -311,6 +312,35 @@ and T.6 take below. So T.801 is cited by clause, table and figure and paraphrase
 the ledger alike, and nothing from it appears between quotation marks or after a `>`. The numbers
 the code carries from it — box types, marker codes, `EnumCS` values, `Rsiz` bits, the `IL` codes of
 Table M.29 — are the format itself rather than prose about it.
+
+## PIMA 7667:2001, e-sRGB — the text T.801 hands enumerated colour spaces 20 and 24 to
+
+ITU-T T.801 Table M.25 defines JPEG 2000's enumerated colour space 20 as e-sRGB, defined by PIMA 7667,
+and 24 as e-sYCC, its Annex B, and ISO 32000-2 §7.4.9 asks a processor to support the
+JPX baseline's enumerated spaces, which T.801 M.9.2.4 says include both. The owner bought the
+standard and placed it as `doc/pima7667-2001.pdf` (`doc/questions/A348`); it stays out of every
+commit under `.gitignore`'s `/doc/*.pdf`. A Markdown conversion is prepared with `python3 -I -B
+tools/spec-md.py doc/pima7667-2001.pdf --out <dir>/PIMA7667-2001.md`, in the page's content
+order (the file has no structure tree). In a batch worktree `doc/md/` is the owner's checkout, so
+the conversion is made where the round works and the command is what this entry records (trap
+187); the equations come out of the converter as fragments of a typeset layout, and the PDF is
+what an equation is read from.
+
+| text | obtained from | SHA-256 of the PDF |
+|---|---|---|
+| **PIMA 7667:2001**, *Photography – Electronic still picture imaging – Extended sRGB color encoding – e-sRGB*, first edition, approved 2001-05-18 | bought by the owner, IS&T's copy of the legacy PIMA standard (`PIMA7667-2001.PDF`, created 2001-05-24); 35 pages, 277 252 bytes | `05653ec7b3b42ad3d8b1a023dc21cfb7af69a7b8ba30c88003d20c46c40d9c20` |
+
+**What it is used for.** Section 4.3's reference display (BT.709-3's primaries, D65's white at
+80 cd/m², black at zero tristimulus by section 4.4.1), section 4.5's inverse encoding (equations 5,
+6a–6c and 7) and Annex B.2's e-sYCC to e-sRGB (equations B7–B9), which
+`crates/pdf-colour/src/colour/extended_srgb.rs` implements (ADR 2292). Its section 4.4.3 NOTE's
+neutral-patch table and its informative Annex E.2's equation E3 are the two printed answers that
+module's tests check against. Annexes D to H are informative by the foreword's own statement.
+
+**Bought, not free to quote.** The file carries no licence permitting reproduction, so it is cited
+by section, equation and table and paraphrased, in source and in the ledger alike, the position
+T.801 takes above. The numbers the code carries from it — the matrices of equations 7 and B9, the
+offsets of equation 4, section 4.3.1's white — are the encoding itself rather than prose about it.
 
 ## ISO 15076-1:2010, the ICC profile format — a preview, and what it cannot answer
 

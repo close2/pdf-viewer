@@ -14,11 +14,13 @@
 //! lossless codestream and draws it with no `/ColorSpace`, so the file's own statement is what
 //! decides.
 //!
-//! **What an expected value may rest on.** The definitions behind three of the codes are in texts
-//! this project does not hold — IEC 61966-2-1 Amd. 1 (sYCC), PIMA 7666 (ROMM-RGB), PIMA 7667
-//! (e-sRGB, e-sYCC) — and CIE Publication 131 (CIEJab) is the fourth. So where a test asserts a
-//! colour it is one the held texts fix: a luma-chroma colour with no chroma is neutral and an RGB
-//! colour of three equal components is neutral, whatever the coefficients; CIELab's samples are
+//! **What an expected value may rest on.** The definitions behind two of the codes are in texts
+//! this project does not hold — IEC 61966-2-1 Amd. 1 (sYCC), PIMA 7666 (ROMM-RGB) — and CIE
+//! Publication 131 (CIEJab) is the third. PIMA 7667 (e-sRGB, e-sYCC) is held (A348), and those
+//! two codes' expected pixels are worked by hand from its equations, each test saying which. So
+//! where a test asserts a colour it is one the held texts fix: a luma-chroma colour with no chroma
+//! is neutral and an RGB colour of three equal components is neutral, whatever the coefficients;
+//! CIELab's samples are
 //! T.801's Equation M-18 with M.11.7.4.1's defaults, and the same L\*a\*b\* painted through
 //! §8.6.5.4's `Lab` is the expected pixel; an ICC profile's colour is the same profile's painted
 //! through §8.6.5.5's `ICCBased`. Where the tree does not draw a code as its definition states,
@@ -37,6 +39,18 @@
 //! opj_compress -i three.raw -o three.j2k -F 4,1,3,8,u -n 1 -r 1
 //! opj_compress -i one.raw -o one.j2k -F 4,1,1,8,u -n 1 -r 1
 //! opj_compress -i four.raw -o four.j2k -F 2,1,4,8,u -n 1 -r 1
+//! ```
+//!
+//! and PIMA 7667's three fixtures the same way, e-sRGB's two from big-endian samples:
+//!
+//! ```sh
+//! python3 -c "import numpy as np
+//! np.array([(43426,)*3,(50176,37376,30976),(20000,57216,57216),(24576,)*3],'>u2').T.tofile('e16.raw')
+//! np.array([(2714,)*3,(3136,2336,1936),(1000,3576,3576),(1536,)*3],'>u2').T.tofile('e12.raw')
+//! np.array([(150,128,128),(150,150,150),(200,128,80),(128,60,128)],np.uint8).T.tofile('y8.raw')"
+//! opj_compress -i e16.raw -o e16.j2k -F 4,1,3,16,u -n 1 -r 1
+//! opj_compress -i e12.raw -o e12.j2k -F 4,1,3,12,u -n 1 -r 1
+//! opj_compress -i y8.raw -o y8.j2k -F 4,1,3,8,u -n 1 -r 1
 //! ```
 
 #![expect(
@@ -71,6 +85,46 @@ const THREE: &[u8] = &[
     0x01, 0xff, 0x5c, 0x00, 0x04, 0x40, 0x40, 0xff, 0x90, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x24, 0x00, 0x01, 0xff, 0x93, 0xc7, 0xd4, 0x0a, 0x0f, 0xf8, 0xe5, 0xba, 0x7f, 0xc7, 0xd4, 0x06,
     0x0d, 0xef, 0xbf, 0xdf, 0x80, 0x28, 0x0f, 0xf2, 0xb6, 0xc8, 0xf3, 0xff, 0xd9,
+];
+
+/// A 4×1 three-component 16-bit codestream, lossless: (43426, 43426, 43426), (50176, 37376,
+/// 30976), (20000, 57216, 57216) and (24576, 24576, 24576) — as e-sRGB16, PIMA 7667's grey of
+/// `Y` = 29/99 from section 4.4.3's NOTE, Annex A's placing of the sRGB (200, 100, 50), a red
+/// below zero beside full green and blue, and black.
+const E_SRGB_16: &[u8] = &[
+    0xff, 0x4f, 0xff, 0x51, 0x00, 0x2f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x01,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x01,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x0f, 0x01, 0x01, 0x0f, 0x01, 0x01,
+    0x0f, 0x01, 0x01, 0xff, 0x52, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x01, 0x01, 0x00, 0x04, 0x04, 0x00,
+    0x01, 0xff, 0x5c, 0x00, 0x04, 0x40, 0x80, 0xff, 0x90, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x2c, 0x00, 0x01, 0xff, 0x93, 0xc7, 0xfe, 0x0c, 0x10, 0x02, 0xca, 0x6a, 0x16, 0x17, 0x4b, 0x8d,
+    0xf2, 0xc3, 0xff, 0x00, 0x01, 0x80, 0x0c, 0x3a, 0x55, 0xdf, 0xf8, 0x90, 0x30, 0x0e, 0x5e, 0x0a,
+    0x8d, 0x57, 0xcf, 0xff, 0xd9,
+];
+
+/// The same four colours as 12-bit e-sRGB12: (2714, 2714, 2714), (3136, 2336, 1936), (1000, 3576,
+/// 3576) and (1536, 1536, 1536).
+const E_SRGB_12: &[u8] = &[
+    0xff, 0x4f, 0xff, 0x51, 0x00, 0x2f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x01,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x01,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x0b, 0x01, 0x01, 0x0b, 0x01, 0x01,
+    0x0b, 0x01, 0x01, 0xff, 0x52, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x01, 0x01, 0x00, 0x04, 0x04, 0x00,
+    0x01, 0xff, 0x5c, 0x00, 0x04, 0x40, 0x60, 0xff, 0x90, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x26, 0x00, 0x01, 0xff, 0x93, 0xc7, 0xec, 0x0e, 0x02, 0xca, 0x69, 0x85, 0x05, 0xb1, 0x7f, 0xc3,
+    0xf3, 0x03, 0x0c, 0x3a, 0x4f, 0xdf, 0xe0, 0x14, 0x0e, 0x5d, 0x0e, 0xc5, 0x99, 0xff, 0xd9,
+];
+
+/// A 4×1 three-component 8-bit codestream, lossless: (150, 128, 128), (150, 150, 150), (200, 128,
+/// 80) and (128, 60, 128) — as e-sYCC, a grey, a violet, an extended green and a colour whose blue
+/// is below zero, every one inside PIMA 7667 section 4.3.4's luminance bound.
+const E_SYCC_8: &[u8] = &[
+    0xff, 0x4f, 0xff, 0x51, 0x00, 0x2f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x01,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x01,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x07, 0x01, 0x01, 0x07, 0x01, 0x01,
+    0x07, 0x01, 0x01, 0xff, 0x52, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x01, 0x01, 0x00, 0x04, 0x04, 0x00,
+    0x01, 0xff, 0x5c, 0x00, 0x04, 0x40, 0x40, 0xff, 0x90, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x24, 0x00, 0x01, 0xff, 0x93, 0xc7, 0xd4, 0x0a, 0x10, 0x60, 0x0d, 0x4a, 0x47, 0xcf, 0xb4, 0x0c,
+    0x0e, 0xb1, 0xc8, 0xcf, 0xb4, 0x14, 0x0c, 0xca, 0xd9, 0x64, 0x3f, 0xff, 0xd9,
 ];
 
 /// A 4×1 one-component codestream, every sample 100.
@@ -147,10 +201,20 @@ fn any_icc(precedence: u8, profile: &[u8]) -> Vec<u8> {
 /// A JPX file around `codestream`, with one `colr` box per entry of `colours`: signature, file
 /// type naming the JPX baseline (M.9.2), a JP2 Header box, the codestream.
 fn jpx(codestream: &[u8], (width, components): (u32, u16), colours: &[Vec<u8>]) -> Vec<u8> {
+    jpx_at(codestream, (width, components, 8), colours)
+}
+
+/// [`jpx`] for a codestream of `bits` a component, which the `ihdr` box's `BPC` states as
+/// `bits − 1` (ISO/IEC 15444-1 I.5.3.1).
+fn jpx_at(
+    codestream: &[u8],
+    (width, components, bits): (u32, u16, u8),
+    colours: &[Vec<u8>],
+) -> Vec<u8> {
     let mut image_header = 1u32.to_be_bytes().to_vec();
     image_header.extend_from_slice(&width.to_be_bytes());
     image_header.extend_from_slice(&components.to_be_bytes());
-    image_header.extend_from_slice(&[7, 7, 0, 0]);
+    image_header.extend_from_slice(&[bits - 1, 7, 0, 0]);
     let mut header = boxed(*b"ihdr", &image_header);
     for colour in colours {
         header.extend(boxed(*b"colr", colour));
@@ -534,9 +598,10 @@ fn cielab_under_a_colour_temperature_is_drawn_under_the_radiators_white_point() 
 /// The codes this tree does not draw as their definitions state take §7.4.9's fallback: three
 /// ordinary channels are `DeviceRGB`, and the image is drawn rather than refused.
 ///
-/// CIEJab (19), e-sRGB (20) and e-sYCC (24) are baseline and defined in texts not held (ADR
-/// 1383); YCbCr(2) (3) is not baseline at all; a CIELab whose `IL` is a code neither T.801 nor T.4
-/// defines names no white point (ADR 1713).
+/// CIEJab (19) is baseline and defined in a text not held (ADR 1383); e-sRGB (20) at eight bits
+/// is none of the three precisions PIMA 7667 section 4.1 defines it at (ADR 2292); YCbCr(2) (3)
+/// is not baseline at all; a CIELab whose `IL` is a code neither T.801 nor T.4 defines names no
+/// white point (ADR 1713).
 #[test]
 fn a_space_not_drawn_falls_back_to_the_device_space_of_its_channel_count() {
     sandbox();
@@ -546,7 +611,6 @@ fn a_space_not_drawn_falls_back_to_the_device_space_of_its_channel_count() {
     for colour in [
         enumerated(0, 19, &[]),
         enumerated(0, 20, &[]),
-        enumerated(0, 24, &[]),
         enumerated(0, 3, &[]),
         enumerated(0, 14, &undefined),
     ] {
@@ -576,20 +640,117 @@ fn the_any_icc_method_is_drawn_through_its_profile() {
 
 /// "[T]he next lower colour space, in terms of precedence and approximation value, shall be
 /// used": a first specification this tree does not draw gives way to the second.
+///
+/// CIEJab is undrawn for its unheld text, and e-sRGB at eight bits for a precision PIMA 7667 does
+/// not define (ADR 2292); each gives way the same.
 #[test]
 fn a_specification_not_drawn_gives_way_to_the_next() {
     sandbox();
     let profile = linear_srgb_profile();
-    let pixels = drawn(
-        4,
-        &jpx(
-            THREE,
-            (4, 3),
-            &[enumerated(0, 24, &[]), any_icc(0, &profile)],
-        ),
-    );
     let through_the_profile = drawn(4, &jpx(THREE, (4, 3), &[any_icc(0, &profile)]));
-    assert_eq!(pixels, through_the_profile);
+    for undrawn in [19, 20] {
+        let pixels = drawn(
+            4,
+            &jpx(
+                THREE,
+                (4, 3),
+                &[enumerated(0, undrawn, &[]), any_icc(0, &profile)],
+            ),
+        );
+        assert_eq!(pixels, through_the_profile, "EnumCS {undrawn}");
+    }
+}
+
+/// e-sRGB (20) is drawn as PIMA 7667 defines it, at sixteen bits and at twelve.
+///
+/// The expected pixels are Annex A's equation A2, the standard's conversion of n-bit e-sRGB to
+/// 8-bit sRGB: `(code − offset) ÷ 2^(n−9)`, with equation 4's offset `2^(n−2) + 2^(n−3)` and the
+/// clipping A.3's NOTE says the integer form implies. This tree's route is the colorimetric one
+/// instead — equations 5, 6 and 7 to XYZ, D65 adapted onto D50, D50 to the screen's sRGB — and the
+/// two must agree, because section 4.3 gives e-sRGB sRGB's own primaries and white:
+///
+/// - 16 bits, offset 24576, step 128: (43426 − 24576) ÷ 128 = 147.27 for the grey; (200, 100,
+///   50) for Annex A's placing of that sRGB colour; a red of (20000 − 24576) ÷ 128 = −35.75,
+///   clipped to 0, beside (57216 − 24576) ÷ 128 = 255; and black at the offset itself.
+/// - 12 bits, offset 1536, step 8: (2714 − 1536) ÷ 8 = 147.25, and the same three others.
+///
+/// The device space of the channel count would have drawn the same integers as (169, 169, 169)
+/// and so on — black itself at 96 — which is what the last assertion rules out.
+#[test]
+fn e_srgb_is_drawn_as_pima_7667_defines_it() {
+    sandbox();
+    let expected = [[147, 147, 147], [200, 100, 50], [0, 255, 255], [0, 0, 0]];
+    for (codestream, bits) in [(E_SRGB_16, 16), (E_SRGB_12, 12)] {
+        let pixels = drawn(
+            4,
+            &jpx_at(codestream, (4, 3, bits), &[enumerated(0, 20, &[])]),
+        );
+        assert_near(
+            &pixels,
+            &expected,
+            &format!("e-sRGB{bits} against Annex A's A2"),
+        );
+    }
+}
+
+/// e-sYCC (24) is drawn as PIMA 7667's Annex B defines it, worked by hand on [`E_SYCC_8`]'s four
+/// pixels: B7 and B8 give `Y′` = `Y″` / 255 and each chroma `(C″ − 128) / 255`, B9 gives e-sRGB's
+/// nonlinear components, and on this screen — sRGB's primaries and white, as above — a nonlinear
+/// component in 0 to 1 is the pixel × 255, clipped outside it as A.3's NOTE says.
+///
+/// - (150, 128, 128): no chroma, so `R′` = `G′` = `B′` = 150/255 and the pixel is 150 grey.
+/// - (150, 150, 150): `Cb′` = `Cr′` = 0.086275, so `R′` = 0.588235 + 2.804 × 0.086275 =
+///   0.830149 (211.69), `G′` = 0.588235 − (0.6882 + 1.4282) × 0.086275 = 0.405644 (103.44),
+///   `B′` = 0.588235 + (3.544 + 0.0003) × 0.086275 = 0.894018 (227.97).
+/// - (200, 128, 80): `Cr′` = −0.188235, so `R′` = 0.784314 − 2.804 × 0.188235 = 0.256502
+///   (65.41), `G′` = 0.784314 + 1.4282 × 0.188235 = 1.053151, past 1 and clipped to 255, and
+///   `B′` = 0.784257 (199.99) — an extended green whose luminance, 0.858, is inside section
+///   4.3.4's bound.
+/// - (128, 60, 128): `Cb′` = −0.266667, so `R′` = 0.501961 (128.00), `G′` = 0.501961 + 0.6882 ×
+///   0.266667 = 0.685481 (174.80), and `B′` = 0.501961 − 3.544 × 0.266667 = −0.443106, below zero
+///   and clipped to 0 — luminance 0.340.
+///
+/// sYCC (18) halves none of the chroma, so its matrix's 1.402 in place of 2.804 would draw the
+/// second pixel's red at 181: the assertion distinguishes the two.
+#[test]
+fn e_sycc_is_drawn_as_annex_b_defines_it() {
+    sandbox();
+    let pixels = drawn(4, &jpx(E_SYCC_8, (4, 3), &[enumerated(0, 24, &[])]));
+    assert_near(
+        &pixels,
+        &[
+            [150, 150, 150],
+            [212, 103, 228],
+            [65, 255, 200],
+            [128, 175, 0],
+        ],
+        "e-sYCC against Annex B's B7 to B9",
+    );
+}
+
+/// A writer that must carry an e-sRGB image's samples under a PDF colour space is refused by name
+/// rather than handed them as `DeviceRGB`, which would recolour the image this tree draws (ADR
+/// 2292).
+#[test]
+fn a_writer_is_refused_e_srgb_samples_by_name() {
+    sandbox();
+    let bytes = image_page(
+        4,
+        &jpx_at(E_SRGB_16, (4, 3, 16), &[enumerated(0, 20, &[])]),
+        "",
+    );
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let pdf_syntax::Object::Stream(image) = document.get(pdf_syntax::ObjectId::new(5, 0)) else {
+        panic!("object 5 is the image stream");
+    };
+    let refused = pdf_model::image::jpx_samples(
+        &document,
+        &image.dict,
+        &pdf_syntax::Dictionary::new(),
+        (&image.data, pdf_model::image::ORDINARY_JPX_SAMPLES),
+    )
+    .expect_err("e-sRGB samples have no PDF colour space to be carried in");
+    assert!(refused.to_string().contains("e-sRGB"), "{refused}");
 }
 
 /// Precedence ranks two specifications both drawn: sYCC at precedence 1 over sRGB at 0, so the

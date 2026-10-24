@@ -3,10 +3,10 @@
 //! pages.
 //!
 //! raster's ADR 0076 records a non-conformance rather than a tolerance. Its sampled lane places
-//! coverage samples on one lattice of period `p = 1/√coverage_samples` across the whole device —
-//! a quarter of a device pixel at the default sixteen — so an axis-aligned mark's ink is a count
-//! of lattice rows times `p`, and a pixel the mark's boundary crosses receives **nothing** when no
-//! lattice row falls inside it. ISO 32000-2 §10.7.4 forbids that in its own words:
+//! coverage samples on a lattice whose rows and columns have period `p = 1/coverage_samples`
+//! across the whole device — a sixteenth of a device pixel at the default sixteen (ADR 2296) — so
+//! an axis-aligned mark's ink is a count of lattice rows times `p`, and a pixel the mark's
+//! boundary crosses receives **nothing** when no lattice row falls inside it. ISO 32000-2 §10.7.4 forbids that in its own words:
 //!
 //! > A shape shall be scan-converted by painting any pixel whose half-open square region
 //! > intersects the shape, no matter how small the intersection is.
@@ -27,8 +27,9 @@
 //! A mark's *width* is the narrow side of its device bounding box, which is what raster's rule
 //! names: for an axis-aligned rule — stroked or filled — that is the thickness, and for anything
 //! else the census says so by putting it in the widest band, where the rule's relative error `p/w`
-//! is negligible. Marks narrower than `p` are not counted at all: raster's ADR 0070 already keeps
-//! those on the processor, so they are not this lane's population.
+//! is negligible. Marks narrower than the lattice's vanishing width are not counted at all:
+//! raster's ADR 0070 already keeps those on the processor, so they are not this lane's
+//! population.
 //!
 //! ```sh
 //! cargo run --release -p render-raster --example sampled_lane_column -- \
@@ -57,8 +58,8 @@ const SHIPPED_MAGNIFICATION: f32 = 10.0;
 /// The bands a mark's width is reported in, in device pixels, each the band's upper bound.
 ///
 /// They are the relative error `p/w` rather than round numbers: at the default sixteen samples a
-/// mark one pixel wide is drawn up to a quarter wrong, one four pixels wide up to a sixteenth, and
-/// past sixteen the lattice is finer than a level of an eight-bit raster.
+/// mark one pixel wide is drawn up to a sixteenth wrong, one four pixels wide up to a sixty-fourth,
+/// and past sixteen the lattice is finer than a level of an eight-bit raster.
 const BANDS: [f32; 4] = [1.0, 4.0, 16.0, f32::INFINITY];
 
 /// How far above or below a multiple of the pitch a width may be and still count as one.
@@ -72,7 +73,7 @@ const ON_THE_LATTICE: f32 = 1.0 / 4096.0;
 struct Tally {
     /// Marks of any kind, including those the lane never sees.
     marks: usize,
-    /// Marks at or above the pitch — the sampled lane's own population.
+    /// Marks at or above the vanishing width — the sampled lane's own population.
     on_the_lane: usize,
     /// Of them, per band, those whose width is not a multiple of the pitch.
     off_lattice: [usize; BANDS.len()],
@@ -111,14 +112,15 @@ fn main() {
         args.drain(at..=at.saturating_add(1));
     }
     let samples = render_raster::options().coverage_samples;
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "a sample count, which raster bounds far below 2^24"
-    )]
-    let pitch = 1.0 / (samples as f32).sqrt();
+    let lattice = raster_gpu::SampleLattice::of(samples);
+    let sampling = Sampling {
+        pitch: lattice.edge_pitch(),
+        floor: lattice.vanishing_width(),
+    };
     println!(
-        "# scale {scale}, {samples} coverage samples, pitch {pitch:.4} device pixels; \
-         width bands {BANDS:?}"
+        "# scale {scale}, {samples} coverage samples, pitch {:.4} device pixels, marks from {:.4}; \
+         width bands {BANDS:?}",
+        sampling.pitch, sampling.floor
     );
 
     let mut run = Tally::default();
@@ -145,7 +147,7 @@ fn main() {
             continue;
         };
         let mut tally = Tally::default();
-        walk(list.commands(), target.transform, pitch, &mut tally);
+        walk(list.commands(), target.transform, sampling, &mut tally);
         pages = pages.saturating_add(1);
         if tally.diverted() > 0 {
             pages_with_a_diversion = pages_with_a_diversion.saturating_add(1);
@@ -184,15 +186,24 @@ fn percent(part: usize, whole: usize) -> f32 {
     }
 }
 
+/// The two widths of the sampled lane's lattice the census reads.
+#[derive(Clone, Copy)]
+struct Sampling {
+    /// The distance between sample rows: an axis-aligned mark's ink is a multiple of it.
+    pitch: f32,
+    /// The narrowest mark the lane keeps; ADR 0070 sends anything narrower to the processor.
+    floor: f32,
+}
+
 /// Every mark in one level of the display list, and every level below it.
-fn walk(commands: &[Command], to_device: Transform, pitch: f32, tally: &mut Tally) {
+fn walk(commands: &[Command], to_device: Transform, sampling: Sampling, tally: &mut Tally) {
     for command in commands {
         match command {
             Command::Fill {
                 path, transform, ..
             } => {
                 tally.marks = tally.marks.saturating_add(1);
-                classify(path.bounds(transform.then(to_device)), pitch, tally);
+                classify(path.bounds(transform.then(to_device)), sampling, tally);
             }
             Command::Stroke {
                 path,
@@ -213,16 +224,16 @@ fn walk(commands: &[Command], to_device: Transform, pitch: f32, tally: &mut Tall
                         )
                         .mapped(at)
                     }),
-                    pitch,
+                    sampling,
                     tally,
                 );
             }
             // An image is drawn by the sampled lane's sibling path and has no width in raster's
             // sense; it is counted as a mark so that the percentages are of the whole page.
             Command::Image { .. } => tally.marks = tally.marks.saturating_add(1),
-            Command::Group { commands, .. } => walk(commands, to_device, pitch, tally),
+            Command::Group { commands, .. } => walk(commands, to_device, sampling, tally),
             Command::Shaped { object, .. } => {
-                walk(std::slice::from_ref(object), to_device, pitch, tally);
+                walk(std::slice::from_ref(object), to_device, sampling, tally);
             }
             _ => {}
         }
@@ -230,13 +241,14 @@ fn walk(commands: &[Command], to_device: Transform, pitch: f32, tally: &mut Tall
 }
 
 /// One mark's device bounding box, put in its band.
-fn classify(bounds: Option<Rect>, pitch: f32, tally: &mut Tally) {
+fn classify(bounds: Option<Rect>, sampling: Sampling, tally: &mut Tally) {
+    let Sampling { pitch, floor } = sampling;
     let Some(bounds) = bounds else {
         return;
     };
     let width = (bounds.max.x - bounds.min.x).min(bounds.max.y - bounds.min.y);
-    if !width.is_finite() || width < pitch {
-        // raster's ADR 0070 keeps anything narrower than the pitch on the processor already, so
+    if !width.is_finite() || width < floor {
+        // raster's ADR 0070 keeps anything narrower than this on the processor already, so
         // it is not this lane's population and counting it would overstate the diversion.
         return;
     }

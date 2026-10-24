@@ -24,6 +24,7 @@ use super::{Exit, configuration_text, input_spec};
 
 /// Runs the program in the process its arguments call for, and answers with its exit status.
 pub(super) fn route(given: Vec<String>) -> u8 {
+    let given = super::with_the_pack_beside(given);
     let mut here = Here;
     let Ok(arguments) = Arguments::parse(given.clone()) else {
         return program(&mut here, given);
@@ -134,6 +135,13 @@ fn fences(here: &mut Here, arguments: &Arguments) -> Fences {
             .filter_map(|stated| stated.split_once('='))
             .map(|(_, path)| PathBuf::from(path)),
     );
+    if let Some(directory) = super::cjk_pack_directory(arguments) {
+        named.extend(
+            pdf_transform::archive::Collection::ALL
+                .into_iter()
+                .map(|collection| directory.join(collection.file())),
+        );
+    }
     let descriptors = ["--password-fd", "--encrypt-owner-fd", "--encrypt-user-fd"]
         .into_iter()
         .flat_map(|flag| arguments.every(flag))

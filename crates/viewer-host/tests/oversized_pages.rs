@@ -239,6 +239,7 @@ fn drawn_red(
             format: pdf_render::RasterFormat::Rgba8,
             data: [255, 0, 0, 255].repeat(pixels),
         })),
+        declined: Vec::new(),
         cost: Duration::ZERO,
         waited: Duration::ZERO,
     }

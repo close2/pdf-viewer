@@ -10,7 +10,7 @@ An `Adobe-Identity` CID is an index into the producer's own program (§9.7.4.2),
 face can be ordered by those numbers — but the viewer draws these pages today all the same
 (ADR 0270): it takes a face of this machine's for the font's name and maps each CID through the
 font's ToUnicode to a glyph. That extraction aid is also something the converter already derives
-where absent and checks where present — ISO 19005-2 §6.2.11.7.2 asks a CMap only of Level U and
+where absent and checks where present — ISO 19005-2 section 6.2.11.7.2 asks a CMap only of Level U and
 above, Part 4 states it as a `should`, and the row `fonts/to-unicode-values-are-usable` refuses
 a map whose values are garbage (the census's U+0007 and `#` documents) rather than trusting it.
 So two cases exist, and the tree already tells them apart:
@@ -27,7 +27,7 @@ So two cases exist, and the tree already tells them apart:
    document's CIDs: the CIDs are untouched, so positions are exact; text stays text; the written
    ToUnicode states the values it was keyed from. The owner called it a "pixel font"; the
    embedded form is outlines, because a raster glyph program is the Type 3 form and PDF/A
-   prohibits Type 3 (ISO 19005-1 §6.3.7's rule carried through the parts; the build verifies
+   prohibits Type 3 (ISO 19005-1 section 6.3.7's rule carried through the parts; the build verifies
    Part 4's clause number when it files the row). The loss is two things at once: the shapes are
    a substitute's, which is `machine-face` at composite scale, and the glyph choice is inferred
    from an extraction aid, which is a new named loss of its own.

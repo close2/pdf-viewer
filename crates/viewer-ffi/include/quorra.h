@@ -1903,6 +1903,7 @@ int32_t quorra_collection_folder_of(const char *key, uint32_t *id, char *out, si
  *   on the wheel:      quorra_window_scroll(window, dx, dy), and with Control held
  *                      quorra_window_zoom_wheel(window, travel, QUORRA_WHEEL_*, x, y, &steps);
  *   on the timer:      quorra_window_tick(window);
+ *   on hiding, showing: quorra_window_shown(window, shown);
  *   after each of those: quorra_window_take_owed(window, &owed), act on each record,
  *                      quorra_owed_free(owed), and arm the timer at quorra_window_interval(window)
  *                      milliseconds, or stop it at -1;
@@ -2060,6 +2061,9 @@ int32_t quorra_window_resize(quorra_window *window, uint32_t width, uint32_t hei
 int32_t quorra_window_tick(quorra_window *window);
 /* Milliseconds until the window wants quorra_window_tick, or -1 while nothing runs beside it. */
 int32_t quorra_window_interval(const quorra_window *window);
+/* The window was hidden (`shown` false) or shown again: a presentation parks while it is hidden,
+ * and the time it was hidden is not time its page was displayed (ISO 32000-2 12.4.4.1). */
+int32_t quorra_window_shown(quorra_window *window, bool shown);
 /* A key, as a QUORRA_KEY_*, with Shift and the platform's command modifier (Ctrl here, ⌘ on
  * macOS). `*act` is what only the caller's window can do, QUORRA_ACT_NOTHING where the window did
  * all of it; `*by`, where not null, a scroll's distance in logical pixels. QUORRA_WRONG_KIND for a

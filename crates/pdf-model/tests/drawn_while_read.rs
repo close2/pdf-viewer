@@ -151,7 +151,7 @@ fn drawn_in_parts(document: &Document, parts: &Parts) -> Option<Drawn> {
     parts.keep(&list);
     assert!(parts.is(&list), "the list kept is the list the parts name");
     let finished = match (&ended, underway) {
-        (Ok(_), Some(underway)) => underway.finish(&list),
+        (Ok(_), Some(underway)) => underway.finish(&list).map(|finished| finished.raster),
         (Err(reason), _) => Err(*reason),
         (Ok(_), None) => Err("no target"),
     };

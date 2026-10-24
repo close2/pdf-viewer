@@ -1713,3 +1713,30 @@ A brief or a round that plans to carry a finding from one crate into another's r
 <producer>` first and reads whether the report's crate is above or below it; if above, the finding travels
 in the draw's return value and the report is the host's.
 
+## 181. A fixture's colour is one the specification permits before its expected pixel is derived
+
+Round 1729's first e-sYCC fixture carried two colours outside PIMA 7667 section 4.3.4's luminance bound,
+and the expected pixels worked by hand from the encoding's equations were right for values the encoding
+never admits; the fixture was replaced by four permitted colours rather than the expected values adjusted
+(ADR 2292). A fixture whose expected value is derived from a specification's formula first checks that
+its input lies inside the domain the specification states for that formula — a gamut, a luminance bound,
+a depth — because a formula evaluated outside its domain produces a number and not an expectation.
+
+## 182. An export's sources are corrected while its walk is still queued, not by re-queuing
+
+A census or an arms walk of an export can wait an hour or more for its turn on the first lane, and the
+build it runs inside its hold reads the export's sources at that moment: round 1734 corrected its
+export's sources while the walk was queued and the hold's build took them, where re-queuing would have
+cost the whole wait again (ADR 2302). A round that finds a fault in its export while a walk of that export
+is queued fixes the sources in place and leaves the queue position alone — trap 233's rule still holds, the
+export is not *re-exported* — and reads the hold's build log to see the correction was taken.
+
+## 183. A drive step about the processor's own drawing launches every window with `--cpu`
+
+Round 1728's step for a union decline saw nothing in the toolkit windows at first: under Xvfb with a render
+node the device lane takes page one, so the processor never drew the planted mark and the title had nothing
+to say (ADR 2290). A drive step that exercises what only the processor does — a decline, a fallback, an
+oracle route — launches each window with `--cpu` (the confined window's equivalent included) and says so
+in its name, and its control run without the flag shows the step reading "not offered" rather than a
+false pass.
+

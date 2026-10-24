@@ -204,6 +204,9 @@ internal sealed unsafe partial class QuorraWindow : IDisposable
     /// <summary>Milliseconds until the window wants <see cref="Tick"/>, or -1 while nothing runs beside it.</summary>
     internal int Interval => Native.quorra_window_interval(handle);
 
+    /// <summary>The window was hidden or shown again: a presentation parks while nobody can see it (ADR 2300).</summary>
+    internal void Shown(bool shown) => Library.Check("quorra_window_shown", Native.quorra_window_shown(handle, shown));
+
     /// <summary>A key, with Shift and the platform's command modifier; the QUORRA_ACT_* left for this window.</summary>
     internal uint Press(uint key, bool shift, bool command)
     {

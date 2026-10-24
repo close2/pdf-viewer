@@ -860,8 +860,12 @@ impl QuorraWindowRenderer {
     /// driver loader, it needs no window, no surface and no event loop — and on this machine it
     /// is roughly 80% of what bringing a device up blocks for (raster's ADR 0014). So a host
     /// creates it on a thread started before the window exists and hands it to
-    /// [`Self::with_instance`]; `wgpu::Instance` is `Send + Sync`, so the thread that made it can
-    /// give it away.
+    /// [`Self::with_instance`]; a `raster_gpu::LaunchInstance` is `Send`, so the thread that made it
+    /// can give it away.
+    ///
+    /// **It carries the adapters its check enumerated**, and [`Self::with_instance`] chooses among
+    /// them, so a launch enumerates the machine's devices once: under a display each enumeration
+    /// is a question Mesa's device-selection layer puts to the display server (ADRs 2282, 2298).
     ///
     /// It must be *this* function rather than a `wgpu::Instance::new` of the host's own: the
     /// descriptor has to match the one raster's own constructors use, and a host that guessed it
@@ -883,20 +887,21 @@ impl QuorraWindowRenderer {
     /// too, so a display is not what is missing. `WGPU_BACKEND=vulkan` is then the only way to
     /// say "use the one that works", and CI says it.
     #[must_use]
-    pub fn instance() -> raster_gpu::wgpu::Instance {
+    pub fn instance() -> raster_gpu::LaunchInstance {
         Self::instance_timed().0
     }
 
     /// [`Self::instance`], and what making it cost step by step — `None` where `WGPU_BACKEND`
-    /// named the set, because no adapter check is made then (ADR 1569).
+    /// named the set, because no adapter check is made then (ADR 1569), and so no adapter is
+    /// carried.
     #[must_use]
-    pub fn instance_timed() -> (raster_gpu::wgpu::Instance, Option<raster_gpu::LaunchSteps>) {
+    pub fn instance_timed() -> (raster_gpu::LaunchInstance, Option<raster_gpu::LaunchSteps>) {
         raster_gpu::wgpu::Backends::from_env().map_or_else(
             || {
                 let (instance, steps) = raster_gpu::create_launch_instance_timed();
                 (instance, Some(steps))
             },
-            |backends| (raster_gpu::create_instance_with(backends), None),
+            |backends| (Self::instance_with(backends), None),
         )
     }
 
@@ -914,9 +919,11 @@ impl QuorraWindowRenderer {
     /// [`raster_gpu::DeviceError::NoAdapter`] with an **empty** `available` list at
     /// [`Self::with_instance`], which is the signature a caller should report as "this machine
     /// has no such adapter" rather than as a broken driver.
+    ///
+    /// No adapter check is made here, so none is carried and [`Self::with_instance`] enumerates.
     #[must_use]
-    pub fn instance_with(backends: raster_gpu::wgpu::Backends) -> raster_gpu::wgpu::Instance {
-        raster_gpu::create_instance_with(backends)
+    pub fn instance_with(backends: raster_gpu::wgpu::Backends) -> raster_gpu::LaunchInstance {
+        raster_gpu::LaunchInstance::from(raster_gpu::create_instance_with(backends))
     }
 
     /// The adapters *an instance* can see, which is the only list a host that restricted its
@@ -939,11 +946,11 @@ impl QuorraWindowRenderer {
     ///
     /// [`QuorraRasterError::Device`] when no adapter can present to the window.
     pub fn with_instance(
-        instance: &raster_gpu::wgpu::Instance,
+        instance: &raster_gpu::LaunchInstance,
         window: impl Into<raster_gpu::wgpu::SurfaceTarget<'static>>,
     ) -> Result<Self, QuorraRasterError> {
         let device =
-            raster_gpu::Device::for_surface_with_instance(instance, window, &crate::options())?;
+            raster_gpu::Device::for_surface_on_launch(instance, window, &crate::options())?;
         Ok(Self::around(device))
     }
 
@@ -974,8 +981,7 @@ impl QuorraWindowRenderer {
     ///
     /// [`QuorraRasterError::Device`] when no adapter yields a device.
     pub fn new_headless() -> Result<Self, QuorraRasterError> {
-        let device =
-            raster_gpu::Device::headless_with_instance(&Self::instance(), &crate::options())?;
+        let device = raster_gpu::Device::headless_on_launch(&Self::instance(), &crate::options())?;
         Ok(Self::around(device))
     }
 

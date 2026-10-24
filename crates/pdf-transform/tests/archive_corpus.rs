@@ -46,8 +46,8 @@ use std::path::{Path, PathBuf};
 use pdf_archive::{Flavour, Level, Target, Verdict};
 use pdf_syntax::{Document, Limits, Object};
 use pdf_transform::archive::{
-    ArchivePlan, Authorisations, Decision, Described, ExternalData, FormAnswers, Loss,
-    PLACEMENT_ON_PAGE, Preservation,
+    ArchivePlan, Authorisations, CjkPack, Decision, Described, ExternalData, FormAnswers, Loss,
+    PLACEMENT_ON_PAGE, PackFiles, Preservation,
 };
 use pdf_transform::tool::ToolOutputs;
 use pdf_transform::{Budget, MemorySinks, Plan, Policy, Source, apply};
@@ -101,6 +101,26 @@ fn authorise_everything() -> Authorisations {
 }
 
 /// The corpus root, or `None` where the submodule is not checked out.
+/// The CJK pack the walks convert with, where `QUORRA_CJK_PACK` names its directory.
+///
+/// The pack is a second download and no part of the tree (`doc/cjk-pack.md`), so a walk without
+/// it measures what a person who has not installed it gets: every collection font refused as the
+/// pack's absence. Naming the directory is how the census measures the other column.
+fn pack_from_environment() -> Option<CjkPack> {
+    /// The files of the directory the variable names, read when a font first asks for one.
+    #[derive(Debug)]
+    struct Directory(PathBuf);
+    impl PackFiles for Directory {
+        fn read(&self, file: &str) -> Option<Vec<u8>> {
+            std::fs::read(self.0.join(file)).ok()
+        }
+    }
+    let directory = std::env::var_os("QUORRA_CJK_PACK")?;
+    Some(CjkPack::new(std::sync::Arc::new(Directory(PathBuf::from(
+        directory,
+    )))))
+}
+
 fn corpus() -> Option<PathBuf> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/veraPDF-corpus");
     root.is_dir().then_some(root)
@@ -377,6 +397,7 @@ fn sweep(root: &Path, part: &str, target: Target, authorised: Authorisations) ->
                 profile: None,
                 substitute_fonts: true,
                 supplied_fonts: BTreeMap::new(),
+                cjk_pack: pack_from_environment(),
                 departures: Vec::new(),
                 claim_conformance: false,
                 forms: FormAnswers::default(),
@@ -590,6 +611,7 @@ fn convert_under(
             profile: press.cloned(),
             substitute_fonts: true,
             supplied_fonts: BTreeMap::new(),
+            cjk_pack: pack_from_environment(),
             departures: contribution.departures.clone(),
             claim_conformance: false,
             forms: contribution.forms,
@@ -874,6 +896,7 @@ fn preserve_sweep(root: &Path, part: &str, target: Target) -> Preserved {
                 profile: None,
                 substitute_fonts: true,
                 supplied_fonts: BTreeMap::new(),
+                cjk_pack: pack_from_environment(),
                 departures: Vec::new(),
                 claim_conformance: false,
                 forms: FormAnswers::default(),
@@ -1017,6 +1040,7 @@ fn separation_sweep(root: &Path, part: &str, target: Target, winner: &str) -> Ag
                 profile: None,
                 substitute_fonts: true,
                 supplied_fonts: BTreeMap::new(),
+                cjk_pack: pack_from_environment(),
                 departures: Vec::new(),
                 claim_conformance: false,
                 forms: FormAnswers::default(),

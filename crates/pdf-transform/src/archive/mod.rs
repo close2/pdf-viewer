@@ -195,7 +195,10 @@ pub use decision::{
     Authorisations, Because, Conditional, Decision, Loss, Losses, answered, conditional,
     refused_by_name,
 };
-pub use fonts::{Described, FaceAuthority, MetricRoute, RestatedFont, SubstitutedFont};
+pub use fonts::{
+    CjkPack, Collection, Described, FaceAuthority, MetricRoute, PackFiles, PackGap, RestatedFont,
+    SubstitutedFont,
+};
 pub use in_place::{ProxiedReference, ShownAnnotation};
 pub use languages::RestatedLanguage;
 pub use prepare::{DestinationProfile, ProfileSource, RemovedAnnotation, WrittenAppearance};
@@ -364,6 +367,13 @@ pub struct ArchivePlan {
     /// a font nobody named takes `doc/questions/A47`'s shipped-face route exactly as before, and
     /// no shipped profile states one.
     pub supplied_fonts: BTreeMap<String, std::sync::Arc<[u8]>>,
+    /// The CJK pack the caller found, for a composite font of an Adobe character collection the
+    /// file does not embed (owner answer A569, `doc/adr/2302`).
+    ///
+    /// **Found and read by the caller**, as [`Self::supplied_fonts`] is: `apply` opens no path,
+    /// and a pack is read only when a font of its collection is met. `None` where the caller has
+    /// none to offer, which every such font then reports as the pack's absence.
+    pub cjk_pack: Option<CjkPack>,
     /// The bytes of each stream whose data the source keeps outside its own file.
     ///
     /// ISO 19005-2 section 6.1.7.1 and ISO 19005-4 section 6.1.6.1 forbid the keys that put a

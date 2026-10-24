@@ -9,7 +9,7 @@ use std::sync::Arc;
 use pdf_sandbox::{Decoded, Request};
 use pdf_syntax::{Dictionary, Document, ImageStream, Object, Stream};
 
-use crate::colour::Conversion;
+use crate::colour::{Conversion, ExtendedEncoding, ExtendedSrgb};
 
 use super::ImageError;
 use super::combine::alpha_on_grid;
@@ -108,9 +108,11 @@ pub(super) fn decode_jpx(
     }
 
     let stated_by_the_dictionary = declared_space.is_some();
-    let space = match declared_space.or(choice.space) {
-        Some(space) => space,
-        None => codestream_colour_space(&raster)?,
+    let extended = extended_on(choice.extended, &raster);
+    let space = match (declared_space.or(choice.space), extended) {
+        (Some(space), _) => space,
+        (None, Some(_)) => ExtendedSrgb::connection_space(),
+        (None, None) => codestream_colour_space(&raster)?,
     };
 
     read_the_supposed_opacity_channel(
@@ -119,13 +121,16 @@ pub(super) fn decode_jpx(
         stated_by_the_dictionary && smask_in_data == 0,
     )?;
 
-    let decode = jpx_decode(
-        document,
-        dict,
-        &space,
-        stated_by_the_dictionary,
-        u32::from(raster.precision),
-    );
+    let reading = match extended {
+        Some(extended) => JpxReading::Extended(extended),
+        None => JpxReading::Mapped(jpx_decode(
+            document,
+            dict,
+            &space,
+            stated_by_the_dictionary,
+            u32::from(raster.precision),
+        )),
+    };
     let KeyedSamples {
         ranges: colour_key,
         shortfall,
@@ -142,7 +147,7 @@ pub(super) fn decode_jpx(
         rgba: jpx_samples_to_rgba(
             &raster,
             &space,
-            &decode,
+            &reading,
             opacity_channel,
             colour_key,
             painting.into,
@@ -294,6 +299,20 @@ pub fn jpx_samples(
         .as_integer()
         .unwrap_or(0);
     let stated = declared_space.is_some();
+    // A writer carries these samples under a §8.6 colour space, and PIMA 7667's encodings are
+    // none of them: equation 5's offset and the odd extension of equations 6a to 6c put
+    // components outside every range a `/Decode` pair into `CalRGB`, `Lab` or an ICC profile's
+    // curves can carry. Writing them as the device space of their channel count would recolour
+    // an image this crate draws as its codestream states, so the samples are refused by name
+    // (ADR 2292).
+    if let Some(extended) = extended_on(choice.extended, &raster) {
+        return Err(ImageError::UnsupportedColourSpace {
+            space: format!(
+                "JPEG 2000 {}, which no PDF colour space restates for its samples to be carried in",
+                extended_name(extended.encoding())
+            ),
+        });
+    }
     let space = match declared_space.or(choice.space) {
         Some(space) => space,
         None => codestream_colour_space(&raster)?,
@@ -675,7 +694,7 @@ struct JpxOpacity {
 fn jpx_samples_to_rgba(
     raster: &pdf_sandbox::Raster,
     space: &crate::colour::ColourSpace,
-    decode: &Decode,
+    reading: &JpxReading,
     opacity_channel: JpxOpacity,
     colour_key: Option<&[(u32, u32)]>,
     into: &Conversion,
@@ -710,12 +729,25 @@ fn jpx_samples_to_rgba(
         } else {
             255
         };
-        // The map carries the space's own units with it, which is what the flat division by
-        // 255 this replaced could not: Table 88 gives an `Indexed` space `[0 2^n − 1]`, so an
-        // index is passed through rather than turned into a fraction, and a `Lab` space's
-        // lightness runs to 100.
-        for (component, slot) in values.iter_mut().enumerate() {
-            *slot = decode.value(component, sample(component).unwrap_or(0) as usize);
+        match reading {
+            // The map carries the space's own units with it, which is what the flat division by
+            // 255 this replaced could not: Table 88 gives an `Indexed` space `[0 2^n − 1]`, so an
+            // index is passed through rather than turned into a fraction, and a `Lab` space's
+            // lightness runs to 100.
+            JpxReading::Mapped(decode) => {
+                for (component, slot) in values.iter_mut().enumerate() {
+                    *slot = decode.value(component, sample(component).unwrap_or(0) as usize);
+                }
+            }
+            // PIMA 7667's own equations take the integers to the encoding's components; §7.4.9
+            // ignores `/Decode` where the dictionary states no `/ColorSpace`, so no map stands
+            // between them.
+            JpxReading::Extended(extended) => {
+                let codes = [0, 1, 2].map(|component| sample(component).unwrap_or(0));
+                for (slot, component) in values.iter_mut().zip(extended.components(codes)) {
+                    *slot = component;
+                }
+            }
         }
         if premultiplied && alpha != 0 {
             // Straight alpha is what `Image` documents and what both backends expect, so the
@@ -732,11 +764,19 @@ fn jpx_samples_to_rgba(
         // entry with a different weight — `/SMaskInData`'s opacity channel, not `/SMask`'s
         // samples — and the two are undone in the order the raster carries them.
         if let Some(matte) = matte {
-            matte.restore(&mut values, pixel, &|component| {
-                space.component_range(component)
+            matte.restore(&mut values, pixel, &|component| match reading {
+                JpxReading::Mapped(_) => space.component_range(component),
+                JpxReading::Extended(extended) => extended.component_range(component),
             });
         }
-        let colour = into.paint(space, &values);
+        let colour = match reading {
+            JpxReading::Mapped(_) => into.paint(space, &values),
+            JpxReading::Extended(extended) => {
+                let three =
+                    [0, 1, 2].map(|component| values.get(component).copied().unwrap_or(0.0));
+                into.paint(space, &extended.lab_d50(three))
+            }
+        };
         out.extend_from_slice(&[
             channel(colour.r),
             channel(colour.g),
@@ -745,6 +785,17 @@ fn jpx_samples_to_rgba(
         ]);
     }
     out
+}
+
+/// How a `JPXDecode` image's decoded integers become the values its colour space is painted with.
+enum JpxReading {
+    /// §8.9.5.2's map into a space of §8.6's: the dictionary's, or the codestream's where the
+    /// codec's answer or this crate's own describes it as one.
+    Mapped(Decode),
+    /// PIMA 7667's e-sRGB or e-sYCC, which no §8.6 space describes: the encoding's own equations
+    /// take the integers to its components, and [`ExtendedSrgb::lab_d50`] takes those to the
+    /// connection space's L\*a\*b\*, which [`ExtendedSrgb::connection_space`] paints (ADR 2292).
+    Extended(ExtendedSrgb),
 }
 
 /// A sample of `highest`-bounded domain as the byte an RGBA8 alpha channel takes.
@@ -773,6 +824,10 @@ struct JpxColourChoice<'a> {
     /// crate draws: T.801's enumerated CIE Lab, which the codec hands back as ICC-encoded
     /// L\*a\*b\* under an abstract profile ISO 32000-2 §8.6.5.5 admits for no colour space.
     space: Option<crate::colour::ColourSpace>,
+    /// PIMA 7667's encoding, where the kept specification is e-sRGB or e-sYCC: every `colr` box
+    /// is then a Free box, so the codec hands back the integers untouched, and this crate reads
+    /// them by the encoding's own equations ([`JpxReading::Extended`]).
+    extended: Option<ExtendedEncoding>,
 }
 
 /// The enumerated colour spaces the codec draws as their definitions state, besides CIE Lab.
@@ -781,11 +836,55 @@ struct JpxColourChoice<'a> {
 /// and ROMM-RGB (21). The last two are the codec's conversions — sYCC's matrix and a ROMM-RGB
 /// profile — whose defining texts (IEC 61966-2-1 Amd. 1, PIMA 7666) this project does not hold;
 /// `tests/jpx_enumerated_spaces.rs` pins what the held texts do fix, that a colour of no chroma
-/// or of equal components is a neutral one. The others T.801 Table M.25 lists are not here: e-sRGB
-/// (20) and e-sYCC (24) await implementation from the held PIMA 7667 (A348); CIE Jab (19)
-/// depends on the unheld CIE Publication 131, whose purchase the owner declines. Each takes
-/// §7.4.9's fallback until implemented (ADRs 1383, 2187).
+/// or of equal components is a neutral one. Two more T.801 Table M.25 lists are drawn by this
+/// crate instead, from the held PIMA 7667 (A348): e-sRGB ([`E_SRGB`]) and e-sYCC ([`E_SYCC`]),
+/// which [`jpx_drawn`] reads. CIE Jab (19) depends on the unheld CIE Publication 131, whose
+/// purchase the owner declines, and takes §7.4.9's fallback (ADRs 1383, 2187, 2292).
 const JPX_ENUMERATED_DRAWN: [u32; 5] = [12, 16, 17, 18, 21];
+
+/// T.801 Table M.25's 20, e-sRGB, which it hands to PIMA 7667.
+const E_SRGB: u32 = 20;
+
+/// T.801 Table M.25's 24, e-sYCC, PIMA 7667's Annex B.
+const E_SYCC: u32 = 24;
+
+/// What an `EnumCS` of PIMA 7667's is called, for a sentence about it.
+fn extended_name(encoding: ExtendedEncoding) -> &'static str {
+    match encoding {
+        ExtendedEncoding::Rgb => "enumerated colour space 20 (e-sRGB, PIMA 7667)",
+        ExtendedEncoding::Ycc => "enumerated colour space 24 (e-sYCC, PIMA 7667 Annex B)",
+    }
+}
+
+/// The encoding a raster's integers are read by, where the choice kept one of PIMA 7667's and
+/// the codec delivered three colour components at a depth the encoding is defined at.
+///
+/// The depth is the raster's because the integers are at it; [`jpx_drawn`] read the same field
+/// from the headers to rank the specification, and a codec answering otherwise leaves §7.4.9's
+/// fallback rather than an equation evaluated at a depth it was not written for.
+fn extended_on(
+    encoding: Option<ExtendedEncoding>,
+    raster: &pdf_sandbox::Raster,
+) -> Option<ExtendedSrgb> {
+    encoding
+        .filter(|_| raster.components == 3)
+        .and_then(|encoding| ExtendedSrgb::new(encoding, raster.precision))
+}
+
+/// The one depth a codestream's first three components share, unsigned, or `None`.
+///
+/// PIMA 7667's equations take three components of one depth — e-sRGB's `n` and e-sYCC's `m` are
+/// each one number for the three channels — and a signed component is no integer the equations
+/// read.
+fn shared_colour_depth(headers: &crate::jpeg2000::Headers<'_>) -> Option<u8> {
+    let depths = headers.component_depths();
+    let colour = depths.get(..3)?;
+    let first = colour.first()?;
+    colour
+        .iter()
+        .all(|depth| depth.bits == first.bits && !depth.signed && !first.signed)
+        .then_some(first.bits)
+}
 
 /// Which of a `JPXDecode` image's colour specifications its samples are read through.
 ///
@@ -814,6 +913,7 @@ fn jpx_colour_choice(data: &[u8], declared: bool) -> JpxColourChoice<'_> {
     let borrowed = || JpxColourChoice {
         data: std::borrow::Cow::Borrowed(data),
         space: None,
+        extended: None,
     };
     let Ok(headers) = crate::jpeg2000::Headers::parse(data) else {
         return borrowed();
@@ -825,6 +925,7 @@ fn jpx_colour_choice(data: &[u8], declared: bool) -> JpxColourChoice<'_> {
         return JpxColourChoice {
             data: std::borrow::Cow::Owned(headers.keeping_colour(data, None, None)),
             space: None,
+            extended: None,
         };
     }
     let mut ranked: Vec<(usize, &crate::jpeg2000::ColourSpecification<'_>)> =
@@ -837,15 +938,23 @@ fn jpx_colour_choice(data: &[u8], declared: bool) -> JpxColourChoice<'_> {
         };
         (std::cmp::Reverse(colour.precedence), approximation, *index)
     });
-    let kept = ranked
-        .into_iter()
-        .find_map(|(index, colour)| jpx_drawn(colour).map(|drawn| (index, colour, drawn)));
+    let kept = ranked.into_iter().find_map(|(index, colour)| {
+        jpx_drawn(colour, &headers).map(|drawn| (index, colour, drawn))
+    });
     let Some((index, colour, drawn)) = kept else {
         return JpxColourChoice {
             data: std::borrow::Cow::Owned(headers.keeping_colour(data, None, None)),
             space: None,
+            extended: None,
         };
     };
+    if let JpxDrawn::Extended(encoding) = drawn {
+        return JpxColourChoice {
+            data: std::borrow::Cow::Owned(headers.keeping_colour(data, None, None)),
+            space: None,
+            extended: Some(encoding),
+        };
+    }
     // T.801 M.11.7.3.2 lays the Any ICC method's field out as part 1's restricted one, which
     // is the only one the codec reads a profile from.
     let method = (colour.method == crate::jpeg2000::ColourSpecification::ANY_ICC)
@@ -856,10 +965,14 @@ fn jpx_colour_choice(data: &[u8], declared: bool) -> JpxColourChoice<'_> {
         std::borrow::Cow::Owned(headers.keeping_colour(data, Some(index), method))
     };
     let space = match drawn {
-        JpxDrawn::ByTheCodec => None,
+        JpxDrawn::ByTheCodec | JpxDrawn::Extended(_) => None,
         JpxDrawn::As(space) => Some(space),
     };
-    JpxColourChoice { data, space }
+    JpxColourChoice {
+        data,
+        space,
+        extended: None,
+    }
 }
 
 /// How this crate draws a colour specification it draws at all.
@@ -868,6 +981,8 @@ enum JpxDrawn {
     ByTheCodec,
     /// In a space of this crate's, which the codec's answer does not describe.
     As(crate::colour::ColourSpace),
+    /// By PIMA 7667's equations, from integers the codec is asked not to interpret.
+    Extended(ExtendedEncoding),
 }
 
 /// Whether this crate draws one colour specification, and in which space where that is its own.
@@ -879,8 +994,25 @@ enum JpxDrawn {
 /// space carries it instead: the white point of the illuminant the field names, which the `Lab`
 /// adapts onto D50 as every CIE-based space is adapted. A code neither T.801 nor T.4 defines names
 /// no white point and is not drawn, which leaves §7.4.9's fallback (ADR 1713).
-fn jpx_drawn(colour: &crate::jpeg2000::ColourSpecification<'_>) -> Option<JpxDrawn> {
+///
+/// e-sRGB and e-sYCC are drawn where the codestream's first three components share a depth
+/// PIMA 7667 defines the encoding at — section 4.1's 10, 12 and 16 bits for e-sRGB, any depth for
+/// Annex B's e-sYCC — and the next specification is tried where they do not (ADR 2292).
+fn jpx_drawn(
+    colour: &crate::jpeg2000::ColourSpecification<'_>,
+    headers: &crate::jpeg2000::Headers<'_>,
+) -> Option<JpxDrawn> {
     match (colour.method, colour.enumerated, colour.profile) {
+        (_, Some(code @ (E_SRGB | E_SYCC)), _) => {
+            let encoding = if code == E_SRGB {
+                ExtendedEncoding::Rgb
+            } else {
+                ExtendedEncoding::Ycc
+            };
+            shared_colour_depth(headers)
+                .and_then(|bits| ExtendedSrgb::new(encoding, bits))
+                .map(|_| JpxDrawn::Extended(encoding))
+        }
         (_, Some(crate::jpeg2000::ColourSpecification::CIELAB), _) => colour
             .cielab_illuminant()
             .and_then(crate::jpeg2000::Illuminant::white_point)

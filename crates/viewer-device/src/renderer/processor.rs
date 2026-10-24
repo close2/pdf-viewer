@@ -25,7 +25,7 @@ fn draw_on_the_processor(
     interrupt: &Interrupt,
     on_the_processor: &AtomicBool,
     mut shown: impl FnMut(&crate::compose::Assembly),
-) -> (Option<Result<pdf_render::Raster, String>>, Option<Duration>) {
+) -> (Option<Result<Drawn, String>>, Option<Duration>) {
     if interrupt.raised() {
         return (None, None);
     }
@@ -56,8 +56,30 @@ fn draw_on_the_processor(
         // Asked of the error rather than of the flag, for `quorra::composer`'s reason: a frame
         // finished before the raise is a frame this window can present.
         Err(problem) if crate::compose::was_interrupted(&problem) => (None, drew),
-        drawn => (Some(drawn.map_err(|problem| problem.to_string())), drew),
+        Err(problem) => (Some(Err(problem.to_string())), drew),
+        Ok(composed) => {
+            let declined = pages
+                .iter()
+                .zip(&composed.declined)
+                .filter(|(_, declined)| !declined.is_empty())
+                .map(|(placed, declined)| (placed.of, viewer_host::drawing::said(declined)))
+                .collect();
+            (
+                Some(Ok(Drawn {
+                    raster: composed.raster,
+                    declined,
+                })),
+                drew,
+            )
+        }
     }
+}
+
+/// The processor's picture of a frame, and the pages whose draw left marks to the library's
+/// converter with what each declined (ADR 2290).
+struct Drawn {
+    raster: pdf_render::Raster,
+    declined: Vec<(crate::stale::Picture, Vec<viewer_core::Declined>)>,
 }
 
 /// What the processor's half of a frame came to.
@@ -67,6 +89,8 @@ pub(super) struct ProcessorHalf {
     pub(super) finished_ahead: bool,
     pub(super) abandoned: bool,
     pub(super) refused: Option<String>,
+    /// See `Landed::declined`.
+    pub(super) declined: Vec<(crate::stale::Picture, Vec<viewer_core::Declined>)>,
 }
 
 /// The processor's half of a frame: drawn under its looks, each uploaded and sent to the window,
@@ -119,20 +143,31 @@ pub(super) fn processor_half(
     // whose drawing ahead cannot be its picture is drawn whole as every other is (ADR 1855).
     let began = Instant::now();
     let finished = match (ahead, pages) {
-        (Some(ahead), [placed]) => ahead.finish(&placed.list).ok(),
+        (Some(ahead), [placed]) => ahead.finish(&placed.list).ok().map(|finished| Drawn {
+            raster: finished.raster,
+            declined: [(placed.of, viewer_host::drawing::said(&finished.declined))]
+                .into_iter()
+                .filter(|(_, declined)| !declined.is_empty())
+                .collect(),
+        }),
         _ => None,
     };
     let finished_ahead = finished.is_some();
     let (drawn, drew) = match finished {
-        Some(raster) => {
+        Some(drawn) => {
             on_the_processor.store(true, Ordering::Release);
-            (Some(Ok(raster)), Some(began.elapsed()))
+            (Some(Ok(drawn)), Some(began.elapsed()))
         }
         None => draw_on_the_processor(pages, interrupt, on_the_processor, looked_at),
     };
+    let mut declined = Vec::new();
     let (abandoned, refused) = match drawn {
         None => (true, None),
-        Some(Ok(raster)) => {
+        Some(Ok(Drawn {
+            raster,
+            declined: said,
+        })) => {
+            declined = said;
             let second = renderer.render(
                 PresentFrame {
                     width,
@@ -157,5 +192,6 @@ pub(super) fn processor_half(
         finished_ahead,
         abandoned,
         refused,
+        declined,
     }
 }

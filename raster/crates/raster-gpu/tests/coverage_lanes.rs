@@ -1,7 +1,7 @@
 //! The two coverage lanes, held against each other (ADR 0016).
 //!
 //! `Coverage::Cpu` computes the exact area of the pixel a shape covers; `Coverage::Gpu`
-//! counts samples on an ordered grid. They are *different answers to the same
+//! counts samples on a lattice (`SampleLattice`). They are *different answers to the same
 //! question*, and this file is about the shape of that difference:
 //!
 //! - where a pixel is wholly inside or wholly outside, the two must **agree exactly** —
@@ -24,7 +24,7 @@
     clippy::arithmetic_side_effects
 )]
 
-use raster_gpu::{Coverage, Device, Options, RenderError, Target, Viewport};
+use raster_gpu::{Coverage, Device, Options, RenderError, SampleLattice, Target, Viewport};
 use raster_scene::{
     Affine, BlendMode, Color, Compose, FillRule, LineCap, LineJoin, Paint, Point, Scene,
     SceneBuilder, Segment, Stroke,
@@ -163,24 +163,75 @@ fn the_lanes_agree_exactly_where_no_edge_crosses() {
     assert!(exterior > 200, "and an exterior: {exterior}");
 }
 
-/// On a **straight** edge the difference is the sample grid and nothing else.
+/// On a **straight** edge the difference is the sample lattice and nothing else.
 ///
-/// Four sample columns sit at ⅛, ⅜, ⅝ and ⅞ across a pixel, so a straight edge at any
-/// fraction is answered to within half a column — `1/8` of a pixel, `32` of 255. That
-/// is a property of the grid, derived before the frame is drawn; the fixture measures
-/// 12.
+/// How far a straight edge's sampled coverage can be from its area is a property of the
+/// lattice and of the edge's direction alone, so it is derived before the frame is drawn:
+/// [`worst_sampled_edge`] sweeps each of the fixture's three edges across a pixel and takes
+/// the largest gap between the share of the samples behind it and the share of the area. The
+/// lattice answers an axis-aligned edge to a thirty-second of a pixel and its worst direction,
+/// along its shortest vector, to under a fifth (the viewer's ADR 2296); this fixture's
+/// steepest edge is near that direction, and the frame's worst pixel sits on it.
 #[test]
 fn a_straight_edge_differs_by_the_sample_grid_and_no_more() {
     let cpu = render(Coverage::Cpu, straight);
     let gpu = render(Coverage::Gpu, straight);
     let (edges, worst_edge, worst) = compare(&cpu, &gpu);
+    let derived = STRAIGHT_EDGES
+        .iter()
+        .map(|&(dx, dy)| worst_sampled_edge((-dy, dx)))
+        .fold(0.0, f64::max);
+    // One level for the store's rounding of each lane, and the `n/8` levels the device lane's
+    // four rounded group stores add at sixteen samples (raster's ADR 0076).
+    let bound = (derived * 255.0).ceil() as i32 + 2 + 2;
     assert!(edges > 40, "the fixture has an antialiased edge: {edges}");
     assert!(
-        worst_edge <= 32 && worst == worst_edge,
-        "a 4x4 ordered grid answers a straight edge to within an eighth of a pixel, and \
-         nothing away from an edge differs at all; worst difference was {worst_edge} on \
-         an edge and {worst} anywhere"
+        worst_edge <= bound && worst == worst_edge,
+        "the sample lattice answers this fixture's edges to within {derived:.4} of a pixel, \
+         {bound} of 255 with the stores' rounding, and nothing away from an edge differs at \
+         all; worst difference was {worst_edge} on an edge and {worst} anywhere"
     );
+}
+
+/// The directions of [`straight`]'s three edges, in its own units.
+const STRAIGHT_EDGES: [(f64, f64); 3] = [(33.4, 7.8), (-18.3, 28.7), (-15.1, -36.5)];
+
+/// The share of the unit pixel `[0, 1]²` on the side `nx·x + ny·y < c` of a line.
+fn area_behind(nx: f64, ny: f64, c: f64) -> f64 {
+    // Mirrored so both components are non-negative: `x → 1 − x` turns `nx·x` into
+    // `|nx|·x − |nx|`, which moves the line and not the area.
+    let (a, b) = (nx.abs(), ny.abs());
+    let c = c - nx.min(0.0) - ny.min(0.0);
+    if a == 0.0 || b == 0.0 {
+        return (c / (a + b)).clamp(0.0, 1.0);
+    }
+    let corner = |t: f64| t.max(0.0).powi(2) / 2.0;
+    (corner(c) - corner(c - a) - corner(c - b) + corner(c - a - b)) / (a * b)
+}
+
+/// The worst the device lane's samples answer a straight edge with this normal, as a share of
+/// a pixel: over every placement of the edge across one pixel, the largest gap between the
+/// share of the samples behind it and the share of the area.
+fn worst_sampled_edge(normal: (f64, f64)) -> f64 {
+    let samples: Vec<(f64, f64)> = SampleLattice::of(raster_gpu::DEFAULT_COVERAGE_SAMPLES)
+        .offsets()
+        .iter()
+        .map(|&[x, y]| (f64::from(x) + 0.5, f64::from(y) + 0.5))
+        .collect();
+    let (nx, ny) = normal;
+    let (low, high) = (nx.min(0.0) + ny.min(0.0), nx.max(0.0) + ny.max(0.0));
+    let steps = 1 << 14;
+    (0..=steps)
+        .map(|k| {
+            let c = low + (high - low) * f64::from(k) / f64::from(steps);
+            let behind = samples
+                .iter()
+                .filter(|&&(x, y)| nx * x + ny * y < c)
+                .count() as f64
+                / samples.len() as f64;
+            (behind - area_behind(nx, ny, c)).abs()
+        })
+        .fold(0.0, f64::max)
 }
 
 /// On a **curved** edge the difference is larger, and the reason is the CPU lane.

@@ -175,8 +175,9 @@ These are the places where a native host's shape differs from the tier-2 host's,
   never drawn before that a notch out brings on screen has no picture of any kind until it is
   drawn.
 - **Table 29's arrangements, §12.4.4's presentation and its clock** are shared policy
-  (`viewer_core::layout`, `viewer_host::Presenting`, `viewer_host::Clock`), and each toolkit
-  supplies the wall clock (ADRs 0441, 0442, 0470, 0473). The gap between pages is
+  (`viewer_core::layout`, `viewer_host::Presenting`, `viewer_host::Clock`, and the turn and its
+  parking in `viewer_host::presentation_pump`), and each toolkit supplies the wall clock (ADRs
+  0441, 0442, 0470, 0473, 2300); `quorra`'s winit loop keeps its own turn and does not park. The gap between pages is
   `pdf_render::SURROUND` in all three: GTK applies it through a `CssProvider` rule and Qt through
   `PageArea`'s palette, because a toolkit has no notion of the surface a document is laid on
   (ADR 0446).

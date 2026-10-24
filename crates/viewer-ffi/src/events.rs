@@ -53,6 +53,14 @@ impl Events {
         Self { events }
     }
 
+    /// These, and then what a later command produced: one batch for a call that sends two
+    /// (ADR 2290).
+    #[must_use]
+    pub(crate) fn followed_by(mut self, later: Self) -> Self {
+        self.events.extend(later.events);
+        self
+    }
+
     /// How many there are.
     #[must_use]
     pub fn len(&self) -> usize {

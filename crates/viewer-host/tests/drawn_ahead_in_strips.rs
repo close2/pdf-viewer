@@ -106,7 +106,7 @@ fn drawn_ahead(document: &Document) -> Option<Outcome> {
     }
     let cuts = underway.cuts().to_vec();
     Some(match underway.finish(&list) {
-        Ok(raster) => {
+        Ok(render_cpu::Finished { raster, .. }) => {
             let whole = rasterizer.with_cuts(&cuts).rasterize(&list, target).ok()?;
             Outcome::Finished {
                 strips: cuts.len().saturating_sub(1),

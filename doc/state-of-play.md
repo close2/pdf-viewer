@@ -88,7 +88,8 @@ as the stroker's outline (ADRs 1348, 1359) — from the boundary of the set the 
 chords at a twentieth of a pixel, its mitres and caps the path's own and its round joins turned
 through the way the path arrives (ADRs 2122, 2252, 2268, 2269), a piece the path states twice
 weighed twice and a thin piece entered from a vertical ray, every mark it still declines named to
-the draw's caller (ADRs 2280, 2281), lifts a shape too small to show to one level as a whole
+the draw's caller and said in every window, once a condition on the terminal and the page in the
+title (ADRs 2280, 2281, 2290), lifts a shape too small to show to one level as a whole
 shape, which is what §10.7.4 asks the lift of, so the sliver beside a shape that does show keeps its
 own level rather than being painted as ink (ADR 1374), and measures a path
 whose portions overlap as the set its fill rule declares inside rather than composite the portions
@@ -539,7 +540,11 @@ document, on ADR 1190's rule. **A window is the front document's**: one opened b
 `/PageMode` when it first comes to the front, so a presentation running when a second document
 arrives keeps its full screen and a `UseThumbs` document opens its pages panel then; full screen
 hides the strip; and a transition's faces are drawn on the window's own surround from the front
-document's page (ADR 1303). ADRs 1263, 1264, 1275.
+document's page (ADR 1303). ADRs 1263, 1264, 1275. **A presentation is the front document's and is
+parked, not ended**: in the two toolkit windows and the C window each tab keeps its own full screen
+and clock while another is in front, and a hidden window's presentation counts no time, because a
+page nobody can see is not displayed — one pump, `viewer_host::presentation_pump`, which also gives
+the WinUI host its `/Dur`, its transitions and its script timers (ADR 2300).
 
 **And §12.9's measurement is drawn as well as said.** The traced path is over the page in all three
 windows, each press marked, in each platform's own colour — the points are the host's and
@@ -712,7 +717,7 @@ runs, so the power-up an idle GPU starts on an open runs beside it (ADR 1658) �
 page one is interpreted on the document's thread beside it (`Viewer::anticipate`, ADR 1531), so
 the first resize goes straight to the render. Nothing on the device's thread waits for warmth:
 the warm-up's state has a lock of its own rather than the pipeline store's compile lock, so a
-window reading its bring-up as it detaches its presenter is answered at once (ADR 1558). Where a display is named, Mesa's device-selection layer asks its server for the device on each of the launch's two enumerations — the display's share of a window's bring-up, which the headless gate does not hold — and the toolkit windows print the device thread's steps on their bring-up line (ADRs 2282, 2283). The other three windows do the same in their own
+window reading its bring-up as it detaches its presenter is answered at once (ADR 1558). Where a display is named, Mesa's device-selection layer asks its server for the device on every physical-device enumeration, and a launch makes one: the constructor chooses among the adapters the launch's check enumerated (`raster_gpu::LaunchInstance`, ADR 2298). That asking is the display's share of a window's bring-up, which the headless gate does not hold, and the toolkit windows print the device thread's steps on their bring-up line (ADRs 2282, 2283). The other three windows do the same in their own
 shape (ADR 1539): `quorra-gtk` and `quorra-qt` open and interpret on a thread while the toolkit
 comes up, and `quorra-confined` starts its worker and opens the document in it before the window,
 the worker interpreting page one with no viewport. What page one does not need the open does not read: §12.3.3's outline
@@ -774,7 +779,9 @@ pointer in all three through one `viewer_host::ZoomWheel` (ADR 1466). **A wheel 
 windows** — `viewer_host::WheelTravel::of` takes a wheel's angle and a touchpad's pixels, `DiscreteWheel` counts the
 fractions as GTK's `DISCRETE` controller does, a notch scrolls `SCROLL_NOTCH`'s 48 logical pixels, a click zooms one
 step and less than a click zooms by that part of a step at once (`ZoomTravel`) — and a zoom gesture holds the page
-point it was pointed at through the steps on which the page is centred (ADRs 2274, 2275). **A draw a person is waiting for says so and
+point it was pointed at through the steps on which the page is centred (ADRs 2274, 2275); a finger's surface pixels move
+both pages as far as it went, by `WheelTravel::distance`, and under X11 a touchpad is a wheel's fractions in both (ADR
+2291). **A draw a person is waiting for says so and
 offers a key**: a page — or, on the window that draws whole frames, a view — still being drawn
 after `viewer_host::drawing::WARN` puts a sentence in the status bar naming Escape, and Escape then
 takes the drawing thread back without reporting anything to the core, so the page keeps its picture
@@ -1054,7 +1061,9 @@ hexadecimal string's odd digit (ADR 1176), a page boundary by §14.11.2.1's defa
 annotation flags and states (ADRs 1233, 1234), a font the file never embedded given the face it is
 drawn from — one of the standard 14 stated by name alone with the descriptor that face's program
 states and the widths it was laid out by, a dictionary of the other kind from its face restated as
-the face's, each read back and held to the source glyph by glyph (ADRs 2146, 2147) — an extension schema described from what the packet
+the face's, each read back and held to the source glyph by glyph (ADRs 2146, 2147), a composite font of an
+Adobe character collection given a subset of the CJK pack's program for that collection, a second
+download beside the converter, under the loss `machine-face` (ADRs 2302, 2303, `doc/cjk-pack.md`) — an extension schema described from what the packet
 states and an amendment identifier cut by span (ADRs 1245, 1246), a form's appearances constructed so
 that `/NeedAppearances` can go (ADR 1257), an embedded file no part admits taken out with every
 reference to it (ADR 1258), a JPEG 2000 image outside the baseline transcoded to `FlateDecode` in the
@@ -1064,8 +1073,11 @@ a TrueType code's glyph named in the encoding where only a reader's choice reach
 (ADR 1952), and a destination profile's header restated as the ICC edition its own tags are written
 in, or its Profile ID as the profile's digest (ADR 2021). An ICC profile short of the tags its
 edition requires is given the operator's text where this reader drew through it and lacks only
-`desc` or `cprt`, and is written as its Table 65 alternate where it did not draw through it — at
-part 4 against the edition the profile's own header names (ADRs 1990, 2006); an output intent's
+`desc` or `cprt`, and is written as its Table 65 alternate where it did not draw through it — a
+stream with no profile file signature among them at part 2 (ADR 2295) — at part 4 against the
+edition the profile's own header names (ADRs 1990, 2006); a composite font's `/ToUnicode` stating
+U+0000, U+FEFF or U+FFFE is restated without those statements where the target leaves the code free
+to go unmapped (ADR 2294); an output intent's
 only destination profile, if this reader cannot parse it and drew nothing through it, is written as
 the shipped sRGB where it stated three components and refused otherwise (ADR 2007). A graphics state's transfer function other than the identity, and a halftone's
 `HalftoneName`, go only as losses a person authorises — the function first written into the

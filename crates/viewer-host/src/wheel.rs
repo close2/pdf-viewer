@@ -8,8 +8,10 @@
 //! pointer's point of the page stays still, and over a panel there is no such point and the
 //! anchor is `None` (ADR 1118).
 //!
-//! **A wheel counts in whole notches and a touchpad in pixels, in every window** (ADR 2274).
-//! GTK's scroll controller is built `DISCRETE` and hands its window whole notches only; Qt from
+//! **A wheel counts in whole notches and a touchpad in pixels, in every window** (ADRs 2274,
+//! 2291). GTK's scroll controller is built `DISCRETE` and hands its window a wheel's whole notches,
+//! a finger's surface pixels going to its smooth controller instead; both windows spend either by
+//! [`WheelTravel::distance`]. Qt from
 //! 6.12 on reports every Wayland wheel event with a pixel delta beside its angle, and a window that
 //! preferred the pixels would move 15 logical pixels a notch where GTK moves 48, and need three and
 //! a third notches for a zoom step where GTK needs one. [`WheelTravel::of`] is the rule that picks
@@ -87,6 +89,24 @@ impl WheelTravel {
                 x: notches.0,
                 y: notches.1,
             }
+        }
+    }
+}
+
+impl WheelTravel {
+    /// How far this travel moves the page, in logical pixels with the travel's own signs: a notch
+    /// moves [`SCROLL_NOTCH`] and a touchpad's pixel moves a pixel (ADRs 2274, 2291).
+    ///
+    /// **The one distance both windows spend**, so a finger moves the page as far in each and a
+    /// notch moves it as far in each. A wheel's notches are counted whole before they get here —
+    /// by GTK's `DISCRETE` controller in one window and by [`DiscreteWheel`] in the other — and a
+    /// touchpad's pixels are spent as they come, never counted into notches: ten pixels of a finger
+    /// counted as a notch would move the page forty-eight.
+    #[must_use]
+    pub fn distance(self) -> (f32, f32) {
+        match self {
+            Self::Notches { x, y } => (x * SCROLL_NOTCH, y * SCROLL_NOTCH),
+            Self::Pixels { x, y } => (x, y),
         }
     }
 }
@@ -328,6 +348,28 @@ mod tests {
         let mut wheel = ZoomWheel::default();
         assert_eq!(wheel.lines(1.0), 1);
         assert_eq!(wheel.lines(-3.0), -3);
+    }
+
+    /// A finger's ten pixels move the page ten pixels, in both windows, and not the notch GTK's
+    /// `DISCRETE` controller would have counted them into; a notch moves [`super::SCROLL_NOTCH`]
+    /// whichever window counted it (ADR 2291).
+    #[test]
+    fn a_finger_moves_the_page_as_far_as_it_went_and_a_notch_a_notch() {
+        let finger = WheelTravel::of((0.0, 0.0), (0.0, 10.0), true);
+        assert_eq!(finger, WheelTravel::Pixels { x: 0.0, y: 10.0 });
+        assert_eq!(finger.distance(), (0.0, 10.0));
+        let ten_fingers: f32 = (0..10)
+            .map(|_| WheelTravel::Pixels { x: 0.0, y: -1.5 }.distance().1)
+            .sum();
+        assert!((ten_fingers + 15.0).abs() < 1e-4, "{ten_fingers}");
+        let mut wheel = DiscreteWheel::default();
+        let (_, counted) = wheel.notches(0.0, 1.0);
+        #[expect(clippy::cast_precision_loss, reason = "one notch")]
+        let notch = WheelTravel::Notches {
+            x: 0.0,
+            y: counted as f32,
+        };
+        assert_eq!(notch.distance(), (0.0, super::SCROLL_NOTCH));
     }
 
     /// [`ZOOM_PIXELS`] of touchpad travel is one step.

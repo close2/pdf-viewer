@@ -273,11 +273,12 @@ who could remove it.
 - **The sampled lane's coverage is one sample row, and that is a non-conformance we have
   stated rather than removed** (ADR 0076, 2026-08-23, `doc/notes-sampled-lane-quantum.md`).
   It answers the caller's §31 second question with the arithmetic rather than a curve fit:
-  `winding::sample_offsets` is an `n`-sample `√n × √n` ordered grid whose rows form one
-  lattice of period `p = 1/√n` across the device, and `winding.wgsl`'s `fs_resolve` stores
-  `covered / n` — so an axis-aligned band's ink is `k · p`, **a quarter of a device pixel at
-  the default sixteen samples**. Their reported 0.753 is **192/255**, reproduced to the byte,
-  and their row split with it.
+  `winding::SampleLattice` puts `n` samples on a rank-1 lattice, each in a row and a column of
+  its own, so the rows form one lattice of period `p = 1/n` across the device, and
+  `winding.wgsl`'s `fs_resolve` stores `covered / n` — so an axis-aligned band's ink is `k · p`,
+  **a sixteenth of a device pixel at the default sixteen samples** (the viewer's ADR 2296; the
+  ordered `√n × √n` grid before it had `p = 1/√n`, and their reported 0.753 is that grid's
+  **192/255**, reproduced to the byte).
   **The defect is not the coarseness but the zero**: at a fraction of placements equal to the
   pitch — a quarter at the default — a pixel the shape's boundary passes through receives
   *exactly nothing*, which §10.7.4's first sentence forbids under both its binary and its
@@ -424,15 +425,16 @@ who could remove it.
   merely rarer. What it cannot do from this user is a run on the owner's display through
   XWayland, where the failing population was gathered.
 - **A mark thinner than the sample grid keeps the processor lane, and §10.7.4's gap is closed
-  (ADR 0070).** `Coverage::Gpu` samples a `√n × √n` ordered grid, so a mark narrower than
-  `1/√coverage_samples` of a device pixel could fall between two sample columns and read zero —
+  (ADR 0070).** `Coverage::Gpu` samples a lattice, so a mark narrower than the lattice's
+  vanishing width — `1/√10` of a device pixel at sixteen samples, the wider of its widest empty
+  band and its widest empty square (the viewer's ADR 2296) — could fall between the samples and read zero —
   the disappearance §10.7.4 names in the very sentence that carries its rule, *"unfavourable
   placement relative to the device pixel grid"*. Note the boundary the costing round drew:
   drawing **more** than the shape's area is *not* a violation, because §10.7.4's second
   requirement is a floor; drawing **nothing** is. A fifth `take_gpu_lane` condition now declines
-  the device lane for such a mark, the threshold derived from where the columns actually sit —
-  **including across the pixel seam**, since the grid is symmetric about the centre and so the
-  columns are one lattice of period `1/√n` across the whole device. Measured on the caller's
+  the device lane for such a mark, the threshold derived from where the samples actually sit —
+  **including across the pixel seam**, since the samples are one lattice across the whole
+  device, and `SampleLattice`'s tests re-derive both widths by brute force. Measured on the caller's
   corpus, one copy, 2026-08-18: **`Coverage::Gpu` at scale 1 goes 930/25/2/17 → 932/23/2/17,
   which is the processor lane's own row** — `bug1883609.pdf` and `vertical.pdf` join the oracle,
   every other page line is identical to the character, and at 4× one line moves toward the

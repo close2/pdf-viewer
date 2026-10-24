@@ -226,7 +226,7 @@ mod tests {
             tile_count: 0,
             vertex_runs: Vec::new(),
         };
-        // Channel 2 of the four an ordered-grid pass accumulates into (ADR 0016).
+        // Channel 2 of the four a pass of the sample lattice accumulates into (ADR 0016).
         let bytes = to_bytes(&globals_lanes(&sheet, [0.25, -0.25], 2, &pane));
         check(
             shaders::WINDING,

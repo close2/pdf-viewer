@@ -66,6 +66,7 @@ pub(super) fn embed(
     used: &SelectedFont,
     spare: &mut Spare,
     supplied: &BTreeMap<String, Arc<[u8]>>,
+    pack: Option<&super::CjkPack>,
     substitutes: &mut Substitutes,
 ) -> Result<(), Because> {
     let requested = base_font(document, &used.dict);
@@ -77,7 +78,21 @@ pub(super) fn embed(
     let named = super::named_program(supplied, &requested)
         .or_else(|| super::named_program(supplied, &base_font(document, &descendant_dict)));
     let Some((named, program)) = named else {
-        return Err(Because::NotBuiltYet(super::COMPOSITE_NOT_SUBSTITUTED));
+        // **Nobody named a program, and a collection's font has one in the CJK pack** (ADR 2302):
+        // its CIDs name the same glyphs in every font of the collection (§9.7.2), which no
+        // `Adobe-Identity` CID does, so that half keeps its refusal (`doc/questions/Q570`).
+        return match super::pack::collection_of(document, &used.dict, &descendant_dict) {
+            Some(collection) => super::pack::embed(
+                document,
+                used,
+                &descendant_dict,
+                collection,
+                pack,
+                spare,
+                substitutes,
+            ),
+            None => Err(Because::NotBuiltYet(super::COMPOSITE_NOT_SUBSTITUTED)),
+        };
     };
     let encoding = name_of(document, &used.dict, "Encoding").unwrap_or_default();
     if encoding != "Identity-H" && encoding != "Identity-V" {

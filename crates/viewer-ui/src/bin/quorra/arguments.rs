@@ -413,7 +413,7 @@ fn say_what_this_build_cannot_do() {
 pub(crate) fn spawn_instancing(
     processor: bool,
     backend: Option<Backend>,
-) -> Option<std::thread::JoinHandle<raster_gpu::wgpu::Instance>> {
+) -> Option<std::thread::JoinHandle<raster_gpu::LaunchInstance>> {
     (!processor).then(|| {
         std::thread::spawn(move || match backend {
             Some(named) => QuorraWindowRenderer::instance_with(named.backends()),
@@ -599,7 +599,7 @@ mod tests {
         let instance = thread.join().expect("the thread creating the instance");
         // Enumerating proves the instance is usable rather than merely constructed. The list
         // may be empty on a machine with no adapter at all, which is not what is being asked.
-        let _ = QuorraWindowRenderer::adapters_on(&instance);
+        let _ = QuorraWindowRenderer::adapters_on(instance.instance());
     }
 
     /// Every value `--backend` accepts is parsed by the name it prints, and nothing else is.

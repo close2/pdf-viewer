@@ -55,7 +55,7 @@ orchestrator's scaffolding lives there, one set per batch, named by the batch's 
 | the session scratchpad's `prompts-<first>.md` | one launch prompt per round, each naming the brief, the slot, the arms, the ADR and Q numbers |
 | `/home/AI/arms-<first>/` | HEAD's six corpus arms by page, exported by `tools/batch.sh arms`; its `README` ends with `done` when complete |
 | `/home/AI/chain-<first>.sh` | the merge chain: stage the population, the tier-one script, `tools/batch.sh gates`, `tools/batch.sh check`; verdicts into `chain-<first>.done` |
-| `/home/AI/tier1-1219.sh` | tier 1 whole: `cargo fmt --all --check`, clippy with warnings as errors, nextest, `cargo test -p conformance`, the fuzz workspace on stable and on nightly, `tools/state.sh docs`. `/home/AI/tier1-1698.sh` is a stricter variant — each walk under `tools/bounded.sh --lock`, the doctests, the fuzz workspace's `fmt` and clippy, one failure flag — and which one a chain runs is the orchestrator's choice, stated in the commit's `Gates:` line |
+| `/home/AI/tier1-1704.sh` (since batch one hundred and nine; `tier1-1219.sh` before it) | tier 1 whole: `cargo fmt --all --check`, clippy with warnings as errors, nextest, `cargo test -p conformance`, the fuzz workspace on stable and on nightly, `tools/state.sh docs`. `/home/AI/tier1-1698.sh` is a stricter variant — each walk under `tools/bounded.sh --lock`, the doctests, the fuzz workspace's `fmt` and clippy, one failure flag — and which one a chain runs is the orchestrator's choice, stated in the commit's `Gates:` line |
 | `/home/AI/msg-<first>.txt` | the commit message skeleton: title line, one bullet per round, `merge:`, `Ledger:`, `Round durations`, `Gates:` |
 | `/home/AI/reports-<first>.md` | the orchestrator's notes on each report as it arrives |
 | `/home/AI/place-<first>.py` | the one script that edits `doc/traps/README.md`, the trap group files and the habit files — a trap or habit a report proposes is staged here and placed once, before the chain |
@@ -80,7 +80,11 @@ The sequence, each step its own command with its output read:
    and its duration and tool uses from the harness notification; stage a proposed trap or habit
    in the place script if it is one (an incident with a rule), else leave it in the notes.
 5. When all are in: run the place script; check every script a round edited parses (`bash -n`);
-   `cargo check` the touched crates; fill the title, merge and ledger lines; run the chain in the
+   `cargo check` the touched crates; fill the title, merge and ledger lines; **wait until no round's
+   walk is queued or running on the lock** (`pgrep -u AI -a cargo`; the lock's queue) — an export walk a
+   round left queued runs interleaved with the chain's gates and, where the export shares the gates
+   target's artefact names, writes stale rlibs under them, and seventeen gates fail to compile at once
+   (batch one hundred and twelve); then run the chain in the
    background; read `chain-<first>.done`. A red gate is diagnosed before anything is re-run: the
    two commonest causes are a sibling's mid-edit (compiles now) and a band the machine's load
    moved, which is settled by an A/B against HEAD in one `--clock` hold (habit 101), never by

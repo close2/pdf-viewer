@@ -44,7 +44,6 @@ use std::rc::{Rc, Weak};
 
 use gtk4::glib;
 use pdf_model::view::WidgetAppearances;
-use render_cpu::CpuRasterizer;
 use viewer_core::{Command, DocumentId};
 use viewer_host::native_window::{
     Asked, DOCUMENT, Launch, NativeWindow, Refusals, Showing, WindowState,
@@ -316,15 +315,9 @@ pub struct Host {
     /// answer about the *focused* document — so building them before that command has run would
     /// fill the new tab's panels from the document that was in front.
     panels_due: bool,
-    /// Tier 1's worker for the pictures this window makes *for itself* — §12.3.4's miniatures and
-    /// §12.4.4.1's two transition faces.
-    ///
-    /// **The page is no longer drawn here**, which is ADR 0668: a display list this program did not
-    /// write is drawn on [`WindowState::drawing`]'s thread, so that a page written to be expensive
-    /// cannot take the window with it. What is left on this thread is bounded by *this host's* own
-    /// asking — a miniature is a `/Thumb` at panel size and a face is one whole-viewport draw per
-    /// page turn while a presentation is running — rather than by what a document chose to state.
-    rasterizer: CpuRasterizer,
+    /// The frame of a transition in flight, which the page area shows in place of the pages; the
+    /// presentation pump rasterises it (`viewer_host::presentation_pump`, ADR 2300).
+    playing: Option<pdf_render::Raster>,
     /// The one-shot waiting to ask [`WindowState::drawing`] whether a page has finished.
     ///
     /// **`None` is a window that wakes for this exactly never**, which is the same shape
@@ -430,9 +423,6 @@ pub struct Host {
     /// frame every sixtieth of a second and a still page wants a tick every tenth, and a repeating
     /// source cannot change its mind.
     armed: Option<glib::SourceId>,
-    /// When this window last told the core that time passed for a document's script timers, which
-    /// [`Self::armed`] also wakes for while no presentation does (ADR 1702).
-    script_ticker: viewer_host::script_timers::Ticker,
     /// The launch document's outline and placed page tree, being read on a thread of their own
     /// from the join until they are handed back ([`viewer_core::Preparation`], ADR 1553).
     preparing: Option<std::sync::mpsc::Receiver<viewer_core::Prepared>>,
@@ -498,7 +488,7 @@ impl Host {
                 state: launch.state(path, trace),
                 pointer_at: None,
                 panels_due: false,
-                rasterizer: CpuRasterizer::new(),
+                playing: None,
                 drawing_armed: None,
                 script_dialogue: None,
                 ui,
@@ -528,7 +518,6 @@ impl Host {
                 // Table 147's and Table 29's own defaults, replaced by what the catalog states
                 // the moment the document opens.
                 armed: None,
-                script_ticker: viewer_host::script_timers::Ticker::default(),
                 preparing: None,
             })
         })
@@ -619,6 +608,10 @@ impl NativeWindow for Host {
 
     fn show_the_page_mode(&mut self, mode: pdf_model::viewer_preferences::PageMode) {
         self.show_page_mode(mode);
+        self.apply_chrome();
+    }
+
+    fn apply_the_chrome(&mut self) {
         self.apply_chrome();
     }
 

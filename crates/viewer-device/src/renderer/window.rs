@@ -538,6 +538,7 @@ impl Window {
                 abandoned: true,
                 refused: done.refused,
                 function_refusals: done.function_refusals,
+                declined: Vec::new(),
             });
         }
         // A frame of other pages makes the sharp picture a bystander; the present-time
@@ -571,6 +572,7 @@ impl Window {
             abandoned: false,
             refused: done.refused,
             function_refusals: done.function_refusals,
+            declined: done.declined,
         })
     }
 

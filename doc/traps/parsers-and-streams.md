@@ -457,3 +457,13 @@ the pages reads the array ten thousand times, and the check made about ten passe
 `Pages::every()` — one walk, used only where every `/Count` matches what is found beneath it and
 the visit bound holds, falling back to the lookups otherwise — and the file went to 1.5 s a target
 (ADR 1953). A loop over pages by index is a smell wherever the page count is the file's to choose.
+
+### 243. A validator's findings list is capped, and a converter that reads it as a population stops short
+
+The archive validator keeps thirty-two findings per row; round 1730's reading of the Media Management
+structures multiplied the findings per metadata stream, the list truncated, and the converter's metadata
+cut — which took its objects from that list — left streams uncut, so HEAD's output failed its own second
+verdict with no word about why (ADR 2295). A converter takes the objects it remedies from a walk of its
+own, or checks the row's total against the kept list and widens the walk when the total exceeds it; a
+population read from a report is bounded by the report's cap, and the cap is not a fact about the file.
+

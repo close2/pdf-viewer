@@ -52,7 +52,8 @@ use std::sync::{Arc, Mutex};
 
 use pdf_model::icc::Identification;
 use pdf_transform::archive::{
-    ArchivePlan, Authorisations, Configuration, ExternalData, Loss, sites,
+    ArchivePlan, Authorisations, CjkPack, Collection, Configuration, ExternalData, Loss, PackFiles,
+    sites,
 };
 use pdf_transform::attachments::{Action, AttachmentsPlan, OnPage, Payload, parse_iso_8601};
 use pdf_transform::images::ImagesPlan;
@@ -259,6 +260,7 @@ const VALUED: &[&str] = &[
     "--config",
     "--profile",
     "--font",
+    "--cjk-pack",
     "--image-samples",
 ];
 
@@ -298,6 +300,7 @@ const KNOWN: &[&str] = &[
     "--collate",
     "--no-substitute",
     "--font",
+    "--cjk-pack",
     "--image-samples",
     "--delete",
     "--rotate",
@@ -938,6 +941,7 @@ fn archive_plan(
         authorised.authorise(loss);
     }
     let supplied_fonts = supplied_fonts(io, arguments)?;
+    let cjk_pack = cjk_pack(io, arguments);
     // `doc/rfc/0007`: the configuration is read by the *caller* and handed in as data, so `apply`
     // stays the pure function RFC 0002 section 5 tests. What it contributes is the losses its
     // `discard` remedies stand for — folded into the same `Authorisations` the flags build — and
@@ -951,6 +955,7 @@ fn archive_plan(
         profile: output_intent_profile(io, arguments)?,
         substitute_fonts: !arguments.switch("--no-substitute"),
         supplied_fonts,
+        cjk_pack,
         departures: read.departures,
         claim_conformance: read.claim_conformance,
         forms: read.forms,
@@ -1034,6 +1039,69 @@ fn supplied_fonts(
         out.insert(base_font.to_owned(), Arc::from(bytes));
     }
     Ok(out)
+}
+
+/// Where the CJK pack is looked for: the directory `--cjk-pack` names, which [`with_the_pack_beside`]
+/// has already made the one beside this executable where the person named none
+/// (`doc/cjk-pack.md`, `doc/adr/2303`).
+///
+/// **Looked for, never fetched.** A569 ships the four collections' faces as a download a person
+/// chooses to make; this program reads the directory if it is there and reports a collection's
+/// font as the pack's absence if it is not.
+fn cjk_pack_directory(arguments: &Arguments) -> Option<PathBuf> {
+    arguments.value(&["--cjk-pack"]).map(PathBuf::from)
+}
+
+/// The command line with `--cjk-pack` naming the directory `cjk-pack` beside this executable, for
+/// an `archive` run that named none where that directory is there.
+///
+/// **Decided before any worker exists**, because the confined worker may not ask where its own
+/// executable is — the system call is outside its filter — and both routes then read the same
+/// argument, so the in-process and the confined run convert alike.
+fn with_the_pack_beside(mut given: Vec<String>) -> Vec<String> {
+    let Ok(arguments) = Arguments::parse(given.clone()) else {
+        return given;
+    };
+    if arguments.verb != "archive" || arguments.value(&["--cjk-pack"]).is_some() {
+        return given;
+    }
+    let beside = std::env::current_exe()
+        .ok()
+        .and_then(|executable| executable.parent().map(|parent| parent.join("cjk-pack")))
+        .filter(|directory| directory.is_dir());
+    if let Some(directory) = beside.as_deref().and_then(Path::to_str) {
+        given.push("--cjk-pack".to_owned());
+        given.push(directory.to_owned());
+    }
+    given
+}
+
+/// The pack files the directory holds, read through `io` so that a confined run reads them by the
+/// same broker as every other input; their digests are checked where a font first asks for one.
+///
+/// **Read whole when the directory is there**, because `apply` opens no path and a confined worker
+/// cannot reach the disk later: the cost is the read of five files on an `archive` run whose pack
+/// is installed, and the hash is paid only for a collection a font asks for (`doc/adr/2303`).
+fn cjk_pack(io: &mut dyn World, arguments: &Arguments) -> Option<CjkPack> {
+    let directory = cjk_pack_directory(arguments)?;
+    let mut files = BTreeMap::new();
+    for collection in Collection::ALL {
+        // An absent file is the pack's absence, which the font that needed it reports by name.
+        if let Ok(bytes) = io.read(&directory.join(collection.file()), Reading::Bytes) {
+            files.insert(collection.file(), Arc::<[u8]>::from(bytes));
+        }
+    }
+    Some(CjkPack::new(Arc::new(ReadPack(files))))
+}
+
+/// The pack files this run read, handed to the conversion as data.
+#[derive(Debug)]
+struct ReadPack(BTreeMap<&'static str, Arc<[u8]>>);
+
+impl PackFiles for ReadPack {
+    fn read(&self, file: &str) -> Option<Vec<u8>> {
+        self.0.get(file).map(|bytes| bytes.to_vec())
+    }
 }
 
 /// Reads `--config <file>`, folds its built `discard` remedies into `authorised`, and returns its
@@ -2378,6 +2446,12 @@ archive:
                            or restated to the widths the file states; no glyph moves either way.
                            Batch archiving wants the default; a curator checking one document
                            may want the flag
+  --cjk-pack <dir>         where the CJK pack is, the second download holding one program per
+                           Adobe character collection (doc/cjk-pack.md); without it, the
+                           directory cjk-pack beside this program. A composite font the file does
+                           not embed whose descendant names Adobe-Japan1, -GB1, -CNS1, -Korea1 or
+                           -KR is given a subset of that collection's program, named as the
+                           machine-face loss; nothing is ever downloaded by this program
   --font <base>=<path>     embed the font program in <path> for the /BaseFont <base>, instead of
                            one of the shipped faces. Repeatable, one per font; §9.9.2's six-letter
                            subset tag is passed over, so /ABCDEF+Garamond is named as Garamond.

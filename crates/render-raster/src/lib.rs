@@ -198,7 +198,7 @@ impl QuorraRasterizer {
         // so. `Device::headless` would make its own over every backend there is.
         let (instance, launch) = QuorraWindowRenderer::instance_timed();
         Ok(Self {
-            device: raster_gpu::Device::headless_with_instance(&instance, options)?,
+            device: raster_gpu::Device::headless_on_launch(&instance, options)?,
             launch,
             medium: Medium::PAGE_ONLY,
             caches: cache::ResourceCaches::new(),

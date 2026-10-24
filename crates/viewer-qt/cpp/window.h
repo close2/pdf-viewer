@@ -493,6 +493,9 @@ class MainWindow : public QMainWindow
 public:
     /// Takes the host. C++ owns it for the whole life of the event loop.
     explicit MainWindow(rust::Box<Host> host);
+    /// Watches the window's `QWindow` for exposure once it exists, which is after `show`: §12.4.4's
+    /// presentation parks while the window is not exposed (ADR 2300).
+    void watchExposure();
 
 private:
     /// Asks the host what changed and does it.
@@ -613,6 +616,8 @@ private:
     /// is a clause's question rather than a toolkit's. A `-1` stops the timer outright, so a
     /// window that is not presenting has nothing armed at all.
     void pumpPresentation();
+    /// Tells the host whether the window is exposed now, read when the queued notice runs.
+    void exposureChanged();
     /// Drains what an assistive technology has asked for, at whatever interval the host asks for.
     ///
     /// `pumpPresentation`'s shape and for a related reason: the interval is a *pull*, so this side

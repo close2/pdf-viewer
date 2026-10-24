@@ -190,8 +190,7 @@ implementation and original tests remain in `signature.rs`.
 
 ## 15. Functions
 
-`content/run.rs::run_from` (one match over the operator set; split by operator family into
-functions the match calls, keeping its `#[expect]` reasoning true), `linearize.rs::place` and
+`content/run.rs::run_from` (split by Table 50's operator families, ADR 2304), `linearize.rs::place` and
 `lay_out`, `archive/prepare.rs::of`, `notes.rs::about_one`, `text.rs::show_text`,
 `function.rs::apply_operator`, and the two codec functions in `protocol.rs`
 (`encode_command`, `decode_command_holding`), which are exhaustive matches on purpose and want

@@ -2444,8 +2444,40 @@ void MainWindow::keyPressEvent(QKeyEvent* event)
     }
 }
 
+// ISO 32000-2 §12.4.4.1's clock parks while nobody can see the window (ADR 2300). Qt says so to the
+// window's `QWindow` as an expose event — an unmapped or minimised window is not exposed, and one
+// mapped again is — so the platform's own word is read rather than a state inferred from it.
+void MainWindow::watchExposure()
+{
+    if (QWindow* handle = windowHandle()) {
+        handle->installEventFilter(this);
+    }
+}
+
+// Queued from the event filter and read when it runs, so a notice that arrives while the host is
+// borrowed is not lost and two in one turn of the loop are read in order; a busy host is asked
+// again a little later rather than spun on.
+void MainWindow::exposureChanged()
+{
+    QWindow* handle = windowHandle();
+    if (handle == nullptr) {
+        return;
+    }
+    if (busy_) {
+        QTimer::singleShot(50, this, [this] { exposureChanged(); });
+        return;
+    }
+    Busy guard(busy_);
+    host_->exposure(handle->isExposed());
+    applyUpdates();
+}
+
 bool MainWindow::eventFilter(QObject* watched, QEvent* event)
 {
+    if (event->type() == QEvent::Expose && watched == windowHandle()) {
+        QTimer::singleShot(0, this, [this] { exposureChanged(); });
+        return QMainWindow::eventFilter(watched, event);
+    }
     // A Tab that reaches the page — pressed there, or passed on by a control placed over it, whose
     // own focus chain asks the page and is declined by `PageArea::focusNextPrevChild` — would
     // otherwise go to the page's parents, and each of them moves Qt's focus in Qt's order. Handing
@@ -3860,6 +3892,7 @@ std::int32_t run_qt_host(rust::Box<Host> host, std::int32_t quit_after)
 
     MainWindow window(std::move(host));
     window.show();
+    window.watchExposure();
     if (quit_after > 0) {
         QTimer::singleShot(quit_after, &app, &QCoreApplication::quit);
     }

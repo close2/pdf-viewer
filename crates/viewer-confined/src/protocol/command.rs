@@ -126,6 +126,9 @@ pub(super) mod command_kind {
     // because the host holds the network and the confined worker holds the form the answer is
     // imported into, and only the worker parses it (ADR 2076).
     pub(in crate::protocol) const RESPOND: u8 = 43;
+    // What a draw of a page declined. It crosses because the window draws a page whose marks
+    // crossed, and the confined worker holds the viewer that tells the page of it (ADR 2290).
+    pub(in crate::protocol) const DECLINED: u8 = 44;
 }
 
 /// How [`Command::Open`]'s document is held, on the wire.
@@ -612,6 +615,20 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
                 })
                 .bytes(bytes);
         }
+        Command::Declined {
+            document,
+            page,
+            declined,
+        } => {
+            writer
+                .u8(k::DECLINED)
+                .document(*document)
+                .usize(*page)
+                .usize(declined.len());
+            for decline in declined {
+                writer.str(&decline.condition).str(&decline.sentence);
+            }
+        }
         Command::RenderReady { .. } => {
             return Err(Uncarried {
                 message: "Command::RenderReady",
@@ -1007,6 +1024,16 @@ pub(crate) fn decode_command_holding(
                 }
             },
             bytes: reader.owned_bytes("an answer's body")?,
+        },
+        k::DECLINED => Command::Declined {
+            document: reader.document(what)?,
+            page: reader.usize("a page")?,
+            declined: reader.list("what a draw declined", |reader| {
+                Ok(viewer_core::Declined {
+                    condition: reader.string("why a mark was declined")?,
+                    sentence: reader.string("what was said of a declined mark")?,
+                })
+            })?,
         },
         k::COMMIT_FIELD => Command::CommitField {
             field: reader.string("a field's qualified name")?,

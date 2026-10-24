@@ -97,7 +97,10 @@ fn drawn_ahead(
         }
     }
     let cuts = underway.cuts().to_vec();
-    (cuts, underway.finish(list).map(|raster| raster.data))
+    (
+        cuts,
+        underway.finish(list).map(|finished| finished.raster.data),
+    )
 }
 
 /// The page drawn whole at `cuts`.

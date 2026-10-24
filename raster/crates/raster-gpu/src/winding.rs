@@ -15,22 +15,24 @@
 //! memory**, which is the trade a document renderer wants: the GPU is idle here
 //! (`execute` is tens of microseconds) and memory is what a zoomed page runs out of.
 //!
-//! # This file, and the three modules under it
+//! # This file, and the four modules under it
 //!
-//! What is left here is the lane as the frame meets it: where the samples sit, whether
-//! the sheet is this lane's to clear, and [`render_into`]'s loop over panes and rounds.
-//! The rest is one module each — `sheet` for what the encoder built and what it costs,
-//! `buffers` for what the passes read, `passes` for the winding target and the two
-//! passes that write and read it.
+//! What is left here is the lane as the frame meets it: whether the sheet is this lane's
+//! to clear, and [`render_into`]'s loop over panes and rounds. The rest is one module each —
+//! `lattice` for where the samples sit and what that lets a mark lose, `sheet` for what the
+//! encoder built and what it costs, `buffers` for what the passes read, `passes` for the
+//! winding target and the two passes that write and read it.
 
 use crate::error::RenderError;
 use crate::pipeline::{Kind, PipelineStore};
 
 mod buffers;
+mod lattice;
 mod passes;
 mod sheet;
 
 use buffers::{Buffers, PaneGlobals};
+pub use lattice::SampleLattice;
 pub(crate) use passes::WindingTexture;
 pub(crate) use sheet::Sheet;
 
@@ -67,25 +69,14 @@ impl SheetUse {
     }
 }
 
-/// The ordered sample grid, in pixels relative to the pixel's centre.
+/// The sample pattern, in pixels relative to the pixel's centre: `count` samples on the
+/// rank-1 lattice [`SampleLattice::of`] derives (the viewer's ADR 2296).
 ///
-/// `count` samples on an `n × n` grid, `n = √count`, the k-th at
-/// `((k mod n) + ½)/n − ½` across and `((k / n) + ½)/n − ½` down. Ours rather than the
-/// driver's, so two adapters place them identically (ADR 0006's promise), and ordered
-/// rather than jittered so that a frame is reproducible without carrying a seed.
-#[expect(clippy::arithmetic_side_effects)] // `side` is at least 1 and at most 16
-// grid indices, far below f32's exact range
+/// Ours rather than the driver's, so two adapters place them identically (ADR 0006's
+/// promise), and a lattice rather than jittered so that a frame is reproducible without
+/// carrying a seed.
 pub(crate) fn sample_offsets(count: u32) -> Vec<[f32; 2]> {
-    let side = count.isqrt().max(1);
-    #[expect(clippy::cast_precision_loss)] // side is at most 16 by Options' validation
-    let step = 1.0 / side as f32;
-    (0..count)
-        .map(|index| {
-            #[expect(clippy::cast_precision_loss)]
-            let (x, y) = ((index % side) as f32, (index / side) as f32);
-            [(x + 0.5).mul_add(step, -0.5), (y + 0.5).mul_add(step, -0.5)]
-        })
-        .collect()
+    SampleLattice::of(count).offsets()
 }
 
 /// Draws `sheet`'s tiles into `coverage_view`, which is the frame's scratch sheet.
@@ -327,8 +318,8 @@ mod tests {
     }
 
     /// An edge through the middle of a pixel column covers exactly half of it, and the
-    /// sample grid says so exactly: with a 4×4 grid the columns sit at ±0.125 and
-    /// ±0.375 from the centre, so two of four are inside — 8 of 16 samples, and
+    /// sample lattice says so exactly: its sixteen columns sit at odd thirty-seconds of a
+    /// pixel either side of the centre, so eight are inside — 8 of 16 samples, and
     /// `round(0.5 × 255)` is 128.
     #[test]
     fn a_half_covered_column_reads_one_hundred_and_twenty_eight() {
@@ -362,18 +353,38 @@ mod tests {
         assert_eq!(at(&even_odd, 3, 8), 255);
     }
 
-    /// The sample grid is an ordered grid, stated rather than the driver's: the k-th of
-    /// sixteen sits at a quarter-pixel step, symmetric about the centre.
+    /// The samples are the rank-1 lattice of generator three, stated rather than the
+    /// driver's: the i-th of sixteen in column `i` and row `3i mod 16`, each a sixteenth
+    /// of a pixel wide, balanced about the centre.
     #[test]
-    fn the_sample_grid_is_ordered_and_centred() {
+    fn the_samples_are_the_lattice_of_generator_three_and_centred() {
         let offsets = sample_offsets(16);
         assert_eq!(offsets.len(), 16);
-        assert!((offsets[0][0] + 0.375).abs() < 1e-6, "{:?}", offsets[0]);
-        assert!((offsets[15][1] - 0.375).abs() < 1e-6, "{:?}", offsets[15]);
+        assert!(
+            (offsets[0][0] + 15.0 / 32.0).abs() < 1e-6,
+            "{:?}",
+            offsets[0]
+        );
+        assert!(
+            (offsets[0][1] + 15.0 / 32.0).abs() < 1e-6,
+            "{:?}",
+            offsets[0]
+        );
+        // Sample 15 sits in row 45 mod 16 = 13, whose centre is 13.5/16 - 1/2.
+        assert!(
+            (offsets[15][0] - 15.0 / 32.0).abs() < 1e-6,
+            "{:?}",
+            offsets[15]
+        );
+        assert!(
+            (offsets[15][1] - 11.0 / 32.0).abs() < 1e-6,
+            "{:?}",
+            offsets[15]
+        );
         let sum: f32 = offsets.iter().map(|o| o[0] + o[1]).sum();
         assert!(
             sum.abs() < 1e-5,
-            "the grid is balanced about the centre: {sum}"
+            "the lattice is balanced about the centre: {sum}"
         );
     }
 }

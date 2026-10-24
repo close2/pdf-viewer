@@ -1,4 +1,5 @@
-//! The operator loop: one flat dispatch over ISO 32000-2 Annex A's operator set.
+//! The operator loop: one dispatch over ISO 32000-2 Annex A's operator set, to one method per
+//! family of Table 50.
 //!
 //! [`Interpreter::run`] is the machine's core — a content stream is a bytecode, and this is
 //! its interpreter — together with the helpers that turn the content lexer's tokens into
@@ -295,10 +296,6 @@ impl Interpreter<'_> {
     /// **The stream's end is not run here**, which is what lets a piece of a page's stream end
     /// where the next piece begins (ADR 1880): [`Self::run_reader`] runs [`Self::end_of_stream`]
     /// after it, and a divided read runs it once, after the last piece.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "a bytecode dispatch table reads better whole than split; see above"
-    )]
     pub(super) fn run_from(
         &mut self,
         reader: &mut ContentReader<'_>,
@@ -309,59 +306,10 @@ impl Interpreter<'_> {
         // operands the ones that *immediately precede* it, which is a distinction only a
         // malformed stream can show: `operands_before` is what turns this into that slice.
         let mut pending: Vec<Object> = Vec::new();
-        let Composed {
-            mut state,
-            mut stack,
-            marked: opened,
-        } = from;
-        // §8.4.2's stack, carrying §9.4.2's two text matrices beside the graphics state.
-        //
-        // ISO 32000-2 §9.4.2, as Errata Collection 3 adds it (issue #368, `/State` `Review`
-        // `Completed`): within a text object the graphics state stack operators q and Q "shall
-        // additionally push and pop Tm and Tlm as part of the graphics state stack". Quoted in
-        // prose rather than as a blockquote because the sentence is an addition and `doc/md/`
-        // is a conversion of the base text — see `text_state.rs`'s test for the whole reading.
-        //
-        // So the entry is a triple rather than a `GraphicsState`: the two matrices are saved
-        // and restored *with* it, which is what "as part of the graphics state stack" says, and
-        // holding them in a stack of their own would let the two go out of step on a stream
-        // whose `q` is inside a text object and whose `Q` is outside it. ADR 0421.
-
-        // The path being built, and the pending clip requested by `W`/`W*`.
-        let mut path = Path::new();
-        let mut start = Point::new(0.0, 0.0);
-        let mut current = Point::new(0.0, 0.0);
-        let mut pending_clip: Option<FillRule> = None;
-        let mut in_text = false;
-        // The text object's own parameters. `BT` resets them, and `q`/`Q` save and restore
-        // them with the graphics state — §9.4.2 as Errata Collection 3 amends it, above.
-        let mut text_object = TextObject::default();
-        // One entry per open marked-content section, saying whether it hid what follows.
-        // Every `BMC` and `BDC` pushes, so an `EMC` closes the section it actually belongs
-        // to rather than the last optional one — which is why this is not just a counter.
-        //
-        // It carries no bound of its own: it lives for one stream, a section costs at least the
-        // five bytes of `/ BMC` in it, and Table 31's `Limits::max_stream_len` bounds those —
-        // the same bound the token loop below has. What a closed section leaves behind is a
-        // span, and the spans are charged to `MAX_LIST_BYTES` (ADR 1810).
-        let mut marked: Vec<Marked> = opened;
-        // §7.8.2's compatibility section, `BX` … `EX`, which is nesting depth rather than a
-        // flag because the clause says the pair "may be nested".
-        //
-        // > Ordinarily, when a PDF reader encounters an operator in a content stream that it
-        // > does not recognise, an error shall occur.
-        //
-        // — and inside the section, "unrecognised operators (along with their operands) shall
-        // be ignored without error". So this is the one place in the interpreter where an
-        // unsupported *input* is deliberately silent, and it is silent because the file said
-        // in advance that ignoring it is the appropriate thing to do.
-        let mut compatibility = 0usize;
+        let mut machine = Machine::begin(from);
         // How many `[` are open. An array is *one* operand, so nothing inside it is an
         // operator; see the keyword arm below.
         let mut array_depth = 0usize;
-        // Where the last `/ActualText` replacement ended in the readback, for §14.9.4's rule
-        // that two consecutive ones have no word break between them.
-        let mut replaced_ends_at: Option<usize> = None;
         let empty_string: Arc<[u8]> = Arc::from(&[][..]);
 
         loop {
@@ -378,102 +326,24 @@ impl Interpreter<'_> {
             // one. Exact rather than a guess, because §7.8.2 makes an operator's operands the
             // ones since the last operator and every operator clears them below: a string read
             // now can only reach an operator dispatched under the state in force now (ADR 1521).
-            let strings = if state.text.font.is_none() {
+            let strings = if machine.state.text.font.is_none() {
                 Strings::StepOver
             } else {
                 Strings::Read
             };
-            let step = reader.with_operand(strings, |token| match token {
-                None => Step::End,
-                Some(pdf_syntax::Token::Keyword(word)) if array_depth == 0 => Operator::of(word)
-                    .map_or_else(|| Step::Unknown(Word::new(word)), Step::Operator),
-                // §7.8.2's grammar puts an operator *after* its operands, and §7.3.6 makes an
-                // array "a one-dimensional collection of objects arranged sequentially" — so a
-                // keyword between two elements of an array is neither an element (it is not an
-                // object) nor an operator (an array is one operand, and an operator cannot be
-                // inside one). `operator-in-TJ-array.pdf` writes exactly that:
-                // `[(Grandes) 0.0 Tc -250.0 (Clientèles,) 0.0 Tc … ] TJ`, and dispatching those
-                // `Tc`s consumed the runs before them — the page drew one word of five.
-                //
-                // The recovery is to skip the keyword and keep the array, *and say so*: the
-                // file is malformed and the standard states no reading for it, so drawing the
-                // text without a word would be the silent-fallback failure this project
-                // forbids, and refusing the text would lose what the file plainly states.
-                Some(pdf_syntax::Token::Keyword(word)) => Step::InsideAnArray(Word::new(word)),
-                // An inline dictionary is one operand, assembled by the caller because it
-                // needs the reader again. §14.6.2: "[i]f all of the values in a property list
-                // dictionary are direct objects, the dictionary may be written inline in the
-                // content stream as a direct object" — the form real documents use for
-                // §14.9.4's `/ActualText` (ADR 0060).
-                Some(pdf_syntax::Token::DictOpen) => Step::Dictionary,
-                Some(other) => {
-                    if matches!(other, pdf_syntax::Token::ArrayOpen) {
-                        array_depth = array_depth.saturating_add(1);
-                    } else if matches!(other, pdf_syntax::Token::ArrayClose) {
-                        array_depth = array_depth.saturating_sub(1);
-                    }
-                    // Arrays are deliberately left flattened: `TJ` and `d` read their elements
-                    // as separate operands and have since the beginning.
-                    if pending.len() < MAX_OPERANDS {
-                        pending.push(match other {
-                            // One shared value, so an empty string costs no allocation —
-                            // which is every string `with_operand` stepped over.
-                            pdf_syntax::Token::String(bytes) if bytes.is_empty() => {
-                                Object::String(Arc::clone(&empty_string))
-                            }
-                            other => token_to_object(other),
-                        });
-                        Step::Operand
-                    } else {
-                        // An unclosed `[` would otherwise suppress every operator for the
-                        // rest of the stream, which on a fuzzed file means a blank page. One
-                        // operand cap's worth of tokens is as far as an array is believed.
-                        array_depth = 0;
-                        Step::TooManyOperands
-                    }
-                }
-            });
-            // Operands accumulate until an operator consumes them.
-            let keyword = match step {
-                Step::End => break,
-                Step::Operand => continue,
-                Step::InsideAnArray(word) => {
-                    self.note_keyword(KeywordNote::InsideAnArray, word.as_slice(), |keyword| {
-                        Unsupported::Operator {
-                            operator: format!(
-                                "{} inside an array, which §7.3.6 admits only objects into",
-                                String::from_utf8_lossy(keyword)
-                            ),
-                        }
-                    });
-                    continue;
-                }
-                Step::TooManyOperands => {
-                    // Dropping operands silently truncates the page: a `TJ` array is
-                    // one operand per run *and* per kerning adjustment, so a single
-                    // justified line can be hundreds, and the text simply stopped
-                    // mid-sentence with nothing reported. The bound stays, because a
-                    // hostile stream can otherwise make one operator allocate without
-                    // limit — but reaching it is now a reported defect.
-                    self.note(Unsupported::LimitReached {
-                        limit: "MAX_OPERANDS",
-                    });
-                    continue;
-                }
-                Step::Dictionary => {
-                    let dictionary = Object::Dictionary(inline_dictionary(reader));
-                    if pending.len() < MAX_OPERANDS {
-                        pending.push(dictionary);
-                    } else {
-                        self.note(Unsupported::LimitReached {
-                            limit: "MAX_OPERANDS",
-                        });
-                        array_depth = 0;
-                    }
-                    continue;
-                }
-                Step::Operator(operator) => Keyword::Operator(operator),
-                Step::Unknown(word) => Keyword::Unknown(word),
+            let step = next_step(
+                reader,
+                strings,
+                &mut pending,
+                &mut array_depth,
+                &empty_string,
+            );
+            if matches!(step, Step::End) {
+                break;
+            }
+            let Some(keyword) = self.settle_step(step, reader, &mut pending, &mut array_depth)
+            else {
+                continue;
             };
 
             // **Counted here rather than at the top of the loop, and that is the whole of ADR
@@ -495,12 +365,12 @@ impl Interpreter<'_> {
             // 1507), and a charge past it stops the run: no operator after it is dispatched, here
             // or in any stream enclosing this one.
             if self.operations >= self.list_budget.next_check() {
-                if self.list_spent(state.stroke.dash_array.len()) {
+                if self.list_spent(machine.state.stroke.dash_array.len()) {
                     return None;
                 }
                 // The window's figure rides the same check, so it costs the loop nothing between
                 // checks and a thread nobody is watching one thread-local look (ADR 1811).
-                self.publish_progress(reader, !in_text);
+                self.publish_progress(reader, !machine.in_text);
             }
             if let Some(ledger) = self.ledger {
                 ledger.borrow_mut().operator(keyword.bytes());
@@ -510,7 +380,7 @@ impl Interpreter<'_> {
             let operator = match keyword {
                 Keyword::Operator(operator) => operator,
                 Keyword::Unknown(word) => {
-                    if compatibility == 0 {
+                    if machine.compatibility == 0 {
                         self.note_unknown_operator(word.as_slice());
                     }
                     pending.clear();
@@ -555,752 +425,1049 @@ impl Interpreter<'_> {
                 );
             }
 
-            match operator {
-                // --- graphics state ---
-                Operator::Save => {
-                    if stack.len() < MAX_STATE_DEPTH {
-                        stack.push((state.clone(), text_object.matrix, text_object.line));
-                    } else {
-                        self.note(Unsupported::LimitReached {
-                            limit: "MAX_STATE_DEPTH",
-                        });
-                    }
-                }
-                Operator::Restore => {
-                    if let Some((previous, matrix, line)) = stack.pop() {
-                        if previous.alpha_is_shape != state.alpha_is_shape {
-                            self.note_alpha_source(previous.alpha_is_shape);
-                        }
-                        state = previous;
-                        // The two matrices come back only *inside* a text object, which is
-                        // where §9.4.2's addition places them: outside one they are the
-                        // parameters of an object that has ended, and Table 105's `BT` sets
-                        // both to the identity before the next glyph is shown anyway.
-                        if in_text {
-                            text_object.matrix = matrix;
-                            text_object.line = line;
-                        }
-                    }
-                    // An unmatched `Q` is ignored: the alternative is to abandon the page,
-                    // and files with one extra `Q` render correctly everywhere else.
-                }
-                Operator::Concatenate => {
-                    if let Some(matrix) = matrix_from(operands) {
-                        state.transform = matrix.then(state.transform);
-                    }
-                }
-                Operator::ExtGState => {
-                    self.apply_ext_gstate(operands, resources, &mut state, in_text);
-                }
-
-                // --- line parameters ---
-                Operator::LineWidth => {
-                    if let Some(width) = number_at(operands, 0) {
-                        // ISO 32000-2 §8.4.3.2 gives the parameter its range — the line width
-                        // "shall be a nonnegative number expressed in user space units" — and
-                        // §8.4.1 states what a processor does with a value outside it, naming
-                        // this parameter in the sentence: "[p]arameters that are numeric
-                        // values, such as the current colour, line width, and miter limit,
-                        // shall be clipped into valid range, if necessary."
-                        //
-                        // So `-0.1 w` is a `shall`, not a choice: it is clipped to 0, and
-                        // §8.4.3.2's rule for 0 then makes the mark one device pixel wide.
-                        // That second step is a *device* adjustment, which the same bullet
-                        // requires to happen at painting time and never to be stored back
-                        // into the graphics state — which is why it is in
-                        // `Stroke::device_width` and only the clipped value is kept here.
-                        // `content.rs`'s `miter_limit` quotes that same sentence for the
-                        // parameter the list names third.
-                        state.stroke.width = width.max(0.0);
-                    }
-                }
-                Operator::LineCap => {
-                    if let Some(code) = integer_at(operands, 0) {
-                        state.stroke.cap = line_cap(code);
-                    }
-                }
-                Operator::LineJoin => {
-                    if let Some(code) = integer_at(operands, 0) {
-                        state.stroke.join = line_join(code);
-                    }
-                }
-                Operator::MiterLimit => {
-                    if let Some(limit) = number_at(operands, 0) {
-                        state.stroke.miter_limit = miter_limit(limit);
-                    }
-                }
-                Operator::Dash => set_dash(operands, &mut state.stroke),
-                // Rendering intent and flatness affect nothing this renderer does.
-                // --- path construction ---
-                Operator::MoveTo => {
-                    if let (Some(x), Some(y)) = (number_at(operands, 0), number_at(operands, 1)) {
-                        current = Point::new(x, y);
-                        start = current;
-                        begin_subpath(&mut path, current);
-                    }
-                }
-                // The four operators §8.5.2.1 says "start at the current point": each is appended
-                // through `extend_subpath`, which refuses one that has none and says so. The
-                // current point moves only where the segment was taken, because the clause defines
-                // it as the endpoint of the segment most recently *added*.
-                Operator::LineTo => {
-                    if let (Some(x), Some(y)) = (number_at(operands, 0), number_at(operands, 1)) {
-                        let to = Point::new(x, y);
-                        if self.extend_subpath(&mut path, PathCommand::LineTo(to)) {
-                            current = to;
-                        }
-                    }
-                }
-                Operator::CurveTo => {
-                    if let Some(points) = points_from::<3>(operands) {
-                        let segment = PathCommand::CurveTo(points[0], points[1], points[2]);
-                        if self.extend_subpath(&mut path, segment) {
-                            current = points[2];
-                        }
-                    }
-                }
-                Operator::CurveInitialReplicated => {
-                    // The first control point is the current point — which is also why an empty
-                    // path cannot state this curve at all: the operand the clause implies does
-                    // not exist.
-                    if let Some(points) = points_from::<2>(operands) {
-                        let segment = PathCommand::CurveTo(current, points[0], points[1]);
-                        if self.extend_subpath(&mut path, segment) {
-                            current = points[1];
-                        }
-                    }
-                }
-                Operator::CurveFinalReplicated => {
-                    // The second control point is the endpoint.
-                    if let Some(points) = points_from::<2>(operands) {
-                        let segment = PathCommand::CurveTo(points[0], points[1], points[1]);
-                        if self.extend_subpath(&mut path, segment) {
-                            current = points[1];
-                        }
-                    }
-                }
-                Operator::ClosePath => {
-                    close_subpath(&mut path);
-                    current = start;
-                }
-                Operator::Rectangle => {
-                    if let Some(values) = numbers_from::<4>(operands) {
-                        let (x, y, w, h) = (values[0], values[1], values[2], values[3]);
-                        // Table 58 states `re` as `x y m` and three `l`s and an `h`, so the
-                        // `m` it begins with overrides a preceding one exactly as a written
-                        // `m` would: 60 paths on `issue12810.pdf`'s first page pair the two.
-                        begin_subpath(&mut path, Point::new(x, y));
-                        path.push(PathCommand::LineTo(Point::new(x + w, y)));
-                        path.push(PathCommand::LineTo(Point::new(x + w, y + h)));
-                        path.push(PathCommand::LineTo(Point::new(x, y + h)));
-                        path.push(PathCommand::Close);
-                        start = Point::new(x, y);
-                        current = start;
-                    }
-                }
-
-                // --- path painting ---
-                //
-                // Every operator below but `n` keeps the path in the list, so each charges its
-                // segments to `MAX_LIST_BYTES` first: a path costs its segments once however many
-                // commands share it, and a form invoked a million times builds a million (ADR
-                // 1810). `n` keeps none, and a clip is charged where the table takes it.
-                Operator::EndPath => {
-                    self.end_path(&mut path, &mut pending_clip, &mut state, None, None);
-                }
-                Operator::Fill | Operator::FillObsolete => {
-                    self.charge_painted(&path);
-                    self.end_path(
-                        &mut path,
-                        &mut pending_clip,
-                        &mut state,
-                        Some(FillRule::NonZero),
-                        None,
-                    );
-                }
-                Operator::FillEvenOdd => {
-                    self.charge_painted(&path);
-                    self.end_path(
-                        &mut path,
-                        &mut pending_clip,
-                        &mut state,
-                        Some(FillRule::EvenOdd),
-                        None,
-                    );
-                }
-                Operator::Stroke => {
-                    self.charge_painted(&path);
-                    self.end_path(&mut path, &mut pending_clip, &mut state, None, Some(false));
-                }
-                Operator::CloseStroke => {
-                    close_subpath(&mut path);
-                    self.charge_painted(&path);
-                    self.end_path(&mut path, &mut pending_clip, &mut state, None, Some(true));
-                }
-                Operator::FillStroke => {
-                    self.charge_painted(&path);
-                    self.end_path(
-                        &mut path,
-                        &mut pending_clip,
-                        &mut state,
-                        Some(FillRule::NonZero),
-                        Some(false),
-                    );
-                }
-                Operator::FillStrokeEvenOdd => {
-                    self.charge_painted(&path);
-                    self.end_path(
-                        &mut path,
-                        &mut pending_clip,
-                        &mut state,
-                        Some(FillRule::EvenOdd),
-                        Some(false),
-                    );
-                }
-                Operator::CloseFillStroke | Operator::CloseFillStrokeEvenOdd => {
-                    close_subpath(&mut path);
-                    let rule = if operator == Operator::CloseFillStrokeEvenOdd {
-                        FillRule::EvenOdd
-                    } else {
-                        FillRule::NonZero
-                    };
-                    self.charge_painted(&path);
-                    self.end_path(
-                        &mut path,
-                        &mut pending_clip,
-                        &mut state,
-                        Some(rule),
-                        Some(true),
-                    );
-                }
-                Operator::Clip => pending_clip = Some(FillRule::NonZero),
-                Operator::ClipEvenOdd => pending_clip = Some(FillRule::EvenOdd),
-
-                // --- colour ---
-                // `g`, `rg` and `k` set a device space and a colour together — or the
-                // matching `Default` space, where the resources name one, which is why
-                // these resolve the space rather than naming it directly.
-                Operator::FillGray | Operator::StrokeGray => {
-                    if let Some(grey) = number_at(operands, 0) {
-                        let space = self.device_space("DeviceGray", resources);
-                        let colour = self.colour(&space, &[grey], &state);
-                        self.assign_colour(
-                            &mut state,
-                            operator == Operator::FillGray,
-                            colour,
-                            space,
-                            &[grey],
-                        );
-                    }
-                }
-                Operator::FillRgb | Operator::StrokeRgb => {
-                    if let Some(values) = numbers_from::<3>(operands) {
-                        let space = self.device_space("DeviceRGB", resources);
-                        let colour = self.colour(&space, &values, &state);
-                        self.assign_colour(
-                            &mut state,
-                            operator == Operator::FillRgb,
-                            colour,
-                            space,
-                            &values,
-                        );
-                    }
-                }
-                Operator::FillCmyk | Operator::StrokeCmyk => {
-                    if let Some(values) = numbers_from::<4>(operands) {
-                        let space = self.device_space("DeviceCMYK", resources);
-                        let colour = self.colour(&space, &values, &state);
-                        self.assign_colour(
-                            &mut state,
-                            operator == Operator::FillCmyk,
-                            colour,
-                            space,
-                            &values,
-                        );
-                    }
-                }
-                Operator::FillColourSpace | Operator::StrokeColourSpace => {
-                    let fill = operator == Operator::FillColourSpace;
-                    self.set_colour_space(operands, resources, &mut state, fill);
-                }
-                Operator::FillColour
-                | Operator::FillColourN
-                | Operator::StrokeColour
-                | Operator::StrokeColourN => {
-                    let fill = matches!(operator, Operator::FillColour | Operator::FillColourN);
-                    self.set_colour(operands, resources, &mut state, fill);
-                }
-
-                // --- text ---
-                Operator::BeginText => {
-                    in_text = true;
-                    // Table 105: `BT` initialises both matrices. Resetting the whole
-                    // structure also discards any glyph outlines a malformed stream left
-                    // unconsumed by an `ET`, which is the only state a second `BT` could
-                    // otherwise carry into the text object it starts.
-                    // A `BT` inside a text object that never ended closes that object's record
-                    // of §11.6.4.3's readings before this one opens its own.
-                    if let Some(outer) = text_object.enclosing_reading.take() {
-                        let (reading, in_force) = self.close_reading_scope(outer);
-                        self.absorb_reading(reading, text_object.start);
-                        self.note_alpha_source(in_force);
-                    }
-                    text_object = TextObject {
-                        start: self.list.command_count(),
-                        enclosing_reading: Some(if state.text.knockout {
-                            self.open_knockout_reading_scope(state.alpha_is_shape)
-                        } else {
-                            self.open_reading_scope(state.alpha_is_shape)
-                        }),
-                        ..TextObject::default()
-                    };
-                }
-                Operator::EndText => {
-                    in_text = false;
-                    self.end_text_object(&mut text_object, &mut state);
-                }
-                Operator::Font => {
-                    if let Some(name) = name_at(operands, 0) {
-                        state.text.font = self.font(resources, &name);
-                        // The trace's label rather than the lookup's key: §7.3.5's "the bytes
-                        // making up the name are never treated as text" binds the second, and
-                        // `font` above has them.
-                        state.text.font_name =
-                            String::from_utf8_lossy(name.as_bytes()).into_owned();
-                    }
-                    if let Some(size) = number_at(operands, 1) {
-                        state.text.size = size;
-                    }
-                }
-                Operator::CharSpacing => {
-                    if let Some(value) = number_at(operands, 0) {
-                        state.text.char_spacing = value;
-                    }
-                }
-                Operator::WordSpacing => {
-                    if let Some(value) = number_at(operands, 0) {
-                        state.text.word_spacing = value;
-                    }
-                }
-                Operator::HorizontalScaling => {
-                    if let Some(percent) = number_at(operands, 0) {
-                        state.text.horizontal_scale = percent / 100.0;
-                    }
-                }
-                Operator::Leading => {
-                    if let Some(value) = number_at(operands, 0) {
-                        state.text.leading = value;
-                    }
-                }
-                Operator::Rise => {
-                    if let Some(value) = number_at(operands, 0) {
-                        state.text.rise = value;
-                    }
-                }
-                Operator::RenderMode => {
-                    if let Some(mode) = integer_at(operands, 0) {
-                        // Table 104 defines eight modes and no default for anything else.
-                        // Silently keeping an out-of-range value would draw nothing at all,
-                        // since none of the three operations would match it — a whole text
-                        // object missing, with no report. The mode is left as it was and the
-                        // operand is named instead.
-                        if (0..=7).contains(&mode) {
-                            state.text.render_mode = mode;
-                        } else {
-                            self.note(Unsupported::Operator {
-                                operator: format!("Tr with mode {mode}"),
-                            });
-                        }
-                    }
-                }
-                Operator::MoveText => {
-                    if let (Some(x), Some(y)) = (number_at(operands, 0), number_at(operands, 1)) {
-                        text_object.line = Transform::translate(x, y).then(text_object.line);
-                        text_object.matrix = text_object.line;
-                    }
-                }
-                Operator::MoveTextSetLeading => {
-                    if let (Some(x), Some(y)) = (number_at(operands, 0), number_at(operands, 1)) {
-                        // `TD` is `Td` with the side effect of setting the leading.
-                        state.text.leading = -y;
-                        text_object.line = Transform::translate(x, y).then(text_object.line);
-                        text_object.matrix = text_object.line;
-                    }
-                }
-                Operator::TextMatrix => {
-                    if let Some(matrix) = matrix_from(operands) {
-                        text_object.line = matrix;
-                        text_object.matrix = matrix;
-                    }
-                }
-                Operator::NextLine => {
-                    text_object.line =
-                        Transform::translate(0.0, -state.text.leading).then(text_object.line);
-                    text_object.matrix = text_object.line;
-                }
-                Operator::ShowText => {
-                    if let Some(bytes) = string_at(operands, 0) {
-                        self.show_text(&bytes, &state, &mut text_object);
-                    }
-                }
-                Operator::ShowTextAdjusted => {
-                    // The array operand is not reconstructed by the content lexer, so the
-                    // strings and the numeric adjustments between them arrive as separate
-                    // operands in order — which is enough to render them correctly.
-                    for operand in operands {
-                        match operand {
-                            Object::String(bytes) => {
-                                self.show_text(bytes, &state, &mut text_object);
-                            }
-                            other => {
-                                if let Some(adjust) = other.as_number() {
-                                    // §9.4.3: the amount "shall be subtracted from the current
-                                    // horizontal or vertical coordinate, depending on the
-                                    // writing mode", in thousandths of an em scaled by the
-                                    // size — and by the horizontal scaling only in the
-                                    // horizontal mode, which is where §9.4.4's `Th` sits.
-                                    let shift = -narrow(adjust) / 1000.0 * state.text.size;
-                                    let vertical =
-                                        state.text.font.as_ref().is_some_and(Font::is_vertical);
-                                    let step = if vertical {
-                                        Transform::translate(0.0, shift)
-                                    } else {
-                                        Transform::translate(
-                                            shift * state.text.horizontal_scale,
-                                            0.0,
-                                        )
-                                    };
-                                    text_object.matrix = step.then(text_object.matrix);
-                                }
-                            }
-                        }
-                    }
-                }
-                Operator::NextLineShowText => {
-                    text_object.line =
-                        Transform::translate(0.0, -state.text.leading).then(text_object.line);
-                    text_object.matrix = text_object.line;
-                    if let Some(bytes) = string_at(operands, 0) {
-                        self.show_text(&bytes, &state, &mut text_object);
-                    }
-                }
-                Operator::NextLineShowTextSpaced => {
-                    // `aw ac string "` sets word and character spacing, then shows.
-                    if let Some(word) = number_at(operands, 0) {
-                        state.text.word_spacing = word;
-                    }
-                    if let Some(character) = number_at(operands, 1) {
-                        state.text.char_spacing = character;
-                    }
-                    text_object.line =
-                        Transform::translate(0.0, -state.text.leading).then(text_object.line);
-                    text_object.matrix = text_object.line;
-                    if let Some(bytes) = string_at(operands, 2) {
-                        self.show_text(&bytes, &state, &mut text_object);
-                    }
-                }
-
-                // --- XObjects ---
-                Operator::XObject => self.draw_xobject(operands, resources, &state),
-
-                // --- shadings and inline images ---
-                Operator::Shade => {
-                    let name = name_at(operands, 0).unwrap_or_else(|| Name::new(Vec::new()));
-                    self.paint_shading(&name, resources, &state);
-                }
-                // §8.9.7: an image written into the content stream rather than as an
-                // `XObject`. `crate::inline_image` turns it into the stream the same image
-                // would have been as an `XObject`, so from here on it is an ordinary image —
-                // including §8.6.8's rule about an uncoloured figure, which `draw_image`
-                // owns and which is what a Type 3 glyph drawn as an inline mask needs.
-                //
-                // The lexer is moved past the data on every path, error included: the bytes
-                // between `ID` and `EI` are not a program, and tokenising them would emit
-                // drawing commands from image samples.
-                Operator::BeginImage => {
-                    let scanned = self.inline_image(reader, resources);
-                    reader.skip(scanned.resume);
-                    // A hidden layer suppresses the drawing and the report both: an image
-                    // the document turns off is not one we failed to draw (§8.11.3.1).
-                    if !self.is_hidden() {
-                        match scanned.image {
-                            Ok(stream) => {
-                                // The stream is new at every `BI`, so `image::RasterCache` is
-                                // told to name it by its content: a hatching states the same
-                                // few samples once per tiling cell, and an entry named by this
-                                // allocation's address could answer none of them (ADR 0399).
-                                let stream = Arc::new(stream);
-                                self.draw_image(
-                                    crate::image::NamedStream::inline(&stream),
-                                    "<inline>",
-                                    resources,
-                                    &state,
-                                );
-                            }
-                            Err(error) => self.note(Unsupported::Image {
-                                name: format!("<inline>: {error}"),
-                            }),
-                        }
-                    }
-                }
-
-                // Operators that affect no geometry this renderer produces: marked
-                // content and compatibility sections carry structure rather than drawing;
-                // rendering intent needs colour management; and flatness tolerance is a
-                // hint about curve subdivision that the rasteriser decides for itself.
-                Operator::RenderingIntent => {
-                    // §8.6.5.8's first route to the intent: "Rendering intents shall be
-                    // specified with the ri operator". What the intent then does to black point
-                    // compensation is §8.6.5.9's and is asked of the state when an object is
-                    // painted — setting it here would make the *order* of `ri` and `gs` decide
-                    // an answer neither clause makes conditional on one.
-                    if let Some(name) = name_at(operands, 0) {
-                        state.intent = Intent::read(name.as_bytes());
-                    }
-                }
-                // §8.11.3.2: a marked-content section is optional content when its tag is
-                // `OC` and its property list names a group or a membership dictionary.
-                // Because a group is an indirect object, the operand is a *name* into the
-                // resource dictionary's `/Properties`; an inline dictionary cannot carry
-                // one, so it governs nothing.
-                Operator::BeginMarkedProperties => {
-                    // A *tag* is one of the standard's own names rather than a resource name, so
-                    // it is compared against an ASCII literal — as bytes, which §7.3.5 makes the
-                    // comparison a name has ("an exact binary match") and which costs nothing.
-                    let tag = name_at(operands, 0);
-                    let tag = tag.as_ref().map_or(&[][..], Name::as_bytes);
-                    let hides = tag == b"OC"
-                        && name_at(operands, 1).is_some_and(|name| {
-                            self.unresolved_resource(resources, "Properties", &name)
-                                .is_some_and(|oc| !self.shows_optional_content(&oc))
-                        });
-                    // §14.9's four entries, all from the one property list this section
-                    // names, so that a tagged page reads it once rather than four times.
-                    let (actual_text, described) = self.accessibility(resources, operands.get(1));
-                    // §14.8.2.2.2's two forms of an artifact are `/Artifact BMC` and
-                    // `/Artifact <<propertyList>> BDC`; this is the second, and the property
-                    // list is Table 363's.
-                    let artifact = (tag == b"Artifact").then(|| {
-                        self.property_list(resources, operands.get(1))
-                            .map(|list| crate::structure::Artifact::read(self.document, &list))
-                            .unwrap_or_default()
-                    });
-                    let reversed = tag == b"ReversedChars";
-                    // §14.13.5: "One or more files may be associated with sections of content in
-                    // a content stream by enclosing those sections between the marked-content
-                    // operators BDC and EMC … with a marked-content tag of AF." NOTE 2 is why
-                    // this is on `BDC` alone: "[t]he BMC operator does not take properties and
-                    // therefore cannot be used with the AF key." The *tag* is `AF`; the key
-                    // inside the property list is `/MCAF` since Errata Collection 3, and the
-                    // two are not the same word by accident — see
-                    // `attachment::associated_in_property_list`. A named resource that is the
-                    // array itself is the clause's own example's form (ADR 1461).
-                    let associated = if tag == b"AF" {
-                        self.associated_files(resources, operands.get(1))
-                    } else {
-                        Vec::new()
-                    };
-                    let mcid = self
-                        .property_list(resources, operands.get(1))
-                        .and_then(|list| self.document.get_key(&list, "MCID").as_integer());
-                    self.open_marking(mcid);
-                    marked.push(Marked {
-                        hides,
-                        starts_at: self.text.len(),
-                        mcid,
-                        // §14.9.4's replacement text, which belongs to *extraction* and not to
-                        // drawing: the marks are unchanged and what a reader copies is not.
-                        actual_text,
-                        described,
-                        artifact,
-                        reversed,
-                        associated,
-                    });
-                    if hides {
-                        self.hidden = self.hidden.saturating_add(1);
-                    }
-                    if reversed {
-                        self.reversed_chars = self.reversed_chars.saturating_add(1);
-                    }
-                }
-                Operator::BeginMarked => {
-                    let tag = name_at(operands, 0);
-                    let tag = tag.as_ref().map_or(&[][..], Name::as_bytes);
-                    // The generic forms: `/Artifact BMC` states an artifact with no property
-                    // list, and `/ReversedChars BMC` is the form §14.8.2.5.3's own EXAMPLE uses.
-                    let reversed = tag == b"ReversedChars";
-                    marked.push(Marked {
-                        starts_at: self.text.len(),
-                        artifact: (tag == b"Artifact").then(crate::structure::Artifact::default),
-                        reversed,
-                        ..Marked::default()
-                    });
-                    if reversed {
-                        self.reversed_chars = self.reversed_chars.saturating_add(1);
-                    }
-                }
-                Operator::EndMarked => {
-                    if let Some(section) = marked.pop() {
-                        if section.hides {
-                            self.hidden = self.hidden.saturating_sub(1);
-                        }
-                        if section.reversed {
-                            self.reversed_chars = self.reversed_chars.saturating_sub(1);
-                        }
-                        // "The ActualText value shall be used as a replacement, not a
-                        // description, for the content" — so whatever the enclosed operators
-                        // read back is discarded and the stated text stands in its place.
-                        let replaced_here = section.actual_text.is_some();
-                        if let Some(replacement) = section.actual_text
-                            && section.starts_at <= self.text.len()
-                        {
-                            self.cut_replaced(section.starts_at, &replacement);
-                            // "If each of two (or more) consecutive structure or marked-content
-                            // sequences has an ActualText entry, they shall be treated as if no
-                            // word break is present between them." The space between them is no
-                            // content of either sequence — it is what the *placement* pass
-                            // inferred from the gap the glyphs left, which the cut above kept at
-                            // this section's start (ADR 1948) — so the clause is asking for it to
-                            // go. Only whitespace is removed, and only where the previous
-                            // section's replacement ended where this one's text began: a real
-                            // character between the two means they are not consecutive.
-                            if let Some(end) = replaced_ends_at
-                                && self.text.get(end..).is_some_and(|between| {
-                                    !between.is_empty() && between.chars().all(char::is_whitespace)
-                                })
-                            {
-                                self.truncate_readback(end);
-                            }
-                            self.push_replacement(&replacement);
-                            replaced_ends_at = Some(self.text.len());
-                        } else if !replaced_here && self.text.len() > section.starts_at {
-                            // Marks were made that no `/ActualText` replaced, so whatever came
-                            // before is no longer adjacent to whatever comes next.
-                            replaced_ends_at = None;
-                        }
-                        // §14.9.3's and §14.9.5's substitutions are recorded over the range
-                        // rather than applied to it: they are what the page is *spoken* as,
-                        // and the text a person copies is unchanged by either.
-                        if let Some(described) = section.described {
-                            self.described.push(crate::accessibility::Described {
-                                range: section.starts_at..self.text.len(),
-                                alt: described.alt,
-                                expansion: described.expansion,
-                                language: described.language,
-                            });
-                        }
-                        // Last, because the range is over the readback *as it now stands*:
-                        // an artifact whose section also states an `/ActualText` has had its
-                        // text replaced by the block above, and a range taken before that
-                        // would name the text the replacement removed.
-                        if let Some(artifact) = section.artifact {
-                            self.artifacts.push(ArtifactSpan {
-                                range: section.starts_at..self.text.len(),
-                                artifact,
-                                // §14.8.2.2.2's first sentence: the producer said so, with one of
-                                // the two methods it names.
-                                found: ArtifactSource::Declared,
-                            });
-                        }
-                        // §14.7.5.2's identifier over the same range, for the same reason and
-                        // after the same replacements: this is where a structure element's
-                        // content actually is in the readback.
-                        let closed = self.close_marking(section.mcid);
-                        if let Some(mcid) = section.mcid
-                            && let Some(closed) = closed
-                        {
-                            self.marked.push(MarkedSpan {
-                                mcid,
-                                // The identifier is unique "within its content stream" and no
-                                // further, so which stream this is is half the key.
-                                stream: self.stream,
-                                range: section.starts_at..self.text.len(),
-                                drawn: closed.drawn,
-                                enclosed_a_refusal: closed.enclosed_a_refusal,
-                            });
-                        }
-                        // §14.13.5's files belong to the graphics objects the section enclosed,
-                        // so like an artifact they are recorded over the range rather than
-                        // changing anything drawn.
-                        for attachment in section.associated {
-                            self.associated
-                                .push((section.starts_at..self.text.len(), attachment));
-                        }
-                    }
-                }
-                Operator::BeginCompatibility => compatibility = compatibility.saturating_add(1),
-                Operator::EndCompatibility => compatibility = compatibility.saturating_sub(1),
-                Operator::MarkPoint | Operator::MarkPointProperties | Operator::Flatness => {}
-
-                // --- Type 3 glyph metrics (§9.6.4 Table 111) ---
-                //
-                // Both operators state the glyph's horizontal displacement, and the width
-                // used is the font dictionary's `/Widths` entry instead: Table 111 requires
-                // the two to agree ("it shall be consistent with the corresponding width in
-                // the font's Widths array"), and Table 110 makes `/Widths` required, so the
-                // font dictionary is the one statement present for every glyph — including
-                // the ones whose `/CharProcs` entry is missing and which are never run.
-                //
-                // `d1` additionally declares the glyph uncoloured, which is the half that
-                // changes what is drawn; see the intercept above. Its bounding box is
-                // deliberately not used as a clip: Table 111 requires it to enclose the
-                // glyph ("the declared bounding box shall be correct"), so clipping to it
-                // can only ever remove marks a correct file does not have, and on an
-                // incorrect one it hides the defect rather than reporting it.
-                Operator::GlyphWidth | Operator::GlyphWidthAndBox => {
-                    if operator == Operator::GlyphWidthAndBox && self.glyph_depth > 0 {
-                        // `d1` forbids the *description* from setting a colour, and nothing
-                        // more. What the description paints with is the graphics state
-                        // §9.6.4 says it inherited — both colour parameters, each used by
-                        // the operation that selects it, so a description that strokes
-                        // strokes in the stroking colour.
-                        //
-                        // **The two are not one**, whatever Table 111's singular "[i]ts
-                        // colour shall be determined by the graphics state in effect each time
-                        // this glyph is painted by a text-showing operator" suggests. The
-                        // clause refutes that reading three times over. §9.6.4 NOTE 2 is
-                        // plural — "it is unnecessary and undesirable to initialise the
-                        // current colour parameters because the text-showing operators are
-                        // designed to paint glyphs with the current colours" — the sentence
-                        // above it lists what a stroking description must set for itself
-                        // ("the line width, line join, line cap, and dash pattern") and puts
-                        // no colour in that list, and §9.6.4's own EXAMPLE sets a distinct
-                        // `RG` before each `Tj` for a `d1` `square` glyph whose body is
-                        // `72 w 0 0 750 750 re B`, which the collapsed reading makes dead
-                        // syntax. `Type3Test.pdf` in `pdf-differences` is the corpus witness
-                        // and ADR 0393 has the argument; the image-mask sentence that seems to
-                        // say otherwise is §8.9.6.2's rule about a *stencil*, which
-                        // paints with the non-stroking colour because that is what an image
-                        // mask does, not because a `d1` glyph has one colour.
-                        self.uncoloured = true;
-                    }
-                }
-
-                // Table 90's other two are read by `BI`'s arm, as the inline image's own syntax;
-                // met here, outside one, they are reported exactly as a keyword nobody lists.
-                Operator::ImageData | Operator::EndImage => {
-                    if compatibility == 0 {
-                        self.note_unknown_operator(operator.name());
-                    }
-                }
-            }
+            // One method per family of Table 50: the loop knows which family an operator is in
+            // and nothing of what the family does with it.
+            self.run_operator(operator, operands, reader, resources, &mut machine);
 
             pending.clear();
         }
 
-        Some(Leftover {
-            composed: Composed {
-                state,
-                stack,
-                marked: Vec::new(),
-            },
-            in_text,
+        Some(machine.into_leftover())
+    }
+
+    /// Settles a token that is not an operand or the stream's end: what a keyword inside an array,
+    /// an inline dictionary or an operand past the bound each come to, and the keyword where there
+    /// is one for the loop to dispatch. `None` is "read the next token".
+    fn settle_step(
+        &mut self,
+        step: Step,
+        reader: &mut ContentReader<'_>,
+        pending: &mut Vec<Object>,
+        array_depth: &mut usize,
+    ) -> Option<Keyword> {
+        // Operands accumulate until an operator consumes them.
+        match step {
+            // The loop has already stopped at the stream's end, and an operand is in `pending`.
+            Step::End | Step::Operand => None,
+            Step::InsideAnArray(word) => {
+                self.note_keyword(KeywordNote::InsideAnArray, word.as_slice(), |keyword| {
+                    Unsupported::Operator {
+                        operator: format!(
+                            "{} inside an array, which §7.3.6 admits only objects into",
+                            String::from_utf8_lossy(keyword)
+                        ),
+                    }
+                });
+                None
+            }
+            Step::TooManyOperands => {
+                // Dropping operands silently truncates the page: a `TJ` array is
+                // one operand per run *and* per kerning adjustment, so a single
+                // justified line can be hundreds, and the text simply stopped
+                // mid-sentence with nothing reported. The bound stays, because a
+                // hostile stream can otherwise make one operator allocate without
+                // limit — but reaching it is now a reported defect.
+                self.note(Unsupported::LimitReached {
+                    limit: "MAX_OPERANDS",
+                });
+                None
+            }
+            Step::Dictionary => {
+                let dictionary = Object::Dictionary(inline_dictionary(reader));
+                if pending.len() < MAX_OPERANDS {
+                    pending.push(dictionary);
+                } else {
+                    self.note(Unsupported::LimitReached {
+                        limit: "MAX_OPERANDS",
+                    });
+                    *array_depth = 0;
+                }
+                None
+            }
+            Step::Operator(operator) => Some(Keyword::Operator(operator)),
+            Step::Unknown(word) => Some(Keyword::Unknown(word)),
+        }
+    }
+
+    /// Sends one operator to the method for its family in Table 50 (ISO 32000-2 §8.2), each of
+    /// which owns what its operators do.
+    fn run_operator(
+        &mut self,
+        operator: Operator,
+        operands: &[Object],
+        reader: &mut ContentReader<'_>,
+        resources: &Dictionary,
+        machine: &mut Machine,
+    ) {
+        // One method per family of Table 50: the loop knows which family an operator is in
+        // and nothing of what the family does with it.
+        match operator {
+            Operator::Save
+            | Operator::Restore
+            | Operator::Concatenate
+            | Operator::ExtGState
+            | Operator::LineWidth
+            | Operator::LineCap
+            | Operator::LineJoin
+            | Operator::MiterLimit
+            | Operator::Dash
+            | Operator::RenderingIntent
+            | Operator::Flatness => {
+                self.run_graphics_state_op(operator, operands, resources, machine);
+            }
+            Operator::MoveTo
+            | Operator::LineTo
+            | Operator::CurveTo
+            | Operator::CurveInitialReplicated
+            | Operator::CurveFinalReplicated
+            | Operator::ClosePath
+            | Operator::Rectangle => {
+                self.run_path_construction_op(operator, operands, machine);
+            }
+            Operator::EndPath
+            | Operator::Fill
+            | Operator::FillObsolete
+            | Operator::FillEvenOdd
+            | Operator::Stroke
+            | Operator::CloseStroke
+            | Operator::FillStroke
+            | Operator::FillStrokeEvenOdd
+            | Operator::CloseFillStroke
+            | Operator::CloseFillStrokeEvenOdd
+            | Operator::Clip
+            | Operator::ClipEvenOdd => self.run_path_painting_op(operator, machine),
+            Operator::FillGray
+            | Operator::StrokeGray
+            | Operator::FillRgb
+            | Operator::StrokeRgb
+            | Operator::FillCmyk
+            | Operator::StrokeCmyk
+            | Operator::FillColourSpace
+            | Operator::StrokeColourSpace
+            | Operator::FillColour
+            | Operator::FillColourN
+            | Operator::StrokeColour
+            | Operator::StrokeColourN => {
+                self.run_colour_op(operator, operands, resources, machine);
+            }
+            Operator::BeginText
+            | Operator::EndText
+            | Operator::Font
+            | Operator::CharSpacing
+            | Operator::WordSpacing
+            | Operator::HorizontalScaling
+            | Operator::Leading
+            | Operator::Rise
+            | Operator::RenderMode
+            | Operator::MoveText
+            | Operator::MoveTextSetLeading
+            | Operator::TextMatrix
+            | Operator::NextLine => {
+                self.run_text_op(operator, operands, resources, machine);
+            }
+            Operator::ShowText
+            | Operator::ShowTextAdjusted
+            | Operator::NextLineShowText
+            | Operator::NextLineShowTextSpaced => {
+                self.run_text_showing_op(operator, operands, machine);
+            }
+            Operator::GlyphWidth | Operator::GlyphWidthAndBox => self.run_type3_op(operator),
+            Operator::XObject => self.run_xobject_op(operands, resources, machine),
+            Operator::Shade => self.run_shading_op(operands, resources, machine),
+            Operator::BeginImage | Operator::ImageData | Operator::EndImage => {
+                self.run_inline_image_op(operator, reader, resources, machine);
+            }
+            Operator::MarkPoint
+            | Operator::MarkPointProperties
+            | Operator::BeginMarked
+            | Operator::BeginMarkedProperties
+            | Operator::EndMarked => {
+                self.run_marked_content_op(operator, operands, resources, machine);
+            }
+            Operator::BeginCompatibility | Operator::EndCompatibility => {
+                Self::run_compatibility_op(operator, machine);
+            }
+        }
+    }
+
+    /// The general and special graphics state operators of Table 50 (ISO 32000-2 §8.4.4): `q`, `Q`,
+    /// `cm`, `gs`, `w`, `J`, `j`, `M`, `d`, `ri` and `i`.
+    ///
+    /// `Q` is where §9.4.2's two text matrices come back with the state they were saved with.
+    fn run_graphics_state_op(
+        &mut self,
+        operator: Operator,
+        operands: &[Object],
+        resources: &Dictionary,
+        machine: &mut Machine,
+    ) {
+        let Machine {
+            state,
+            stack,
             text_object,
+            in_text,
+            ..
+        } = machine;
+        match operator {
+            // --- graphics state ---
+            Operator::Save => {
+                if stack.len() < MAX_STATE_DEPTH {
+                    stack.push((state.clone(), text_object.matrix, text_object.line));
+                } else {
+                    self.note(Unsupported::LimitReached {
+                        limit: "MAX_STATE_DEPTH",
+                    });
+                }
+            }
+            Operator::Restore => {
+                if let Some((previous, matrix, line)) = stack.pop() {
+                    if previous.alpha_is_shape != state.alpha_is_shape {
+                        self.note_alpha_source(previous.alpha_is_shape);
+                    }
+                    *state = previous;
+                    // The two matrices come back only *inside* a text object, which is
+                    // where §9.4.2's addition places them: outside one they are the
+                    // parameters of an object that has ended, and Table 105's `BT` sets
+                    // both to the identity before the next glyph is shown anyway.
+                    if *in_text {
+                        text_object.matrix = matrix;
+                        text_object.line = line;
+                    }
+                }
+                // An unmatched `Q` is ignored: the alternative is to abandon the page,
+                // and files with one extra `Q` render correctly everywhere else.
+            }
+            Operator::Concatenate => {
+                if let Some(matrix) = matrix_from(operands) {
+                    state.transform = matrix.then(state.transform);
+                }
+            }
+            Operator::ExtGState => {
+                self.apply_ext_gstate(operands, resources, state, *in_text);
+            }
+            // --- line parameters ---
+            Operator::LineWidth => {
+                if let Some(width) = number_at(operands, 0) {
+                    // ISO 32000-2 §8.4.3.2 gives the parameter its range — the line width
+                    // "shall be a nonnegative number expressed in user space units" — and
+                    // §8.4.1 states what a processor does with a value outside it, naming
+                    // this parameter in the sentence: "[p]arameters that are numeric
+                    // values, such as the current colour, line width, and miter limit,
+                    // shall be clipped into valid range, if necessary."
+                    //
+                    // So `-0.1 w` is a `shall`, not a choice: it is clipped to 0, and
+                    // §8.4.3.2's rule for 0 then makes the mark one device pixel wide.
+                    // That second step is a *device* adjustment, which the same bullet
+                    // requires to happen at painting time and never to be stored back
+                    // into the graphics state — which is why it is in
+                    // `Stroke::device_width` and only the clipped value is kept here.
+                    // `content.rs`'s `miter_limit` quotes that same sentence for the
+                    // parameter the list names third.
+                    state.stroke.width = width.max(0.0);
+                }
+            }
+            Operator::LineCap => {
+                if let Some(code) = integer_at(operands, 0) {
+                    state.stroke.cap = line_cap(code);
+                }
+            }
+            Operator::LineJoin => {
+                if let Some(code) = integer_at(operands, 0) {
+                    state.stroke.join = line_join(code);
+                }
+            }
+            Operator::MiterLimit => {
+                if let Some(limit) = number_at(operands, 0) {
+                    state.stroke.miter_limit = miter_limit(limit);
+                }
+            }
+            Operator::Dash => set_dash(operands, &mut state.stroke),
+            // Rendering intent and flatness affect nothing this renderer does.
+            Operator::RenderingIntent => {
+                // §8.6.5.8's first route to the intent: "Rendering intents shall be
+                // specified with the ri operator". What the intent then does to black point
+                // compensation is §8.6.5.9's and is asked of the state when an object is
+                // painted — setting it here would make the *order* of `ri` and `gs` decide
+                // an answer neither clause makes conditional on one.
+                if let Some(name) = name_at(operands, 0) {
+                    state.intent = Intent::read(name.as_bytes());
+                }
+            }
+            // Only this family's operators are sent here, by `run_operator` — `i` among them, which
+            // sets a flatness tolerance the rasteriser decides for itself.
+            _ => {}
+        }
+    }
+
+    /// The path construction operators of Table 50 (ISO 32000-2 §8.5.2): `m`, `l`, `c`, `v`, `y`,
+    /// `h` and `re`.
+    fn run_path_construction_op(
+        &mut self,
+        operator: Operator,
+        operands: &[Object],
+        machine: &mut Machine,
+    ) {
+        let Machine {
+            path,
+            start,
+            current,
+            ..
+        } = machine;
+        match operator {
+            Operator::MoveTo => {
+                if let (Some(x), Some(y)) = (number_at(operands, 0), number_at(operands, 1)) {
+                    *current = Point::new(x, y);
+                    *start = *current;
+                    begin_subpath(path, *current);
+                }
+            }
+            // The four operators §8.5.2.1 says "start at the current point": each is appended
+            // through `extend_subpath`, which refuses one that has none and says so. The
+            // current point moves only where the segment was taken, because the clause defines
+            // it as the endpoint of the segment most recently *added*.
+            Operator::LineTo => {
+                if let (Some(x), Some(y)) = (number_at(operands, 0), number_at(operands, 1)) {
+                    let to = Point::new(x, y);
+                    if self.extend_subpath(path, PathCommand::LineTo(to)) {
+                        *current = to;
+                    }
+                }
+            }
+            Operator::CurveTo => {
+                if let Some(points) = points_from::<3>(operands) {
+                    let segment = PathCommand::CurveTo(points[0], points[1], points[2]);
+                    if self.extend_subpath(path, segment) {
+                        *current = points[2];
+                    }
+                }
+            }
+            Operator::CurveInitialReplicated => {
+                // The first control point is the current point — which is also why an empty
+                // path cannot state this curve at all: the operand the clause implies does
+                // not exist.
+                if let Some(points) = points_from::<2>(operands) {
+                    let segment = PathCommand::CurveTo(*current, points[0], points[1]);
+                    if self.extend_subpath(path, segment) {
+                        *current = points[1];
+                    }
+                }
+            }
+            Operator::CurveFinalReplicated => {
+                // The second control point is the endpoint.
+                if let Some(points) = points_from::<2>(operands) {
+                    let segment = PathCommand::CurveTo(points[0], points[1], points[1]);
+                    if self.extend_subpath(path, segment) {
+                        *current = points[1];
+                    }
+                }
+            }
+            Operator::ClosePath => {
+                close_subpath(path);
+                *current = *start;
+            }
+            Operator::Rectangle => {
+                if let Some(values) = numbers_from::<4>(operands) {
+                    let (x, y, w, h) = (values[0], values[1], values[2], values[3]);
+                    // Table 58 states `re` as `x y m` and three `l`s and an `h`, so the
+                    // `m` it begins with overrides a preceding one exactly as a written
+                    // `m` would: 60 paths on `issue12810.pdf`'s first page pair the two.
+                    begin_subpath(path, Point::new(x, y));
+                    path.push(PathCommand::LineTo(Point::new(x + w, y)));
+                    path.push(PathCommand::LineTo(Point::new(x + w, y + h)));
+                    path.push(PathCommand::LineTo(Point::new(x, y + h)));
+                    path.push(PathCommand::Close);
+                    *start = Point::new(x, y);
+                    *current = *start;
+                }
+            }
+            // Only this family's operators are sent here, by `run_operator`.
+            _ => {}
+        }
+    }
+
+    /// The path painting and clipping path operators of Table 50 (ISO 32000-2 §8.5.3, §8.5.4):
+    /// `S`, `s`, `f`, `F`, `f*`, `B`, `B*`, `b`, `b*`, `n`, `W` and `W*`.
+    fn run_path_painting_op(&mut self, operator: Operator, machine: &mut Machine) {
+        let Machine {
+            path,
             pending_clip,
-            marked,
+            state,
+            ..
+        } = machine;
+        match operator {
+            // --- path painting ---
+            //
+            // Every operator below but `n` keeps the path in the list, so each charges its
+            // segments to `MAX_LIST_BYTES` first: a path costs its segments once however many
+            // commands share it, and a form invoked a million times builds a million (ADR
+            // 1810). `n` keeps none, and a clip is charged where the table takes it.
+            Operator::EndPath => {
+                self.end_path(path, pending_clip, state, None, None);
+            }
+            Operator::Fill | Operator::FillObsolete => {
+                self.charge_painted(path);
+                self.end_path(path, pending_clip, state, Some(FillRule::NonZero), None);
+            }
+            Operator::FillEvenOdd => {
+                self.charge_painted(path);
+                self.end_path(path, pending_clip, state, Some(FillRule::EvenOdd), None);
+            }
+            Operator::Stroke => {
+                self.charge_painted(path);
+                self.end_path(path, pending_clip, state, None, Some(false));
+            }
+            Operator::CloseStroke => {
+                close_subpath(path);
+                self.charge_painted(path);
+                self.end_path(path, pending_clip, state, None, Some(true));
+            }
+            Operator::FillStroke => {
+                self.charge_painted(path);
+                self.end_path(
+                    path,
+                    pending_clip,
+                    state,
+                    Some(FillRule::NonZero),
+                    Some(false),
+                );
+            }
+            Operator::FillStrokeEvenOdd => {
+                self.charge_painted(path);
+                self.end_path(
+                    path,
+                    pending_clip,
+                    state,
+                    Some(FillRule::EvenOdd),
+                    Some(false),
+                );
+            }
+            Operator::CloseFillStroke | Operator::CloseFillStrokeEvenOdd => {
+                close_subpath(path);
+                let rule = if operator == Operator::CloseFillStrokeEvenOdd {
+                    FillRule::EvenOdd
+                } else {
+                    FillRule::NonZero
+                };
+                self.charge_painted(path);
+                self.end_path(path, pending_clip, state, Some(rule), Some(true));
+            }
+            Operator::Clip => *pending_clip = Some(FillRule::NonZero),
+            Operator::ClipEvenOdd => *pending_clip = Some(FillRule::EvenOdd),
+            // Only this family's operators are sent here, by `run_operator`.
+            _ => {}
+        }
+    }
+
+    /// The colour operators of Table 50 (ISO 32000-2 §8.6.8): `CS`, `cs`, `SC`, `SCN`, `sc`, `scn`,
+    /// `G`, `g`, `RG`, `rg`, `K` and `k`.
+    fn run_colour_op(
+        &mut self,
+        operator: Operator,
+        operands: &[Object],
+        resources: &Dictionary,
+        machine: &mut Machine,
+    ) {
+        let Machine { state, .. } = machine;
+        match operator {
+            // --- colour ---
+            // `g`, `rg` and `k` set a device space and a colour together — or the
+            // matching `Default` space, where the resources name one, which is why
+            // these resolve the space rather than naming it directly.
+            Operator::FillGray | Operator::StrokeGray => {
+                if let Some(grey) = number_at(operands, 0) {
+                    let space = self.device_space("DeviceGray", resources);
+                    let colour = self.colour(&space, &[grey], state);
+                    self.assign_colour(
+                        state,
+                        operator == Operator::FillGray,
+                        colour,
+                        space,
+                        &[grey],
+                    );
+                }
+            }
+            Operator::FillRgb | Operator::StrokeRgb => {
+                if let Some(values) = numbers_from::<3>(operands) {
+                    let space = self.device_space("DeviceRGB", resources);
+                    let colour = self.colour(&space, &values, state);
+                    self.assign_colour(
+                        state,
+                        operator == Operator::FillRgb,
+                        colour,
+                        space,
+                        &values,
+                    );
+                }
+            }
+            Operator::FillCmyk | Operator::StrokeCmyk => {
+                if let Some(values) = numbers_from::<4>(operands) {
+                    let space = self.device_space("DeviceCMYK", resources);
+                    let colour = self.colour(&space, &values, state);
+                    self.assign_colour(
+                        state,
+                        operator == Operator::FillCmyk,
+                        colour,
+                        space,
+                        &values,
+                    );
+                }
+            }
+            Operator::FillColourSpace | Operator::StrokeColourSpace => {
+                let fill = operator == Operator::FillColourSpace;
+                self.set_colour_space(operands, resources, state, fill);
+            }
+            Operator::FillColour
+            | Operator::FillColourN
+            | Operator::StrokeColour
+            | Operator::StrokeColourN => {
+                let fill = matches!(operator, Operator::FillColour | Operator::FillColourN);
+                self.set_colour(operands, resources, state, fill);
+            }
+            // Only this family's operators are sent here, by `run_operator`.
+            _ => {}
+        }
+    }
+
+    /// The text object, text state and text positioning operators of Table 50 (ISO 32000-2 §9.3
+    /// and §9.4): `BT`, `ET`, `Tc`, `Tw`, `Tz`, `TL`, `Tf`, `Tr`, `Ts`, `Td`, `TD`, `Tm` and `T*`.
+    fn run_text_op(
+        &mut self,
+        operator: Operator,
+        operands: &[Object],
+        resources: &Dictionary,
+        machine: &mut Machine,
+    ) {
+        let Machine {
+            state,
+            text_object,
+            in_text,
+            ..
+        } = machine;
+        match operator {
+            Operator::BeginText => {
+                *in_text = true;
+                // Table 105: `BT` initialises both matrices. Resetting the whole
+                // structure also discards any glyph outlines a malformed stream left
+                // unconsumed by an `ET`, which is the only state a second `BT` could
+                // otherwise carry into the text object it starts.
+                // A `BT` inside a text object that never ended closes that object's record
+                // of §11.6.4.3's readings before this one opens its own.
+                if let Some(outer) = text_object.enclosing_reading.take() {
+                    let (reading, in_force) = self.close_reading_scope(outer);
+                    self.absorb_reading(reading, text_object.start);
+                    self.note_alpha_source(in_force);
+                }
+                *text_object = TextObject {
+                    start: self.list.command_count(),
+                    enclosing_reading: Some(if state.text.knockout {
+                        self.open_knockout_reading_scope(state.alpha_is_shape)
+                    } else {
+                        self.open_reading_scope(state.alpha_is_shape)
+                    }),
+                    ..TextObject::default()
+                };
+            }
+            Operator::EndText => {
+                *in_text = false;
+                self.end_text_object(text_object, state);
+            }
+            Operator::Font => {
+                if let Some(name) = name_at(operands, 0) {
+                    state.text.font = self.font(resources, &name);
+                    // The trace's label rather than the lookup's key: §7.3.5's "the bytes
+                    // making up the name are never treated as text" binds the second, and
+                    // `font` above has them.
+                    state.text.font_name = String::from_utf8_lossy(name.as_bytes()).into_owned();
+                }
+                if let Some(size) = number_at(operands, 1) {
+                    state.text.size = size;
+                }
+            }
+            Operator::CharSpacing => {
+                if let Some(value) = number_at(operands, 0) {
+                    state.text.char_spacing = value;
+                }
+            }
+            Operator::WordSpacing => {
+                if let Some(value) = number_at(operands, 0) {
+                    state.text.word_spacing = value;
+                }
+            }
+            Operator::HorizontalScaling => {
+                if let Some(percent) = number_at(operands, 0) {
+                    state.text.horizontal_scale = percent / 100.0;
+                }
+            }
+            Operator::Leading => {
+                if let Some(value) = number_at(operands, 0) {
+                    state.text.leading = value;
+                }
+            }
+            Operator::Rise => {
+                if let Some(value) = number_at(operands, 0) {
+                    state.text.rise = value;
+                }
+            }
+            Operator::RenderMode => {
+                if let Some(mode) = integer_at(operands, 0) {
+                    // Table 104 defines eight modes and no default for anything else.
+                    // Silently keeping an out-of-range value would draw nothing at all,
+                    // since none of the three operations would match it — a whole text
+                    // object missing, with no report. The mode is left as it was and the
+                    // operand is named instead.
+                    if (0..=7).contains(&mode) {
+                        state.text.render_mode = mode;
+                    } else {
+                        self.note(Unsupported::Operator {
+                            operator: format!("Tr with mode {mode}"),
+                        });
+                    }
+                }
+            }
+            Operator::MoveText => {
+                if let (Some(x), Some(y)) = (number_at(operands, 0), number_at(operands, 1)) {
+                    text_object.line = Transform::translate(x, y).then(text_object.line);
+                    text_object.matrix = text_object.line;
+                }
+            }
+            Operator::MoveTextSetLeading => {
+                if let (Some(x), Some(y)) = (number_at(operands, 0), number_at(operands, 1)) {
+                    // `TD` is `Td` with the side effect of setting the leading.
+                    state.text.leading = -y;
+                    text_object.line = Transform::translate(x, y).then(text_object.line);
+                    text_object.matrix = text_object.line;
+                }
+            }
+            Operator::TextMatrix => {
+                if let Some(matrix) = matrix_from(operands) {
+                    text_object.line = matrix;
+                    text_object.matrix = matrix;
+                }
+            }
+            Operator::NextLine => {
+                text_object.line =
+                    Transform::translate(0.0, -state.text.leading).then(text_object.line);
+                text_object.matrix = text_object.line;
+            }
+            // Only this family's operators are sent here, by `run_operator`.
+            _ => {}
+        }
+    }
+
+    /// The text showing operators of Table 50 (ISO 32000-2 §9.4.3): `Tj`, `TJ`, `'` and `"`.
+    fn run_text_showing_op(
+        &mut self,
+        operator: Operator,
+        operands: &[Object],
+        machine: &mut Machine,
+    ) {
+        let Machine {
+            state, text_object, ..
+        } = machine;
+        match operator {
+            Operator::ShowText => {
+                if let Some(bytes) = string_at(operands, 0) {
+                    self.show_text(&bytes, state, text_object);
+                }
+            }
+            Operator::ShowTextAdjusted => {
+                // The array operand is not reconstructed by the content lexer, so the
+                // strings and the numeric adjustments between them arrive as separate
+                // operands in order — which is enough to render them correctly.
+                for operand in operands {
+                    match operand {
+                        Object::String(bytes) => {
+                            self.show_text(bytes, state, text_object);
+                        }
+                        other => {
+                            if let Some(adjust) = other.as_number() {
+                                // §9.4.3: the amount "shall be subtracted from the current
+                                // horizontal or vertical coordinate, depending on the
+                                // writing mode", in thousandths of an em scaled by the
+                                // size — and by the horizontal scaling only in the
+                                // horizontal mode, which is where §9.4.4's `Th` sits.
+                                let shift = -narrow(adjust) / 1000.0 * state.text.size;
+                                let vertical =
+                                    state.text.font.as_ref().is_some_and(Font::is_vertical);
+                                let step = if vertical {
+                                    Transform::translate(0.0, shift)
+                                } else {
+                                    Transform::translate(shift * state.text.horizontal_scale, 0.0)
+                                };
+                                text_object.matrix = step.then(text_object.matrix);
+                            }
+                        }
+                    }
+                }
+            }
+            Operator::NextLineShowText => {
+                text_object.line =
+                    Transform::translate(0.0, -state.text.leading).then(text_object.line);
+                text_object.matrix = text_object.line;
+                if let Some(bytes) = string_at(operands, 0) {
+                    self.show_text(&bytes, state, text_object);
+                }
+            }
+            Operator::NextLineShowTextSpaced => {
+                // `aw ac string "` sets word and character spacing, then shows.
+                if let Some(word) = number_at(operands, 0) {
+                    state.text.word_spacing = word;
+                }
+                if let Some(character) = number_at(operands, 1) {
+                    state.text.char_spacing = character;
+                }
+                text_object.line =
+                    Transform::translate(0.0, -state.text.leading).then(text_object.line);
+                text_object.matrix = text_object.line;
+                if let Some(bytes) = string_at(operands, 2) {
+                    self.show_text(&bytes, state, text_object);
+                }
+            }
+            // Only this family's operators are sent here, by `run_operator`.
+            _ => {}
+        }
+    }
+
+    /// The `XObject` operator of Table 50 (ISO 32000-2 §8.10.1): `Do`.
+    fn run_xobject_op(
+        &mut self,
+        operands: &[Object],
+        resources: &Dictionary,
+        machine: &mut Machine,
+    ) {
+        self.draw_xobject(operands, resources, &machine.state);
+    }
+
+    /// The shading operator of Table 50 (ISO 32000-2 §8.7.4.2): `sh`.
+    fn run_shading_op(
+        &mut self,
+        operands: &[Object],
+        resources: &Dictionary,
+        machine: &mut Machine,
+    ) {
+        let name = name_at(operands, 0).unwrap_or_else(|| Name::new(Vec::new()));
+        self.paint_shading(&name, resources, &machine.state);
+    }
+
+    /// The inline image operators of Table 50 (ISO 32000-2 §8.9.7): `BI`, and `ID` and `EI` where
+    /// they are met outside one.
+    fn run_inline_image_op(
+        &mut self,
+        operator: Operator,
+        reader: &mut ContentReader<'_>,
+        resources: &Dictionary,
+        machine: &mut Machine,
+    ) {
+        let Machine {
+            state,
             compatibility,
-            path_open: !path.commands().is_empty(),
-        })
+            ..
+        } = machine;
+        match operator {
+            // §8.9.7: an image written into the content stream rather than as an
+            // `XObject`. `crate::inline_image` turns it into the stream the same image
+            // would have been as an `XObject`, so from here on it is an ordinary image —
+            // including §8.6.8's rule about an uncoloured figure, which `draw_image`
+            // owns and which is what a Type 3 glyph drawn as an inline mask needs.
+            //
+            // The lexer is moved past the data on every path, error included: the bytes
+            // between `ID` and `EI` are not a program, and tokenising them would emit
+            // drawing commands from image samples.
+            Operator::BeginImage => {
+                let scanned = self.inline_image(reader, resources);
+                reader.skip(scanned.resume);
+                // A hidden layer suppresses the drawing and the report both: an image
+                // the document turns off is not one we failed to draw (§8.11.3.1).
+                if !self.is_hidden() {
+                    match scanned.image {
+                        Ok(stream) => {
+                            // The stream is new at every `BI`, so `image::RasterCache` is
+                            // told to name it by its content: a hatching states the same
+                            // few samples once per tiling cell, and an entry named by this
+                            // allocation's address could answer none of them (ADR 0399).
+                            let stream = Arc::new(stream);
+                            self.draw_image(
+                                crate::image::NamedStream::inline(&stream),
+                                "<inline>",
+                                resources,
+                                state,
+                            );
+                        }
+                        Err(error) => self.note(Unsupported::Image {
+                            name: format!("<inline>: {error}"),
+                        }),
+                    }
+                }
+            }
+            // Table 90's other two are read by `BI`'s arm, as the inline image's own syntax;
+            // met here, outside one, they are reported exactly as a keyword nobody lists.
+            Operator::ImageData | Operator::EndImage if *compatibility == 0 => {
+                self.note_unknown_operator(operator.name());
+            }
+            // Only this family's operators are sent here, by `run_operator`.
+            _ => {}
+        }
+    }
+
+    /// The marked-content operators of Table 50 (ISO 32000-2 §14.6): `MP`, `DP`, `BMC`, `BDC` and
+    /// `EMC`.
+    fn run_marked_content_op(
+        &mut self,
+        operator: Operator,
+        operands: &[Object],
+        resources: &Dictionary,
+        machine: &mut Machine,
+    ) {
+        let Machine {
+            marked,
+            replaced_ends_at,
+            ..
+        } = machine;
+        match operator {
+            // §8.11.3.2: a marked-content section is optional content when its tag is
+            // `OC` and its property list names a group or a membership dictionary.
+            // Because a group is an indirect object, the operand is a *name* into the
+            // resource dictionary's `/Properties`; an inline dictionary cannot carry
+            // one, so it governs nothing.
+            Operator::BeginMarkedProperties => {
+                // A *tag* is one of the standard's own names rather than a resource name, so
+                // it is compared against an ASCII literal — as bytes, which §7.3.5 makes the
+                // comparison a name has ("an exact binary match") and which costs nothing.
+                let tag = name_at(operands, 0);
+                let tag = tag.as_ref().map_or(&[][..], Name::as_bytes);
+                let hides = tag == b"OC"
+                    && name_at(operands, 1).is_some_and(|name| {
+                        self.unresolved_resource(resources, "Properties", &name)
+                            .is_some_and(|oc| !self.shows_optional_content(&oc))
+                    });
+                // §14.9's four entries, all from the one property list this section
+                // names, so that a tagged page reads it once rather than four times.
+                let (actual_text, described) = self.accessibility(resources, operands.get(1));
+                // §14.8.2.2.2's two forms of an artifact are `/Artifact BMC` and
+                // `/Artifact <<propertyList>> BDC`; this is the second, and the property
+                // list is Table 363's.
+                let artifact = (tag == b"Artifact").then(|| {
+                    self.property_list(resources, operands.get(1))
+                        .map(|list| crate::structure::Artifact::read(self.document, &list))
+                        .unwrap_or_default()
+                });
+                let reversed = tag == b"ReversedChars";
+                // §14.13.5: "One or more files may be associated with sections of content in
+                // a content stream by enclosing those sections between the marked-content
+                // operators BDC and EMC … with a marked-content tag of AF." NOTE 2 is why
+                // this is on `BDC` alone: "[t]he BMC operator does not take properties and
+                // therefore cannot be used with the AF key." The *tag* is `AF`; the key
+                // inside the property list is `/MCAF` since Errata Collection 3, and the
+                // two are not the same word by accident — see
+                // `attachment::associated_in_property_list`. A named resource that is the
+                // array itself is the clause's own example's form (ADR 1461).
+                let associated = if tag == b"AF" {
+                    self.associated_files(resources, operands.get(1))
+                } else {
+                    Vec::new()
+                };
+                let mcid = self
+                    .property_list(resources, operands.get(1))
+                    .and_then(|list| self.document.get_key(&list, "MCID").as_integer());
+                self.open_marking(mcid);
+                marked.push(Marked {
+                    hides,
+                    starts_at: self.text.len(),
+                    mcid,
+                    // §14.9.4's replacement text, which belongs to *extraction* and not to
+                    // drawing: the marks are unchanged and what a reader copies is not.
+                    actual_text,
+                    described,
+                    artifact,
+                    reversed,
+                    associated,
+                });
+                if hides {
+                    self.hidden = self.hidden.saturating_add(1);
+                }
+                if reversed {
+                    self.reversed_chars = self.reversed_chars.saturating_add(1);
+                }
+            }
+            Operator::BeginMarked => {
+                let tag = name_at(operands, 0);
+                let tag = tag.as_ref().map_or(&[][..], Name::as_bytes);
+                // The generic forms: `/Artifact BMC` states an artifact with no property
+                // list, and `/ReversedChars BMC` is the form §14.8.2.5.3's own EXAMPLE uses.
+                let reversed = tag == b"ReversedChars";
+                marked.push(Marked {
+                    starts_at: self.text.len(),
+                    artifact: (tag == b"Artifact").then(crate::structure::Artifact::default),
+                    reversed,
+                    ..Marked::default()
+                });
+                if reversed {
+                    self.reversed_chars = self.reversed_chars.saturating_add(1);
+                }
+            }
+            Operator::EndMarked => self.end_marked_content(marked, replaced_ends_at),
+            // `MP` and `DP` mark a point in the stream and carry structure rather than drawing.
+            _ => {}
+        }
+    }
+
+    /// `EMC`: closes the innermost marked-content section, and records what it enclosed over the
+    /// range of the readback it covered.
+    fn end_marked_content(
+        &mut self,
+        marked: &mut Vec<Marked>,
+        replaced_ends_at: &mut Option<usize>,
+    ) {
+        if let Some(section) = marked.pop() {
+            if section.hides {
+                self.hidden = self.hidden.saturating_sub(1);
+            }
+            if section.reversed {
+                self.reversed_chars = self.reversed_chars.saturating_sub(1);
+            }
+            // "The ActualText value shall be used as a replacement, not a
+            // description, for the content" — so whatever the enclosed operators
+            // read back is discarded and the stated text stands in its place.
+            let replaced_here = section.actual_text.is_some();
+            if let Some(replacement) = section.actual_text
+                && section.starts_at <= self.text.len()
+            {
+                self.cut_replaced(section.starts_at, &replacement);
+                // "If each of two (or more) consecutive structure or marked-content
+                // sequences has an ActualText entry, they shall be treated as if no
+                // word break is present between them." The space between them is no
+                // content of either sequence — it is what the *placement* pass
+                // inferred from the gap the glyphs left, which the cut above kept at
+                // this section's start (ADR 1948) — so the clause is asking for it to
+                // go. Only whitespace is removed, and only where the previous
+                // section's replacement ended where this one's text began: a real
+                // character between the two means they are not consecutive.
+                if let Some(end) = *replaced_ends_at
+                    && self.text.get(end..).is_some_and(|between| {
+                        !between.is_empty() && between.chars().all(char::is_whitespace)
+                    })
+                {
+                    self.truncate_readback(end);
+                }
+                self.push_replacement(&replacement);
+                *replaced_ends_at = Some(self.text.len());
+            } else if !replaced_here && self.text.len() > section.starts_at {
+                // Marks were made that no `/ActualText` replaced, so whatever came
+                // before is no longer adjacent to whatever comes next.
+                *replaced_ends_at = None;
+            }
+            // §14.9.3's and §14.9.5's substitutions are recorded over the range
+            // rather than applied to it: they are what the page is *spoken* as,
+            // and the text a person copies is unchanged by either.
+            if let Some(described) = section.described {
+                self.described.push(crate::accessibility::Described {
+                    range: section.starts_at..self.text.len(),
+                    alt: described.alt,
+                    expansion: described.expansion,
+                    language: described.language,
+                });
+            }
+            // Last, because the range is over the readback *as it now stands*:
+            // an artifact whose section also states an `/ActualText` has had its
+            // text replaced by the block above, and a range taken before that
+            // would name the text the replacement removed.
+            if let Some(artifact) = section.artifact {
+                self.artifacts.push(ArtifactSpan {
+                    range: section.starts_at..self.text.len(),
+                    artifact,
+                    // §14.8.2.2.2's first sentence: the producer said so, with one of
+                    // the two methods it names.
+                    found: ArtifactSource::Declared,
+                });
+            }
+            // §14.7.5.2's identifier over the same range, for the same reason and
+            // after the same replacements: this is where a structure element's
+            // content actually is in the readback.
+            let closed = self.close_marking(section.mcid);
+            if let Some(mcid) = section.mcid
+                && let Some(closed) = closed
+            {
+                self.marked.push(MarkedSpan {
+                    mcid,
+                    // The identifier is unique "within its content stream" and no
+                    // further, so which stream this is is half the key.
+                    stream: self.stream,
+                    range: section.starts_at..self.text.len(),
+                    drawn: closed.drawn,
+                    enclosed_a_refusal: closed.enclosed_a_refusal,
+                });
+            }
+            // §14.13.5's files belong to the graphics objects the section enclosed,
+            // so like an artifact they are recorded over the range rather than
+            // changing anything drawn.
+            for attachment in section.associated {
+                self.associated
+                    .push((section.starts_at..self.text.len(), attachment));
+            }
+        }
+    }
+
+    /// The compatibility operators of Table 50 (ISO 32000-2 §7.8.2): `BX` and `EX`.
+    fn run_compatibility_op(operator: Operator, machine: &mut Machine) {
+        let Machine { compatibility, .. } = machine;
+        match operator {
+            Operator::BeginCompatibility => *compatibility = compatibility.saturating_add(1),
+            Operator::EndCompatibility => *compatibility = compatibility.saturating_sub(1),
+            // Only this family's operators are sent here, by `run_operator`.
+            _ => {}
+        }
+    }
+
+    /// The Type 3 glyph description operators of Table 50 (ISO 32000-2 §9.6.4, Table 111): `d0` and
+    /// `d1`.
+    fn run_type3_op(&mut self, operator: Operator) {
+        match operator {
+            // --- Type 3 glyph metrics (§9.6.4 Table 111) ---
+            //
+            // Both operators state the glyph's horizontal displacement, and the width
+            // used is the font dictionary's `/Widths` entry instead: Table 111 requires
+            // the two to agree ("it shall be consistent with the corresponding width in
+            // the font's Widths array"), and Table 110 makes `/Widths` required, so the
+            // font dictionary is the one statement present for every glyph — including
+            // the ones whose `/CharProcs` entry is missing and which are never run.
+            //
+            // `d1` additionally declares the glyph uncoloured, which is the half that
+            // changes what is drawn; see the intercept above. Its bounding box is
+            // deliberately not used as a clip: Table 111 requires it to enclose the
+            // glyph ("the declared bounding box shall be correct"), so clipping to it
+            // can only ever remove marks a correct file does not have, and on an
+            // incorrect one it hides the defect rather than reporting it.
+            Operator::GlyphWidth | Operator::GlyphWidthAndBox
+                if operator == Operator::GlyphWidthAndBox && self.glyph_depth > 0 =>
+            {
+                // `d1` forbids the *description* from setting a colour, and nothing
+                // more. What the description paints with is the graphics state
+                // §9.6.4 says it inherited — both colour parameters, each used by
+                // the operation that selects it, so a description that strokes
+                // strokes in the stroking colour.
+                //
+                // **The two are not one**, whatever Table 111's singular "[i]ts
+                // colour shall be determined by the graphics state in effect each time
+                // this glyph is painted by a text-showing operator" suggests. The
+                // clause refutes that reading three times over. §9.6.4 NOTE 2 is
+                // plural — "it is unnecessary and undesirable to initialise the
+                // current colour parameters because the text-showing operators are
+                // designed to paint glyphs with the current colours" — the sentence
+                // above it lists what a stroking description must set for itself
+                // ("the line width, line join, line cap, and dash pattern") and puts
+                // no colour in that list, and §9.6.4's own EXAMPLE sets a distinct
+                // `RG` before each `Tj` for a `d1` `square` glyph whose body is
+                // `72 w 0 0 750 750 re B`, which the collapsed reading makes dead
+                // syntax. `Type3Test.pdf` in `pdf-differences` is the corpus witness
+                // and ADR 0393 has the argument; the image-mask sentence that seems to
+                // say otherwise is §8.9.6.2's rule about a *stencil*, which
+                // paints with the non-stroking colour because that is what an image
+                // mask does, not because a `d1` glyph has one colour.
+                self.uncoloured = true;
+            }
+            // Only this family's operators are sent here, by `run_operator`.
+            _ => {}
+        }
     }
 
     /// What a stream's end says about what it left open, and the `/AIS` reading it began under
@@ -1409,6 +1576,106 @@ impl Composed {
     }
 }
 
+/// What a run holds between one operator and the next, other than the operands: the graphics
+/// state and the stack beneath it, the path and the text object being built, and the sections
+/// open. The operator families (`run_graphics_state_op`, `run_path_painting_op`, …) each read and
+/// change the part they own, which is why this is one value passed to them rather than a dozen
+/// borrows.
+struct Machine {
+    /// The current graphics state.
+    state: GraphicsState,
+    /// §8.4.2's stack, carrying §9.4.2's two text matrices beside the graphics state.
+    ///
+    /// ISO 32000-2 §9.4.2, as Errata Collection 3 adds it (issue #368, `/State` `Review`
+    /// `Completed`): within a text object the graphics state stack operators q and Q "shall
+    /// additionally push and pop Tm and Tlm as part of the graphics state stack". Quoted in
+    /// prose rather than as a blockquote because the sentence is an addition and `doc/md/`
+    /// is a conversion of the base text — see `text_state.rs`'s test for the whole reading.
+    ///
+    /// So the entry is a triple rather than a `GraphicsState`: the two matrices are saved
+    /// and restored *with* it, which is what "as part of the graphics state stack" says, and
+    /// holding them in a stack of their own would let the two go out of step on a stream
+    /// whose `q` is inside a text object and whose `Q` is outside it. ADR 0421.
+    stack: Vec<(GraphicsState, Transform, Transform)>,
+    /// The path being built.
+    path: Path,
+    /// Where the current subpath began.
+    start: Point,
+    /// The current point.
+    current: Point,
+    /// The pending clip requested by `W`/`W*`.
+    pending_clip: Option<FillRule>,
+    /// Whether a text object is open.
+    in_text: bool,
+    /// The text object's own parameters. `BT` resets them, and `q`/`Q` save and restore
+    /// them with the graphics state — §9.4.2 as Errata Collection 3 amends it, above.
+    text_object: TextObject,
+    /// One entry per open marked-content section, saying whether it hid what follows.
+    /// Every `BMC` and `BDC` pushes, so an `EMC` closes the section it actually belongs
+    /// to rather than the last optional one — which is why this is not just a counter.
+    ///
+    /// It carries no bound of its own: it lives for one stream, a section costs at least the
+    /// five bytes of `/ BMC` in it, and Table 31's `Limits::max_stream_len` bounds those —
+    /// the same bound the token loop has. What a closed section leaves behind is a
+    /// span, and the spans are charged to `MAX_LIST_BYTES` (ADR 1810).
+    marked: Vec<Marked>,
+    /// §7.8.2's compatibility section, `BX` … `EX`, which is nesting depth rather than a
+    /// flag because the clause says the pair "may be nested".
+    ///
+    /// > Ordinarily, when a PDF reader encounters an operator in a content stream that it
+    /// > does not recognise, an error shall occur.
+    ///
+    /// — and inside the section, "unrecognised operators (along with their operands) shall
+    /// be ignored without error". So this is the one place in the interpreter where an
+    /// unsupported *input* is deliberately silent, and it is silent because the file said
+    /// in advance that ignoring it is the appropriate thing to do.
+    compatibility: usize,
+    /// Where the last `/ActualText` replacement ended in the readback, for §14.9.4's rule
+    /// that two consecutive ones have no word break between them.
+    replaced_ends_at: Option<usize>,
+}
+
+impl Machine {
+    /// The machine a run begins with: `from` in force and nothing built.
+    fn begin(from: Composed) -> Self {
+        let Composed {
+            state,
+            stack,
+            marked,
+        } = from;
+        Self {
+            state,
+            stack,
+            path: Path::new(),
+            start: Point::new(0.0, 0.0),
+            current: Point::new(0.0, 0.0),
+            pending_clip: None,
+            in_text: false,
+            text_object: TextObject::default(),
+            marked,
+            compatibility: 0,
+            replaced_ends_at: None,
+        }
+    }
+
+    /// What the run left open where its stream ran out.
+    fn into_leftover(self) -> Leftover {
+        Leftover {
+            composed: Composed {
+                state: self.state,
+                stack: self.stack,
+                marked: Vec::new(),
+            },
+            in_text: self.in_text,
+            text_object: self.text_object,
+            pending_clip: self.pending_clip,
+            marked: self.marked,
+            compatibility: self.compatibility,
+            path_open: !self.path.commands().is_empty(),
+        }
+    }
+}
+
 /// What a run left open where its stream ran out, for [`Interpreter::end_of_stream`] to report.
 #[derive(Debug)]
 pub(super) struct Leftover {
@@ -1459,6 +1726,73 @@ const fn clip_operator(rule: FillRule) -> &'static str {
         FillRule::NonZero => "W",
         FillRule::EvenOdd => "W*",
     }
+}
+
+/// Reads the stream's next token, keeping an operand in `pending` and handing back anything else
+/// as the [`Step`] the loop acts on.
+///
+/// **The token is read inside the closure and nothing borrowed leaves it**, which is what lets
+/// the stream be read through a moving window: see [`ContentReader::with_operand`]. An *operand*
+/// is dealt with in there and never named again — the closure holds `pending` and the array
+/// depth, so the object goes straight into the list the operator will read it from.
+fn next_step(
+    reader: &mut ContentReader<'_>,
+    strings: Strings,
+    pending: &mut Vec<Object>,
+    array_depth: &mut usize,
+    empty_string: &Arc<[u8]>,
+) -> Step {
+    reader.with_operand(strings, |token| match token {
+        None => Step::End,
+        Some(pdf_syntax::Token::Keyword(word)) if *array_depth == 0 => {
+            Operator::of(word).map_or_else(|| Step::Unknown(Word::new(word)), Step::Operator)
+        }
+        // §7.8.2's grammar puts an operator *after* its operands, and §7.3.6 makes an
+        // array "a one-dimensional collection of objects arranged sequentially" — so a
+        // keyword between two elements of an array is neither an element (it is not an
+        // object) nor an operator (an array is one operand, and an operator cannot be
+        // inside one). `operator-in-TJ-array.pdf` writes exactly that:
+        // `[(Grandes) 0.0 Tc -250.0 (Clientèles,) 0.0 Tc … ] TJ`, and dispatching those
+        // `Tc`s consumed the runs before them — the page drew one word of five.
+        //
+        // The recovery is to skip the keyword and keep the array, *and say so*: the
+        // file is malformed and the standard states no reading for it, so drawing the
+        // text without a word would be the silent-fallback failure this project
+        // forbids, and refusing the text would lose what the file plainly states.
+        Some(pdf_syntax::Token::Keyword(word)) => Step::InsideAnArray(Word::new(word)),
+        // An inline dictionary is one operand, assembled by the caller because it
+        // needs the reader again. §14.6.2: "[i]f all of the values in a property list
+        // dictionary are direct objects, the dictionary may be written inline in the
+        // content stream as a direct object" — the form real documents use for
+        // §14.9.4's `/ActualText` (ADR 0060).
+        Some(pdf_syntax::Token::DictOpen) => Step::Dictionary,
+        Some(other) => {
+            if matches!(other, pdf_syntax::Token::ArrayOpen) {
+                *array_depth = array_depth.saturating_add(1);
+            } else if matches!(other, pdf_syntax::Token::ArrayClose) {
+                *array_depth = array_depth.saturating_sub(1);
+            }
+            // Arrays are deliberately left flattened: `TJ` and `d` read their elements
+            // as separate operands and have since the beginning.
+            if pending.len() < MAX_OPERANDS {
+                pending.push(match other {
+                    // One shared value, so an empty string costs no allocation —
+                    // which is every string `with_operand` stepped over.
+                    pdf_syntax::Token::String(bytes) if bytes.is_empty() => {
+                        Object::String(Arc::clone(empty_string))
+                    }
+                    other => token_to_object(other),
+                });
+                Step::Operand
+            } else {
+                // An unclosed `[` would otherwise suppress every operator for the
+                // rest of the stream, which on a fuzzed file means a blank page. One
+                // operand cap's worth of tokens is as far as an array is believed.
+                *array_depth = 0;
+                Step::TooManyOperands
+            }
+        }
+    })
 }
 
 /// What the operator loop must do about a token it has just read.

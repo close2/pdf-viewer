@@ -22,6 +22,15 @@ the pointer is put on the square, and `--notches` Control+wheel notches go in an
 back out; after each, the settled output's square is found again and its offset from the pointer
 is the drift, in device pixels. `--binary` is either window, `--pdf` is not read.
 
+`--touchpad` drives the same page with the travel a touchpad reports — smooth axis deltas in logical
+pixels, `ei_device_scroll_delta`, which KWin hands a window as a continuous axis with no discrete
+value — and reads off the output how far twelve events of ten pixels moved the page (ADR 2291). It
+passes where the page moved as far as the travel, ten logical pixels an event, rather than the
+notch of 48 GTK's `DISCRETE` controller counts ten such pixels into. EIS states no axis source, so
+this is a continuous source and not a finger: the toolkits' finger and continuous paths are one
+path in both windows (`gdk::ScrollUnit::Surface`; Qt's `MouseEventSynthesizedBySystem`), and what is
+not driven is the finger's own stop and kinetic events, which neither window reads.
+
 `--wheel` drives the same page through the same input and reads the wheel's count off the output
 alone, so a window built before any receipt existed is measured as it is (ADR 2274): how many zoom
 steps four Control+wheel notches make (the square's area grows by 1.25 squared a step), how far one
@@ -113,6 +122,7 @@ class Eis:
         lib.ei_device_pointer_motion_absolute.argtypes = [ctypes.c_void_p, ctypes.c_double, ctypes.c_double]
         lib.ei_device_keyboard_key.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_bool]
         lib.ei_device_scroll_discrete.argtypes = [ctypes.c_void_p, ctypes.c_int32, ctypes.c_int32]
+        lib.ei_device_scroll_delta.argtypes = [ctypes.c_void_p, ctypes.c_double, ctypes.c_double]
         lib.ei_device_frame.argtypes = [ctypes.c_void_p, ctypes.c_uint64]
         lib.ei_get_fd.argtypes = lib.ei_dispatch.argtypes = lib.ei_now.argtypes = [ctypes.c_void_p]
         lib.ei_get_event.argtypes = [ctypes.c_void_p]
@@ -316,6 +326,76 @@ def drifted(config, client, scale):
                 verdict="the point stays" if stays else "the point moves")
 
 
+def finger(self, pixels):
+    """One smooth axis event of `pixels` logical pixels towards the person, as a touchpad states
+    its travel; EIS has no axis source to name a finger with."""
+    device = self._device(self.SCROLL)
+    self.lib.ei_device_scroll_delta(device, 0.0, pixels)
+    self._frame(device)
+
+
+Eis.finger = finger
+
+
+def touchpad_travel(config, client, scale):
+    """How far twelve smooth axis events of ten logical pixels move one window's page (see
+    `--touchpad`)."""
+    pixels = config.output / f"touchpad-{config.binary.name}-{scale:g}"
+    pixels.mkdir()
+    document = pixels / "marker.pdf"
+    marker_pdf(document)
+    environment = dict(client, QT_QPA_PLATFORM="wayland", GDK_BACKEND="wayland")
+    viewer = subprocess.Popen([str(config.binary.resolve()), str(document.resolve())], env=environment,
+                              stdout=(pixels / "viewer.log").open("wb"), stderr=subprocess.STDOUT,
+                              start_new_session=True)
+    events, each = 12, 10.0
+    try:
+        found = None
+        for _ in range(60):
+            time.sleep(0.5)
+            if viewer.poll() is not None:
+                raise RuntimeError(f"viewer exited {viewer.returncode}")
+            found = red_centroid(settled("Virtual-0", 3.0))
+            if found:
+                break
+        if found is None:
+            return dict(binary=config.binary.name, scale=scale, verdict="no marker on the output")
+        sender = Eis()
+        pointer = (round(found[0] / scale), round(found[1] / scale))
+        sender.move(pointer[0] + 4, pointer[1] + 4)
+        sender.pump(200)
+        sender.move(*pointer)
+        sender.pump(300)
+        # Two notches in first, so that the page is taller than the window and has room to move.
+        sender.key(29, True)
+        sender.pump(200)
+        for _ in range(2):
+            sender.wheel(-120)
+            sender.pump(100)
+        sender.key(29, False)
+        sender.pump(200)
+        before = red_centroid(settled("Virtual-0"))
+        moves = []
+        last = before
+        for _ in range(events):
+            sender.finger(each)
+            sender.pump(60)
+            now = red_centroid(settled("Virtual-0", 3.0))
+            if now is None or last is None:
+                break
+            moves.append(round(last[1] - now[1], 2))
+            last = now
+    finally:
+        os.killpg(viewer.pid, signal.SIGTERM)
+        viewer.wait(timeout=10)
+    moved = None if before is None or last is None else round(before[1] - last[1], 2)
+    wanted = events * each * scale
+    passes = moved is not None and abs(moved - wanted) <= 2.0
+    return dict(binary=config.binary.name, scale=scale, events=events, logical_pixels_each=each,
+                moved_device_pixels=moved, wanted_device_pixels=round(wanted, 2), each_move=moves,
+                verdict="one touchpad" if passes else "another touchpad")
+
+
 def wheel_count(config, client, scale):
     """One window's count of a wheel, read off the output (see `--wheel`)."""
     pixels = config.output / f"wheel-{config.binary.name}-{scale:g}"
@@ -485,11 +565,13 @@ def main():
                         help="instead: the zoom anchor driven in and back out through KWin's own EIS input, "
                              "at each --scale (default 1.6), the marker's offset from the pointer after each notch")
     parser.add_argument("--notches", type=int, default=10, help="with --drift: steps in, then as many out (10: 9.3x)")
+    parser.add_argument("--touchpad", action="store_true",
+                        help="instead: twelve smooth axis events of ten logical pixels, the page's travel read off the output")
     parser.add_argument("--wheel", action="store_true",
                         help="instead: one notch's zoom steps and scroll and sixteen eighths' moves, read off the output")
     config = parser.parse_args()
-    if not (config.drift or config.wheel) and config.pdf is None:
-        parser.error("--pdf is needed unless --drift or --wheel")
+    if not (config.drift or config.wheel or config.touchpad) and config.pdf is None:
+        parser.error("--pdf is needed unless --drift, --wheel or --touchpad")
     for tool in ("kwin_wayland", "kscreen-doctor", "dbus-run-session"):
         if shutil.which(tool) is None:
             parser.error(f"{tool} is not installed; this probe needs a nested KWin")
@@ -497,7 +579,8 @@ def main():
         import dbus  # noqa: F401
     except ImportError:
         parser.error("python-dbus is not installed; the output is read through KWin's ScreenShot2")
-    scales = config.scale or ([1.6] if config.drift or config.wheel else [1, 1.25, 1.5, 1.6, 1.7, 1.75, 2])
+    scales = config.scale or ([1.6] if config.drift or config.wheel or config.touchpad
+                              else [1, 1.25, 1.5, 1.6, 1.7, 1.75, 2])
     config.output.mkdir(parents=True, exist_ok=False)
     runtime = config.output / "runtime"
     runtime.mkdir(mode=0o700)
@@ -531,6 +614,13 @@ def main():
                 subprocess.run(["kscreen-doctor", f"output.Virtual-0.scale.{scale:g}"], env=client, check=True,
                                capture_output=True, timeout=20)
                 results.append(drifted(config, client, scale))
+            scales = []
+        if config.touchpad:
+            for scale in scales:
+                subprocess.run(["kscreen-doctor", f"output.Virtual-0.scale.{scale:g}"], env=client, check=True,
+                               capture_output=True, timeout=20)
+                results.append(touchpad_travel(config, client, scale))
+                print(json.dumps(results[-1]), flush=True)
             scales = []
         if config.wheel:
             for scale in scales:
@@ -574,7 +664,8 @@ def main():
         compositor.wait(timeout=20)
         signal.alarm(0)
     (config.output / "report.json").write_text(json.dumps(results, indent=1) + "\n")
-    passed = ("the point stays",) if config.drift else ("one wheel",) if config.wheel else ("1:1 exact",)
+    passed = (("the point stays",) if config.drift else ("one wheel",) if config.wheel
+              else ("one touchpad",) if config.touchpad else ("1:1 exact",))
     return 0 if results and all(r.get("verdict") in passed for r in results) else 1
 
 

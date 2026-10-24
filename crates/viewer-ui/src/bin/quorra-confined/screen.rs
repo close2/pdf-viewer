@@ -1276,6 +1276,7 @@ mod tests {
                 8,
                 [5, 5, 5, 255],
             ))),
+            declined: Vec::new(),
             cost: std::time::Duration::ZERO,
             waited: std::time::Duration::ZERO,
         };
@@ -1432,6 +1433,7 @@ mod tests {
                 target: refused,
             },
             outcome: Some(viewer_core::Rendered::Failed("too many pixels".to_owned())),
+            declined: Vec::new(),
             cost: std::time::Duration::ZERO,
             waited: std::time::Duration::ZERO,
         }));
@@ -1490,6 +1492,7 @@ mod tests {
                 target: refused,
             },
             outcome: Some(viewer_core::Rendered::Failed("too many pixels".to_owned())),
+            declined: Vec::new(),
             cost: std::time::Duration::ZERO,
             waited: std::time::Duration::ZERO,
         }));

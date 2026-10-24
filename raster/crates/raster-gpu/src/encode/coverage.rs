@@ -262,9 +262,9 @@ impl Encoder<'_> {
     /// whole cost and none of its benefit. In both of those the device wins at every
     /// size measured.
     ///
-    /// **And the sample grid can still find the mark** (ADR 0070). This one is not a cost
+    /// **And the sample lattice can still find the mark** (ADR 0070). This one is not a cost
     /// comparison, and it is deliberately allowed to overrule one: a mark whose thin axis
-    /// is below the grid's own column spacing can fall between two columns and read zero,
+    /// is below the lattice's vanishing width can fall between its samples and read zero,
     /// which is the disappearance ISO 32000-2 §10.7.4 forbids by name —
     ///
     /// > This ensures that no shape ever disappears as a result of unfavourable placement
@@ -274,12 +274,10 @@ impl Encoder<'_> {
     /// — so such a mark keeps the processor lane, whose coverage is the shape's exact
     /// area, whatever the four costs above would have said. [`ThinAxis`] is what "thin"
     /// means here and what that measure misses;
-    /// [`sample_column_spacing`](super::thin::sample_column_spacing) is where the
-    /// threshold comes from and why it is not a constant. The price is that those marks
-    /// are rasterised on the CPU: **35 marks on 7 pages of the caller's 954-page corpus at
-    /// scale 1, 26 on 2 pages at 4× and 16 on 1 page at 8×**, each of them under a quarter
-    /// pixel across and so among the smallest tiles the sheet ever holds
-    /// (`raster/doc/notes-thin-mark-options.md` section 2.2).
+    /// [`vanishing_width`](super::thin::vanishing_width) is where the threshold comes from
+    /// and why it is not a constant. The price is that those marks are rasterised on the
+    /// CPU, each of them under a third of a pixel across and so among the smallest tiles
+    /// the sheet ever holds; ADR 2296 counts them on the corpus at the lattice's width.
     ///
     /// Measured on RADV at sixteen samples by `tests/lane_crossover.rs`, with the lane
     /// forced either way — a page of star outlines at 3 600 × 3 600, drawn to a texture
@@ -329,8 +327,8 @@ impl Encoder<'_> {
     ///
     /// Ordered by what each costs to ask, not by which matters most: the setting is one
     /// comparison and answers `false` for the caller's default configuration on sight,
-    /// and the thin-axis test is one float compare against a spacing the frame computed
-    /// once ([`Encoder::sample_spacing`]).
+    /// and the thin-axis test is one float compare against a width the frame computed
+    /// once ([`Encoder::vanishing_width`]).
     pub(super) fn gpu_lane_admissible(
         &self,
         resolved: &ResolvedClip,
@@ -340,7 +338,7 @@ impl Encoder<'_> {
         self.coverage == Coverage::Gpu
             && resolved.residues.is_none()
             && !cache.worth_caching()
-            && !thin.can_fall_between_sample_columns(self.sample_spacing)
+            && !thin.can_miss_every_sample(self.vanishing_width)
     }
 
     /// Whether this shape's triangles cost the device less than its coverage would cost

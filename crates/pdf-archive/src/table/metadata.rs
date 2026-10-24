@@ -1839,6 +1839,132 @@ fn predefined(namespace: &str) -> Option<&'static Schema> {
     PREDEFINED.iter().find(|schema| schema.uri == namespace)
 }
 
+/// A structured value type of the September 2005 XMP Specification: the namespace its fields are
+/// in, and the fields its table defines.
+///
+/// **What a structure's fields are is part of its type**, so a value holding a field its type
+/// does not define is not a value of that type — the same reading [`properties_use_known_schemas`]
+/// gives a value of the wrong shape, one level down (`doc/adr/2295`). A field whose own value is
+/// a structure of a type listed here names that type, and is held to it in turn.
+#[derive(Debug)]
+struct ValueStructure {
+    /// The type's name, for a finding.
+    name: &'static str,
+    /// The field namespace URI the specification gives the type.
+    uri: &'static str,
+    /// Each field the type's table defines, with the structured type of its value where it has
+    /// one.
+    fields: &'static [(&'static str, Option<&'static ValueStructure>)],
+}
+
+/// The 2005 edition's `ResourceEvent`, the item type of `xmpMM:History`.
+///
+/// Its table defines five fields. `changed`, which later editions add and producers since then
+/// write, is not one of them.
+static RESOURCE_EVENT: ValueStructure = ValueStructure {
+    name: "ResourceEvent",
+    uri: RESOURCE_EVENT_URI,
+    fields: &[
+        ("action", None),
+        ("instanceID", None),
+        ("parameters", None),
+        ("softwareAgent", None),
+        ("when", None),
+    ],
+};
+
+/// The 2005 edition's `ResourceRef`, the type of `xmpMM:DerivedFrom`, `ManagedFrom` and
+/// `RenditionOf`.
+///
+/// Its table defines nine fields; `originalDocumentID`, which follows the later editions'
+/// `xmpMM:OriginalDocumentID`, is not one of them, as that property is not in this edition's
+/// schema either (`doc/adr/1991`).
+static RESOURCE_REF: ValueStructure = ValueStructure {
+    name: "ResourceRef",
+    uri: "http://ns.adobe.com/xap/1.0/sType/ResourceRef#",
+    fields: &[
+        ("instanceID", None),
+        ("documentID", None),
+        ("versionID", None),
+        ("renditionClass", None),
+        ("renditionParams", None),
+        ("manager", None),
+        ("managerVariant", None),
+        ("manageTo", None),
+        ("manageUI", None),
+    ],
+};
+
+/// The 2005 edition's `Version`, the item type of `xmpMM:Versions`, whose `event` is a
+/// [`RESOURCE_EVENT`].
+static VERSION: ValueStructure = ValueStructure {
+    name: "Version",
+    uri: "http://ns.adobe.com/xap/1.0/sType/Version#",
+    fields: &[
+        ("comments", None),
+        ("event", Some(&RESOURCE_EVENT)),
+        ("modifyDate", None),
+        ("modifier", None),
+        ("version", None),
+    ],
+};
+
+/// Which predefined properties hold one of [`ValueStructure`]'s types — the value itself, or each
+/// item of the array it is.
+///
+/// **The Media Management schema's types only.** The edition defines further structured types —
+/// `Thumbnail`, `Dimensions`, `Font`, `Colorant`, `Job`, and the Dynamic Media and EXIF schemas'
+/// own — whose fields this table does not yet hold, so a structure of one of those is judged by
+/// its shape alone, as every structure was before (`doc/todo/72`).
+static STRUCTURED: &[(&str, &str, &ValueStructure)] = &[
+    (MEDIA_MANAGEMENT_URI, "DerivedFrom", &RESOURCE_REF),
+    (MEDIA_MANAGEMENT_URI, "History", &RESOURCE_EVENT),
+    (MEDIA_MANAGEMENT_URI, "ManagedFrom", &RESOURCE_REF),
+    (MEDIA_MANAGEMENT_URI, "RenditionOf", &RESOURCE_REF),
+    (MEDIA_MANAGEMENT_URI, "Versions", &VERSION),
+];
+
+/// Every field of a structured value its type does not define, as findings.
+///
+/// `holder` says where the structure is, in the words a finding uses — the property, or an item
+/// of it — and a value that is not a structure where the type asks for one is a finding as well.
+fn undefined_fields(
+    holder: &str,
+    structure: &ValueStructure,
+    value: &Detail,
+    out: &mut Vec<String>,
+) {
+    let Some(fields) = value.fields() else {
+        out.push(format!(
+            "{holder} is a {}, which is a structure, and the packet states {}",
+            structure.name,
+            shaped(value)
+        ));
+        return;
+    };
+    for field in fields {
+        let defined = (field.name.namespace == structure.uri)
+            .then(|| {
+                structure
+                    .fields
+                    .iter()
+                    .find(|(local, _)| *local == field.name.local)
+            })
+            .flatten();
+        match defined {
+            None => out.push(format!(
+                "{holder} is a {}, whose fields the September 2005 XMP Specification lists, and \
+                 the packet states a field {}:{} in {} that is not one of them",
+                structure.name, field.prefix, field.name.local, field.name.namespace
+            )),
+            Some((local, Some(inner))) => {
+                undefined_fields(&format!("its {local} field"), inner, &field.value, out);
+            }
+            Some((_, None)) => {}
+        }
+    }
+}
+
 /// Whether a namespace is one ISO 19005 itself defines rather than the XMP Specification.
 ///
 /// ISO 19005-2 section 6.6.2.3.1 admits the schemas of ISO 19005-1 and of part 2 alongside the XMP
@@ -2209,6 +2335,29 @@ fn judge_against_schema(property: &XmpProperty) -> Vec<String> {
         )];
     }
     let mut out = Vec::new();
+    if let Some((_, _, structure)) = STRUCTURED.iter().find(|(namespace, local, _)| {
+        *namespace == property.name.namespace && *local == property.name.local
+    }) {
+        let holder = spelled(property);
+        // One finding per property, as the shape's own is: a history of forty events each stating
+        // `changed` is one property used outside its type, and the converter's remedy is the
+        // property's removal whatever the count.
+        let mut fields = Vec::new();
+        match property.value.array() {
+            Some(items) => {
+                for (ordinal, item) in (1usize..).zip(items) {
+                    undefined_fields(
+                        &format!("item {ordinal} of {holder}"),
+                        structure,
+                        item,
+                        &mut fields,
+                    );
+                }
+            }
+            None => undefined_fields(&holder, structure, &property.value, &mut fields),
+        }
+        out.extend(fields.into_iter().take(1));
+    }
     if shape == Shape::Language
         && let Some(items) = property.value.alternatives()
         && items.iter().any(|(language, _)| language.is_none())
@@ -4204,6 +4353,36 @@ mod tests {
              </rdf:li></rdf:Seq></xmpMM:History>\n\
              </rdf:Description>\n</rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>"
         ))
+    }
+
+    /// ISO 19005-2 section 6.6.2.3.1 holds a `ResourceEvent` to the five fields the September
+    /// 2005 edition's table defines (`doc/adr/2295`): `changed`, a later edition's field and the
+    /// one Adobe's applications write into every event, makes the item no value of that type,
+    /// and the five alone are one.
+    #[test]
+    fn a_resource_event_is_held_to_the_fields_of_the_2005_edition() {
+        let five = history(
+            "<stEvt:action>saved</stEvt:action>\n\
+             <stEvt:instanceID>xmp.iid:1</stEvt:instanceID>\n\
+             <stEvt:parameters>by hand</stEvt:parameters>\n\
+             <stEvt:softwareAgent>Adobe Illustrator CS5.1</stEvt:softwareAgent>\n\
+             <stEvt:when>2012-01-03T09:44:09-06:00</stEvt:when>",
+        );
+        assert_eq!(found(properties_use_known_schemas, &five), 0);
+        let changed = history(
+            "<stEvt:action>saved</stEvt:action>\n\
+             <stEvt:when>2012-01-03T09:44:09-06:00</stEvt:when>\n\
+             <stEvt:changed>/</stEvt:changed>",
+        );
+        assert_eq!(found(properties_use_known_schemas, &changed), 1);
+        let misplaced = history(
+            "<stRef:instanceID xmlns:stRef=\"http://ns.adobe.com/xap/1.0/sType/ResourceRef#\">x</stRef:instanceID>",
+        );
+        assert_eq!(
+            found(properties_use_known_schemas, &misplaced),
+            1,
+            "a field is the type's only in the type's own namespace"
+        );
     }
 
     /// ISO 19005-4 section 6.7.5's two fields, over three shapes of recorded action.

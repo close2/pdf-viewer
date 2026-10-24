@@ -80,9 +80,8 @@ permanent) or an owner decision to acquire a specification.
   ISO/IEC 15444-2 (`doc/questions/A169`, ADR 1383). CMYK, sRGB, its grey, sYCC, ROMM-RGB and CIE Lab
   under every illuminant its `IL` field names — the white point §8.6.5.4's EXAMPLE, T.4 or the CIE's
   free data states, and a colour temperature's Planckian radiator (ADRs 1712, 1713) — are drawn as
-  defined. e-sRGB and e-sYCC await extraction and implementation from the held PIMA 7667,
-  bought under A348; this part is buildable. CIE Jab alone depends on unheld CIE Publication
-  131, whose purchase the owner declines. ADR 2187 separates the two obligations.
+  defined, and so are e-sRGB and e-sYCC, from the held PIMA 7667 bought under A348 (ADR 2292).
+  CIE Jab alone depends on unheld CIE Publication 131, whose purchase the owner declines.
   Checking the restriction on a file is not a reader's job and is not counted as debt
   (ADR 1184); `pdf-archive` checks all of M.9.2 for ISO 19005 (ADRs 1383, 1399). The thirteen
   corpus codestreams a level off the reference software on the irreversible path are not debt:
@@ -264,9 +263,9 @@ at the paint, §11.7.2's redefinition of `DeviceCMYK` included (ADR 2276), and t
 carried out is the first black-generation bullet for a `DeviceCMYK` group whose press is its output
 intent's bi-directional profile, converted in through the profile's `B2A` (ADRs 1242, 1622, 2170).
 
-§7.4.9 has a buildable part: implement e-sRGB and e-sYCC from the held PIMA 7667 (A348),
-with extended-range and non-neutral fixtures. Its CIEJab part remains in the unheld-text bucket;
-CIE Lab's named illuminants already have their white points (ADRs 1712, 1713).
+§7.4.9's buildable part is built: e-sRGB and e-sYCC are drawn from the held PIMA 7667 (A348),
+with extended-range and non-neutral fixtures (ADRs 2292, 2293). Its CIEJab part remains in the
+unheld-text bucket.
 
 §13.2.2 and §14.9.2.4 were here, and are `implemented`: `pdf_model::media` judges a rendition's
 viability by the clause's rules for the one player this program has — the hand-off, told nothing but

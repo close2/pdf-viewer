@@ -169,6 +169,9 @@ pub struct Showing {
     /// `None` means its catalog has not supplied a remembered state yet. The active window's
     /// `presenting` remains authoritative until `WindowState::park_presentation` copies it here.
     parked_presentation: Option<crate::Presenting>,
+    /// The pages a draw of which left marks to the library's converter, which the title names
+    /// (ADR 2290); the sentences themselves are the core's, said once per page and condition.
+    pub declined: std::collections::BTreeSet<usize>,
 }
 
 impl Showing {
@@ -190,6 +193,7 @@ impl Showing {
             departures: viewer_core::RestrictionOverride::NONE,
             catalog_due: false,
             parked_presentation: None,
+            declined: std::collections::BTreeSet::new(),
         }
     }
 }
@@ -250,6 +254,9 @@ pub struct WindowState {
     /// nothing to do. The decision inside it — how often, what a tick carries, when Table 164's
     /// `/D` has run out — is [`crate::Clock`], shared with the other hosts.
     pub clock: Option<crate::Clock>,
+    /// What turns [`Self::clock`] and a document's script timers on the toolkit's tick, and
+    /// whether the window is hidden or owes a document change's synchronisation (ADR 2300).
+    pub pump: crate::presentation_pump::Pump,
     /// A transition named by the core, waiting for the page it moves *to* to be rendered.
     ///
     /// §12.4.4.1's transition is one *to* a page, and the core settles after the command that
@@ -347,6 +354,23 @@ pub struct WindowState {
 }
 
 impl WindowState {
+    /// What the title bar says after the page's caption: ADR 1831's sentence, where a page was
+    /// drawn on the processor rather than the device, and the pages whose marks a draw left to
+    /// the library's converter (ADR 2290) — each after a dash, and nothing where neither holds.
+    #[must_use]
+    pub fn title_notes(&self) -> String {
+        let mut notes = String::new();
+        if let Some(lane) = self.lane.as_ref().and_then(|lane| lane.title()) {
+            notes.push_str(" — ");
+            notes.push_str(lane);
+        }
+        if let Some(declined) = crate::status::declined_pages(&self.showing.declined) {
+            notes.push_str(" — ");
+            notes.push_str(&declined);
+        }
+        notes
+    }
+
     /// Saves the active document's current state before its `Showing` is parked or replaced.
     pub fn park_presentation(&mut self) {
         if self.showing.parked_presentation.is_some() {
@@ -392,6 +416,7 @@ impl WindowState {
             needle: String::new(),
             pages_left: 0,
             clock: None,
+            pump: crate::presentation_pump::Pump::default(),
             arming: None,
             shown: None,
             viewport: (1, 1),
@@ -626,6 +651,11 @@ pub trait NativeWindow {
     /// Shows the document opening in front the way Table 29's `/PageMode` asks, with the chrome
     /// [`WindowState::presenting`] now says it may have.
     fn show_the_page_mode(&mut self, mode: pdf_model::viewer_preferences::PageMode);
+
+    /// Puts the window in the state [`WindowState::presenting`] now says — full screen or not,
+    /// and the chrome it may show — after a change of the document in front brought another
+    /// document's presentation forward (`crate::presentation_pump`, ADR 2300).
+    fn apply_the_chrome(&mut self);
 
     /// Runs a queue of commands the way [`Self::dispatch`] runs one: until nothing is left, then
     /// the window is refreshed.
@@ -960,6 +990,7 @@ pub trait NativeWindow {
                     finished.waited
                 ),
             );
+            self.declined_in(&finished.request, finished.declined, queue);
             let Some(rendered) = finished.outcome else {
                 continue;
             };
@@ -988,6 +1019,27 @@ pub trait NativeWindow {
         }
         self.take_the_windows(queue);
         self.mind_a_long_draw();
+    }
+
+    /// What a draw of `request`'s page declined, handed to the viewer, which says each condition
+    /// once (`Command::Declined`), and named in the title (ADR 2290).
+    fn declined_in(
+        &mut self,
+        request: &viewer_core::RenderRequest,
+        declined: Vec<viewer_core::Declined>,
+        queue: &mut VecDeque<Command>,
+    ) {
+        if declined.is_empty() {
+            return;
+        }
+        queue.push_back(Command::Declined {
+            document: request.document,
+            page: request.page,
+            declined,
+        });
+        if self.state_mut().showing.declined.insert(request.page) {
+            self.retitle();
+        }
     }
 
     /// What follows the viewer's being answered for `request`, by its whole frame or by the first
@@ -1024,7 +1076,7 @@ pub trait NativeWindow {
         let repaint = windows
             .iter()
             .any(|(finished, _)| finished.outcome.is_some());
-        for (finished, window) in windows {
+        for (mut finished, window) in windows {
             self.state().trace.say(
                 Topic::Frames,
                 format_args!(
@@ -1049,6 +1101,8 @@ pub trait NativeWindow {
                     .abandoned(&finished.request, window);
                 continue;
             }
+            let declined = std::mem::take(&mut finished.declined);
+            self.declined_in(&finished.request, declined, queue);
             let request = finished.request.clone();
             if let Some((token, rendered)) = self.state_mut().oversized.landed(finished, window) {
                 queue.push_back(Command::RenderReady { token, rendered });
