@@ -9,6 +9,25 @@ use super::super::sites::{RELATIVE_COLORIMETRIC, RENDERING_INTENTS};
 use super::{Entry, Rewrite, Rewriter, count, resources_with_default, with_default};
 
 impl Rewriter<'_> {
+    /// Moves a descriptor's program to `/FontFile3`, the same stream under the key §9.9's Table
+    /// 124 files its format under (ADR 2307).
+    ///
+    /// Counted once, at the stream, which every refiled program has.
+    pub(super) fn refile_font_program(&self, id: ObjectId, out: &mut Dictionary) -> bool {
+        let Some(from) = self
+            .font_files
+            .filter(|_| self.wants(Rewrite::FontProgramRefiled))
+            .and_then(|refiled| refiled.moved.get(&id))
+        else {
+            return false;
+        };
+        let Some(program) = out.remove(from) else {
+            return false;
+        };
+        out.insert(Name::new(&b"FontFile3"[..]), program);
+        true
+    }
+
     /// A dictionary object, rewritten where its position asks for it.
     /// Writes the `/CIDToGIDMap` a descendant `CIDFont` owes once a program is embedded in it.
     ///

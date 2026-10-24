@@ -112,10 +112,10 @@ fn main() {
         args.drain(at..=at.saturating_add(1));
     }
     let samples = render_raster::options().coverage_samples;
-    let lattice = raster_gpu::SampleLattice::of(samples);
+    let pattern = raster_gpu::SamplePattern::of(samples);
     let sampling = Sampling {
-        pitch: lattice.edge_pitch(),
-        floor: lattice.vanishing_width(),
+        pitch: pattern.edge_pitch(),
+        floor: pattern.vanishing_width(),
     };
     println!(
         "# scale {scale}, {samples} coverage samples, pitch {:.4} device pixels, marks from {:.4}; \

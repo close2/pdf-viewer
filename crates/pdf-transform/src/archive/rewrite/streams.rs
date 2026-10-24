@@ -259,6 +259,29 @@ impl Rewriter<'_> {
             None => stream.dict.clone(),
         };
         changed |= self.rewrite_xobject(&mut dict, applied);
+        // The name of the format the program's own bytes are in, and for a program moving to
+        // `/FontFile3` the three lengths §9.9 says a compact program "shall not" state: the data
+        // crosses as the producer wrote it (ADR 2307).
+        if self.wants(Rewrite::FontProgramRefiled)
+            && let Some(row) = self.font_files.and_then(|refiled| refiled.at.get(&id))
+        {
+            if let Some(subtype) = row.subtype {
+                dict.insert(
+                    Name::new(&b"Subtype"[..]),
+                    Object::Name(Name::new(subtype.as_bytes())),
+                );
+            }
+            if self
+                .font_files
+                .is_some_and(|refiled| refiled.moved_programs.contains(&id))
+            {
+                for length in ["Length1", "Length2", "Length3"] {
+                    dict.remove(length);
+                }
+            }
+            changed = true;
+            count(applied, Rewrite::FontProgramRefiled);
+        }
         // Before the re-encoding, which carries whatever image codec follows the stages it
         // decodes under the name this has just written out.
         if self.wants(Rewrite::FilterNamesSpelledOut)

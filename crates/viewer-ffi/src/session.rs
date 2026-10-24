@@ -838,6 +838,60 @@ mod tests {
         );
     }
 
+    /// What a window's draw declined comes back to the viewer through the call a C caller makes
+    /// for it (ADR 2316): `inks.pdf` at sixteen times holds a mark of 19 743 pieces past the
+    /// union's budget, and a window over it, drawn twice, is said once — the second draw, and a
+    /// window that declines nothing, answer no event.
+    #[test]
+    fn a_window_s_declines_are_told_to_the_viewer_once() {
+        let inks = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../doc/pdf.js/test/pdfs/inks.pdf"),
+        )
+        .expect("doc/pdf.js is checked out (a submodule)");
+        let mut session = Session::new(800, 1000, 1.0);
+        drop(session.oversize(viewer_core::Oversize::Listed));
+        drop(session.open(1, inks, None, None));
+        let zoomed = session.zoom(viewer_core::Zoom::Scale(16.0));
+        let asked = (0..zoomed.len())
+            .find(|index| zoomed.kind(*index) == Ok(EventKind::NeedsRender))
+            .expect("the zoomed page is asked for");
+        let request = zoomed.render_request(asked).expect("that is the kind");
+        drop(session.render_ready_listed(&request));
+        // Where the mark is at this magnification, as `viewer-host`'s `union_declined` names it.
+        let over_the_mark = viewer_host::oversize::Window {
+            x: 528,
+            y: 5255,
+            width: 602,
+            height: 74,
+        };
+        let reported = |events: &crate::events::Events| {
+            (0..events.len())
+                .filter(|index| {
+                    events.kind(*index) == Ok(EventKind::Reported)
+                        && events
+                            .describe(*index)
+                            .is_ok_and(|said| said.ends_with("the union's budget"))
+                })
+                .count()
+        };
+        let drawn = super::rasterise_window(&request, over_the_mark).expect("the window draws");
+        assert_eq!(drawn.declined.len(), 1, "{:?}", drawn.declined);
+        assert_eq!(reported(&session.window_declined(&request, &drawn)), 1);
+        let again = super::rasterise_window(&request, over_the_mark).expect("it draws again");
+        assert!(
+            session.window_declined(&request, &again).is_empty(),
+            "said once"
+        );
+        let clear = viewer_host::oversize::Window {
+            y: 0,
+            ..over_the_mark
+        };
+        let quiet = super::rasterise_window(&request, clear).expect("a window clear of it draws");
+        assert!(quiet.declined.is_empty(), "{:?}", quiet.declined);
+        assert!(session.window_declined(&request, &quiet).is_empty());
+    }
+
     /// A field typed into and committed by a caller's own control keeps what was typed.
     #[test]
     fn a_field_committed_by_a_callers_control_keeps_its_text() {

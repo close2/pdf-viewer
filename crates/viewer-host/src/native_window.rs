@@ -41,9 +41,11 @@ use viewer_core::{
 use crate::trace::{Topic, Trace};
 
 mod launch;
+mod placing;
 mod requests;
 
-pub use launch::{FirstSize, Fitting, Joining, Launch, Refusals, Sizing};
+pub use launch::{FirstSize, Joining, Launch, Refusals, Sizing};
+pub use placing::{Extents, NOT_CENTRED, NOT_CENTRED_TITLE, Placement};
 pub use requests::Asked;
 
 /// The identity a native window gives the one document it opens with.
@@ -172,6 +174,9 @@ pub struct Showing {
     /// The pages a draw of which left marks to the library's converter, which the title names
     /// (ADR 2290); the sentences themselves are the core's, said once per page and condition.
     pub declined: std::collections::BTreeSet<usize>,
+    /// Whether this document asked for §12.2's `/CenterWindow` on a platform that places every
+    /// window itself, which the title names ([`NOT_CENTRED_TITLE`], ADR 2308).
+    pub uncentred: bool,
 }
 
 impl Showing {
@@ -194,6 +199,7 @@ impl Showing {
             catalog_due: false,
             parked_presentation: None,
             declined: std::collections::BTreeSet::new(),
+            uncentred: false,
         }
     }
 }
@@ -355,8 +361,9 @@ pub struct WindowState {
 
 impl WindowState {
     /// What the title bar says after the page's caption: ADR 1831's sentence, where a page was
-    /// drawn on the processor rather than the device, and the pages whose marks a draw left to
-    /// the library's converter (ADR 2290) — each after a dash, and nothing where neither holds.
+    /// drawn on the processor rather than the device, the pages whose marks a draw left to the
+    /// library's converter (ADR 2290), and a `/CenterWindow` the platform would not carry out (ADR
+    /// 2308) — each after a dash, and nothing where none holds.
     #[must_use]
     pub fn title_notes(&self) -> String {
         let mut notes = String::new();
@@ -367,6 +374,10 @@ impl WindowState {
         if let Some(declined) = crate::status::declined_pages(&self.showing.declined) {
             notes.push_str(" — ");
             notes.push_str(&declined);
+        }
+        if self.showing.uncentred {
+            notes.push_str(" — ");
+            notes.push_str(NOT_CENTRED_TITLE);
         }
         notes
     }
@@ -590,7 +601,7 @@ pub trait NativeWindow {
         operation: pdf_model::restriction::Operation,
         notes: &[String],
     ) {
-        self.put_the_question(
+        self.ask(
             Asked::Restricted {
                 document,
                 operation,
@@ -602,15 +613,28 @@ pub trait NativeWindow {
     /// RFC 0008 section 6.3's one question per document before its scripts run, held as
     /// [`Asked::Scripts`] (ADR 1616).
     fn ask_whether_to_run_scripts(&mut self, document: DocumentId, script: &str, first_line: &str) {
-        self.put_the_question(
+        self.ask(
             Asked::Scripts { document },
             &crate::asked_to_run_scripts(script, first_line),
         );
     }
 
+    /// One question at `CLAUDE.md`'s *ask* level, put to the person now — or held while the window
+    /// presents full screen and put once it has left (`crate::presentation_pump`, ADR 2309).
+    fn ask(&mut self, about: Asked, words: &crate::Question) {
+        crate::PresentationPump::put_up(
+            self,
+            crate::presentation_pump::Held::Question {
+                about,
+                words: words.clone(),
+            },
+        );
+    }
+
     /// Puts one question at `CLAUDE.md`'s *ask* level in front of the person, in this toolkit's
     /// dialogue, and hands what they answered — a dismissed dialogue answers `false` — to
-    /// [`Self::answer_the_question`] with the same [`Asked`] (ADR 2105).
+    /// [`Self::answer_the_question`] with the same [`Asked`] (ADR 2105). Reached through
+    /// [`Self::ask`].
     fn put_the_question(&mut self, about: Asked, words: &crate::Question);
 
     /// Whether a question is already waiting for its answer in a dialogue a second one would take
@@ -621,6 +645,9 @@ pub trait NativeWindow {
     /// way every window carries it out (ADR 2105).
     fn answer_the_question(&mut self, about: Asked, proceed: bool) {
         requests::answer(self, about, proceed);
+        // A toolkit with one dialogue puts up a second held question only once the first is
+        // answered (ADR 2309).
+        crate::PresentationPump::put_up_what_was_held(self);
     }
 
     /// RFC 0008 section 4.2's `app.alert` and `app.response`, in a dialogue of its own (ADR 1628).
@@ -647,6 +674,14 @@ pub trait NativeWindow {
     /// Table 147's `/CenterWindow`, asked for by the document opening in front: obeyed where the
     /// toolkit can place its own window, and said where it cannot (trap 5, ADR 1429).
     fn asked_to_centre(&mut self);
+
+    /// Table 147's `/FitWindow` and `/CenterWindow` answered to the window's own `extents` at
+    /// `scale` device pixels per logical pixel, for a window that resizes and moves itself by
+    /// request: `None` where nothing is owed. The decision `viewer-qt` and the C window share
+    /// (`placing`, ADR 2308).
+    fn place_the_window(&mut self, scale: f32, extents: Extents) -> Option<Placement> {
+        placing::place(self, scale, extents)
+    }
 
     /// Shows the document opening in front the way Table 29's `/PageMode` asks, with the chrome
     /// [`WindowState::presenting`] now says it may have.
@@ -683,7 +718,11 @@ pub trait NativeWindow {
         match event {
             Event::Opened { document, pages } => self.opened(document, pages, queue),
             Event::OpenFailed { document, reason } => self.open_failed(document, &reason),
-            Event::PasswordRequired { document } => self.password_required(document),
+            // A dialogue a document raises waits while the window presents (ADR 2309).
+            Event::PasswordRequired { document } => crate::PresentationPump::put_up(
+                self,
+                crate::presentation_pump::Held::Password { document },
+            ),
             // A file held for a §12.7.8 named page's password is read and put down again, and the
             // name it was asked under is closed so the window stops holding it (ADR 1335).
             Event::Closed(document) if self.state().arrivals.is(document) => {
@@ -757,7 +796,18 @@ pub trait NativeWindow {
                 script,
                 first_line,
             } => self.ask_whether_to_run_scripts(document, &script, &first_line),
-            Event::ScriptAsking { document, question } => self.ask_for_a_script(document, question),
+            Event::ScriptAsking { document, question } => crate::PresentationPump::put_up(
+                self,
+                crate::presentation_pump::Held::Script { document, question },
+            ),
+            // Withdrawn before anybody saw it, it leaves the hold and is said withdrawn as one on
+            // the screen would be.
+            Event::ScriptQuestionWithdrawn { document }
+                if self.state_mut().pump.withdraw_held_script(document) =>
+            {
+                let name = self.state().documents.label_of(document);
+                self.say(&crate::script_asks::withdrawn(&name));
+            }
             Event::ScriptQuestionWithdrawn { document } => self.withdraw_script_question(document),
             Event::Beep { document, sound } => self.beep(document, sound),
             Event::Console { document, request } => self.console(document, request),

@@ -284,8 +284,18 @@ impl ApplicationHandler for App {
         }
         let wake = presentation.wake;
         if due {
-            self.redraw();
+            // Whether anybody can see the window, asked at the presentation's own wake because
+            // winit says nothing when X11 iconifies it (`App::window_hidden`, ADR 2300).
+            self.window_shown(!self.window_hidden());
+            if !self.hidden {
+                self.redraw();
+            }
         }
+        // A hidden window's clock is parked and its script timers carry the time, so it wakes for
+        // whichever comes first: the next look at whether it is shown, or a timer.
+        let wake = script_timer
+            .filter(|_| self.hidden)
+            .map_or(wake, |timer| timer.min(wake));
         event_loop.set_control_flow(ControlFlow::WaitUntil(wake));
     }
 
@@ -500,6 +510,9 @@ impl ApplicationHandler for App {
 
             // Whether a screen reader is told this is the window a person is in (ADR 1565).
             WindowEvent::Focused(active) => self.window_focused(active),
+
+            // Hidden from view entirely, or back: §12.4.4.1's clock parks (ADR 2300).
+            WindowEvent::Occluded(occluded) => self.occlusion(occluded),
 
             _ => {}
         }
@@ -898,7 +911,9 @@ impl App {
     /// tick's page replaced the one still being drawn. A tab behind the front draws nothing until
     /// it is brought forward, so its renders hold no timer back.
     fn script_timers(&mut self) -> Option<std::time::Instant> {
-        if self.presentation.is_some() || self.effect.is_some() {
+        // A parked presentation tells the core nothing, so the timers carry the time while the
+        // window is hidden, as they do in the other three windows (ADR 2300).
+        if (self.presentation.is_some() && !self.hidden) || self.effect.is_some() {
             self.script_ticker.stand_down();
             return None;
         }

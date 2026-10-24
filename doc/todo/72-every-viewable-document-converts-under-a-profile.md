@@ -249,17 +249,31 @@ composite fonts whose `CMap` states U+0000, U+FEFF or U+FFFE, nothing derivable 
 restatement of the producer's `CMap` without those statements, which part 4 admits because it only
 recommends a mapping; part 2 at Level U and A takes it only where no shown code loses its mapping.
 The content-stream fence's 33 `doc/corpora` documents are damaged streams (§7.8.2 makes the page an
-error), named in the mitigations entry and refused. **Owed from this**: five of the newly converting
-part 4 outputs fail veraPDF's 6.2.10.4.1 on a `CIDFontType0` whose `FontFile3` states no `Subtype`,
-which this validator passes (`bug921409`, `issue13193`, `issue5751`, `issue9262_reduced`,
-`issue9949`); read Table 125 against the row before building on it.
+error), named in the mitigations entry and refused. The five part 4 outputs veraPDF failed at
+6.2.10.4.1 were none of them a `FontFile3` with no `Subtype`: three hold a program filed under a key
+or name its bytes contradict, which `fonts/font-programs-filed-by-their-format` refiles
+(`bug921409`, `issue5751`) or refuses (`issue9949`, a `glyf` program under `CIDFontType0`), and two
+hold a TrueType collection under `FontFile2` (`issue13193`, `issue9262_reduced`) — **owed**: whether
+a `ttcf` is "a TrueType font program, as described in the TrueType Reference Manual" (Table 124) is
+the Manual's to answer, and this validator says nothing of a collection until it is read (ADR 2307).
+The row costs pdf.js four documents that converted before, each refused by name (ADR 2307 section 3):
+`issue9949`, `issue11740_reduced` (a Type 1 program under `CIDFontType0`, veraPDF agrees), and two
+CFF-flavoured `OTTO` programs under `/FontFile2` in a `CIDFontType2` (`bug1186827`, `issue5084`). **Owed**: the `CIDFontType2`
+ones whose `/CIDToGIDMap` is `Identity` over a name-keyed CFF refile to `CIDFontType0` with no glyph
+changing (§9.7.4.2), which is provable from the bytes.
 
 veraPDF's two disagreements on `me450f12project10_report` were this validator's (ADR 2295): an
 `xmpMM` structure is now held to the September 2005 edition's `ResourceEvent`, `ResourceRef` and
-`Version` fields, and a stream with no profile file signature is short of it at part 2. **Owed**: the
-edition's other structured types (`Thumbnail`, `Dimensions`, `Font`, `Colorant`, `Job`, the Dynamic
-Media and EXIF types) held to their fields the same way; and the part 4 tag row's answer to a stream
-that is no profile, which still reads as no finding.
+`Version` fields, and a stream with no profile file signature is short of it at part 2. The
+edition's other structured types are held to their fields the same way, and part 4's tag row finds
+a stream that is no profile short of the signature as part 2's does (ADR 2318); neither corpus holds
+a structure of the new types outside its fields.
+
+The next refusal by count under `as-if-printed`, `annotations/normal-appearance-shape`'s pdf.js
+documents, was a push button's single normal appearance stream in every one, which the census's
+sentence had named as a subdictionary with no `/AS`: a push button's stream is now the one entry of a
+subdictionary its new `/AS` selects (ADR 2319), and the check box and radio button half keeps a
+sentence of its own. The one larger, a composite font nobody named a program for, waits on Q570.
 
 Table 109's widths-array count is checked independently for simple fonts. A nonempty short
 array narrows LastChar; a long array loses only entries beyond it. This `Stated` rewrite keeps

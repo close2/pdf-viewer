@@ -76,6 +76,8 @@ mod resident;
 mod staging;
 mod textures;
 
+pub(crate) use ramp::MAX_RAMP_STOPS;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;

@@ -3,7 +3,7 @@
 //! by ADR 1908).
 
 use viewer_core::{Answer, Query};
-use viewer_host::native_window::{FirstSize, Fitting, NativeWindow, Sizing};
+use viewer_host::native_window::{Extents, FirstSize, NativeWindow, Placement, Sizing};
 use viewer_host::panel::Tab;
 use viewer_host::trace::Topic;
 
@@ -15,7 +15,6 @@ use super::{Host, WINDOW, level};
 /// `/FitWindow` at the frame [`Host::place_window`] is asked at (ADRs 1429, 2172).
 const SIZING: Sizing = Sizing {
     first: FirstSize::Resize,
-    fitting: Fitting::Measured,
 };
 
 impl Host {
@@ -106,13 +105,10 @@ impl Host {
     /// logical pixels ([`QtWindowExtents`]).
     ///
     /// Answers `[resize, width, height, move, x, y]`, a flag before each pair, or nothing where no
-    /// placement is owed. A window that does not fit the first displayed page yet is asked to
-    /// resize and nothing else, and the next frame measures again — which it needs, because the
-    /// first frame is drawn before the tool bar and status line this document hid have left the
-    /// viewport; a window that fits is moved to the centre where that was asked, and nothing more
-    /// is owed ([`viewer_host::Presenting::place`]). The arithmetic is [`viewer_host::fitted`]'s
-    /// and [`viewer_host::centred`]'s, shared with the other two windows; what is Qt's is the
-    /// `resize` and the `move`, both requests the platform may refuse (ADR 1429).
+    /// placement is owed or none is left to make. The decision is
+    /// [`NativeWindow::place_the_window`]'s, shared with the C window; what is Qt's is the `resize`
+    /// and the `move`, both requests the platform may refuse, and on Wayland, where `move` places
+    /// nothing, the window says so instead of asking (ADRs 1429, 2308).
     pub(crate) fn place_window(&mut self, extents: QtWindowExtents) -> Vec<i32> {
         let QtWindowExtents {
             window_width,
@@ -123,65 +119,18 @@ impl Host {
             screen_top,
             screen_width,
             screen_height,
+            positions,
         } = extents;
-        let page = match self.state.viewer.query(Query::View) {
-            Answer::View(viewing) => viewing.page,
-            _ => 0,
+        let extents = Extents {
+            window: (window_width, window_height),
+            frame: (frame_width, frame_height),
+            screen: (screen_left, screen_top, screen_width, screen_height),
+            positions,
         };
-        let Some(placing) = self.state.presenting.place(page) else {
-            return Vec::new();
-        };
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "a window's extent and position in logical pixels, held to its screen"
-        )]
-        let whole = |value: f64| value.round() as i32;
-        // A window Qt could not put on a screen has no screen to fit to or to centre on.
-        let screen = (screen_width > 0 && screen_height > 0).then_some((
-            f64::from(screen_left),
-            f64::from(screen_top),
-            f64::from(screen_width),
-            f64::from(screen_height),
-        ));
-        let inner = (f64::from(window_width), f64::from(window_height));
-        if placing.fit
-            && let Answer::Geometry(geometry) = self.state.viewer.query(Query::PageGeometry(page))
-        {
-            let scale = f64::from(self.scale);
-            let wanted = viewer_host::fitted(
-                inner,
-                (
-                    f64::from(self.state.viewport.0) / scale,
-                    f64::from(self.state.viewport.1) / scale,
-                ),
-                (
-                    f64::from(geometry.width) / scale,
-                    f64::from(geometry.height) / scale,
-                ),
-                screen.map(|(_, _, width, height)| {
-                    (
-                        width - f64::from(frame_width),
-                        height - f64::from(frame_height),
-                    )
-                }),
-            );
-            if (wanted.0 - inner.0).abs() > 1.0 || (wanted.1 - inner.1).abs() > 1.0 {
-                return vec![1, whole(wanted.0), whole(wanted.1), 0, 0, 0];
-            }
-        }
-        self.state.presenting.placed();
-        match screen {
-            Some(screen) if placing.centre => {
-                let (x, y) = viewer_host::centred(
-                    (
-                        inner.0 + f64::from(frame_width),
-                        inner.1 + f64::from(frame_height),
-                    ),
-                    screen,
-                );
-                vec![0, 0, 0, 1, whole(x), whole(y)]
-            }
-            _ => Vec::new(),
+        match self.place_the_window(self.scale, extents) {
+            Some(Placement::Resize { width, height }) => vec![1, width, height, 0, 0, 0],
+            Some(Placement::Move { x, y }) => vec![0, 0, 0, 1, x, y],
+            Some(Placement::Placed) | None => Vec::new(),
         }
     }
 

@@ -1407,6 +1407,12 @@ int32_t quorra_render_request_window(const quorra_render_request *request, float
 int32_t quorra_render_request_rasterise_window(const quorra_render_request *request, uint32_t x,
                                                uint32_t y, uint32_t width, uint32_t height,
                                                quorra_raster **raster);
+/* What drawing that window declined — marks left to the library's converter — told to the viewer,
+ * which says each condition once for the page as a QUORRA_EVENT_REPORTED; the events are empty
+ * where it declined nothing. Neither handle is consumed: call it for every window drawn, since a
+ * window is never handed back as a page's raster is (ADRs 2290, 2316). */
+int32_t quorra_raster_declined(quorra_viewer *viewer, const quorra_render_request *request,
+                               const quorra_raster *raster, quorra_events **events);
 /* Tells the viewer this caller took the request's list and holds the page itself. The request is
  * NOT consumed: it is the list a window is drawn from, freed with quorra_render_request_free. */
 int32_t quorra_render_ready_listed(quorra_viewer *viewer, const quorra_render_request *request,
@@ -1948,7 +1954,7 @@ typedef struct quorra_owed quorra_owed;
 #define QUORRA_OWED_BEEP       6u  /* app.beep: the display's one system sound */
 #define QUORRA_OWED_PANELS     7u  /* the panels, built again */
 #define QUORRA_OWED_CHROME     8u  /* the chrome, as Table 29's /PageMode and §12.2 now permit */
-#define QUORRA_OWED_PLACE      9u  /* Table 147's /FitWindow or /CenterWindow, owed at this frame */
+#define QUORRA_OWED_PLACE      9u  /* Table 147's /FitWindow or /CenterWindow: quorra_window_place */
 #define QUORRA_OWED_CONTROLS  10u  /* the set of controls over the page changed: rebuilt, not moved */
 #define QUORRA_OWED_POPUPS    11u  /* §12.5.6.14's open popup windows changed, or one moved */
 #define QUORRA_OWED_STRIP     12u  /* the strip of open documents: one added, closed, or brought
@@ -2136,6 +2142,38 @@ typedef struct quorra_window_chrome_state {
 } quorra_window_chrome_state;
 /* Both pointers are required; QUORRA_NULL_ARGUMENT leaves the output untouched. */
 int32_t quorra_window_chrome(const quorra_window *window, quorra_window_chrome_state *out);
+/* Whether the window presents full screen now (Table 29's FullScreen: no menu bar, window
+ * controls or other window), for the platform's own full-screen presentation; read after
+ * QUORRA_OWED_CHROME or a PRESENT or LEAVE_FULL_SCREEN act. Both pointers are required. */
+int32_t quorra_window_full_screen(const quorra_window *window, bool *full_screen);
+/* Table 147's /FitWindow and /CenterWindow after QUORRA_OWED_PLACE, answered to the caller's
+ * window in logical pixels: its inner size, what its frame adds, the available area of the screen
+ * it is on (a width or height of zero for none yet), and `positions` one where the platform lets a
+ * program move its own window. `resize` asks for the inner size and another QUORRA_OWED_PLACE
+ * follows the frame it is drawn at; `move_to` asks for the outer top-left corner once the window
+ * fits; all zeros is placed. A platform that cannot move a window is said and titled instead.
+ * QUORRA_NO_ANSWER where nothing is owed, `out` untouched. Every pointer is required. */
+typedef struct quorra_window_extents {
+    int32_t window_width;
+    int32_t window_height;
+    int32_t frame_width;
+    int32_t frame_height;
+    int32_t screen_left;
+    int32_t screen_top;
+    int32_t screen_width;
+    int32_t screen_height;
+    uint32_t positions;
+} quorra_window_extents;
+typedef struct quorra_window_placement {
+    uint32_t resize;
+    int32_t width;
+    int32_t height;
+    uint32_t move_to;
+    int32_t x;
+    int32_t y;
+} quorra_window_placement;
+int32_t quorra_window_place(quorra_window *window, const quorra_window_extents *extents,
+                            quorra_window_placement *out);
 /* One-shot request attached to this CHROME record: -1 closes the panel, a nonnegative
  * QUORRA_TAB_* opens it. QUORRA_NO_ANSWER preserves the reader's pane choice. QUORRA_WRONG_KIND
  * for another record, QUORRA_OUT_OF_RANGE past the batch; failed reads leave *panel untouched.

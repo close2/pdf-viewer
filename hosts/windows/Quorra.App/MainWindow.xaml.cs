@@ -9,11 +9,13 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Input;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Quorra.Interop;
 using Windows.ApplicationModel.DataTransfer;
+using Windows.Graphics;
 using Windows.UI.Core;
 // One name from Windows.System, whose DispatcherQueueTimer would otherwise collide with the
 // Windows App SDK's in Microsoft.UI.Dispatching.
@@ -221,6 +223,58 @@ public sealed partial class MainWindow : Window
         panels.SetAvailable(shown.Panels, shown.PaneOpen, panel);
     }
 
+    // Table 29's FullScreen, "with no menu bar, window controls, or any other window visible": the
+    // platform's full-screen presenter takes the title bar and the frame, and the library has
+    // already decided whether the window presents and which chrome it shows (ADR 2308).
+    private void Present(QuorraWindow open)
+    {
+        AppWindowPresenterKind wanted = open.FullScreen
+            ? AppWindowPresenterKind.FullScreen
+            : AppWindowPresenterKind.Default;
+        if (AppWindow.Presenter.Kind != wanted)
+        {
+            AppWindow.SetPresenter(wanted);
+        }
+    }
+
+    // Table 147's /FitWindow and /CenterWindow. The library decides from this window's own
+    // extents (quorra_window_place, the decision quorra-qt takes too) and this window carries the
+    // answer out through its AppWindow, whose sizes are physical pixels: they cross as logical
+    // ones at the scale the page area is drawn at. Windows lets a program move its own window, so
+    // `positions` is one (ADR 2308).
+    private void Place(QuorraWindow open)
+    {
+        AppWindow app = AppWindow;
+        RectInt32 work = DisplayArea.GetFromWindowId(app.Id, DisplayAreaFallback.Nearest).WorkArea;
+        double at = scale > 0 ? scale : 1.0;
+        int Logical(int physical) => (int)Math.Round(physical / at);
+        int Physical(int logical) => (int)Math.Round(logical * at);
+        quorra_window_extents extents = new()
+        {
+            window_width = Logical(app.ClientSize.Width),
+            window_height = Logical(app.ClientSize.Height),
+            frame_width = Logical(app.Size.Width - app.ClientSize.Width),
+            frame_height = Logical(app.Size.Height - app.ClientSize.Height),
+            screen_left = Logical(work.X),
+            screen_top = Logical(work.Y),
+            screen_width = Logical(work.Width),
+            screen_height = Logical(work.Height),
+            positions = 1,
+        };
+        if (open.Place(extents) is not quorra_window_placement placed)
+        {
+            return;
+        }
+        if (placed.resize != 0)
+        {
+            app.ResizeClient(new SizeInt32(Physical(placed.width), Physical(placed.height)));
+        }
+        if (placed.move_to != 0)
+        {
+            app.Move(new PointInt32(Physical(placed.x), Physical(placed.y)));
+        }
+    }
+
     private void Act(Owed owed)
     {
         if (window is not QuorraWindow open)
@@ -240,6 +294,7 @@ public sealed partial class MainWindow : Window
                 break;
             case Native.QUORRA_OWED_CHROME:
                 ApplyChrome(open.Chrome, owed.Panel);
+                Present(open);
                 break;
             case Native.QUORRA_OWED_CONTROLS:
                 controls.Rebuild(open.Controls(), scale);
@@ -265,7 +320,10 @@ public sealed partial class MainWindow : Window
             case Native.QUORRA_OWED_SCRIPT_WITHDRAWN:
                 dialogs.Withdraw(owed.Document);
                 break;
-            // The strip, a placement and the system sound are later steps
+            case Native.QUORRA_OWED_PLACE:
+                Place(open);
+                break;
+            // The strip and the system sound are later steps
             // (RFC 0010 step N3a). Each is named in the log the first time it is owed rather
             // than dropped.
             default:
@@ -397,7 +455,7 @@ public sealed partial class MainWindow : Window
                 return;
             case Native.QUORRA_ACT_PRESENT:
             case Native.QUORRA_ACT_LEAVE_FULL_SCREEN:
-                Say("Presentation chrome updated; native full-screen placement is not implemented yet.");
+                Present(open);
                 break;
             case Native.QUORRA_ACT_RESTRICTIONS:
                 permissions.Show();

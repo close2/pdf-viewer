@@ -23,8 +23,8 @@
 //   hold four signed windings exactly (f16 is exact on integers to 2048, and no page
 //   winds a path two thousand times), and a frame runs the pair of passes once per
 //   group of four samples.
-// - **Sample positions are ours, not the driver's.** A lattice stated here (the
-//   viewer's ADR 2296), rather than a multisample pattern the adapter chooses, is what
+// - **Sample positions are ours, not the driver's.** A pattern stated here (the
+//   viewer's ADR 2313), rather than a multisample pattern the adapter chooses, is what
 //   keeps coverage identical on every adapter — the promise ADR 0006 measured and ADR
 //   0008 protects.
 
@@ -36,7 +36,7 @@ struct Globals {
     // sheet is `pane_origin`. The accumulate pass has no use for this number at all.
     sheet_size: vec2f,
     // Where this draw's sample sits inside the pixel, in pixels, relative to its
-    // centre. The lattice lives on the CPU (`winding::SampleLattice`), because
+    // centre. The pattern lives on the CPU (`winding::SamplePattern`), because
     // the vertex stage should not have to know which of the frame's draws it is.
     sample_offset: vec2f,
     // Which channel this draw accumulates into, 0..3. Written as a mask by the

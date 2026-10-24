@@ -196,6 +196,35 @@ pub unsafe extern "C" fn quorra_render_request_rasterise_window(
     }
 }
 
+/// Tells the viewer what drawing this window of a request's page declined — the marks the draw
+/// left to the library's converter — which it says once a condition for the page's reading, as
+/// `QUORRA_EVENT_REPORTED` (ADRs 2290, 2316). Neither handle is consumed: a window is the
+/// caller's to show and free, so this is the call that carries what a window's draw declined,
+/// which [`quorra_render_ready_raster`](super::quorra_render_ready_raster) carries for a page.
+/// The events are empty where the draw declined nothing.
+///
+/// # Safety
+///
+/// See the module documentation. `raster` came from [`quorra_render_request_rasterise_window`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_raster_declined(
+    viewer: *mut Session,
+    request: *const RenderRequest,
+    raster: *const Drawn,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(request), Some(raster), Some(events)) = (
+        viewer.as_mut(),
+        request.as_ref(),
+        raster.as_ref(),
+        events.as_mut(),
+    ) else {
+        return Status::NullArgument.code();
+    };
+    *events = Box::into_raw(Box::new(viewer.window_declined(request, raster)));
+    Status::Ok.code()
+}
+
 /// Tells the viewer the caller took this request's list and holds the page itself —
 /// `Rendered::Listed`. The request is **not** consumed: it is the list the caller draws windows
 /// from, released with [`quorra_render_request_free`].

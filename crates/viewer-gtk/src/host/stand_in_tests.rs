@@ -3,6 +3,9 @@
 use super::{Picture, place};
 use gtk4::prelude::*;
 
+#[path = "../../../viewer-host/tests/toolkit_launch/x_lock.rs"]
+mod x_lock;
+
 #[test]
 fn texture_pixels_keep_their_device_extent_through_reused_slots()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -145,7 +148,7 @@ fn on_software_display(filter: &str) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// A lock file must name our actual `Xvfb` child before a test may connect to its display.
-fn display() -> Result<(OwnedChild, String), Box<dyn std::error::Error>> {
+fn display() -> Result<(OwnedServer, String), Box<dyn std::error::Error>> {
     use std::process::{Command, Stdio};
     use std::time::{Duration, Instant};
     let began = Instant::now();
@@ -153,12 +156,13 @@ fn display() -> Result<(OwnedChild, String), Box<dyn std::error::Error>> {
         if began.elapsed() > Duration::from_secs(5) {
             break;
         }
-        let lock = std::path::PathBuf::from(format!("/tmp/.X{number}-lock"));
-        if lock.exists() {
+        // A gone server's lock of this user is free (ADR 2317).
+        if !x_lock::free(number) {
             continue;
         }
+        let lock = x_lock::lock(number);
         let name = format!(":{number}");
-        let mut server = OwnedChild(
+        let mut server = OwnedServer(
             Command::new("Xvfb")
                 .args([
                     name.as_str(),
@@ -171,6 +175,7 @@ fn display() -> Result<(OwnedChild, String), Box<dyn std::error::Error>> {
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .spawn()?,
+            number,
         );
         while began.elapsed() < Duration::from_secs(5) {
             if let Ok(held) = std::fs::read_to_string(&lock) {
@@ -203,6 +208,15 @@ fn display() -> Result<(OwnedChild, String), Box<dyn std::error::Error>> {
 
 /// Every error and assertion path reaps only the process this test started.
 struct OwnedChild(std::process::Child);
+
+/// An `Xvfb` this test started on display `.1`, stopped with `TERM` so that its lock and socket
+/// go with it (ADR 2317).
+struct OwnedServer(std::process::Child, u32);
+impl Drop for OwnedServer {
+    fn drop(&mut self) {
+        x_lock::stop(&mut self.0, self.1);
+    }
+}
 impl Drop for OwnedChild {
     fn drop(&mut self) {
         let _ = self.0.kill();

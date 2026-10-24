@@ -194,8 +194,8 @@ pub enum Coverage {
     /// # What sampled coverage costs, and the clause it does not meet (ADR 0076)
     ///
     /// "Sampled rather than exact" is a stronger statement than a level count, and it is
-    /// stated here because this variant is where it is chosen. The samples lie on a
-    /// rank-1 lattice ([`SampleLattice`](crate::SampleLattice), the viewer's ADR 2296):
+    /// stated here because this variant is where it is chosen. The samples lie where
+    /// [`SamplePattern`](crate::SamplePattern) puts them (the viewer's ADRs 2296 and 2312):
     /// every one in a column and a row of its own, so across the whole device the columns
     /// are one lattice of period `p = 1/`[`coverage_samples`] — **a sixteenth of a device
     /// pixel at the default sixteen** — and for an axis-aligned mark:
@@ -212,11 +212,11 @@ pub enum Coverage {
     ///   whenever no sample column falls in the mark's part of it. **That is a
     ///   non-conformance and it is recorded as one**; the mark itself cannot disappear,
     ///   which is the part ADR 0070 guarantees by keeping anything narrower than the
-    ///   lattice's [`vanishing_width`](crate::SampleLattice::vanishing_width) — 0.316 of a
-    ///   pixel at sixteen samples — on the [`Cpu`](Coverage::Cpu) lane.
+    ///   pattern's [`vanishing_width`](crate::SamplePattern::vanishing_width) — five
+    ///   sixteenths of a pixel at sixteen samples — on the [`Cpu`](Coverage::Cpu) lane.
     ///
     /// Raising [`coverage_samples`] narrows `p` and costs one pass pair per four samples;
-    /// it does not remove the last point, because a finer lattice still has gaps. Only
+    /// it does not remove the last point, because a finer pattern still has gaps. Only
     /// [`Cpu`](Coverage::Cpu) computes exact area (ADR 0005), and a caller that needs it —
     /// a page whose subject is hairlines — should ask for it.
     ///
@@ -792,7 +792,8 @@ fn render_nodes_awake(dri: &std::path::Path, class: &std::path::Path) -> Vec<std
 }
 
 /// Choose the adapter: the [`Options::adapter`] filter when there is one, wgpu's own
-/// preference when there is not.
+/// preference when there is not — or the device-select layer's, where a person told it one
+/// ([`Selection`]).
 ///
 /// The `Backends::all()` passed to `enumerate_adapters` is not a second backend
 /// decision: `wgpu::Instance` only holds the backends it was built with, so the mask
@@ -828,7 +829,7 @@ pub(crate) fn select_adapter(
                     available,
                 })
         }
-        None => match preferred(enumerated, surface) {
+        None => match preferred(enumerated, surface, Selection::from_environment()) {
             Some(adapter) => Ok(adapter),
             None => pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: HIGH_PERFORMANCE,
@@ -853,10 +854,59 @@ pub(crate) fn select_adapter(
 /// The preference this crate asks `request_adapter` for, and the one [`preferred`] restates.
 const HIGH_PERFORMANCE: wgpu::PowerPreference = wgpu::PowerPreference::HighPerformance;
 
+/// Whose order chooses among the adapters that can present: `wgpu`'s ranking by device type, or
+/// Mesa's device-select layer, where a person has told it which device they mean (the caller's
+/// ADR 2317).
+///
+/// The layer is a Vulkan implicit layer that reorders `vkEnumeratePhysicalDevices` so that the
+/// device it selects comes first: `MESA_VK_DEVICE_SELECT=vendor:device` names one, and
+/// `DRI_PRIME` — `1`, a `vendor:device` pair or a `pci-…` tag — names the device other than the
+/// one the display is on, which on a machine with two is how a person asks for the other GPU.
+/// `request_adapter` under [`HIGH_PERFORMANCE`] sorts by device type and so reads the order as
+/// nothing: `DRI_PRIME=1` picking an integrated GPU beside a discrete one would be overruled by
+/// the ranking it was set to overrule. `NODEVICE_SELECT` switches the layer off, and the order
+/// is then the loader's alone, so it says nothing either.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Selection {
+    /// Nobody told the layer anything: the best-ranked device type, as `request_adapter` chooses.
+    Ranked,
+    /// The variables name a device and the layer is active: the first adapter enumerated that can
+    /// present, which is the layer's choice.
+    LayersFirst,
+}
+
+impl Selection {
+    /// The selection this process's environment states, read once per adapter choice.
+    fn from_environment() -> Self {
+        Self::of(
+            std::env::var_os("MESA_VK_DEVICE_SELECT").as_deref(),
+            std::env::var_os("DRI_PRIME").as_deref(),
+            std::env::var_os("NODEVICE_SELECT").as_deref(),
+        )
+    }
+
+    /// The selection three variables state. An empty variable is an unset one, as the layer reads
+    /// it.
+    fn of(
+        select: Option<&std::ffi::OsStr>,
+        prime: Option<&std::ffi::OsStr>,
+        nodevice: Option<&std::ffi::OsStr>,
+    ) -> Self {
+        let set =
+            |variable: Option<&std::ffi::OsStr>| variable.is_some_and(|value| !value.is_empty());
+        if !set(nodevice) && (set(select) || set(prime)) {
+            Self::LayersFirst
+        } else {
+            Self::Ranked
+        }
+    }
+}
+
 /// What `request_adapter` would choose under [`HIGH_PERFORMANCE`] among adapters already
 /// enumerated on the same instance: those that can present to `surface` where there is one, and
-/// of them the first of the best-ranked device type. `None` where none can, which
-/// [`select_adapter`] answers by asking `wgpu`.
+/// of them the first of the best-ranked device type — or, under [`Selection::LayersFirst`], the
+/// first of them, which is the device the layer was told to put there. `None` where none can,
+/// which [`select_adapter`] answers by asking `wgpu`.
 ///
 /// `wgpu-core`'s `Instance::request_adapter` keeps the adapters whose surface capabilities can be
 /// read, sorts them stably by [`high_performance_rank`] and takes the first; `min_by_key` returns
@@ -867,12 +917,18 @@ const HIGH_PERFORMANCE: wgpu::PowerPreference = wgpu::PowerPreference::HighPerfo
 fn preferred(
     adapters: &[wgpu::Adapter],
     surface: Option<&wgpu::Surface<'static>>,
+    selection: Selection,
 ) -> Option<wgpu::Adapter> {
-    adapters
+    let mut presentable = adapters
         .iter()
-        .filter(|adapter| surface.is_none_or(|surface| adapter.is_surface_supported(surface)))
-        .min_by_key(|adapter| high_performance_rank(adapter.get_info().device_type))
-        .cloned()
+        .filter(|adapter| surface.is_none_or(|surface| adapter.is_surface_supported(surface)));
+    match selection {
+        Selection::Ranked => {
+            presentable.min_by_key(|adapter| high_performance_rank(adapter.get_info().device_type))
+        }
+        Selection::LayersFirst => presentable.next(),
+    }
+    .cloned()
 }
 
 /// `wgpu-core`'s order of device types under [`HIGH_PERFORMANCE`], lowest first: a discrete GPU,
@@ -936,20 +992,122 @@ mod tests {
     /// `request_adapter` makes on the same instance, so that carrying the check's list changes
     /// which enumeration answers and not which adapter does (the caller's ADR 2298). Headless,
     /// as the caller's launch gate brings its device up; a machine with no adapter holds the
-    /// two to the same `None`.
+    /// two to the same `None`. Where this process's environment tells the device-select layer
+    /// a device, the choice is the layer's first instead, which `request_adapter` does not read
+    /// (the caller's ADR 2317).
     #[test]
     fn the_carried_choice_is_request_adapters_choice() {
         let instance = super::create_instance_with(wgpu::Backends::PRIMARY);
         let adapters = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::PRIMARY));
+        let selection = super::Selection::from_environment();
+        let carried = super::preferred(&adapters, None, selection);
+        if selection == super::Selection::LayersFirst {
+            assert_eq!(
+                carried.map(|adapter| adapter.get_info()),
+                adapters.first().map(wgpu::Adapter::get_info)
+            );
+            return;
+        }
         let asked = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: super::HIGH_PERFORMANCE,
             ..Default::default()
         }));
-        let carried = super::preferred(&adapters, None);
         assert_eq!(
             carried.map(|adapter| adapter.get_info()),
             asked.ok().map(|adapter| adapter.get_info())
         );
+    }
+
+    /// The three variables the device-select layer reads, as [`super::Selection::of`] reads
+    /// them: either naming variable set and not empty chooses the layer's order, and
+    /// `NODEVICE_SELECT` switches the layer off whatever the other two say.
+    #[test]
+    fn the_layer_s_order_is_read_where_a_variable_names_a_device_and_the_layer_is_on() {
+        use super::Selection::{LayersFirst, Ranked};
+        use std::ffi::OsStr;
+        let some = |value: &'static str| Some(OsStr::new(value));
+        assert_eq!(super::Selection::of(None, None, None), Ranked);
+        assert_eq!(super::Selection::of(some(""), some(""), None), Ranked);
+        assert_eq!(
+            super::Selection::of(some("10005:0"), None, None),
+            LayersFirst
+        );
+        assert_eq!(super::Selection::of(None, some("1"), None), LayersFirst);
+        assert_eq!(super::Selection::of(None, some("1"), some("")), LayersFirst);
+        assert_eq!(super::Selection::of(None, some("1"), some("1")), Ranked);
+        assert_eq!(
+            super::Selection::of(some("10005:0"), None, some("1")),
+            Ranked
+        );
+    }
+
+    /// Set in the child [`a_device_the_layer_is_told_is_the_device_carried`] starts, which is
+    /// the one that asserts.
+    const CHILD: &str = "RASTER_GPU_LAYER_SELECTION_CHILD";
+
+    /// Mesa's own vendor identity, the one its processor drivers state (`llvmpipe`, `lavapipe`).
+    const MESA_VENDOR: u32 = 0x1_0005;
+
+    /// On the real enumeration: this test binary runs itself again with
+    /// `MESA_VK_DEVICE_SELECT=10005:0`, which tells the layer the processor driver, and the child
+    /// holds the carried choice to the first adapter enumerated — and, where the layer is
+    /// installed and a Mesa processor adapter is there to be moved, to that adapter, which the
+    /// ranking would have put last. Environment variables are set on the child's command rather
+    /// than in this process, which edition 2024 makes `unsafe`.
+    #[test]
+    fn a_device_the_layer_is_told_is_the_device_carried() {
+        if std::env::var_os(CHILD).is_some() {
+            let instance = super::create_instance_with(wgpu::Backends::PRIMARY);
+            let adapters = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::PRIMARY));
+            let selection = super::Selection::from_environment();
+            assert_eq!(selection, super::Selection::LayersFirst);
+            let carried = super::preferred(&adapters, None, selection).map(|a| a.get_info());
+            let names: Vec<String> = adapters.iter().map(|a| a.get_info().name).collect();
+            assert_eq!(
+                carried,
+                adapters.first().map(wgpu::Adapter::get_info),
+                "the layer's first is carried, among {names:?}"
+            );
+            let layer = [
+                "/usr/share/vulkan/implicit_layer.d",
+                "/etc/vulkan/implicit_layer.d",
+            ]
+            .iter()
+            .any(|directory| {
+                Path::new(directory)
+                    .join("VkLayer_MESA_device_select.json")
+                    .exists()
+            });
+            let processor = adapters
+                .iter()
+                .any(|adapter| adapter.get_info().vendor == MESA_VENDOR);
+            if layer && processor {
+                assert_eq!(
+                    carried.map(|info| info.vendor),
+                    Some(MESA_VENDOR),
+                    "the layer was told the processor driver, among {names:?}"
+                );
+            }
+            return;
+        }
+        let module = module_path!()
+            .split_once("::")
+            .map_or(module_path!(), |(_, rest)| rest);
+        let name = format!("{module}::a_device_the_layer_is_told_is_the_device_carried");
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([name.as_str(), "--exact", "--nocapture"])
+            .env(CHILD, "1")
+            .env("MESA_VK_DEVICE_SELECT", "10005:0")
+            .env_remove("NODEVICE_SELECT")
+            .output()
+            .unwrap();
+        let said = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success(),
+            "the child failed: {said}{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(said.contains("1 passed"), "the child ran the test: {said}");
     }
 
     /// `instance_flags` drops `wgpu`'s validation of indirect calls on the ground that raster

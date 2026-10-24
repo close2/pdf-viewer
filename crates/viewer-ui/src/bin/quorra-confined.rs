@@ -337,8 +337,9 @@ struct Host {
     /// graphics device refused their frame, or nothing — principle 2's "reported out loud", in
     /// the window as well as on standard error (ADR 1466).
     on_the_processor: Option<String>,
-    /// The pages a draw of which here left marks to the library's converter, which the title
-    /// names (ADR 2290); the sentences are the confined viewer's, said once per page and condition.
+    /// The pages a draw of which left marks to the library's converter — here, or in the worker
+    /// whose frames say so — which the title names (ADRs 2290, 2316); the sentences are the
+    /// confined viewer's, said once per page and condition.
     declined: std::collections::BTreeSet<usize>,
     /// Whether the device has refused a frame of the pages the screen took last. A device frame
     /// that lands after a refusal draws the pages *beside* the ones handed to the processor, so it
@@ -1213,6 +1214,15 @@ impl Host {
                             ),
                         );
                     }
+                }
+                // A page the worker drew as pixels whose draw declined a mark: the worker's viewer
+                // has said it, and the title names it as it names a page drawn here (ADR 2316).
+                let mut named = false;
+                for framed in frames.iter().filter(|framed| framed.declined) {
+                    named |= self.declined.insert(framed.page);
+                }
+                if named {
+                    self.retitle();
                 }
                 if self.screen.draws_on_the_device() {
                     let forecasts =

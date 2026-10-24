@@ -1230,64 +1230,7 @@ impl Interpreter<'_> {
             // resource dictionary's `/Properties`; an inline dictionary cannot carry
             // one, so it governs nothing.
             Operator::BeginMarkedProperties => {
-                // A *tag* is one of the standard's own names rather than a resource name, so
-                // it is compared against an ASCII literal — as bytes, which §7.3.5 makes the
-                // comparison a name has ("an exact binary match") and which costs nothing.
-                let tag = name_at(operands, 0);
-                let tag = tag.as_ref().map_or(&[][..], Name::as_bytes);
-                let hides = tag == b"OC"
-                    && name_at(operands, 1).is_some_and(|name| {
-                        self.unresolved_resource(resources, "Properties", &name)
-                            .is_some_and(|oc| !self.shows_optional_content(&oc))
-                    });
-                // §14.9's four entries, all from the one property list this section
-                // names, so that a tagged page reads it once rather than four times.
-                let (actual_text, described) = self.accessibility(resources, operands.get(1));
-                // §14.8.2.2.2's two forms of an artifact are `/Artifact BMC` and
-                // `/Artifact <<propertyList>> BDC`; this is the second, and the property
-                // list is Table 363's.
-                let artifact = (tag == b"Artifact").then(|| {
-                    self.property_list(resources, operands.get(1))
-                        .map(|list| crate::structure::Artifact::read(self.document, &list))
-                        .unwrap_or_default()
-                });
-                let reversed = tag == b"ReversedChars";
-                // §14.13.5: "One or more files may be associated with sections of content in
-                // a content stream by enclosing those sections between the marked-content
-                // operators BDC and EMC … with a marked-content tag of AF." NOTE 2 is why
-                // this is on `BDC` alone: "[t]he BMC operator does not take properties and
-                // therefore cannot be used with the AF key." The *tag* is `AF`; the key
-                // inside the property list is `/MCAF` since Errata Collection 3, and the
-                // two are not the same word by accident — see
-                // `attachment::associated_in_property_list`. A named resource that is the
-                // array itself is the clause's own example's form (ADR 1461).
-                let associated = if tag == b"AF" {
-                    self.associated_files(resources, operands.get(1))
-                } else {
-                    Vec::new()
-                };
-                let mcid = self
-                    .property_list(resources, operands.get(1))
-                    .and_then(|list| self.document.get_key(&list, "MCID").as_integer());
-                self.open_marking(mcid);
-                marked.push(Marked {
-                    hides,
-                    starts_at: self.text.len(),
-                    mcid,
-                    // §14.9.4's replacement text, which belongs to *extraction* and not to
-                    // drawing: the marks are unchanged and what a reader copies is not.
-                    actual_text,
-                    described,
-                    artifact,
-                    reversed,
-                    associated,
-                });
-                if hides {
-                    self.hidden = self.hidden.saturating_add(1);
-                }
-                if reversed {
-                    self.reversed_chars = self.reversed_chars.saturating_add(1);
-                }
+                self.begin_marked_properties(operands, resources, marked);
             }
             Operator::BeginMarked => {
                 let tag = name_at(operands, 0);
@@ -1308,6 +1251,76 @@ impl Interpreter<'_> {
             Operator::EndMarked => self.end_marked_content(marked, replaced_ends_at),
             // `MP` and `DP` mark a point in the stream and carry structure rather than drawing.
             _ => {}
+        }
+    }
+
+    /// `BDC`: opens a marked-content section whose property list may govern optional content
+    /// (§8.11.3.2), name an artifact (§14.8.2.2.2), reverse its characters (§14.8.2.5.3), carry
+    /// replacement text and descriptions (§14.9), an identifier (§14.7.5.2) or associated files
+    /// (§14.13.5). One property list is read for all of them (ADR 2320).
+    fn begin_marked_properties(
+        &mut self,
+        operands: &[Object],
+        resources: &Dictionary,
+        marked: &mut Vec<Marked>,
+    ) {
+        // A *tag* is one of the standard's own names rather than a resource name, so
+        // it is compared against an ASCII literal — as bytes, which §7.3.5 makes the
+        // comparison a name has ("an exact binary match") and which costs nothing.
+        let tag = name_at(operands, 0);
+        let tag = tag.as_ref().map_or(&[][..], Name::as_bytes);
+        let hides = tag == b"OC"
+            && name_at(operands, 1).is_some_and(|name| {
+                self.unresolved_resource(resources, "Properties", &name)
+                    .is_some_and(|oc| !self.shows_optional_content(&oc))
+            });
+        // §14.9's four entries, all from the one property list this section
+        // names, so that a tagged page reads it once rather than four times.
+        let (actual_text, described) = self.accessibility(resources, operands.get(1));
+        // §14.8.2.2.2's two forms of an artifact are `/Artifact BMC` and
+        // `/Artifact <<propertyList>> BDC`; this is the second, and the property
+        // list is Table 363's.
+        let artifact = (tag == b"Artifact").then(|| {
+            self.property_list(resources, operands.get(1))
+                .map(|list| crate::structure::Artifact::read(self.document, &list))
+                .unwrap_or_default()
+        });
+        let reversed = tag == b"ReversedChars";
+        // §14.13.5: "One or more files may be associated with sections of content in
+        // a content stream by enclosing those sections between the marked-content
+        // operators BDC and EMC … with a marked-content tag of AF." NOTE 2 is why
+        // this is on `BDC` alone: "[t]he BMC operator does not take properties and
+        // therefore cannot be used with the AF key." The *tag* is `AF`; the key
+        // inside the property list is `/MCAF` since Errata Collection 3, and the
+        // two are not the same word by accident — see
+        // `attachment::associated_in_property_list`. A named resource that is the
+        // array itself is the clause's own example's form (ADR 1461).
+        let associated = if tag == b"AF" {
+            self.associated_files(resources, operands.get(1))
+        } else {
+            Vec::new()
+        };
+        let mcid = self
+            .property_list(resources, operands.get(1))
+            .and_then(|list| self.document.get_key(&list, "MCID").as_integer());
+        self.open_marking(mcid);
+        marked.push(Marked {
+            hides,
+            starts_at: self.text.len(),
+            mcid,
+            // §14.9.4's replacement text, which belongs to *extraction* and not to
+            // drawing: the marks are unchanged and what a reader copies is not.
+            actual_text,
+            described,
+            artifact,
+            reversed,
+            associated,
+        });
+        if hides {
+            self.hidden = self.hidden.saturating_add(1);
+        }
+        if reversed {
+            self.reversed_chars = self.reversed_chars.saturating_add(1);
         }
     }
 

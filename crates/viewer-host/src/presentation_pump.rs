@@ -39,6 +39,17 @@
 //!   A document opened *behind* takes the front for a moment and gives it back, and that round
 //!   trip keeps the front document's clock (ADR 1303).
 //!
+//! # Held
+//!
+//! Table 29's `FullScreen` is "\[f\]ull-screen mode, with no menu bar, window controls, or any other
+//! window visible", and a dialogue is another window. So a question a document raises while the
+//! window presents — `CLAUDE.md`'s *ask* level over a restriction, a link or a submission, a
+//! script's `app.alert`, §7.6.4.1's password prompt — is not put up over the presentation:
+//! [`PresentationPump::put_up`] holds it, says on the terminal that it waits, and
+//! [`PresentationPump::put_up_what_was_held`] puts it up once the window has left full screen, in
+//! the order it was asked (ADR 2309). A script's question the core withdraws while it is held is
+//! taken out of the hold and said withdrawn, as one on the screen would be.
+//!
 //! # What is chosen rather than derived
 //!
 //! - **Hidden time is not display time.** A reading of "shall be displayed"; the alternative, a
@@ -46,6 +57,11 @@
 //! - **A transition in flight when the window is hidden ends on its page**, because Table 164
 //!   states a visual effect and no frame of it was seen; the window comes back to the page the
 //!   effect was moving to, which is the effect's own end state.
+//! - **A held question waits for the reader, however long the presentation runs.** Leaving full
+//!   screen is the reader's act, and Escape is always theirs; a question answered for them, or
+//!   refused, while they watch a slide would be an answer nobody gave. The windows a reader's own
+//!   key opens — a print dialogue, a file chooser, ISO 19005's chooser — are not held, because the
+//!   reader asked for that window in front of the presentation.
 //! - **A document's script timers run while the window is hidden.** `app.setInterval` is not
 //!   display, and nothing in the reference ties a timer to a window being seen; while the
 //!   presentation is parked its clock tells the core nothing, so the script ticker carries the time
@@ -56,9 +72,9 @@ use std::time::{Duration, Instant};
 
 use pdf_render::{Raster, Rasterizer, TargetSpec, Transform};
 use render_cpu::CpuRasterizer;
-use viewer_core::{Command, Event};
+use viewer_core::{Command, DocumentId, Event};
 
-use crate::native_window::NativeWindow;
+use crate::native_window::{Asked, NativeWindow};
 use crate::trace::Topic;
 
 /// The pump's own state, one per window, beside the clock it turns
@@ -76,6 +92,52 @@ pub struct Pump {
     /// What a transition's frames are rasterised with, made at the first frame: a window that never
     /// presents never makes one (`CLAUDE.md` principle 2's "nothing eager").
     rasterizer: Option<CpuRasterizer>,
+    /// The dialogues a document raised while the window presented, in the order they were raised.
+    held: VecDeque<Held>,
+}
+
+/// A dialogue a document raised, as [`PresentationPump::put_up`] puts it up or holds it.
+#[derive(Debug)]
+pub enum Held {
+    /// A question at `CLAUDE.md`'s *ask* level ([`NativeWindow::put_the_question`]).
+    Question {
+        /// What it is about, carried back with the answer.
+        about: Asked,
+        /// What it says.
+        words: crate::Question,
+    },
+    /// RFC 0008 section 4.2's `app.alert` or `app.response` ([`NativeWindow::ask_for_a_script`]).
+    Script {
+        /// The document whose script asks.
+        document: DocumentId,
+        /// What it asks.
+        question: viewer_core::ScriptQuestion,
+    },
+    /// §7.6.4.1's prompt ([`NativeWindow::password_required`]).
+    Password {
+        /// The document the prompt is about.
+        document: DocumentId,
+    },
+}
+
+impl Held {
+    /// What the terminal is told while it waits.
+    fn waiting(&self) -> &'static str {
+        match self {
+            Self::Question { .. } => {
+                "a question waits until the presentation ends: Table 29's full screen shows no \
+                 other window"
+            }
+            Self::Script { .. } => {
+                "a script's question waits until the presentation ends: Table 29's full screen \
+                 shows no other window"
+            }
+            Self::Password { .. } => {
+                "the password prompt waits until the presentation ends: Table 29's full screen \
+                 shows no other window"
+            }
+        }
+    }
 }
 
 impl Pump {
@@ -102,6 +164,22 @@ impl Pump {
         let owed = self.synchronizing;
         self.synchronizing = false;
         owed
+    }
+
+    /// How many dialogues are held until the presentation ends.
+    #[must_use]
+    pub fn held(&self) -> usize {
+        self.held.len()
+    }
+
+    /// Takes a held script question of `document`'s out of the hold, answering whether there was
+    /// one: the core withdrew it before anybody saw it.
+    pub fn withdraw_held_script(&mut self, document: DocumentId) -> bool {
+        let before = self.held.len();
+        self.held.retain(
+            |held| !matches!(held, Held::Script { document: asked, .. } if *asked == document),
+        );
+        self.held.len() != before
     }
 }
 
@@ -254,7 +332,13 @@ pub trait PresentationPump: NativeWindow {
     /// commands first, and a render event among them may already have handed the arriving page's
     /// face over (ADR 2200).
     fn synchronize_if_owed(&mut self, queue: &mut VecDeque<Command>) {
-        if !queue.is_empty() || !self.state_mut().pump.take_synchronizing() {
+        if !queue.is_empty() {
+            return;
+        }
+        // Every way out of full screen ends in a settled queue here — Escape, `p`, a tab whose
+        // document is not presenting — so this is where what was held is put up.
+        self.put_up_what_was_held();
+        if !self.state_mut().pump.take_synchronizing() {
             return;
         }
         if self.state().presenting.full_screen() {
@@ -264,9 +348,41 @@ pub trait PresentationPump: NativeWindow {
         queue.push_back(Command::Present(mode));
         self.apply_the_chrome();
     }
+
+    /// Puts `dialogue` in front of the person, or holds it while the window presents full screen
+    /// and says that it waits (Table 29, ADR 2309).
+    fn put_up(&mut self, dialogue: Held) {
+        if self.state().presenting.full_screen() {
+            self.say(dialogue.waiting());
+            self.state_mut().pump.held.push_back(dialogue);
+            return;
+        }
+        show(self, dialogue);
+    }
+
+    /// Puts up what was held, in the order it was raised, once the window is out of full screen —
+    /// one at a time where the toolkit has one dialogue for a question and one is waiting, the
+    /// rest following the answer ([`NativeWindow::answer_the_question`]).
+    fn put_up_what_was_held(&mut self) {
+        while !self.state().presenting.full_screen() && !self.question_waiting() {
+            let Some(dialogue) = self.state_mut().pump.held.pop_front() else {
+                return;
+            };
+            show(self, dialogue);
+        }
+    }
 }
 
 impl<W: NativeWindow + ?Sized> PresentationPump for W {}
+
+/// The toolkit's own dialogue for `dialogue`.
+fn show<W: NativeWindow + ?Sized>(window: &mut W, dialogue: Held) {
+    match dialogue {
+        Held::Question { about, words } => window.put_the_question(about, &words),
+        Held::Script { document, question } => window.ask_for_a_script(document, question),
+        Held::Password { document } => window.password_required(document),
+    }
+}
 
 /// The frame of the transition in flight, rasterised for the whole viewport, or `None` where it
 /// has ended — or would not draw, which is said rather than swallowed.

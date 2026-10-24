@@ -208,7 +208,7 @@ jobs:
           for example in \
               encode_threads floor function_compile function_paint lane_placement \
               outline_upload present_thread rect_lane residue_clip retained \
-              startup surface_measure window_smoke zoom
+              sample_pattern startup surface_measure window_smoke zoom
           do
             echo "== $example --check =="
             xvfb-run -a cargo run --release -p raster-gpu --example "$example" -- --check

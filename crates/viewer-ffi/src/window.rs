@@ -37,7 +37,10 @@
 mod chrome;
 #[cfg(test)]
 mod chrome_tests;
+#[cfg(test)]
+mod held_tests;
 mod owed;
+mod placement;
 mod repainted;
 mod restrictions;
 mod shown;
@@ -50,13 +53,13 @@ use pdf_model::view::WidgetAppearances;
 use viewer_core::{Answer, Command, DocumentId, Event, Query};
 use viewer_host::PresentationPump as _;
 use viewer_host::native_window::{
-    Asked, DOCUMENT, FirstSize, Fitting, Launch, NativeWindow, Refusals, Showing, Sizing,
-    WindowState,
+    Asked, DOCUMENT, FirstSize, Launch, NativeWindow, Refusals, Showing, Sizing, WindowState,
 };
 use viewer_host::trace::{Topic, Trace};
 
 pub use chrome::WindowChrome;
 pub use owed::{OwedKind, Owing};
+pub use placement::{WindowExtents, WindowPlacement};
 pub use repainted::Repainted;
 pub use wheel::WheelKind;
 
@@ -64,11 +67,11 @@ use crate::keyboard::ActKind;
 use crate::status::Status;
 use owed::Owed;
 
-/// The C window's part of the sizes a window takes: its first is a resize, and Table 147's
-/// `/FitWindow` is handed to the caller once as `QUORRA_OWED_PLACE` (ADRs 1429, 2172).
+/// The C window's part of the sizes a window takes: its first is a resize. Table 147's
+/// `/FitWindow` and `/CenterWindow` are owed to the caller as `QUORRA_OWED_PLACE`, answered by
+/// `quorra_window_place` on the window's own extents (ADRs 1429, 2172, 2308).
 const SIZING: Sizing = Sizing {
     first: FirstSize::Resize,
-    fitting: Fitting::Handed,
 };
 
 /// One native window's toolkit-free half, and the whole of what a `quorra_window *` points at.

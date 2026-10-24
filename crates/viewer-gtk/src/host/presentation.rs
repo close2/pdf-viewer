@@ -134,11 +134,34 @@ impl Host {
     }
 }
 
+/// `GDK_TOPLEVEL_STATE_SUSPENDED`, `gdktoplevel.h`'s `1 << 16` since GTK 4.12, which `gdk4` names
+/// only behind its `v4_12` feature: a GTK before 4.12 never sets the bit, so reading it under the
+/// `v4_10` floor parks on Wayland where the library can say so and changes nothing where it cannot
+/// (ADRs 0508, 2317).
+const SUSPENDED: u32 = 1 << 16;
+
+/// Whether `toplevel`'s state holds [`SUSPENDED`], read off the `state` property's own number:
+/// `gdk4` converts the state to `ToplevelState` by truncation, which drops every bit its feature set
+/// does not name, so `Toplevel::state` can never answer it under the `v4_10` floor. A `GLib` that
+/// cannot state the flags as a number leaves the window to `MINIMIZED` alone, which is how it
+/// parked before this bit was read.
+fn suspended(toplevel: &gdk::Toplevel) -> bool {
+    toplevel
+        .property_value("state")
+        .transform::<u32>()
+        .ok()
+        .and_then(|bits| bits.get::<u32>().ok())
+        .is_some_and(|bits| bits & SUSPENDED != 0)
+}
+
 /// Parks the presentation while the window is minimised, and turns it again when it comes back
 /// (ADR 2300).
 ///
 /// GDK states a toplevel's minimised state as `ToplevelState::MINIMIZED`, and under X11 an unmap
-/// of a mapped window reads as one where no window manager states `_NET_WM_STATE_HIDDEN`. The
+/// of a mapped window reads as one where no window manager states `_NET_WM_STATE_HIDDEN`. Under
+/// Wayland, xdg-shell states no minimised window, and GDK 4.12 reads the compositor's
+/// `suspended` instead — a window no one can see — as [`SUSPENDED`], which is read by its value so
+/// the `v4_10` floor stays (ADR 2317). The
 /// notice is taken on the idle queue, because GDK may raise it from inside a call this host makes
 /// while borrowed — the find bar's reason — and the state is read when the idle runs, so two
 /// notices in one turn of the loop cannot be read out of order.
@@ -153,7 +176,8 @@ pub(super) fn watch_visibility(window: &gtk4::ApplicationWindow, me: &Weak<RefCe
             let toplevel = toplevel.clone();
             let me = me.clone();
             glib::idle_add_local_once(move || {
-                let shown = !toplevel.state().contains(gdk::ToplevelState::MINIMIZED);
+                let shown = !toplevel.state().contains(gdk::ToplevelState::MINIMIZED)
+                    && !suspended(&toplevel);
                 with(&me, |host| host.shown_or_hidden(shown));
             });
         });

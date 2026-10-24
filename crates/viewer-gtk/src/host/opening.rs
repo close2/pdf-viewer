@@ -6,7 +6,7 @@ use gtk4::glib;
 use gtk4::prelude::*;
 use viewer_core::Event;
 
-use viewer_host::native_window::{FirstSize, Fitting, Joining, NativeWindow, Sizing};
+use viewer_host::native_window::{FirstSize, Joining, NativeWindow, Sizing};
 use viewer_host::panel::Tab;
 use viewer_host::trace::Topic;
 
@@ -16,7 +16,6 @@ use super::{DOCUMENT, Host};
 /// Table 147's `/FitWindow` (ADRs 1429, 2172).
 const SIZING: Sizing = Sizing {
     first: FirstSize::Allocation,
-    fitting: Fitting::Measured,
 };
 
 impl Host {

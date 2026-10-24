@@ -145,6 +145,7 @@ mod destination;
 mod duplicate_profiles;
 mod extension_container;
 mod external;
+mod font_files;
 mod font_widths;
 mod fonts;
 mod halftones;
@@ -394,6 +395,34 @@ pub struct ArchivePlan {
     /// pure function of its inputs — which is what makes a tool-invoking conversion replayable and
     /// deterministic (RFC 0002 section 9).
     pub tool_outputs: ToolOutputs,
+    /// The instant this conversion's recorded actions say they happened.
+    ///
+    /// ISO 19005-2 section 6.6.6 asks each action an `xmpMM:History` records for when it took
+    /// place, and §14.4's file identifier is a digest of every byte written, that instant's
+    /// included — so the clock is the one input of a conversion that is not data. A caller stating
+    /// [`Clock::At`] makes the output a function of what it was handed alone, which a replay and
+    /// a test need; [`Clock::System`] reads the machine's clock once per conversion (ADR 2306).
+    pub clock: Clock,
+}
+
+/// Where a conversion takes the instant its recorded actions state.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Clock {
+    /// The machine's clock, read once, when the packet that records the actions is written.
+    #[default]
+    System,
+    /// The instant the caller states.
+    At(std::time::SystemTime),
+}
+
+impl Clock {
+    /// The instant this clock gives.
+    pub(crate) fn now(self) -> std::time::SystemTime {
+        match self {
+            Self::System => std::time::SystemTime::now(),
+            Self::At(instant) => instant,
+        }
+    }
 }
 
 /// Converts one document to the target and writes it.

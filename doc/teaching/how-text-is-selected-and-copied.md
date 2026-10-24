@@ -129,6 +129,12 @@ one string, and the module's own first paragraph is why: *one pass places the gl
 the page's text from the same code-to-glyph decisions*, so what the readback says is evidence about
 what was drawn. The drawing half is the page walk's stage 3; this is the other half.
 
+`show_text` is the setup of a string and a loop of one call per step of §9.4.4 (ADR 2320): `read_code`
+reads the code back, `place_in_text_layer` builds the text rendering matrix and pushes the code's box,
+`draw_code` paints the glyph or, through `account_for_a_missing_mark`, counts why no mark was made, and
+`advance_past` moves the text matrix. The string's constants and tallies travel between them as one
+`ShowString`.
+
 1. **The string becomes codes.** `crates/pdf-font/src/loading/codes.rs::decode` splits it — one byte
    per code for a simple font like `/F1`, whatever the `CMap`'s codespace says for a composite one.
 2. **Each code becomes characters.** `crates/pdf-font/src/loading/codes.rs::text` takes §9.10.2's
@@ -178,6 +184,7 @@ what was drawn. The drawing half is the page walk's stage 3; this is the other h
 flowchart LR
     OP["Tj, quote, TJ<br/>pdf-model/src/content/run.rs::run_reader<br/>clause 9.4.3"]
     SHOW["show_text<br/>pdf-model/src/content/text/show.rs"]
+    STEPS["read_code, place_in_text_layer, draw_code, advance_past<br/>pdf-model/src/content/text/show.rs<br/>clause 9.4.4, ADR 2320"]
     CODES["string to codes<br/>pdf-font/src/loading/codes.rs::decode<br/>clause 9.7.1"]
     CHARS["code to characters<br/>codes.rs::text, pdf-model/src/content/font.rs::text<br/>clause 9.10.2, 9.3.3"]
     QUAD["code to a box: Placed in text_layer<br/>pdf-model/src/content/text/readback.rs::glyph_quad, pdf-model/src/content/report.rs<br/>clause 9.4.4, Table 120, ADR 0118"]
@@ -187,15 +194,16 @@ flowchart LR
     OP --> SHOW
     SHOW --> GAP
     SHOW --> CODES
+    SHOW --> STEPS
     CODES --> CHARS
-    CODES --> QUAD
+    STEPS --> QUAD
     GAP -->|"at the page's end"| SETTLE
 ```
 
 **Maintenance note.** Depends on: `crates/pdf-model/src/content/run.rs`,
 `crates/pdf-model/src/content/text/`, `crates/pdf-model/src/content/font.rs`,
 `crates/pdf-model/src/content/report.rs`, `crates/pdf-font/src/loading/codes.rs`, ADR 0118,
-ADR 1490, ADR 1502 and ADR 1515. Redraw it when the readback stops being written by the drawing
+ADR 1490, ADR 1502, ADR 1515 and ADR 2320. Redraw it when the readback stops being written by the drawing
 pass, when §9.10.2's methods change order, when the word gap stops being decided per font at the
 page's end, or when the text layer stops carrying one entry per code.
 

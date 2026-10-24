@@ -32,8 +32,9 @@
 //! # How a figure is taken
 //!
 //! - **On a display of its own**: an `Xvfb` this harness starts on a number whose lock file was
-//!   absent, and only once that lock names its own server's pid (trap 181). No `Xvfb` is a failure
-//!   with a sentence, never a skip.
+//!   absent or a gone server's of this user, and only once that lock names its own server's pid
+//!   (trap 181); stopped with `TERM`, so that it leaves no lock behind (`x_lock`, ADR 2317). No
+//!   `Xvfb` is a failure with a sentence, never a skip.
 //! - **The minimum of [`SAMPLES`] fresh processes per lane, the lanes interleaved**, each killed at
 //!   its first frame: contention adds time and never removes it, and interleaving puts the
 //!   machine's drift into both lanes alike rather than into their difference.
@@ -58,6 +59,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::time::{Duration, Instant};
+
+mod x_lock;
 
 /// Fresh processes per lane, and the figure is their minimum — `launch_path`'s count.
 const SAMPLES: usize = 9;
@@ -178,17 +181,19 @@ fn milliseconds(text: &str) -> Option<f64> {
 struct Display {
     server: Child,
     name: String,
+    number: u32,
 }
 
 impl Display {
-    /// Starts a server on the first display number from 160 whose lock file is absent, and keeps
-    /// it only once the lock names this server's own pid (trap 181).
+    /// Starts a server on the first display number from 160 whose lock file is absent or a gone
+    /// server's of this user (`x_lock::free`, ADR 2317), and keeps it only once the lock names
+    /// this server's own pid (trap 181).
     fn start() -> Result<Self, String> {
         for number in 160..260_u32 {
-            let lock = PathBuf::from(format!("/tmp/.X{number}-lock"));
-            if lock.exists() {
+            if !x_lock::free(number) {
                 continue;
             }
+            let lock = x_lock::lock(number);
             let name = format!(":{number}");
             let server = Command::new("Xvfb")
                 .args([
@@ -205,7 +210,11 @@ impl Display {
                 .map_err(|error| {
                     format!("Xvfb would not start ({error}); this gate needs it installed")
                 })?;
-            let mut display = Self { server, name };
+            let mut display = Self {
+                server,
+                name,
+                number,
+            };
             let began = Instant::now();
             while began.elapsed() < Duration::from_secs(5) {
                 if let Ok(held) = std::fs::read_to_string(&lock) {
@@ -227,10 +236,10 @@ impl Display {
         Err("no display from :160 to :259 could be taken".to_owned())
     }
 
-    /// Stops the server; a server that has already gone has nothing left to stop.
+    /// Stops the server with `TERM`, so that it removes its lock and socket (ADR 2317); a server
+    /// that has already gone has nothing left to stop.
     fn stop(&mut self) {
-        drop(self.server.kill());
-        drop(self.server.wait());
+        x_lock::stop(&mut self.server, self.number);
     }
 }
 

@@ -127,6 +127,29 @@ impl App {
         );
     }
 
+    /// Puts the window under the presentation of the document now in front, after a tab change
+    /// that is not a document opened behind (which takes the front only to give it back and keeps
+    /// the front's clock, ADR 1303).
+    ///
+    /// The clock, the face and the armed transition of the document left go with it: the document
+    /// left is not displayed, so its slide's time stops (§12.4.4.1), and a transition from its
+    /// page would be a picture of a page nobody is reading any more. The arriving document's own
+    /// [`viewer_host::Presenting`] then decides — a fresh clock where it is full screen, the core
+    /// told the mode either way, and the chrome it may show (ADRs 2200, 2300 §3; the other three
+    /// windows do the same through `viewer_host::PresentationPump`).
+    pub(crate) fn bring_the_presentation_forward(&mut self) {
+        self.presentation = None;
+        self.effect = None;
+        self.arming = None;
+        self.presented = None;
+        if self.presenting.full_screen() {
+            self.begin_presentation();
+        } else {
+            self.dispatch(Command::Present(PresentationMode::Off));
+            self.apply_chrome();
+        }
+    }
+
     /// Leaves full screen and §12.4.4's mode with it, putting back what §12.2 says to.
     ///
     /// Answers whether there was a presentation to leave, because Escape is bound to several
@@ -297,6 +320,11 @@ impl App {
     /// [`viewer_host::Clock::tick`]'s, shared with the other two hosts. What is this host's is
     /// when the loop comes round to ask.
     pub(crate) fn drive_the_clock(&mut self) {
+        // A page in a window nobody can see is not displayed (§12.4.4.1), so the time it is hidden
+        // is not told to the core (ADR 2300).
+        if self.hidden {
+            return;
+        }
         let now = std::time::Instant::now();
         let Some(millis) = self
             .presentation
@@ -306,6 +334,72 @@ impl App {
             return;
         };
         self.dispatch(Command::Tick { millis });
+    }
+
+    /// Whether nobody can see the window: winit said it is occluded, or the platform states it
+    /// minimised — X11's `_NET_WM_STATE_HIDDEN`, Windows' iconic state, macOS's miniaturised one.
+    /// Wayland states neither to a client, so `is_minimized` is `None` there and only an occlusion
+    /// parks.
+    ///
+    /// **Read, not told, for the minimised half**: winit raises no event when a window manager
+    /// iconifies a window under X11 — an unmap brings no `VisibilityNotify`, which is the one
+    /// source of `Occluded` there — so the presentation asks at each of its own wakes. It costs one
+    /// property read of the X server per [`viewer_host::Clock::RESTING`], and only while a
+    /// presentation runs; a window reading a document never asks.
+    pub(crate) fn window_hidden(&self) -> bool {
+        self.occluded
+            || self
+                .state
+                .as_ref()
+                .is_some_and(|state| state.window.is_minimized() == Some(true))
+    }
+
+    /// winit's word that the window is hidden from view entirely, or is back.
+    pub(crate) fn occlusion(&mut self, occluded: bool) {
+        self.occluded = occluded;
+        self.window_shown(!self.window_hidden());
+    }
+
+    /// The window was hidden or shown again: parks §12.4.4.1's clock, or counts from now again,
+    /// in `viewer_host::PresentationPump::window_shown`'s words for the other windows (ADR 2300).
+    ///
+    /// `Clock::resume` both ways, so the time hidden is never told to the core and a transition
+    /// in flight ends on its page — Table 164 states a visual effect, and no frame of it was seen.
+    /// The end frame [`End`] holds goes with it, so the window shows the page and not a picture of
+    /// the transition's last moment. A document's script timers keep running: while the clock is
+    /// parked it tells the core nothing, so `script_timers` carries the time (ADR 1702).
+    pub(crate) fn window_shown(&mut self, shown: bool) {
+        if self.hidden != shown {
+            return;
+        }
+        self.hidden = !shown;
+        let now = std::time::Instant::now();
+        let mut held = false;
+        for playing in [self.presentation.as_mut(), self.effect.as_mut()]
+            .into_iter()
+            .flatten()
+        {
+            playing.clock.resume(now);
+            playing.end = None;
+            held = true;
+        }
+        let (window, clock) = if shown {
+            ("shown", "turns again")
+        } else {
+            ("hidden", "is parked")
+        };
+        let held = if held {
+            "§12.4.4.1's clock"
+        } else {
+            "no clock, and nothing"
+        };
+        self.trace.say(
+            Topic::Frames,
+            format_args!("PRESENTATION the window is {window}: {held} {clock}"),
+        );
+        if shown {
+            self.redraw();
+        }
     }
 
     /// Takes `transition` to be drawn as soon as there is a page to draw it to, or says why this

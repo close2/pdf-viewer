@@ -479,6 +479,9 @@ pub mod ffi {
         screen_width: i32,
         /// Its height.
         screen_height: i32,
+        /// Whether the platform lets a program move its own window: false on Wayland, where the
+        /// compositor places every window and `move` is ignored (ADR 2308).
+        positions: bool,
     }
 
     /// One quadrilateral of interactive chrome, in device pixels of the viewport.

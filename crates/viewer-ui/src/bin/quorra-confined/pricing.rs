@@ -260,6 +260,7 @@ mod tests {
             },
             bytes,
             origin: (0.0, 0.0),
+            declined: false,
         }
     }
 
@@ -278,6 +279,7 @@ mod tests {
             },
             bytes: 4_000_000,
             origin: (0.0, 0.0),
+            declined: false,
         }
     }
 

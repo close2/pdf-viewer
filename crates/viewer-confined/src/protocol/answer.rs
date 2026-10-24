@@ -240,7 +240,7 @@ pub(crate) fn encode_answer(answer: &Answer<'_>, marks: &Marks) -> Result<Vec<u8
                             .u32(crossed.target.height);
                         display_list::write_transform(&mut writer, crossed.target.transform);
                         writer.bytes(&crossed.bytes);
-                        writer.point(crossed.origin);
+                        writer.point(crossed.origin).bool(false);
                     }
                     // `RasterFormat` is written out rather than assumed, because a second format
                     // would otherwise be read as the first. Exhaustive since ADR 0247: it is no
@@ -258,7 +258,9 @@ pub(crate) fn encode_answer(answer: &Answer<'_>, marks: &Marks) -> Result<Vec<u8
                             .u32(frame.raster.height)
                             .u8(format)
                             .bytes(&frame.raster.data);
-                        writer.point(frame.origin);
+                        writer
+                            .point(frame.origin)
+                            .bool(marks.declined.contains(&page));
                     }
                     // The whole target, then the window's corner in it and its pixels, so the
                     // host places the window where this process drew it (ADR 1986).
@@ -278,7 +280,9 @@ pub(crate) fn encode_answer(answer: &Answer<'_>, marks: &Marks) -> Result<Vec<u8
                             .u32(raster.height)
                             .u8(format)
                             .bytes(&raster.data);
-                        writer.point(held.origin);
+                        writer
+                            .point(held.origin)
+                            .bool(marks.declined.contains(&page));
                     }
                 }
             }
@@ -548,6 +552,8 @@ pub(crate) fn decode_answer_reusing(
                     payload,
                     bytes,
                     origin: reader.point("an origin")?,
+                    // After the origin, so `bytes` stays the payload's alone (ADR 2316).
+                    declined: reader.bool("whether a draw of the page declined a mark")?,
                 });
             }
             held.retain(&listed);

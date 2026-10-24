@@ -8,7 +8,7 @@
 //! > shape ever disappears as a result of unfavourable placement relative to the device
 //! > pixel grid, as might happen with other possible scan conversion rules.
 //!
-//! The device lane of ADR 0016 counts samples on a lattice, so it answers *is this
+//! The device lane of ADR 0016 counts samples at fixed points, so it answers *is this
 //! sample point inside the shape* and never *does this shape intersect this pixel*. A
 //! mark narrower than the gaps between the samples can therefore fall entirely between
 //! them and read zero — which is the disappearance the sentence above forbids, reached by
@@ -16,20 +16,20 @@
 //! lose such a mark.
 //!
 //! So this module is the two numbers ADR 0070's fifth lane condition compares:
-//! [`vanishing_width`], derived from the lattice rather than written down, and
+//! [`vanishing_width`], derived from the sample pattern rather than written down, and
 //! [`ThinAxis`], which is the one definition of *how thin a mark is* in this tree.
 
-use crate::winding::SampleLattice;
+use crate::winding::SamplePattern;
 
 /// The narrowest mark the device lane can promise not to lose wherever it lands, in device
-/// pixels: [`SampleLattice::vanishing_width`] of the lattice `samples` lays out.
+/// pixels: [`SamplePattern::vanishing_width`] of the pattern `samples` lays out.
 ///
-/// **Derived from the pattern, not chosen** (the viewer's ADR 2296). The samples lie on a
-/// rank-1 lattice, so the widest band at any angle that can fall between them is the spacing
-/// of its lattice lines, `1/√10` at sixteen samples, and the widest axis-aligned square is
-/// `5/16`; this is the larger, so a mark whose thin axis — the narrower side of its device
-/// box, or a stroke's own width — reaches it holds a sample under either reading. Below it
-/// there are placements that hold none.
+/// **Derived from the pattern, not chosen** (the viewer's ADRs 2296 and 2312). The widest band
+/// at any angle that can fall between the samples and the widest axis-aligned square are each
+/// computed from where the samples sit; this is the larger, so a mark whose thin axis — the
+/// narrower side of its device box, or a stroke's own width — reaches it holds a sample under
+/// either reading. Below it there are placements that hold none. Each count's width is found
+/// once in the process's life and kept, since a frame asks for it twice.
 ///
 /// `tests/thin_marks.rs` holds both halves of that on the device rather than on paper:
 /// `at_the_sample_spacing_the_device_lane_holds_the_clause_at_every_position` sweeps ten
@@ -38,14 +38,23 @@ use crate::winding::SampleLattice;
 ///
 /// **What the extremes of [`Options::coverage_samples`] make of it.** That field is
 /// public and settable; construction rounds it down to a square and clamps it to
-/// `4..=64`, so this runs from **0.75 at four samples** — whose only lattice with a row to
-/// each sample is a diagonal — down to **0.141 at sixty-four**. The condition narrows as a
-/// caller buys quality, which is the direction it should move in.
+/// `4..=64`, so this runs from **0.75 at four samples** — the widest empty square of every one
+/// of the twenty-four four-sample patterns with a row to each sample — down to **0.141 at
+/// sixty-four**. The condition narrows as a caller buys quality, which is the direction it
+/// should move in.
 ///
 /// [`Options::coverage_samples`]: crate::startup::Options::coverage_samples
 pub(super) fn vanishing_width(samples: u32) -> f32 {
-    SampleLattice::of(samples).vanishing_width()
+    let pattern = SamplePattern::of(samples);
+    match VANISHING_WIDTHS.get(pattern.count() as usize) {
+        Some(kept) => *kept.get_or_init(|| pattern.vanishing_width()),
+        None => pattern.vanishing_width(),
+    }
 }
+
+/// Each sample count's [`vanishing_width`], found on first use.
+static VANISHING_WIDTHS: [std::sync::OnceLock<f32>; 65] =
+    [const { std::sync::OnceLock::new() }; 65];
 
 /// How narrow a mark is across its thinnest known axis, in device pixels.
 ///
@@ -106,9 +115,9 @@ impl ThinAxis {
         })
     }
 
-    /// Whether the device lane's sample lattice could miss this mark entirely.
+    /// Whether the device lane's sample pattern could miss this mark entirely.
     ///
-    /// Strictly below the width: at exactly the [`vanishing_width`] the lattice catches the
+    /// Strictly below the width: at exactly the [`vanishing_width`] the pattern catches the
     /// mark wherever it lands, which is the arithmetic that function states and
     /// `tests/thin_marks.rs` measures.
     ///
@@ -129,14 +138,17 @@ mod tests {
 
     /// The width at each sample count `Options::coverage_samples` can become, including
     /// both ends of the clamp — the numbers the condition's reach is stated in, and wider
-    /// than the ordered grid's `1/√n` at every one of them (ADR 2296).
+    /// than the ordered grid's `1/√n` at every one of them (ADR 2296). At each the derived
+    /// pattern's widest empty square is the wider of its two widths (ADR 2313), so each is a
+    /// whole number of sample pitches: the lattice's own square at four, nine, sixteen and
+    /// thirty-six, where the lattice's band had been wider still at the last three.
     #[test]
     fn the_vanishing_width_at_every_admitted_sample_count() {
         for (samples, expected) in [
             (4, 0.75_f32),
-            (9, 1.0 / 5.0_f32.sqrt()),
-            (16, 1.0 / 10.0_f32.sqrt()),
-            (36, 1.0 / 26.0_f32.sqrt()),
+            (9, 4.0 / 9.0_f32),
+            (16, 5.0 / 16.0_f32),
+            (36, 7.0 / 36.0_f32),
         ] {
             let width = vanishing_width(samples);
             assert!(
@@ -177,7 +189,7 @@ mod tests {
         let width = vanishing_width(16);
         assert!(
             !ThinAxis::of((0.0, 0.0, width, 10.0), None).can_miss_every_sample(width),
-            "at exactly the vanishing width the lattice cannot miss the mark"
+            "at exactly the vanishing width the pattern cannot miss the mark"
         );
         assert!(
             ThinAxis::of((0.0, 0.0, width * 0.99, 10.0), None).can_miss_every_sample(width),

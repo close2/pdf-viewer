@@ -238,6 +238,7 @@ fn table_147s_window_entries_reach_the_window() {
         screen_top: 0,
         screen_width: 1400,
         screen_height: 1200,
+        positions: true,
     });
     assert_eq!(resize, vec![1, 200 + wide, 100 + tall, 0, 0, 0]);
     host.resized(
@@ -255,6 +256,7 @@ fn table_147s_window_entries_reach_the_window() {
         screen_top: 0,
         screen_width: 1400,
         screen_height: 1200,
+        positions: true,
     });
     assert_eq!(
         centre,
@@ -269,11 +271,59 @@ fn table_147s_window_entries_reach_the_window() {
             screen_left: 0,
             screen_top: 0,
             screen_width: 1400,
-            screen_height: 1200
+            screen_height: 1200,
+            positions: true,
         })
         .is_empty(),
         "paid once"
     );
+}
+
+/// `/CenterWindow` on a platform that places every window itself — Wayland, where `move` is
+/// ignored — asks for no move, says why, and names it in the title (ADR 2308).
+#[test]
+fn a_centre_the_platform_will_not_give_is_said_and_titled() {
+    use crate::bridge::ffi::QtWindowExtents;
+    let directory =
+        std::env::temp_dir().join(format!("quorra-qt-uncentred-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).expect("a temporary directory");
+    let path = directory.join("centred.pdf");
+    std::fs::write(
+        &path,
+        written(&[
+            "<< /Type /Catalog /Pages 2 0 R /ViewerPreferences << /CenterWindow true >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] >>",
+        ]),
+    )
+    .expect("the document is written");
+    let mut host = opened(&path);
+    std::fs::remove_dir_all(&directory).expect("the temporary directory is removed");
+    drawn(&mut host);
+    assert!(
+        !host
+            .title()
+            .contains(viewer_host::native_window::NOT_CENTRED_TITLE)
+    );
+    let unmoved = host.place_window(QtWindowExtents {
+        window_width: 1000,
+        window_height: 800,
+        frame_width: 0,
+        frame_height: 0,
+        screen_left: 0,
+        screen_top: 0,
+        screen_width: 1400,
+        screen_height: 1200,
+        positions: false,
+    });
+    assert!(unmoved.is_empty(), "{unmoved:?}");
+    assert!(
+        host.title()
+            .contains(viewer_host::native_window::NOT_CENTRED_TITLE),
+        "{}",
+        host.title()
+    );
+    assert_eq!(host.status(), viewer_host::native_window::NOT_CENTRED);
 }
 
 /// A document stating none of Table 147's window entries is titled by its file and placed
@@ -297,7 +347,8 @@ fn a_silent_document_is_titled_by_its_file_and_placed_nowhere() {
             screen_left: 0,
             screen_top: 0,
             screen_width: 1400,
-            screen_height: 1200
+            screen_height: 1200,
+            positions: true,
         })
         .is_empty()
     );

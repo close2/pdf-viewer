@@ -601,3 +601,31 @@ the final page in one edge row — long enough to count as a fourth page (ADR 23
 clock is started before the key that starts the clock, the first interval it must see carries a margin the
 load can eat, and two settled pictures within one unit of each other count as one page.
 
+### 249. A dead Xvfb's lock file still takes its display
+
+Trap 181 made a display a round's own only after its lock file was absent and the round's pid held it;
+it said nothing about leaving. Rounds killed their Xvfb by process group or lost it with a wrapper, and
+`/tmp/.X<n>-lock` and `/tmp/.X11-unix/X<n>` stayed behind with a dead pid inside — a hundred and
+forty-seven of them by batch one hundred and twelve's merge, when `t2-toolkit_launch` reported "no display
+from :160 to :259 could be taken" and failed in one second. A round stops its Xvfb with TERM, waits for it,
+and removes its own lock and socket once the server is gone; the instrument that takes a display reads
+the pid in a lock it meets and, where that pid is dead and the file is the agent user's, removes it and
+takes the display — another user's lock, dead or alive, is never touched.
+
+### 253. A running drive's script is edited by nobody, not even its own round
+
+Habit 161 moved the drive onto the export's copy of `tools/drive-windows.sh` so a sibling's edit to the
+worktree's copy could not reach a running loop; round 1741 then edited the export's copy itself while its
+drive was running, and bash — which reads a script as it executes — shifted its read offset into the
+middle of a line (ADR 2317). Any copy a running drive reads is immutable until the drive ends; an edit for
+the next run goes into a fresh copy, named for the run, and the record says which copy each run read.
+
+### 254. A typed flags value drops the bits the bindings' feature floor does not name
+
+The tree binds GTK at the `v4_10` floor (ADR 2250), and `gdk4` converts `Toplevel::state` through
+`from_bits_truncate`, which keeps only the bits the enabled features define; `SUSPENDED` (1 << 16) is named
+under `v4_12`, so it was dropped before round 1741's parking code could read it, and the first form parked
+nothing (ADR 2317). Where a window state or any GDK flag is newer than the floor, the property's raw
+number is read and the bit tested by value, with a comment naming the version that defines it; raising
+the floor is the owner's question, and a dropped bit never is.
+

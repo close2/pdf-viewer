@@ -936,7 +936,10 @@ fn compose(job: Job, done: &Sender<Finished>, wake: &dyn Fn()) -> Done {
 /// silent**, exactly as [`crate::renderer`]'s is, because this is a picture nobody asked for: a
 /// refusal costs a stand-in that will not be as good and nothing else, and reporting it would be a
 /// note about work the person did not request. It cannot spin: the caller falls through to a
-/// blocking `recv` when this answers `None`.
+/// blocking `recv` when this answers `None`. What its draw declines is not said either: the frame
+/// of the view the reader asked for says its own, at the size they see it, and a stand-in's told
+/// first would spend the page's one sentence for its condition on a picture nobody looked at
+/// (ADR 2316).
 fn draw_whole_page(page: &crate::stale::Placed) -> Option<crate::stale::Retained<Arc<Raster>>> {
     let target = crate::stale::proxy_target(&page.list)?;
     let raster = viewer_ui::software::compose_pages(&[(page.list.as_ref(), target)]).ok()?;

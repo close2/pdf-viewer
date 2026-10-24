@@ -250,7 +250,7 @@ pub(crate) fn grid_sweep(
         uncached: false,
         width: WITNESS_WIDTH,
     };
-    let pitch = f64::from(raster_gpu::SampleLattice::of(samples).edge_pitch());
+    let pitch = f64::from(raster_gpu::SamplePattern::of(samples).edge_pitch());
     println!(
         "== a {WITNESS_WIDTH}-pixel rule at {samples} samples: the lattice's pitch is 1/{samples} = {pitch:.4} =="
     );

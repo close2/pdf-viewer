@@ -511,7 +511,13 @@ impl Walk<'_> {
     }
 
     /// A `JPXDecode` image's own samples at full resolution, within the operator's budget, or
-    /// the refusal naming the budget (ADR 1333).
+    /// the refusal naming why not — one sentence for each reason (ADRs 1333, 2293).
+    ///
+    /// The budget's sentence is the decoder's: a codestream past it would come back at a reduced
+    /// resolution level, which would resample every sample outside the region, so it is refused
+    /// with the flag that raises the budget. A colour space no PDF space restates — PIMA 7667's
+    /// e-sRGB and e-sYCC, or a stated `/ColorSpace` this crate does not read — is no question of
+    /// resolution and is refused in its own words, as is anything else the decode reported.
     fn jpx_whole(
         &self,
         shown: &str,
@@ -524,13 +530,21 @@ impl Walk<'_> {
             &self.resources,
             (codestream, self.image_samples),
         )
-        .map_err(|error| {
-            format!(
+        .map_err(|error| match error {
+            ImageError::Sandboxed { detail } => format!(
                 "§7.4.9: the JPEG 2000 image /{shown} was not decoded to its own samples at \
-                 full resolution ({error}); a reduced resolution level would resample every \
+                 full resolution ({detail}); a reduced resolution level would resample every \
                  sample outside the region, so the page is refused — an operator whose machine \
                  can hold a larger decode states it with --image-samples"
-            )
+            ),
+            ImageError::UnsupportedColourSpace { space } => format!(
+                "§7.4.9: the JPEG 2000 image /{shown} is in a colour space this removal cannot \
+                 write its samples back under — {space} — so the page is refused"
+            ),
+            other => format!(
+                "§7.4.9: the JPEG 2000 image /{shown} was not decoded to its own samples \
+                 ({other}); the page is refused"
+            ),
         })
     }
 

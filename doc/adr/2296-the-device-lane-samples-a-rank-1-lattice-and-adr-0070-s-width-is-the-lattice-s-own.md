@@ -1,6 +1,7 @@
 # 2296 — The device lane samples a rank-1 lattice, and ADR 0070's width is the lattice's own
 
-Status: implemented. Session 1731, 2026-10-23, the pixels slot of batch one hundred and twelve,
+Status: implemented; its pattern superseded by ADR 2313 and its widths' derivation generalised by ADR
+2312 (2026-10-24). Session 1731, 2026-10-23, the pixels slot of batch one hundred and twelve,
 under the project owner's switch to code improvements and bug fixes of 2026-10-14. Clause: ISO
 32000-2 §10.7.4 (the row stays `departed`, its note amended), read with §10.7.1's NOTE that the
 scan-conversion algorithm is not defined by PDF. Context: raster's ADRs 0006, 0016, 0070, 0076;

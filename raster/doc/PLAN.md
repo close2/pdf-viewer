@@ -273,8 +273,9 @@ who could remove it.
 - **The sampled lane's coverage is one sample row, and that is a non-conformance we have
   stated rather than removed** (ADR 0076, 2026-08-23, `doc/notes-sampled-lane-quantum.md`).
   It answers the caller's §31 second question with the arithmetic rather than a curve fit:
-  `winding::SampleLattice` puts `n` samples on a rank-1 lattice, each in a row and a column of
-  its own, so the rows form one lattice of period `p = 1/n` across the device, and
+  `winding::SamplePattern` puts `n` samples each in a row and a column of its own (a pattern a
+  committed search derives, the viewer's ADR 2313), so the rows form one lattice of period
+  `p = 1/n` across the device, and
   `winding.wgsl`'s `fs_resolve` stores `covered / n` — so an axis-aligned band's ink is `k · p`,
   **a sixteenth of a device pixel at the default sixteen samples** (the viewer's ADR 2296; the
   ordered `√n × √n` grid before it had `p = 1/√n`, and their reported 0.753 is that grid's
@@ -425,16 +426,16 @@ who could remove it.
   merely rarer. What it cannot do from this user is a run on the owner's display through
   XWayland, where the failing population was gathered.
 - **A mark thinner than the sample grid keeps the processor lane, and §10.7.4's gap is closed
-  (ADR 0070).** `Coverage::Gpu` samples a lattice, so a mark narrower than the lattice's
-  vanishing width — `1/√10` of a device pixel at sixteen samples, the wider of its widest empty
-  band and its widest empty square (the viewer's ADR 2296) — could fall between the samples and read zero —
+  (ADR 0070).** `Coverage::Gpu` samples fixed points, so a mark narrower than the pattern's
+  vanishing width — five sixteenths of a device pixel at sixteen samples, the wider of its widest
+  empty band and its widest empty square (the viewer's ADRs 2296 and 2312) — could fall between the samples and read zero —
   the disappearance §10.7.4 names in the very sentence that carries its rule, *"unfavourable
   placement relative to the device pixel grid"*. Note the boundary the costing round drew:
   drawing **more** than the shape's area is *not* a violation, because §10.7.4's second
   requirement is a floor; drawing **nothing** is. A fifth `take_gpu_lane` condition now declines
   the device lane for such a mark, the threshold derived from where the samples actually sit —
-  **including across the pixel seam**, since the samples are one lattice across the whole
-  device, and `SampleLattice`'s tests re-derive both widths by brute force. Measured on the caller's
+  **including across the pixel seam**, since the pattern repeats in every pixel across the whole
+  device, and `SamplePattern`'s tests re-derive both widths by brute force. Measured on the caller's
   corpus, one copy, 2026-08-18: **`Coverage::Gpu` at scale 1 goes 930/25/2/17 → 932/23/2/17,
   which is the processor lane's own row** — `bug1883609.pdf` and `vertical.pdf` join the oracle,
   every other page line is identical to the character, and at 4× one line moves toward the

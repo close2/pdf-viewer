@@ -1205,6 +1205,29 @@ face is drawn narrowed to the file's widths, **built** (`doc/questions/A47`, `A5
   covers; a machine's face drawn for a code the page shows that the shipped face lacks; and a
   result the proof finds drawn differently.
 
+#### `fonts/font-programs-filed-by-their-format`
+ISO 19005-2 6.2.11.4.1, ISO 19005-4 6.2.10.4.1 · all six · `Mechanical`, **built** (ADR 2307)
+
+- **Mitigation** — the clause's "as defined in" section 9.9 files each program's format under a key
+  (ISO 32000-2 Table 124) and a `/FontFile3` under a name (Table 125), by the font's dictionary. A
+  program its bytes say is misfiled is refiled: the name restated under the same key, or the stream
+  moved to `/FontFile3` with the lengths a compact program does not state dropped. The program is
+  carried byte for byte, and this reader chose its reader by those bytes already, so nothing drawn
+  changes.
+- **Refused, by name**: a program no row admits under its dictionary — a `glyf` program under
+  `CIDFontType0` — since a true filing would need the dictionary's subtype changed and with it how a
+  CID selects a glyph, and a CFF-flavoured `OTTO` program under `/FontFile2` in a `TrueType` or
+  `CIDFontType2` dictionary (`bug1186827`, `issue215`, `issue5084`), which Table 124 admits only under
+  `Type1` and `CIDFontType0`; a move into `/FontFile` or `/FontFile2`, whose lengths this does not
+  compute; a finding list the validator shortened.
+- **Owed**: a `CIDFontType2` with an `Identity` `/CIDToGIDMap` over a name-keyed CFF selects the same
+  glyphs as a `CIDFontType0` would (§9.7.4.2), so refiling the dictionary there is provable.
+- **Not judged**: a `ttcf` collection under `/FontFile2`, until the TrueType Reference Manual is read
+  on whether it is a TrueType font program (`issue13193`, `issue9262_reduced`; veraPDF fails both).
+- **Witnesses** — `issue4668`, `issue5751`, `issue6782`, `issue7598`, `bug921409` convert at 4 and
+  2b, page 1 byte-identical to the source's at 100 dpi, veraPDF passing all five; `issue9949`,
+  `issue11740_reduced` and the three above are refused.
+
 #### `fonts/cmap-embedded-or-predefined`
 #### `fonts/cmap-uses-only-predefined-cmaps`
 ISO 19005-2 6.2.11.3.3, ISO 19005-4 6.2.10.3.3 · all six · the first **built** as `preserve` (ADR
@@ -1291,6 +1314,11 @@ ISO 19005-2 6.2.11.3.1, ISO 19005-4 6.2.10.3.1 · all six · today `the-fence`
     reader and an embedded CMap program's `/CIDSystemInfo`, neither of which this converter has.
 - **What this entry used to say about making them agree** — that it relabels every CID — remains
   the reason a `supply` naming a collection is withheld.
+- **veraPDF reads the supplement bound backwards.** Its 1.30.3 test for the clause requires the
+  CIDFont's supplement at most the CMap's; both parts say at least, and their note gives the reason
+  (the font holds glyphs for every CID the CMap reaches). This validator reads the text, so the three
+  outputs veraPDF fails there alone (`issue11555`, `noembed-eucjp`, `noembed-jis7`) are its
+  disagreement, not a finding (ADR 2307 section 4).
 - **By target** — none.
 - **From a configuration** — `supply` is conceivable — an operator naming the collection they know
   their producer used — but it is the one `supply` that cannot be checked against anything, and a
@@ -1532,7 +1560,9 @@ rewrite
 - **From a configuration** — nothing: the removal states nothing about any character.
 - **Witnesses** — 26 of the 32 pdf.js documents part 4 refused on it convert, page 1 within one
   level of the source; veraPDF passes 21 and fails five on a descendant font program
-  (6.2.10.4.1), a disagreement of its own.
+  (6.2.10.4.1): a program filed under a key or name its bytes are not, which
+  `fonts/font-programs-filed-by-their-format` now refiles or refuses, or a TrueType collection
+  (ADR 2307).
 
 #### `fonts/actual-text-covers-private-use-characters`
 ISO 19005-2 6.2.11.7.3 · PDF/A-2a · today `the-fence`
@@ -1730,12 +1760,18 @@ ISO 19005-2 6.3.3, ISO 19005-4 6.3.3 · all six · **the `discard` built** (ADR 
 
 #### `annotations/normal-appearance-shape`
 ISO 19005-2 6.3.3, ISO 19005-4 6.3.3 · all six · **`/AS` half built in session 957** (`Stated`);
-the half with no `/AS` stays `not-built-yet`
+**a push button's single stream built** (`Stated`, ADR 2319); the half with no `/AS`, and a check
+box's or a radio button's single stream, stay `not-built-yet`
 
 - **Mitigation** — split, as ADR 0955 found. Where the annotation states an `/AS` entry, §12.5.5
   already says which stream a reader draws, so collapsing the subdictionary to that one is `Stated`
   and **owed, not optional**. Where it states none, nothing in the file says which state the
-  document is in, and choosing is `A48`'s forbidden half: **no mitigation**.
+  document is in, and choosing is `A48`'s forbidden half: **no mitigation**. A button widget's
+  `N` must be a subdictionary (TechNote 0010's A012 reads a push button in, even with one entry):
+  a push button's single stream is written as the one entry of a subdictionary its new `/AS`
+  selects, which §12.5.5 draws as it drew the stream, under a state name nothing else reads
+  (`Normal`, ADR 2319). A check box's or a radio button's single stream is not, because
+  §12.7.5.2.3 makes the state's name the field's value.
 - **By target** — none.
 - **From a configuration** — for the second case, `remedy = "supply"` with `state = "Off"` is
   expressible and is the operator asserting what an unstated checkbox means across their archive. It

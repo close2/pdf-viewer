@@ -114,3 +114,28 @@ internal struct quorra_window_chrome_state
     internal uint window_ui;
     internal uint other_windows;
 }
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct quorra_window_extents
+{
+    internal int window_width;
+    internal int window_height;
+    internal int frame_width;
+    internal int frame_height;
+    internal int screen_left;
+    internal int screen_top;
+    internal int screen_width;
+    internal int screen_height;
+    internal uint positions;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct quorra_window_placement
+{
+    internal uint resize;
+    internal int width;
+    internal int height;
+    internal uint move_to;
+    internal int x;
+    internal int y;
+}

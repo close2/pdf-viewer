@@ -568,12 +568,21 @@ impl ResourceStore {
     /// redraw a document's gradient rather than refuse it (brief section 4.7). Each failure
     /// names itself — [`ResourceProblem::RampEmpty`],
     /// [`ResourceProblem::RampOffsetOutOfRange`], [`ResourceProblem::RampUnordered`],
-    /// [`ResourceProblem::RampColorInvalid`] — and a ramp over the budget is
+    /// [`ResourceProblem::RampColorInvalid`], [`ResourceProblem::RampTooLong`] past the stops
+    /// one ramp's table holds (ADR 2310) — and a ramp over the budget is
     /// [`DeviceError::ResourceBudgetExceeded`].
     pub(crate) fn upload_ramp(&mut self, stops: &[Stop]) -> Result<RampId, DeviceError> {
         if stops.is_empty() {
             return Err(DeviceError::InvalidResource {
                 reason: ResourceProblem::RampEmpty,
+            });
+        }
+        if stops.len() > crate::device::MAX_RAMP_STOPS {
+            return Err(DeviceError::InvalidResource {
+                reason: ResourceProblem::RampTooLong {
+                    stops: stops.len(),
+                    limit: crate::device::MAX_RAMP_STOPS,
+                },
             });
         }
         let mut previous = 0.0_f32;

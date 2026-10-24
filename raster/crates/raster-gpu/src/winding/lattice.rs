@@ -1,7 +1,13 @@
-//! Where the [`Coverage::Gpu`](crate::Coverage::Gpu) lane puts its samples, and the two widths
-//! that follow from where it puts them (the viewer's ADR 2296).
+//! The rank-1 lattice of each sample count, and the two widths that follow from it in closed
+//! form (the viewer's ADR 2296).
 //!
-//! The pattern is a **rank-1 lattice**: `n` samples, the i-th at `(i + ½)/n` across a pixel
+//! **The lattice is the reference the lane's pattern is derived against, and its bound**
+//! (the viewer's ADR 2313): [`SamplePattern::of`] draws with the pattern a seeded search
+//! finds from this lattice and holds to no width wider than the lattice's, and with the lattice
+//! itself at a count no search was run for. What follows is the lattice's own argument, which
+//! stands.
+//!
+//! A **rank-1 lattice**: `n` samples, the i-th at `(i + ½)/n` across a pixel
 //! and `((g·i mod n) + ½)/n` down it, for one generator `g` coprime to `n`. Every sample has a
 //! column and a row of its own, so an axis-aligned edge crosses them one at a time and reads one
 //! of `n + 1` levels. The ordered `√n × √n` grid this replaced put `√n` samples in each column,
@@ -36,7 +42,9 @@
 //! along it receives a sample — the "every column" guarantee at a quarter of the width the
 //! ordered grid needed.
 
-/// The sample pattern of one sample count: `n` samples on the rank-1 lattice of generator `g`.
+use super::pattern::{LARGEST_COUNT, SamplePattern};
+
+/// The rank-1 lattice of one sample count: `n` samples on the lattice of generator `g`.
 ///
 /// Built by [`SampleLattice::of`], which chooses the generator, so a count names exactly one
 /// pattern and two adapters place their samples identically (ADR 0006's promise).
@@ -88,19 +96,13 @@ impl SampleLattice {
         lattice_row(self.generator, index, self.count)
     }
 
-    /// Every sample, in pixels relative to the pixel's centre: the i-th at `(i + ½)/n − ½`
-    /// across and `(row(i) + ½)/n − ½` down.
+    /// The lattice as a [`SamplePattern`]: sample `i` in column `i` and row `g·i mod n`.
+    ///
+    /// What the lane draws with at a count no search has been run for, and where
+    /// `examples/sample_pattern.rs`'s search starts (the viewer's ADR 2313).
     #[must_use]
-    pub fn offsets(self) -> Vec<[f32; 2]> {
-        #[expect(clippy::cast_precision_loss)] // a sample count clamped to 4..=64 by the device
-        let step = 1.0 / self.count as f32;
-        (0..self.count)
-            .map(|index| {
-                #[expect(clippy::cast_precision_loss)] // both below the sample count
-                let (x, y) = (index as f32, self.row(index) as f32);
-                [(x + 0.5).mul_add(step, -0.5), (y + 0.5).mul_add(step, -0.5)]
-            })
-            .collect()
+    pub fn pattern(self) -> SamplePattern {
+        SamplePattern::of_rank_1_lattice(self.count, |index| self.row(index))
     }
 
     /// The distance between neighbouring sample columns, and between neighbouring rows: `1/n`.
@@ -133,7 +135,7 @@ impl SampleLattice {
     /// the lattice vector that takes the first to the origin, its lower-left corner is `(0, y₀)`
     /// for a lattice row `y₀`, so `n` corners decide it. From each, the square grows until it
     /// meets the first sample above and to the right of the corner. Counted in units of `1/n`
-    /// on the lattice's integer points; the half-sample offset of [`offsets`](Self::offsets)
+    /// on the lattice's integer points; the half-sample offset of [`SamplePattern::offsets`]
     /// moves every point alike and changes no distance.
     #[must_use]
     pub fn widest_empty_square(self) -> f32 {
@@ -172,10 +174,6 @@ impl SampleLattice {
         self.widest_empty_band().max(self.widest_empty_square())
     }
 }
-
-/// The most samples a lattice is built with: the device's own clamp (`device/construct.rs`),
-/// and the bound on the `O(n³)` search [`SampleLattice::of`] runs once per count.
-const LARGEST_COUNT: u32 = 64;
 
 /// The generator each sample count up to [`LARGEST_COUNT`] takes, found on first use.
 static GENERATORS: [std::sync::OnceLock<u32>; LARGEST_COUNT as usize + 1] =
@@ -250,6 +248,7 @@ mod tests {
     fn doubled(lattice: SampleLattice) -> Vec<(i64, i64)> {
         let n = f64::from(lattice.count());
         lattice
+            .pattern()
             .offsets()
             .iter()
             .map(|&[x, y]| {

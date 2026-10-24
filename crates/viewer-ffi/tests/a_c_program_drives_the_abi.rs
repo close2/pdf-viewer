@@ -101,6 +101,17 @@ fn script_fixture() -> Vec<u8> {
     )
 }
 
+/// One page stating Table 147's `/FitWindow` and `/CenterWindow`, for the C window's placement
+/// (ADR 2308).
+fn placed_fixture() -> Vec<u8> {
+    written(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /ViewerPreferences \
+         << /FitWindow true /CenterWindow true >> >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] >>\nendobj\n",
+    )
+}
+
 /// One optional content group intended for the individual Ada — Table 100's `/User` with `/Type
 /// /Ind` — whose state §8.11.4.4's `/AS` manages at the `View` event, over a filled rectangle:
 /// "[i]f there is an exact match, the ON state shall be used; otherwise OFF shall be used", so the
@@ -336,6 +347,9 @@ fn what_it_printed(said: &str) {
         // pixels per unit rather than refused, and drawn as a window of the viewport grown by a
         // quarter on each side — 1200 x 1500 and the pixel either span reaches into.
         "oversize: page 2 is 23812x33676, a window 1201x1501 at ",
+        // And what the window's draw declined handed back, which for this page is nothing
+        // (ADR 2316); `session`'s own test draws a window that declines a mark.
+        "oversize: what the window declined, told: 0 event(s)",
         "ok",
     ] {
         assert!(
@@ -428,12 +442,16 @@ fn a_c_program_drives_a_window_one_call_per_thing_that_happened() {
     let audience = private.join("quorra_window_audience_fixture.pdf");
     std::fs::write(&audience, audience_fixture())
         .expect("the fixture is written in the private test directory");
+    let placed = private.join("quorra_window_placed_fixture.pdf");
+    std::fs::write(&placed, placed_fixture())
+        .expect("the fixture is written in the private test directory");
     let ran = Command::new(&program)
         .arg(&document)
         .arg(&form)
         .arg(&script)
         .arg(&directory)
         .arg(&audience)
+        .arg(&placed)
         .env("PDF_SCRIPT_WORKER", &worker)
         // Two seconds rather than the reader's wait, so the question left unanswered is withdrawn
         // inside the test (ADR 1643).
@@ -460,6 +478,12 @@ fn what_the_window_owed(said: &str) {
         // `viewer_host::Tab`'s six, in the order and the words every window shows them.
         "panels offered 6 (header 6): Contents Pages Layers Files Read About",
         "an unreadable file: the file named could not be opened for reading",
+        // Table 147's `/FitWindow` and `/CenterWindow` (ADR 2308): a 200 by 100 page fitted to the
+        // width of an 800-pixel page area is drawn 800 by 400, so a window of 800 by 640 whose page
+        // area is 800 by 600 becomes 800 by 440; then its outer 810 by 470 is centred on a 1920 by
+        // 1080 work area at 555, 305, and nothing more is owed; the document states no full screen.
+        "window placement: 1 resize(s) to 800x440, 1 move(s) to 555,305, then there is nothing to \
+         answer with; full screen 0",
         // Table 29's `/PageLayout`, obeyed when the document opened and said, as every window says
         // it.
         "said: this document opens in the OneColumn page layout (§7.7.2)",

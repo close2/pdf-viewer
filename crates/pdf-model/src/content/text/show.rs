@@ -3,6 +3,9 @@
 use super::glyph_painting::{GlyphPainting, Parts};
 use super::readback::{Readback, glyph_quad};
 use super::{Coverage, TextObject};
+use pdf_font::{Code, LoadedFont};
+use pdf_render::{ClipId, Transform};
+
 use crate::content::font::Font;
 use crate::content::overprint::FirstBullet;
 use crate::content::report::Placed;
@@ -55,13 +58,12 @@ impl Interpreter<'_> {
     /// The clause makes each behave as it would for a path: "Stroking, filling, and clipping
     /// shall have the same effects for a text object as they do for a path object … although
     /// they are specified in an entirely different way."
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one pass over a show string's codes, and every step of it is a clause: the \
-                  readback, the text layer's geometry, the two kinds of glyph and §9.3's four \
-                  spacing parameters. Splitting it would need nine parameters to carry the \
-                  loop's state into the piece that was moved"
-    )]
+    ///
+    /// The pass is one method per step of §9.4.4's algorithm, each taking the string's
+    /// constants and tallies as one [`ShowString`] (ADR 2320): [`Self::read_code`] reads a
+    /// code back, [`Self::place_in_text_layer`] builds the text rendering matrix and the text
+    /// layer's quadrilateral, [`Self::draw_code`] paints the glyph or accounts for the mark
+    /// that was not made, and [`Self::advance_past`] moves the text matrix.
     pub(in crate::content) fn show_text(
         &mut self,
         bytes: &[u8],
@@ -118,12 +120,6 @@ impl Interpreter<'_> {
         let lifted =
             (parts.first_bullet == FirstBullet::Group).then(|| state.with_opaque_constants());
         let paints = lifted.as_ref().unwrap_or(state);
-        let GlyphPainting {
-            fills,
-            strokes,
-            clipping,
-            ..
-        } = painting;
         let size = state.text.size;
         let scale = state.text.horizontal_scale;
 
@@ -146,13 +142,13 @@ impl Interpreter<'_> {
         // rather than something a gap implies — and the glyphs of a reversed string run
         // against the writing direction, where a gap means nothing.
         let reversing = self.reversed_chars > 0;
-        let mut pieces: Vec<String> = Vec::new();
+        let pieces: Vec<String> = Vec::new();
         // The quadrilaterals of a reversed string, in the order the glyphs were *placed*, so
         // that they can be paired with their pieces when those are appended backwards.
-        let mut reversed_quads: Vec<[f32; 8]> = Vec::new();
+        let reversed_quads: Vec<[f32; 8]> = Vec::new();
         // One show string's worth of glyph coverage, applied to the font's tally once at the
         // end: see `tally_glyph` for why it is not applied per code.
-        let mut coverage = Coverage::default();
+        let coverage = Coverage::default();
 
         // Table 120's `/Ascent` and `/Descent`, which say how tall this font's line is. Read
         // once per show operation: they are a property of the font. Table 120 requires neither
@@ -160,6 +156,20 @@ impl Interpreter<'_> {
         let extent = match &font {
             Font::Program(program) => program.extent(),
             Font::Type3(_) => (1.0, 0.0),
+        };
+        let mut show = ShowString {
+            font: &font,
+            state,
+            paints,
+            painting,
+            size,
+            scale,
+            vertical,
+            extent,
+            reversing,
+            pieces,
+            reversed_quads,
+            coverage,
         };
 
         // One separation decision per show string, taken before its first glyph, because
@@ -186,259 +196,355 @@ impl Interpreter<'_> {
                 Font::Type3(_) => ([0.0, 0.0], [0.0, 0.0]),
             };
 
-            let start = self.text.len();
-            let read = self.read_back(&font, code, reversing.then_some(&mut pieces));
-            if read == Some(Readback::Nothing)
-                && let Some(gap) = font.naming_gap(code)
-            {
-                // §9.10.2 exhausted on a code the page *showed*. Counted rather than reported,
-                // for ADR 0152's reason one column over — a report would cost the oracle a
-                // judged page (trap 11) for a shortfall in the readback and not in the picture
-                // — but counted rather than nothing at all, because a refusal that says nothing
-                // is indistinguishable from a page with no text on it.
-                //
-                // Counted *by cause*, because the total cannot say whether the clause has no
-                // answer or this program did not take one it states; `UnnamedCodes` has the
-                // argument. `PDFVIEWER_TRACE_UNNAMED_CODE=1` names each one on stderr, the same
-                // idiom the missing-glyph trace below uses, and it is what shows the glyph name
-                // behind an `UnlistedName` — the one variant where what the name *is* decides
-                // whose gap it is.
-                if std::env::var_os("PDFVIEWER_TRACE_UNNAMED_CODE").is_some() {
+            let (start, read) = self.read_code(&mut show, code);
+            let (transform, glyph_to_user) =
+                self.place_in_text_layer(&mut show, text, advance_em, program_metrics.1, start);
+            let at = CodeAt {
+                code,
+                start,
+                read,
+                transform,
+                glyph_to_user,
+            };
+            self.draw_code(&mut show, text, &at);
+            self.advance_past(&show, text, code, advance_em, program_metrics.0[1]);
+        }
+
+        if show.coverage.drawn > 0 || show.coverage.empty > 0 {
+            self.tally_glyph(&state.text.font_name, show.coverage);
+        }
+        self.append_reversed(&show.pieces, show.reversed_quads);
+    }
+
+    /// Step one of a code: its §9.10.2 readback, and the count of a code the page showed that
+    /// no clause could name. Returns where the readback began in the text and what it read.
+    fn read_code(&mut self, show: &mut ShowString<'_>, code: Code) -> (usize, Option<Readback>) {
+        let font = show.font;
+        let state = show.state;
+        let reversing = show.reversing;
+        let pieces = &mut show.pieces;
+
+        let start = self.text.len();
+        let read = self.read_back(font, code, reversing.then_some(pieces));
+        if read == Some(Readback::Nothing)
+            && let Some(gap) = font.naming_gap(code)
+        {
+            // §9.10.2 exhausted on a code the page *showed*. Counted rather than reported,
+            // for ADR 0152's reason one column over — a report would cost the oracle a
+            // judged page (trap 11) for a shortfall in the readback and not in the picture
+            // — but counted rather than nothing at all, because a refusal that says nothing
+            // is indistinguishable from a page with no text on it.
+            //
+            // Counted *by cause*, because the total cannot say whether the clause has no
+            // answer or this program did not take one it states; `UnnamedCodes` has the
+            // argument. `PDFVIEWER_TRACE_UNNAMED_CODE=1` names each one on stderr, the same
+            // idiom the missing-glyph trace below uses, and it is what shows the glyph name
+            // behind an `UnlistedName` — the one variant where what the name *is* decides
+            // whose gap it is.
+            if std::env::var_os("PDFVIEWER_TRACE_UNNAMED_CODE").is_some() {
+                eprintln!(
+                    "UNNAMED font=/{} code={} gap={gap:?}",
+                    state.text.font_name,
+                    code.value()
+                );
+            }
+            self.codes_without_a_character.count(&gap);
+        }
+        (start, read)
+    }
+
+    /// Step two: the text rendering matrix of a code and its quadrilateral in the text layer.
+    ///
+    /// Returns the glyph-to-device and the glyph-to-user transforms the painting step places
+    /// the glyph by; `position` is §9.7.4.3's position vector `v`.
+    fn place_in_text_layer(
+        &mut self,
+        show: &mut ShowString<'_>,
+        text: &TextObject,
+        advance_em: f32,
+        position: [f32; 2],
+        start: usize,
+    ) -> (Transform, Transform) {
+        let state = show.state;
+        let (size, scale, extent, reversing) = (show.size, show.scale, show.extent, show.reversing);
+
+        // Glyph space to text space: scale by the font size, apply horizontal scaling and
+        // rise, then the text matrix and the current transform. §9.4.4 calls this the text
+        // rendering matrix, and both kinds of glyph are placed by it — the difference is
+        // only what is placed.
+        //
+        // Computed here rather than inside the branch below because the *text layer* wants
+        // it for every code, including the ones rendering modes 3 and 7 draw nothing for:
+        // an OCR layer under a scanned page is invisible text that a person still selects.
+        let glyph_to_text = Self::glyph_to_text(size, scale, state.text.rise, position);
+        let glyph_to_user = glyph_to_text.then(text.matrix);
+        let transform = glyph_to_user.then(state.transform);
+        let quad = glyph_quad(advance_em, extent, transform);
+        if reversing {
+            show.reversed_quads.push(quad);
+        } else {
+            let span = start..self.text.len();
+            self.text_layer.push(Placed { span, quad });
+        }
+        (transform, glyph_to_user)
+    }
+
+    /// Step three: paints the code's glyph under the rendering mode, or accounts for the mark
+    /// that was not made.
+    fn draw_code(&mut self, show: &mut ShowString<'_>, text: &mut TextObject, at: &CodeAt) {
+        let (state, painting) = (show.state, show.painting);
+        let GlyphPainting {
+            fills,
+            strokes,
+            clipping,
+            ..
+        } = painting;
+        let (code, transform) = (at.code, at.transform);
+        if (fills || strokes || clipping) && show.size != 0.0 {
+            let glyph_fill_clip = self.paint_clip(state, true);
+            match show.font {
+                Font::Program(program) => {
+                    self.draw_program_code(show, text, program, at, glyph_fill_clip);
+                }
+
+                Font::Type3(type3) => {
+                    // §9.3.6 on a Type 3 font: the glyph description is run for every
+                    // mode but 3 and 7 — which is exactly `fills || strokes`, since the
+                    // description does its own painting and the mode's choice between
+                    // filling and stroking has nothing to apply to — and "If text
+                    // rendering mode is set to a value of 4, 5, 6 or 7, nothing shall be
+                    // added to the clipping path."
+                    if fills || strokes {
+                        self.glyphs = self.glyphs.saturating_add(1);
+                        self.draw_type3_glyph(type3, code.value(), state, transform);
+                        if painting.knockout_can_show {
+                            // A Type 3 glyph's ink is whatever its description painted,
+                            // which is not knowable without running it again.
+                            text.note_knockout(None);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Step three for a code of an outline font: its outline, or one of the four reasons it
+    /// has none.
+    fn draw_program_code(
+        &mut self,
+        show: &mut ShowString<'_>,
+        text: &mut TextObject,
+        program: &LoadedFont,
+        at: &CodeAt,
+        glyph_fill_clip: Option<ClipId>,
+    ) {
+        let (state, paints, painting) = (show.state, show.paints, show.painting);
+        let (code, read, transform, glyph_to_user) =
+            (at.code, at.read, at.transform, at.glyph_to_user);
+        let coverage = &mut show.coverage;
+
+        if let Some(outline) = program.outline(code) {
+            self.show_program_glyph(
+                &outline,
+                [transform, glyph_to_user],
+                (state, paints, glyph_fill_clip),
+                text,
+                painting,
+            );
+            coverage.drawn = coverage.drawn.saturating_add(1);
+            // A mark was made, and the question this asks is whether it is the
+            // *shape* the producer chose. §9.7.5.1's NOTE: "the horizontal and
+            // vertical variants of a CMap specify different CIDs for a given
+            // character code", so a vertical CID names a form — and a
+            // substituted face, reached by character alone (§9.7.4.2), draws
+            // whatever it has unless it states that form. Counted where it does
+            // not, and counted here rather than beside the two arms below
+            // because this is the arm where something was drawn: the other two
+            // are a mark missed and a mark the font meant not to make, and this
+            // is a mark made in the wrong shape. A report would cost the oracle
+            // a judged page for a statement about a face (ADRs 0152, 0763), so
+            // this is a number and `Shortfall` is where it goes (ADR 0764).
+            if let Some(character) = program.unsupplied_vertical_form(code) {
+                self.codes_without_a_vertical_form =
+                    self.codes_without_a_vertical_form.saturating_add(1);
+                // The same idiom as the two traces below, and it prints the
+                // character because that is what says which form was wanted.
+                if std::env::var_os("PDFVIEWER_TRACE_VERTICAL_FORM").is_some() {
                     eprintln!(
-                        "UNNAMED font=/{} code={} gap={gap:?}",
+                        "UPRIGHT font=/{} code={} char={character:?}",
                         state.text.font_name,
                         code.value()
                     );
                 }
-                self.codes_without_a_character.count(&gap);
             }
-
-            // Glyph space to text space: scale by the font size, apply horizontal scaling and
-            // rise, then the text matrix and the current transform. §9.4.4 calls this the text
-            // rendering matrix, and both kinds of glyph are placed by it — the difference is
-            // only what is placed.
+        } else if program.uncovered_character(code).is_some() {
+            // §9.10.2 gave this code a character and the substitute face has
+            // no glyph for it, so a mark the document states is not made.
+            // Tallied rather than reported here: see `glyph_coverage`.
+            coverage.empty = coverage.empty.saturating_add(1);
+            coverage.uncovered = coverage.uncovered.saturating_add(1);
+        } else if read.is_some_and(|read| read != Readback::Whitespace) {
+            self.account_for_a_missing_mark(show, program, at);
+        } else {
+            // Neither a mark made nor a mark missed, for one of two reasons,
+            // which [`Readback`] tells apart (ADR 0311).
             //
-            // Computed here rather than inside the branch below because the *text layer* wants
-            // it for every code, including the ones rendering modes 3 and 7 draw nothing for:
-            // an OCR layer under a scanned page is invisible text that a person still selects.
-            let glyph_to_text =
-                Self::glyph_to_text(size, scale, state.text.rise, program_metrics.1);
-            let glyph_to_user = glyph_to_text.then(text.matrix);
-            let transform = glyph_to_user.then(state.transform);
-            let quad = glyph_quad(advance_em, extent, transform);
-            if reversing {
-                reversed_quads.push(quad);
-            } else {
-                let span = start..self.text.len();
-                self.text_layer.push(Placed { span, quad });
-            }
-
-            if (fills || strokes || clipping) && size != 0.0 {
-                let glyph_fill_clip = self.paint_clip(state, true);
-                match &font {
-                    Font::Program(program) => {
-                        if let Some(outline) = program.outline(code) {
-                            self.show_program_glyph(
-                                &outline,
-                                [transform, glyph_to_user],
-                                (state, paints, glyph_fill_clip),
-                                text,
-                                painting,
-                            );
-                            coverage.drawn = coverage.drawn.saturating_add(1);
-                            // A mark was made, and the question this asks is whether it is the
-                            // *shape* the producer chose. §9.7.5.1's NOTE: "the horizontal and
-                            // vertical variants of a CMap specify different CIDs for a given
-                            // character code", so a vertical CID names a form — and a
-                            // substituted face, reached by character alone (§9.7.4.2), draws
-                            // whatever it has unless it states that form. Counted where it does
-                            // not, and counted here rather than beside the two arms below
-                            // because this is the arm where something was drawn: the other two
-                            // are a mark missed and a mark the font meant not to make, and this
-                            // is a mark made in the wrong shape. A report would cost the oracle
-                            // a judged page for a statement about a face (ADRs 0152, 0763), so
-                            // this is a number and `Shortfall` is where it goes (ADR 0764).
-                            if let Some(character) = program.unsupplied_vertical_form(code) {
-                                self.codes_without_a_vertical_form =
-                                    self.codes_without_a_vertical_form.saturating_add(1);
-                                // The same idiom as the two traces below, and it prints the
-                                // character because that is what says which form was wanted.
-                                if std::env::var_os("PDFVIEWER_TRACE_VERTICAL_FORM").is_some() {
-                                    eprintln!(
-                                        "UPRIGHT font=/{} code={} char={character:?}",
-                                        state.text.font_name,
-                                        code.value()
-                                    );
-                                }
-                            }
-                        } else if program.uncovered_character(code).is_some() {
-                            // §9.10.2 gave this code a character and the substitute face has
-                            // no glyph for it, so a mark the document states is not made.
-                            // Tallied rather than reported here: see `glyph_coverage`.
-                            coverage.empty = coverage.empty.saturating_add(1);
-                            coverage.uncovered = coverage.uncovered.saturating_add(1);
-                        } else if read.is_some_and(|read| read != Readback::Whitespace) {
-                            // The program made no mark, and the code did not read back as a
-                            // **space** — which is the one readback that answers this by
-                            // itself, because a space is *meant* to have no outline. Measured
-                            // rather than assumed: counting one took the corpus's incomplete
-                            // documents from 79 to 109, and twenty-two of the thirty new
-                            // reports named a single code (trap 11 — print what a condition
-                            // matched before trusting it).
-                            //
-                            // Everything else divides on the *glyph* rather than on the
-                            // reading (ADR 0520). §9.6.5.4 and §9.7.4.2 state the routes
-                            // from a code to a glyph, and this asks which of two things
-                            // happened at the end of one. A code that reached a glyph the
-                            // program contains has been answered: what that glyph draws is the
-                            // program's own statement, and a glyph with no contours states a
-                            // mark of nothing — which is how every sfnt in existence stores a
-                            // space. A code that reached no glyph, or reached `.notdef`, was
-                            // not answered: §9.6.5.2 makes `.notdef` what is shown when "an
-                            // encoding maps to a character name that does not exist in the
-                            // Type 1 font program", and §9.7.6.3 makes CID 0 what is
-                            // substituted when "no glyph exists for that CID", so glyph 0 is
-                            // the program saying it has none.
-                            let blank = program
-                                .glyph_index(code)
-                                .is_some_and(|glyph| glyph != pdf_font::NOTDEF_GLYPH);
-                            // What the report at the end of the page says about *why* nothing
-                            // was drawn, asked here where the code and the program are both at
-                            // hand, and each asked once per font (ADR 1411).
-                            if coverage.cycle.is_none() {
-                                coverage.cycle = program.composite_cycle(code);
-                            }
-                            coverage.both_flags |= program.states_both_symbolic_flags();
-                            if coverage.outline_free.is_none() {
-                                coverage.outline_free = Some(program.holds_no_outline());
-                            }
-                            // Asked before the two arms below, because a glyph the program's
-                            // repair could not supply has an index and no contours *drawn* —
-                            // which the first arm would read as the program describing it
-                            // empty. It is the one empty outline here with a known reason, and
-                            // the page says it at the end (`Interpreter::glyph_coverage`);
-                            // a well-formed program never reaches this.
-                            if program.glyph_lost_to_repair(code) {
-                                coverage.empty = coverage.empty.saturating_add(1);
-                                coverage.lost = coverage.lost.saturating_add(1);
-                                if coverage.shortfall.is_none() {
-                                    coverage.shortfall = program.repair_shortfall();
-                                }
-                            } else if blank {
-                                // A glyph the program contains and describes as empty is the
-                                // program answering, so nothing was missed here. What a
-                                // *reader* lost is the readback's question, and §9.10.2's own
-                                // answer for a code it cannot name is "there is no way to
-                                // determine what the character code represents" — not evidence
-                                // in either direction. So this half stays gated on a named
-                                // character; the rest is in `codes_without_a_character`.
-                                if read.is_some_and(Readback::names_a_mark) {
-                                    coverage.empty = coverage.empty.saturating_add(1);
-                                    self.codes_reaching_a_blank_glyph =
-                                        self.codes_reaching_a_blank_glyph.saturating_add(1);
-                                }
-                            } else {
-                                // The route ended without an answer, which is a fact about the
-                                // *program* and needs no character to establish. Gating it on
-                                // the readback made `issue17333.pdf` — one `Tj`, one code, an
-                                // embedded subset, and §9.6.5.4's algorithm terminating with
-                                // nothing — draw an entirely blank page while every counter
-                                // that measures the picture read zero and the report below
-                                // could not fire, because its `coverage.empty` was never
-                                // raised. One of these is still not news on its own — a
-                                // producer's deliberate `.notdef` is one — but a font every
-                                // one of whose codes comes back empty has drawn nothing the
-                                // document asked for, which is exactly what that report says.
-                                coverage.empty = coverage.empty.saturating_add(1);
-                                self.codes_without_a_glyph =
-                                    self.codes_without_a_glyph.saturating_add(1);
-                            }
-                            // `PDFVIEWER_TRACE_MISSING_GLYPH=1` names each one on stderr, the
-                            // same idiom `tests/corpus.rs` uses for a document that never
-                            // returns. It fires for the whole arm rather than for what was
-                            // counted, because the codes the two branches divide are what a
-                            // person reading it is trying to tell apart. The readback is there
-                            // because the count alone cannot tell a mark that is missing from
-                            // a *space* whose font reads it back as something else, and the
-                            // glyph index because that is what the two arms above are decided
-                            // by.
-                            if std::env::var_os("PDFVIEWER_TRACE_MISSING_GLYPH").is_some() {
-                                eprintln!(
-                                    "MISSING {} font=/{} code={} glyph={:?} read={:?}",
-                                    if blank { "blank" } else { "absent" },
-                                    state.text.font_name,
-                                    code.value(),
-                                    program.glyph_index(code),
-                                    self.text.get(start..)
-                                );
-                            }
-                        } else {
-                            // Neither a mark made nor a mark missed, for one of two reasons,
-                            // which [`Readback`] tells apart (ADR 0311).
-                            //
-                            // A code that reads back as a **space** is *meant* to have no
-                            // outline, and the arm above says what that cost when it was
-                            // measured.
-                            //
-                            // `None` — a code inside a Type 3 glyph description — is here for a
-                            // second reason: what such a code is, and whether it drew, are
-                            // §9.6.4's questions about the glyph rather than this page's. The
-                            // test used to be `self.text[start..]` all whitespace, which an
-                            // empty slice satisfies vacuously, so a code with no readback at
-                            // all sat here too *and was blind inside §14.8.2.5.3's reversal*,
-                            // where a code's readback never lands in that slice at all.
-                        }
-                    }
-                    Font::Type3(type3) => {
-                        // §9.3.6 on a Type 3 font: the glyph description is run for every
-                        // mode but 3 and 7 — which is exactly `fills || strokes`, since the
-                        // description does its own painting and the mode's choice between
-                        // filling and stroking has nothing to apply to — and "If text
-                        // rendering mode is set to a value of 4, 5, 6 or 7, nothing shall be
-                        // added to the clipping path."
-                        if fills || strokes {
-                            self.glyphs = self.glyphs.saturating_add(1);
-                            self.draw_type3_glyph(type3, code.value(), state, transform);
-                            if painting.knockout_can_show {
-                                // A Type 3 glyph's ink is whatever its description painted,
-                                // which is not knowable without running it again.
-                                text.note_knockout(None);
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Word spacing applies only to the single-byte code 32 (§9.3.3), which is a rule
-            // about the code's encoded length rather than its value — see
-            // `pdf_font::Code::takes_word_spacing`. A Type 3 font's codes are all one byte,
-            // Table 110 giving it `/FirstChar` and `/LastChar`, so the same test serves both
-            // kinds of font.
-            let word = if code.takes_word_spacing() {
-                state.text.word_spacing
-            } else {
-                0.0
-            };
-            let displacement = if vertical {
-                program_metrics.0[1]
-            } else {
-                advance_em
-            };
-            text.matrix = Self::advance_step(
-                displacement,
-                size,
-                state.text.char_spacing + word,
-                scale,
-                vertical,
-            )
-            .then(text.matrix);
-            self.text_cursor = Some((text.matrix.e, text.matrix.f));
+            // A code that reads back as a **space** is *meant* to have no
+            // outline, and the arm above says what that cost when it was
+            // measured.
+            //
+            // `None` — a code inside a Type 3 glyph description — is here for a
+            // second reason: what such a code is, and whether it drew, are
+            // §9.6.4's questions about the glyph rather than this page's. The
+            // test used to be `self.text[start..]` all whitespace, which an
+            // empty slice satisfies vacuously, so a code with no readback at
+            // all sat here too *and was blind inside §14.8.2.5.3's reversal*,
+            // where a code's readback never lands in that slice at all.
         }
+    }
 
-        if coverage.drawn > 0 || coverage.empty > 0 {
-            self.tally_glyph(&state.text.font_name, coverage);
+    /// Step three for a code whose program made no mark and which did not read back as a
+    /// space: the program's own answer, counted by cause.
+    fn account_for_a_missing_mark(
+        &mut self,
+        show: &mut ShowString<'_>,
+        program: &LoadedFont,
+        at: &CodeAt,
+    ) {
+        let state = show.state;
+        let (code, start, read) = (at.code, at.start, at.read);
+        let coverage = &mut show.coverage;
+
+        // The program made no mark, and the code did not read back as a
+        // **space** — which is the one readback that answers this by
+        // itself, because a space is *meant* to have no outline. Measured
+        // rather than assumed: counting one took the corpus's incomplete
+        // documents from 79 to 109, and twenty-two of the thirty new
+        // reports named a single code (trap 11 — print what a condition
+        // matched before trusting it).
+        //
+        // Everything else divides on the *glyph* rather than on the
+        // reading (ADR 0520). §9.6.5.4 and §9.7.4.2 state the routes
+        // from a code to a glyph, and this asks which of two things
+        // happened at the end of one. A code that reached a glyph the
+        // program contains has been answered: what that glyph draws is the
+        // program's own statement, and a glyph with no contours states a
+        // mark of nothing — which is how every sfnt in existence stores a
+        // space. A code that reached no glyph, or reached `.notdef`, was
+        // not answered: §9.6.5.2 makes `.notdef` what is shown when "an
+        // encoding maps to a character name that does not exist in the
+        // Type 1 font program", and §9.7.6.3 makes CID 0 what is
+        // substituted when "no glyph exists for that CID", so glyph 0 is
+        // the program saying it has none.
+        let blank = program
+            .glyph_index(code)
+            .is_some_and(|glyph| glyph != pdf_font::NOTDEF_GLYPH);
+        // What the report at the end of the page says about *why* nothing
+        // was drawn, asked here where the code and the program are both at
+        // hand, and each asked once per font (ADR 1411).
+        if coverage.cycle.is_none() {
+            coverage.cycle = program.composite_cycle(code);
         }
-        self.append_reversed(&pieces, reversed_quads);
+        coverage.both_flags |= program.states_both_symbolic_flags();
+        if coverage.outline_free.is_none() {
+            coverage.outline_free = Some(program.holds_no_outline());
+        }
+        // Asked before the two arms below, because a glyph the program's
+        // repair could not supply has an index and no contours *drawn* —
+        // which the first arm would read as the program describing it
+        // empty. It is the one empty outline here with a known reason, and
+        // the page says it at the end (`Interpreter::glyph_coverage`);
+        // a well-formed program never reaches this.
+        if program.glyph_lost_to_repair(code) {
+            coverage.empty = coverage.empty.saturating_add(1);
+            coverage.lost = coverage.lost.saturating_add(1);
+            if coverage.shortfall.is_none() {
+                coverage.shortfall = program.repair_shortfall();
+            }
+        } else if blank {
+            // A glyph the program contains and describes as empty is the
+            // program answering, so nothing was missed here. What a
+            // *reader* lost is the readback's question, and §9.10.2's own
+            // answer for a code it cannot name is "there is no way to
+            // determine what the character code represents" — not evidence
+            // in either direction. So this half stays gated on a named
+            // character; the rest is in `codes_without_a_character`.
+            if read.is_some_and(Readback::names_a_mark) {
+                coverage.empty = coverage.empty.saturating_add(1);
+                self.codes_reaching_a_blank_glyph =
+                    self.codes_reaching_a_blank_glyph.saturating_add(1);
+            }
+        } else {
+            // The route ended without an answer, which is a fact about the
+            // *program* and needs no character to establish. Gating it on
+            // the readback made `issue17333.pdf` — one `Tj`, one code, an
+            // embedded subset, and §9.6.5.4's algorithm terminating with
+            // nothing — draw an entirely blank page while every counter
+            // that measures the picture read zero and the report below
+            // could not fire, because its `coverage.empty` was never
+            // raised. One of these is still not news on its own — a
+            // producer's deliberate `.notdef` is one — but a font every
+            // one of whose codes comes back empty has drawn nothing the
+            // document asked for, which is exactly what that report says.
+            coverage.empty = coverage.empty.saturating_add(1);
+            self.codes_without_a_glyph = self.codes_without_a_glyph.saturating_add(1);
+        }
+        // `PDFVIEWER_TRACE_MISSING_GLYPH=1` names each one on stderr, the
+        // same idiom `tests/corpus.rs` uses for a document that never
+        // returns. It fires for the whole arm rather than for what was
+        // counted, because the codes the two branches divide are what a
+        // person reading it is trying to tell apart. The readback is there
+        // because the count alone cannot tell a mark that is missing from
+        // a *space* whose font reads it back as something else, and the
+        // glyph index because that is what the two arms above are decided
+        // by.
+        if std::env::var_os("PDFVIEWER_TRACE_MISSING_GLYPH").is_some() {
+            eprintln!(
+                "MISSING {} font=/{} code={} glyph={:?} read={:?}",
+                if blank { "blank" } else { "absent" },
+                state.text.font_name,
+                code.value(),
+                program.glyph_index(code),
+                self.text.get(start..)
+            );
+        }
+    }
+
+    /// Step four: moves the text matrix by the code's displacement and the spacing parameters.
+    fn advance_past(
+        &mut self,
+        show: &ShowString<'_>,
+        text: &mut TextObject,
+        code: Code,
+        advance_em: f32,
+        vertical_advance: f32,
+    ) {
+        let (state, size, scale, vertical) = (show.state, show.size, show.scale, show.vertical);
+
+        // Word spacing applies only to the single-byte code 32 (§9.3.3), which is a rule
+        // about the code's encoded length rather than its value — see
+        // `pdf_font::Code::takes_word_spacing`. A Type 3 font's codes are all one byte,
+        // Table 110 giving it `/FirstChar` and `/LastChar`, so the same test serves both
+        // kinds of font.
+        let word = if code.takes_word_spacing() {
+            state.text.word_spacing
+        } else {
+            0.0
+        };
+        let displacement = if vertical {
+            vertical_advance
+        } else {
+            advance_em
+        };
+        text.matrix = Self::advance_step(
+            displacement,
+            size,
+            state.text.char_spacing + word,
+            scale,
+            vertical,
+        )
+        .then(text.matrix);
+        self.text_cursor = Some((text.matrix.e, text.matrix.f));
     }
 
     /// Moves the pen across a string whose font has no program, drawing and reading nothing.
@@ -497,4 +603,47 @@ impl Interpreter<'_> {
             self.text_cursor = Some((text.matrix.e, text.matrix.f));
         }
     }
+}
+/// A show string's constants and tallies: what §9.4.4's glyph loop carries from one code to the
+/// next (ADR 2320).
+struct ShowString<'a> {
+    /// The font the string is shown in.
+    font: &'a Font,
+    /// The graphics state the string is shown under.
+    state: &'a GraphicsState,
+    /// The state the glyphs' *colours* are built from; differs from `state` only inside
+    /// §11.7.4.4's first-bullet group.
+    paints: &'a GraphicsState,
+    /// What each glyph is to have done to it, decided once per string.
+    painting: GlyphPainting,
+    /// The font size, `Tfs`.
+    size: f32,
+    /// The horizontal scaling, `Th`.
+    scale: f32,
+    /// Whether the font is shown in §9.2.4's writing mode 1.
+    vertical: bool,
+    /// Table 120's `/Ascent` and `/Descent`.
+    extent: (f32, f32),
+    /// Whether the string is inside a `ReversedChars` sequence (§14.8.2.5.3).
+    reversing: bool,
+    /// The readback of each code, kept when `reversing`.
+    pieces: Vec<String>,
+    /// The quadrilaterals of a reversed string, in the order the glyphs were placed.
+    reversed_quads: Vec<[f32; 8]>,
+    /// The string's glyph coverage, applied to the font's tally once at the end.
+    coverage: Coverage,
+}
+
+/// One code of a show string, after it was read back and placed.
+struct CodeAt {
+    /// The code.
+    code: Code,
+    /// Where its readback began in the text.
+    start: usize,
+    /// What the readback was.
+    read: Option<Readback>,
+    /// Glyph space to device space.
+    transform: Transform,
+    /// Glyph space to user space.
+    glyph_to_user: Transform,
 }

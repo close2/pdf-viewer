@@ -15,7 +15,9 @@ use crate::session::FrameInfo;
 use crate::settings::Stated;
 use crate::shapes::Quads;
 use crate::status::Status;
-use crate::window::{OwedKind, Owing, WheelKind, Window, WindowChrome};
+use crate::window::{
+    OwedKind, Owing, WheelKind, Window, WindowChrome, WindowExtents, WindowPlacement,
+};
 use core::ffi::{c_char, c_int};
 
 // ---------------------------------------------------------------------------------------------
@@ -843,6 +845,53 @@ pub unsafe extern "C" fn quorra_window_chrome(
     };
     *out = window.chrome();
     Status::Ok.code()
+}
+
+/// Whether the window presents full screen now (Table 29's `FullScreen`), for the caller's own
+/// full-screen presentation; read after a chrome record or a present act (ADR 2308).
+///
+/// # Safety
+///
+/// See the module documentation. `full_screen` is writable, and neither pointer may be null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_full_screen(
+    window: *const Window,
+    full_screen: *mut bool,
+) -> c_int {
+    let (Some(window), Some(full_screen)) = (window.as_ref(), full_screen.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    *full_screen = window.full_screen();
+    Status::Ok.code()
+}
+
+/// Table 147's `/FitWindow` and `/CenterWindow` after a `QUORRA_OWED_PLACE`, answered to the
+/// caller's window as `extents` states it in logical pixels (ADR 2308).
+///
+/// `QUORRA_NO_ANSWER` where no placement is owed, `out` untouched.
+///
+/// # Safety
+///
+/// See the module documentation. `extents` is readable and `out` writable, and no pointer may be
+/// null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_place(
+    window: *mut Window,
+    extents: *const WindowExtents,
+    out: *mut WindowPlacement,
+) -> c_int {
+    let (Some(window), Some(extents), Some(out)) =
+        (window.as_mut(), extents.as_ref(), out.as_mut())
+    else {
+        return Status::NullArgument.code();
+    };
+    match window.place(*extents) {
+        Some(placement) => {
+            *out = placement;
+            Status::Ok.code()
+        }
+        None => Status::NoAnswer.code(),
+    }
 }
 
 /// The status line's sentence as it now stands, in the two-call idiom.

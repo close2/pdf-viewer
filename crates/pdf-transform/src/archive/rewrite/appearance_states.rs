@@ -4,10 +4,13 @@ use std::collections::BTreeMap;
 
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId};
 
+use super::super::sites::PUSH_BUTTON_STATE;
 use super::{Rewrite, Rewriter, count};
 
 impl Rewriter<'_> {
-    /// The one appearance stream an annotation's `/AS` selects, written as its `/N`.
+    /// The one appearance stream an annotation's `/AS` selects, written as its `/N` — or a push
+    /// button's single stream written as a subdictionary holding it alone, with the `/AS` that
+    /// selects it (`doc/adr/2319`).
     ///
     /// The `/AP` dictionary is written **direct** whatever the source stated it as, for the
     /// reason [`Rewrite::OutputIntent`]'s array is: the value is the annotation's own and this
@@ -20,17 +23,27 @@ impl Rewriter<'_> {
         out: &mut Dictionary,
         applied: &mut BTreeMap<Rewrite, usize>,
     ) -> bool {
-        let Some(stream) = self
+        let Some(states) = self
             .appearance_states
             .filter(|_| self.wants(Rewrite::NormalAppearanceFromState))
-            .and_then(|states| states.at.get(&id))
         else {
+            return false;
+        };
+        let normal = if let Some(stream) = states.at.get(&id) {
+            Object::Reference(*stream)
+        } else if let Some(stream) = states.wrapped.get(&id) {
+            let state = Name::new(PUSH_BUTTON_STATE);
+            let mut subdictionary = Dictionary::new();
+            subdictionary.insert(state.clone(), Object::Reference(*stream));
+            out.insert(Name::new(&b"AS"[..]), Object::Name(state));
+            Object::Dictionary(subdictionary)
+        } else {
             return false;
         };
         let Some(mut appearance) = self.document.get_key(out, "AP").as_dict().cloned() else {
             return false;
         };
-        appearance.insert(Name::new(&b"N"[..]), Object::Reference(*stream));
+        appearance.insert(Name::new(&b"N"[..]), normal);
         out.insert(Name::new(&b"AP"[..]), Object::Dictionary(appearance));
         count(applied, Rewrite::NormalAppearanceFromState);
         true

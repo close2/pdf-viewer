@@ -528,8 +528,10 @@ fn perform(
                             }
                         }
                     };
-                    // Popped after the answer, so the page is told of its draw once it holds it.
+                    // Popped after the answer, so the page is told of its draw once it holds it;
+                    // and its frames say it, so the host's title names the page (ADR 2316).
                     if !declined.is_empty() {
+                        marks.declined_here(request.page);
                         pending.push(Command::Declined {
                             document: request.document,
                             page: request.page,
@@ -633,6 +635,7 @@ fn draw_windows(
                 if let Some(document) = marks.drew(page, window, raster)
                     && !declined.is_empty()
                 {
+                    marks.declined_here(page);
                     outgoing.extend(viewer.handle(Command::Declined {
                         document,
                         page,

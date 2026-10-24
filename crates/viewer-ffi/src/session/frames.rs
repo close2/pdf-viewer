@@ -30,6 +30,20 @@ impl Session {
         }))
     }
 
+    /// Tells the viewer what drawing a window of `request`'s page declined, keeping the window:
+    /// the half of [`Self::render_ready_raster`] a caller under [`viewer_core::Oversize::Listed`]
+    /// owes for each window it draws, since a window is never handed back (ADRs 2060, 2290,
+    /// 2316). The viewer says each condition once for the page's reading, as
+    /// [`viewer_core::Event::Reported`]; a draw that declined nothing answers no event.
+    #[must_use]
+    pub fn window_declined(&mut self, request: &RenderRequest, drawn: &super::Drawn) -> Events {
+        self.handle(Command::Declined {
+            document: request.document,
+            page: request.page,
+            declined: drawn.declined.clone(),
+        })
+    }
+
     /// Says that a request could not be drawn, and why.
     ///
     /// Reported rather than swallowed, which is [`Rendered::Failed`]'s own reason: a viewer that

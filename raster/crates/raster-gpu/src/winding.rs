@@ -15,13 +15,14 @@
 //! memory**, which is the trade a document renderer wants: the GPU is idle here
 //! (`execute` is tens of microseconds) and memory is what a zoomed page runs out of.
 //!
-//! # This file, and the four modules under it
+//! # This file, and the five modules under it
 //!
 //! What is left here is the lane as the frame meets it: whether the sheet is this lane's
 //! to clear, and [`render_into`]'s loop over panes and rounds. The rest is one module each —
-//! `lattice` for where the samples sit and what that lets a mark lose, `sheet` for what the
-//! encoder built and what it costs, `buffers` for what the passes read, `passes` for the
-//! winding target and the two passes that write and read it.
+//! `pattern` for where the samples sit and what that lets a mark lose, `lattice` for the
+//! rank-1 lattice the pattern is derived against, `sheet` for what the encoder built and what
+//! it costs, `buffers` for what the passes read, `passes` for the winding target and the two
+//! passes that write and read it.
 
 use crate::error::RenderError;
 use crate::pipeline::{Kind, PipelineStore};
@@ -29,11 +30,13 @@ use crate::pipeline::{Kind, PipelineStore};
 mod buffers;
 mod lattice;
 mod passes;
+mod pattern;
 mod sheet;
 
 use buffers::{Buffers, PaneGlobals};
 pub use lattice::SampleLattice;
 pub(crate) use passes::WindingTexture;
+pub use pattern::{EdgeError, SamplePattern};
 pub(crate) use sheet::Sheet;
 
 /// The winding texture's format. `f16` is exact on integers to 2048, which bounds the
@@ -69,14 +72,14 @@ impl SheetUse {
     }
 }
 
-/// The sample pattern, in pixels relative to the pixel's centre: `count` samples on the
-/// rank-1 lattice [`SampleLattice::of`] derives (the viewer's ADR 2296).
+/// The sample pattern, in pixels relative to the pixel's centre: `count` samples where
+/// [`SamplePattern::of`] puts them (the viewer's ADR 2313).
 ///
 /// Ours rather than the driver's, so two adapters place them identically (ADR 0006's
-/// promise), and a lattice rather than jittered so that a frame is reproducible without
-/// carrying a seed.
+/// promise), and a fixed table rather than jittered per frame so that a frame is reproducible
+/// without carrying a seed.
 pub(crate) fn sample_offsets(count: u32) -> Vec<[f32; 2]> {
-    SampleLattice::of(count).offsets()
+    SamplePattern::of(count).offsets()
 }
 
 /// Draws `sheet`'s tiles into `coverage_view`, which is the frame's scratch sheet.
@@ -353,38 +356,39 @@ mod tests {
         assert_eq!(at(&even_odd, 3, 8), 255);
     }
 
-    /// The samples are the rank-1 lattice of generator three, stated rather than the
-    /// driver's: the i-th of sixteen in column `i` and row `3i mod 16`, each a sixteenth
-    /// of a pixel wide, balanced about the centre.
+    /// The samples are the derived pattern's, stated rather than the driver's: the i-th of
+    /// sixteen in column `i` and the row `SamplePattern::of(16)` gives it, each a sixteenth of a
+    /// pixel wide, balanced about the centre.
     #[test]
-    fn the_samples_are_the_lattice_of_generator_three_and_centred() {
+    fn the_samples_are_the_derived_pattern_and_centred() {
         let offsets = sample_offsets(16);
         assert_eq!(offsets.len(), 16);
+        // Sample 0 sits in column 0 and row 5, whose centres are 0.5/16 − ½ and 5.5/16 − ½.
         assert!(
             (offsets[0][0] + 15.0 / 32.0).abs() < 1e-6,
             "{:?}",
             offsets[0]
         );
         assert!(
-            (offsets[0][1] + 15.0 / 32.0).abs() < 1e-6,
+            (offsets[0][1] + 5.0 / 32.0).abs() < 1e-6,
             "{:?}",
             offsets[0]
         );
-        // Sample 15 sits in row 45 mod 16 = 13, whose centre is 13.5/16 - 1/2.
+        // Sample 15 sits in column 15 and row 0.
         assert!(
             (offsets[15][0] - 15.0 / 32.0).abs() < 1e-6,
             "{:?}",
             offsets[15]
         );
         assert!(
-            (offsets[15][1] - 11.0 / 32.0).abs() < 1e-6,
+            (offsets[15][1] + 15.0 / 32.0).abs() < 1e-6,
             "{:?}",
             offsets[15]
         );
         let sum: f32 = offsets.iter().map(|o| o[0] + o[1]).sum();
         assert!(
             sum.abs() < 1e-5,
-            "the lattice is balanced about the centre: {sum}"
+            "a column and a row to each sample balance the pattern about the centre: {sum}"
         );
     }
 }

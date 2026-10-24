@@ -1300,12 +1300,15 @@ const BLEND_MODE_REINTERPRETS: &str = "a BM entry in this file is an array namin
      used it, and now uses Normal like everybody else";
 
 /// What collapsing an appearance subdictionary asserts, which is `doc/adr/0948`'s condition.
-const APPEARANCE_STATE_REINTERPRETS: &str = "an annotation's normal appearance was a \
-     subdictionary of appearance states and is now the single stream its own AS entry selected. \
-     §12.5.2's Table 166 makes AS what selects the applicable stream, so the page draws exactly \
-     what it drew before — and the other states go with the subdictionary, so an annotation a \
-     reader could have switched (a check box, a trap network) is fixed in the state the file was \
-     saved in. The report names every one";
+const APPEARANCE_STATE_REINTERPRETS: &str = "an annotation's normal appearance is now in the \
+     shape ISO 19005 asks of it, and draws the stream it drew. Where it was a subdictionary of \
+     appearance states it is the single stream its own AS entry selected: §12.5.2's Table 166 \
+     makes AS what selects the applicable stream, so the page draws exactly what it drew before \
+     — and the other states go with the subdictionary, so an annotation a reader could have \
+     switched (a check box, a trap network) is fixed in the state the file was saved in. Where \
+     it was a push button's single stream it is the one entry of a subdictionary its new AS \
+     entry selects, and the state's name decides nothing a reader draws. The report names every \
+     one";
 
 /// What writing `/CIDToGIDMap` `/Identity` asserts, which is `doc/adr/0948`'s condition on it.
 const CID_TO_GID_REINTERPRETS: &str = "an embedded Type 2 CIDFont in this file stated no \
@@ -1710,6 +1713,13 @@ pub(super) const REMEDIES: &[Remedy] = &[
     Remedy {
         requirement: "file-structure/no-external-stream-data",
         answer: Answer::Mechanical(Rewrite::ExternalDataEmbedded),
+    },
+    // ISO 19005-2 section 6.2.11.4.1, ISO 19005-4 section 6.2.10.4.1, the same sentence's "as
+    // defined in" section 9.9: Table 124 files a program's format under a key and a name, and the
+    // bytes settle the format, so the program is refiled and carried (ADR 2307).
+    Remedy {
+        requirement: "fonts/font-programs-filed-by-their-format",
+        answer: Answer::Mechanical(Rewrite::FontProgramRefiled),
     },
     Remedy {
         requirement: "fonts/font-programs-embedded",
@@ -2651,12 +2661,17 @@ pub(super) const SHAPES: &[(&str, &[Shape])] = &[
     // ISO 19005-2 section 6.3.3, ISO 19005-4 section 6.3.3. §12.5.2's Table 166 makes `/AS` what
     // selects the applicable stream, so an appearance subdictionary with one collapses to the
     // stream the file was saved showing; with none, nothing in the file says which state the
-    // producer meant.
+    // producer meant. A push button's single stream becomes a subdictionary holding it alone
+    // (`doc/adr/2319`).
     (
         "annotations/normal-appearance-shape",
         &[
             Shape {
                 name: "appearance-state",
+                answered: true,
+            },
+            Shape {
+                name: "push-button-stream",
                 answered: true,
             },
             Shape {

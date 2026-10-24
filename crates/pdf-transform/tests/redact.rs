@@ -1733,6 +1733,44 @@ fn a_jpx_image_over_the_operators_budget_is_refused_rather_than_reduced() {
     assert_eq!(read_back_wide_samples(&out)[0], 0, "and cleared");
 }
 
+/// A `JPXDecode` image whose samples are in a colour space no removal can write them back under
+/// is refused in that sentence alone, and not in the budget's, which supposes a resolution limit
+/// (ADRs 1333, 2293). The fixture states a `/ColorSpace` no clause defines, which reaches the same
+/// refusal of `jpx_samples` that PIMA 7667's e-sRGB and e-sYCC do.
+#[test]
+fn a_jpx_image_in_a_space_no_removal_writes_back_is_refused_for_its_space_alone() {
+    pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
+    let bytes = jpx_page("", JPX_SIXTEEN_BIT_RAMP);
+    let stated = b"/ColorSpace /DeviceGray";
+    let at = bytes
+        .windows(stated.len())
+        .position(|window| window == stated)
+        .expect("the fixture states its space");
+    let mut bytes = bytes;
+    // The same length, so the cross-reference table's offsets still hold.
+    bytes[at..at + stated.len()].copy_from_slice(b"/ColorSpace /NoSuchSpac");
+
+    let (report, out) = redact(&bytes);
+    let refused = report
+        .refused
+        .iter()
+        .find(|declined| declined.page == Some(1))
+        .expect("the page is refused");
+    assert!(
+        refused
+            .detail
+            .contains("cannot write its samples back under")
+            && refused.detail.contains("NoSuchSpac")
+            && !refused.detail.contains("resolution"),
+        "the refusal names the space and supposes no resolution limit: {}",
+        refused.detail
+    );
+    assert!(
+        contains(&out, JPX_SIXTEEN_BIT_RAMP),
+        "the refused page keeps its image"
+    );
+}
+
 /// A colour key on a `JPXDecode` image is carried, because its samples are (ADR 1333).
 ///
 /// §8.9.6.4's integers are "colour values before decoding with the Decode array", and the samples

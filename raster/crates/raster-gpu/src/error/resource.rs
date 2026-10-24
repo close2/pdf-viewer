@@ -58,4 +58,13 @@ pub enum ResourceProblem {
     /// [`Color::is_valid`](raster_scene::Color::is_valid) asks, all of them.
     #[error("ramp stop colour is non-finite or outside 0..=1")]
     RampColorInvalid,
+    /// A ramp with more stops than one ramp's table holds — a bound on a texture's side,
+    /// not on what a shading may state (ADR 2310).
+    #[error("ramp has {stops} stops, more than the {limit} one ramp's table holds")]
+    RampTooLong {
+        /// The ramp's stop count.
+        stops: usize,
+        /// The most a table holds.
+        limit: usize,
+    },
 }

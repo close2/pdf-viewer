@@ -98,6 +98,10 @@ pub(crate) struct Marks {
     /// the document each is of (ADR 2017). Forgotten with the page when it leaves the
     /// arrangement, so a page that comes back is priced again.
     pub(super) routed: std::collections::BTreeMap<usize, DocumentId>,
+    /// The pages a draw here left marks of to the library's converter, which their frames say so
+    /// the host can name them (ADR 2316). Forgotten with the page when it leaves the arrangement;
+    /// a page drawn again when it comes back declines again.
+    pub(super) declined: std::collections::BTreeSet<usize>,
 }
 
 impl Marks {
@@ -306,6 +310,12 @@ impl Marks {
         Some(held.document)
     }
 
+    /// A draw here of `page` — whole, or a window of it — left marks to the library's converter,
+    /// which the page's frames now say (ADR 2316).
+    pub(crate) fn declined_here(&mut self, page: usize) {
+        self.declined.insert(page);
+    }
+
     /// A window of `page` the rasteriser refused: the page is let go, and the document it is of
     /// named for the sentence that says so.
     pub(crate) fn refused_window(&mut self, page: usize) -> Option<DocumentId> {
@@ -354,6 +364,7 @@ impl Marks {
             None => false,
         });
         self.routed.retain(|page, _| origin(*page).is_some());
+        self.declined.retain(|page| origin(*page).is_some());
     }
 }
 

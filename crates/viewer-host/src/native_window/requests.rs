@@ -10,7 +10,8 @@
 //! third copy is where this crate takes a rule (`doc/todo/30`, habit 131).
 //!
 //! What stays a toolkit's is the dialogue: [`NativeWindow::put_the_question`] puts an [`Asked`] in
-//! front of the person however the toolkit does that, and hands the answer to
+//! front of the person however the toolkit does that — reached through [`NativeWindow::ask`], which
+//! holds it while the window presents full screen (ADR 2309) — and hands the answer to
 //! [`NativeWindow::answer_the_question`]. Whether a second question may stand beside the first is
 //! the toolkit's to state ([`NativeWindow::question_waiting`]), because GTK puts each in a window of
 //! its own and the other two have one dialogue.
@@ -240,7 +241,7 @@ pub(super) fn submit<W: NativeWindow + ?Sized>(
     match crate::may_submit(&submission, window.state().restrictions.submissions()) {
         crate::Sending::Send => window.send_form(document, submission, None),
         crate::Sending::Warn(note) => window.send_form(document, submission, Some(note)),
-        crate::Sending::Ask(words) => window.put_the_question(
+        crate::Sending::Ask(words) => window.ask(
             Asked::Submit {
                 document,
                 submission: Box::new(submission),
@@ -277,7 +278,7 @@ pub(super) fn fetch_policy<W: NativeWindow + ?Sized>(
         }
         crate::Sending::Ask(_) => {
             let words = asked_to_fetch_policy(&policy);
-            window.put_the_question(
+            window.ask(
                 Asked::Policy {
                     document,
                     policy: Box::new(policy),
@@ -295,7 +296,7 @@ pub(super) fn link<W: NativeWindow + ?Sized>(window: &mut W, uri: &str) {
     let uri = crate::resolve_uri(Some(&window.state().showing.path), uri);
     match crate::link(&uri, window.state().links) {
         crate::Link::Say(note) => window.say(&note),
-        crate::Link::Ask(words) => window.put_the_question(Asked::Link { uri }, &words),
+        crate::Link::Ask(words) => window.ask(Asked::Link { uri }, &words),
     }
 }
 
@@ -354,7 +355,7 @@ pub(super) fn extracted<W: NativeWindow + ?Sized>(
             window.open_embedded(document, name, bytes, fragment);
         }
         crate::Unpacking::Refuse(why) => window.say(&why),
-        crate::Unpacking::Ask(question) => window.put_the_question(
+        crate::Unpacking::Ask(question) => window.ask(
             Asked::Embedded {
                 document,
                 name: name.to_owned(),
@@ -379,7 +380,7 @@ fn fetch_import<W: NativeWindow + ?Sized>(
         crate::Sending::Send => start_fetch(window, document, url, None),
         crate::Sending::Warn(note) => start_fetch(window, document, url, Some(note)),
         crate::Sending::Ask(words) => {
-            window.put_the_question(Asked::Fetch { document, url }, &words);
+            window.ask(Asked::Fetch { document, url }, &words);
         }
         crate::Sending::Refuse(why) => {
             window.say(&crate::fetch_note(&url, Some(&why)));
@@ -467,7 +468,7 @@ fn remote<W: NativeWindow + ?Sized>(
             }
             queue.push_back(Command::Supply { purpose, bytes });
         }
-        crate::Remote::Ask { path, question } => window.put_the_question(
+        crate::Remote::Ask { path, question } => window.ask(
             Asked::RemoteDocument {
                 purpose,
                 name: name.to_owned(),
@@ -501,7 +502,7 @@ fn launched_elsewhere<W: NativeWindow + ?Sized>(
         None => {}
         Some(crate::Launched::Program(said) | crate::Launched::Refuse(said)) => window.say(&said),
         Some(crate::Launched::Hand(said)) => hand_over(window, name, path, &said),
-        Some(crate::Launched::Ask(question)) => window.put_the_question(
+        Some(crate::Launched::Ask(question)) => window.ask(
             Asked::LaunchedDocument {
                 name: name.to_owned(),
                 path: path.to_owned(),

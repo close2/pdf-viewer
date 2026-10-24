@@ -2679,7 +2679,10 @@ static READINGS: &[Reading] = &[
         sentences: &[
             Sentence {
                 says: "the font program of every font used for rendering is embedded in the file",
-                carried: Carried::By(&["fonts/font-programs-embedded"]),
+                carried: Carried::By(&[
+                    "fonts/font-programs-embedded",
+                    "fonts/font-programs-filed-by-their-format",
+                ]),
             },
             Sentence {
                 says: "a font counts as used where at least one of its glyphs is referenced from \
@@ -4767,7 +4770,10 @@ static READINGS: &[Reading] = &[
         sentences: &[
             Sentence {
                 says: "the font program of every font used for rendering is embedded in the file",
-                carried: Carried::By(&["fonts/font-programs-embedded"]),
+                carried: Carried::By(&[
+                    "fonts/font-programs-embedded",
+                    "fonts/font-programs-filed-by-their-format",
+                ]),
             },
             Sentence {
                 says: "a font counts as used where at least one of its glyphs is referenced from \

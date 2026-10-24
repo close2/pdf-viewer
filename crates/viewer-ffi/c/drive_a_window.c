@@ -8,7 +8,7 @@
  * below is a resize, a timer, some keys and an answer, and each of them is one call followed by
  * the same `act_on_what_is_owed`.
  *
- *   ./drive_a_window <file.pdf> <form.pdf> <script.pdf> <directory> <audience.pdf>
+ *   ./drive_a_window <file.pdf> <form.pdf> <script.pdf> <directory> <audience.pdf> <placed.pdf>
  *
  * The second document is the fixture `tests/a_c_program_drives_the_abi.rs` writes: a push-button
  * whose §12.7.6.2 submission the reader's default level asks about, which is how the question
@@ -16,7 +16,8 @@
  * a host sets is shown to be the one in force (ADR 2120). The third is a text field whose
  * validation asks with app.alert, which a window at the scripts' PROCEED level puts to this
  * program as a record (ADR 2121). The fourth is a directory holding one file that is neither a
- * certificate nor a PDF (ADR 2156), and the fifth one layer for a named reader (ADR 2173).
+ * certificate nor a PDF (ADR 2156), the fifth one layer for a named reader (ADR 2173), and the
+ * sixth a page stating Table 147's /FitWindow and /CenterWindow (ADR 2308).
  *
  * Exit status: 0 if every step succeeded, 1 otherwise, with the failing step named on stderr.
  */
@@ -83,7 +84,20 @@ struct seen {
     char title[256];
     char said[512];
     char question[512];
+    /* A window of this program's own for Table 147's placement: its inner size, which is the
+     * viewport and a chrome of PLACED_CHROME below it, and what quorra_window_place asked of it.
+     * A zero width is a scenario that measures no window, and the record is only counted. */
+    int32_t inner_width;
+    int32_t inner_height;
+    int resizes;
+    int moves;
+    int32_t moved_x;
+    int32_t moved_y;
 };
+
+/* The pretend window's chrome: a frame of ten by thirty and a bar forty tall under the page area,
+ * on a 1920 by 1080 work area at the origin. */
+#define PLACED_CHROME 40
 
 /* Takes what the window owes and acts on each record in order, as a toolkit window would: a
  * sentence on the status line (here, standard output), the title bar, the page area drawn again.
@@ -223,8 +237,43 @@ static int act_on_what_is_owed(quorra_window *window, struct seen *seen)
             }
             break;
         }
-        case QUORRA_OWED_PLACE:
+        case QUORRA_OWED_PLACE: {
+            if (seen->inner_width == 0) {
+                break;
+            }
+            quorra_window_extents extents = {seen->inner_width, seen->inner_height, 10, 30, 0, 0,
+                                             1920, 1080, 1u};
+            quorra_window_placement placed = {0};
+            int32_t status = quorra_window_place(window, &extents, &placed);
+            if (status == QUORRA_NO_ANSWER) {
+                break;
+            }
+            if (!check("quorra_window_place", status)
+                || quorra_window_place(window, &extents, NULL) != QUORRA_NULL_ARGUMENT) {
+                free(text);
+                quorra_owed_free(owed);
+                return 0;
+            }
+            if (placed.resize) {
+                seen->resizes += 1;
+                seen->inner_width = placed.width;
+                seen->inner_height = placed.height;
+                if (!check("quorra_window_resize",
+                           quorra_window_resize(window, (uint32_t)placed.width,
+                                                (uint32_t)(placed.height - PLACED_CHROME),
+                                                1.0f))) {
+                    free(text);
+                    quorra_owed_free(owed);
+                    return 0;
+                }
+            }
+            if (placed.move_to) {
+                seen->moves += 1;
+                seen->moved_x = placed.x;
+                seen->moved_y = placed.y;
+            }
             break;
+        }
         default:
             printf("owed a kind this program has no arm for: %s\n", quorra_owed_kind_name(kind));
             break;
@@ -1146,10 +1195,44 @@ static int the_script(const char *path)
     return again == QUORRA_NO_ANSWER && seen.withdrawn == 1 && late == QUORRA_NO_ANSWER;
 }
 
+/* Table 147's /FitWindow and /CenterWindow, answered to a window this program pretends to be: the
+ * page area 800 by 600 under no chrome but a bar forty tall, resized until the page area is the
+ * first displayed page, then moved to the centre of the work area, then owed nothing (ADR 2308). */
+static int the_placement(const char *path)
+{
+    quorra_window *window = NULL;
+    struct seen seen = {0};
+    seen.inner_width = 800;
+    seen.inner_height = 600 + PLACED_CHROME;
+    if (!check("quorra_window_open", quorra_window_open(path, NULL, &window))
+        || !check("quorra_window_resize", quorra_window_resize(window, 800, 600, 1.0f))
+        || !act_on_what_is_owed(window, &seen) || !run_the_timer(window, &seen)) {
+        quorra_window_free(window);
+        return 0;
+    }
+    quorra_window_extents extents = {seen.inner_width, seen.inner_height, 10, 30, 0, 0, 1920,
+                                     1080, 1u};
+    quorra_window_placement placed = {0};
+    int32_t after = quorra_window_place(window, &extents, &placed);
+    bool full_screen = true;
+    if (!check("quorra_window_full_screen", quorra_window_full_screen(window, &full_screen))
+        || quorra_window_full_screen(window, NULL) != QUORRA_NULL_ARGUMENT) {
+        quorra_window_free(window);
+        return 0;
+    }
+    printf("window placement: %d resize(s) to %dx%d, %d move(s) to %d,%d, then %s; full screen %d\n",
+           seen.resizes, seen.inner_width, seen.inner_height, seen.moves, seen.moved_x,
+           seen.moved_y, quorra_status_message(after), full_screen ? 1 : 0);
+    quorra_window_free(window);
+    return seen.resizes >= 1 && seen.moves == 1 && after == QUORRA_NO_ANSWER && !full_screen;
+}
+
 int main(int argc, char **argv)
 {
-    if (argc < 6) {
-        fprintf(stderr, "usage: %s <file.pdf> <form.pdf> <script.pdf> <directory> <audience.pdf>\n",
+    if (argc < 7) {
+        fprintf(stderr,
+                "usage: %s <file.pdf> <form.pdf> <script.pdf> <directory> <audience.pdf> "
+                "<placed.pdf>\n",
                 argv[0]);
         return 1;
     }
@@ -1185,7 +1268,7 @@ int main(int argc, char **argv)
     }
     if (!the_note(argv[1], argv[2]) || !the_form(argv[2]) || !the_requests(argv[1])
         || !the_settings(argv[2]) || !the_reader(argv[1], argv[4]) || !the_script(argv[3])
-        || !the_audience(argv[5])) {
+        || !the_audience(argv[5]) || !the_placement(argv[6])) {
         return 1;
     }
     printf("ok\n");

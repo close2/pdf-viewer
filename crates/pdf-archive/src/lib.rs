@@ -62,7 +62,9 @@ pub use crate::reach::{Arrival, Entry, Exempt, Limit, Reach};
 pub use crate::report::{Judgement, Outcome, Report, Verdict};
 pub use crate::requirement::{Applies, Check, Clauses, Requirement};
 pub use crate::table::document_level::{standard_structure_element, standard_structure_type};
-pub use crate::table::fonts::{cmap_is_predefined, fonts_naming_an_undefined_cmap, type3_encoding};
+pub use crate::table::fonts::{
+    Table124Row, cmap_is_predefined, fonts_naming_an_undefined_cmap, table_124_rows, type3_encoding,
+};
 pub use crate::table::graphics::{
     Beside, CmykProfileUse, IccTagShortfall, cmyk_profile_uses, icc_profile_component_count,
     icc_tag_shortfall, icc_version_tag_shortfall, icc_written_in_the_1998_edition,

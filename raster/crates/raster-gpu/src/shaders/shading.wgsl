@@ -4,9 +4,9 @@
 // The sweep parameter t is computed in the *shading's own space*: the fragment's
 // device position maps back through the inverse of the command × viewport transform
 // carried in the params, so a sheared or rotated placement sweeps correctly. The
-// ramp was sampled to straight-RGBA texels on the CPU at upload (deterministic);
-// t indexes it with textureLoad — no sampler, no filtering, adapter-invariant — through
-// `ramp_texel`, which places a hard step at its own offset (ADR 1389).
+// ramp's own stops travel as `f32` bits (deterministic), read with textureLoad — no
+// sampler, no filtering, adapter-invariant — and `ramp_colour` interpolates between the
+// two either side of t at t itself, so a hard step lies at its own offset (ADR 2310).
 //
 // Coverage comes either from the frame's scratch (a rasterised fill/stroke shape,
 // ADR 0008) or analytically from the coverage rectangle for the rectangle case, and
@@ -55,8 +55,8 @@ struct Params {
 // This invocation's quad, read from the window once at the top of each entry point, so every
 // function below reads the numbers it read when each quad had a binding of its own.
 var<private> params: Params;
-// The ramp (RAMP_RESOLUTION x RAMP_ROWS: colours, bounds, layout) for axial/radial, or
-// the mesh raster.
+// The ramp's stops (`device/ramp.rs`'s table: offsets and colours as `f32` bits) for
+// axial/radial, or the mesh raster.
 @group(0) @binding(1) var paint_tex: texture_2d<f32>;
 @group(0) @binding(2) var scratch_tex: texture_2d<f32>;
 // The active soft mask, realised at its own plan's rectangle.
@@ -220,50 +220,83 @@ fn paint_at(p: vec2f) -> vec4f {
     if t < 0.0 {
         return vec4f(0.0, 0.0, 0.0, -1.0);
     }
-    return textureLoad(paint_tex, vec2i(ramp_texel(t), 0), 0);
+    return ramp_colour(t);
 }
 
-// One word of the ramp's rows 1 and 2: four RGBA8 bytes, little-endian. An `rgba8unorm`
+// One word of the ramp's table: four RGBA8 bytes, little-endian. An `rgba8unorm`
 // channel reads as `byte / 255`, which `round(· × 255)` returns to the byte exactly.
 fn ramp_word(x: i32, row: i32) -> u32 {
     let b = vec4u(round(textureLoad(paint_tex, vec2i(x, row), 0) * 255.0));
     return b.x | (b.y << 8u) | (b.z << 16u) | (b.w << 24u);
 }
 
-// The colour texel for `t` (ADR 1389; `device/ramp.rs`'s `texel_for` states it in Rust).
+// Word `row` of stop `i` (`device/ramp.rs`'s `ramp_table`): stop `i` is column `i mod W` of
+// block `i / W`, whose five rows are the offset, red, green, blue and alpha as `f32` bits.
+fn ramp_stop(i: i32, row: i32) -> f32 {
+    let width = i32(textureDimensions(paint_tex).x);
+    return bitcast<f32>(ramp_word(i % width, (i / width) * 5 + row));
+}
+
+fn ramp_stop_colour(i: i32) -> vec4f {
+    return vec4f(ramp_stop(i, 1), ramp_stop(i, 2), ramp_stop(i, 3), ramp_stop(i, 4));
+}
+
+// The ramp's colour at `t` (ADR 2310).
 //
-// §8.7.4.5.3 makes a pixel's colour the function's at the `t` of its centre, so a hard
-// step — a §7.10.4 stitching bound, two stops at one offset — is found by comparing `t`
-// with the bound itself, carried exactly in row 1, and never by rounding onto a grid.
-// Segment k lies between row 1's texels k and k + 1; it is the first whose upper offset
-// is above `t` (closed on the left), or the last, and a `t` at or below the first offset
-// is the first segment's. Only within the segment does the index round.
-fn ramp_texel(t: f32) -> i32 {
-    let count = i32(ramp_word(0, 2));
-    var k = 0;
-    if t > bitcast<f32>(ramp_word(0, 1)) {
-        var lo = 0;
-        var hi = count - 1;
-        while lo < hi {
-            let mid = (lo + hi) / 2;
-            if t < bitcast<f32>(ramp_word(mid + 1, 1)) {
-                hi = mid;
-            } else {
-                lo = mid + 1;
-            }
+// §8.7.4.5.3 makes a pixel's colour the function's at the `t` of its centre, so the colour is
+// interpolated between the two stops either side of that `t`, at that `t`, and never read off
+// a grid. At or below the first offset it is the first stop's (§7.10.4's degenerate first
+// interval); otherwise the first stop whose offset is above `t` is found by halving — §7.10.4's
+// intervals are closed on the left, so a hard step, two stops at one offset, lies at its own
+// bound — and with none above it is the last stop's (§7.10.1's clipping).
+//
+// The answer leaves as the level nearest it (`nearest_level`), because what a fragment hands
+// an eight-bit target is not converted alike on every adapter: RADV exports it as a half float
+// rounded toward zero, which takes up to an eighth of a level off a component above one half,
+// and 51 of `issue14165.pdf`'s 842 rows a level down with it. A level survives that export —
+// the half float is under an eighth of a level from it and the target rounds to nearest — so
+// every adapter writes the byte this function chose.
+fn ramp_colour(t: f32) -> vec4f {
+    return nearest_level(ramp_interpolated(t));
+}
+
+// The level nearest each component, `⌊255 c + ½⌋ / 255` of the exact product (ADR 2311): `fma`
+// recovers what the `f32` product rounded away, so a component a hair below a half level — `0.7`
+// is 178.499 997 levels — is not carried onto it. `function_lane.wgsl` holds the same function.
+fn nearest_level(c: vec4f) -> vec4f {
+    let unit = clamp(c, vec4f(0.0), vec4f(1.0));
+    let scaled = unit * 255.0;
+    let residual = fma(unit, vec4f(255.0), -scaled);
+    let whole = floor(scaled);
+    let up = select(vec4f(0.0), vec4f(1.0), (scaled - whole) + residual >= vec4f(0.5));
+    return (whole + up) / 255.0;
+}
+
+// The interpolation `ramp_colour` rounds: the colour at `t` itself (`device/ramp.rs`'s
+// `colour_for` states it in Rust).
+fn ramp_interpolated(t: f32) -> vec4f {
+    let dims = textureDimensions(paint_tex);
+    let count = i32(dims.x) * i32(dims.y / 5u);
+    if t <= ramp_stop(0, 0) {
+        return ramp_stop_colour(0);
+    }
+    var lo = 1;
+    var hi = count;
+    while lo < hi {
+        let mid = (lo + hi) / 2;
+        if t < ramp_stop(mid, 0) {
+            hi = mid;
+        } else {
+            lo = mid + 1;
         }
-        k = lo;
     }
-    let lower = bitcast<f32>(ramp_word(k, 1));
-    let upper = bitcast<f32>(ramp_word(k + 1, 1));
-    let info = ramp_word(k + 1, 2);
-    let base = i32(info & 0xffffu);
-    let texels = i32(info >> 16u);
-    if texels <= 1 || upper <= lower {
-        return base;
+    if lo == count {
+        return ramp_stop_colour(count - 1);
     }
-    let u = clamp((t - lower) / (upper - lower), 0.0, 1.0);
-    return base + i32(round(u * f32(texels - 1)));
+    let low = ramp_stop(lo - 1, 0);
+    let u = (t - low) / (ramp_stop(lo, 0) - low);
+    let previous = ramp_stop_colour(lo - 1);
+    return previous + (ramp_stop_colour(lo) - previous) * u;
 }
 
 @fragment

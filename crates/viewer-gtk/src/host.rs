@@ -601,9 +601,11 @@ impl NativeWindow for Host {
     }
 
     /// GTK 4 gives a program no way to place its own top-level window, so `/CenterWindow` is said
-    /// rather than dropped (trap 5, ADR 1429).
+    /// rather than dropped, and named in the title while it stands (trap 5, ADRs 1429, 2308).
     fn asked_to_centre(&mut self) {
         self.say(window::NO_POSITION_TO_SET);
+        self.state.showing.uncentred = true;
+        self.retitle();
     }
 
     fn show_the_page_mode(&mut self, mode: pdf_model::viewer_preferences::PageMode) {

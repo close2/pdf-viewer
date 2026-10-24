@@ -61,7 +61,7 @@
 //!
 //! `Coverage::Cpu` computes the exact area a shape covers of each pixel; `Coverage::Gpu`
 //! counts samples on a lattice (`Options::coverage_samples`, sixteen by default, each in a
-//! column and a row of its own — raster's `SampleLattice`, the viewer's ADR 2296). A mark
+//! column and a row of its own — raster's `SamplePattern`, the viewer's ADRs 2296 and 2312). A mark
 //! narrower than the gaps between them can fall **between** the
 //! samples, and the device lane then reads zero — which is the disappearance §10.7.4's
 //! rule exists to forbid, reached by the route the clause names. No sample count removes
@@ -108,7 +108,7 @@
     clippy::arithmetic_side_effects
 )]
 
-use raster_gpu::{Coverage, Device, Options, RenderError, SampleLattice, Target, Viewport};
+use raster_gpu::{Coverage, Device, Options, RenderError, SamplePattern, Target, Viewport};
 use raster_scene::{
     Affine, BlendMode, Color, Compose, FillRule, LineCap, LineJoin, Paint, Point, Rect, Scene,
     SceneBuilder, Segment, Stroke,
@@ -430,20 +430,20 @@ fn the_device_lane_really_is_what_draws_the_tall_bar() {
     }
 }
 
-/// The narrowest mark the device lane's sample lattice cannot lose, in device pixels: the
+/// The narrowest mark the device lane's sample pattern cannot lose, in device pixels: the
 /// width ADR 0070's condition compares a mark's thin axis with.
 ///
-/// Asked of raster's own [`SampleLattice`] rather than written as `0.316`, because the
-/// lattice is what would move (the viewer's ADR 2296).
+/// Asked of raster's own [`SamplePattern`] rather than written as `0.3125`, because the
+/// pattern is what would move (the viewer's ADR 2313).
 fn vanishing_width() -> f32 {
-    SampleLattice::of(raster_gpu::DEFAULT_COVERAGE_SAMPLES).vanishing_width()
+    SamplePattern::of(raster_gpu::DEFAULT_COVERAGE_SAMPLES).vanishing_width()
 }
 
 /// The distance between neighbouring sample columns, in device pixels: every sample has a
 /// column of its own, so an axis-aligned band's ink is a count of columns times this, a
 /// sixteenth of a pixel at the default count.
 fn edge_pitch() -> f32 {
-    SampleLattice::of(raster_gpu::DEFAULT_COVERAGE_SAMPLES).edge_pitch()
+    SamplePattern::of(raster_gpu::DEFAULT_COVERAGE_SAMPLES).edge_pitch()
 }
 
 /// The device lane, on the widths its sample lattice can represent: a mark at least the
@@ -537,20 +537,22 @@ fn the_device_lanes_ink_is_quantised_to_one_sample_row() {
     }
 }
 
-/// The **upper edge of the recorded gap below**: at exactly the lattice's vanishing width the
+/// The **upper edge of the recorded gap below**: at exactly the pattern's vanishing width the
 /// device lane draws the mark at *every* sub-pixel position, where a tenth of a pixel would
 /// draw it at a few.
 ///
 /// The boundary is arithmetic rather than empirical, and stating it is the point of the
-/// test: raster's [`SampleLattice`] gives every sample a column of its own, `1/n` apart, so
-/// an axis-aligned band of this width holds five of the sixteen columns wherever it lands,
-/// and its ink is five or six sixteenths. The width itself is set by the two readings ADR
-/// 0070's condition must hold for — a band at the lattice's worst angle and an axis-aligned
-/// square (ADR 2296) — and this bar, being neither, catches more than it needs to.
+/// test: raster's [`SamplePattern`] gives every sample a column of its own, `1/n` apart, so
+/// an axis-aligned band of this width — five sixteenths at the default count, the pattern's
+/// widest empty square (ADR 2312) — holds five of the sixteen columns wherever it lands. The
+/// width itself is set by the two readings ADR 0070's condition must hold for — a band at the
+/// pattern's worst angle and an axis-aligned square — and this bar, being a band, catches more
+/// than it needs to.
 ///
-/// **The floor of §10.7.4 is not asserted here**, because the width is not a multiple of the
-/// pitch: five sixteenths is less than `1/√10` (ADR 0076). The mark not disappearing is, and
-/// the two-sided bound is.
+/// **The floor of §10.7.4 is not asserted here**, because the width is the pattern's and not
+/// this test's: that it is a multiple of the pitch at sixteen samples is the square's doing,
+/// and the lattice's `1/√10` was not (ADR 0076). The mark not disappearing is, and the
+/// two-sided bound is.
 ///
 /// [`the_device_lane_meets_the_clause_down_to_its_sample_spacing`] asserts widths at or
 /// above the vanishing width at **one** position; this asserts that the position is not what

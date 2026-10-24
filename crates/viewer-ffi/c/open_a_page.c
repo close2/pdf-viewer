@@ -929,6 +929,18 @@ static int draw_a_page_past_the_bound(quorra_viewer *viewer)
         free(pixels);
         printf("oversize: page %zu is %ux%u, a window %ux%u at %u,%u drawn of it\n", page + 1,
                width, height, w, h, x, y);
+        /* What the window's draw declined goes back to the viewer, which keeps no window: a
+         * missing raster is refused, and this page's window declines nothing (ADR 2316). */
+        quorra_events *declined = NULL;
+        ok = ok
+             && quorra_raster_declined(viewer, request, NULL, &declined) == QUORRA_NULL_ARGUMENT
+             && check("quorra_raster_declined",
+                      quorra_raster_declined(viewer, request, raster, &declined));
+        if (ok) {
+            printf("oversize: what the window declined, told: %zu event(s)\n",
+                   quorra_events_len(declined));
+            quorra_events_free(declined);
+        }
     }
     quorra_raster_free(raster);
     if (ok) {

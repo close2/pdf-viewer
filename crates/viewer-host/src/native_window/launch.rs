@@ -9,8 +9,8 @@
 //! wait for the thread and the join. The third copy is where this crate takes a rule (habit 131).
 //!
 //! What stays a toolkit's is stated as a parameter rather than left as a step in the host (habit
-//! 139): where the refusals are said ([`Refusals`]), what the toolkit calls its first size and who
-//! fits the window to Table 147's `/FitWindow` ([`Sizing`]), and the timer a toolkit arms for a
+//! 139): where the refusals are said ([`Refusals`]), what the toolkit calls its first size
+//! ([`Sizing`]), and the timer a toolkit arms for a
 //! document still opening past the wait, which [`Joining::StillOpening`] asks of the one toolkit
 //! that has no timer already looking.
 
@@ -185,26 +185,11 @@ pub enum FirstSize {
     Resize,
 }
 
-/// Who fits the window to Table 147's `/FitWindow`, which decides whether a size asks it again.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Fitting {
-    /// The window measures its page and fits itself, saying when it has
-    /// ([`crate::Presenting::placed`]): a size taken while the fit is still owed asks it again,
-    /// because a frame is not always drawn for a viewport the page already fits the width of (ADR
-    /// 1429). `viewer-gtk` and `viewer-qt`.
-    Measured,
-    /// The placement is handed to the caller once, as a record, and the window never learns that
-    /// it was done; a size asks nothing again. The C window.
-    Handed,
-}
-
 /// How a toolkit takes the viewport's sizes: the toolkit's part of [`NativeWindow::sized`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Sizing {
     /// What the toolkit calls the first size.
     pub first: FirstSize,
-    /// Who fits the window.
-    pub fitting: Fitting,
 }
 
 /// What a size left for the toolkit to do.
@@ -266,7 +251,11 @@ pub(super) fn sized<W: NativeWindow + ?Sized>(
         return Joining::Done;
     }
     window.dispatch(resize);
-    if sizing.fitting == Fitting::Measured && window.state().presenting.owes_placing() {
+    // Every window measures its page and fits itself, saying when it has
+    // ([`crate::Presenting::placed`]): a size taken while the fit is still owed asks it again,
+    // because a frame is not always drawn for a viewport the page already fits the width of (ADRs
+    // 1429, 2308).
+    if window.state().presenting.owes_placing() {
         window.fit_the_window();
     }
     Joining::Done

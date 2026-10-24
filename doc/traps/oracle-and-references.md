@@ -802,3 +802,13 @@ unrelated RGB finding at once; only the sweep of pdf.js's documents did. A row's
 row's own finding, and a change to any refusal is measured on the real corpora before and after, not on
 the conformance corpus alone.
 
+### 252. A census sentence shared by several shapes names a shape no document has
+
+The archive census reported `annotations/normal-appearance-shape` as "an appearance subdictionary with no
+`/AS`" for twenty-three pdf.js documents, and round 1742's brief planned the remedy on that sentence; the
+bytes showed every one to be a push button with a single `N` stream, a different shape with a different
+remedy, because the site used one sentence for every way the row could fail (ADR 2319). A census line is a
+count of a sentence, not of a shape: before a remedy is briefed or built, three refused witnesses are read
+in their bytes, and a site whose sentence covers more than one shape is split, one sentence per shape, so
+the next census counts what the files hold.
+

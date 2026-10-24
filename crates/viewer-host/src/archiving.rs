@@ -458,6 +458,7 @@ fn planned(asked: &Archiving, lines: &mut Vec<String>) -> Option<(ArchivePlan, &
         resolutions: contribution.resolutions,
         tool_outputs: ToolOutputs::new(),
         external_data: BTreeMap::new(),
+        clock: pdf_transform::archive::Clock::System,
     };
     Some((plan, shipped.name))
 }

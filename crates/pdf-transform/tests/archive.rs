@@ -351,6 +351,7 @@ fn convert(bytes: &[u8], target: Target, authorised: Authorisations) -> (Report,
             resolutions: Vec::new(),
             tool_outputs: ToolOutputs::new(),
             external_data: std::collections::BTreeMap::new(),
+            clock: pdf_transform::archive::Clock::System,
         }),
         &[Source::new(bytes.to_vec())],
         &sinks,
@@ -2020,6 +2021,7 @@ fn a_supplied_profile_is_the_one_embedded_and_its_copyright_tag_is_reported() {
             resolutions: Vec::new(),
             tool_outputs: ToolOutputs::new(),
             external_data: std::collections::BTreeMap::new(),
+            clock: pdf_transform::archive::Clock::System,
         }),
         &[Source::new(source)],
         &sinks,
@@ -2495,6 +2497,7 @@ fn convert_with_profile(
             resolutions: Vec::new(),
             tool_outputs: ToolOutputs::new(),
             external_data: std::collections::BTreeMap::new(),
+            clock: pdf_transform::archive::Clock::System,
         }),
         &[Source::new(bytes.to_vec())],
         &sinks,
@@ -2846,6 +2849,7 @@ fn no_substitute_turns_the_font_back_into_a_refusal_the_caller_can_take_back() {
             resolutions: Vec::new(),
             tool_outputs: ToolOutputs::new(),
             external_data: std::collections::BTreeMap::new(),
+            clock: pdf_transform::archive::Clock::System,
         }),
         &[Source::new(source)],
         &sinks,
@@ -3788,6 +3792,88 @@ fn an_appearance_subdictionary_with_no_state_stays_refused() {
         decision(&report, "annotations/normal-appearance-shape"),
         Decision::Refused(Because::NotBuiltYet(_))
     ));
+    assert!(output.is_none(), "and no file is written");
+}
+
+#[test]
+fn a_push_buttons_single_stream_becomes_a_subdictionary_its_state_selects() {
+    // ISO 19005-2 section 6.3.3 and ISO 19005-4 section 6.3.3 require a button widget's normal
+    // appearance to be a subdictionary, and TechNote 0010's A012 reads a push button into that
+    // with even one entry. §12.5.5 draws a single stream whatever the state, so a subdictionary
+    // holding that stream alone, under a state its new `/AS` selects, draws it still
+    // (`doc/adr/2319`).
+    let source = Conforming {
+        page: "/Annots [6 0 R]".to_owned(),
+        objects: vec![
+            "<< /Type /Annot /Subtype /Widget /FT /Btn /Ff 65536 /T (Go) /Rect [10 10 90 90] \
+             /F 4 /AP << /N 7 0 R >> >>"
+                .to_owned(),
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 80 80] /Length 0 >>\nstream\n\nendstream"
+                .to_owned(),
+        ],
+        ..Conforming::default()
+    }
+    .build();
+    let (report, output) = to_part_four(&source);
+    assert!(matches!(
+        decision(&report, "annotations/normal-appearance-shape"),
+        Decision::Stated {
+            rewrite: Rewrite::NormalAppearanceFromState,
+            ..
+        }
+    ));
+    let output = output.expect("nothing is lost, so nothing is authorised");
+    let held = holds(&output, Target::Four(Flavour::Plain));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let written = Document::open(output).expect("the output opens");
+    let widget = (1..64)
+        .filter_map(|number| written.get(ObjectId::new(number, 0)).as_dict().cloned())
+        .find(|dict| {
+            written
+                .get_key(dict, "Subtype")
+                .as_name()
+                .is_some_and(|subtype| subtype.as_bytes() == b"Widget")
+        })
+        .expect("the widget is written");
+    let state = written.get_key(&widget, "AS");
+    let state = state.as_name().expect("an AS is written");
+    let appearance = written.get_key(&widget, "AP");
+    let normal = written.get_key(appearance.as_dict().expect("an AP"), "N");
+    let normal = normal.as_dict().expect("N is a subdictionary");
+    assert_eq!(normal.len(), 1, "holding the one stream alone");
+    let selected = normal.get_by_name(state).expect("AS selects its one entry");
+    assert!(
+        matches!(
+            written.resolve(selected),
+            pdf_syntax::object::Object::Stream(_)
+        ),
+        "and the entry is the stream"
+    );
+}
+
+#[test]
+fn a_check_boxs_single_stream_stays_refused_because_its_state_would_be_its_value() {
+    // §12.7.5.2.3 names a check box's states Off and the name of its on state, so the one name a
+    // subdictionary would hold says which value the field has (`doc/adr/2319`).
+    let source = Conforming {
+        page: "/Annots [6 0 R]".to_owned(),
+        objects: vec![
+            "<< /Type /Annot /Subtype /Widget /FT /Btn /T (Box) /Rect [10 10 90 90] \
+             /F 4 /AP << /N 7 0 R >> >>"
+                .to_owned(),
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 80 80] /Length 0 >>\nstream\n\nendstream"
+                .to_owned(),
+        ],
+        ..Conforming::default()
+    }
+    .build();
+    let (report, output) = to_part_four(&source);
+    let Decision::Refused(Because::NotBuiltYet(why)) =
+        decision(&report, "annotations/normal-appearance-shape")
+    else {
+        panic!("the check box's half keeps its refusal");
+    };
+    assert!(why.contains("check box"), "{why}");
     assert!(output.is_none(), "and no file is written");
 }
 
@@ -5990,6 +6076,7 @@ fn convert_with_departure(
             resolutions: Vec::new(),
             tool_outputs: ToolOutputs::new(),
             external_data: std::collections::BTreeMap::new(),
+            clock: pdf_transform::archive::Clock::System,
         }),
         &[Source::new(bytes.to_vec())],
         &sinks,
@@ -6636,6 +6723,7 @@ fn plan_from(text: &str, target: Target) -> ArchivePlan {
         resolutions: config.resolutions(target),
         tool_outputs: ToolOutputs::new(),
         external_data: std::collections::BTreeMap::new(),
+        clock: pdf_transform::archive::Clock::System,
     }
 }
 
@@ -6794,11 +6882,10 @@ fn a_configured_derive_runs_end_to_end_and_the_attachment_becomes_what_the_tool_
 fn a_replayed_tool_output_converts_to_the_same_bytes() {
     // **RFC 0002 section 9, narrowed as `doc/rfc/0007` section 4.4 proposed and `A54` settled.**
     // A request and its result are data, so a conversion handed a recorded tool output is a pure
-    // function of its inputs — no process is created here at all. The one byte range that is not a
-    // function of the inputs is the `stEvt:when` of the recorded action, which ISO 19005-2 section
-    // 6.6.6 asks for and which is a fact about when the action happened;
-    // `the_same_input_twice_produces_identical_bytes` is where the flagless claim is made over a
-    // document that records nothing.
+    // function of its inputs — no process is created here at all. The instant ISO 19005-2 section
+    // 6.6.6 asks the recorded action for is the one input that is not data, so the plan states it
+    // (ADR 2306); `the_same_input_twice_produces_identical_bytes` is where the flagless claim is
+    // made over a document that records nothing.
     let scratch = Scratch::make("replay");
     let derived = Conforming::default().build();
     let script = a_stand_in_converter(&scratch.0, &derived);
@@ -6813,20 +6900,96 @@ fn a_replayed_tool_output_converts_to_the_same_bytes() {
     let recorded = pdf_transform::executor::execute(&request).expect("the recording is made");
     drop(scratch);
     plan.tool_outputs.insert(recorded);
+    plan.clock = a_stated_instant();
 
     let (_, one) = convert_with_plan(&source, &plan);
     let (_, two) = convert_with_plan(&source, &plan);
     let one = one.expect("the replay converts with no program on the machine");
     let two = two.expect("and again");
-    assert_eq!(
-        without_instants(&one),
-        without_instants(&two),
+    // §14.4's identifier digests every byte before it, the instant's included, so a replay a second
+    // later differed there and in `stEvt:when` alone; with the instant stated it differs nowhere.
+    assert!(
+        one == two,
         "the same recorded output converts to the same bytes"
     );
+    assert!(
+        String::from_utf8_lossy(&one).contains(A_STATED_INSTANT_WRITTEN),
+        "and the action is recorded at the instant the plan stated"
+    );
+}
+
+/// An instant a test states, so that a conversion recording an action is a function of its
+/// inputs alone (ADR 2306).
+fn a_stated_instant() -> pdf_transform::archive::Clock {
+    pdf_transform::archive::Clock::At(
+        std::time::UNIX_EPOCH
+            .checked_add(std::time::Duration::from_secs(1_700_000_000))
+            .expect("an instant in 2023 is one this machine's clock represents"),
+    )
+}
+
+/// [`a_stated_instant`] as ISO 19005-2 section 6.6.6's `stEvt:when` writes it.
+const A_STATED_INSTANT_WRITTEN: &str = "<stEvt:when>2023-11-14T22:13:20Z</stEvt:when>";
+
+#[test]
+fn a_conversion_is_the_same_bytes_under_two_hasher_seeds() {
+    // RFC 0002 section 9's "the same inputs produce the same bytes", asked where an order could
+    // leak in: std's `RandomState` draws its keys once per thread, so two conversions on two fresh
+    // threads iterate any `HashMap` on their path in two orders. The fixture takes the path a
+    // build-dependent cut was suspected on (ADR 2306) — more places outside their schema than the
+    // validator's findings keep, so the cut walks every packet (ADR 2295) — and records the
+    // removal, so the stated instant and §14.4's identifier are in the comparison too. Forty
+    // metadata streams each state one of the XMP basic schema's three dates as a sentence, so the
+    // removal's record names properties an order would show in.
+    let packets: Vec<String> = (0..40)
+        .map(|n| {
+            let date = ["CreateDate", "ModifyDate", "MetadataDate"][n % 3];
+            let packet = format!(
+                "<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
+                 <x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n\
+                 <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n\
+                 <rdf:Description rdf:about=\"\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\">\n\
+                 <xmp:{date}>the {n}th day we shipped it</xmp:{date}>\n\
+                 </rdf:Description>\n</rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>"
+            );
+            let dict = format!("/Type /Metadata /Subtype /XML /Length {}", packet.len());
+            String::from_utf8_lossy(&stream(&dict, packet.as_bytes())).into_owned()
+        })
+        .collect();
+    let source = Conforming {
+        objects: packets,
+        ..Conforming::part_two()
+    }
+    .build();
+    let target = Target::Two(Level::B);
+    let mut plan = plan_from("", target);
+    plan.authorised = Authorisations {
+        metadata_property: true,
+        ..Authorisations::default()
+    };
+    plan.clock = a_stated_instant();
+    let on_a_fresh_thread = || {
+        let (source, plan) = (source.clone(), plan.clone());
+        std::thread::spawn(move || convert_with_plan(&source, &plan))
+            .join()
+            .expect("the conversion's thread ends")
+    };
+    let (report, one) = on_a_fresh_thread();
+    let (_, two) = on_a_fresh_thread();
     assert_eq!(
-        one.len(),
-        two.len(),
-        "and to the same length, instant for instant"
+        conversion(&report).removed.len(),
+        40,
+        "every misused property went, one in each packet"
+    );
+    let one = one.expect("authorised, so it converts");
+    // Compared without printing either: a difference is a whole file of bytes on the terminal.
+    assert!(
+        two.as_ref() == Some(&one),
+        "the same document converted under two seeds"
+    );
+    assert!(
+        String::from_utf8_lossy(&one).contains(A_STATED_INSTANT_WRITTEN),
+        "and the removal is recorded at the stated instant"
     );
 }
 
@@ -6837,36 +7000,6 @@ fn the_packet_of(held: &Document) -> String {
     let metadata = metadata.as_stream().expect("a metadata stream");
     let bytes = held.decoded_stream_data(metadata).expect("the packet");
     String::from_utf8_lossy(&bytes).into_owned()
-}
-
-/// The output with every recorded action's instant blanked.
-///
-/// ISO 19005-2 section 6.6.6 asks a recorded action for *when* it happened, so a conversion that
-/// records one reads a clock in that one place and two runs a second apart differ in those bytes
-/// and nowhere else. Blanking them is what lets this test make the determinism claim about
-/// everything the inputs decide.
-fn without_instants(bytes: &[u8]) -> Vec<u8> {
-    let mut out = bytes.to_vec();
-    let needle = b"<stEvt:when>";
-    let mut at = 0;
-    while let Some(found) = out[at..]
-        .windows(needle.len())
-        .position(|window| window == needle)
-    {
-        let start = at.saturating_add(found).saturating_add(needle.len());
-        let Some(end) = out[start..]
-            .windows(2)
-            .position(|window| window == b"</")
-            .map(|offset| start.saturating_add(offset))
-        else {
-            break;
-        };
-        for byte in &mut out[start..end] {
-            *byte = b'0';
-        }
-        at = end;
-    }
-    out
 }
 
 #[test]
@@ -9515,6 +9648,7 @@ fn a_supplied_font(target: Target, base_font: &str, program: &[u8]) -> ArchivePl
         resolutions: Vec::new(),
         tool_outputs: ToolOutputs::new(),
         external_data: std::collections::BTreeMap::new(),
+        clock: pdf_transform::archive::Clock::System,
     }
 }
 

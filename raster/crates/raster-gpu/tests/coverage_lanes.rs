@@ -1,7 +1,7 @@
 //! The two coverage lanes, held against each other (ADR 0016).
 //!
 //! `Coverage::Cpu` computes the exact area of the pixel a shape covers; `Coverage::Gpu`
-//! counts samples on a lattice (`SampleLattice`). They are *different answers to the same
+//! counts samples on a pattern (`SamplePattern`). They are *different answers to the same
 //! question*, and this file is about the shape of that difference:
 //!
 //! - where a pixel is wholly inside or wholly outside, the two must **agree exactly** —
@@ -24,7 +24,7 @@
     clippy::arithmetic_side_effects
 )]
 
-use raster_gpu::{Coverage, Device, Options, RenderError, SampleLattice, Target, Viewport};
+use raster_gpu::{Coverage, Device, Options, RenderError, SamplePattern, Target, Viewport};
 use raster_scene::{
     Affine, BlendMode, Color, Compose, FillRule, LineCap, LineJoin, Paint, Point, Scene,
     SceneBuilder, Segment, Stroke,
@@ -163,15 +163,14 @@ fn the_lanes_agree_exactly_where_no_edge_crosses() {
     assert!(exterior > 200, "and an exterior: {exterior}");
 }
 
-/// On a **straight** edge the difference is the sample lattice and nothing else.
+/// On a **straight** edge the difference is the sample pattern and nothing else.
 ///
 /// How far a straight edge's sampled coverage can be from its area is a property of the
-/// lattice and of the edge's direction alone, so it is derived before the frame is drawn:
+/// pattern and of the edge's direction alone, so it is derived before the frame is drawn:
 /// [`worst_sampled_edge`] sweeps each of the fixture's three edges across a pixel and takes
 /// the largest gap between the share of the samples behind it and the share of the area. The
-/// lattice answers an axis-aligned edge to a thirty-second of a pixel and its worst direction,
-/// along its shortest vector, to under a fifth (the viewer's ADR 2296); this fixture's
-/// steepest edge is near that direction, and the frame's worst pixel sits on it.
+/// pattern answers an axis-aligned edge to a thirty-second of a pixel and its worst direction
+/// to under an eighth (the viewer's ADR 2313), and the frame's worst pixel sits on an edge.
 #[test]
 fn a_straight_edge_differs_by_the_sample_grid_and_no_more() {
     let cpu = render(Coverage::Cpu, straight);
@@ -187,7 +186,7 @@ fn a_straight_edge_differs_by_the_sample_grid_and_no_more() {
     assert!(edges > 40, "the fixture has an antialiased edge: {edges}");
     assert!(
         worst_edge <= bound && worst == worst_edge,
-        "the sample lattice answers this fixture's edges to within {derived:.4} of a pixel, \
+        "the sample pattern answers this fixture's edges to within {derived:.4} of a pixel, \
          {bound} of 255 with the stores' rounding, and nothing away from an edge differs at \
          all; worst difference was {worst_edge} on an edge and {worst} anywhere"
     );
@@ -213,7 +212,7 @@ fn area_behind(nx: f64, ny: f64, c: f64) -> f64 {
 /// a pixel: over every placement of the edge across one pixel, the largest gap between the
 /// share of the samples behind it and the share of the area.
 fn worst_sampled_edge(normal: (f64, f64)) -> f64 {
-    let samples: Vec<(f64, f64)> = SampleLattice::of(raster_gpu::DEFAULT_COVERAGE_SAMPLES)
+    let samples: Vec<(f64, f64)> = SamplePattern::of(raster_gpu::DEFAULT_COVERAGE_SAMPLES)
         .offsets()
         .iter()
         .map(|&[x, y]| (f64::from(x) + 0.5, f64::from(y) + 0.5))

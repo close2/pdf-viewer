@@ -812,3 +812,13 @@ operators, by bases, by alternates and by tints; a defect found through one of t
 family until each route has a control of its own, and the fix is placed where the family is read, not
 where the one operator is.
 
+### 251. A level proved on llvmpipe is not a level on RADV
+
+Round 1738 replaced raster's ramp table with the ramp's own stops and had the oracle and the device lane
+agree on every row under llvmpipe; on the arms' adapter 51 rows still read one level low, because RADV
+exports a fragment's f32 colour to an rgba8 target through a half float rounded toward zero, up to an
+eighth of a level, where llvmpipe rounds to nearest (ADR 2310). A fixture that asserts the level a colour
+reaches is run on the arms' adapter and not only headless on llvmpipe, and a shader that means a level
+hands the target that level — `nearest_level`, with the product made exact through `fma`'s residual —
+rather than a fraction the driver rounds its own way.
+

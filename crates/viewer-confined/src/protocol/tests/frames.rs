@@ -29,7 +29,7 @@ fn a_list_frame(width: u32, height: u32) -> Vec<u8> {
     writer.usize(0).u8(PAYLOAD_LIST).u32(width).u32(height);
     display_list::write_transform(&mut writer, Transform::IDENTITY);
     writer.bytes(&display_list::encode(&list).expect("a one-command page encodes"));
-    writer.point((1.5, -2.5));
+    writer.point((1.5, -2.5)).bool(false);
     writer.finish()
 }
 
@@ -121,7 +121,7 @@ fn a_page_that_stops_crossing_as_marks_is_forgotten() {
     writer.u8(answer_kind::FRAME).usize(1);
     writer.usize(0).u8(PAYLOAD_RASTER).u32(2).u32(2).u8(0);
     writer.bytes(&[0u8; 16]);
-    writer.point((0.0, 0.0));
+    writer.point((0.0, 0.0)).bool(false);
     let pixels = decode_answer_reusing(&writer.finish(), &mut held).expect("a frame");
     assert!(matches!(
         &pixels,
@@ -133,6 +133,29 @@ fn a_page_that_stops_crossing_as_marks_is_forgotten() {
         !std::sync::Arc::ptr_eq(&the_list_of(&first), &the_list_of(&third)),
         "the pixels arm evicted the held list, so the same bytes decode afresh"
     );
+}
+
+/// A page the worker drew as pixels says whether its draw declined a mark, after its origin, so
+/// the host can name it in its title; the payload's bytes are the payload's alone (ADR 2316).
+#[test]
+fn a_page_drawn_as_pixels_says_its_draw_declined_a_mark() {
+    for declined in [true, false] {
+        let mut writer = Writer::new();
+        writer.u8(answer_kind::FRAME).usize(1);
+        writer.usize(3).u8(PAYLOAD_RASTER).u32(2).u32(2).u8(0);
+        writer.bytes(&[0u8; 16]);
+        writer.point((4.0, 5.0)).bool(declined);
+        let Reply::Frame(frames) = decode_answer(&writer.finish()).expect("a frame") else {
+            panic!("a frame answer decodes as one");
+        };
+        let [shown] = frames.as_slice() else {
+            panic!("one page was written")
+        };
+        assert_eq!(
+            (shown.page, shown.origin, shown.declined),
+            (3, (4.0, 5.0), declined)
+        );
+    }
 }
 
 /// **A frame answer holding no pixels at all still carries the page**, out of this store.
@@ -379,7 +402,7 @@ fn a_window_no_worker_could_have_drawn_is_refused() {
             .u32(size.1)
             .u8(0)
             .bytes(&pixels);
-        writer.point((0.0, 0.0));
+        writer.point((0.0, 0.0)).bool(false);
         writer.finish()
     };
     // A host that never said it places a window refuses one of a page under the bound, and

@@ -89,7 +89,8 @@ chords at a twentieth of a pixel, its mitres and caps the path's own and its rou
 through the way the path arrives (ADRs 2122, 2252, 2268, 2269), a piece the path states twice
 weighed twice and a thin piece entered from a vertical ray, every mark it still declines named to
 the draw's caller and said in every window, once a condition on the terminal and the page in the
-title (ADRs 2280, 2281, 2290), lifts a shape too small to show to one level as a whole
+title — a C caller's window raster and a page the confined worker drew as pixels among them, a
+stand-in's draw deliberately not (ADRs 2280, 2281, 2290, 2316) — lifts a shape too small to show to one level as a whole
 shape, which is what §10.7.4 asks the lift of, so the sliver beside a shape that does show keeps its
 own level rather than being painted as ink (ADR 1374), and measures a path
 whose portions overlap as the set its fill rule declares inside rather than composite the portions
@@ -120,6 +121,8 @@ at one thread; `doc/crate-map.md`'s `raster-gpu` row names the module of each co
 1468, 1479, 1480, 1491, 1492, 1503, 1505, 1513, 1517, 1529, 1541, 1555, 1567, 1582, 1594, 1595). **A shading end
 `/Extend` leaves off stops at that end's own position** — a hard transparent stop in every
 backend rather than a fade squeezed inside the ramp, and within half a texel of Vello's fixed ramp (ADR 1387).
+**raster reads a ramp at each pixel's own `t`**, interpolating its own stops rather than a table of
+colours sampled from them, and hands the target the level nearest the answer (ADR 2310).
 
 ### Interpretation, and what bounds it
 
@@ -541,10 +544,11 @@ document, on ADR 1190's rule. **A window is the front document's**: one opened b
 arrives keeps its full screen and a `UseThumbs` document opens its pages panel then; full screen
 hides the strip; and a transition's faces are drawn on the window's own surround from the front
 document's page (ADR 1303). ADRs 1263, 1264, 1275. **A presentation is the front document's and is
-parked, not ended**: in the two toolkit windows and the C window each tab keeps its own full screen
-and clock while another is in front, and a hidden window's presentation counts no time, because a
-page nobody can see is not displayed — one pump, `viewer_host::presentation_pump`, which also gives
-the WinUI host its `/Dur`, its transitions and its script timers (ADR 2300).
+parked, not ended**: in every window each tab keeps its own full screen and clock while another is
+in front, and a hidden window's presentation counts no time, because a page nobody can see is not
+displayed — one pump, `viewer_host::presentation_pump`, which also gives the WinUI host its `/Dur`,
+its transitions and its script timers (ADR 2300), and in `quorra` its own winit turn parked on the
+window's occlusion and minimised state (ADR 2317).
 
 **And §12.9's measurement is drawn as well as said.** The traced path is over the page in all three
 windows, each press marked, in each platform's own colour — the points are the host's and
@@ -823,7 +827,10 @@ hosts — four name a panel, `UseNone` names none and `FullScreen` is §12.4.4's
 §12.2's `/DisplayDocTitle` puts the document's own title in the title bar of all three, on one line
 whatever line breaks its text string holds (ADR 1973), `/FitWindow`
 sizes each to the first displayed page, and `/CenterWindow` centres `quorra` and `quorra-qt`, where
-GTK 4 has no call and `quorra-gtk` says so (ADR 1429). **A document this program
+GTK 4 has no call and Qt under Wayland no effect, and each says so and names it in the title — one
+placement decision for Qt and the C window's caller alike (ADRs 1429, 2308). **No dialogue a
+document raises interrupts a presentation**: a question, a script's question and a password prompt
+wait until the window leaves full screen (ADR 2309). **A document this program
 cannot open, and one whose page tree has no leaves, are two sentences rather than an exit**, in all
 three windows (ADR 0564); one whose pages were found by Table 31's `/Type /Page` because its tree
 yields none is shown with a note saying how many and that their order is the object numbers'
@@ -987,7 +994,9 @@ pass.
   only its realised thumbnails, and the shared restriction menu as its Permissions menu (ADR 2185);
   the chrome the library says is in effect, read through the native window rather than from the
   document's preferences (ADR 2200), Table 29's `HideWindowUI` hiding the navigation toggle and the
-  status line and never the document or its outline (ADR 2201);
+  status line and never the document or its outline (ADR 2201); Table 29's full screen as the
+  `AppWindow`'s own presenter and Table 147's fit and centre through `quorra_window_place`, compiled
+  and not yet run (ADR 2308);
   the pictures copied only where a repaint calls them fresh (ADR 2168), Table 231's combs, the
   measured fit, §12.5.6.14's popups and §12.9's traced path drawn (ADR 2169); its C# compiled on
   Linux against the Windows App SDK's references by `tools/dotnet-check.sh` (ADR 2184), its XAML only by CI's `window` job, on

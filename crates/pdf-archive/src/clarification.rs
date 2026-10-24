@@ -211,9 +211,9 @@
 //!   `/FontFile3` subtypes and then specify the format in full — so the ambiguity A014 exists to
 //!   resolve is one only the PDF 1.4 Reference has. Nothing is owed.
 //!   The residue is real and belongs elsewhere: a `/FontFile3` whose `/Subtype` names none of the
-//!   three the base standard defines goes unreported here, and that is
-//!   `conformance/adheres-to-the-base-standard`'s `Unchecked` — a decision this crate has already
-//!   argued — rather than a font row nobody wrote. ADR 0941.
+//!   three the base standard defines, or a format its program's bytes are not, is
+//!   `fonts/font-programs-filed-by-their-format`'s, which reads it from the embedding clause's
+//!   own "as defined in" section 9.9 rather than from A014. ADRs 0941, 2307.
 
 use crate::target::Part;
 

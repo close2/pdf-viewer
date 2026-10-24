@@ -1850,8 +1850,9 @@ fn predefined(namespace: &str) -> Option<&'static Schema> {
 struct ValueStructure {
     /// The type's name, for a finding.
     name: &'static str,
-    /// The field namespace URI the specification gives the type.
-    uri: &'static str,
+    /// The field namespace URIs the specification gives the type: one, except where the edition
+    /// misprints it (`FONT`'s, `doc/adr/2318`).
+    uris: &'static [&'static str],
     /// Each field the type's table defines, with the structured type of its value where it has
     /// one.
     fields: &'static [(&'static str, Option<&'static ValueStructure>)],
@@ -1863,7 +1864,7 @@ struct ValueStructure {
 /// write, is not one of them.
 static RESOURCE_EVENT: ValueStructure = ValueStructure {
     name: "ResourceEvent",
-    uri: RESOURCE_EVENT_URI,
+    uris: &[RESOURCE_EVENT_URI],
     fields: &[
         ("action", None),
         ("instanceID", None),
@@ -1881,7 +1882,7 @@ static RESOURCE_EVENT: ValueStructure = ValueStructure {
 /// schema either (`doc/adr/1991`).
 static RESOURCE_REF: ValueStructure = ValueStructure {
     name: "ResourceRef",
-    uri: "http://ns.adobe.com/xap/1.0/sType/ResourceRef#",
+    uris: &["http://ns.adobe.com/xap/1.0/sType/ResourceRef#"],
     fields: &[
         ("instanceID", None),
         ("documentID", None),
@@ -1899,7 +1900,7 @@ static RESOURCE_REF: ValueStructure = ValueStructure {
 /// [`RESOURCE_EVENT`].
 static VERSION: ValueStructure = ValueStructure {
     name: "Version",
-    uri: "http://ns.adobe.com/xap/1.0/sType/Version#",
+    uris: &["http://ns.adobe.com/xap/1.0/sType/Version#"],
     fields: &[
         ("comments", None),
         ("event", Some(&RESOURCE_EVENT)),
@@ -1909,19 +1910,255 @@ static VERSION: ValueStructure = ValueStructure {
     ],
 };
 
+/// The 2005 edition's `Thumbnail`, the item type of `xmp:Thumbnails`.
+static THUMBNAIL: ValueStructure = ValueStructure {
+    name: "Thumbnail",
+    uris: &["http://ns.adobe.com/xap/1.0/g/img/"],
+    fields: &[
+        ("format", None),
+        ("height", None),
+        ("image", None),
+        ("width", None),
+    ],
+};
+
+/// The 2005 edition's `Dimensions`, the type of `xmpTPg:MaxPageSize` and `xmpDM:videoFrameSize`.
+static DIMENSIONS: ValueStructure = ValueStructure {
+    name: "Dimensions",
+    uris: &["http://ns.adobe.com/xap/1.0/sType/Dimensions#"],
+    fields: &[("h", None), ("unit", None), ("w", None)],
+};
+
+/// The 2005 edition's `Font`, the item type of `xmpTPg:Fonts`.
+///
+/// **Two namespaces, and the second is a reading.** The edition prints this type's field namespace
+/// without the `//` after `http:`. The edition before it printed `Dimensions`' the same way, and
+/// this edition's own list of changes names that one a correction to `http://`, so the misprint is
+/// the edition's and not the type's: a structure in either spelling is a value of this type, and
+/// neither is refused over a defect of the text (`doc/adr/2318`).
+static FONT: ValueStructure = ValueStructure {
+    name: "Font",
+    uris: &[
+        "http://ns.adobe.com/xap/1.0/sType/Font#",
+        "http:ns.adobe.com/xap/1.0/sType/Font#",
+    ],
+    fields: &[
+        ("childFontFiles", None),
+        ("composite", None),
+        ("fontFace", None),
+        ("fontFamily", None),
+        ("fontFileName", None),
+        ("fontName", None),
+        ("fontType", None),
+        ("versionString", None),
+    ],
+};
+
+/// The 2005 edition's `Colorant`, the item type of `xmpTPg:Colorants` and the type of
+/// `xmpDM:videoAlphaPremultipleColor`.
+///
+/// Thirteen fields; `tint`, which later editions add for a spot colour, is not one of them.
+static COLORANT: ValueStructure = ValueStructure {
+    name: "Colorant",
+    uris: &["http://ns.adobe.com/xap/1.0/g/"],
+    fields: &[
+        ("A", None),
+        ("B", None),
+        ("L", None),
+        ("black", None),
+        ("blue", None),
+        ("cyan", None),
+        ("green", None),
+        ("magenta", None),
+        ("mode", None),
+        ("red", None),
+        ("swatchName", None),
+        ("type", None),
+        ("yellow", None),
+    ],
+};
+
+/// The 2005 edition's `Job`, the item type of `xmpBJ:JobRef`.
+static JOB: ValueStructure = ValueStructure {
+    name: "Job",
+    uris: &["http://ns.adobe.com/xap/1.0/sType/Job#"],
+    fields: &[("id", None), ("name", None), ("url", None)],
+};
+
+/// The field namespace the 2005 edition gives every Dynamic Media value type: the schema's own.
+const DYNAMIC_MEDIA_URI: &str = "http://ns.adobe.com/xmp/1.0/DynamicMedia/";
+
+/// The 2005 edition's `Time`, the type of four `xmpDM` properties and of four fields below.
+static TIME: ValueStructure = ValueStructure {
+    name: "Time",
+    uris: &[DYNAMIC_MEDIA_URI],
+    fields: &[("scale", None), ("value", None)],
+};
+
+/// The 2005 edition's `Timecode`, the type of `xmpDM:startTimecode` and `xmpDM:altTimecode`.
+static TIMECODE: ValueStructure = ValueStructure {
+    name: "Timecode",
+    uris: &[DYNAMIC_MEDIA_URI],
+    fields: &[("timeFormat", None), ("timeValue", None)],
+};
+
+/// The 2005 edition's `beatSpliceStretch`, the type of `xmpDM:beatSpliceParams`.
+static BEAT_SPLICE_STRETCH: ValueStructure = ValueStructure {
+    name: "beatSpliceStretch",
+    uris: &[DYNAMIC_MEDIA_URI],
+    fields: &[
+        ("riseInDecibel", None),
+        ("riseInTimeDuration", Some(&TIME)),
+        ("useFileBeatsMarker", None),
+    ],
+};
+
+/// The 2005 edition's `Marker`, the item type of `xmpDM:markers`.
+///
+/// Its `startTime` and `duration` are a [`TIME`] in this edition; later editions make them a
+/// frame count written as text, and a marker written to those is not a value of this type.
+static MARKER: ValueStructure = ValueStructure {
+    name: "Marker",
+    uris: &[DYNAMIC_MEDIA_URI],
+    fields: &[
+        ("comment", None),
+        ("duration", Some(&TIME)),
+        ("location", None),
+        ("name", None),
+        ("startTime", Some(&TIME)),
+        ("target", None),
+        ("type", None),
+    ],
+};
+
+/// The 2005 edition's `Media`, the item type of `xmpDM:contributedMedia`.
+static MEDIA: ValueStructure = ValueStructure {
+    name: "Media",
+    uris: &[DYNAMIC_MEDIA_URI],
+    fields: &[
+        ("duration", Some(&TIME)),
+        ("managed", None),
+        ("path", None),
+        ("startTime", Some(&TIME)),
+        ("track", None),
+        ("webStatement", None),
+    ],
+};
+
+/// The 2005 edition's `ProjectLink`, the type of `xmpDM:projectRef`.
+static PROJECT_LINK: ValueStructure = ValueStructure {
+    name: "ProjectLink",
+    uris: &[DYNAMIC_MEDIA_URI],
+    fields: &[("path", None), ("type", None)],
+};
+
+/// The 2005 edition's `resampleStretch`, the type of `xmpDM:resampleParams`.
+static RESAMPLE_STRETCH: ValueStructure = ValueStructure {
+    name: "resampleStretch",
+    uris: &[DYNAMIC_MEDIA_URI],
+    fields: &[("quality", None)],
+};
+
+/// The 2005 edition's `timeScaleStretch`, the type of `xmpDM:timeScaleParams`.
+///
+/// Its table prints `frameOverlappingPercentage` across two lines of the field column, and it is
+/// one field.
+static TIME_SCALE_STRETCH: ValueStructure = ValueStructure {
+    name: "timeScaleStretch",
+    uris: &[DYNAMIC_MEDIA_URI],
+    fields: &[
+        ("frameOverlappingPercentage", None),
+        ("frameSize", None),
+        ("quality", None),
+    ],
+};
+
+/// The field namespace the 2005 edition gives every EXIF value type: the schema's own.
+const EXIF_URI: &str = "http://ns.adobe.com/exif/1.0/";
+
+/// The 2005 edition's `Flash`, the type of `exif:Flash`.
+static FLASH: ValueStructure = ValueStructure {
+    name: "Flash",
+    uris: &[EXIF_URI],
+    fields: &[
+        ("Fired", None),
+        ("Function", None),
+        ("Mode", None),
+        ("RedEyeMode", None),
+        ("Return", None),
+    ],
+};
+
+/// The 2005 edition's `OECF/SFR`, the type of `exif:OECF` and `exif:SpatialFrequencyResponse`.
+static OECF_SFR: ValueStructure = ValueStructure {
+    name: "OECF/SFR",
+    uris: &[EXIF_URI],
+    fields: &[
+        ("Columns", None),
+        ("Names", None),
+        ("Rows", None),
+        ("Values", None),
+    ],
+};
+
+/// The 2005 edition's `CFAPattern`, the type of `exif:CFAPattern`.
+static CFA_PATTERN: ValueStructure = ValueStructure {
+    name: "CFAPattern",
+    uris: &[EXIF_URI],
+    fields: &[("Columns", None), ("Rows", None), ("Values", None)],
+};
+
+/// The 2005 edition's `DeviceSettings`, the type of `exif:DeviceSettingDescription`.
+static DEVICE_SETTINGS: ValueStructure = ValueStructure {
+    name: "DeviceSettings",
+    uris: &[EXIF_URI],
+    fields: &[("Columns", None), ("Rows", None), ("Settings", None)],
+};
+
+/// The XMP Basic schema's namespace.
+const BASIC_URI: &str = "http://ns.adobe.com/xap/1.0/";
+/// The Basic Job Ticket schema's namespace.
+const BASIC_JOB_URI: &str = "http://ns.adobe.com/xap/1.0/bj/";
+/// The Paged-Text schema's namespace.
+const PAGED_TEXT_URI: &str = "http://ns.adobe.com/xap/1.0/t/pg/";
+
 /// Which predefined properties hold one of [`ValueStructure`]'s types — the value itself, or each
 /// item of the array it is.
 ///
-/// **The Media Management schema's types only.** The edition defines further structured types —
-/// `Thumbnail`, `Dimensions`, `Font`, `Colorant`, `Job`, and the Dynamic Media and EXIF schemas'
-/// own — whose fields this table does not yet hold, so a structure of one of those is judged by
-/// its shape alone, as every structure was before (`doc/todo/72`).
+/// Every property of the September 2005 edition whose value type is a structure, or an array of
+/// one: the edition's chapter 4, schema by schema, with the type its table names for the property
+/// (`doc/adr/2295`, `doc/adr/2318`). `the_structured_properties_are_the_tables_own` holds each
+/// row to a [`PREDEFINED`] property of a shape that can carry a structure.
 static STRUCTURED: &[(&str, &str, &ValueStructure)] = &[
+    (BASIC_URI, "Thumbnails", &THUMBNAIL),
     (MEDIA_MANAGEMENT_URI, "DerivedFrom", &RESOURCE_REF),
     (MEDIA_MANAGEMENT_URI, "History", &RESOURCE_EVENT),
     (MEDIA_MANAGEMENT_URI, "ManagedFrom", &RESOURCE_REF),
     (MEDIA_MANAGEMENT_URI, "RenditionOf", &RESOURCE_REF),
     (MEDIA_MANAGEMENT_URI, "Versions", &VERSION),
+    (BASIC_JOB_URI, "JobRef", &JOB),
+    (PAGED_TEXT_URI, "Colorants", &COLORANT),
+    (PAGED_TEXT_URI, "Fonts", &FONT),
+    (PAGED_TEXT_URI, "MaxPageSize", &DIMENSIONS),
+    (DYNAMIC_MEDIA_URI, "altTimecode", &TIMECODE),
+    (DYNAMIC_MEDIA_URI, "beatSpliceParams", &BEAT_SPLICE_STRETCH),
+    (DYNAMIC_MEDIA_URI, "contributedMedia", &MEDIA),
+    (DYNAMIC_MEDIA_URI, "duration", &TIME),
+    (DYNAMIC_MEDIA_URI, "introTime", &TIME),
+    (DYNAMIC_MEDIA_URI, "markers", &MARKER),
+    (DYNAMIC_MEDIA_URI, "outCue", &TIME),
+    (DYNAMIC_MEDIA_URI, "projectRef", &PROJECT_LINK),
+    (DYNAMIC_MEDIA_URI, "relativeTimestamp", &TIME),
+    (DYNAMIC_MEDIA_URI, "resampleParams", &RESAMPLE_STRETCH),
+    (DYNAMIC_MEDIA_URI, "startTimecode", &TIMECODE),
+    (DYNAMIC_MEDIA_URI, "timeScaleParams", &TIME_SCALE_STRETCH),
+    (DYNAMIC_MEDIA_URI, "videoAlphaPremultipleColor", &COLORANT),
+    (DYNAMIC_MEDIA_URI, "videoFrameSize", &DIMENSIONS),
+    (EXIF_URI, "CFAPattern", &CFA_PATTERN),
+    (EXIF_URI, "DeviceSettingDescription", &DEVICE_SETTINGS),
+    (EXIF_URI, "Flash", &FLASH),
+    (EXIF_URI, "OECF", &OECF_SFR),
+    (EXIF_URI, "SpatialFrequencyResponse", &OECF_SFR),
 ];
 
 /// Every field of a structured value its type does not define, as findings.
@@ -1943,7 +2180,9 @@ fn undefined_fields(
         return;
     };
     for field in fields {
-        let defined = (field.name.namespace == structure.uri)
+        let defined = structure
+            .uris
+            .contains(&field.name.namespace.as_str())
             .then(|| {
                 structure
                     .fields
@@ -2343,7 +2582,13 @@ fn judge_against_schema(property: &XmpProperty) -> Vec<String> {
         // `changed` is one property used outside its type, and the converter's remedy is the
         // property's removal whatever the count.
         let mut fields = Vec::new();
-        match property.value.array() {
+        // `xmp:Thumbnails` is an alternative array of `Thumbnail`, so an `rdf:Alt`'s items are
+        // items here as a `Seq`'s and a `Bag`'s are.
+        let items: Option<Vec<&Detail>> = match &property.value {
+            Detail::Alt(items) => Some(items.iter().map(|(_, item)| item).collect()),
+            value => value.array().map(|items| items.iter().collect()),
+        };
+        match items {
             Some(items) => {
                 for (ordinal, item) in (1usize..).zip(items) {
                     undefined_fields(
@@ -4383,6 +4628,399 @@ mod tests {
             1,
             "a field is the type's only in the type's own namespace"
         );
+    }
+
+    /// One structured value of a predefined property, in a packet of its own: the property under
+    /// `prefix`, and `fields` in an item of the array `array` names or, with none, in the property
+    /// itself, under a field namespace bound to `field_prefix`.
+    fn structured(
+        (prefix, namespace, property): (&str, &str, &str),
+        array: Option<&str>,
+        (field_prefix, field_namespace): (&str, &str),
+        fields: &str,
+    ) -> Document {
+        let binding = format!("xmlns:{field_prefix}=\"{field_namespace}\"");
+        let value = match array {
+            Some(kind) => format!(
+                "<{prefix}:{property}><rdf:{kind}><rdf:li rdf:parseType=\"Resource\" {binding}>\
+                 {fields}</rdf:li></rdf:{kind}></{prefix}:{property}>"
+            ),
+            None => format!(
+                "<{prefix}:{property} rdf:parseType=\"Resource\" {binding}>{fields}\
+                 </{prefix}:{property}>"
+            ),
+        };
+        document(&schema_packet(prefix, namespace, &value))
+    }
+
+    /// One property the September 2005 edition gives a structured type, stated with fields its
+    /// type's table defines.
+    struct StructuredCase {
+        /// The schema's prefix, namespace, and the property.
+        property: (&'static str, &'static str, &'static str),
+        /// The array the property is, or `None` for a structure on its own.
+        array: Option<&'static str>,
+        /// The field namespace's prefix and URI.
+        field_namespace: (&'static str, &'static str),
+        /// The fields, as the packet states them.
+        fields: &'static str,
+    }
+
+    /// Every property of the edition whose value is a structure or an array of one, each with
+    /// its type's fields (`doc/adr/2318`).
+    const STRUCTURED_CASES: &[StructuredCase] = &[
+        StructuredCase {
+            property: ("xmp", "http://ns.adobe.com/xap/1.0/", "Thumbnails"),
+            array: Some("Alt"),
+            field_namespace: ("xmpGImg", "http://ns.adobe.com/xap/1.0/g/img/"),
+            fields: "<xmpGImg:format>JPEG</xmpGImg:format><xmpGImg:width>256</xmpGImg:width>\
+                 <xmpGImg:height>256</xmpGImg:height><xmpGImg:image>/9j/</xmpGImg:image>",
+        },
+        StructuredCase {
+            property: ("xmpBJ", "http://ns.adobe.com/xap/1.0/bj/", "JobRef"),
+            array: Some("Bag"),
+            field_namespace: ("stJob", "http://ns.adobe.com/xap/1.0/sType/Job#"),
+            fields: "<stJob:name>Proof</stJob:name><stJob:id>7</stJob:id>\
+                 <stJob:url>file:///jobs/7</stJob:url>",
+        },
+        StructuredCase {
+            property: ("xmpTPg", "http://ns.adobe.com/xap/1.0/t/pg/", "MaxPageSize"),
+            array: None,
+            field_namespace: ("stDim", "http://ns.adobe.com/xap/1.0/sType/Dimensions#"),
+            fields: "<stDim:w>8.5</stDim:w><stDim:h>11</stDim:h><stDim:unit>inch</stDim:unit>",
+        },
+        StructuredCase {
+            property: ("xmpTPg", "http://ns.adobe.com/xap/1.0/t/pg/", "Fonts"),
+            array: Some("Bag"),
+            field_namespace: ("stFnt", "http://ns.adobe.com/xap/1.0/sType/Font#"),
+            fields: "<stFnt:fontName>Minion-Regular</stFnt:fontName>\
+                 <stFnt:fontFamily>Minion</stFnt:fontFamily>\
+                 <stFnt:fontFace>Regular</stFnt:fontFace><stFnt:fontType>Type 1</stFnt:fontType>\
+                 <stFnt:versionString>1</stFnt:versionString>\
+                 <stFnt:composite>False</stFnt:composite>\
+                 <stFnt:fontFileName>Minion.pfb</stFnt:fontFileName><stFnt:childFontFiles>\
+                 <rdf:Seq><rdf:li>a</rdf:li></rdf:Seq></stFnt:childFontFiles>",
+        },
+        StructuredCase {
+            property: ("xmpTPg", "http://ns.adobe.com/xap/1.0/t/pg/", "Colorants"),
+            array: Some("Seq"),
+            field_namespace: ("xmpG", "http://ns.adobe.com/xap/1.0/g/"),
+            fields: "<xmpG:swatchName>Black</xmpG:swatchName><xmpG:mode>CMYK</xmpG:mode>\
+                 <xmpG:type>PROCESS</xmpG:type><xmpG:cyan>0</xmpG:cyan>\
+                 <xmpG:magenta>0</xmpG:magenta><xmpG:yellow>0</xmpG:yellow>\
+                 <xmpG:black>100</xmpG:black>",
+        },
+        StructuredCase {
+            property: (
+                "xmpDM",
+                "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "videoFrameSize",
+            ),
+            array: None,
+            field_namespace: ("stDim", "http://ns.adobe.com/xap/1.0/sType/Dimensions#"),
+            fields: "<stDim:w>8.5</stDim:w><stDim:h>11</stDim:h><stDim:unit>inch</stDim:unit>",
+        },
+        StructuredCase {
+            property: (
+                "xmpDM",
+                "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "videoAlphaPremultipleColor",
+            ),
+            array: None,
+            field_namespace: ("xmpG", "http://ns.adobe.com/xap/1.0/g/"),
+            fields: "<xmpG:mode>RGB</xmpG:mode><xmpG:red>0</xmpG:red><xmpG:green>0</xmpG:green>\
+                 <xmpG:blue>0</xmpG:blue><xmpG:L>0</xmpG:L><xmpG:A>0</xmpG:A><xmpG:B>0</xmpG:B>",
+        },
+        StructuredCase {
+            property: (
+                "xmpDM",
+                "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "projectRef",
+            ),
+            array: None,
+            field_namespace: ("xmpDM", "http://ns.adobe.com/xmp/1.0/DynamicMedia/"),
+            fields: "<xmpDM:type>movie</xmpDM:type><xmpDM:path>file:///p</xmpDM:path>",
+        },
+        StructuredCase {
+            property: (
+                "xmpDM",
+                "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "startTimecode",
+            ),
+            array: None,
+            field_namespace: ("xmpDM", "http://ns.adobe.com/xmp/1.0/DynamicMedia/"),
+            fields: "<xmpDM:timeFormat>25Timecode</xmpDM:timeFormat>\
+                 <xmpDM:timeValue>00:00:00:00</xmpDM:timeValue>",
+        },
+        StructuredCase {
+            property: (
+                "xmpDM",
+                "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "altTimecode",
+            ),
+            array: None,
+            field_namespace: ("xmpDM", "http://ns.adobe.com/xmp/1.0/DynamicMedia/"),
+            fields: "<xmpDM:timeFormat>25Timecode</xmpDM:timeFormat>",
+        },
+        StructuredCase {
+            property: (
+                "xmpDM",
+                "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "duration",
+            ),
+            array: None,
+            field_namespace: ("xmpDM", "http://ns.adobe.com/xmp/1.0/DynamicMedia/"),
+            fields: "<xmpDM:value>50</xmpDM:value><xmpDM:scale>1/25</xmpDM:scale>",
+        },
+        StructuredCase {
+            property: (
+                "xmpDM",
+                "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "introTime",
+            ),
+            array: None,
+            field_namespace: ("xmpDM", "http://ns.adobe.com/xmp/1.0/DynamicMedia/"),
+            fields: "<xmpDM:value>50</xmpDM:value><xmpDM:scale>1/25</xmpDM:scale>",
+        },
+        StructuredCase {
+            property: (
+                "xmpDM",
+                "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "outCue",
+            ),
+            array: None,
+            field_namespace: ("xmpDM", "http://ns.adobe.com/xmp/1.0/DynamicMedia/"),
+            fields: "<xmpDM:value>50</xmpDM:value><xmpDM:scale>1/25</xmpDM:scale>",
+        },
+        StructuredCase {
+            property: (
+                "xmpDM",
+                "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "relativeTimestamp",
+            ),
+            array: None,
+            field_namespace: ("xmpDM", "http://ns.adobe.com/xmp/1.0/DynamicMedia/"),
+            fields: "<xmpDM:value>50</xmpDM:value><xmpDM:scale>1/25</xmpDM:scale>",
+        },
+        StructuredCase {
+            property: (
+                "xmpDM",
+                "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "markers",
+            ),
+            array: Some("Seq"),
+            field_namespace: ("xmpDM", "http://ns.adobe.com/xmp/1.0/DynamicMedia/"),
+            fields: "<xmpDM:startTime rdf:parseType=\"Resource\"><xmpDM:value>50</xmpDM:value>\
+                 <xmpDM:scale>1/25</xmpDM:scale></xmpDM:startTime>\
+                 <xmpDM:duration rdf:parseType=\"Resource\"><xmpDM:value>50</xmpDM:value>\
+                 <xmpDM:scale>1/25</xmpDM:scale></xmpDM:duration><xmpDM:comment>c</xmpDM:comment>\
+                 <xmpDM:name>One</xmpDM:name><xmpDM:location>file:///m</xmpDM:location>\
+                 <xmpDM:target>Start</xmpDM:target><xmpDM:type>Chapter</xmpDM:type>",
+        },
+        StructuredCase {
+            property: (
+                "xmpDM",
+                "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "contributedMedia",
+            ),
+            array: Some("Bag"),
+            field_namespace: ("xmpDM", "http://ns.adobe.com/xmp/1.0/DynamicMedia/"),
+            fields: "<xmpDM:startTime rdf:parseType=\"Resource\"><xmpDM:value>50</xmpDM:value>\
+                 <xmpDM:scale>1/25</xmpDM:scale></xmpDM:startTime>\
+                 <xmpDM:duration rdf:parseType=\"Resource\"><xmpDM:value>50</xmpDM:value>\
+                 <xmpDM:scale>1/25</xmpDM:scale></xmpDM:duration>\
+                 <xmpDM:path>file:///a</xmpDM:path><xmpDM:track>1</xmpDM:track>\
+                 <xmpDM:managed>False</xmpDM:managed>\
+                 <xmpDM:webStatement>http://example.test/</xmpDM:webStatement>",
+        },
+        StructuredCase {
+            property: (
+                "xmpDM",
+                "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "timeScaleParams",
+            ),
+            array: None,
+            field_namespace: ("xmpDM", "http://ns.adobe.com/xmp/1.0/DynamicMedia/"),
+            fields: "<xmpDM:quality>High</xmpDM:quality><xmpDM:frameSize>1</xmpDM:frameSize>\
+                 <xmpDM:frameOverlappingPercentage>2</xmpDM:frameOverlappingPercentage>",
+        },
+        StructuredCase {
+            property: (
+                "xmpDM",
+                "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "resampleParams",
+            ),
+            array: None,
+            field_namespace: ("xmpDM", "http://ns.adobe.com/xmp/1.0/DynamicMedia/"),
+            fields: "<xmpDM:quality>Low</xmpDM:quality>",
+        },
+        StructuredCase {
+            property: (
+                "xmpDM",
+                "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "beatSpliceParams",
+            ),
+            array: None,
+            field_namespace: ("xmpDM", "http://ns.adobe.com/xmp/1.0/DynamicMedia/"),
+            fields: "<xmpDM:useFileBeatsMarker>True</xmpDM:useFileBeatsMarker>\
+                 <xmpDM:riseInDecibel>3</xmpDM:riseInDecibel>\
+                 <xmpDM:riseInTimeDuration rdf:parseType=\"Resource\">\
+                 <xmpDM:value>50</xmpDM:value><xmpDM:scale>1/25</xmpDM:scale>\
+                 </xmpDM:riseInTimeDuration>",
+        },
+        StructuredCase {
+            property: ("exif", "http://ns.adobe.com/exif/1.0/", "Flash"),
+            array: None,
+            field_namespace: ("exif", "http://ns.adobe.com/exif/1.0/"),
+            fields: "<exif:Fired>False</exif:Fired><exif:Return>0</exif:Return>\
+                 <exif:Mode>2</exif:Mode><exif:Function>False</exif:Function>\
+                 <exif:RedEyeMode>False</exif:RedEyeMode>",
+        },
+        StructuredCase {
+            property: ("exif", "http://ns.adobe.com/exif/1.0/", "OECF"),
+            array: None,
+            field_namespace: ("exif", "http://ns.adobe.com/exif/1.0/"),
+            fields: "<exif:Columns>1</exif:Columns><exif:Rows>1</exif:Rows><exif:Names><rdf:Seq>\
+                 <rdf:li>n</rdf:li></rdf:Seq></exif:Names><exif:Values><rdf:Seq>\
+                 <rdf:li>1/2</rdf:li></rdf:Seq></exif:Values>",
+        },
+        StructuredCase {
+            property: (
+                "exif",
+                "http://ns.adobe.com/exif/1.0/",
+                "SpatialFrequencyResponse",
+            ),
+            array: None,
+            field_namespace: ("exif", "http://ns.adobe.com/exif/1.0/"),
+            fields: "<exif:Columns>1</exif:Columns><exif:Rows>1</exif:Rows><exif:Names><rdf:Seq>\
+                 <rdf:li>n</rdf:li></rdf:Seq></exif:Names><exif:Values><rdf:Seq>\
+                 <rdf:li>1/2</rdf:li></rdf:Seq></exif:Values>",
+        },
+        StructuredCase {
+            property: ("exif", "http://ns.adobe.com/exif/1.0/", "CFAPattern"),
+            array: None,
+            field_namespace: ("exif", "http://ns.adobe.com/exif/1.0/"),
+            fields: "<exif:Columns>1</exif:Columns><exif:Rows>1</exif:Rows><exif:Values><rdf:Seq>\
+                 <rdf:li>0</rdf:li></rdf:Seq></exif:Values>",
+        },
+        StructuredCase {
+            property: (
+                "exif",
+                "http://ns.adobe.com/exif/1.0/",
+                "DeviceSettingDescription",
+            ),
+            array: None,
+            field_namespace: ("exif", "http://ns.adobe.com/exif/1.0/"),
+            fields: "<exif:Columns>1</exif:Columns><exif:Rows>1</exif:Rows><exif:Settings><rdf:Seq>\
+                 <rdf:li>s</rdf:li></rdf:Seq></exif:Settings>",
+        },
+    ];
+
+    /// ISO 19005-2 section 6.6.2.3.1 holds the September 2005 edition's other structured types to
+    /// their fields as it holds Media Management's (`doc/adr/2318`).
+    ///
+    /// Each case is stated with the fields its type's table defines and then with one field more
+    /// that it does not: the first is clean and the second is one finding, so a type missing from
+    /// the table, or a property pointing at the wrong one, shows as a count that is not the
+    /// expected one.
+    #[test]
+    fn every_structured_type_of_the_2005_edition_is_held_to_its_fields() {
+        for case in STRUCTURED_CASES {
+            let clean = structured(case.property, case.array, case.field_namespace, case.fields);
+            assert_eq!(
+                found(properties_use_known_schemas, &clean),
+                0,
+                "{}: the fields its type defines",
+                case.property.2
+            );
+            let prefix = case.field_namespace.0;
+            let stray = format!(
+                "{}<{prefix}:undefinedHere>x</{prefix}:undefinedHere>",
+                case.fields
+            );
+            let strayed = structured(case.property, case.array, case.field_namespace, &stray);
+            assert_eq!(
+                found(properties_use_known_schemas, &strayed),
+                1,
+                "{}: a field its type does not define",
+                case.property.2
+            );
+        }
+    }
+
+    /// The later editions' fields a producer writes are not the 2005 edition's (`doc/adr/2318`):
+    /// a colorant's `tint`, and a marker's `startTime` written as the frame count those editions
+    /// make it rather than the `Time` this one does.
+    #[test]
+    fn a_later_editions_field_is_not_a_field_of_the_2005_type() {
+        const PG: &str = "http://ns.adobe.com/xap/1.0/t/pg/";
+        const DM: &str = "http://ns.adobe.com/xmp/1.0/DynamicMedia/";
+        let tinted = structured(
+            ("xmpTPg", PG, "Colorants"),
+            Some("Seq"),
+            ("xmpG", "http://ns.adobe.com/xap/1.0/g/"),
+            "<xmpG:swatchName>PANTONE 185 C</xmpG:swatchName><xmpG:type>SPOT</xmpG:type>\
+             <xmpG:tint>100.000000</xmpG:tint>",
+        );
+        assert_eq!(found(properties_use_known_schemas, &tinted), 1);
+        let counted = structured(
+            ("xmpDM", DM, "markers"),
+            Some("Seq"),
+            ("xmpDM", DM),
+            "<xmpDM:startTime>120</xmpDM:startTime><xmpDM:name>One</xmpDM:name>",
+        );
+        assert_eq!(found(properties_use_known_schemas, &counted), 1);
+    }
+
+    /// A `Font` structure is a value of its type under the field namespace the 2005 edition
+    /// prints and under the one its own list of changes shows that misprint corrects to
+    /// (`doc/adr/2318`), and under no third.
+    #[test]
+    fn a_font_is_read_under_the_printed_namespace_and_the_corrected_one() {
+        const PG: &str = "http://ns.adobe.com/xap/1.0/t/pg/";
+        for (namespace, expected) in [
+            ("http://ns.adobe.com/xap/1.0/sType/Font#", 0),
+            ("http:ns.adobe.com/xap/1.0/sType/Font#", 0),
+            ("http://ns.adobe.com/xap/1.0/sType/Fonts#", 1),
+        ] {
+            let font = structured(
+                ("xmpTPg", PG, "Fonts"),
+                Some("Bag"),
+                ("stFnt", namespace),
+                "<stFnt:fontName>Minion-Regular</stFnt:fontName>",
+            );
+            assert_eq!(
+                found(properties_use_known_schemas, &font),
+                expected,
+                "{namespace}"
+            );
+        }
+    }
+
+    /// Every property [`STRUCTURED`] names is one [`PREDEFINED`] defines, with a shape that can
+    /// carry a structure — the structure itself or an array of them — so the list can name no
+    /// property the edition does not give a structured type (trap 25).
+    #[test]
+    fn the_structured_properties_are_the_tables_own() {
+        for (namespace, local, structure) in super::STRUCTURED {
+            let schema = super::predefined(namespace)
+                .unwrap_or_else(|| panic!("{namespace} is a predefined schema"));
+            let (shape, _) = schema
+                .property(local)
+                .unwrap_or_else(|| panic!("{local} is a property of {namespace}"));
+            assert!(
+                matches!(
+                    shape,
+                    super::Shape::Structure
+                        | super::Shape::Alternative
+                        | super::Shape::Ordered
+                        | super::Shape::Unordered
+                ),
+                "{local} holds a {}",
+                structure.name
+            );
+            assert!(!structure.fields.is_empty() && !structure.uris.is_empty());
+        }
     }
 
     /// ISO 19005-4 section 6.7.5's two fields, over three shapes of recorded action.

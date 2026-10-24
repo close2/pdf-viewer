@@ -1,7 +1,8 @@
 # ADR 0076 — The sampled lane's coverage is one sample row, and the clause it misses is priced rather than hidden
 
 Status: accepted, 2026-08-23; its pitch amended by the viewer's ADR 2296 (2026-10-23), whose rank-1
-lattice gives every sample a row of its own, so `p` is `1/n`. Answers question 2 of the caller's `QUORRA_FEEDBACK.md` §31,
+lattice gives every sample a row of its own, so `p` is `1/n`, as the searched pattern of the viewer's ADR
+2313 (2026-10-24) does. Answers question 2 of the caller's `QUORRA_FEEDBACK.md` §31,
 which asked "is the gpu lane's y coverage quantised, and to what". It is, to `1/√n` of a
 pixel; and the answer that matters is not the number but that **the quantisation breaks
 ISO 32000-2 §10.7.4 in a way ADR 0070's condition does not reach and cannot be widened to

@@ -93,7 +93,7 @@ pub use startup::{
 };
 pub use target::{Backdrop, Target};
 pub use viewport::Viewport;
-pub use winding::SampleLattice;
+pub use winding::{EdgeError, SampleLattice, SamplePattern};
 
 /// The exact `wgpu` this crate was built against, re-exported so a tier-3 host can
 /// name the types [`Device::wgpu`] hands it — and a windowing host the

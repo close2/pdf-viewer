@@ -1902,11 +1902,7 @@ impl IccTagShortfall {
 #[must_use]
 pub fn icc_tag_shortfall(data: &[u8]) -> Option<IccTagShortfall> {
     if data.get(36..40) != Some(&b"acsp"[..]) {
-        return Some(IccTagShortfall {
-            missing: vec![PROFILE_FILE_SIGNATURE],
-            description: false,
-            copyright: false,
-        });
+        return Some(no_profile_file_signature());
     }
     let (class, _) = profile_header(data)?;
     let missing = missing_required_tags(IccEdition::Nineteen98, data, class);
@@ -1921,16 +1917,34 @@ pub fn icc_tag_shortfall(data: &[u8]) -> Option<IccTagShortfall> {
     })
 }
 
+/// What both parts' tag rows find missing from a stream that is not a profile: the signature.
+fn no_profile_file_signature() -> IccTagShortfall {
+    IccTagShortfall {
+        missing: vec![PROFILE_FILE_SIGNATURE],
+        description: false,
+        copyright: false,
+    }
+}
+
 /// What ISO 19005-4 section 6.2.4.2's tag row finds missing from one profile, or `None` where the
-/// profile carries every tag its own edition requires, names an edition this crate does not hold,
-/// or is not a profile at all.
+/// profile carries every tag its own edition requires or names an edition this crate does not
+/// hold.
 ///
 /// The reading `icc_profiles_carry_the_tags_their_version_requires` reports, answered for one
 /// profile's bytes as [`icc_tag_shortfall`] is for part 2's (ADR 2006). Here the header's version
 /// selects the one text the profile is held to, so the list is that edition's; the flags name the
 /// two text tags whatever edition asked for them, since every held edition names them alike.
+///
+/// **A stream that is not a profile at all is short of the profile file signature**, as it is at
+/// part 2: ISO 32000-2 §8.6.5.5, which this section defers to, requires the stream to contain the
+/// ICC profile, and bytes with no `acsp` at bytes 36 to 39 are a profile of no edition this crate
+/// holds — each places the signature there — so there is no header whose version could select a
+/// text to excuse them (`doc/adr/2318`).
 #[must_use]
 pub fn icc_version_tag_shortfall(data: &[u8]) -> Option<IccTagShortfall> {
+    if data.get(36..40) != Some(&b"acsp"[..]) {
+        return Some(no_profile_file_signature());
+    }
     let (class, _) = profile_header(data)?;
     let edition = IccEdition::of(icc::Identification::read(data)?.version)?;
     let missing = missing_required_tags(edition, data, class);
@@ -2137,6 +2151,17 @@ fn icc_profiles_carry_the_tags_their_version_requires(
         let Some(data) = document.decoded_stream_data(&stream) else {
             return;
         };
+        if data.get(36..40) != Some(&b"acsp"[..]) {
+            findings.record(
+                Where::object(id).named("ICCBased"),
+                format!(
+                    "an ICCBased colour space's stream carries no {PROFILE_FILE_SIGNATURE}, so it \
+                     contains no ICC profile of any edition this crate holds, where ISO 32000-2 \
+                     §8.6.5.5 requires the stream to contain one",
+                ),
+            );
+            return;
+        }
         let Some(stated) = icc::Identification::read(&data) else {
             return;
         };
@@ -4969,6 +4994,50 @@ mod tests {
         let shortfall = icc_tag_shortfall(&shifted).expect("not a profile");
         assert_eq!(shortfall.missing, vec![PROFILE_FILE_SIGNATURE]);
         assert!(!shortfall.only_text(), "no supply of text tags answers it");
+    }
+
+    /// Part 4's tag row agrees with part 2's on a stream that is no profile (`doc/adr/2318`):
+    /// ISO 32000-2 §8.6.5.5 requires the stream to contain the ICC profile, every held edition
+    /// places `acsp` at bytes 36 to 39, and so the stream is short of the signature under both
+    /// readings — the row reports it, and the converter's reading of one profile names it.
+    #[test]
+    fn both_parts_find_a_stream_that_is_no_profile_short_of_its_signature() {
+        let mut shifted = vec![0u8; 24];
+        shifted.extend_from_slice(b"\0\0\0\0ADBE\x02\x10\0\0spacLab Lab ");
+        shifted.resize(3144, 0);
+        shifted[60..64].copy_from_slice(b"acsp");
+        let four = super::icc_version_tag_shortfall(&shifted).expect("not a profile");
+        assert_eq!(four.missing, vec![PROFILE_FILE_SIGNATURE]);
+        assert_eq!(Some(four), icc_tag_shortfall(&shifted));
+
+        let text = "x".repeat(64);
+        let page = |profile: &str| {
+            document_of(&[
+                "<< /Type /Catalog /Pages 2 0 R >>",
+                "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] \
+                 /Resources << /ColorSpace << /CS0 [/ICCBased 4 0 R] >> >> /Contents 5 0 R >>",
+                profile,
+                "<< /Length 21 >> stream\n/CS0 cs 0 0 0 sc 0 0 1 1 re f\nendstream",
+            ])
+        };
+        let no_profile = page(&format!("<< /N 3 /Length 64 >> stream\n{text}\nendstream"));
+        assert_eq!(
+            found(
+                &no_profile,
+                super::icc_profiles_carry_the_tags_their_version_requires
+            ),
+            1,
+            "part 4 names the signature"
+        );
+        assert_eq!(
+            found(
+                &no_profile,
+                super::icc_profiles_carry_the_tags_a_permitted_edition_requires
+            ),
+            1,
+            "as part 2 does"
+        );
     }
 
     #[test]

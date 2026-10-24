@@ -156,7 +156,10 @@ WINDOW_STEPS=(drive accessibility reader_words field_commit combo_commit scripts
 # windows it is offered.
 OUTSIDE_STEPS=(heavy_open page_as_built_heavy zoom_past_the_bound_heavy)
 # §12.4.4's presentation pump, at the end of the windows' list (ADR 2300).
-WINDOW_STEPS+=(presentation_advances presentation_hidden presentation_behind)
+WINDOW_STEPS+=(presentation_advances presentation_hidden presentation_behind presentation_switched)
+# §12.2's /FitWindow read back from the geometry record, and a question held while presenting (ADRs
+# 2308, 2309).
+WINDOW_STEPS+=(fit_window presentation_held)
 in_list() { # name item…
     local name=$1 item
     shift
@@ -203,11 +206,42 @@ atspi_down() {
     BUS=""
 }
 
+# x_free N: whether display N may be started on — its lock is absent, or is this user's and names
+# a server that is gone, in which case the lock and the socket are removed first. Another user's
+# lock, a live server's and one not yet written are passed over (ADR 2317).
+x_free() {
+    local lock="/tmp/.X$1-lock" pid
+    [ -e "$lock" ] || return 0
+    [ -O "$lock" ] || return 1
+    pid=$(tr -d ' \n' 2>/dev/null < "$lock")
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    [ -d "/proc/$pid" ] && return 1
+    [ -O "/tmp/.X11-unix/X$1" ] && rm -f "/tmp/.X11-unix/X$1"
+    rm -f "$lock"
+}
+# x_stop PID N: stops the drive's own server on display N with TERM, which is the signal on which
+# Xvfb removes its lock and socket; two seconds, then KILL, and whatever still names PID removed.
+x_stop() {
+    local pid=$1 lock="/tmp/.X$2-lock" state
+    kill -TERM "$pid" 2>/dev/null
+    for _ in $(seq 1 20); do
+        state=$(awk '{ print $3 }' "/proc/$pid/stat" 2>/dev/null)
+        { [ -z "$state" ] || [ "$state" = Z ]; } && break
+        sleep 0.1
+    done
+    kill -KILL "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null
+    if [ "$(tr -d ' \n' 2>/dev/null < "$lock")" = "$pid" ]; then
+        [ -O "/tmp/.X11-unix/X$2" ] && rm -f "/tmp/.X11-unix/X$2"
+        rm -f "$lock"
+    fi
+}
+
 finish() {
     [ -n "$APP" ] && kill "$APP" 2>/dev/null
     [ -n "$SERVER" ] && kill "$SERVER" 2>/dev/null
     atspi_down
-    [ -n "$XVFB" ] && kill "$XVFB" 2>/dev/null
+    [ -n "$XVFB" ] && x_stop "$XVFB" "${DISPLAY_NUMBER#:}"
     wait 2>/dev/null
 }
 trap finish EXIT
@@ -1011,7 +1045,7 @@ signed("drive-policy.pdf", hashlib.sha256(policy).digest())
 signed("drive-policy-altered.pdf", hashlib.sha256(policy + b" ").digest())
 PY
 # A display somebody else has would put this run's windows beside theirs, and its photographs too.
-if [ -e "/tmp/.X${DISPLAY_NUMBER#:}-lock" ]; then
+if ! x_free "${DISPLAY_NUMBER#:}"; then
     echo "drive-windows: display $DISPLAY_NUMBER is in use; pass --display :N" >&2
     exit 2
 fi
@@ -1020,6 +1054,11 @@ XVFB=$!
 # The server answering a client is the condition, rather than a second (ADR 1605); `wait_for` is
 # defined further down, so this is its loop written out.
 for _ in $(seq 1 100); do xdotool getdisplaygeometry >/dev/null 2>&1 && break; sleep 0.1; done
+# And the display is this drive's only where the lock names its own server (trap 181).
+if [ "$(tr -d ' \n' 2>/dev/null < "/tmp/.X${DISPLAY_NUMBER#:}-lock")" != "$XVFB" ]; then
+    echo "drive-windows: display $DISPLAY_NUMBER was taken by another server; pass --display :N" >&2
+    exit 2
+fi
 
 # A private session bus with AT-SPI enabled on it, so that every window driven below publishes its
 # widgets' extents (doc/verify.md's AT-SPI recipe, held for the whole drive).
@@ -4792,11 +4831,13 @@ bare_session_start() {
     local child extra
     [ -f "$file" ] || { verdict "$step" "not offered" "doc/pdf.js is not checked out"; return; }
     [ -n "$APP" ] && { kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""; }
-    local -x DISPLAY=":$(( ${DISPLAY_NUMBER#:} + 50 ))"
+    local bare=$(( ${DISPLAY_NUMBER#:} + 50 ))
+    local -x DISPLAY=":$bare"
+    x_free "$bare" || { verdict "$step" wrong "display $DISPLAY is another server's"; return; }
     Xvfb "$DISPLAY" -screen 0 1400x1100x24 -nolisten tcp >/dev/null 2>&1 &
     local server=$!
     wait_for 10 display_up ||
-        { kill "$server" 2>/dev/null; verdict "$step" wrong "no X server came up on $DISPLAY"; return; }
+        { x_stop "$server" "$bare"; verdict "$step" wrong "no X server came up on $DISPLAY"; return; }
     for start in $(seq 1 "$BARE_STARTS"); do
         LOG="$OUT/$WINDOW.bare-$start.log"
         if [ "$WINDOW" = quorra-qt ]; then
@@ -4817,7 +4858,7 @@ bare_session_start() {
         fi
         kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
     done
-    kill "$server" 2>/dev/null; wait "$server" 2>/dev/null
+    x_stop "$server" "$bare"
     if [ "$hung" -eq 0 ]; then
         verdict "$step" works "$BARE_STARTS of $BARE_STARTS starts with no session bus said their first frame"
     else
@@ -5094,16 +5135,40 @@ presentation_advances() {
     fi
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
+# iconify ID, deiconify ID: hides window ID and shows it again. An unmap in every window; in
+# `quorra` the unmap is preceded by `_NET_WM_STATE_HIDDEN` added to the window's `_NET_WM_STATE`,
+# which is what a window manager states of a window it iconifies and what winit reads, and the state
+# is put back as it was before the map (ADR 2317).
+ICONIFIED_STATE=
+iconify() {
+    if [ "$WINDOW" = quorra ]; then
+        ICONIFIED_STATE=$(xprop -id "$1" _NET_WM_STATE 2>/dev/null | sed -n 's/^_NET_WM_STATE(ATOM) = //p' | tr -d ' ')
+        xprop -id "$1" -f _NET_WM_STATE 32a -set _NET_WM_STATE \
+            "${ICONIFIED_STATE:+$ICONIFIED_STATE,}_NET_WM_STATE_HIDDEN"
+    fi
+    xdotool windowunmap --sync "$1"
+}
+deiconify() {
+    if [ "$WINDOW" = quorra ]; then
+        if [ -n "$ICONIFIED_STATE" ]; then
+            xprop -id "$1" -f _NET_WM_STATE 32a -set _NET_WM_STATE "$ICONIFIED_STATE"
+        else
+            xprop -id "$1" -remove _NET_WM_STATE
+        fi
+    fi
+    xdotool windowmap --sync "$1"
+}
 # --- step 98: a hidden window parks its presentation. `p` on slides of two seconds, the window
 # unmapped at once for four seconds and mapped again: the title still names page 1 when it comes
 # back, because a page nobody could see was not displayed (§12.4.4.1), and page 2 follows within
 # its two seconds of display. Under no window manager an unmap is GDK's minimised state and Qt's
-# unexposed window, so both toolkits are driven by it; `quorra`'s presentation is `viewer-ui`'s own
-# winit loop, which the pump does not run.
+# unexposed window, so both toolkits are driven by it. `quorra`'s winit hears of no unmap, and reads
+# X11's minimised state as `_NET_WM_STATE_HIDDEN` — so it is iconified the way a window manager
+# iconifies a window: the state stated, then the unmap, and back in the other order (ADR 2317).
 presentation_hidden() {
     local step=98-presentation-hidden file="$FIXTURES/drive-present-hidden.pdf" id hidden shown took
-    if [ "$WINDOW" = quorra ]; then
-        verdict "$step" "not offered" "this window's presentation runs on viewer-ui's own loop, not viewer_host::presentation_pump"
+    if [ "$WINDOW" = quorra ] && ! command -v xprop >/dev/null; then
+        verdict "$step" "not offered" "no xprop to state the window minimised, which is what this window reads"
         return
     fi
     presentation_fixture "$file" 2 -
@@ -5112,10 +5177,10 @@ presentation_hidden() {
     if ! present_now; then
         verdict "$step" wrong "no line said the window presents after p"
     else
-        xdotool windowunmap --sync "$id"
+        iconify "$id"
         sleep 4
         hidden=$(page_of "$id")
-        xdotool windowmap --sync "$id"
+        deiconify "$id"
         local began=${EPOCHREALTIME/[.,]/}
         wait_for 6 eval '[ "$(page_of "$id")" = 2 ]'
         shown=$(page_of "$id")
@@ -5148,6 +5213,200 @@ presentation_behind() {
     fi
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
+# --- step 100: a tab changed while a presentation runs parks the one left (ADRs 2200, 2300 §3). No
+# key changes the tab while presenting — Table 29's `FullScreen` shows no strip of documents, and
+# `viewer_host::keys` takes Ctrl + Tab away with it — so the deck changes it itself: its first slide
+# (`/Dur 4`) is one link over the page, §12.6.4.3's go-to with Table 203's `/NewWindow true`,
+# clicked under `--remote-documents=open`. The file it names opens beside the deck in front, and
+# under its own mode, which is not full screen; four seconds later Ctrl + Tab brings the deck back,
+# full screen again, on the slide it left — the four seconds behind were not displayed, so that
+# slide's remaining time is still owed, and its next slide follows no sooner than a second later.
+presentation_switched_fixture() {
+    [ -s "$1" ] && [ -s "$2" ] && return
+    python3 - "$1" "$2" <<'PY2'
+import os, sys, pikepdf
+from pikepdf import Name, Dictionary, Array, String
+deck, other = sys.argv[1], sys.argv[2]
+pdf = pikepdf.new()
+for colour, dur in ((b"1 0 0", 4.0), (b"0 0 1", 2.0), (b"0 0.6 0", None)):
+    page = Dictionary(Type=Name.Page, MediaBox=[0, 0, 640, 480],
+                      Contents=pdf.make_stream(colour + b" rg 0 0 640 480 re f"))
+    if dur is not None:
+        page.Dur = dur
+    pdf.pages.append(pikepdf.Page(page))
+link = pdf.make_indirect(Dictionary(
+    Type=Name.Annot, Subtype=Name.Link, Rect=Array([0, 0, 640, 480]), Border=Array([0, 0, 0]),
+    A=Dictionary(S=Name.GoToR, F=String(os.path.basename(other)), D=Array([0, Name.Fit]),
+                 NewWindow=True)))
+pdf.pages[0].obj.Annots = Array([link])
+pdf.Root.PageMode = Name.FullScreen
+pdf.save(deck)
+target = pikepdf.new()
+for _ in range(2):
+    target.pages.append(pikepdf.Page(Dictionary(Type=Name.Page, MediaBox=[0, 0, 612, 792],
+                                                Contents=target.make_stream(b""))))
+target.save(other)
+PY2
+}
+# PRESENTED_ON, PRESENTED_OFF: the line each window traces when the core is told the mode — the
+# toolkits' `Present(On)` under `events`, `quorra`'s `presentation On`.
+PRESENTED_ON='Present(On)\|presentation On '
+PRESENTED_OFF='Present(Off)\|presentation Off '
+presentation_switched() {
+    local step=100-presentation-switched file="$FIXTURES/drive-present-switch.pdf"
+    local other="$FIXTURES/drive-present-switch-target.pdf" id began turned=- seen X Y WIDTH HEIGHT
+    local mark beside=presenting back=windowed
+    presentation_switched_fixture "$file" "$other"
+    launch "$file" --remote-documents=open
+    id=$(main_window)
+    if ! wait_for 5 eval '[ "$(page_of "$id")" = 1 ] && said_since 0 "$PRESENTED_ON"'; then
+        verdict "$step" wrong "the deck did not open presenting on slide 1: $(title)"
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+        return
+    fi
+    mark=$(lines)
+    eval "$(xdotool getwindowgeometry --shell "$id" | grep -E '^(X|Y|WIDTH|HEIGHT)=')"
+    xdotool mousemove $((X + WIDTH / 2)) $((Y + HEIGHT / 2)) click 1
+    if ! wait_for 10 title_has "of 2"; then
+        shot "$step"
+        verdict "$step" wrong "the link opened nothing in front of the deck: $(title)"
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+        return
+    fi
+    # The file in front states no page mode, so the core is told the presentation is off.
+    wait_for 5 said_since "$mark" "$PRESENTED_OFF" && beside=windowed
+    shot "$step-beside"
+    sleep 4
+    if ! title_has "of 2"; then
+        verdict "$step" wrong "four seconds after the link the title is $(title)"
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+        return
+    fi
+    mark=$(lines)
+    xdotool windowfocus --sync "$id" 2>/dev/null; xdotool key ctrl+Tab
+    began=${EPOCHREALTIME/[.,]/}
+    wait_for 5 eval '[ "$(page_of "$id")" != 0 ] && ! title_has "of 2"'
+    wait_for 3 said_since "$mark" "$PRESENTED_ON" && back=presenting
+    seen=$(page_of "$id")
+    # The slide it left, and how long after its return the next one comes: the four seconds
+    # behind were not displayed, so most of the slide's /Dur 4 is still owed.
+    if wait_for 8 eval '[ "$(page_of "$id")" = 2 ]'; then
+        turned=$(( (${EPOCHREALTIME/[.,]/} - began) / 100000 ))
+        seen="$seen 2"
+        wait_for 4 eval '[ "$(page_of "$id")" = 3 ]' && seen="$seen 3"
+    fi
+    shot "$step"
+    if [ "$beside $back" = "windowed presenting" ] && [ "$seen" = "1 2 3" ] \
+            && [ "$turned" != - ] && [ "$turned" -ge 10 ]; then
+        verdict "$step" works "the file beside in front with the presentation off for four seconds; Ctrl + Tab brought the deck back presenting on slide 1, slide 2 $((turned / 10)).$((turned % 10)) s later, then 3"
+    else
+        verdict "$step" wrong "the file beside in front $beside; the deck back $back on pages ${seen:-none}, slide 2 at ${turned} tenths of a second"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+# --- step 105: Table 147's /FitWindow, read back from what the window says of its page area (ADRs
+# 1429, 2225, 2308). A page of 300 by 200 points, drawn at the width of the page area as every window
+# opens a page, is three units wide for every two tall, so a page area fitted to it has that shape and
+# the windows' default size does not. The toolkits' geometry record names the page area itself
+# (`PDFVIEWER_ZOOM_PROBE`); `quorra` has no chrome around its pages, so its page area is its window.
+# The control states no /FitWindow and is read the same way: a shape it shares would be no witness.
+fit_fixture() { # FILE fit|-
+    [ -s "$1" ] || python3 - "$1" "$2" <<'PY2'
+import sys, pikepdf
+from pikepdf import Name, Dictionary
+pdf = pikepdf.new()
+pdf.pages.append(pikepdf.Page(Dictionary(Type=Name.Page, MediaBox=[0, 0, 300, 200],
+                                         Contents=pdf.make_stream(b"0 0 1 rg 0 0 300 200 re f"))))
+if sys.argv[2] == "fit":
+    pdf.Root.ViewerPreferences = Dictionary(FitWindow=True)
+pdf.save(sys.argv[1])
+PY2
+}
+# page_area: "WIDTH HEIGHT" of the page area in logical pixels, from the last geometry record the
+# window wrote, or from `quorra`'s window; "0 0" where there is none.
+page_area() {
+    if [ "$WINDOW" = quorra ]; then
+        local WIDTH=0 HEIGHT=0
+        eval "$(xdotool getwindowgeometry --shell "$(main_window)" 2>/dev/null | grep -E '^(WIDTH|HEIGHT)=')"
+        echo "$WIDTH $HEIGHT"
+        return
+    fi
+    grep -o 'zoom-record {.*"kind":"geometry".*' "$LOG" 2>/dev/null | tail -1 | python3 -c '
+import json, sys
+line = sys.stdin.read().strip()
+record = json.loads(line.split(" ", 1)[1]) if line else {}
+print(round(record.get("content_width_logical", 0)), round(record.get("content_height_logical", 0)))'
+}
+# three_by_two WIDTH HEIGHT: whether the height is two thirds of the width, within two pixels.
+three_by_two() { [ "$1" -gt 0 ] && [ $((3 * $2 - 2 * $1)) -le 6 ] && [ $((2 * $1 - 3 * $2)) -le 6 ]; }
+fit_window() {
+    local step=105-fit-window file="$FIXTURES/drive-fit.pdf" control="$FIXTURES/drive-fit-control.pdf"
+    local fitted unfitted
+    fit_fixture "$file" fit
+    fit_fixture "$control" -
+    PDFVIEWER_ZOOM_PROBE=1 launch "$control"
+    sleep 2
+    unfitted=$(page_area)
+    PDFVIEWER_ZOOM_PROBE=1 launch "$file"
+    wait_for 8 eval 'three_by_two $(page_area)'
+    fitted=$(page_area)
+    shot "$step"
+    if three_by_two $fitted && ! three_by_two $unfitted; then
+        verdict "$step" works "the page area ${fitted/ /x} for a 300 by 200 page, where the control's is ${unfitted/ /x}"
+    else
+        verdict "$step" wrong "the page area ${fitted/ /x} with /FitWindow and ${unfitted/ /x} without it"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+# --- step 106: a question a document raises while the window presents waits until the presentation
+# ends (Table 29's "or any other window visible", ADR 2309). A deck stating `/PageMode /FullScreen`
+# whose slide is one link to a URI, under `--links=ask`: the click is said to wait, and Escape brings
+# the question up, answered "Do not". `quorra`'s presentation is not the shared pump's, and says so.
+held_fixture() {
+    [ -s "$1" ] || python3 - "$1" <<'PY2'
+import sys, pikepdf
+from pikepdf import Name, Dictionary, Array, String
+pdf = pikepdf.new()
+pdf.pages.append(pikepdf.Page(Dictionary(Type=Name.Page, MediaBox=[0, 0, 640, 480],
+                                         Contents=pdf.make_stream(b"1 0 0 rg 0 0 640 480 re f"))))
+link = pdf.make_indirect(Dictionary(
+    Type=Name.Annot, Subtype=Name.Link, Rect=Array([0, 0, 640, 480]), Border=Array([0, 0, 0]),
+    A=Dictionary(S=Name.URI, URI=String("https://example.org/held"))))
+pdf.pages[0].obj.Annots = Array([link])
+pdf.Root.PageMode = Name.FullScreen
+pdf.save(sys.argv[1])
+PY2
+}
+presentation_held() {
+    local step=106-presentation-held file="$FIXTURES/drive-present-held.pdf" X Y WIDTH HEIGHT
+    if [ "$WINDOW" = quorra ]; then
+        verdict "$step" "not offered" "quorra's presentation and its card are its own, not viewer_host's pump (ADR 2309)"
+        return
+    fi
+    held_fixture "$file"
+    launch "$file" --links=ask
+    # The toolkits' trace of the core told its mode, under `events`.
+    if ! wait_for 5 said_since 0 'Present(On)'; then
+        verdict "$step" wrong "the deck did not open presenting: $(title)"
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+        return
+    fi
+    MARK=$(lines)
+    eval "$(xdotool getwindowgeometry --shell "$(main_window)" | grep -E '^(X|Y|WIDTH|HEIGHT)=')"
+    xdotool mousemove $((X + WIDTH / 2)) $((Y + HEIGHT / 2)) click 1
+    if ! wait_for 5 said_since "$MARK" "a question waits until the presentation ends"; then
+        shot "$step"
+        verdict "$step" wrong "the click on the link said no question waits: $LOG"
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+        return
+    fi
+    shot "$step-held"
+    key Escape
+    if link_answer "$step" no "declined — you answered"; then
+        verdict "$step" works "held while presenting, put up after Escape and answered: $(tail -n "+$((MARK + 1))" "$LOG" | grep -m1 -o 'link: declined — [^.]*')"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
 # union_fixture FILE: the drive's own folding strokes — five circles of radius one to three points
 # stroked eight points wide with round joins, each bending more tightly than its half-width and so
 # measured from the union of its pieces (ADR 1348) — written to FILE where nothing is there yet.
@@ -5171,18 +5430,41 @@ pdf.pages.append(pikepdf.Page(Dictionary(Type=Name.Page, MediaBox=[0, 0, 400, 40
 pdf.save(sys.argv[1])
 PY2
 }
+# union_scan_fixture IN OUT: IN's page with a 2000 by 2000 white image under its strokes — twelve
+# million decoded samples, past the four bytes a pixel of the page's raster at this window — written
+# to OUT where nothing is there yet.
+union_scan_fixture() {
+    [ -s "$2" ] || python3 - "$1" "$2" <<'PY2'
+import sys, zlib, pikepdf
+from pikepdf import Name, Dictionary
+pdf = pikepdf.open(sys.argv[1])
+page = pdf.pages[0]
+image = pikepdf.Stream(pdf, zlib.compress(b"\xff" * (2000 * 2000 * 3)))
+image.Type, image.Subtype, image.Width, image.Height = Name.XObject, Name.Image, 2000, 2000
+image.ColorSpace, image.BitsPerComponent, image.Filter = Name.DeviceRGB, 8, Name.FlateDecode
+page.Resources = Dictionary(XObject=Dictionary(Im0=image))
+under = pikepdf.Stream(pdf, b"q 400 0 0 400 0 0 cm /Im0 Do Q\n")
+page.Contents = pdf.make_indirect(pikepdf.Array([pdf.make_indirect(under), page.Contents]))
+pdf.save(sys.argv[2])
+PY2
+}
 # A mark the union declines is said to the reader (ADR 2290): the drive's folding stroke, launched
 # with ADR 2280's open row planted where the union checks it — a fault no input can produce, so it
 # is planted, `PDFVIEWER_PLANT_OPEN_ROW` — and once without it, the control that must stay silent
 # (trap 13). Planted, the window prints the condition's sentence for page 1 and its title names
 # the page; unplanted, neither. Every window is launched under `--cpu`, since only the processor
 # measures a mark by its union and the toolkit windows' device lane would take the page. The
-# confined window's title names a page its own drawing thread drew; a page its worker drew as
-# pixels is said on the terminal alone.
+# confined window is given the same strokes over a page-wide image whose samples outweigh the page's
+# pixels, so its worker draws the page as pixels (ADR 0607) and the title names it from the frames
+# that say the draw declined (ADR 2316); a page its own drawing thread drew it names as the others do.
 union_declined() {
     local file="$FIXTURES/drive-union.pdf" step=89-union-declined said title control quiet=yes title_pattern
     local said_pattern="a row of its boundary did not close" arguments
     union_fixture "$file"
+    if [ "$WINDOW" = quorra-confined ]; then
+        file="$FIXTURES/drive-union-scan.pdf"
+        union_scan_fixture "$FIXTURES/drive-union.pdf" "$file"
+    fi
     arguments=(--cpu)
     export PDFVIEWER_PLANT_OPEN_ROW=1
     launch "$file" "${arguments[@]}"
@@ -5209,8 +5491,6 @@ union_declined() {
         verdict "$step" wrong "unplanted, the window said a decline all the same (title \"$control\"): $LOG"
     elif printf '%s' "$title" | grep -q -- "$title_pattern"; then
         verdict "$step" works "said \"${said:0:90}…\"; title \"$title\"; unplanted, silent"
-    elif [ "$WINDOW" = quorra-confined ]; then
-        verdict "$step" works "said \"${said:0:90}…\" (its worker drew the page, so the title is \"$title\"); unplanted, silent"
     else
         verdict "$step" wrong "said the decline, and the title \"$title\" does not name it"
     fi

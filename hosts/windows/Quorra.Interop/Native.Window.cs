@@ -444,6 +444,14 @@ internal static unsafe partial class Native
 
     [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static partial int quorra_window_place(nint window, quorra_window_extents* extents, quorra_window_placement* @out);
+
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static partial int quorra_window_full_screen(nint window, byte* full_screen);
+
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static partial int quorra_owed_chrome_panel(nint owed, nuint index, int* panel);
 
 }

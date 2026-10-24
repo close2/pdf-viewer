@@ -968,6 +968,7 @@ fn archive_plan(
         // Empty until a pass says which streams keep their data outside the file; `run` resolves
         // what `--resolve-external-data` allows it to and applies again (`doc/adr/1199`).
         external_data: BTreeMap::new(),
+        clock: pdf_transform::archive::Clock::System,
     })
 }
 

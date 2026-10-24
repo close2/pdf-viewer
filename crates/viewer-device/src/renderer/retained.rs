@@ -208,7 +208,8 @@ fn retain(
 
 /// [`draw_whole_page`] on the processor, for a page whose frame the processor draws (ADR 1831).
 ///
-/// Silent for that function's reason — a picture nobody asked for — and interruptible because the
+/// Silent for that function's reason — a picture nobody asked for, whose declines the view's own
+/// frame says at the size the reader sees (ADR 2316) — and interruptible because the
 /// processor's draw is: [`Window::ask`] raises `interrupt` the moment a job is sent, so a view
 /// change waits for the command in progress rather than for a whole page drawn small.
 ///

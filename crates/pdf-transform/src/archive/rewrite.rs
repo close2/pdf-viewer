@@ -491,6 +491,12 @@ pub enum Rewrite {
     ///
     /// So the collapse writes down the reader's own choice. **Where the annotation states no
     /// `/AS` nothing is written**: nothing in the file then says which state the document is in.
+    ///
+    /// The same sections require a button widget's `/N` to be a subdictionary, and a push
+    /// button's single stream is written as one holding it alone, under a state its new `/AS`
+    /// selects: §12.5.5 draws a single stream whatever the state, and the subdictionary's one
+    /// entry is that stream (`doc/adr/2319`). A check box's or a radio button's single stream
+    /// is not, because there the state's name is the field's value.
     NormalAppearanceFromState,
     /// Every optional content configuration whose `/Order` omits a group the file states has the
     /// missing groups appended to it, in the order `/OCGs` lists them.
@@ -1035,6 +1041,14 @@ pub enum Rewrite {
     /// through that filter, and writing the name out in full states the reading it was drawn by
     /// (`doc/adr/1952`). A name that is no abbreviation is refused by `super::sites`.
     FilterNamesSpelledOut,
+    /// A font program filed under the key, and for a `/FontFile3` the `/Subtype`, of the format its
+    /// bytes are in.
+    ///
+    /// ISO 19005-2 section 6.2.11.4.1, ISO 19005-4 section 6.2.10.4.1: a program embedded as
+    /// ISO 32000 section 9.9 defines it, whose Table 124 files each format under a key and whose
+    /// Table 125 makes a `/FontFile3` name it. The bytes are carried, and this reader chose its
+    /// reader by them already (ADR 2307).
+    FontProgramRefiled,
     /// Every optional content configuration that states no `/Name` is given the one the
     /// operator's `name-template` makes, numbered past every name the file already uses.
     ///
@@ -1335,7 +1349,9 @@ impl Rewrite {
             }
             Self::NormalAppearanceFromState => {
                 "an annotation whose normal appearance is a subdictionary of states is given the \
-                 one stream its own AS entry selects"
+                 one stream its own AS entry selects, and a push button whose normal appearance \
+                 is a single stream is given a subdictionary holding that stream alone, with the \
+                 AS selecting it"
             }
             Self::OptionalContentOrder => {
                 "an optional content configuration's Order array gains the groups it left out, \
@@ -1507,6 +1523,10 @@ impl Rewrite {
             Self::WriteModeAgreed => {
                 "an embedded CMap whose dictionary and program disagreed about its writing mode \
                  states in both the one the operator said its producer meant"
+            }
+            Self::FontProgramRefiled => {
+                "a font program filed under a key or Subtype its bytes contradict is filed under \
+                 the ones its format is given, every byte of the program the producer's"
             }
             Self::FilterNamesSpelledOut => {
                 "a stream naming a filter by the abbreviation ISO 32000-2 \u{a7}8.9.7's Table 92 \
@@ -1694,6 +1714,7 @@ impl Rewrite {
             Self::ShippedCMapEmbedded => "shipped-cmap-embedded",
             Self::WriteModeAgreed => "write-mode-agreed",
             Self::FilterNamesSpelledOut => "filter-names-spelled-out",
+            Self::FontProgramRefiled => "font-program-refiled",
             Self::ConfigurationNamed => "configuration-named",
             Self::IdentityTransferFunctionRemoved => "identity-transfer-function-removed",
             Self::TransferFunctionRemoved => "transfer-function-removed",
@@ -1863,6 +1884,7 @@ impl<'a> Rewriter<'a> {
             page_resources: prepared.owed.page_resources.as_ref().ok(),
             descriptor_sets: prepared.owed.descriptor_sets.as_ref().ok(),
             cid_to_gid: prepared.owed.cid_to_gid.as_ref().ok(),
+            font_files: prepared.owed.font_files.as_ref().ok(),
             packet_headers: prepared.owed.packet_headers.as_ref().ok(),
             symbolic_encodings: prepared.owed.symbolic_encodings.as_ref().ok(),
             standard_encodings: prepared.owed.standard_encodings.as_ref().ok(),
@@ -2761,6 +2783,8 @@ struct Rewriter<'a> {
     descriptor_sets: Option<&'a DescriptorSets>,
     /// The `CIDFont`s given `/CIDToGIDMap` `/Identity`.
     cid_to_gid: Option<&'a sites::Sites>,
+    /// The key and name each misfiled font program is filed under instead.
+    font_files: Option<&'a super::font_files::Refiled>,
     /// The packets whose header loses a deprecated attribute, where any do.
     packet_headers: Option<&'a Headers>,
     /// The symbolic TrueType fonts whose `/Encoding` goes.
@@ -2943,6 +2967,7 @@ impl Rewriter<'_> {
             count(applied, Rewrite::SubstituteFontProgram);
             changed = true;
         }
+        changed |= self.refile_font_program(id, &mut out);
         if self.wants(Rewrite::SuppliedMediaType)
             && let Some(media_type) = self.remedies.supplied.get(&id)
         {

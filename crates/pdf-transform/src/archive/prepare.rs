@@ -1310,7 +1310,7 @@ impl Prepared {
             .as_ref()
             .ok()
             .and_then(super::transfer::TransferFunctions::history);
-        let now = xmp::instant(std::time::SystemTime::now());
+        let now = xmp::instant(plan.clock.now());
         let metadata = the_packet(
             plan.target,
             document,
@@ -1561,6 +1561,7 @@ impl Prepared {
             Rewrite::PageResources => self.owed.page_resources.as_ref().err().copied(),
             Rewrite::DescriptorSetRemoved => self.owed.descriptor_sets.as_ref().err().copied(),
             Rewrite::CidToGidIdentity => self.owed.cid_to_gid.as_ref().err().copied(),
+            Rewrite::FontProgramRefiled => self.owed.font_files.as_ref().err().copied(),
             Rewrite::FilterNamesSpelledOut => self.owed.filter_names.as_ref().err().copied(),
             Rewrite::HalftoneNameRemoved => self.owed.halftone_names.as_ref().err().copied(),
             Rewrite::HalftoneWrittenDefault => self.owed.halftone_defaults.as_ref().err().copied(),
@@ -1763,6 +1764,8 @@ pub(super) struct Owed {
     pub(super) descriptor_sets: Result<DescriptorSets, Because>,
     /// The `CIDFont`s given `/CIDToGIDMap` `/Identity`, or why none are.
     pub(super) cid_to_gid: Result<Sites, Because>,
+    /// The font programs filed under the key and name of their format, or why none are (ADR 2307).
+    pub(super) font_files: Result<super::font_files::Refiled, Because>,
     /// The packets whose header loses a deprecated attribute, or why none do.
     ///
     /// **Prepared by [`Prepared::of`] rather than here**, and the reason is the one the field
@@ -1851,6 +1854,9 @@ impl Owed {
             }),
             cid_to_gid: asked(wanted(Rewrite::CidToGidIdentity), || {
                 sites::cid_to_gid_maps(document, input, plan.target)
+            }),
+            font_files: asked(wanted(Rewrite::FontProgramRefiled), || {
+                super::font_files::refiled(document, input)
             }),
             filter_names: asked(wanted(Rewrite::FilterNamesSpelledOut), || {
                 sites::abbreviated_filters(input)

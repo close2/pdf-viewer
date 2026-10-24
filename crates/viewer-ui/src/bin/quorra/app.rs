@@ -144,6 +144,9 @@ pub(crate) struct Showing {
     pub(crate) departures: viewer_core::RestrictionOverride,
     /// Whether Table 29's `/PageMode` is still to be obeyed, the first time this tab is in front.
     pub(crate) catalog_due: bool,
+    /// Table 29's `FullScreen`, §12.2's chrome flags and the way back out, for this document: each
+    /// tab's own, so a document brought forward presents under its own mode (ADRs 2200, 2300).
+    pub(crate) presenting: viewer_host::Presenting,
     /// The pages of this document the core asked this window to draw, which is what its tab shows
     /// when it comes back to the front.
     ///
@@ -286,6 +289,13 @@ pub(crate) struct App {
     /// it using a transition specified in the action dictionary". So this is the same clock and
     /// the same frames under the other clause, and it is dropped the turn it runs out (ADR 1216).
     pub(crate) effect: Option<Presentation>,
+    /// Whether winit last said the window is occluded — hidden from view entirely
+    /// (`WindowEvent::Occluded`). One of the two words this window reads for "nobody can see
+    /// it"; [`App::window_hidden`] is both.
+    pub(crate) occluded: bool,
+    /// Whether §12.4.4.1's clock is parked because nobody can see the window (ADR 2300's rule,
+    /// which `viewer_host::PresentationPump::window_shown` keeps for the other three windows).
+    pub(crate) hidden: bool,
     /// Table 29's `/PageMode /FullScreen`, §12.2's chrome flags, and the way back out.
     ///
     /// **The window a presentation had never had.** Which of Table 147's flags this window is
@@ -813,6 +823,7 @@ impl App {
             asking: std::mem::replace(&mut self.asking, viewer_host::Asking::new()),
             report_due: std::mem::take(&mut self.report_due),
             catalog_due: std::mem::take(&mut self.catalog_due),
+            presenting: self.presenting,
             layout: self.layout,
             departures: self.restrictions.document(),
             requests: std::mem::take(&mut self.requests),
@@ -833,10 +844,12 @@ impl App {
             asking,
             report_due,
             catalog_due,
+            presenting,
             layout,
             departures,
             requests,
         } = showing;
+        self.presenting = presenting;
         self.title = title;
         self.path = path;
         self.fragment = fragment;
@@ -877,6 +890,7 @@ impl App {
         self.unpark(parked);
         self.restrip();
         self.dispatch(Command::Focus(id));
+        self.bring_the_presentation_forward();
         // The panel's lists are the document's, so a tab brought to the front brings its own —
         // the outline, the files, the threads and Table 349 are all asked of the focused document.
         self.take_the_lists();
@@ -978,6 +992,7 @@ impl App {
             asking: viewer_host::Asking::new(),
             report_due: viewer_host::report::Due::default(),
             catalog_due: false,
+            presenting: viewer_host::Presenting::default(),
             layout: pdf_model::viewer_preferences::PageLayout::SinglePage,
             departures: viewer_core::RestrictionOverride::NONE,
             requests: Vec::new(),
@@ -1038,6 +1053,7 @@ impl App {
                 self.restrip();
                 self.dispatch(Command::Close(closing));
                 self.dispatch(Command::Focus(focused));
+                self.bring_the_presentation_forward();
                 self.retitle();
                 self.redraw();
                 println!(
@@ -1350,6 +1366,11 @@ impl App {
             return;
         };
         self.presenting = viewer_host::Presenting::opening(opening, &preferences);
+        // A document arriving in front of one that was presenting — a link's new window, or the
+        // file replacing it in place — takes the window under its own mode (ADR 2300 §3).
+        if self.presentation.is_some() {
+            self.bring_the_presentation_forward();
+        }
         self.report_unobeyable_chrome();
         self.show_page_mode(opening.mode);
         if opening.layout != PageLayout::SinglePage {

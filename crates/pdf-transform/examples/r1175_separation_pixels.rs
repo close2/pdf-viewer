@@ -50,6 +50,7 @@ fn convert(bytes: &[u8], target: Target, winner: &str) -> Option<Vec<u8>> {
             resolutions: Vec::new(),
             tool_outputs: ToolOutputs::new(),
             external_data: std::collections::BTreeMap::new(),
+            clock: pdf_transform::archive::Clock::System,
         }),
         &[Source::new(bytes.to_vec())],
         &sinks,

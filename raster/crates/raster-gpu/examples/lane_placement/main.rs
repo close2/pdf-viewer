@@ -73,7 +73,7 @@ mod sweeps;
 mod witness;
 
 use raster_gpu::{
-    Coverage, DEFAULT_COVERAGE_SAMPLES, DEFAULT_GLYPH_QUANTUM, Device, SampleLattice,
+    Coverage, DEFAULT_COVERAGE_SAMPLES, DEFAULT_GLYPH_QUANTUM, Device, SamplePattern,
 };
 
 use fixture::{ACROSS, ALONG, HAIRLINE, TINY_ATLAS, WITNESS_WIDTH, device};
@@ -175,7 +175,7 @@ fn report(placement: &[Worst; 2], grid: &[(u32, Vec<f64>, Worst)]) {
         placement[0].ink, placement[1].ink
     );
     for (samples, ladder, worst) in grid {
-        let pitch = f64::from(SampleLattice::of(*samples).edge_pitch());
+        let pitch = f64::from(SamplePattern::of(*samples).edge_pitch());
         println!(
             "phase 2 at {samples:>2} samples: {} rungs, worst ink {:+.4} and worst centroid \
              {:+.4}, against the pitch's own {pitch:.4}",
@@ -205,7 +205,7 @@ fn assert_placement(worst: &[Worst; 2], samples: u32) {
     );
     // **The sampled column, and its bound is a different number for a different reason.**
     // The device lane counts samples on a lattice whose rows are `1/n` apart — every sample
-    // has a row of its own (`SampleLattice`, ADR 2296) — so a band covers the rows inside it and its
+    // has a row of its own (`SamplePattern`, ADR 2312) — so a band covers the rows inside it and its
     // centroid can only be their mean. **Half a pitch holds here because [`HAIRLINE`] is a
     // multiple of the pitch**: the band then contains the same count of lattice points
     // wherever it lands, the mean is the first point plus a fixed offset, and the first
@@ -214,7 +214,7 @@ fn assert_placement(worst: &[Worst; 2], samples: u32) {
     // bound is a whole pitch, which is what `assert_grid` states and phase 2 measures.
     // At the default sample count it is the atlas's quantum's own size, for a different
     // reason; ADR 0076 is the decision and ADR 2296 the lattice.
-    let half_pitch = 0.5 * f64::from(SampleLattice::of(samples).edge_pitch());
+    let half_pitch = 0.5 * f64::from(SamplePattern::of(samples).edge_pitch());
     assert!(
         worst[1].centroid.abs() <= half_pitch + BYTE_SLACK,
         "the sampled column moved a hairline by {:+.4} device pixels, past half the sample \
@@ -227,7 +227,7 @@ fn assert_placement(worst: &[Worst; 2], samples: u32) {
 /// arithmetic and not a constant that happens to be a quarter.
 fn assert_grid(grid: &[(u32, Vec<f64>, Worst)]) {
     for (samples, ladder, worst) in grid {
-        let pitch = f64::from(SampleLattice::of(*samples).edge_pitch());
+        let pitch = f64::from(SamplePattern::of(*samples).edge_pitch());
         let slack = byte_drift(*samples) + BYTE_SLACK;
         // Reachability first, and it is the property this round added. A rule shorter than
         // `ALONG` fails `triangles_under_coverage`'s floor and is answered by the processor

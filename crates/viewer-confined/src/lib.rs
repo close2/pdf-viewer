@@ -391,6 +391,11 @@ pub struct Framed {
     /// The same number for either payload: it is where the *page* goes, and a host that
     /// rasterises a list for itself puts the result exactly where it would have put pixels.
     pub origin: (f32, f32),
+    /// Whether a draw of this page in the confined process left marks to the library's converter
+    /// (ADRs 2290, 2316): a page the worker drew as pixels, whole or as windows, whose decline
+    /// the worker's viewer has said and which the host names in its title as it names a page it
+    /// drew itself. Always `false` for a page that crossed as marks, which the host draws.
+    pub declined: bool,
 }
 
 /// What one page crossed the confinement as (ADR 0607).

@@ -32,12 +32,13 @@ reading in one line per row, and the note is where it is argued. The membership 
 - **§7.6.5.1, §7.6.5.2, §7.6.5.3** (`reported`) — the handler is refused by name; the build
   waits on `doc/questions/A66`'s trigger, which `doc/questions/A168` reads as unlit.
 - **§7.6.6** — Table 27, which is the handler's; moves on the same trigger.
-- **§12.2** — owed by the WinUI window alone: native full-screen and title-bar placement,
-  `/FitWindow` and `/CenterWindow` answered to `QUORRA_OWED_PLACE`, and modal suppression while
-  presenting, each run on Windows rather than compiled against its SDK; `partial` rather than
-  `departed`, because nothing decided against them (ADR 2301). §12.4.4's pump and its parking —
-  a hidden window, another document in front — are one module the C window, GTK and Qt share
-  (ADR 2300). The deliberate menu and placement departures remain (ADRs 1145, 1429).
+- **§12.2** — owed by a run on Windows alone: the WinUI window's native full screen,
+  `/FitWindow` and `/CenterWindow` answered through `quorra_window_place`, and the dialogues the
+  library holds while presenting are built and compiled against the real SDK, not run (ADRs 2308,
+  2309); `partial` rather than `departed`, because nothing decided against them (ADR 2301). Every
+  window that resizes and moves itself asks one placement decision; Qt under Wayland and GTK say
+  and title a centre they cannot give. The deliberate menu and placement departures remain (ADRs
+  1145, 1429).
 - **§12.8.3.4.4** — no signature in reach states a policy whose constraints could be enforced;
   moves when one does and its named specification is held. The network is not what is missing
   (ADR 1291).

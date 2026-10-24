@@ -61,6 +61,14 @@ internal static unsafe partial class Native
 
     [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static partial int quorra_raster_declined(
+        nint viewer,
+        nint request,
+        nint raster,
+        nint* events);
+
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static partial int quorra_render_ready_listed(nint viewer, nint request, nint* events);
 
     [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]

@@ -42,11 +42,11 @@ presentations. **What builds a row here:** the host work of `doc/todo/30`–`38`
 print path. A new host reopens the entries it has not yet connected, even when the shared core
 already reads them.
 
-- §12.2 — WinUI still reports `OWED_CHROME` and `OWED_PLACE` without applying Table 147's
-  toolbar, menu, window furniture, fitting and centring entries. Its title record works.
-  Implement the two records and drive each entry on Windows; keep ADR 1145's reason for
-  preserving the reader's restriction controls. The deliberate GTK/Qt menu and GTK placement
-  departures remain (ADRs 1145, 1429); the row is `partial` because the new host's work is owed.
+- §12.2 — WinUI applies Table 147's chrome, fitting and centring and Table 29's full screen, and
+  the library holds a document's dialogues while presenting (ADRs 2308, 2309); all of it is
+  compiled, not run. Drive each entry on Windows; keep ADR 1145's reason for preserving the
+  reader's restriction controls. The deliberate GTK/Qt menu and GTK placement departures remain
+  (ADRs 1145, 1429); the row is `partial` because the Windows run is owed.
 
 - **Beside this bucket and not in it** — §13.2.4.2 is `implemented`: its clip is judged by §13.2.2,
   Table 286's /TF asked at the reader's restriction level for `Operation::HandOverMedia`, and the data

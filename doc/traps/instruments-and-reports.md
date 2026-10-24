@@ -1813,3 +1813,34 @@ the merge check refuses (round 1728, ADR 2290). A tools script is syntax-checked
 `PYTHONDONTWRITEBYTECODE=1 python3 -I -c 'import ast, sys; ast.parse(open(sys.argv[1]).read())' <file>` —
 or by running it with `-I -B` on its own `--help`, and never by `py_compile`.
 
+### 248. A source copied in with an old timestamp leaves cargo's old artefact in place
+
+Cargo decides whether a crate is fresh by comparing its sources' mtimes with the fingerprint of the
+last build, profile by profile; a file written into the worktree with a timestamp older than that build —
+`cp -p` or `rsync -a` from an export, an archive unpacked with its times — reads as unchanged, and the
+profile keeps the rlib it had. Batch one hundred and twelve's merge chain compiled the workspace clean
+under the dev profile and then had seventeen gates fail to compile under the gates profile against a
+`pdf-colour` and a `render-cpu` from the day before, until `cargo clean --profile gates` for the crates
+named and a rebuild. A round copies sources into the worktree without preserving their times, or
+touches them after; an orchestrator whose gates fail to compile what tier 1 compiled cleans that profile
+for the named crates first, before reading anything else into the failure.
+
+### 250. "Build-dependent" across one batch's rounds is two source states, not two builds
+
+Round 1734 saw a document refused by two builds of HEAD and converted by later builds of "the same
+source", and called it build-dependent; round 1736 ran the converter twenty times from two builds of one
+commit and got byte-identical output but for the recorded instant, and found the earlier builds had lacked
+a sibling round's hunk from the same batch (ADR 2306). In a shared worktree "HEAD plus my hunks" is a
+different source every hour. A claimed build dependence is reproduced first from two builds of one commit
+in two target directories, then from one source with each sibling hunk taken back in turn; only a
+difference that survives both points at a hasher, a pointer key or a thread order.
+
+### 255. A file named whole in an export carries every sibling's hunk with it
+
+`tools/batch.sh export <n> --as <name> <path>` copies the worktree's file, not the round's hunks of it;
+round 1739 named `raster-gpu/src/startup.rs` whole and its arms ran with a sibling's adapter-selection
+hunks inside, which happened to choose the adapter HEAD chooses with no selection variable set, so the
+figures stood — by luck, not by construction (ADR 2313). Before a shared file is named whole, `git diff -U0
+<file>` is read and every hunk confirmed the round's own; a file with a sibling's hunk goes into the export
+as `--patch` of the round's own hunks (trap 193), and the record names which files went in which way.
+

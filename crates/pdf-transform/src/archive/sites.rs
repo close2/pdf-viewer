@@ -301,9 +301,47 @@ const NO_APPEARANCE_STATE: &str = "this annotation's normal appearance is a subd
      states no AS entry selecting one of them. §12.5.2's Table 166 makes AS what selects the \
      applicable stream, so where it is there the collapse writes down the reader's own choice — \
      and where it is not, nothing in the file says which state the document is in, and choosing \
-     one is doc/questions/A48's forbidden half. The other shape this requirement fails in — an \
-     appearance dictionary stating no N entry at all, or a button widget whose N is a single \
-     stream — has no answer either";
+     one is doc/questions/A48's forbidden half. An appearance dictionary stating no N entry at \
+     all has no answer either";
+
+/// Why a check box's or a radio button's single normal appearance stream is not wrapped.
+const A_STATE_WOULD_BE_A_VALUE: &str = "this widget belongs to a check box or a radio button \
+     field and its normal appearance is a single stream, where ISO 19005 requires a button \
+     widget's N to be a subdictionary of appearance states. §12.7.5.2.3 makes a check box's \
+     states Off and the name of its on state, and a radio button's the same, so the one name \
+     such a subdictionary would hold says which value the field has — and the file states no \
+     appearance for that value. A push button has no value, and its single stream is written as \
+     a subdictionary holding it alone (doc/adr/2319)";
+
+/// The appearance state a push button's single normal appearance is written under.
+///
+/// ISO 19005-2 section 6.3.3 and ISO 19005-4 section 6.3.3 require a button widget's `/N` to be
+/// a subdictionary, `TechNote 0010`'s A012 a push button's included, and §12.5.2's Table 166
+/// requires the `/AS` that selects from it. §12.7.5.2.2 gives a push button no value, so nothing
+/// in the file or the standard names its one state; the name chosen is §12.5.5's own word for the
+/// appearance it holds, and it decides nothing a reader draws, since `/AS` selects that one
+/// stream and no other entry refers to it (`doc/adr/2319`).
+pub(super) const PUSH_BUTTON_STATE: &[u8] = b"Normal";
+
+/// §12.7.4.1's field flags, the push-button bit: Table 229's bit position 17.
+const PUSH_BUTTON_FLAG: i64 = 1 << 16;
+
+/// A field entry on this dictionary or inherited up its `/Parent` chain (§12.7.4.1), or `Null`.
+fn inherited_field_entry(document: &Document, dict: &Dictionary, key: &str) -> Object {
+    let mut current = dict.clone();
+    for _ in 0..MAX_ENTRY_DEPTH {
+        let value = document.get_key(&current, key);
+        if !matches!(value, Object::Null) {
+            return value;
+        }
+        let parent = document.get_key(&current, "Parent");
+        let Some(parent) = parent.as_dict() else {
+            return Object::Null;
+        };
+        current = parent.clone();
+    }
+    Object::Null
+}
 
 /// The appearances an annotation's own `/AS` entry selects.
 ///
@@ -314,6 +352,10 @@ pub(super) struct AppearanceStates {
     pub(super) at: BTreeMap<ObjectId, ObjectId>,
     /// The streams this conversion copies out of a subdictionary that held them directly.
     pub(super) written: Vec<(ObjectId, Object)>,
+    /// The push buttons whose single normal appearance stream is written as a subdictionary
+    /// holding it alone under [`PUSH_BUTTON_STATE`], each with that stream, in the source's
+    /// numbering.
+    pub(super) wrapped: BTreeMap<ObjectId, ObjectId>,
 }
 
 /// Every annotation whose normal appearance is to be collapsed to the state it selects.
@@ -332,10 +374,39 @@ pub(super) fn appearance_states(
         let annotation =
             dictionary_of(&resolved).ok_or(Because::NotBuiltYet(NO_APPEARANCE_STATE))?;
         let states = document.get_key(annotation, "AP");
-        let states = states
+        let normal = states
             .as_dict()
-            .map(|appearance| document.get_key(appearance, "N"))
+            .and_then(|appearance| appearance.get("N"))
+            .cloned()
             .ok_or(Because::NotBuiltYet(NO_APPEARANCE_STATE))?;
+        let button = document
+            .get_key(annotation, "Subtype")
+            .as_name()
+            .is_some_and(|subtype| subtype.as_bytes() == b"Widget")
+            && inherited_field_entry(document, annotation, "FT")
+                .as_name()
+                .is_some_and(|kind| kind.as_bytes() == b"Btn");
+        if button && matches!(document.resolve(&normal), Object::Stream(_)) {
+            let flags = inherited_field_entry(document, annotation, "Ff")
+                .as_integer()
+                .unwrap_or(0);
+            if flags & PUSH_BUTTON_FLAG == 0 {
+                return Err(Because::NotBuiltYet(A_STATE_WOULD_BE_A_VALUE));
+            }
+            let stream = match &normal {
+                Object::Reference(at) => *at,
+                direct => {
+                    let at = spare
+                        .take(document)
+                        .ok_or(Because::NotBuiltYet(NO_APPEARANCE_STATE))?;
+                    found.written.push((at, direct.clone()));
+                    at
+                }
+            };
+            found.wrapped.insert(id, stream);
+            continue;
+        }
+        let states = document.resolve(&normal);
         let states = states
             .as_dict()
             .ok_or(Because::NotBuiltYet(NO_APPEARANCE_STATE))?;

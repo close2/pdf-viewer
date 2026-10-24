@@ -2810,16 +2810,19 @@ void MainWindow::arrive()
 // front. What to do is the Rust side's (`Host::place_window`, over `viewer_host::fitted` and
 // `viewer_host::centred`, shared with the other two windows); what is here is handing it this
 // window's extents and carrying out the answer. Both calls are requests: a window manager may
-// refuse either, and on Wayland `move` places nothing. ADR 1429.
+// refuse either, and on Wayland `move` places nothing, which is said instead. ADRs 1429, 2308.
 void MainWindow::placeWindow()
 {
     const QRect outer = frameGeometry();
     const QRect inner = geometry();
     const QScreen *on = screen();
     const QRect area = on != nullptr ? on->availableGeometry() : QRect();
+    // A Wayland compositor places every window and ignores `move`, so the Rust side says the
+    // centre was not given rather than asking for it (ADR 2308).
+    const bool positions = QGuiApplication::platformName() != QLatin1String("wayland");
     const QtWindowExtents extents{inner.width(),  inner.height(), outer.width() - inner.width(),
                                   outer.height() - inner.height(), area.x(), area.y(),
-                                  area.width(),   area.height()};
+                                  area.width(),   area.height(), positions};
     const rust::Vec<std::int32_t> placed = host_->place_window(extents);
     if (placed.size() < 6) {
         return;

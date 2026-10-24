@@ -198,6 +198,30 @@ internal sealed unsafe partial class QuorraWindow : IDisposable
         }
     }
 
+    /// <summary>Whether the window presents full screen now: Table 29's FullScreen (ADR 2308).</summary>
+    internal bool FullScreen
+    {
+        get
+        {
+            byte full = 0;
+            Library.Check("quorra_window_full_screen", Native.quorra_window_full_screen(handle, &full));
+            return full != 0;
+        }
+    }
+
+    /// <summary>Table 147's placement for the window <paramref name="extents"/> describes, in logical pixels; null where none is owed (ADR 2308).</summary>
+    internal quorra_window_placement? Place(quorra_window_extents extents)
+    {
+        quorra_window_placement placed;
+        int status = Native.quorra_window_place(handle, &extents, &placed);
+        if (status == Native.QUORRA_NO_ANSWER)
+        {
+            return null;
+        }
+        Library.Check("quorra_window_place", status);
+        return placed;
+    }
+
     /// <summary>One look at what runs beside the window.</summary>
     internal void Tick() => Library.Check("quorra_window_tick", Native.quorra_window_tick(handle));
 

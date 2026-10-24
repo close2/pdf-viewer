@@ -144,10 +144,26 @@ fn paint_at(p: vec2f) -> vec4f {
     );
 }
 
+// The level nearest each component, `⌊255 c + ½⌋ / 255` of the exact product (ADR 2311): `fma`
+// recovers what the `f32` product rounded away, so a component a hair below a half level — `0.7`
+// is 178.499 997 levels — is not carried onto it. `shading.wgsl` holds the same function.
+fn nearest_level(c: vec4f) -> vec4f {
+    let unit = clamp(c, vec4f(0.0), vec4f(1.0));
+    let scaled = unit * 255.0;
+    let residual = fma(unit, vec4f(255.0), -scaled);
+    let whole = floor(scaled);
+    let up = select(vec4f(0.0), vec4f(1.0), (scaled - whole) + residual >= vec4f(0.5));
+    return (whole + up) / 255.0;
+}
+
+// The program's answer leaves as the level nearest it, as a ramp's colour does (`shading.wgsl`'s
+// `ramp_colour`, ADR 2310): RADV exports a fragment's colour to an eight-bit target as a half
+// float rounded toward zero, up to an eighth of a level low, and a level survives that export
+// where an unrounded answer does not (ADR 2311).
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4f {
     let p = floor(in.position.xy) + params.origin;
-    let straight = paint_at(p);
+    let straight = nearest_level(paint_at(p));
     return vec4f(straight.rgb * straight.a, straight.a) * (shape_at(p) * soft_mask_at(p));
 }
 

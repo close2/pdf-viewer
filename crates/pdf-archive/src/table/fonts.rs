@@ -214,6 +214,15 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Implemented(font_programs_embedded),
     },
     Requirement {
+        id: "fonts/font-programs-filed-by-their-format",
+        asks: "A font program shall be embedded as the base standard's section 9.9 defines it: \
+               under the descriptor key, and for a FontFile3 the Subtype, that the section's \
+               table gives the program's format under the font's dictionary.",
+        clauses: Clauses::both("6.2.11.4.1", "6.2.10.4.1"),
+        applies: Applies::Always,
+        check: Check::Implemented(font_programs_filed_by_their_format),
+    },
+    Requirement {
         id: "fonts/font-programs-embeddable-without-permission",
         asks: "Only a font program that may lawfully be embedded for unlimited, universal \
                rendering shall be used.",
@@ -956,6 +965,213 @@ fn font_programs_embedded(exam: &Examination<'_>, findings: &mut Findings) {
                 ),
             ),
             Some(_) => {}
+        }
+    }
+}
+
+/// The three names ISO 32000-2 §9.9's Table 125 lets a `/FontFile3` stream state as `/Subtype`.
+const FONT_FILE3_SUBTYPES: [&str; 3] = ["Type1C", "CIDFontType0C", "OpenType"];
+
+/// The tables Table 124's `FontFile2` row, and its `OpenType` row's first bullet, require of a
+/// `glyf` program.
+const GLYF_PROGRAM: [[u8; 4]; 6] = [*b"glyf", *b"head", *b"hhea", *b"hmtx", *b"loca", *b"maxp"];
+
+/// One way ISO 32000-2 §9.9's Table 124 embeds a font program: the descriptor key, and the
+/// `/Subtype` the stream states where the key is `/FontFile3`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Table124Row {
+    /// `FontFile`, `FontFile2` or `FontFile3`.
+    pub key: &'static str,
+    /// The name Table 125 makes a `/FontFile3` state; `None` under the other two keys.
+    pub subtype: Option<&'static str>,
+}
+
+/// The rows of §9.9's Table 124 that admit `program` under a font dictionary whose `/Subtype` is
+/// `dictionary`.
+///
+/// Empty where the bytes settle a format no row admits under that dictionary; `None` where they
+/// settle no format this reader names — a header it does not know, a `ttcf` collection, a `CFF `
+/// Top DICT it cannot read — of which it says nothing rather than guess. The table pairs each key and
+/// name with the dictionaries that may carry it, and its `OpenType` row decides on what the program
+/// contains:
+///
+/// > • A TrueType font dictionary or a CIDFontType2 CIDFont dictionary, if the embedded font
+/// > program contains a "glyf" table.
+///
+/// A Type 1 program is the one whose clear-text portion opens with `%!` (Adobe's Type 1 Font
+/// Format; §9.9 admits only the binary form of its encrypted portion, so no segment header comes
+/// first). §9.7.4.2 puts both keyings of a bare CFF under a `CIDFontType0` dictionary; `MMType1` is
+/// in the `FontFile` and `Type1C` rows and in no `OpenType` bullet. The converter's writer reads the
+/// same rows for a face it embeds (`pdf_transform`'s `key_for`); this is the reading of a program a
+/// file already holds (ADR 2307).
+#[must_use]
+pub fn table_124_rows(dictionary: &str, program: &[u8]) -> Option<Vec<Table124Row>> {
+    use pdf_font::embedding::{Keying, cff_keying, sfnt_tables};
+    use pdf_font::substitute::Format;
+    const fn row(key: &'static str, subtype: Option<&'static str>) -> Table124Row {
+        Table124Row { key, subtype }
+    }
+    let type1 = matches!(dictionary, "Type1" | "MMType1");
+    if program.starts_with(b"%!") {
+        return Some(if type1 {
+            vec![row("FontFile", None)]
+        } else {
+            Vec::new()
+        });
+    }
+    let rows = match pdf_font::standard::program_format(program)? {
+        Format::Sfnt => {
+            let tables = sfnt_tables(program)?;
+            if tables.carries(b"CFF ") {
+                let keying = tables.cff?;
+                let admitted = tables.carries(b"cmap")
+                    && (dictionary == "CIDFontType0"
+                        || (dictionary == "Type1" && keying == Keying::ByName));
+                if admitted {
+                    vec![row("FontFile3", Some("OpenType"))]
+                } else {
+                    Vec::new()
+                }
+            } else if tables.carries_all(&GLYF_PROGRAM)
+                && matches!(dictionary, "TrueType" | "CIDFontType2")
+            {
+                vec![row("FontFile2", None), row("FontFile3", Some("OpenType"))]
+            } else {
+                Vec::new()
+            }
+        }
+        Format::BareCff => match dictionary {
+            "CIDFontType0" => vec![row("FontFile3", Some("CIDFontType0C"))],
+            _ if type1 => match cff_keying(program, Format::BareCff)? {
+                Keying::ByName => vec![row("FontFile3", Some("Type1C"))],
+                Keying::ByCid => Vec::new(),
+            },
+            _ => Vec::new(),
+        },
+        // A format a later reader names is one this table has no row for yet, so it is unsettled
+        // here rather than refused.
+        _ => return None,
+    };
+    Some(rows)
+}
+
+/// The descriptor key a font's program is embedded under, and the stream it names.
+///
+/// §9.8.1 lets at most one of the three be present; the first that names a stream is the one read.
+fn embedded_under(
+    document: &Document,
+    descriptor: &Dictionary,
+) -> Option<(&'static str, ObjectId)> {
+    ["FontFile", "FontFile2", "FontFile3"]
+        .into_iter()
+        .find_map(|key| {
+            let at = descriptor.get(key).and_then(Object::as_reference)?;
+            matches!(document.get(at), Object::Stream(_)).then_some((key, at))
+        })
+}
+
+/// ISO 19005-2 section 6.2.11.4.1, ISO 19005-4 section 6.2.10.4.1: a font program is embedded *as
+/// ISO 32000 section 9.9 defines it*, and ISO 32000-2 §9.9's Table 124 "summarises the ways in
+/// which font programs shall be embedded in a PDF file, depending on the representation of the font
+/// program" while §9.9's Table 125 makes a `/FontFile3` stream say what the program is:
+///
+/// > A name specifying the format of the embedded font program. The name shall be Type1C for Type
+/// > 1 compact fonts, CIDFontType0C for Type 0 compact CIDFonts, or OpenType for OpenType fonts.
+///
+/// So a `/FontFile3` stating no name or one outside those three, and a program filed under a key or
+/// name its bytes contradict, or in a pairing no row admits under the font's dictionary, is not
+/// embedded as section 9.9 defines it. Whether a program conforms to its own format's specification
+/// beyond what the table asks of it is section 6.2.11.2's, which this table does not judge (ADR 2307).
+///
+/// The population is [`font_programs_embedded`]'s, a font a content stream renders, and one finding
+/// per program stream, at that stream: a converter refiling it edits it there.
+fn font_programs_filed_by_their_format(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    let mut judged = BTreeSet::new();
+    for used in exam.survey().fonts() {
+        if !used.rendered {
+            continue;
+        }
+        let Some(font_subtype) = subtype(document, &used.dict) else {
+            continue;
+        };
+        let holder = if font_subtype == "Type0" {
+            match descendant(document, &used.dict) {
+                Some((_, dict)) => dict,
+                None => continue,
+            }
+        } else {
+            used.dict.clone()
+        };
+        let (Some(dictionary), Some(descriptor)) =
+            (subtype(document, &holder), descriptor(document, &holder))
+        else {
+            continue;
+        };
+        let Some((key, at)) = embedded_under(document, &descriptor) else {
+            continue;
+        };
+        let Object::Stream(stream) = document.get(at) else {
+            continue;
+        };
+        if !judged.insert(at) {
+            continue;
+        }
+        let place = Where::object(at).named(used.name.clone());
+        let stated = if key == "FontFile3" {
+            let name = document
+                .get_key(&stream.dict, "Subtype")
+                .as_name()
+                .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned());
+            let Some(name) = name.filter(|name| FONT_FILE3_SUBTYPES.contains(&name.as_str()))
+            else {
+                findings.record(
+                    place,
+                    format!(
+                        "the font {}'s FontFile3 states no Subtype that names a format the base \
+                         standard defines, which a FontFile3 stream is required to state",
+                        used.name
+                    ),
+                );
+                continue;
+            };
+            Some(name)
+        } else {
+            None
+        };
+        // A program that does not decode is section 6.1.7's to judge, and its format is unknown.
+        let Some(program) = document.decoded_stream_data(&stream) else {
+            continue;
+        };
+        let Some(rows) = table_124_rows(&dictionary, &program) else {
+            continue;
+        };
+        let filed = |row: &Table124Row| row.key == key && row.subtype == stated.as_deref();
+        let named = stated
+            .as_deref()
+            .map_or_else(String::new, |name| format!(" /{name}"));
+        match rows.first() {
+            _ if rows.iter().any(filed) => {}
+            None => findings.record(
+                place,
+                format!(
+                    "the font {}'s program, under {key}{named}, is in a format no row of the base \
+                     standard's table of embedded font programs admits under a {dictionary} \
+                     dictionary",
+                    used.name
+                ),
+            ),
+            Some(row) => findings.record(
+                place,
+                format!(
+                    "the font {}'s program is under {key}{named}, and its bytes are the format the \
+                     base standard's table files under {}{} in a {dictionary} dictionary",
+                    used.name,
+                    row.key,
+                    row.subtype
+                        .map_or_else(String::new, |name| format!(" /{name}")),
+                ),
+            ),
         }
     }
 }
@@ -2660,11 +2876,12 @@ mod tests {
         Findings, actual_text_covers_private_use_characters, actual_text_states_no_private_use,
         charset_names, cid_system_info_agrees_with_the_cmap, cid_to_gid_map_present,
         cmap_embedded_or_predefined, embedded_cmap_states_its_own_write_mode,
-        font_programs_embedded, glyph_procedure_width, is_private_use, no_notdef_glyph_shown,
-        non_symbolic_truetype_differences_are_listed_names,
+        font_programs_embedded, font_programs_filed_by_their_format, glyph_procedure_width,
+        is_private_use, no_notdef_glyph_shown, non_symbolic_truetype_differences_are_listed_names,
         non_symbolic_truetype_uses_a_standard_encoding, private_use_codes,
-        symbolic_truetype_states_no_encoding, to_unicode_present, to_unicode_values_are_usable,
-        type3_glyph_procedures_state_their_width, widths_array_covers_character_range,
+        symbolic_truetype_states_no_encoding, table_124_rows, to_unicode_present,
+        to_unicode_values_are_usable, type3_glyph_procedures_state_their_width,
+        widths_array_covers_character_range,
     };
 
     /// Wraps numbered objects in a header, a cross-reference table and a trailer.
@@ -2763,6 +2980,138 @@ mod tests {
         assert!(
             findings(&never_shown, font_programs_embedded).is_empty(),
             "a font no text-showing operator ran with is not a font the file uses"
+        );
+    }
+
+    /// An sfnt whose table directory names `tags`, each table empty, written as hexadecimal for
+    /// an `ASCIIHexDecode` stream: the directory is all Table 124's rows ask of the bytes.
+    fn an_sfnt_naming(version: [u8; 4], tags: &[&[u8; 4]]) -> String {
+        let count = u16::try_from(tags.len()).expect("a handful of tables");
+        let end = u32::from(count)
+            .checked_mul(16)
+            .and_then(|directory| directory.checked_add(12))
+            .expect("a handful of tables fits a directory");
+        let mut bytes = version.to_vec();
+        bytes.extend_from_slice(&count.to_be_bytes());
+        bytes.extend_from_slice(&[0; 6]);
+        for tag in tags {
+            bytes.extend_from_slice(*tag);
+            bytes.extend_from_slice(&[0; 4]);
+            bytes.extend_from_slice(&end.to_be_bytes());
+            bytes.extend_from_slice(&[0; 4]);
+        }
+        bytes.iter().fold(String::new(), |mut hex, byte| {
+            let _ = write!(hex, "{byte:02X}");
+            hex
+        })
+    }
+
+    /// One shown font of `dictionary` whose descriptor files `program` under `key`, its stream
+    /// dictionary stating `stated` besides.
+    fn a_font_program(dictionary: &str, key: &str, stated: &str, program: &str) -> Document {
+        let font = if dictionary == "CIDFontType0" {
+            "5 0 obj\n<< /Type /Font /Subtype /Type0 /BaseFont /F /Encoding /Identity-H \
+             /DescendantFonts [8 0 R] >>\nendobj\n8 0 obj\n<< /Type /Font /Subtype /CIDFontType0 \
+             /BaseFont /F /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> \
+             /FontDescriptor 6 0 R >>\nendobj\n"
+                .to_owned()
+        } else {
+            format!(
+                "5 0 obj\n<< /Type /Font /Subtype /{dictionary} /BaseFont /F /FirstChar 104 \
+                 /LastChar 105 /Widths [500 500] /FontDescriptor 6 0 R >>\nendobj\n"
+            )
+        };
+        let data = format!("{program}>");
+        page_with(
+            "BT /F1 12 Tf (hi) Tj ET",
+            &format!(
+                "{font}6 0 obj\n<< /Type /FontDescriptor /FontName /F /Flags 32 \
+                 /FontBBox [0 0 1 1] /ItalicAngle 0 /Ascent 1 /Descent 0 /CapHeight 1 /StemV 1 \
+                 /{key} 7 0 R >>\nendobj\n7 0 obj\n<< {stated} /Filter /ASCIIHexDecode \
+                 /Length {} >>\nstream\n{data}\nendstream\nendobj\n",
+                data.len()
+            ),
+        )
+    }
+
+    #[test]
+    fn a_font_program_is_filed_under_the_key_and_name_of_its_format() {
+        // ISO 32000-2 §9.9's Table 124 files each format under a key, and a `/FontFile3` under a
+        // name Table 125 requires, by the dictionaries that may carry it (ADR 2307).
+        let glyf = an_sfnt_naming(
+            [0, 1, 0, 0],
+            &[
+                b"cmap", b"glyf", b"head", b"hhea", b"hmtx", b"loca", b"maxp",
+            ],
+        );
+        let judged = |dictionary: &str, key: &str, stated: &str| {
+            findings(
+                &a_font_program(dictionary, key, stated, &glyf),
+                font_programs_filed_by_their_format,
+            )
+        };
+        assert!(
+            judged("TrueType", "FontFile3", "/Subtype /OpenType").is_empty(),
+            "a glyf program under a TrueType dictionary is the OpenType row's first bullet"
+        );
+        assert!(
+            judged("TrueType", "FontFile2", "").is_empty(),
+            "and the FontFile2 row"
+        );
+        let misnamed = judged("TrueType", "FontFile3", "/Subtype /Type1C");
+        assert_eq!(
+            misnamed.len(),
+            1,
+            "a glyf program is not a Type 1 compact font"
+        );
+        assert!(misnamed[0].contains("FontFile2"), "{misnamed:?}");
+        assert_eq!(
+            judged("TrueType", "FontFile3", "").len(),
+            1,
+            "Table 125 makes the Subtype required of a FontFile3"
+        );
+        assert_eq!(
+            judged("TrueType", "FontFile3", "/Subtype /CFF").len(),
+            1,
+            "and one of three names"
+        );
+        let unpaired = judged("CIDFontType0", "FontFile3", "/Subtype /CIDFontType0C");
+        assert_eq!(unpaired.len(), 1, "no row admits glyf under a CIDFontType0");
+        assert!(unpaired[0].contains("no row"), "{unpaired:?}");
+        assert_eq!(
+            judged("Type1", "FontFile", "").len(),
+            1,
+            "and none admits it under a Type1 dictionary"
+        );
+        let type1: String = b"%!FontType1-1.0: F"
+            .iter()
+            .fold(String::new(), |mut hex, byte| {
+                let _ = write!(hex, "{byte:02X}");
+                hex
+            });
+        let compact = findings(
+            &a_font_program("Type1", "FontFile3", "/Subtype /Type1C", &type1),
+            font_programs_filed_by_their_format,
+        );
+        assert_eq!(compact.len(), 1, "a Type 1 program is not a compact one");
+        assert!(compact[0].contains("under FontFile in"), "{compact:?}");
+    }
+
+    #[test]
+    fn a_font_program_whose_format_cannot_be_read_is_not_judged_by_its_bytes() {
+        // A header this reader names no format for leaves the pairing unsettled; the Subtype the
+        // stream states is still one of Table 125's three, so nothing is reported.
+        let font = a_font_program(
+            "Type1",
+            "FontFile3",
+            "/Subtype /Type1C",
+            "00000000000000000000000000",
+        );
+        assert!(findings(&font, font_programs_filed_by_their_format).is_empty());
+        assert_eq!(
+            table_124_rows("Type1", &[0_u8; 13]),
+            None,
+            "unsettled, rather than refused"
         );
     }
 

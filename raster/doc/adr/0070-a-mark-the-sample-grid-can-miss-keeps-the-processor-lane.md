@@ -1,7 +1,8 @@
 # ADR 0070 — A mark the sample grid can miss keeps the processor lane
 
 Status: accepted, 2026-08-18; its threshold amended by the viewer's ADR 2296 (2026-10-23), which
-moves the lane to a rank-1 lattice and derives the width from it. Adds a **fifth** condition to ADR 0026's lane chooser and
+moves the lane to a rank-1 lattice and derives the width from it, and by the viewer's ADR 2312
+(2026-10-24), which computes it for any pattern with a row and a column to each sample. Adds a **fifth** condition to ADR 0026's lane chooser and
 turns `tests/thin_marks.rs`'s recorded gap into the requirement it only recorded. Declines
 the area rule of `doc/notes-thin-mark-options.md` §3, which is the other half of this
 decision and is written down here because a decision whose alternative's cost is not

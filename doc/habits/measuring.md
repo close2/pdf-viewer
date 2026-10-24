@@ -1740,3 +1740,22 @@ oracle route — launches each window with `--cpu` (the confined window's equiva
 in its name, and its control run without the flag shows the step reading "not offered" rather than a
 false pass.
 
+## 184. A toolkit window's figure is taken on the lane the toolkit's read-back chooses
+
+The toolkit windows draw every wheel notch through `viewer_device::renderer::read_back`, whose launch rule
+takes `Coverage::Cpu`; `quorra`'s own window takes `Compute` on a moved view by `lane_for` (ADR 0700),
+where raster's record replay makes the encode zoom-invariant at 0.3–0.5 ms a step. Round 1740 found the
+owner's "zoom that re-encodes nothing" already true of `quorra` and false of GTK and Qt for that reason
+alone (ADRs 2314, 2315). A figure for a toolkit window is taken on the lane its read-back chooses, named in
+the record beside the figure; a figure taken on `quorra`'s lane says nothing about the toolkits, and a
+lever priced on one lane is priced again on the other before it is called out of reach.
+
+## 185. An export's target is seeded from the batch's release directory, and its sandbox worker is rebuilt in the same build
+
+Rounds 1737 and 1741 each lost a clock hold to trap 10's shape in an export: the gate refused at once for
+want of the release `pdf-sandbox-worker`, which the export's fresh target had never built. Seeding the
+export's target by `cp -a --reflink=always` from the batch's release directory saves the cold build, but
+the copy carries the batch's worker — stale against the export's sources — so the worker is rebuilt in the
+export's own first build (`cargo build --release -p pdf-sandbox --bins` beside the gate's binary) before any
+hold is queued, and trap 238's check at the top of the hold's script names it (ADRs 2308, 2317).
+

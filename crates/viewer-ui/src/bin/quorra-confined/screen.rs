@@ -325,6 +325,7 @@ impl Screen {
                 payload,
                 origin,
                 bytes: _,
+                declined: _,
             } = framed;
             let before = kept
                 .iter_mut()
@@ -1054,6 +1055,7 @@ mod tests {
                 },
                 bytes: 0,
                 origin,
+                declined: false,
             }]
         };
         // The page's corner 1 000 pixels up and to the left of the window's.
@@ -1137,6 +1139,7 @@ mod tests {
                 },
                 bytes: 0,
                 origin: (-1000.0, -1000.0),
+                declined: false,
             }],
             &mut drawing,
         );
@@ -1171,6 +1174,7 @@ mod tests {
                 payload: Payload::Raster(a_raster(10, 10, [1, 2, 3, 255])),
                 bytes: 0,
                 origin: (5.0, 7.0),
+                declined: false,
             }],
             &mut drawing,
         );
@@ -1196,12 +1200,14 @@ mod tests {
                     payload: Payload::Raster(a_raster(10, 10, [9, 9, 9, 255])),
                     bytes: 0,
                     origin: (-5.0, -5.0),
+                    declined: false,
                 },
                 Framed {
                     page: 1,
                     payload: Payload::Raster(a_raster(10, 10, [7, 7, 7, 255])),
                     bytes: 0,
                     origin: (15.0, 15.0),
+                    declined: false,
                 },
             ],
             &mut drawing,
@@ -1233,6 +1239,7 @@ mod tests {
                 payload: Payload::List { list, target },
                 bytes: 0,
                 origin: (2.0, 2.0),
+                declined: false,
             }],
             &mut drawing,
         );
@@ -1262,6 +1269,7 @@ mod tests {
                 },
                 bytes: 0,
                 origin: (0.0, 0.0),
+                declined: false,
             }],
             &mut drawing,
         );
@@ -1312,6 +1320,7 @@ mod tests {
                 },
                 bytes: 0,
                 origin,
+                declined: false,
             }]
         };
         screen.take(framed((0.0, 0.0)), &mut drawing);
@@ -1358,6 +1367,7 @@ mod tests {
                 },
                 bytes: 0,
                 origin: (0.0, 0.0),
+                declined: false,
             }],
             &mut drawing,
         );
@@ -1368,6 +1378,7 @@ mod tests {
                 payload: Payload::Raster(a_raster(4, 4, [8, 8, 8, 255])),
                 bytes: 0,
                 origin: (0.0, 0.0),
+                declined: false,
             }],
             &mut drawing,
         );
@@ -1422,6 +1433,7 @@ mod tests {
                 },
                 bytes: 0,
                 origin: (0.0, 0.0),
+                declined: false,
             }]
         };
         screen.take(framed(refused), &mut drawing);
@@ -1481,6 +1493,7 @@ mod tests {
                 },
                 bytes: 0,
                 origin: (0.0, 0.0),
+                declined: false,
             }]
         };
         screen.take(framed(refused), &mut drawing);
@@ -1534,6 +1547,7 @@ mod tests {
                 },
                 bytes: 0,
                 origin: (2.4, 3.6),
+                declined: false,
             }],
             &mut drawing,
         );
@@ -1571,6 +1585,7 @@ mod tests {
                 payload: Payload::Raster(a_raster(4, 4, colour)),
                 bytes: 0,
                 origin: (0.0, 0.0),
+                declined: false,
             }]
         };
         screen.take(framed([1, 2, 3, 255]), &mut drawing);
@@ -1612,6 +1627,7 @@ mod tests {
                 },
                 bytes: 0,
                 origin,
+                declined: false,
             }]
         };
         screen.take(framed((0.0, 0.0)), &mut drawing);
@@ -1702,6 +1718,7 @@ mod tests {
             },
             bytes: 0,
             origin,
+            declined: false,
         }]
     }
 
