@@ -1395,10 +1395,15 @@ bool PageArea::event(QEvent* event)
     // Qt 6.6's own notice that the ratio moved: a window taken to another output, or the
     // compositor's fractional scale arriving with no change of logical size, which no resize
     // states (the Qt half of what `viewer-gtk` reads on `notify::scale`, ADR 2250).
+    // `QEvent::DevicePixelRatioChange` exists from Qt 6.6; CI's Qt is older, and there the hold is
+    // released by the later size or the first paint alone, which ADR 2267 names as the other two
+    // releases — nothing is drawn at the wrong scale, the ratio is read at the first paint instead.
+#if QT_VERSION >= QT_VERSION_CHECK(6, 6, 0)
     if (event->type() == QEvent::DevicePixelRatioChange && (settled_ || held_)) {
         settled_ = true;
         viewportChanged();
     }
+#endif
     return handled;
 }
 
