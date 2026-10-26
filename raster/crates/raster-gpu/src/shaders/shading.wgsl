@@ -260,16 +260,21 @@ fn ramp_colour(t: f32) -> vec4f {
     return nearest_level(ramp_interpolated(t));
 }
 
-// The level nearest each component, `⌊255 c + ½⌋ / 255` of the exact product (ADR 2311): `fma`
-// recovers what the `f32` product rounded away, so a component a hair below a half level — `0.7`
-// is 178.499 997 levels — is not carried onto it. `function_lane.wgsl` holds the same function.
+// The level nearest each component, `⌊255 c + ½⌋ / 255` of the exact product (ADR 2311), so a
+// component a hair below a half level — `0.7` is 178.499 997 levels — is not carried onto it by the
+// `f32` product's rounding. The product is taken in integers (ADR 2324): a component in `0..=1` is
+// its 24-bit significand `m` times `2^-s`, and `255 m` fits a `u32`, so `⌊510 c⌋` is one shift and
+// the level is `(⌊510 c⌋ + 1) / 2` in integers. An `fma` residual stated the same rule and RADV
+// did not honour it (ADR 2324 §2). Five shaders hand the target a level through it, and the copies
+// are kept textually the same.
 fn nearest_level(c: vec4f) -> vec4f {
-    let unit = clamp(c, vec4f(0.0), vec4f(1.0));
-    let scaled = unit * 255.0;
-    let residual = fma(unit, vec4f(255.0), -scaled);
-    let whole = floor(scaled);
-    let up = select(vec4f(0.0), vec4f(1.0), (scaled - whole) + residual >= vec4f(0.5));
-    return (whole + up) / 255.0;
+    let bits = bitcast<vec4u>(clamp(c, vec4f(0.0), vec4f(1.0)));
+    let biased = (bits >> vec4u(23u)) & vec4u(255u);
+    let normal = biased != vec4u(0u);
+    let significand = (bits & vec4u(0x7fffffu)) | select(vec4u(0u), vec4u(0x800000u), normal);
+    let halving = vec4u(149u) - max(biased, vec4u(1u));
+    let doubled = select(vec4u(0u), (significand * 255u) >> halving, halving < vec4u(32u));
+    return vec4f((doubled + 1u) >> vec4u(1u)) / 255.0;
 }
 
 // The interpolation `ramp_colour` rounds: the colour at `t` itself (`device/ramp.rs`'s

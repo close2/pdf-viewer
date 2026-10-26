@@ -929,7 +929,8 @@ impl Interpreter<'_> {
     }
 
     /// The text object, text state and text positioning operators of Table 50 (ISO 32000-2 §9.3
-    /// and §9.4): `BT`, `ET`, `Tc`, `Tw`, `Tz`, `TL`, `Tf`, `Tr`, `Ts`, `Td`, `TD`, `Tm` and `T*`.
+    /// and §9.4): `BT`, `ET`, `Tc`, `Tw`, `Tz`, `TL`, `Tf`, `Tr`, `Ts`, `Td`, `TD`, `Tm` and `T*`,
+    /// sent to the method for the group Table 50 puts each in.
     fn run_text_op(
         &mut self,
         operator: Operator,
@@ -937,6 +938,28 @@ impl Interpreter<'_> {
         resources: &Dictionary,
         machine: &mut Machine,
     ) {
+        match operator {
+            Operator::BeginText | Operator::EndText => self.run_text_object_op(operator, machine),
+            Operator::Font
+            | Operator::CharSpacing
+            | Operator::WordSpacing
+            | Operator::HorizontalScaling
+            | Operator::Leading
+            | Operator::Rise
+            | Operator::RenderMode => {
+                self.run_text_state_op(operator, operands, resources, &mut machine.state);
+            }
+            Operator::MoveText
+            | Operator::MoveTextSetLeading
+            | Operator::TextMatrix
+            | Operator::NextLine => Self::run_text_positioning_op(operator, operands, machine),
+            // Only this family's operators are sent here, by `run_operator`.
+            _ => {}
+        }
+    }
+
+    /// The text object operators of Table 50 (ISO 32000-2 §9.4.1): `BT` and `ET`.
+    fn run_text_object_op(&mut self, operator: Operator, machine: &mut Machine) {
         let Machine {
             state,
             text_object,
@@ -971,6 +994,21 @@ impl Interpreter<'_> {
                 *in_text = false;
                 self.end_text_object(text_object, state);
             }
+            // Only this family's operators are sent here, by `run_operator`.
+            _ => {}
+        }
+    }
+
+    /// The text state operators of Table 50 (ISO 32000-2 §9.3): `Tc`, `Tw`, `Tz`, `TL`, `Tf`, `Tr`
+    /// and `Ts`.
+    fn run_text_state_op(
+        &mut self,
+        operator: Operator,
+        operands: &[Object],
+        resources: &Dictionary,
+        state: &mut GraphicsState,
+    ) {
+        match operator {
             Operator::Font => {
                 if let Some(name) = name_at(operands, 0) {
                     state.text.font = self.font(resources, &name);
@@ -1024,6 +1062,17 @@ impl Interpreter<'_> {
                     }
                 }
             }
+            // Only this family's operators are sent here, by `run_operator`.
+            _ => {}
+        }
+    }
+
+    /// The text positioning operators of Table 50 (ISO 32000-2 §9.4.2): `Td`, `TD`, `Tm` and `T*`.
+    fn run_text_positioning_op(operator: Operator, operands: &[Object], machine: &mut Machine) {
+        let Machine {
+            state, text_object, ..
+        } = machine;
+        match operator {
             Operator::MoveText => {
                 if let (Some(x), Some(y)) = (number_at(operands, 0), number_at(operands, 1)) {
                     text_object.line = Transform::translate(x, y).then(text_object.line);

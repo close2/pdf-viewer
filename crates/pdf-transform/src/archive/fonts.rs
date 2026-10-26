@@ -873,7 +873,7 @@ fn row_for(
     subtype: &str,
     face: &Face,
 ) -> Result<(Table124, Option<described::Restatement>), Because> {
-    if let Some(row) = key_for(subtype, face.format(), face.program()) {
+    if let Some(row) = key_for(subtype, face.program()) {
         return Ok((row, None));
     }
     let unadmitted = || Because::NotBuiltYet(no_row(subtype, face.format(), face.program()));
@@ -1052,94 +1052,32 @@ fn needs_a_program(document: &Document, dict: &Dictionary) -> bool {
         .all(|key| document.get_key(&descriptor, key).is_null())
 }
 
-/// The tables §9.9's Table 124 requires of a program carrying `glyf` outlines.
-///
-/// The `FontFile2` row: "The font program shall include these tables: "glyf", "head", "hhea",
-/// "hmtx", "loca", and "maxp"." The `OpenType` row's first bullet names the same six.
-const GLYF_PROGRAM: [[u8; 4]; 6] = [*b"glyf", *b"head", *b"hhea", *b"hmtx", *b"loca", *b"maxp"];
+// One row of §9.9's Table 124 — a descriptor key, and the stream `/Subtype` that goes with it —
+// as the validator reads it, so that the writer and the second verdict name the same rows.
+pub(super) use pdf_archive::Table124Row as Table124;
 
-/// One row of §9.9's Table 124: a descriptor key, and the stream `/Subtype` that goes with it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct Table124 {
-    /// Which of §9.9's three keys the descriptor names the program by.
-    pub(super) key: &'static str,
-    /// The `/Subtype` the stream dictionary states, which Table 125 requires of a `/FontFile3`.
-    pub(super) stream_subtype: Option<&'static str>,
-}
-
-/// Which of §9.9's keys may carry this program in a dictionary of this subtype.
+/// Which of §9.9's keys this converter writes a program of its own under, in a dictionary of this
+/// subtype.
 ///
-/// **Table 124 decides it and this converter does not**, which is why the match reads as the
-/// table's rows do. The table pairs a *key and stream subtype* with the font dictionary
-/// `/Subtype`s that may name it and — for the `OpenType` row — with what the program's own bytes
-/// contain:
+/// **Table 124 decides it and this converter does not**: the rows are the validator's own
+/// reading, `pdf_archive::table_124_rows`, asked of the bytes the writer is about to embed, so a
+/// filing written here is one the output's second verdict admits. Where more than one row admits
+/// the program the first is taken, which for a `glyf` program is `/FontFile2` before
+/// `/FontFile3` `/OpenType`.
 ///
-/// > • A TrueType font dictionary or a CIDFontType2 CIDFont dictionary, if the embedded font
-/// > program contains a "glyf" table.
-///
-/// > • A CIDFontType0 CIDFont dictionary, if the embedded font program contains a "CFF " table
-/// > (notice the trailing SPACE) with a Top DICT that uses CIDFont operators (this is equivalent
-/// > to subtype CIDFontType0C ). In addition to the "CFF " table, the font program shall include
-/// > the "cmap" table.
-///
-/// > • A Type1 font dictionary or CIDFontType0 CIDFont dictionary, if the embedded font program
-/// > contains a "CFF " table without CIDFont operators. In addition to the "CFF " table, the font
-/// > program shall include the "cmap" table.
-///
-/// Two things the rows say that a reading in a hurry loses. **`MMType1` is in the `Type1C` row
-/// and not in the `OpenType` one**, so a multiple-master dictionary takes a bare CFF and not a
-/// wrapped one. And **a `glyf` program has no row under a `Type1` dictionary at all** — every key
-/// Table 124 opens to a `Type1` dictionary carries CFF — so a face this program ships that
-/// happens to be `glyf`-based cannot go there whatever else is true of it.
+/// Two of the table's distinctions decide refusals here, and the reading names them. **`MMType1`
+/// is in the `Type1C` row and not in the `OpenType` one**, so a multiple-master dictionary takes
+/// a bare CFF and not a wrapped one. And **a `glyf` program has no row under a `Type1`
+/// dictionary at all** — every key Table 124 opens to a `Type1` dictionary carries CFF — so a
+/// face this program ships that happens to be `glyf`-based cannot go there whatever else is true
+/// of it.
 ///
 /// Every pairing the table does not state is `None`, which becomes a refusal naming the pairing
-/// rather than a file the table does not admit.
-fn key_for(subtype: &str, format: Format, program: &[u8]) -> Option<Table124> {
-    /// A `/FontFile` or `/FontFile2`, which Table 125 gives no `/Subtype`.
-    const fn plain(key: &'static str) -> Table124 {
-        Table124 {
-            key,
-            stream_subtype: None,
-        }
-    }
-    /// A `/FontFile3`, whose stream dictionary names the format (Table 125).
-    const fn font_file3(stream_subtype: &'static str) -> Table124 {
-        Table124 {
-            key: "FontFile3",
-            stream_subtype: Some(stream_subtype),
-        }
-    }
-    let sfnt = (format == Format::Sfnt)
-        .then(|| pdf_font::embedding::sfnt_tables(program))
-        .flatten();
-    let glyf = sfnt
-        .as_ref()
-        .is_some_and(|tables| tables.carries_all(&GLYF_PROGRAM));
-    let wrapped_cff = sfnt.as_ref().and_then(|tables| {
-        tables
-            .cff
-            .filter(|_| tables.carries(b"cmap"))
-            .map(|keying| keying == pdf_font::embedding::Keying::ByCid)
-    });
-    let bare_cid = (format == Format::BareCff)
-        .then(|| pdf_font::embedding::cff_keying(program, format))
-        .flatten()
-        .map(|keying| keying == pdf_font::embedding::Keying::ByCid);
-    let row = match subtype {
-        // One row, two dictionaries: the `FontFile2` row says the key may appear in the font
-        // descriptor for a TrueType font dictionary or, since PDF 1.3, for a CIDFontType2 CIDFont
-        // dictionary — so these are not two decisions.
-        "TrueType" | "CIDFontType2" if glyf => plain("FontFile2"),
-        "Type1" | "MMType1" if bare_cid == Some(false) => font_file3("Type1C"),
-        "Type1" if wrapped_cff == Some(false) => font_file3("OpenType"),
-        // §9.7.4.2 puts both keyings under a `CIDFontType0` dictionary — the charset for a Top
-        // DICT that uses CIDFont operators, the CIDs "directly as GID values" for one that does
-        // not — and Table 124's `CIDFontType0C` row is the key for a bare program either way.
-        "CIDFontType0" if bare_cid.is_some() => font_file3("CIDFontType0C"),
-        "CIDFontType0" if wrapped_cff.is_some() => font_file3("OpenType"),
-        _ => return None,
-    };
-    Some(row)
+/// rather than a file the table does not admit (ADR 2327).
+fn key_for(subtype: &str, program: &[u8]) -> Option<Table124> {
+    pdf_archive::table_124_rows(subtype, program)?
+        .first()
+        .copied()
 }
 
 /// Which refusal a pairing Table 124 admits no row for earns, which is the pairing itself.
@@ -1166,7 +1104,7 @@ fn no_row(subtype: &str, format: Format, program: &[u8]) -> &'static str {
 /// dictionary's*, which is what "Additional entries in an embedded font stream dictionary" lists.
 /// Table 126 is §10.6.5's predefined spot functions and names nothing here.
 fn subtype_dictionary(row: Table124) -> Option<Dictionary> {
-    row.stream_subtype.map(|subtype| {
+    row.subtype.map(|subtype| {
         let mut dict = Dictionary::new();
         dict.insert(
             Name::new(&b"Subtype"[..]),

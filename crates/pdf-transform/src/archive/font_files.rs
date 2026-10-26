@@ -18,10 +18,34 @@
 //! a `glyf` program under a `CIDFontType0` dictionary is the corpus's case — no filing is true of
 //! it, and making one true would change the dictionary's subtype and with it how a CID selects a
 //! glyph (§9.7.4.2), so the document is refused by that sentence (ADR 2307).
+//!
+//! **One such change selects the same glyphs, and is made** (ADR 2326). A CFF-flavoured
+//! OpenType program under a `CIDFontType2` dictionary is in no row, and Table 124 admits it under
+//! `CIDFontType0`. §9.7.4.1's Table 115 says what an `Identity` map does under the first:
+//!
+//! > If the value of CIDToGIDMap is a name, it shall be Identity , indicating that the mapping
+//! > between CIDs and glyph indices is the identity mapping.
+//!
+//! and §9.7.4.2 what the second does with a CFF whose Top DICT does not use `CIDFont` operators:
+//!
+//! > The CIDs shall be used directly as GID values, and the glyph procedure shall be retrieved
+//! > using the CharStrings INDEX
+//!
+//! So where the map is `Identity` and the program is keyed by name, every CID selects the glyph
+//! index it selected before, and the dictionary becomes `CIDFontType0`, its `/CIDToGIDMap` — an
+//! entry Table 115 gives a Type 2 `CIDFont` alone — removed, and its program moved to the
+//! `/FontFile3` `/OpenType` row. A map stated as a stream, or a CID-keyed program, which §9.7.4.2
+//! sends through the charset, selects other glyphs under the new subtype, and is refused.
+//!
+//! **A font collection is no row's**: the TrueType Reference Manual's font file opens with its own
+//! font directory, whose scaler type names the one font's outlines, and a `ttcf` header names
+//! none — so it is refused by a sentence of its own, which says what writing the descriptor's face
+//! out of it would need.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_archive::{Outcome, Table124Row};
+use pdf_font::embedding::Keying;
 use pdf_syntax::Document;
 use pdf_syntax::object::{Dictionary, Object, ObjectId};
 
@@ -56,6 +80,23 @@ const NO_DICTIONARY: &str = "a font program the validator named is reached throu
      dictionary, or a descriptor written inside one, that this conversion's walk of the file's \
      objects does not edit, so it is not refiled";
 
+/// Why a CFF-flavoured program under a `CIDFontType2` whose CIDs would select other glyphs under
+/// `CIDFontType0` keeps its refusal.
+const NOT_THE_SAME_GLYPHS: &str = "a CFF-flavoured OpenType program is under a CIDFontType2 \
+     dictionary, and Table 124 admits it only under CIDFontType0. Under that subtype section \
+     9.7.4.2 uses a CID directly as the glyph index of a name-keyed program and sends it through \
+     the charset of a CID-keyed one; here the CIDToGIDMap is not Identity, or the program is \
+     CID-keyed, so the refiled font would show other glyphs for the same CIDs. Re-keying the \
+     encoding and the widths to the glyph indices is not built";
+
+/// Why a font collection keeps its refusal.
+const A_COLLECTION: &str = "a font program is a font collection, a ttcf header over several \
+     fonts' directories. Table 124 files a TrueType font program as the TrueType Reference Manual \
+     describes one, a single font whose file opens with its own font directory, and an OpenType \
+     program likewise as one font, so no key holds it. This reader draws the face the \
+     descriptor's FontName names (doc/adr/0141); writing that face out of the collection as a \
+     program of its own is not built";
+
 /// Where each misfiled program goes.
 #[derive(Debug, Default)]
 pub(super) struct Refiled {
@@ -65,17 +106,50 @@ pub(super) struct Refiled {
     pub(super) moved: BTreeMap<ObjectId, &'static str>,
     /// The program streams that move key, which lose the lengths a compact program does not state.
     pub(super) moved_programs: BTreeSet<ObjectId>,
+    /// The `CIDFontType2` dictionaries that become `CIDFontType0`, each losing its `Identity`
+    /// `/CIDToGIDMap` (ADR 2326).
+    pub(super) retyped: BTreeSet<ObjectId>,
 }
 
-/// One dictionary naming a program: its `/Subtype`, its descriptor's object where it is one, and
-/// the key the descriptor files the program under.
+/// One dictionary naming a program: its `/Subtype`, its own object and its descriptor's where
+/// each is one, and the key the descriptor files the program under.
 struct Holder {
     /// The font dictionary's `/Subtype`, the descendant's for a composite font.
     subtype: String,
+    /// The font dictionary's own object, `None` where it is written inside another.
+    font: Option<ObjectId>,
+    /// Whether the dictionary's `/CIDToGIDMap` is the name `Identity`.
+    identity_map: bool,
     /// The descriptor's own object, `None` where it is written inside the font dictionary.
     descriptor: Option<ObjectId>,
     /// The key the program is under now.
     key: &'static str,
+}
+
+/// The rows a program takes under `holder`, and whether its dictionary becomes `CIDFontType0`
+/// to take them.
+///
+/// Table 124's rows under the dictionary's own subtype where there are any; for a `CIDFontType2`
+/// over a CFF-flavoured OpenType program, which has none, `CIDFontType0`'s rows where the glyphs
+/// each CID selects are provably the same (the module's comment), and the refusal naming why not
+/// where they are not.
+fn rows_for(holder: &Holder, program: &[u8]) -> Result<(Vec<Table124Row>, bool), Because> {
+    let rows = pdf_archive::table_124_rows(&holder.subtype, program)
+        .ok_or(Because::NotBuiltYet(NO_FORMAT))?;
+    let tables = pdf_font::embedding::sfnt_tables(program);
+    let wrapped_cff = tables
+        .as_ref()
+        .is_some_and(|tables| tables.carries(b"CFF "));
+    if !rows.is_empty() || holder.subtype != "CIDFontType2" || !wrapped_cff {
+        return Ok((rows, false));
+    }
+    let by_name = tables.and_then(|tables| tables.cff) == Some(Keying::ByName);
+    if !holder.identity_map || !by_name {
+        return Err(Because::NotBuiltYet(NOT_THE_SAME_GLYPHS));
+    }
+    let rows = pdf_archive::table_124_rows("CIDFontType0", program)
+        .ok_or(Because::NotBuiltYet(NO_FORMAT))?;
+    Ok((rows, true))
 }
 
 /// Where every program the requirement failed at is refiled, or why none is.
@@ -115,6 +189,9 @@ pub(super) fn refiled(
         let program = document
             .decoded_stream_data(&stream)
             .ok_or(Because::NotBuiltYet(NO_FORMAT))?;
+        if program.starts_with(b"ttcf") {
+            return Err(Because::NotBuiltYet(A_COLLECTION));
+        }
         let naming = holders
             .get(&id)
             .filter(|naming| !naming.is_empty())
@@ -123,8 +200,11 @@ pub(super) fn refiled(
         // be given the same filing.
         let mut chosen: Option<Table124Row> = None;
         for holder in naming {
-            let rows = pdf_archive::table_124_rows(&holder.subtype, &program)
-                .ok_or(Because::NotBuiltYet(NO_FORMAT))?;
+            let (rows, retyped) = rows_for(holder, &program)?;
+            if retyped {
+                let font = holder.font.ok_or(Because::NotBuiltYet(NO_DICTIONARY))?;
+                out.retyped.insert(font);
+            }
             let row = rows
                 .iter()
                 .find(|row| row.key == holder.key)
@@ -159,10 +239,11 @@ pub(super) fn refiled(
 /// descriptor.
 fn dictionaries_naming_each_program(document: &Document) -> BTreeMap<ObjectId, Vec<Holder>> {
     let mut out: BTreeMap<ObjectId, Vec<Holder>> = BTreeMap::new();
-    let mut note = |font: &Dictionary| {
+    let mut note = |font: &Dictionary, at: Option<ObjectId>| {
         let Some(subtype) = name(document, font, "Subtype") else {
             return;
         };
+        let identity_map = name(document, font, "CIDToGIDMap").as_deref() == Some("Identity");
         let stated = font.get("FontDescriptor");
         let descriptor_at = stated.and_then(Object::as_reference);
         let descriptor = document.get_key(font, "FontDescriptor");
@@ -173,6 +254,8 @@ fn dictionaries_naming_each_program(document: &Document) -> BTreeMap<ObjectId, V
             if let Some(program) = descriptor.get(key).and_then(Object::as_reference) {
                 out.entry(program).or_default().push(Holder {
                     subtype: subtype.clone(),
+                    font: at,
+                    identity_map,
                     descriptor: descriptor_at,
                     key,
                 });
@@ -180,20 +263,22 @@ fn dictionaries_naming_each_program(document: &Document) -> BTreeMap<ObjectId, V
         }
     };
     for number in document.xref().object_numbers() {
-        let object = document.get(ObjectId::new(number, 0));
+        let id = ObjectId::new(number, 0);
+        let object = document.get(id);
         let Some(font) = object.as_dict() else {
             continue;
         };
         if name(document, font, "Subtype").as_deref() == Some("Type0") {
             let descendants = document.get_key(font, "DescendantFonts");
             for descendant in descendants.as_array().into_iter().flatten() {
+                let at = descendant.as_reference();
                 let descendant = document.resolve(descendant);
                 if let Some(descendant) = descendant.as_dict() {
-                    note(descendant);
+                    note(descendant, at);
                 }
             }
         } else if font.get("FontDescriptor").is_some() {
-            note(font);
+            note(font, Some(id));
         }
     }
     out
@@ -214,7 +299,7 @@ mod tests {
     use pdf_archive::{Flavour, Target};
     use pdf_syntax::Document;
 
-    use super::{Because, NO_ROW, refiled};
+    use super::{A_COLLECTION, Because, NO_ROW, NOT_THE_SAME_GLYPHS, refiled};
 
     /// A one-page document showing one font of `dictionary` whose `/FontFile3` states `/Type1C`
     /// over an sfnt naming `glyf` and the five tables Table 124's `OpenType` row asks beside it.
@@ -233,6 +318,32 @@ mod tests {
         a_program_under(dictionary, "FontFile3", "/Subtype /Type1C", &program)
     }
 
+    /// An sfnt holding a name-keyed `CFF ` table — the serif face this program ships, a bare CFF
+    /// whose Top DICT uses no `CIDFont` operators — and an empty `cmap`.
+    fn a_name_keyed_open_type_program() -> Vec<u8> {
+        let (cff, _) = pdf_font::standard::face(pdf_font::substitute::Request {
+            family: pdf_font::substitute::Family::Serif,
+            bold: false,
+            italic: false,
+            standard: true,
+        });
+        let start = 12_u32 + 16 * 2;
+        let length = u32::try_from(cff.len()).expect("the shipped face is under 4 GiB");
+        let mut program = b"OTTO".to_vec();
+        program.extend_from_slice(&[0, 2, 0, 0, 0, 0, 0, 0]);
+        for (tag, at, length) in [
+            (b"CFF ", start, length),
+            (b"cmap", start.saturating_add(length), 0),
+        ] {
+            program.extend_from_slice(tag);
+            program.extend_from_slice(&[0; 4]);
+            program.extend_from_slice(&at.to_be_bytes());
+            program.extend_from_slice(&length.to_be_bytes());
+        }
+        program.extend_from_slice(cff);
+        program
+    }
+
     /// A one-page document showing one font of `dictionary` whose descriptor files `program` under
     /// `key`, its stream dictionary stating `stated` besides.
     fn a_program_under(dictionary: &str, key: &str, stated: &str, program: &[u8]) -> Document {
@@ -241,10 +352,17 @@ mod tests {
             hex
         });
         let data = format!("{hex}>");
-        let font = if dictionary == "CIDFontType0" {
+        // A composite font's descendant is an object of its own, object 8, as a producer writes
+        // one; `dictionary` names its subtype and any entries beside it.
+        let descendant = dictionary.starts_with("CIDFontType").then(|| {
+            format!(
+                "<< /Type /Font /Subtype /{dictionary} /BaseFont /F /CIDSystemInfo << /Registry \
+                 (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 6 0 R >>"
+            )
+        });
+        let font = if descendant.is_some() {
             "<< /Type /Font /Subtype /Type0 /BaseFont /F /Encoding /Identity-H /DescendantFonts \
-             [<< /Type /Font /Subtype /CIDFontType0 /BaseFont /F /CIDSystemInfo << /Registry \
-             (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 6 0 R >>] >>"
+             [8 0 R] >>"
                 .to_owned()
         } else {
             format!(
@@ -253,7 +371,7 @@ mod tests {
             )
         };
         let content = "BT /F1 12 Tf (hi) Tj ET";
-        let objects = [
+        let mut objects = vec![
             "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /Font << /F1 5 \
@@ -273,6 +391,7 @@ mod tests {
                 data.len()
             ),
         ];
+        objects.extend(descendant);
         let size = objects.len().saturating_add(1);
         let mut out = String::from("%PDF-1.7\n");
         let mut offsets = Vec::new();
@@ -340,5 +459,76 @@ mod tests {
         assert!(
             matches!(refiled(&document, &input), Err(Because::NotBuiltYet(why)) if why == NO_ROW)
         );
+    }
+
+    #[test]
+    fn an_identity_mapped_cid_font_type2_over_a_name_keyed_cff_becomes_cid_font_type0() {
+        // Table 115's Identity map gives each CID its own number as the glyph index, and §9.7.4.2
+        // uses a CID "directly" as the glyph index of a name-keyed CFF under CIDFontType0, so the
+        // dictionary is retyped, its program moved to Table 124's `OpenType` row (ADR 2326).
+        let document = a_program_under(
+            "CIDFontType2 /CIDToGIDMap /Identity",
+            "FontFile2",
+            "",
+            &a_name_keyed_open_type_program(),
+        );
+        let input = pdf_archive::check(&document, Target::Four(Flavour::Plain));
+        let refiled = refiled(&document, &input).expect("the same glyphs under CIDFontType0");
+        assert_eq!(
+            refiled
+                .retyped
+                .iter()
+                .map(|id| id.number)
+                .collect::<Vec<_>>(),
+            vec![8]
+        );
+        assert_eq!(
+            refiled.moved.values().copied().collect::<Vec<_>>(),
+            vec!["FontFile2"]
+        );
+        assert_eq!(
+            refiled
+                .at
+                .values()
+                .map(|row| (row.key, row.subtype))
+                .collect::<Vec<_>>(),
+            vec![("FontFile3", Some("OpenType"))]
+        );
+    }
+
+    #[test]
+    fn a_cid_font_type2_whose_cids_are_not_its_glyph_indices_keeps_its_refusal() {
+        // No Identity map: under CIDFontType0 each CID would select the glyph of its own number,
+        // which nothing says it selected before.
+        let document = a_program_under(
+            "CIDFontType2",
+            "FontFile2",
+            "",
+            &a_name_keyed_open_type_program(),
+        );
+        let input = pdf_archive::check(&document, Target::Four(Flavour::Plain));
+        assert!(matches!(
+            refiled(&document, &input),
+            Err(Because::NotBuiltYet(why)) if why == NOT_THE_SAME_GLYPHS
+        ));
+    }
+
+    #[test]
+    fn a_font_collection_is_in_no_row_and_is_refused_by_name() {
+        // A `ttcf` header opens no font directory the TrueType Reference Manual describes, so the
+        // validator files it under no key and the conversion names the collection (ADR 2327).
+        let mut program = b"ttcf".to_vec();
+        program.extend_from_slice(&[0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 16]);
+        let document = a_program_under("TrueType", "FontFile2", "", &program);
+        let input = pdf_archive::check(&document, Target::Four(Flavour::Plain));
+        assert!(
+            input
+                .failures()
+                .any(|judgement| judgement.id == "fonts/font-programs-filed-by-their-format")
+        );
+        assert!(matches!(
+            refiled(&document, &input),
+            Err(Because::NotBuiltYet(why)) if why == A_COLLECTION
+        ));
     }
 }

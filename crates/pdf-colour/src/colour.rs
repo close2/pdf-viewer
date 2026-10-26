@@ -1896,4 +1896,92 @@ mod tests {
         let clamped = space.to_rgb(&[99.0]);
         assert_eq!((clamped.r, clamped.g, clamped.b), (0.0, 0.0, 1.0));
     }
+
+    /// A space's alpha is the alpha its conversion gives, whatever the colour.
+    ///
+    /// [`ColourSpace::rgb_alpha`] answers without converting, so it is a second reading of
+    /// [`ColourSpace::to_rgb_under`]'s arms, and this holds the two together: §8.6.6.4's
+    /// `/None` reached directly, as a `DeviceN` of nothing else (§8.6.6.5's "always discard its
+    /// output, just the same as a Separation colour space for None"), and through an `Indexed`
+    /// base and a pattern's underlying space, each transparent; a colourant that reverts to its
+    /// alternate, and every family with no indirection, opaque; and a chain past the depth bound,
+    /// which both readings stop at as black (ADR 2332).
+    #[test]
+    fn a_spaces_alpha_is_its_conversions_alpha() {
+        let document = Document::open(
+            b"%PDF-1.7\n1 0 obj\n<< /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1 [1 0 0 0] \
+              /N 1 >>\nendobj\n2 0 obj\n<< /FunctionType 2 /Domain [0 1 0 1] /C0 [0 0 0] \
+              /C1 [1 0 0] /N 1 >>\nendobj\ntrailer\n<< /Size 3 >>\n"
+                .to_vec(),
+        )
+        .expect("a document with two functions in it");
+        let name = |word: &str| Object::Name(Name::new(word.as_bytes()));
+        let parsed = |object: Object| {
+            ColourSpace::parse(&document, &object, &Dictionary::new())
+                .expect("§8.6.6.4 and §8.6.6.5 state these spaces")
+        };
+        let separation = |colourant: &str| {
+            parsed(Object::Array(vec![
+                name("Separation"),
+                name(colourant),
+                name("DeviceCMYK"),
+                Object::Reference(pdf_syntax::ObjectId::new(1, 0)),
+            ]))
+        };
+        let none = separation("None");
+        let nothing_but_none = parsed(Object::Array(vec![
+            name("DeviceN"),
+            Object::Array(vec![name("None"), name("None")]),
+            name("DeviceRGB"),
+            Object::Reference(pdf_syntax::ObjectId::new(2, 0)),
+        ]));
+        let indexed = |base: ColourSpace| ColourSpace::Indexed {
+            base: Box::new(base),
+            lookup: vec![0.25, 1.0],
+            high: 1,
+        };
+        let pattern = |base: ColourSpace| ColourSpace::Pattern {
+            base: Some(Box::new(base)),
+        };
+        let mut past_the_bound = none.clone();
+        for _ in 0..=super::MAX_DEPTH {
+            past_the_bound = indexed(past_the_bound);
+        }
+        let transparent = [
+            none.clone(),
+            nothing_but_none,
+            indexed(none.clone()),
+            pattern(none.clone()),
+            pattern(indexed(none)),
+        ];
+        let opaque = [
+            separation("Cyan"),
+            separation("All"),
+            indexed(separation("Cyan")),
+            pattern(ColourSpace::Rgb),
+            ColourSpace::Pattern { base: None },
+            ColourSpace::Gray,
+            ColourSpace::Rgb,
+            ColourSpace::Cmyk,
+            indexed(ColourSpace::Gray),
+            past_the_bound,
+        ];
+        for (space, alpha) in transparent
+            .iter()
+            .map(|space| (space, 0.0))
+            .chain(opaque.iter().map(|space| (space, 1.0)))
+        {
+            let values = vec![0.5; space.components()];
+            assert_eq!(
+                space.to_rgb_under(&values, Rendering::compensating()).a,
+                alpha,
+                "{space:?} converts to the alpha this test states"
+            );
+            assert_eq!(
+                space.rgb_alpha(),
+                alpha,
+                "{space:?}'s alpha without a conversion is its conversion's"
+            );
+        }
+    }
 }

@@ -177,20 +177,20 @@ blending space a choice §10.4.2.1's ranking leaves to the processor (ADRs 0790,
 the device's decoding, a linear grid and the space's own encoding rather than as one sampled grid
 (ADR 1267).
 
-**Beside this bucket and not in it**: §10.7.4 is `departed` on one pixel — the one a shape with no
-extent along either axis lies in, ADR 1060's decision for §8.5.3.3.1's point and ADR 1360's for a mark
-a matrix of rank zero collapses — and everything else it states is executed: a fill or a stroke its
-matrix carries onto a line is that line (ADRs 1348, 1360), a path whose subpaths overlap is measured
-as the set its rule declares inside (ADRs 1341, 1347), and the exact set's cost has a measured floor
-(ADR 1359). Its three other departures — anti-aliasing, the area it costs and a reduced image's
-average — are departures §10.7.1's NOTE describes and does not license (ADR 1560), and no
-contradicted verdict the oracle holds rests on any of the four (ADR 1622); §10.7 is `implemented`
-with it.
+**Beside this bucket and not in it**: §10.7.4 is `departed` on three sentences — anti-aliasing,
+the area it costs and a reduced image's average, departures §10.7.1's NOTE describes and does not
+license (ADR 1560), none lifted by the folding stroke's exact measure (ADR 2331) — and on one shape,
+a subpath that retraces itself off any one line (ADR 2330). Everything else it states is executed: a
+point paints the pixel under it and a subpath on a line across the axes the band along it, for a fill,
+a clip and a matrix of rank zero (ADR 2330, which also moved §8.5.3.3.1 to `implemented`); a fill or
+a stroke its matrix carries onto a line is that line (ADRs 1348, 1360); a path whose subpaths overlap
+is measured as the set its rule declares inside (ADRs 1341, 1347). No contradicted verdict the oracle
+holds rests on any departure (ADR 1622); §10.7 is `implemented` with it.
 
 **Beside this bucket and not in it**: §8.7.4.5.7 and §8.7.4.5.8 are `departed`. The patch travels
 to the backend and the fineness is derived there in device pixels (ADR 1217); the one branch left
 is a patch whose colours §8.7.4.4 requires be converted between its corners, which no corpus
-document takes.
+document takes; the folding stroke's chords at a twentieth reach no patch (ADR 2331).
 
 ### 4. Feature depth — a built feature with cases still owed
 

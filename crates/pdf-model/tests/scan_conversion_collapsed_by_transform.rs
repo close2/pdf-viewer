@@ -20,9 +20,8 @@
 //! segment is its ends' `x` widened by `w/2 · |n_x|`, `n` its unit normal, and by what Table 53's
 //! cap adds. The stroke's row carries that interval's length in ink.
 //!
-//! What stays refused is stated by the clauses too: a matrix that carries the path onto one point
-//! is §8.5.3.3.1's point, which this tree records as a departure, and it is still counted as
-//! `Unsupported::NoninvertibleMatrix`.
+//! A matrix that carries the mark onto one point is §8.5.3.3.1's degenerate subpath, the pixel
+//! under that point, and `scan_conversion_shapes_without_area.rs` holds it (ADR 2330).
 #![expect(
     clippy::expect_used,
     clippy::indexing_slicing,
@@ -129,28 +128,6 @@ fn a_rectangle_flattened_onto_a_vertical_line_is_a_column() {
         assert!(
             (ink - expected).abs() < 2.0 / 255.0,
             "device row {row} carries {ink} where the column puts {expected}"
-        );
-    }
-}
-
-/// A matrix carrying everything onto one point stays refused and counted, for a fill and for a
-/// stroke.
-#[test]
-fn a_point_stays_refused() {
-    for content in [
-        "0 g 0 0 0 0 50 50 cm 10 20 80 40 re f",
-        "0 G 5 w 0 0 0 0 50 50 cm 20 30 m 60 70 l S",
-    ] {
-        let (rows, reported, _) = drawn(content);
-        assert!(
-            reported
-                .iter()
-                .any(|report| matches!(report, Unsupported::NoninvertibleMatrix { commands: 1 })),
-            "{content}: the mark is refused and counted: {reported:?}"
-        );
-        assert!(
-            rows.iter().all(|ink| *ink == 0.0),
-            "{content}: nothing is drawn"
         );
     }
 }

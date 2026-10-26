@@ -1062,7 +1062,31 @@ impl<'a> BitReader<'a> {
     }
 
     /// Reads the next `bits` bits, or `None` past the end of the data.
+    ///
+    /// A read that starts on a byte and takes whole bytes is those bytes, the most significant
+    /// first, and is taken as bytes. §7.10.2's samples and §8.7.4.5.5's mesh data are nearly
+    /// always 8, 16 or 32 bits wide, and the bit at a time below cost a sampled function's parse
+    /// about two hundred instructions a sample — 41 functions a turn of `bug1721218_reduced.pdf`,
+    /// each of four thousand samples (ADR 2332). Any other read, and an aligned one that would run
+    /// past the end, takes the bit at a time, so where a read stops short is unchanged.
     pub(crate) fn read(&mut self, bits: u32) -> Option<u32> {
+        if bits <= 32 && bits.is_multiple_of(8) && self.bit.is_multiple_of(8) {
+            let start = self.bit / 8;
+            let end = start.checked_add(usize::try_from(bits / 8).ok()?)?;
+            if let Some(bytes) = self.data.get(start..end) {
+                self.bit = end.checked_mul(8)?;
+                return Some(
+                    bytes
+                        .iter()
+                        .fold(0, |value, byte| (value << 8) | u32::from(*byte)),
+                );
+            }
+        }
+        self.read_bit_by_bit(bits)
+    }
+
+    /// [`Self::read`] one bit at a time: any width, from any bit.
+    fn read_bit_by_bit(&mut self, bits: u32) -> Option<u32> {
         let mut value = 0u32;
         for _ in 0..bits {
             let byte = self.data.get(self.bit.checked_div(8)?)?;
@@ -4187,5 +4211,34 @@ mod tests {
             })
             .collect();
         assert!(inexact.is_empty(), "{inexact:?} survived the fold");
+    }
+
+    /// A read taken as bytes is the read a bit at a time, at every width §7.10.2 and §8.7.4.5.5
+    /// admit and from every alignment, including the reads that run past the end and the position
+    /// each leaves (ADR 2332).
+    #[test]
+    fn a_read_taken_as_bytes_is_the_read_a_bit_at_a_time() {
+        let data: Vec<u8> = (0_u32..23)
+            .map(|index| u8::try_from(index.wrapping_mul(149).wrapping_add(31) % 256).unwrap_or(0))
+            .collect();
+        for width in [1, 2, 4, 8, 12, 16, 24, 32] {
+            for lead in [0, 1, 3, 4, 7, 8, 16] {
+                let (mut fast, mut slow) =
+                    (super::BitReader::new(&data), super::BitReader::new(&data));
+                assert_eq!(fast.read(lead), slow.read_bit_by_bit(lead));
+                loop {
+                    let (taken, expected) = (fast.read(width), slow.read_bit_by_bit(width));
+                    assert_eq!(taken, expected, "{width} bits after a lead of {lead}");
+                    assert_eq!(
+                        fast.position(),
+                        slow.position(),
+                        "{width} bits after {lead}"
+                    );
+                    if expected.is_none() {
+                        break;
+                    }
+                }
+            }
+        }
     }
 }

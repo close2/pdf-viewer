@@ -1844,3 +1844,13 @@ figures stood — by luck, not by construction (ADR 2313). Before a shared file 
 <file>` is read and every hunk confirmed the round's own; a file with a sibling's hunk goes into the export
 as `--patch` of the round's own hunks (trap 193), and the record names which files went in which way.
 
+### 261. A hold granted before its build is a hold on somebody else's binary
+
+Round 1749 queued a `--clock` hold while its export's release build waited on lane 2 as a `--long` run.
+Clock runs take lane 2 ahead of long ones, so the hold was granted first; its "built?" check asked only
+whether the binaries existed, and a target seeded by `cp -a --reflink=always` from the batch's release
+directory (habit 185) already holds every binary name, so the check passed on the seed's binaries and the
+`frame_budget` "mine" arm measured the batch directory's build. The round stopped the hold by its process
+group after 368 s and quoted nothing from it. A hold is queued only after every build it depends on has
+ended, and a binary is called fresh by cargo's own word — a build that ends with no `Compiling` line —
+never by its presence on disk.

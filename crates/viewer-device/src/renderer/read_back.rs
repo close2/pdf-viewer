@@ -23,6 +23,20 @@
 //! taken back and stopped — so a request this lane will not draw is handed back rather than drawn
 //! here.
 //!
+//! # A window ahead of its page
+//!
+//! **Where the view moved, the part of the page the viewport shows is drawn first** (ADR 2322):
+//! the window's own target on the page's transform, on the coverage lane `quorra` takes for a
+//! moved view (`lane::lane_for`, the compute lane and its record replay on a device worth the
+//! name), read back at the window's size and handed to the window as a picture of the request —
+//! no answer to the viewer — and then the page itself as before, on the launch rule's lane. A
+//! toolkit's notch was the read back, the copy and the paint of the whole page after an encode the
+//! processor's glyph lane redoes at every magnification (ADRs 2314, 2315); the window is a third
+//! to a half of those pixels, and the compute lane's replay is zoom-invariant. What the window
+//! shows at rest is the page drawn as before, so the window's lane differs from it only until the
+//! page lands. A launch, a view that did not move and a page the viewport holds whole draw the page
+//! alone.
+//!
 //! # What crosses
 //!
 //! | | the window's thread | the device's thread |
@@ -51,6 +65,8 @@ use render_raster::{FrameCost, QuorraRasterizer};
 use viewer_core::{RenderRequest, Rendered};
 use viewer_host::drawing::{Finished, Handed, POLL, PageLane};
 
+use viewer_host::oversize::Window;
+
 use super::lanes::{Costs, Kept, Lane, Prediction, Refusals, remembered};
 use crate::stale::{Depicts, Picture, Placed};
 
@@ -74,7 +90,10 @@ pub struct ReadBack {
     /// The page the thread is drawing.
     in_flight: Option<Flight>,
     /// What is asked for and not yet sent — one request per page of a document, the newest.
-    queued: VecDeque<RenderRequest>,
+    queued: VecDeque<Queued>,
+    /// The transform each page was last offered at, newest first: a page offered at another is a
+    /// view that moved, whose window is drawn ahead of it ([`Self::ahead_of`]).
+    views: VecDeque<(viewer_core::DocumentId, usize, pdf_render::Transform)>,
     /// The requests handed back to the drawing thread whose draws are this lane's to price.
     priced: Vec<Placed>,
     /// What [`PageLane::collect`] hands back next.
@@ -172,7 +191,20 @@ impl Drop for Link {
     }
 }
 
-/// One page for the device to draw.
+/// Most pages whose last view is remembered: the few an arrangement shows at once, as
+/// `viewer_host::oversize` holds as many windows.
+const VIEWS: usize = 4;
+
+/// A request waiting for the device, and the window to draw of it first, where there is one.
+#[derive(Debug)]
+struct Queued {
+    request: RenderRequest,
+    /// The part of the page the viewport showed when it was offered, and the lane to draw it on;
+    /// taken when it is sent, so the page follows it.
+    ahead: Option<(Window, raster_gpu::Coverage)>,
+}
+
+/// One page, or one window of a page, for the device to draw.
 #[derive(Debug)]
 struct Job {
     serial: u64,
@@ -188,6 +220,11 @@ struct Flight {
     request: RenderRequest,
     asked: Instant,
     coverage: raster_gpu::Coverage,
+    /// The window drawn ahead of the page, or `None` for the page itself.
+    window: Option<Window>,
+    /// Whether a newer request for the page was offered while this window was drawn, so that it
+    /// shows nothing anybody asked for any more.
+    superseded: bool,
 }
 
 /// What the device's thread sends back.
@@ -222,6 +259,7 @@ impl ReadBack {
             refusals: Refusals::default(),
             in_flight: None,
             queued: VecDeque::new(),
+            views: VecDeque::new(),
             priced: Vec::new(),
             handed: Handed::default(),
             title: None,
@@ -315,20 +353,34 @@ impl ReadBack {
         if self.in_flight.is_some() {
             return;
         }
-        let Some(request) = self.queued.pop_front() else {
-            return;
+        // A window drawn ahead goes first: it is what the reader is waiting for (ADR 2322).
+        let first = self.queued.iter_mut().find_map(|queued| {
+            queued
+                .ahead
+                .take()
+                .map(|ahead| (queued.request.clone(), ahead))
+        });
+        let (request, window, coverage) = if let Some((request, (window, coverage))) = first {
+            (request, Some(window), coverage)
+        } else {
+            let Some(queued) = self.queued.pop_front() else {
+                return;
+            };
+            let coverage = crate::lane::coverage_for(
+                queued.request.target.transform,
+                crate::lane::CoverageChoice::Auto,
+            );
+            (queued.request, None, coverage)
         };
         if self.link.is_none() {
             self.bring_up();
         }
-        let coverage =
-            crate::lane::coverage_for(request.target.transform, crate::lane::CoverageChoice::Auto);
         let serial = self.serial;
         self.serial = self.serial.wrapping_add(1);
         let job = Job {
             serial,
             list: Arc::clone(&request.list),
-            target: request.target,
+            target: window.map_or(request.target, |window| window.target_of(request.target)),
             coverage,
         };
         let sent = self
@@ -340,7 +392,10 @@ impl ReadBack {
             // thread's, as every later one is.
             self.link = None;
             self.absent("the device's thread ended".to_owned());
-            self.handed.back.push(request);
+            // A window's page is still queued, and `absent` handed it back.
+            if window.is_none() {
+                self.handed.back.push(request);
+            }
             return;
         }
         self.in_flight = Some(Flight {
@@ -348,7 +403,49 @@ impl ReadBack {
             request,
             asked: Instant::now(),
             coverage,
+            window,
+            superseded: false,
         });
+    }
+
+    /// The window of `request`'s page to draw ahead of it, and its lane: the part the viewport
+    /// shows, `shown`, where the view of the page moved since it was last offered and the device
+    /// is up and has not refused that lane for the page (ADR 2322). Remembers the view either way.
+    fn ahead_of(
+        &mut self,
+        request: &RenderRequest,
+        shown: Option<Window>,
+    ) -> Option<(Window, raster_gpu::Coverage)> {
+        let same =
+            |&(document, page, _): &(viewer_core::DocumentId, usize, pdf_render::Transform)| {
+                (document, page) == (request.document, request.page)
+            };
+        let before = self.views.iter().position(same);
+        let last = before
+            .and_then(|at| self.views.remove(at))
+            .map(|(_, _, transform)| transform);
+        self.views
+            .push_front((request.document, request.page, request.target.transform));
+        self.views.truncate(VIEWS);
+        let shown = shown?;
+        let last =
+            last.filter(|&last| !crate::lane::same_transform(last, request.target.transform))?;
+        let Device::Up(adapter) = &self.device else {
+            return None;
+        };
+        let coverage = crate::lane::lane_for(
+            request.target.transform,
+            Some(last),
+            None,
+            &[],
+            crate::lane::software_adapter(adapter),
+            crate::lane::CoverageChoice::Auto,
+        );
+        let placed = placed_of(request);
+        self.refusals
+            .said(std::slice::from_ref(&placed), coverage)
+            .is_none()
+            .then_some((shown, coverage))
     }
 
     /// No device: everything this lane holds goes to the drawing thread, and nothing is asked of
@@ -358,10 +455,17 @@ impl ReadBack {
             "no graphics device ({said}): the processor draws every page"
         ));
         self.device = Device::Absent(said);
-        if let Some(flight) = self.in_flight.take() {
+        // A window's page is queued still, and goes back with the queue.
+        if let Some(flight) = self
+            .in_flight
+            .take()
+            .filter(|flight| flight.window.is_none())
+        {
             self.handed.back.push(flight.request);
         }
-        self.handed.back.extend(self.queued.drain(..));
+        self.handed
+            .back
+            .extend(self.queued.drain(..).map(|queued| queued.request));
     }
 
     /// Takes in one thing the thread sent.
@@ -376,7 +480,9 @@ impl ReadBack {
             }
             Message::Absent(said) => self.absent(said),
             Message::NoDevice(serial) => {
-                if let Some(flight) = self.in_flight.take_if(|flight| flight.serial == serial) {
+                if let Some(flight) = self.in_flight.take_if(|flight| flight.serial == serial)
+                    && flight.window.is_none()
+                {
                     self.handed.back.push(flight.request);
                 }
             }
@@ -389,6 +495,10 @@ impl ReadBack {
                 let Some(flight) = self.in_flight.take_if(|flight| flight.serial == serial) else {
                     return;
                 };
+                if let Some(window) = flight.window {
+                    self.window_drawn(flight, window, outcome, took, &phases);
+                    return;
+                }
                 let placed = placed_of(&flight.request);
                 let pages = std::slice::from_ref(&placed);
                 match outcome {
@@ -400,9 +510,10 @@ impl ReadBack {
                             flight.coverage,
                             None,
                         );
-                        self.handed
-                            .traced
-                            .push(phases_of(flight.request.page, &phases));
+                        self.handed.traced.push(phases_of(
+                            &format!("page {}'s", flight.request.page.saturating_add(1)),
+                            &phases,
+                        ));
                         self.handed.finished.push(Finished {
                             request: flight.request,
                             outcome: Some(Rendered::Raster(raster)),
@@ -433,6 +544,57 @@ impl ReadBack {
                         self.handed.back.push(flight.request);
                     }
                 }
+            }
+        }
+    }
+
+    /// A window drawn ahead of its page came back: handed to the window where it is still of the
+    /// newest request for the page, and a refusal remembered, its page drawn as before (ADR 2322).
+    /// Neither lane's price is measured by it: a window is not the page the forecast is for.
+    fn window_drawn(
+        &mut self,
+        flight: Flight,
+        window: Window,
+        outcome: Result<Raster, (String, Option<Kept>)>,
+        took: Duration,
+        phases: &FrameCost,
+    ) {
+        let page = flight.request.page.saturating_add(1);
+        let subject = format!(
+            "page {page}'s window {}x{} at {},{}, its",
+            window.width, window.height, window.x, window.y
+        );
+        match outcome {
+            Ok(raster) => {
+                self.handed.traced.push(phases_of(&subject, phases));
+                if flight.superseded {
+                    self.handed.traced.push(format!(
+                        "page {page}'s window was asked for again while it was drawn, and is let go"
+                    ));
+                    return;
+                }
+                self.handed.windows.push((
+                    Finished {
+                        request: flight.request,
+                        outcome: Some(Rendered::Raster(raster)),
+                        declined: Vec::new(),
+                        cost: took,
+                        waited: flight.asked.elapsed(),
+                    },
+                    window,
+                ));
+            }
+            Err((said, kept)) => {
+                if let Some(kept) = kept {
+                    let placed = placed_of(&flight.request);
+                    self.refusals
+                        .remember(std::slice::from_ref(&placed), &said, kept);
+                }
+                self.handed.traced.push(format!(
+                    "page {page}'s window refused by the graphics device under {:?}, and the page \
+                     is drawn as before: {said}",
+                    flight.coverage
+                ));
             }
         }
     }
@@ -475,16 +637,27 @@ impl ReadBack {
 }
 
 impl PageLane for ReadBack {
-    fn offer(&mut self, request: RenderRequest) -> Option<RenderRequest> {
+    fn offer(&mut self, request: RenderRequest, shown: Option<Window>) -> Option<RenderRequest> {
+        let ahead = self.ahead_of(&request, shown);
         if !self.choose(&request) {
             return Some(request);
         }
+        let same = |queued: &RenderRequest| {
+            queued.document == request.document && queued.page == request.page
+        };
         // A newer request for a page replaces the one queued for it, which the core has stopped
         // holding the token of — `viewer_host::Drawing::ask`'s rule; the one in flight cannot be
-        // taken back, because raster draws a page in one call (ADR 0725).
-        self.queued
-            .retain(|queued| !(queued.document == request.document && queued.page == request.page));
-        self.queued.push_back(request);
+        // taken back, because raster draws a page in one call (ADR 0725), and a window of it in
+        // flight is let go when it lands.
+        self.queued.retain(|queued| !same(&queued.request));
+        if let Some(flight) = self
+            .in_flight
+            .as_mut()
+            .filter(|flight| flight.window.is_some() && same(&flight.request))
+        {
+            flight.superseded = true;
+        }
+        self.queued.push_back(Queued { request, ahead });
         self.dispatch();
         None
     }
@@ -517,6 +690,7 @@ impl PageLane for ReadBack {
         let waiting = self.in_flight.is_some()
             || !self.queued.is_empty()
             || !self.handed.finished.is_empty()
+            || !self.handed.windows.is_empty()
             || !self.handed.back.is_empty();
         waiting.then_some(POLL)
     }
@@ -569,7 +743,7 @@ fn placed_of(request: &RenderRequest) -> Placed {
 /// raster names — the submit and the wait for the queue among it — and `outside both` is the
 /// page's time outside the scene and the device call, which held the processor's passes over the
 /// read-back page until the device put the medium under it in its own pass (ADR 2150).
-fn phases_of(page: usize, cost: &FrameCost) -> String {
+fn phases_of(subject: &str, cost: &FrameCost) -> String {
     let ms = |duration: Duration| duration.as_secs_f64() * 1000.0;
     let elsewhere = cost.device.saturating_sub(
         cost.encode
@@ -581,10 +755,9 @@ fn phases_of(page: usize, cost: &FrameCost) -> String {
         .total
         .saturating_sub(cost.scene.saturating_add(cost.device));
     format!(
-        "page {}'s phases on the graphics device, ms: scene {:.1}, device {:.1} = encode {:.1} + \
+        "{subject} phases on the graphics device, ms: scene {:.1}, device {:.1} = encode {:.1} + \
          transfer {:.1} + execute {:.1} + read back {:.1} + elsewhere {:.1}; outside both {:.1}, \
          of {:.1} in all",
-        page.saturating_add(1),
         ms(cost.scene),
         ms(cost.device),
         ms(cost.encode),
@@ -669,7 +842,7 @@ mod tests {
 
     use render_raster::FrameCost;
 
-    use super::{Device, Job, Kept, Link, Message, ReadBack, Steps};
+    use super::{Device, Job, Kept, Link, Message, ReadBack, Steps, Window};
 
     /// A request the core minted for page one of a document every checkout has, as
     /// `viewer_host::drawing`'s tests take theirs.
@@ -762,7 +935,7 @@ mod tests {
         let request = a_real_request();
         // A page asked for while the device is coming is the device's.
         lane.device = Device::Coming;
-        assert!(lane.offer(request.clone()).is_none());
+        assert!(lane.offer(request.clone(), None).is_none());
         lane.land(Message::Absent("no adapter".to_owned()));
         let handed = lane.collect(None);
         assert_eq!(
@@ -775,7 +948,7 @@ mod tests {
             "a machine with no device is told nothing new"
         );
         assert!(
-            lane.offer(request).is_some(),
+            lane.offer(request, None).is_some(),
             "and every later page is the processor's"
         );
         assert_eq!(lane.title(), None);
@@ -786,7 +959,7 @@ mod tests {
     fn a_refusal_sends_the_page_back_and_its_next_ask_goes_to_the_processor_at_once() {
         let (mut lane, _asked, _answer) = up();
         let request = a_real_request();
-        assert!(lane.offer(request.clone()).is_none());
+        assert!(lane.offer(request.clone(), None).is_none());
         let serial = in_flight(&lane);
         lane.land(Message::Drawn {
             serial,
@@ -800,7 +973,7 @@ mod tests {
         let title = lane.title().expect("the title says the processor drew");
         assert!(title.starts_with("drawn on the processor: the graphics device frame refused"));
         // The same page at the same magnification is not asked of the device again.
-        assert!(lane.offer(request).is_some());
+        assert!(lane.offer(request, None).is_some());
         assert!(
             lane.collect(None).said.is_empty(),
             "and the sentence is not said twice"
@@ -811,7 +984,7 @@ mod tests {
     fn a_page_the_device_drew_is_finished_and_priced() {
         let (mut lane, _asked, _answer) = up();
         let request = a_real_request();
-        assert!(lane.offer(request.clone()).is_none());
+        assert!(lane.offer(request.clone(), None).is_none());
         assert_eq!(lane.interval(), Some(viewer_host::drawing::POLL));
         let serial = in_flight(&lane);
         let raster = pdf_render::Raster {
@@ -856,13 +1029,139 @@ mod tests {
     fn a_newer_request_for_a_queued_page_replaces_it() {
         let (mut lane, _asked, _answer) = up();
         let request = a_real_request();
-        assert!(lane.offer(request.clone()).is_none());
+        assert!(lane.offer(request.clone(), None).is_none());
         let other = RenderRequest {
             page: 1,
             ..request.clone()
         };
-        assert!(lane.offer(other.clone()).is_none());
-        assert!(lane.offer(other).is_none());
+        assert!(lane.offer(other.clone(), None).is_none());
+        assert!(lane.offer(other, None).is_none());
         assert_eq!(lane.queued.len(), 1, "page two once, the newest");
+    }
+
+    /// `request` at twice its magnification, as a notch asks for the page again.
+    fn zoomed(request: &RenderRequest, by: f32) -> RenderRequest {
+        let mut zoomed = request.clone();
+        zoomed.target = pdf_render::TargetSpec {
+            width: request.target.width.saturating_mul(2),
+            height: request.target.height.saturating_mul(2),
+            transform: request
+                .target
+                .transform
+                .then(pdf_render::Transform::scale(by, by)),
+        };
+        zoomed
+    }
+
+    /// What lands for the job in flight: a raster of the job's own size.
+    fn drawn(lane: &mut ReadBack, job: &Job) {
+        lane.land(Message::Drawn {
+            serial: job.serial,
+            outcome: Ok(pdf_render::Raster {
+                width: job.target.width,
+                height: job.target.height,
+                format: pdf_render::RasterFormat::Rgba8,
+                data: vec![255; 4],
+            }),
+            took: Duration::from_millis(1),
+            phases: Box::default(),
+        });
+    }
+
+    /// ADR 2322: a page whose view moved has the part the viewport shows drawn first, on the lane
+    /// `quorra` takes for a moved view, handed back as a window and no answer; the page follows on
+    /// the launch rule's lane. A launch's page, with nothing drawn of it before, is drawn alone.
+    #[test]
+    fn a_moved_view_draws_the_shown_window_first_and_the_page_after() {
+        let (mut lane, asked, _answer) = up();
+        let request = a_real_request();
+        let window = Window {
+            x: 10,
+            y: 20,
+            width: 100,
+            height: 50,
+        };
+        assert!(lane.offer(request.clone(), Some(window)).is_none());
+        let page = asked.try_recv().expect("the page is sent");
+        assert_eq!(page.target, request.target, "a launch draws its page alone");
+        drawn(&mut lane, &page);
+        assert_eq!(lane.collect(None).finished.len(), 1);
+
+        let notch = zoomed(&request, 2.0);
+        assert!(lane.offer(notch.clone(), Some(window)).is_none());
+        let first = asked.try_recv().expect("the window is sent");
+        assert_eq!((first.target.width, first.target.height), (100, 50));
+        assert_eq!(first.target, window.target_of(notch.target));
+        assert_eq!(first.coverage, raster_gpu::Coverage::Compute);
+        drawn(&mut lane, &first);
+        let handed = lane.collect(None);
+        assert!(handed.finished.is_empty(), "a window answers nothing");
+        let [(finished, landed)] = handed.windows.as_slice() else {
+            panic!("one window: {:?}", handed.windows);
+        };
+        assert_eq!(*landed, window);
+        assert_eq!(finished.request.token, notch.token);
+        assert!(
+            handed
+                .traced
+                .iter()
+                .any(|line| line.starts_with("page 1's window 100x50 at 10,20, its phases")),
+            "{:?}",
+            handed.traced
+        );
+        let after = asked.try_recv().expect("the page follows its window");
+        assert_eq!(after.target, notch.target);
+        assert_eq!(after.coverage, raster_gpu::Coverage::Cpu);
+        drawn(&mut lane, &after);
+        assert_eq!(lane.collect(None).finished.len(), 1);
+        assert!(lane.interval().is_none());
+    }
+
+    /// A window drawn while a newer request for its page was offered is let go when it lands, and
+    /// the newer request's window is drawn next; a window refused hands nothing back, and its page
+    /// is drawn as before.
+    #[test]
+    fn a_window_asked_for_again_is_let_go_and_a_refused_one_leaves_its_page() {
+        let (mut lane, asked, _answer) = up();
+        let request = a_real_request();
+        let window = Window {
+            x: 0,
+            y: 0,
+            width: 64,
+            height: 32,
+        };
+        assert!(lane.offer(request.clone(), Some(window)).is_none());
+        drawn(&mut lane, &asked.try_recv().expect("the page"));
+        lane.collect(None);
+        let notch = zoomed(&request, 2.0);
+        assert!(lane.offer(notch.clone(), Some(window)).is_none());
+        let stale = asked.try_recv().expect("the first notch's window");
+        let again = zoomed(&request, 3.0);
+        assert!(lane.offer(again.clone(), Some(window)).is_none());
+        drawn(&mut lane, &stale);
+        let handed = lane.collect(None);
+        assert!(handed.windows.is_empty(), "{:?}", handed.windows);
+        assert!(
+            handed.traced.iter().any(|line| line.contains("let go")),
+            "{:?}",
+            handed.traced
+        );
+        let next = asked.try_recv().expect("the newer request's window");
+        assert_eq!(next.target, window.target_of(again.target));
+        lane.land(Message::Drawn {
+            serial: next.serial,
+            outcome: Err(("the adapter said no".to_owned(), None)),
+            took: Duration::from_millis(1),
+            phases: Box::default(),
+        });
+        let handed = lane.collect(None);
+        assert!(handed.windows.is_empty() && handed.back.is_empty());
+        assert!(
+            handed.traced.iter().any(|line| line.contains("refused")),
+            "{:?}",
+            handed.traced
+        );
+        let page = asked.try_recv().expect("the page is drawn as before");
+        assert_eq!(page.target, again.target);
     }
 }

@@ -822,3 +822,29 @@ reaches is run on the arms' adapter and not only headless on llvmpipe, and a sha
 hands the target that level — `nearest_level`, with the product made exact through `fma`'s residual —
 rather than a fraction the driver rounds its own way.
 
+### 256. An exact product that relies on `fma` is exact only where the compiler fuses it
+
+Trap 251 made `nearest_level` exact through `fma`'s residual, and the fixture held on llvmpipe. On
+RADV the compiler did not fuse the operations, so the residual was zero and 127 of the 255 greys whose
+`f32` lies nearest a half level came out one level high (ADR 2325). An exact product in a shader is
+taken in integers — a 24-bit significand times 255 fits a `u32`, and one shift gives the level — and
+the fixture that proves a level is run on the arms' adapter, where the compiler is the one the arms use.
+
+### 257. A source rounded before a fixed-function blend is rounded twice
+
+ADR 2311 asked every solid lane to write a level. Rounding the source colour and its alpha in the
+shader and then letting the target's blend round again moved antialiased edges: `canvas` read
+0.0133 → 0.0135 and `close-path-bug` 0.0060 → 0.0062 against HEAD's arms (ADR 2324 §2). A shader
+rounds to a level only where its write *is* the pixel — an opaque source, `source.a >= 1.0` — and
+leaves every partially covering fragment to the blend, which rounds once.
+
+### 260. A rule for a path reaches every glyph, because a glyph is a fill
+
+§8.5.3.3.1 says a degenerate subpath encloses the device pixel under its point, and round 1748 built it
+for the content stream's paths. Its first corpus walk moved 195 of 5 799 digests on 33 pages, and a
+census found 31 of those pages were glyph contours collapsed to a single point inside ordinary letters,
+which the new rule painted as specks; glyph outlines enter the display list as fills and take every rule a
+path takes. §10.7.4 itself says scan conversion of character glyphs may use a different algorithm, so
+`pdf-font` drops a one-point contour and a glyph left with none is an empty glyph (ADR 2330 §3). A change
+to what a shape without area draws is censused over glyph outlines before the walk, and the font side is
+decided under its own permission rather than swept in with the paths.

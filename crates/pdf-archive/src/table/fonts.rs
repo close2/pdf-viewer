@@ -976,6 +976,10 @@ const FONT_FILE3_SUBTYPES: [&str; 3] = ["Type1C", "CIDFontType0C", "OpenType"];
 /// `glyf` program.
 const GLYF_PROGRAM: [[u8; 4]; 6] = [*b"glyf", *b"head", *b"hhea", *b"hmtx", *b"loca", *b"maxp"];
 
+/// The tag a font collection's header opens with, where a single font's offset subtable has its
+/// scaler type.
+const TRUETYPE_COLLECTION: &[u8] = b"ttcf";
+
 /// One way ISO 32000-2 §9.9's Table 124 embeds a font program: the descriptor key, and the
 /// `/Subtype` the stream states where the key is `/FontFile3`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -989,11 +993,11 @@ pub struct Table124Row {
 /// The rows of §9.9's Table 124 that admit `program` under a font dictionary whose `/Subtype` is
 /// `dictionary`.
 ///
-/// Empty where the bytes settle a format no row admits under that dictionary; `None` where they
-/// settle no format this reader names — a header it does not know, a `ttcf` collection, a `CFF `
-/// Top DICT it cannot read — of which it says nothing rather than guess. The table pairs each key and
-/// name with the dictionaries that may carry it, and its `OpenType` row decides on what the program
-/// contains:
+/// Empty where the bytes settle a format no row admits under that dictionary, a `ttcf` font
+/// collection among them; `None` where they settle no format this reader names — a header it does
+/// not know, a `CFF ` Top DICT it cannot read — of which it says nothing rather than guess. The
+/// table pairs each key and name with the dictionaries that may carry it, and its `OpenType` row
+/// decides on what the program contains:
 ///
 /// > • A TrueType font dictionary or a CIDFontType2 CIDFont dictionary, if the embedded font
 /// > program contains a "glyf" table.
@@ -1001,9 +1005,17 @@ pub struct Table124Row {
 /// A Type 1 program is the one whose clear-text portion opens with `%!` (Adobe's Type 1 Font
 /// Format; §9.9 admits only the binary form of its encrypted portion, so no segment header comes
 /// first). §9.7.4.2 puts both keyings of a bare CFF under a `CIDFontType0` dictionary; `MMType1` is
-/// in the `FontFile` and `Type1C` rows and in no `OpenType` bullet. The converter's writer reads the
-/// same rows for a face it embeds (`pdf_transform`'s `key_for`); this is the reading of a program a
-/// file already holds (ADR 2307).
+/// in the `FontFile` and `Type1C` rows and in no `OpenType` bullet.
+///
+/// **A collection is in no row** (ADR 2327). The `FontFile2` row's program "shall conform to the
+/// TrueType Reference Manual", whose font file is one font opening with its own font directory —
+/// an offset subtable whose scaler type names that font's outlines — and a `ttcf` header is no
+/// scaler type the Manual names, nor does the Manual describe a collection; the `OpenType` row's
+/// is one program whose tables its bullets name, and the OpenType specification makes a
+/// collection the delivery of several font resources, each with a directory of its own.
+///
+/// The converter's writer asks the same rows for a face it embeds and takes the first; this is
+/// also the reading of a program a file already holds (ADR 2307).
 #[must_use]
 pub fn table_124_rows(dictionary: &str, program: &[u8]) -> Option<Vec<Table124Row>> {
     use pdf_font::embedding::{Keying, cff_keying, sfnt_tables};
@@ -1012,6 +1024,9 @@ pub fn table_124_rows(dictionary: &str, program: &[u8]) -> Option<Vec<Table124Ro
         Table124Row { key, subtype }
     }
     let type1 = matches!(dictionary, "Type1" | "MMType1");
+    if program.starts_with(TRUETYPE_COLLECTION) {
+        return Some(Vec::new());
+    }
     if program.starts_with(b"%!") {
         return Some(if type1 {
             vec![row("FontFile", None)]
@@ -1152,6 +1167,16 @@ fn font_programs_filed_by_their_format(exam: &Examination<'_>, findings: &mut Fi
             .map_or_else(String::new, |name| format!(" /{name}"));
         match rows.first() {
             _ if rows.iter().any(filed) => {}
+            None if program.starts_with(TRUETYPE_COLLECTION) => findings.record(
+                place,
+                format!(
+                    "the font {}'s program, under {key}{named}, is a font collection holding \
+                     several fonts, which the base standard's table of embedded font programs \
+                     admits under no key: a TrueType font program is one font, as the TrueType \
+                     Reference Manual describes it",
+                    used.name
+                ),
+            ),
             None => findings.record(
                 place,
                 format!(

@@ -1759,3 +1759,19 @@ the copy carries the batch's worker — stale against the export's sources — s
 export's own first build (`cargo build --release -p pdf-sandbox --bins` beside the gate's binary) before any
 hold is queued, and trap 238's check at the top of the hold's script names it (ADRs 2308, 2317).
 
+## 186. An arm inside a hold starts when the one-minute load is below three, with a cap
+
+Traps 149 and 237 say a `--clock` hold keeps the lanes and not the machine; round 1744 read a load of
+38 inside its first hold while a sibling batch built bare, and the hold's figures were unusable.
+Its second hold started each arm only once the one-minute load average was below 3, waiting at most
+60 s before taking the reading anyway with the load printed beside it (ADR 2323). The gate is the
+rule now: an arm under a hold is preceded by that wait, and a figure taken after the cap expired
+says so where it is written down.
+
+## 187. A gate's exit status is read from the gate, not from the pipe after it
+
+`( cargo test … | grep -E 'result|FAILED' ); echo ${PIPESTATUS[0]}` prints `grep`'s status, because the
+subshell's parentheses close the pipeline before `PIPESTATUS` is read, and a green `0` there says only
+that `grep` matched a line. Round 1749 wrote each run to a file and printed `$?` on the run itself, then
+read the file for the lines it wanted. A record's exit status comes from the command whose status it
+claims to be, written to a file or captured without a pipe.

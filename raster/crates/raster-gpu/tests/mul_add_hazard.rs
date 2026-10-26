@@ -19,9 +19,9 @@
 //!
 //! # What this test is, and what it is not
 //!
-//! It is not a ban. Two `src/` sites use `mul_add` today and both are correct uses: each
-//! runs at most once per frame, where one libcall is nothing and the fused rounding is a
-//! small accuracy gain. The allow-list below names them with the reason each is cold, and
+//! It is not a ban. Three `src/` sites use `mul_add` today and all are correct uses: two
+//! run at most once per frame and one at upload, where one libcall is nothing and the fused
+//! rounding is what the site is for. The allow-list below names them with the reason each is cold, and
 //! the test fails when the set changes in either direction — a new site, or one of these
 //! two moved or deleted without the list being updated.
 //!
@@ -50,7 +50,14 @@ use std::path::{Path, PathBuf};
 /// Every `src/` site that may call `mul_add`, as `crate/path/from/src`, with why it is
 /// cold. A site not on this list fails the test; a site on it that has gone fails too,
 /// because a stale exemption is an exemption nobody re-read.
-const COLD_SITES: [(&str, &str); 2] = [
+const COLD_SITES: [(&str, &str); 3] = [
+    (
+        "raster-gpu/src/resources.rs",
+        "exact_products_equal: once per subpath when an outline is uploaded, and only where \
+         the two rounded products are already equal — a point on the line or within a rounding \
+         of it — since `&&` asks the rounded products first; an ordinary outline's third point \
+         never reaches it",
+    ),
     (
         "raster-gpu/src/winding/pattern.rs",
         "SamplePattern::offsets: at most 64 offsets, built once when the winding lane's \

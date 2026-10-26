@@ -476,9 +476,9 @@ impl Path {
 
     /// Whether any subpath of this path encloses no area, ISO 32000-2 §10.7.4.
     ///
-    /// True where a subpath's extent along one axis is exactly zero while the other is not —
-    /// a rectangle written with a zero side, a run of points along one line — which is the
-    /// shape an antialiasing rasteriser computes no coverage for at any resolution. What is
+    /// True where a subpath lies on one line or at one point — a rectangle written with a zero
+    /// side, a run of points along one line, a degenerate subpath — which is the shape an
+    /// antialiasing rasteriser computes no coverage for at any resolution. What is
     /// then drawn instead is [`split_collapsed_fill`]'s business; this only says whether to
     /// ask, and it is memoised because a fill command is asked once per strip.
     ///

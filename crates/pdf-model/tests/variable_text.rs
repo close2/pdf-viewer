@@ -3815,8 +3815,8 @@ fn a_turned_matrixs_wrapped_lines_each_get_the_room_the_box_leaves_them() {
 /// (`Owed::SingularTextMatrix`). What each marks is §10.7.4's: a glyph carried onto a line along
 /// a page axis is that line, a pixel wide — "A zero-width or zero-height rectangle paints a line 1
 /// pixel wide" (ADR 1348); one carried onto a line across the axes is the band of one device
-/// pixel along it (ADR 1360); one carried onto a point is refused as `pdf_render::collapsed`
-/// refuses a point flat in its own space.
+/// pixel along it (ADR 1360); one carried onto a point is the device pixel under that point, as a
+/// point flat in its own space is (ADR 2330).
 #[test]
 fn a_da_whose_text_matrix_has_no_inverse_says_it_flattens_every_glyph() {
     for (tm, a_line) in [
@@ -3838,8 +3838,8 @@ fn a_da_whose_text_matrix_has_no_inverse_says_it_flattens_every_glyph() {
                 "{tm} carries every glyph onto one horizontal line, which is one row: {rows:?}"
             ),
             Some(false) => assert!(
-                inked_columns(&raster).is_empty(),
-                "{tm} maps every glyph onto a point: nothing is drawn"
+                rows.len() == 1 && inked_columns(&raster).len() == 1,
+                "{tm} maps every glyph onto a point, which is the one pixel under it: {rows:?}"
             ),
             None => assert!(
                 rows.len() > 1 && !inked_columns(&raster).is_empty(),

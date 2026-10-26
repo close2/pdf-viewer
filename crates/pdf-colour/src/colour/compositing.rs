@@ -273,16 +273,15 @@ pub(super) fn process_plane(plane: Plane, [cyan, magenta, yellow, black]: [f32; 
 impl Compositing {
     /// The colour `values` become for what is being composited into.
     ///
-    /// The alpha comes from the ordinary conversion in both branches, because it is not a
-    /// colour component: §8.6.6.4's `/None` colourant "shall have no effect on the current
-    /// page", which this tree says with a transparent paint, and a mask group is not the
-    /// place for it to start painting black instead.
-    ///
-    /// That costs the luminosity branch one conversion it does not use. It is paid per
-    /// *distinct* colour rather than per sample — `pdf_model::image`'s memo and palette are keyed
-    /// on the samples, not on what they convert to — and buying it back would mean a second
-    /// function deciding which spaces mark the page, which is exactly the drift trap 6 exists
-    /// for.
+    /// The alpha is the ordinary conversion's in every branch, because it is not a colour
+    /// component: §8.6.6.4's `/None` colourant "shall have no effect on the current page",
+    /// which this tree says with a transparent paint, and a mask group is not the place for it
+    /// to start painting black instead. Every branch but [`Self::Device`] reads it from
+    /// `ColourSpace::rgb_alpha`, which is that conversion's alpha without the conversion:
+    /// a shading's ramp calls this once a sample, so a conversion made for its alpha alone was
+    /// a second tint transform a sample — 65 M of the 966 M instructions the interpreting
+    /// thread spends on `bug1721218_reduced.pdf`'s page, every one of them thrown away (ADR
+    /// 2332).
     ///
     /// `generation` is §10.4.2.4's pair of functions where the graphics state states one, and it
     /// reaches only the subtractive branch — §11.7.5.3 scopes the pair to "painting an elementary
@@ -303,11 +302,10 @@ impl Compositing {
         rendering: Rendering,
         generation: Option<&BlackGeneration>,
     ) -> Color {
-        let colour = space.to_rgb_under(values, rendering);
         match self {
-            Self::Device => colour,
+            Self::Device => space.to_rgb_under(values, rendering),
             Self::Luminosity(scale) => Color {
-                a: colour.a,
+                a: space.rgb_alpha(),
                 ..Color::grey(scale.grey_of(space, values))
             },
             // The same conversion as a `DeviceGray` mask group's, because §11.6.6 gives both
@@ -315,17 +313,17 @@ impl Compositing {
             // §10.4.2.2 and §10.4.2.3 are the conversions, `min` included: a `k` operator's
             // ink can weigh more than one unit and its grey cannot go below black.
             Self::Grey => Color {
-                a: colour.a,
+                a: space.rgb_alpha(),
                 ..Color::grey(InkScale::Unit.grey_of(space, values))
             },
             Self::Calibrated(route) => Color {
-                a: colour.a,
+                a: space.rgb_alpha(),
                 ..Color::grey(route.component_of(space, values))
             },
             Self::Additive(route) => {
                 let [a, b, c] = route.components_of(space, values, rendering);
                 Color {
-                    a: colour.a,
+                    a: space.rgb_alpha(),
                     ..Color::rgb(a, b, c)
                 }
             }
@@ -341,7 +339,7 @@ impl Compositing {
                     spots.paint(*plane, press, space, values, rendering, generation)
                 };
                 Color {
-                    a: colour.a,
+                    a: space.rgb_alpha(),
                     ..painted
                 }
             }

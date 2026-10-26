@@ -245,7 +245,9 @@ struct Held {
     request: RenderRequest,
     /// Whether the request is for a page drawn as the window shows it. `false` once the viewer
     /// has asked for the page at a size drawn whole: the last window drawn then only stands in,
-    /// scaled, until that frame lands ([`Oversized::answered_whole`]), and nothing is asked.
+    /// scaled, until that frame lands ([`Oversized::answered_whole`]), and nothing is asked — or
+    /// the window the graphics device drew of this request ahead of its page stands in at its own
+    /// size ([`Oversized::ahead`], ADR 2322).
     windowed: bool,
     /// Whether the viewer has been told the host took this request's list.
     answered: bool,
@@ -279,6 +281,10 @@ struct Drawn {
 #[derive(Debug, Default)]
 pub struct Oversized {
     held: Vec<Held>,
+    /// The newest request for each page asked for whole and not yet answered: the only requests
+    /// a window drawn ahead of its page may stand in for ([`Self::ahead`]), so one that lands
+    /// after a newer request or after its own page is dropped rather than shown over either.
+    awaited: Vec<(DocumentId, usize, RenderToken)>,
 }
 
 impl Oversized {
@@ -291,6 +297,12 @@ impl Oversized {
             held.request.document == request.document && held.request.page == request.page
         };
         let windowed = oversized(request, viewport);
+        self.awaited
+            .retain(|&(document, page, _)| (document, page) != (request.document, request.page));
+        if !windowed {
+            self.awaited
+                .push((request.document, request.page, request.token));
+        }
         // The last window drawn of the page stays, as a stand-in, until the new request's frame
         // lands: at the same target it is the same place under the old ink, and at another it is
         // the page at the old magnification, scaled to the new one as a toolkit stands in (ADR
@@ -323,6 +335,48 @@ impl Oversized {
     pub fn answered_whole(&mut self, request: &RenderRequest) {
         self.held
             .retain(|held| held.windowed || held.request.token != request.token);
+        self.awaited.retain(|&(_, _, token)| token != request.token);
+    }
+
+    /// The graphics device drew `window` of a page asked for whole — the part the viewport showed
+    /// when the page was asked for — ahead of the page (ADR 2322): held as the page's picture
+    /// there until the page lands ([`Self::answered_whole`] lets it go), and dropped where the
+    /// request is no longer the newest for its page or its page has already landed, because then
+    /// it is not a picture of what the viewer asked for.
+    pub fn ahead(&mut self, request: &RenderRequest, window: Window, raster: Raster) {
+        if !self
+            .awaited
+            .contains(&(request.document, request.page, request.token))
+        {
+            return;
+        }
+        let drawn = Drawn {
+            window,
+            raster,
+            of: request.target,
+            token: request.token,
+        };
+        let same = |held: &Held| {
+            held.request.document == request.document && held.request.page == request.page
+        };
+        // `asked` replaced every held entry of the page with one for the newest request, which
+        // `awaited` has just said this is.
+        if let Some(held) = self.held.iter_mut().find(|held| same(held)) {
+            held.drawn = Some(drawn);
+            return;
+        }
+        self.held.insert(
+            0,
+            Held {
+                request: request.clone(),
+                windowed: false,
+                answered: false,
+                asked: None,
+                declined: None,
+                drawn: Some(drawn),
+            },
+        );
+        self.held.truncate(HELD);
     }
 
     /// The windows to draw now: for each page held of `focused` that the arrangement places at its
@@ -437,7 +491,10 @@ impl Oversized {
     /// the page it is of — and the window being drawn over those, as it stands — where the
     /// arrangement places the page at its target's size. A window standing in for a page asked
     /// for whole is placed the same way, scaled, over the retained picture: the viewer holds no
-    /// frame of a page it was answered `Listed` for.
+    /// frame of a page it was answered `Listed` for. A window drawn ahead of its page that holds
+    /// all a viewport `viewport` device pixels across shows of it is the page's only picture: what
+    /// stood in under it is not placed, so it is neither copied into the toolkit's image nor shown
+    /// (ADR 2322).
     #[must_use]
     pub fn place<'a>(
         &'a self,
@@ -445,7 +502,23 @@ impl Oversized {
         partial: Option<&'a Partial>,
         focused: DocumentId,
         mut geometry: impl FnMut(usize) -> Option<PageGeometry>,
+        viewport: (u32, u32),
     ) -> Vec<Placed<'a>> {
+        for held in self
+            .held
+            .iter()
+            .filter(|held| held.request.document == focused && !held.windowed)
+        {
+            let covers = held.drawn.as_ref().is_some_and(|drawn| {
+                drawn.token == held.request.token
+                    && geometry(held.request.page)
+                        .and_then(|page| shown(held.request.target, page, viewport))
+                        .is_some_and(|showing| drawn.window.holds(showing))
+            });
+            if covers {
+                placed.retain(|placed| placed.frame.page != held.request.page);
+            }
+        }
         // Where a window of `of` goes and how big it is shown, on a page the arrangement places at
         // `target`'s size: at its own size where it is a window of that target, and scaled by
         // the ratio of the two where it is a window of the page at another magnification.

@@ -184,14 +184,21 @@ impl Window {
         self.owing.take()
     }
 
-    /// The title bar's text as it now stands.
+    /// The title bar's text as it now stands: the name, the caption and the notes every window's
+    /// title carries after them ([`WindowState::title_notes`]), so a C caller that cannot move its
+    /// window sees the centre it was not given as the toolkits' windows show it (ADR 2328).
     #[must_use]
     pub fn title(&self) -> String {
         let mark = if self.state.showing.dirty { "• " } else { "" };
+        let notes = self.state.title_notes();
         if self.state.showing.caption.is_empty() {
-            return format!("{mark}{}", self.named());
+            return format!("{mark}{}{notes}", self.named());
         }
-        format!("{mark}{} — {}", self.named(), self.state.showing.caption)
+        format!(
+            "{mark}{} — {}{notes}",
+            self.named(),
+            self.state.showing.caption
+        )
     }
 
     /// The status line's sentence as it now stands.
@@ -732,6 +739,7 @@ impl Window {
             self.state.drawing.partial(),
             focused,
             geometry,
+            self.state.viewport,
         )
     }
 

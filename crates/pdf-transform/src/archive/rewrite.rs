@@ -1526,7 +1526,9 @@ impl Rewrite {
             }
             Self::FontProgramRefiled => {
                 "a font program filed under a key or Subtype its bytes contradict is filed under \
-                 the ones its format is given, every byte of the program the producer's"
+                 the ones its format is given, every byte of the program the producer's, and a \
+                 CIDFontType2 whose Identity map selects a name-keyed CFF program's glyphs by \
+                 their CIDs is the CIDFontType0 that selects the same ones"
             }
             Self::FilterNamesSpelledOut => {
                 "a stream naming a filter by the abbreviation ISO 32000-2 \u{a7}8.9.7's Table 92 \

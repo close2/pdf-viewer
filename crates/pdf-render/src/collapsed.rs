@@ -36,12 +36,16 @@
 //! an edge neither overlap nor leave a seam; using it to annihilate a shape is not the job it
 //! was given, and §10.7.4's own stated consequence — "no shape ever disappears" — says so.
 //!
-//! The two clauses differ in one further respect, and it is the reason this rule is
-//! implemented while §8.5.3.3.1's point is not. §8.5.3.3.1 calls its own answer
-//! "device-dependent and not generally useful" in the same breath as stating it; §10.7.4
-//! attaches no such hedge to a shape with a direction, and a producer that writes a
-//! ten-thousand-unit rule means a line rather than an accident.
+//! The point itself is painted, by the same sentence (ADR 2330). §8.5.3.3.1 goes on to call its
+//! answer "device-dependent and not generally useful", and that clause carries no modal verb: it
+//! says which pixel the point encloses depends on the device's grid, and that a producer gains
+//! little by writing one, not that a processor may paint none. §10.7.4's NOTE 1 reads
+//! *intersects* the same way for every shape with an empty interior — "a filling region is
+//! considered to intersect every pixel through which its boundary passes, even if the interior
+//! of the filling region is empty" — so a zero-area intersection is an intersection, and the
+//! pixel the point lies in is the one the clause names.
 //!
+
 //! # What is painted
 //!
 //! The thinnest mark the device has, which is the answer §8.4.3.2 already gives for a line
@@ -115,14 +119,35 @@
 //! the path itself would join that path's winding — under the even-odd rule a mark landing
 //! inside a filled region would punch a hole in it.
 //!
+//! # A point, and a line across the axes
+//!
+//! Two more shapes enclose no area, and each is the same sentence's (ADR 2330):
+//!
+//! - **A point** — every point of the subpath, control points included, at one coordinate — is
+//!   §8.5.3.3.1's degenerate subpath, and its mark is "the single device pixel lying under that
+//!   point": the pixel §10.7.4 identifies by flooring the point's device coordinates, whole,
+//!   under any invertible placement, stated back in the path's own space through the inverse.
+//!   An `m` alone at the end of a path never arrives here, because §8.5.3.3.1 disregards it and
+//!   `pdf-model` drops it before any backend looks.
+//! - **A line across the axes** — every point on one line through two of them, which extends in
+//!   both axes — encloses no area under either rule, so its mark is the band of one device pixel
+//!   along that line, centred on it, from the furthest point one way to the furthest the other:
+//!   the construction a line across the grid already takes when a matrix of rank one carries a
+//!   rectangle onto it (ADR 1360). The band is stated in device space, where "one device pixel"
+//!   is a width in every direction, and carried back through the inverse.
+//!
+//! Both are decided exactly, as the axis case is: a cubic lies on a line exactly when its four
+//! control points do, since the line's equation of the curve is a polynomial whose Bernstein
+//! coefficients are the control points' values, and `on_one_line` decides collinearity with no
+//! rounding at all.
+//!
 //! # What this does not cover
 //!
-//! A subpath that encloses no area while extending in *both* axes — three collinear points at
-//! an angle, say. The test here is that the subpath's extent is exactly zero along one axis,
-//! which makes the mark's direction the axis it is not zero along and needs no arithmetic
-//! beyond a comparison; a diagonal one would need the flattened outline's collinearity and a
-//! direction derived from it. No corpus document has been observed to write one, and a rule
-//! whose shape is guessed is worse than a stated absence.
+//! A subpath whose boundary retraces itself off any one line — out along two sides of a triangle
+//! and back the same way — also encloses no area, and is filled as itself, which marks nothing.
+//! Recognising it is the winding integral's question asked exactly of every subpath that is not
+//! on a line, a cancellation of directed edges no simpler test answers; no document this tree
+//! holds writes one, and §10.7.4's row records it as a departure with that cost (ADR 2330).
 
 use crate::geom::{Path, PathCommand, Point, Transform};
 use crate::paint::{Stroke, thinnest_line};
@@ -149,7 +174,9 @@ pub struct CollapsedFill {
     /// no extent in and exactly as long as the subpath is along the other. Under an
     /// axis-preserving transform that pixel is a *whole* device pixel — the run the collapsed
     /// axis passes through, which is what the clause states; under a rotation or a shear it is
-    /// a band centred on the subpath's own line. The module comment argues both.
+    /// a band centred on the subpath's own line. The module comment argues both. A point's
+    /// mark is the device pixel under it, and a line across the axes is the band of one device
+    /// pixel along it (ADR 2330).
     pub marks: Path,
 }
 
@@ -186,16 +213,119 @@ pub fn split_collapsed_fill(path: &Path, to_device: Transform) -> Option<Collaps
         .then(|| to_device.invert())
         .flatten()
         .map(|inverse| Grid { to_device, inverse });
+    // A point and a line across the axes are stated in device space and carried back, so they
+    // need the inverse under any placement; without one there is no grid to name a pixel of.
+    let inverse = to_device.invert();
 
     let mut filled = Path::new();
     let mut marks = Path::new();
     for extent in subpath_extents(path) {
-        match extent.collapse() {
-            Some(axis) => append_mark(&mut marks, &extent, axis, thinnest, grid),
+        match extent.collapse(path.commands()) {
+            Some(Collapse::Along(axis)) => append_mark(&mut marks, &extent, axis, thinnest, grid),
+            Some(Collapse::Across { from, to }) => {
+                if let Some(inverse) = inverse {
+                    append_band_across(&mut marks, (from, to), to_device, inverse);
+                }
+            }
+            Some(Collapse::Point(point)) => {
+                if let Some(inverse) = inverse {
+                    append_pixel_under(&mut marks, point, to_device, inverse);
+                }
+            }
             None => filled.extend(&path.commands()[extent.range()]),
         }
     }
     Some(CollapsedFill { filled, marks })
+}
+
+/// Appends the band of one device pixel along a line across the axes, ISO 32000-2 §10.7.4.
+///
+/// `ends` are the subpath's two furthest points along its line, in path space. The band is built
+/// in device space — the segment between their images, widened by half a device pixel each side
+/// along its own normal — and each corner is carried back through `inverse`, so it is one device
+/// pixel thick whatever the placement stretches (ADR 2330).
+fn append_band_across(
+    into: &mut Path,
+    ends: (Point, Point),
+    to_device: Transform,
+    inverse: Transform,
+) {
+    let (p, q) = (to_device.apply(ends.0), to_device.apply(ends.1));
+    let (dx, dy) = (
+        f64::from(q.x) - f64::from(p.x),
+        f64::from(q.y) - f64::from(p.y),
+    );
+    let length = dx.hypot(dy);
+    if length == 0.0 || !length.is_finite() {
+        return;
+    }
+    // Half a device pixel along the unit normal.
+    let (nx, ny) = (-dy / length / 2.0, dx / length / 2.0);
+    let corner = |at: Point, side: f64| {
+        let device = Point::new(
+            narrow(f64::from(at.x) + side * nx),
+            narrow(f64::from(at.y) + side * ny),
+        );
+        inverse.apply(device)
+    };
+    append_quad(
+        into,
+        [
+            corner(p, 1.0),
+            corner(q, 1.0),
+            corner(q, -1.0),
+            corner(p, -1.0),
+        ],
+    );
+}
+
+/// Appends the device pixel a point lies in, ISO 32000-2 §8.5.3.3.1 and §10.7.4.
+///
+/// §8.5.3.3.1: the degenerate subpath "shall be considered to enclose the single device pixel
+/// lying under that point", and §10.7.4 identifies that pixel: "let i = floor( x ) and j =
+/// floor( y ). The pixel that contains this point is the one identified as ( i, j )". Its four
+/// corners are carried back through `inverse`, so the mark is that pixel under any placement
+/// (ADR 2330).
+fn append_pixel_under(into: &mut Path, point: Point, to_device: Transform, inverse: Transform) {
+    let device = to_device.apply(point);
+    let (column, row) = (device.x.floor(), device.y.floor());
+    let corner = |x: f32, y: f32| inverse.apply(Point::new(x, y));
+    append_quad(
+        into,
+        [
+            corner(column, row),
+            corner(column + 1.0, row),
+            corner(column + 1.0, row + 1.0),
+            corner(column, row + 1.0),
+        ],
+    );
+}
+
+/// Appends a closed quadrilateral, or nothing where a corner is not finite — as
+/// [`append_mark`] declines a mark it cannot state.
+fn append_quad(into: &mut Path, corners: [Point; 4]) {
+    if corners
+        .iter()
+        .any(|corner| !corner.x.is_finite() || !corner.y.is_finite())
+    {
+        return;
+    }
+    let [first, second, third, fourth] = corners;
+    into.push(PathCommand::MoveTo(first));
+    into.push(PathCommand::LineTo(second));
+    into.push(PathCommand::LineTo(third));
+    into.push(PathCommand::LineTo(fourth));
+    into.push(PathCommand::Close);
+}
+
+/// An `f64` device coordinate carried back to the `f32` every path is stated in.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "a device coordinate computed in f64 from f32 inputs and half a pixel, rounded once \
+              to the f32 the path is stated in; a non-finite result is declined by append_quad"
+)]
+fn narrow(value: f64) -> f32 {
+    value as f32
 }
 
 /// `path` stated on the line `transform` carries it onto, where that transform has no inverse —
@@ -211,15 +341,26 @@ pub fn split_collapsed_fill(path: &Path, to_device: Transform) -> Option<Collaps
 /// when `ad = bc` and it is not zero, and a product of two `f32` values is exact in `f64` (48
 /// significand bits of 53), so that comparison is exact: a matrix whose determinant cancels to
 /// zero only in `f32` arithmetic — a full-rank matrix of enormous entries, which the corpus holds
-/// in a damaged stream — is refused as before, since it carries the path onto no line at all. A
-/// matrix carrying the path onto one point is refused too, and so is one whose image of *this*
-/// path is one point; that is §8.5.3.3.1's point, which this tree records as a departure.
+/// in a damaged stream — is refused as before, since it carries the path onto no line at all.
+///
+/// **A matrix whose image of the path is one point** — rank zero, which carries every point onto
+/// `(e, f)`, or rank one where this path lies along the line it projects away — restates the path
+/// as that point in page space, so [`split_collapsed_fill`] paints the device pixel under it:
+/// the shape §10.7.4 scan-converts is a point there, and a point is §8.5.3.3.1's degenerate
+/// subpath, enclosing "the single device pixel lying under that point" (ADR 2330).
 ///
 /// Curves are restated by their control points, which an affine map carries exactly.
 #[must_use]
 pub fn collapsed_by_transform(path: &Path, transform: Transform) -> Option<(Path, Transform)> {
     if transform.invert().is_some() {
         return None;
+    }
+    if let Some(point) = onto_a_point(transform) {
+        let names_a_point = path
+            .commands()
+            .iter()
+            .any(|c| command_points(c).next().is_some());
+        return names_a_point.then(|| (single_point(point), Transform::IDENTITY));
     }
     let line = ImageLine::of(transform)?;
     let mut restated = Path::new();
@@ -238,7 +379,9 @@ pub fn collapsed_by_transform(path: &Path, transform: Transform) -> Option<(Path
             PathCommand::Close => PathCommand::Close,
         });
     }
-    let spans = lowest.is_finite() && highest.is_finite() && lowest < highest;
+    // `lowest == highest` is a path whose image is one point, which the restatement states as a
+    // point and the fill paints as the pixel under it.
+    let spans = lowest.is_finite() && highest.is_finite() && lowest <= highest;
     let finite = restated
         .commands()
         .iter()
@@ -246,9 +389,29 @@ pub fn collapsed_by_transform(path: &Path, transform: Transform) -> Option<(Path
     (spans && finite).then_some((restated, line.frame()))
 }
 
+/// Where a matrix of rank zero carries every point, `(e, f)`; `None` for any other matrix.
+///
+/// Rank zero is four entries that are exactly zero: a small entry is a matrix of rank one or
+/// two, which carries the path onto a line or keeps its area.
+fn onto_a_point(transform: Transform) -> Option<Point> {
+    let zero = [transform.a, transform.b, transform.c, transform.d]
+        .iter()
+        .all(|entry| *entry == 0.0);
+    let at = Point::new(transform.e, transform.f);
+    (zero && at.x.is_finite() && at.y.is_finite()).then_some(at)
+}
+
+/// A path that is one degenerate subpath at `point`.
+fn single_point(point: Point) -> Path {
+    let mut path = Path::new();
+    path.push(PathCommand::MoveTo(point));
+    path.push(PathCommand::Close);
+    path
+}
+
 /// A stroke's image under a matrix with no inverse, stated as the fill of that image — ISO
-/// 32000-2 §10.7.4 and §8.4.3.2; `None` where the matrix is invertible, carries everything onto a
-/// point, or the stroke's image is a point.
+/// 32000-2 §10.7.4 and §8.4.3.2; `None` where the matrix is invertible or the stroke's set is
+/// empty.
 ///
 /// §8.4.3.2 states the stroke as a set in user space — "stroking a path shall entail painting all
 /// points whose perpendicular distance from the path in user space is less than or equal to half
@@ -264,7 +427,9 @@ pub fn collapsed_by_transform(path: &Path, transform: Transform) -> Option<(Path
 /// The returned path is one flat subpath per interval, which [`split_collapsed_fill`] draws as
 /// §10.7.4's line, and the transform is [`collapsed_by_transform`]'s frame. The width is the
 /// document's own: a zero width contributes nothing beyond the path's own image, and the line one
-/// device pixel wide that §8.4.3.2 asks of it is the mark itself.
+/// device pixel wide that §8.4.3.2 asks of it is the mark itself. An interval of no length is a
+/// point, restated as one so that the fill paints the pixel under it; and under a matrix of rank
+/// zero the image of a set that is not empty is `(e, f)`, the same point (ADR 2330).
 #[must_use]
 pub(crate) fn collapsed_stroke_by_transform(
     path: &Path,
@@ -274,6 +439,16 @@ pub(crate) fn collapsed_stroke_by_transform(
     if transform.invert().is_some() {
         return None;
     }
+    if let Some(point) = onto_a_point(transform) {
+        // The set is not empty exactly when its image on some line is not: the image on the
+        // page's x-axis is asked of the same construction, and only whether it names an interval
+        // is read from it.
+        let probe = ImageLine::of(Transform::new(1.0, 0.0, 0.0, 0.0, point.x, point.y))?;
+        let marks = StrokeImage::new(probe, stroke)?
+            .of(path)
+            .is_some_and(|intervals| !intervals.is_empty());
+        return marks.then(|| (single_point(point), Transform::IDENTITY));
+    }
     let line = ImageLine::of(transform)?;
     let intervals = StrokeImage::new(line, stroke)?.of(path)?;
     let mut restated = Path::new();
@@ -282,11 +457,10 @@ pub(crate) fn collapsed_stroke_by_transform(
         if !(from.x.is_finite() && from.y.is_finite() && to.x.is_finite() && to.y.is_finite()) {
             return None;
         }
-        if from == to {
-            continue;
-        }
         restated.push(PathCommand::MoveTo(from));
-        restated.push(PathCommand::LineTo(to));
+        if from != to {
+            restated.push(PathCommand::LineTo(to));
+        }
         restated.push(PathCommand::Close);
     }
     (!restated.is_empty()).then_some((restated, line.frame()))
@@ -410,12 +584,15 @@ struct Grid {
     inverse: Transform,
 }
 
-/// Whether any of a path's subpaths encloses no area because one of its extents is zero.
+/// Whether any of a path's subpaths encloses no area because it lies on one line or at one
+/// point.
 ///
 /// The predicate behind [`Path::collapses`], which memoises it. Kept separate from
-/// [`split_collapsed_fill`] so that the common answer — no — costs one walk and no allocation.
+/// [`split_collapsed_fill`] so that the common answer — no — costs one walk and no allocation;
+/// a subpath with an area is told apart by its third point that leaves the line through its
+/// first two, which for an ordinary outline is its third point.
 pub(crate) fn any_subpath_collapses(path: &Path) -> bool {
-    subpath_extents(path).any(|extent| extent.collapse().is_some())
+    subpath_extents(path).any(|extent| extent.collapse(path.commands()).is_some())
 }
 
 /// The axis a subpath has no extent along.
@@ -425,6 +602,73 @@ enum Axis {
     Horizontal,
     /// Every point shares one x, so the mark is a vertical rule.
     Vertical,
+}
+
+/// How a subpath that encloses no area lies.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Collapse {
+    /// On a line along a path axis, with no extent along the other.
+    Along(Axis),
+    /// On a line across both path axes, between its two furthest points along that line.
+    Across {
+        /// The point furthest one way along the line.
+        from: Point,
+        /// The point furthest the other way.
+        to: Point,
+    },
+    /// At one point: §8.5.3.3.1's degenerate subpath.
+    Point(Point),
+}
+
+/// Whether every one of `points` lies on the line through `a` and `b`, decided exactly.
+///
+/// The test is whether the cross product `(b − a) × (p − a)` is zero, which it is exactly when
+/// `p` is on the line. Each difference of two `f32` coordinates is taken in `f64` and checked exact
+/// by Knuth's two-sum, and each product of two such differences is compared with its rounding
+/// error carried by a fused multiply-add, so the comparison is of the exact products and not of
+/// two roundings of them. A difference that is not exact in `f64` — coordinates more than 2²⁹
+/// apart in magnitude — answers `false`, which leaves the subpath to be filled as itself: the
+/// test claims a line only where it has proved one.
+fn on_one_line(a: Point, b: Point, points: impl Iterator<Item = Point>) -> bool {
+    let (Some(ux), Some(uy)) = (exact_difference(b.x, a.x), exact_difference(b.y, a.y)) else {
+        return false;
+    };
+    // `a` and `b` are on their own line, and skipping them keeps the fused multiply-add off
+    // an ordinary outline, whose third point is off the line by more than a rounding.
+    points.filter(|p| *p != a && *p != b).all(|p| {
+        let (Some(vx), Some(vy)) = (exact_difference(p.x, a.x), exact_difference(p.y, a.y)) else {
+            return false;
+        };
+        exact_products_equal((ux, vy), (uy, vx))
+    })
+}
+
+/// `u − v` in `f64`, or `None` where that is not the exact difference: the rounding error of the
+/// subtraction is computed exactly, so its being zero is the test of exactness itself.
+fn exact_difference(u: f32, v: f32) -> Option<f64> {
+    let (u, minus_v) = (f64::from(u), -f64::from(v));
+    let sum = u + minus_v;
+    // Knuth's two-sum: `error` is exactly `u − v − sum`, whatever the magnitudes.
+    let virtual_minus_v = sum - u;
+    let error = (u - (sum - virtual_minus_v)) + (minus_v - virtual_minus_v);
+    (sum.is_finite() && error == 0.0).then_some(sum)
+}
+
+/// Whether `a.0 · a.1` and `b.0 · b.1` are exactly equal.
+///
+/// A product rounds once, and `mul_add` returns its rounding error exactly (the operands here
+/// are differences of `f32` values, so neither the product nor its error is near the range in
+/// which `f64` loses precision), so two products are equal exactly when their roundings and
+/// their errors both are. The roundings are compared first because `mul_add` is a software
+/// call on a target without FMA, and a point off the line almost never rounds to its product.
+#[expect(
+    clippy::float_cmp,
+    reason = "exact equality of exact products is the whole test; a margin would call a sliver \
+              with an area a line"
+)]
+fn exact_products_equal(a: (f64, f64), b: (f64, f64)) -> bool {
+    let (left, right) = (a.0 * a.1, b.0 * b.1);
+    left == right && a.0.mul_add(a.1, -left) == b.0.mul_add(b.1, -right)
 }
 
 /// One subpath's extent within a path's command list.
@@ -441,6 +685,9 @@ pub(crate) struct Extent {
     pub(crate) min: Point,
     /// The corner with the largest.
     pub(crate) max: Point,
+    /// Where a subpath opened by a segment after an `h`, with no `m` of its own, begins: the
+    /// point its first segment starts from, which is not among its own commands.
+    reopened_at: Option<Point>,
 }
 
 impl Extent {
@@ -448,31 +695,59 @@ impl Extent {
         self.first..self.last
     }
 
-    /// The axis this subpath has collapsed along, or `None` if it encloses an area.
+    /// How this subpath lies where it encloses no area, or `None` if it encloses one.
     ///
     /// Exact equality rather than a tolerance, deliberately: a shape thinner than a pixel but
     /// not *flat* is drawn by this renderer at a coverage its area decides — exactly by
-    /// [`crate::sub_pixel_bands`] where that applies, and otherwise to the rasteriser's own
-    /// quantum, which on `render-cpu` is a quarter of a pixel per axis (ADR 0474). Either way it
-    /// is §10.7.4's first documented departure (ADR 0025's neighbour, argued in
-    /// `doc/todo/_scan-conversion.md`) and not a shape that has disappeared. Only a subpath
-    /// with literally no extent vanishes at every placement and every resolution, which is
-    /// what makes this rule a statement about the geometry rather than about the scale.
+    /// [`crate::sub_pixel_bands`] where that applies, and otherwise by the rasteriser's own
+    /// measure of the area. Either way it is §10.7.4's first documented departure and not a
+    /// shape that has disappeared. Only a subpath with literally no area vanishes at every
+    /// placement and every resolution, which is what makes this rule a statement about the
+    /// geometry rather than about the scale.
     ///
-    /// A subpath collapsed along *both* axes is a point, which §8.5.3.3.1 governs and this
-    /// renderer records as a departure rather than drawing; it is not a case for this rule,
-    /// which would have no direction to lay a mark along.
+    /// A subpath at one point is §8.5.3.3.1's degenerate subpath, and one on a line across the
+    /// axes is found by [`on_one_line`] from its own points, `commands` being the path the
+    /// extent was walked from (ADR 2330).
     #[expect(
         clippy::float_cmp,
         reason = "exactness is the rule: a margin here would claim a shape with an area is \
                   flat, and what such a shape gets is antialiased coverage rather than a mark"
     )]
-    fn collapse(&self) -> Option<Axis> {
+    fn collapse(&self, commands: &[PathCommand]) -> Option<Collapse> {
         match (self.min.x == self.max.x, self.min.y == self.max.y) {
-            (false, true) => Some(Axis::Horizontal),
-            (true, false) => Some(Axis::Vertical),
-            _ => None,
+            (false, true) => Some(Collapse::Along(Axis::Horizontal)),
+            (true, false) => Some(Collapse::Along(Axis::Vertical)),
+            (true, true) => Some(Collapse::Point(self.min)),
+            (false, false) => self.across(commands.get(self.range())?),
         }
+    }
+
+    /// The two furthest points of a subpath whose every point lies on one line, or `None`.
+    ///
+    /// The line is the one through the subpath's first point and the first point that differs
+    /// from it, which exists because the extent is not a point.
+    fn across(&self, commands: &[PathCommand]) -> Option<Collapse> {
+        let points = || {
+            self.reopened_at
+                .into_iter()
+                .chain(commands.iter().flat_map(command_points))
+        };
+        let first = points().next()?;
+        let second = points().find(|p| *p != first)?;
+        if !on_one_line(first, second, points()) {
+            return None;
+        }
+        // Every point is on the line, so its position along `second − first` orders them.
+        let (ux, uy) = (
+            f64::from(second.x) - f64::from(first.x),
+            f64::from(second.y) - f64::from(first.y),
+        );
+        let along = |p: &Point| {
+            (f64::from(p.x) - f64::from(first.x)) * ux + (f64::from(p.y) - f64::from(first.y)) * uy
+        };
+        let from = points().min_by(|p, q| along(p).total_cmp(&along(q)))?;
+        let to = points().max_by(|p, q| along(p).total_cmp(&along(q)))?;
+        Some(Collapse::Across { from, to })
     }
 }
 
@@ -592,6 +867,7 @@ pub(crate) fn subpath_extents(path: &Path) -> impl Iterator<Item = Extent> + '_ 
                 None => *bounds = Some((p, p)),
             };
             let mut opened = false;
+            let mut reopened_at = None;
             while index < commands.len() {
                 match commands[index] {
                     PathCommand::MoveTo(p) => {
@@ -605,6 +881,7 @@ pub(crate) fn subpath_extents(path: &Path) -> impl Iterator<Item = Extent> + '_ 
                     PathCommand::LineTo(p) => {
                         if !opened && let Some(start) = opened_at {
                             include(start, &mut bounds);
+                            reopened_at = Some(start);
                         }
                         opened = true;
                         include(p, &mut bounds);
@@ -612,6 +889,7 @@ pub(crate) fn subpath_extents(path: &Path) -> impl Iterator<Item = Extent> + '_ 
                     PathCommand::CurveTo(a, b, at) => {
                         if !opened && let Some(start) = opened_at {
                             include(start, &mut bounds);
+                            reopened_at = Some(start);
                         }
                         opened = true;
                         include(a, &mut bounds);
@@ -631,6 +909,7 @@ pub(crate) fn subpath_extents(path: &Path) -> impl Iterator<Item = Extent> + '_ 
                     last: index,
                     min,
                     max,
+                    reopened_at,
                 });
             }
             // The commands just consumed named no point — a stray `h`. Keep walking rather
@@ -1053,15 +1332,99 @@ mod tests {
         assert_eq!(split_collapsed_fill(&sliver, Transform::IDENTITY), None);
     }
 
-    /// A point is §8.5.3.3.1's case rather than this one, and this rule must not claim it:
-    /// there is no axis to lay a mark along.
+    /// A point is §8.5.3.3.1's degenerate subpath, "the single device pixel lying under that
+    /// point": device `(5.5, 7.25)` under a scale of two is pixel `(5, 7)`, stated back in the
+    /// path's own space (ADR 2330).
     #[test]
-    fn a_single_point_subpath_is_not_this_rule() {
+    fn a_single_point_subpath_marks_the_pixel_under_it() {
         let dot = path(&[
-            PathCommand::MoveTo(Point::new(5.0, 5.0)),
+            PathCommand::MoveTo(Point::new(2.75, 3.625)),
             PathCommand::Close,
         ]);
-        assert_eq!(split_collapsed_fill(&dot, Transform::IDENTITY), None);
+        let split = split_collapsed_fill(&dot, Transform::scale(2.0, 2.0)).expect("collapsed");
+        assert!(
+            split.filled.is_empty(),
+            "the point encloses no area of its own"
+        );
+        assert_eq!(
+            split.marks.commands(),
+            [
+                PathCommand::MoveTo(Point::new(2.5, 3.5)),
+                PathCommand::LineTo(Point::new(3.0, 3.5)),
+                PathCommand::LineTo(Point::new(3.0, 4.0)),
+                PathCommand::LineTo(Point::new(2.5, 4.0)),
+                PathCommand::Close,
+            ]
+        );
+    }
+
+    /// Collinear points across the axes are a line, and the mark runs between the two furthest
+    /// of them whatever order the subpath visits them in; a point a hair off the line is an
+    /// area, which this rule leaves to the fill.
+    #[test]
+    fn collinear_points_across_the_axes_are_a_line_and_a_hair_off_it_is_not() {
+        let on = path(&[
+            PathCommand::MoveTo(Point::new(4.0, 2.0)),
+            PathCommand::LineTo(Point::new(1.0, 0.5)),
+            PathCommand::LineTo(Point::new(9.0, 4.5)),
+            PathCommand::Close,
+        ]);
+        let split = split_collapsed_fill(&on, Transform::IDENTITY).expect("a line");
+        assert!(split.filled.is_empty());
+        let corners: Vec<Point> = split
+            .marks
+            .commands()
+            .iter()
+            .filter_map(|command| match command {
+                PathCommand::MoveTo(p) | PathCommand::LineTo(p) => Some(*p),
+                _ => None,
+            })
+            .collect();
+        // Half a pixel along the unit normal `(−1, 2)/√5` each side of (1, 0.5) and (9, 4.5).
+        let half = 0.5 / 5f32.sqrt();
+        let expected = [
+            Point::new(1.0 - half, 0.5 + 2.0 * half),
+            Point::new(9.0 - half, 4.5 + 2.0 * half),
+            Point::new(9.0 + half, 4.5 - 2.0 * half),
+            Point::new(1.0 + half, 0.5 - 2.0 * half),
+        ];
+        assert_eq!(corners.len(), 4);
+        for want in expected {
+            assert!(
+                corners
+                    .iter()
+                    .any(|corner| (corner.x - want.x).abs() < 1e-5
+                        && (corner.y - want.y).abs() < 1e-5),
+                "{want:?} is not among {corners:?}"
+            );
+        }
+        let off = path(&[
+            PathCommand::MoveTo(Point::new(4.0, 2.0)),
+            PathCommand::LineTo(Point::new(1.0, 0.5)),
+            PathCommand::LineTo(Point::new(9.0, 4.500_001)),
+            PathCommand::Close,
+        ]);
+        assert_eq!(split_collapsed_fill(&off, Transform::IDENTITY), None);
+    }
+
+    /// The exact line test answers what exact arithmetic answers where `f64` products of the same
+    /// differences round to one value: `(1 + 2⁻²⁷)²` and `1 + 2⁻²⁶` are one double once rounded,
+    /// and differ by `2⁻⁵⁴`.
+    #[test]
+    fn the_line_test_compares_exact_products() {
+        let e = 2f64.powi(-27);
+        assert_eq!(
+            ((1.0 + e) * (1.0 + e)).to_bits(),
+            (1.0 + 2.0 * e).to_bits(),
+            "the case under test"
+        );
+        assert!(!super::exact_products_equal(
+            (1.0 + e, 1.0 + e),
+            (1.0, 1.0 + 2.0 * e)
+        ));
+        assert!(super::exact_products_equal((3.0, 4.0), (6.0, 2.0)));
+        assert_eq!(super::exact_difference(1.0e30, 1.0e-30), None);
+        assert_eq!(super::exact_difference(3.5, 1.25), Some(2.25));
     }
 
     /// The two halves of a mixed path go their separate ways, and the surviving one keeps its

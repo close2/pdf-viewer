@@ -197,7 +197,7 @@ pub(super) fn restated_kind(
         ("Type1", Format::Sfnt) => "TrueType",
         _ => return Ok(None),
     };
-    let Some(row) = key_for(other, face.format, face.program) else {
+    let Some(row) = key_for(other, face.program) else {
         return Ok(None);
     };
     let source = LoadedFont::load(document, &used.dict, &used.name)
@@ -393,7 +393,7 @@ pub(super) fn describe(
         // read against here, and is refused by the table's own sentence.
         _ => return Err(Because::NotBuiltYet(super::NO_SHIPPED_FORMAT)),
     };
-    let row = key_for(subtype, face.format, face.program)
+    let row = key_for(subtype, face.program)
         .ok_or_else(|| Because::NotBuiltYet(no_row(subtype, face.format, face.program)))?;
     let measured = Measured::of(&face).ok_or(Because::NotBuiltYet(PROGRAM_NOT_MEASURED))?;
 

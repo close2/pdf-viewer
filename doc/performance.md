@@ -427,6 +427,18 @@ against 6.85–7.99, its `encode` 5.07–5.36 against 3.83–4.51: a long-lived 
 another document's glyphs, which this table does not divide further. Growing `wgpu`'s pool of command
 encoders ahead of the frames was measured on both kinds of device and is not built (ADR 1606).
 
+**`bug1721218_reduced.pdf`'s and `personwithdog.pdf`'s interpretations were re-measured on
+2026-10-26 after ADR 2332**, one clock hold interleaving HEAD's export with the change's, pinned,
+load 1.2–2.2: a paint inside a four-component group asks its space for the alpha rather than
+converting the colour to RGB for it — on that page a second type 4 tint transform for every ramp
+sample — and a sample or a mesh value that starts on a byte is read as bytes rather than a bit at a
+time. `frame_budget`'s turn read 128.06–130.88 ms against HEAD's 132.40–132.77, its `interp`
+48.76–49.85 against 52.39–53.69, and the step, which interprets nothing, did not move; callgrind puts
+the interpreting thread at 965.6 → 869.9 M instructions. The mesh page's interpretation is 105.6 →
+24.8 M, and its turn in the gate read 9.38 → 6.97 ms. No byte moved on six arms. What is left of the
+group page's interpretation is its 2.8 MB of content read once on each process plane, about 435 M of
+the 870 M (ADR 2332 section 5).
+
 **`bug1721218_reduced.pdf`'s turn and seventh rows were re-taken on 2026-10-07 after ADR 1644**,
 three runs of five rounds interleaved with three of the tree before it, pinned, load 1.3 (the tree
 before read turn 144.00–145.37, seventh 142.16–143.74, step 81.75–83.33): a shading's functions are

@@ -112,6 +112,70 @@ fn placed_fixture() -> Vec<u8> {
     )
 }
 
+/// A deck stating Table 29's `/PageMode /FullScreen`, whose one slide is a link to a URI over the
+/// whole page: under `--links=ask` the click's question is held while the window presents (ADR
+/// 2309), the C window's form of the toolkits' drive step 106.
+fn held_fixture() -> Vec<u8> {
+    written(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /PageMode /FullScreen >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 640 480] /Annots [4 0 R] >>\nendobj\n\
+         4 0 obj\n<< /Type /Annot /Subtype /Link /Rect [0 0 640 480] /Border [0 0 0] \
+         /A << /S /URI /URI (https://example.org/held) >> >>\nendobj\n",
+    )
+}
+
+/// The toolkits' drive step 89's folding strokes: five circles of radius one to three points
+/// stroked eight points wide with round joins, each bending more tightly than its half-width and
+/// so measured from the union of its pieces (ADR 1348) — the marks a planted open row declines.
+fn union_fixture() -> Vec<u8> {
+    let mut content = String::from("8 w 1 j 1 J 0 G\n");
+    for (x, r) in [
+        (60.0_f64, 1.0_f64),
+        (130.0, 1.3),
+        (200.0, 1.7),
+        (270.0, 2.2),
+        (340.0, 2.9),
+    ] {
+        let (y, k) = (200.0_f64, 0.5523 * r);
+        // Writing into a `String` cannot fail.
+        let _ = writeln!(
+            content,
+            "{} {y} m {} {} {} {} {x} {} c {} {} {} {} {} {y} c {} {} {} {} {x} {} c {} {} {} {} \
+             {} {y} c h S",
+            x + r,
+            x + r,
+            y + k,
+            x + k,
+            y + r,
+            y + r,
+            x - k,
+            y + r,
+            x - r,
+            y + k,
+            x - r,
+            x - r,
+            y - k,
+            x - k,
+            y - r,
+            y - r,
+            x + k,
+            y - r,
+            x + r,
+            y - k,
+            x + r,
+        );
+    }
+    written(&format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Contents 4 0 R >>\n\
+         endobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{content}endstream\nendobj\n",
+        content.len()
+    ))
+}
+
 /// One optional content group intended for the individual Ada — Table 100's `/User` with `/Type
 /// /Ind` — whose state §8.11.4.4's `/AS` manages at the `View` event, over a filled rectangle:
 /// "[i]f there is an exact match, the ON state shall be used; otherwise OFF shall be used", so the
@@ -445,6 +509,7 @@ fn a_c_program_drives_a_window_one_call_per_thing_that_happened() {
     let placed = private.join("quorra_window_placed_fixture.pdf");
     std::fs::write(&placed, placed_fixture())
         .expect("the fixture is written in the private test directory");
+    let held = written_to(private, "quorra_window_held_fixture.pdf", &held_fixture());
     let ran = Command::new(&program)
         .arg(&document)
         .arg(&form)
@@ -452,6 +517,7 @@ fn a_c_program_drives_a_window_one_call_per_thing_that_happened() {
         .arg(&directory)
         .arg(&audience)
         .arg(&placed)
+        .arg(&held)
         .env("PDF_SCRIPT_WORKER", &worker)
         // Two seconds rather than the reader's wait, so the question left unanswered is withdrawn
         // inside the test (ADR 1643).
@@ -466,6 +532,79 @@ fn a_c_program_drives_a_window_one_call_per_thing_that_happened() {
         String::from_utf8_lossy(&ran.stderr)
     );
     what_the_window_owed(&said);
+    what_the_titles_say(&said);
+    let union = written_to(private, "quorra_window_union_fixture.pdf", &union_fixture());
+    the_declined_page_is_titled(&program, &union);
+}
+
+/// `bytes` written as `name` in the private test directory, and its path.
+fn written_to(private: &Path, name: &str, bytes: &[u8]) -> std::path::PathBuf {
+    let path = private.join(name);
+    std::fs::write(&path, bytes).expect("the fixture is written in the private test directory");
+    path
+}
+
+/// The union's decline named in the C window's title as the toolkits' drive step 89 reads theirs:
+/// planted in the program's environment (`PDFVIEWER_PLANT_OPEN_ROW`, ADR 2290), and once without,
+/// the control that must stay silent (trap 13).
+fn the_declined_page_is_titled(program: &Path, union: &Path) {
+    let titled = |planted: bool| {
+        let mut run = Command::new(program);
+        run.arg("--declined").arg(union);
+        if planted {
+            run.env("PDFVIEWER_PLANT_OPEN_ROW", "1");
+        } else {
+            run.env_remove("PDFVIEWER_PLANT_OPEN_ROW");
+        }
+        let ran = run.output().expect("the program runs");
+        let said = String::from_utf8_lossy(&ran.stdout).into_owned();
+        println!("{said}");
+        assert!(
+            ran.status.success(),
+            "the C program failed on the declined page:\n{}",
+            String::from_utf8_lossy(&ran.stderr)
+        );
+        said
+    };
+    let planted = titled(true);
+    assert!(
+        planted.contains(
+            "window declined: title: quorra_window_union_fixture.pdf — page 1 of 1 — marks drawn \
+             at the library's sixteenths on page 1"
+        ),
+        "planted, the title does not name the page: {planted}"
+    );
+    let control = titled(false);
+    assert!(
+        control.contains("window declined: title: quorra_window_union_fixture.pdf — page 1 of 1\n"),
+        "unplanted, the title names a decline: {control}"
+    );
+}
+
+/// The lines the toolkit windows' drive steps 105 and 106 read off their windows, as the C window
+/// states them (ADR 2328).
+fn what_the_titles_say(said: &str) {
+    for expected in [
+        // The same page where the platform places every window itself (`positions = 0`): fitted,
+        // not moved, and the centre it was not given said and named in the title after the
+        // caption, as the toolkits' titles name it (ADRs 2308, 2328).
+        "said: this document asks for its window in the centre of the screen (§12.2's \
+         /CenterWindow); this platform places every window itself",
+        "window uncentred: 1 resize(s), 0 move(s), then there is nothing to answer with; title: \
+         quorra_window_placed_fixture.pdf — page 1 of 1 — not centred: the platform places this \
+         window",
+        // Table 29's `FullScreen`: the link's question held while the deck presents, said and owed
+        // as no record, then put up by Escape and answered "Do not" (ADR 2309).
+        "window held: presenting 1, 0 question(s) while presenting, \"a question waits until the \
+         presentation ends: Table 29's ful\"; after Escape presenting 0, 1 question(s), answered: \
+         link: declined — you answered \"Do not\"; title: quorra_window_held_fixture.pdf — page 1 \
+         of 1",
+    ] {
+        assert!(
+            said.contains(expected),
+            "the C program did not say {expected:?}"
+        );
+    }
 }
 
 /// What the window owed the C program, checked here rather than in the C, as

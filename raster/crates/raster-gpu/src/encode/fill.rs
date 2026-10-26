@@ -120,6 +120,50 @@ fn snapped_mark(
     Some(raster_scene::Rect::new(lo, hi))
 }
 
+/// The band of one device pixel along a line across the axes, as four device corners: the
+/// segment between the images of `from` and `to`, widened by half a device pixel each side
+/// along its own normal — the caller's `append_band_across`, stated directly in device space
+/// where theirs round-trips through the placement's inverse (ulps, inside ADR 0082's
+/// contract). `None` where the two ends land on one device point.
+fn band_across(
+    to_device: &DeviceTransform,
+    from: raster_scene::Point,
+    to: raster_scene::Point,
+) -> Option<[raster_scene::Point; 4]> {
+    let (p, q) = (apply(to_device, from), apply(to_device, to));
+    let (dx, dy) = (
+        f64::from(q.x) - f64::from(p.x),
+        f64::from(q.y) - f64::from(p.y),
+    );
+    let length = dx.hypot(dy);
+    if length == 0.0 || !length.is_finite() {
+        return None;
+    }
+    let (nx, ny) = (-dy / length / 2.0, dx / length / 2.0);
+    let corner = |at: raster_scene::Point, side: f64| {
+        raster_scene::Point::new(
+            narrow(f64::from(at.x) + side * nx),
+            narrow(f64::from(at.y) + side * ny),
+        )
+    };
+    Some([
+        corner(p, 1.0),
+        corner(q, 1.0),
+        corner(q, -1.0),
+        corner(p, -1.0),
+    ])
+}
+
+/// An `f64` device coordinate carried back to `f32`.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "a device coordinate computed in f64 from f32 inputs and half a pixel, rounded \
+              once; a non-finite result is declined by push_mark_corners"
+)]
+fn narrow(value: f64) -> f32 {
+    value as f32
+}
+
 /// The linear part of a transform as the bits a census counts by.
 ///
 /// The *scene's* transform, not the device's: the two differ by the viewport, which is
@@ -371,6 +415,10 @@ impl<'a> Encoder<'a> {
     ///   line, stated in outline space as `1 / max_stretch` (their `thinnest_line`)
     ///   and carried through the placement (their `band_span`).
     ///
+    /// - A **point** is the device pixel under it and a **line across the axes** the band
+    ///   of one device pixel along it, each placed in device space under any invertible
+    ///   placement (their `append_pixel_under` and `append_band_across`, their ADR 2330).
+    ///
     /// No stretch at all — a placement that lengthens nothing — leaves no space for a
     /// mark to be stated in, and makes none: their `split_collapsed_fill` returns
     /// nothing on the same test.
@@ -399,43 +447,47 @@ impl<'a> Encoder<'a> {
         // the page onto a line, so there is no pixel grid for the snap to be right
         // about, and the band draws what the oracle draws.
         let determinant = to_device.a * to_device.d - to_device.b * to_device.c;
-        let snappable =
-            transform_preserves_axes(to_device) && determinant.is_finite() && determinant != 0.0;
+        let invertible = determinant.is_finite() && determinant != 0.0;
+        let snappable = transform_preserves_axes(to_device) && invertible;
         for mark in marks {
+            // A point and a line across the axes are placed in device space under any
+            // invertible placement, as the caller's `append_pixel_under` and
+            // `append_band_across` place them (their ADR 2330); without an inverse there
+            // is no grid to name a pixel of, and they make no mark.
+            match mark.lies {
+                crate::resources::Lies::AtPoint => {
+                    if invertible {
+                        let device = apply(to_device, mark.min);
+                        let (column, row) = (device.x.floor(), device.y.floor());
+                        let pixel = raster_scene::Rect::new(
+                            raster_scene::Point::new(column, row),
+                            raster_scene::Point::new(column + 1.0, row + 1.0),
+                        );
+                        self.push_device_rect(pixel, resolved, ink, style, mask)?;
+                    }
+                    continue;
+                }
+                crate::resources::Lies::Across { from, to } => {
+                    if invertible && let Some(corners) = band_across(to_device, from, to) {
+                        self.push_mark_corners(corners, resolved, ink, style, mask)?;
+                    }
+                    continue;
+                }
+                crate::resources::Lies::Vertical | crate::resources::Lies::Horizontal => {}
+            }
             let device_rect = if snappable {
                 snapped_mark(mark, to_device)
             } else {
                 None
             };
             if let Some(rect) = device_rect {
-                // The snapped mark is axis-aligned in device space by construction,
-                // so it takes the analytic lane where a solid rectangle would
-                // (ADR 0007) and the coverage quad where it cannot.
-                if let (MarkInk::Solid(color), None) = (ink, &resolved.residues) {
-                    let clipped = rect.intersection(resolved.rect).intersection(self.visible);
-                    if !clipped.is_empty() {
-                        self.push_rect_instance(clipped, color, style, mask)?;
-                    }
-                    continue;
-                }
-                self.push_mark_corners(
-                    [
-                        rect.min,
-                        raster_scene::Point::new(rect.max.x, rect.min.y),
-                        rect.max,
-                        raster_scene::Point::new(rect.min.x, rect.max.y),
-                    ],
-                    resolved,
-                    ink,
-                    style,
-                    mask,
-                )?;
+                self.push_device_rect(rect, resolved, ink, style, mask)?;
                 continue;
             }
             // The band: half the thinnest line each side of the collapsed axis, in
             // outline space, carried through the placement (their `band_span`).
             let half = (1.0 / stretch) / 2.0;
-            let (lo, hi) = if mark.vertical {
+            let (lo, hi) = if mark.lies == crate::resources::Lies::Vertical {
                 (
                     raster_scene::Point::new(mark.min.x - half, mark.min.y),
                     raster_scene::Point::new(mark.min.x + half, mark.max.y),
@@ -460,6 +512,37 @@ impl<'a> Encoder<'a> {
             )?;
         }
         Ok(())
+    }
+
+    /// A mark that is a rectangle in device space: the analytic lane where a solid
+    /// rectangle would take it (ADR 0007), and the coverage quad where it cannot.
+    fn push_device_rect(
+        &mut self,
+        rect: raster_scene::Rect,
+        resolved: &ResolvedClip,
+        ink: MarkInk,
+        style: DrawStyle,
+        mask: Option<u32>,
+    ) -> Result<(), RenderError> {
+        if let (MarkInk::Solid(color), None) = (ink, &resolved.residues) {
+            let clipped = rect.intersection(resolved.rect).intersection(self.visible);
+            if !clipped.is_empty() {
+                self.push_rect_instance(clipped, color, style, mask)?;
+            }
+            return Ok(());
+        }
+        self.push_mark_corners(
+            [
+                rect.min,
+                raster_scene::Point::new(rect.max.x, rect.min.y),
+                rect.max,
+                raster_scene::Point::new(rect.min.x, rect.max.y),
+            ],
+            resolved,
+            ink,
+            style,
+            mask,
+        )
     }
 
     /// One mark as four device corners through the coverage path — the route for a

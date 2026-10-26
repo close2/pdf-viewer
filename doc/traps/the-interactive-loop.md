@@ -629,3 +629,15 @@ nothing (ADR 2317). Where a window state or any GDK flag is newer than the floor
 number is read and the bit tested by value, with a comment naming the version that defines it; raising
 the floor is the owner's question, and a dropped bit never is.
 
+### 259. A ceiling on the sentence after a key is a ceiling on the key's handler
+
+Drive step 82 turned back to a page whose picture the window retains and gave the window 2 s to print
+"its retained"; it failed six of six reruns on GTK and the brief's hypothesis was a camera started late
+(trap 245). GTK's key trace and a stack taken mid-wait showed the Left key arriving every time, and
+`NativeWindow::turn` reading page one on the toolkit thread for 4.9–9.7 s before the handler printed
+anything (trap 154's read, ADR 1886). The step also judged the photograph against the drawing thread's
+`rasterised` line, which comes 0.55 s before `RenderReady`, the line printed when the frame is on the
+screen (round 1747, ADR 2328). A drive's ceiling after a key covers everything the handler does before it
+prints, so the step waits for the frame it needs, gives the read its time, and counts a photograph late
+only after `RenderReady`; in GTK it reads the window's own paint record and asks that the first paint
+after the turn be the retained picture.

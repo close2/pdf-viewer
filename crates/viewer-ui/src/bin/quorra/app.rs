@@ -478,6 +478,9 @@ pub(crate) struct App {
     /// the event loop than the one that put it up — and `None` while nothing is outstanding, so
     /// that a card dismissed twice answers once.
     pub(crate) asked: Option<Pending>,
+    /// The cards a document raised while the window presented full screen, in the order raised,
+    /// put up once it has left ([`crate::presentation::HeldCard`], ADR 2329).
+    pub(crate) held: std::collections::VecDeque<crate::presentation::HeldCard>,
     /// When a script's question on the card stops being asked if nobody answers it, where one is
     /// up: the loop wakes then and sends a tick of no time, so that the viewer asks and the card
     /// is dropped as the wait runs out rather than at the person's next key (ADR 1643).

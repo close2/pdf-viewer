@@ -708,14 +708,21 @@ mod tests {
             &intervals(&path, &stroke(5.0, LineCap::Butt, LineJoin::Miter), ONTO_X),
             &[(37.5, 42.5)],
         );
-        // With no width it is a point, which §8.5.3.3.1's departure covers.
-        assert_eq!(
-            collapsed_stroke_by_transform(
-                &path,
-                &stroke(0.0, LineCap::Butt, LineJoin::Miter),
-                ONTO_X
+        // With no width it is a point, restated as one so that the fill paints the pixel under
+        // it (ADR 2330).
+        let (point, _) = collapsed_stroke_by_transform(
+            &path,
+            &stroke(0.0, LineCap::Butt, LineJoin::Miter),
+            ONTO_X,
+        )
+        .expect("a point");
+        assert!(
+            matches!(
+                point.commands(),
+                [PathCommand::MoveTo(_), PathCommand::Close]
             ),
-            None
+            "{:?}",
+            point.commands()
         );
     }
 
@@ -871,19 +878,31 @@ mod tests {
         );
     }
 
-    /// A matrix onto a point, and one that is invertible, are not this construction's.
+    /// An invertible matrix is not this construction's, and one of rank zero carries the stroke
+    /// onto `(e, f)`: a point in page space, which the fill paints as the pixel under it —
+    /// unless the stroke's set is empty, as a degenerate subpath's is under butt caps (ADR 2330).
     #[test]
-    fn only_a_matrix_of_rank_one_is_restated() {
+    fn a_matrix_of_rank_zero_is_the_point_and_an_invertible_one_is_not_restated() {
         let path = polyline(&[(20.0, 30.0), (60.0, 70.0)], false);
         let style = stroke(5.0, LineCap::Round, LineJoin::Miter);
-        for transform in [
-            Transform::new(0.0, 0.0, 0.0, 0.0, 50.0, 50.0),
-            Transform::IDENTITY,
-        ] {
-            assert_eq!(
-                collapsed_stroke_by_transform(&path, &style, transform),
-                None
-            );
-        }
+        assert_eq!(
+            collapsed_stroke_by_transform(&path, &style, Transform::IDENTITY),
+            None
+        );
+        let onto = Transform::new(0.0, 0.0, 0.0, 0.0, 50.0, 50.0);
+        let (point, frame) = collapsed_stroke_by_transform(&path, &style, onto).expect("the point");
+        assert_eq!(frame, Transform::IDENTITY);
+        assert_eq!(
+            point.commands(),
+            [
+                PathCommand::MoveTo(Point::new(50.0, 50.0)),
+                PathCommand::Close
+            ]
+        );
+        let dot = polyline(&[(20.0, 30.0), (20.0, 30.0)], true);
+        assert_eq!(
+            collapsed_stroke_by_transform(&dot, &stroke(5.0, LineCap::Butt, LineJoin::Miter), onto),
+            None
+        );
     }
 }

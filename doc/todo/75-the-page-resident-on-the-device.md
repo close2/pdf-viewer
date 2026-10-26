@@ -109,10 +109,11 @@ Fills under `Compute` coverage are resident already (records only); glyphs take 
 image's texture is resident per reduction level and a step writes only the texels it newly samples
 (ADR 1493); a ramp is made once. `Cpu` coverage is the still page's lane, and a zoom gesture in the
 window takes `Compute` (`viewer-ui`'s `lane_for`), so nothing above is owed to it. The toolkit windows'
-read-back lane draws a notch on `Cpu` (`coverage_for`), where every glyph is rasterised again at the
-new view; a re-used encode there, and that lane taking `Compute`, are priced at their ceilings and
-declined (ADRs 2314, 2315): the read back, the copy into the toolkit's image and the paint leave a
-notch past a 120 Hz frame without any encode at all.
+read-back lane draws a page on `Cpu` (`coverage_for`), where every glyph is rasterised again at the
+new view; a re-used encode there, and the whole page taking `Compute`, are priced at their ceilings and
+declined (ADRs 2314, 2315). What a notch draws first instead is the part of the page the viewport
+shows, on `lane_for`'s lane for a moved view, and the page after it as before (ADR 2322); what that
+leaves between a notch and its frame is ADR 2323's.
 
 ## 8. Estimate provenance and live surface observation
 

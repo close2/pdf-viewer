@@ -478,6 +478,7 @@ fn main() {
         kept: viewer_host::password::Kept::new(),
         converter: viewer_host::archiving::Converter::new(),
         asked: None,
+        held: std::collections::VecDeque::new(),
         script_wait: None,
         script_ticker: viewer_host::script_timers::Ticker::default(),
         refused: viewer_ui::chrome::Refusal::default(),

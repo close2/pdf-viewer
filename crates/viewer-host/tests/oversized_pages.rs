@@ -327,7 +327,13 @@ fn a_window_drawn_under_the_last_request_stands_in_for_the_next_and_does_not_ans
         !held.shows(DOCUMENT),
         "the window drawn is not this request's"
     );
-    let placed_now = held.place(Vec::new(), None, DOCUMENT, |page| placed(&viewer, page));
+    let placed_now = held.place(
+        Vec::new(),
+        None,
+        DOCUMENT,
+        |page| placed(&viewer, page),
+        viewport,
+    );
     assert_eq!(placed_now.len(), 1, "the last window stands in meanwhile");
     assert_eq!(
         held.due(DOCUMENT, |page| placed(&viewer, page), viewport)
@@ -361,15 +367,148 @@ fn a_notch_back_to_a_page_drawn_whole_keeps_the_last_window_standing_in_until_it
             .is_empty(),
         "a page drawn whole asks for no window"
     );
-    let standing = held.place(Vec::new(), None, DOCUMENT, |page| placed(&viewer, page));
+    let standing = held.place(
+        Vec::new(),
+        None,
+        DOCUMENT,
+        |page| placed(&viewer, page),
+        viewport,
+    );
     let [shown] = standing.as_slice() else {
         panic!("the last window stands in for the page drawn whole: {standing:?}");
     };
     assert!(shown.stands_in(), "scaled to the page's new extent");
     held.answered_whole(&whole);
     assert!(
-        held.place(Vec::new(), None, DOCUMENT, |page| placed(&viewer, page))
-            .is_empty(),
+        held.place(
+            Vec::new(),
+            None,
+            DOCUMENT,
+            |page| placed(&viewer, page),
+            viewport
+        )
+        .is_empty(),
         "and is let go when the page's own frame lands"
+    );
+}
+
+/// A red raster the size of `window`, as a lane hands one back.
+fn red_of(window: viewer_host::oversize::Window) -> pdf_render::Raster {
+    let pixels = usize::try_from(u64::from(window.width).saturating_mul(u64::from(window.height)))
+        .unwrap_or(usize::MAX);
+    pdf_render::Raster {
+        width: window.width,
+        height: window.height,
+        format: pdf_render::RasterFormat::Rgba8,
+        data: [255, 0, 0, 255].repeat(pixels),
+    }
+}
+
+#[test]
+fn a_window_drawn_ahead_of_its_page_is_its_only_picture_until_the_page_lands() {
+    // ADR 2322: the part of a page drawn whole that the viewport shows, drawn ahead of it, is
+    // placed at its own size where the page is, what stood in under it is not placed, and the
+    // page's own frame lets it go.
+    let viewport = (800, 600);
+    let mut viewer = opened_a1(viewport);
+    let request = zoomed(&mut viewer, 0.72);
+    let mut held = Oversized::default();
+    assert!(!held.asked(&request, viewport), "drawn whole");
+    let geometry = placed(&viewer, request.page).expect("the page is placed");
+    let window = viewer_host::oversize::shown(request.target, geometry, viewport)
+        .expect("part of the page is on the screen");
+    assert!(
+        window.width < request.target.width || window.height < request.target.height,
+        "the window is less than the page: {window:?} of {:?}",
+        request.target
+    );
+    let old = pdf_render::Raster {
+        width: 2,
+        height: 2,
+        format: pdf_render::RasterFormat::Rgba8,
+        data: vec![0; 16],
+    };
+    let stand_in = || {
+        vec![viewer_host::stand_in::Placed {
+            frame: viewer_core::FrameView {
+                page: request.page,
+                raster: &old,
+                origin: geometry.origin,
+            },
+            extent: (request.target.width, request.target.height),
+            retained: false,
+        }]
+    };
+    held.ahead(&request, window, red_of(window));
+    let shown = held.place(
+        stand_in(),
+        None,
+        DOCUMENT,
+        |page| placed(&viewer, page),
+        viewport,
+    );
+    let [only] = shown.as_slice() else {
+        panic!("the window alone, over nothing: {shown:?}");
+    };
+    assert!(!only.stands_in(), "at its own size");
+    assert_eq!(
+        (only.frame.raster.width, only.frame.raster.height),
+        (window.width, window.height)
+    );
+    held.answered_whole(&request);
+    let shown = held.place(
+        stand_in(),
+        None,
+        DOCUMENT,
+        |page| placed(&viewer, page),
+        viewport,
+    );
+    assert_eq!(shown.len(), 1, "the page's frame lets the window go");
+    assert!(shown.iter().all(|placed| placed.frame.raster.width == 2));
+}
+
+#[test]
+fn a_window_drawn_ahead_of_a_request_no_longer_the_newest_is_dropped() {
+    let viewport = (800, 600);
+    let mut viewer = opened_a1(viewport);
+    let first = zoomed(&mut viewer, 0.72);
+    let mut held = Oversized::default();
+    assert!(!held.asked(&first, viewport));
+    let geometry = placed(&viewer, first.page).expect("the page is placed");
+    let window =
+        viewer_host::oversize::shown(first.target, geometry, viewport).expect("on the screen");
+    let newer = zoomed(&mut viewer, 0.6);
+    assert!(!held.asked(&newer, viewport));
+    held.ahead(&first, window, red_of(window));
+    assert!(
+        held.place(
+            Vec::new(),
+            None,
+            DOCUMENT,
+            |page| placed(&viewer, page),
+            viewport
+        )
+        .is_empty(),
+        "a window of the request before is no picture of this one"
+    );
+    // Nor one that lands after its own page.
+    held.answered_whole(&newer);
+    let window = viewer_host::oversize::shown(
+        newer.target,
+        placed(&viewer, newer.page).expect("placed"),
+        viewport,
+    )
+    .expect("on the screen");
+    held.ahead(&newer, window, red_of(window));
+    assert!(
+        held.place(
+            Vec::new(),
+            None,
+            DOCUMENT,
+            |page| placed(&viewer, page),
+            viewport
+        )
+        .is_empty(),
+        "the page has landed"
     );
 }

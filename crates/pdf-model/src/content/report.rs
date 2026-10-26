@@ -359,8 +359,8 @@ pub enum Unsupported {
     ///
     /// What it counts is what is still refused. A solid fill or stroke its matrix carries onto a
     /// line is §10.7.4's line and is drawn — `pdf_render::DisplayList::restate_collapsed_marks`
-    /// restates it as the fill of its image before this count, ADRs 1348 and 1360 — so the count
-    /// is a mark whose image is a point, §8.5.3.3.1's departure, and a paint no space positions.
+    /// restates it as the fill of its image before this count, ADRs 1348 and 1360, and one carried
+    /// onto a point as the pixel under it, ADR 2330 — so the count is a paint no space positions.
     NoninvertibleMatrix {
         /// How many marking commands the page states under one.
         commands: usize,

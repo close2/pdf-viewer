@@ -1014,7 +1014,10 @@ refused by name
   (ADR 1412). Refused by name within the shape: code 2 over an `Indexed` space, `SMask` beside a
   non-zero `SMaskInData`, an image mask whose data carries opacity, a component deeper than sixteen
   bits, a
-  decode that is not whole at the ordinary budget, a channel count the space does not have. Where
+  decode that is not whole at the ordinary budget, a channel count the space does not have — and
+  the decode's own failures one sentence each: not whole at the budget or a feature the decoder
+  lacks; a colour space no PDF space restates for the samples, PIMA 7667's e-sRGB and e-sYCC
+  among them (ADR 2292); a codestream its dictionary contradicts; a depth or filter not unpacked. Where
   the dictionary states none, a specification off the list is what the samples mean: writing a
   baseline code, or a `ColorSpace` beside a Flate copy, relabels the picture, which the catalogue
   refuses everywhere.
@@ -1213,20 +1216,34 @@ ISO 19005-2 6.2.11.4.1, ISO 19005-4 6.2.10.4.1 · all six · `Mechanical`, **bui
   program its bytes say is misfiled is refiled: the name restated under the same key, or the stream
   moved to `/FontFile3` with the lengths a compact program does not state dropped. The program is
   carried byte for byte, and this reader chose its reader by those bytes already, so nothing drawn
-  changes.
+  changes. **A CFF-flavoured `OTTO` program under a `CIDFontType2` whose `/CIDToGIDMap` is
+  `Identity` and whose Top DICT uses no CIDFont operators** retypes the dictionary to `CIDFontType0`,
+  removes the map and moves the program to `/FontFile3` `/OpenType` (ADR 2326): Table 115's
+  `Identity` makes each CID its own glyph index, and §9.7.4.2 uses the CIDs of such a program
+  directly as glyph indices under `CIDFontType0`, so every CID selects the glyph it selected.
 - **Refused, by name**: a program no row admits under its dictionary — a `glyf` program under
   `CIDFontType0` — since a true filing would need the dictionary's subtype changed and with it how a
-  CID selects a glyph, and a CFF-flavoured `OTTO` program under `/FontFile2` in a `TrueType` or
-  `CIDFontType2` dictionary (`bug1186827`, `issue215`, `issue5084`), which Table 124 admits only under
-  `Type1` and `CIDFontType0`; a move into `/FontFile` or `/FontFile2`, whose lengths this does not
-  compute; a finding list the validator shortened.
-- **Owed**: a `CIDFontType2` with an `Identity` `/CIDToGIDMap` over a name-keyed CFF selects the same
-  glyphs as a `CIDFontType0` would (§9.7.4.2), so refiling the dictionary there is provable.
-- **Not judged**: a `ttcf` collection under `/FontFile2`, until the TrueType Reference Manual is read
-  on whether it is a TrueType font program (`issue13193`, `issue9262_reduced`; veraPDF fails both).
+  CID selects a glyph, and a CFF-flavoured `OTTO` program under `/FontFile2` in a `TrueType`
+  dictionary (`issue215`), which Table 124 admits only under `Type1` and `CIDFontType0`; a
+  CFF-flavoured program under a `CIDFontType2` whose map is not `Identity` or which is CID-keyed,
+  since its CIDs would select other glyphs under `CIDFontType0` (`bug1186827`, whose map stream sends
+  CID *c* to glyph *c* − 31 from CID 32); a font collection (below); a move into `/FontFile` or
+  `/FontFile2`, whose lengths this does not compute; a finding list the validator shortened.
+- **A `ttcf` collection is in no row** (ADR 2327): the `FontFile2` row's program shall conform to
+  the TrueType Reference Manual, whose font file is one font opening with its own font directory, an
+  offset subtable whose scaler type (`true` or 0x00010000 for TrueType outlines, `OTTO` for CFF)
+  names that font's outlines; the Manual names no `ttcf` and describes no collection. The OpenType
+  specification makes a collection the delivery of several font resources, each with a directory of
+  its own, of which a descriptor names none, so the `OpenType` row's single program is not one
+  either. The validator fails it under any key and the conversion refuses it in a sentence of its
+  own (`issue13193`, `issue9262_reduced`, which converted before into outputs veraPDF failed). What
+  would answer it: the face this reader draws, chosen by the descriptor's `/FontName` (ADR 0141),
+  written out of the collection as a TrueType program of its own with its `/Length1`.
 - **Witnesses** — `issue4668`, `issue5751`, `issue6782`, `issue7598`, `bug921409` convert at 4 and
-  2b, page 1 byte-identical to the source's at 100 dpi, veraPDF passing all five; `issue9949`,
-  `issue11740_reduced` and the three above are refused.
+  2b, page 1 byte-identical to the source's at 100 dpi, veraPDF passing all five; `issue5084`
+  converts at 4 and 2b under both shipped profiles, page 1 byte-identical to the source's at 100 dpi
+  and at 360, veraPDF passing all four outputs; `issue9949`, `issue11740_reduced`, `issue215`,
+  `bug1186827`, `issue13193` and `issue9262_reduced` are refused.
 
 #### `fonts/cmap-embedded-or-predefined`
 #### `fonts/cmap-uses-only-predefined-cmaps`
@@ -1561,8 +1578,8 @@ rewrite
 - **Witnesses** — 26 of the 32 pdf.js documents part 4 refused on it convert, page 1 within one
   level of the source; veraPDF passes 21 and fails five on a descendant font program
   (6.2.10.4.1): a program filed under a key or name its bytes are not, which
-  `fonts/font-programs-filed-by-their-format` now refiles or refuses, or a TrueType collection
-  (ADR 2307).
+  `fonts/font-programs-filed-by-their-format` now refiles or refuses, or a TrueType collection,
+  which it refuses by name (ADRs 2307, 2327).
 
 #### `fonts/actual-text-covers-private-use-characters`
 ISO 19005-2 6.2.11.7.3 · PDF/A-2a · today `the-fence`
@@ -1772,6 +1789,12 @@ box's or a radio button's single stream, stay `not-built-yet`
   selects, which §12.5.5 draws as it drew the stream, under a state name nothing else reads
   (`Normal`, ADR 2319). A check box's or a radio button's single stream is not, because
   §12.7.5.2.3 makes the state's name the field's value.
+- **Refused, one sentence per shape** (trap 252): a subdictionary with no `/AS`; an `/AS` naming a
+  state the subdictionary does not hold; an appearance dictionary with no `N` (Table 170 requires
+  it, and the file states no appearance to move there); a check box's or a radio button's single
+  stream; and, apart from all four, the structural failures — a finding at no object, an object that
+  is no dictionary, an `N` or selected entry that is neither stream nor subdictionary, no unused
+  object number for a stream written in place — so the census counts what the files hold.
 - **By target** — none.
 - **From a configuration** — for the second case, `remedy = "supply"` with `state = "Off"` is
   expressible and is the operator asserting what an unstated checkbox means across their archive. It

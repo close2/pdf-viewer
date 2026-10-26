@@ -334,8 +334,9 @@ pub fn thinnest_line(to_device: Transform) -> Option<f32> {
 /// pixels the collapsed image passes through, which [`split_collapsed_fill`] builds for a path
 /// that collapses in its own space. A solid fill or stroke its matrix carries onto a line never
 /// reaches this refusal: `DisplayList::restate_collapsed_marks` restates it as the fill of its
-/// image on that line first (ADRs 1348 and 1360). What still does is a mark whose image is a
-/// point, §8.5.3.3.1's departure, and a paint this refusal is about.
+/// image on that line first (ADRs 1348 and 1360), and one carried onto a point as that point,
+/// which §8.5.3.3.1 makes the pixel under it (ADR 2330). What still reaches it is a paint this
+/// refusal is about.
 ///
 /// What the clause does **not** decide is anything about the page the mark is on, and no other
 /// clause makes a neighbouring command's matrix a reason to stop drawing — §6.3.2.2 asks a

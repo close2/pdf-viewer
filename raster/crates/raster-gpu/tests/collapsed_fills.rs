@@ -259,17 +259,63 @@ fn a_sliver_with_area_gets_coverage_not_a_mark() {
     );
 }
 
-/// A point is §8.5.3.3.1's case rather than this one — there is no axis to lay a
-/// mark along, and the table does not claim it.
+/// A point is §8.5.3.3.1's degenerate subpath, which "shall be considered to enclose
+/// the single device pixel lying under that point": the pixel §10.7.4 identifies by
+/// flooring, whole, and no other — under each placement's own arithmetic (the
+/// caller's ADR 2330).
 #[test]
-fn a_single_point_subpath_makes_no_mark() {
+fn a_single_point_subpath_marks_the_pixel_under_it() {
     let mut device = device();
-    let dot = [Segment::MoveTo(Point::new(32.0, 32.0)), Segment::Close];
+    let dot = [Segment::MoveTo(Point::new(32.5, 20.25)), Segment::Close];
     let scene = filled(&mut device, &dot);
+    for (transform, (column, row)) in [
+        (Affine::IDENTITY, (32, 20)),
+        (Affine::translate(0.0, 0.5), (32, 20)),
+        (Affine::translate(-0.75, 0.75), (31, 21)),
+    ] {
+        let bytes = rendered(&mut device, &scene, transform);
+        for y in 0..SIZE {
+            for x in 0..SIZE {
+                let want = if (x, y) == (column, row) { 255 } else { 0 };
+                assert_eq!(
+                    alpha(&bytes, x, y),
+                    want,
+                    "pixel ({x}, {y}) under {transform:?}"
+                );
+            }
+        }
+    }
+}
+
+/// A subpath on a line across both axes encloses no area, and its mark is the band of
+/// one device pixel along the line: from (10, 10) to (50, 50), its ink is its length,
+/// `40√2` pixels, and nothing lies more than a pixel from the line.
+#[test]
+fn a_line_across_the_axes_is_a_band_along_it() {
+    let mut device = device();
+    let line = [
+        Segment::MoveTo(Point::new(10.0, 10.0)),
+        Segment::LineTo(Point::new(30.0, 30.0)),
+        Segment::LineTo(Point::new(50.0, 50.0)),
+        Segment::Close,
+    ];
+    let scene = filled(&mut device, &line);
     let bytes = rendered(&mut device, &scene, Affine::IDENTITY);
+    let mut ink = 0.0f64;
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            let a = alpha(&bytes, x, y);
+            if a > 0 {
+                let off = (f64::from(x) - f64::from(y)).abs();
+                assert!(off <= 1.0, "pixel ({x}, {y}) is {off} from the line");
+            }
+            ink += f64::from(a) / 255.0;
+        }
+    }
+    let length = 40.0 * 2f64.sqrt();
     assert!(
-        (0..SIZE).all(|y| (0..SIZE).all(|x| alpha(&bytes, x, y) == 0)),
-        "no ink anywhere"
+        (ink - length).abs() < 1.0,
+        "the band carries {ink} where its length is {length}"
     );
 }
 

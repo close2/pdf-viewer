@@ -10,10 +10,14 @@ use super::{Entry, Rewrite, Rewriter, count, resources_with_default, with_defaul
 
 impl Rewriter<'_> {
     /// Moves a descriptor's program to `/FontFile3`, the same stream under the key §9.9's Table
-    /// 124 files its format under (ADR 2307).
+    /// 124 files its format under (ADR 2307), and writes a `CIDFont` the move retypes as the
+    /// subtype that row is under (ADR 2326).
     ///
     /// Counted once, at the stream, which every refiled program has.
     pub(super) fn refile_font_program(&self, id: ObjectId, out: &mut Dictionary) -> bool {
+        if self.retype_cid_font(id, out) {
+            return true;
+        }
         let Some(from) = self
             .font_files
             .filter(|_| self.wants(Rewrite::FontProgramRefiled))
@@ -25,6 +29,28 @@ impl Rewriter<'_> {
             return false;
         };
         out.insert(Name::new(&b"FontFile3"[..]), program);
+        true
+    }
+
+    /// Writes a `CIDFontType2` dictionary whose `Identity` map makes each CID its glyph's index
+    /// over a name-keyed CFF program as the `CIDFontType0` that selects the same glyphs, and
+    /// removes the `/CIDToGIDMap` Table 115 gives a Type 2 `CIDFont` alone (ADR 2326).
+    ///
+    /// A font dictionary is never a descriptor, so an object is one or the other of the two
+    /// edits [`Self::refile_font_program`] makes.
+    fn retype_cid_font(&self, id: ObjectId, out: &mut Dictionary) -> bool {
+        if !self.wants(Rewrite::FontProgramRefiled)
+            || !self
+                .font_files
+                .is_some_and(|refiled| refiled.retyped.contains(&id))
+        {
+            return false;
+        }
+        out.insert(
+            Name::new(&b"Subtype"[..]),
+            Object::Name(Name::new(&b"CIDFontType0"[..])),
+        );
+        out.remove("CIDToGIDMap");
         true
     }
 

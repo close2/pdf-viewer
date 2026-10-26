@@ -109,7 +109,7 @@ pub(super) fn embed(
     {
         return Err(Because::NotBuiltYet(SUPPLIED_PROGRAM_IS_CID_KEYED));
     }
-    let row = key_for(&subtype, format, program)
+    let row = key_for(&subtype, program)
         .ok_or_else(|| Because::NotBuiltYet(no_row(&subtype, format, program)))?;
     let identity_map = needs_an_identity_map(document, &used.dict, &descendant_dict, &subtype)?;
 

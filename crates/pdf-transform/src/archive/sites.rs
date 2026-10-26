@@ -301,8 +301,32 @@ const NO_APPEARANCE_STATE: &str = "this annotation's normal appearance is a subd
      states no AS entry selecting one of them. §12.5.2's Table 166 makes AS what selects the \
      applicable stream, so where it is there the collapse writes down the reader's own choice — \
      and where it is not, nothing in the file says which state the document is in, and choosing \
-     one is doc/questions/A48's forbidden half. An appearance dictionary stating no N entry at \
-     all has no answer either";
+     one is doc/questions/A48's forbidden half";
+
+/// Why an appearance dictionary with no normal appearance is not given one.
+const NO_NORMAL_APPEARANCE: &str = "this annotation's appearance dictionary states no N entry, \
+     which ISO 32000-2's Table 170 requires as the annotation's normal appearance and which ISO \
+     19005 requires to be the one entry such a dictionary holds. The file states no appearance to \
+     move there, and writing one would be drawing the annotation for its producer";
+
+/// Why an `/AS` naming no entry of its subdictionary is not collapsed.
+const STATE_NOT_HELD: &str = "this annotation's normal appearance is a subdictionary of \
+     appearance states and its AS entry names a state the subdictionary does not hold. Table \
+     166 makes AS what selects the applicable stream, and here it selects none, so the file states \
+     no appearance for the state the annotation is in; choosing another of its states is \
+     doc/questions/A48's forbidden half";
+
+/// Why an appearance the validator reported in a shape no annotation has is not collapsed.
+const NOT_AN_APPEARANCE: &str = "the validator reported a normal appearance that this \
+     conversion does not find as an annotation dictionary whose N is a stream or a subdictionary \
+     of streams - the finding names no object, the object is no dictionary, or N or the entry its \
+     AS selects is some other kind of object - so there is no stream for the collapse to name";
+
+/// Why a normal appearance written directly inside its dictionary is not given an object.
+const NO_NUMBER_FOR_THE_APPEARANCE: &str = "this annotation's normal appearance stream is \
+     written directly inside a dictionary rather than as an object of its own, and no unused \
+     object number was found to give it one, which the subdictionary written in its place has to \
+     refer to";
 
 /// Why a check box's or a radio button's single normal appearance stream is not wrapped.
 const A_STATE_WOULD_BE_A_VALUE: &str = "this widget belongs to a check box or a radio button \
@@ -366,19 +390,21 @@ pub(super) fn appearance_states(
 ) -> Result<AppearanceStates, Because> {
     let (named, elsewhere) = objects_named(input, &["annotations/normal-appearance-shape"]);
     if elsewhere {
-        return Err(Because::NotBuiltYet(NO_APPEARANCE_STATE));
+        return Err(Because::NotBuiltYet(NOT_AN_APPEARANCE));
     }
     let mut found = AppearanceStates::default();
     for id in named {
         let resolved = document.get(id);
-        let annotation =
-            dictionary_of(&resolved).ok_or(Because::NotBuiltYet(NO_APPEARANCE_STATE))?;
+        let annotation = dictionary_of(&resolved).ok_or(Because::NotBuiltYet(NOT_AN_APPEARANCE))?;
         let states = document.get_key(annotation, "AP");
         let normal = states
             .as_dict()
             .and_then(|appearance| appearance.get("N"))
             .cloned()
-            .ok_or(Because::NotBuiltYet(NO_APPEARANCE_STATE))?;
+            // §7.3.10 reads a reference to an undefined object as one to null, and §7.3.7 an
+            // entry whose value is null as no entry, so an `N` naming object 0 states none.
+            .filter(|normal| !matches!(document.resolve(normal), Object::Null))
+            .ok_or(Because::NotBuiltYet(NO_NORMAL_APPEARANCE))?;
         let button = document
             .get_key(annotation, "Subtype")
             .as_name()
@@ -398,7 +424,7 @@ pub(super) fn appearance_states(
                 direct => {
                     let at = spare
                         .take(document)
-                        .ok_or(Because::NotBuiltYet(NO_APPEARANCE_STATE))?;
+                        .ok_or(Because::NotBuiltYet(NO_NUMBER_FOR_THE_APPEARANCE))?;
                     found.written.push((at, direct.clone()));
                     at
                 }
@@ -409,7 +435,7 @@ pub(super) fn appearance_states(
         let states = document.resolve(&normal);
         let states = states
             .as_dict()
-            .ok_or(Because::NotBuiltYet(NO_APPEARANCE_STATE))?;
+            .ok_or(Because::NotBuiltYet(NOT_AN_APPEARANCE))?;
         // §7.3.5 resolves a name by its bytes, so the lookup is byte-exact: an `/AS` whose name
         // is not valid UTF-8 selects the entry spelled with those same bytes and nothing else.
         let state = document
@@ -419,7 +445,7 @@ pub(super) fn appearance_states(
             .clone();
         let selected = states
             .get_by_name(&state)
-            .ok_or(Because::NotBuiltYet(NO_APPEARANCE_STATE))?
+            .ok_or(Because::NotBuiltYet(STATE_NOT_HELD))?
             .clone();
         // §12.5.5's subdictionary holds appearance streams, and a stream is an indirect object,
         // so the usual shape is a reference this rewrite can simply name. A subdictionary whose
@@ -430,11 +456,11 @@ pub(super) fn appearance_states(
             Object::Stream(_) => {
                 let at = spare
                     .take(document)
-                    .ok_or(Because::NotBuiltYet(NO_APPEARANCE_STATE))?;
+                    .ok_or(Because::NotBuiltYet(NO_NUMBER_FOR_THE_APPEARANCE))?;
                 found.written.push((at, selected.clone()));
                 at
             }
-            _ => return Err(Because::NotBuiltYet(NO_APPEARANCE_STATE)),
+            _ => return Err(Because::NotBuiltYet(NOT_AN_APPEARANCE)),
         };
         found.at.insert(id, stream);
     }

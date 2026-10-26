@@ -1623,8 +1623,8 @@ impl DisplayList {
     ///
     /// What is not restated is left as it was, refused and counted by
     /// [`DisplayList::noninvertible_marks`]: a paint other than a solid colour, which a space with
-    /// no inverse cannot position, and a mark whose image is a single point, which §8.5.3.3.1
-    /// governs and [`crate::collapsed`] records as a departure. See [`collapsed_by_transform`].
+    /// no inverse cannot position. A mark whose image is a single point is restated as that point,
+    /// §8.5.3.3.1's degenerate subpath (ADR 2330). See [`collapsed_by_transform`].
     ///
     /// Nested groups are walked, because a group's elements are marks of this page.
     ///

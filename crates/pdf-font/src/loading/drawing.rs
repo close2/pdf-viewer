@@ -128,7 +128,11 @@ impl LoadedFont {
             }
         }
 
-        if pen.path.is_empty() {
+        // A contour at one point states no edge, and a glyph's scan conversion is the font's own
+        // (ADR 2330): see [`without_point_contours`]. A glyph left with no contour is the blank
+        // glyph this method already answers `None` for.
+        let path = without_point_contours(pen.path);
+        if path.is_empty() {
             return None;
         }
         // §9.3.6 NOTE 2 makes a glyph's contour direction visible where two glyphs overlap
@@ -136,9 +140,9 @@ impl LoadedFont {
         // document stated — so every substituted outline is wound the same way, and an
         // embedded program's is left exactly as its producer drew it.
         if self.substituted {
-            return Some(Arc::new(wound_counter_clockwise(pen.path)));
+            return Some(Arc::new(wound_counter_clockwise(path)));
         }
-        Some(Arc::new(pen.path))
+        Some(Arc::new(path))
     }
 
     /// The interpreter instance for a hint-reliant font program, built on first use.
@@ -253,5 +257,125 @@ impl LoadedFont {
             return false;
         };
         count > 0 && (0..count).all(states_empty)
+    }
+}
+
+/// A glyph outline less its contours at one point — ISO 32000-2 §10.7.4's last paragraph.
+///
+/// > Scan conversion of character glyphs may be performed by a different algorithm from the
+/// > preceding one.
+///
+/// A font program's contour whose every point, control points included, is one point — a
+/// TrueType contour of a single point, or a move and a closepath with nothing drawn between them,
+/// or a curve of no length — states no edge, and a font's own rasteriser fills by edges, so it
+/// marks nothing. §8.5.3.3.1's degenerate subpath, which paints the pixel under its point (ADR
+/// 2330), is a rule about a path a content stream constructs, and the permission above keeps it off
+/// a glyph's contours: dozens of corpus fonts carry such a contour inside ordinary letters, where
+/// painting it would put a speck beside the glyph. A contour with an extent keeps §10.7.4's marks.
+fn without_point_contours(path: Path) -> Path {
+    use pdf_render::PathCommand;
+    let commands = path.commands();
+    let mut kept = Path::new();
+    let mut start = 0usize;
+    let mut dropped = false;
+    while start < commands.len() {
+        let mut end = start;
+        let mut first: Option<pdf_render::Point> = None;
+        let mut one_point = true;
+        let mut opened = false;
+        while end < commands.len() {
+            let points: &[pdf_render::Point] = match &commands[end] {
+                PathCommand::MoveTo(p) => {
+                    if opened {
+                        break;
+                    }
+                    std::slice::from_ref(p)
+                }
+                PathCommand::LineTo(p) => std::slice::from_ref(p),
+                PathCommand::CurveTo(a, b, c) => &[*a, *b, *c],
+                PathCommand::Close => {
+                    end = end.saturating_add(1);
+                    break;
+                }
+            };
+            opened = true;
+            for point in points {
+                match first {
+                    None => first = Some(*point),
+                    Some(at) => one_point &= at == *point,
+                }
+            }
+            end = end.saturating_add(1);
+        }
+        let contour = commands.get(start..end).unwrap_or_default();
+        // A run of `h` alone names no point and is kept as the program stated it.
+        if first.is_some() && one_point {
+            dropped = true;
+        } else {
+            kept.extend(contour);
+        }
+        start = end.max(start.saturating_add(1));
+    }
+    if dropped { kept } else { path }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::without_point_contours;
+    use pdf_render::{Path, PathCommand, Point};
+
+    fn path(commands: &[PathCommand]) -> Path {
+        let mut path = Path::new();
+        for command in commands {
+            path.push(*command);
+        }
+        path
+    }
+
+    fn square() -> [PathCommand; 5] {
+        [
+            PathCommand::MoveTo(Point::new(0.1, 0.1)),
+            PathCommand::LineTo(Point::new(0.5, 0.1)),
+            PathCommand::LineTo(Point::new(0.5, 0.5)),
+            PathCommand::LineTo(Point::new(0.1, 0.5)),
+            PathCommand::Close,
+        ]
+    }
+
+    /// The shape corpus fonts carry inside ordinary letters: a move and a closepath after the
+    /// last contour. It goes, and the letter's own contour stays exactly as drawn.
+    #[test]
+    fn a_contour_at_one_point_is_dropped_and_the_letter_kept() {
+        let mut commands = square().to_vec();
+        commands.push(PathCommand::MoveTo(Point::new(0.27, 0.53)));
+        commands.push(PathCommand::Close);
+        assert_eq!(without_point_contours(path(&commands)).commands(), square());
+    }
+
+    /// A curve of no length is a contour at one point too, and a glyph that is nothing else is
+    /// left with no contour — the blank glyph `build_outline` answers `None` for.
+    #[test]
+    fn a_curve_of_no_length_is_a_point_and_a_glyph_of_only_that_is_blank() {
+        let origin = Point::new(0.0, 0.0);
+        let dot = path(&[
+            PathCommand::MoveTo(origin),
+            PathCommand::CurveTo(origin, origin, origin),
+            PathCommand::Close,
+        ]);
+        assert!(without_point_contours(dot).is_empty());
+    }
+
+    /// A contour with an extent is not this rule's, even one with no area: it keeps §10.7.4's
+    /// mark. And an outline with no contour at one point is returned as it was.
+    #[test]
+    fn a_contour_with_an_extent_is_kept() {
+        let mut commands = square().to_vec();
+        commands.push(PathCommand::MoveTo(Point::new(0.2, 0.7)));
+        commands.push(PathCommand::LineTo(Point::new(0.6, 0.9)));
+        commands.push(PathCommand::Close);
+        assert_eq!(
+            without_point_contours(path(&commands)).commands(),
+            commands.as_slice()
+        );
     }
 }

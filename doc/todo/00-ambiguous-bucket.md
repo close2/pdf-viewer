@@ -912,11 +912,10 @@ now, each with the clause its report rests on, so a swap fails the gate as well 
   subpath is degenerate (consists entirely of one or more points at the same coordinates), the
   subpath shall be considered to enclose the single device pixel lying under that point", with
   §10.7.4's clip as "the set of pixels that would be included by a fill operation", makes the form
-  one pixel rather than nothing, and both rasterisers give a degenerate clip path no coverage. On
+  one pixel rather than nothing, which every rasteriser now admits (ADR 2330). On
   this document at 72 dpi that pixel's centre lies outside the image's region, so §10.7.4's image
   rule paints nothing there anyway — "device-dependent and not generally useful", as the clause
-  says of itself — and every reference draws the same blank. Recorded on §8.5.3.3.1's ledger row,
-  not taken in a corpus round.
+  says of itself — and every reference draws the same blank.
 
 The four are now all named somewhere in this tree, and the grep over the gate's `incomplete:`
 lines that found them is the standing method for the next empty head.

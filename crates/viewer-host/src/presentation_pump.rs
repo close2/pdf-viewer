@@ -120,22 +120,24 @@ pub enum Held {
     },
 }
 
+/// What the terminal is told while a question at the *ask* level waits — in every window, `quorra`'s
+/// cards among them (ADR 2329).
+pub const QUESTION_WAITS: &str = "a question waits until the presentation ends: Table 29's full \
+                                  screen shows no other window";
+/// What the terminal is told while a script's `app.alert` or `app.response` waits.
+pub const SCRIPT_WAITS: &str = "a script's question waits until the presentation ends: Table 29's \
+                                full screen shows no other window";
+/// What the terminal is told while §7.6.4.1's password prompt waits.
+pub const PASSWORD_WAITS: &str = "the password prompt waits until the presentation ends: Table \
+                                  29's full screen shows no other window";
+
 impl Held {
     /// What the terminal is told while it waits.
-    fn waiting(&self) -> &'static str {
+    const fn waiting(&self) -> &'static str {
         match self {
-            Self::Question { .. } => {
-                "a question waits until the presentation ends: Table 29's full screen shows no \
-                 other window"
-            }
-            Self::Script { .. } => {
-                "a script's question waits until the presentation ends: Table 29's full screen \
-                 shows no other window"
-            }
-            Self::Password { .. } => {
-                "the password prompt waits until the presentation ends: Table 29's full screen \
-                 shows no other window"
-            }
+            Self::Question { .. } => QUESTION_WAITS,
+            Self::Script { .. } => SCRIPT_WAITS,
+            Self::Password { .. } => PASSWORD_WAITS,
         }
     }
 }

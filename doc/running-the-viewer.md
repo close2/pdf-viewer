@@ -5,8 +5,9 @@ Read by: whoever is running the viewer rather than the gates. `tools/batch.sh in
 puts the binaries where a person can reach them, and `doc/todo/02-every-round.md` section 5 says why
 each is there; `doc/verify.md` is the instruments.
 
-**A person runs `target/quorra`**, in the main checkout, and the eleven other files beside it are
-what it and its siblings need: every merge of a batch ends with `tools/batch.sh install`, which
+**A person runs `target/quorra`**, in the main checkout, and the other files beside it are
+what it and its siblings need — `tools/batch.sh`'s `install_binaries`, `install_libraries` and
+`install_featured` are the list: every merge of a batch ends with `tools/batch.sh install`, which
 builds them `--release` from the commit `main` names and writes `target/installed-from` — that
 commit and each file's SHA-256 — beside them. `tools/state.sh binaries` says which commit that is
 and how far `main` has moved since (ADR 1511).
@@ -17,6 +18,15 @@ and how far `main` has moved since (ADR 1511).
 answers a *program*'s questions about a document as JSON on stdout — a page, a section addressed by
 its clause number, and the annotations over either — and nothing here applies to it. `doc/todo/63`
 and ADR 0257 are its two files, and `pdf-retrieve` with no arguments prints what it takes.
+
+**`target/quorra-transform archive` reads one thing no install puts there: the CJK pack, a second
+download** (`doc/questions/A569`, ADRs 2302, 2303). A composite font of an Adobe character
+collection that the file did not embed is converted only from that collection's program in the
+pack — a directory named `cjk-pack` unpacked beside the `quorra-transform` executable, or named with
+`--cjk-pack <dir>` — and held to the digests the program carries; without it each such font is
+refused with a sentence saying the pack is not installed and where it goes. Nothing fetches it and
+no window reads it. `doc/cjk-pack.md` is its layout and how `tools/cjk-pack.py` builds it; how it is
+published beside a release is `doc/questions/Q596`, open to the owner.
 
 ```sh
 cargo run --release -p viewer-ui --bin quorra -- doc/PDF20_AN001-BPC.pdf
@@ -129,7 +139,8 @@ scale hook alone (ADRs 2250, 2251). On that nested KWin the probe sends input it
 KWin's own EIS interface: `--wheel` reads a window's count of a wheel off the output — zoom steps of
 four Control notches, a notch's scroll, the eighths that moved the page — and `--drift` puts the
 pointer on a marker, sends ten notches in and ten out, and splits the marker's offset into the core's
-anchor and the window's placement (ADRs 2274, 2275). On a KDE session `tools/zoom-probe-activate.py <pid> <file>`
+anchor and the window's placement (ADRs 2274, 2275), and `--touchpad` sends a touchpad's smooth
+travel and reads how far the page moved (ADR 2291). On a KDE session `tools/zoom-probe-activate.py <pid> <file>`
 activates one window and confirms it is the active one, so that a capture of the active window is
 of that window (ADR 2266).
 
@@ -232,7 +243,13 @@ and `quorra-qt`.
 **And all three drive the clock** (ADR 0473): `/Dur` advances the page and Table 164's effects
 animate in `quorra`, `quorra-gtk` and `quorra-qt` alike, on one shared decision — `viewer_host::Clock`, because how often to tick and when `/D` has elapsed are the
 clause's questions and not a toolkit's. Nothing is armed when nothing is presenting, and a page
-stating no `/Dur` costs a still window a wakeup and no repaint.
+stating no `/Dur` costs a still window a wakeup and no repaint. **A presentation nobody can see is
+parked rather than ended**: a hidden or minimised window, or another tab in front, counts none of a
+page's `/Dur` and draws no transition frame — one pump every window's timer turns,
+`viewer_host::presentation_pump`, and in `quorra` its own winit turn (ADRs 2300, 2317). In
+`quorra-gtk`, `quorra-qt` and a C caller's window a question, a script's dialogue or a password
+prompt the document raises waits until the window leaves full screen; `quorra`'s cards are drawn
+inside the presentation and are not held (ADR 2309).
 
 No corpus document states a `/Trans`, a `/Dur` or a `/PresSteps`, so the thing to open is a
 fixture — whose fourth slide is the one with states:

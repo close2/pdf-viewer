@@ -358,22 +358,33 @@ fn append_no_shape(
             None,
         ),
         Nothing::ZeroAreaFill => {
-            // Three collinear points enclose no region under either fill rule (§8.5.3.3);
-            // moving the middle one off the line gives the same outline an area. Collinear
-            // **at an angle**, deliberately: an axis-aligned degenerate subpath has a shape
-            // since §10.7.4's marks became the encode's (ADR 0086) — "a filling region is
-            // considered to intersect every pixel through which its boundary passes, even
-            // if the interior of the filling region is empty" — while the diagonal case is
-            // outside the resident table's test (extent in both axes), exactly as it is
-            // outside the caller's `pdf_render::collapsed`, whose module comment names it
-            // as the stated absence.
-            let flat = device
-                .upload_outline(&triangle(
-                    Point::new(10.0, 12.0),
-                    Point::new(30.0, if full { 44.0 } else { 28.0 }),
-                    Point::new(50.0, 44.0),
-                ))
-                .expect("upload");
+            // Out along two sides of a triangle and back the same way: the edges cancel, so
+            // the outline encloses no region under either fill rule (§8.5.3.3), and the
+            // triangle itself is the same points with an area. **Off any one line**,
+            // deliberately: a subpath on one line has a shape since §10.7.4's marks became
+            // the encode's — along an axis (ADR 0086) and across the axes (the caller's ADR
+            // 2330) — "a filling region is considered to intersect every pixel through which
+            // its boundary passes, even if the interior of the filling region is empty",
+            // while one that retraces itself off a line is outside the resident table's test,
+            // exactly as it is outside the caller's `pdf_render::collapsed`, whose module
+            // comment names it as the departure their ADR 2330 decides.
+            let (a, b, c) = (
+                Point::new(10.0, 12.0),
+                Point::new(30.0, 44.0),
+                Point::new(50.0, 28.0),
+            );
+            let outline = if full {
+                triangle(a, b, c)
+            } else {
+                vec![
+                    Segment::MoveTo(a),
+                    Segment::LineTo(b),
+                    Segment::LineTo(c),
+                    Segment::LineTo(b),
+                    Segment::Close,
+                ]
+            };
+            let flat = device.upload_outline(&outline).expect("upload");
             builder.fill(
                 flat,
                 Affine::IDENTITY,

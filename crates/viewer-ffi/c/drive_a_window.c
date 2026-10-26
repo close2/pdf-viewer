@@ -9,6 +9,8 @@
  * the same `act_on_what_is_owed`.
  *
  *   ./drive_a_window <file.pdf> <form.pdf> <script.pdf> <directory> <audience.pdf> <placed.pdf>
+ *                    <held.pdf>
+ *   ./drive_a_window --declined <file.pdf>
  *
  * The second document is the fixture `tests/a_c_program_drives_the_abi.rs` writes: a push-button
  * whose §12.7.6.2 submission the reader's default level asks about, which is how the question
@@ -17,7 +19,11 @@
  * validation asks with app.alert, which a window at the scripts' PROCEED level puts to this
  * program as a record (ADR 2121). The fourth is a directory holding one file that is neither a
  * certificate nor a PDF (ADR 2156), the fifth one layer for a named reader (ADR 2173), and the
- * sixth a page stating Table 147's /FitWindow and /CenterWindow (ADR 2308).
+ * sixth a page stating Table 147's /FitWindow and /CenterWindow (ADR 2308), placed once where the
+ * window may move itself and once where it may not, and the seventh a deck that opens presenting
+ * whose slide is a link (ADR 2309). `--declined` draws a page the union declines a mark of, where
+ * the caller planted the fault in the environment (ADR 2290). Each of the last three prints the
+ * title as the toolkit windows' drive steps 105, 106 and 89 read theirs (ADR 2328).
  *
  * Exit status: 0 if every step succeeded, 1 otherwise, with the failing step named on stderr.
  */
@@ -93,6 +99,9 @@ struct seen {
     int moves;
     int32_t moved_x;
     int32_t moved_y;
+    /* Whether the pretend window is on a platform that places every window itself, so it states
+     * positions = 0 and a centre it asks for is not given. */
+    bool placed_by_the_platform;
 };
 
 /* The pretend window's chrome: a frame of ten by thirty and a bar forty tall under the page area,
@@ -242,7 +251,7 @@ static int act_on_what_is_owed(quorra_window *window, struct seen *seen)
                 break;
             }
             quorra_window_extents extents = {seen->inner_width, seen->inner_height, 10, 30, 0, 0,
-                                             1920, 1080, 1u};
+                                             1920, 1080, seen->placed_by_the_platform ? 0u : 1u};
             quorra_window_placement placed = {0};
             int32_t status = quorra_window_place(window, &extents, &placed);
             if (status == QUORRA_NO_ANSWER) {
@@ -301,6 +310,28 @@ static int run_the_timer(quorra_window *window, struct seen *seen)
     }
     fprintf(stderr, "the window never stopped asking for its timer\n");
     return 0;
+}
+
+/* The window's timer while it presents, which asks to be ticked for as long as the presentation
+ * runs: ticked until a picture is on the screen and then for `after` ticks more, so the records a
+ * page's first frame owes have been taken. */
+static int run_the_presentation(quorra_window *window, struct seen *seen, int after)
+{
+    for (int ticks = 0; ticks < 20000 && after > 0; ++ticks) {
+        int32_t interval = quorra_window_interval(window);
+        if (interval < 0) {
+            return 1;
+        }
+        wait_ms(interval);
+        if (!check("quorra_window_tick", quorra_window_tick(window))
+            || !act_on_what_is_owed(window, seen)) {
+            return 0;
+        }
+        if (quorra_window_frame_count(window) > 0) {
+            --after;
+        }
+    }
+    return after == 0;
 }
 
 /* One key, and what the window owed for it. */
@@ -1227,13 +1258,119 @@ static int the_placement(const char *path)
     return seen.resizes >= 1 && seen.moves == 1 && after == QUORRA_NO_ANSWER && !full_screen;
 }
 
+/* The same, on a platform that places every window itself: the window is fitted and not moved,
+ * and the centre it was not given is said and named in its title as the toolkits' titles name it
+ * (ADRs 2308, 2328). */
+static int the_uncentred(const char *path)
+{
+    quorra_window *window = NULL;
+    struct seen seen = {0};
+    seen.inner_width = 800;
+    seen.inner_height = 600 + PLACED_CHROME;
+    seen.placed_by_the_platform = true;
+    if (!check("quorra_window_open", quorra_window_open(path, NULL, &window))
+        || !check("quorra_window_resize", quorra_window_resize(window, 800, 600, 1.0f))
+        || !act_on_what_is_owed(window, &seen) || !run_the_timer(window, &seen)) {
+        quorra_window_free(window);
+        return 0;
+    }
+    /* The record the fitted window was asked at owed the sentence and the title after it, so
+     * they are taken once more; then nothing is owed and nothing was moved. */
+    quorra_window_extents extents = {seen.inner_width, seen.inner_height, 10, 30, 0, 0, 1920,
+                                     1080, 0u};
+    if (!act_on_what_is_owed(window, &seen)) {
+        quorra_window_free(window);
+        return 0;
+    }
+    quorra_window_placement placed = {0};
+    int32_t after = quorra_window_place(window, &extents, &placed);
+    printf("window uncentred: %d resize(s), %d move(s), then %s; title: %s\n", seen.resizes,
+           seen.moves, quorra_status_message(after), seen.title);
+    quorra_window_free(window);
+    return seen.resizes >= 1 && seen.moves == 0 && after == QUORRA_NO_ANSWER
+           && strstr(seen.title, "not centred: the platform places this window") != NULL;
+}
+
+/* Table 29's FullScreen: a deck that opens presenting, whose slide is one link, under --links=ask.
+ * The click's question waits until the presentation ends — said, and owed as no record — and
+ * Escape puts it up, answered "Do not" (ADR 2309). */
+static int the_held_question(const char *path)
+{
+    quorra_settings *settings = NULL;
+    quorra_window *window = NULL;
+    struct seen seen = {0};
+    bool taken = false;
+    int ok = check("quorra_settings_new", quorra_settings_new(&settings))
+             && check("quorra_settings_take",
+                      quorra_settings_take(settings, "--links=ask", &taken))
+             && check("quorra_window_open_under",
+                      quorra_window_open_under(path, NULL, settings, &window));
+    quorra_settings_free(settings);
+    bool presenting = false;
+    bool over = false;
+    if (!ok || !check("quorra_window_resize", quorra_window_resize(window, 800, 600, 1.0f))
+        || !act_on_what_is_owed(window, &seen) || !run_the_presentation(window, &seen, 10)
+        || !check("quorra_window_full_screen", quorra_window_full_screen(window, &presenting))
+        || !check("quorra_window_pointer",
+                  quorra_window_pointer(window, 400.0f, 300.0f, QUORRA_POINTER_PRESSED, &over))
+        || !check("quorra_window_pointer",
+                  quorra_window_pointer(window, 400.0f, 300.0f, QUORRA_POINTER_RELEASED, &over))
+        || !act_on_what_is_owed(window, &seen) || !run_the_presentation(window, &seen, 10)) {
+        quorra_window_free(window);
+        return 0;
+    }
+    char waited[512];
+    snprintf(waited, sizeof waited, "%s", seen.said);
+    int while_presenting = seen.questions;
+    uint32_t act = QUORRA_ACT_NOTHING;
+    bool after = true;
+    if (!press(window, QUORRA_KEY_ESCAPE, false, &act, &seen)
+        || !check("quorra_window_full_screen", quorra_window_full_screen(window, &after))
+        || !check("quorra_window_answer", quorra_window_answer(window, false))
+        || !act_on_what_is_owed(window, &seen)) {
+        quorra_window_free(window);
+        return 0;
+    }
+    printf("window held: presenting %d, %d question(s) while presenting, \"%.60s\"; after Escape "
+           "presenting %d, %d question(s), answered: %.40s; title: %s\n",
+           presenting ? 1 : 0, while_presenting, waited, after ? 1 : 0, seen.questions, seen.said,
+           seen.title);
+    quorra_window_free(window);
+    return taken && presenting && while_presenting == 0
+           && strstr(waited, "a question waits until the presentation ends") != NULL && !after
+           && seen.questions == 1;
+}
+
+/* A mark the union declines, named in the title as the toolkits' titles name it (ADR 2290): run
+ * alone, as `--declined <file.pdf>`, because the fault is planted in the process's environment
+ * (PDFVIEWER_PLANT_OPEN_ROW) and the test runs it once planted and once not, the control. */
+static int the_declined(const char *path)
+{
+    quorra_window *window = NULL;
+    struct seen seen = {0};
+    if (!check("quorra_window_open", quorra_window_open(path, NULL, &window))
+        || !check("quorra_window_resize", quorra_window_resize(window, 800, 800, 1.0f))
+        || !act_on_what_is_owed(window, &seen) || !run_the_timer(window, &seen)
+        || !act_on_what_is_owed(window, &seen)) {
+        quorra_window_free(window);
+        return 0;
+    }
+    printf("window declined: title: %s\n", seen.title);
+    quorra_window_free(window);
+    return 1;
+}
+
 int main(int argc, char **argv)
 {
-    if (argc < 7) {
+    if (argc == 3 && strcmp(argv[1], "--declined") == 0) {
+        return the_declined(argv[2]) ? 0 : 1;
+    }
+    if (argc < 8) {
         fprintf(stderr,
                 "usage: %s <file.pdf> <form.pdf> <script.pdf> <directory> <audience.pdf> "
-                "<placed.pdf>\n",
-                argv[0]);
+                "<placed.pdf> <held.pdf>\n"
+                "       %s --declined <file.pdf>\n",
+                argv[0], argv[0]);
         return 1;
     }
     if (!check("quorra_abi_check", quorra_abi_check(QUORRA_ABI_VERSION, QUORRA_EVENT_KIND_COUNT))) {
@@ -1268,7 +1405,8 @@ int main(int argc, char **argv)
     }
     if (!the_note(argv[1], argv[2]) || !the_form(argv[2]) || !the_requests(argv[1])
         || !the_settings(argv[2]) || !the_reader(argv[1], argv[4]) || !the_script(argv[3])
-        || !the_audience(argv[5]) || !the_placement(argv[6])) {
+        || !the_audience(argv[5]) || !the_placement(argv[6]) || !the_uncentred(argv[6])
+        || !the_held_question(argv[7])) {
         return 1;
     }
     printf("ok\n");

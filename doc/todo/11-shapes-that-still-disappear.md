@@ -32,7 +32,7 @@ quantum does to a mark it keeps — an edge's coverage rounded to a quarter on `
 under a matrix with no inverse cost the whole page on all three backends, and now costs itself and
 is reported by name. §10.7.4's own mark for a shape a *transform* collapsed is built for a solid
 fill and a solid stroke, along a page axis or across it (ADRs 1348, 1360); a mark carried onto a
-single point is §8.5.3.3.1's departure (ADR 1060).
+single point is the pixel under it (ADR 2330).
 Priority: 11
 Corpus: 5 known witnesses for items 1-7; 4 crawled documents and 1 of `format-corpus`' for item 8,
 all of them in `doc/checks/fixed-documents.toml` or named in ADR 0482
@@ -973,9 +973,9 @@ the restatement is in page space and `split_collapsed_fill` draws the run of who
 axes it is in the frame whose x-axis is the line, and the band of one device pixel is drawn.
 `DisplayList::restate_collapsed_marks` applies both in `pdf_model`'s finished list.
 `pdf-model/tests/scan_conversion_collapsed_by_transform.rs` holds the fill's eighty pixels, the
-diagonal's `70√2`, and a stroke's image from its closed form. Still refused and counted: a mark whose
-image is a single **point** — §8.5.3.3.1's, which `collapsed.rs` records as a departure (ADR 1060) —
-and a paint no space positions. An image paints nothing under §10.7.4's own image rule, since a
+diagonal's `70√2`, and a stroke's image from its closed form. A mark whose image is a single
+**point** is restated as that point and paints the pixel under it (ADR 2330); still refused and
+counted: a paint no space positions. An image paints nothing under §10.7.4's own image rule, since a
 region of no area holds no pixel centre.
 
 How the three things this item said a round owed were answered:
@@ -983,7 +983,7 @@ How the three things this item said a round owed were answered:
 - **A warrant**: §10.7.4's `shall` against a NOTE that states nothing (ADR 1348).
 - **A placement**: the run of whole pixels along a page axis; across the axes, the band of one
   device pixel `collapsed.rs` already draws where the grid is turned (ADR 1360). A rank-zero
-  matrix leaves a point, which is ADR 1060's decision.
+  matrix leaves a point, which paints the pixel under it (ADR 2330).
 - **A witness**: `examples/singular_transform_census` over **every corpus on this disk**.
   Page one alone, 35 documents state such a mark and there are 465 985 of them, four documents
   carrying 333 327, 49 715, 39 895 and 39 895 apiece. The old sentence — "[m]ost matching pages

@@ -358,7 +358,10 @@ impl Partial {
 /// core cannot tell the two lanes apart — which is what `Rendered::Raster` was for.
 pub trait PageLane: std::fmt::Debug {
     /// Takes `request` to draw, or hands it back where the drawing thread is to draw it.
-    fn offer(&mut self, request: RenderRequest) -> Option<RenderRequest>;
+    ///
+    /// `shown` is the part of the page the viewport shows where that is less than the page: a
+    /// lane may draw it ahead of the page and hand it back in [`Handed::windows`] (ADR 2322).
+    fn offer(&mut self, request: RenderRequest, shown: Option<Window>) -> Option<RenderRequest>;
     /// What the lane has finished since it was last asked, and the requests it hands back — after
     /// waiting at most `settle` for a page in flight, which only a window with nothing on the
     /// screen yet passes ([`Drawing::settle`]'s reason, and its budget, [`SETTLE`]).
@@ -378,6 +381,10 @@ pub trait PageLane: std::fmt::Debug {
 pub struct Handed {
     /// The pages it drew, answered as the drawing thread's are.
     pub finished: Vec<Finished>,
+    /// The windows it drew ahead of their pages, each the part of its page the viewport showed
+    /// when the page was offered: a picture of the request until the page lands, and no answer
+    /// to the viewer (ADR 2322).
+    pub windows: Vec<(Finished, Window)>,
     /// The requests it hands to the drawing thread: refused, predicted slower, or with no device.
     pub back: Vec<RenderRequest>,
     /// What changed about the lane that a person is told: on the terminal and in the status line.

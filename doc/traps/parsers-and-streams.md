@@ -467,3 +467,11 @@ verdict with no word about why (ADR 2295). A converter takes the objects it reme
 own, or checks the row's total against the kept list and widens the walk when the total exceeds it; a
 population read from a report is bounded by the report's cap, and the cap is not a fact about the file.
 
+### 258. An entry read with `get` is present even when the file means null
+
+§7.3.10 makes an indirect reference to an object the file does not define the null object, and §7.3.7
+says a dictionary entry whose value is null is treated as if the entry were absent. `sakula.pdf`'s
+appearance dictionary holds `/N 0 0 R`: the validator, which resolved it, said the annotation has no `N`,
+while the converter's site, which read the entry with `get`, counted a present `N` that failed
+structurally, so the two censuses disagreed on the same file (round 1746). A sentence that says an entry
+is absent is written after the value is resolved, and a null — written or by reference — is absent.

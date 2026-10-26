@@ -861,8 +861,9 @@ pub trait NativeWindow {
             let request = if self.state().drawing.finishes_ahead(&request) {
                 Some(request)
             } else {
+                let shown = self.shown_of(&request);
                 match self.state_mut().lane.as_mut() {
-                    Some(lane) => lane.offer(request),
+                    Some(lane) => lane.offer(request, shown),
                     None => Some(request),
                 }
             };
@@ -904,6 +905,33 @@ pub trait NativeWindow {
         for request in handed.back {
             let seen = self.seen_of(&request);
             self.state_mut().drawing.ask_showing(request, seen);
+        }
+        // A window drawn ahead of its page answers nothing: it is the request's picture until the
+        // page lands (ADR 2322), and nothing else repaints for it.
+        let ahead = !handed.windows.is_empty();
+        for (finished, window) in handed.windows {
+            self.state().trace.say(
+                Topic::Frames,
+                format_args!(
+                    "page {} window {}x{} at {},{} drawn on the graphics device ahead of its page \
+                     in {:?}, waited {:?}",
+                    finished.request.page.saturating_add(1),
+                    window.width,
+                    window.height,
+                    window.x,
+                    window.y,
+                    finished.cost,
+                    finished.waited
+                ),
+            );
+            if let Some(viewer_core::Rendered::Raster(raster)) = finished.outcome {
+                self.state_mut()
+                    .oversized
+                    .ahead(&finished.request, window, raster);
+            }
+        }
+        if ahead {
+            self.repaint();
         }
         for finished in &handed.finished {
             self.state().trace.say(
@@ -1599,6 +1627,22 @@ pub trait NativeWindow {
         if let Some(page) = stopped {
             self.say(&crate::stopped_drawing(Some(page)));
         }
+    }
+
+    /// The part of `request`'s page the viewport shows, where that is less than the page: what
+    /// the lane beside the drawing thread may draw ahead of the page (ADR 2322).
+    fn shown_of(&self, request: &viewer_core::RenderRequest) -> Option<crate::oversize::Window> {
+        if request.document != self.state().documents.focused() {
+            return None;
+        }
+        let Answer::Geometry(geometry) =
+            self.state().viewer.query(Query::PageGeometry(request.page))
+        else {
+            return None;
+        };
+        crate::oversize::shown(request.target, geometry, self.state().viewport).filter(|window| {
+            (window.width, window.height) != (request.target.width, request.target.height)
+        })
     }
 
     /// The rows of a request's target this window shows, for the drawing to draw first — `None`

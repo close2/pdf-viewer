@@ -530,3 +530,13 @@ incident (ADR 0983).
   names, and the trigger is ADR 0122's, stated above — **after a session that adds a capability, sweep
   the rows whose reason begins "this program has no"** — taken over `inapplicable` rows as well
   as `partial` ones.
+
+## A capability sentence about "every window" copies its ADR's own scope
+
+A navigational sentence that says a capability holds in "every window" or "all three" is checked
+against the ADR's own *not covered* section before it is written. Rounds 1737 and 1741 wrote ADR
+2309's parked presentation and held dialogues as covering every window, while that ADR's section 3
+names `quorra` and `quorra-confined` as the two whose cards are not held; round 1750 found the
+sentence in `doc/state-of-play.md` and narrowed it to the GTK, Qt and C windows. The scope an ADR
+states is the sentence's scope — the windows it excludes are named, or the sentence names the
+windows it covers and no more.

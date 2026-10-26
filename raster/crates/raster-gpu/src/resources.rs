@@ -204,9 +204,9 @@ impl StoredOutline {
     }
 }
 
-/// One subpath of an outline that encloses no area: its extent is exactly zero along
-/// one axis, so an area rule paints nothing of it at any scale — the shape ISO 32000-2
-/// §10.7.4 says "shall not disappear", and the reason a table of them rides beside the
+/// One subpath of an outline that encloses no area: it lies on one line or at one point,
+/// so an area rule paints nothing of it at any scale — the shape ISO 32000-2 §10.7.4
+/// says "shall not disappear", and the reason a table of them rides beside the
 /// outline. The box over *control* points as well as endpoints, which is exact for
 /// this question: a cubic lies within its control points' hull, so control points
 /// sharing one coordinate is the same statement as the curve having no extent there.
@@ -221,14 +221,101 @@ pub(crate) struct CollapsedMark {
     pub min: raster_scene::Point,
     /// The corner with the largest.
     pub max: raster_scene::Point,
-    /// Whether the subpath collapsed along x — every point sharing one x, the mark a
-    /// vertical rule. `false` is a horizontal one; a subpath collapsed along both axes
-    /// is a point, which is §8.5.3.3.1's case and not in this table.
-    pub vertical: bool,
+    /// How the subpath lies, which decides the mark.
+    pub lies: Lies,
 }
 
-/// The collapse table [`StoredOutline::marks`] holds: one entry per subpath whose
-/// extent is exactly zero along exactly one axis.
+/// How a subpath that encloses no area lies — the caller's `Collapse`, mirrored.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Lies {
+    /// Every point shares one x: the mark is a vertical rule.
+    Vertical,
+    /// Every point shares one y: the mark is a horizontal rule.
+    Horizontal,
+    /// Every point at one coordinate, `min`: §8.5.3.3.1's degenerate subpath, whose mark
+    /// is "the single device pixel lying under that point" (the caller's ADR 2330).
+    AtPoint,
+    /// Every point on one line across both axes: the mark is the band of one device pixel
+    /// along it, between its two furthest points.
+    Across {
+        /// The point furthest one way along the line.
+        from: raster_scene::Point,
+        /// The point furthest the other way.
+        to: raster_scene::Point,
+    },
+}
+
+/// The caller's `Extent::across`, mirrored: the two furthest points of a subpath whose
+/// every point — `reopened` first, where a segment after a `Close` re-opened at the last
+/// `MoveTo`'s point — lies on one line, or `None`.
+fn across(subpath: &[Segment], reopened: Option<raster_scene::Point>) -> Option<Lies> {
+    let points = || {
+        reopened
+            .into_iter()
+            .chain(subpath.iter().flat_map(|segment| {
+                let (points, count) = match *segment {
+                    Segment::MoveTo(p) | Segment::LineTo(p) => ([p; 3], 1),
+                    Segment::CubicTo { c1, c2, to } => ([c1, c2, to], 3),
+                    Segment::Close => ([raster_scene::Point::new(0.0, 0.0); 3], 0),
+                };
+                points.into_iter().take(count)
+            }))
+    };
+    let first = points().next()?;
+    let second = points().find(|p| *p != first)?;
+    let (Some(ux), Some(uy)) = (
+        exact_difference(second.x, first.x),
+        exact_difference(second.y, first.y),
+    ) else {
+        return None;
+    };
+    // `first` and `second` are on their own line, and skipping them keeps `mul_add` off an
+    // ordinary outline, as the caller's `on_one_line` does.
+    let on_the_line = points().filter(|p| *p != first && *p != second).all(|p| {
+        let (Some(vx), Some(vy)) = (
+            exact_difference(p.x, first.x),
+            exact_difference(p.y, first.y),
+        ) else {
+            return false;
+        };
+        exact_products_equal((ux, vy), (uy, vx))
+    });
+    if !on_the_line {
+        return None;
+    }
+    let along = |p: &raster_scene::Point| {
+        (f64::from(p.x) - f64::from(first.x)) * ux + (f64::from(p.y) - f64::from(first.y)) * uy
+    };
+    let from = points().min_by(|p, q| along(p).total_cmp(&along(q)))?;
+    let to = points().max_by(|p, q| along(p).total_cmp(&along(q)))?;
+    Some(Lies::Across { from, to })
+}
+
+/// `u − v` in `f64`, or `None` where that is not the exact difference: the caller's
+/// `exact_difference`, Knuth's two-sum.
+fn exact_difference(u: f32, v: f32) -> Option<f64> {
+    let (u, minus_v) = (f64::from(u), -f64::from(v));
+    let sum = u + minus_v;
+    let virtual_minus_v = sum - u;
+    let error = (u - (sum - virtual_minus_v)) + (minus_v - virtual_minus_v);
+    (sum.is_finite() && error == 0.0).then_some(sum)
+}
+
+/// Whether two products are exactly equal, their rounding errors carried by a fused
+/// multiply-add: the caller's `exact_products_equal`. `mul_add` is a libcall on this
+/// target (`tests/mul_add_hazard.rs`), and `&&` reaches it only where the two rounded
+/// products are already equal, which a point off the line almost never makes them.
+#[expect(
+    clippy::float_cmp,
+    reason = "exact equality of exact products is the whole test"
+)]
+fn exact_products_equal(a: (f64, f64), b: (f64, f64)) -> bool {
+    let (left, right) = (a.0 * a.1, b.0 * b.1);
+    left == right && a.0.mul_add(a.1, -left) == b.0.mul_add(b.1, -right)
+}
+
+/// The collapse table [`StoredOutline::marks`] holds: one entry per subpath that lies
+/// on one line or at one point.
 ///
 /// Exact equality rather than a tolerance, deliberately, as in the caller's
 /// `Extent::collapse`: a subpath thinner than a pixel but not *flat* has an area, and
@@ -266,6 +353,8 @@ fn collapsed_marks(path: &[Segment]) -> Box<[CollapsedMark]> {
                 }
             };
         let mut opened = false;
+        let first = index;
+        let mut reopened = None;
         while index < path.len() {
             match path[index] {
                 Segment::MoveTo(p) => {
@@ -279,6 +368,7 @@ fn collapsed_marks(path: &[Segment]) -> Box<[CollapsedMark]> {
                 Segment::LineTo(p) => {
                     if !opened && let Some(start) = opened_at {
                         include(start, &mut bounds);
+                        reopened = Some(start);
                     }
                     opened = true;
                     include(p, &mut bounds);
@@ -286,6 +376,7 @@ fn collapsed_marks(path: &[Segment]) -> Box<[CollapsedMark]> {
                 Segment::CubicTo { c1, c2, to } => {
                     if !opened && let Some(start) = opened_at {
                         include(start, &mut bounds);
+                        reopened = Some(start);
                     }
                     opened = true;
                     include(c1, &mut bounds);
@@ -300,20 +391,18 @@ fn collapsed_marks(path: &[Segment]) -> Box<[CollapsedMark]> {
             index = index.saturating_add(1);
         }
         if let Some((min, max)) = bounds {
-            // Collapsed along exactly one axis: a point (both) is §8.5.3.3.1's case
-            // and gets no mark, a shape with area (neither) gets its own coverage.
-            match (min.x == max.x, min.y == max.y) {
-                (true, false) => marks.push(CollapsedMark {
-                    min,
-                    max,
-                    vertical: true,
-                }),
-                (false, true) => marks.push(CollapsedMark {
-                    min,
-                    max,
-                    vertical: false,
-                }),
-                _ => {}
+            // Collapsed along one axis, at a point, or on a line across both; a shape
+            // with area gets its own coverage.
+            let lies = match (min.x == max.x, min.y == max.y) {
+                (true, false) => Some(Lies::Vertical),
+                (false, true) => Some(Lies::Horizontal),
+                (true, true) => Some(Lies::AtPoint),
+                (false, false) => path
+                    .get(first..index)
+                    .and_then(|subpath| across(subpath, reopened)),
+            };
+            if let Some(lies) = lies {
+                marks.push(CollapsedMark { min, max, lies });
             }
         }
         // Bounds-less commands (a stray Close) end no walk: keep going, as the

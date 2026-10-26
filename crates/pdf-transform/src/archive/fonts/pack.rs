@@ -307,7 +307,7 @@ pub(super) fn embed(
 
     let row = Table124 {
         key: "FontFile3",
-        stream_subtype: Some("CIDFontType0C"),
+        subtype: Some("CIDFontType0C"),
     };
     let mut stream = program_stream(subtype_dictionary(row).as_ref(), &bytes, false)
         .ok_or(Because::NotBuiltYet(PROGRAM_NOT_ENCODED))?;

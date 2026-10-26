@@ -240,15 +240,14 @@ fn two_crossing_rules_clipped_under_the_even_odd_rule_keep_their_crossing() {
     );
 }
 
-/// A clipping path of a single point still admits nothing, which is ADR 1060 and stays.
+/// A clipping path of a single point admits the one pixel its fill paints (ADR 2330).
 ///
-/// The boundary of the rule above, and the reason it is pinned here: §8.5.3.3.1 hedges its own
-/// answer for a degenerate subpath — "the result is device-dependent and not generally useful"
-/// — and this tree declines it for a fill (`pdf_render::collapsed`), so §10.7.4's definition
-/// makes the clip decline it too. A clip that started admitting a pixel here would have the two
-/// halves of the definition disagreeing again, in the other direction.
+/// The rule above at its boundary: §8.5.3.3.1's degenerate subpath "shall be considered to
+/// enclose the single device pixel lying under that point", so its fill paints that pixel, and
+/// §10.7.4's definition of a clip by the fill makes the clip admit it — the two halves of the
+/// definition agreeing, at every scale, on one pixel.
 #[test]
-fn a_clip_that_is_a_single_point_still_admits_nothing() {
+fn a_clip_that_is_a_single_point_admits_the_pixel_its_fill_paints() {
     let point = [
         PathCommand::MoveTo(Point::new(10.5, 10.5)),
         PathCommand::LineTo(Point::new(10.5, 10.5)),
@@ -256,10 +255,10 @@ fn a_clip_that_is_a_single_point_still_admits_nothing() {
     ];
     for scale in [1.0_f32, 2.0] {
         let (_, pixels) = drawn(&clipped(&point, FillRule::NonZero), scale);
-        assert_eq!(pixels, 0, "at scale {scale} a point clip admitted {pixels}");
+        assert_eq!(pixels, 1, "at scale {scale} a point clip admitted {pixels}");
         let (_, painted) = drawn(&filled(&point, FillRule::NonZero), scale);
         assert_eq!(
-            painted, 0,
+            painted, 1,
             "at scale {scale} a point fill painted {painted}"
         );
     }

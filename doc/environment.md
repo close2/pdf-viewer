@@ -221,7 +221,12 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
   `tools/zoom-probe-drive.py --x11 --headless --host gtk|qt` is the same kind of drive for one toolkit
   window's zoom input and geometry on an Xvfb of its own, software graphics permitted, and judges
   no latency or sharpness; without `--headless` it refuses a software adapter, so it runs only on the
-  owner's display through the loop below (ADRs 2228, 2229).
+  owner's display through the loop below (ADRs 2228, 2229). **A Wayland compositor of the agent's
+  own** is `tools/zoom-probe-wayland.py`'s: a nested, headless KWin (`kwin_wayland --virtual`) on a
+  private socket and session bus, set to each fractional scale by `kscreen-doctor` as Plasma sets
+  one, read back through KWin's own screenshot interface and driven through its EIS input interface,
+  so what native Wayland does at the owner's scales is measured here and not queued for the owner
+  (ADRs 2251, 2275).
   **A display number is yours only after
   `/tmp/.X<n>-lock` was absent and your own Xvfb's pid holds it** (trap 181). By hand:
 
@@ -255,21 +260,27 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
     program draws for itself can still be photographed, its window's extent cannot;
   - **`quorra-qt` ignores key presses** until run with `QT_XCB_NO_XI2=1` and clicked once, and wants
     `xdotool windowfocus --sync <id>` before every `key` (ADR 1357).
-- **The measurement loop runs as the *owner*, and it is for GPU measurements and nothing else.**
+- **The loop runs as the *owner*, and it is for GPU and display questions and nothing else.**
   The owner keeps a loop in their own graphical session which claims `tmp/run-on-gpu.sh`, runs it,
   and leaves `tmp/run-on-gpu.{stdout,stderr}.txt` and `tmp/run-on-gpu.exit` behind;
   `tmp/gpu-loop.alive` ticks each iteration. It exists because a *window* needs the owner's session
   — a headless device does not, so anything measurable headless is measured headless and never
   queued here.
 
-  **The owner's rule, stated by them and absolute: use it only for measurements that require the
-  real display or the real adapter. Under no circumstances for anything else — no file access, no
-  installs, no fetches, no builds whose output matters, nothing that reaches outside the
-  measurement.** The script runs as `cl`, in `cl`'s session, so it can read and write everything
-  this account deliberately cannot; that privilege boundary is thin here and nowhere else. A round
-  that wants a file the agent user cannot read says so in its report and leaves it to the owner.
+  **The owner's rule, stated by them and absolute.** It was "DO NOT USE THE LOOP FOR ANYTHING
+  ELSE! (only to measure performance!)" on 2026-10-10, and on 2026-10-23 the owner widened it to
+  "GPU related questions (also to get UI related Information)" and never "to escape your user for
+  anything not related to the GUI". **So a queued script answers a question only the real display,
+  the real adapter or the owner's session can answer** — a figure, a capture of a window, what the
+  session's display reports about itself (its platform, its scale, whether a window is the active
+  one) — and nothing else: no file access, no installs, no fetches, no builds whose output matters,
+  nothing that reaches outside the question. The script runs as `cl`, in `cl`'s session, so it can
+  read and write everything this account deliberately cannot; that privilege boundary is thin here
+  and nowhere else. A round that wants a file the agent user cannot read says so in its report and
+  leaves it to the owner. On a KDE session `tools/zoom-probe-activate.py` is how a queued script
+  makes the window it started the active one before it captures (ADR 2266).
 
-  **One thing the loop may do beyond measuring, by the owner's word of 2026-10-14:** unlock the
+  **One thing the loop may do beyond answering, by the owner's word of 2026-10-14:** unlock the
   owner's session when `loginctl` reads `LockedHint=yes`, with `loginctl unlock-session <id>` and no
   other command — never a typed password, never `xdotool` on the lock screen, never a killed locker
   (trap 174). The script says it did, and a session that stays locked gets no figure.

@@ -79,7 +79,85 @@ fn whole(width: u32, height: u32) -> Point {
     Point::new(width as f32, height as f32)
 }
 
+/// A card a document raised while the window presented full screen, held until it has left.
+///
+/// Table 29's `FullScreen` is "\[f\]ull-screen mode, with no menu bar, window controls, or any
+/// other window visible", and this window already reads its own panel, find bar and About card as
+/// that other window ([`App::apply_chrome`]); a question card drawn over the slide is one too, so
+/// the three cards the toolkit windows hold as dialogues are held here by the same rule and put up
+/// in the order raised once the window is out of full screen (ADRs 2309, 2329).
+#[derive(Debug)]
+pub(crate) enum HeldCard {
+    /// A question at `CLAUDE.md`'s *ask* level, for [`App::put_a_question`].
+    Question {
+        /// What it is about, carried back with the answer.
+        about: crate::app::Pending,
+        /// What it says.
+        words: viewer_host::Question,
+    },
+    /// RFC 0008 section 4.2's `app.alert` or `app.response`.
+    Script {
+        /// The document whose script asks.
+        document: viewer_core::DocumentId,
+        /// What it asks.
+        question: viewer_core::ScriptQuestion,
+    },
+    /// §7.6.4.1's prompt.
+    Password {
+        /// The document the prompt is about.
+        document: viewer_core::DocumentId,
+    },
+}
+
 impl App {
+    /// Holds `card` while the window presents full screen, saying that it waits; hands it back
+    /// where nothing is presenting, for the caller to put up now.
+    pub(crate) fn hold_while_presenting(&mut self, card: HeldCard) -> Option<HeldCard> {
+        if !self.presenting.full_screen() {
+            return Some(card);
+        }
+        let waiting = match &card {
+            HeldCard::Question { .. } => viewer_host::presentation_pump::QUESTION_WAITS,
+            HeldCard::Script { .. } => viewer_host::presentation_pump::SCRIPT_WAITS,
+            HeldCard::Password { .. } => viewer_host::presentation_pump::PASSWORD_WAITS,
+        };
+        println!("note: {waiting}");
+        self.held.push_back(card);
+        None
+    }
+
+    /// Puts up what was held, in the order it was raised, once the window is out of full screen:
+    /// one card at a time, since this window draws one, the next after the one up is answered.
+    ///
+    /// Run from every turn of the event loop rather than from each way out of full screen —
+    /// Escape, `p`, a tab whose document is not presenting — and from each answer, because one
+    /// place cannot miss a way that is added later.
+    pub(crate) fn put_up_what_was_held(&mut self) {
+        while !self.presenting.full_screen()
+            && self.asked.is_none()
+            && !self.password.shown
+            && let Some(card) = self.held.pop_front()
+        {
+            match card {
+                HeldCard::Question { about, words } => self.put_a_question(about, &words),
+                HeldCard::Script { document, question } => {
+                    self.put_script_question(document, question);
+                }
+                HeldCard::Password { document } => {
+                    self.ask_again(document, &mut std::collections::VecDeque::new());
+                }
+            }
+        }
+    }
+
+    /// Takes a held script question of `document`'s out of the hold: the core withdrew it before
+    /// anybody saw it.
+    pub(crate) fn withdraw_held_script(&mut self, document: viewer_core::DocumentId) {
+        self.held.retain(
+            |held| !matches!(held, HeldCard::Script { document: asked, .. } if *asked == document),
+        );
+    }
+
     /// Enters or leaves §12.4.4's presentation: the window, the clock, and the mode the core keeps.
     ///
     /// **Three things, on ADR 0316's amendment of ADR 0135.** Whether something is driving the

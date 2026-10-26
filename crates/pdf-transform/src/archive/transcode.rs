@@ -37,7 +37,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use pdf_archive::Outcome;
-use pdf_model::image::{JpxSamples, ORDINARY_JPX_SAMPLES};
+use pdf_model::image::{ImageError, JpxSamples, ORDINARY_JPX_SAMPLES};
 use pdf_syntax::Document;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
 
@@ -116,6 +116,25 @@ const NOT_DECODED_WHOLE: &str = "a JPEG 2000 image outside the JPX baseline was 
      its own samples at full resolution within the ordinary decoder's budget, or its codestream \
      requires a feature this tree's decoder does not provide. A reduced resolution level is not \
      the image, and nothing else is a copy of it";
+
+/// Why an image whose samples no PDF colour space can carry is not transcoded.
+const NO_SPACE_FOR_ITS_SAMPLES: &str = "a JPEG 2000 image outside the JPX baseline is in a \
+     colour space no PDF colour space restates for its samples: PIMA 7667's e-sRGB or e-sYCC, \
+     whose components fall outside every range a Decode array can map into CalRGB, Lab or an \
+     ICC profile, or a ColorSpace this reader does not read. A Flate copy states its samples \
+     under a ColorSpace, and none would be this image's";
+
+/// Why an image whose dictionary and codestream disagree is not transcoded.
+const NOT_THE_DICTIONARY_S_IMAGE: &str = "a JPEG 2000 image outside the JPX baseline is not the \
+     image its dictionary describes: its Width or Height is not a positive integer, its \
+     codestream states other dimensions, or an opacity channel the dictionary reads from it is \
+     not there. ISO 32000-2 \u{a7}7.4.9 has the image's dimensions and channels from both, and a \
+     Flate copy would state one of two disagreeing descriptions";
+
+/// Why an image the decode refused for any other reason is not transcoded.
+const NOT_DECODED: &str = "a JPEG 2000 image outside the JPX baseline was not decoded to \
+     samples this conversion can write: the decode reported a depth or a filter this reader \
+     does not unpack, so there is nothing a Flate copy could be built from";
 
 /// Why a component deeper than sixteen bits is not transcoded.
 const DEEPER_THAN_SIXTEEN: &str = "a JPEG 2000 image outside the JPX baseline has a component \
@@ -328,6 +347,22 @@ fn transcode(
     })
 }
 
+/// The sentence a decode the codec did not complete is refused by, one for each reason the decode
+/// gives, as the removal's own decode of the same images is (ADR 2293); PIMA 7667's encodings are
+/// ADR 2292's.
+///
+/// The budget's and the decoder's are one: `pdf_sandbox` reports either in its own words, and both
+/// mean the image was not had whole. A colour space no PDF space restates is no question of
+/// resolution, and neither is a dictionary its codestream contradicts.
+fn not_decoded(error: &ImageError) -> &'static str {
+    match error {
+        ImageError::Sandboxed { .. } | ImageError::TooLarge { .. } => NOT_DECODED_WHOLE,
+        ImageError::UnsupportedColourSpace { .. } => NO_SPACE_FOR_ITS_SAMPLES,
+        ImageError::Malformed { .. } => NOT_THE_DICTIONARY_S_IMAGE,
+        _ => NOT_DECODED,
+    }
+}
+
 /// The image's samples, decoded whole, where every refusal this remedy states has been asked of
 /// its dictionary and of what the codec returned.
 fn admitted_samples(document: &Document, stream: &Stream) -> Result<JpxSamples, Because> {
@@ -359,7 +394,7 @@ fn admitted_samples(document: &Document, stream: &Stream) -> Result<JpxSamples, 
         &Dictionary::new(),
         (&stream.data, ORDINARY_JPX_SAMPLES),
     )
-    .map_err(|_| Because::NotBuiltYet(NOT_DECODED_WHOLE))?;
+    .map_err(|error| Because::NotBuiltYet(not_decoded(&error)))?;
     if samples.depths.iter().any(|depth| *depth > 16) {
         return Err(Because::NotBuiltYet(DEEPER_THAN_SIXTEEN));
     }

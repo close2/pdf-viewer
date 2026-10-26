@@ -122,7 +122,14 @@ at one thread; `doc/crate-map.md`'s `raster-gpu` row names the module of each co
 `/Extend` leaves off stops at that end's own position** — a hard transparent stop in every
 backend rather than a fade squeezed inside the ramp, and within half a texel of Vello's fixed ramp (ADR 1387).
 **raster reads a ramp at each pixel's own `t`**, interpolating its own stops rather than a table of
-colours sampled from them, and hands the target the level nearest the answer (ADR 2310).
+colours sampled from them, and hands the target the level nearest the answer (ADR 2310); a function program's answer
+reaches the target the same way (ADR 2311), and an opaque solid paint leaves the rectangle, line and coverage lanes as its
+level while an antialiased edge is left to the blend, every level taken in integers so that each adapter writes it (ADRs
+2324, 2325). **Where the device's own coverage lane, `Coverage::Gpu`, is
+chosen, it samples a pixel where a committed search put the samples**: each with a column and a row of its own, the pattern whose
+worst straight edge is nearest the area behind it among those no wider, in either of raster's ADR
+0070 widths, than the count's rank-1 lattice, and that lattice at a count no search was run for,
+the table derived by `raster-gpu`'s `examples/sample_pattern` (ADRs 2296, 2312, 2313).
 
 ### Interpretation, and what bounds it
 
@@ -154,9 +161,10 @@ constants with no knob and a page of small text at a laptop's resolution can exc
 JBIG2 and
 JPEG 2000 in a confined worker — its colour specification chosen by §7.4.9's precedence rather
 than the codec's first box, every enumerated space of the JPX baseline that ITU-T T.801 M.9.2.4
-lists drawn as defined, CIE Lab under the white point of whichever illuminant it names, except the
-three whose defining texts are not held, which take the clause's device fallback rather than a
-refusal (ADRs 1383, 1713) — Group 3 and Group 4 fax there too through this tree's own ITU-T T.4
+lists drawn as defined, CIE Lab under the white point of whichever illuminant it names, and PIMA 7667's e-sRGB and
+e-sYCC by that text's own equations into the connection space (ADR 2292), except CIEJab, whose
+defining text is not held and which takes the clause's device fallback rather than a refusal (ADRs
+1383, 1713) — Group 3 and Group 4 fax there too through this tree's own ITU-T T.4
 and T.6 decoder, which conceals the damaged rows §7.4.6's `/DamagedRowsBeforeError` tolerates as the
 clause states (ADR 1349), and Table 13's `/ColorTransform` read where the clause states it —
 the entry, the `APP14` segment that silences it, and the component count, ranked in the order
@@ -829,8 +837,10 @@ whatever line breaks its text string holds (ADR 1973), `/FitWindow`
 sizes each to the first displayed page, and `/CenterWindow` centres `quorra` and `quorra-qt`, where
 GTK 4 has no call and Qt under Wayland no effect, and each says so and names it in the title — one
 placement decision for Qt and the C window's caller alike (ADRs 1429, 2308). **No dialogue a
-document raises interrupts a presentation**: a question, a script's question and a password prompt
-wait until the window leaves full screen (ADR 2309). **A document this program
+document raises opens over a presentation** — `quorra-gtk`, `quorra-qt`, a C caller's and
+`quorra`'s, whose card over the slide is Table 29's other window as its panel is: a question, a
+script's question and a password prompt wait until the window leaves full screen (ADRs 2309, 2329);
+`quorra-confined` presents nothing. **A document this program
 cannot open, and one whose page tree has no leaves, are two sentences rather than an exit**, in all
 three windows (ADR 0564); one whose pages were found by Table 31's `/Type /Page` because its tree
 yields none is shown with a note saying how many and that their order is the object numbers'
@@ -913,7 +923,8 @@ pass.
   2071), its launch held to bands on both lanes (ADR 2125) — becomes a `gdk::MemoryTexture` with no
   conversion at all, placed at one device pixel per texel: each placement gives its picture the
   whole translation and scale from device to logical pixels, a stand-in scaled to the extent asked
-  for until its raster arrives (ADR 2214). A form host draws the page *without* its widget
+  for until its raster arrives (ADR 2214) — and on Wayland at the surface's own fractional scale, read
+again when the surface's scale changes, a finished frame put on the surface's pixel grid (ADR 2250). A form host draws the page *without* its widget
   appearances — §6.3.2.2's "unless otherwise instructed" as `Command::Delegate` — and at the
   *scale* it states. ADRs 0244, 0245.
 - **`viewer-qt`'s `quorra-qt`**, a real Qt 6 Widgets application whose pages are drawn and read
@@ -925,13 +936,18 @@ pass.
   what a C ABI is, and the crates and worker programs that lift the denial are read off
   `tests/unsafe_position.rs`'s `only_the_named_crates_in_the_tree_lift_the_denial`. A refresh's
   placements are taken once and copied into `QImage`s by one synchronous C++ image sink local to
-  `showFrame`, before the borrowed slices end (ADRs 2236, 2237). **Both toolkit windows can say
+  `showFrame`, before the borrowed slices end (ADRs 2236, 2237); on Wayland it holds the size Qt states before
+the compositor's first configure, so page one is asked for at the scale the window is given (ADR
+2267). **Both toolkit windows can say
   what a zoom reached**: under `PDFVIEWER_ZOOM_PROBE=1` each writes versioned `zoom-record` lines —
   a wheel callback, its modifiers, the branch taken and the host's outcome counted apart, and the
   content widget's geometry in each coordinate space it is measured in — and `quorra-gtk` with
   `PDFVIEWER_ZOOM_CAPTURE_DIR` also keeps each settled whole-page source joined to the generation
   that painted it; `tools/zoom-probe-drive.py` drives an owned window through them and
-  `tools/zoom-probe-records.py` refuses a stale, foreign or ambiguous record. They observe input and
+  `tools/zoom-probe-records.py` refuses a stale, foreign or ambiguous record. On a nested headless KWin
+  `tools/zoom-probe-wayland.py` compares the GTK window's settled page with the compositor's output
+  at each fractional scale and sends the wheel through KWin's own input interface, reading a notch
+  and a zoom's drift off the output (ADRs 2250, 2251, 2274, 2275). They observe input and
   geometry and judge no latency and no sharpness (ADRs 2224, 2225, 2228, 2229, 2240, 2241).
   **`crates/viewer-host`** holds what the hosts decide alike and no toolkit type names — the panel
   rows, the control decision, §12.7.6.4's file policy and the launch timeline among them. ADR 0246.
@@ -1035,7 +1051,11 @@ from ITU-T T.801 M.9.2, the held text of ISO/IEC 15444-2, subclause by subclause
 1399). A packet's properties are held to the edition of the XMP Specification part 2 itself
 identifies, its bibliography's September 2005 one, so a predefined property is held to that
 edition's type — an `xmp:Rating` of `1.0` spells a Real where it types an Integer, and the corpus
-comparison records its pass of that file as a ruling against the corpus (ADRs 1991, 2020).
+comparison records its pass of that file as a ruling against the corpus (ADRs 1991, 2020), and a
+structure of each of that edition's structured types is held to the fields its own table defines
+(ADRs 2295, 2318). The survey walks a soft mask's group from the graphics state that installs it,
+as a form from §8.4.1's initial state, so a selection under a mask is compared with the
+interpreter's like any other (ADRs 2247, 2263).
 
 Its own reading is compared against the veraPDF corpus clause by clause, and **the comparison is
 adjudicated rather than tolerated**: where the corpus and the clause disagree, the clause is read
@@ -1070,11 +1090,18 @@ hexadecimal string's odd digit (ADR 1176), a page boundary by §14.11.2.1's defa
 annotation flags and states (ADRs 1233, 1234), a font the file never embedded given the face it is
 drawn from — one of the standard 14 stated by name alone with the descriptor that face's program
 states and the widths it was laid out by, a dictionary of the other kind from its face restated as
-the face's, each read back and held to the source glyph by glyph (ADRs 2146, 2147), a composite font of an
+the face's, each read back and held to the source glyph by glyph (ADRs 2146, 2147) — the shipped face fitted
+to the file's widths the loss `substitute-stretch` and a machine's face the loss `machine-face` on
+every route that embeds over one (ADRs 2262, 2279), and a `Differences` name the glyph list does
+not hold restated on `WinAnsiEncoding` (ADR 2278) — a font program filed under the key, and for a
+`/FontFile3` the `/Subtype`, of the format its bytes are (Tables 124 and 125, ADR 2307), a Type 2
+CIDFont's absent `/CIDToGIDMap` written `Identity` where the edition the source is labelled with
+gives that default (ADR 2246), a composite font of an
 Adobe character collection given a subset of the CJK pack's program for that collection, a second
 download beside the converter, under the loss `machine-face` (ADRs 2302, 2303, `doc/cjk-pack.md`) — an extension schema described from what the packet
 states and an amendment identifier cut by span (ADRs 1245, 1246), a form's appearances constructed so
-that `/NeedAppearances` can go (ADR 1257), an embedded file no part admits taken out with every
+that `/NeedAppearances` can go (ADR 1257), a push button's single appearance stream made the one
+entry of a subdictionary a new `/AS` selects (ADR 2319), an embedded file no part admits taken out with every
 reference to it (ADR 1258), a JPEG 2000 image outside the baseline transcoded to `FlateDecode` in the
 space it states, its opacity channel as Table 87's soft-mask image (ADRs 1400, 1412), a reference XObject's proxy kept and a named CMap embedded (ADRs 1285, 1286),
 a TrueType code's glyph named in the encoding where only a reader's choice reached it and a Type 3
@@ -1083,7 +1110,7 @@ a TrueType code's glyph named in the encoding where only a reader's choice reach
 in, or its Profile ID as the profile's digest (ADR 2021). An ICC profile short of the tags its
 edition requires is given the operator's text where this reader drew through it and lacks only
 `desc` or `cprt`, and is written as its Table 65 alternate where it did not draw through it — a
-stream with no profile file signature among them at part 2 (ADR 2295) — at part 4 against the
+stream with no profile file signature among them at part 2 and at part 4 (ADRs 2295, 2318) — at part 4 against the
 edition the profile's own header names (ADRs 1990, 2006); a composite font's `/ToUnicode` stating
 U+0000, U+FEFF or U+FFFE is restated without those statements where the target leaves the code free
 to go unmapped (ADR 2294); an output intent's
@@ -1103,7 +1130,10 @@ family name for unmodified versions (ADR 2195) — both the owner's `A550`. Anno
 answered per object under `as-shown`: an annotation hidden at rest is removed and a visible one
 without `Print` is kept with the flag set, from one prepared population (ADRs 2210, 2211), and a
 hidden markup annotation and its popup are removed together only where each was authorised on its
-own, which says nothing about references to them elsewhere in the file (ADRs 2218, 2219). Under a
+own, which says nothing about references to them elsewhere in the file (ADRs 2218, 2219), a
+popup's parent being any markup annotation but `Sound`, as Table 171 and §12.5.6.24 read (ADR
+2284). A conversion is the same file from every build of one source, and the instant its history
+records is the plan's, the machine's clock read once or the caller's (ADR 2306). Under a
 part 4 page output intent that overrides the catalogue's, an RGB mark is given a `/DefaultRGB` only
 where every resource context the page and its Forms reach is proved and a neutral `Gray` page group
 is shown preserved first; any other context still refuses (ADRs 2230, 2231). The validator enumerates a page tree in one walk, so a flat `/Kids` array costs it
@@ -1136,7 +1166,8 @@ colour (ADR 1324); a form entered under its `/Matrix`, an object another page al
 rather than replaced, a clipping boundary kept without its marks, and Type 3, composite and vertical
 codes, `sh`, soft-mask groups and shadings each cut by their own clause's geometry (ADRs 1351, 1352,
 1363). It refuses rather than cuts wrong — a calculator function serving the region's own colours, a
-JPX image beyond the operator's budget or with a component deeper than sixteen bits, a file whose
+JPX image beyond the operator's budget or with a component deeper than sixteen bits, or in
+e-sRGB or e-sYCC, which no §8.6 space restates (ADR 2293), a file whose
 dictionary contradicts its codec — each with its sentence, and the overlay text and fill it does not
 compose (A65's fence), said as a departure in the report; §12.5.6.23 is `departed` on the two
 refusals, the overlay being a choice its own `should` leaves (ADRs 1622, 1124, 1126, 1132, 1133,

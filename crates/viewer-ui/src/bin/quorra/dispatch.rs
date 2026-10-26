@@ -483,7 +483,15 @@ answers in two places"
                 self.redraw();
                 self.arrival_due = true;
             }
-            Event::PasswordRequired { document } => self.ask_again(document, queue),
+            // A card a document raises waits while the window presents (ADR 2329).
+            Event::PasswordRequired { document } => {
+                if self
+                    .hold_while_presenting(crate::presentation::HeldCard::Password { document })
+                    .is_some()
+                {
+                    self.ask_again(document, queue);
+                }
+            }
             // A file held for a §12.7.8 named page's password is read and put down again, and the
             // name it was asked under is closed so this window stops holding it (ADR 1335).
             Event::Closed(document) if self.arrivals.is(document) => self.given_up(document),
@@ -718,7 +726,10 @@ answers in two places"
                     &media
                 )
             ),
+            // Withdrawn while held, it leaves the hold and is said withdrawn as one on the card is
+            // (ADR 2329).
             Event::ScriptQuestionWithdrawn { document } => {
+                self.withdraw_held_script(document);
                 if matches!(
                     &self.asked,
                     Some(crate::app::Pending::Script { document: asked, .. }) if *asked == document
@@ -785,7 +796,11 @@ impl App {
     ///
     /// The *policy* is [`viewer_host::password`]'s and is shared with those two: how many attempts,
     /// what to say when they are used up, and that an empty entry is a decline.
-    fn ask_again(&mut self, document: viewer_core::DocumentId, _queue: &mut VecDeque<Command>) {
+    pub(crate) fn ask_again(
+        &mut self,
+        document: viewer_core::DocumentId,
+        _queue: &mut VecDeque<Command>,
+    ) {
         if !viewer_host::documents::may_ask_about(&mut self.arrivals, document, crate::DOCUMENT) {
             println!("note: {}", viewer_host::documents::not_asked(document));
             return;
@@ -1124,12 +1139,17 @@ impl App {
 
     /// A script's question on the card: its title names the document, and its last line the keys
     /// (ADR 1628).
-    fn put_script_question(
+    pub(crate) fn put_script_question(
         &mut self,
         document: viewer_core::DocumentId,
         question: viewer_core::ScriptQuestion,
     ) {
         use viewer_host::script_asks;
+        let Some(crate::presentation::HeldCard::Script { document, question }) = self
+            .hold_while_presenting(crate::presentation::HeldCard::Script { document, question })
+        else {
+            return;
+        };
         let name = self.documents.label_of(document);
         println!("note: {}", script_asks::put(&name, &question));
         let (label, entry) = match &question {
@@ -1251,6 +1271,16 @@ impl App {
         about: crate::app::Pending,
         words: &viewer_host::Question,
     ) {
+        // Held while the window presents full screen: the card is Table 29's other window (ADR
+        // 2329).
+        let Some(crate::presentation::HeldCard::Question { about, .. }) = self
+            .hold_while_presenting(crate::presentation::HeldCard::Question {
+                about,
+                words: words.clone(),
+            })
+        else {
+            return;
+        };
         self.asked = Some(about);
         self.question.ask(words);
         self.redraw();

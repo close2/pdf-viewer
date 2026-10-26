@@ -215,7 +215,7 @@ Following the example:
   to §8.6's one question for every space). The split is deliberate: the interpreter is a question about *marks*,
   `pdf-colour` a question about *colour* (see its crate documentation).
 - `72 600 200 100 re` is, by Table 58, `x y m` and three `l`s and an `h`. The `Operator::Rectangle`
-  arm of `run.rs` builds exactly those path commands into the current path in user space; nothing is
+  arm of `crates/pdf-model/src/content/run.rs::run_path_construction_op` builds exactly those path commands into the current path in user space; nothing is
   drawn.
 - `f` is where a path becomes a mark. `Interpreter::end_path` (`path.rs`) drops a trailing `m`
   (§8.5.3.3.1), asks `fill_paint` (`crates/pdf-model/src/content/pattern.rs::fill_paint`) for the

@@ -111,7 +111,7 @@ pub fn software_adapter(description: &str) -> bool {
 
 /// Bit equality of the six coefficients — the same reading raster's retained-frame key
 /// makes, so "the view moved" here and "the encode survives" there cannot disagree.
-fn same_transform(a: Transform, b: Transform) -> bool {
+pub(crate) fn same_transform(a: Transform, b: Transform) -> bool {
     [a.a, a.b, a.c, a.d, a.e, a.f]
         .iter()
         .zip([b.a, b.b, b.c, b.d, b.e, b.f])

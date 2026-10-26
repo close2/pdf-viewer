@@ -253,14 +253,18 @@ error), named in the mitigations entry and refused. The five part 4 outputs vera
 6.2.10.4.1 were none of them a `FontFile3` with no `Subtype`: three hold a program filed under a key
 or name its bytes contradict, which `fonts/font-programs-filed-by-their-format` refiles
 (`bug921409`, `issue5751`) or refuses (`issue9949`, a `glyf` program under `CIDFontType0`), and two
-hold a TrueType collection under `FontFile2` (`issue13193`, `issue9262_reduced`) — **owed**: whether
-a `ttcf` is "a TrueType font program, as described in the TrueType Reference Manual" (Table 124) is
-the Manual's to answer, and this validator says nothing of a collection until it is read (ADR 2307).
-The row costs pdf.js four documents that converted before, each refused by name (ADR 2307 section 3):
-`issue9949`, `issue11740_reduced` (a Type 1 program under `CIDFontType0`, veraPDF agrees), and two
-CFF-flavoured `OTTO` programs under `/FontFile2` in a `CIDFontType2` (`bug1186827`, `issue5084`). **Owed**: the `CIDFontType2`
-ones whose `/CIDToGIDMap` is `Identity` over a name-keyed CFF refile to `CIDFontType0` with no glyph
-changing (§9.7.4.2), which is provable from the bytes.
+hold a TrueType collection under `FontFile2` (`issue13193`, `issue9262_reduced`), which the
+TrueType Reference Manual's font file — one font, opening with its own font directory — is not, and
+which no row of Table 124 admits: both are refused by a sentence naming the collection (ADR 2327).
+**Owed** for them: the face this reader draws, chosen by the descriptor's `/FontName` (ADR 0141),
+written out of the collection as a TrueType program of its own. The row cost pdf.js four documents
+(ADR 2307 section 3): `issue9949`, `issue11740_reduced` (a Type 1 program under `CIDFontType0`,
+veraPDF agrees), and two CFF-flavoured `OTTO` programs under `/FontFile2` in a `CIDFontType2`. Of
+those two, `issue5084`'s `/CIDToGIDMap` is `Identity` over a name-keyed CFF, so the dictionary is
+retyped `CIDFontType0` with every CID selecting the glyph it selected (§9.7.4.2, ADR 2326), and it
+converts; `bug1186827`'s map is a stream sending CID *c* to glyph *c* − 31, so under `CIDFontType0`
+its CIDs would select other glyphs — **owed** for it: re-keying the encoding and the widths to the
+glyph indices.
 
 veraPDF's two disagreements on `me450f12project10_report` were this validator's (ADR 2295): an
 `xmpMM` structure is now held to the September 2005 edition's `ResourceEvent`, `ResourceRef` and

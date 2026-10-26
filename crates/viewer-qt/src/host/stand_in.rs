@@ -84,6 +84,7 @@ impl Host {
             self.state.drawing.partial(),
             focused,
             geometry,
+            self.state.viewport,
         )
     }
 

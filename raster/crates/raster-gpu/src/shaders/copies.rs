@@ -49,7 +49,7 @@ use super::wgsl::function_text;
 /// passes, and the compositor. Its per-shader wrapper `soft_mask_at` is *not* listed, and must
 /// not be: each lane reads the placement from a different uniform, and pushing that
 /// difference into the wrapper is what leaves this function copyable at all.
-const PROMISED_COPIES: &[(&str, usize)] = &[("soft_mask_value", 7)];
+const PROMISED_COPIES: &[(&str, usize)] = &[("soft_mask_value", 7), ("nearest_level", 5)];
 
 /// The sentence a copied helper's comment carries.
 const PROMISE: &str = "the copies are kept textually the same";

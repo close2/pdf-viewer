@@ -3631,8 +3631,19 @@ PY2
 # before page one's frame lands, and the red block must already be there, with no blue — before
 # this the photograph held page two (`quorra-gtk`, whose pictures stayed up) or the ground
 # (`quorra-qt`) — and must fill the box the landed frame gives it, to within the picture's blur.
+#
+# **The turn back is read on the toolkit thread** (ADR 1886, trap 154), and the window paints nothing
+# until the read returns: this page's read takes seconds at a neighbour's load, so the sentence is
+# waited for under the drive's long ceiling, not two seconds. And the drawer drew the page beside the
+# read, so its frame follows the sentence by well under a second: what spoils the photograph is the
+# frame handed to the window (`RenderReady`, under `events`), not the drawing thread's `rasterised`
+# line, which comes before the frame is on the screen. In `quorra-gtk` the window's own paint record
+# (`PDFVIEWER_ZOOM_PROBE`'s `raster-paint`, ADR 2225) says what was painted first after the turn,
+# which no camera's timing moves: page one's retained pixels at the extent of its landed frame (ADR
+# 2328).
 retained_page() {
     local step=82-retained-page file="$FIXTURES/drive-retained.pdf" traced=$LAUNCH_TRACE mark mid settled blue
+    local late painted
     if [ "$WINDOW" = quorra ] || [ "$WINDOW" = quorra-confined ]; then
         verdict "$step" "not offered" "this window retains pages of its own (ADR 0443), not viewer_host::stand_in::Retained"
         return
@@ -3650,13 +3661,14 @@ for block in (b"1 0 0 rg 72 500 200 200 re f\n", b"0 0 1 rg 340 92 200 200 re f\
 pdf.save(sys.argv[1], compress_streams=False)
 PY2
     LAUNCH_TRACE=events,launch,frames
-    launch "$file"
+    PDFVIEWER_ZOOM_PROBE=1 launch "$file"
     LAUNCH_TRACE=$traced
     wait_for 30 said_since 0 "page 1 retained"
     xdotool windowfocus --sync "$(main_window)" 2>/dev/null
     mark=$(lines)
     xdotool key Right
-    if ! wait_for 30 said_since "$mark" "page 2 rasterised"; then
+    # Page two's frame handed to the window, which is after its drawing thread's `rasterised`.
+    if ! wait_for 30 said_since "$mark" "page 2 rasterised" || ! wait_for 10 said_since "$mark" "RenderReady"; then
         verdict "$step" wrong "page two never landed"
         kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
         return
@@ -3664,7 +3676,7 @@ PY2
     sleep 0.3
     mark=$(lines)
     xdotool key Left
-    if ! wait_for 2 said_since "$mark" "its retained"; then
+    if ! wait_for 30 said_since "$mark" "its retained"; then
         # What the window showed instead, photographed for the record: the other page or the ground.
         shot "$step-mid"
         mid=$(magick "$OUT/shots/$WINDOW/$step-mid.png" -alpha off -fuzz 6% -fill black +opaque "#ff0000" -fill white -opaque "#ff0000" -format '%[fx:int(mean*w*h+0.5)]' info: 2>/dev/null)
@@ -3674,7 +3686,9 @@ PY2
         return
     fi
     shot "$step-mid"
-    if said_since "$mark" "page 1 rasterised\\|shown as it stands"; then
+    late=""
+    said_since "$mark" "RenderReady\\|shown as it stands" && late=yes
+    if [ -n "$late" ] && [ "$WINDOW" != quorra-gtk ]; then
         verdict "$step" wrong "the photograph was taken after page one's frame or a part-way picture had replaced the retained one"
         kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
         return
@@ -3683,10 +3697,13 @@ PY2
     sleep 0.7
     xdotool key shift; sleep 0.5
     shot "$step-settled"
+    [ "$WINDOW" = quorra-gtk ] && painted=$(retained_paint "$mark")
     mid=$(magick "$OUT/shots/$WINDOW/$step-mid.png" -alpha off -fuzz 6% -fill white +opaque "#ff0000" -format %@ info: 2>/dev/null)
     blue=$(magick "$OUT/shots/$WINDOW/$step-mid.png" -alpha off -fuzz 6% -fill black +opaque "#0000ff" -fill white -opaque "#0000ff" -format '%[fx:int(mean*w*h+0.5)]' info: 2>/dev/null)
     settled=$(magick "$OUT/shots/$WINDOW/$step-settled.png" -alpha off -fuzz 6% -fill white +opaque "#ff0000" -format %@ info: 2>/dev/null)
-    if [ "${blue:-1}" != 0 ]; then
+    if [ "$WINDOW" = quorra-gtk ] && [ "${painted%% *}" != retained ]; then
+        verdict "$step" wrong "the window's first paint of page one after the turn was not its retained picture: $painted"
+    elif [ "${blue:-1}" != 0 ]; then
         verdict "$step" wrong "the photograph after the turn back held ${blue:-?} pixels of page two's blue"
     elif python3 - "$mid" "$settled" <<'PY2'
 import re, sys
@@ -3694,11 +3711,34 @@ boxes = [tuple(map(int, re.match(r"(\d+)x(\d+)\+(\d+)\+(\d+)$", b).groups())) if
 sys.exit(0 if None not in boxes and all(abs(a - b) <= 4 for a, b in zip(*boxes)) else 1)
 PY2
     then
-        verdict "$step" works "the retained picture's red block $mid, the landed frame's $settled"
+        verdict "$step" works "the retained picture's red block $mid, the landed frame's $settled${painted:+; painted first: $painted}${late:+ (photographed after the frame landed)}"
     else
         verdict "$step" wrong "the retained picture's red block $mid against the landed frame's $settled"
     fi
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+# retained_paint N: in `quorra-gtk`, the first paint record of page one after line N, as "retained
+# WxH at EXTENT" where its pixels are not its frame's and its extent is the extent page one's frame is
+# then painted at, and "frame …", "none" or "other …" otherwise.
+retained_paint() {
+    tail -n "+$(($1 + 1))" "$LOG" 2>/dev/null | grep -o 'zoom-record {.*"kind":"raster-paint".*' | python3 -c '
+import json, sys
+paints = [json.loads(line.split(" ", 1)[1]) for line in sys.stdin if line.strip()]
+paints = [p for p in paints if p.get("page") == 0]
+if not paints:
+    print("none")
+    sys.exit()
+first = paints[0]
+pixels = (first["width"], first["height"])
+extent = (first["extent_width"], first["extent_height"])
+shape = "%dx%d at %dx%d" % (pixels + extent)
+frames = [(p["width"], p["height"]) for p in paints if p.get("native_completed")]
+if first.get("native_completed"):
+    print("frame " + shape)
+elif frames and extent == frames[0] and pixels != frames[0]:
+    print("retained " + shape)
+else:
+    print("other " + shape)'
 }
 # zoomed_window: step 82's third part (ADRs 1930, 1994) — a page zoomed until its largest window, the
 # viewport and a quarter of it on every side, is part of it and leaves out an eighth of its commands
@@ -5361,7 +5401,7 @@ fit_window() {
 # --- step 106: a question a document raises while the window presents waits until the presentation
 # ends (Table 29's "or any other window visible", ADR 2309). A deck stating `/PageMode /FullScreen`
 # whose slide is one link to a URI, under `--links=ask`: the click is said to wait, and Escape brings
-# the question up, answered "Do not". `quorra`'s presentation is not the shared pump's, and says so.
+# the question up, answered "Do not". `quorra` holds its card by the same rule (ADR 2329).
 held_fixture() {
     [ -s "$1" ] || python3 - "$1" <<'PY2'
 import sys, pikepdf
@@ -5379,14 +5419,10 @@ PY2
 }
 presentation_held() {
     local step=106-presentation-held file="$FIXTURES/drive-present-held.pdf" X Y WIDTH HEIGHT
-    if [ "$WINDOW" = quorra ]; then
-        verdict "$step" "not offered" "quorra's presentation and its card are its own, not viewer_host's pump (ADR 2309)"
-        return
-    fi
     held_fixture "$file"
     launch "$file" --links=ask
-    # The toolkits' trace of the core told its mode, under `events`.
-    if ! wait_for 5 said_since 0 'Present(On)'; then
+    # The toolkits' trace of the core told its mode, under `events`, and `quorra`'s own line.
+    if ! wait_for 5 said_since 0 "$PRESENTED_ON"; then
         verdict "$step" wrong "the deck did not open presenting: $(title)"
         kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
         return

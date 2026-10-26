@@ -140,9 +140,33 @@ fn coverage_at(in: VsOut) -> f32 {
 
 // Premultiplied source scaled by coverage; the fixed-function blend is
 // (ONE, ONE_MINUS_SRC_ALPHA), the premultiplied over operator.
+// Where the source is opaque the blend keeps none of the backdrop, so what this hands the target
+// is the pixel, and it is handed over as the level nearest it (ADR 2324): RADV exports a
+// fragment's colour as a half float rounded toward zero, up to an eighth of a level low, and a
+// level survives that export. Where it is not opaque the blend decides the pixel from the
+// backdrop and the unrounded source, one rounding as the oracle's compositing takes it; rounding
+// the source there too would round twice and move every antialiased edge (ADR 2311 §3).
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
-    return in.color * coverage_at(in);
+    let source = in.color * coverage_at(in);
+    return select(source, nearest_level(source), source.a >= 1.0);
+}
+
+// The level nearest each component, `⌊255 c + ½⌋ / 255` of the exact product (ADR 2311), so a
+// component a hair below a half level — `0.7` is 178.499 997 levels — is not carried onto it by the
+// `f32` product's rounding. The product is taken in integers (ADR 2324): a component in `0..=1` is
+// its 24-bit significand `m` times `2^-s`, and `255 m` fits a `u32`, so `⌊510 c⌋` is one shift and
+// the level is `(⌊510 c⌋ + 1) / 2` in integers. An `fma` residual stated the same rule and RADV
+// did not honour it (ADR 2324 §2). Five shaders hand the target a level through it, and the copies
+// are kept textually the same.
+fn nearest_level(c: vec4f) -> vec4f {
+    let bits = bitcast<vec4u>(clamp(c, vec4f(0.0), vec4f(1.0)));
+    let biased = (bits >> vec4u(23u)) & vec4u(255u);
+    let normal = biased != vec4u(0u);
+    let significand = (bits & vec4u(0x7fffffu)) | select(vec4u(0u), vec4u(0x800000u), normal);
+    let halving = vec4u(149u) - max(biased, vec4u(1u));
+    let doubled = select(vec4u(0u), (significand * 255u) >> halving, halving < vec4u(32u));
+    return vec4f((doubled + 1u) >> vec4u(1u)) / 255.0;
 }
 
 // The element's shape alone, for §11.4.6's knockout erase (ADR 0066). The erase pass

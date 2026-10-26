@@ -443,6 +443,26 @@ fn a_window_s_marks_for_subpaths_with_no_area_are_the_page_s() {
     every_window_is_the_page(&list, magnified(), anti_aliased);
 }
 
+/// Points and lines across the axes, which §10.7.4 and §8.5.3.3.1 give the device pixel under the
+/// point and the band of one device pixel along the line: the window draws them where the page
+/// does only if the pixel is floored and the band built on the page's grid (ADR 2330).
+#[test]
+fn a_window_s_points_and_lines_across_the_axes_are_the_page_s() {
+    let mut list = DisplayList::new(Size::new(WIDE as f32 / SCALE, TALL as f32 / SCALE));
+    for index in 0..60 {
+        let (x, y) = scattered(index);
+        let mut path = triangle_at(x, y);
+        path.push(PathCommand::MoveTo(user(x + 0.31, y + 6.29)));
+        path.push(PathCommand::Close);
+        // Two points are on one line whatever rounding put them where they are.
+        path.push(PathCommand::MoveTo(user(x - 1.13, y + 0.47)));
+        path.push(PathCommand::LineTo(user(x + 4.87, y + 3.47)));
+        path.push(PathCommand::Close);
+        list.push(filled(path));
+    }
+    every_window_is_the_page(&list, magnified(), anti_aliased);
+}
+
 /// Bars and rules thinner than a device pixel, which §10.7.4's substitution draws as the whole
 /// pixel line they lie in at the coverage their area implies, and a turned rule under one level of
 /// a pixel, widened to one pixel at the alpha its width implies: the line and the band are the

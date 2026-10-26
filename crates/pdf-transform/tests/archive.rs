@@ -3796,6 +3796,51 @@ fn an_appearance_subdictionary_with_no_state_stays_refused() {
 }
 
 #[test]
+fn each_shape_the_appearance_requirement_fails_in_is_refused_by_its_own_sentence() {
+    // One sentence per shape, so a census counts what the files hold (trap 252). An `N` naming
+    // object 0 states no normal appearance: §7.3.10 reads a reference to an undefined object as
+    // one to null, and §7.3.7 an entry whose value is null as no entry. An `/AS` naming a state
+    // the subdictionary does not hold selects nothing, which is not the subdictionary with no
+    // `/AS` at all.
+    for (annotation, says) in [
+        (
+            "<< /Type /Annot /Subtype /Stamp /Rect [10 10 90 90] /F 4 /AP << /N 0 0 R >> >>",
+            "states no N entry",
+        ),
+        (
+            "<< /Type /Annot /Subtype /Stamp /Rect [10 10 90 90] /F 4 /AS /Gone \
+             /AP << /N << /On 7 0 R >> >> >>",
+            "names a state the subdictionary does not hold",
+        ),
+        (
+            "<< /Type /Annot /Subtype /Stamp /Rect [10 10 90 90] /F 4 /AP << /N << /On 7 0 R >> >> >>",
+            "states no AS entry",
+        ),
+    ] {
+        let source = Conforming {
+            page: "/Annots [6 0 R]".to_owned(),
+            objects: vec![
+                annotation.to_owned(),
+                "<< /Type /XObject /Subtype /Form /BBox [0 0 80 80] /Length 0 >>\nstream\n\nendstream"
+                    .to_owned(),
+            ],
+            ..Conforming::default()
+        }
+        .build();
+        let (report, output) = to_part_four(&source);
+        assert!(
+            matches!(
+                decision(&report, "annotations/normal-appearance-shape"),
+                Decision::Refused(Because::NotBuiltYet(why)) if why.contains(says)
+            ),
+            "{annotation}: {:?}",
+            decision(&report, "annotations/normal-appearance-shape")
+        );
+        assert!(output.is_none(), "and no file is written");
+    }
+}
+
+#[test]
 fn a_push_buttons_single_stream_becomes_a_subdictionary_its_state_selects() {
     // ISO 19005-2 section 6.3.3 and ISO 19005-4 section 6.3.3 require a button widget's normal
     // appearance to be a subdictionary, and TechNote 0010's A012 reads a push button into that

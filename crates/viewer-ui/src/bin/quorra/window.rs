@@ -176,6 +176,8 @@ impl ApplicationHandler for App {
                 return;
             }
         }
+        // A card held while the window presented, once it has left full screen (ADR 2329).
+        self.put_up_what_was_held();
         // A script's question whose wait has run out: a tick of no time is the command after which
         // the viewer asks, and the withdrawal it then sends takes the card down (ADR 1643).
         if self

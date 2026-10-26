@@ -1635,10 +1635,11 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
             673,
         );
         gate_ratchet::floor("elements placed, whole population", census.placed, 14_035);
+        // ADR 2334: the same two elements of `issue17147.pdf`, counted here in the whole population.
         gate_ratchet::floor(
             "elements placed by their own marks, whole population",
             census.derived,
-            211_414,
+            211_412,
         );
         gate_ratchet::floor(
             "cells with headers, whole population",
@@ -2012,10 +2013,13 @@ fn ratchet(
     gate_ratchet::floor("elements reached", tracked_census.nodes, 4059);
     gate_ratchet::floor("§14.9.3's /Alt carried", tracked_census.substituted, 21);
     gate_ratchet::floor("elements placed", tracked_census.placed, 437);
+    // ADR 2334: two elements whose only marks were glyph contours at a single point, which draw
+    // nothing on any rasteriser, stopped being placed by them when ADR 2330 made such a glyph the
+    // blank glyph; a mark that draws nothing is not a content rectangle (§14.8.3.3).
     gate_ratchet::floor(
         "elements placed by their own marks",
         tracked_census.derived,
-        2641,
+        2639,
     );
     gate_ratchet::floor("cells with headers", tracked_census.header_cells, 58);
     gate_ratchet::floor(

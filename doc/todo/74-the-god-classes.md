@@ -1,6 +1,6 @@
 # 74 — The god classes: what the census finds, in the order to split it
 
-Status: **open** — entries 1 to 13 are split (ADRs 2004, 2018, 2032, 2046, 2064, 2080, 2081, 2096, 2097, 2112, 2128, 2144, 2160, 2176, 2192); the rest is the order. Ranking rule: ADR 2005.
+Status: **open** — entries 1 to 14 are split (ADRs 2004, 2018, 2032, 2046, 2064, 2080, 2081, 2096, 2097, 2112, 2128, 2144, 2160, 2176, 2192, 2288, 2304, 2320), and so are the files entry 15 names (ADRs 2216, 2217, 2226, 2227, 2256, 2272); section 17 is the order. Ranking rule: ADR 2005.
 Priority: the owner's, 2026-10-19: "Refactor god classes,..." and "Do not fix any bugs.", in a round
 asked to improve code quality for "the 'project which we can show students' part".
 Instrument: `python3 -I -B tools/god-census.py --top <n>`; `tools/state.sh gods` prints the top five
@@ -168,7 +168,20 @@ the tests. Nine modules hold the wrappers by concern: `documents`, `navigation`,
 `printing`, `editing`, `policy`, `scripts`, `reports` and `archiving`. No visibility widened;
 all method signatures and bodies retain their tokens, including literal contents.
 
-## 14. Files with no large block
+## 14. Built — the interpreter's §9 block and its operator loop (`content/text.rs` with `text/`, `content/run.rs`), ADRs 2288, 2304 and 2320
+
+Two blocks of the one `Interpreter` type again. `text.rs` is the root of the §9 block — the types a
+sibling outside `text/` reads (`TextObject`, `Coverage`, the re-exported `WordGaps`) and the tests —
+over eight children: `show`, `readback`, `word_gaps`, `glyph_painting`, `placement`, `paint`,
+`end_object` and `type3` (ADR 2288). `show_text` in `show` is the setup of one string and a loop of
+one method per step of §9.4.4 — `read_code`, `place_in_text_layer`, `draw_code`, `advance_past` —
+with the string's constants and tallies in one private `ShowString` (ADR 2320). `run.rs`'s loop
+reads a token and calls `run_operator`, whose one `match` over Table 50 sends each operator to the
+method for its family, the loop's thirteen locals one `Machine` each method destructures (ADR 2304).
+The block is still the census's largest by lines, because its families are; section 16 names the
+arms that are the next cuts if one is wanted.
+
+## 15. Files with no large block
 
 `viewer-ffi/src/abi/` (the exported surface, one child per concern since ADR 2272; `wc -l` sizes them),
 `pdf-colour/src/colour.rs`, `pdf-model/src/appearance.rs` (one `construct`
@@ -188,19 +201,29 @@ private `signature/security_store.rs` and `signature/legal_information.rs`
 explicit root re-exports retain the nine public names. The cryptographic
 implementation and original tests remain in `signature.rs`.
 
-## 15. Functions
+## 16. Functions
 
-`content/run.rs::run_from` (split by Table 50's operator families, ADR 2304), `linearize.rs::place` and
-`lay_out`, `archive/prepare.rs::of`, `notes.rs::about_one`, `text.rs::show_text`,
-`function.rs::apply_operator`, and the two codec functions in `protocol.rs`
-(`encode_command`, `decode_command_holding`), which are exhaustive matches on purpose and want
-splitting only if the vocabulary does.
+`archive/prepare.rs::of`, `linearize.rs::place` and `lay_out`, `archive/rewrite.rs::describe`,
+`notes.rs::about_one` and `function.rs::apply_operator`; in `content/run.rs`, `run_text_op` and
+`run_marked_content_op`'s `BDC` arm, which reads six property-list entries in turn. The codec
+functions under `protocol/` (`command.rs`'s `encode_command` and `decode_command_holding`,
+`answer.rs`'s `encode_answer`, `event.rs`'s `encode_event`) are exhaustive matches over a
+`viewer-core` enum on purpose and want splitting only if the vocabulary does. The longest functions
+the census prints are tests — `protocol/tests/panel_answers.rs`'s round trip and `launch_path.rs`'s
+bands — which are lists of cases, the remedy section 15 names for test files.
+
+## 17. Next, in the census's order
+
+`tools/state.sh gods`'s impl-block table, read past the blocks split above: `Host` in
+`viewer-ui/src/bin/quorra-confined.rs`, `Vfs` in `pdf-vfs/src/lib.rs`, `Carry` in
+`pdf-transform/src/structure.rs` and `App` in `viewer-ui/src/bin/quorra/typing.rs`, in that order
+until the census says otherwise; each is split as entry 1 was, by concern, behind the proof the
+opening paragraph names.
 
 ## Found, not fixed
 
-- None in the code moved by entries 1 to 3; the moves changed no line of behaviour.
-- `raster/crates/raster-gpu/src/device/render.rs:451` did not compile at one moment of this round
-  (`missing field uploads in initializer of Counters`) while a sibling slot was editing the crate;
-  not this round's, noted so the merge reads it as a mid-edit and not a regression.
-- `tools/round.sh docs` prints "CI's last run on main is failure" (run 38691824231) and a shared
-  stash that is not empty; both are facts about the repository, not about this round.
+- None in the code the entries moved: each move changed no line of behaviour.
+- Several `pub(super)` fields on `GlyphPainting` and `WordGaps` (`content/text/`) are read in one
+  sibling only and could be reached through a method (`doc/history/1727`).
+- The intra-doc links the splits wrote to `Interpreter::…` and `super::…` are long lines a later
+  pass may rewrap (`doc/history/1719`, `doc/history/1727`).

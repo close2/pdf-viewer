@@ -258,4 +258,46 @@ impl ColourSpace {
             }),
         }
     }
+
+    /// The alpha [`Self::to_rgb_under`] gives every colour of this space, without converting
+    /// one.
+    ///
+    /// A conversion's alpha is not a function of the components. It is §8.6.6.4's `/None`,
+    /// which "shall have no effect on the current page" and is painted transparent, reached
+    /// through the same three indirections [`Self::to_rgb_at`] follows — an `Indexed` base, a
+    /// `Separation`'s alternate, a pattern's underlying space — under the same depth bound, and
+    /// opaque everywhere else. A caller that wants only the alpha asks this rather than
+    /// converting a colour it throws away: on a shading's ramp inside a four-component group
+    /// that conversion was a tint transform run once a sample for nothing (ADR 2332).
+    ///
+    /// The match names every space rather than ending in a wildcard, so a new space is decided
+    /// here when it is decided in [`Self::to_rgb_at`] — the one conversion of trap 6, read for
+    /// its alpha — and `a_spaces_alpha_is_its_conversions_alpha` holds the two to each other.
+    #[must_use]
+    pub(crate) fn rgb_alpha(&self) -> f32 {
+        self.rgb_alpha_at(0)
+    }
+
+    fn rgb_alpha_at(&self, depth: usize) -> f32 {
+        if depth > MAX_DEPTH {
+            return Color::BLACK.a;
+        }
+        match self {
+            Self::Indexed { base, .. } | Self::Pattern { base: Some(base) } => {
+                base.rgb_alpha_at(depth.saturating_add(1))
+            }
+            Self::Separation { alternate, .. } => alternate.rgb_alpha_at(depth.saturating_add(1)),
+            Self::NoColourant { .. } => Color::TRANSPARENT.a,
+            Self::Gray
+            | Self::Rgb
+            | Self::Cmyk
+            | Self::Icc { .. }
+            | Self::Lab { .. }
+            | Self::CalGray { .. }
+            | Self::CalRgb { .. }
+            | Self::Simulated { .. }
+            | Self::AllColourants
+            | Self::Pattern { base: None } => Color::BLACK.a,
+        }
+    }
 }

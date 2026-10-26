@@ -76,6 +76,7 @@ impl Host {
                 partial,
                 focused,
                 geometry,
+                self.state.viewport,
             ),
         };
         let glimpsed = partial
@@ -103,22 +104,12 @@ impl Host {
         }
         let placements = frames
             .into_iter()
-            .filter_map(|placed| match page::texture(placed.frame.raster) {
-                Ok(texture) => {
-                    if let Some(sources) = sources.as_ref() {
-                        observed.push(observation::observe(&placed, sources));
-                    }
-                    Some(Picture {
-                        texture,
-                        origin: placed.frame.origin,
-                        extent: placed.extent,
-                        bytes: placed.frame.raster.data.len(),
-                    })
+            .filter_map(|placed| {
+                let picture = picture_of(&placed)?;
+                if let Some(sources) = sources.as_ref() {
+                    observed.push(observation::observe(&placed, sources));
                 }
-                Err(error) => {
-                    eprintln!("note: {error}");
-                    None
-                }
+                Some(picture)
             })
             .collect();
         let observation = (single && observed.len() == 1).then_some(observation::Snapshot {
@@ -131,6 +122,23 @@ impl Host {
             held,
             glimpsed,
             observation,
+        }
+    }
+}
+
+/// A placement as the texture it is put on the screen as, or `None`, said, for a raster the
+/// texture refuses.
+fn picture_of(placed: &viewer_host::stand_in::Placed<'_>) -> Option<Picture> {
+    match page::texture(placed.frame.raster) {
+        Ok(texture) => Some(Picture {
+            texture,
+            origin: placed.frame.origin,
+            extent: placed.extent,
+            bytes: placed.frame.raster.data.len(),
+        }),
+        Err(error) => {
+            eprintln!("note: {error}");
+            None
         }
     }
 }

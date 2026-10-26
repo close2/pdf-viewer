@@ -56,8 +56,13 @@ name = "quorra-qt"
 device_window_ms = 56.9 .. 81.6
 # 38.5, 37.2, 38.8
 device_up_ms = 31.6 .. 46.6
-# 7.0, 7.0, 7.0
-device_page_one_ms = 5.9 .. 8.4
+# 5.97, 6.15, 6.26 — three runs on 2026-10-26 in one `--clock` hold at a one-minute load of 1.25 to 1.32,
+# after batch one hundred and fourteen's merge gate read 5.86 at a load of 2.21, past the floor the
+# 2026-10-22 runs (7.0, 7.0, 7.0) had set; the file's rule over the three. The batch's candidates for
+# the 0.8 ms are its three device-side changes (ADRs 2324, 2325, 2330's mirror in `raster-gpu`) and
+# the interpretation's byte reads (ADR 2332); HEAD's export was not interleaved, so which one is not
+# separated here.
+device_page_one_ms = 5.0 .. 7.6
 # 82.9, 81.3, 82.5
 device_first_frame_ms = 69.1 .. 99.5
 # 63.0, 63.0, 64.0

@@ -630,3 +630,12 @@ first dispatch, the test read the driver's `gpu_busy_percent` at 23.9 % against 
 because the counter lags and the same 2 s had been covering that too (round 1482, ADR 1800). When a
 timed wait becomes a hold, the next assertion is read for a second quantity the timer let settle,
 and that one gets its own hold or its own bounded read.
+
+## A conformance run in a shared worktree is told not to stop at the first failing binary
+
+`cargo test -p conformance` stops at the first test binary that fails, and in a worktree eight rounds
+share that binary is usually a sibling's mid-write record or quotation, so the round never learns
+whether its own files pass the gates further down the list. Round 1751 ran
+`cargo test -p conformance --no-fail-fast` and could name the two reds as `records` on a sibling's
+record and `round_numbers` on a sibling's example, with its own six gates green. A round that shares
+a worktree runs the conformance crate with `--no-fail-fast` and reports which failures are its own.

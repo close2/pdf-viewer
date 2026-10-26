@@ -12,8 +12,11 @@ checks (ADR 1036's reason).
 
 - **`main`** is what `git -C /home/cl/projects/pdf-viewer log -1 --oneline` prints; what is
   installed is `target/installed-from`, which names the commit and the digest of every installed
-  file. A batch is open when `git worktree list` shows `/home/AI/pdf-viewer-rounds` on a
-  `batch-<first>-<last>` branch; its brief is `/home/AI/batch-<first>-brief.md`.
+  file, and `tools/state.sh binaries` says how far `main` has moved since. A batch is open when
+  `git worktree list` shows `/home/AI/pdf-viewer-rounds` on a branch of its own, the one `tools/batch.sh
+  open` was given; its brief is the newest `/home/AI/batch-<first>-brief.md` (`ls -t
+  /home/AI/batch-*-brief.md | head -1`), and `git -C /home/AI/pdf-viewer-rounds status --short` is what
+  its rounds have left so far.
 - **CI on `main`** is the last line of `tools/state.sh main-checkout`, which reads the run with
   the project's token; a red job is read with `gh run view <run> --log-failed`.
 - **The owner's list** is `tools/state.sh main-checkout`, numbered, each step with its command —
@@ -22,11 +25,10 @@ checks (ADR 1036's reason).
 - **Open questions** are `doc/questions/Q*.md` with no `A` file of the same name, in the main
   checkout as well as the tree (`main-checkout` counts both). An answer the owner wrote on the disk
   is the owner's to commit; no round commits it.
-- **The launch gate `t2-launch_path`** has been red at every merge since batch one hundred and six,
-  merged over with the judgment written down each time (ADRs 2209, 2221, 2233); the batch that
-  makes it green says so in its commit. `/home/AI/launch-ab-1698/` and `/home/AI/launch-frozen-1698/`
-  hold the balanced comparison and the frozen binaries; repeating those runs for a green result is
-  not the remedy.
+- **The gates at the last merge** are that merge commit's `Gates:` line (`git -C
+  /home/cl/projects/pdf-viewer log -1 --format=%b | grep '^Gates:'`), and what each gate cost is
+  `tools/state.sh gates-cost`. A red gate is judged, re-taken or asked, and never accepted by an
+  orchestrator (ADR 2242).
 
 ## 2. The loop, and where it is written
 
@@ -55,7 +57,7 @@ orchestrator's scaffolding lives there, one set per batch, named by the batch's 
 | the session scratchpad's `prompts-<first>.md` | one launch prompt per round, each naming the brief, the slot, the arms, the ADR and Q numbers |
 | `/home/AI/arms-<first>/` | HEAD's six corpus arms by page, exported by `tools/batch.sh arms`; its `README` ends with `done` when complete |
 | `/home/AI/chain-<first>.sh` | the merge chain: stage the population, the tier-one script, `tools/batch.sh gates`, `tools/batch.sh check`; verdicts into `chain-<first>.done` |
-| `/home/AI/tier1-1704.sh` (since batch one hundred and nine; `tier1-1219.sh` before it) | tier 1 whole: `cargo fmt --all --check`, clippy with warnings as errors, nextest, `cargo test -p conformance`, the fuzz workspace on stable and on nightly, `tools/state.sh docs`. `/home/AI/tier1-1698.sh` is a stricter variant — each walk under `tools/bounded.sh --lock`, the doctests, the fuzz workspace's `fmt` and clippy, one failure flag — and which one a chain runs is the orchestrator's choice, stated in the commit's `Gates:` line |
+| `/home/AI/tier1-1704.sh` | tier 1 whole: `cargo fmt --all --check`, clippy with warnings as errors, nextest, `cargo test -p conformance`, the fuzz workspace on stable and on nightly, `tools/state.sh docs`. `/home/AI/tier1-1698.sh` is a stricter variant — each walk under `tools/bounded.sh --lock`, the doctests, the fuzz workspace's `fmt` and clippy, one failure flag — and which one a chain runs is the orchestrator's choice, stated in the commit's `Gates:` line and printed by `grep tier1 /home/AI/chain-<first>.sh` |
 | `/home/AI/msg-<first>.txt` | the commit message skeleton: title line, one bullet per round, `merge:`, `Ledger:`, `Round durations`, `Gates:` |
 | `/home/AI/reports-<first>.md` | the orchestrator's notes on each report as it arrives |
 | `/home/AI/place-<first>.py` | the one script that edits `doc/traps/README.md`, the trap group files and the habit files — a trap or habit a report proposes is staged here and placed once, before the chain |
@@ -131,18 +133,19 @@ record for anything decided there.
 - **2026-10-22**: "Another process has worked on this repository …, please use one round to take a
   look at what has been done, and if it meets our standards." — batch one hundred and nine's
   review slot; its record says what it found.
-- **The GPU loop** (`tmp/run-on-gpu.sh`, running as the owner) is for display and adapter
-  measurements and probes only — the owner's capitals, 2026-10-10: "DO NOT USE THE LOOP FOR
-  ANYTHING ELSE! (only to measure performance!)" — never a build, an install, a file the agent user
-  cannot read, or a way out of the agent account; it may unlock the session only through
-  `loginctl unlock-session`. `doc/environment.md` carries the rule. A run through it stages its
+- **The GPU loop** (`tmp/run-on-gpu.sh`, running as the owner) answers what only the real display,
+  the real adapter or the owner's session can — the owner's capitals, 2026-10-10: "DO NOT USE THE
+  LOOP FOR ANYTHING ELSE! (only to measure performance!)", widened on 2026-10-23 to "GPU related
+  questions (also to get UI related Information)" and never "to escape your user for anything not
+  related to the GUI" — never a build, an install, a file the agent user cannot read, or a way out
+  of the agent account; it may unlock the session only through `loginctl unlock-session`. `doc/environment.md` carries the rule. A run through it stages its
   binaries as `AI`, holds the clock exclusively, has a finite timeout, checks it owns the window and
   the pid, and ends with Escape and a bounded fallback.
 - **One `partial` row per batch** (2026-10-08): the clause slot names it; the commit's `Ledger:`
   line reports it.
-- **2026-10-22, at batch one hundred and eight's close**: finish, merge, commit and stop; no round
-  or batch starts without a new instruction. Batch one hundred and nine is that instruction's
-  successor, given the same day.
+- **2026-10-25**: "please continue with multiple parallel rounds. Quota has been reset." A round a
+  quota cut mid-work resumes in the next batch's worktree beside its slots, its edits treated as a
+  sibling's (`doc/todo/02` section 8 step 7).
 - **Never change the model** from a historical model name met in a record; the brief's section 3
   states the models.
 
@@ -161,7 +164,8 @@ All under `/home/AI`, readable by the agent account only:
   --release -p pdf-sandbox --bins` there before an A/B).
 - The evidence of batches one hundred and four to one hundred and eight: the whole of it, failures
   included, in `/home/AI/evidence-batch108-1698-1703.tar.zst`, with `evidence-archive-1698.json`
-  its member list; the launch comparison (section 1); the real-display trials in
+  its member list; the launch comparison in `/home/AI/launch-ab-1698/` and its frozen binaries in
+  `/home/AI/launch-frozen-1698/`; the real-display trials in
   `/home/AI/gpu-evidence-1703/` and the CPU captures in `/home/AI/gtk-capture-1703-cpu1/` with
   `analyze-gtk-1703.py`, the independent mapping. `/home/AI/prepared-1702/` is a preparation for a
   session that never ran, and authorises nothing.
@@ -178,31 +182,39 @@ All under `/home/AI`, readable by the agent account only:
 ## 6. Threads the reports left open
 
 Each is in a `doc/history/` record's "Unfinished" or "Found, not fixed" paragraph, or in the ADR
-named; this is the list, not the argument.
+named; this is the list, not the argument. What is open to the owner is the `Q` files with no `A`
+beside them (section 1), and a slot builds nothing they ask about.
 
-- §11.7.5.3: the `Indexed` bases other than an immediate `ICCBased` one, the calibrated, `Lab`,
-  `Separation` and `DeviceN` sources, `Indexed` process-tint overprint, and the output-intent
-  policy (ADR 2234).
-- The owner's zoom symptoms — the Qt lag, the GTK blur and deep-zoom drift — are not resolved: the
-  next investigation tells source sharpness, a transient stand-in's scaling and the compositor's
-  scaling apart, and reproduces native Wayland and the deep-zoom anchor on their own. The real
-  adapter's trials refused before capture because the requested pointer warp did not move the X11
-  pointer; hardware sharpness is unjudged (ADRs 2229, 2241). A device price can stay a seed while no
-  compatible device frame exists (ADR 2196).
-- PDF/A: thirteen soft-mask selections remain unjudged under `A61`; `A566`'s
-  `substitute-stretch` loss is answered and owes its build.
+- §11.7.5.3 is `departed` on the one sentence ADR 1242 keeps; what the redefinition at the paint
+  leaves unread is a damaged `ICCBased` resource whose `/Alternate` is the family, selected a second
+  time inside one group and painted in a nested group of another profile (ADRs 2276, 2277).
+- Zoom: the Qt lag is the re-raster under the machine's load (ADR 2266), the GTK blur a whole scale
+  under a fractional surface (ADR 2250), the deep-zoom drift the centring (ADR 2275). The toolkit
+  windows' notch is past a frame without its encode and the re-used encode is rejected (ADRs 2314,
+  2315); the window-sized device read-back for those windows is in `viewer-device`'s `lane.rs` and
+  `renderer/read_back.rs`, and its round's record says how far it is. A device price can stay a seed
+  while no compatible device frame exists (ADR 2196).
+- PDF/A: `CIDFontType2` over `Identity` with a name-keyed CFF program refiles to `CIDFontType0` glyph
+  for glyph and is owed, and whether a `ttcf` is a TrueType program is the Manual's to say (ADR 2307);
+  `archive/transcode.rs` maps every `jpx_samples` error to one sentence; the composite fonts of
+  `Adobe-Identity` wait on `Q570`, the pack's publication on `Q596`, a fit of any size under
+  `substitute-stretch` on `Q585`; `doc/todo/72` ranks the rest.
 - Anti-aliasing everywhere for the raster library's `Source` coverage past its 8191-pixel range
   (`lerp(dst, src, min(coverage, clip))`), the cost ADR 2166 section 3 accepted instead.
-- A font that already has a descriptor still takes the shipped face over a machine face silently,
-  as a statement; its census is owed (`doc/todo/72`). `type1.rs::units_per_em` takes an integer
-  from its reader as the CFF one did (ADR 2180's "Found, not fixed").
-- A folding stroke's measure at twenty-four threads: a boundary shared between the strips that
-  cross a mark, which needs a store that outlives one strip (`strips.rs`).
+- `type1.rs::units_per_em` takes an integer from its reader as the CFF one did (ADR 2180's "Found,
+  not fixed").
+- Code quality, after the splits `doc/todo/74` lists: `run_text_op` is the longest arm left in
+  `content/run.rs`, `run_marked_content_op`'s `BDC` arm reads six property-list entries in turn, and
+  `show_text`'s setup is about a hundred lines of §9.3.6's and §11.7.4.4's reasoning (ADRs 2304,
+  2320).
 - The docs walk is `large` and queues behind lane 1; a capped `cargo doc -j` on the small lane may
   keep its peak under the ceiling and wants a cold measurement first.
-- The WinUI window's file chooser and printing are N4; the drive step 83 is flaky.
-- The GPU carve-out is full and the first-page figures decline with it — a question for the
-  owner, not yet written as a `Q`.
+- The WinUI window's full screen and Table 147's placement are compiled and not yet run, its file
+  chooser and printing are N4 (ADRs 2301, 2308); the C window's title has no title notes, so a C
+  caller that cannot move its window sees none (ADR 2308); the drive's step 83 is flaky.
+- The GPU carve-out is full and the first-page figures decline with it (ADR 2282) — a question for
+  the owner, not yet written as a `Q`; whether a launcher may turn Mesa's device-selection layer off
+  is `Q595`.
 
 ## 7. If a quota or a crash ends a session mid-batch
 
