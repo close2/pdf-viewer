@@ -197,8 +197,8 @@ pub use decision::{
     refused_by_name,
 };
 pub use fonts::{
-    CjkPack, Collection, Described, FaceAuthority, MetricRoute, PackFiles, PackGap, RestatedFont,
-    SubstitutedFont,
+    CjkPack, Collection, DOTS_PER_INCH, Described, FaceAuthority, MetricRoute, PackFiles, PackGap,
+    PhotographedPage, RestatedFont, SubstitutedFont,
 };
 pub use in_place::{ProxiedReference, ShownAnnotation};
 pub use languages::RestatedLanguage;
@@ -219,7 +219,6 @@ pub use attach::{AttachedFile, KeptAttachment, PRESERVED_AS_AN_ATTACHMENT};
 use decision::decide;
 use prepare::{
     DEFAULT_CMYK_ACTION, DEFAULT_CMYK_PARAMETERS, Prepared, Provenance, SUBSTITUTED_FONTS_ACTION,
-    substituted_fonts_recorded,
 };
 pub use preserve::{
     PLACEMENT_OF_MARKS, PLACEMENT_ON_PAGE, PRESERVED_AS_A_PAGE, PRESERVED_MARKS_AS_A_PAGE,
@@ -656,6 +655,7 @@ fn decide_every_failure(
         // know what to run (`doc/adr/1199`).
         external_data: external_stream_data(document, input),
         substituted: Vec::new(),
+        photographed: Vec::new(),
         restated: Vec::new(),
         signatures: None,
         departures,
@@ -1095,6 +1095,9 @@ fn apply_the_decisions(
         && let Ok(substitutes) = &prepared.substitutes
     {
         conversion.substituted.clone_from(&substitutes.done);
+        conversion
+            .photographed
+            .clone_from(&substitutes.photographed);
         // **`doc/rfc/0007` section 5b.1's obligation, which `supply` carries and no other
         // remedy does.** A face the operator named is in the file on the operator's authority:
         // ISO 32000-2 §9.9.1 makes embeddability a fact about a licence, and ISO 19005-2
@@ -1121,7 +1124,7 @@ fn apply_the_decisions(
         }
         recorded.push(format!(
             "{SUBSTITUTED_FONTS_ACTION} — {}",
-            substituted_fonts_recorded(&substitutes.done)
+            substitutes.recorded()
         ));
     }
     if (wanted.contains(&Rewrite::RestateFontMetrics)

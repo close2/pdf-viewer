@@ -540,3 +540,13 @@ names `quorra` and `quorra-confined` as the two whose cards are not held; round 
 sentence in `doc/state-of-play.md` and narrowed it to the GTK, Qt and C windows. The scope an ADR
 states is the sentence's scope — the windows it excludes are named, or the sentence names the
 windows it covers and no more.
+
+## A brief's "the outline's bounds" for what a stroke paints is read against every route that draws the stroke
+
+Slot 7 of batch 118 told round 1785 to bound a ramp-painted stroke's cells by the stroked outline's device
+bounds; no single outline the library builds covers what the stroke paints — the long-mitre wedges, the
+folding pieces and a dash's caps lie outside the stroker's solid outline, and a mark too thin to measure is
+drawn one device pixel wide (ADR 2404). The cells cover `pdf_render::stroked_bounds`, the shared bound that
+follows §8.4.3 term by term (ADR 0165), and its calibration test goes red at the outline's box grown by half a
+width. A brief's sentence about which region a mark paints is checked against every route the backend draws
+that mark through before it becomes an extent (trap 265's rule for a function's name, applied to a bound).

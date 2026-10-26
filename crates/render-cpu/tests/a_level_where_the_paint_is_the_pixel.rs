@@ -25,8 +25,9 @@
 use std::sync::Arc;
 
 use pdf_render::{
-    BlendMode, Color, Command, DisplayList, FillRule, Paint, Path, PathCommand, Point, Ramp,
-    Raster, Rasterizer, Shading, ShadingKind, Size, Stop, TargetSpec, Transform,
+    BlendMode, Color, Command, DisplayList, FillRule, LineCap, LineJoin, Paint, Path, PathCommand,
+    Point, Ramp, Raster, Rasterizer, Shading, ShadingKind, Size, Stop, Stroke, TargetSpec,
+    Transform,
 };
 use render_cpu::CpuRasterizer;
 
@@ -73,10 +74,23 @@ fn polygon(points: &[(f32, f32)]) -> Arc<Path> {
     Arc::new(path)
 }
 
+/// An open path through `points`.
+fn polyline(points: &[(f32, f32)]) -> Arc<Path> {
+    let mut path = Path::new();
+    for (index, &(x, y)) in points.iter().enumerate() {
+        let point = Point::new(x, y);
+        path.push(if index == 0 {
+            PathCommand::MoveTo(point)
+        } else {
+            PathCommand::LineTo(point)
+        });
+    }
+    Arc::new(path)
+}
+
 /// One fill of `path` with `paint` on a 40-unit page, drawn at 1x.
 fn draw(path: Arc<Path>, paint: Paint) -> Raster {
-    let mut list = DisplayList::new(Size::new(40.0, 40.0));
-    list.push(Command::Fill {
+    draw_command(Command::Fill {
         path,
         transform: Transform::IDENTITY,
         fill_rule: FillRule::NonZero,
@@ -84,11 +98,37 @@ fn draw(path: Arc<Path>, paint: Paint) -> Raster {
         clip: None,
         mask: None,
         blend: BlendMode::Normal,
-    });
+    })
+}
+
+/// One stroke of `path`, eight units wide, butt-capped and mitre-joined at PDF's initial limit of
+/// 10, with `paint` on a 40-unit page, drawn at 1x.
+fn draw_stroke(path: Arc<Path>, paint: Paint) -> Raster {
+    draw_command(Command::Stroke {
+        path,
+        transform: Transform::IDENTITY,
+        stroke: Stroke {
+            width: 8.0,
+            cap: LineCap::Butt,
+            join: LineJoin::Miter,
+            miter_limit: 10.0,
+            ..Stroke::default()
+        },
+        paint,
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+    })
+}
+
+/// `command` alone on a 40-unit page, drawn at 1x.
+fn draw_command(command: Command) -> Raster {
+    let mut list = DisplayList::new(Size::new(40.0, 40.0));
+    list.push(command);
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
     CpuRasterizer::new()
         .rasterize(&list, target)
-        .expect("a fill is supported")
+        .expect("a fill and a stroke are supported")
 }
 
 /// The red, green and blue of device pixel `(x, y)`.
@@ -214,6 +254,94 @@ fn a_ramps_cell_is_its_colour_at_the_pixels_own_t() {
                 channel(from.b, to.b)
             ),
             "column {x}, t = {t}"
+        );
+    }
+}
+
+/// ADR 2404: a stroke painted with an opaque axial or radial ramp is the level at a pixel it covers
+/// wholly, as a fill painted with it is (ADR 2356) — a wide stroke down a rectangle's three sides,
+/// read inside each side.
+#[test]
+fn an_opaque_ramp_on_a_stroke_is_the_level_nearest_its_colour() {
+    let sides = polyline(&[(6.0, 6.0), (6.0, 34.0), (34.0, 34.0), (34.0, 6.0)]);
+    for grey in greys_the_library_misses() {
+        let want = level(grey);
+        for kind in [
+            ShadingKind::Axial {
+                start: Point::new(0.0, 0.0),
+                end: Point::new(40.0, 13.0),
+                ramp: flat_ramp(grey),
+                extend: (true, true),
+            },
+            ShadingKind::Radial {
+                start: Point::new(20.0, 20.0),
+                start_radius: 0.0,
+                end: Point::new(21.0, 20.0),
+                end_radius: 60.0,
+                ramp: flat_ramp(grey),
+                extend: (true, true),
+            },
+        ] {
+            let paint = Paint::Shading(Arc::new(Shading {
+                background: None,
+                kind: Arc::new(kind),
+                transform: Transform::IDENTITY,
+            }));
+            let raster = draw_stroke(Arc::clone(&sides), paint);
+            for (x, y) in [(5, 20), (20, 5), (34, 20)] {
+                assert_eq!(
+                    at(&raster, x, y),
+                    (want, want, want),
+                    "a stroked ramp of {grey}, {} levels, at ({x}, {y})",
+                    f64::from(grey) * 255.0
+                );
+            }
+        }
+    }
+}
+
+/// ADR 2404: a stroked ramp's cell is its colour at the `t` of the pixel's own centre out to a
+/// mitre's tip, which lies further from the path than half the width (ISO 32000-2 §8.4.3.5) — so
+/// cells bounded by the path's box grown by half a width would leave those pixels reading the
+/// nearest cell's colour instead. The vertex is at device (20, 20) and the legs run down to device
+/// row 38 four units either side of it at their ends' half-width, so the join's ratio is about 2.5,
+/// under the limit, and its tip is near device row 10; a grey ramp runs up the page, five levels a
+/// row, and the two pixels read lie wholly inside the mitre above the row the path's box grown by
+/// half the width reaches.
+#[test]
+fn a_stroked_ramps_cell_is_its_colour_at_a_mitres_tip() {
+    let wedge = polyline(&[(12.0, 2.0), (20.0, 20.0), (28.0, 2.0)]);
+    let (from, to) = (Color::rgb(0.1, 0.1, 0.1), Color::rgb(0.9, 0.9, 0.9));
+    let paint = Paint::Shading(Arc::new(Shading {
+        background: None,
+        kind: Arc::new(ShadingKind::Axial {
+            start: Point::new(0.0, 0.0),
+            end: Point::new(0.0, 40.0),
+            ramp: Ramp {
+                stops: Arc::from([
+                    Stop {
+                        at: 0.0,
+                        colour: from,
+                    },
+                    Stop {
+                        at: 1.0,
+                        colour: to,
+                    },
+                ]),
+            },
+            extend: (false, false),
+        }),
+        transform: Transform::IDENTITY,
+    }));
+    let raster = draw_stroke(wedge, paint);
+    for (x, y) in [(19_u16, 13_u16), (20, 14)] {
+        // The page's y runs up from the foot of a 40-unit page, the device's down from its head.
+        let t = (40.0 - (f32::from(y) + 0.5)) / 40.0;
+        let grey = level(from.r + (to.r - from.r) * t);
+        assert_eq!(
+            at(&raster, u32::from(x), u32::from(y)),
+            (grey, grey, grey),
+            "device ({x}, {y}), t = {t}"
         );
     }
 }

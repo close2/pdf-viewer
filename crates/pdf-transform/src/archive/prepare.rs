@@ -4921,6 +4921,7 @@ fn prepare_fonts(
             spare,
             &plan.supplied_fonts,
             plan.cjk_pack.as_ref(),
+            plan.target,
         ),
         _ => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
     };
@@ -4930,7 +4931,7 @@ fn prepare_fonts(
     };
     let recorded = substitutes
         .as_ref()
-        .map(|built| substituted_fonts_recorded(&built.done))
+        .map(Substitutes::recorded)
         .unwrap_or_default();
     PreparedFonts {
         substitutes,

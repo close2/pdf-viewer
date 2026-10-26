@@ -668,3 +668,13 @@ Round 1774 added the drive's `89-movie-click` step and wrote its expected senten
 windows on a feature that worked (ADR 2382). Two describers of one thing on two sides of a crate boundary
 need not agree, and the step judges what the person sees. The expected sentence is taken from a run of the
 window itself — its log line, copied — and never composed from the model's side of the hand-off.
+
+### 276. Under Xvfb quorra draws on llvmpipe, so a window's GPU figure comes from the nested KWin
+
+Round 1787 timed quorra's zoom steps for the owner's question about the blurry frame on a zoom-out (ADR 2408).
+Under Xvfb the window's device is llvmpipe whatever adapter the machine has: Mesa presents through DRI3,
+which Xvfb does not offer, so a step figure taken there is the processor's. The figures on the Radeon 890M
+came from a nested, headless `kwin_wayland --virtual` on the render node — the compositor
+`tools/zoom-probe-wayland.py` already brings up (`doc/environment.md`) — at the owner's mode, natively on
+Wayland, with notches sent through KWin's EIS input. A window figure meant for the real adapter is taken in
+that compositor, and the adapter line the window prints is read before the figure is (habit 113).

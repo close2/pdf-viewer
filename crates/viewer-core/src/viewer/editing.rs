@@ -108,6 +108,7 @@ impl Viewer {
                         )],
                     });
                 }
+                events.extend(xfa_unkept(id, written.xfa_unkept));
                 for (name, homes) in written.still_reached {
                     events.push(Event::Reported {
                         document: id,
@@ -160,11 +161,11 @@ impl Viewer {
     ) {
         let Some(id) = self.focused else { return };
         let Some(open) = self.focused() else { return };
-        // The log's list, so that a file attached this sitting comes out again before it is
-        // saved — its stream is the one the save would write, unfiltered.
-        let Some(file) = open
-            .view
-            .attachments(&open.document)
+        // The panel's list, which starts from the log's, so that a file attached this sitting
+        // comes out again before it is saved — its stream is the one the save would write,
+        // unfiltered — and a file the page in view carries comes out by the name it is listed
+        // under (ADR 2399).
+        let Some(file) = super::answers::attachments_in_view(open)
             .into_iter()
             .find(|file| file.name == name)
         else {
@@ -623,6 +624,25 @@ impl Viewer {
         }
         Some(ordered.join("\n"))
     }
+}
+
+/// One report per field a save wrote to `/V` and not to the XFA form's `datasets` packet.
+///
+/// §K.2's writer rule — "The XFA field values shall be consistent with the corresponding V
+/// entries of the PDF field objects." — is kept by the save wherever it could find the data
+/// value; where it could not, the file states two values for the field, and the person who saved
+/// is told which and why (ADR 2396).
+fn xfa_unkept(id: DocumentId, unkept: Vec<(String, String)>) -> impl Iterator<Item = Event> {
+    unkept
+        .into_iter()
+        .map(move |(field, reason)| Event::Reported {
+            document: id,
+            page: None,
+            notes: vec![format!(
+                "{field}'s value was written to the PDF field and not to the XFA form's data, \
+             because {reason}, so the file states two values for it (ISO 32000-2 §K.2)"
+            )],
+        })
 }
 
 /// Which of §7.6.4.1's operations an [`crate::Edit`] is.

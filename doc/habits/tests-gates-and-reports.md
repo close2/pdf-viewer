@@ -673,3 +673,11 @@ Round 1770 moved the snapshot's publishing into a second workflow, `snapshot.yml
 the gates', and `tools/round.sh`'s CI line and `tools/state.sh main-checkout` would have reported the wrong
 one (ADR 2374). A command that asks the GitHub CLI for the last run names the workflow it means
 (`--workflow ci.yml`), and a round that adds a workflow greps the tools for the ones that did not.
+
+## A form field a test fills is read for its read-only bit first
+
+Round 1781's first fixture for a hybrid form's save filled a choice field of `bug1815476.pdf` and the fill was
+refused: two of that file's choice fields carry `/Ff` bit 1, ReadOnly (Table 227), and the refusal is the
+viewer's correct answer, not the defect under test (ADR 2396). A fixture that fills, resets or imports a field
+reads the field's inherited `/Ff` first and picks a field whose flags admit the operation, so a red test is
+about the code it names.

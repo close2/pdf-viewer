@@ -85,6 +85,13 @@ use super::{
 /// Every other composite font the file does not embed keeps the refusal it had, because this
 /// route's whole evidence is the producer's map from codes to characters.
 pub(super) fn applies(document: &Document, font: &Dictionary, descendant: &Dictionary) -> bool {
+    is_adobe_identity(document, descendant)
+        && matches!(document.get_key(font, "ToUnicode"), Object::Stream(_))
+}
+
+/// Whether a descendant `CIDFont` states the `Adobe-Identity` character collection, whose CIDs
+/// index only the program that defined them (§9.7.4.2).
+pub(super) fn is_adobe_identity(document: &Document, descendant: &Dictionary) -> bool {
     let info = document.get_key(descendant, "CIDSystemInfo");
     let Some(info) = document.resolve(&info).as_dict().cloned() else {
         return false;
@@ -95,7 +102,6 @@ pub(super) fn applies(document: &Document, font: &Dictionary, descendant: &Dicti
     };
     text("Registry").as_deref() == Some(b"Adobe")
         && text("Ordering").as_deref() == Some(b"Identity")
-        && matches!(document.get_key(font, "ToUnicode"), Object::Stream(_))
 }
 
 /// What this route wrote into one descriptor: every CID shown through it with its character and

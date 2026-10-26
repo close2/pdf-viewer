@@ -251,3 +251,10 @@ walk that keeps what reaches a page, and the slots it numbers), `wrapper` (Annex
 `keys` (the parent-tree keys and the plan's small answers), `write` (the rebuilt elements and the
 parent tree) and `report` (the warnings). Tokens are unchanged; the eight methods a sibling calls
 became `pub(super)`.
+
+## 20. Built — `Interpreter`'s operator loop (`crates/pdf-model/src/content/run.rs`, with `run/`), ADR 2406
+
+The impl block was 1 579 lines. `run.rs` keeps the loop (`run`, `run_source`, `run_from`, `settle_step`, `run_operator`,
+the stream's end). The children: `steps`, `operands`, `machine`, `graphics`, `text_ops`, `xobject_ops`, `marked_ops`,
+`compat_type3_ops`, `nested` and `notes`; the methods of each Table 50 family are in the file named for it. Tokens are
+unchanged; the next block `gods` names is `App` in `crates/viewer-ui/src/bin/quorra/typing.rs`.

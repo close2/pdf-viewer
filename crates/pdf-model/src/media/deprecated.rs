@@ -121,8 +121,17 @@ pub fn movie(
 /// # Errors
 ///
 /// The sentence a person is told: a `/Sound` that is not a stream, one whose `/F` is not a file
-/// specification, and one that holds its own samples — Table 305's stream, which reaches a player
-/// only once a wrapper writes it as a file, and that wrapper is not built (`doc/questions/A631`).
+/// specification, and one holding its own samples that Table 305 does not describe in a form a
+/// RIFF WAVE file can carry ([`super::SampleFormat::read`]).
+///
+/// # The samples a sound holds itself
+///
+/// > If no F entry is present, the sound object itself shall contain the sample data and all other
+/// > information needed to define the sound.
+///
+/// Such a sound becomes [`Data::Samples`]: the hand-off decodes the stream and writes it as a RIFF
+/// WAVE file, the form §13.3's NOTE names as self-describing, so a player is handed a file as it is
+/// for an `/F` (`doc/questions/A631`, ADR 2398). The judgement reads Table 305 and decodes nothing.
 pub fn sound(
     document: &Document,
     sound: &Object,
@@ -135,14 +144,17 @@ pub fn sound(
             "{table}'s required /Sound is not a stream, which §13.3 says a sound object shall be"
         ));
     };
+    let unhonoured = stated.iter().map(|key| format!("{table}'s /{key}"));
     let specification = document.get_key(&stream.dict, "F");
     if matches!(specification, Object::Null) {
-        return Err(
-            "the sound object holds its own samples (§13.3, Table 305) rather than naming a file, \
-             and this program writes no file a player could be handed for them, so nothing was \
-             handed over"
-                .to_owned(),
-        );
+        let (samples, rounded) = super::Samples::read(document, stream)
+            .map_err(|why| format!("the sound object holds its own samples (§13.3), and {why}"))?;
+        return Ok(Clip {
+            content_type: Some(samples.format.content_type()),
+            data: Data::Samples(Box::new(samples)),
+            temporary_file: None,
+            unhonoured: unhonoured.chain(rounded).collect(),
+        });
     }
     let Some(data) = file(document, &specification, "sound") else {
         return Err(
@@ -155,10 +167,7 @@ pub fn sound(
         content_type: content_type(&data),
         data,
         temporary_file: None,
-        unhonoured: stated
-            .iter()
-            .map(|key| format!("{table}'s /{key}"))
-            .collect(),
+        unhonoured: unhonoured.collect(),
     })
 }
 
@@ -186,7 +195,7 @@ fn file(document: &Document, specification: &Object, fallback: &str) -> Option<D
 fn content_type(data: &Data) -> Option<String> {
     match data {
         Data::Embedded(file) => file.media_type.clone(),
-        Data::Url(_) | Data::File(_) | Data::Form => None,
+        Data::Url(_) | Data::File(_) | Data::Form | Data::Samples(_) => None,
     }
 }
 
@@ -293,14 +302,16 @@ mod tests {
     }
 
     /// §13.3's `/F` names a self-describing file, which is handed over with the action's playing
-    /// parameters said; a stream holding its own samples is said and handed nowhere.
+    /// parameters said; a stream holding its own samples becomes samples for the WAVE writer, and
+    /// one compressed by a `/CO` no standard value names is said and handed nowhere.
     #[test]
-    fn a_sound_is_handed_over_by_its_file_and_its_own_samples_are_said() {
+    fn a_sound_is_handed_over_by_its_file_or_its_own_samples() {
         let doc = document(&[
             "<< /Type /Catalog >>",
             "<< /Type /Sound /R 22050 /F << /FS /URL /F (https://example.org/a.wav) >> /Length 0 \
              >>\nstream\n\nendstream",
             "<< /Type /Sound /R 8000 /E /muLaw /Length 2 >>\nstream\nab\nendstream",
+            "<< /Type /Sound /R 8000 /CO /Private /Length 2 >>\nstream\nab\nendstream",
         ]);
         let reference = |number| Object::Reference(ObjectId::new(number, 0));
         let clip = sound(&doc, &reference(2), "Table 212", &["Volume", "Repeat"])
@@ -314,8 +325,18 @@ mod tests {
             clip.unhonoured,
             ["Table 212's /Volume", "Table 212's /Repeat"]
         );
-        let why = sound(&doc, &reference(3), "Table 212", &[]).expect_err("samples stay");
-        assert!(why.contains("holds its own samples"), "{why}");
+        let held = sound(&doc, &reference(3), "Table 212", &[]).expect("samples are written");
+        assert_eq!(
+            held.content_type.as_deref(),
+            Some("audio/vnd.wave; codec=7")
+        );
+        assert!(
+            matches!(&held.data, Data::Samples(samples) if samples.format.rate == 8000),
+            "{:?}",
+            held.data
+        );
+        let why = sound(&doc, &reference(4), "Table 212", &[]).expect_err("compressed");
+        assert!(why.contains("/CO /Private"), "{why}");
         let why = sound(&doc, &Object::Null, "Table 188", &[]).expect_err("not a stream");
         assert!(why.starts_with("Table 188's required /Sound"), "{why}");
     }

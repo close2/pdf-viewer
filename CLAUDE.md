@@ -237,7 +237,8 @@ The exclusions, closed, each with its reason:
   own player under *A document's restrictions are the reader's to set*, `ask` by default.
   **Excluded still**, each with the trigger that reopens it: decoding or presenting audio and
   video (an H.264 and AAC decoder admissible under `deny.toml`, or C in a confined media worker
-  accepted in writing under ADR 0014), and rendering U3D or PRC artwork (a U3D reader in Rust).
+  accepted in writing under ADR 0014), and rendering U3D or PRC artwork (a U3D reader in Rust that
+  reads ECMA-363's fourth edition whole and is fuzzed, or the owner's decision to write one in-tree).
   Ratified on 2026-10-08 (`doc/questions/Q254`, `A254`: RFC 0009 section 11's question 2
   adopted as written); RFC 0009 section 3 is the argument, ADR 1946 the ledger's reading.
 - **XFA** — the standard hands this one over itself: "[t]he implementation of such a schema

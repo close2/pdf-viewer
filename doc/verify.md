@@ -153,7 +153,8 @@ cargo run --release -p render-raster --example zoom_frame -- <file.pdf> [page] [
 cargo run --release -p render-raster --example frame_budget -- [file.pdf] [page] [label]
   # where one refresh's 8.333 ms goes on the shipped path — interpretation, scene, encode, transfer,
   # the device's passes — for a page turn, a warm repaint and a zoom step, each on the lane the
-  # window gives it; `FRAME_BUDGET_ROUNDS`, `FRAME_BUDGET_WINDOW=WxH` (ADR 1260)
+  # window gives it; `FRAME_BUDGET_ROUNDS`, `FRAME_BUDGET_WINDOW=WxH` (ADR 1260); each row's
+  # `device clock` line is the residency per `pp_dpm_sclk` level through its frames (ADR 2402)
 cargo test --release -p render-raster --test turn_path -- --ignored --nocapture
   # that table's turn and step rows held to `doc/checks/turn-path.toml`'s bands, by the same method
   # (`tests/support/frame_cost.rs`): three pinned children of five rounds a page, each with the
@@ -161,11 +162,16 @@ cargo test --release -p render-raster --test turn_path -- --ignored --nocapture
   # is judged only on a quiet device too: amdgpu's `gpu_busy_percent`, averaged over half a second
   # before the child and after it, at or under the check file's `device_busy_percent`; above it the
   # row prints "not judged (device N% busy against T%)" and the run exits 0, as it does over the
-  # load ceiling; a device with no such counter is printed unread (ADR 1537)
+  # load ceiling; a device with no such counter is printed unread (ADR 1537). And only at the
+  # device's lowest clock level, which the bands are a claim about: each figure prints its residency
+  # per `pp_dpm_sclk` level, a child read above the lowest is printed "not judged (the device's clock
+  # above its lowest level …)", and the render node's holders of this account are listed beside each
+  # child (ADRs 2402, 2403)
 cargo test --release -p render-raster --test turn_path -- --ignored --nocapture a_planted_busy_device_is_seen_as_busy
   # the device check's calibration: this binary keeps the adapter busy with a compute loop for six
   # seconds and the counter must read over the threshold while it runs, behind the heavy-walk lock
-  # because it occupies the device a sibling may be measuring on. ADR 1537
+  # because it occupies the device a sibling may be measuring on; the clock read while it runs must
+  # leave the lowest level, which calibrates the clock check the same way. ADRs 1537, 2402
 cargo run --release -p render-raster --example ink_ladder -- <stem>...
   # each backend's total ink on a pdf.js page at four resolutions, against §10.7.4's area rule:
   # a total that walks toward the other backend's as the scale rises is a per-boundary cost, a flat

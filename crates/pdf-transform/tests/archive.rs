@@ -795,6 +795,7 @@ fn image_interpolation_is_a_loss_and_needs_authorising() {
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        text_as_image: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -951,6 +952,7 @@ fn an_annotation_stating_no_flags_is_made_printable_only_with_authorisation() {
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        text_as_image: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -1034,6 +1036,7 @@ fn a_property_its_own_schema_does_not_define_is_removed_only_with_authorisation(
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        text_as_image: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -2589,6 +2592,7 @@ fn the_face_losses_authorised() -> Authorisations {
         machine_face: true,
         substitute_stretch: true,
         glyphs_from_to_unicode: true,
+        text_as_image: true,
         ..Authorisations::default()
     }
 }
@@ -4013,6 +4017,7 @@ fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_st
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        text_as_image: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -5215,6 +5220,7 @@ fn a_colour_specification_the_part_ignores_is_removed_only_with_authorisation() 
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        text_as_image: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -5271,6 +5277,7 @@ fn a_file_marking_no_specification_best_keeps_the_one_a_jp2_reader_uses() {
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        text_as_image: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -5325,6 +5332,7 @@ fn two_specifications_marked_best_stay_refused() {
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        text_as_image: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -5372,6 +5380,7 @@ fn one_specification_with_a_method_the_part_forbids_stays_refused() {
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        text_as_image: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -7375,6 +7384,7 @@ fn a_metadata_property_this_target_rejects_is_kept_on_a_page_appended_to_the_doc
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        text_as_image: false,
     };
     let (lost, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -8806,6 +8816,7 @@ fn an_annotation_of_a_forbidden_subtype_goes_only_with_authorisation() {
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        text_as_image: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -9130,6 +9141,7 @@ fn an_annotation_that_drew_nothing_refuses_a_preserve_by_name() {
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        text_as_image: false,
     };
     let (report, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -9170,6 +9182,7 @@ fn every_loss() -> Authorisations {
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        text_as_image: false,
     }
 }
 
@@ -14951,6 +14964,7 @@ fn a_shipped_face_fitted_horizontally_is_the_loss_substitute_stretch() {
     let authorised = Authorisations {
         substitute_stretch: true,
         glyphs_from_to_unicode: true,
+        text_as_image: true,
         ..Authorisations::default()
     };
     let (report, output) = convert(&source, Target::Two(Level::B), authorised);
@@ -15014,6 +15028,7 @@ fn one_embedding_decision_names_every_loss_it_incurs() {
             machine_face,
             substitute_stretch,
             glyphs_from_to_unicode: false,
+            text_as_image: false,
             ..Authorisations::default()
         };
         let (report, output) = convert(&source, Target::Two(Level::B), partial);
@@ -15033,6 +15048,7 @@ fn one_embedding_decision_names_every_loss_it_incurs() {
         machine_face: true,
         substitute_stretch: true,
         glyphs_from_to_unicode: true,
+        text_as_image: true,
         ..Authorisations::default()
     };
     let (report, output) = convert(&source, Target::Two(Level::B), authorised);
@@ -15150,6 +15166,7 @@ fn the_fitting_authorised() -> Authorisations {
     Authorisations {
         substitute_stretch: true,
         glyphs_from_to_unicode: true,
+        text_as_image: true,
         ..Authorisations::default()
     }
 }
@@ -15353,5 +15370,7 @@ mod default_rgb_page_intent;
 
 #[path = "archive/cjk_pack.rs"]
 mod cjk_pack;
+#[path = "archive/photographed.rs"]
+mod photographed;
 #[path = "archive/rekeyed.rs"]
 mod rekeyed;

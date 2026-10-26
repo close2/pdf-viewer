@@ -201,13 +201,12 @@ The rich text build's last residue, pair kerning in §9.6.2.2's fourteen, is lai
 published pairs (`doc/questions/A308`, ADR 1916); the rows here are the cases §13.2's viability
 judgement does not yet reach, opened when its family was read against `pdf_model::media` (ADR 2376).
 
-- §13.2.4.3, §13.2.7.2.1, §13.2.7.3, §13.2.7.4.1, §13.2.7.4.4 — `pdf_model::media::judge` reads a
-  media clip section's must-honour offset as non-viable over an image clip, where the clause ignores
-  it, and reads a media players dictionary's `/MU` as non-empty while every player info in it is
-  non-viable — a missing `/PID`, an `/MH` entry Table 302 does not define, a negative version, a
-  partially recognised software identifier — where §13.2.7.2.1 removes each. Both are decidable from
-  the dictionaries, and one build judging a player info's viability closes the last four; §13.2.4.3's
-  two offset rules that need the clip's own timeline stay with it.
+- §13.2.4.3 — `pdf_model::media::judge` reads a must-honour /E past the next-level clip's end, and
+  a marker the clip lacks, as non-viable where the clause gives each "no effect on viability", and
+  so a /B at the clip's start, which the hand-off honours. The first two need the clip's duration,
+  frame count and marker table from its media container; the third needs §13.2.6.2's offset value
+  (ADR 2392). §13.2.7.2.1, §13.2.7.3, §13.2.7.4.1 and §13.2.7.4.4 were here and are `implemented`:
+  a player info dictionary's own viability is judged before an array's emptiness is read.
 
 - **Beside this bucket and not in it** — §12.5.6.23 is `departed` on two refusals with their cost
   recorded, a calculator function serving region-only colours (ADR 1363) and a `JPXDecode` component
@@ -265,9 +264,7 @@ A normal round can advance or close each of these today; there is no missing sur
 package, no cross-round architecture. Membership is re-derived from the ledger rather than carried: a
 row is in this bucket when its note names none of those three.
 
-- §13.3 — a sound that names its file by Table 5's /F is handed over; one that holds its own samples
-  is said and handed nowhere. A631 settles the build: a RIFF wrapper written for the hand-off, µ-law
-  across unchanged, 8-bit signed and big-endian 16-bit re-encoded on the way (ADR 2382).
+No row is in this bucket at present.
 
 
 §11.7.5.3 was here, and is `departed`: every solid family and uncoloured pattern tint converts
@@ -314,8 +311,7 @@ exactly the rows `Ledger::is_aggregate` names and the frontier gate fails on any
 "Aggregate of the rows below" and the reason is the owing row's. They are not independently actionable
 — do not brief a round to *take* one; they flip when the last binding row flips.
 
-§7.4, §7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4, §13.2, §13.2.4, §13.2.7, §13.2.7.2, §13.2.7.4, §14.8,
-§14.8.5, §14.8.5.4.
+§7.4, §7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4, §13.2, §13.2.4, §14.8, §14.8.5, §14.8.5.4.
 
 
 ### Not owed — a documented choice, an exclusion, a deprecation, or a standard-gap

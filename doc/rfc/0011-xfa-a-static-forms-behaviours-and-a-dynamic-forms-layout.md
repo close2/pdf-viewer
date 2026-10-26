@@ -409,6 +409,12 @@ static half is in scope; that is the owner's edit, and the status follows it. §
    consistent with every `/V` it writes, judged on §K.2's sentence over the census's hybrid files
    filled and saved, and on a file this tree did not change being written byte for byte as before.
    Its record names the step it leaves next.
+   **Built** (session 1781, ADR 2396): `pdf_model::xfa::Resource` reads both of §K.2's forms into
+   the template's containers and the `datasets` packet, and `ViewState::save` splices the data value
+   each changed field binds; the four hybrids of section 4 fill, save and read back consistent
+   (`crates/pdf-model/tests/xfa_datasets.rs`). What it names rather than writes — a numeric or date
+   field's canonical form, a dynamic form, a binding it does not follow — is `Written::xfa_unkept`,
+   and the first of those is step 3's. Step 3 is next.
 3. **Then, one round per batch**: steps 3 to 6 in order, each with its ledger note.
 4. **On Q639's answer**: the dynamic half, whose first round is a measurement — the cost of laying
    out page one of the census's `/NeedsRendering` documents — before a line of layout ships.

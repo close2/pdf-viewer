@@ -17,6 +17,8 @@ use pdf_render::{DisplayList, TargetSpec, Transform};
 use pdf_syntax::Document;
 use render_raster::{FrameCost, PresentFrame, QuorraRasterizer};
 
+use crate::device_clock::{Residency, Sampler};
+
 /// The document every round's device is warmed with, and the page of it.
 ///
 /// Committed to this repository, small, and none of the measured pages — so it fills the
@@ -99,6 +101,9 @@ pub(crate) struct Stages {
     pub(crate) uploads: u32,
     /// Threads the frame started (`raster_gpu::threads`, ADR 1686): a count, not a duration.
     pub(crate) threads: u64,
+    /// The device's clock level through the frame, and through every frame [`keep`] has kept this
+    /// one against (ADR 2402).
+    pub(crate) clock: Residency,
 }
 
 impl Stages {
@@ -124,6 +129,7 @@ impl Stages {
             bytes: cost.bytes_uploaded,
             uploads: cost.uploads,
             threads,
+            clock: Residency::default(),
         }
     }
 
@@ -133,10 +139,16 @@ impl Stages {
     }
 }
 
-/// Keeps whichever of two samples of the same row is the quicker.
+/// Keeps whichever of two samples of the same row is the quicker, with the clock readings of both:
+/// a figure is the quickest of its rounds, and the level it was taken at is read over all of them,
+/// because a frame of a millisecond or two holds one reading or none (ADR 2402).
 pub(crate) fn keep(slot: &mut Option<Stages>, sample: Stages) {
+    let clock = slot.map_or(sample.clock, |kept| kept.clock.and(sample.clock));
     if slot.is_none_or(|kept| sample.budget() < kept.budget()) {
         *slot = Some(sample);
+    }
+    if let Some(kept) = slot {
+        kept.clock = clock;
     }
 }
 
@@ -274,6 +286,14 @@ fn warmed_device(lane: raster_gpu::Coverage, window: (u32, u32)) -> (QuorraRaste
     (backend, description)
 }
 
+/// What `draw` returned, with the instants it began and ended at: the span the device clock's
+/// readings are kept inside.
+fn spanned(draw: impl FnOnce() -> Stages) -> (Stages, (Instant, Instant)) {
+    let began = Instant::now();
+    let drawn = draw();
+    (drawn, (began, Instant::now()))
+}
+
 /// One round of one page: its four rows, each on a device of its own where the row needs one.
 pub(crate) struct Round {
     /// The page interpreted and drawn on a device that has drawn another document's page.
@@ -298,24 +318,39 @@ pub(crate) struct Round {
 pub(crate) fn round(path: &str, index: usize, window: (u32, u32)) -> Round {
     warm_the_cores();
     let page = read(path, index);
+    // Read from before the first device to after the last frame; each timed frame keeps the
+    // readings inside its own span (ADR 2402).
+    let sampler = Sampler::start();
     // The page turn and the repaint after it, on the lane `coverage_for` gives every
     // magnification below 10× — which is the lane the window turns a page on.
     let (mut backend, adapter) = warmed_device(raster_gpu::Coverage::Cpu, window);
     let target = placed(&page.list, 1.0, window);
-    let turn = Stages::of(page.interpret, draw(&mut backend, &page.list, target));
-    let warm = Stages::of(0.0, draw(&mut backend, &page.list, target));
+    let (mut turn, turn_span) =
+        spanned(|| Stages::of(page.interpret, draw(&mut backend, &page.list, target)));
+    let (mut warm, warm_span) = spanned(|| Stages::of(0.0, draw(&mut backend, &page.list, target)));
     drop(backend);
     // The same turn on a device that has lived through six frames, on the same lane, against the
     // same interpretation: the device is the one difference between the two rows.
     let mut backend = long_lived_device(window);
-    let seventh = Stages::of(page.interpret, draw(&mut backend, &page.list, target));
+    let (mut seventh, seventh_span) =
+        spanned(|| Stages::of(page.interpret, draw(&mut backend, &page.list, target)));
     drop(backend);
     // The zoom step, on the moved-view lane, against the caches the first placement
     // filled — one notch of a gesture rather than a first sight of the page.
     let (mut backend, _) = warmed_device(raster_gpu::Coverage::Compute, window);
     let _first = draw(&mut backend, &page.list, target);
     let stepped = placed(&page.list, 2.0, window);
-    let step = Stages::of(0.0, draw(&mut backend, &page.list, stepped));
+    let (mut step, step_span) =
+        spanned(|| Stages::of(0.0, draw(&mut backend, &page.list, stepped)));
+    let readings = sampler.map(Sampler::stop).unwrap_or_default();
+    for (stages, span) in [
+        (&mut turn, turn_span),
+        (&mut warm, warm_span),
+        (&mut seventh, seventh_span),
+        (&mut step, step_span),
+    ] {
+        stages.clock = Residency::during(&readings, span);
+    }
     Round {
         turn,
         warm,

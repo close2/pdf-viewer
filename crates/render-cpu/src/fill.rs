@@ -181,7 +181,7 @@ impl CpuRasterizer {
         let ramp = match paint {
             Paint::Shading(shading) => shading::ramp_shader(
                 shading,
-                &path,
+                shading::Extent::Filled(&path),
                 (placed, to_device.placed(shading.transform)),
                 (pixmap.width(), pixmap.height()),
                 &mut levels,

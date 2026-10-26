@@ -123,7 +123,7 @@ the structure states — is the one to keep true above all.
 spaces and line breaks in it come from?
 
 `crates/pdf-model/src/content/run.rs::run_operator` sends `Tj`, `'`, `"` and `TJ` to the family's
-`crates/pdf-model/src/content/run.rs::run_text_showing_op` (ADR 2304), which calls
+`crates/pdf-model/src/content/run/text_ops.rs::run_text_showing_op` (ADR 2304), which calls
 `crates/pdf-model/src/content/text/show.rs::show_text` for each string, a `TJ` array's one by one, each
 number between them moving the text matrix by §9.4.3's adjustment. `show_text` does two things with
 one string, and the module's own first paragraph is why: *one pass places the glyphs and extracts
@@ -183,7 +183,7 @@ reads the code back, `place_in_text_layer` builds the text rendering matrix and 
 
 ```mermaid
 flowchart LR
-    OP["Tj, quote, TJ<br/>pdf-model/src/content/run.rs::run_text_showing_op<br/>clause 9.4.3, ADR 2304"]
+    OP["Tj, quote, TJ<br/>pdf-model/src/content/run/text_ops.rs::run_text_showing_op<br/>clause 9.4.3, ADR 2304"]
     SHOW["show_text<br/>pdf-model/src/content/text/show.rs"]
     STEPS["read_code, place_in_text_layer, draw_code, advance_past<br/>pdf-model/src/content/text/show.rs<br/>clause 9.4.4, ADR 2320"]
     CODES["string to codes<br/>pdf-font/src/loading/codes.rs::decode<br/>clause 9.7.1"]
@@ -201,7 +201,7 @@ flowchart LR
     GAP -->|"at the page's end"| SETTLE
 ```
 
-**Maintenance note.** Depends on: `crates/pdf-model/src/content/run.rs`,
+**Maintenance note.** Depends on: `crates/pdf-model/src/content/run.rs`, `crates/pdf-model/src/content/run/`,
 `crates/pdf-model/src/content/text/`, `crates/pdf-model/src/content/font.rs`,
 `crates/pdf-model/src/content/report.rs`, `crates/pdf-font/src/loading/codes.rs`, ADR 0118,
 ADR 1490, ADR 1502, ADR 1515, ADR 2304 and ADR 2320. Redraw it when the readback stops being written by the drawing
@@ -214,7 +214,7 @@ page's end, or when the text layer stops carrying one entry per code.
 or annotate what stage 1 read back?
 
 A `BDC` is read by the `Operator::BeginMarkedProperties` arm of
-`crates/pdf-model/src/content/run.rs::run_marked_content_op`, the method for Table 50's marked-content
+`crates/pdf-model/src/content/run/marked_ops.rs::run_marked_content_op`, the method for Table 50's marked-content
 family (ADR 2304). Its property list may be
 written inline or named in the `/Properties` resources (§14.6.2), and
 `crates/pdf-model/src/content/marked.rs::property_list` reads both (ADR 0060). From the one list the
@@ -234,7 +234,7 @@ section began. Everything else happens at the `EMC`.
    is the clause's EXAMPLE read as it is written — the producer replaced the line-end hyphen, which
    is the statement that the word goes on.
 3. **Two replacements in a row have no break between them** — "they shall be treated as if no word
-   break is present between them", §14.9.4 again — so `crates/pdf-model/src/content/run.rs::end_marked_content` takes back the whitespace between
+   break is present between them", §14.9.4 again — so `crates/pdf-model/src/content/run/marked_ops.rs::end_marked_content` takes back the whitespace between
    one replaced section's end and the next one's text.
 4. **The soft hyphen is a character and stays one here.** §14.8.2.3:
 
@@ -267,9 +267,9 @@ interpreted and a drag asks about them sixty times a second.
 
 ```mermaid
 flowchart TD
-    BDC["BDC: property list inline or named<br/>pdf-model/src/content/run.rs::run_marked_content_op, pdf-model/src/content/marked.rs::property_list<br/>clause 14.6.2, ADR 0060, ADR 2304"]
+    BDC["BDC: property list inline or named<br/>pdf-model/src/content/run/marked_ops.rs::run_marked_content_op, pdf-model/src/content/marked.rs::property_list<br/>clause 14.6.2, ADR 0060, ADR 2304"]
     OPEN["Marked: where the section began<br/>its ActualText, MCID, artifact, ReversedChars"]
-    EMC["EMC<br/>pdf-model/src/content/run.rs::end_marked_content"]
+    EMC["EMC<br/>pdf-model/src/content/run/marked_ops.rs::end_marked_content"]
     CUT["the content's readback cut<br/>pdf-model/src/content/text/readback.rs::cut_replaced<br/>clause 14.9.4, ADR 1948"]
     REPL["the replacement written, every code spanning all of it<br/>pdf-model/src/content/text/readback.rs::push_replacement<br/>ADR 1515"]
     SHY["U+00AD stays in the readback<br/>clause 14.8.2.3"]
@@ -286,7 +286,7 @@ flowchart TD
     SPANS --> KEPT
 ```
 
-**Maintenance note.** Depends on: `crates/pdf-model/src/content/run.rs`,
+**Maintenance note.** Depends on: `crates/pdf-model/src/content/run.rs`, `crates/pdf-model/src/content/run/`,
 `crates/pdf-model/src/content/marked.rs`, `crates/pdf-model/src/content/text/readback.rs`,
 `crates/pdf-model/src/content/report.rs`, `crates/viewer-core/src/open.rs`, ADR 0060, ADR 1515,
 ADR 1948, ADR 1970 and ADR 2304. Redraw it when a replacement stops being applied to the readback during

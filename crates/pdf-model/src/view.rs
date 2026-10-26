@@ -1162,6 +1162,15 @@ pub struct Written {
     /// into the page tree — so a save after such an import leaves them out, and this says how
     /// many (ADR 2154). Zero for every save no template import came before.
     pub unwritten_pages: usize,
+    /// §12.7.4.2's qualified name of every field whose value this save wrote to `/V` and could
+    /// not write to the XFA `datasets` packet, with the sentence saying why.
+    ///
+    /// §K.2 binds the writer of a hybrid file — "The XFA field values shall be consistent with
+    /// the corresponding V entries of the PDF field objects." — so a file written with an entry
+    /// here states two values for that field, and the person who saved is told which. Empty for
+    /// every document with no XFA resource, and for the four hybrid forms of the corpora filled
+    /// in their text, choice and button fields (ADR 2396).
+    pub xfa_unkept: Vec<(String, String)>,
 }
 
 /// What a field says now, and whether saying it was Table 231 bit 14's substitution.

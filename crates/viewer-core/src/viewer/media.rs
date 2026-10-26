@@ -80,12 +80,6 @@ impl Viewer {
     }
 }
 
-/// Hands one embedded file's decoded bytes to the host, saying what §7.11.4 lets a file get wrong.
-///
-/// Two callers and one set of sentences: [`Command::Extract`], which names a file §7.7.4's tree
-/// filed, and a click on §12.5.6.15's file attachment annotation, which names none because an
-/// annotation files its file under nothing. Both owe the same three statements, which is why
-/// this is one function rather than two that drifted.
 /// What [`Event::Media`] hands over for one clip, its embedded data decoded here for
 /// [`hand_over`]'s reason: a host that had to undo §7.4's filters would be a second reader of the
 /// document.
@@ -117,6 +111,10 @@ fn media_of(
                 bytes: bytes.to_vec(),
             }
         }
+        Data::Samples(samples) => crate::Media::Embedded {
+            name: samples.name.clone(),
+            bytes: wrapped(id, document, samples, events)?,
+        },
         Data::Url(url) => crate::Media::Url(url.clone()),
         Data::File(name) => crate::Media::File(name.clone()),
         // `interact::rendered` keeps a form XObject back: its player is this processor.
@@ -125,6 +123,55 @@ fn media_of(
     Some(media)
 }
 
+/// §13.3's samples, decoded and written as the RIFF WAVE file a player is handed (ADR 2398).
+///
+/// Here rather than in the judgement for [`media_of`]'s reason: the stream is decoded only once
+/// the reader's level has let the file through. Every sentence the writer owes is reported, and a
+/// stream that will not decode or will not wrap hands nothing over and says why (trap 5).
+fn wrapped(
+    id: DocumentId,
+    document: &pdf_syntax::Document,
+    samples: &pdf_model::media::Samples,
+    events: &mut Vec<Event>,
+) -> Option<Vec<u8>> {
+    let report = |notes: Vec<String>, events: &mut Vec<Event>| {
+        events.push(Event::Reported {
+            document: id,
+            page: None,
+            notes,
+        });
+    };
+    let Some(decoded) = document.decoded_stream_data(&samples.stream) else {
+        report(
+            vec![
+                "the sound object's samples state a filter or an encryption this program cannot \
+                 undo, so nothing was handed over"
+                    .to_owned(),
+            ],
+            events,
+        );
+        return None;
+    };
+    match pdf_model::media::wave(&samples.format, &decoded, document.limits().max_stream_len) {
+        Ok(wave) => {
+            if !wave.notes.is_empty() {
+                report(wave.notes, events);
+            }
+            Some(wave.bytes)
+        }
+        Err(why) => {
+            report(vec![format!("{why}, so nothing was handed over")], events);
+            None
+        }
+    }
+}
+
+/// Hands one embedded file's decoded bytes to the host, saying what §7.11.4 lets a file get wrong.
+///
+/// Two routes and one set of sentences: [`Command::Extract`], which names a file the attachments
+/// list holds, and a click on an annotation carrying files — §12.5.6.15's file attachment, an
+/// `/AF`, §13.7.2.3.2's rich media assets (ADR 2399). Every route owes the same three statements,
+/// which is why this is one function rather than several that drifted.
 pub(super) fn hand_over(
     id: DocumentId,
     asked: Extraction,

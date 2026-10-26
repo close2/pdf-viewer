@@ -43,6 +43,14 @@
 //!   share of a short window the device's own counter says it was busy, read before the child
 //!   starts and again after it exits — and a child either reading finds above the check file's
 //!   `device_busy_percent` is printed with that figure and not judged (ADR 1537).
+//! - **And against the band of the clock it ran at**: the device runs a child at its lowest clock
+//!   level or at a raised one, both at a quiet busy share, and a page whose step is the device's
+//!   own work reads about three times slower at the lowest (trap 274). So the child reads the
+//!   driver's table of levels through every timed frame (`support/device_clock.rs`), each figure is
+//!   printed with its residency per level, and a figure read wholly at the lowest level is judged
+//!   against the row's `<figure>_lowest_ms` where the row states one ([`band_for`], ADR 2402).
+//!   Where no device publishes the table the header line says so and every figure is judged as
+//!   before.
 //! - **Judged only under the profile the bands state**, pinned, with at least one fit child per
 //!   row. Anything else prints every figure and says why it judged none of them — the run is then
 //!   a measurement, not a verdict, and says so rather than passing or failing on a machine nobody
@@ -80,6 +88,8 @@
               pixels"
 )]
 
+#[path = "support/device_clock.rs"]
+mod device_clock;
 #[path = "support/frame_cost.rs"]
 mod frame_cost;
 
@@ -87,6 +97,7 @@ use std::path::PathBuf;
 use std::process::Command as Child;
 use std::time::Instant;
 
+use device_clock::{LEVELS, Residency};
 use frame_cost::{Stages, WINDOW, keep, round};
 
 /// Names what a child process is to do; unset in the parent.
@@ -196,7 +207,7 @@ fn turn_probe() {
          seventh_elsewhere={:.3} step_ms={:.3} step_encode={:.3} \
          step_transfer={:.3} step_bytes={} step_uploads={} commands={commands} \
          preceded={} calibration_ms={calibration:.3} turn_threads={} seventh_threads={} \
-         step_threads={}",
+         step_threads={} {}",
         turn.budget(),
         turn.interpret,
         turn.encode,
@@ -215,7 +226,48 @@ fn turn_probe() {
         turn.threads,
         seventh.threads,
         step.threads,
+        [
+            ("turn", turn.clock),
+            ("seventh", seventh.clock),
+            ("step", step.clock)
+        ]
+        .iter()
+        .map(|(figure, clock)| clock_fields(figure, clock))
+        .collect::<Vec<_>>()
+        .join(" "),
     );
+}
+
+/// `residency` as the child's `key=value` fields — `step_sclk0=12 step_sclk0_low=600
+/// step_sclk0_high=600 …` for each level read, and `step_sclk_beyond=…` — so the parent reads the
+/// level a figure was taken at with the figures themselves (ADR 2402).
+fn clock_fields(figure: &str, residency: &Residency) -> String {
+    let mut fields: Vec<String> = (0..LEVELS)
+        .filter(|&level| residency.samples[level] > 0)
+        .map(|level| {
+            format!(
+                "{figure}_sclk{level}={} {figure}_sclk{level}_low={} {figure}_sclk{level}_high={}",
+                residency.samples[level], residency.low_mhz[level], residency.high_mhz[level]
+            )
+        })
+        .collect();
+    fields.push(format!("{figure}_sclk_beyond={}", residency.beyond));
+    fields.join(" ")
+}
+
+/// The residency `clock_fields` wrote for `figure`, read back from a child's fields.
+fn clock_of(fields: &Fields, figure: &str) -> Residency {
+    let mut residency = Residency::default();
+    // The child prints whole numbers of readings and megahertz, each far under `u32::MAX`.
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let whole = |key: String| fields.get(&key).map_or(0, |value| *value as u32);
+    for level in 0..LEVELS {
+        residency.samples[level] = whole(format!("{figure}_sclk{level}"));
+        residency.low_mhz[level] = whole(format!("{figure}_sclk{level}_low"));
+        residency.high_mhz[level] = whole(format!("{figure}_sclk{level}_high"));
+    }
+    residency.beyond = whole(format!("{figure}_sclk_beyond"));
+    residency
 }
 
 /// The launch gate's probe: the calibration document opened from bytes in memory and its first
@@ -276,6 +328,48 @@ fn device_busy() -> Option<f64> {
     sums.into_iter()
         .map(|sum| sum / f64::from(DEVICE_READINGS))
         .reduce(f64::max)
+}
+
+/// The processes holding a render node open, as far as this account can see them, for the line
+/// beside each child (trap 262).
+///
+/// A process's descriptors are readable only by its own account or by a privileged one: a
+/// neighbour of this account — a sibling's walk, a window drive — is listed by pid and name, and
+/// another account's — the desktop session's compositor, a browser — is not, nor is any other
+/// listing of them open to this account (the DRM `clients` file is under a debugfs only root may
+/// enter, a descriptor's `fdinfo` asks for the access `ptrace` does). So the line counts the
+/// processes it could not read and leaves the device's own busy share and clock level to stand for
+/// them (ADR 2403).
+fn render_node_holders() -> String {
+    let Ok(processes) = std::fs::read_dir("/proc") else {
+        return "unlisted (no /proc)".to_owned();
+    };
+    let mine = std::process::id().to_string();
+    let (mut held, mut unread) = (Vec::new(), 0_usize);
+    for process in processes.filter_map(Result::ok) {
+        let pid = process.file_name().to_string_lossy().into_owned();
+        if pid == mine || !pid.bytes().all(|byte| byte.is_ascii_digit()) {
+            continue;
+        }
+        let Ok(descriptors) = std::fs::read_dir(process.path().join("fd")) else {
+            unread = unread.saturating_add(1);
+            continue;
+        };
+        let holds = descriptors.filter_map(Result::ok).any(|descriptor| {
+            std::fs::read_link(descriptor.path())
+                .is_ok_and(|target| target.to_string_lossy().starts_with("/dev/dri/renderD"))
+        });
+        if holds {
+            let name = std::fs::read_to_string(process.path().join("comm")).unwrap_or_default();
+            held.push(format!("{pid} {}", name.trim()));
+        }
+    }
+    let listed = if held.is_empty() {
+        "held by no process of this account".to_owned()
+    } else {
+        format!("held by {}", held.join(", "))
+    };
+    format!("{listed}, {unread} process(es) of other accounts unreadable")
 }
 
 /// A planted busy device, for calibrating [`device_busy`]: a compute shader of dependent
@@ -378,6 +472,12 @@ struct Row {
     /// The turn as a long-lived device's seventh frame (ADR 1607).
     seventh_ms: Option<Band>,
     step_ms: Option<Band>,
+    /// The turn's band at the device's lowest clock, where the row states one ([`band_for`]).
+    turn_lowest_ms: Option<Band>,
+    /// The seventh frame's.
+    seventh_lowest_ms: Option<Band>,
+    /// The step's.
+    step_lowest_ms: Option<Band>,
 }
 
 /// The check file.
@@ -450,6 +550,9 @@ fn parse(text: &str) -> Check {
             (Some(row), "turn_ms") => row.turn_ms = Some(band(value, at)),
             (Some(row), "seventh_ms") => row.seventh_ms = Some(band(value, at)),
             (Some(row), "step_ms") => row.step_ms = Some(band(value, at)),
+            (Some(row), "turn_lowest_ms") => row.turn_lowest_ms = Some(band(value, at)),
+            (Some(row), "seventh_lowest_ms") => row.seventh_lowest_ms = Some(band(value, at)),
+            (Some(row), "step_lowest_ms") => row.step_lowest_ms = Some(band(value, at)),
             _ => panic!("line {at}: `{key}` is not a key of the check file"),
         }
     }
@@ -574,23 +677,86 @@ fn child(row: &Row, check: &Check, pinning: Option<&(String, usize)>) -> Fields 
         .collect()
 }
 
-/// One child's judged figures, in milliseconds, or the quickest of each over several children.
+/// One figure, in milliseconds, with the device's clock level through the frames it came from.
+#[derive(Debug, Clone, Copy)]
+struct Figure {
+    ms: f64,
+    clock: Residency,
+}
+
+impl Figure {
+    /// The quicker of two, with its own child's clock: the level is a fact about the frames the
+    /// figure was read off, not about the row (ADR 2402).
+    fn quicker(self, other: Self) -> Self {
+        if other.ms < self.ms { other } else { self }
+    }
+}
+
+/// One child's judged figures, or the quickest of each over several children.
 #[derive(Debug, Clone, Copy)]
 struct Figures {
-    turn: f64,
+    turn: Figure,
     /// The turn as a long-lived device's seventh frame (ADR 1607).
-    seventh: f64,
-    step: f64,
+    seventh: Figure,
+    step: Figure,
 }
 
 impl Figures {
     /// The quicker of each figure, taken figure by figure.
     fn quickest(self, other: Self) -> Self {
         Self {
-            turn: self.turn.min(other.turn),
-            seventh: self.seventh.min(other.seventh),
-            step: self.step.min(other.step),
+            turn: self.turn.quicker(other.turn),
+            seventh: self.seventh.quicker(other.seventh),
+            step: self.step.quicker(other.step),
         }
+    }
+}
+
+/// Where the device's clock stood through a figure's frames.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Level {
+    /// Every reading at the table's first line, the device's lowest clock.
+    Lowest,
+    /// Every reading above it.
+    Raised,
+    /// Readings on both sides: the clock moved through the figure's frames.
+    Mixed,
+    /// No reading: no device here publishes its table, or no reading fell inside the frames.
+    Unread,
+}
+
+/// The level `clock` says its frames ran at.
+fn level(clock: &Residency) -> Level {
+    match (clock.readings(), clock.samples[0]) {
+        (0, _) => Level::Unread,
+        (all, lowest) if lowest == all => Level::Lowest,
+        (_, 0) => Level::Raised,
+        _ => Level::Mixed,
+    }
+}
+
+/// The band a figure read at `at` is judged against, with the words that say which it is, or why
+/// it is not judged.
+///
+/// **A band is a claim about the clock its figures were read at** (ADR 2402, trap 274). The device
+/// runs a row at its lowest clock level or at a raised one, both with the device check's quiet
+/// share, and most figures read inside one band at either; a figure that is the device's own work
+/// does not — `issue19802.pdf`'s step reads about three times slower at the lowest. A row states
+/// `<figure>_lowest_ms` for such a figure, taken at the lowest level by this file's rule, and its
+/// `<figure>_ms` then holds the raised level only. So a figure read wholly at the lowest level is
+/// judged against the lowest band where the row states one, a figure whose clock moved between
+/// the two through its frames is not judged where the row states both, and every other figure —
+/// one level, or a clock this machine does not publish — against `<figure>_ms`, as the gate
+/// judged before it read the clock.
+fn band_for(main: Band, lowest: Option<Band>, at: Level) -> Result<(Band, &'static str), String> {
+    match (at, lowest) {
+        (Level::Lowest, Some(band)) => Ok((band, " (the lowest clock's)")),
+        (Level::Mixed, Some(_)) => Err(
+            "the device's clock moved between its lowest level and a raised one through these \
+             frames, and the row states a band for each"
+                .to_owned(),
+        ),
+        _ => Ok((main, "")),
     }
 }
 
@@ -627,13 +793,18 @@ fn take(row: &Row, check: &Check, pinning: Option<&(String, usize)>, ceiling: f6
             std::thread::sleep(std::time::Duration::from_secs(10));
             (load, before) = (load_average(), device_busy());
         }
+        let holders = render_node_holders();
         let fields = child(row, check, pinning);
         let after = device_busy();
         let figure = |key: &str| fields.get(key).copied().expect("the child printed it");
+        let timed = |name: &str| Figure {
+            ms: figure(&format!("{name}_ms")),
+            clock: clock_of(&fields, name),
+        };
         let figures = Figures {
-            turn: figure("turn_ms"),
-            seventh: figure("seventh_ms"),
-            step: figure("step_ms"),
+            turn: timed("turn"),
+            seventh: timed("seventh"),
+            step: timed("step"),
         };
         let calibration = figure("calibration_ms");
         taken.commands = Some(figure("commands"));
@@ -648,8 +819,12 @@ fn take(row: &Row, check: &Check, pinning: Option<&(String, usize)>, ceiling: f6
         };
         println!(
             "    child: turn {:.2} seventh {:.2} step {:.2} ms, calibration {calibration:.3} ms, \
-             load {load:.2}, {device}",
-            figures.turn, figures.seventh, figures.step
+             load {load:.2}, {device}; render node before it {holders}",
+            figures.turn.ms, figures.seventh.ms, figures.step.ms
+        );
+        println!(
+            "      clock: turn {}; seventh {}; step {}",
+            figures.turn.clock, figures.seventh.clock, figures.step.clock,
         );
         let fit_load = load <= ceiling;
         let fit_probe = check
@@ -659,7 +834,7 @@ fn take(row: &Row, check: &Check, pinning: Option<&(String, usize)>, ceiling: f6
         if fit_load && fit_probe && fit_device {
             match &mut taken.best {
                 Some((quickest, kept)) => {
-                    if figures.turn < quickest.turn {
+                    if figures.turn.ms < quickest.turn.ms {
                         *kept = fields;
                     }
                     *quickest = quickest.quickest(figures);
@@ -712,9 +887,21 @@ fn the_turn_path_stays_inside_its_bands() {
         || "unread on this machine, so a child is judged on the processor's figures".to_owned(),
         |busy| format!("{busy:.0}% now"),
     );
+    let tables = device_clock::tables();
+    let clock = match tables.as_slice() {
+        [] => "the device's clock unread on this machine (no `pp_dpm_sclk`), so every figure is \
+               judged against its row's one band"
+            .to_owned(),
+        [one] => format!("the device's clock read from {}", one.display()),
+        [first, ..] => format!(
+            "the device's clock read from {}, the first of {} devices that publish one",
+            first.display(),
+            tables.len()
+        ),
+    };
     println!(
         "turn path: {} page(s), {SAMPLES} children of {ROUNDS} rounds each, pinned to {}, load \
-         ceiling {load_limit}, device ceiling {}% busy ({device}), profile {profile}",
+         ceiling {load_limit}, device ceiling {}% busy ({device}), {clock}, profile {profile}",
         check.pages.len(),
         pinning
             .as_ref()
@@ -777,26 +964,26 @@ impl Tally {
             declined.join("; ")
         };
         let best = taken.best.as_ref();
-        let judged = |of: fn(&Figures) -> f64| {
+        let judged = |of: fn(&Figures) -> Figure| {
             best.map(|(figures, _)| of(figures))
                 .filter(|_| declined.is_empty())
         };
-        let any = |of: fn(&Figures) -> f64| taken.any.as_ref().map(of);
+        let any = |of: fn(&Figures) -> Figure| taken.any.as_ref().map(of);
         self.figure(
             (&name, row.page, "turn"),
-            row.turn_ms,
+            (row.turn_ms, row.turn_lowest_ms),
             judged(|figures| figures.turn),
             (any(|figures| figures.turn), &why),
         );
         self.figure(
             (&name, row.page, "seventh"),
-            row.seventh_ms,
+            (row.seventh_ms, row.seventh_lowest_ms),
             judged(|figures| figures.seventh),
             (any(|figures| figures.seventh), &why),
         );
         self.figure(
             (&name, row.page, "step"),
-            row.step_ms,
+            (row.step_ms, row.step_lowest_ms),
             judged(|figures| figures.step),
             (any(|figures| figures.step), &why),
         );
@@ -817,41 +1004,56 @@ impl Tally {
         }
     }
 
-    /// Prints one figure and judges it where `fit` is the figure of a fit child; otherwise
-    /// prints the quickest of any child and why it was not judged.
+    /// Prints one figure, with the device's clock through its frames, and judges it where `fit` is
+    /// the figure of a fit child; otherwise prints the quickest of any child and why it was not
+    /// judged.
     fn figure(
         &mut self,
         (name, page, figure): (&str, usize, &str),
-        band: Option<Band>,
-        fit: Option<f64>,
-        (any, why): (Option<f64>, &str),
+        (main, lowest): (Option<Band>, Option<Band>),
+        fit: Option<Figure>,
+        (any, why): (Option<Figure>, &str),
     ) {
-        let Some(band) = band else {
+        let Some(main) = main else {
             println!("  {name} p{page} {figure}: no band stated");
             return;
         };
         self.banded = self.banded.saturating_add(1);
-        let Some(value) = fit else {
+        let unjudged = |value: Option<Figure>, why: &str| {
+            let (band, which) = value
+                .and_then(|value| band_for(main, lowest, level(&value.clock)).ok())
+                .unwrap_or((main, ""));
             println!(
-                "  {name} p{page} {figure} {} ms, band {:.2} .. {:.2}: not judged ({why})",
-                any.map_or_else(|| "?".to_owned(), |value| format!("{value:.2}")),
+                "  {name} p{page} {figure} {} ms, band {:.2} .. {:.2}{which}, {}: not judged ({why})",
+                value.map_or_else(|| "?".to_owned(), |value| format!("{:.2}", value.ms)),
                 band.low,
                 band.high,
+                value.map_or_else(Residency::default, |value| value.clock),
             );
+        };
+        let Some(Figure { ms: value, clock }) = fit else {
+            unjudged(any, why);
             return;
+        };
+        let (band, which) = match band_for(main, lowest, level(&clock)) {
+            Ok(chosen) => chosen,
+            Err(why) => {
+                unjudged(fit, &why);
+                return;
+            }
         };
         self.judged = self.judged.saturating_add(1);
         let verdict = if band.holds(value) {
             "inside"
         } else {
             self.failures.push(format!(
-                "{name} p{page} {figure} {value:.2} ms outside {:.2} .. {:.2}",
+                "{name} p{page} {figure} {value:.2} ms outside {:.2} .. {:.2}{which}, {clock}",
                 band.low, band.high
             ));
             "OUTSIDE"
         };
         println!(
-            "  {name} p{page} {figure} {value:.2} ms, band {:.2} .. {:.2}: {verdict}",
+            "  {name} p{page} {figure} {value:.2} ms, band {:.2} .. {:.2}{which}, {clock}: {verdict}",
             band.low, band.high
         );
     }
@@ -885,6 +1087,20 @@ fn the_check_file_states_a_band_for_every_row() {
             assert!(
                 band.low < band.high,
                 "{}'s floor is below its ceiling",
+                row.path
+            );
+        }
+        for band in [
+            row.turn_lowest_ms,
+            row.seventh_lowest_ms,
+            row.step_lowest_ms,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            assert!(
+                band.low < band.high,
+                "{}'s lowest-clock floor is below its ceiling",
                 row.path
             );
         }
@@ -933,6 +1149,7 @@ fn a_planted_busy_device_is_seen_as_busy() {
         );
     }
     let busy_from = Instant::now();
+    let sampler = device_clock::Sampler::start();
     // The gate reads a neighbour that has been busy for a while, and the driver's counter is an
     // average that lags: read straight after the first dispatch it was barely over the threshold,
     // and far above it once the plant had ended (ADR 1800). So readings are taken until one is
@@ -947,13 +1164,15 @@ fn a_planted_busy_device_is_seen_as_busy() {
             break busy;
         }
     };
+    let clock_readings = sampler.map(device_clock::Sampler::stop).unwrap_or_default();
+    let clock = Residency::during(&clock_readings, (busy_from, Instant::now()));
     // Drained to its end, so the plant's last line has somewhere to go and it exits on its own.
     std::io::copy(&mut said, &mut std::io::sink()).expect("the plant's stdout");
     let status = plant.wait().expect("the plant ends");
     let after = device_busy().expect("the counter read a moment ago");
     println!(
         "device busy: {idle:.1}% before, {busy:.1}% planted (readings {}), {after:.1}% after; \
-         threshold {threshold}%",
+         threshold {threshold}%; planted {clock}",
         readings.join(", ")
     );
     assert!(status.success(), "the plant ran to its end");
@@ -961,6 +1180,47 @@ fn a_planted_busy_device_is_seen_as_busy() {
         busy > threshold,
         "a device kept busy read {busy:.1}%, under the {threshold}% the gate would judge at"
     );
+    // The clock reading's calibration beside the counter's: a device kept busy climbs off its
+    // lowest level, and [`level`] reads it as having done so (ADR 2402).
+    assert!(
+        device_clock::table().is_none() || matches!(level(&clock), Level::Raised | Level::Mixed),
+        "a device kept busy read {clock}, which the gate would judge as a quiet device's"
+    );
+}
+
+/// A figure read wholly at the lowest clock is judged against the row's lowest band where it
+/// states one; a raised or unread one against the row's band; a mixed one is not judged where the
+/// row states both, and is judged against its one band where it does not (ADR 2402).
+#[test]
+fn a_figure_is_judged_against_the_band_of_its_clock() {
+    let (main, lowest) = (
+        Band {
+            low: 1.1,
+            high: 1.8,
+        },
+        Band {
+            low: 4.3,
+            high: 7.3,
+        },
+    );
+    let mut at_lowest = Residency::default();
+    at_lowest.samples[0] = 12;
+    let mut raised = Residency::default();
+    raised.samples[1] = 6;
+    let mut mixed = at_lowest;
+    mixed.samples[1] = 1;
+    assert_eq!(level(&at_lowest), Level::Lowest);
+    assert_eq!(level(&raised), Level::Raised);
+    assert_eq!(level(&mixed), Level::Mixed);
+    assert_eq!(level(&Residency::default()), Level::Unread);
+    let chosen =
+        |at: Level, lowest: Option<Band>| band_for(main, lowest, at).map(|(band, _)| band.low);
+    assert_eq!(chosen(Level::Lowest, Some(lowest)), Ok(4.3));
+    assert_eq!(chosen(Level::Raised, Some(lowest)), Ok(1.1));
+    assert_eq!(chosen(Level::Unread, Some(lowest)), Ok(1.1));
+    assert!(chosen(Level::Mixed, Some(lowest)).is_err());
+    assert_eq!(chosen(Level::Lowest, None), Ok(1.1));
+    assert_eq!(chosen(Level::Mixed, None), Ok(1.1));
 }
 
 /// [`Stages`] is the table's quantity: the budget a window waits for, the readback left out.

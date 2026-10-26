@@ -62,6 +62,12 @@ fn document(activation: &str, action: &str) -> Vec<u8> {
         "<< /Type /Annot /Subtype /Sound /Rect [0 0 9 9] /Sound 8 0 R >>".to_owned(),
         "<< /Type /Annot /Subtype /Sound /Rect [0 0 9 9] /Sound 11 0 R >>".to_owned(),
         "<< /Type /Sound /R 8000 /E /muLaw /Length 2 >>\nstream\nab\nendstream".to_owned(),
+        "<< /Type /Annot /Subtype /Sound /Rect [0 0 9 9] /Sound 13 0 R >>".to_owned(),
+        "<< /Type /Sound /R 11025 /E /Signed /Filter /ASCIIHexDecode /Length 9 >>\nstream\n\
+         00017F80>\nendstream"
+            .to_owned(),
+        "<< /Type /Annot /Subtype /Sound /Rect [0 0 9 9] /Sound 15 0 R >>".to_owned(),
+        "<< /Type /Sound /R 8000 /CO /Private /Length 2 >>\nstream\nab\nendstream".to_owned(),
     ])
 }
 
@@ -220,9 +226,9 @@ fn a_reader_obeying_the_document_is_handed_a_movie_no_media_permissions_restrict
 }
 
 /// §13.3's `/F`: a sound action's and a sound annotation's file is handed over by its URL, and
-/// Table 212's `/Repeat` is said; a sound holding its own samples is said and handed nowhere.
+/// Table 212's `/Repeat` is said.
 #[test]
-fn a_sound_is_handed_over_by_its_file_and_its_own_samples_are_said() {
+fn a_sound_is_handed_over_by_its_file() {
     let action = activated(
         document("", "<< /S /Sound /Sound 8 0 R /Repeat true >>"),
         RestrictionLevel::Off,
@@ -241,14 +247,78 @@ fn a_sound_is_handed_over_by_its_file_and_its_own_samples_are_said() {
         handed(&activated(document("", "null"), RestrictionLevel::Off, 9)),
         [url]
     );
-    let samples = activated(document("", "null"), RestrictionLevel::Off, 10);
-    assert!(handed(&samples).is_empty(), "{samples:?}");
+}
+
+/// The RIFF WAVE file the hand-off writes for samples of `rate`, mono and 8-bit, under RFC 2361's
+/// `tag` — the PCM header, or the non-PCM one with its `fact` chunk — around `data`.
+fn wave_file(tag: u16, rate: u32, data: &[u8]) -> Vec<u8> {
+    let companded = tag != 1;
+    let mut out = Vec::new();
+    let header: u32 = if companded { 58 } else { 44 };
+    let length = u32::try_from(data.len()).unwrap_or(u32::MAX);
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(
+        &header
+            .saturating_sub(8)
+            .saturating_add(length)
+            .saturating_add(length & 1)
+            .to_le_bytes(),
+    );
+    out.extend_from_slice(b"WAVEfmt ");
+    out.extend_from_slice(&(if companded { 18_u32 } else { 16 }).to_le_bytes());
+    out.extend_from_slice(&tag.to_le_bytes());
+    out.extend_from_slice(&1_u16.to_le_bytes());
+    out.extend_from_slice(&rate.to_le_bytes());
+    out.extend_from_slice(&rate.to_le_bytes());
+    out.extend_from_slice(&1_u16.to_le_bytes());
+    out.extend_from_slice(&8_u16.to_le_bytes());
+    if companded {
+        out.extend_from_slice(&0_u16.to_le_bytes());
+        out.extend_from_slice(b"fact");
+        out.extend_from_slice(&4_u32.to_le_bytes());
+        out.extend_from_slice(&length.to_le_bytes());
+    }
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&length.to_le_bytes());
+    out.extend_from_slice(data);
+    if length % 2 == 1 {
+        out.push(0);
+    }
+    out
+}
+
+/// §13.3's "the sound object itself shall contain the sample data": the hand-off decodes the
+/// stream through Table 5's filters and hands a RIFF WAVE file over — µ-law codes as they are, and
+/// 8-bit `Signed` samples re-biased to the form's unsigned bytes. The wrong answers excluded: the
+/// samples withheld, handed over still filtered, or handed over in the stream's own signedness;
+/// and a `/CO`, for which no standard value is defined, is said and hands nothing over.
+#[test]
+fn a_sound_holding_its_own_samples_is_handed_over_as_a_wave_file() {
+    let wave = |media: Vec<u8>, codec: u16| {
+        vec![(
+            Some(format!("audio/vnd.wave; codec={codec}")),
+            Media::Embedded {
+                name: "sound.wav".to_owned(),
+                bytes: media,
+            },
+        )]
+    };
+    let law = activated(document("", "null"), RestrictionLevel::Off, 10);
+    assert_eq!(handed(&law), wave(wave_file(7, 8000, b"ab"), 7), "{law:?}");
+    let signed = activated(document("", "null"), RestrictionLevel::Off, 12);
+    assert_eq!(
+        handed(&signed),
+        wave(wave_file(1, 11025, &[0x80, 0x81, 0xFF, 0x00]), 1),
+        "{signed:?}"
+    );
+    let compressed = activated(document("", "null"), RestrictionLevel::Off, 14);
+    assert!(handed(&compressed).is_empty(), "{compressed:?}");
     assert!(
-        notes(&samples)
+        notes(&compressed)
             .iter()
-            .any(|note| note.contains("holds its own samples")),
+            .any(|note| note.contains("/CO /Private")),
         "{:?}",
-        notes(&samples)
+        notes(&compressed)
     );
 }
 

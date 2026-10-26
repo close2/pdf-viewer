@@ -643,6 +643,12 @@ pub struct Conversion {
     /// that default honest — a reader of the output can see which of its typefaces are the
     /// producer's and which are this program's.
     pub substituted: Vec<SubstitutedFont>,
+    /// Every page this conversion replaced by a photograph of itself, because it showed an
+    /// `Adobe-Identity` font whose codes no reader can name (`doc/questions/A570`, `doc/adr/2394`).
+    ///
+    /// The loss `text-as-image` per page, named where it was incurred: which page, at which
+    /// resolution, and which fonts the window drew blank on it.
+    pub photographed: Vec<super::PhotographedPage>,
     /// Every embedded font program whose stated advances this conversion restated.
     ///
     /// Section 4.9's second metric route, listed for the same reason: nothing on the page moved,
@@ -941,6 +947,10 @@ impl Conversion {
             (
                 "substituted_fonts".to_owned(),
                 Value::Array(self.substituted.iter().map(substituted_to_json).collect()),
+            ),
+            (
+                "photographed_pages".to_owned(),
+                Value::Array(self.photographed.iter().map(photographed_to_json).collect()),
             ),
             (
                 "restated_font_metrics".to_owned(),
@@ -1416,6 +1426,27 @@ impl Conversion {
                 let _ = writeln!(out);
             }
         }
+        if !self.photographed.is_empty() {
+            let _ = writeln!(
+                out,
+                "  {} page(s) showing an Adobe-Identity font whose codes no reader can name are \
+                 replaced by a photograph of themselves as this viewer draws them, that font's \
+                 marks blank as the window leaves them; no page whose text a reader can extract \
+                 was photographed:",
+                self.photographed.len()
+            );
+            for page in &self.photographed {
+                let _ = writeln!(
+                    out,
+                    "      page {} at {} dpi, {} by {} pixels, for {}; it loses text-as-image",
+                    page.page,
+                    page.dots_per_inch,
+                    page.width,
+                    page.height,
+                    page.fonts.join(", ")
+                );
+            }
+        }
         if !self.restated.is_empty() {
             let _ = writeln!(
                 out,
@@ -1552,6 +1583,25 @@ fn predicate(departed: &Departed) -> String {
 }
 
 /// One substituted font as JSON.
+fn photographed_to_json(page: &super::PhotographedPage) -> Value {
+    Value::Object(vec![
+        (
+            "page".to_owned(),
+            Value::Integer(i64::try_from(page.page).unwrap_or(i64::MAX)),
+        ),
+        (
+            "dots_per_inch".to_owned(),
+            Value::Integer(i64::from(page.dots_per_inch)),
+        ),
+        ("width".to_owned(), Value::Integer(i64::from(page.width))),
+        ("height".to_owned(), Value::Integer(i64::from(page.height))),
+        (
+            "fonts".to_owned(),
+            Value::Array(page.fonts.iter().cloned().map(Value::text).collect()),
+        ),
+    ])
+}
+
 fn substituted_to_json(font: &SubstitutedFont) -> Value {
     let mut fields = vec![
         ("resource".to_owned(), Value::text(font.resource.clone())),

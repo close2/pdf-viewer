@@ -70,6 +70,7 @@ use std::sync::Arc;
 use pdf_syntax::{Dictionary, Document, Object, Stream, tree};
 
 pub mod filing;
+pub mod rich_media;
 
 /// Most attachments listed from one document.
 ///

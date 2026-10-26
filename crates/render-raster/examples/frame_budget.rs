@@ -72,6 +72,8 @@
     missing_docs
 )]
 
+#[path = "../tests/support/device_clock.rs"]
+mod device_clock;
 #[path = "../tests/support/frame_cost.rs"]
 mod frame_cost;
 
@@ -247,6 +249,9 @@ fn report(table: &[Row], adapter: &str, window: (u32, u32), rounds: usize, befor
                 "—",
                 format!("{} upload(s)", stage.uploads)
             );
+            // The device's clock level through the row's frames, so that a figure taken at the
+            // device's lowest level is not read as the tree's (ADR 2402, trap 274).
+            println!("  {:<24}{}", "  device clock", stage.clock);
         }
     }
     println!(

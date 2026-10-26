@@ -279,7 +279,9 @@ sentence had named as a subdictionary with no `/AS`: a push button's stream is n
 subdictionary its new `/AS` selects (ADR 2319), and the check box and radio button half keeps a
 sentence of its own. The one larger, a composite font nobody named a program for, is A570's: an `Adobe-Identity` font
 whose `/ToUnicode` answers every shown code is re-keyed (ADR 2378), and the rest — no map, or one
-that names no character for a code — wait for the rasterized page, A570's second remedy.
+that names no character for a code — have their pages photographed where the owner's gate admits
+them, under the loss `text-as-image` both shipped profiles carry (ADR 2394); a page that also shows
+extractable text keeps the refusal, and `--font` is its answer.
 
 The largest refusal at part 4 a conversion answers, ISO 19005-4 section 6.1.3's "a CreationDate or
 ModDate that is not §7.9.4's date", is answered (ADR 2358): a date is read as the text string

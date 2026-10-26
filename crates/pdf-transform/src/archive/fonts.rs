@@ -69,11 +69,13 @@ mod composite;
 mod described;
 mod notices;
 mod pack;
+mod photographed;
 mod rekeyed;
 
 pub use pack::{CjkPack, Collection, PackFiles, PackGap};
 
 pub use described::Described;
+pub use photographed::{DOTS_PER_INCH, PhotographedPage};
 
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
@@ -316,16 +318,40 @@ pub(super) struct Substitutes {
     /// What the re-keying route wrote into each descriptor, so that a font met again widens the
     /// one program rather than writing a second (`doc/adr/2378`).
     rekeyed: BTreeMap<ObjectId, rekeyed::Rekeyed>,
+    /// The `Adobe-Identity` fonts no face can be keyed to, held until the pages that show them are
+    /// known (`doc/adr/2394`).
+    deferred: Vec<photographed::Deferred>,
+    /// The content and resources each photographed page object is given, by the page's object.
+    pub(super) photographs: BTreeMap<ObjectId, photographed::Photograph>,
+    /// Every page photographed, for the report and the file's history.
+    pub(super) photographed: Vec<PhotographedPage>,
 }
 
 impl Substitutes {
     /// Every loss the embedding incurs, over every font it embedded a face into: what the one
     /// decision at `fonts/font-programs-embedded` carries (`doc/adr/2262`).
     pub(super) fn losses(&self) -> Losses {
-        self.done
+        let losses = self
+            .done
             .iter()
             .flat_map(|font| font.losses.iter())
-            .fold(Losses::default(), Losses::with)
+            .fold(Losses::default(), Losses::with);
+        if self.photographed.is_empty() {
+            losses
+        } else {
+            losses.with(super::decision::Loss::TextAsImage)
+        }
+    }
+
+    /// What the file's `xmpMM:History` states the embedding and the photographs did.
+    pub(super) fn recorded(&self) -> String {
+        let fonts = super::prepare::substituted_fonts_recorded(&self.done);
+        let pages = photographed::recorded(&self.photographed);
+        match (fonts.is_empty(), pages.is_empty()) {
+            (_, true) => fonts,
+            (true, false) => pages,
+            (false, false) => format!("{fonts}; {pages}"),
+        }
     }
 
     /// Whether this font is a direct dictionary equal to one already written out as an object.
@@ -656,6 +682,7 @@ pub(super) fn embed_faces(
     spare: &mut Spare,
     supplied: &BTreeMap<String, std::sync::Arc<[u8]>>,
     pack: Option<&CjkPack>,
+    target: pdf_archive::Target,
 ) -> Result<Substitutes, Because> {
     let mut substitutes = Substitutes::default();
     for used in survey.fonts() {
@@ -791,9 +818,18 @@ pub(super) fn embed_faces(
             gains(document, used, entries, spare, &mut substitutes)?;
         }
     }
+    // Last, once every font is in: a page is photographed whole, so whether it may be is a
+    // question about everything it shows rather than about one font (`doc/adr/2394`).
+    photographed::photograph(
+        document,
+        photographed::offered(target),
+        spare,
+        &mut substitutes,
+    )?;
     if substitutes.at.is_empty()
         && substitutes.described.is_empty()
         && substitutes.direct.is_empty()
+        && substitutes.photographs.is_empty()
     {
         return Err(Because::NotBuiltYet(NO_FONT_TO_EMBED));
     }

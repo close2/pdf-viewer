@@ -3017,10 +3017,55 @@ impl Rewriter<'_> {
             count(applied, Rewrite::ToUnicode);
             changed = true;
         }
+        changed |= self.last_steps(id, &mut out, applied);
+        changed.then_some(out)
+    }
+
+    /// The two steps that must see what every other step wrote into the dictionary.
+    fn last_steps(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let photographed = self.photographed_page(id, out, applied);
         // Last, so that a dictionary an earlier step inserted — a page given the resources it
         // inherited — is searched too.
-        changed |= self.reference_direct_fonts(&mut out, applied);
-        changed.then_some(out)
+        self.reference_direct_fonts(out, applied) | photographed
+    }
+
+    /// A page photographed because it shows an `Adobe-Identity` font no reader can name: its
+    /// content is the one image, its resources name that image alone, and its transparency group,
+    /// which described how the content that went was composited, goes with it (`doc/adr/2394`).
+    ///
+    /// After every other step that writes into a page, so that nothing re-inserts what this takes
+    /// away; the objects only the old content reached are not walked, which is what removes them.
+    fn photographed_page(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        if !self.wants(Rewrite::SubstituteFontProgram) {
+            return false;
+        }
+        let Some(photograph) = self
+            .substitutes
+            .and_then(|substitutes| substitutes.photographs.get(&id))
+        else {
+            return false;
+        };
+        out.insert(
+            Name::new(&b"Contents"[..]),
+            Object::Reference(photograph.contents),
+        );
+        out.insert(
+            Name::new(&b"Resources"[..]),
+            Object::Dictionary(photograph.resources.clone()),
+        );
+        out.remove("Group");
+        count(applied, Rewrite::SubstituteFontProgram);
+        true
     }
 
     /// `doc/pdf-a-mitigations.md` section 13.3's rewrites, each at the objects its own

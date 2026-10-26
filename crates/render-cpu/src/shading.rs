@@ -169,8 +169,8 @@ pub(crate) fn nearest_level(component: f32) -> u8 {
     doubled.div_ceil(2) as u8
 }
 
-/// Builds a pattern of an axial or radial ramp's own levels, one cell per device pixel, for a fill
-/// whose shape is `path` (ISO 32000-2 §8.7.4.5.3, §8.7.4.5.4).
+/// Builds a pattern of an axial or radial ramp's own levels, one cell per device pixel, for a mark
+/// whose ink lies within `extent` (ISO 32000-2 §8.7.4.5.3, §8.7.4.5.4).
 ///
 /// The clause gives a point the colour function's answer at the `t` of that point, and the oracle
 /// computes it here rather than handing the ramp to `tiny-skia` as a gradient: each pixel centre of
@@ -183,19 +183,21 @@ pub(crate) fn nearest_level(component: f32) -> u8 {
 /// value before that store (ADR 2356).
 ///
 /// The cells are on the page's own grid, for [`fill_radial`]'s reason: a window's or a strip's
-/// pixel is evaluated at the centre the page's is (ADR 2148). They cover the shape's device bounds
+/// pixel is evaluated at the centre the page's is (ADR 2148). They cover the [`Extent`]'s pixels
 /// on this surface, and the pattern is positioned in the path's space — the surface's matrix
-/// `shape.at` inverted, since every converter `draw_fill` reaches moves a paint by it (trap 2) — so
-/// each device pixel reads its own cell, and the shape's edge, its marks and its bands stay the
-/// converters' they were.
+/// `shape.at` inverted, since every converter `draw_fill` and `draw_stroke` reach moves a paint by
+/// it (trap 2) — so each device pixel reads its own cell, and the shape's edge, its marks and its
+/// bands stay the converters' they were. A cell is a function of its own pixel alone, so any
+/// extent holding the ink draws the same pixels, and only the count of cells evaluated depends on
+/// how tight it is.
 ///
 /// `None` where the ramp is not one this draws — a cone, which [`fill_radial`] draws first; an
 /// axis of no length, a geometry `tiny-skia` refuses as a gradient, or a ramp below full alpha,
 /// each of which keeps the gradient's answer; a shading with Table 77's `/Background`, which is
-/// [`fill_with_background`]'s — or where the shape covers no pixel of this surface.
+/// [`fill_with_background`]'s — or where the extent covers no pixel of this surface.
 pub(crate) fn ramp_shader<'a>(
     shading: &Shading,
-    path: &tiny_skia::Path,
+    extent: Extent<'_>,
     (shape, onto_page): (Placed, Placed),
     target: (u32, u32),
     scratch: &'a mut Option<tiny_skia::Pixmap>,
@@ -213,7 +215,10 @@ pub(crate) fn ramp_shader<'a>(
     }
     let mut cells = RampCells::of(sweep.ramp());
     let grid = OnSurface::page(onto_page);
-    let (left, top, right, bottom) = grid.bounds(path, shape, target)?;
+    let (left, top, right, bottom) = match extent {
+        Extent::Filled(path) => grid.bounds(path, shape, target)?,
+        Extent::Stroked { ink, reach } => grid.bounds_of_ink(ink, reach, target)?,
+    };
     let to_shading = grid.matrix.invert()?;
     let onto_path = shape.at.invert()?;
     let mut pixmap = tiny_skia::Pixmap::new(right.checked_sub(left)?, bottom.checked_sub(top)?)?;
@@ -250,6 +255,22 @@ pub(crate) fn ramp_shader<'a>(
         1.0,
         crate::convert::transform(onto_surface.then(onto_path)),
     ))
+}
+
+/// The pixels a ramp's cells cover: every pixel the mark painted with them can reach.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Extent<'a> {
+    /// A filled shape: its path, in the space `shape.at` maps from, whose device bounds hold
+    /// every pixel centre the shape can cover with half a pixel's margin ([`device_bounds`]).
+    Filled(&'a tiny_skia::Path),
+    /// A stroke's ink: a rectangle on the page's device grid that holds the stroked outline, and
+    /// how far past it, in device pixels, a pixel's centre can lie and the pixel still be painted.
+    Stroked {
+        /// The outline's device bounds, `pdf_render::stroked_bounds`'s.
+        ink: pdf_render::Rect,
+        /// The margin a pixel's centre and a mark drawn wider than its stated width take.
+        reach: f32,
+    },
 }
 
 /// What [`ramp_shader`] reads a pixel's `t` from: an axial shading's axis or a radial shading's two
@@ -699,6 +720,34 @@ impl OnSurface {
         let (x0, y0, x1, y1) =
             device_bounds(path, crate::convert::transform(shape.page), (right, bottom))?;
         Some((x0.max(left), y0.max(top), x1, y1))
+    }
+
+    /// The pixels of this grid whose centres lie within `reach` of `ink`, a rectangle on this
+    /// grid, and on a surface `target` big, as `(left, top, right, bottom)`.
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss,
+        reason = "each cast is between a device pixel index and its coordinate, clamped to the \
+                  surface's extent on the grid, which `MAX_EXTENT` keeps under 2^24"
+    )]
+    fn bounds_of_ink(
+        self,
+        ink: pdf_render::Rect,
+        reach: f32,
+        target: (u32, u32),
+    ) -> Option<(u32, u32, u32, u32)> {
+        let (left, top) = self.corner;
+        let (right, bottom) = (left.checked_add(target.0)?, top.checked_add(target.1)?);
+        // `max` before `min`, so a coordinate that is not a number lands on the surface's edge
+        // and the extent is empty rather than the whole surface.
+        let clamp = |at: f32, low: u32, high: u32| at.max(low as f32).min(high as f32) as u32;
+        Some((
+            clamp((ink.min.x - reach).floor(), left, right),
+            clamp((ink.min.y - reach).floor(), top, bottom),
+            clamp((ink.max.x + reach).ceil(), left, right),
+            clamp((ink.max.y + reach).ceil(), top, bottom),
+        ))
     }
 
     /// A raster's corner on this grid, on the surface.

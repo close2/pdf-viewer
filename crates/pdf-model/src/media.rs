@@ -40,8 +40,10 @@ use crate::attachment::Attachment;
 use crate::file_spec::FileSpec;
 
 mod deprecated;
+mod wave;
 
 pub use deprecated::{movie, sound};
+pub use wave::{Encoding, SampleFormat, Samples, Wave, wave};
 
 /// Most renditions one walk of §13.2.3.3's tree visits.
 ///
@@ -117,6 +119,9 @@ pub enum Data {
     File(String),
     /// A form `XObject`, whose player "is implicitly the interactive PDF processor".
     Form,
+    /// §13.3's sound object holding its own samples, which the hand-off decodes and writes as a
+    /// RIFF WAVE file ([`wave()`], ADR 2398).
+    Samples(Box<Samples>),
 }
 
 /// A file the hand-off gives a player, with what it carries: §13.2.4.2's media clip data the clause
@@ -147,6 +152,9 @@ pub struct Considered {
     pub alternate: Option<String>,
     /// The clip, where the rendition is viable; every reason it is not, otherwise.
     pub verdict: Result<Clip, Vec<String>>,
+    /// The media player info dictionaries §13.2.7.2.1 treats "as if it were not present in its
+    /// original array", each with the reason, said because a removal can be what makes `/MU` empty.
+    pub set_aside: Vec<String>,
 }
 
 /// §13.2.3's rendition tree, judged: the renditions considered, in the order §13.2.3.3 evaluates
@@ -197,6 +205,12 @@ impl Report {
                     }
                 }
             }
+            out.extend(
+                considered
+                    .set_aside
+                    .iter()
+                    .map(|entry| format!("{name} reads {entry}")),
+            );
         }
         out.extend(self.stopped.iter().cloned());
         if self.chosen().is_none() {
@@ -229,6 +243,11 @@ impl Clip {
             Data::Url(url) => format!("{kind}at {url}"),
             Data::File(name) => format!("{kind}the file {name:?} outside this document"),
             Data::Form => "a form XObject, which only this processor could play".to_owned(),
+            Data::Samples(samples) => format!(
+                "{kind}{}, written as {:?} for the player",
+                samples.format.describe(),
+                samples.name
+            ),
         }
     }
 }
@@ -299,8 +318,9 @@ impl Walk<'_> {
         self.criteria(dict, &mut reasons);
         match kind.as_deref() {
             Some(b"MR") => {
+                let mut set_aside = Vec::new();
                 let verdict = if reasons.is_empty() {
-                    self.media_rendition(dict)
+                    self.media_rendition(dict, &mut set_aside)
                 } else {
                     Err(reasons)
                 };
@@ -314,6 +334,7 @@ impl Walk<'_> {
                     name: name.or_else(clip_name),
                     alternate,
                     verdict,
+                    set_aside,
                 });
                 viable
             }
@@ -350,7 +371,11 @@ impl Walk<'_> {
 
     /// §13.2.3.2: "A media rendition object shall be viable if and only if the objects referenced
     /// by its C , P , and SP entries are viable."
-    fn media_rendition(&self, dict: &Dictionary) -> Result<Clip, Vec<String>> {
+    fn media_rendition(
+        &self,
+        dict: &Dictionary,
+        set_aside: &mut Vec<String>,
+    ) -> Result<Clip, Vec<String>> {
         let document = self.document;
         let mut reasons = Vec::new();
         let parameters = document.get_key(dict, "P");
@@ -376,7 +401,7 @@ impl Walk<'_> {
             );
             return Err(reasons);
         };
-        let clip = self.clip(clip, play_players.as_ref(), 0, &mut reasons);
+        let clip = self.clip(clip, play_players.as_ref(), 0, &mut reasons, set_aside);
         match clip {
             Some(clip) if reasons.is_empty() => Ok(clip),
             _ => Err(reasons),
@@ -390,6 +415,7 @@ impl Walk<'_> {
         play_players: Option<&Object>,
         depth: usize,
         reasons: &mut Vec<String>,
+        set_aside: &mut Vec<String>,
     ) -> Option<Clip> {
         let document = self.document;
         if depth > MAX_DEPTH {
@@ -401,11 +427,30 @@ impl Walk<'_> {
         }
         let kind = document.get_key(dict, "S");
         match kind.as_name().map(pdf_syntax::Name::as_bytes) {
-            Some(b"MCD") => self.clip_data(dict, play_players, reasons),
+            Some(b"MCD") => self.clip_data(dict, play_players, reasons, set_aside),
             Some(b"MCS") => {
-                // Table 289's `/B` and `/E` in an `MH` "shall be honoured at play-time in order for
-                // the media clip section to be considered viable", and a player handed a file is
-                // started at its beginning and stopped at its end.
+                // The next level is judged first because its content type decides whether this
+                // section's offsets count at all; its reasons are said after this section's own.
+                let next = document.get_key(dict, "D");
+                let mut below = Vec::new();
+                let clip = next.as_dict().and_then(|next| {
+                    self.clip(
+                        next,
+                        play_players,
+                        depth.saturating_add(1),
+                        &mut below,
+                        set_aside,
+                    )
+                });
+                // §13.2.4.3: "For media types where an offset makes no sense (such as JPEG
+                // images), B and E shall be ignored, with no effect on viability."
+                let ignored = clip
+                    .as_ref()
+                    .and_then(|clip| clip.content_type.as_deref())
+                    .is_some_and(timeless);
+                // Otherwise Table 289's `/B` and `/E` in an `MH` "shall be honoured at play-time in
+                // order for the media clip section to be considered viable", and a player handed a
+                // file is started at its beginning and stopped at its end.
                 let mut unhonoured = Vec::new();
                 for (key, entry) in [("MH", true), ("BE", false)] {
                     let options = document.get_key(dict, key);
@@ -415,6 +460,9 @@ impl Walk<'_> {
                     for (name, _) in options.iter() {
                         let name = String::from_utf8_lossy(name.as_bytes()).into_owned();
                         let known = matches!(name.as_str(), "B" | "E");
+                        if known && ignored {
+                            continue;
+                        }
                         match (entry, known) {
                             (true, true) => reasons.push(format!(
                                 "its media clip section must start or end at Table 289's /{name}, \
@@ -430,17 +478,17 @@ impl Walk<'_> {
                         }
                     }
                 }
-                let next = document.get_key(dict, "D");
-                let Some(next) = next.as_dict() else {
+                if next.as_dict().is_none() {
                     reasons.push(
                         "its media clip section names no next-level clip (Table 288's /D)"
                             .to_owned(),
                     );
                     return None;
-                };
+                }
                 // "If the next-level media object is non-viable, the media clip section shall be
                 // also non-viable."
-                let mut clip = self.clip(next, play_players, depth.saturating_add(1), reasons)?;
+                reasons.extend(below);
+                let mut clip = clip?;
                 clip.unhonoured.extend(unhonoured);
                 Some(clip)
             }
@@ -459,6 +507,7 @@ impl Walk<'_> {
         dict: &Dictionary,
         play_players: Option<&Object>,
         reasons: &mut Vec<String>,
+        set_aside: &mut Vec<String>,
     ) -> Option<Clip> {
         let document = self.document;
         let content_type = match document.get_key(dict, "CT") {
@@ -530,6 +579,7 @@ impl Walk<'_> {
                 content_type.as_deref(),
                 [Some(&clip_players), play_players],
                 reasons,
+                set_aside,
             );
         }
         Some(Clip {
@@ -769,23 +819,45 @@ fn unhonourable(document: &Document, dict: &Dictionary, table: &str, reasons: &m
 /// only by §13.2.7.4's software identifier. So (c) and (d) decide it: a non-empty `/MU` in either
 /// dictionary names the players "one of which shall be used", and with no `/MU` and no content type
 /// the player must be found in an `/A`, which it cannot be.
+///
+/// An array's emptiness is read after its entries' own viability, as §13.2.7.2.1 orders:
+///
+/// > If a non-viable media player info dictionary is referenced by MU , NU , or A , it shall be
+/// > treated as if it were not present in its original array
+///
+/// The same sentence goes on to place a dictionary holding the same software identifier "present
+/// in NU", which decides nothing here, since condition (b) needs the player found by that
+/// identifier and no software identifier names this one.
 fn players(
     document: &Document,
     content_type: Option<&str>,
     dictionaries: [Option<&Object>; 2],
     reasons: &mut Vec<String>,
+    set_aside: &mut Vec<String>,
 ) {
-    let non_empty = |key: &str| {
-        dictionaries.iter().flatten().any(|players| {
-            players.as_dict().is_some_and(|players| {
-                document
-                    .get_key(players, key)
-                    .as_array()
-                    .is_some_and(|items| !items.is_empty())
-            })
-        })
-    };
-    if non_empty("MU") {
+    let mut must_use = false;
+    for players in dictionaries.iter().flatten() {
+        let Some(players) = players.as_dict() else {
+            continue;
+        };
+        for key in ["MU", "A", "NU"] {
+            let items = document.get_key(players, key);
+            let Some(items) = items.as_array() else {
+                continue;
+            };
+            for (index, item) in items.iter().enumerate() {
+                match player_info_set_aside(document, item) {
+                    Some(reason) => set_aside.push(format!(
+                        "a media players dictionary's /{key} entry {} as not present \
+                         (§13.2.7.2.1): {reason}",
+                        index.saturating_add(1)
+                    )),
+                    None => must_use |= key == "MU",
+                }
+            }
+        }
+    }
+    if must_use {
         reasons.push(
             "a media players dictionary's /MU names the players that must play it (§13.2.7.2.2 \
              condition c), and the program this machine would start is identified by none of them"
@@ -798,6 +870,97 @@ fn players(
                 .to_owned(),
         );
     }
+}
+
+/// Why §13.2.7.2.1 treats a media players array's entry as not present, or `None` where it stays.
+///
+/// §13.2.7.3's own rules come first: Table 302's `/PID` is required, and of its `MH`, "Currently,
+/// there are no defined entries for this dictionary", so by §13.2.2 — "If an entry that is
+/// unrecognised by the viewer is in the MH dictionary, the object shall be considered non-viable"
+/// — any entry there makes it non-viable. Then its software identifier, which §13.2.7.2.1 binds by
+/// the same rule: "The same rule shall apply to a media player info dictionary that contains a
+/// partially unrecognised software identifier dictionary." A required entry's absence is read as
+/// non-viability, the reading this module gives Table 288's `/D` (ADR 2392).
+fn player_info_set_aside(document: &Document, entry: &Object) -> Option<String> {
+    let entry = document.resolve(entry);
+    let Some(info) = entry.as_dict() else {
+        return Some("it is not a media player info dictionary (Table 302)".to_owned());
+    };
+    let must = document.get_key(info, "MH");
+    if let Some((name, _)) = must.as_dict().and_then(|must| must.iter().next()) {
+        return Some(format!(
+            "its MH holds /{}, and Table 302 defines no entry for that dictionary",
+            String::from_utf8_lossy(name.as_bytes())
+        ));
+    }
+    let identifier = document.get_key(info, "PID");
+    let Some(identifier) = identifier.as_dict() else {
+        return Some("it has no software identifier, which Table 302's /PID requires".to_owned());
+    };
+    software_identifier_set_aside(document, identifier)
+}
+
+/// Why a software identifier makes the media player info dictionary holding it non-viable, by
+/// §13.2.7.4.1 and §13.2.7.4.4, or `None`.
+///
+/// §13.2.7.4.1: "If the dictionary contains keys that are unrecognised by the interactive PDF
+/// processor, it shall be considered to be partially recognised", and §13.2.7.2.1 decides for this
+/// context what the general clause leaves open. §13.2.7.4.4: "If a version array contains negative
+/// numbers, it is non-viable, as is the enclosing software identifier." The comparison the arrays
+/// feed is never reached here, because §13.2.7.4.2's first step needs a software name and the
+/// hand-off has none (ADR 2376), so a negative number is the one thing in them that decides.
+fn software_identifier_set_aside(document: &Document, identifier: &Dictionary) -> Option<String> {
+    if let Some((name, _)) = identifier.iter().find(|(name, _)| {
+        !matches!(
+            name.as_bytes(),
+            b"Type" | b"U" | b"L" | b"LI" | b"H" | b"HI" | b"OS"
+        )
+    }) {
+        return Some(format!(
+            "its software identifier holds /{}, which Table 303 does not define, so it is \
+             partially recognised (§13.2.7.4.1)",
+            String::from_utf8_lossy(name.as_bytes())
+        ));
+    }
+    if identifier.get("U").is_none() {
+        return Some("its software identifier has no /U, which Table 303 requires".to_owned());
+    }
+    for key in ["L", "H"] {
+        let versions = document.get_key(identifier, key);
+        let negative = versions.as_array().is_some_and(|versions| {
+            versions.iter().any(|version| {
+                document
+                    .resolve(version)
+                    .as_number()
+                    .is_some_and(|version| version < 0.0)
+            })
+        });
+        if negative {
+            return Some(format!(
+                "its software identifier's /{key} version array holds a negative number, which \
+                 makes it non-viable (§13.2.7.4.4)"
+            ));
+        }
+    }
+    None
+}
+
+/// §13.2.4.3's "media types where an offset makes no sense (such as JPEG images)", by Table 285's
+/// `/CT`: the registered still-image types whose format holds one picture and no timeline. A type
+/// whose format can animate — `image/gif`, `image/webp`, `image/svg+xml` — is not one, and nor is
+/// a type this list does not name, whose offsets keep their effect on viability (ADR 2392).
+fn timeless(content_type: &str) -> bool {
+    const STILL: [&str; 4] = ["image/jpeg", "image/png", "image/bmp", "image/jp2"];
+    // RFC 2045 section 5.1: a type and subtype are matched case-insensitively, and parameters
+    // follow `;`.
+    let essence = content_type
+        .split(';')
+        .next()
+        .unwrap_or(content_type)
+        .trim();
+    STILL
+        .iter()
+        .any(|still| essence.eq_ignore_ascii_case(still))
 }
 
 /// §14.9.2.4's search of a multi-language text array for the reader's language.

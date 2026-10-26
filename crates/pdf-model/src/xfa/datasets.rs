@@ -1,0 +1,604 @@
+//! The `datasets` packet: §K.2's data, "which represents the state of the form", read and kept
+//! consistent with the `/V` entries a save writes.
+//!
+//! §K.2's first writer rule binds this program the moment it saves a hybrid file:
+//!
+//! > PDF interactive form field objects shall be present for each field specified in the XFA
+//! > resource. The XFA field values shall be consistent with the corresponding V entries of the
+//! > PDF field objects.
+//!
+//! So a value written to a field's `/V` is written to the data value that field binds as well
+//! (RFC 0011 section 5, step 2; ADR 2396). The packet is spliced, not re-serialised: the data
+//! values a person changed get new content, a data value the binding needs and the packet lacks
+//! is appended to its data group — which is where chapter 4's re-normalisation puts one (page
+//! 210) — and every other byte is the producer's.
+
+use std::fmt::Write as _;
+
+use super::template::{Binding, Class, Container, Template};
+use super::xml::{self, Tree};
+
+/// A value a save writes to a field's `/V`, in the terms its data value needs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Change {
+    /// A text string: a text field's value, or a single choice's export value.
+    Text(String),
+    /// An array of text strings: a choice field with several items selected (Table 233).
+    Choices(Vec<String>),
+    /// A button turned on, with the export value of the widget that is on — Table 230's `/Opt`
+    /// entry for it where the field states one, its appearance state's name where it does not.
+    On(String),
+    /// A button turned off: §12.7.5.2.3's `Off`.
+    Off,
+    /// No value: the `/V` removed, as §12.7.6.3's reset does where there is no `/DV`.
+    Cleared,
+}
+
+/// A `datasets` packet as read: its text, its elements, and where `xfa:data` and the record are.
+#[derive(Debug, Clone)]
+pub struct Datasets {
+    text: String,
+    tree: Tree,
+    /// The `xfa:data` element.
+    data: Option<usize>,
+}
+
+/// What [`Datasets::keep`] did: the packet's new text, if anything changed, and every field
+/// whose value it could not keep consistent, with the reason.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Kept {
+    /// The whole packet (or the whole resource stream it is inside), spliced.
+    pub text: Option<String>,
+    /// The PDF field name and the sentence saying why its data value was not written.
+    pub unkept: Vec<(String, String)>,
+}
+
+/// One node of the data as the writer sees it: an element of the packet, or one it adds.
+struct Node {
+    name: String,
+    /// The packet's element this is; `None` for a node this writer adds.
+    origin: Option<usize>,
+    children: Vec<usize>,
+    /// New content, already escaped markup.
+    content: Option<String>,
+}
+
+impl Datasets {
+    /// Reads the packet whose text is `text`, `datasets` being the element index of its
+    /// `xfa:datasets` element in `tree`.
+    pub(crate) fn new(text: String, tree: Tree, datasets: usize) -> Self {
+        let data = tree.child(datasets, "data");
+        Self { text, tree, data }
+    }
+
+    /// The text of the data value a field binds, as XFA 3.3 chapter 4 binds it; `None` where
+    /// the packet holds none. A multiple-selection choice list's data group answers with its
+    /// values joined by line feeds, which is how page 198 says the form sees them.
+    #[must_use]
+    pub fn value(&self, template: &Template, field: &str) -> Option<String> {
+        let target = template.resolve(field)?;
+        let binding = template.binding(target).ok()?;
+        let record = self.record()?;
+        let found = match binding {
+            Binding::Direct(steps) => self.walk(record, &steps),
+            Binding::Global(steps, name) => self
+                .walk(record, &steps)
+                .or_else(|| self.global(record, &name)),
+            Binding::Explicit { steps, from_data } => {
+                self.walk(if from_data { self.data? } else { record }, &steps)
+            }
+            Binding::Nothing => None,
+        }?;
+        let element = self.tree.get(found)?;
+        if element.children.is_empty() {
+            return Some(element.text.clone());
+        }
+        let values: Vec<&str> = element
+            .children
+            .iter()
+            .filter_map(|&child| self.tree.get(child))
+            .map(|child| child.text.as_str())
+            .collect();
+        Some(values.join("\n"))
+    }
+
+    /// The record: the first data group under `xfa:data`, which the root subform binds whatever
+    /// the two are named (chapter 4 page 182).
+    fn record(&self) -> Option<usize> {
+        self.tree.get(self.data?)?.children.first().copied()
+    }
+
+    fn walk(&self, from: usize, steps: &[(String, usize)]) -> Option<usize> {
+        let mut at = from;
+        for (name, index) in steps {
+            at = self
+                .tree
+                .get(at)?
+                .children
+                .iter()
+                .copied()
+                .filter(|&child| self.tree.get(child).is_some_and(|c| &c.local == name))
+                .nth(*index)?;
+        }
+        Some(at)
+    }
+
+    /// A global field's data: a data value of its name outside the record, the first of them,
+    /// because the record is the first and page 247 picks the global whose index is the
+    /// record's number.
+    fn global(&self, record: usize, name: &str) -> Option<usize> {
+        let data = self.tree.get(self.data?)?;
+        let mut pending: Vec<usize> = data
+            .children
+            .iter()
+            .copied()
+            .filter(|&child| child != record)
+            .rev()
+            .collect();
+        while let Some(at) = pending.pop() {
+            let element = self.tree.get(at)?;
+            if element.local == name && element.children.is_empty() {
+                return Some(at);
+            }
+            pending.extend(element.children.iter().rev());
+        }
+        None
+    }
+
+    /// Writes each changed field's value into the data value it binds.
+    ///
+    /// `changes` are PDF field names — §12.7.4.2's qualified names, which an XFAF form makes SOM
+    /// expressions (XFA 3.3 page 72) — with what the save writes to each `/V`.
+    #[must_use]
+    pub fn keep(&self, template: &Template, changes: &[(String, Change)]) -> Kept {
+        let mut kept = Kept::default();
+        let (Some(data), Some(record)) = (self.data, self.record()) else {
+            kept.unkept = changes
+                .iter()
+                .map(|(name, _)| {
+                    (
+                        name.clone(),
+                        "the XFA datasets packet holds no data group for the form".to_owned(),
+                    )
+                })
+                .collect();
+            return kept;
+        };
+        let mut nodes = Vec::new();
+        let data_node = self.overlay(data, &mut nodes);
+        // `overlay` numbers the nodes in document order, so the record's node is the first child
+        // of the data node, as `record` found it.
+        let Some(record_node) = nodes
+            .get(data_node)
+            .and_then(|n: &Node| n.children.first().copied())
+        else {
+            return kept;
+        };
+        let mut any_kept = false;
+        for (name, entered) in changes {
+            match self.keep_one(
+                template,
+                &mut nodes,
+                (data_node, record_node),
+                record,
+                name,
+                entered,
+            ) {
+                Ok(()) => any_kept = true,
+                Err(reason) => kept.unkept.push((name.clone(), reason)),
+            }
+        }
+        if any_kept {
+            kept.text = Some(self.spliced(&nodes, data_node));
+        }
+        kept
+    }
+
+    fn keep_one(
+        &self,
+        template: &Template,
+        nodes: &mut Vec<Node>,
+        (data_node, record_node): (usize, usize),
+        record: usize,
+        name: &str,
+        entered: &Change,
+    ) -> Result<(), String> {
+        let target = template
+            .resolve(name)
+            .ok_or("its name points at no field of the XFA template")?;
+        let container = template
+            .get(target)
+            .ok_or("its name points at no field of the XFA template")?;
+        let content = content(template, container, entered)?;
+        let binding = template.binding(target).map_err(str::to_owned)?;
+        let node = match binding {
+            Binding::Nothing => return Ok(()),
+            Binding::Direct(steps) => descend(nodes, record_node, &steps, true)?,
+            Binding::Explicit { steps, from_data } => descend(
+                nodes,
+                if from_data { data_node } else { record_node },
+                &steps,
+                true,
+            )?,
+            Binding::Global(steps, global) => {
+                if let Ok(node) = descend(nodes, record_node, &steps, false) {
+                    node
+                } else {
+                    let element = self.global(record, &global).ok_or(
+                        "it is bound globally, and no data value of its name is outside the record",
+                    )?;
+                    nodes
+                        .iter()
+                        .position(|n| n.origin == Some(element))
+                        .ok_or("its global data value is not in the packet")?
+                }
+            }
+        };
+        let target_node = nodes.get_mut(node).ok_or("the data node vanished")?;
+        if !target_node.children.is_empty() && !matches!(content, Content::Values(_)) {
+            return Err(
+                "its data value holds markup, which this program does not write".to_owned(),
+            );
+        }
+        target_node.children.clear();
+        target_node.content = Some(match content {
+            Content::Text(text) => xml::escape(&text),
+            Content::Values(values) => values.iter().fold(String::new(), |mut out, value| {
+                let _ = write!(out, "<value>{}</value>", xml::escape(value));
+                out
+            }),
+        });
+        Ok(())
+    }
+
+    /// The data subtree under `element` as writer nodes, numbered in document order.
+    fn overlay(&self, element: usize, nodes: &mut Vec<Node>) -> usize {
+        let at = nodes.len();
+        let name = self
+            .tree
+            .get(element)
+            .map(|e| e.local.clone())
+            .unwrap_or_default();
+        nodes.push(Node {
+            name,
+            origin: Some(element),
+            children: Vec::new(),
+            content: None,
+        });
+        let children = self
+            .tree
+            .get(element)
+            .map(|e| e.children.clone())
+            .unwrap_or_default();
+        for child in children {
+            let node = self.overlay(child, nodes);
+            if let Some(parent) = nodes.get_mut(at) {
+                parent.children.push(node);
+            }
+        }
+        at
+    }
+
+    /// The packet's text with every node that has new content, or new children, spliced in.
+    fn spliced(&self, nodes: &[Node], from: usize) -> String {
+        let mut edits: Vec<(std::ops::Range<usize>, String)> = Vec::new();
+        let mut pending = vec![from];
+        while let Some(at) = pending.pop() {
+            let Some(node) = nodes.get(at) else {
+                continue;
+            };
+            let Some(element) = node.origin.and_then(|origin| self.tree.get(origin)) else {
+                continue;
+            };
+            let added: String = node
+                .children
+                .iter()
+                .filter(|&&child| nodes.get(child).is_some_and(|c| c.origin.is_none()))
+                .map(|&child| rendered(nodes, child))
+                .collect();
+            let inner = match &node.content {
+                Some(content) => Some(content.clone()),
+                None if !added.is_empty() => Some(added),
+                None => None,
+            };
+            if let Some(inner) = inner {
+                match (&element.content, &node.content) {
+                    (Some(range), Some(_)) => edits.push((range.clone(), inner)),
+                    (Some(range), None) => edits.push((range.end..range.end, inner)),
+                    (None, _) => edits.push((
+                        element.start_end.clone(),
+                        format!(">{inner}</{}>", element.qualified),
+                    )),
+                }
+            }
+            if node.content.is_none() {
+                pending.extend(node.children.iter().copied());
+            }
+        }
+        edits.sort_by_key(|(range, _)| range.start);
+        let mut out = String::with_capacity(self.text.len());
+        let mut from = 0;
+        for (range, text) in edits {
+            out.push_str(self.text.get(from..range.start).unwrap_or(""));
+            out.push_str(&text);
+            from = range.end;
+        }
+        out.push_str(self.text.get(from..).unwrap_or(""));
+        out
+    }
+}
+
+/// A node this writer added, as markup.
+fn rendered(nodes: &[Node], at: usize) -> String {
+    let Some(node) = nodes.get(at) else {
+        return String::new();
+    };
+    let inner: String = match &node.content {
+        Some(content) => content.clone(),
+        None => node
+            .children
+            .iter()
+            .map(|&child| rendered(nodes, child))
+            .collect(),
+    };
+    format!("<{0}>{inner}</{0}>", node.name)
+}
+
+/// Follows `steps` from `from`, adding a node where the data lacks one and `create` allows.
+///
+/// Chapter 4 adds a data node for a field that matched none (page 195 under `matchTemplate`,
+/// page 210's re-normalisation under `consumeData`), appended after the group's existing
+/// children; this does the same, and only where the missing node is the next of its name, so an
+/// index past a gap is said rather than filled with nodes nobody's template asked for.
+fn descend(
+    nodes: &mut Vec<Node>,
+    from: usize,
+    steps: &[(String, usize)],
+    create: bool,
+) -> Result<usize, String> {
+    let mut at = from;
+    for (name, index) in steps {
+        let parent = nodes.get(at).ok_or("the data node vanished")?;
+        let same: Vec<usize> = parent
+            .children
+            .iter()
+            .copied()
+            .filter(|&child| nodes.get(child).is_some_and(|c| &c.name == name))
+            .collect();
+        at = match same.get(*index) {
+            Some(&found) => found,
+            None if create && same.len() == *index && xml::is_name(name) => {
+                if parent.content.is_some() {
+                    return Err("its data group is a data value in the packet".to_owned());
+                }
+                let added = nodes.len();
+                nodes.push(Node {
+                    name: name.clone(),
+                    origin: None,
+                    children: Vec::new(),
+                    content: None,
+                });
+                if let Some(parent) = nodes.get_mut(at) {
+                    parent.children.push(added);
+                }
+                added
+            }
+            None => {
+                return Err(format!(
+                    "the data holds {} node(s) named {name} where its binding needs number {}",
+                    same.len(),
+                    index.saturating_add(1)
+                ));
+            }
+        };
+    }
+    Ok(at)
+}
+
+/// A data value's new content, before escaping.
+enum Content {
+    Text(String),
+    Values(Vec<String>),
+}
+
+/// What a container's data value holds for a `/V`, by the container's `ui`.
+///
+/// - A check button's value is the first of its `items` when on and the second when off, an
+///   absent one being empty (XFA 3.3's `checkButton`, page 759).
+/// - An exclusion group's value is the on value of the button that is on, and empty when none
+///   is (chapter 4, pages 195–197, the group named and its buttons not).
+/// - A choice list's is the export value; with `open="multiSelect"` its data is a group of
+///   `value` elements, one per selection (page 198).
+/// - A text field's is the text.
+///
+/// A numeric or date field's data is the canonical form chapter 3 defines and a `/V` need not
+/// be; that conversion is RFC 0011 section 5's formatting step, so such a field is said rather
+/// than written.
+fn content(
+    template: &Template,
+    container: &Container,
+    entered: &Change,
+) -> Result<Content, String> {
+    let mismatch = || "its /V is not the kind of value its XFA field holds".to_owned();
+    if container.class == Class::ExclGroup {
+        return match entered {
+            Change::On(export) => {
+                let on = container
+                    .children
+                    .iter()
+                    .filter_map(|&child| template.get(child))
+                    .filter_map(|button| button.items.first())
+                    .filter_map(|(_, values)| values.first())
+                    .any(|value| value == export);
+                if on {
+                    Ok(Content::Text(export.clone()))
+                } else {
+                    Err(format!(
+                        "no button of its exclusion group has the on value {export:?}"
+                    ))
+                }
+            }
+            Change::Off | Change::Cleared => Ok(Content::Text(String::new())),
+            Change::Text(_) | Change::Choices(_) => Err(mismatch()),
+        };
+    }
+    if container.rich {
+        return Err(
+            "its XFA value is rich text, whose data is markup this program does not write"
+                .to_owned(),
+        );
+    }
+    let (ui, open) = container
+        .ui
+        .as_ref()
+        .map(|(ui, open)| (ui.as_str(), open.as_deref()))
+        .ok_or("its XFA field states no ui")?;
+    match (ui, entered) {
+        ("checkButton", Change::On(_)) => Ok(Content::Text(item(container, 0))),
+        ("checkButton", Change::Off | Change::Cleared) => Ok(Content::Text(item(container, 1))),
+        ("choiceList", Change::Choices(values)) if open == Some("multiSelect") => {
+            Ok(Content::Values(values.clone()))
+        }
+        ("choiceList", Change::Text(value)) if open == Some("multiSelect") => {
+            Ok(Content::Values(vec![value.clone()]))
+        }
+        ("choiceList", Change::Cleared) if open == Some("multiSelect") => {
+            Ok(Content::Values(Vec::new()))
+        }
+        ("choiceList", Change::Choices(values)) if values.len() == 1 => {
+            Ok(Content::Text(values.concat()))
+        }
+        ("choiceList" | "textEdit" | "passwordEdit", Change::Text(value)) => {
+            Ok(Content::Text(value.clone()))
+        }
+        ("choiceList" | "textEdit" | "passwordEdit", Change::Cleared) => {
+            Ok(Content::Text(String::new()))
+        }
+        ("checkButton" | "choiceList" | "textEdit" | "passwordEdit", _) => Err(mismatch()),
+        (other, _) => Err(format!(
+            "its XFA {other} holds its data in the canonical form XFA 3.3 chapter 3 defines, which \
+             is RFC 0011's formatting step"
+        )),
+    }
+}
+
+/// A check button's on (`0`) or off (`1`) value: the `items` element's, empty where it states none.
+fn item(container: &Container, which: usize) -> String {
+    container
+        .items
+        .first()
+        .and_then(|(_, values)| values.get(which))
+        .cloned()
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Change, Datasets};
+    use crate::xfa::template::Template;
+    use crate::xfa::xml::parse;
+
+    fn template(text: &str) -> Template {
+        Template::read(&parse(text.as_bytes()).expect("well formed"), 0)
+    }
+
+    fn datasets(text: &str) -> Datasets {
+        let tree = parse(text.as_bytes()).expect("well formed");
+        Datasets::new(text.to_owned(), tree, 0)
+    }
+
+    const TEMPLATE: &str = "<template><subform name=\"order\">\
+        <subform name=\"customer\"><field name=\"name\"><ui><textEdit/></ui></field>\
+        <field name=\"city\"><ui><textEdit/></ui></field></subform>\
+        <field name=\"total\"><ui><numericEdit/></ui></field>\
+        <field name=\"region\"><ui><textEdit/></ui><bind match=\"global\"/></field>\
+        <field name=\"code\"><ui><textEdit/></ui><bind match=\"dataRef\" ref=\"$data.codes.code[1]\"/></field>\
+        <exclGroup name=\"size\"><field><ui><checkButton/></ui><items><text>S</text></items></field>\
+        <field><ui><checkButton/></ui><items><text>L</text></items></field></exclGroup>\
+        </subform></template>";
+
+    /// Only the changed value's content is replaced; a missing data value is appended to its
+    /// group, and a self-closing group is opened to take one (page 210's re-normalisation).
+    #[test]
+    fn a_splice_changes_the_values_named_and_nothing_else() {
+        let t = template(TEMPLATE);
+        let d = datasets(
+            "<xfa:datasets xmlns:xfa=\"x\"><xfa:data>\n<order>\n <customer><name>Old &amp; gone</name></customer>\n</order>\n</xfa:data></xfa:datasets>",
+        );
+        let kept = d.keep(
+            &t,
+            &[
+                (
+                    "order[0].customer[0].name[0]".to_owned(),
+                    Change::Text("New".to_owned()),
+                ),
+                (
+                    "order[0].customer[0].city[0]".to_owned(),
+                    Change::Text("Graz".to_owned()),
+                ),
+                ("order[0].size[0]".to_owned(), Change::On("L".to_owned())),
+            ],
+        );
+        assert!(kept.unkept.is_empty(), "{:?}", kept.unkept);
+        assert_eq!(
+            kept.text.as_deref(),
+            Some(
+                "<xfa:datasets xmlns:xfa=\"x\"><xfa:data>\n<order>\n <customer><name>New</name><city>Graz</city></customer>\n<size>L</size></order>\n</xfa:data></xfa:datasets>"
+            )
+        );
+        let empty = datasets("<xfa:datasets><xfa:data><order/></xfa:data></xfa:datasets>");
+        let kept = empty.keep(
+            &t,
+            &[(
+                "order.customer.name".to_owned(),
+                Change::Text("A".to_owned()),
+            )],
+        );
+        assert_eq!(
+            kept.text.as_deref(),
+            Some(
+                "<xfa:datasets><xfa:data><order><customer><name>A</name></customer></order></xfa:data></xfa:datasets>"
+            )
+        );
+    }
+
+    /// A global field binds its name outside the record when the record has none, and an explicit
+    /// `$data` reference is followed from `xfa:data`.
+    #[test]
+    fn global_and_explicit_bindings_find_their_data() {
+        let t = template(TEMPLATE);
+        let d = datasets(
+            "<datasets><data><order/><shared><region>EU</region></shared>\
+             <codes><code>a</code><code>b</code></codes></data></datasets>",
+        );
+        let kept = d.keep(
+            &t,
+            &[
+                ("order.region".to_owned(), Change::Text("US".to_owned())),
+                ("order.code".to_owned(), Change::Text("c".to_owned())),
+            ],
+        );
+        assert!(kept.unkept.is_empty(), "{:?}", kept.unkept);
+        let written = datasets(&kept.text.expect("changed"));
+        assert_eq!(written.value(&t, "order.region").as_deref(), Some("US"));
+        assert_eq!(written.value(&t, "order.code").as_deref(), Some("c"));
+    }
+
+    /// What this step cannot write is said: a numeric field's canonical form, an on value no button
+    /// of the group has, a name the template does not hold. Nothing is written for them.
+    #[test]
+    fn what_cannot_be_kept_is_named() {
+        let t = template(TEMPLATE);
+        let d = datasets("<datasets><data><order><total>1</total></order></data></datasets>");
+        let kept = d.keep(
+            &t,
+            &[
+                ("order.total".to_owned(), Change::Text("1,5".to_owned())),
+                ("order.size".to_owned(), Change::On("M".to_owned())),
+                ("order.nowhere".to_owned(), Change::Text("x".to_owned())),
+            ],
+        );
+        assert_eq!(kept.text, None);
+        assert_eq!(kept.unkept.len(), 3, "{:?}", kept.unkept);
+    }
+}

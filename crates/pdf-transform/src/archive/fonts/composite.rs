@@ -54,6 +54,42 @@ use super::{
     program_stream, subtype_dictionary,
 };
 
+/// The routes for a composite font nobody named a program for, in the owner's order (A570): the
+/// CJK pack for a collection's font, re-keying for an `Adobe-Identity` font whose `/ToUnicode` the
+/// glyphs can be chosen by, and the photographed page for one no face can be keyed to.
+fn unnamed(
+    document: &Document,
+    used: &SelectedFont,
+    descendant: &Dictionary,
+    pack: Option<&super::CjkPack>,
+    spare: &mut Spare,
+    substitutes: &mut Substitutes,
+) -> Result<(), Because> {
+    if let Some(collection) = super::pack::collection_of(document, &used.dict, descendant) {
+        return super::pack::embed(
+            document,
+            used,
+            descendant,
+            collection,
+            pack,
+            spare,
+            substitutes,
+        );
+    }
+    let refusal = if super::rekeyed::applies(document, &used.dict, descendant) {
+        match super::rekeyed::embed(document, used, descendant, pack, spare, substitutes) {
+            Ok(()) => return Ok(()),
+            Err(refusal) => refusal,
+        }
+    } else if super::rekeyed::is_adobe_identity(document, descendant) {
+        Because::NotBuiltYet(super::COMPOSITE_NOT_SUBSTITUTED)
+    } else {
+        return Err(Because::NotBuiltYet(super::COMPOSITE_NOT_SUBSTITUTED));
+    };
+    super::photographed::defer(document, used, refusal, substitutes);
+    Ok(())
+}
+
 /// Embeds the program an operator named into one composite font's descendant `CIDFont`.
 ///
 /// # Errors
@@ -81,22 +117,10 @@ pub(super) fn embed(
         // **Nobody named a program, and a collection's font has one in the CJK pack** (ADR 2302):
         // its CIDs name the same glyphs in every font of the collection (§9.7.2). No
         // `Adobe-Identity` CID does, and that half is given the glyphs its `/ToUnicode` values
-        // select, numbered by its own CIDs, where it states a map to read them by (ADR 2378).
-        return match super::pack::collection_of(document, &used.dict, &descendant_dict) {
-            Some(collection) => super::pack::embed(
-                document,
-                used,
-                &descendant_dict,
-                collection,
-                pack,
-                spare,
-                substitutes,
-            ),
-            None if super::rekeyed::applies(document, &used.dict, &descendant_dict) => {
-                super::rekeyed::embed(document, used, &descendant_dict, pack, spare, substitutes)
-            }
-            None => Err(Because::NotBuiltYet(super::COMPOSITE_NOT_SUBSTITUTED)),
-        };
+        // select, numbered by its own CIDs, where it states a map to read them by (ADR 2378);
+        // where it states none, or one no face can be keyed from, its pages are photographed if
+        // the owner's gate admits them, and the font keeps its refusal otherwise (ADR 2394).
+        return unnamed(document, used, &descendant_dict, pack, spare, substitutes);
     };
     let encoding = name_of(document, &used.dict, "Encoding").unwrap_or_default();
     if encoding != "Identity-H" && encoding != "Identity-V" {

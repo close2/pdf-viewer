@@ -246,3 +246,136 @@ fn the_media_player_algorithm_admits_the_hand_off_only_where_no_player_is_requir
         "<< /S /MR /C << /S /MCD /D {EMBEDDED} /PL << /A [{player}] >> >> >>"
     )));
 }
+
+/// Whether a clip of type `video/mp4` whose own `/PL` is `players` is viable, and what the
+/// rendition's report says it set aside.
+fn with_players(players: &str) -> (bool, Vec<String>) {
+    let report = judged(
+        &format!("<< /S /MR /C << /S /MCD /CT (video/mp4) /D {EMBEDDED} /PL {players} >> >>"),
+        Processor::default(),
+    );
+    let set_aside = report
+        .considered
+        .iter()
+        .flat_map(|considered| considered.set_aside.iter().cloned())
+        .collect();
+    (report.chosen().is_some(), set_aside)
+}
+
+/// §13.2.4.3: "For media types where an offset makes no sense (such as JPEG images), B and E shall
+/// be ignored, with no effect on viability." An offset over an image keeps a must-honour section
+/// viable and is not reported as played without; an entry Table 289 does not define is still a
+/// reason, and a type that can animate keeps its offsets.
+#[test]
+fn an_offset_over_a_still_image_is_ignored_with_no_effect_on_viability() {
+    let offset = "<< /S /T /T << /S /S /V 5 >> >>";
+    let section = |content_type: &str, options: &str| {
+        judged(
+            &format!(
+                "<< /S /MR /C << /S /MCS /D << /S /MCD /CT ({content_type}) /D {EMBEDDED} >> \
+                 {options} >> >>"
+            ),
+            Processor::default(),
+        )
+    };
+    let report = section("image/jpeg", &format!("/MH << /B {offset} /E {offset} >>"));
+    assert!(report.chosen().is_some(), "{report:?}");
+    let report = section("image/jpeg", &format!("/BE << /B {offset} >>"));
+    let (_, chosen) = report.chosen().expect("a best-effort offset over an image");
+    assert!(chosen.unhonoured.is_empty(), "{chosen:?}");
+    // The type is matched case-insensitively and without its parameters, and a section of a
+    // section takes the data's type.
+    assert!(
+        section("IMAGE/PNG; x=1", &format!("/MH << /E {offset} >>"))
+            .chosen()
+            .is_some()
+    );
+    assert!(viable(&format!(
+        "<< /S /MR /C << /S /MCS /MH << /B {offset} >> /D << /S /MCS /MH << /E {offset} >> /D \
+         << /S /MCD /CT (image/jpeg) /D {EMBEDDED} >> >> >> >>"
+    )));
+    assert!(
+        section("image/jpeg", "/MH << /X 1 >>").chosen().is_none(),
+        "an entry Table 289 does not define"
+    );
+    assert!(
+        section("image/gif", &format!("/MH << /B {offset} >>"))
+            .chosen()
+            .is_none(),
+        "a type whose format can animate keeps its offsets"
+    );
+}
+
+/// §13.2.7.2.1: "If a non-viable media player info dictionary is referenced by MU , NU , or A , it
+/// shall be treated as if it were not present in its original array", so an `/MU` of non-viable
+/// entries is an empty one, which "shall be treated as if it is not present", and the removal is
+/// said. One viable entry beside them still names the players that must play it.
+#[test]
+fn a_non_viable_media_player_info_dictionary_is_not_present_in_its_array() {
+    let viable_player = "<< /PID << /U (vnd.adobe.swname:ADBE_MCI) >> >>";
+    let non_viable = "<< /PID << /U (vnd.adobe.swname:ADBE_MCI) /L [-1] >> >>";
+    let (played, set_aside) = with_players(&format!("<< /MU [{non_viable} {non_viable}] >>"));
+    assert!(played, "{set_aside:?}");
+    assert_eq!(set_aside.len(), 2, "{set_aside:?}");
+    assert!(set_aside[0].contains("/MU entry 1"), "{set_aside:?}");
+    let (played, _) = with_players(&format!("<< /MU [{non_viable} {viable_player}] >>"));
+    assert!(!played);
+    // The play parameters' /PL is read by the same rule.
+    assert!(viable(&format!(
+        "<< /S /MR /C {} /P << /PL << /MU [{non_viable}] >> >> >>",
+        clip()
+    )));
+    // An emptied /MU leaves condition (d) to a clip with no content type.
+    assert!(!viable(&format!(
+        "<< /S /MR /C << /S /MCD /D {EMBEDDED} /PL << /MU [{non_viable}] >> >> >>"
+    )));
+    // An entry that is no media player info dictionary names no player.
+    assert!(with_players("<< /MU [null 7] >>").0);
+}
+
+/// §13.2.7.3 and Table 302: `/PID` is required, and its `MH` holds entries that "shall be honoured
+/// for this dictionary to be considered viable" where "Currently, there are no defined entries for
+/// this dictionary", so by §13.2.2 any entry there makes the dictionary non-viable and an empty one
+/// does not.
+#[test]
+fn a_media_player_info_dictionary_is_viable_only_with_its_pid_and_nothing_it_must_honour() {
+    let identifier = "/PID << /U (vnd.adobe.swname:ADBE_MCI) >>";
+    assert!(with_players("<< /MU [<< /Type /MediaPlayerInfo >>] >>").0);
+    assert!(with_players(&format!("<< /MU [<< {identifier} /MH << /X 1 >> >>] >>")).0);
+    assert!(!with_players(&format!("<< /MU [<< {identifier} /MH << >> >>] >>")).0);
+    assert!(!with_players(&format!("<< /MU [<< {identifier} /BE << /X 1 >> >>] >>")).0);
+}
+
+/// §13.2.7.4.1: a software identifier holding a key Table 303 does not define "shall be considered
+/// to be partially recognised", and §13.2.7.2.1: "The same rule shall apply to a media player info
+/// dictionary that contains a partially unrecognised software identifier dictionary." Table 303's
+/// `/U` is required.
+#[test]
+fn a_partially_recognised_software_identifier_takes_its_player_out_of_the_array() {
+    let entry = |identifier: &str| format!("<< /MU [<< /PID << {identifier} >> >>] >>");
+    let (played, set_aside) = with_players(&entry("/U (vnd.adobe.swname:ADBE_MCI) /Future 1"));
+    assert!(played);
+    assert!(set_aside[0].contains("/Future"), "{set_aside:?}");
+    assert!(with_players(&entry("/L [1] /H [2]")).0, "no /U");
+    assert!(
+        !with_players(&entry(
+            "/Type /SoftwareIdentifier /U (vnd.adobe.swname:ADBE_MCI) /L [1] /LI true /H [2] \
+             /HI false /OS [(Windows)]"
+        ))
+        .0,
+        "every Table 303 key is recognised"
+    );
+}
+
+/// §13.2.7.4.4: "If a version array contains negative numbers, it is non-viable, as is the
+/// enclosing software identifier", in either bound, and a media player info dictionary holding it
+/// is then not present in its array (§13.2.7.2.1).
+#[test]
+fn a_negative_version_number_makes_the_software_identifier_non_viable() {
+    let entry = |versions: &str| {
+        format!("<< /MU [<< /PID << /U (vnd.adobe.swname:ADBE_MCI) {versions} >> >>] >>")
+    };
+    assert!(with_players(&entry("/L [1 -2]")).0);
+    assert!(with_players(&entry("/H [3 0 -0.5]")).0);
+    assert!(!with_players(&entry("/L [0] /H []")).0);
+}

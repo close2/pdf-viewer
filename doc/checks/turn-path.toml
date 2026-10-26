@@ -35,6 +35,20 @@
 # heavy rows moved by under 5%. The bands below were derived from cold children; every warm
 # figure is inside them, so none moved for the method.
 #
+# **A band is a claim about the device's clock level** (ADR 2402, trap 274). The child reads amdgpu's
+# table of clock levels, `pp_dpm_sclk`, every 2 ms through each timed frame and prints the residency
+# per level beside each figure. The Radeon runs a child at its lowest level, 600 MHz, or at the
+# table's middle line, a clock it reports between the ends — 605 to 1 687 MHz on 2026-10-26, mostly
+# 1 100 and above — and that day it did each for minutes at a time, at a busy share the device check
+# admits (4 to 14 %). Most figures read inside one band at either; a step
+# that is the device's own work does not — `issue19802.pdf`'s reads about 5 ms at the lowest level and
+# 1.6 to 1.9 raised. Such a row states `<figure>_lowest_ms` beside `<figure>_ms`, taken at the lowest
+# level by this file's rule: a figure read wholly at the lowest level is judged against it, one whose
+# clock moved between the two through its frames is not judged, and every other figure is judged
+# against `<figure>_ms`. No band is widened to hold the other level's figures, because a band wide
+# enough for both would hold the regression each was taken to see. Where no device publishes the
+# table the header line says so and every figure is judged against `<figure>_ms`, as before.
+#
 # **`seventh_ms` is the turn again on a device that has lived** (ADR 1607): the same page, lane
 # and interpretation drawn as the seventh frame of one device, after five page turns through the
 # warm-up document and back to its first page. Every other figure here is drawn on a device made
@@ -239,12 +253,15 @@ seventh_ms = 3.9 .. 7.6
 # compute lane's first frame by its own count, so a light warm-up left a capacity the page outgrew at
 # 1x and the step outgrew again at 2x, and the step ran whole twice — 2.74 .. 3.28 ms in one quiet
 # hold, where the first frame's floor of the old guess reads 1.71 .. 1.89 and the tree before ADR
-# 2355 1.70 .. 1.76. The device's: the 890M holds this row at its lowest clock, 600 MHz, while
-# nothing else uses it, and the step then reads about 5 ms on every tree; the figures above were
-# taken at 1 100 MHz or more, beside another process that kept the device 30 .. 49 % busy, which
-# this gate declines to judge (ADR 1537). A figure outside the band is read beside the device's
-# clock (`pp_dpm_sclk`) before it is attributed to the tree.
+# 2355 1.70 .. 1.76. The device's: the 890M runs this row at its lowest clock, 600 MHz, or at a
+# raised one, mostly 1 100 MHz and more, each at a busy share the device check admits (ADR 2402).
+# The figures above are the raised clock's, and so is this band; at the lowest the step reads about
+# 5 ms on every tree.
 step_ms = 1.1 .. 1.8
+# The step at the device's lowest clock (ADR 2402): ADR 2388's six arms read 5.10 .. 6.02 ms there on
+# ecb6bea0 and on the fix, with `pp_dpm_sclk` at 600 MHz through the whole child; this file's rule
+# over them. HEAD before the fix, 004f8e73, read 9.07 .. 9.59 at the same clock, past the ceiling.
+step_lowest_ms = 4.3 .. 7.3
 why = "1 032 commands of text and rules"
 
 [[page]]

@@ -71,6 +71,18 @@ impl ViewState {
     /// without the value would leave a widget drawing something §12.7.2 says its `/V` should
     /// decide. What a person typed lives in this log until the document is closed and nowhere else.
     ///
+    /// **A hybrid form's `datasets` packet, wherever a `/V` written above changed a field's
+    /// value.** §K.2's first writer rule:
+    ///
+    /// > The XFA field values shall be consistent with the corresponding V entries of the PDF
+    /// > field objects.
+    ///
+    /// So the packet's stream is replaced, with the data value each changed field binds holding
+    /// what its `/V` now says and every other byte as the producer wrote it
+    /// (`ViewState::write_xfa_data`, ADR 2396). [`Written::xfa_unkept`] names every changed field
+    /// whose data value this could not find or write, with the reason, because the file then
+    /// states two values for it.
+    ///
     /// A §12.7.8.3.3 template page an import added, and [`Written::unwritten_pages`] counts them.
     /// The import shows the page ([`ViewState::appended_pages`]) and this update writes no page
     /// into the page tree, so the page is in the view and not in the file; the count is what keeps
@@ -177,6 +189,9 @@ impl ViewState {
         self.write_imported_values(document, &mut update, &mut withheld);
         self.write_scripted(document, &mut update);
         self.write_scripted_annotations(document, &mut update);
+        // After every `write_*` above, because each of them can write a `/V`, and §K.2's rule
+        // is about the value the file ends up stating (ADR 2396).
+        let xfa_unkept = Self::write_xfa_data(document, &mut update);
         // Table 224's flag is written only for what this program could not write itself. §12.7.2
         // states what setting it admits — "[i]f such an object defines an appearance stream, the
         // appearance shall be consistent with the object's current value as a field" — so a
@@ -210,7 +225,78 @@ impl ViewState {
             unconstructed,
             still_reached,
             unwritten_pages: self.appended.len(),
+            xfa_unkept,
         })
+    }
+
+    /// Writes §K.2's consistency: the data value of every field whose value the update changed.
+    ///
+    /// A field changed is one whose inherited `/V` (§12.7.4.1) reads differently through the
+    /// update than through the file, so whichever `write_*` step wrote it — a typed value, a
+    /// reset, an import, a script — is kept, and a field nothing changed is not touched. The
+    /// packet is read only where the document states an XFA resource and some field changed, so
+    /// a save of any other document costs one catalog lookup.
+    ///
+    /// A form XFA 3.3 does not call XFAF — Table 29's `/NeedsRendering`, or page 333's test on
+    /// its template (ADR 2380) — is the dynamic half's, which waits on Q639, and its fields are
+    /// named rather than half-written (trap 5).
+    fn write_xfa_data(document: &Document, update: &mut Update) -> Vec<(String, String)> {
+        let Some(stated) = crate::xfa::stated(document).filter(|stated| stated.resource) else {
+            return Vec::new();
+        };
+        let mut unkept = Vec::new();
+        let mut changes = Vec::new();
+        for (name, widgets) in super::widgets_by_field_name(document) {
+            let Some(&widget) = widgets.first() else {
+                continue;
+            };
+            let after = inherited_value(document, Some(update), widget);
+            if inherited_value(document, None, widget) == after {
+                continue;
+            }
+            match xfa_change(document, update, &widgets, &after) {
+                Some(change) => changes.push((name, change)),
+                None => unkept.push((name, "its /V is of a type no XFA field holds".to_owned())),
+            }
+        }
+        if changes.is_empty() {
+            return unkept;
+        }
+        let refuse_all = |reason: String, unkept: &mut Vec<(String, String)>| {
+            unkept.extend(
+                changes
+                    .iter()
+                    .map(|(name, _)| (name.clone(), reason.clone())),
+            );
+        };
+        if stated.needs_rendering {
+            refuse_all(
+                "the document asks to be regenerated when opened (Table 29's /NeedsRendering), \
+                 so its XFA form is a dynamic one"
+                    .to_owned(),
+                &mut unkept,
+            );
+            return unkept;
+        }
+        let resource = match crate::xfa::Resource::read(document) {
+            Some(Ok(resource)) => resource,
+            Some(Err(error)) => {
+                refuse_all(error.to_string(), &mut unkept);
+                return unkept;
+            }
+            None => return unkept,
+        };
+        if let Some(why) = resource.template.dynamic() {
+            refuse_all(format!("its XFA form is a dynamic one: {why}"), &mut unkept);
+            return unkept;
+        }
+        let kept = resource.datasets.keep(&resource.template, &changes);
+        if let Some(text) = kept.text {
+            let stream = replaced_stream(document, resource.datasets_stream, text.into_bytes());
+            update.put(resource.datasets_stream, stream);
+        }
+        unkept.extend(kept.unkept);
+        unkept
     }
 
     /// Writes §12.7.6.3's reset onto the fields it reached and nothing has replaced since.
@@ -1506,4 +1592,123 @@ fn write_retyped_appearance(
     appearances.insert(Name::new(&b"N"[..]), Object::Reference(id));
     dict.insert(Name::new(&b"AP"[..]), Object::Dictionary(appearances));
     true
+}
+
+/// A field's `/V` as the file states it (`update` `None`) or as the update leaves it, inherited
+/// up §12.7.4.1's `/Parent` chain from `widget`, references resolved; `Null` where no
+/// dictionary of the chain states one.
+fn inherited_value(document: &Document, update: Option<&Update>, widget: ObjectId) -> Object {
+    let read = |id: ObjectId| match update {
+        Some(update) => update.current_object(document, id),
+        None => document.get(id),
+    };
+    let mut id = widget;
+    for _ in 0..MAX_FIELD_DEPTH {
+        let Some(dict) = read(id).as_dict().cloned() else {
+            break;
+        };
+        match dict.get("V") {
+            Some(Object::Reference(value)) => return read(*value),
+            Some(Object::Null) | None => {}
+            Some(value) => return value.clone(),
+        }
+        let Some(parent) = dict.get("Parent").and_then(Object::as_reference) else {
+            break;
+        };
+        id = parent;
+    }
+    Object::Null
+}
+
+/// A `/V` in the terms an XFA data value needs; `None` for a value of a type no field states.
+///
+/// A button's name is turned into the export value of the widget it turns on: §12.7.5.2.3's
+/// Table 230 `/Opt`, "an array of text strings representing the export value of each annotation
+/// in the field", indexed by the widget whose `/AP` `/N` holds the state, and the state's own name
+/// where the field states no `/Opt`.
+fn xfa_change(
+    document: &Document,
+    update: &Update,
+    widgets: &[ObjectId],
+    value: &Object,
+) -> Option<crate::xfa::Change> {
+    use crate::xfa::Change;
+    let text = |object: &Object| match document.resolve(object) {
+        Object::String(bytes) => Some(pdf_syntax::text_string(&bytes)),
+        _ => None,
+    };
+    Some(match value {
+        Object::Null => Change::Cleared,
+        Object::String(bytes) => Change::Text(pdf_syntax::text_string(bytes)),
+        Object::Array(items) => Change::Choices(items.iter().map(text).collect::<Option<_>>()?),
+        Object::Name(state) if state.as_bytes() == crate::appearance::OFF => Change::Off,
+        Object::Name(state) => {
+            let has_state = |widget: &ObjectId| {
+                update.current(document, *widget).is_some_and(|dict| {
+                    let appearances = document.get_key(&dict, "AP");
+                    appearances.as_dict().is_some_and(|appearances| {
+                        document
+                            .get_key(appearances, "N")
+                            .as_dict()
+                            .is_some_and(|states| {
+                                states
+                                    .iter()
+                                    .any(|(name, _)| name.as_bytes() == state.as_bytes())
+                            })
+                    })
+                })
+            };
+            let export = widgets.iter().position(has_state).and_then(|index| {
+                let first = widgets.first()?;
+                let options = inherited_entry(document, update, *first, "Opt");
+                options
+                    .as_array()
+                    .and_then(|options| text(options.get(index)?))
+            });
+            Change::On(
+                export.unwrap_or_else(|| String::from_utf8_lossy(state.as_bytes()).into_owned()),
+            )
+        }
+        _ => return None,
+    })
+}
+
+/// An inheritable entry up the `/Parent` chain, read through the update.
+fn inherited_entry(document: &Document, update: &Update, widget: ObjectId, key: &str) -> Object {
+    let mut id = widget;
+    for _ in 0..MAX_FIELD_DEPTH {
+        let Some(dict) = update.current(document, id) else {
+            break;
+        };
+        let value = document.get_key(&dict, key);
+        if !value.is_null() {
+            return value;
+        }
+        let Some(parent) = dict.get("Parent").and_then(Object::as_reference) else {
+            break;
+        };
+        id = parent;
+    }
+    Object::Null
+}
+
+/// The stream `id` with `data` as its decoded bytes: its dictionary kept, and §7.4's `/Filter`
+/// and `/DecodeParms` removed with the encoding they described, as `Update::form_stream` does.
+fn replaced_stream(document: &Document, id: ObjectId, data: Vec<u8>) -> Object {
+    let mut dict = document
+        .get(id)
+        .as_stream()
+        .map(|stream| stream.dict.clone())
+        .unwrap_or_default();
+    dict.remove("Filter");
+    dict.remove("DecodeParms");
+    dict.insert(
+        Name::new(&b"Length"[..]),
+        Object::Integer(i64::try_from(data.len()).unwrap_or(i64::MAX)),
+    );
+    Object::Stream(std::sync::Arc::new(pdf_syntax::Stream {
+        dict,
+        data: data.into(),
+        decryption_failed: false,
+    }))
 }

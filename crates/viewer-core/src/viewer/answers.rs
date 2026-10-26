@@ -398,14 +398,37 @@ fn build_layers(
 /// before a consumer reached them: a reading that exists, a row that calls it implemented, and a
 /// payload no panel could list. ADR 1186.
 ///
+/// **§13.7.2.3.2's assets of the page's rich media annotations join it, for the same reason and
+/// at the same cost**: each is an embedded file a person may save and no player can use, so the
+/// owner's A631 lists them here under the existing level for embedded files, and an annotation is
+/// on a page, so a document-wide list would be the walk above (ADR 2399).
+///
 /// One payload named twice is one file, deduplicated by the stream's identity as
-/// `attachment::attachments` and [`attached_files`] both do it.
-fn attachments_in_view(open: &Open) -> Vec<pdf_model::attachment::Attachment> {
+/// `attachment::attachments` and [`attached_files`] both do it. [`crate::Command::Extract`] looks a name
+/// up in this same list, so every file the panel shows comes out by its name.
+pub(super) fn attachments_in_view(open: &Open) -> Vec<pdf_model::attachment::Attachment> {
     let mut out = open.view.attachments(&open.document);
     let Some(page) = open.page(open.page_index) else {
         return out;
     };
-    for file in pdf_model::attachment::associated(&open.document, &page.dict) {
+    let annotations = open.document.get_key(&page.dict, "Annots");
+    let assets = annotations
+        .as_array()
+        .unwrap_or_default()
+        .iter()
+        // One `/Subtype` lookup per annotation the first frame has already resolved, and a walk
+        // only of a `RichMedia` one's tree: the cost this adds to the launch path's
+        // `Query::Attachments`.
+        .flat_map(|item| match open.document.resolve(item).as_dict() {
+            Some(annotation) => {
+                pdf_model::attachment::rich_media::assets(&open.document, annotation).files
+            }
+            None => Vec::new(),
+        });
+    for file in pdf_model::attachment::associated(&open.document, &page.dict)
+        .into_iter()
+        .chain(assets)
+    {
         if out
             .iter()
             .any(|seen| Arc::ptr_eq(&seen.stream, &file.stream))

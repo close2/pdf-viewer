@@ -141,7 +141,7 @@ done
 CONFINED_STEPS=(confined reader_words field_commit combo_commit scripts_levels script_asks
     script_withdrawn script_goto script_timer script_timer_quiet script_beep script_triggers located
     located_displayed signature_policy loading_bar zoom_past_the_bound
-    zoom_past_the_bound_uncrossable zoomed_window_processor rendition_click movie_click
+    zoom_past_the_bound_uncrossable zoomed_window_processor rendition_click movie_click sound_click
     link_levels launch_levels launch_menu submission_levels bare_session_start archive_converted union_declined)
 WINDOW_STEPS=(drive accessibility reader_words field_commit combo_commit scripts_levels
     script_painted script_asks script_withdrawn script_goto script_timer script_timer_quiet
@@ -149,7 +149,7 @@ WINDOW_STEPS=(drive accessibility reader_words field_commit combo_commit scripts
     popup_spacing popup_scale popup_tall popup_list_rtl popup_tab popup_tab_rtl popup_leader
     note_window note_typed note_caret reply_threaded located located_displayed signature_policy
     loading_bar page_as_built zoom_stand_in retained_page zoomed_window zoom_past_the_bound
-    transition_frames rendition_click movie_click link_levels launch_levels launch_menu
+    transition_frames rendition_click movie_click sound_click link_levels launch_levels launch_menu
     submission_levels bare_session_start archive_converted union_declined)
 # Outside every list, run by `--step` alone: each opens `HEAVY_FILE`, a document the drive does not
 # write, and two of the three verdicts are times (ADRs 1815, 1825); each says itself in which
@@ -4097,6 +4097,43 @@ PY2
         verdict "$step" works "$(tail -n "+$((mark + 1))" "$LOG" | grep -o 'hands a media clip[^;]*' | head -1)"
     else
         verdict "$step" wrong "the click said nothing of the movie: $LOG"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+# sound_click: a click on §12.5.6.16's sound annotation whose sound object holds its own samples hands
+# them over as a RIFF WAVE file this program wrote (ADR 2398) — eight µ-law codes, so the file is the
+# 58-byte non-PCM header and the codes unchanged, 66 bytes — through the same `viewer_host::handed_media`
+# sentence, the confined window's from its worker. One annotation over the whole page, as the movie's.
+sound_click() {
+    local step=89-sound-click file="$FIXTURES/drive-sound.pdf" mark X Y WIDTH HEIGHT
+    local said='hands a media clip to this window for a player — audio/vnd.wave; codec=7, "sound.wav", 66 bytes'
+    [ -s "$file" ] || python3 - "$file" <<'PY2'
+import sys, pikepdf
+from pikepdf import Name, Dictionary, Array
+pdf = pikepdf.new()
+pdf.pages.append(pikepdf.Page(Dictionary(Type=Name.Page, MediaBox=[0, 0, 612, 792],
+                                         Contents=pdf.make_indirect(pikepdf.Stream(pdf, b"")))))
+page = pdf.pages[0]
+samples = pikepdf.Stream(pdf, b"\x00\x10\x20\x30\x40\x50\x60\x70")
+samples.Type = Name.Sound
+samples.R = 8000
+samples.E = Name.muLaw
+sound = pdf.make_indirect(Dictionary(Type=Name.Annot, Subtype=Name.Sound,
+                                     Rect=Array([0, 0, 612, 792]), P=page.obj, F=4,
+                                     Sound=pdf.make_indirect(samples)))
+page.obj.Annots = Array([sound])
+pdf.save(sys.argv[1], compress_streams=False)
+PY2
+    launch "$file"
+    eval "$(xdotool getwindowgeometry --shell "$(main_window)" | grep -E '^(X|Y|WIDTH|HEIGHT)=')"
+    mark=$(lines)
+    xdotool mousemove $((X + WIDTH / 2)) $((Y + HEIGHT / 2)) click 1
+    wait_for 15 said_since "$mark" "sound.wav"
+    shot "$step"
+    if said_since "$mark" "$said"; then
+        verdict "$step" works "$said"
+    else
+        verdict "$step" wrong "the click said nothing of the sound's samples: $LOG"
     fi
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }

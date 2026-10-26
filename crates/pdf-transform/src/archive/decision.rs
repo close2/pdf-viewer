@@ -411,11 +411,22 @@ pub enum Loss {
     /// §9.10's extraction aid, and a producer may have written it for searching rather than for
     /// drawing (`doc/questions/A570`, `doc/adr/2378`).
     GlyphsFromToUnicode,
+    /// ISO 19005-2 section 6.2.11.4.1, ISO 19005-4 section 6.2.10.4.1: a page showing an
+    /// `Adobe-Identity` composite font the file does not embed, whose codes no `/ToUnicode` names,
+    /// is replaced by a photograph of itself as this viewer's window draws it.
+    ///
+    /// No face can be keyed to such a font, because the per-CID correspondence §9.7.4.2 makes the
+    /// missing program's is what is missing; the window draws those marks blank (ADR 0270), and so
+    /// does the photograph. What is lost is the page as content — its vector marks, its text in
+    /// every other font, its resolution independence — and **nothing a reader could extract**: the
+    /// owner's gate admits only a page whose readback names no character (`doc/questions/A570`,
+    /// `doc/adr/2394`). A print never had a text layer either, so both shipped profiles carry it.
+    TextAsImage,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 25] = [
+    pub const ALL: [Self; 26] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::MetadataPacket,
@@ -441,6 +452,7 @@ impl Loss {
         Self::MachineFace,
         Self::SubstituteStretch,
         Self::GlyphsFromToUnicode,
+        Self::TextAsImage,
     ];
 
     /// The word a caller authorises it by.
@@ -472,6 +484,7 @@ impl Loss {
             Self::MachineFace => "machine-face",
             Self::SubstituteStretch => "substitute-stretch",
             Self::GlyphsFromToUnicode => "glyphs-from-to-unicode",
+            Self::TextAsImage => "text-as-image",
         }
     }
 
@@ -666,6 +679,15 @@ impl Loss {
                  glyphs, the page shows what the map says rather than what was drawn. Name the \
                  producer's program with --font to keep its own glyphs instead"
             }
+            Self::TextAsImage => {
+                "a page showing an Adobe-Identity composite font the file does not embed, whose \
+                 codes no ToUnicode CMap names, is replaced by a photograph of itself as this \
+                 viewer's window draws it, the marks of that font blank as the window leaves them: \
+                 the graphics, the images and every other mark survive as pixels rather than as \
+                 content. Only a page whose text no reader can extract is photographed, so no \
+                 extractable text is lost. Name the producer's program with --font to keep the \
+                 page as content instead"
+            }
         }
     }
 
@@ -805,6 +827,8 @@ pub struct Authorisations {
     pub substitute_stretch: bool,
     /// Whether [`Loss::GlyphsFromToUnicode`] was authorised.
     pub glyphs_from_to_unicode: bool,
+    /// Whether [`Loss::TextAsImage`] was authorised.
+    pub text_as_image: bool,
 }
 
 impl Authorisations {
@@ -837,6 +861,7 @@ impl Authorisations {
             Loss::MachineFace => self.machine_face,
             Loss::SubstituteStretch => self.substitute_stretch,
             Loss::GlyphsFromToUnicode => self.glyphs_from_to_unicode,
+            Loss::TextAsImage => self.text_as_image,
         }
     }
 
@@ -874,6 +899,7 @@ impl Authorisations {
             Loss::MachineFace => self.machine_face = true,
             Loss::SubstituteStretch => self.substitute_stretch = true,
             Loss::GlyphsFromToUnicode => self.glyphs_from_to_unicode = true,
+            Loss::TextAsImage => self.text_as_image = true,
         }
     }
 }
@@ -2474,7 +2500,8 @@ pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[
         Conditional::PerDocument(
             Losses::one(Loss::MachineFace)
                 .with(Loss::SubstituteStretch)
-                .with(Loss::GlyphsFromToUnicode),
+                .with(Loss::GlyphsFromToUnicode)
+                .with(Loss::TextAsImage),
         ),
     ),
 ];

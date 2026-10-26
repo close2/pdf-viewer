@@ -1813,3 +1813,13 @@ building at `-j2`, and at `-j1` for the two toolkit crates alone (ADR 2360). See
 reflink from the batch's release directory does not spare the rebuild, because the export's sources carry
 new mtimes (trap 248). A round that builds a toolkit window's tests in release under the lock passes `-j2`,
 and `-j1` where the crate is `viewer-gtk` or `viewer-qt`, or asks for a larger tree.
+
+## 192. A conformance suite's reference is chosen by its readme, not by its file name
+
+ITU-T H.264.1's `CVSE2_Sony_B` ships two reconstructions, a `.yuv` of 347 frames carrying the SEI-repeated
+pictures and a `-norpt.yuv` of 278; its readme's frame count, 278, says which one a decoder is judged against,
+and round 1783 first read a bit-exact decoder as losing frames by judging against the other (RFC 0012). The
+same audit found the AAC suite's two PNS streams OFF by the same RMS to three figures in both decoders: a
+noise-substitution stream is not judged sample for sample, and two decoders agreeing on a miss is a sentence
+about the instrument. A suite's reference is taken from the line of its readme that names the expected
+output, and a stream whose tool is random by definition is judged by the measure its standard states.

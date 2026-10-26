@@ -294,7 +294,9 @@ remedy = "discard"
 #   graphics/rendering-intent-*    decides printed colour
 #   graphics/destination-profile-* the output intent is the statement of what was printed to
 #   fonts/*                        a printed page carried glyphs; every font refusal stays but
-#                                  the machine's face above, which loses shapes and no glyph.
+#                                  the machine's face above, which loses shapes and no glyph, and
+#                                  the photographed page its discard also carries: a print had no
+#                                  text layer either (text-as-image, A570, doc/adr/2394).
 #                                  A TrueType code reached only by a mapping of the reader's
 #                                  choosing needs no answer here: the converter names its glyph in
 #                                  the encoding where the file says which it is (ADR 1942)

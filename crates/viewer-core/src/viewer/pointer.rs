@@ -462,9 +462,27 @@ pub(super) fn is_widget(document: &pdf_syntax::Document, annotation: ObjectId) -
 /// (`pdf-model --example file_attachment_census`) — and every host asks [`Query::Attachments`]
 /// when a document opens, which is exactly where `CLAUDE.md` forbids a full page-tree walk. A
 /// click has already found its page. ADR 0295.
+///
+/// **A rich media annotation's assets come out the same way** (§13.7.2.3.2, ADR 2399): the owner's
+/// A631 makes them files a person saves, never a player's, so a click hands each over as an
+/// embedded file under the reader's level for those, with any departure of its name said.
 fn exhibit(id: DocumentId, open: &mut Open, annotation: ObjectId, events: &mut Vec<Event>) -> bool {
     let toggled = open.toggle_popup(annotation);
-    for file in attached_files(open, annotation) {
+    let assets = match open.document.get(annotation).as_dict() {
+        Some(dict) => pdf_model::attachment::rich_media::assets(&open.document, dict),
+        None => pdf_model::attachment::rich_media::Assets::default(),
+    };
+    if !assets.departures.is_empty() {
+        events.push(Event::Reported {
+            document: id,
+            page: None,
+            notes: assets.departures,
+        });
+    }
+    for file in attached_files(open, annotation)
+        .into_iter()
+        .chain(assets.files)
+    {
         hand_over(id, Extraction::Asked, &open.document, &file, None, events);
     }
     toggled

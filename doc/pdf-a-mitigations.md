@@ -1222,10 +1222,19 @@ face is drawn narrowed to the file's widths, **built** (`doc/questions/A47`, `A5
   selects — a `glyf` face whole through a `/CIDToGIDMap` stream, a `CFF ` face as a subset whose
   charset carries the document's CIDs — with the content stream, encoding, widths and `/ToUnicode`
   untouched. The losses are `machine-face` and `glyphs-from-to-unicode`; `as-if-printed` answers
-  both `discard` and `as-shown` leaves them at `stop`. Where the map does not answer, the page is
-  the rasterized page's, A570's second remedy, not built.
-- **Still refused, by name**: a composite font nobody named a program for and that states no usable
-  `/ToUnicode`; a font no shipped face covers; a machine's face drawn for a code the page shows that the shipped face lacks; and a
+  both `discard` and `as-shown` leaves them at `stop`.
+- **The same font where no face can be keyed to it** — no `/ToUnicode`, or one re-keying refuses —
+  has its pages photographed (A570's second remedy, ADR 2394): each page whose content shows it is
+  interpreted once without its annotations, drawn by the oracle backend at 300 dpi, the marks of
+  that font blank as the window leaves them, and replaced by one `ICCBased` sRGB image placed through
+  the inverse of the page's own transform; its annotations stay. The loss is `text-as-image`, and
+  **both** shipped profiles carry it — `as-if-printed` through the site's `discard`, `as-shown`
+  through the site's own `text-as-image = "discard"` beside its `stop`. **The owner's gate** refuses
+  the page, by name, where its readback names any character, where the interpreter reports anything
+  but the fonts it could not draw, and in a document stating a structure tree or optional content;
+  offered at 2b and at part 4, never at 2u or 2a. A font only an annotation shows keeps its refusal.
+- **Still refused, by name**: a composite font nobody named a program for that the gate refuses or
+  that is not `Adobe-Identity`; a font no shipped face covers; a machine's face drawn for a code the page shows that the shipped face lacks; and a
   result the proof finds drawn differently.
 
 #### `fonts/font-programs-filed-by-their-format`

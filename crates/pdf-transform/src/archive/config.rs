@@ -76,7 +76,7 @@ use pdf_syntax::object::ObjectId;
 
 use crate::tool::{Bounds, PLACEHOLDERS, Tool};
 
-use super::decision::{self, Answer, Losses, REMEDIES};
+use super::decision::{self, Answer, Loss, Losses, REMEDIES};
 use super::toml::{self, Value};
 
 /// `doc/rfc/0007` section 2's remedy vocabulary, closed and small so a configuration is legible.
@@ -1255,6 +1255,10 @@ struct Row {
     construct: bool,
     /// `dynamic` — what happens at `forms/no-xfa-key` to a form the document says is dynamic.
     dynamic: Kind,
+    /// `text-as-image` — whether `fonts/font-programs-embedded` may photograph a page whose
+    /// text no reader can extract, whatever the row's remedy says of the site's other losses
+    /// (`doc/adr/2394`).
+    text_as_image: Kind,
     /// `source = "shipped-cmaps"` — a `CMap` is embedded from the published set (`doc/adr/1286`).
     shipped_cmaps: bool,
     /// The 1-based line its header sits on, for an error a person can find.
@@ -1442,6 +1446,16 @@ impl Configuration {
                 for loss in answered.iter() {
                     authorised.authorise(loss);
                 }
+            }
+            // **One loss of a site, apart from the others**, because A570 asks both shipped
+            // profiles to carry it while `as-shown` stops on the site's other three: a photograph
+            // is the window's own pixels, and only a page whose text no reader can extract is
+            // taken (`doc/adr/2394`).
+            if row.site == "fonts/font-programs-embedded"
+                && row.text_as_image == Kind::Discard
+                && requirement_binds(&row.site, target)
+            {
+                authorised.authorise(Loss::TextAsImage);
             }
         }
         authorised
@@ -1973,6 +1987,7 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         .and_then(Value::as_bool)
         .unwrap_or(true);
     let dynamic = kind_or_stop(tbl, "dynamic");
+    let text_as_image = kind_or_stop(tbl, "text-as-image");
     let undeterminable = kind_or_stop(tbl, "undeterminable");
     let unreadable = kind_or_stop(tbl, "unreadable");
     let unlisted = kind_or_stop(tbl, "unlisted");
@@ -2006,6 +2021,7 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         original,
         construct,
         dynamic,
+        text_as_image,
         fresh_packet,
         undeterminable,
         media_types,

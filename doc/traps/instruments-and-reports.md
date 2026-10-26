@@ -1926,4 +1926,19 @@ process — the owner's session, which this account cannot list — kept the dev
 state ADR 1537's busy check refuses to judge. The "two speeds" trap 262 reads from emit+deposit are these
 levels. At one level the arms separated cleanly (HEAD 2.74–3.28 ms, the fix 1.71–1.89, ecb6bea0 1.70–1.76;
 ADR 2388); across levels the comparison measures the clock. A GPU-bound figure carries the sclk residency
-of its run beside it, and a difference is attributed only between arms that ran at the same level.
+of its run beside it, and a difference is attributed only between arms that ran at the same level. The
+turn gate reads it itself: every figure prints its residency per level, a figure read wholly at the
+lowest level is judged against its row's `_lowest_ms` band where the row states one, a figure whose
+clock moved between levels is not judged where both bands are stated, and the render node's holders
+of this account are listed beside each child (ADRs 2402, 2403).
+
+### 275. `pp_dpm_sclk` is three lines on this APU, and the middle one is the clock of the moment
+
+Round 1784 built the turn gate's clock sampler (ADR 2402) and found the Radeon 890M's `pp_dpm_sclk` is not a
+list of fixed levels: it prints the minimum (600 MHz), a middle line that is the current clock between the
+ends, and the maximum, and the star sits on whichever line the clock is at. The middle line read as low as
+605 MHz and as high as 1 687 MHz across one hold, and whole gate children ran there at 4–14 % device busy —
+so trap 274's "it climbs only while another process keeps it 30–49 % busy" did not hold, and three existing
+step bands (EC3 p101, `images.pdf`, `issue14415.pdf`) turned out to have been taken raised. A figure is
+compared by the table line it ran at together with the MHz range the sampler printed beside it; a "raised"
+or "lowest" label without the range is not evidence that two arms ran at one speed.

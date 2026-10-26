@@ -298,6 +298,18 @@ remedy = "discard"
 # (doc/adr/1978).
 # ---------------------------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------------------------
+# Photographed pages. An Adobe-Identity font the file does not embed and whose codes no ToUnicode
+# CMap names draws blank in the window, since nothing says which glyph a CID is (ISO 32000-2
+# 9.7.4.2). A page showing one is photographed as the window draws it - the window's own pixels -
+# and only where no text on it is extractable, so nothing the window offered is lost (A570,
+# doc/adr/2394). The site's other losses stay at stop: below.
+# ---------------------------------------------------------------------------------------------
+
+[site."fonts/font-programs-embedded"]
+remedy = "stop"
+text-as-image = "discard"
+
 [site."graphics/no-overprint-mode-one-under-icc-cmyk"]
 remedy = "discard"
 
@@ -313,7 +325,9 @@ remedy = "discard"
 #                                  machine's face as the operator's statement (doc/adr/2162);
 #                                  where it drew the shipped face narrowed to the file's widths,
 #                                  embedding the face unmodified draws each glyph wider than the
-#                                  window did, the loss substitute-stretch (A566, doc/adr/2262)
+#                                  window did, the loss substitute-stretch (A566, doc/adr/2262);
+#                                  a page photographed for text no reader can name is answered
+#                                  above, by text-as-image alone (doc/adr/2394)
 #   fonts/*                        the window drew glyphs; every font refusal stays. A TrueType
 #                                  code reached only by a mapping of the reader's choosing needs no
 #                                  answer here: the converter names its glyph in the encoding where

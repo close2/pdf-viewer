@@ -11,6 +11,7 @@ mod sub_pixel_rule;
 use pdf_render::{Paint, Path, Stroke, Transform};
 
 use crate::compose::carries_coverage_as_alpha;
+use crate::shading::Extent;
 use crate::surface::{Placed, ToDevice};
 use crate::{CpuRasterError, CpuRasterizer, convert, scan, thin_segment};
 use folding::{curves_may_fold, folding_stroke_outline};
@@ -157,7 +158,6 @@ impl CpuRasterizer {
                 None => (geometry.clone(), false),
             };
 
-        let mut scratch = None;
         if !geometry.is_empty() {
             let converted = convert::path(&geometry).ok_or(CpuRasterError::InvalidPath)?;
             let mut style = convert::stroke(stroke, at);
@@ -165,13 +165,13 @@ impl CpuRasterizer {
             if dashed {
                 style.dash = None;
             }
-            let brush = self.paint(
-                paint,
-                blend,
-                page_to_path,
-                to_device.of(Transform::IDENTITY),
+            let (mut levels, mut scratch) = (None, None);
+            let brush = self.mark_brush(
+                (paint, blend),
+                || ink_extent(&geometry, stroke, to_device.placed(transform)),
+                (transform, page_to_path, to_device),
                 (pixmap.width(), pixmap.height()),
-                &mut scratch,
+                (&mut levels, &mut scratch),
             )?;
             let outline = SolidOutline::of(&converted, &style, at);
             let outlined = (&converted, &outline);
@@ -200,14 +200,13 @@ impl CpuRasterizer {
         if !dots.is_empty()
             && let Some(converted) = convert::path(&dots)
         {
-            let mut scratch = None;
-            let mut brush = self.paint(
-                paint,
-                blend,
-                page_to_path,
-                to_device.of(Transform::IDENTITY),
+            let (mut levels, mut scratch) = (None, None);
+            let mut brush = self.mark_brush(
+                (paint, blend),
+                || Some(Extent::Filled(&converted)),
+                (transform, page_to_path, to_device),
                 (pixmap.width(), pixmap.height()),
-                &mut scratch,
+                (&mut levels, &mut scratch),
             )?;
             // The marks were stated by `pdf-render` above, so this is the area they gave up.
             brush.shader.apply_opacity(coverage);
@@ -225,6 +224,78 @@ impl CpuRasterizer {
         thin_segment::paint_dots(pixmap, thin_dots, paint, to_device, clip);
         Ok(())
     }
+
+    /// The brush one of a stroke's marks is painted with: an opaque axial or radial ramp's own
+    /// levels where [`crate::shading::ramp_shader`] draws the paint, one cell per device pixel over
+    /// every pixel `ink` says the mark can reach (ADRs 2356, 2404), and [`CpuRasterizer::paint`]'s
+    /// brush otherwise.
+    ///
+    /// `ink` is asked only of a shading, because a solid paint has no cells to bound and a stroke's
+    /// extent walks its path. `levels` holds the ramp's cells and `scratch` a sampled shading's,
+    /// each lent for as long as the brush.
+    fn mark_brush<'a, 'e>(
+        &self,
+        (paint, blend): (&Paint, tiny_skia::BlendMode),
+        ink: impl FnOnce() -> Option<Extent<'e>>,
+        (transform, page_to_path, to_device): (Transform, Transform, ToDevice),
+        target: (u32, u32),
+        (levels, scratch): (
+            &'a mut Option<tiny_skia::Pixmap>,
+            &'a mut Option<tiny_skia::Pixmap>,
+        ),
+    ) -> Result<tiny_skia::Paint<'a>, CpuRasterError> {
+        let ramp = match paint {
+            Paint::Shading(shading) => ink().and_then(|extent| {
+                crate::shading::ramp_shader(
+                    shading,
+                    extent,
+                    (
+                        to_device.placed(transform),
+                        to_device.placed(shading.transform),
+                    ),
+                    target,
+                    levels,
+                )
+            }),
+            _ => None,
+        };
+        match ramp {
+            Some(shader) => Ok(self.brush(shader, blend)),
+            None => self.paint(
+                paint,
+                blend,
+                page_to_path,
+                to_device.of(Transform::IDENTITY),
+                target,
+                scratch,
+            ),
+        }
+    }
+}
+
+/// The pixels a ramp's cells cover for a stroke of `path` under `stroke`, placed by `placed` (ADR
+/// 2404): the stroked outline's device bounds on the page's grid, `pdf_render::stroked_bounds`'s,
+/// which ISO 32000-2 §8.4.3's width, caps, joins and dashes bound term by term, and a reach past
+/// them for the marks no outline at the stated width holds.
+///
+/// Those are the marks drawn one device pixel wide — §10.7.4's band under [`draw_sub_pixel_rule`]
+/// and the library's hairline under `scan::stroke` — whose ink lies within the same multiple of
+/// half *that* width that the clause's joins and caps allow at the stated one: half a width along
+/// the path, `√2` halves at a projecting square cap's corner (§8.4.3.3), and the mitre limit's
+/// halves at a mitre's tip (§8.4.3.5). The half pixel inside which a centre lies is added to it,
+/// as [`Extent::Filled`]'s bounds add it. `None` for a path that names no point, which keeps the
+/// gradient's answer.
+fn ink_extent(path: &Path, stroke: &Stroke, placed: Placed) -> Option<Extent<'static>> {
+    /// A projecting square cap's far corner sits `√2` half-widths from the endpoint.
+    const SQUARE_CAP_CORNER: f32 = std::f32::consts::SQRT_2;
+    let half_widths = match stroke.join {
+        pdf_render::LineJoin::Miter => stroke.miter_limit.max(SQUARE_CAP_CORNER),
+        pdf_render::LineJoin::Round | pdf_render::LineJoin::Bevel => SQUARE_CAP_CORNER,
+    };
+    Some(Extent::Stroked {
+        ink: pdf_render::stroked_bounds(path, stroke, placed.page)?,
+        reach: 0.5 + half_widths / 2.0,
+    })
 }
 
 /// The verbs an axis-aligned rectangle's outline can take, above which [`draw_stroked_outline`]
