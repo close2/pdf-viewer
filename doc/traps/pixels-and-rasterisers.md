@@ -848,3 +848,15 @@ path takes. §10.7.4 itself says scan conversion of character glyphs may use a d
 `pdf-font` drops a one-point contour and a glyph left with none is an empty glyph (ADR 2330 §3). A change
 to what a shape without area draws is censused over glyph outlines before the walk, and the font side is
 decided under its own permission rather than swept in with the paths.
+
+### 266. A translucent rule is proved where the backdrop's share is a half level, against the exact composite
+
+ADR 2350's fixture proved the shading lane's translucent rule at α = 0.8, where the backdrop's share
+`255·(1 − α)` is 51.0 — a whole level, so no pixel sat on a tie and the fixture could not see one.
+`alphatrans` rose on all six arms by less than a thousandth and round 1766 found the whole rise in one
+channel of the ramp over one group: both backends store that group's alpha as 128, the ramp's composite
+alpha over it is exactly 191.5, `tiny-skia`'s store rounds half to even (192) and RADV rounds to 191, while
+the exact composite is 191.25 and the device's byte is the nearer (ADR 2367). The rise was a named tie,
+not a defect, and the oracle's agreement with the ramp alone was the same shared tie rather than §11.3.3.
+A translucent rule is proved at an alpha that makes the backdrop's share a half level — α = 0.5 does — and
+against the exact composite computed in `f64`, not only against the oracle's bytes, which carry the tie too.

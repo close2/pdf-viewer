@@ -1,0 +1,89 @@
+name: Snapshot
+
+# The rolling `snapshot` pre-release, published after a run of CI on main has completed (ADR 2374).
+#
+# A workflow of its own, because CI's runs on main cancel one another: a newer push cancels the run
+# before it, and a run cut while it deletes and recreates the release would leave none, or one whose
+# files came from a run that never finished. This one starts only when a CI run has completed, takes
+# only a run that completed with every job green, and is never cancelled by a newer one: its group
+# holds one publish running and at most one waiting, and a newer run replaces the one waiting.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: snapshot
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # A push to main in this repository, and a run whose every job passed -- `miri` and `fuzz` are
+    # advisory there and do not fail a run. A pull request's run is not a push, and a fork's head
+    # repository is not this one, so neither can put files into this repository's release.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+    # Priced from CI's own publish job, whose five green runs took 17 to 34 s, with the window's
+    # archive of about a hundred megabytes added to the upload.
+    timeout-minutes: 10
+    permissions:
+      # `gh release` writes to the repository, and reading another run's artifacts needs `actions`.
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: snapshot-*
+          merge-multiple: true
+          path: snapshot
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      # A moving tag: delete the release and its tag, then create both at the run's commit -- the
+      # run's, because in a `workflow_run` workflow `GITHUB_SHA` is the default branch's newest
+      # commit, which need not be the one these files were built from. A run older than the commit
+      # the release already names (a re-run of an old run, say) is not published over it. `gh` is on
+      # the runner, so this needs no third-party action -- which matters for a step holding a token
+      # that can write to the repository.
+      - name: Publish the snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          COMMIT: ${{ github.event.workflow_run.head_sha }}
+        working-directory: snapshot
+        run: |
+          set -eu
+          ls -l
+          # `gh api` prints an error's body on standard output, so the answer is taken only where
+          # the call succeeded; no `snapshot` tag at all is a first publish.
+          if released=$(gh api "repos/$GH_REPO/commits/snapshot" --jq .sha 2>/dev/null); then
+            order=$(gh api "repos/$GH_REPO/compare/$released...$COMMIT" --jq .status)
+            if [ "$order" = behind ]; then
+              echo "the release already names $released, which is newer than $COMMIT; nothing published"
+              exit 0
+            fi
+          fi
+          window=$(ls quorra-winui-x64-*.zip)
+          gh release delete snapshot --cleanup-tag --yes || true
+          gh release create snapshot \
+            --prerelease \
+            --target "$COMMIT" \
+            --title "Snapshot ${COMMIT:0:8}" \
+            --notes "Built from \`${COMMIT}\` on $(date -u '+%Y-%m-%d %H:%M UTC'), after every job of its CI run passed: fmt, clippy, the full test suite, the supply-chain check and the builds on every platform.
+
+          **This is not a release.** It is whatever was on \`main\`, retagged at every push.
+
+          **On Windows, \`${window}\` is the window to run**: unpack it anywhere and start \`Quorra.App.exe\`, with nothing to install first; it shows a document's pages, its forms and annotations, its outline, thumbnails and other panels, and takes the keyboard, the mouse and the wheel. It is new and no person has yet used it on a Windows desktop — CI builds it, and its handling of a document that asks to open full screen, fitted or centred is written but has never been seen working — it draws on the processor rather than the graphics card, and it cannot yet print or choose a file for a form's file field.
+
+          Every program this tree builds for a person to run, for x86_64 Linux, aarch64 macOS and x86_64 Windows — the viewer \`quorra\` and its confined form \`quorra-confined\`, the transform suite \`quorra-transform\` (whose \`archive\` verb is the PDF/A conversion), \`quorra-retrieve\` (whose \`archive-check\` is the PDF/A validation), and on Linux the GTK 4 and Qt 6 hosts and the FUSE mount \`quorrafs\`. **Unpack an archive into one directory and keep it that way**: the four workers — \`pdf-sandbox-worker\`, \`pdf-view-worker\`, \`pdf-vfs-worker\` and, off Windows, \`quorra-transform-worker\` — are separate executables their programs spawn, looked for beside the running binary, and a program that cannot find its worker refuses the work rather than doing it unconfined.
+
+          **Not every program is on every platform**, and each archive's \`MANIFEST\` is the answer for that archive: \`quorrafs\` is Linux's alone, \`pdf-vfs-worker\` passes a descriptor over a Unix socket and so is absent on Windows, and the two native hosts are built where their toolkits are. The Linux archive also carries \`kio/\` — RFC 0003's C ABI library and header, with the KIO plugin itself only where the runner's KDE could build it, because a KF6 plugin is bound to the ABI of the KDE it was compiled against.
+
+          **The confinement is Linux's.** seccomp-BPF and Landlock restrict the image decoder's system calls and filesystem there; macOS and Windows have neither, so on those two the decoder runs in a separate process with no kernel confinement and no address-space ceiling — which the viewer prints in its first line rather than leaving to a release note. What a real confinement for each would take is in \`doc/todo/35\`." \
+            ./*.tar.gz ./*.zip ./*.sha256

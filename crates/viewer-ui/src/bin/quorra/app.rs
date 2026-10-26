@@ -672,6 +672,13 @@ pub(crate) struct App {
     /// the window's renderer — or, under `--cpu`, its composer — when the document is taken in.
     /// `None` once it has been handed over.
     pub(crate) ahead: Option<viewer_host::Ahead>,
+    /// A page turn's read, out on a thread of its own with the page drawn beside it, until the
+    /// loop takes it in (ADRs 2344, 2360): [`App::turn`] hands it out and `App::take_the_turn`
+    /// takes it in.
+    pub(crate) turning: Option<viewer_host::loading::Turning>,
+    /// The commands that came behind a turn whose read is out — a second turn, and every command
+    /// after it — handed on in order once the read is in (ADR 2344).
+    pub(crate) behind_the_turn: std::collections::VecDeque<Command>,
     /// Whether page one has been put up as it is read, which the launch timeline marks once.
     pub(crate) read_shown: bool,
     /// What the title says about a document still opening past `WARN`, or nothing.

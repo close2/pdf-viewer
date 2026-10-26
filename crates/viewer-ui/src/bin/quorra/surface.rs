@@ -140,6 +140,13 @@ impl App {
     /// not the frame plus the bridge plus the timeline's own printing: on a page turn the tree is
     /// rebuilt and published, and that work is not the graphics device's.
     pub(crate) fn redraw_requested(&mut self) {
+        // **No frame while a turn's read is out** (ADR 2360): the arrangement then holds a page
+        // the core has not read and asked for nothing of, so a frame would put the window's
+        // ground where the page is. The window keeps the picture it last presented, and the read
+        // taken in asks for the redraw this declines.
+        if self.turning.is_some() {
+            return;
+        }
         // **The clock's gate, and it is on every frame rather than only on the ones that follow
         // a reprojection** (`doc/todo/36`). A redraw that arrives before the surface has
         // refreshed would be overdrawn before anybody saw it, so it is deferred to the tick

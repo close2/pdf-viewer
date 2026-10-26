@@ -169,21 +169,36 @@ impl CpuRasterizer {
             return Ok(());
         }
 
-        // A sampled shading's pixels are borrowed by its shader, so they need somewhere to
-        // live for exactly as long as this call.
-        let mut scratch = None;
-        let brush = self.paint(
-            paint,
-            blend,
-            page_to_path,
-            to_device.of(Transform::IDENTITY),
-            (pixmap.width(), pixmap.height()),
-            &mut scratch,
-        )?;
         // §10.7.4's marks and bands are decided on the page's grid, under the page's own matrix,
         // and measured there with only their write moved by the surface's corner: so a window's
         // or a strip's are the page's (ADR 2148).
         let placed = to_device.placed(transform);
+        // A sampled shading's pixels, and an axial or radial ramp's levels, are borrowed by the
+        // shader, so they need somewhere to live for exactly as long as this call. A ramp is
+        // drawn from its own levels, one cell per device pixel, through every converter below
+        // (ADR 2356).
+        let (mut levels, mut scratch) = (None, None);
+        let ramp = match paint {
+            Paint::Shading(shading) => shading::ramp_shader(
+                shading,
+                &path,
+                (placed, to_device.placed(shading.transform)),
+                (pixmap.width(), pixmap.height()),
+                &mut levels,
+            ),
+            _ => None,
+        };
+        let brush = match ramp {
+            Some(shader) => self.brush(shader, blend),
+            None => self.paint(
+                paint,
+                blend,
+                page_to_path,
+                to_device.of(Transform::IDENTITY),
+                (pixmap.width(), pixmap.height()),
+                &mut scratch,
+            )?,
+        };
         let split = pdf_render::split_collapsed_fill(source, placed.page);
         if let Some(split) = &split
             && !split.marks.is_empty()

@@ -27,6 +27,7 @@
 //!
 //! [`WARN`]: crate::drawing::WARN
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
@@ -35,7 +36,7 @@ use std::time::{Duration, Instant};
 use pdf_model::progress::{Handed, Parts, Progress, Reading};
 use pdf_render::{DisplayList, Raster, TargetSpec};
 use render_cpu::{CpuRasterizer, Underway};
-use viewer_core::{Anticipated, Event, Foreseen, ReadOut, Viewer};
+use viewer_core::{Anticipated, Command, Event, Foreseen, ReadOut, Viewer};
 
 use crate::drawing::{GLIMPSE_AFTER, GLIMPSE_EVERY, WARN};
 
@@ -454,18 +455,26 @@ impl Ahead {
     /// at a turn the window's thread is the toolkit's, and a read held there froze the window —
     /// the retained picture of the page, its key's release and its close included — for the
     /// length of the read (ADR 2328). The window takes the read in with [`Turning::land`] once
-    /// [`Turning::ended`] says so.
+    /// [`Turning::ended`] says so, and `ended` is called on the reading thread as soon as it does
+    /// — however the read ended — for a window whose loop waits to be woken rather than polling:
+    /// `quorra`'s (ADR 2360).
     ///
     /// # Panics
     ///
     /// Where the operating system refuses a thread, as `std::thread::spawn` does.
     #[must_use]
-    pub fn read_out(self, read_out: ReadOut) -> Turning {
+    pub fn read_out(self, read_out: ReadOut, ended: impl FnOnce() + Send + 'static) -> Turning {
         let page = read_out.page();
         let ahead = self.clone();
-        let thread = std::thread::spawn(move || ahead.read_beside(&read_out));
+        let done = Arc::new(AtomicBool::new(false));
+        let ends = Ends(Arc::clone(&done), Some(ended));
+        let thread = std::thread::spawn(move || {
+            let _ends = ends;
+            ahead.read_beside(&read_out)
+        });
         Turning {
             thread,
+            done,
             ahead: self,
             page,
             began: Instant::now(),
@@ -580,6 +589,8 @@ impl Ahead {
 pub struct Turning {
     /// The thread reading, until the window joins it.
     thread: JoinHandle<(Anticipated, Parts, Option<Underway>)>,
+    /// Set by the reading thread once its read has ended, before the window is told so.
+    done: Arc<AtomicBool>,
     /// The drawing beside the read, which the frame of the page is finished from.
     ahead: Ahead,
     /// Which page is being read, counted from zero.
@@ -590,9 +601,13 @@ pub struct Turning {
 
 impl Turning {
     /// Whether the read has ended, however it ended — one look, which blocks on nothing.
+    ///
+    /// **The flag and not only the thread's end**, because a window woken by [`Ahead::read_out`]'s
+    /// `ended` looks at once, and the thread that woke it may not have returned yet; a look that
+    /// found it still running would put the window back to sleep with nothing left to wake it.
     #[must_use]
     pub fn ended(&self) -> bool {
-        self.thread.is_finished()
+        self.done.load(Ordering::Acquire) || self.thread.is_finished()
     }
 
     /// Which page is being read, counted from zero.
@@ -625,6 +640,38 @@ impl Turning {
         *lock(&self.ahead.shared.drawn) = drawn.map(|underway| (parts, underway));
         (events, self.ahead)
     }
+}
+
+/// The end of a [`Turning`]'s read, said on its thread when the read is dropped however it ended,
+/// the flag first and the window's wake after it.
+struct Ends<F: FnOnce()>(Arc<AtomicBool>, Option<F>);
+
+impl<F: FnOnce()> Drop for Ends<F> {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Release);
+        if let Some(ended) = self.1.take() {
+            ended();
+        }
+    }
+}
+
+/// Whether a command may bring a page on whose read [`Viewer::read_out`] hands out: a turn, and a
+/// tick, inside which §12.4.4.1's `/Dur` and §12.4.4.2's navigation node advance the page (ADR
+/// 2360). A window handles one with its read left to it ([`Viewer::handle_unread`]) and waits a
+/// second one behind a read that is out.
+#[must_use]
+pub fn may_turn(command: &Command) -> bool {
+    matches!(command, Command::GoTo(_) | Command::Tick { .. })
+}
+
+/// Whether a tick handled with its read left to the window turned the page, which is when its
+/// read is handed out; a tick that turned nothing is ended with [`Viewer::read_the_rest`] at once,
+/// so a script timer's re-read of a page stays where [`Viewer::handle`] made it (ADRs 1957, 2360).
+#[must_use]
+pub fn turned(events: &[Event]) -> bool {
+    events
+        .iter()
+        .any(|event| matches!(event, Event::PageChanged { .. }))
 }
 
 impl std::fmt::Debug for Ahead {
@@ -701,7 +748,7 @@ mod tests {
         let bytes = std::fs::read(path).expect("the document is committed beside this crate");
         let mut viewer = Viewer::new(0, 0, 1.0);
         let _ = viewer
-            .handle(viewer_core::Command::Open {
+            .handle(Command::Open {
                 id: viewer_core::DocumentId(1),
                 bytes: bytes.into(),
                 password: None,
@@ -714,7 +761,7 @@ mod tests {
     /// The first render request a viewer makes once it is told a viewport.
     fn first_request(viewer: &mut Viewer) -> viewer_core::RenderRequest {
         viewer
-            .handle(viewer_core::Command::Resize {
+            .handle(Command::Resize {
                 width: 600,
                 height: 800,
                 scale: 1.0,

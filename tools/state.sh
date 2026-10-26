@@ -1264,7 +1264,8 @@ def get(path):
     request = urllib.request.Request(api + path, headers={"Accept": "application/vnd.github+json"})
     with urllib.request.urlopen(request, timeout=20) as answer:
         return json.load(answer)
-runs = get("/actions/runs?branch=main&per_page=1")["workflow_runs"]
+# CI's workflow by its file: `snapshot.yml` runs on main after each CI run as well (ADR 2374).
+runs = get("/actions/workflows/ci.yml/runs?branch=main&per_page=1")["workflow_runs"]
 if not runs:
     print("CI on main: no run")
     sys.exit(0)

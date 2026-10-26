@@ -1865,3 +1865,42 @@ the lane's. The lock keeps the walks apart but not the device: a bare GPU test o
 `/dev/dri/renderD*` without it. Before an arm, the processes holding the render node are listed and the
 list printed beside the figure; emit+deposit is read to say which speed the arm ran at; and a term is
 attributed only across arms that ran at one speed.
+
+### 268. A decayed-reason sweep reads every status that can decay
+
+`--bin inapplicable` asks of each `inapplicable` row whether the tree now does what the row says it does
+not; it reads `inapplicable` rows alone. Review 1768 re-read the 84 `out-of-scope` rows by hand and found
+twenty-one of §13.2's still saying "a media engine, not a rendering question" while `pdf_model::media`
+cites §13.2.3's subclauses, §13.2.4.3 and §13.2.7.2.2 by number and tests them — the ledger had moved only
+§13.2.2 and §13.2.4.2 when that code landed (ADR 2370). A reason that a clause is not this program's can
+decay under any status, so the sweep reads every status that carries such a reason, and a clause
+citation under `crates/` against a row that denies the clause is a finding whatever the row says.
+
+### 269. An advisory's named fix is checked against the yank list before it is pinned
+
+`deny` went red on `ecb6bea0` for RUSTSEC-2026-0387 and a yank on `crypto-bigint` 0.7.5, reached through
+`elliptic-curve` from `pdf-signature`. The advisory's own text said to move to 0.7.6; by the time round
+1770 read it, 0.7.6, 0.7.7 and 0.7.8 had all been yanked too, and pinning the advisory's version would have
+left `deny` red for a different reason (ADR 2374). Before a version is pinned to answer an advisory, the
+registry's yank list is read, and the newest unyanked release that satisfies the advisory is the one taken
+— in both lockfiles, the fuzz workspace's beside the root's.
+
+### 270. `tools/batch.sh gates` is the merge's run, not a list
+
+Round 1764's brief said the writer corpus gates were the ones "`tools/batch.sh gates` names", and the round
+ran the command to read the list. It is the merge's whole gate run: it truncates the shared
+`/home/AI/batch-gates.log` first, then runs every gate in order; the round ran four and stopped the fifth
+after 101 s, and the merge regenerated the log (ADR 2362's slot). The list of gates is `doc/todo/02`
+section 2's map and what `tools/round.sh <kind>` prints for a kind; a brief that owes a round certain gates
+names them by their own commands, and a round runs them on its own export. The subcommand refusing to run
+outside a merge, or a `--list`, is the instrument's side of the fix.
+
+### 271. A re-run frame reports only the re-run's phases
+
+Raster's compute lane sizes its first frame's edge buffer by a guess, and a frame whose count exceeds it
+overflows and runs again (raster ADR 0095). The frame that lands is the second attempt, and its phase list
+is the second attempt's: on HEAD the first compute window of a toolkit zoom reported 0.05–0.08 ms of
+residency and no `compute pipeline compile`, while the window's wall time carried both the compile and the
+first attempt (round 1760, ADR 2355 — this tree's first window reports 0.4–0.8 ms once it runs once). A
+first-use cost is read from the frame's whole wall time, or from an attempt known to be the first, and
+never from the phase list of the attempt that was delivered.

@@ -72,7 +72,7 @@ use std::time::{Duration, Instant};
 
 use pdf_render::{Raster, Rasterizer, TargetSpec, Transform};
 use render_cpu::CpuRasterizer;
-use viewer_core::{Command, DocumentId, Event};
+use viewer_core::{Command, DocumentId};
 
 use crate::native_window::{Asked, NativeWindow};
 use crate::trace::Topic;
@@ -258,11 +258,12 @@ pub trait PresentationPump: NativeWindow {
                 None => return Turned::Still,
             }
         };
-        let events: Vec<Event> = self
-            .state_mut()
-            .viewer
-            .handle(Command::Tick { millis })
-            .collect();
+        // Through the one place a window hands the viewer a command, because §12.4.4.1's `/Dur`
+        // turns the page inside a tick and its read leaves the toolkit's thread as a key's does; a
+        // tick that comes while a turn's read is out waits behind it (ADR 2360).
+        let Some(events) = self.through_the_viewer(Command::Tick { millis }) else {
+            return Turned::Still;
+        };
         if events.is_empty() {
             return Turned::Still;
         }

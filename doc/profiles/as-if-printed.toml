@@ -220,10 +220,12 @@ remedy = "discard"
 [site."file-structure/document-information-dictionary-holds-only-a-modification-date"]
 remedy = "preserve"
 unmapped = "discard"
+unreadable = "discard"
 
 [site."file-structure/document-information-dictionary-needs-piece-info"]
 remedy = "preserve"
 unmapped = "discard"
+unreadable = "discard"
 
 # ---------------------------------------------------------------------------------------------
 # Language. A Lang entry is read by a screen reader and an indexer, never drawn. One that is not a

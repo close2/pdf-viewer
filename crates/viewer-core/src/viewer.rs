@@ -670,10 +670,21 @@ mod tests {
     /// A document of two pages, each a different size and each with a mark on it, so that a turn
     /// moves the target as well as the list.
     fn two_pages() -> Vec<u8> {
+        two_pages_with(b"")
+    }
+
+    /// [`two_pages`] with `first` written into the first page's dictionary.
+    fn two_pages_with(first: &[u8]) -> Vec<u8> {
+        let first_page = [
+            &b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 5 0 R"[..],
+            first,
+            b" >>",
+        ]
+        .concat();
         let objects: [&[u8]; 6] = [
             b"<< /Type /Catalog /Pages 2 0 R >>",
             b"<< /Type /Pages /Count 2 /Kids [3 0 R 4 0 R] >>",
-            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 5 0 R >>",
+            &first_page,
             b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 6 0 R >>",
             b"<< /Length 14 >>\nstream\n0 0 50 50 re f\nendstream",
             b"<< /Length 16 >>\nstream\n10 10 80 80 re f\nendstream",
@@ -804,6 +815,172 @@ mod tests {
             ),
             "and the page is placed meanwhile, for a window to show what it retains of it"
         );
+        let read = std::thread::scope(|scope| {
+            scope
+                .spawn(|| read_out.read(&pdf_model::progress::Parts::new()))
+                .join()
+                .expect("the read on its own thread ends")
+        });
+        let mut events: Vec<crate::Event> = viewer.anticipated(read, None).collect();
+        events.extend(viewer.read_the_rest());
+        assert_eq!(asked(&events), expected);
+    }
+
+    /// A viewer presenting page one of [`two_pages`] with §12.4.4.1's `/Dur` of one second on it.
+    fn presenting_a_timed_page() -> Viewer {
+        let mut viewer = Viewer::new(300, 200, 1.0);
+        viewer
+            .handle(Command::Open {
+                id: DocumentId(1),
+                bytes: two_pages_with(b" /Dur 1").into(),
+                password: None,
+                fragment: None,
+            })
+            .for_each(drop);
+        viewer
+            .handle(Command::Present(crate::PresentationMode::On))
+            .for_each(drop);
+        viewer
+    }
+
+    /// §12.4.4.1's `/Dur` advance is a page turn inside a `Command::Tick`, and its read is handed
+    /// out as an arrow key's is: the tick handled with the read left to the host turns the page,
+    /// and the read taken in asks for what the tick handled whole asks for; a tick that turns
+    /// nothing hands nothing out and asks for what it asks for whole (ADR 2360).
+    #[test]
+    fn a_tick_that_advances_the_page_hands_its_read_out() {
+        let tick = |millis| Command::Tick { millis };
+        let turned = |events: &[crate::Event]| {
+            events
+                .iter()
+                .any(|event| matches!(event, crate::Event::PageChanged { index: 1, .. }))
+        };
+
+        let mut whole = presenting_a_timed_page();
+        let early: Vec<crate::Event> = whole.handle(tick(400)).collect();
+        let expected: Vec<crate::Event> = whole.handle(tick(600)).collect();
+        assert!(
+            !turned(&early) && turned(&expected),
+            "the page turns at its /Dur"
+        );
+        let expected = asked(&expected);
+        assert_eq!(
+            expected.iter().map(|&(page, ..)| page).collect::<Vec<_>>(),
+            [1]
+        );
+
+        let mut viewer = presenting_a_timed_page();
+        let mut first: Vec<crate::Event> = viewer.handle_unread(tick(400)).collect();
+        assert!(!turned(&first));
+        assert!(
+            viewer.read_out((300, 200), 1.0).is_none(),
+            "a tick that turns nothing brings nothing on to hand out"
+        );
+        first.extend(viewer.read_the_rest());
+        assert_eq!(asked(&first), asked(&early));
+        let events: Vec<crate::Event> = viewer.handle_unread(tick(600)).collect();
+        assert!(turned(&events));
+        let read_out = viewer
+            .read_out((300, 200), 1.0)
+            .expect("the page the advance brought on is handed out");
+        assert_eq!(read_out.page(), 1);
+        let read = read_out.read(&pdf_model::progress::Parts::new());
+        let mut events: Vec<crate::Event> = viewer.anticipated(read, None).collect();
+        events.extend(viewer.read_the_rest());
+        assert_eq!(asked(&events), expected);
+    }
+
+    /// A document of four pages, each with a mark on it, for Table 29's two-page arrangements.
+    fn four_pages() -> Vec<u8> {
+        let objects: [&[u8]; 10] = [
+            b"<< /Type /Catalog /Pages 2 0 R >>",
+            b"<< /Type /Pages /Count 4 /Kids [3 0 R 4 0 R 5 0 R 6 0 R] >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 7 0 R >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 8 0 R >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 9 0 R >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 10 0 R >>",
+            b"<< /Length 14 >>\nstream\n0 0 50 50 re f\nendstream",
+            b"<< /Length 16 >>\nstream\n10 10 80 80 re f\nendstream",
+            b"<< /Length 16 >>\nstream\n20 20 60 60 re f\nendstream",
+            b"<< /Length 16 >>\nstream\n30 30 40 40 re f\nendstream",
+        ];
+        let mut out = b"%PDF-2.0\n".to_vec();
+        let mut offsets = Vec::new();
+        for (index, body) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            out.extend_from_slice(format!("{} 0 obj\n", index.saturating_add(1)).as_bytes());
+            out.extend_from_slice(body);
+            out.extend_from_slice(b"\nendobj\n");
+        }
+        let xref = out.len();
+        out.extend_from_slice(b"xref\n0 11\n0000000000 65535 f \n");
+        for offset in offsets {
+            out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        out.extend_from_slice(
+            format!("trailer\n<< /Size 11 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").as_bytes(),
+        );
+        out
+    }
+
+    /// A viewer showing pages one and two of [`four_pages`] side by side, drawn.
+    fn showing_a_spread() -> Viewer {
+        let mut viewer = Viewer::new(300, 200, 1.0);
+        viewer
+            .handle(Command::Open {
+                id: DocumentId(1),
+                bytes: four_pages().into(),
+                password: None,
+                fragment: None,
+            })
+            .for_each(drop);
+        viewer
+            .handle(Command::Layout(
+                pdf_model::viewer_preferences::PageLayout::TwoPageLeft,
+            ))
+            .for_each(drop);
+        viewer
+    }
+
+    /// A turn of Table 29's two-page arrangement brings two unread pages on, and both leave the
+    /// host's thread in one read: the page it stands at first, foretold, and the other after it;
+    /// taken in, they ask for exactly what the turn handled whole asks for (ADR 2360). Planted:
+    /// with `read_out`'s set-up asked for no other page, it answers `None` here.
+    #[test]
+    fn a_turn_that_brings_on_two_unread_pages_hands_both_out() {
+        let mut whole = showing_a_spread();
+        let expected: Vec<crate::Event> = whole
+            .handle(Command::GoTo(crate::PageTarget::Index(2)))
+            .collect();
+        let expected = asked(&expected);
+        assert_eq!(
+            expected.iter().map(|&(page, ..)| page).collect::<Vec<_>>(),
+            [2, 3],
+            "the turn brings pages three and four on"
+        );
+
+        let mut viewer = showing_a_spread();
+        viewer
+            .handle_unread(Command::GoTo(crate::PageTarget::Index(2)))
+            .for_each(drop);
+        let read_out = viewer
+            .read_out((300, 200), 1.0)
+            .expect("both pages the turn brought on are handed out");
+        assert_eq!((read_out.page(), read_out.pages()), (2, 2));
+        let meanwhile: Vec<crate::Event> = viewer.read_the_rest().collect();
+        assert!(
+            asked(&meanwhile).is_empty(),
+            "a settle while the read is out reads neither page"
+        );
+        for page in [2, 3] {
+            assert!(
+                matches!(
+                    viewer.query(crate::Query::PageGeometry(page)),
+                    crate::Answer::Geometry(_)
+                ),
+                "page {page} is placed meanwhile"
+            );
+        }
         let read = std::thread::scope(|scope| {
             scope
                 .spawn(|| read_out.read(&pdf_model::progress::Parts::new()))

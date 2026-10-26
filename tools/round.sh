@@ -416,7 +416,9 @@ if command -v gh > /dev/null 2>&1; then
         beside=$(dirname "${common:-.}")/github-token.txt
         [ -r "$beside" ] && token=$(cat "$beside")
     fi
-    run=$(GH_TOKEN="$token" gh run list --branch main --limit 1 \
+    #    CI's workflow by its file, because `snapshot.yml` also runs on main after each CI run and
+    #    would otherwise be the newest run read here (ADR 2374).
+    run=$(GH_TOKEN="$token" gh run list --workflow ci.yml --branch main --limit 1 \
               --json status,conclusion,displayTitle,databaseId \
               --jq '.[] | "\(.status)\t\(.conclusion)\t\(.databaseId)\t\(.displayTitle)"' 2>/dev/null)
     run_status=${run%%$'\t'*}

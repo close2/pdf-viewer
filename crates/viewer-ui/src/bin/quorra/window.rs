@@ -157,24 +157,9 @@ impl ApplicationHandler for App {
     /// event, so a still window spends no tick, wakes for nothing and presents nothing. The rate
     /// is a ceiling on latency and never a duty to draw.
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        // A document still opening past `WARN`: its bar, until the tick that finds it ready, and
-        // nothing else this loop does — every branch below is about a document this window does
-        // not have yet (ADR 1811).
-        if self.state.is_some() && self.opening.is_some() {
-            if self
-                .opening
-                .as_ref()
-                .is_some_and(viewer_host::Loading::ended)
-            {
-                self.take_the_opening();
-            } else {
-                self.mind_the_opening();
-                self.show_the_read();
-                let now = std::time::Instant::now();
-                let wake = now.checked_add(viewer_host::loading::TICK).unwrap_or(now);
-                event_loop.set_control_flow(ControlFlow::WaitUntil(wake));
-                return;
-            }
+        // The document's read or a turn's, while one is out: nothing below runs (ADRs 1811, 2360).
+        if self.waiting_for_a_read(event_loop) {
+            return;
         }
         // A card held while the window presented, once it has left full screen (ADR 2329).
         self.put_up_what_was_held();
@@ -551,6 +536,17 @@ impl App {
     /// are decided here; what a press means once it has got past them is
     /// [`viewer_host::keys::meaning`], which the other two hosts ask the same question of.
     fn pressed(&mut self, key: &Key<&str>) {
+        // The key trace a turn's timeline is read from: the key's arrival, against the command
+        // it becomes under `events` (ADR 2344).
+        if self.trace.on(Topic::Events) {
+            let named = match key {
+                Key::Named(named) => format!("{named:?}"),
+                Key::Character(character) => (*character).to_owned(),
+                other => format!("{other:?}"),
+            };
+            self.trace
+                .say(Topic::Events, format_args!("key {named} arrives"));
+        }
         // **`CLAUDE.md`'s question takes every key while it is up, a field being typed into
         // included.** The core is *holding* something until it is answered, so a key that turned a
         // page while the question stood would leave a person reading somewhere else with an
@@ -899,6 +895,46 @@ fn character(text: &str) -> Option<viewer_host::Key> {
 }
 
 impl App {
+    /// The two reads this loop waits on, each taken in on the turn round the loop that finds it
+    /// ended — and answers whether one is still out, with the loop's wait for it set.
+    fn waiting_for_a_read(&mut self, event_loop: &ActiveEventLoop) -> bool {
+        // A document still opening past `WARN`: its bar, until the tick that finds it ready, and
+        // nothing else this loop does — every branch below is about a document this window does
+        // not have yet (ADR 1811).
+        if self.state.is_some() && self.opening.is_some() {
+            if self
+                .opening
+                .as_ref()
+                .is_some_and(viewer_host::Loading::ended)
+            {
+                self.take_the_opening();
+            } else {
+                self.mind_the_opening();
+                self.show_the_read();
+                let now = std::time::Instant::now();
+                let wake = now.checked_add(viewer_host::loading::TICK).unwrap_or(now);
+                event_loop.set_control_flow(ControlFlow::WaitUntil(wake));
+                return true;
+            }
+        }
+        // A turn's read, and while it is out nothing else either: what the loop would do is a
+        // frame or a command, and both wait for the read. The reading thread wakes the loop when
+        // the read ends; a loop with no proxy to be woken by looks every
+        // `viewer_host::drawing::POLL` (ADR 2360).
+        self.take_the_turn();
+        if self.turning.is_none() {
+            return false;
+        }
+        let flow = if self.waker.is_some() {
+            ControlFlow::Wait
+        } else {
+            let now = std::time::Instant::now();
+            ControlFlow::WaitUntil(now.checked_add(viewer_host::drawing::POLL).unwrap_or(now))
+        };
+        event_loop.set_control_flow(flow);
+        true
+    }
+
     /// Sends the tick a document's script timers are owed, where one is due, and answers when the
     /// next is: `None` while no document holds a timer, or while a presentation's clock carries
     /// the time or §12.6.4.15's one effect is drawn — the two toolkit windows keep one clock for

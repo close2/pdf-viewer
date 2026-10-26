@@ -638,7 +638,8 @@ impl Viewer {
     ) -> Option<PageGeometry> {
         if self
             .out
-            .is_some_and(|out| out.document == id && out.page == index)
+            .as_ref()
+            .is_some_and(|out| out.document == id && out.pages.contains(&index))
         {
             return self.placed_geometry(open, index);
         }

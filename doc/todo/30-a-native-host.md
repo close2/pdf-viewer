@@ -141,12 +141,15 @@ These are the places where a native host's shape differs from the tier-2 host's,
   `quorra-confined` — until the look that finds it read. **Page one is drawn while it is read** in
   both toolkit windows as in `quorra` (`viewer_host::Ahead`, ADRs 1855, 1867): from half a second
   into the read the window shows the page as it stands, placed where its first frame will be, and
-  the first frame is finished from that drawing. **A turn's read is off the toolkit's thread** in
-  both toolkit windows and the C window (`Viewer::read_out`, ADR 2344): the key's handler returns
-  with the retained picture on the screen and a second turn waits for the first's read. What is
-  still owed: `quorra`'s own turn, an arrangement that brings on two unread pages and a
-  re-interpretation are read on the window's thread with no bar, and an in-process interpretation
-  has no stop but the window's close. `quorra-confined` owes neither:
+  the first frame is finished from that drawing. **A turn's read is off the window's thread** in
+  both toolkit windows, the C window and `quorra` (`Viewer::read_out`, ADRs 2344, 2360): the key's
+  handler returns at once — in the toolkit windows with the retained picture on the screen, in
+  `quorra` with the page being left — every unread page the turn brings on is in the one read, a
+  tick that turns the page (§12.4.4.1's `/Dur`) is handed out as a key's turn is, and a second turn
+  waits for the first's read. What is still owed: `quorra`'s retained picture of the page arriving
+  while it is read, a page holding §12.5.3's replacement and a re-interpretation, which are read on
+  the window's thread with no bar, and an in-process interpretation, which has no stop but the
+  window's close. `quorra-confined` owes neither:
   every command goes to its worker on a thread past `WARN` and the reader's keys are held meanwhile
   (ADR 1827); what it owes is a worker that takes a command while it draws, so that a held key
   reaches the viewer sooner.
@@ -273,7 +276,15 @@ Ranked by ADR 0509's criterion; `tools/state.sh windows` prints the window rows 
   231 bit 25's combs, the measured fit `w` sends, §12.5.6.14's popups and §12.9's traced path are
   drawn (ADRs 2168, 2169). Its controls still lack bit 21's chooser (N4) and a popup's retyping; the
   panels and the cards are written (ADR 2185), compiled by the portable C# check; Windows layout
-  and interaction validation, and N4's printer selection and spooling, remain owed.
+  and interaction validation, and N4's printer selection and spooling, remain owed. **It is
+  released**: `window` publishes it self-contained, and the snapshot pre-release carries it as
+  `quorra-winui-x64-<commit>.zip` with `viewer_ffi.dll` and `pdf-sandbox-worker.exe` beside
+  `Quorra.App.exe`. The same job starts it once on a document and reads its title, advisory until a
+  run has passed (ADR 2374); signing it is `doc/questions/Q636`. **What would run §12.2's placement**,
+  the next host slot's contract: a `windows-latest` step opening documents that state `/FitWindow`,
+  `/CenterWindow` and `/PageMode /FullScreen`, reading back the window's rectangle and its
+  presenter's kind, and held to the numbers `drive_a_window.c` derives for the library's half
+  (ADR 2308); the title step becomes a gate in the same slot.
 - **A dmabuf texture in GTK and a `QRhiWidget` in Qt** — ADR 2049's step after the device path,
   which is built: the renderer is the library `crates/viewer-device/` (ADR 2052), and both toolkit
   windows draw on the device, page one by default, and read the frame back into the

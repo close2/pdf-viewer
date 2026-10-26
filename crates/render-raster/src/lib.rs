@@ -131,6 +131,24 @@ pub fn options() -> raster_gpu::Options {
     }
 }
 
+/// [`options`] for a device that draws a window, which also compiles the compute lane on raster's
+/// warm-up thread ([`raster_gpu::Options::warm_compute_lane`]).
+///
+/// **A window takes the compute lane on every moved view of a hardware adapter** (ADR 0700's
+/// `lane_for`), so its first zoom's first frame compiled the lane's four pipelines inside itself,
+/// 1.99 to 6.12 ms of that frame (ADR 2339). Asked here they compile on raster's warm-up thread
+/// once the device has completed its first frame, so page one neither waits for them nor shares
+/// the machine with their compile (ADR 2354). A corpus device, a gate's oracle device and any
+/// other device that never draws a moved view keeps [`options`] and compiles nothing it will not
+/// use.
+#[must_use]
+pub fn window_options() -> raster_gpu::Options {
+    raster_gpu::Options {
+        warm_compute_lane: true,
+        ..options()
+    }
+}
+
 /// The raster backend: a persistent device, resource caches keyed by the display
 /// list's own `Arc` identities (pinned and evicted by `cache::ResourceCaches`,
 /// whose docs carry both the ABA argument for pinning and the eviction policy

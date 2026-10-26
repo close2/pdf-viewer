@@ -280,6 +280,9 @@ impl Device {
             }
             None => (Payload::None, Duration::ZERO),
         };
+        // The compute lane's warm-up, where the host asked for one, begins only now that a
+        // frame has been handed back (the caller's ADR 2354).
+        self.pipelines.a_frame_was_completed();
 
         Ok(Frame {
             timings: Timings {

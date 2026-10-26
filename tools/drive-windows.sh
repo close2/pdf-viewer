@@ -3367,14 +3367,15 @@ policy_served() { grep -c 'GET /policy.pdf' "$SERVED"; }
 # signature naming served/policy.pdf has the copy fetched from the loopback server, bound by the
 # digest the signer signed, and its magenta page opened beside the document; the same signature
 # committing to other octets is fetched and told apart, and nothing opens; at `refuse` the server is
-# not asked and the window says so. `quorra-confined` has no network and declines at every level.
+# not asked and the window says so. `quorra-confined` holds one document and opens no copy beside it,
+# so it declines at every level (ADR 2076 section 2.6).
 signature_policy() {
     local before seen magenta
     if [ "$WINDOW" = quorra-confined ]; then
         before=$(policy_served)
         launch "$FIXTURES/drive-policy.pdf"
-        wait_for 15 said_since 0 "was not fetched — this window has no network"; shot 66-signature-policy
-        seen=$(grep -o 'signature policy 2.16.724.1.3.1.1.2.1.9: its document at [^ ]* was not fetched — this window has no network' "$LOG" | head -1)
+        wait_for 15 said_since 0 "was not fetched — this window holds one document"; shot 66-signature-policy
+        seen=$(grep -o 'signature policy 2.16.724.1.3.1.1.2.1.9: its document at [^ ]* was not fetched — this window holds one document and opens no copy beside it, so it fetches none, at any level' "$LOG" | head -1)
         if [ -n "$seen" ] && [ "$(policy_served)" -eq "$before" ]; then
             verdict 66-signature-policy works "$seen; and the server was not asked"
         else
@@ -3650,7 +3651,7 @@ PY2
 retained_page() {
     local step=82-retained-page file="$FIXTURES/drive-retained.pdf" traced=$LAUNCH_TRACE mark mid settled blue
     local late painted
-    if [ "$WINDOW" = quorra ] || [ "$WINDOW" = quorra-confined ]; then
+    if [ "$WINDOW" = quorra-confined ]; then
         verdict "$step" "not offered" "this window retains pages of its own (ADR 0443), not viewer_host::stand_in::Retained"
         return
     fi
@@ -3666,6 +3667,11 @@ for block in (b"1 0 0 rg 72 500 200 200 re f\n", b"0 0 1 rg 340 92 200 200 re f\
                                              Contents=pdf.make_indirect(content))))
 pdf.save(sys.argv[1], compress_streams=False)
 PY2
+    if [ "$WINDOW" = quorra ]; then
+        verdict "$step" "not offered" "this window retains pages of its own (ADR 0443), not viewer_host::stand_in::Retained"
+        turn_off_the_loop "$file"
+        return
+    fi
     LAUNCH_TRACE=events,launch,frames
     PDFVIEWER_ZOOM_PROBE=1 launch "$file"
     LAUNCH_TRACE=$traced
@@ -3724,15 +3730,62 @@ PY2
     fi
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
+# turn_off_the_loop FILE: step 82's turn in `quorra` (ADR 2360). The retained page's fixture, whose
+# pages each read for most of a second: `Right` to page two and its frame, then `Left` back to page
+# one, whose read is handed off the event loop's thread, so the key's command is handled at once and
+# the loop goes on answering while the page is read. The verdict: the command handled inside the
+# toolkit windows' 2 s, the read said taken in off the event-loop thread, the frame after it, and the
+# settled photograph page one's red block with none of page two's blue. The key trace is printed as
+# the toolkit windows' is. HEAD read the page inside the key's handler and said no such read.
+turn_off_the_loop() {
+    local step=82-turn-off-the-loop file=$1 traced=$LAUNCH_TRACE mark timeline handled red blue
+    LAUNCH_TRACE=events,launch,frames
+    launch "$file"
+    LAUNCH_TRACE=$traced
+    wait_for 30 said_since 0 "launch path, process start to first present"
+    xdotool windowfocus --sync "$(main_window)" 2>/dev/null
+    mark=$(lines)
+    xdotool key Right
+    if ! wait_for 30 said_since "$mark" "render ready"; then
+        verdict "$step" wrong "page two never landed"
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+        return
+    fi
+    sleep 0.3
+    mark=$(lines)
+    xdotool key Left
+    wait_for 30 said_since "$mark" "read off the event-loop thread in"
+    wait_for 30 said_since "$mark" "render ready"
+    sleep 0.7
+    xdotool key shift; sleep 0.5
+    shot "$step-settled"
+    timeline=$(turn_timeline "$mark")
+    echo "drive-windows: $WINDOW: $step's key trace: $timeline" >&2
+    handled=$(printf '%s\n' "$timeline" | grep -oE 'handled at [0-9.]+ s \([+-][0-9.]+ s\)' | grep -oE '\([+-][0-9.]+' | tr -d '(+')
+    red=$(magick "$OUT/shots/$WINDOW/$step-settled.png" -alpha off -fuzz 6% -fill black +opaque "#ff0000" -fill white -opaque "#ff0000" -format '%[fx:int(mean*w*h+0.5)]' info: 2>/dev/null)
+    blue=$(magick "$OUT/shots/$WINDOW/$step-settled.png" -alpha off -fuzz 6% -fill black +opaque "#0000ff" -fill white -opaque "#0000ff" -format '%[fx:int(mean*w*h+0.5)]' info: 2>/dev/null)
+    if [ -z "$handled" ] || ! awk -v s="$handled" 'BEGIN { exit !(s < 2) }'; then
+        verdict "$step" wrong "the key's command was not handled inside 2 s of the key: $timeline"
+    elif ! said_since "$mark" "read off the event-loop thread in"; then
+        verdict "$step" wrong "page one was not read off the event-loop thread: $timeline"
+    elif [ "${blue:-1}" != 0 ] || [ "${red:-0}" -lt 1000 ]; then
+        verdict "$step" wrong "the settled picture held ${red:-?} red and ${blue:-?} blue pixels: $timeline"
+    else
+        verdict "$step" works "$timeline; settled on $red red pixels and no blue"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
 # turn_timeline N: the seconds, on the window's trace clock and after the key, of a turn's moments
 # after line N — the key's arrival, its command handled, the retained picture said, the read taken in
-# off the toolkit thread, and the frame handed over — each the first line of its kind (ADR 2344).
+# off the toolkit thread, and the frame handed over — each the first line of its kind (ADR 2344);
+# `quorra`'s command is `go to …`, its read is off the event loop's thread and its frame is told the
+# core as `render ready` (ADR 2360).
 turn_timeline() {
     tail -n "+$(($1 + 1))" "$LOG" 2>/dev/null | python3 -c '
 import re, sys
-kinds = [("key", r"key \w+ arrives"), ("handled", r"GoTo\(.*-> \d+ event"),
-         ("retained", r"its retained"), ("read", r"read off the toolkit thread in"),
-         ("frame", r"RenderReady")]
+kinds = [("key", r"key \w+ arrives"), ("handled", r"(GoTo\(|go to ).*-> \d+ event"),
+         ("retained", r"its retained"), ("read", r"read off the (toolkit|event-loop) thread in"),
+         ("frame", r"RenderReady|render ready")]
 seen = {}
 for line in sys.stdin:
     match = re.match(r"trace: +([0-9.]+) (.*)", line)

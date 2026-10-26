@@ -376,7 +376,7 @@ fn attach(
     // Table 32's key is a text string; §7.9.6 compares keys "on a simple byte-by-byte basis".
     let key = pdf_syntax::text_string::encode_text_string(attaching.name);
 
-    let mut next = next_object_number(document);
+    let mut next = document.xref().next_object_number();
     let mut fresh = || {
         let id = ObjectId {
             number: next,
@@ -550,7 +550,7 @@ fn remove(
 
     let mut replacements: BTreeMap<ObjectId, Object> = BTreeMap::new();
     let tree_id = ObjectId {
-        number: next_object_number(document),
+        number: document.xref().next_object_number(),
         generation: 0,
     };
     replacements.insert(tree_id, filing::tree_root(entries));
@@ -667,24 +667,6 @@ fn file_on_page(
         }
     }
     Ok(())
-}
-
-/// The first object number nothing in the file uses.
-///
-/// Both of §7.5.5's answers are asked and the larger wins, for the reason `ViewState::save`
-/// gives: Table 15's `/Size` "shall be 1 greater than the highest object number defined in the
-/// PDF file", and tens of corpus documents write a cross-reference entry past their own
-/// `/Size`. Trusting the stated number alone would put a new object on an existing one's
-/// number and silently replace it.
-fn next_object_number(document: &Document) -> u32 {
-    let highest = document.xref().object_numbers().max().unwrap_or_default();
-    let stated = document
-        .trailer()
-        .get("Size")
-        .and_then(Object::as_integer)
-        .and_then(|size| u32::try_from(size).ok())
-        .unwrap_or_default();
-    highest.saturating_add(1).max(stated)
 }
 
 /// Reads a date a caller typed, in ISO 8601's `YYYY-MM-DDTHH:MM:SS` with an optional `Z` or

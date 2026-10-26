@@ -950,7 +950,7 @@ impl QuorraWindowRenderer {
         window: impl Into<raster_gpu::wgpu::SurfaceTarget<'static>>,
     ) -> Result<Self, QuorraRasterError> {
         let device =
-            raster_gpu::Device::for_surface_on_launch(instance, window, &crate::options())?;
+            raster_gpu::Device::for_surface_on_launch(instance, window, &crate::window_options())?;
         Ok(Self::around(device))
     }
 
@@ -965,7 +965,7 @@ impl QuorraWindowRenderer {
     pub fn new(
         window: impl Into<raster_gpu::wgpu::SurfaceTarget<'static>>,
     ) -> Result<Self, QuorraRasterError> {
-        let device = raster_gpu::Device::for_surface(window, &crate::options())?;
+        let device = raster_gpu::Device::for_surface(window, &crate::window_options())?;
         Ok(Self::around(device))
     }
 
@@ -981,7 +981,8 @@ impl QuorraWindowRenderer {
     ///
     /// [`QuorraRasterError::Device`] when no adapter yields a device.
     pub fn new_headless() -> Result<Self, QuorraRasterError> {
-        let device = raster_gpu::Device::headless_on_launch(&Self::instance(), &crate::options())?;
+        let device =
+            raster_gpu::Device::headless_on_launch(&Self::instance(), &crate::window_options())?;
         Ok(Self::around(device))
     }
 

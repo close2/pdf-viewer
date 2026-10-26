@@ -88,14 +88,20 @@ fn a_band_boundary_changes_no_pixel() {
 /// one, and every other from the memo or the conversion (ADR 1469); this asks the conversion
 /// itself for every pixel of a raster of runs, single pixels and alphas that differ inside a
 /// run, and demands the same bytes — the alpha byte kept by the first, written opaque by the
-/// second, which is what each did before.
+/// second, which is what each did before. The second half's runs of 23 pixels cover whole blocks
+/// of [`convert_three`]'s run test and end inside others, and the raster's last three pixels are
+/// a tail no block reaches (ADR 2364).
 #[test]
 fn a_converted_pixel_is_its_own_samples_conversion() {
     let into = crate::colour::Conversion::device();
-    let pixels: Vec<[u8; 4]> = (0..4_000usize)
+    let pixels: Vec<[u8; 4]> = (0..8_003usize)
         .map(|index| {
-            // Runs of 1 to 9 equal samples, under alphas that change inside them.
-            let run = index / (1 + index % 9);
+            // Runs of 1 to 9 equal samples, then of 23, under alphas that change inside them.
+            let run = if index < 4_000 {
+                index / (1 + index % 9)
+            } else {
+                4_000 + (index - 4_000) / 23
+            };
             let value = u8::try_from(run % 251).expect("under 256");
             let alpha = u8::try_from(index % 256).expect("under 256");
             [value, value.wrapping_mul(7), value.wrapping_add(90), alpha]

@@ -201,10 +201,6 @@ pub struct Device {
     coverage_samples: u32,
     /// The GPU lane's winding target, kept across frames (ADR 0016's measurement).
     winding_texture: crate::winding::WindingTexture,
-    /// The compute coverage lane's pipelines, compiled on the first frame that takes
-    /// the lane and kept — never on the startup path (ADR 0080) — or the refusal that
-    /// stopped them, kept as the render lane keeps one (ADR 1962).
-    compute_pipelines: crate::compute::Kept,
     /// `Target::ReadbackOnto`'s pass, compiled on the first frame that asks for a backdrop and
     /// kept, or its refusal (`crate::readback::KeptOnto`).
     onto_pipeline: crate::readback::KeptOnto,
@@ -337,5 +333,12 @@ impl Device {
     /// drive one of those passes without a frame around it, both reach it here.
     pub(crate) fn pipelines(&self) -> &PipelineStore {
         &self.pipelines
+    }
+
+    /// The compute lane's persistent capacity, in bytes, so that a test can tell a capacity
+    /// sized by its frame's own count from the guess it replaced (the caller's ADR 2355).
+    #[cfg(test)]
+    pub(crate) fn compute_capacity_bytes(&self) -> u64 {
+        self.compute_persist.capacity_bytes()
     }
 }

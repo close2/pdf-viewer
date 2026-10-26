@@ -33,44 +33,36 @@ pub(super) fn convert_three(
     into: &Conversion,
 ) {
     let convert = |chunk: &mut [u8], slots: usize| {
-        let mut cache = SampleMemo::for_pixels(slots.max(1), [0u8; 3]);
-        // The pixel before this one, as its three samples and its three converted bytes in the
-        // low bytes of a word; the sentinel has a fourth byte, so no sample tuple equals it.
-        let (mut seen, mut converted) = (u32::MAX, 0u32);
-        for pixel in chunk.as_chunks_mut::<4>().0 {
-            let word = u32::from_le_bytes(*pixel);
-            // A pixel the same as the one before it converts to the same bytes; see
-            // [`convert_four`] for why this is asked before the memo. The alpha byte is kept.
-            // With the memo holding bytes, `22060_A1_01_Plans.pdf`'s four photographs went from
-            // 2 143 M to 455 M instructions here, and its pinned turn from 94.4 to 76.0 ms with
-            // this lever alone (ADR 1469).
-            if word & 0x00FF_FFFF == seen {
-                *pixel = (converted | (word & 0xFF00_0000)).to_le_bytes();
+        let mut cache = SampleMemo::for_pixels(slots.max(1), 0u32);
+        let mut previous = PreviousPixel::NONE;
+        let mut conversion = |samples: u32| {
+            let [first, second, third, _] = samples.to_le_bytes();
+            let colour = into.paint(
+                space,
+                &[
+                    decode.value(0, usize::from(first)),
+                    decode.value(1, usize::from(second)),
+                    decode.value(2, usize::from(third)),
+                ],
+            );
+            u32::from_le_bytes([channel(colour.r), channel(colour.g), channel(colour.b), 0])
+        };
+        // **A run is tested a block of pixels at a time, and only a block wholly inside it is
+        // copied without a branch per pixel.** On `22060_A1_01_Plans.pdf`'s four photographs 85 %
+        // of the pixels equal the one before them; asked one pixel at a time that answer cost 12
+        // instructions a pixel and was 267 M of the memo's 455 M (ADR 2364).
+        let (blocks, tail) = chunk.as_chunks_mut::<4>().0.as_chunks_mut::<RUN_BLOCK>();
+        for block in blocks {
+            if previous.continues_through(block) {
+                previous.copy_over(block);
                 continue;
             }
-            let sample = [pixel[0], pixel[1], pixel[2]];
-            let key = (1u64 << 32)
-                | (u64::from(sample[0]) << 16)
-                | (u64::from(sample[1]) << 8)
-                | u64::from(sample[2]);
-            let bytes = if let Some(bytes) = cache.get(key) {
-                bytes
-            } else {
-                let colour = into.paint(
-                    space,
-                    &[
-                        decode.value(0, usize::from(sample[0])),
-                        decode.value(1, usize::from(sample[1])),
-                        decode.value(2, usize::from(sample[2])),
-                    ],
-                );
-                let bytes = [channel(colour.r), channel(colour.g), channel(colour.b)];
-                cache.put(key, bytes);
-                bytes
-            };
-            seen = word & 0x00FF_FFFF;
-            converted = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], 0]);
-            [pixel[0], pixel[1], pixel[2]] = bytes;
+            for pixel in block {
+                previous.convert(pixel, &mut cache, &mut conversion);
+            }
+        }
+        for pixel in tail {
+            previous.convert(pixel, &mut cache, &mut conversion);
         }
     };
     match band {
@@ -78,6 +70,77 @@ pub(super) fn convert_three(
             .par_chunks_mut(band.saturating_mul(4).max(4))
             .for_each(|chunk| convert(chunk, band)),
         None => convert(rgba, rgba.len() / 4),
+    }
+}
+
+/// The three sample bytes of a four-byte pixel read as a little-endian word, its alpha byte
+/// cleared.
+const SAMPLES: u32 = 0x00FF_FFFF;
+
+/// How many pixels [`convert_three`] tests against a run at once.
+///
+/// Eight four-byte pixels are two of the baseline target's 128-bit registers, so the test and the
+/// copy are each a few vector instructions; the block is the unit because a test asked per pixel
+/// inside the loop is one the compiler keeps as a branch per pixel (habit 188, ADR 2364).
+const RUN_BLOCK: usize = 8;
+
+/// The pixel [`convert_three`] converted last: its samples, and the word they converted to.
+///
+/// **The memo holds the converted pixel as the word it is written as**, its alpha byte zero, so a
+/// hit is one load and the pixel one `or` with its own alpha; the key is the samples' own word
+/// with a tag bit, which is the same tuple as the samples in any other order and so the same
+/// conversion (ADR 2364). The tag keeps an empty slot's zero from matching black.
+struct PreviousPixel {
+    /// The samples, or a value with a fourth byte, which no pixel's samples equal.
+    samples: u32,
+    /// What `samples` converted to.
+    converted: u32,
+}
+
+impl PreviousPixel {
+    const NONE: Self = Self {
+        samples: u32::MAX,
+        converted: 0,
+    };
+
+    /// Whether every pixel of `block` has the samples this one had.
+    ///
+    /// A fold rather than `all`, so the eight comparisons are made without an early exit and the
+    /// compiler can make them together.
+    fn continues_through(&self, block: &[[u8; 4]; RUN_BLOCK]) -> bool {
+        block.iter().fold(true, |every, pixel| {
+            every & (u32::from_le_bytes(*pixel) & SAMPLES == self.samples)
+        })
+    }
+
+    /// Writes this pixel's conversion over every pixel of a block that continues it, keeping each
+    /// pixel's alpha byte.
+    fn copy_over(&self, block: &mut [[u8; 4]; RUN_BLOCK]) {
+        for pixel in block {
+            *pixel = (self.converted | (u32::from_le_bytes(*pixel) & !SAMPLES)).to_le_bytes();
+        }
+    }
+
+    /// Converts one pixel in place, from the pixel before it, the memo or the conversion, in that
+    /// order, keeping its alpha byte; all three answer the conversion of the same tuple.
+    fn convert(
+        &mut self,
+        pixel: &mut [u8; 4],
+        cache: &mut SampleMemo<u32>,
+        conversion: &mut impl FnMut(u32) -> u32,
+    ) {
+        let word = u32::from_le_bytes(*pixel);
+        let samples = word & SAMPLES;
+        if samples != self.samples {
+            let key = (1u64 << 32) | u64::from(samples);
+            self.converted = cache.get(key).unwrap_or_else(|| {
+                let converted = conversion(samples);
+                cache.put(key, converted);
+                converted
+            });
+            self.samples = samples;
+        }
+        *pixel = (self.converted | (word & !SAMPLES)).to_le_bytes();
     }
 }
 
@@ -204,9 +267,9 @@ const MAX_BANDS: usize = 8;
 /// case is the old cost plus a bounded probe.
 ///
 /// `V` is what a tuple converted to, in whatever form its caller writes: a colour where the
-/// caller still has arithmetic to do on it, the three bytes of a pixel where it has none — which
-/// is what [`convert_three`] and [`convert_four`] keep, so that a hit is a copy rather than three
-/// roundings of a float (ADR 1469).
+/// caller still has arithmetic to do on it, the bytes of a pixel where it has none — which is what
+/// [`convert_four`] keeps, and [`convert_three`] as the word it writes, so that a hit is a copy
+/// rather than three roundings of a float (ADRs 1469, 2364).
 ///
 /// [`palette`]: super::unpack::palette
 pub(super) struct SampleMemo<V = pdf_render::Color> {

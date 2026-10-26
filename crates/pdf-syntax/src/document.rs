@@ -285,8 +285,9 @@ impl Document {
         // what keeps the error a caller sees the same as before wherever this changes nothing.
         if document.catalog().is_err()
             && !document.xref.recovered_by_scan()
-            && let Ok(rebuilt) = crate::xref::rebuild(&bytes, limits, true)
+            && let Ok(mut rebuilt) = crate::xref::rebuild(&bytes, limits, true)
         {
+            rebuilt.keep_stated(&document.xref);
             let mut second = Self::around(bytes, rebuilt, limits);
             if second.authenticate(password).is_ok() {
                 second.recover_compressed_objects();

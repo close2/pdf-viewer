@@ -50,8 +50,11 @@
 //! scanned total — are read after the wait the frame already pays at its end, before
 //! anything is presented, so the count stays exact and the host never stalls on it
 //! (ADR 0095). A frame whose emit met the capacity is not presented: the capacity grows to
-//! the total and the frame runs again whole, which is the first frame's ordinary cost and
-//! a rare growth afterwards. A total past the frame budget is refused with both numbers,
+//! the total and the frame runs again whole, which is a rare growth. **The first frame of
+//! the lane is the one exception to "nothing mid-frame"**: it has no capacity to guard
+//! against, so it reads its own scanned total between the scan and the emit and sizes the
+//! capacity from it, in place of a guess its count overflowed and a second run of the whole
+//! frame (the caller's ADR 2355). A total past the frame budget is refused with both numbers,
 //! one frame later than a count read mid-frame would refuse it and still before any pixel
 //! of it is shown — principle 3 with the device as the counter, and principle 6's refusal
 //! with a name. The persistent buffers are charged at their capacity against that same
@@ -821,8 +824,9 @@ fn coverage_rows(@builtin(global_invocation_id) id: vec3<u32>) {
 }
 ";
 
-/// The lane's four pipelines, compiled together on the first frame that takes the
-/// lane and kept — never on the startup path (brief section 7).
+/// The lane's four pipelines, compiled together and kept — on the first frame that takes
+/// the lane, or ahead of it on the warm-up thread nobody waits on where the host asked for
+/// that (the caller's ADR 2354) — never on the startup path (brief section 7).
 #[derive(Debug)]
 pub(crate) struct Pipelines {
     count: wgpu::ComputePipeline,
@@ -832,22 +836,22 @@ pub(crate) struct Pipelines {
     deposit: wgpu::ComputePipeline,
 }
 
-/// What the device keeps of the lane's pipelines: nothing before the first frame that
-/// takes the lane, and afterwards the four built or the refusal that stopped them.
+/// What the device keeps of the lane's pipelines once they were asked for: the four built
+/// or the refusal that stopped them, in the pipeline store's cell for them.
 ///
 /// **A refusal is kept for the reason the render lane keeps one** (ADR 1929, ADR 1962): the
 /// same four descriptors are refused in the same words every time, so asking again costs a
 /// failing compile inside every frame that takes the lane and says nothing new. The four are
 /// one artefact, as the render lane's modules are: a frame of this lane needs every pass, so
 /// there is no state in which some of them drawing is of use.
-pub(crate) type Kept = Option<Result<Pipelines, PipelineProblem>>;
+pub(crate) type Kept = Result<Pipelines, PipelineProblem>;
 
 #[cfg(test)]
 thread_local! {
     /// Builds the count pipeline against an entry point its module does not have, so that a
     /// test can watch `create_compute_pipeline` refuse (ADR 1962). Thread-local because the
-    /// frame that compiles the lane runs on the thread that asked for it, and a test on
-    /// another thread must not see the plant.
+    /// frame that compiles the lane runs on the thread that asked for it — a device that warms
+    /// the lane is not the test's — and a test on another thread must not see the plant.
     static BROKEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
@@ -866,7 +870,7 @@ impl Pipelines {
     /// outside them a refusal was a validation error on the queue — reported to the device's
     /// uncaptured handler while the handle came back as though built — and the frame went on
     /// to dispatch a pipeline that did not exist.
-    fn compile(gpu: &wgpu::Device) -> Result<Self, PipelineProblem> {
+    pub(crate) fn compile(gpu: &wgpu::Device) -> Result<Self, PipelineProblem> {
         let module = |label: &'static str, source: String| {
             let (module, detail) = captured(gpu, || {
                 gpu.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -971,29 +975,42 @@ impl ComputeRun {
     /// The map's own refusals; the work is already complete when this is called, so
     /// the poll returns without waiting.
     pub(crate) fn overflowed(&self, gpu: &wgpu::Device) -> Result<Option<u64>, RenderError> {
-        let slice = self.readback.slice(..);
-        slice.map_async(wgpu::MapMode::Read, |_| {});
-        gpu.poll(wgpu::PollType::wait_indefinitely())
-            .map_err(|_| RenderError::ReadbackFailed {
-                detail: "the device did not answer the overflow readback's map".into(),
-            })?;
-        let (flag, total) = {
-            let mapped = slice
-                .get_mapped_range()
-                .map_err(|_| RenderError::ReadbackFailed {
-                    detail: "the overflow readback did not map".into(),
-                })?;
-            let word = |at: usize| {
-                mapped
-                    .get(at..at.saturating_add(4))
-                    .and_then(|bytes| bytes.try_into().ok())
-                    .map_or(0, u32::from_le_bytes)
-            };
-            (word(0), word(4))
-        };
-        self.readback.unmap();
+        let (flag, total) = read_flag_and_total(gpu, &self.readback, "overflow")?;
         Ok((flag != 0).then_some(u64::from(total)))
     }
+}
+
+/// The readback's two words — the overflow flag and the scanned total — mapped, waited for
+/// and unmapped, so that the buffer can be copied into again by a later submission. `what`
+/// names the read in a refusal: the overflow check at the frame's end, or the first frame's
+/// sizing between its scan and its emit.
+fn read_flag_and_total(
+    gpu: &wgpu::Device,
+    readback: &wgpu::Buffer,
+    what: &str,
+) -> Result<(u32, u32), RenderError> {
+    let slice = readback.slice(..);
+    slice.map_async(wgpu::MapMode::Read, |_| {});
+    gpu.poll(wgpu::PollType::wait_indefinitely())
+        .map_err(|_| RenderError::ReadbackFailed {
+            detail: format!("the device did not answer the {what} readback's map"),
+        })?;
+    let words = {
+        let mapped = slice
+            .get_mapped_range()
+            .map_err(|_| RenderError::ReadbackFailed {
+                detail: format!("the {what} readback did not map"),
+            })?;
+        let word = |at: usize| {
+            mapped
+                .get(at..at.saturating_add(4))
+                .and_then(|bytes| bytes.try_into().ok())
+                .map_or(0, u32::from_le_bytes)
+        };
+        (word(0), word(4))
+    };
+    readback.unmap();
+    Ok(words)
 }
 
 /// The persistent half of the lane (ADR 0095): the edges buffer, grow-only, so a
@@ -1001,8 +1018,9 @@ impl ComputeRun {
 #[derive(Debug)]
 pub(crate) struct ComputePersist {
     edges: Option<wgpu::Buffer>,
-    /// The capacity in edges. Zero before the first frame; grown to the scanned
-    /// total (plus headroom) whenever the flag says the emit met it.
+    /// The capacity in edges. Zero before the first frame, which sizes it from its own
+    /// scanned total (the caller's ADR 2355); grown to the scanned total (plus headroom)
+    /// whenever the flag says a later emit met it.
     capacity_edges: u32,
 }
 
@@ -1062,15 +1080,16 @@ impl ComputePersist {
 /// Runs the whole lane in **one submission with no mid-frame readback** (ADR 0095):
 /// residency, the exact count, the device-side scan of it, the guarded emit, the
 /// deposit and the image round-trip — and schedules the eight-byte readback the
-/// caller checks at the frame's own end-wait.
+/// caller checks at the frame's own end-wait. The lane's first frame is two submissions,
+/// split where it reads its scanned total to size the capacity (the caller's ADR 2355).
 ///
 /// `Ok(None)` when no outline had segments: nothing to flatten, nothing to draw,
 /// nothing to check.
 ///
 /// # Errors
 ///
-/// The arena's own upload refusals, and the growth refusal where even the starting
-/// capacity cannot be priced.
+/// The pipelines' kept refusal, the arena's own upload refusals, the first frame's sizing
+/// read, and the growth refusal where the scanned total cannot be priced.
 #[expect(clippy::too_many_lines)]
 // one frame's pass chain, in submission order — the stages read top to bottom and a
 // split would scatter the ordering argument
@@ -1081,7 +1100,7 @@ impl ComputePersist {
 pub(crate) fn dispatch_chain(
     gpu: &wgpu::Device,
     queue: &wgpu::Queue,
-    pipelines: &mut Kept,
+    pipelines: &crate::pipeline::PipelineStore,
     arena: &mut SegmentArena,
     persist: &mut ComputePersist,
     resources: &crate::resources::ResourceStore,
@@ -1093,8 +1112,11 @@ pub(crate) fn dispatch_chain(
 ) -> Result<Option<ComputeRun>, RenderError> {
     // A refusal kept from an earlier frame refuses this one in the same words, before any of
     // the frame's buffers is made (ADR 1962).
-    let pipelines = pipelines
-        .get_or_insert_with(|| Pipelines::compile(gpu))
+    let (kept, compiled) = pipelines.compute_lane();
+    if let Some(spent) = compiled {
+        spans.push(("compute pipeline compile (first use)", spent));
+    }
+    let pipelines = kept
         .as_ref()
         .map_err(|problem| RenderError::from(problem.clone()))?;
     // Residency first: every outline this frame draws, uploaded once ever.
@@ -1134,21 +1156,18 @@ pub(crate) fn dispatch_chain(
     let Some(arena_buffer) = arena.buffer.as_ref() else {
         return Ok(None); // no outline had segments: nothing to flatten, nothing to draw
     };
-    if persist.capacity_edges == 0 {
-        // The first frame's heuristic: enough for an ordinary page's tiles, priced by
-        // the same clamp every growth is. A page it undershoots pays one re-run.
-        let guess = (compute.tiles.len() as u64).saturating_mul(32).max(65_536);
-        // The growth road's test seam: `tests/capacity_growth.rs` starts the capacity
-        // at one edge so the first emit must overflow, and holds the re-run to the
-        // steady road's bytes. Compiled out everywhere else.
-        #[cfg(feature = "sabotage-capacity")]
-        let guess = if std::env::var_os("QUORRA_SABOTAGE_CAPACITY").is_some() {
-            1
-        } else {
-            guess
-        };
-        persist.grow(gpu, guess, max_frame_bytes)?;
+    // The growth road's test seam: `tests/capacity_growth.rs` starts the capacity at one
+    // edge so the first emit must overflow, and holds the re-run to the steady road's bytes.
+    // Compiled out everywhere else.
+    #[cfg(feature = "sabotage-capacity")]
+    if persist.capacity_edges == 0 && std::env::var_os("QUORRA_SABOTAGE_CAPACITY").is_some() {
+        persist.grow(gpu, 1, max_frame_bytes)?;
     }
+    // The lane's first frame has no capacity yet, so it reads its own scanned total before
+    // the emit and is sized by it — one wait for the count and the scan, in place of the
+    // guess of 32 edges a tile that a dense window's count overflowed, and the second run of
+    // the whole frame that followed (the caller's ADR 2355).
+    let sized_by_its_count = persist.capacity_edges == 0;
     let record_bytes: Vec<u8> = records.iter().flat_map(|word| word.to_le_bytes()).collect();
     let storage = |label: &str, bytes: &[u8]| {
         let buffer = gpu.create_buffer(&wgpu::BufferDescriptor {
@@ -1183,17 +1202,19 @@ pub(crate) fn dispatch_chain(
         wgpu::BufferUsages::COPY_SRC,
     );
     let stride = compute.stride() as u32;
-    let params: Vec<u8> = [stride / 4, compute.rows, tile_count, persist.capacity_edges]
-        .iter()
-        .flat_map(|word| word.to_le_bytes())
-        .collect();
+    let params = |capacity: u32| -> Vec<u8> {
+        [stride / 4, compute.rows, tile_count, capacity]
+            .iter()
+            .flat_map(|word| word.to_le_bytes())
+            .collect()
+    };
     let params_buffer = gpu.create_buffer(&wgpu::BufferDescriptor {
         label: Some("raster compute params"),
         size: 16,
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
-    queue.write_buffer(&params_buffer, 0, &params);
+    queue.write_buffer(&params_buffer, 0, &params(persist.capacity_edges));
     let flag = sized(
         "raster compute overflow flag",
         4,
@@ -1232,13 +1253,6 @@ pub(crate) fn dispatch_chain(
         u64::from(stride).saturating_mul(u64::from(compute.height)),
         wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
     );
-    #[expect(clippy::expect_used)] // set by the grow() call above on every road here
-    let edges_buffer = persist
-        .edges
-        .as_ref()
-        .expect("grown before any dispatch")
-        .clone();
-
     let flatten_group = |pipeline: &wgpu::ComputePipeline,
                          offsets: &wgpu::Buffer,
                          edges: &wgpu::Buffer,
@@ -1263,7 +1277,6 @@ pub(crate) fn dispatch_chain(
         &placeholder_write,
         &placeholder_flag,
     );
-    let emit_group = flatten_group(&pipelines.emit, &offsets_buffer, &edges_buffer, &flag);
     let scan_group = gpu.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("raster compute scan"),
         layout: &pipelines.scan.get_bind_group_layout(0),
@@ -1273,22 +1286,10 @@ pub(crate) fn dispatch_chain(
             entry(2, &params_buffer),
         ],
     });
-    let deposit_group = gpu.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("raster compute deposit"),
-        layout: &pipelines.deposit.get_bind_group_layout(0),
-        entries: &[
-            entry(0, &tiles_buffer),
-            entry(1, &offsets_buffer),
-            entry(2, &counts_buffer),
-            entry(3, &edges_buffer),
-            entry(4, &acc_buffer),
-            entry(5, &image),
-            entry(6, &params_buffer),
-        ],
-    });
 
     // The whole chain, one submission, in pass order: count, scan, emit, deposit,
-    // the image round-trip, and the eight bytes the end of the frame will read.
+    // the image round-trip, and the eight bytes the end of the frame will read — two
+    // submissions on the lane's first frame, split after the scan.
     let mut encoder = gpu.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("raster compute chain"),
     });
@@ -1336,6 +1337,49 @@ pub(crate) fn dispatch_chain(
         pass.set_bind_group(0, &scan_group, &[]);
         pass.dispatch_workgroups(1, 1, 1);
     }
+    if sized_by_its_count {
+        let sizing_started = std::time::Instant::now();
+        encoder.copy_buffer_to_buffer(
+            &offsets_buffer,
+            u64::from(tile_count).saturating_mul(4),
+            &readback,
+            4,
+            4,
+        );
+        queue.submit([encoder.finish()]);
+        let (_, total) = read_flag_and_total(gpu, &readback, "sizing")?;
+        // A frame that scanned no edge leaves the capacity at zero, and the next frame is
+        // sized by its own count in turn.
+        persist.grow(gpu, u64::from(total), max_frame_bytes)?;
+        queue.write_buffer(&params_buffer, 0, &params(persist.capacity_edges));
+        spans.push((
+            "compute capacity sized (first use)",
+            sizing_started.elapsed(),
+        ));
+        encoder = gpu.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("raster compute chain"),
+        });
+    }
+    #[expect(clippy::expect_used)] // set by a grow() above on every road here
+    let edges_buffer = persist
+        .edges
+        .as_ref()
+        .expect("grown before the emit")
+        .clone();
+    let emit_group = flatten_group(&pipelines.emit, &offsets_buffer, &edges_buffer, &flag);
+    let deposit_group = gpu.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("raster compute deposit"),
+        layout: &pipelines.deposit.get_bind_group_layout(0),
+        entries: &[
+            entry(0, &tiles_buffer),
+            entry(1, &offsets_buffer),
+            entry(2, &counts_buffer),
+            entry(3, &edges_buffer),
+            entry(4, &acc_buffer),
+            entry(5, &image),
+            entry(6, &params_buffer),
+        ],
+    });
     {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: None,
@@ -1519,5 +1563,62 @@ mod refusal_tests {
         device
             .render(&builder.finish(), &viewport, Target::Readback)
             .expect("a frame the compute lane has no part in does not need its pipelines");
+    }
+
+    /// The lane's first frame sizes the capacity from its own scanned total and runs once
+    /// (the caller's ADR 2355): the frame delivered is the attempt that read its count, the
+    /// capacity is the count's and not the guess of at least 65 536 edges it replaced, and
+    /// the next frame draws the same bytes on the steady road without reading anything.
+    #[test]
+    fn the_first_frame_is_sized_by_its_own_count_and_runs_once() {
+        let mut device = Device::headless(&Options {
+            adapter: Some("llvmpipe".into()),
+            coverage: Coverage::Compute,
+            ..Options::default()
+        })
+        .expect("llvmpipe is present wherever this suite runs");
+        let scene = triangle(&mut device);
+        let viewport = Viewport::full(SIZE, SIZE, Affine::IDENTITY);
+        let sized = |frame: &crate::frame::Frame| {
+            frame
+                .timings()
+                .phases
+                .iter()
+                .any(|(name, _)| *name == "compute capacity sized (first use)")
+        };
+        let first = device
+            .render(&scene, &viewport, Target::Readback)
+            .expect("the first frame draws");
+        assert!(
+            sized(&first),
+            "the delivered attempt is the one that read its count, so there was no second"
+        );
+        let capacity = device.compute_capacity_bytes();
+        assert!(
+            capacity > 0 && capacity < 65_536 * 16,
+            "the capacity is the triangle's count, not the guess: {capacity} bytes"
+        );
+        let second = device
+            .render(&scene, &viewport, Target::Readback)
+            .expect("the second frame draws");
+        assert!(!sized(&second), "the steady road reads nothing mid-frame");
+        assert_eq!(
+            device.compute_capacity_bytes(),
+            capacity,
+            "a frame that fits grows nothing"
+        );
+        let pixels = |frame: crate::frame::Frame| {
+            frame
+                .into_raster()
+                .expect("a readback frame has pixels")
+                .into_pixels()
+        };
+        let first = pixels(first);
+        assert!(first.iter().any(|&b| b != 0), "the fixture draws something");
+        assert_eq!(
+            first,
+            pixels(second),
+            "the sized frame is the steady road's picture"
+        );
     }
 }

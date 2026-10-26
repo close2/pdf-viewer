@@ -45,12 +45,13 @@ pub enum CoverageChoice {
 ///   the lane, so the choice is **sticky** here, and flipping it would turn a selection
 ///   change into a full re-encode.
 /// - **There is no shown frame** — the launch path — which keeps the lane the
-///   time-to-first-page gates were measured on ([`coverage_for`]'s magnification rule);
-///   the compute lane's first frame pays its pipeline compile, its segment residency and,
-///   where its edges capacity first grows, a second run of the frame (raster's ADR 0095),
-///   and the launch path pays for nothing it can defer. Taking that first use off the
-///   first moved view was priced and declined: its ceiling is a later view's frame
-///   (ADR 2339).
+///   time-to-first-page gates were measured on ([`coverage_for`]'s magnification rule),
+///   and the launch path pays for nothing it can defer. The compute lane's first frame
+///   therefore comes on the first moved view, and pays its segment residency and one read
+///   of its own edge count, by which its capacity is sized (ADR 2355); a window's device has
+///   its four pipelines compiled once page one's frame is complete, on the thread nobody
+///   waits on ([`render_raster::window_options`], ADR 2354). ADR 2339 priced the whole first
+///   use.
 ///
 /// The sampled [`Gpu`](raster_gpu::Coverage::Gpu) lane is deliberately absent from the
 /// moved-view case: the compute lane beats it on the cold sweep (0.93 against 9.8 ms),

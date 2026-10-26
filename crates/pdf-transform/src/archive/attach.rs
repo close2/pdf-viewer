@@ -389,14 +389,15 @@ pub(super) fn attach(
 /// grammar Table 45's entry is written in too — so nothing is converted and nothing is guessed.
 ///
 /// `None` where the document states none or states one §7.9.4 does not admit: the entry is then
-/// omitted, and §14.13.2's sentence about it is a `should`.
+/// omitted, and §14.13.2's sentence about it is a `should`. The date is read as the text string
+/// §7.9.4 makes it, in whichever of §7.9.2.2's encodings it is written (`doc/adr/2358`).
 fn modification_date(document: &Document) -> Option<pdf_syntax::Date> {
     let Object::Dictionary(info) = document.get_key(document.trailer(), "Info") else {
         return None;
     };
     let value = document.get_key(&info, "ModDate");
     let text = value.as_string()?;
-    pdf_syntax::Date::parse(std::str::from_utf8(text).ok()?)
+    pdf_syntax::Date::parse(&pdf_syntax::text_string::text_string(text))
 }
 
 /// The name one attachment is filed under: what it is, the object it came from, and an extension.

@@ -286,8 +286,9 @@ impl Device {
 
         let pipelines = PipelineStore::new(gpu.clone());
         // A surface device warms the presenting lanes in the surface's own format too,
-        // so its first frame does not compile them inside itself (ADR 0043).
-        let warm_up = pipelines.spawn_warm_up(surface_state.format());
+        // so its first frame does not compile them inside itself (ADR 0043); and the
+        // compute lane after the warm set, where the host asked (the caller's ADR 2354).
+        let warm_up = pipelines.spawn_warm_up(surface_state.format(), options.warm_compute_lane);
 
         // A sampler is a descriptor, not a compilation: creating it here costs
         // startup nothing measurable and spares every frame an Option.
@@ -352,7 +353,6 @@ impl Device {
                 .max(1)
                 .min(std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)),
             winding_texture: crate::winding::WindingTexture::default(),
-            compute_pipelines: None,
             onto_pipeline: None,
             segment_arena: crate::compute::SegmentArena::default(),
             warmed_layer: None,
@@ -487,6 +487,9 @@ impl Device {
 /// reproduction and why the wait is bounded by a compile nobody else waits on.
 impl Drop for Device {
     fn drop(&mut self) {
+        // A compute-lane warm-up still waiting for a first frame is told none is coming, so
+        // that the join below waits for a compile at most (the caller's ADR 2354).
+        self.pipelines.release_the_lane_warm_up();
         if let Some(handle) = self.warm_up.take() {
             // The result is discarded because a device being dropped has no one left to
             // report to. What the thread ended with is not lost, though: it records that

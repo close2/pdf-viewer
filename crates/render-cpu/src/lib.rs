@@ -352,20 +352,30 @@ impl CpuRasterizer {
         scratch: &'a mut Option<tiny_skia::Pixmap>,
     ) -> Result<tiny_skia::Paint<'a>, CpuRasterError> {
         let shader = match paint {
-            Paint::Solid(colour) => tiny_skia::Shader::SolidColor(convert::color(*colour)),
+            Paint::Solid(colour) => tiny_skia::Shader::SolidColor(convert::solid(*colour, blend)),
             Paint::Shading(shading) => {
                 shading::shader(shading, page_to_path, page_to_device, target, scratch)
                     .ok_or_else(|| CpuRasterError::UnsupportedPaint(format!("{shading:?}")))?
             }
             other => return Err(CpuRasterError::UnsupportedPaint(format!("{other:?}"))),
         };
-        Ok(tiny_skia::Paint {
+        Ok(self.brush(shader, blend))
+    }
+
+    /// The `tiny-skia` paint for a shader under a blend mode, drawn as every paint of this backend
+    /// is: antialiased as this rasteriser is set, through the high-precision pipeline.
+    fn brush<'a>(
+        &self,
+        shader: tiny_skia::Shader<'a>,
+        blend: tiny_skia::BlendMode,
+    ) -> tiny_skia::Paint<'a> {
+        tiny_skia::Paint {
             shader,
             blend_mode: blend,
             anti_alias: self.anti_alias,
             force_hq_pipeline: HIGH_PRECISION_PIPELINE,
             ..tiny_skia::Paint::default()
-        })
+        }
     }
 }
 

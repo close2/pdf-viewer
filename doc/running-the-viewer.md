@@ -564,7 +564,8 @@ packages (ADR 2204), and `tools/dotnet-check.sh` compiles the WinUI window's C# 
 present (ADR 2184); `doc/verify.md` has both.
 
 **And a person can get it without a toolchain.** Every
-push to `main` that passes `check` and `test` retags a rolling `snapshot` pre-release carrying
+push to `main` whose CI run completes with every job green retags a rolling `snapshot` pre-release
+(`snapshot.yml`, ADR 2374), carrying
 **every program `tools/batch.sh install` puts in `target/` that the target can build**, with `LICENSE` and `NOTICE` beside
 them because both vendored-font licences oblige a *binary* distribution to carry their notices (ADR
 0188), and a generated `MANIFEST` saying what each file is. **The archive is flat and stays that
@@ -572,7 +573,9 @@ way**: each worker is looked for beside the running binary, and a program that c
 worker refuses the work — `quorra` refuses JBIG2 and JPEG 2000 rather than decoding them in
 process. What a given target omits, and why, is ADR 1152's table; the short of it is that
 `quorrafs` is Linux's, `pdf-vfs-worker` is absent on Windows because it takes a descriptor over a
-Unix socket, and the two native hosts are built where their toolkits are.
+Unix socket, and the two native hosts are built where their toolkits are. **The WinUI window is
+the fourth archive**, `quorra-winui-x64-<commit>.zip`: a self-contained folder, .NET and the Windows
+App SDK inside it, whose `Quorra.App.exe` runs on a double click (ADR 2374).
 **Three platforms** — x86_64 Linux, aarch64 macOS,
 x86_64 Windows — **and the confinement is Linux's alone.** `pdf-sandbox` compiles where
 seccomp-BPF and Landlock do not exist because the project owner asked for the other two

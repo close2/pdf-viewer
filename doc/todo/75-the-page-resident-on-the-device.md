@@ -115,8 +115,10 @@ declined (ADRs 2314, 2315). What a notch draws first instead is the part of the 
 shows, on `lane_for`'s lane for a moved view, and the page after it as before (ADR 2322); what that
 leaves between a notch and its frame is ADR 2323's. Its two remainders are priced at their ceilings
 and declined: the read-back lane keeps no records for a `Cpu` draw to drop, and what a window waits
-for is the lane's own passes and the device's wake (ADR 2338); the lane's first use is the first
-notch's, and its ceiling is the second notch, past a frame (ADR 2339).
+for is the lane's own passes and the device's wake (ADR 2338). The lane's first use is the first
+notch's (ADR 2339); a window's device compiles the lane's pipelines once page one is drawn (ADR 2354)
+and the lane's first frame is sized by its own count and runs once (ADR 2355), so what the first
+window pays over the second is its segments' first upload and that one read.
 
 ## 8. Estimate provenance and live surface observation
 

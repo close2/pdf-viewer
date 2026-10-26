@@ -1541,10 +1541,24 @@ fn rgba_at(raster: &pdf_render::Raster, x: u32, row: u32) -> [u8; 4] {
         .unwrap_or_default()
 }
 
-/// `variable_text::SELECTION_HIGHLIGHT` in eight bits: `0.6 0.75 0.9 rg`, each component times
-/// 255 and rounded, which is the colour a `DeviceRGB` fill of those numbers is drawn in.
+/// `variable_text::SELECTION_HIGHLIGHT` in eight bits: `0.6 0.75 0.9 rg`, each component's exact
+/// `f32` value times 255 and rounded to the nearest level, half away from zero — the level the
+/// oracle writes where an opaque paint covers a pixel wholly (ADRs 2311, 2357). The blue is 229,
+/// not 230: `0.9` in `f32` is 0.899 999 976…, whose product with 255 is 229.499 99…, below the half.
 fn pdf_model_highlight() -> [u8; 3] {
-    [153, 191, 230]
+    [0.6_f32, 0.75, 0.9].map(level)
+}
+
+/// The level nearest `component`'s exact value, half away from zero (ADR 2311): twice the level is
+/// the floor of `510 c` in `f64`, where a 24-bit significand times 510 is exact, halved rounding up.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "a component in 0..=1 puts the doubled level in 0..=510 and the level in 0..=255"
+)]
+fn level(component: f32) -> u8 {
+    let doubled = (f64::from(component) * 510.0).floor() as u32;
+    doubled.div_ceil(2) as u8
 }
 
 /// §12.7.5.4's selection is marked, in a colour this program chose.

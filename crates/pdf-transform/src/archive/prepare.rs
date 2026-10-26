@@ -1283,16 +1283,20 @@ impl Prepared {
                 document,
                 catalog.as_ref(),
                 document_packet(document, catalog.as_ref(), edited).as_deref(),
-                // The operator's answer for a key Table 349 names nothing for, read the way the
-                // extension schema container reads `undeterminable`: a site the configuration
-                // says nothing about states `stop`, which refuses such a key by name.
+                // The operator's answers for a key Table 349 names nothing for and for a value
+                // not of its key's form, read the way the extension schema container reads
+                // `undeterminable`: a site the configuration says nothing about states `stop`,
+                // which refuses either by name.
                 plan.preservations
                     .iter()
                     .find(|preservation| {
                         INFORMATION_REQUIREMENTS.contains(&preservation.site.as_str())
                     })
-                    .map_or(super::config::Unmapped::Stop, |preservation| {
-                        preservation.unmapped
+                    .map_or((super::config::Unmapped::Stop, false), |preservation| {
+                        (
+                            preservation.unmapped,
+                            preservation.unreadable == super::config::Kind::Discard,
+                        )
                     }),
             )
         });
@@ -2023,7 +2027,8 @@ fn asked<T>(wanted: bool, prepare: impl FnOnce() -> Result<T, Because>) -> Resul
 
 /// Object numbers nothing in the source resolves to, for the objects a conversion adds.
 ///
-/// Past the highest number any cross-reference section names, and then checked one at a time:
+/// From [`pdf_syntax::XrefTable::next_object_number`] — past every number a cross-reference
+/// section states and past Table 15's `/Size` (ADR 2362) — and then checked one at a time:
 /// **the objects a conversion adds are built in the source's numbering** like every other object
 /// this verb rewrites, so a number that collided with a source object would silently replace it.
 pub(super) struct Spare {
@@ -2032,11 +2037,10 @@ pub(super) struct Spare {
 }
 
 impl Spare {
-    /// Begins past the highest object number the document's cross-reference sections name.
+    /// Begins where every writer in this tree numbers its first new object.
     fn of(document: &Document) -> Self {
-        let highest = document.xref().object_numbers().max().unwrap_or(0);
         Self {
-            next: highest.saturating_add(1),
+            next: document.xref().next_object_number(),
         }
     }
 
@@ -5422,18 +5426,59 @@ const UNMAPPED_KEY_DECLINED: &str = "this document information dictionary states
      answer decides: `discard` drops the value and the report names the key, and `stop`, which is \
      what a row saying nothing states, keeps this refusal";
 
-/// Why a date this converter cannot read stops the conversion.
+/// Why a date this converter cannot read stops the conversion, where the value would move.
 const INFORMATION_DATE_NOT_READABLE: &str = "this document information dictionary states a \
      CreationDate or ModDate that is not §7.9.4's date, so there is no instant to write into the \
      packet's own ISO 8601 spelling of one. Deciding what a malformed date meant is the repair \
      doc/questions/A48 closes, and writing the text across unconverted would put a value in \
-     xmp:CreateDate that ISO 16684-1's grammar does not admit";
+     xmp:CreateDate that ISO 16684-1's grammar does not admit. The configuration's `unreadable` \
+     answer decides: `discard` drops the value and the report names the key, and `stop`, which is \
+     what a row saying nothing states, keeps this refusal";
 
-/// Why a value that is not a string stops the conversion.
+/// Why a value that is not a string stops the conversion, where the value would move.
 const INFORMATION_VALUE_NOT_TEXT: &str = "§14.3.3 requires every document information dictionary \
      entry other than CreationDate and ModDate to be a text string, and Table 349 makes Trapped a \
      name; this dictionary states one that is neither, so there is no text to carry into the \
-     packet and this converter will not invent a spelling for it";
+     packet and this converter will not invent a spelling for it. The configuration's \
+     `unreadable` answer decides: `discard` drops the value and the report names the key, and \
+     `stop`, which is what a row saying nothing states, keeps this refusal";
+
+/// Why a modification date the clause keeps beside a packet that states one stops the conversion.
+///
+/// No `unreadable` answer reaches it: beside a `/PieceInfo` the entry is not moved but kept, and
+/// what binds it is §14.3.4's equivalence with the packet's `xmp:ModifyDate`, so a date with no
+/// instant is a comparison this converter cannot make rather than a value it could drop.
+const KEPT_DATE_NOT_READABLE: &str = "the catalog states a PieceInfo, so ISO 19005-4 section \
+     6.1.3 keeps this document's ModDate in the dictionary and the conversion writes both \
+     sources, and §14.3.4 requires the two to be fully equivalent where both are written — but \
+     the packet's xmp:ModifyDate names an instant and this ModDate is not §7.9.4's date, so it \
+     names none to compare";
+
+/// The value is not of the form ISO 32000-2 states for its key, and the operator answered
+/// `unreadable = "discard"`.
+const UNREADABLE_DROPPED: &str = "the value is not of the form ISO 32000-2 states for this key \
+     — a date that is not §7.9.4's, or neither a text string nor Trapped's name — so the property \
+     Table 349 names cannot hold it, and the configuration answers `unreadable = \"discard\"`, so \
+     the value leaves the document";
+
+/// Which of §14.3.3's two forms a value failed, so that the caller can name it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Unreadable {
+    /// A `/CreationDate` or `/ModDate` that is not §7.9.4's date.
+    Date,
+    /// A value that is neither a text string nor, for `/Trapped`, a name.
+    NotText,
+}
+
+impl Unreadable {
+    /// The refusal a value of this kind earns where it would move into the packet.
+    const fn sentence(self) -> &'static str {
+        match self {
+            Self::Date => INFORMATION_DATE_NOT_READABLE,
+            Self::NotText => INFORMATION_VALUE_NOT_TEXT,
+        }
+    }
+}
 
 /// Why a modification date the packet contradicts stops the conversion.
 const MODIFICATION_DATES_DISAGREE: &str = "the catalog states a PieceInfo, so ISO 19005-4 \
@@ -5455,13 +5500,19 @@ fn prepare_information(
     document: &Document,
     catalog: Option<&Dictionary>,
     packet: Option<&[u8]>,
-    unmapped: super::config::Unmapped,
+    (unmapped, discard_unreadable): (super::config::Unmapped, bool),
 ) -> Result<Information, Because> {
     let Some(catalog) = catalog else {
         return Err(Because::NotBuiltYet(NO_CATALOG));
     };
-    let Object::Dictionary(info) = document.get_key(document.trailer(), "Info") else {
-        return Err(Because::NotBuiltYet(NOT_ASKED_FOR));
+    // A trailer naming an object that does not exist states no dictionary, and §7.3.9 says what
+    // that is: "[a]n indirect object reference (see 7.3.10, "Indirect objects") to a nonexistent
+    // object shall be treated the same as a null object". So it moves what an empty dictionary
+    // moves, which is nothing, and the key goes with it (`doc/adr/2358`).
+    let info = match document.get_key(document.trailer(), "Info") {
+        Object::Dictionary(info) => info,
+        Object::Null => Dictionary::new(),
+        _ => return Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
     };
     if unmapped == super::config::Unmapped::ExtensionSchema {
         return Err(Because::NotBuiltYet(
@@ -5497,17 +5548,18 @@ fn prepare_information(
             });
             continue;
         };
-        let text = information_value(&value, &key)?;
         let property = format!("{prefix}:{local}");
         if key == "ModDate" && keeps {
-            // Both sources are written, so §14.3.4's fourth rule binds: they have to name the
-            // same instant, and this converter will not choose between two the producer stated.
-            if stated
-                .as_ref()
-                .and_then(|xmp| xmp.text(namespace, local))
-                .is_some_and(|already| already != text)
-            {
-                return Err(Because::NotBuiltYet(MODIFICATION_DATES_DISAGREE));
+            // Both sources are written, so §14.3.4's fourth rule binds where the packet states
+            // the date too: they have to name the same instant, and this converter will not
+            // choose between two the producer stated. Where it does not, the entry stays as its
+            // producer wrote it and is never read, so its form decides nothing (`doc/adr/2358`).
+            if let Some(already) = stated.as_ref().and_then(|xmp| xmp.text(namespace, local)) {
+                match information_value(&value, &key) {
+                    Ok(text) if text == already => {}
+                    Ok(_) => return Err(Because::NotBuiltYet(MODIFICATION_DATES_DISAGREE)),
+                    Err(_) => return Err(Because::NotBuiltYet(KEPT_DATE_NOT_READABLE)),
+                }
             }
             kept_modification_date = Some(value.clone());
             entries.push(MovedEntry {
@@ -5517,6 +5569,20 @@ fn prepare_information(
             });
             continue;
         }
+        let text = match information_value(&value, &key) {
+            Ok(text) => text,
+            // The value has no home the property's form admits, so it is the operator's to
+            // drop, as a key Table 349 names nothing for is (`doc/adr/2358`).
+            Err(_) if discard_unreadable => {
+                entries.push(MovedEntry {
+                    key,
+                    property: None,
+                    fate: UNREADABLE_DROPPED,
+                });
+                continue;
+            }
+            Err(unreadable) => return Err(Because::Declined(unreadable.sentence())),
+        };
         if stated
             .as_ref()
             .is_some_and(|xmp| xmp.value(namespace, local).is_some())
@@ -5541,9 +5607,8 @@ fn prepare_information(
             fate: MOVED,
         });
     }
-    if entries.is_empty() {
-        return Err(Because::NotBuiltYet(NOT_ASKED_FOR));
-    }
+    // An empty dictionary, or one whose every entry is null and so absent (§7.3.9), moves
+    // nothing into the packet: the trailer's key is all that goes, which is what the clause asks.
     Ok(Information {
         supplements,
         entries,
@@ -5555,24 +5620,23 @@ fn prepare_information(
 ///
 /// Three shapes, and each is Table 349's. A date becomes ISO 16684-1's spelling of the same
 /// instant; `/Trapped` is a name, whose three values Table 349 fixes; everything else is a
-/// §7.9.2.2 text string. Anything else refuses the document rather than guessing at a spelling.
-fn information_value(value: &Object, key: &str) -> Result<String, Because> {
+/// §7.9.2.2 text string. Anything else is [`Unreadable`], and nothing guesses at a spelling.
+///
+/// **A date is read as a text string first.** §7.9.4 makes it "a text string value", and its
+/// NOTE 1 says where the grammar applies: "\[t]he description above relates to the text string
+/// value after appropriate processing" — so a date written in UTF-16BE or with §7.9.2.2's UTF-8
+/// lead bytes is the same date as the one written in `PDFDocEncoding` (`doc/adr/2358`).
+fn information_value(value: &Object, key: &str) -> Result<String, Unreadable> {
     if DATE_KEYS.contains(&key) {
-        let text = value
-            .as_string()
-            .ok_or(Because::NotBuiltYet(INFORMATION_VALUE_NOT_TEXT))?;
-        let spelled = std::str::from_utf8(text)
-            .ok()
-            .and_then(pdf_syntax::Date::parse)
-            .ok_or(Because::NotBuiltYet(INFORMATION_DATE_NOT_READABLE))?;
+        let text = value.as_string().ok_or(Unreadable::NotText)?;
+        let spelled = pdf_syntax::Date::parse(&pdf_syntax::text_string::text_string(text))
+            .ok_or(Unreadable::Date)?;
         return Ok(xmp::spelled_date(&spelled));
     }
     if let Some(name) = value.as_name() {
         return Ok(String::from_utf8_lossy(name.as_bytes()).into_owned());
     }
-    let text = value
-        .as_string()
-        .ok_or(Because::NotBuiltYet(INFORMATION_VALUE_NOT_TEXT))?;
+    let text = value.as_string().ok_or(Unreadable::NotText)?;
     Ok(pdf_syntax::text_string::text_string(text))
 }
 

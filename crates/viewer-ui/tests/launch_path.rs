@@ -1096,7 +1096,10 @@ fn phase_first_page() {
         viewer.anticipate().for_each(drop);
         (viewer, pages, opened, Instant::now())
     });
-    let mut backend = match QuorraRasterizer::new_headless() {
+    // A window's device, as `quorra`'s is: the compute lane compiles on raster's warm-up thread
+    // once page one's frame is complete, and this figure is where a wait for it would show (ADR
+    // 2354).
+    let mut backend = match QuorraRasterizer::with_options(&render_raster::window_options()) {
         Ok(backend) => backend,
         Err(error) => {
             println!("failed no graphics device: {error}");

@@ -132,7 +132,7 @@ impl Device {
                 Some((texture, _)) => crate::compute::dispatch_chain(
                     &self.gpu,
                     &self.queue,
-                    &mut self.compute_pipelines,
+                    &self.pipelines,
                     &mut self.segment_arena,
                     &mut self.compute_persist,
                     &self.resources,

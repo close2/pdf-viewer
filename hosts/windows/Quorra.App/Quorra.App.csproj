@@ -47,9 +47,10 @@
     <ProjectReference Include="..\Quorra.Interop\Quorra.Interop.csproj" />
   </ItemGroup>
 
-  <!-- viewer_ffi.dll beside Quorra.App.exe, where the runtime's library search looks first. -->
+  <!-- viewer_ffi.dll beside Quorra.App.exe, where the runtime's library search looks first, in the
+       build output and in the published folder the snapshot ships (ADR 2374). -->
   <ItemGroup Condition="Exists('$(QuorraLibrary)')">
-    <None Include="$(QuorraLibrary)" Link="viewer_ffi.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <None Include="$(QuorraLibrary)" Link="viewer_ffi.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
   </ItemGroup>
 
   <!-- A build without the library says so here, and a window started without it names the

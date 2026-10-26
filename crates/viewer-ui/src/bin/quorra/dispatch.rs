@@ -22,23 +22,52 @@ impl App {
         self.pump(VecDeque::from([command]));
     }
 
-    /// A page turn, with the page it brings on drawn while it is read (ADR 1871).
+    /// A page turn, with the page it brings on read on a thread of its own and drawn while it is
+    /// read (ADRs 1871, 2344, 2360).
     ///
-    /// The turn is handled with the read left to this window
-    /// ([`viewer_core::Viewer::handle_unread`]); the page is read on this thread — the toolkit's,
-    /// where a turn's read has always been, because the read is the turn's critical path (trap
-    /// 154) — and drawn beside it on a thread [`viewer_host::Ahead`] spawns, and the frame of it
-    /// is finished from that drawing where the request is for that list at that target. Nothing
-    /// is drawn ahead until the read has run `GLIMPSE_AFTER`, so a turn whose page reads quickly
-    /// is a turn as before and a thread. Nothing is shown while the page is read: the thread that
-    /// would put a look up is the one reading.
+    /// The toolkit windows' `NativeWindow::turn`, in this window: the turn is handled with the
+    /// read left to this window ([`viewer_core::Viewer::handle_unread`]) and every page it brings
+    /// on unread handed out ([`viewer_core::Viewer::read_out`]) to a thread
+    /// [`viewer_host::Ahead::read_out`] spawns, the page drawn beside it; this returns at once, so
+    /// the loop goes on answering — a key's release, a pointer, a close — while the page is read,
+    /// and [`Self::take_the_turn`] takes the read in when the thread wakes the loop. The frame of
+    /// the page is finished from that drawing where the request is for that list at that target.
+    /// Nothing is drawn ahead until the read has run `GLIMPSE_AFTER`. Where the core hands out no
+    /// read — a page holding §12.5.3's replacement — the page is read here as before, beside the
+    /// same drawing, and before the window exists the turn is handled whole. A tick is a turn
+    /// where it turned the page — §12.4.4.1's `/Dur` — and is otherwise ended at once, as
+    /// [`viewer_core::Viewer::handle`] would have.
     fn turn(&mut self, command: Command) -> Vec<Event> {
         let Some(window) = self.window_now() else {
             return self.viewer.handle(command).collect();
         };
+        let ticked = matches!(command, Command::Tick { .. });
         let mut events: Vec<Event> = self.viewer.handle_unread(command).collect();
+        if ticked && !viewer_host::loading::turned(&events) {
+            events.extend(self.viewer.read_the_rest());
+            return events;
+        }
         let ahead = crate::drawing_ahead();
         ahead.window_is(window);
+        if let Some(read_out) = self.viewer.read_out(window.viewport(), window.scale) {
+            self.trace.say(
+                Topic::Frames,
+                format_args!(
+                    "page {} read off the event-loop thread, {} page(s)",
+                    read_out.page().saturating_add(1),
+                    read_out.pages()
+                ),
+            );
+            // The thread wakes the loop when the read ends, which is when `about_to_wait` takes
+            // it in; a loop with no proxy yet has no window to turn a page in.
+            let waker = self.waker.clone();
+            self.turning = Some(ahead.read_out(read_out, move || {
+                if let Some(waker) = waker {
+                    let _ = waker.send_event(());
+                }
+            }));
+            return events;
+        }
         events.extend(ahead.anticipate(&mut self.viewer));
         events.extend(self.viewer.read_the_rest());
         if let Some(window) = self.device_window() {
@@ -47,6 +76,52 @@ impl App {
             composer.draw_ahead(ahead);
         }
         events
+    }
+
+    /// Takes in a turn's read once it has ended — [`Self::turn`]'s second half — answers what it
+    /// raised, and hands on the commands that waited for it (ADR 2344). The drawing it was drawn
+    /// beside goes to the renderer first, so that the request the read raises is finished from it.
+    pub(crate) fn take_the_turn(&mut self) {
+        if !self
+            .turning
+            .as_ref()
+            .is_some_and(viewer_host::loading::Turning::ended)
+        {
+            return;
+        }
+        let Some(turning) = self.turning.take() else {
+            return;
+        };
+        let (page, read) = (turning.page(), turning.since());
+        let (mut events, ahead) = turning.land(&mut self.viewer);
+        events.extend(self.viewer.read_the_rest());
+        if let Some(window) = self.device_window() {
+            window.draw_ahead(ahead);
+        } else if let Some(composer) = self.composer() {
+            composer.draw_ahead(ahead);
+        }
+        self.trace.say(
+            Topic::Frames,
+            format_args!(
+                "page {} read off the event-loop thread in {read:?}, {} event(s)",
+                page.saturating_add(1),
+                events.len()
+            ),
+        );
+        if self.trace.on(Topic::Events) {
+            for event in &events {
+                self.trace
+                    .more(Topic::Events, format_args!("{}", describe_event(event)));
+            }
+        }
+        let mut queue = VecDeque::new();
+        for event in events {
+            self.react(event, &mut queue);
+        }
+        queue.extend(std::mem::take(&mut self.behind_the_turn));
+        self.pump(queue);
+        // The frames held back while the read was out (`App::redraw_requested`).
+        self.redraw();
     }
 
     /// Reacts to events that were produced somewhere other than a [`Self::dispatch`].
@@ -109,6 +184,29 @@ impl App {
     /// Runs commands until nothing is left, reacting to what each produces.
     fn pump(&mut self, mut queue: VecDeque<Command>) {
         while let Some(command) = queue.pop_front() {
+            // **A second turn waits for the first turn's read, and every command after it**, in
+            // order (ADR 2344): the core cannot stop a read part-way, so two reads handed out
+            // would read two pages at once on the same cores, and a command let past a turn that
+            // waits would be handled before it. A tick waits as a turn does, because §12.4.4.1's
+            // `/Dur` turns the page inside one (ADR 2360). Before the clock below, which is read
+            // for the command when it is handled.
+            let turn = viewer_host::loading::may_turn(&command);
+            if self.turning.is_some() && (turn || !self.behind_the_turn.is_empty()) {
+                if self.trace.on(Topic::Events) {
+                    self.trace.say(
+                        Topic::Events,
+                        format_args!(
+                            "{} waits for page {}'s read",
+                            describe_command(&command),
+                            self.turning
+                                .as_ref()
+                                .map_or(0, |turning| turning.page().saturating_add(1))
+                        ),
+                    );
+                }
+                self.behind_the_turn.push_back(command);
+                continue;
+            }
             // Table 166's `/M` is what §7.5.6's update writes it into, so the clock is read on
             // the way there rather than kept. Which command that is is
             // `viewer_host::modification::before`'s, once for all three windows, because a host
@@ -136,7 +234,7 @@ impl App {
                 self.spoken = None;
             }
             let supplied = matches!(command, Command::Supply { .. });
-            let events: Vec<Event> = if matches!(command, Command::GoTo(_)) {
+            let events: Vec<Event> = if turn {
                 self.turn(command)
             } else {
                 self.viewer.handle(command).collect()

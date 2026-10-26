@@ -791,7 +791,7 @@ fn draw_until_told_to_stop(
         sent
     };
     let began = Instant::now();
-    let mut device = match QuorraRasterizer::with_options(&render_raster::options()) {
+    let mut device = match QuorraRasterizer::with_options(&render_raster::window_options()) {
         Ok(device) => device,
         Err(refused) => {
             if !send(Message::Absent(refused.to_string())) {

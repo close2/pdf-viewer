@@ -99,7 +99,7 @@ and the crate forbids it until then, the offscreen path needing none.
 stable version, nightly beside it for Miri, and `rustfmt.toml`, `clippy.toml`, `deny.toml` and
 `.gitignore` in the root. CI is GitHub Actions in `.github/workflows/ci.yml`: fmt, clippy, the
 tests with `mesa-vulkan-drivers` for a software Vulkan adapter, `cargo-deny`, every `raster-gpu` example's `--check` under Xvfb (which the merge also runs, as
-`tools/batch.sh gates`' `t2-raster_examples`, ADR 1575), an advisory Miri job, and the platform and snapshot builds.
+`tools/batch.sh gates`' `t2-raster_examples`, ADR 1575), an advisory Miri job, the platform and snapshot builds and the WinUI window's self-contained publish; a newer push cancels the run before it, and `.github/workflows/snapshot.yml` publishes the snapshot from a run that completed with every job green (ADR 2374).
 `tools/state.sh main-checkout` reads the last run on `main`, its failed jobs, steps and
 annotations from GitHub's public interface with no token (ADR 1563).
 

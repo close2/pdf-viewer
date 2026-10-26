@@ -214,11 +214,24 @@ bands — which are lists of cases, the remedy section 15 names for test files.
 
 ## 17. Next, in the census's order
 
-`tools/state.sh gods`'s impl-block table, read past the blocks split above: `Vfs` in
-`pdf-vfs/src/lib.rs`, `Carry` in `pdf-transform/src/structure.rs` and `App` in
-`viewer-ui/src/bin/quorra/typing.rs`, in that order until the census says otherwise (`Host` in
+`tools/state.sh gods`'s impl-block table, read past the blocks split above: `Carry` in
+`pdf-transform/src/structure.rs` and `App` in
+`viewer-ui/src/bin/quorra/typing.rs`, in that order until the census says otherwise (`Vfs` in
+`pdf-vfs/src/lib.rs` is split into seven modules, section 18, ADR 2368; `Host` in
 `viewer-ui/src/bin/quorra-confined.rs` is split into five modules, ADR 2352); each is split as entry 1 was, by concern, behind the proof the
 opening paragraph names.
+
+## 18. Built — `Vfs` (`crates/pdf-vfs/src/lib.rs`, with seven children), ADR 2368
+
+`Vfs` was one impl block of 1 180 lines and 38 methods, and not one `match`, so it was taken and
+`Carry` left. `lib.rs` keeps the type, its constructors, the layout and shortfall answers, the
+generation and its structs, and the three small helpers every child shares. The children, each
+continuing `impl Vfs` where it holds methods: `mount` (which generation is served, and the counters),
+`directory` (`list`, `stat`), `reading` (`consult`, `answer`, `open`, the generators), `writing` (the
+verbs §7.5.6's update lands) and `inventory` (the free functions that answer what the document has);
+`error` holds `VfsError` and `Refused`, `consent` the seam every worker question crosses and what it
+counts. Tokens are unchanged; private items a sibling reads became `pub(crate)`, and `Totals::twice`
+is the one field widened.
 
 ## Found, not fixed
 

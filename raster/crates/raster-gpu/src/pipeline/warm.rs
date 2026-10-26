@@ -25,6 +25,21 @@ use crate::startup::WarmUp;
 
 use super::{Kind, PipelineStore, WARM_FORMAT};
 
+/// What the compute lane's warm-up is waiting for (the caller's ADR 2354): it compiles the lane
+/// once the device has completed a frame, so that page one never shares the machine with that
+/// compile, and gives up if the device goes first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LaneCue {
+    /// No warm-up of the lane was asked for, so nothing waits and nothing is told.
+    NotAsked,
+    /// No frame completed yet, and the device is still here.
+    Waiting,
+    /// A frame was completed and handed back: the lane may compile now.
+    FrameCompleted,
+    /// The device is being dropped: compile nothing, and let the join return.
+    Released,
+}
+
 /// Records the warm-up's outcome and releases its waiters on **every** exit path,
 /// including an unwind.
 ///
@@ -75,16 +90,41 @@ impl PipelineStore {
     /// a frame that arrives early compiles what it needs on the spot — but a thread
     /// inside the driver must not outlive the device it is compiling for (ADR 0018).
     ///
+    /// **`compute_lane` compiles the compute lane's four pipelines on the same thread, once
+    /// the warm set has been recorded and the device's first frame is complete** (the
+    /// caller's ADR 2354). The warm set is answered for exactly as it is without it —
+    /// `warm_up`, `wait_until_warm` and the startup figure — and the first page shares no
+    /// processor and no driver with the lane's compile, because the compile does not begin
+    /// until that page's frame has been handed back ([`PipelineStore::a_frame_was_completed`]);
+    /// nor does any render pipeline's ask wait behind it, since it holds the store's cell for
+    /// the lane and no other lock. A host asks for it where its own rule takes the lane on a
+    /// moved view, whose first frame otherwise compiles the four inside itself. A device
+    /// dropped before it completes a frame releases the thread with nothing compiled
+    /// ([`PipelineStore::release_the_lane_warm_up`]). Where no thread could be spawned the lane
+    /// is left to its first frame, since compiling it inline would put a lane the first page
+    /// does not draw with on the constructor's critical path.
+    ///
     /// [`Device`]: crate::device::Device
     pub(crate) fn spawn_warm_up(
         self: &Arc<Self>,
         present_format: Option<wgpu::TextureFormat>,
+        compute_lane: bool,
     ) -> Option<thread::JoinHandle<()>> {
+        if compute_lane {
+            *self.lane_cue_state() = LaneCue::Waiting;
+        }
         let store = Arc::clone(self);
         let spawned = thread::Builder::new()
             .name("raster-warm-up".into())
-            .spawn(move || store.warm_up_now(present_format));
+            .spawn(move || {
+                store.warm_up_now(present_format);
+                if compute_lane && store.wait_for_the_lane_cue() == LaneCue::FrameCompleted {
+                    store.warm_compute_lane();
+                }
+            });
         let Ok(handle) = spawned else {
+            // Nothing will wait for the cue, so nobody is to be told it.
+            *self.lane_cue_state() = LaneCue::NotAsked;
             self.warm_up_now(present_format);
             return None;
         };
@@ -184,6 +224,49 @@ impl PipelineStore {
             WarmUp::Warm(duration) => Some(duration),
             _ => None,
         }
+    }
+
+    /// Tells a waiting compute-lane warm-up that the device has completed a frame. Called at the
+    /// end of every completed frame, so after the first it is one lock and one comparison.
+    pub(crate) fn a_frame_was_completed(&self) {
+        self.cue_the_lane(LaneCue::FrameCompleted);
+    }
+
+    /// Tells a waiting compute-lane warm-up that the device is going, so that the device's
+    /// join of its warm-up thread does not wait for a frame that will never come (ADR 0018).
+    pub(crate) fn release_the_lane_warm_up(&self) {
+        self.cue_the_lane(LaneCue::Released);
+    }
+
+    /// The first cue is the one that counts: a device that completed a frame and is then
+    /// dropped has already let the compile begin. A device that asked for no warm-up of the
+    /// lane is told nothing, so its frames pay a lock and a comparison and no wake.
+    fn cue_the_lane(&self, cue: LaneCue) {
+        let mut state = self.lane_cue_state();
+        if *state == LaneCue::Waiting {
+            *state = cue;
+            self.lane_cued.notify_all();
+        }
+    }
+
+    /// Block the warm-up thread until the device completes a frame or goes, and say which.
+    fn wait_for_the_lane_cue(&self) -> LaneCue {
+        let mut state = self.lane_cue_state();
+        while *state == LaneCue::Waiting {
+            state = self
+                .lane_cued
+                .wait(state)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        *state
+    }
+
+    /// The cue, under its own lock. Poisoned only by a panic while it was being written, and
+    /// the write is one assignment, so the value is whole either way.
+    fn lane_cue_state(&self) -> std::sync::MutexGuard<'_, LaneCue> {
+        self.lane_cue
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Block until the warm-up reports what became of it, and say what that was.

@@ -164,7 +164,11 @@ fn nearest_level(c: vec4f) -> vec4f {
 // The program's answer leaves as the level nearest it, as an opaque ramp's colour does
 // (`shading.wgsl`'s `fs_main`, ADR 2310): RADV exports a fragment's colour to an eight-bit
 // target as a half float rounded toward zero, up to an eighth of a level low, and a level
-// survives that export where an unrounded answer does not (ADR 2311).
+// survives that export where an unrounded answer does not (ADR 2311). The shading lane hands a
+// translucent paint to the blend instead (trap 257), and nothing translucent arrives here from the
+// caller: its constant alpha drops the program (`pdf_render::Shading::with_alpha`), so the answer's
+// alpha is 1 inside the domain and 0 outside it; a translucent `Background` is the one other, and
+// the caller never states one (ADR 2366).
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4f {
     let p = floor(in.position.xy) + params.origin;

@@ -823,3 +823,15 @@ because raster's coverage accumulators round the same `f32` product and now disa
 name for the function behind a pixel difference is checked against the code path first; a colour's
 level is sought where colours are stored, not where coverage is; and where the oracle and the device
 round a quantity alike, the two are made exact in one commit or neither is.
+
+### 267. A freed document is run through veraPDF at every target, because a refusal can hide a validator gap
+
+Round 1762 removed the part-4 refusal on a document information dictionary's malformed dates and freed
+23 documents at PDF/A-4 under each profile. veraPDF 1.30.3 passed 36 of their 46 outputs, failed four
+(a direct descendant `CIDFontType2` with no `/CIDToGIDMap`; a font resource resolving to null) and could
+not parse six (a page tree whose root `/Count` is a stream or that has no `/Kids`) — and every one of
+the ten failed the same way at PDF/A-2b, where nothing had changed and this tree's validator had passed
+them all along (ADR 2358). The refusal had been standing in front of two validator gaps. When a refusal
+is removed, the documents it frees are run through veraPDF at every target the converter writes, not only
+the one that freed them, and a failure this validator did not predict is named in the record as the
+validator's gap, with the construction that slipped through.

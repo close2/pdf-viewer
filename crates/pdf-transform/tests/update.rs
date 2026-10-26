@@ -519,3 +519,99 @@ fn restating_what_the_document_says_leaves_the_packet_alone() {
         Some("Somebody")
     );
 }
+
+/// A file whose table states object 3 with an entry this reader cannot read, under a `/Size` that
+/// understates it, or states it free; `/Keep` names it from the catalog either way.
+///
+/// `entry` is the cross-reference line for object 3 and `body` the object itself, if there is one.
+/// The catalog names it so that a writer reusing the number is visible as the catalog's reference
+/// changing what it points at (ADR 2362).
+fn with_object_three(entry: &str, body: &str) -> Vec<u8> {
+    let mut file = b"%PDF-1.7\n".to_vec();
+    let mut offsets = Vec::new();
+    for object in [
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /Keep 3 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n",
+        body,
+    ] {
+        offsets.push(file.len());
+        file.extend_from_slice(object.as_bytes());
+    }
+    let xref = file.len();
+    let table = format!(
+        "xref\n0 4\n0000000000 65535 f \n{:010} 00000 n \n{:010} 00000 n \n{entry}\n\
+         trailer\n<< /Size 3 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+        offsets[0], offsets[1]
+    );
+    file.extend_from_slice(table.as_bytes());
+    file
+}
+
+/// A title set on a file with no information dictionary, which gives the dictionary a new number.
+fn title_set(source: &[u8]) -> Vec<u8> {
+    amend(
+        source,
+        Edit::SetInformation {
+            entries: vec![InfoEntry {
+                key: "Title".to_owned(),
+                value: Some("A title".to_owned()),
+            }],
+        },
+        None,
+    )
+    .expect("set")
+    .0
+}
+
+/// An object whose cross-reference entry was declared and not read keeps its number.
+///
+/// §7.5.4's subsection header states "the number of entries in the subsection", so object 3 is a
+/// number the file stated even where its entry will not lex, and the object is still found by its
+/// own `N G obj` header (ADR 0789). Table 15's `/Size` 3 understates it. A new object numbered from
+/// the numbers the reader kept would be object 3, and the catalog's `/Keep 3 0 R` would then name
+/// the new information dictionary.
+#[test]
+fn an_unread_entry_s_number_is_not_given_to_a_new_object() {
+    let source = with_object_three("xxxxxxxxxx 00000 n ", "3 0 obj\n(kept)\nendobj\n");
+    let three = pdf_syntax::ObjectId::new(3, 0);
+    assert!(
+        read(&source).get(three).as_string().is_some(),
+        "the plant: object 3 resolves through its own header"
+    );
+    let updated = title_set(&source);
+    appended(&source, &updated);
+    let document = read(&updated);
+    assert_eq!(
+        document.get(three).as_string().map(<[u8]>::to_vec),
+        Some(b"kept".to_vec()),
+        "the catalog's /Keep 3 0 R still names the object the file wrote"
+    );
+    assert_eq!(
+        Information::read(&document).title.as_deref(),
+        Some("A title")
+    );
+}
+
+/// A number whose entry is free is not given to a new object at generation 0.
+///
+/// §7.5.4: "[t]he entry's generation number shall be incremented by 1 to indicate the generation
+/// number to be used the next time an object with that object number is created." Object 3 was
+/// freed with its next generation 1 and `/Size` 3 understates it, so a new object 3 0 would both
+/// break that sentence and turn the catalog's dangling `/Keep 3 0 R` into a reference to it.
+#[test]
+fn a_free_entry_s_number_is_not_given_to_a_new_object() {
+    let source = with_object_three("0000000000 00001 f ", "");
+    let three = pdf_syntax::ObjectId::new(3, 0);
+    let updated = title_set(&source);
+    appended(&source, &updated);
+    let document = read(&updated);
+    assert_eq!(
+        document.get(three),
+        pdf_syntax::Object::Null,
+        "the catalog's /Keep 3 0 R still names nothing"
+    );
+    assert_eq!(
+        Information::read(&document).title.as_deref(),
+        Some("A title")
+    );
+}

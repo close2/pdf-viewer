@@ -1785,3 +1785,28 @@ the row as the unit — a row whose mask is all zero filled whole from the matte
 read 42 M (ADR 2348). A fast path that is a branch inside a hot loop is checked in callgrind or the
 disassembly for whether the branch survives before its ceiling is reported, and the unit of the test is
 raised until it does.
+
+## 189. A round's `--clock` hold passes `--nice 0`, because the merge's clock gates do
+
+`tools/bounded.sh` runs its command at nice 19 by default, and the merge's clock gates (`t2-turn_path`,
+`t2-launch_path`, `t2-toolkit_launch`) pass `--nice 0`. Round 1765's A/B hold took its figures at the default
+and read every arm, HEAD's included, outside the bands the merge holds at nice 0 — a different machine's
+figures, comparable to each other and to nothing else (ADR 2364). A round whose figures are to be read
+against the gate's bands, or quoted beside the merge's, passes `--nice 0` on its hold and says so beside the
+load average (habit 186, trap 237).
+
+## 190. A callgrind dump with lines has two position columns
+
+`callgrind --dump-instr=yes --dump-line=yes` writes `positions: instr line` and then two position columns
+before the costs on every line; a parser written for the one-column form reads the second position — the
+source line number — as the cost and finds nothing where the instructions are (round 1765, ADR 2364). The
+`positions:` header is read first and the cost columns taken after as many positions as it names.
+
+## 191. A toolkit window's release test build runs at two jobs under a 6 GiB tree
+
+A release build of `viewer-gtk`'s or `viewer-qt`'s tests links with fat LTO and passes 6 GiB of resident
+memory at cargo's default four jobs; round 1763 had two `--long --tree 6` builds killed at the ceiling before
+building at `-j2`, and at `-j1` for the two toolkit crates alone (ADR 2360). Seeding the export's target by
+reflink from the batch's release directory does not spare the rebuild, because the export's sources carry
+new mtimes (trap 248). A round that builds a toolkit window's tests in release under the lock passes `-j2`,
+and `-j1` where the crate is `viewer-gtk` or `viewer-qt`, or asks for a larger tree.

@@ -510,6 +510,8 @@ fn main() {
         state: None,
         opening: Some(opening),
         ahead,
+        turning: None,
+        behind_the_turn: std::collections::VecDeque::new(),
         read_shown: false,
         loading: None,
         instancing,

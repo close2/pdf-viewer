@@ -648,3 +648,28 @@ of the named one, because Cambria and Cambria Math share every outline and diffe
 advances. A proof that the right face was written compares the written tables with the reader's, table
 by table, or the program advances, and a plant of the wrong face is run before the test is believed
 (trap 13).
+
+## A split widens visibility by the compiler's `E0624`, never by a name search
+
+Round 1767 moved `Vfs`'s methods into modules and widened to `pub(crate)` every private item a name
+search found the moved code calling; `held` matched a lock accessor of that name on two types, and
+`Consenting::held`, which nothing outside its module calls, was widened for nothing and reverted by hand
+(ADR 2368). After a split the crate is compiled and each `E0624` ("method is private") names the one item a
+sibling module now reads; those and no others are widened, so the split narrows `pub` to what a sibling
+reads, as the discipline asks, instead of to what shares a name.
+
+## A round's cost is read from the token census, never from the hand-back's token figure
+
+The harness's hand-back figure for a round is its last context plus its final output — round 1757's
+read 328 k while the round had read 42.3 M tokens over 211 tool calls (review 1769). A round's cost is
+the sum over its requests of what each re-read, which grows with the square of its tool calls as the
+context grows about 1.5 k tokens a call; `tools/token-census.py` over the round's transcript prints it,
+and a brief, a review or an ADR that prices a round quotes that census and not the hand-back figure.
+
+## A tool that reads "the last run on main" names its workflow once a second workflow runs there
+
+Round 1770 moved the snapshot's publishing into a second workflow, `snapshot.yml`, that runs on
+`workflow_run` after `ci.yml`; from then on "the newest run on main" is as likely to be the publisher's as
+the gates', and `tools/round.sh`'s CI line and `tools/state.sh main-checkout` would have reported the wrong
+one (ADR 2374). A command that asks the GitHub CLI for the last run names the workflow it means
+(`--workflow ci.yml`), and a round that adds a workflow greps the tools for the ones that did not.

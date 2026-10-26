@@ -323,6 +323,20 @@ pub struct Options {
     /// way, which is what lets the pixel gates run the hybrid on the CI's own
     /// software adapter.
     pub compute_assist: Option<bool>,
+    /// Compile the [`Coverage::Compute`] lane's four pipelines on the warm-up thread once the
+    /// device has completed its first frame — **off by default**, because a device whose host
+    /// never takes the lane would compile four pipelines for nothing.
+    ///
+    /// A host whose lane rule takes the compute lane on a moved view turns it on: the lane's
+    /// first frame then finds its pipelines built rather than compiling them inside itself,
+    /// which the caller measured at 1.99 to 6.12 ms of a zoom's first window (the caller's ADR
+    /// 2339). Nothing waits for it and nothing shares the machine with it before page one is
+    /// drawn: the compile begins after the first completed frame, and
+    /// [`Device::warm_up`](crate::device::Device::warm_up) and
+    /// [`StartupTimings::pipeline_compilation`] answer for the warm set alone. A frame that takes
+    /// the lane while it compiles waits for that compile rather than starting its own (the
+    /// caller's ADR 2354).
+    pub warm_compute_lane: bool,
     /// Subdivide [`Timings::encode`] into geometry, staging and recording, reported
     /// through [`Timings::phases`] (the caller's feedback section 13; ADR 0023).
     ///
@@ -384,6 +398,7 @@ impl Default for Options {
             glyph_quantum: Some(DEFAULT_GLYPH_QUANTUM),
             coverage: Coverage::Cpu,
             compute_assist: None,
+            warm_compute_lane: false,
             coverage_samples: DEFAULT_COVERAGE_SAMPLES,
             instrument_encode: false,
             encode_threads: 1,

@@ -100,7 +100,9 @@ remedy = "stop"
 [site."file-structure/document-information-dictionary-holds-only-a-modification-date"]
 remedy = "preserve"        # the values move into the XMP packet, which loses nothing
 unmapped = "discard"       # a custom key XMP has no home for is dropped and named in the report
+unreadable = "discard"     # a date §7.9.4 does not admit is dropped and named in the report
 
 [site."file-structure/document-information-dictionary-needs-piece-info"]
 remedy = "preserve"
 unmapped = "discard"
+unreadable = "discard"

@@ -1687,9 +1687,11 @@ pub trait NativeWindow {
     /// handed out while another page is read would read both at once on the same cores; and a
     /// command let past a turn that waits would be handled before it, out of the order it was
     /// given. A command that comes while the read is out and no turn waits is handled at once —
-    /// a frame answered, a zoom, a tick — and the core leaves the page being read unread for it.
+    /// a frame answered, a zoom — and the core leaves the page being read unread for it. **A tick
+    /// waits as a turn does**, because §12.4.4.1's `/Dur` turns the page inside one and its read is
+    /// handed out as a turn's is (ADR 2360).
     fn through_the_viewer(&mut self, command: Command) -> Option<Vec<Event>> {
-        let turn = matches!(command, Command::GoTo(_));
+        let turn = crate::loading::may_turn(&command);
         if self.state().turning.is_some() && (turn || !self.state().behind_the_turn.is_empty()) {
             self.state().trace.say(
                 Topic::Events,
@@ -1722,15 +1724,22 @@ pub trait NativeWindow {
     /// while it is read, and [`Self::take_the_turn`] takes the read in when it ends, after which
     /// the frame is finished by [`WindowState::drawing`] from that drawing where the request is
     /// for that list at that target. Nothing is drawn ahead until the read has run
-    /// `GLIMPSE_AFTER`. Where the core hands out no read — an arrangement that brings on more than
-    /// one unread page — the page is read here as before, beside the same drawing (trap 154's
-    /// arrangement), and before the first allocation there is no target to draw into, and the
-    /// turn is handled whole.
+    /// `GLIMPSE_AFTER`. Every unread page the turn brings on is in the one read, Table 29's
+    /// two-page spreads included (ADR 2360). Where the core hands out no read — a page holding
+    /// §12.5.3's replacement — the page is read here as before, beside the same drawing (trap
+    /// 154's arrangement), and before the first allocation there is no target to draw into, and
+    /// the turn is handled whole. A tick is a turn where it turned the page — §12.4.4.1's `/Dur`
+    /// — and is otherwise ended at once, as [`Viewer::handle`] would have.
     fn turn(&mut self, command: Command) -> Vec<Event> {
         let Some(window) = self.state().extent else {
             return self.state_mut().viewer.handle(command).collect();
         };
+        let ticked = matches!(command, Command::Tick { .. });
         let mut events: Vec<Event> = self.state_mut().viewer.handle_unread(command).collect();
+        if ticked && !crate::loading::turned(&events) {
+            events.extend(self.state_mut().viewer.read_the_rest());
+            return events;
+        }
         let ahead = crate::Ahead::page_sized();
         ahead.window_is(window);
         let (viewport, scale) = (window.viewport(), window.scale);
@@ -1742,7 +1751,9 @@ pub trait NativeWindow {
                     read_out.page().saturating_add(1)
                 ),
             );
-            self.state_mut().turning = Some(ahead.read_out(read_out));
+            // The toolkit windows look for the read's end on their drawing poll, which runs at
+            // `drawing::POLL` while it is out, so nothing needs waking.
+            self.state_mut().turning = Some(ahead.read_out(read_out, || ()));
             return events;
         }
         events.extend(ahead.anticipate(&mut self.state_mut().viewer));

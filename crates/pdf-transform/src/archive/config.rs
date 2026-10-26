@@ -826,6 +826,14 @@ pub struct Preservation {
     /// What becomes of a `/Info` key §14.3.3's Table 349 names no XMP counterpart for. The
     /// default is [`Unmapped::Stop`], which a row states by saying nothing.
     pub unmapped: Unmapped,
+    /// `unreadable` at the two ISO 19005-4 section 6.1.3 sites.
+    ///
+    /// What becomes of a value of a key Table 349 does define that is not of the form ISO
+    /// 32000-2 states for it — a date that is not §7.9.4's, a value that is neither a text
+    /// string nor `/Trapped`'s name — and so has no home the property's form admits.
+    /// [`Kind::Discard`] drops it and the report names the key; every other word is `stop`,
+    /// which is also what a row saying nothing states (`doc/adr/2358`).
+    pub unreadable: Kind,
 }
 
 /// The requirements a built `preserve` may answer by appending pages.
@@ -1223,6 +1231,8 @@ struct Row {
     unlisted: Kind,
     /// `unmapped` — what happens to a `/Info` key Table 349 names no XMP counterpart for.
     unmapped: Unmapped,
+    /// `unreadable` — what happens to a `/Info` value not of the form its key's row states.
+    unreadable: Kind,
     /// `keep-xfa` — whether the `/XFA` resource stays in the archive as an embedded file.
     keep_xfa: Option<Placement>,
     /// `winner` — which of a colourant's disagreeing definitions the archive keeps.
@@ -1659,6 +1669,7 @@ impl Configuration {
                         && row.keep_xfa == Some(Placement::Attach)),
                 discard_undeterminable: row.undeterminable == Kind::Discard,
                 unmapped: row.unmapped,
+                unreadable: row.unreadable,
             })
             .collect()
     }
@@ -1963,6 +1974,7 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         .unwrap_or(true);
     let dynamic = kind_or_stop(tbl, "dynamic");
     let undeterminable = kind_or_stop(tbl, "undeterminable");
+    let unreadable = kind_or_stop(tbl, "unreadable");
     let unlisted = kind_or_stop(tbl, "unlisted");
     let keep_xfa = keeps_the_xfa(tbl, &site)?;
     let write_mode = write_mode_key(tbl, &site)?;
@@ -1999,6 +2011,7 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         media_types,
         unlisted,
         unmapped,
+        unreadable,
         keep_xfa,
         winner,
         shipped_cmaps,

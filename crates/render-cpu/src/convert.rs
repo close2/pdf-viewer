@@ -106,6 +106,79 @@ pub(crate) fn from_skia_path(p: &tiny_skia::Path) -> Path {
     out
 }
 
+/// A solid paint's colour as `tiny-skia` is handed it: [`color`]'s, except that an opaque paint
+/// composited by source-over is moved off a half level, so that a pixel it covers wholly is the
+/// level nearest each component (ADRs 2311, 2324, 2357).
+///
+/// The library writes such a pixel two ways, and neither is that level where a component's `f32`
+/// product with 255 lands on a half: a run of whole pixels with no mask is a `memset` of
+/// `to_color_u8`, `(c · 255 + ½)` in `f32` truncated, which breaks every such half upwards; any
+/// other pixel is the high-precision pipeline's store, nearest-even on this tree's targets, which
+/// breaks half of them the wrong way. `0.7` is 178.499 997 levels, its product 178.5, and an opaque
+/// rectangle of it drew 179 where a curve of it drew 178 and the device draws 178. A component on
+/// which either conversion misses the level is moved by the fewest ulps towards that level that
+/// make both write it — one in every case `an_opaque_grey_leaves_as_a_colour_written_at_its_level`
+/// meets — and every other component is handed over as it is. The paint moves by an ulp where it
+/// moves at all, so a partly covered pixel, which the blend rounds once from the unrounded paint,
+/// keeps the value it had to that ulp (trap 257).
+pub(crate) fn solid(c: Color, blend: tiny_skia::BlendMode) -> tiny_skia::Color {
+    let colour = color(c);
+    let composited_whole = matches!(
+        blend,
+        tiny_skia::BlendMode::SourceOver | tiny_skia::BlendMode::Source
+    );
+    if !composited_whole || colour.alpha() < 1.0 {
+        return colour;
+    }
+    tiny_skia::Color::from_rgba(
+        off_the_half(colour.red()),
+        off_the_half(colour.green()),
+        off_the_half(colour.blue()),
+        1.0,
+    )
+    .unwrap_or(colour)
+}
+
+/// A component in `0.0..=1.0` that one of `tiny-skia`'s conversions writes off the level nearest
+/// it, moved to the nearest `f32` towards that level which both write as it; any other component
+/// unchanged. See [`solid`].
+fn off_the_half(component: f32) -> f32 {
+    let level = crate::shading::nearest_level(component);
+    let product = component * 255.0;
+    if both_conversions(product) == Some(level) {
+        return component;
+    }
+    let upwards = f32::from(level) > product;
+    let mut moved = component;
+    // One ulp takes a product off its half — 255 ulps of the component are about one of the
+    // product — and the bound keeps a component this cannot place where it was.
+    for _ in 0..4 {
+        moved = if upwards {
+            moved.next_up()
+        } else {
+            moved.next_down()
+        };
+        if both_conversions(moved * 255.0) == Some(level) {
+            return moved;
+        }
+    }
+    component
+}
+
+/// The level `tiny-skia` writes for a component whose product with 255 is `product`, where its
+/// `memset` and its store agree on one, and `None` where they do not.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the product of a component in 0..=1 with 255 is in 0..=255, and each conversion's \
+              cast is the library's own"
+)]
+fn both_conversions(product: f32) -> Option<u8> {
+    let truncated = (product + 0.5) as u8;
+    let stored = product.round_ties_even() as u8;
+    (truncated == stored).then_some(truncated)
+}
+
 /// Converts a fill rule.
 pub(crate) fn fill_rule(rule: FillRule) -> tiny_skia::FillRule {
     match rule {
@@ -212,8 +285,54 @@ pub(crate) fn stroke(s: &Stroke, to_device: Transform) -> tiny_skia::Stroke {
               comparison here would not catch a transposition"
 )]
 mod tests {
-    use super::transform;
-    use pdf_render::Transform;
+    use super::{solid, transform};
+    use pdf_render::{Color, Transform};
+
+    /// ADR 2357: an opaque grey composited by source-over leaves `solid` as a colour both of
+    /// `tiny-skia`'s conversions write as the level nearest the grey — its `memset`'s
+    /// `(c · 255 + ½)` truncated and its store's nearest-even — at every `f32` within four ulps of
+    /// each half level, and each component moves by at most one ulp; the count is the calibration
+    /// (trap 13), the greys the colour as it stood was written off its level by either conversion.
+    #[test]
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "the library's two conversions, of a product in 0..=255"
+    )]
+    fn an_opaque_grey_leaves_as_a_colour_written_at_its_level() {
+        let mut off_their_level = 0_u32;
+        for k in 0..255_u16 {
+            let half = ((f32::from(k) + 0.5) / 255.0).to_bits();
+            for bits in half.saturating_sub(4)..=half.saturating_add(4) {
+                let grey = f32::from_bits(bits);
+                let level = crate::shading::nearest_level(grey);
+                let conversions = |c: f32| {
+                    let product = c * 255.0;
+                    ((product + 0.5) as u8, product.round_ties_even() as u8)
+                };
+                if conversions(grey) != (level, level) {
+                    off_their_level += 1;
+                }
+                let handed = solid(
+                    Color::rgb(grey, grey, grey),
+                    tiny_skia::BlendMode::SourceOver,
+                );
+                assert_eq!(conversions(handed.red()), (level, level), "{grey}");
+                assert!(handed.red().to_bits().abs_diff(bits) <= 1, "{grey}");
+                assert_eq!(handed.alpha(), 1.0);
+            }
+        }
+        assert!(
+            off_their_level > 150,
+            "{off_their_level} greys off their level"
+        );
+        let translucent = Color::rgba(0.7, 0.7, 0.7, 0.5);
+        assert_eq!(
+            solid(translucent, tiny_skia::BlendMode::SourceOver).red(),
+            0.7,
+            "a paint below full alpha is left to the blend"
+        );
+    }
 
     /// The component orders of a PDF matrix and `tiny_skia::Transform::from_row` are asserted
     /// to coincide. A transposition here would misplace all geometry, and would do

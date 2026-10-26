@@ -99,7 +99,7 @@ impl Viewer {
                 });
                 open.on_screen.sort_by_key(|on_screen| on_screen.page);
             }
-            Self::interpret_arranged(open, id, None, &mut events);
+            Self::interpret_arranged(open, id, &[], &mut events);
         }
         events.into_iter()
     }
@@ -118,6 +118,19 @@ impl Viewer {
     /// the host runs it on, and [`Self::anticipated`] takes what it read in, after which the
     /// viewer is exactly the viewer `anticipate` would have left.
     pub fn anticipating(&mut self) -> Option<Anticipating<'_>> {
+        self.set_up_the_read(false)
+            .map(|(anticipating, _)| anticipating)
+    }
+
+    /// [`Self::anticipating`]'s set-up, with every other unread page of the arrangement named
+    /// beside the read where `more` admits them — [`Self::read_out`]'s, for a turn that brings on
+    /// more than one page (ADR 2360). `None` where the page stands interpreted or holds a
+    /// replacement, where another unread page holds one (its read is `crate::open::interpret`'s,
+    /// not the first read), or where other pages are unread and `more` is false.
+    fn set_up_the_read(
+        &mut self,
+        more: bool,
+    ) -> Option<(Anticipating<'_>, Vec<(usize, pdf_model::Page)>)> {
         let delegated = self.delegated;
         let budget = self.raster_budget();
         let id = self.focused?;
@@ -144,29 +157,38 @@ impl Viewer {
             open.on_screen.sort_by_key(|on_screen| on_screen.page);
         }
         let on_screen = open.on(page)?;
-        if on_screen.interpreted.is_some()
-            || on_screen.replaceable.is_some()
-            || open
-                .on_screen
-                .iter()
-                .any(|on_screen| on_screen.page != page && on_screen.interpreted.is_none())
-        {
+        if on_screen.interpreted.is_some() || on_screen.replaceable.is_some() {
             return None;
         }
         let object = on_screen.object.clone();
-        Some(Anticipating {
-            open,
-            reader: Reader {
-                id,
-                page,
-                object,
-                document: Arc::clone(&open.document),
-                view: &open.view,
-                fonts: &open.fonts,
-                references: &open.references,
+        let others: Vec<&crate::open::OnScreen> = open
+            .on_screen
+            .iter()
+            .filter(|on_screen| on_screen.page != page && on_screen.interpreted.is_none())
+            .collect();
+        if others.iter().any(|other| other.replaceable.is_some()) || (!more && !others.is_empty()) {
+            return None;
+        }
+        let others = others
+            .iter()
+            .map(|other| (other.page, other.object.clone()))
+            .collect();
+        Some((
+            Anticipating {
+                open,
+                reader: Reader {
+                    id,
+                    page,
+                    object,
+                    document: Arc::clone(&open.document),
+                    view: &open.view,
+                    fonts: &open.fonts,
+                    references: &open.references,
+                },
+                budget,
             },
-            budget,
-        })
+            others,
+        ))
     }
 
     /// [`Self::anticipating`] for a read the host runs on a thread of its own while this viewer
@@ -179,13 +201,20 @@ impl Viewer {
     /// thread nor asks for it to be drawn; [`Self::anticipated`] takes it in, and
     /// [`Self::read_the_rest`] then asks for its frame. The read is of the view as it stands now,
     /// and a read that comes back to a view changed since is dropped, after which `settle` reads
-    /// the page as it always did. `None` where [`Self::anticipating`] answers `None`.
+    /// the page as it always did.
+    ///
+    /// **Every page the command brought on unread is handed out**, the page it stands at first and
+    /// the rest of the arrangement's unread pages after it in page order, so that a turn of Table
+    /// 29's two-page arrangements leaves the host's thread as a single page's does (ADR 2360); the
+    /// first is the one foretold and drawn beside its read. `None` where the page it stands at is
+    /// already interpreted, or where an unread page holds §12.5.3's replacement, whose read is not
+    /// the first read; the host then reads as [`Self::anticipate`] does.
     ///
     /// **The core still spawns nothing** (rule 4): the thread is the host's.
     pub fn read_out(&mut self, viewport: (u32, u32), scale: f32) -> Option<ReadOut> {
         let serial = self.next_out;
         let read_out = {
-            let anticipating = self.anticipating()?;
+            let (anticipating, more) = self.set_up_the_read(true)?;
             let foreseen = anticipating.foresee(viewport, scale);
             let Anticipating { open, reader, .. } = anticipating;
             ReadOut {
@@ -198,12 +227,15 @@ impl Viewer {
                 references: Arc::clone(&open.references),
                 serial,
                 foreseen,
+                more,
             }
         };
         self.next_out = serial.wrapping_add(1);
         self.out = Some(Out {
             document: read_out.id,
-            page: read_out.page,
+            pages: std::iter::once(read_out.page)
+                .chain(read_out.more.iter().map(|&(page, _)| page))
+                .collect(),
             serial,
         });
         Some(read_out)
@@ -221,27 +253,52 @@ impl Viewer {
         parts: Option<&pdf_model::progress::Parts>,
     ) -> impl Iterator<Item = Event> + use<> {
         let mut events = Vec::new();
-        if let Some((serial, _)) = &read.out
-            && self.out.is_some_and(|out| out.serial == *serial)
+        let Anticipated {
+            id,
+            page,
+            document,
+            read,
+            out,
+            more,
+        } = read;
+        if let Some((serial, _)) = &out
+            && self.out.as_ref().is_some_and(|out| out.serial == *serial)
         {
             self.out = None;
         }
-        if let Some(open) = self.documents.get_mut(&read.id)
-            && Arc::ptr_eq(&open.document, &read.document)
-            && let Some(index) = open
+        let Some(open) = self.documents.get_mut(&id) else {
+            return events.into_iter();
+        };
+        if !Arc::ptr_eq(&open.document, &document)
+            || out.as_ref().is_some_and(|(_, view)| *view != open.view)
+        {
+            return events.into_iter();
+        }
+        // The page drawn beside the read first, so that the list named to `parts` is its own.
+        let reads = read
+            .map(|done| (page, done, true))
+            .into_iter()
+            .chain(more.into_iter().map(|(page, done)| (page, done, false)));
+        for (page, done, drawn) in reads {
+            let Some(index) = open
                 .on_screen
                 .iter()
-                .position(|on_screen| on_screen.page == read.page)
-            && read.out.as_ref().is_none_or(|(_, view)| {
-                *view == open.view
-                    && open.on_screen[index].interpreted.is_none()
-                    && open.on_screen[index].replaceable.is_none()
-            })
-            && let Some(done) = read.read
-            && let Some(list) = Self::install(open, read.id, index, done, &mut events)
-            && let Some(parts) = parts
-        {
-            parts.keep(&list);
+                .position(|on_screen| on_screen.page == page)
+            else {
+                continue;
+            };
+            if out.is_some()
+                && (open.on_screen[index].interpreted.is_some()
+                    || open.on_screen[index].replaceable.is_some())
+            {
+                continue;
+            }
+            if let Some(list) = Self::install(open, id, index, done, &mut events)
+                && drawn
+                && let Some(parts) = parts
+            {
+                parts.keep(&list);
+            }
         }
         events.into_iter()
     }
@@ -311,6 +368,8 @@ pub struct Anticipated {
     /// For a [`ReadOut`]'s read, its serial and the view it was read under, which the viewer may
     /// have moved past while it ran.
     out: Option<(u64, pdf_model::view::ViewState)>,
+    /// The other pages a [`ReadOut`] read after the first, in page order (ADR 2360).
+    more: Vec<(usize, crate::open::Read)>,
 }
 
 /// A page turn's read, owned, for a thread of the host's choosing while the viewer goes on
@@ -330,36 +389,55 @@ pub struct ReadOut {
     references: Arc<pdf_model::reference::Supply>,
     serial: u64,
     foreseen: Option<Foreseen>,
+    /// The arrangement's other unread pages, read after the first (ADR 2360).
+    more: Vec<(usize, pdf_model::Page)>,
 }
 
-/// The page a [`ReadOut`] is reading, as the viewer remembers it until the read comes back.
-#[derive(Debug, Clone, Copy)]
+/// The pages a [`ReadOut`] is reading, as the viewer remembers them until the read comes back.
+#[derive(Debug, Clone)]
 pub(super) struct Out {
     pub(super) document: DocumentId,
-    pub(super) page: usize,
+    pub(super) pages: Vec<usize>,
     serial: u64,
 }
 
 impl ReadOut {
     /// Reads the page, handing its list over to `parts` as it is built — the read
-    /// [`Reader::read`] makes.
+    /// [`Reader::read`] makes — and then the arrangement's other unread pages, outside `parts`,
+    /// because the drawing beside the read is of the first page alone (ADR 2360).
     #[must_use]
     pub fn read(&self, parts: &pdf_model::progress::Parts) -> Anticipated {
+        let read = parts.during(|| self.first_read(self.object.clone()));
+        let more = self
+            .more
+            .iter()
+            .map(|(page, object)| (*page, self.first_read(object.clone())))
+            .collect();
         Anticipated {
             id: self.id,
             page: self.page,
             document: Arc::clone(&self.document),
-            read: Some(parts.during(|| {
-                crate::open::first_read(
-                    &self.document,
-                    self.object.clone(),
-                    &self.view,
-                    &self.fonts,
-                    &self.references,
-                )
-            })),
+            read: Some(read),
             out: Some((self.serial, self.view.clone())),
+            more,
         }
+    }
+
+    /// One page's first read, under the view and with the caches the read was handed out with.
+    fn first_read(&self, object: pdf_model::Page) -> crate::open::Read {
+        crate::open::first_read(
+            &self.document,
+            object,
+            &self.view,
+            &self.fonts,
+            &self.references,
+        )
+    }
+
+    /// How many pages are being read: the first and the arrangement's others (ADR 2360).
+    #[must_use]
+    pub fn pages(&self) -> usize {
+        self.more.len().saturating_add(1)
     }
 
     /// Where the page's first frame will be drawn, foretold when the read was handed out
@@ -450,6 +528,7 @@ impl Reader<'_> {
                 )
             })),
             out: None,
+            more: Vec::new(),
         }
     }
 }

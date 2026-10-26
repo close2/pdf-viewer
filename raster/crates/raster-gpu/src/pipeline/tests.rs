@@ -351,3 +351,122 @@ fn a_frame_whose_pipeline_will_not_build_is_refused_by_name_and_only_that_frame(
         )
         .expect("a frame with no image does not need the refused pipeline");
 }
+
+/// A store asked to warm the compute lane has its four pipelines built by the warm-up thread
+/// once a frame is completed, after the warm set has been recorded, so the lane's first frame
+/// asks and compiles nothing (the caller's ADR 2354); one not asked leaves them to that frame,
+/// which compiles them and says so.
+#[test]
+fn the_compute_lane_is_compiled_after_a_frame_only_where_asked() {
+    let device = device();
+    let (gpu, _) = device.wgpu();
+    for asked in [true, false] {
+        let store = PipelineStore::new(gpu.clone());
+        let warming = store
+            .spawn_warm_up(None, asked)
+            .expect("this suite can spawn a thread");
+        store.a_frame_was_completed();
+        warming.join().expect("the warm-up returned");
+        assert!(
+            matches!(store.warm_up(), WarmUp::Warm(_)),
+            "the warm set is recorded whether or not the lane follows it"
+        );
+        assert_eq!(
+            store.compute.get().is_some(),
+            asked,
+            "the warm-up compiles the compute lane exactly where it was asked to"
+        );
+        let (kept, compiled) = store.compute_lane();
+        assert!(kept.is_ok(), "the four pipelines build on this adapter");
+        assert_eq!(
+            compiled.is_none(),
+            asked,
+            "a warmed lane costs its first frame no compile, and an unwarmed one names its own"
+        );
+    }
+}
+
+/// A device that goes before completing a frame releases a warm-up waiting for one, with nothing
+/// compiled, so the device's join of its warm-up thread returns (ADR 0018, the caller's ADR 2354);
+/// and no wait for the cue begins before the warm set is recorded.
+#[test]
+fn a_lane_warm_up_released_before_any_frame_compiles_nothing_and_returns() {
+    let device = device();
+    let (gpu, _) = device.wgpu();
+    let store = PipelineStore::new(gpu.clone());
+    let warming = store
+        .spawn_warm_up(None, true)
+        .expect("this suite can spawn a thread");
+    within_patience("the warm set, while the lane waits for a frame", {
+        let store = Arc::clone(&store);
+        move || store.wait_until_warm()
+    });
+    assert!(
+        store.compute.get().is_none(),
+        "the lane does not compile before a frame is completed"
+    );
+    store.release_the_lane_warm_up();
+    let (joined, returned) = mpsc::channel();
+    thread::spawn(move || {
+        let _ = joined.send(warming.join().is_ok());
+    });
+    assert_eq!(
+        returned.recv_timeout(PATIENCE),
+        Ok(true),
+        "the released warm-up returned within {PATIENCE:?}"
+    );
+    assert!(store.compute.get().is_none(), "and compiled nothing");
+}
+
+/// The device's own cue: a device built with
+/// [`Options::warm_compute_lane`](crate::startup::Options::warm_compute_lane) has nothing of the
+/// lane compiled when its warm set is, and has the lane built after its first completed frame,
+/// which never took the lane (the caller's ADR 2354).
+#[test]
+fn a_device_that_asks_compiles_the_lane_after_its_first_frame() {
+    let mut device = Device::headless(&Options {
+        adapter: Some("llvmpipe".into()),
+        warm_compute_lane: true,
+        ..Options::default()
+    })
+    .expect("llvmpipe is present wherever this suite runs");
+    device.wait_until_warm();
+    assert!(
+        device.pipelines().compute.get().is_none(),
+        "nothing of the lane before a frame"
+    );
+    let mut builder = SceneBuilder::new();
+    builder
+        .rect(
+            Rect::new(Point { x: 0.0, y: 0.0 }, Point { x: 8.0, y: 8.0 }),
+            Affine::IDENTITY,
+            Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 1.0,
+            },
+            None,
+            None,
+        )
+        .expect("a rectangle is a valid scene");
+    device
+        .render(
+            &builder.finish(),
+            &Viewport::full(8, 8, Affine::IDENTITY),
+            Target::Readback,
+        )
+        .expect("a frame on the processor's lane draws");
+    let asked = std::time::Instant::now();
+    while device.pipelines().compute.get().is_none() {
+        assert!(
+            asked.elapsed() < PATIENCE,
+            "the lane was not compiled within {PATIENCE:?} of the first frame"
+        );
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        matches!(device.pipelines().compute.get(), Some(Ok(_))),
+        "the four pipelines build on this adapter"
+    );
+}

@@ -65,6 +65,8 @@ pub struct XrefTable {
     /// `(first, count)` ranges the file's own section headers declared and this reader did not
     /// read. See [`Self::declared_and_unread`].
     unread: Vec<(u32, u32)>,
+    /// The highest number a table this one replaced had stated. See [`Self::keep_stated`].
+    stated_by_replaced: Option<u32>,
 }
 
 impl XrefTable {
@@ -148,6 +150,74 @@ impl XrefTable {
             .iter()
             .filter(|(_, entry)| entry.is_some())
             .map(|(number, _)| *number)
+    }
+
+    /// The highest object number any cross-reference section of this file stated.
+    ///
+    /// **Stated, not kept**, and the difference is every number a reader holds no object for.
+    /// §7.5.4 gives each subsection a header stating "the object number of the first object in
+    /// this subsection and the number of entries in the subsection", so a section states a number
+    /// three ways and all three count here: an entry in use, an entry free — §7.5.4's `f` and
+    /// §7.5.8.3's type 0, which [`Self::object_numbers`] does not yield — and an entry the header
+    /// declared and this reader did not read ([`Self::declared_and_unread`]), which an object's own
+    /// header may still resolve. A table rebuilt by scanning keeps the highest number the table it
+    /// replaced had stated, because the sections still stand in the file (ADR 2362).
+    ///
+    /// `None` only for a table that states nothing, which [`crate::Document::empty`]'s is.
+    #[must_use]
+    pub fn highest_stated_number(&self) -> Option<u32> {
+        let filed = self.entries.keys().next_back().copied();
+        let unread = self
+            .unread
+            .iter()
+            .filter(|(_, count)| *count > 0)
+            .map(|&(first, count)| first.saturating_add(count.saturating_sub(1)));
+        filed
+            .into_iter()
+            .chain(unread)
+            .chain(self.stated_by_replaced)
+            .max()
+    }
+
+    /// The object number an incremental update or a conversion gives the first object it adds.
+    ///
+    /// §7.5.6 appends an update to a file whose objects stay where they are, so a new object must
+    /// take a number nothing in the file has stated; a number stated and unresolved is still one a
+    /// reference in the file may name, and §7.5.4 makes a freed one's next use carry a higher
+    /// generation:
+    ///
+    /// > The entry's generation number shall be incremented by 1 to indicate the generation
+    /// > number to be used the next time an object with that object number is created.
+    ///
+    /// Table 15's `/Size` "shall be 1 greater than the highest object number defined in the PDF
+    /// file", and the sections and `/Size` are both asked and the larger wins, because files write
+    /// entries past their own `/Size` (ADR 2346 §2) and a `/Size` past their own entries. Every
+    /// writer in this tree that numbers a new object asks this (ADR 2362).
+    ///
+    /// Saturates at `u32::MAX` for a file that states that number, as the writers' own arithmetic
+    /// always has.
+    #[must_use]
+    pub fn next_object_number(&self) -> u32 {
+        let size = self
+            .trailer
+            .get("Size")
+            .and_then(Object::as_integer)
+            .and_then(|size| u32::try_from(size).ok())
+            .unwrap_or_default();
+        self.highest_stated_number()
+            .unwrap_or_default()
+            .saturating_add(1)
+            .max(size)
+    }
+
+    /// Carries the highest number `replaced` stated into this table, which replaces it.
+    ///
+    /// A rebuild discards the table it was asked to repair, and the numbers that table stated are
+    /// still in the file's sections for any reader that opens it — so a writer must not take them.
+    pub(crate) fn keep_stated(&mut self, replaced: &XrefTable) {
+        self.stated_by_replaced = self
+            .stated_by_replaced
+            .max(replaced.highest_stated_number());
     }
 
     /// The object streams a scan found, earliest in the file first.
@@ -291,14 +361,17 @@ pub(crate) const HEADER_SEARCH_WINDOW: usize = 1024;
 pub fn read(file: &FileBytes, limits: Limits) -> SyntaxResult<XrefTable> {
     let header_at = header_position(file);
 
-    if let Some(table) = read_from_startxref(file, header_at.unwrap_or(0), limits, None)
-        && !table.is_empty()
-    {
-        return Ok(table);
-    }
+    let replaced = match read_from_startxref(file, header_at.unwrap_or(0), limits, None) {
+        Some(table) if !table.is_empty() => return Ok(table),
+        unusable => unusable,
+    };
 
     // The table was absent, unreadable, or empty. Scan.
-    rebuild(file, limits, header_at.is_some())
+    let mut rebuilt = rebuild(file, limits, header_at.is_some())?;
+    if let Some(replaced) = &replaced {
+        rebuilt.keep_stated(replaced);
+    }
+    Ok(rebuilt)
 }
 
 /// Where the file's header stands, which §7.5.2 makes the origin of every offset in it.

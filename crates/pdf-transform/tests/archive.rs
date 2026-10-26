@@ -8087,6 +8087,187 @@ fn a_key_table_349_names_nothing_for_stops_the_run_unless_the_operator_said() {
 }
 
 #[test]
+fn a_date_written_in_utf_16_is_the_same_date() {
+    // §7.9.4 makes a date "a text string value", and its NOTE 1 says the grammar is read off "the
+    // text string value after appropriate processing" — so §7.9.2.2's UTF-16BE spelling of a date
+    // names the same instant as its PDFDocEncoding spelling, and it moves (`doc/adr/2358`).
+    let source = a_document_stating_information(
+        "/CreationDate <FEFF0044003A00320030003100340030003300310034003100320034003200310031002B00300031002700300030>",
+    );
+    let target = Target::Four(Flavour::Plain);
+
+    let (_, output) = convert(&source, target, Authorisations::default());
+    let output = output.expect("nothing stops the conversion");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let packet = document_packet(&output);
+    let xmp = pdf_model::xmp::Xmp::parse(&packet).expect("the packet parses");
+    assert_eq!(
+        xmp.text(pdf_model::xmp::XMP, "CreateDate"),
+        Some("2014-03-14T12:42:11+01:00")
+    );
+}
+
+#[test]
+fn a_date_that_is_not_one_stops_the_run_unless_the_operator_said() {
+    // A value no reading of §7.9.4 makes a date has no instant for `xmp:CreateDate` to hold, and
+    // guessing one is `doc/questions/A48`'s forbidden repair. `unreadable = "discard"` is the
+    // operator's answer, and a configuration saying nothing stops by name (`doc/adr/2358`). The
+    // values are corpus producers': a year with three digits too many, a date with no `D:`, an
+    // English sentence, an empty string, and a boolean where Table 349 asks for a name.
+    for entries in [
+        "/Title (A title) /CreationDate (D:191000712121135)",
+        "/Title (A title) /CreationDate (20120219204058Z)",
+        "/Title (A title) /CreationDate (Fri, Jan 20, 1995)",
+        "/Title (A title) /CreationDate ()",
+        "/Title (A title) /Trapped false",
+    ] {
+        let source = a_document_stating_information(entries);
+        let target = Target::Four(Flavour::Plain);
+
+        let (report, output) = convert(&source, target, Authorisations::default());
+        assert!(output.is_none(), "nothing is written for {entries}");
+        let decided = decision(
+            &report,
+            "file-structure/document-information-dictionary-needs-piece-info",
+        );
+        let Decision::Refused(because) = decided else {
+            panic!("refused by name for {entries}: {decided:?}");
+        };
+        assert!(
+            because.sentence().contains("`unreadable`"),
+            "and the sentence names the operator's answer: {}",
+            because.sentence()
+        );
+
+        let config = "[site.\"file-structure/document-information-dictionary-needs-piece-info\"]\n\
+             remedy = \"preserve\"\nunreadable = \"discard\"\n\
+             [site.\"file-structure/document-information-dictionary-holds-only-a-modification-date\"]\n\
+             remedy = \"preserve\"\nunreadable = \"discard\"\n";
+        let plan = plan_from(config, target);
+        let (report, output) = convert_with_plan(&source, &plan);
+        let output = output.expect("the operator's answer converts it");
+        assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+        let packet = document_packet(&output);
+        let xmp = pdf_model::xmp::Xmp::parse(&packet).expect("the packet parses");
+        assert_eq!(xmp.text(pdf_model::xmp::DC, "title"), Some("A title"));
+        assert_eq!(
+            xmp.text(pdf_model::xmp::XMP, "CreateDate"),
+            None,
+            "no instant is invented for {entries}"
+        );
+        let moved = &conversion(&report).moved_information;
+        assert!(
+            moved.iter().any(|entry| entry.property.is_none()
+                && entry.fate.contains("unreadable = \"discard\"")
+                && (entry.key == "CreationDate" || entry.key == "Trapped")),
+            "and the report names the key whose value left: {moved:?}"
+        );
+    }
+}
+
+#[test]
+fn a_kept_modification_date_that_is_not_one_is_kept_as_written_unless_the_packet_names_one() {
+    // Beside a `/PieceInfo` the clause keeps `/ModDate` rather than moving it, so nothing is
+    // dropped and no answer is asked: the entry stays as its producer wrote it. What is owed is
+    // §14.3.4's equivalence with the packet where the packet states `xmp:ModifyDate` too, and a
+    // date naming no instant cannot be held to one (`doc/adr/2358`).
+    let catalog = "/PieceInfo << /Acme << /LastModified (D:20140924212303+02'00) \
+                   /Private (nothing) >> >>"
+        .to_owned();
+    let info = Some("/Title (A title) /ModDate (24/09/2014)".to_owned());
+    let target = Target::Four(Flavour::Plain);
+    let source = Conforming {
+        catalog: catalog.clone(),
+        info: info.clone(),
+        ..Conforming::default()
+    }
+    .build();
+    let (_, output) = convert(&source, target, Authorisations::default());
+    let output = output.expect("nothing stops the conversion");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let document = Document::open_with_limits(output, Limits::DEFAULT).expect("the output parses");
+    let pdf_syntax::Object::Dictionary(kept) = document.get_key(document.trailer(), "Info") else {
+        panic!("the dictionary the clause keeps is still there");
+    };
+    assert_eq!(
+        document.get_key(&kept, "ModDate").as_string(),
+        Some(&b"24/09/2014"[..]),
+        "the kept entry is the producer's, as written"
+    );
+
+    let mut packet = String::new();
+    packet.push_str("<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n");
+    packet.push_str("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n");
+    packet.push_str("<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n");
+    packet.push_str("<rdf:Description rdf:about=\"\" ");
+    packet.push_str("xmlns:pdfaid=\"http://www.aiim.org/pdfa/ns/id/\" ");
+    packet.push_str("xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\">\n");
+    packet.push_str("<pdfaid:part>4</pdfaid:part>\n<pdfaid:rev>2020</pdfaid:rev>\n");
+    packet.push_str("<xmp:ModifyDate>2014-09-24T21:23:03+02:00</xmp:ModifyDate>\n");
+    packet.push_str("</rdf:Description>\n</rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>");
+    let source = Conforming {
+        catalog,
+        info,
+        metadata: Packet::Stated(packet),
+        ..Conforming::default()
+    }
+    .build();
+    let config = "[site.\"file-structure/document-information-dictionary-holds-only-a-modification-date\"]\n\
+         remedy = \"preserve\"\nunreadable = \"discard\"\n";
+    let plan = plan_from(config, target);
+    let (report, output) = convert_with_plan(&source, &plan);
+    assert!(output.is_none(), "nothing is written");
+    let decided = decision(
+        &report,
+        "file-structure/document-information-dictionary-holds-only-a-modification-date",
+    );
+    let Decision::Refused(because) = decided else {
+        panic!("refused by name: {decided:?}");
+    };
+    assert!(
+        because.sentence().contains("keeps this document's ModDate"),
+        "{}",
+        because.sentence()
+    );
+}
+
+#[test]
+fn an_information_dictionary_stating_nothing_goes_and_states_nothing() {
+    // ISO 19005-4 section 6.1.3 forbids the trailer's key, and an empty dictionary — or one a
+    // reference to a nonexistent object names, which §7.3.9 makes the null object — has nothing
+    // for the packet to take, so the key is all that goes (`doc/adr/2358`).
+    let empty = a_document_stating_information("");
+    let dangling = {
+        let at = empty
+            .windows(b"/Info ".len())
+            .rposition(|window| window == b"/Info ")
+            .expect("the trailer names the dictionary");
+        let end = at
+            + empty[at..]
+                .windows(b" R".len())
+                .position(|window| window == b" R")
+                .expect("by reference")
+            + b" R".len();
+        // The trailer follows the cross-reference section, so no offset moves with it.
+        let mut changed = empty.clone();
+        changed.splice(at..end, b"/Info 9999 0 R".iter().copied());
+        changed
+    };
+    let target = Target::Four(Flavour::Plain);
+    for source in [empty, dangling] {
+        let (_, output) = convert(&source, target, Authorisations::default());
+        let output = output.expect("nothing stops the conversion");
+        assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+        let document =
+            Document::open_with_limits(output, Limits::DEFAULT).expect("the output parses");
+        assert!(
+            document.trailer().get("Info").is_none(),
+            "the trailer states no dictionary"
+        );
+    }
+}
+
+#[test]
 fn the_modification_date_stays_in_a_dictionary_the_clause_keeps() {
     // ISO 19005-4 section 6.1.3's own carve-out: a catalog stating a `/PieceInfo` keeps `/Info`,
     // holding `/ModDate` and nothing else. §14.5 is why — a page-piece dictionary's

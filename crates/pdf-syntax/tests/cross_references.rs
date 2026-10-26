@@ -1506,3 +1506,107 @@ fn the_header_is_whichever_marker_stands_first_in_the_file() {
         "measured from the %PDF- at byte zero"
     );
 }
+
+/// The HEAD-era rule five writers used: past the highest number the reader kept, or `/Size`.
+fn past_the_kept_numbers(document: &Document) -> u32 {
+    let kept = document.xref().object_numbers().max().unwrap_or_default();
+    let size = document
+        .trailer()
+        .get("Size")
+        .and_then(Object::as_integer)
+        .and_then(|size| u32::try_from(size).ok())
+        .unwrap_or_default();
+    (kept + 1).max(size)
+}
+
+/// One section over the skeleton and object 4, whose last entry is `last` for object 5, under a
+/// `/Size` of 5 that leaves object 5 out — the understatement ADR 2346 §2 counts in the corpus.
+fn with_fifth_entry(last: &str, fifth: &str) -> Vec<u8> {
+    let mut chunks: Vec<&str> = SKELETON.to_vec();
+    chunks.push(SPARE);
+    if !fifth.is_empty() {
+        chunks.push(fifth);
+    }
+    let (mut out, offsets) = body(&chunks);
+    let at = out.len();
+    out.push_str("xref\n0 6\n0000000000 65535 f \n");
+    for offset in offsets.iter().take(4) {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "{last}\ntrailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// **A new object is numbered past every number a section stated, not past the numbers kept.**
+///
+/// §7.5.4's subsection header states "the number of entries in the subsection", so `0 6` states
+/// object 5 whether its entry is in use, free, or will not lex. A writer numbering from the
+/// in-use entries alone gives a new object number 5 in the last two files: one the file freed,
+/// whose next use §7.5.4 says carries "the generation number to be used the next time an object
+/// with that object number is created", and one whose object the reader still finds by its own
+/// header. The intact file's answer is the old rule's, which is what keeps every writer's output
+/// for such a file as it was (ADR 2362).
+///
+/// Calibrated per trap 13: `past_the_kept_numbers` is the rule the writers used, and it names 5
+/// for both damaged files.
+#[test]
+fn the_next_object_number_is_past_every_number_a_section_states() {
+    let intact = {
+        let mut chunks: Vec<&str> = SKELETON.to_vec();
+        chunks.push(SPARE);
+        let (mut out, offsets) = body(&chunks);
+        classic_section(&mut out, &offsets, "");
+        open(out.into_bytes())
+    };
+    assert_eq!(intact.xref().next_object_number(), 5);
+    assert_eq!(past_the_kept_numbers(&intact), 5);
+
+    let freed = open(with_fifth_entry("0000000000 00001 f ", ""));
+    assert_eq!(freed.xref().highest_stated_number(), Some(5));
+    assert_eq!(past_the_kept_numbers(&freed), 5, "the old rule reuses it");
+    assert_eq!(freed.xref().next_object_number(), 6);
+
+    let unread = open(with_fifth_entry(
+        "xxxxxxxxxx 00000 n ",
+        "5 0 obj\n(found by its header)\nendobj\n",
+    ));
+    assert!(
+        object(&unread, 5).as_string().is_some(),
+        "the plant: object 5 resolves although its entry was not read"
+    );
+    assert_eq!(past_the_kept_numbers(&unread), 5, "the old rule reuses it");
+    assert_eq!(unread.xref().next_object_number(), 6);
+}
+
+/// **A table rebuilt by scanning keeps the numbers the table it replaced had stated.**
+///
+/// A table of free entries alone names no object, so it is rebuilt from the body's headers, and
+/// the scan finds objects 1 to 4. The table's `0 10` still stands in the file and states objects
+/// up to 9, so a conversion numbering a new object from the scan alone would take a number the
+/// file's own section names.
+#[test]
+fn a_rebuilt_table_keeps_the_numbers_its_sections_stated() {
+    let mut chunks: Vec<&str> = SKELETON.to_vec();
+    chunks.push(SPARE);
+    let (mut out, _) = body(&chunks);
+    let at = out.len();
+    out.push_str("xref\n0 10\n");
+    for _ in 0..10 {
+        out.push_str("0000000000 65535 f \n");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{at}\n%%EOF\n"
+    );
+    let document = Document::open(out.into_bytes()).expect("the body's objects are intact");
+    assert!(
+        document.was_recovered(),
+        "a table naming no object is rebuilt"
+    );
+    assert_eq!(past_the_kept_numbers(&document), 5);
+    assert_eq!(document.xref().highest_stated_number(), Some(9));
+    assert_eq!(document.xref().next_object_number(), 10);
+}

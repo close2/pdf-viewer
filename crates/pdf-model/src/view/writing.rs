@@ -773,25 +773,13 @@ pub(super) struct Update {
 }
 
 impl Update {
-    /// An empty update beside a document, knowing which object numbers are free.
-    ///
-    /// **Both sources of the answer are consulted and the larger wins.** §7.5.5 makes `/Size`
-    /// "one greater than the highest object number used in the file", but 68 of the corpus's 974
-    /// documents write at least one cross-reference entry beyond their own `/Size` — see the
-    /// §7.5.5 ledger row, where the same understatement costs 66 documents their page tree if the
-    /// clause's ignore rule is applied. Trusting `/Size` alone here would be worse than that: a
-    /// new object would land on an existing one's number and silently replace it.
+    /// An empty update beside a document, numbering its first new object where
+    /// [`pdf_syntax::XrefTable::next_object_number`] says nothing in the file has stated one
+    /// (ADR 2362).
     fn beside(document: &Document, modified: Option<pdf_syntax::Date>) -> Self {
-        let highest = document.xref().object_numbers().max().unwrap_or_default();
-        let stated = document
-            .trailer()
-            .get("Size")
-            .and_then(Object::as_integer)
-            .and_then(|size| u32::try_from(size).ok())
-            .unwrap_or_default();
         Self {
             replacements: BTreeMap::new(),
-            next: highest.saturating_add(1).max(stated),
+            next: document.xref().next_object_number(),
             owed: Vec::new(),
             modified,
         }

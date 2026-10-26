@@ -1064,23 +1064,17 @@ impl ViewState {
     /// A number no object in the file and nothing already added or attached is using, and
     /// which nothing after this call will be given.
     ///
-    /// The same rule [`writing::Update::beside`] applies, and for the same reason: §7.5.5 makes
-    /// `/Size` "one greater than the highest object number used in the file" and 68 of the corpus's
-    /// 974 documents write a cross-reference entry beyond their own, so the larger of the two wins.
-    /// The count already handed out is added on top, because those numbers are spoken for even
-    /// though nothing has been written yet — and it is a count that only grows while anything
+    /// Counted from [`pdf_syntax::XrefTable::next_object_number`], the number
+    /// [`writing::Update::beside`] starts from too (ADR 2362). The count already handed out is
+    /// added on top, because those numbers are spoken for even though nothing has been written
+    /// yet — and it is a count that only grows while anything
     /// allocated is held (see [`Self::allocated`]), so a number is never given twice in one
     /// sitting.
     fn allocate(&mut self, document: &Document) -> ObjectId {
-        let highest = document.xref().object_numbers().max().unwrap_or_default();
-        let stated = document
-            .trailer()
-            .get("Size")
-            .and_then(Object::as_integer)
-            .and_then(|size| u32::try_from(size).ok())
-            .unwrap_or_default();
-        let base = highest.saturating_add(1).max(stated);
-        let number = base.saturating_add(self.allocated);
+        let number = document
+            .xref()
+            .next_object_number()
+            .saturating_add(self.allocated);
         self.allocated = self.allocated.saturating_add(1);
         ObjectId {
             number,

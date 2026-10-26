@@ -233,8 +233,10 @@ impl Viewer {
         let (viewport, scale, unread) = (self.viewport, self.scale, self.unread);
         let out = self
             .out
+            .as_ref()
             .filter(|out| out.document == id)
-            .map(|out| out.page);
+            .map(|out| out.pages.clone())
+            .unwrap_or_default();
         let Some(open) = self.documents.get_mut(&id) else {
             return;
         };
@@ -285,7 +287,7 @@ impl Viewer {
         }
 
         if !unread {
-            Self::interpret_arranged(open, id, out, events);
+            Self::interpret_arranged(open, id, &out, events);
         }
     }
 
@@ -294,17 +296,17 @@ impl Viewer {
     /// [`Self::arrange`]'s second half, and [`Self::anticipate`]'s whole: one description of what
     /// interpreting an arranged page does — its reports, its readback, its revision — so that a
     /// page interpreted ahead of the first viewport is the page the first arrangement would have
-    /// interpreted (ADR 1531). `out` is the page a host is reading on a thread of its own, which
-    /// is left unread here because its read is already running (ADR 2344).
+    /// interpreted (ADR 1531). `out` is the pages a host is reading on a thread of its own, which
+    /// are left unread here because their read is already running (ADRs 2344, 2360).
     pub(super) fn interpret_arranged(
         open: &mut Open,
         id: DocumentId,
-        out: Option<usize>,
+        out: &[usize],
         events: &mut Vec<Event>,
     ) {
         for index in 0..open.on_screen.len() {
             if open.on_screen[index].interpreted.is_some()
-                || out == Some(open.on_screen[index].page)
+                || out.contains(&open.on_screen[index].page)
             {
                 continue;
             }

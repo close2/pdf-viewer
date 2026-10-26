@@ -81,7 +81,7 @@ mod warm;
 mod tests;
 
 use std::collections::HashMap;
-use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
 use crate::error::PipelineProblem;
@@ -240,6 +240,20 @@ pub(crate) struct PipelineStore {
     /// notifier, and it notifies on every exit path" a property of one file rather than
     /// a habit spread over two.
     warmed: Condvar,
+    /// The compute coverage lane's four pipelines, or the refusal that stopped them
+    /// ([`compute::Kept`](crate::compute::Kept)): compiled by the first frame that takes the
+    /// lane, or ahead of it by the warm-up thread on a device whose host asked for that
+    /// ([`Options::warm_compute_lane`](crate::startup::Options::warm_compute_lane), the caller's
+    /// ADR 2354). A cell of its own rather than an entry of `state`, so that the lane's compile
+    /// on the warm-up thread holds no lock a render pipeline's ask waits behind; a frame that
+    /// arrives while that compile runs waits for it in the cell rather than starting a second.
+    compute: OnceLock<crate::compute::Kept>,
+    /// What the compute lane's warm-up waits for once the warm set is recorded: the device's
+    /// first completed frame, or the device going ([`warm::LaneCue`]). **Every line that
+    /// waits on it or notifies it is in `warm.rs`**, as `warmed`'s are.
+    lane_cue: Mutex<warm::LaneCue>,
+    /// Released when `lane_cue` stops being [`LaneCue::Waiting`](warm::LaneCue::Waiting).
+    lane_cued: Condvar,
 }
 
 impl std::fmt::Debug for PipelineStore {
@@ -274,7 +288,33 @@ impl PipelineStore {
             }),
             warm_up: Mutex::new(WarmUp::Running),
             warmed: Condvar::new(),
+            compute: OnceLock::new(),
+            lane_cue: Mutex::new(warm::LaneCue::NotAsked),
+            lane_cued: Condvar::new(),
         })
+    }
+
+    /// The compute lane's pipelines, compiling them now if neither the warm-up thread nor an
+    /// earlier frame has, or the refusal kept from the compile that tried (ADR 1962). The
+    /// second element is `Some(duration)` when this call did the compiling or waited for the
+    /// warm-up thread's compile to end, so the frame that paid can name it in its phases.
+    pub(crate) fn compute_lane(&self) -> (&crate::compute::Kept, Option<Duration>) {
+        if let Some(kept) = self.compute.get() {
+            return (kept, None);
+        }
+        let started = Instant::now();
+        let kept = self
+            .compute
+            .get_or_init(|| crate::compute::Pipelines::compile(&self.device));
+        (kept, Some(started.elapsed()))
+    }
+
+    /// The compute lane's pipelines compiled ahead of its first frame, by the warm-up thread
+    /// (the caller's ADR 2354). A refusal is kept in the cell, so the lane's first frame hears
+    /// it by name as it would have from its own compile (ADR 1962).
+    pub(crate) fn warm_compute_lane(&self) {
+        self.compute
+            .get_or_init(|| crate::compute::Pipelines::compile(&self.device));
     }
 
     /// The pipeline for a lane and target format, compiling it now if the warm

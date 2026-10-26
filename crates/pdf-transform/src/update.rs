@@ -300,18 +300,6 @@ fn root_of(document: &Document, at: usize) -> Result<(ObjectId, Dictionary), Ref
     Ok((root_id, catalog))
 }
 
-/// Where the next object this update writes is numbered from.
-fn next_object_number(document: &Document) -> u32 {
-    let highest = document.xref().object_numbers().max().unwrap_or_default();
-    let stated = document
-        .trailer()
-        .get("Size")
-        .and_then(Object::as_integer)
-        .and_then(|size| u32::try_from(size).ok())
-        .unwrap_or_default();
-    highest.saturating_add(1).max(stated)
-}
-
 /// One page's object number, refused where the document has no such page or the page is not an
 /// indirect object.
 fn page_id(document: &Document, at: usize, page: usize) -> Result<ObjectId, Refusal> {
@@ -560,7 +548,7 @@ fn delete_page(
 
     let tree_root = catalog.get("Pages").and_then(Object::as_reference);
 
-    let mut next = next_object_number(document);
+    let mut next = document.xref().next_object_number();
     let mut fresh = move || {
         let id = ObjectId {
             number: next,
@@ -769,7 +757,7 @@ fn insert_pages(
 
     let ids = carried_ids(incoming, &there, from, carried_count)?;
 
-    let mut next = next_object_number(document);
+    let mut next = document.xref().next_object_number();
     let mut carry = Carry::new(incoming, next);
     // Every carried page is numbered before any of them is walked, so that a reference from one
     // page's annotation to another page of the incoming block maps to the copy rather than to
@@ -1064,7 +1052,7 @@ fn set_information(
         validate(entry)?;
     }
     let version = document.version();
-    let mut next = next_object_number(document);
+    let mut next = document.xref().next_object_number();
     let mut replacements: BTreeMap<ObjectId, Object> = BTreeMap::new();
     let mut additions = Dictionary::new();
     let stated = document.trailer().get("Info").cloned();

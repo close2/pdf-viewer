@@ -164,9 +164,310 @@ fn transparent_stop(position: f32, colour: Color) -> tiny_skia::GradientStop {
     reason = "the component is clamped to 0..=1, so twice its level is at most 510 and the level \
               at most 255; the first cast is the floor of a value that is not negative"
 )]
-fn nearest_level(component: f32) -> u8 {
+pub(crate) fn nearest_level(component: f32) -> u8 {
     let doubled = (f64::from(component.clamp(0.0, 1.0)) * 510.0) as u32;
     doubled.div_ceil(2) as u8
+}
+
+/// Builds a pattern of an axial or radial ramp's own levels, one cell per device pixel, for a fill
+/// whose shape is `path` (ISO 32000-2 §8.7.4.5.3, §8.7.4.5.4).
+///
+/// The clause gives a point the colour function's answer at the `t` of that point, and the oracle
+/// computes it here rather than handing the ramp to `tiny-skia` as a gradient: each pixel centre of
+/// the page's grid is taken back into the shading's space, its `t` is the projection onto the axis
+/// or [`pdf_render::blend_parameter`]'s greatest admissible circle, and the cell holds the level
+/// nearest the ramp's colour there — [`nearest_level`], the byte the device's shading lane writes
+/// for an opaque paint (ADRs 2310, 2325). A gradient interpolates in the library and is stored by
+/// its high-precision pipeline as the `f32` product with 255 rounded to nearest-even, which breaks
+/// a component a hair below a half level upwards half the time, and nothing in this tree sees the
+/// value before that store (ADR 2356).
+///
+/// The cells are on the page's own grid, for [`fill_radial`]'s reason: a window's or a strip's
+/// pixel is evaluated at the centre the page's is (ADR 2148). They cover the shape's device bounds
+/// on this surface, and the pattern is positioned in the path's space — the surface's matrix
+/// `shape.at` inverted, since every converter `draw_fill` reaches moves a paint by it (trap 2) — so
+/// each device pixel reads its own cell, and the shape's edge, its marks and its bands stay the
+/// converters' they were.
+///
+/// `None` where the ramp is not one this draws — a cone, which [`fill_radial`] draws first; an
+/// axis of no length, a geometry `tiny-skia` refuses as a gradient, or a ramp below full alpha,
+/// each of which keeps the gradient's answer; a shading with Table 77's `/Background`, which is
+/// [`fill_with_background`]'s — or where the shape covers no pixel of this surface.
+pub(crate) fn ramp_shader<'a>(
+    shading: &Shading,
+    path: &tiny_skia::Path,
+    (shape, onto_page): (Placed, Placed),
+    target: (u32, u32),
+    scratch: &'a mut Option<tiny_skia::Pixmap>,
+) -> Option<tiny_skia::Shader<'a>> {
+    if shading.background.is_some() {
+        return None;
+    }
+    let sweep = Sweep::of(shading)?;
+    // A translucent ramp — a constant alpha below 1 folded into its stops — is the gradient's: the
+    // library multiplies the colour by its alpha in `f32` and the blend rounds the pixel once, which
+    // is how the device hands a paint below full alpha over (ADR 2350), where a cell would round the
+    // product first and the blend a second time (trap 257).
+    if sweep.ramp().stops.iter().any(|stop| stop.colour.a < 1.0) {
+        return None;
+    }
+    let mut cells = RampCells::of(sweep.ramp());
+    let grid = OnSurface::page(onto_page);
+    let (left, top, right, bottom) = grid.bounds(path, shape, target)?;
+    let to_shading = grid.matrix.invert()?;
+    let onto_path = shape.at.invert()?;
+    let mut pixmap = tiny_skia::Pixmap::new(right.checked_sub(left)?, bottom.checked_sub(top)?)?;
+    let width = pixmap.width() as usize;
+    for (row, cells_of_row) in pixmap.pixels_mut().chunks_exact_mut(width).enumerate() {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a row of a raster bounded by the target, whose extent `MAX_EXTENT` keeps \
+                      under 2^24, so each coordinate is exact in f32"
+        )]
+        let y = (top as usize).saturating_add(row) as f32 + 0.5;
+        for (column, destination) in cells_of_row.iter_mut().enumerate() {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "a column of the same raster, exact in f32 for the same reason"
+            )]
+            let x = (left as usize).saturating_add(column) as f32 + 0.5;
+            if let Some(t) = sweep.at(to_shading.apply(Point { x, y })) {
+                *destination = cells.at(t);
+            }
+        }
+    }
+    let (x, y) = grid.onto_surface(i32::try_from(left).ok()?, i32::try_from(top).ok()?);
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a device pixel index is far below f32's exact integer limit"
+    )]
+    let onto_surface = Transform::translate(x as f32, y as f32);
+    Some(tiny_skia::Pattern::new(
+        scratch.insert(pixmap).as_ref(),
+        tiny_skia::SpreadMode::Pad,
+        // One cell per device pixel, placed at whole pixels: no sample is interpolated.
+        tiny_skia::FilterQuality::Nearest,
+        1.0,
+        crate::convert::transform(onto_surface.then(onto_path)),
+    ))
+}
+
+/// What [`ramp_shader`] reads a pixel's `t` from: an axial shading's axis or a radial shading's two
+/// circles, each with its ramp and `/Extend`.
+enum Sweep<'a> {
+    /// §8.7.4.5.3: the projection onto the axis from `start` along `axis`, `length` its square.
+    Axial {
+        start: Point,
+        axis: (f32, f32),
+        length: f32,
+        extend: (bool, bool),
+        ramp: &'a Ramp,
+    },
+    /// §8.7.4.5.4, for two circles one of which contains the other.
+    Radial(pdf_render::Radial<'a>),
+}
+
+impl<'a> Sweep<'a> {
+    /// The sweep a shading states, or `None` for every shading [`ramp_shader`] leaves alone.
+    ///
+    /// A geometry `tiny-skia` would refuse as a gradient is left to the gradient's own refusal, so
+    /// that it is reported as it was rather than drawn by a second reading of it.
+    fn of(shading: &'a Shading) -> Option<Self> {
+        match shading.kind.as_ref() {
+            ShadingKind::Axial {
+                start,
+                end,
+                ramp,
+                extend,
+            } => {
+                let axis = (end.x - start.x, end.y - start.y);
+                let length = axis.0.mul_add(axis.0, axis.1 * axis.1);
+                (length > 0.0 && length.is_finite()).then_some(Self::Axial {
+                    start: *start,
+                    axis,
+                    length,
+                    extend: *extend,
+                    ramp,
+                })
+            }
+            ShadingKind::Radial {
+                start,
+                start_radius,
+                end,
+                end_radius,
+                ramp,
+                extend,
+            } => {
+                tiny_skia::RadialGradient::new(
+                    tiny_skia::Point::from_xy(start.x, start.y),
+                    *start_radius,
+                    tiny_skia::Point::from_xy(end.x, end.y),
+                    *end_radius,
+                    stops(ramp, *extend),
+                    tiny_skia::SpreadMode::Pad,
+                    tiny_skia::Transform::identity(),
+                )?;
+                (!is_a_cone(*start, *start_radius, *end, *end_radius)).then_some(Self::Radial(
+                    pdf_render::Radial {
+                        start: *start,
+                        start_radius: *start_radius,
+                        end: *end,
+                        end_radius: *end_radius,
+                        ramp,
+                        extend: *extend,
+                    },
+                ))
+            }
+            _ => None,
+        }
+    }
+
+    /// The ramp the sweep reads.
+    fn ramp(&self) -> &'a Ramp {
+        match self {
+            Self::Axial { ramp, .. } => ramp,
+            Self::Radial(radial) => radial.ramp,
+        }
+    }
+
+    /// The `t` of a point in the shading's own space, clamped into `0.0..=1.0`, or `None` where
+    /// `/Extend` leaves the point unpainted, which paints nothing rather than the end colour —
+    /// ISO 32000-2 §8.7.4.5.3, for a point before the axis's start:
+    ///
+    /// > For x ′ < 0, if the first element of the Extend array is true , then t = t 0 ; otherwise,
+    /// > t is undefined and the point shall be left unpainted.
+    ///
+    /// and §8.7.4.5.4's blend circles, through [`pdf_render::blend_parameter`], for a radial one.
+    fn at(&self, point: Point) -> Option<f32> {
+        match self {
+            Self::Axial {
+                start,
+                axis,
+                length,
+                extend,
+                ..
+            } => {
+                let along = (point.x - start.x) * axis.0 + (point.y - start.y) * axis.1;
+                let t = along / length;
+                if !t.is_finite() || (t < 0.0 && !extend.0) || (t > 1.0 && !extend.1) {
+                    return None;
+                }
+                Some(t.clamp(0.0, 1.0))
+            }
+            Self::Radial(radial) => pdf_render::blend_parameter(
+                point,
+                radial.start,
+                radial.start_radius,
+                radial.end,
+                radial.end_radius,
+                radial.extend,
+            )
+            .map(|s| s.clamp(0.0, 1.0)),
+        }
+    }
+}
+
+/// A ramp's cells by `t`: [`Ramp::colour_at`]'s colour, as [`level_of_colour`]'s cell, found
+/// without walking the stops.
+///
+/// A cell per device pixel asks a ramp for a colour sixteen million times on a 4x page, and a ramp
+/// sampled from a type 0 function holds hundreds of stops (ADR 2356 prices it on `issue14165.pdf`).
+/// So the stop is found by halving, after the interval the last `t` fell in is tried, and a `t`
+/// equal to the last one — every pixel of a row across a vertical axis — takes the last cell. Each
+/// finds the stop the walk finds, the first after the first whose position is not below `t`,
+/// wherever the positions ascend, which is what [`Ramp::stops`] states; a ramp whose positions do
+/// not ascend is walked, so the answer is the walk's either way, and
+/// `a_ramps_cells_are_the_walks_colours` holds the two equal bit for bit.
+struct RampCells<'a> {
+    /// The ramp read.
+    ramp: &'a Ramp,
+    /// Whether its positions ascend, so that halving finds the walk's stop.
+    ascending: bool,
+    /// The stop after the first that the last `t` interpolated towards, counted from the second.
+    hint: usize,
+    /// The last `t`'s bits and its cell.
+    last: Option<(u32, tiny_skia::PremultipliedColorU8)>,
+}
+
+impl<'a> RampCells<'a> {
+    /// The cells of `ramp`.
+    fn of(ramp: &'a Ramp) -> Self {
+        Self {
+            ramp,
+            ascending: ramp.stops.windows(2).all(|pair| pair[0].at <= pair[1].at),
+            hint: 0,
+            last: None,
+        }
+    }
+
+    /// The cell at `t`.
+    fn at(&mut self, t: f32) -> tiny_skia::PremultipliedColorU8 {
+        if let Some((bits, cell)) = self.last
+            && bits == t.to_bits()
+        {
+            return cell;
+        }
+        let cell = level_of_colour(self.colour(t));
+        self.last = Some((t.to_bits(), cell));
+        cell
+    }
+
+    /// The colour at `t`, as [`Ramp::colour_at`] answers it.
+    fn colour(&mut self, t: f32) -> Color {
+        let stops = &self.ramp.stops;
+        let t = t.clamp(0.0, 1.0);
+        let (Some(first), true) = (stops.first(), self.ascending && !t.is_nan()) else {
+            return self.ramp.colour_at(t);
+        };
+        if t <= first.at {
+            return first.colour;
+        }
+        let rest = stops.get(1..).unwrap_or_default();
+        let below = |index: usize| rest.get(index).is_some_and(|stop| stop.at < t);
+        // The number of stops after the first whose position is below `t`: the hint where the
+        // stop before it is below and its own is not, which over ascending positions is that
+        // number and no other.
+        let index = if self.hint.checked_sub(1).is_none_or(below) && !below(self.hint) {
+            self.hint
+        } else {
+            rest.partition_point(|stop| stop.at < t)
+        };
+        self.hint = index;
+        // `index` counts from the second stop, so the stop it names is `index + 1` and the one
+        // before it `index`; past the last, the last stop's colour is the walk's answer too.
+        let (Some(previous), Some(stop)) = (stops.get(index), rest.get(index)) else {
+            return stops.last().map_or(first.colour, |last| last.colour);
+        };
+        let span = stop.at - previous.at;
+        let fraction = if span > 0.0 {
+            (t - previous.at) / span
+        } else {
+            1.0
+        };
+        let (a, b) = (previous.colour, stop.colour);
+        Color {
+            r: a.r + (b.r - a.r) * fraction,
+            g: a.g + (b.g - a.g) * fraction,
+            b: a.b + (b.b - a.b) * fraction,
+            a: a.a + (b.a - a.a) * fraction,
+        }
+    }
+}
+
+/// A straight-alpha colour as the premultiplied cell [`nearest_level`] makes of it, channel by
+/// channel, as [`sampled_shader`] writes a cell of its grid.
+fn level_of_colour(colour: Color) -> tiny_skia::PremultipliedColorU8 {
+    let alpha = colour.a.clamp(0.0, 1.0);
+    let channel = |value: f32| nearest_level(value.clamp(0.0, 1.0) * alpha);
+    // A premultiplied channel is never above its alpha, and the level of a smaller fraction is
+    // never the larger, so `from_rgba`'s refusal of a channel past its alpha cannot fire.
+    tiny_skia::PremultipliedColorU8::from_rgba(
+        channel(colour.r),
+        channel(colour.g),
+        channel(colour.b),
+        nearest_level(alpha),
+    )
+    .unwrap_or(tiny_skia::PremultipliedColorU8::TRANSPARENT)
 }
 
 /// Builds a pattern shader over a sampled shading's grid.
@@ -592,7 +893,54 @@ fn fill_with_raster(
 
 #[cfg(test)]
 mod tests {
-    use super::nearest_level;
+    use pdf_render::{Color, Ramp, Stop};
+
+    use super::{RampCells, nearest_level};
+
+    /// ADR 2356: [`RampCells`] answers what [`Ramp::colour_at`]'s walk answers, bit for bit — over
+    /// ramps with a hard step, a run of three stops at one position and ends short of 0 and 1, at
+    /// every stop, an ulp either side of it and between, asked in an order that leaves the hint
+    /// wrong as often as right — and walks a ramp whose positions do not ascend.
+    #[test]
+    fn a_ramps_cells_are_the_walks_colours() {
+        let colour = |v: f32| Color::rgba(v, 1.0 - v, v * 0.5, 1.0);
+        let ramp = |positions: &[f32]| Ramp {
+            stops: positions
+                .iter()
+                .enumerate()
+                .map(|(index, &at)| Stop {
+                    at,
+                    colour: colour(f32::from(u8::try_from(index).unwrap_or(0)) / 7.0),
+                })
+                .collect::<Vec<_>>()
+                .into(),
+        };
+        let ramps = [
+            ramp(&[0.0, 1.0]),
+            ramp(&[0.0, 0.25, 0.25, 0.6, 1.0]),
+            ramp(&[0.1, 0.4, 0.4, 0.4, 0.9]),
+            ramp(&[0.0, 0.5, 0.3, 1.0]),
+            ramp(&[0.5]),
+        ];
+        for ramp in &ramps {
+            let mut asked: Vec<f32> = Vec::new();
+            for stop in ramp.stops.iter() {
+                asked.extend([stop.at.next_down(), stop.at, stop.at.next_up()]);
+            }
+            asked.extend((0..=64_u8).map(|step| f32::from(step) / 64.0));
+            asked.extend([-0.5, 1.5, f32::NAN]);
+            let mut cells = RampCells::of(ramp);
+            for &t in asked.iter().chain(asked.iter().rev()) {
+                let (walked, halved) = (ramp.colour_at(t), cells.colour(t));
+                assert_eq!(
+                    [walked.r, walked.g, walked.b, walked.a].map(f32::to_bits),
+                    [halved.r, halved.g, halved.b, halved.a].map(f32::to_bits),
+                    "t = {t} over {:?}",
+                    ramp.stops.iter().map(|stop| stop.at).collect::<Vec<_>>()
+                );
+            }
+        }
+    }
 
     /// ADR 2340: every level `k` below 255 at the `f32` nearest `(k + ½) / 255` and at the `f32`
     /// either side of it — the 765 greys ADR 2325 proved the device's `nearest_level` with — is

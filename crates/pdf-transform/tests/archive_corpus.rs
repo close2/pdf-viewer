@@ -1069,6 +1069,7 @@ fn preserve_sweep(root: &Path, part: &str, target: Target) -> Preserved {
                         by_attachment: false,
                         discard_undeterminable: false,
                         unmapped: pdf_transform::archive::Unmapped::Stop,
+                        unreadable: pdf_transform::archive::RemedyKind::Stop,
                     })
                     .collect(),
                 resolutions: Vec::new(),

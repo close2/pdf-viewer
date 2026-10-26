@@ -279,6 +279,18 @@ sentence had named as a subdictionary with no `/AS`: a push button's stream is n
 subdictionary its new `/AS` selects (ADR 2319), and the check box and radio button half keeps a
 sentence of its own. The one larger, a composite font nobody named a program for, waits on Q570.
 
+The largest refusal at part 4 a conversion answers, ISO 19005-4 section 6.1.3's "a CreationDate or
+ModDate that is not §7.9.4's date", is answered (ADR 2358): a date is read as the text string
+§7.9.4 makes it, so a UTF-16BE or UTF-8 date moves; one no reading makes a date, and a value of no
+form Table 349 states, is dropped under the row's `unreadable = "discard"`, which the three
+metadata-tolerant profiles say; and an empty or dangling `/Info` moves nothing and goes. Owed: the
+fuzzed documents that now convert at part 4, as they already did at part 2, into files veraPDF
+cannot parse — a root page node whose `/Count` is a stream, or which states no `/Kids` — belong
+with `optimize::refuse_a_document_only_recovery_reads`; and the validator's font population is the
+indirect font dictionaries alone, so a direct descendant (`Test-plusminus.pdf`'s `CIDFontType2`
+with no `/CIDToGIDMap`) and a font resource that resolves to null (`issue12823.pdf`) pass it while
+veraPDF fails both, at part 2 and part 4 alike.
+
 Table 109's widths-array count is checked independently for simple fonts. A nonempty short
 array narrows LastChar; a long array loses only entries beyond it. This `Stated` rewrite keeps
 all effective advances and does not replace dictionary widths with a font program's metrics

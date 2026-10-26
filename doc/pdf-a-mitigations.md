@@ -221,9 +221,9 @@ ISO 19005-4 6.1.3 · PDF/A-4, 4f, 4e · **built** (ADR 1269)
 - **By target** — **kind difference, and it is the whole answer**: part 2 states no such rule, so a
   PDF/A-2 target carries `/Info` through untouched. This is the cleanest *retarget* answer in the
   catalogue: the document is not failing, the target is asking.
-- **From a configuration** — `remedy = "preserve"` plus `unmapped = "discard" | "stop"`. The
-  operator needs one fact: a reader's File → Properties panel changes where it reads from. Nothing
-  else is visible.
+- **From a configuration** — `remedy = "preserve"` plus `unmapped = "discard" | "stop"` and
+  `unreadable = "discard" | "stop"`. The operator needs one fact: a reader's File → Properties
+  panel changes where it reads from. Nothing else is visible.
 - **Built** (ADR 1269). Each entry is written into the XMP packet under the property §14.3.3's
   Table 349 NOTE names for its key, in the shape ISO 19005-2 6.6.2.3.1 makes that property's — a
   `dc:title` written as a simple value would fail `metadata/properties-use-known-schemas` on the
@@ -234,6 +234,17 @@ ISO 19005-4 6.1.3 · PDF/A-4, 4f, 4e · **built** (ADR 1269)
   is kept holding `/ModDate` alone, which the clause's own carve-out is for and §14.5 is the reason
   for — and then both sources are written, so a `/ModDate` the packet's `xmp:ModifyDate`
   contradicts refuses the conversion rather than leaving §14.3.4's fourth `shall` broken.
+- **A value not of its key's form** (ADR 2358) — a `/CreationDate` or `/ModDate` that is not
+  §7.9.4's date, or a value that is neither a text string nor `/Trapped`'s name. A date is read as
+  the text string §7.9.4 makes it first, so a UTF-16BE or UTF-8 spelling of a date moves like any
+  other. What no reading makes a date names no instant for `xmp:CreateDate` to hold, and choosing
+  one is `doc/questions/A48`'s forbidden repair, so the answer is the operator's: `unreadable =
+  "discard"` drops the value and the report names the key, `stop` keeps the refusal by name;
+  `as-if-printed`, `as-shown` and `only-metadata-loss` say `discard`, as they do for `unmapped`.
+  A `/ModDate` the clause keeps beside a `/PieceInfo` is never dropped: it stays as written, and is
+  refused only where the packet's `xmp:ModifyDate` names an instant it would have to equal. A
+  trailer `/Info` that is empty, or names an object that does not exist (§7.3.9's null), moves
+  nothing and goes.
 - **`unmapped = "extension-schema"` is recognised and refused**, and this entry offered it in
   error. ISO 19005-2 6.6.2.3.2's container describes a schema *a packet uses*, and a `/Info` key is
   in no schema: putting one into the packet needs a namespace URI first, and a namespace URI is the

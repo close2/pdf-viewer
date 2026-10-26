@@ -438,6 +438,16 @@ instructions. The display lists' digests are unchanged, and no byte moved on six
 content read once a plane is priced at about 155 M for some 12.7 MB held against ADR 0365's window,
 and not built (ADR 2349).
 
+**The plan's `ICCBased` conversion and the photograph page's decoder were split on 2026-10-26 after
+ADR 2348.** The memo's 17 instructions a pixel were 12 for a pixel equal to the one before it and
+about 48 for a hit; `convert_three` now tests that run a block of eight pixels at a time and keeps
+the converted pixel's word in the memo, 455.4 → 193.4 M instructions on `22060_A1_01_Plans.pdf` and
+249.5 → 206.4 M on `issue19971.pdf`, the display lists' digests unchanged (ADR 2364). The turn gate
+does not see it on the plan, whose conversions run beside its eight frames' decodes. On
+`issue12841_reduced.pdf` the decoder's entropy decoding is 56 % of the interpretation, the inverse
+DCT 14 %, colour conversion 13 % and upsampling 3 %; three constructions in the owner's fork are
+priced at about 211 M on the plan and left to it (ADR 2365).
+
 **`bug1721218_reduced.pdf`'s and `personwithdog.pdf`'s interpretations were re-measured on
 2026-10-26 after ADR 2332**, one clock hold interleaving HEAD's export with the change's, pinned,
 load 1.2–2.2: a paint inside a four-component group asks its space for the alpha rather than
