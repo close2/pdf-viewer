@@ -141,16 +141,16 @@ done
 CONFINED_STEPS=(confined reader_words field_commit combo_commit scripts_levels script_asks
     script_withdrawn script_goto script_timer script_timer_quiet script_beep script_triggers located
     located_displayed signature_policy loading_bar zoom_past_the_bound
-    zoom_past_the_bound_uncrossable zoomed_window_processor rendition_click link_levels
-    launch_levels launch_menu submission_levels bare_session_start archive_converted union_declined)
+    zoom_past_the_bound_uncrossable zoomed_window_processor rendition_click movie_click
+    link_levels launch_levels launch_menu submission_levels bare_session_start archive_converted union_declined)
 WINDOW_STEPS=(drive accessibility reader_words field_commit combo_commit scripts_levels
     script_painted script_asks script_withdrawn script_goto script_timer script_timer_quiet
     script_beep script_triggers script_keys list_arrows combo_arrows popup_rich popup_face popup_rtl
     popup_spacing popup_scale popup_tall popup_list_rtl popup_tab popup_tab_rtl popup_leader
     note_window note_typed note_caret reply_threaded located located_displayed signature_policy
     loading_bar page_as_built zoom_stand_in retained_page zoomed_window zoom_past_the_bound
-    transition_frames rendition_click link_levels launch_levels launch_menu submission_levels
-    bare_session_start archive_converted union_declined)
+    transition_frames rendition_click movie_click link_levels launch_levels launch_menu
+    submission_levels bare_session_start archive_converted union_declined)
 # Outside every list, run by `--step` alone: each opens `HEAVY_FILE`, a document the drive does not
 # write, and two of the three verdicts are times (ADRs 1815, 1825); each says itself in which
 # windows it is offered.
@@ -4062,6 +4062,41 @@ PY2
         verdict "$step" works "$(tail -n "+$((mark + 1))" "$LOG" | grep -o 'hands a media clip[^;]*' | head -1)"
     else
         verdict "$step" wrong "the click said nothing of the clip: $LOG"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+# movie_click: a click on §12.5.6.17's movie annotation hands its movie over as `Event::Media`, through
+# the hand-off a rendition's clip uses and the same `viewer_host::handed_media` sentence (ADR 2382) —
+# the confined window from its worker, the other three from their own viewer. The drive's own page:
+# one movie annotation over the whole of it, its Table 306 `/F` a URL, so a click at the window's
+# middle is on it at any arrangement and no file is written for the hand-off.
+movie_click() {
+    local step=89-movie-click file="$FIXTURES/drive-movie.pdf" mark X Y WIDTH HEIGHT
+    [ -s "$file" ] || python3 - "$file" <<'PY2'
+import sys, pikepdf
+from pikepdf import Name, Dictionary, Array, String
+pdf = pikepdf.new()
+pdf.pages.append(pikepdf.Page(Dictionary(Type=Name.Page, MediaBox=[0, 0, 612, 792],
+                                         Contents=pdf.make_indirect(pikepdf.Stream(pdf, b"")))))
+page = pdf.pages[0]
+movie = pdf.make_indirect(Dictionary(Type=Name.Annot, Subtype=Name.Movie,
+                                     Rect=Array([0, 0, 612, 792]), P=page.obj, F=4,
+                                     T=String("drive"),
+                                     Movie=Dictionary(F=Dictionary(Type=Name.Filespec, FS=Name.URL,
+                                                                   F=String("https://example.org/movie.mov")))))
+page.obj.Annots = Array([movie])
+pdf.save(sys.argv[1])
+PY2
+    launch "$file"
+    eval "$(xdotool getwindowgeometry --shell "$(main_window)" | grep -E '^(X|Y|WIDTH|HEIGHT)=')"
+    mark=$(lines)
+    xdotool mousemove $((X + WIDTH / 2)) $((Y + HEIGHT / 2)) click 1
+    wait_for 15 said_since "$mark" "https://example.org/movie.mov"
+    shot "$step"
+    if said_since "$mark" "hands a media clip to this window for a player — https://example.org/movie.mov"; then
+        verdict "$step" works "$(tail -n "+$((mark + 1))" "$LOG" | grep -o 'hands a media clip[^;]*' | head -1)"
+    else
+        verdict "$step" wrong "the click said nothing of the movie: $LOG"
     fi
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }

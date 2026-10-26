@@ -300,6 +300,20 @@ struct Census {
     with_lines: usize,
     lines: usize,
     characters: usize,
+    /// Elements whose own text crosses underlined, overlined and struck through, by Table 380's
+    /// `/TextDecorationType` as `viewer_core` resolved it (ADR 2384).
+    ///
+    /// Counted only where the element has [`Self::with_lines`]'s runs, because the runs are where
+    /// a host sets the attribute. **Printed and not ratcheted**, on `doc/todo/05`'s rule.
+    decorated: [usize; 3],
+    /// Elements whose own text crosses raised and lowered — Table 380's `/TextPosition`, or the
+    /// sign of `/BaselineShift` summed along the inline chain (ADR 2384). Printed, not ratcheted.
+    positioned: [usize; 2],
+    /// The documents in which either count found an element, one entry each with that document's
+    /// own counts, so that the totals are a list a reader can open.
+    drawn_as: Vec<(String, String)>,
+    /// Where one document's first such element is, until the document is named.
+    first_drawn_as: Option<String>,
     /// An element whose own text a caret reaches and whose own text is empty, which cannot happen.
     ///
     /// Not a count but an assertion in the shape of one: [`viewer_core::TextLine`] states that its
@@ -467,6 +481,13 @@ impl Census {
         self.with_lines = self.with_lines.saturating_add(from.with_lines);
         self.lines = self.lines.saturating_add(from.lines);
         self.characters = self.characters.saturating_add(from.characters);
+        for (into, from) in self.decorated.iter_mut().zip(from.decorated) {
+            *into = into.saturating_add(from);
+        }
+        for (into, from) in self.positioned.iter_mut().zip(from.positioned) {
+            *into = into.saturating_add(from);
+        }
+        self.drawn_as.extend(from.drawn_as);
         self.inconsistent_lines.extend(from.inconsistent_lines);
         self.untagged_pages = self.untagged_pages.saturating_add(from.untagged_pages);
         self.untagged_honest = self.untagged_honest.saturating_add(from.untagged_honest);
@@ -807,7 +828,7 @@ impl Census {
                 }
             }
             if !node.lines.is_empty() {
-                self.with_lines = self.with_lines.saturating_add(1);
+                self.own_text(node, where_);
             }
             self.lines = self.lines.saturating_add(node.lines.len());
             for line in &node.lines {
@@ -847,6 +868,50 @@ impl Census {
                 ),
             ));
         }
+    }
+}
+
+impl Census {
+    /// One element whose own text crosses as runs, and Table 380's decoration and position on it.
+    fn own_text(&mut self, node: &AccessibilityNode, where_: &str) {
+        use pdf_model::structure::{TextDecoration, TextPosition};
+        self.with_lines = self.with_lines.saturating_add(1);
+        let decorated = match node.decoration {
+            TextDecoration::None => None,
+            TextDecoration::Underline => Some(0),
+            TextDecoration::Overline => Some(1),
+            TextDecoration::LineThrough => Some(2),
+        };
+        let positioned = match node.position {
+            TextPosition::Normal => None,
+            TextPosition::Sup => Some(0),
+            TextPosition::Sub => Some(1),
+        };
+        if let Some(count) = decorated.and_then(|index| self.decorated.get_mut(index)) {
+            *count = count.saturating_add(1);
+        }
+        if let Some(count) = positioned.and_then(|index| self.positioned.get_mut(index)) {
+            *count = count.saturating_add(1);
+        }
+        if (decorated.is_some() || positioned.is_some()) && self.first_drawn_as.is_none() {
+            self.first_drawn_as = Some(format!("first on {where_}, a {}", node.role));
+        }
+    }
+
+    /// One document's Table 380 counts as one witness line, where it has any.
+    fn name_drawn_as(&mut self, name: String) {
+        let Some(first) = self.first_drawn_as.take() else {
+            return;
+        };
+        let [underlined, overlined, struck] = self.decorated;
+        let [raised, lowered] = self.positioned;
+        self.drawn_as.push((
+            name,
+            format!(
+                "{underlined} underlined, {overlined} overlined, {struck} struck through, \
+                 {raised} raised, {lowered} lowered; {first}"
+            ),
+        ));
     }
 }
 
@@ -1005,6 +1070,7 @@ fn examine(path: &Path) -> Census {
         &name,
         count,
     );
+    census.name_drawn_as(name);
     census
 }
 
@@ -1245,6 +1311,20 @@ fn print_witnesses(what: &str, entries: &[(String, String)]) {
     }
 }
 
+/// Table 380's two counts and the documents that hold them (ADR 2384).
+fn report_drawn_as(census: &Census) {
+    let [underlined, overlined, struck] = census.decorated;
+    let [raised, lowered] = census.positioned;
+    println!(
+        "  Table 380's text drawn as: {underlined} underlined, {overlined} overlined, {struck} \
+         struck through, {raised} raised, {lowered} lowered"
+    );
+    print_witnesses(
+        "documents whose text crosses decorated or off its line",
+        &census.drawn_as,
+    );
+}
+
 /// Prints the whole census, in the order the counts were argued for.
 fn report(census: &Census, files: usize, seconds: f64) {
     println!(
@@ -1322,6 +1402,7 @@ fn report(census: &Census, files: usize, seconds: f64) {
         "a line whose characters and text disagree, which no consumer could index",
         &census.inconsistent_lines,
     );
+    report_drawn_as(census);
     println!(
         "untagged pages answering the honest empty tree: {} of {}",
         census.untagged_honest, census.untagged_pages
@@ -1678,10 +1759,12 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
         // 891 → 892 with ADR 1723: a text note with no `/Popup` now has a window of its own, so a page
         // whose only annotation is such a note answers where it answered nothing. 892 → 893 when
         // `doc/pima7667-2001.pdf`, an untagged document, joined the population (ADR 1942's round).
+        // 893 → 894 when `doc/XFA-3_3.pdf`, the untagged XFA 3.3 specification, joined it (A633;
+        // with the file set aside the census reads 893 again).
         gate_ratchet::floor(
             "untagged pages answering honestly, whole population",
             census.untagged_honest,
-            893,
+            894,
         );
         // ADR 1369's two counts, new with it, over the whole population.
         gate_ratchet::floor(

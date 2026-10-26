@@ -33,8 +33,10 @@
 //! | `tables` | spans, header scope, cell headers, layout spacing, the writing mode, lists |
 //! | `owners` | from an object, widget, appearance or identifier to its element |
 //! | `logical` | §14.8.2.5's order and the text it gives |
+//! | `inline` | Table 380's decoration, baseline shift and text position, as one element states them |
 
 mod attributes;
+mod inline;
 mod logical;
 mod owners;
 mod roles;
@@ -43,6 +45,8 @@ mod tables;
 use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId, tree};
+
+pub use inline::{InlineStatements, TextDecoration, TextPosition};
 
 /// The `/StructParents`-keyed map from a marked-content identifier to its structure element.
 ///

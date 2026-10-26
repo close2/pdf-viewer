@@ -214,9 +214,9 @@ bands — which are lists of cases, the remedy section 15 names for test files.
 
 ## 17. Next, in the census's order
 
-`tools/state.sh gods`'s impl-block table, read past the blocks split above: `Carry` in
-`pdf-transform/src/structure.rs` and `App` in
-`viewer-ui/src/bin/quorra/typing.rs`, in that order until the census says otherwise (`Vfs` in
+`tools/state.sh gods`'s impl-block table, read past the blocks split above: `App` in
+`viewer-ui/src/bin/quorra/typing.rs` until the census says otherwise (`Carry` in
+`pdf-transform/src/structure.rs` is split into six modules, section 19, ADR 2390; `Vfs` in
 `pdf-vfs/src/lib.rs` is split into seven modules, section 18, ADR 2368; `Host` in
 `viewer-ui/src/bin/quorra-confined.rs` is split into five modules, ADR 2352); each is split as entry 1 was, by concern, behind the proof the
 opening paragraph names.
@@ -240,3 +240,14 @@ is the one field widened.
   sibling only and could be reached through a method (`doc/history/1727`).
 - The intra-doc links the splits wrote to `Interpreter::…` and `super::…` are long lines a later
   pass may rewrap (`doc/history/1719`, `doc/history/1727`).
+
+## 19. Built — `Carry` (`crates/pdf-transform/src/structure.rs`, with `structure/`), ADR 2390
+
+`Carry` was one impl block of 1 085 lines and 21 methods. `structure.rs` keeps the module
+documentation, the `Host` seam, the data types, `plan` (the one entry that drives the others) and the
+free functions that read a `/K` or a `/StructTreeRoot`. The children each continue `impl Carry`:
+`reconcile` (Table 354's root entries, `/IDTree`'s refusal and Table 353's flags), `hierarchy` (the
+walk that keeps what reaches a page, and the slots it numbers), `wrapper` (Annex L's one `Document`),
+`keys` (the parent-tree keys and the plan's small answers), `write` (the rebuilt elements and the
+parent tree) and `report` (the warnings). Tokens are unchanged; the eight methods a sibling calls
+became `pub(super)`.

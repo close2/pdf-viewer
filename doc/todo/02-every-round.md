@@ -920,7 +920,8 @@ memory of the session the quota ended. `tools/batch.sh` is the command; this is 
    pending, and keep the batch baseline commit fixed when measuring later changes. Checkpoints
    stay on the batch branch; the final gates below still precede the fast-forward to `main`.
 4. **When all are in**: `cargo fmt --all` (now safe — nobody is editing), tier 1 in full, then
-   `tools/batch.sh gates` for tiers 2 and 3, `t2-launch_path` with its clocks among them (one line
+   `tools/batch.sh gates --merge` for tiers 2 and 3 (the flag, because a run without it is refused —
+   trap 270, ADR 2387), `t2-launch_path` with its clocks among them (one line
    per gate in the log with its `wall` and its `wait` on the lock, a failure's tail beside it, the
    launch gate's line its own summary naming each figure outside its band; `tools/state.sh
    gates-cost` prints which gate is dear). The log's last line, and one line per round with the duration and tool uses its

@@ -24,27 +24,31 @@
 //! | `GoToDp` | §12.6.4.5 | yes — the page §14.12's document part begins at |
 //! | `Rendition` | §12.6.4.14 | read, and its rendition judged by §13.2.2 — [`crate::media`]; the playing is excluded |
 //! | `SubmitForm` | §12.7.6.2 | yes — read here, composed by [`crate::submission`], transmitted by whoever has a network |
+//! | `Movie` | §12.6.4.10 | read, and the movie's file handed over by [`crate::media::movie`]; the playing is excluded |
+//! | `Sound` | §12.6.4.9 | read, and the sound's file handed over by [`crate::media::sound`]; the playing is excluded |
 //! | everything else | | [`Action::Refused`], by name |
 //!
 //! The refusals are not laziness and they are not uniform. A `Launch` whose file is an
 //! application wants a process started, which principle 3's sandbox deliberately withholds (ADR
 //! 0014); `JavaScript` is run beside this path, by the runner a host supplies at the reader's
 //! level, and its refusal here is what is said where no runner was handed it (ADRs 1752, 1904);
-//! `Sound`, `Movie` and `GoTo3DView` are clause 13's multimedia, excluded by `CLAUDE.md`'s closed
-//! list; `Rendition` is read, because the entry admits §13.2.2's viability and the hand-off of the
-//! clip it names, and only its playing stays excluded (ADR 1960). Each keeps its own name in the refusal so that a caller can say which,
-//! rather than "an action".
+//! `GoTo3DView` and `RichMediaExecute` are clause 13's 3D and multimedia, excluded by `CLAUDE.md`'s
+//! closed list; `Rendition` is read, because the entry admits §13.2.2's viability and the hand-off
+//! of the clip it names, and only its playing stays excluded (ADR 1960). Each keeps its own name in
+//! the refusal so that a caller can say which, rather than "an action".
 //!
-//! **`Sound` and `Movie` are in clause 12 and the standard hands them to clause 13 itself**,
-//! which is worth stating because it makes two of those refusals a reading rather than a policy.
-//! §12.6.4.9 and §12.6.4.10 open with the same sentence, word for word:
+//! **`Sound` and `Movie` are in clause 12 and the standard hands them to clause 13 itself**, which
+//! is why they are read here as `Rendition` is. §12.6.4.9 and §12.6.4.10 open with the same
+//! sentence, word for word:
 //!
 //! > The features described in this subclause are deprecated with PDF 2.0. They are superseded
 //! > by the general multimedia framework described in 13.2, "Multimedia".
 //!
-//! So the exclusion is not being stretched across a clause boundary to reach them; the clause
-//! that defines them says where they now live, and that is the clause `CLAUDE.md` principle 5
-//! excludes. §12.6.4.6's `Launch` is handed to no other clause, but it does say what a processor
+//! So the clause that defines them says where they now live, and what `CLAUDE.md`'s clause 13
+//! entry admits there — the media file handed to this machine's own player at the reader's level —
+//! is what they receive: the file a movie or a sound names crosses through the hand-off a
+//! rendition's clip uses, and the playing stays the entry's exclusion (`doc/questions/A631`, ADR
+//! 2382). §12.6.4.6's `Launch` is handed to no other clause, but it does say what a processor
 //! does with an action whose target it cannot name — "it shall do nothing" — and Table 207's `/F`
 //! may name "the document that shall be opened", which is a PDF this reader opens under the same
 //! four levels as `GoToR`'s. `launch` is where the three part (ADRs 1368, 1358).
@@ -156,6 +160,13 @@ pub enum Action {
     /// amended entry admits is §13.2.2's viability reported and the clip handed to the host, and a
     /// rendition action is where §13.2.1 says playing begins, so it is where both happen (ADR 1960).
     Rendition(Rendition),
+    /// §12.6.4.10: play, stop, pause or resume the movie of a movie annotation — read, and its
+    /// movie's file handed over by [`crate::media::movie`] where the action asks for it to be
+    /// played (ADR 2382).
+    Movie(MovieAction),
+    /// §12.6.4.9: play a sound object — read, and its file handed over by
+    /// [`crate::media::sound`] (ADR 2382).
+    Sound(SoundAction),
     /// An action type this program recognises and does not perform, named.
     ///
     /// A `&'static str` rather than the file's own bytes: the name is one of Table 201's
@@ -216,6 +227,105 @@ fn rendition(document: &Document, dict: &Dictionary) -> Action {
         operation,
         annotation: dict.get("AN").and_then(Object::as_reference),
         rendition: dict.get("R").cloned().unwrap_or(Object::Null),
+    })
+}
+
+/// §12.6.4.10's movie action, Table 213, as far as this program acts on it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MovieAction {
+    /// Table 213's `/Operation`.
+    pub operation: MovieOperation,
+    /// The movie annotation, as Table 213's `/Annotation` or `/T` names it.
+    pub target: MovieTarget,
+    /// The action dictionary itself, whose Table 307 entries the clause makes the stronger
+    /// statement: "Any information specified in the movie action dictionary overrides these
+    /// values."
+    pub overrides: Dictionary,
+}
+
+/// Which movie annotation a movie action names.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MovieTarget {
+    /// Table 213's `/Annotation`, "\[a]n indirect reference to a movie annotation".
+    Annotation(ObjectId),
+    /// Table 213's `/T`, the Table 189 title of a movie annotation.
+    Title(String),
+    /// What Table 213 forbids or cannot name, in the sentence a person is told: "The dictionary
+    /// shall include either an Annotation or a T entry but not both."
+    Invalid(&'static str),
+}
+
+/// Table 213's `/Operation`, its four names and what is left.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MovieOperation {
+    /// `Play`, and the default.
+    Play,
+    /// `Stop`: "Stop playing the movie."
+    Stop,
+    /// `Pause`: "Pause a playing movie."
+    Pause,
+    /// `Resume`: "Resume a paused movie."
+    Resume,
+    /// A name the table does not define, kept to be said.
+    Unrecognised(String),
+}
+
+/// §12.6.4.9's sound action, Table 212, as far as this program acts on it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SoundAction {
+    /// Table 212's `/Sound`, unresolved: [`crate::media::sound`] reads it.
+    pub sound: Object,
+    /// Which of Table 212's `/Volume`, `/Synchronous`, `/Repeat` and `/Mix` the action states —
+    /// each a parameter of playing the sound, which a player handed only the file is told nothing
+    /// of, so each is said.
+    pub stated: Vec<&'static str>,
+}
+
+/// §12.6.4.10's action, read.
+fn movie(document: &Document, dict: &Dictionary) -> Action {
+    let operation = match document.get_key(dict, "Operation").as_name() {
+        None => MovieOperation::Play,
+        Some(name) => match name.as_bytes() {
+            b"Play" => MovieOperation::Play,
+            b"Stop" => MovieOperation::Stop,
+            b"Pause" => MovieOperation::Pause,
+            b"Resume" => MovieOperation::Resume,
+            other => MovieOperation::Unrecognised(String::from_utf8_lossy(other).into_owned()),
+        },
+    };
+    let title = match document.get_key(dict, "T") {
+        Object::String(bytes) => Some(pdf_syntax::text_string(&bytes)),
+        _ => None,
+    };
+    let target = match (dict.get("Annotation"), title) {
+        (Some(_), Some(_)) => MovieTarget::Invalid(
+            "Movie: Table 213 allows an /Annotation or a /T and not both, and this action states \
+             both",
+        ),
+        (Some(Object::Reference(id)), None) => MovieTarget::Annotation(*id),
+        (Some(_), None) => MovieTarget::Invalid(
+            "Movie: Table 213's /Annotation is not an indirect reference to an annotation",
+        ),
+        (None, Some(title)) => MovieTarget::Title(title),
+        (None, None) => MovieTarget::Invalid(
+            "Movie: Table 213 names the movie by /Annotation or /T, and this action states neither",
+        ),
+    };
+    Action::Movie(MovieAction {
+        operation,
+        target,
+        overrides: dict.clone(),
+    })
+}
+
+/// §12.6.4.9's action, read.
+fn sound(document: &Document, dict: &Dictionary) -> Action {
+    Action::Sound(SoundAction {
+        sound: dict.get("Sound").cloned().unwrap_or(Object::Null),
+        stated: ["Volume", "Synchronous", "Repeat", "Mix"]
+            .into_iter()
+            .filter(|key| !matches!(document.get_key(dict, key), Object::Null))
+            .collect(),
     })
 }
 
@@ -1545,6 +1655,8 @@ fn one(document: &Document, dict: &Dictionary) -> Option<Action> {
         // dictionary's own; `launch` says which is which.
         b"Launch" => launch(document, dict),
         b"Rendition" => rendition(document, dict),
+        b"Movie" => movie(document, dict),
+        b"Sound" => sound(document, dict),
         other => Action::Refused(refused(other)?),
     })
 }
@@ -1927,21 +2039,19 @@ fn launch(document: &Document, dict: &Dictionary) -> Action {
     Action::Refused("Launch: Table 207 names no target at all, so §12.6.4.6 says to do nothing")
 }
 
-/// The seven of Table 201's types this reader declines with one sentence each.
+/// The three of Table 201's types this reader declines with one sentence each.
 ///
-/// ISO 32000-2's Table 201 lists twenty types, [`one`] performs or reads thirteen of them, and
-/// seven are left with no arm of their own. Five are named here rather than seven, and the two that are not
-/// have sentences their own dictionaries decide: [`launch`] writes `Launch`'s, and [`thread`]
-/// writes the one refusal §12.6.4.7 has left — a `/F` beside a thread or bead named by reference,
-/// which Table 209 says shall be in the current file (ADR 1239).
+/// ISO 32000-2's Table 201 lists twenty types, [`one`] performs or reads seventeen of them, and the
+/// three left have no arm of their own. Two refusals are not here because their own dictionaries
+/// decide them: [`launch`] writes `Launch`'s, and [`thread`] writes the one refusal §12.6.4.7 has
+/// left — a `/F` beside a thread or bead named by reference, which Table 209 says shall be in the
+/// current file (ADR 1239).
 ///
 /// Returning `None` for a name outside the table matters: §12.6.2 says `/S` names a type "see
 /// Table 201 for specific values", so a name the table does not hold is not an action this
 /// standard defines, and reporting it as a refused action would claim knowledge of it.
 fn refused(kind: &[u8]) -> Option<&'static str> {
     Some(match kind {
-        b"Sound" => "Sound: clause 13's multimedia, excluded by CLAUDE.md principle 5",
-        b"Movie" => "Movie: clause 13's multimedia, excluded by CLAUDE.md principle 5",
         b"GoTo3DView" => "GoTo3DView: clause 13's 3D, excluded by CLAUDE.md principle 5",
         // Said only where no runner was handed the script (ADR 1752): what ran then is RFC 0008's
         // Tier 0, which runs a field's one-call `AF*` scripts natively and constructs no

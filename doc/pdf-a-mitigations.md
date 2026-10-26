@@ -1215,8 +1215,17 @@ face is drawn narrowed to the file's widths, **built** (`doc/questions/A47`, `A5
   the embedding incurs**: a document needing both losses names both in the report and in the file's
   own `xmpMM:History`, per font with the scale it lost, and converts only where both are authorised
   (ADR 2262).
-- **Still refused, by name**: a composite font nobody named a program for; a font no shipped face
-  covers; a machine's face drawn for a code the page shows that the shipped face lacks; and a
+- **An `Adobe-Identity` composite font the file does not embed, whose `/ToUnicode` states a usable
+  character for every shown code** (§9.7.5.2 forbids the identity `CMap`s with such a font) is
+  re-keyed (`doc/questions/A570`, ADR 2378): the shipped face for its name, or the CJK pack's
+  collection program where that face lacks a character, gives each CID the glyph its character
+  selects — a `glyf` face whole through a `/CIDToGIDMap` stream, a `CFF ` face as a subset whose
+  charset carries the document's CIDs — with the content stream, encoding, widths and `/ToUnicode`
+  untouched. The losses are `machine-face` and `glyphs-from-to-unicode`; `as-if-printed` answers
+  both `discard` and `as-shown` leaves them at `stop`. Where the map does not answer, the page is
+  the rasterized page's, A570's second remedy, not built.
+- **Still refused, by name**: a composite font nobody named a program for and that states no usable
+  `/ToUnicode`; a font no shipped face covers; a machine's face drawn for a code the page shows that the shipped face lacks; and a
   result the proof finds drawn differently.
 
 #### `fonts/font-programs-filed-by-their-format`

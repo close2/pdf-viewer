@@ -2909,3 +2909,51 @@ fn a_cell_states_the_identifiers_of_the_headers_that_describe_it() {
     );
     assert_eq!(tree.cell_headers(&doc, &elements[2]), None);
 }
+
+/// Table 380's four entries a platform's text interface has a word for, as one element states
+/// them: each name in its cell's list, a colour of three components in 0.0 to 1.0, and a name or
+/// a colour outside what the cell allows read as the default and as unstated respectively (ADR
+/// 2384).
+#[test]
+fn an_element_states_its_decoration_its_colour_its_shift_and_its_position() {
+    use super::{InlineStatements, TextDecoration, TextPosition};
+    let doc = document(&[
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+        "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+        "<< /Type /StructTreeRoot /K [5 0 R 6 0 R 7 0 R] >>",
+        "<< /Type /StructElem /S /Span /Pg 3 0 R /A << /O /Layout \
+         /TextDecorationType /LineThrough /TextDecorationColor [1 0 0.5] \
+         /BaselineShift -2.5 /TextPosition /Sup >> >>",
+        "<< /Type /StructElem /S /Span /Pg 3 0 R /A << /O /Layout \
+         /TextDecorationType /Wavy /TextDecorationColor [2 0 0] /TextPosition /Raised >> >>",
+        "<< /Type /StructElem /S /Span /Pg 3 0 R >>",
+    ]);
+    let tree = Tree::of(&doc).expect("a structure tree");
+    let stated: Vec<InlineStatements> = tree
+        .children(&doc, None)
+        .into_iter()
+        .filter_map(|child| match child {
+            Child::Element(dict) => Some(tree.inline_statements(&doc, &dict)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        stated,
+        [
+            InlineStatements {
+                decoration: Some(TextDecoration::LineThrough),
+                decoration_colour: Some([1.0, 0.0, 0.5]),
+                baseline_shift: Some(-2.5),
+                position: Some(TextPosition::Sup),
+            },
+            InlineStatements {
+                decoration: Some(TextDecoration::None),
+                decoration_colour: None,
+                baseline_shift: None,
+                position: Some(TextPosition::Normal),
+            },
+            InlineStatements::default(),
+        ]
+    );
+}

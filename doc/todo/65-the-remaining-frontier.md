@@ -197,9 +197,17 @@ document takes; the folding stroke's chords at a twentieth reach no patch (ADR 2
 The feature draws; the residue is a case the first build did not reach. **What would unblock them:**
 a normal round extending the existing code.
 
-No row is in it: the rich text build's last residue, pair kerning in §9.6.2.2's fourteen, is laid out
-from Adobe's published pairs (`doc/questions/A308`, ADR 1916), and a row a later reading opens of this
-kind is placed here.
+The rich text build's last residue, pair kerning in §9.6.2.2's fourteen, is laid out from Adobe's
+published pairs (`doc/questions/A308`, ADR 1916); the rows here are the cases §13.2's viability
+judgement does not yet reach, opened when its family was read against `pdf_model::media` (ADR 2376).
+
+- §13.2.4.3, §13.2.7.2.1, §13.2.7.3, §13.2.7.4.1, §13.2.7.4.4 — `pdf_model::media::judge` reads a
+  media clip section's must-honour offset as non-viable over an image clip, where the clause ignores
+  it, and reads a media players dictionary's `/MU` as non-empty while every player info in it is
+  non-viable — a missing `/PID`, an `/MH` entry Table 302 does not define, a negative version, a
+  partially recognised software identifier — where §13.2.7.2.1 removes each. Both are decidable from
+  the dictionaries, and one build judging a player info's viability closes the last four; §13.2.4.3's
+  two offset rules that need the clip's own timeline stay with it.
 
 - **Beside this bucket and not in it** — §12.5.6.23 is `departed` on two refusals with their cost
   recorded, a calculator function serving region-only colours (ADR 1363) and a `JPXDecode` component
@@ -257,6 +265,10 @@ A normal round can advance or close each of these today; there is no missing sur
 package, no cross-round architecture. Membership is re-derived from the ledger rather than carried: a
 row is in this bucket when its note names none of those three.
 
+- §13.3 — a sound that names its file by Table 5's /F is handed over; one that holds its own samples
+  is said and handed nowhere. A631 settles the build: a RIFF wrapper written for the hand-off, µ-law
+  across unchanged, 8-bit signed and big-endian 16-bit re-encoded on the way (ADR 2382).
+
 
 §11.7.5.3 was here, and is `departed`: every solid family and uncoloured pattern tint converts
 at the paint, §11.7.2's redefinition of `DeviceCMYK` included (ADR 2276), and the one sentence not
@@ -302,7 +314,8 @@ exactly the rows `Ledger::is_aggregate` names and the frontier gate fails on any
 "Aggregate of the rows below" and the reason is the owing row's. They are not independently actionable
 — do not brief a round to *take* one; they flip when the last binding row flips.
 
-§7.4, §7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4.
+§7.4, §7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4, §13.2, §13.2.4, §13.2.7, §13.2.7.2, §13.2.7.4, §14.8,
+§14.8.5, §14.8.5.4.
 
 
 ### Not owed — a documented choice, an exclusion, a deprecation, or a standard-gap
@@ -315,9 +328,15 @@ trusting the word (the DeviceCMYK and transfer-function precedents in `CLAUDE.md
 arrives here is read against its clause and against Errata Collection 3, and its note records the
 reading.
 
-No row is here at present, and the bucket was emptied by re-reading it rather than by building.
-§12.6.4.9's and §12.6.4.10's own opening sentence hands the playing to 13.2, so both are
-`out-of-scope` on principle 5's clause 13 entry, the position §12.6.4.14's rendition action is in.
+- §14.8.5.4.4 — Table 380's decoration and text position cross to the platform's text interface;
+  `/LineHeight`, `/GlyphOrientationVertical`, `/TextDecorationThickness`, `/RubyAlign` and
+  `/RubyPosition` are a reflowing view's parameters, which `doc/questions/A634` keeps out as a layout
+  engine and no platform text interface carries (ADR 2384).
+
+The bucket was otherwise emptied by re-reading it rather than by building.
+§12.6.4.9's and §12.6.4.10's own opening sentence hands them to 13.2, whose clause 13 entry admits
+the media file handed over, so both are `implemented` with their files crossing as §12.6.4.14's
+rendition clip does and the playing excluded (`doc/questions/A631`, ADR 2382).
 §12.5.6.11's caret and §12.5.6.12's stamp legends are `implemented` with the choice named:
 `doc/questions/A72` put their artwork on the far side of its bound, which made it a decision rather
 than a debt (ADR 1367), and a choice the standard leaves is not a departure (ADR 1622).

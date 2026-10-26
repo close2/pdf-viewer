@@ -110,9 +110,10 @@
 //! which is AT-SPI's `StatusBar`: advisory, findable, and not an alert that interrupts.
 
 use accesskit::{
-    Action, Affine, Node, NodeId, Rect, Role, TextDirection, Toggled, Tree, TreeId, TreeUpdate,
+    Action, Affine, Color, Node, NodeId, Rect, Role, TextDecorationStyle, TextDirection, Toggled,
+    Tree, TreeId, TreeUpdate, VerticalOffset,
 };
-use pdf_model::structure::{ArtifactKind, Nonstandard};
+use pdf_model::structure::{ArtifactKind, Nonstandard, TextDecoration, TextPosition};
 use viewer_core::AccessibilityNode;
 
 /// The window, and the root of the tree.
@@ -689,6 +690,15 @@ fn silence(tagging: viewer_core::Tagging) -> &'static str {
 /// to a caret moving by line, and the arrays stay addressable. It is not hypothetical — a
 /// two-column page of ISO 32000-2 has lines of about ninety characters and a full-width table row
 /// has more.
+///
+/// # A run says how its text is drawn, and only a run does
+///
+/// Table 380's decoration and position reach the platform as each run's own text attributes —
+/// [`Node::set_underline`], [`Node::set_overline`], [`Node::set_strikethrough`] and
+/// [`Node::set_vertical_offset`] — and never on the element's node. `accesskit_consumer` inherits
+/// all four down its tree, and §14.8.5.4.4 says `/TextDecorationType` "shall not apply to nested
+/// BLSEs", so an underline set on a paragraph would reach the block inside it; on the runs, an
+/// element's attributes are exactly the ones `viewer_core` resolved for its own text (ADR 2384).
 fn runs(
     node: &AccessibilityNode,
     band: Band,
@@ -699,7 +709,61 @@ fn runs(
     if !speaks {
         return Vec::new();
     }
-    line_runs(&node.lines, band, allocated, out)
+    let first = out.len();
+    let ids = line_runs(&node.lines, band, allocated, out);
+    if let Some(added) = out.get_mut(first..) {
+        for (_, run) in added {
+            drawn_as(run, node);
+        }
+    }
+    ids
+}
+
+/// Table 380's decoration and position, as `viewer_core` resolved them for this element's text,
+/// on one of its runs.
+fn drawn_as(run: &mut Node, node: &AccessibilityNode) {
+    let line = accesskit::TextDecoration {
+        style: TextDecorationStyle::Solid,
+        color: decoration_colour(node.decoration_colour),
+    };
+    match node.decoration {
+        TextDecoration::None => {}
+        TextDecoration::Underline => run.set_underline(line),
+        TextDecoration::Overline => run.set_overline(line),
+        TextDecoration::LineThrough => run.set_strikethrough(line),
+    }
+    match node.position {
+        TextPosition::Sup => run.set_vertical_offset(VerticalOffset::Superscript),
+        TextPosition::Sub => run.set_vertical_offset(VerticalOffset::Subscript),
+        TextPosition::Normal => {}
+    }
+}
+
+/// Table 380's `/TextDecorationColor` as the platform's colour, or opaque black where the element
+/// states none.
+///
+/// **The black is a choice and not the entry's default**: the default is "the current fill colour
+/// in effect at the start of its associated content", which the readback does not carry, and
+/// `accesskit::TextDecoration` cannot be built without a colour. It is the colour §8.4's graphics
+/// state starts a page with, and no bridge this tree links reads it — `accesskit_atspi_common`
+/// publishes an underline as `single` and a line-through as `true` (ADR 2384).
+fn decoration_colour(stated: Option<[f32; 3]>) -> Color {
+    let [red, green, blue] = stated.unwrap_or([0.0; 3]).map(|component| {
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "pdf-model admits only components in 0.0 to 1.0, so the product is in 0 to                       255 before it is rounded"
+        )]
+        {
+            (component.clamp(0.0, 1.0) * 255.0).round() as u8
+        }
+    });
+    Color {
+        red,
+        green,
+        blue,
+        alpha: u8::MAX,
+    }
 }
 
 /// The runs of some lines of text, each line one run or more joined along it — [`runs`]'s body,

@@ -69,6 +69,7 @@ mod composite;
 mod described;
 mod notices;
 mod pack;
+mod rekeyed;
 
 pub use pack::{CjkPack, Collection, PackFiles, PackGap};
 
@@ -312,6 +313,9 @@ pub(super) struct Substitutes {
     /// What the CJK pack's route wrote into each descriptor, so that a font met again widens the
     /// one subset rather than writing a second (`doc/adr/2302`).
     packed: BTreeMap<ObjectId, pack::Packed>,
+    /// What the re-keying route wrote into each descriptor, so that a font met again widens the
+    /// one program rather than writing a second (`doc/adr/2378`).
+    rekeyed: BTreeMap<ObjectId, rekeyed::Rekeyed>,
 }
 
 impl Substitutes {

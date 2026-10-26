@@ -235,6 +235,15 @@ turn_ms = 4.0 .. 8.1
 # against HEAD's 4.46, so the lexer moved none of it (ADR 1870). What moved the stage since the
 # table — the device lane's changes since it or the day's machine — is not separated.
 seventh_ms = 3.9 .. 7.6
+# Kept by ADR 2388. The step left this band twice over for two reasons. The tree's: ADR 2355 sized the
+# compute lane's first frame by its own count, so a light warm-up left a capacity the page outgrew at
+# 1x and the step outgrew again at 2x, and the step ran whole twice — 2.74 .. 3.28 ms in one quiet
+# hold, where the first frame's floor of the old guess reads 1.71 .. 1.89 and the tree before ADR
+# 2355 1.70 .. 1.76. The device's: the 890M holds this row at its lowest clock, 600 MHz, while
+# nothing else uses it, and the step then reads about 5 ms on every tree; the figures above were
+# taken at 1 100 MHz or more, beside another process that kept the device 30 .. 49 % busy, which
+# this gate declines to judge (ADR 1537). A figure outside the band is read beside the device's
+# clock (`pp_dpm_sclk`) before it is attributed to the tree.
 step_ms = 1.1 .. 1.8
 why = "1 032 commands of text and rules"
 

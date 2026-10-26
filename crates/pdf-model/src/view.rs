@@ -561,6 +561,13 @@ pub enum Request {
     /// about its reader (`crate::media::Processor`), and handing the clip on is a decision about
     /// this machine. Neither is part of the state a click changes. ADR 1960.
     Rendition(crate::action::Rendition),
+    /// §12.6.4.10: a movie annotation's movie is to be played, stopped, paused or resumed.
+    ///
+    /// [`Self::Rendition`]'s division: finding a movie annotation by its `/T` needs the page the
+    /// action is on, and handing its file on is a decision about this machine. ADR 2382.
+    Movie(crate::action::MovieAction),
+    /// §12.6.4.9: a sound object is to be played — [`Self::Rendition`]'s division. ADR 2382.
+    Sound(crate::action::SoundAction),
 }
 
 /// Which statement about a field's value a widget is currently showing.

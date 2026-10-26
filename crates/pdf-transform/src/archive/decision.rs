@@ -400,11 +400,22 @@ pub enum Loss {
     /// file does not carry to the processor, so nothing the file states is lost; what this
     /// viewer's window showed is (`doc/questions/A566`, `doc/adr/2262`).
     SubstituteStretch,
+    /// ISO 19005-2 section 6.2.11.4.1, ISO 19005-4 section 6.2.10.4.1: an `Adobe-Identity`
+    /// composite font the file does not embed is given a shipped face's glyphs, each chosen by
+    /// the character the font's `/ToUnicode` states for its code.
+    ///
+    /// ISO 32000-2 §9.7.5.2 forbids the identity `CMap`s with a non-embedded font, because such a
+    /// CID indexes a program nobody supplied; the viewer draws these pages through the font's
+    /// `/ToUnicode` all the same (ADR 0270), and the conversion writes that selection down. What
+    /// is lost is the certainty that each mark is the glyph its producer drew: a `/ToUnicode` is
+    /// §9.10's extraction aid, and a producer may have written it for searching rather than for
+    /// drawing (`doc/questions/A570`, `doc/adr/2378`).
+    GlyphsFromToUnicode,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 24] = [
+    pub const ALL: [Self; 25] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::MetadataPacket,
@@ -429,6 +440,7 @@ impl Loss {
         Self::LanguageIdentifier,
         Self::MachineFace,
         Self::SubstituteStretch,
+        Self::GlyphsFromToUnicode,
     ];
 
     /// The word a caller authorises it by.
@@ -459,6 +471,7 @@ impl Loss {
             Self::LanguageIdentifier => "language-identifier",
             Self::MachineFace => "machine-face",
             Self::SubstituteStretch => "substitute-stretch",
+            Self::GlyphsFromToUnicode => "glyphs-from-to-unicode",
         }
     }
 
@@ -644,6 +657,15 @@ impl Loss {
                  drawn at the face's own width rather than the fitted one. The report names every \
                  such font with the horizontal scale it was drawn at"
             }
+            Self::GlyphsFromToUnicode => {
+                "an Adobe-Identity composite font the file does not embed, whose codes index a \
+                 program nobody supplied, is embedded with the glyphs a shipped face draws for the \
+                 characters its ToUnicode CMap states - the selection this viewer's window already \
+                 makes. Every code keeps its position, and shows the character the map states for \
+                 it; where the producer wrote the map for searching rather than to describe the \
+                 glyphs, the page shows what the map says rather than what was drawn. Name the \
+                 producer's program with --font to keep its own glyphs instead"
+            }
         }
     }
 
@@ -781,6 +803,8 @@ pub struct Authorisations {
     pub machine_face: bool,
     /// Whether [`Loss::SubstituteStretch`] was authorised.
     pub substitute_stretch: bool,
+    /// Whether [`Loss::GlyphsFromToUnicode`] was authorised.
+    pub glyphs_from_to_unicode: bool,
 }
 
 impl Authorisations {
@@ -812,6 +836,7 @@ impl Authorisations {
             Loss::LanguageIdentifier => self.language_identifier,
             Loss::MachineFace => self.machine_face,
             Loss::SubstituteStretch => self.substitute_stretch,
+            Loss::GlyphsFromToUnicode => self.glyphs_from_to_unicode,
         }
     }
 
@@ -848,6 +873,7 @@ impl Authorisations {
             Loss::LanguageIdentifier => self.language_identifier = true,
             Loss::MachineFace => self.machine_face = true,
             Loss::SubstituteStretch => self.substitute_stretch = true,
+            Loss::GlyphsFromToUnicode => self.glyphs_from_to_unicode = true,
         }
     }
 }
@@ -2445,7 +2471,11 @@ pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[
     ),
     (
         "fonts/font-programs-embedded",
-        Conditional::PerDocument(Losses::one(Loss::MachineFace).with(Loss::SubstituteStretch)),
+        Conditional::PerDocument(
+            Losses::one(Loss::MachineFace)
+                .with(Loss::SubstituteStretch)
+                .with(Loss::GlyphsFromToUnicode),
+        ),
     ),
 ];
 

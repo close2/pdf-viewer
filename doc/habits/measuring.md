@@ -1757,7 +1757,10 @@ want of the release `pdf-sandbox-worker`, which the export's fresh target had ne
 export's target by `cp -a --reflink=always` from the batch's release directory saves the cold build, but
 the copy carries the batch's worker — stale against the export's sources — so the worker is rebuilt in the
 export's own first build (`cargo build --release -p pdf-sandbox --bins` beside the gate's binary) before any
-hold is queued, and trap 238's check at the top of the hold's script names it (ADRs 2308, 2317).
+hold is queued, and trap 238's check at the top of the hold's script names it (ADRs 2308, 2317). A gate run under
+`--profile gates` reads its worker from the `gates` directory, not the release one, so there the rebuild is
+`cargo build --profile gates -p pdf-sandbox --bins` — round 1778's first export failed its three corpus
+gates at once for want of it (ADR 2390).
 
 ## 186. An arm inside a hold starts when the one-minute load is below three, with a cap
 

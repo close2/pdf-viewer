@@ -3,13 +3,17 @@
 
 `doc/cjk-pack.md` is the layout and the argument; ADR 2302 is the decision. Run as
 
-    python3 -I -B tools/cjk-pack.py --source <dir> --cmaps data/cmaps --out <empty dir>
+    python3 -I -B tools/cjk-pack.py --fetch <empty dir>
+    python3 -I -B tools/cjk-pack.py --source <dir> --cmaps data/cmaps --out <empty dir> [--zip <dir>]
 
-where `<dir>` holds the four region-specific Source Han Sans Regular programs, the family's
-`LICENSE.txt` and `SourceHanSans_JP_sequences.txt`, each named and checked by digest in
-`SOURCES` below. The output is one `.otf` per collection, the licence beside them, and
-`SHA256SUMS`; `crates/pdf-transform/src/archive/fonts/pack.rs` carries the same digests and refuses
-a program whose bytes are not the ones this script wrote.
+The first downloads the inputs from the commits `SOURCES` names and checks each by digest; the
+second reads them from `<dir>` -- the four region-specific Source Han Sans Regular programs, the
+family's `LICENSE.txt` and `SourceHanSans_JP_sequences.txt` -- checks them again, and writes one
+`.otf` per collection, the licence beside them, and `SHA256SUMS`;
+`crates/pdf-transform/src/archive/fonts/pack.rs` carries the same digests and refuses a program
+whose bytes are not the ones this script wrote. `--zip` adds `quorra-cjk-pack-<n>.zip`, the
+directory `cjk-pack/` holding those files, which is what CI publishes beside the binaries (A596,
+ADR 2386).
 
 **Why each glyph sits where it does.** ISO 32000-2 section 9.7.3 makes a character collection an
 ordered set of glyphs whose order determines each glyph's CID, so glyph index N of a pack program
@@ -35,19 +39,43 @@ import hashlib
 import os
 import re
 import sys
+import urllib.request
+import zipfile
 
 from fontTools.cffLib import FDSelect
 from fontTools.misc.psCharStrings import T2CharString
 from fontTools.ttLib import TTFont
 
-# The inputs, by name and SHA-256: Source Han Sans 2.005R's region-specific subset programs.
+# The pack's number, in its zip's name. One number per pack: a new Source Han release in `SOURCES`,
+# or a change here that moves a byte of the output -- whenever the digests `pack.rs` carries change --
+# is the next number, and a change that leaves those digests as they are is the same pack (A596).
+PACK_VERSION = 1
+
+# Source Han Sans 2.005R: the commit its release tag names, which carries `SubsetOTF/` and the
+# licence, and the `master` commit "Version 2.005 sources", which carries the variation sequences.
+RELEASE = "https://raw.githubusercontent.com/adobe-fonts/source-han-sans/6c709ca72d3d7c46ab42ebecc1a26e7d69595a37/"
+SOURCES_2005 = "https://raw.githubusercontent.com/adobe-fonts/source-han-sans/0b993716f6910f0c8e00f957c767ab3cf5cb7602/"
+
+# The inputs: name -> (where it is fetched from, its SHA-256).
 SOURCES = {
-    "SourceHanSansJP-Regular.otf": "40d1b760d1135539f6b6e0ee2b9f415de6d97576f7676840b06306c7c190c074",
-    "SourceHanSansCN-Regular.otf": "e2bc8a2e7f37474b774fff8db758681ece40bb6947a90d571bce9dd60671a8e4",
-    "SourceHanSansTW-Regular.otf": "5034bc32aa64bc93ce673fe05752724bb31fc6757c6bc1d23e925052c54fd2ac",
-    "SourceHanSansKR-Regular.otf": "d8299926a5284f7461b46fa0617cc05d4f1fce8f034ffff78084225ce8b38071",
-    "SourceHanSans_JP_sequences.txt": None,
-    "LICENSE.txt": None,
+    "SourceHanSansJP-Regular.otf": (
+        RELEASE + "SubsetOTF/JP/SourceHanSansJP-Regular.otf",
+        "40d1b760d1135539f6b6e0ee2b9f415de6d97576f7676840b06306c7c190c074"),
+    "SourceHanSansCN-Regular.otf": (
+        RELEASE + "SubsetOTF/CN/SourceHanSansCN-Regular.otf",
+        "e2bc8a2e7f37474b774fff8db758681ece40bb6947a90d571bce9dd60671a8e4"),
+    "SourceHanSansTW-Regular.otf": (
+        RELEASE + "SubsetOTF/TW/SourceHanSansTW-Regular.otf",
+        "5034bc32aa64bc93ce673fe05752724bb31fc6757c6bc1d23e925052c54fd2ac"),
+    "SourceHanSansKR-Regular.otf": (
+        RELEASE + "SubsetOTF/KR/SourceHanSansKR-Regular.otf",
+        "d8299926a5284f7461b46fa0617cc05d4f1fce8f034ffff78084225ce8b38071"),
+    "SourceHanSans_JP_sequences.txt": (
+        SOURCES_2005 + "SourceHanSans_JP_sequences.txt",
+        "7e4c08e424fdf361c29c689bc77f1aafde978c631bf435d819f042310adfdc03"),
+    "LICENSE.txt": (
+        RELEASE + "LICENSE.txt",
+        "fcac737e761ec63dbfbdce11030a1780161920d80315edba9c8beff1c2bac5a2"),
 }
 
 # Ordering -> (source, supplement, horizontal CMap, vertical CMap, half-width CMaps, IVS file).
@@ -270,18 +298,57 @@ def rename(font, ordering, postscript):
         table.setName(value, name_id, 3, 1, 0x409)
 
 
+def fetch(directory):
+    """Every input from where `SOURCES` names, refused unless its bytes are the digest's."""
+    if os.listdir(directory):
+        sys.exit(f"{directory}: not empty")
+    for name, (url, expected) in SOURCES.items():
+        with urllib.request.urlopen(url, timeout=300) as response:
+            data = response.read()
+        if hashlib.sha256(data).hexdigest() != expected:
+            sys.exit(f"{url}: not the file this pack is built from")
+        with open(os.path.join(directory, name), "wb") as handle:
+            handle.write(data)
+        print(f"{expected}  {name}")
+
+
+def package(out_dir, zip_dir, names):
+    """`quorra-cjk-pack-<n>.zip`: the directory `cjk-pack/` the converter looks for, holding `names`.
+
+    Each entry carries the zip format's earliest time and one mode, in `SHA256SUMS`'s order, so the
+    archive's bytes follow the files' and not the moment or the machine that packed them."""
+    path = os.path.join(zip_dir, f"quorra-cjk-pack-{PACK_VERSION}.zip")
+    with zipfile.ZipFile(path, "x") as archive:
+        for name in names:
+            entry = zipfile.ZipInfo(f"cjk-pack/{name}", date_time=(1980, 1, 1, 0, 0, 0))
+            entry.compress_type = zipfile.ZIP_DEFLATED
+            entry.external_attr = 0o644 << 16
+            with open(os.path.join(out_dir, name), "rb") as handle:
+                archive.writestr(entry, handle.read(), compresslevel=9)
+    return path
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
-    parser.add_argument("--source", required=True)
-    parser.add_argument("--cmaps", required=True)
-    parser.add_argument("--out", required=True)
+    parser.add_argument("--fetch", metavar="DIR",
+                        help="download the inputs into this empty directory, and build nothing")
+    parser.add_argument("--source")
+    parser.add_argument("--cmaps")
+    parser.add_argument("--out")
+    parser.add_argument("--zip", metavar="DIR",
+                        help="also write quorra-cjk-pack-<n>.zip of the output into this directory")
     arguments = parser.parse_args()
-    for name, expected in SOURCES.items():
+    if arguments.fetch is not None:
+        fetch(arguments.fetch)
+        return
+    if None in (arguments.source, arguments.cmaps, arguments.out):
+        parser.error("--source, --cmaps and --out name the build, or --fetch alone a download")
+    for name, (_, expected) in SOURCES.items():
         path = os.path.join(arguments.source, name)
         if not os.path.exists(path):
             sys.exit(f"{path}: missing")
-        if expected is not None and digest(path) != expected:
-            sys.exit(f"{path}: not the program this pack is built from")
+        if digest(path) != expected:
+            sys.exit(f"{path}: not the file this pack is built from")
     if os.listdir(arguments.out):
         sys.exit(f"{arguments.out}: not empty")
     lines = []
@@ -299,6 +366,9 @@ def main():
     with open(os.path.join(arguments.out, "SHA256SUMS"), "w", encoding="ascii") as handle:
         handle.write("\n".join(lines) + "\n")
     print("\n".join(lines))
+    if arguments.zip is not None:
+        names = [line.split("  ", 1)[1] for line in lines] + ["SHA256SUMS"]
+        print(package(arguments.out, arguments.zip, names))
 
 
 if __name__ == "__main__":

@@ -1105,7 +1105,7 @@ not hold restated on `WinAnsiEncoding` (ADR 2278) — a font program filed under
 CIDFont's absent `/CIDToGIDMap` written `Identity` where the edition the source is labelled with
 gives that default (ADR 2246), a composite font of an
 Adobe character collection given a subset of the CJK pack's program for that collection, a second
-download beside the converter, under the loss `machine-face` (ADRs 2302, 2303, `doc/cjk-pack.md`) — an extension schema described from what the packet
+download beside the converter that CI builds by digest and the snapshot publishes, under the loss `machine-face` (ADRs 2302, 2303, 2386, `doc/cjk-pack.md`) — an extension schema described from what the packet
 states and an amendment identifier cut by span (ADRs 1245, 1246), a form's appearances constructed so
 that `/NeedAppearances` can go (ADR 1257), a push button's single appearance stream made the one
 entry of a subdictionary a new `/AS` selects (ADR 2319), an embedded file no part admits taken out with every
@@ -1375,7 +1375,10 @@ element placed by
 about it, then what it encloses, which is what places a table cell whose only content is a widget
 (ADR 0768) — and a `StatusBar` group carrying **what the
 page could not draw**, because the person who cannot see the page is the one for whom a count in
-the title bar is no answer. An untagged page says that it is one rather than being given an
+the title bar is no answer. An element's own text carries Table 380's line under, over or through
+it and its raised or lowered position — `/TextPosition`, else the sign of `/BaselineShift` read as a
+superscript or a subscript, a choice the clause leaves — on its runs, where AT-SPI publishes the
+underline and the line-through (ADR 2384). An untagged page says that it is one rather than being given an
 invented reading order, and its widget annotations cross as controls a client can press, named by
 Table 226's `/TU` and in §12.5.1's tab order (ADR 1369); a tagged page's widget its structure left
 out crosses the same way, after the structure's own nodes (ADR 1381). A client's click on a text field or a choice gives the keyboard to that field in all three windows (ADR 1566), and each window tells the bridge whether it has the keyboard, so a client following the active window reaches the page (ADR 1565). A tagged document's page its

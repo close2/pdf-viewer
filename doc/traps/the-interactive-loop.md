@@ -659,3 +659,12 @@ and the drive's photograph cannot race a placement that nobody makes. Round 1747
 twice under load and left it as a flake; round 1755's placement trace showed the window's own dropped
 resize (trap 263). Before a racer is named for a window out of place, the window's own placing decision
 is read from its trace — what size it was told, what frame followed, and what move it asked for.
+
+### 273. A drive step's expected sentence is copied from the window's log
+
+Round 1774 added the drive's `89-movie-click` step and wrote its expected sentence from
+`pdf_model::media::Clip::describe`, which says "at <url>"; the window prints the hand-off through
+`viewer_core::Media::describe`, which gives the bare URL, so the first drive read four `wrong` in four
+windows on a feature that worked (ADR 2382). Two describers of one thing on two sides of a crate boundary
+need not agree, and the step judges what the person sees. The expected sentence is taken from a run of the
+window itself — its log line, copied — and never composed from the model's side of the hand-off.

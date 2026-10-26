@@ -14,7 +14,7 @@
 //! never embedded. `tools/cjk-pack.py` builds those programs from Source Han Sans, placing a glyph
 //! only through a mapping Adobe publishes for the collection; `doc/cjk-pack.md` is the layout.
 //! An `Adobe-Identity` font is not this route's: its CIDs are the glyph order of the producer's
-//! own program (§9.7.4.2), and what may answer it is the owner's open `doc/questions/Q570`.
+//! own program (§9.7.4.2), and [`super::rekeyed`] answers it through its `/ToUnicode` (ADR 2378).
 //!
 //! # What reaches the output
 //!
@@ -116,7 +116,8 @@ impl Collection {
     }
 
     /// The SHA-256 of the program `tools/cjk-pack.py` writes, which is how this program knows the
-    /// bytes it was handed are the pack's (`doc/questions/Q596` asks how this is versioned).
+    /// bytes it was handed are the pack's: a pack of another build is refused as not this one, and
+    /// CI holds the pack it publishes to these before it uploads it (A596, ADR 2386).
     const fn digest(self) -> &'static str {
         match self {
             Self::Japan1 => "ba07bdf0a11c3566de98dd4dc59710b452a198b58aaafd72b8bd807082066076",
@@ -605,5 +606,67 @@ mod tests {
     fn the_notice_is_the_open_font_licence_with_the_reserved_name_the_rename_avoids() {
         assert!(super::LICENCE.contains("SIL OPEN FONT LICENSE Version 1.1"));
         assert!(super::LICENCE.contains("Reserved Font\nName 'Source'"));
+    }
+
+    /// A reader of a pack directory on disk.
+    #[derive(Debug)]
+    struct Directory(std::path::PathBuf);
+
+    impl PackFiles for Directory {
+        fn read(&self, file: &str) -> Option<Vec<u8>> {
+            std::fs::read(self.0.join(file)).ok()
+        }
+    }
+
+    /// A built pack against what this file carries (A596): the `SHA256SUMS` `tools/cjk-pack.py`
+    /// wrote lists each program under the digest compiled in here and the licence under the
+    /// notice's, in [`Collection::ALL`]'s order, and every file holds the bytes its line names.
+    /// CI's `cjk-pack` job builds the pack from the Source Han files fetched by digest and runs
+    /// this before it publishes the zip, so a builder or a source that writes other bytes stops
+    /// the publication rather than shipping a pack this program refuses (ADR 2386).
+    #[test]
+    #[ignore = "needs a built CJK pack, which is not part of a checkout: QUORRA_CJK_PACK=<dir> \
+                names it (doc/cjk-pack.md), and CI's cjk-pack job runs it"]
+    fn a_built_pack_holds_the_programs_whose_digests_this_file_carries() {
+        use super::{LICENCE, hex};
+        use sha2::{Digest as _, Sha256};
+
+        let directory = std::path::PathBuf::from(
+            std::env::var_os("QUORRA_CJK_PACK")
+                .expect("QUORRA_CJK_PACK names the directory the pack was built into"),
+        );
+        let read = |file: &str| {
+            std::fs::read(directory.join(file))
+                .unwrap_or_else(|error| panic!("{}: {error}", directory.join(file).display()))
+        };
+        let sums = String::from_utf8(read("SHA256SUMS")).expect("SHA256SUMS is ASCII");
+        let listed: Vec<(String, String)> = sums
+            .lines()
+            .map(|line| {
+                let (digest, file) = line
+                    .split_once("  ")
+                    .unwrap_or_else(|| panic!("not sha256sum's format: {line:?}"));
+                (file.to_owned(), digest.to_owned())
+            })
+            .collect();
+        let mut carried: Vec<(String, String)> = Collection::ALL
+            .into_iter()
+            .map(|collection| (collection.file().to_owned(), collection.digest().to_owned()))
+            .collect();
+        carried.push((
+            "LICENSE.txt".to_owned(),
+            hex(&Sha256::digest(LICENCE.as_bytes())),
+        ));
+        assert_eq!(
+            listed, carried,
+            "the built pack is not the one pack.rs names"
+        );
+        for (file, digest) in &listed {
+            assert_eq!(&hex(&Sha256::digest(read(file))), digest, "{file}");
+        }
+        let pack = CjkPack::new(Arc::new(Directory(directory)));
+        for collection in Collection::ALL {
+            assert!(pack.program(collection).is_ok(), "{}", collection.file());
+        }
     }
 }

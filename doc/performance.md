@@ -427,6 +427,15 @@ against 6.85–7.99, its `encode` 5.07–5.36 against 3.83–4.51: a long-lived 
 another document's glyphs, which this table does not divide further. Growing `wgpu`'s pool of command
 encoders ahead of the frames was measured on both kinds of device and is not built (ADR 1606).
 
+**`issue19802.pdf`'s step was re-measured on 2026-10-26 after ADR 2388**, one `--clock --nice 0` hold
+interleaving HEAD's export, the change's and ecb6bea0's six times, pinned, load 2.7–4.6: since ADR 2355
+the compute lane's first frame — this table's warm-up — was sized by its own count, so the page outgrew
+that capacity at 1× and again at 2×, and the step ran whole twice, which its phase list does not show
+(trap 271). With the old guess kept as the first frame's floor the step reads 1.71–1.89 ms against
+HEAD's 2.74–3.28 and the tree before ADR 2355's 1.70–1.76, and no byte moved on six arms. Those figures
+are the Radeon's faster clock: with nothing else on the device it holds the row at its lowest, 600 MHz
+(`pp_dpm_sclk`), and the step reads about 5 ms on every tree, so a step figure is read beside the clock.
+
 **`images.pdf`'s and `issue13931.pdf`'s interpretations were re-measured on 2026-10-26 after ADR
 2348**, one clock hold interleaving HEAD's export with the change's, pinned, load 2.5–2.9: an
 eight-bit device image under the default `/Decode` is copied four pixels a step rather than looked

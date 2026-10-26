@@ -630,6 +630,8 @@ fn every_action_type_table_201_names_is_performed_read_or_refused_by_name() {
             A::GoToDp(_) => "GoToDp",
             A::Trans(_) => "Trans",
             A::Rendition(_) => "Rendition",
+            A::Movie(_) => "Movie",
+            A::Sound(_) => "Sound",
             A::Refused(_) => "Refused",
         }
     }
@@ -663,8 +665,10 @@ fn every_action_type_table_201_names_is_performed_read_or_refused_by_name() {
         // saying the thread is both here and elsewhere.
         ("Thread", "/S /Thread /F (other.pdf) /D 8 0 R", Refused),
         ("URI", "/S /URI /URI (https://example.invalid)", Read),
-        ("Sound", "/S /Sound /Sound 5 0 R", Refused),
-        ("Movie", "/S /Movie", Refused),
+        // Read since ADR 2382: the clause 13 entry admits the media file handed over, and both
+        // clauses hand themselves to 13.2, so a sound's or a movie's file crosses as a clip does.
+        ("Sound", "/S /Sound /Sound 5 0 R", Performed("Sound")),
+        ("Movie", "/S /Movie", Performed("Movie")),
         ("Hide", "/S /Hide /T 6 0 R", Performed("Hide")),
         ("Named", "/S /Named /N /NextPage", Performed("Named")),
         (

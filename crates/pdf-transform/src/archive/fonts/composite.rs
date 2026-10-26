@@ -79,8 +79,9 @@ pub(super) fn embed(
         .or_else(|| super::named_program(supplied, &base_font(document, &descendant_dict)));
     let Some((named, program)) = named else {
         // **Nobody named a program, and a collection's font has one in the CJK pack** (ADR 2302):
-        // its CIDs name the same glyphs in every font of the collection (§9.7.2), which no
-        // `Adobe-Identity` CID does, so that half keeps its refusal (`doc/questions/Q570`).
+        // its CIDs name the same glyphs in every font of the collection (§9.7.2). No
+        // `Adobe-Identity` CID does, and that half is given the glyphs its `/ToUnicode` values
+        // select, numbered by its own CIDs, where it states a map to read them by (ADR 2378).
         return match super::pack::collection_of(document, &used.dict, &descendant_dict) {
             Some(collection) => super::pack::embed(
                 document,
@@ -91,6 +92,9 @@ pub(super) fn embed(
                 spare,
                 substitutes,
             ),
+            None if super::rekeyed::applies(document, &used.dict, &descendant_dict) => {
+                super::rekeyed::embed(document, used, &descendant_dict, pack, spare, substitutes)
+            }
             None => Err(Because::NotBuiltYet(super::COMPOSITE_NOT_SUBSTITUTED)),
         };
     };

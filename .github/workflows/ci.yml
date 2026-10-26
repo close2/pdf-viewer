@@ -858,3 +858,80 @@ jobs:
             quorra-winui-*.zip
             quorra-winui-*.sha256
           if-no-files-found: error
+
+  # The CJK pack, the second download beside the binaries (A596, ADR 2386): the four Source Han Sans
+  # programs and the two files beside them fetched by the digests `tools/cjk-pack.py` names, the pack
+  # built from them, and the built pack held to the digests `pdf-transform` compiles in before
+  # anything is uploaded. On every run, not only main's: a change to the builder or to `pack.rs` that
+  # leaves the two apart fails here, before the merge, rather than shipping a pack the program
+  # refuses as not its own. fontTools is the release's build-time dependency and no Cargo build's
+  # (`doc/stack.md`): the wheel is fetched by its digest into a virtual environment of this job's.
+  # The build is reproducible -- under fontTools 4.66.1 from the distribution's package and from
+  # this wheel it wrote the same bytes -- so the test's agreement is the whole of the trust the
+  # runner adds.
+  cjk-pack:
+    runs-on: ubuntu-24.04
+    # Priced locally: the download is 23 MB and the build 66 to 113 s on one core; the rest is the
+    # test build of `pdf-transform`, which a cold cache makes the job's largest part.
+    timeout-minutes: 30
+    env:
+      FONTTOOLS_WHEEL: fonttools-4.66.1-py3-none-any.whl
+      FONTTOOLS_URL: https://files.pythonhosted.org/packages/f6/10/d45b74135d5d642cb3a4fb0a957c1613ef93de4c8548671dfc3a5bf38299/fonttools-4.66.1-py3-none-any.whl
+      FONTTOOLS_SHA256: 7234ae9e28db64273fbbfa72caebd0a97e3bdba6b05064114741b9539ef339d0
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # pdf-spec generates the object model's validation tables from the Arlington
+          # submodule in build.rs, so a checkout without it does not build the test.
+          submodules: true
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: fontTools, fetched by digest
+        run: |
+          set -eu
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/$FONTTOOLS_WHEEL" "$FONTTOOLS_URL"
+          echo "$FONTTOOLS_SHA256  $RUNNER_TEMP/$FONTTOOLS_WHEEL" | sha256sum -c
+          python3 -m venv "$RUNNER_TEMP/fonttools"
+          "$RUNNER_TEMP/fonttools/bin/pip" install --no-deps --no-index "$RUNNER_TEMP/$FONTTOOLS_WHEEL"
+
+      - name: Build the pack from Source Han Sans, fetched by digest
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/source" "$RUNNER_TEMP/cjk-pack" cjk-pack-release
+          python="$RUNNER_TEMP/fonttools/bin/python"
+          "$python" -I -B tools/cjk-pack.py --fetch "$RUNNER_TEMP/source"
+          "$python" -I -B tools/cjk-pack.py --source "$RUNNER_TEMP/source" --cmaps data/cmaps \
+            --out "$RUNNER_TEMP/cjk-pack" --zip cjk-pack-release
+
+      # Both of the pack's tests: the digests `pack.rs` carries against the built files, and the
+      # conversion that embeds from the pack, which nothing else runs.
+      - name: The built pack against the digests the converter carries
+        env:
+          QUORRA_CJK_PACK: ${{ runner.temp }}/cjk-pack
+        run: |
+          cargo test -p pdf-transform --lib -- --ignored --exact \
+            archive::fonts::pack::tests::a_built_pack_holds_the_programs_whose_digests_this_file_carries
+          cargo test -p pdf-transform --test archive -- --ignored cjk_pack
+
+      # `SHA256SUMS` beside the zip is the pack's own list -- the five programs' digests and the
+      # licence's, the ones `pack.rs` carries -- readable before the zip is downloaded; the zip's own
+      # digest is in a `.sha256` beside it, as every other archive of the release has.
+      - name: Package
+        working-directory: cjk-pack-release
+        run: |
+          set -eu
+          cp "$RUNNER_TEMP/cjk-pack/SHA256SUMS" .
+          for zip in quorra-cjk-pack-*.zip; do sha256sum "$zip" > "$zip.sha256"; done
+          ls -l
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: snapshot-cjk-pack
+          path: |
+            cjk-pack-release/quorra-cjk-pack-*.zip
+            cjk-pack-release/quorra-cjk-pack-*.sha256
+            cjk-pack-release/SHA256SUMS
+          if-no-files-found: error

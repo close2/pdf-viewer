@@ -284,22 +284,27 @@ impl Viewer {
                 // a text note". A press and a release on one annotation, and the window §12.5.6.14
                 // gives it opens — or closes, which the clause does not state and every reader of
                 // a sticky note expects (`Open::toggle_popup`).
-                let toggled = clicked
-                    && pressed_on
-                        .filter(|annotation| Some(*annotation) == over)
-                        .is_some_and(|annotation| exhibit(id, open, annotation, events));
+                let activated =
+                    pressed_on.filter(|annotation| clicked && Some(*annotation) == over);
+                let toggled =
+                    activated.is_some_and(|annotation| exhibit(id, open, annotation, events));
                 if toggled {
                     events.push(damage(viewport));
                 }
+                // §12.5.6.16's and §12.5.6.17's half of "exhibits its associated object": "by
+                // playing a sound or a movie", whose file is handed over after `/U` is raised —
+                // the order a link's activation below keeps (ADR 2382).
+                let played = activated.and_then(|annotation| interact::exhibited(open, annotation));
+                self.raise(id, raised, point.map(|(_, at)| at), events);
+                if let Some(outcome) = played {
+                    self.apply(id, outcome, events);
+                }
                 if selecting || pressed.is_none() || pressed != under {
-                    self.raise(id, raised, point.map(|(_, at)| at), events);
                     return;
                 }
                 let Some((page, (x, y))) = point else {
-                    self.raise(id, raised, point.map(|(_, at)| at), events);
                     return;
                 };
-                self.raise(id, raised, point.map(|(_, at)| at), events);
                 let Some(open) = self.focused_mut() else {
                     return;
                 };

@@ -25,8 +25,11 @@ collection that the file did not embed is converted only from that collection's 
 pack — a directory named `cjk-pack` unpacked beside the `quorra-transform` executable, or named with
 `--cjk-pack <dir>` — and held to the digests the program carries; without it each such font is
 refused with a sentence saying the pack is not installed and where it goes. Nothing fetches it and
-no window reads it. `doc/cjk-pack.md` is its layout and how `tools/cjk-pack.py` builds it; how it is
-published beside a release is `doc/questions/Q596`, open to the owner.
+no window reads it. **It is downloaded from the `snapshot` release, as `quorra-cjk-pack-<n>.zip`**
+with `SHA256SUMS` beside it, which CI builds from Source Han Sans fetched by digest and holds to the
+digests the program carries before it publishes (A596, ADR 2386); take the pack and the program from
+the same release, because a pack of another build is refused as not this one. `doc/cjk-pack.md` is
+its layout and how `tools/cjk-pack.py` builds it.
 
 ```sh
 cargo run --release -p viewer-ui --bin quorra -- doc/PDF20_AN001-BPC.pdf
@@ -575,7 +578,9 @@ process. What a given target omits, and why, is ADR 1152's table; the short of i
 `quorrafs` is Linux's, `pdf-vfs-worker` is absent on Windows because it takes a descriptor over a
 Unix socket, and the two native hosts are built where their toolkits are. **The WinUI window is
 the fourth archive**, `quorra-winui-x64-<commit>.zip`: a self-contained folder, .NET and the Windows
-App SDK inside it, whose `Quorra.App.exe` runs on a double click (ADR 2374).
+App SDK inside it, whose `Quorra.App.exe` runs on a double click (ADR 2374). **The CJK pack is
+beside them**, `quorra-cjk-pack-<n>.zip` and its `SHA256SUMS`, the conversion's second download
+(ADR 2386).
 **Three platforms** — x86_64 Linux, aarch64 macOS,
 x86_64 Windows — **and the confinement is Linux's alone.** `pdf-sandbox` compiles where
 seccomp-BPF and Landlock do not exist because the project owner asked for the other two

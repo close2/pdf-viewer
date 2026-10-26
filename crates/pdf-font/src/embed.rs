@@ -144,6 +144,12 @@ pub enum Refusal {
     /// The face's tables could not be taken apart consistently.
     #[error("the face's {0} table could not be read")]
     Malformed(&'static str),
+    /// The face's licence forbids a subset, and a program whose glyphs are renumbered is one
+    /// ([`renumbered`]).
+    #[error(
+        "the face's licence does not permit a subset (its OS/2 fsType), and renumbering one is"
+    )]
+    SubsettingForbidden,
 }
 
 /// Which row of §9.9.1's Table 124 a written program belongs under.
@@ -285,6 +291,56 @@ pub fn for_embedding(program: &[u8], used: &BTreeSet<u16>) -> Result<Embedded, R
         name,
         outlines: Outlines::TrueType,
     })
+}
+
+/// A §9.9.2 subset of a `CFF ` face, written bare under Table 124's `CIDFontType0C` row, whose
+/// charset gives each kept glyph the CID `by_cid` names it under (ADR 2378).
+///
+/// `by_cid` maps a CID of the document to the glyph index of `program` that CID is to show; a
+/// glyph may stand under more than one CID and is then written once for each. [`Embedded::glyphs`]
+/// maps each CID, `.notdef`'s 0 among them, to its glyph in the subset. The subset's name is
+/// §9.9.2's tag before the face's PostScript name: an sfnt's `name` table's, or a bare CFF's own
+/// Name INDEX entry.
+///
+/// # Errors
+///
+/// [`Refusal::Restricted`], [`Refusal::BitmapsOnly`] and [`Refusal::SubsettingForbidden`] where
+/// an sfnt's licence stops the write, [`Refusal::NoOutlines`] for an sfnt with no `CFF ` table, and
+/// [`Refusal::Malformed`] where `by_cid` names CID 0 or a glyph past the face's last, or where a
+/// kept glyph cannot be written.
+pub fn renumbered(
+    program: &[u8],
+    format: crate::substitute::Format,
+    by_cid: &BTreeMap<u16, u16>,
+) -> Result<Embedded, Refusal> {
+    match format {
+        crate::substitute::Format::BareCff => {
+            use skrifa::raw::FontRead as _;
+            let name = skrifa::raw::tables::cff::Cff::read(skrifa::raw::FontData::new(program))
+                .ok()
+                .and_then(|cff| cff.names().get(0).ok().map(<[u8]>::to_vec))
+                .ok_or(Refusal::Malformed("CFF "))?;
+            cff::renumbered(program, by_cid, &String::from_utf8_lossy(&name))
+        }
+        crate::substitute::Format::Sfnt => {
+            let permitted = permission(program);
+            if permitted.licence == Licence::Restricted {
+                return Err(Refusal::Restricted);
+            }
+            if permitted.bitmaps_only {
+                return Err(Refusal::BitmapsOnly);
+            }
+            if !permitted.subsetting {
+                return Err(Refusal::SubsettingForbidden);
+            }
+            let tables = sfnt_tables(program).ok_or(Refusal::Malformed("table directory"))?;
+            let (at, length) = *tables.get(b"CFF ".as_slice()).ok_or(Refusal::NoOutlines)?;
+            let table = program
+                .get(at..at.checked_add(length).ok_or(Refusal::Malformed("CFF "))?)
+                .ok_or(Refusal::Malformed("CFF "))?;
+            cff::renumbered(table, by_cid, &postscript_name(program))
+        }
+    }
 }
 
 /// The tables [`for_embedding`] reads, located once.

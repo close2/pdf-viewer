@@ -277,7 +277,9 @@ The next refusal by count under `as-if-printed`, `annotations/normal-appearance-
 documents, was a push button's single normal appearance stream in every one, which the census's
 sentence had named as a subdictionary with no `/AS`: a push button's stream is now the one entry of a
 subdictionary its new `/AS` selects (ADR 2319), and the check box and radio button half keeps a
-sentence of its own. The one larger, a composite font nobody named a program for, waits on Q570.
+sentence of its own. The one larger, a composite font nobody named a program for, is A570's: an `Adobe-Identity` font
+whose `/ToUnicode` answers every shown code is re-keyed (ADR 2378), and the rest — no map, or one
+that names no character for a code — wait for the rasterized page, A570's second remedy.
 
 The largest refusal at part 4 a conversion answers, ISO 19005-4 section 6.1.3's "a CreationDate or
 ModDate that is not §7.9.4's date", is answered (ADR 2358): a date is read as the text string

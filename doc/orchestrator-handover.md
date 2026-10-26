@@ -56,7 +56,7 @@ orchestrator's scaffolding lives there, one set per batch, named by the batch's 
 | `/home/AI/batch-<first>-brief.md` | the brief, from the template; eight slots |
 | the session scratchpad's `prompts-<first>.md` | one launch prompt per round, each naming the brief, the slot, the arms, the ADR and Q numbers |
 | `/home/AI/arms-<first>/` | HEAD's six corpus arms by page, exported by `tools/batch.sh arms`; its `README` ends with `done` when complete |
-| `/home/AI/chain-<first>.sh` | the merge chain: stage the population, the tier-one script, `tools/batch.sh gates`, `tools/batch.sh check`; verdicts into `chain-<first>.done` |
+| `/home/AI/chain-<first>.sh` | the merge chain: stage the population, the tier-one script, `tools/batch.sh gates --merge` (refused without the flag, ADR 2387), `tools/batch.sh check`; verdicts into `chain-<first>.done` |
 | `/home/AI/tier1-1704.sh` | tier 1 whole: `cargo fmt --all --check`, clippy with warnings as errors, nextest, `cargo test -p conformance`, the fuzz workspace on stable and on nightly, `tools/state.sh docs`. `/home/AI/tier1-1698.sh` is a stricter variant — each walk under `tools/bounded.sh --lock`, the doctests, the fuzz workspace's `fmt` and clippy, one failure flag — and which one a chain runs is the orchestrator's choice, stated in the commit's `Gates:` line and printed by `grep tier1 /home/AI/chain-<first>.sh` |
 | `/home/AI/msg-<first>.txt` | the commit message skeleton: title line, one bullet per round, `merge:`, `Ledger:`, `Round durations`, `Gates:` |
 | `/home/AI/reports-<first>.md` | the orchestrator's notes on each report as it arrives |
@@ -196,9 +196,10 @@ beside them (section 1), and a slot builds nothing they ask about.
   while no compatible device frame exists (ADR 2196).
 - PDF/A: `CIDFontType2` over `Identity` with a name-keyed CFF program refiles to `CIDFontType0` glyph
   for glyph and is owed, and whether a `ttcf` is a TrueType program is the Manual's to say (ADR 2307);
-  `archive/transcode.rs` maps every `jpx_samples` error to one sentence; the composite fonts of
-  `Adobe-Identity` wait on `Q570`, the pack's publication on `Q596`, a fit of any size under
-  `substitute-stretch` on `Q585`; `doc/todo/72` ranks the rest.
+  `archive/transcode.rs` maps every `jpx_samples` error to one sentence; an `Adobe-Identity` font whose
+  ToUnicode values are usable is re-keyed (ADR 2378) and the rest owe A570's rasterized page; the pack is
+  published by CI (ADR 2386); a fit of any size under `substitute-stretch` stands by A585; `doc/todo/72`
+  ranks the rest.
 - Anti-aliasing everywhere for the raster library's `Source` coverage past its 8191-pixel range
   (`lerp(dst, src, min(coverage, clip))`), the cost ADR 2166 section 3 accepted instead.
 - `type1.rs::units_per_em` takes an integer from its reader as the CFF one did (ADR 2180's "Found,

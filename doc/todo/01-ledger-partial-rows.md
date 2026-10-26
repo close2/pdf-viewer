@@ -169,12 +169,15 @@ wording it retired. It is marked rather than dropped wherever a sweep can recogn
    that clears a hit runs it again in the same round. A dismissal of a hit written once and cited by
    later runs instead of re-derived is how §7.9.2 outlived the instrument that kept contradicting it
    (ADR 0455).
-7. **The status nobody expects to come back to** — `cargo run -p conformance --bin inapplicable`, a
-   fraction of a second (ADR 0388). It takes an `inapplicable` row's own title and note apart into
-   `/Key`s and identifiers and asks whether the tree names them. **The count of naming files is the
-   discriminator**: the standard's shared vocabulary reaches dozens of files and sorts last, a rare
-   word sorts first. Read the **cousin** it prints before anything else — a row that is not
-   `inapplicable` and says the same word is the seventh failure shape. What it cannot see is a row
+7. **The statuses nobody expects to come back to** — `cargo run -p conformance --bin inapplicable`,
+   a fraction of a second (ADR 0388). It takes an `inapplicable` or `out-of-scope` row's own title
+   and note apart into `/Key`s and identifiers, adds the row's own clause number, and asks whether
+   the tree names them; **the count of swept rows whose clause a source cites opens its summary**,
+   because an exclusion's notes share one template and only the citation is the clause's own (trap
+   268, ADR 2376). **The count of naming files is the discriminator**: the standard's shared
+   vocabulary reaches dozens of files and sorts last, a rare word sorts first. Read the **cousin**
+   it prints before anything else — a row that is not swept and says the same word is the seventh
+   failure shape. What it cannot see is a row
    whose vocabulary is right and whose account of the requirement is wrong; only reading the clause
    finds that. The status has one word for a permission this program declines and for a clause
    about a thing this program is not; every such note says which it means.

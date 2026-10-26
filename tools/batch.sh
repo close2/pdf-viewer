@@ -16,7 +16,7 @@
 # same every batch, so the second batch finds it warm and a cold build is paid once.
 #
 #   tools/batch.sh open  batch-1038-1043   # worktree at /home/AI/pdf-viewer-rounds, guard on
-#   tools/batch.sh gates                   # tiers 2 and 3, one line per gate, into batch-gates.log
+#   tools/batch.sh gates --merge           # the merge's tiers 2 and 3, one line per gate, into batch-gates.log
 #   tools/batch.sh raster-examples         # CI's raster examples with --check under Xvfb (one gate of those)
 #   tools/batch.sh arms [<dir>]            # HEAD's six corpus arms, by page, once a batch (open runs it)
 #   tools/batch.sh export 1527 [--as head] [--patch f]... [path]...  # a round's HEAD plus its own hunks
@@ -1092,7 +1092,17 @@ export_sums() {
 
 case "${1:-}" in
     open)  open_batch "${2:?branch name}" ;;
-    gates) gates ;;
+    # The merge's whole gate run, whose first act empties the shared gate log: a round that took it
+    # for a list of the gates cut the merge's log short, so the run is asked for by the one caller
+    # it is for, and anyone else is pointed at the lists (trap 270, ADR 2387).
+    gates)
+        if [ "${2:-}" != --merge ]; then
+            printf '%s\n' "tools/batch.sh gates is the merge's whole gate run, and its first act empties $log." \
+                "A round runs a gate by its own command: doc/todo/02 section 2's map and tools/round.sh <kind> name them (trap 270)." \
+                "The merge runs it as: tools/batch.sh gates --merge" >&2
+            exit 2
+        fi
+        gates ;;
     raster-examples) raster_examples "${2:-}" ;;
     arms)  export_arms "${2:-}" ;;
     arms-held) arms_held "${2:?}" "${3:?}" "${4:?}" ;;

@@ -21,6 +21,10 @@ use pdf_syntax::{Dictionary, Document, ObjectId};
 use crate::command::Purpose;
 use crate::open::Open;
 
+mod deprecated_media;
+
+pub(crate) use deprecated_media::exhibited;
+
 /// What activating something asks of the caller.
 ///
 /// A struct rather than an enum because one click legitimately does several of these: §12.6.2
@@ -43,7 +47,8 @@ pub(crate) struct Outcome {
     pub(crate) needs_file: Vec<(Purpose, String)>,
     /// §12.4.4: transitions to play, for a caller that has one.
     pub(crate) transitions: Vec<Transition>,
-    /// §13.2.4.2: clips §13.2.2 called viable, for the reader's level and then the host.
+    /// §13.2.4.2: clips §13.2.2 called viable, and §13.3's and §13.4's files, for the reader's
+    /// level and then the host.
     pub(crate) media: Vec<pdf_model::media::Clip>,
     /// The page to show, where a request named one.
     pub(crate) target: Option<usize>,
@@ -187,6 +192,14 @@ pub(crate) fn activate_object(open: &mut Open, id: ObjectId) -> Outcome {
     let Some(dict) = object.as_dict() else {
         return Outcome::default();
     };
+    // §12.5.6.16's and §12.5.6.17's activation plays the annotation's sound or movie, so its
+    // file is handed over; a sound annotation's popup opens beside it, as a click opens it.
+    if let Some(mut outcome) = exhibited(open, id) {
+        if pdf_model::popup::popup_of(&open.document, dict).is_some() {
+            outcome.redraw = open.toggle_popup(id);
+        }
+        return outcome;
+    }
     // §12.5.1's other reading of "activate", for a host with no pointer on the object: an
     // annotation carrying one of §12.5.6.14's windows exhibits it. Asked before `/A` and `/Dest`
     // because a markup annotation states neither and would otherwise activate nothing — and a
@@ -542,6 +555,7 @@ fn perform(
     }
     let (mut import, mut embedded, mut remote) = (None, None, None);
     let mut threaded: Option<ThreadJump> = None;
+    let mut movies = Vec::new();
     for request in &requests {
         match request {
             Request::Display(destination) => jump.take(&open.document, &pages, destination),
@@ -593,6 +607,12 @@ fn perform(
             Request::Remote(request) => remote = Some(request.clone()),
             Request::Transition(transition) => outcome.transitions.push(transition.clone()),
             Request::Rendition(rendition) => rendered(open, rendition, subject, &mut outcome),
+            // After the loop, because a `/T` is looked for on the page a jump in the same chain
+            // reached (§12.6.4.10).
+            Request::Movie(movie) => movies.push(movie),
+            Request::Sound(sound) => {
+                deprecated_media::sound_requested(open, sound, subject, &mut outcome);
+            }
             Request::Thread(thread) if thread.file.is_some() => {
                 // Table 209's `/F` puts §12.4.3's beads in a second document, so the walk
                 // suspends here exactly as §12.6.4.3's does and the *name* goes to whoever
@@ -630,6 +650,10 @@ fn perform(
         }
     }
     drop(pages);
+    let associated = jump.page.unwrap_or(open.page_index);
+    for movie in movies {
+        deprecated_media::movie_requested(open, movie, associated, subject, &mut outcome);
+    }
 
     outcome.redraw = open.view != before;
     outcome.target = jump.page.filter(|target| *target < open.page_count);

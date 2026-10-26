@@ -298,7 +298,8 @@ pub enum Operation {
     /// default `CLAUDE.md` requires. ADR 1167.
     Process,
     /// Handing a media clip's data to the host for a player — §13.2.4.2's media clip data, after
-    /// `crate::media::judge` called it viable.
+    /// `crate::media::judge` called it viable, and §13.3's sound and §13.4's movie files, over
+    /// which no Table 286 stands and so the document asserts nothing (ADR 2382).
     ///
     /// **Table 286's `/TF` is the document's statement about it**, and a permission rather than a
     /// fact about the clip: "permissions that control the use of the media data", which "allow

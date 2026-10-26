@@ -1904,3 +1904,26 @@ residency and no `compute pipeline compile`, while the window's wall time carrie
 first attempt (round 1760, ADR 2355 — this tree's first window reports 0.4–0.8 ms once it runs once). A
 first-use cost is read from the frame's whole wall time, or from an attempt known to be the first, and
 never from the phase list of the attempt that was delivered.
+
+### 272. A sweep over notes written to one template finds the template
+
+Round 1771 widened `--bin inapplicable` from `inapplicable` rows to `out-of-scope` rows as well (trap 268)
+and found that vocabulary alone cannot separate them: every `out-of-scope` note is written to one template
+that names `CLAUDE.md` and the exclusion's entry, so a term the tree also uses makes every such row a
+finding and the count measures the template rather than the tree. The discriminator is the term a row
+cannot fail to state — its own clause number, matched as `§` and the number with nothing after it that
+continues a clause number — and a citation of it under `crates/` is what says the tree executes the clause.
+On HEAD's ledger it named 31 of the 118 swept rows, ten of them among §13.2's 21 executed rows; after the
+moves, none (ADR 2376). A sweep's terms are chosen from what differs between rows, never from what a
+template makes them share.
+
+### 274. A GPU figure carries the device's clock level, and arms are compared at one level
+
+Round 1777 sampled `/sys/class/drm/card1/device/pp_dpm_sclk` every 2 ms through the turn gate's child for
+`issue19802.pdf`. With nothing else on the device the Radeon 890M held its lowest level, 600 MHz, through the
+whole child, and the step read about 5 ms on every tree; it rose to 1100 MHz or more only while another
+process — the owner's session, which this account cannot list — kept the device 30–49 % busy, which is the
+state ADR 1537's busy check refuses to judge. The "two speeds" trap 262 reads from emit+deposit are these
+levels. At one level the arms separated cleanly (HEAD 2.74–3.28 ms, the fix 1.71–1.89, ecb6bea0 1.70–1.76;
+ADR 2388); across levels the comparison measures the clock. A GPU-bound figure carries the sclk residency
+of its run beside it, and a difference is attributed only between arms that ran at the same level.

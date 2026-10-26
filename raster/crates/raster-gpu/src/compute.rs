@@ -1013,6 +1013,13 @@ fn read_flag_and_total(
     Ok(words)
 }
 
+/// The first frame's floor, per tile it draws: the guess the lane sized its first frame by
+/// before it read its own count (ADR 0095), kept as a floor by the caller's ADR 2388.
+const FIRST_FRAME_EDGES_PER_TILE: u64 = 32;
+
+/// The first frame's floor however few tiles it draws (ADR 0095's guess, the caller's ADR 2388).
+const FIRST_FRAME_EDGES_AT_LEAST: u64 = 65_536;
+
 /// The persistent half of the lane (ADR 0095): the edges buffer, grow-only, so a
 /// steady zoom allocates nothing data-dependent and the host never waits mid-frame.
 #[derive(Debug)]
@@ -1051,6 +1058,29 @@ impl ComputePersist {
         }));
         self.capacity_edges = capacity;
         Ok(())
+    }
+
+    /// What the lane's first frame is sized to: its own scanned `total`, but never less than
+    /// the guess the lane started from before it read its count — 32 edges a tile, at least
+    /// 65 536 — clamped to what `max_frame_bytes` prices, so the floor alone can never refuse.
+    ///
+    /// **The count alone is the right size for the first frame and the wrong one for the
+    /// second.** A first frame lighter than the guess — a warm-up, a sparse page, the
+    /// magnification a zoom starts from — left a capacity the next notch outgrew, and that
+    /// notch ran whole twice: `issue19802.pdf`'s zoom step on `turn_path` paid it on every
+    /// round (the caller's ADR 2388). Where the count is the larger the floor is inert, and
+    /// a dense first window is sized by its count and runs once (the caller's ADR 2355). A
+    /// frame that scanned nothing keeps no capacity, so the frame after it reads its own.
+    pub(crate) fn first_size(total: u32, tiles: usize, max_frame_bytes: u64) -> u64 {
+        if total == 0 {
+            return 0;
+        }
+        let tiles = u64::try_from(tiles).unwrap_or(u64::MAX);
+        let floor = tiles
+            .saturating_mul(FIRST_FRAME_EDGES_PER_TILE)
+            .max(FIRST_FRAME_EDGES_AT_LEAST)
+            .min(max_frame_bytes / 16);
+        u64::from(total).max(floor)
     }
 
     /// The growth's arithmetic, separated from its allocation so the refusal can be
@@ -1166,7 +1196,9 @@ pub(crate) fn dispatch_chain(
     // The lane's first frame has no capacity yet, so it reads its own scanned total before
     // the emit and is sized by it — one wait for the count and the scan, in place of the
     // guess of 32 edges a tile that a dense window's count overflowed, and the second run of
-    // the whole frame that followed (the caller's ADR 2355).
+    // the whole frame that followed (the caller's ADR 2355). The guess stays as the size's
+    // floor, so a light first frame does not hand the next, denser one a capacity it
+    // outgrows and runs again for (the caller's ADR 2388).
     let sized_by_its_count = persist.capacity_edges == 0;
     let record_bytes: Vec<u8> = records.iter().flat_map(|word| word.to_le_bytes()).collect();
     let storage = |label: &str, bytes: &[u8]| {
@@ -1350,7 +1382,8 @@ pub(crate) fn dispatch_chain(
         let (_, total) = read_flag_and_total(gpu, &readback, "sizing")?;
         // A frame that scanned no edge leaves the capacity at zero, and the next frame is
         // sized by its own count in turn.
-        persist.grow(gpu, u64::from(total), max_frame_bytes)?;
+        let sized = ComputePersist::first_size(total, compute.tiles.len(), max_frame_bytes);
+        persist.grow(gpu, sized, max_frame_bytes)?;
         queue.write_buffer(&params_buffer, 0, &params(persist.capacity_edges));
         spans.push((
             "compute capacity sized (first use)",
@@ -1464,6 +1497,30 @@ mod persist_tests {
         // prices.
         let priced = ComputePersist::price(1_000, u64::MAX).expect("fits");
         assert_eq!(priced, 1_250);
+    }
+
+    /// The first frame's size is its count above the floor and the floor below it, and the
+    /// floor is clamped by the budget, so only a count past the budget refuses (the caller's
+    /// ADR 2388).
+    #[test]
+    fn the_first_frame_is_sized_by_its_count_above_the_floor_and_by_the_floor_below_it() {
+        // 3 100 tiles price a floor of 99 200 edges, ISO 32000-2 page 20's first notch's guess
+        // (the caller's ADR 2355), which its count of 246 217 passes.
+        assert_eq!(
+            ComputePersist::first_size(246_217, 3_100, u64::MAX),
+            246_217
+        );
+        assert_eq!(ComputePersist::first_size(40_000, 3_100, u64::MAX), 99_200);
+        // A handful of tiles is held to the floor's 65 536 at least.
+        assert_eq!(ComputePersist::first_size(12, 3, u64::MAX), 65_536);
+        // A frame that scanned nothing keeps no capacity.
+        assert_eq!(ComputePersist::first_size(0, 3_100, u64::MAX), 0);
+        // A budget under the floor clamps the floor and leaves the count to refuse alone.
+        let budget = 1_000 * 16;
+        assert_eq!(ComputePersist::first_size(12, 3_100, budget), 1_000);
+        assert!(
+            ComputePersist::price(ComputePersist::first_size(12, 3_100, budget), budget).is_ok()
+        );
     }
 }
 
@@ -1594,9 +1651,10 @@ mod refusal_tests {
             "the delivered attempt is the one that read its count, so there was no second"
         );
         let capacity = device.compute_capacity_bytes();
-        assert!(
-            capacity > 0 && capacity < 65_536 * 16,
-            "the capacity is the triangle's count, not the guess: {capacity} bytes"
+        assert_eq!(
+            capacity,
+            (65_536 + 65_536 / 4) * 16,
+            "a triangle's count is under the floor, so the floor and its headroom size it"
         );
         let second = device
             .render(&scene, &viewport, Target::Readback)

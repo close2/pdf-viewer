@@ -13,7 +13,7 @@
 
 use accesskit::{Action, Node, NodeId, Role, TextDirection, Toggled};
 use pdf_model::form::{Choice, ChoiceControl, Control, TextControl};
-use pdf_model::structure::{HeaderScope, Nonstandard, StandardType};
+use pdf_model::structure::{HeaderScope, Nonstandard, StandardType, TextDecoration, TextPosition};
 use pdf_model::view::ShownValue;
 use viewer_accessibility::{DocumentView, PageView, tree};
 use viewer_core::{AccessibilityNode, Character, TextLine};
@@ -49,6 +49,9 @@ fn element(parent: Option<usize>, role: &str, name: &str) -> AccessibilityNode {
         lines: Vec::new(),
         drawn: None,
         enclosed_a_refusal: false,
+        decoration: TextDecoration::None,
+        decoration_colour: None,
+        position: TextPosition::Normal,
     }
 }
 
@@ -876,6 +879,48 @@ fn a_paragraphs_own_text_reaches_the_platform_as_a_run() {
     assert_eq!(run.character_widths().map(<[f32]>::len), Some(9));
     // "two" begins at character 0 and "words" at 4, the space belonging to the word before it.
     assert_eq!(run.word_starts(), [0, 4]);
+}
+
+/// Table 380's decoration and position reach the platform on the element's own runs, and only
+/// there (ADR 2384).
+///
+/// `accesskit_consumer` inherits a text decoration down its tree, and §14.8.5.4.4 says
+/// `/TextDecorationType` "shall not apply to nested BLSEs" — so the paragraph's node carries
+/// nothing and its run carries both, with the stated colour.
+#[test]
+fn a_decoration_and_a_position_reach_the_platform_on_the_runs() {
+    let nodes = [AccessibilityNode {
+        decoration: TextDecoration::LineThrough,
+        decoration_colour: Some([1.0, 0.0, 0.5]),
+        position: TextPosition::Sup,
+        ..typed("struck", (0.0, 0.0), 5.0)
+    }];
+    let update = built(view(&nodes, &[]));
+    let paragraph = node(&update, NodeId(16));
+    assert_eq!(paragraph.strikethrough(), None);
+    assert_eq!(paragraph.vertical_offset(), None);
+    let run = node(&update, NodeId(2_000_000));
+    let line = run.strikethrough().map(|line| (line.style, line.color));
+    assert_eq!(
+        line,
+        Some((
+            accesskit::TextDecorationStyle::Solid,
+            accesskit::Color {
+                red: 255,
+                green: 0,
+                blue: 128,
+                alpha: 255
+            }
+        ))
+    );
+    assert_eq!(run.underline(), None);
+    assert_eq!(
+        run.vertical_offset(),
+        Some(accesskit::VerticalOffset::Superscript)
+    );
+    let plain = built(view(&[typed("plain", (0.0, 0.0), 5.0)], &[]));
+    let run = node(&plain, NodeId(2_000_000));
+    assert_eq!((run.underline(), run.vertical_offset()), (None, None));
 }
 
 /// The page is the node that carries the text, and that is a platform's requirement.

@@ -79,7 +79,7 @@ mod placeholders;
 /// Zero because the clause asks for values greater than it, and the other two because a
 /// `/ToUnicode` destination is UTF-16BE (§9.10.3) — so either of them is a producer having
 /// written the byte-order mark where the character belonged.
-const UNUSABLE: [char; 3] = ['\u{0}', '\u{FEFF}', '\u{FFFE}'];
+pub(super) const UNUSABLE: [char; 3] = ['\u{0}', '\u{FEFF}', '\u{FFFE}'];
 
 /// The `/ToUnicode` `CMaps` this conversion is in a position to write.
 pub(super) struct DerivedMaps {

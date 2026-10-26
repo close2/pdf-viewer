@@ -1386,8 +1386,8 @@ pub enum Opening {
     Refuse(String),
 }
 
-/// What a window says when [`viewer_core::Event::Media`] arrives: the clip handed over, and that no
-/// player was started.
+/// What a window says when [`viewer_core::Event::Media`] arrives: the clip handed over — a
+/// rendition's, a movie's or a sound's file (ADR 2382) — and that no player was started.
 ///
 /// One sentence for every window, worded here for [`asked_to_open`]'s reason. `CLAUDE.md`'s clause
 /// 13 entry admits the media file "handed to this machine's own player" at the reader's level; the
@@ -1403,7 +1403,7 @@ pub fn handed_media(
     let kind = content_type.map_or_else(String::new, |kind| format!("{kind}, "));
     format!(
         "{document} hands a media clip to this window for a player — {kind}{} (ISO 32000-2 \
-         §13.2.4.2); this window starts no player yet, so nothing plays",
+         §13.2.4.2, §13.3, §13.4); this window starts no player yet, so nothing plays",
         media.describe()
     )
 }

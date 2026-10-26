@@ -1,4 +1,5 @@
-//! A rich-media or sound annotation's activation, handed to the host as a clip.
+//! A rendition's clip, a movie's file and a sound's file, asked of the reader's level and handed to
+//! the host.
 
 use super::{DocumentId, Viewer};
 #[cfg(doc)]
@@ -9,8 +10,9 @@ impl Viewer {
     /// §13.2.4.2's clip, asked of the reader's level for Table 286's `/TF` and handed over if it is
     /// let through — the four verdicts as [`Self::edit`] has them.
     ///
-    /// **Only embedded data asks**: `/TF` governs "a temporary file in order to play a media clip",
-    /// and a player handed a URL or a named file is given no file this program wrote. ADR 1961.
+    /// **Only an embedded clip asks**: `/TF` governs "a temporary file in order to play a media
+    /// clip", a player handed a URL or a named file is given no file this program wrote, and a
+    /// movie's or a sound's file has no Table 286 standing over it at all (ADRs 1961, 2382).
     pub(super) fn media(
         &mut self,
         id: DocumentId,
@@ -25,9 +27,9 @@ impl Viewer {
             return;
         };
         let level = level.under(open.restrictions).level(operation).level();
-        let asserted = match clip.data {
-            pdf_model::media::Data::Embedded(_) => {
-                pdf_model::restriction::media(&open.document, clip.temporary_file)
+        let asserted = match (&clip.data, clip.temporary_file) {
+            (pdf_model::media::Data::Embedded(_), Some(temporary_file)) => {
+                pdf_model::restriction::media(&open.document, temporary_file)
             }
             _ => Vec::new(),
         };

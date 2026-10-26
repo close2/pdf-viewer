@@ -41,6 +41,8 @@ impl ViewState {
                 return Some(Request::Transition(transition.clone()));
             }
             Action::Rendition(rendition) => return Some(Request::Rendition(rendition.clone())),
+            Action::Movie(movie) => return Some(Request::Movie(movie.clone())),
+            Action::Sound(sound) => return Some(Request::Sound(sound.clone())),
             Action::SetOcgState(state) => {
                 if let Some(content) = self.optional_content.as_mut() {
                     content.apply(&state.changes, state.preserve_radio_buttons);

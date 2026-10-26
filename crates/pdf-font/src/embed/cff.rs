@@ -260,6 +260,9 @@ struct Closure {
     /// The kept glyphs, in the order the subset numbers them, each with its Font DICT's index in
     /// the source.
     glyphs: Vec<(u16, usize)>,
+    /// The CID the subset's charset gives each of [`Self::glyphs`], in the same order: the glyph's
+    /// own index in the face, except where [`renumbered`] names the CIDs (ADR 2378).
+    cids: Vec<u16>,
     /// The Global Subr INDEX positions reached.
     global: BTreeSet<usize>,
     /// Per source Font DICT, the Local Subr INDEX positions reached.
@@ -272,9 +275,17 @@ struct Closure {
 impl Closure {
     /// Walks every kept charstring of `cff` ([`super::reach`]); `None` where one is the accented
     /// form and cannot be composed.
-    fn of(cff: &[u8], parts: &Parts<'_>, kept: &BTreeSet<u16>) -> Result<Option<Self>, Refusal> {
+    ///
+    /// `kept` is the subset's glyph order, and may name one glyph more than once: [`renumbered`]
+    /// writes a glyph once for each CID that shows it.
+    fn of<'k>(
+        cff: &[u8],
+        parts: &Parts<'_>,
+        kept: impl IntoIterator<Item = &'k u16>,
+    ) -> Result<Option<Self>, Refusal> {
         let mut closure = Self {
-            glyphs: Vec::with_capacity(kept.len()),
+            glyphs: Vec::new(),
+            cids: Vec::new(),
             global: BTreeSet::new(),
             local: vec![BTreeSet::new(); parts.font_dicts.len()],
             composed: BTreeMap::new(),
@@ -312,6 +323,7 @@ impl Closure {
             closure.local[font_dict].extend(reached.local_entered);
             closure.glyphs.push((*glyph, font_dict));
         }
+        closure.cids = closure.glyphs.iter().map(|(glyph, _)| *glyph).collect();
         if everything {
             // A number the walk could not know may name any subroutine, so all are kept.
             closure.global = (0..parts.global_subrs.len()).collect();
@@ -333,6 +345,49 @@ impl Closure {
             })
             .collect()
     }
+}
+
+/// A subset whose charset gives each kept glyph the CID `by_cid` names it under, rather than its
+/// own index in the face (ADR 2378).
+///
+/// `by_cid` maps a CID of the document to the glyph of `cff` it is to show, and one glyph may stand
+/// under several CIDs, in which case its charstring is written once for each: Adobe Technical Note
+/// #5176's charset gives every glyph one CID, and §9.7.4.2 reaches a glyph by its CID through the
+/// charset. CID 0 is `.notdef`'s, which §9.7.4.2 requires of every `CIDFont` and §9.7.6.3 makes the
+/// glyph a code that reaches nothing draws, so `by_cid` may not name it. The `ROS` is
+/// `Adobe-Identity-0`: the CIDs are the document's numbers, which name no collection's glyphs.
+pub(super) fn renumbered(
+    cff: &[u8],
+    by_cid: &BTreeMap<u16, u16>,
+    postscript: &str,
+) -> Result<Embedded, Refusal> {
+    let parts = Parts::read(cff).ok_or(Refusal::Malformed("CFF "))?;
+    if by_cid.contains_key(&0)
+        || by_cid
+            .values()
+            .any(|glyph| usize::from(*glyph) >= parts.charstrings.len())
+    {
+        return Err(Refusal::Malformed("CFF "));
+    }
+    let order: Vec<u16> = [0].into_iter().chain(by_cid.values().copied()).collect();
+    // A kept glyph in the accented `endchar` form is composed where it can be, and where it cannot
+    // there is no whole program to fall back on: a whole program keeps the face's own charset.
+    let mut closure = Closure::of(cff, &parts, &order)?.ok_or(Refusal::Malformed("CFF "))?;
+    closure.cids = [0].into_iter().chain(by_cid.keys().copied()).collect();
+    let system = SystemInfo {
+        registry: IDENTITY.0.to_vec(),
+        ordering: IDENTITY.1.to_vec(),
+        supplement: IDENTITY.2,
+    };
+    let cids: BTreeSet<u16> = closure.cids.iter().copied().collect();
+    let name = format!("{}+{postscript}", super::tag(cff, &cids));
+    let program = written(&parts, &closure, &system, name.as_bytes())?;
+    Ok(Embedded {
+        program,
+        glyphs: closure.cids.iter().copied().zip(0u16..).collect(),
+        name,
+        outlines: Outlines::CompactCid { system },
+    })
 }
 
 /// The character collection the subset states in its `ROS` and the PDF `CIDFont` copies.
@@ -482,8 +537,8 @@ fn written(
     // The tables that hold no offsets, laid out once.
     let charset = {
         let mut out = vec![0u8];
-        for (glyph, _) in closure.glyphs.iter().skip(1) {
-            out.extend_from_slice(&glyph.to_be_bytes());
+        for cid in closure.cids.iter().skip(1) {
+            out.extend_from_slice(&cid.to_be_bytes());
         }
         out
     };
@@ -614,12 +669,7 @@ fn top_entries(
         }
         push_operator(&mut out, *op);
     }
-    let highest = closure
-        .glyphs
-        .iter()
-        .map(|(glyph, _)| *glyph)
-        .max()
-        .unwrap_or(0);
+    let highest = closure.cids.iter().copied().max().unwrap_or(0);
     out.extend_from_slice(&int5(i64::from(highest).saturating_add(1)));
     push_operator(&mut out, OP_CID_COUNT);
     Ok(out)
@@ -1058,6 +1108,49 @@ mod tests {
             outline(&cff, 3),
             outline(&planted, 1),
             "a subset missing a reached subroutine draws the glyph differently"
+        );
+    }
+
+    /// A renumbered subset's charset gives each glyph the CID the caller named, a glyph two CIDs
+    /// show is written under both, each draws the face's own outline, and CID 0 is `.notdef`'s
+    /// alone (ADR 2378).
+    #[test]
+    fn a_renumbered_subset_gives_each_glyph_the_documents_cid() {
+        use crate::substitute::Format;
+        let cff = name_keyed();
+        let by_cid: BTreeMap<u16, u16> = [(7, 2), (9, 3), (12, 2)].into();
+        for (program, format) in [
+            (wrapped(&cff, 0), Format::Sfnt),
+            (cff.clone(), Format::BareCff),
+        ] {
+            let embedded = super::super::renumbered(&program, format, &by_cid).expect("renumbered");
+            let expected: BTreeMap<u16, u16> = [(0, 0), (7, 1), (9, 2), (12, 3)].into();
+            assert_eq!(embedded.glyphs, expected);
+            let Ok(CodeToGlyph::Keyed { by_cid: read }) = CodeToGlyph::read(&embedded.program)
+            else {
+                panic!("a CID-keyed program");
+            };
+            assert_eq!(read, expected, "the charset states the document's CIDs");
+            for (cid, glyph) in &by_cid {
+                assert_eq!(
+                    outline(&cff, *glyph),
+                    outline(&embedded.program, expected[cid])
+                );
+            }
+            let Outlines::CompactCid { system } = &embedded.outlines else {
+                panic!("a CIDFontType0C program");
+            };
+            assert_eq!(
+                (system.registry.as_slice(), system.ordering.as_slice()),
+                (&b"Adobe"[..], &b"Identity"[..])
+            );
+            assert!(embedded.name.contains('+'), "{}", embedded.name);
+        }
+        let planted: BTreeMap<u16, u16> = [(0, 2)].into();
+        assert_eq!(
+            super::super::renumbered(&cff, Format::BareCff, &planted),
+            Err(Refusal::Malformed("CFF ")),
+            "CID 0 is the notdef glyph's and no character's"
         );
     }
 

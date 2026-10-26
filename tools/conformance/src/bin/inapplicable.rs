@@ -1,4 +1,5 @@
-//! Sweeps the ledger's `inapplicable` rows for vocabulary the tree names.
+//! Sweeps the ledger's `inapplicable` and `out-of-scope` rows for vocabulary, and a clause
+//! number, the tree names.
 //!
 //! ```sh
 //! cargo run -p conformance --bin inapplicable
@@ -7,10 +8,11 @@
 //! `doc/todo/01`'s seventh sweep — the only one that reads the status nobody expects to come back
 //! to — and the eleventh of the fifteen to be a program rather than a description.
 //! [`conformance::inapplicable`] says what a term is, why the count of naming files replaces the
-//! stop-list every hand-run wrote from memory, and why a cousin row is the pair this sweep exists
-//! to print.
+//! stop-list every hand-run wrote from memory, why a cousin row is the pair this sweep exists
+//! to print, and why an `out-of-scope` row is read beside an `inapplicable` one by its own clause
+//! number (trap 268, ADR 2376).
 //!
-//! It prints one block per `inapplicable` row with at least one named term, rarest term first and
+//! It prints one block per swept row with at least one named term, rarest term first and
 //! rarest row first, and ends with the population it read so that a clean run says what it was
 //! clean over. It exits non-zero only where it cannot read what it needs: a named term is a
 //! question for a person, not a build failure.
@@ -24,7 +26,7 @@ use std::process::ExitCode;
 
 use conformance::entries;
 use conformance::inapplicable::{self, Finding};
-use conformance::ledger::Ledger;
+use conformance::ledger::{Ledger, Status};
 
 fn main() -> ExitCode {
     match run() {
@@ -57,12 +59,28 @@ fn run() -> Result<(), Error> {
         print(finding);
     }
 
+    let holding = |status: Status| {
+        ledger
+            .rows
+            .iter()
+            .filter(|row| row.status == status)
+            .count()
+    };
     println!();
     println!(
-        "{} `inapplicable` row(s) stating {} term(s): {} named by no source — the claims this run \
-         confirms — and {} named over {} row(s), of which {} carry a cousin row that is not \
-         `inapplicable` and says the same word, which is the list to read first.",
+        "{} row(s) nobody expects to come back to — {} `inapplicable`, {} `out-of-scope` — of \
+         which {} have their own clause cited by a source: a clause the tree executes under a row \
+         saying it is not this program's, trap 268's shape, and the first list to read.",
         report.population,
+        holding(Status::Inapplicable),
+        holding(Status::OutOfScope),
+        report.cited,
+    );
+    println!(
+        "They state {} term(s), the clause numbers included: {} named by no source — the claims \
+         this run confirms — and {} named over {} row(s), of which {} carry a cousin row that is \
+         neither `inapplicable` nor `out-of-scope` and says the same word, the second list to \
+         read.",
         report.stated,
         report.unnamed,
         report.named(),
@@ -82,10 +100,11 @@ fn run() -> Result<(), Error> {
 /// Prints one row: where it is, what it is, and each named term rarest first.
 fn print(finding: &Finding) {
     println!(
-        "{}:{} (§{}) {}",
+        "{}:{} (§{}, {}) {}",
         conformance::LEDGER,
         finding.line,
         finding.clause,
+        finding.status.as_str(),
         finding.title
     );
     for term in &finding.terms {

@@ -302,3 +302,12 @@ taken effect only on the one document whose table was otherwise sound — and th
 at a whole-file scan on sixty-six documents (ADR 2346 §4). Before a brief's premise that a recovery
 will catch what a rule drops is built on, the recovery is read for what it restores: if it restores
 exactly what the rule removed, the rule is obeyed in name only and the departure stands.
+
+## A table of what a form "may not use" is read down its note column before it becomes a check
+
+Round 1773 (ADR 2380) read XFA 3.3's table of the grammar a static form may not use (its pages 272–273)
+as a list of names whose presence makes a form dynamic, and all four hybrid files in the corpora state
+names it lists — `layout="tb"`, a page's `w` and `h` — which the table's notes allow where they only
+express the form's logic. A recogniser built on presence alone would have refused every hybrid the
+corpora hold; the specification's own cut is `occur` and `subformSet` with `/NeedsRendering` false. Before a
+table of prohibitions becomes a test of presence, each row's note is read for the use it still permits.

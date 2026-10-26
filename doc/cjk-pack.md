@@ -4,7 +4,7 @@ Owner answer A569: the four Adobe character collections' faces ship **as a secon
 the base program**, so the base download keeps its size and its startup rules and a converted
 document carries only the glyphs it shows. ADR 2302 is the decision and the route that embeds from
 the pack; ADR 2303 is where the program looks for it and how it knows the files are the pack's;
-`doc/questions/Q596` asks `doc/stack.md`'s question about the data dependency.
+A596 and ADR 2386 are how CI builds and publishes it.
 
 ## What it is for
 
@@ -14,8 +14,9 @@ ones. ISO 32000-2 §9.7.2 makes a character collection's order what numbers its 
 the collection names the same glyph in any font of it, and a subset of the pack's program for the
 collection can be written into the file in place of the program the producer did not embed. The
 `quorra-transform archive` route names that as the loss `machine-face`: `as-if-printed` discards it,
-`as-shown` stops (ADR 2162's reading). `Adobe-Identity` is not answered by the pack — its CIDs are
-the producer's own glyph order — and what may answer it is the owner's open `doc/questions/Q570`.
+`as-shown` stops (ADR 2162's reading). `Adobe-Identity` is not answered by the pack's CIDs — its CIDs are
+the producer's own glyph order — so it is re-keyed from its ToUnicode values instead, the pack's
+collection face supplying a character the shipped face lacks (ADR 2378, `doc/questions/A570`).
 
 The viewer does not read the pack; it draws such a font from a face of the machine, as before
 (ADR 0270).
@@ -42,14 +43,26 @@ only through a subroutine is a site that rewrite does not follow. The five come 
 glyph with no outline; the converter refuses a page that shows one unless the collection's own
 `Adobe-*-UCS2` table makes the CID a space.
 
-**The program never fetches the pack.** A person downloads it and unpacks it; without it, every
-such font is refused with a sentence saying the pack is not installed and where it goes.
+**The program never fetches the pack.** A person downloads it — `quorra-cjk-pack-<n>.zip` on the
+`snapshot` release, beside the binaries, with `SHA256SUMS` beside it — and unpacks it, which gives the
+directory `cjk-pack`; without it, every such font is refused with a sentence saying the pack is not
+installed and where it goes.
 
 ## How it is built
 
 ```
-python3 -I -B tools/cjk-pack.py --source <dir> --cmaps data/cmaps --out <empty dir>
+python3 -I -B tools/cjk-pack.py --fetch <empty dir>
+python3 -I -B tools/cjk-pack.py --source <dir> --cmaps data/cmaps --out <empty dir> [--zip <dir>]
 ```
+
+The first downloads the inputs from the two Source Han Sans commits the script names and refuses a
+file whose SHA-256 is not the one it names; CI's `cjk-pack` job runs both, with fontTools 4.66.1's
+wheel fetched by its digest, then the pack's two tests against the built files, and on `main`
+uploads the zip for `snapshot.yml` to publish (ADR 2386). `--zip` writes `quorra-cjk-pack-<n>.zip`,
+the directory `cjk-pack/` holding the files below in `SHA256SUMS`'s order, every entry at the zip
+format's earliest time, so its bytes follow the files'. `<n>` is the script's `PACK_VERSION`: one
+number per Source Han release, and the next one only when a change to the builder moves a byte of
+its output, which is when the digests `pack.rs` carries change.
 
 `<dir>` holds Source Han Sans 2.005R's region-specific subset programs —
 `SourceHanSansJP-Regular.otf`, `SourceHanSansCN-Regular.otf`, `SourceHanSansTW-Regular.otf`,

@@ -49,7 +49,8 @@ use pdf_model::outline::{Item as OutlineItem, Outline};
 use pdf_model::page::Boundary;
 use pdf_model::popup::Comment;
 use pdf_model::structure::{
-    Artifact, ArtifactKind, BlockProgression, CellPlacement, HeaderScope, Nonstandard, StandardType,
+    Artifact, ArtifactKind, BlockProgression, CellPlacement, HeaderScope, Nonstandard,
+    StandardType, TextDecoration, TextPosition,
 };
 use pdf_model::thumbnail::Thumbnail;
 use pdf_model::view::{FieldName, ShownValue};
@@ -1936,6 +1937,9 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             lines,
             drawn,
             enclosed_a_refusal,
+            decoration,
+            decoration_colour,
+            position,
         } = node;
         writer
             .option_usize(*parent)
@@ -2016,6 +2020,7 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
         // predecessor is in this answer at all — which. Both are in §14.7.6's attribute objects,
         // which only this side reads, and nothing a host can see says a list is a continuation.
         writer.bool(*continues_a_list).option_usize(*continued_from);
+        encode_drawn_as(writer, *decoration, decoration_colour.as_ref(), *position);
         writer.usize(quads.len());
         for quad in quads {
             writer.quad(*quad);
@@ -2111,6 +2116,9 @@ pub(super) fn decode_accessibility(
                 }
                 other => other,
             },
+            decoration: read_decoration(reader)?,
+            decoration_colour: read_decoration_colour(reader)?,
+            position: read_position(reader)?,
             quads: super::wire::read_quads(reader, "a node's shapes")?,
             lines: read_lines(reader)?,
             value_lines: read_lines(reader)?,
@@ -2183,6 +2191,91 @@ fn read_standard(
         3 => Err(Nonstandard::Foreign),
         4 => Err(Nonstandard::Circular),
         value => return Err(unrecognised("a node's standard type", value)),
+    })
+}
+
+/// Table 380's decoration, its colour and the text's position, which `viewer_core` resolves down
+/// the tree by each cell's own reach — §14.8.4.1's categories and §14.7.6's attribute objects,
+/// neither of which a host holds (ADR 2384).
+fn encode_drawn_as(
+    writer: &mut Writer,
+    decoration: TextDecoration,
+    colour: Option<&[f32; 3]>,
+    position: TextPosition,
+) {
+    writer.u8(decoration_kind(decoration));
+    match colour {
+        Some(colour) => {
+            writer.u8(1).numbers(colour);
+        }
+        None => {
+            writer.u8(0);
+        }
+    }
+    writer.u8(position_kind(position));
+}
+
+/// Table 380's `/TextDecorationType`, as one byte: the standard's closed set of four.
+fn decoration_kind(decoration: TextDecoration) -> u8 {
+    match decoration {
+        TextDecoration::None => 0,
+        TextDecoration::Underline => 1,
+        TextDecoration::Overline => 2,
+        TextDecoration::LineThrough => 3,
+    }
+}
+
+/// The inverse of [`decoration_kind`].
+fn read_decoration(reader: &mut Reader<'_>) -> Result<TextDecoration, ProtocolError> {
+    Ok(match reader.u8("a node's text decoration")? {
+        0 => TextDecoration::None,
+        1 => TextDecoration::Underline,
+        2 => TextDecoration::Overline,
+        3 => TextDecoration::LineThrough,
+        value => return Err(unrecognised("a node's text decoration", value)),
+    })
+}
+
+/// Table 380's `/TextDecorationColor`, held to the entry's own range on the side of the wire where
+/// the producer is not trusted: "three numbers in the range 0.0 to 1.0".
+fn read_decoration_colour(reader: &mut Reader<'_>) -> Result<Option<[f32; 3]>, ProtocolError> {
+    let what = "a node's text decoration colour";
+    match reader.u8(what)? {
+        0 => Ok(None),
+        1 => {
+            let colour = [reader.f32(what)?, reader.f32(what)?, reader.f32(what)?];
+            if colour
+                .iter()
+                .all(|component| (0.0..=1.0).contains(component))
+            {
+                Ok(Some(colour))
+            } else {
+                Err(unrecognised(
+                    "a node's text decoration colour, which must lie in 0.0 to 1.0",
+                    1,
+                ))
+            }
+        }
+        value => Err(unrecognised(what, value)),
+    }
+}
+
+/// Table 380's `/TextPosition`, as `viewer_core` resolved it, as one byte.
+fn position_kind(position: TextPosition) -> u8 {
+    match position {
+        TextPosition::Normal => 0,
+        TextPosition::Sup => 1,
+        TextPosition::Sub => 2,
+    }
+}
+
+/// The inverse of [`position_kind`].
+fn read_position(reader: &mut Reader<'_>) -> Result<TextPosition, ProtocolError> {
+    Ok(match reader.u8("a node's text position")? {
+        0 => TextPosition::Normal,
+        1 => TextPosition::Sup,
+        2 => TextPosition::Sub,
+        value => return Err(unrecognised("a node's text position", value)),
     })
 }
 

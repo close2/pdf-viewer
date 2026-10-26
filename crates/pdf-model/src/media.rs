@@ -39,6 +39,10 @@ use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 use crate::attachment::Attachment;
 use crate::file_spec::FileSpec;
 
+mod deprecated;
+
+pub use deprecated::{movie, sound};
+
 /// Most renditions one walk of §13.2.3.3's tree visits.
 ///
 /// A selector's `/R` is a list the file controls, and §13.2.3.3 makes it a tree; a tree with more
@@ -115,17 +119,19 @@ pub enum Data {
     Form,
 }
 
-/// A media clip data object the clause calls viable, with what the hand-off carries.
+/// A file the hand-off gives a player, with what it carries: §13.2.4.2's media clip data the clause
+/// calls viable, §13.4's movie file, or §13.3's sound file ([`movie`], [`sound`]).
 #[derive(Debug, Clone)]
 pub struct Clip {
     /// Table 285's `/CT`, which "shall identify the type of data".
     pub content_type: Option<String>,
     /// Table 285's `/D`.
     pub data: Data,
-    /// Table 286's `/TF`.
-    pub temporary_file: TemporaryFile,
-    /// `BE` entries the hand-off cannot honour, each named: the clause keeps the clip viable and
-    /// trap 5 keeps the loss said.
+    /// Table 286's `/TF`, and `None` for a movie's or a sound's file, over which no media
+    /// permissions dictionary stands: Table 286 belongs to §13.2.4.2's clip alone (ADR 2382).
+    pub temporary_file: Option<TemporaryFile>,
+    /// Entries the hand-off cannot honour, each named — a clip's `BE` entries, which the clause
+    /// keeps viable, and a movie's or a sound's playing parameters — and trap 5 keeps the loss said.
     pub unhonoured: Vec<String>,
 }
 
@@ -529,7 +535,7 @@ impl Walk<'_> {
         Some(Clip {
             content_type,
             data: data?,
-            temporary_file,
+            temporary_file: Some(temporary_file),
             unhonoured,
         })
     }
@@ -944,7 +950,7 @@ mod tests {
         let (considered, clip) = report.chosen().expect("viable");
         assert_eq!(considered.alternate.as_deref(), Some("A clip"));
         assert_eq!(clip.content_type.as_deref(), Some("video/mp4"));
-        assert_eq!(clip.temporary_file, TemporaryFile::Never);
+        assert_eq!(clip.temporary_file, Some(TemporaryFile::Never));
         assert!(matches!(clip.data, Data::Embedded(_)), "{:?}", clip.data);
     }
 
@@ -1014,10 +1020,10 @@ mod tests {
         };
         let report = with("<< /TF (TEMPACCESS) >>");
         let (_, clip) = report.chosen().expect("viable");
-        assert_eq!(clip.temporary_file, TemporaryFile::Access);
+        assert_eq!(clip.temporary_file, Some(TemporaryFile::Access));
         let report = with("<< /TF (TEMPSOMETIMES) >>");
         let (_, clip) = report.chosen().expect("viable");
-        assert_eq!(clip.temporary_file, TemporaryFile::Never);
+        assert_eq!(clip.temporary_file, Some(TemporaryFile::Never));
         assert!(with("<< /Copy true >>").chosen().is_none());
     }
 

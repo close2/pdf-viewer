@@ -71,8 +71,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use pdf_model::accessibility::Described;
 use pdf_model::content::MarkedSpan;
 use pdf_model::structure::{
-    Artifact, BlockProgression, CellPlacement, Child, HeaderScope, ListEntry, Nonstandard,
-    StandardType, TableStack, Tree, list_predecessors, table_cell_rectangles,
+    Artifact, BlockProgression, Category, CellPlacement, Child, HeaderScope, InlineStatements,
+    ListEntry, Nonstandard, StandardType, TableStack, TextDecoration, TextPosition, Tree,
+    list_predecessors, table_cell_rectangles,
 };
 use pdf_syntax::{Dictionary, Document, ObjectId};
 
@@ -616,6 +617,32 @@ pub struct AccessibilityNode {
     /// The lines are the element's **own** content items, as [`Self::name`] is, and in the order
     /// the page drew them within §14.8.2.5's order over the elements.
     pub lines: Vec<TextLine>,
+    /// Table 380's `/TextDecorationType` as it reaches this element's own text: a line under it,
+    /// over it or through it.
+    ///
+    /// Resolved by the cell's own reach — "inheritable only for directly nested ILSEs", and "shall
+    /// not apply to nested BLSEs or to content items other than text" — so a host sets it on
+    /// [`Self::lines`] and nowhere else: a platform that inherits text attributes down its own
+    /// tree would otherwise carry a paragraph's underline into the block nested inside it (ADR
+    /// 2384).
+    pub decoration: TextDecoration,
+    /// Table 380's `/TextDecorationColor` for [`Self::decoration`], where the element or an
+    /// ancestor states one.
+    ///
+    /// `None` is the entry's default, "the current fill colour in effect at the start of its
+    /// associated content", which the readback does not carry; a host that must name a colour
+    /// says which it named (ADR 2384).
+    pub decoration_colour: Option<[f32; 3]>,
+    /// Whether this element's own text sits raised or lowered off its line, as Table 380 states
+    /// it: `/TextPosition` where the element or an ancestor names one, and otherwise the sign of
+    /// `/BaselineShift` summed up the chain of inline-level elements it is in.
+    ///
+    /// **The second is a reading this program chooses**, because the clause states a distance and
+    /// not a meaning: "\[t]he shifted element may be a superscript, a subscript, or an inline
+    /// graphic". A positive shift is "toward the before edge", which a platform's superscript is,
+    /// and a negative one a subscript; the nearest statement wins, so an element's own shift
+    /// outranks an inherited `/TextPosition` and its own `/TextPosition` outranks both (ADR 2384).
+    pub position: TextPosition,
 }
 
 impl AccessibilityNode {
@@ -650,6 +677,9 @@ impl AccessibilityNode {
             continues_a_list: false,
             continued_from: None,
             lines: Vec::new(),
+            decoration: TextDecoration::None,
+            decoration_colour: None,
+            position: TextPosition::Normal,
         }
     }
 }
@@ -786,6 +816,8 @@ pub(crate) struct Gathered {
     /// Filled after the walk for the same reason [`Self::headers`] is: `pdf-model` resolves it
     /// over the whole walk, in the positions this one gave it, which are exactly these indices.
     pub(crate) continued_from: Option<usize>,
+    /// Table 380's reach at this element, as [`Inline::enter`] resolved it.
+    pub(crate) inline: Inline,
 }
 
 /// Reads the page's part of §14.7's structure tree.
@@ -877,6 +909,7 @@ fn gather(
         None,
         page,
         default_language,
+        Inline::default(),
         0,
         within,
         &mut tables,
@@ -1010,6 +1043,7 @@ fn walk(
     parent: Option<usize>,
     page: ObjectId,
     language: Option<&str>,
+    inline: Inline,
     depth: usize,
     within: Option<&BTreeSet<ObjectId>>,
     tables: &mut TableStack,
@@ -1059,6 +1093,10 @@ fn walk(
                     standard,
                 } = tree.mapped_role(document, &dict);
                 let kind = standard.clone().ok();
+                // Table 380's decoration, colour and position, carried down by the reach each
+                // cell states — which for two of them is §14.8.4.1's category, settled here
+                // where the parent's is in hand (ADR 2384).
+                let inline = inline.enter(kind.as_ref(), tree.inline_statements(document, &dict));
                 // ISO 32000-1 Table 333's `Private`, which only the PDF 1.7 namespace defines:
                 // "[n]either the Private element nor any of its descendants shall be interpreted or
                 // exported to other document formats". So neither is gathered — no node, no text,
@@ -1138,6 +1176,7 @@ fn walk(
                         headers: Vec::new(),
                         continues_a_list,
                         continued_from: None,
+                        inline,
                     },
                 ));
                 walk(
@@ -1147,6 +1186,7 @@ fn walk(
                     Some(index),
                     page,
                     language.as_deref(),
+                    inline,
                     depth.saturating_add(1),
                     below,
                     tables,
@@ -1357,6 +1397,93 @@ fn names_object(object: ObjectId, parent: Option<usize>, out: &mut [(Option<usiz
     }
 }
 
+/// Table 380's four text attributes as they stand at one element, which is what its children
+/// inherit from.
+///
+/// ISO 32000-2 §14.8.5.4.4 gives the four entries three different reaches, and each field is the
+/// one its cell states:
+///
+/// - `/TextDecorationType` is "inheritable only for directly nested ILSEs", and "shall apply to
+///   all text content items that are children of this element or of its nested ILSEs, if any";
+/// - `/TextDecorationColor` and `/TextPosition` are "inheritable", the plain §14.8.5.3 kind;
+/// - `/BaselineShift` is "not inheritable", and still "\[t]he shift shall apply to the element,
+///   its content, and all of its descendants. Any further baseline shift applied to a child of
+///   this element shall be measured relative to the shifted baseline" of the parent — so a
+///   child's height off the line is the sum of the shifts above it.
+///
+/// What is summed is the chain of **inline-level** elements, reset at every other kind: a block
+/// moves its whole line with it and leaves nothing on that line for its text to be raised above,
+/// and the inline elements inside it are measured from where it put them. **A `Figure`, `Form` or
+/// `Formula` resets it too**, because §14.8.5.4.6 gives their shift another meaning: "the value of
+/// its `BaselineShift` attribute shall be used to determine the position of its after edge relative
+/// to the text baseline" — where an inline illustration's bottom sits, which is not a subscript
+/// of any text drawn inside it (ADR 2384).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub(crate) struct Inline {
+    /// This element's §14.8.4.1 category, which settles a contextual child's; `None` for an
+    /// element of no standard type, which is therefore never inline.
+    category: Option<Category>,
+    decoration: TextDecoration,
+    colour: Option<[f32; 3]>,
+    /// `/TextPosition` as stated here or above, before `/BaselineShift` is consulted.
+    named: Option<TextPosition>,
+    /// The summed `/BaselineShift` of the inline chain this element ends, in default user space.
+    shift: f32,
+    position: TextPosition,
+}
+
+impl Inline {
+    /// The reach at a child of `self`'s element, of standard type `kind`, stating `stated`.
+    fn enter(self, kind: Option<&StandardType>, stated: InlineStatements) -> Self {
+        let category = kind.map(|kind| kind.category().of(self.category));
+        let inline = category == Some(Category::Inline);
+        let illustration = matches!(
+            kind,
+            Some(StandardType::Figure | StandardType::Form | StandardType::Formula)
+        );
+        let chained = inline && !illustration;
+        let named = stated.position.or(self.named);
+        let decoration = stated
+            .decoration
+            .or(inline.then_some(self.decoration))
+            .unwrap_or_default();
+        let colour = stated.decoration_colour.or(self.colour);
+        let own_shift = if chained {
+            stated.baseline_shift.unwrap_or(0.0)
+        } else {
+            0.0
+        };
+        let shift = if chained { self.shift + own_shift } else { 0.0 };
+        let position = match stated.position {
+            Some(position) => position,
+            None if own_shift != 0.0 => raised_by(shift),
+            None if chained => self.position,
+            None => named.unwrap_or_default(),
+        };
+        Self {
+            category,
+            decoration,
+            colour,
+            named,
+            shift,
+            position,
+        }
+    }
+}
+
+/// A summed baseline shift read as a position: Table 380's "positive values shall shift the
+/// baseline toward the before edge and negative values toward the after edge of the reference
+/// area", which a platform calls superscript and subscript — the choice ADR 2384 records.
+fn raised_by(shift: f32) -> TextPosition {
+    if shift > 0.0 {
+        TextPosition::Sup
+    } else if shift < 0.0 {
+        TextPosition::Sub
+    } else {
+        TextPosition::Normal
+    }
+}
+
 fn attribute(sequence: Sequence, parent: Option<usize>, out: &mut [(Option<usize>, Gathered)]) {
     if let Some(index) = parent
         && let Some((_, entry)) = out.get_mut(index)
@@ -1517,6 +1644,9 @@ pub(crate) fn finish(
         lines: caret,
         drawn: marked_extent(page.marked, &gathered.mcids).and_then(mark),
         enclosed_a_refusal: enclosed_a_refusal(page.marked, &gathered.mcids),
+        decoration: gathered.inline.decoration,
+        decoration_colour: gathered.inline.colour,
+        position: gathered.inline.position,
     }
 }
 
@@ -1866,7 +1996,189 @@ mod tests {
             lines: Vec::new(),
             drawn: None,
             enclosed_a_refusal: false,
+            decoration: pdf_model::structure::TextDecoration::None,
+            decoration_colour: None,
+            position: pdf_model::structure::TextPosition::Normal,
         }
+    }
+
+    /// The reach Table 380 gives an element of standard type `kind` stating `stated`, below `at`.
+    fn entered(
+        at: super::Inline,
+        kind: &pdf_model::structure::StandardType,
+        stated: super::InlineStatements,
+    ) -> super::Inline {
+        at.enter(Some(kind), stated)
+    }
+
+    /// Table 380's `/TextDecorationType`: "inheritable only for directly nested ILSEs", and it
+    /// "shall not apply to nested BLSEs" — so a span inside an underlined paragraph is underlined
+    /// and a paragraph inside an underlined one is not.
+    #[test]
+    fn a_decoration_reaches_the_inline_elements_inside_and_stops_at_a_block() {
+        use pdf_model::structure::{StandardType, TextDecoration};
+        let paragraph = entered(
+            super::Inline::default(),
+            &StandardType::Paragraph,
+            super::InlineStatements {
+                decoration: Some(TextDecoration::Underline),
+                ..Default::default()
+            },
+        );
+        assert_eq!(paragraph.decoration, TextDecoration::Underline);
+        let span = entered(
+            paragraph,
+            &StandardType::Span,
+            super::InlineStatements::default(),
+        );
+        assert_eq!(span.decoration, TextDecoration::Underline);
+        let inner = entered(
+            span,
+            &StandardType::Emphasis,
+            super::InlineStatements::default(),
+        );
+        assert_eq!(
+            inner.decoration,
+            TextDecoration::Underline,
+            "nested ILSEs, if any"
+        );
+        let block = entered(
+            paragraph,
+            &StandardType::Paragraph,
+            super::InlineStatements::default(),
+        );
+        assert_eq!(block.decoration, TextDecoration::None);
+        let cancelled = entered(
+            paragraph,
+            &StandardType::Span,
+            super::InlineStatements {
+                decoration: Some(TextDecoration::None),
+                ..Default::default()
+            },
+        );
+        assert_eq!(cancelled.decoration, TextDecoration::None);
+    }
+
+    /// `/BaselineShift`: "\[t]he shift shall apply to the element, its content, and all of its
+    /// descendants", and a child's is "measured relative to the shifted baseline" of its parent —
+    /// so a raised span's child is raised too, a child that shifts back down is on the line
+    /// again, and a block's own shift raises nothing above its line (ADR 2384).
+    #[test]
+    fn a_baseline_shift_is_summed_along_the_inline_chain_and_read_by_its_sign() {
+        use pdf_model::structure::{StandardType, TextPosition};
+        let shifted = |by: f32| super::InlineStatements {
+            baseline_shift: Some(by),
+            ..Default::default()
+        };
+        let paragraph = entered(
+            super::Inline::default(),
+            &StandardType::Paragraph,
+            shifted(4.0),
+        );
+        assert_eq!(
+            paragraph.position,
+            TextPosition::Normal,
+            "a block's own shift"
+        );
+        let raised = entered(paragraph, &StandardType::Span, shifted(3.0));
+        assert_eq!(raised.position, TextPosition::Sup);
+        let carried = entered(
+            raised,
+            &StandardType::Span,
+            super::InlineStatements::default(),
+        );
+        assert_eq!(carried.position, TextPosition::Sup);
+        let returned = entered(raised, &StandardType::Span, shifted(-3.0));
+        assert_eq!(returned.position, TextPosition::Normal);
+        let lowered = entered(paragraph, &StandardType::Span, shifted(-2.0));
+        assert_eq!(lowered.position, TextPosition::Sub);
+        let reset = entered(
+            raised,
+            &StandardType::Paragraph,
+            super::InlineStatements::default(),
+        );
+        assert_eq!(
+            reset.position,
+            TextPosition::Normal,
+            "a nested block starts a line"
+        );
+        // §14.8.5.4.6: an inline figure's shift is where its after edge sits, and the text drawn
+        // inside it — an inline formula's, say — is no subscript.
+        let figure = entered(paragraph, &StandardType::Figure, shifted(-8.0));
+        assert_eq!(figure.position, TextPosition::Normal);
+        let inside = entered(
+            figure,
+            &StandardType::Span,
+            super::InlineStatements::default(),
+        );
+        assert_eq!(inside.position, TextPosition::Normal);
+    }
+
+    /// `/TextPosition` names the position a shift only measures, so the element's own name
+    /// outranks its own shift; and the nearest statement wins, so an element's own shift
+    /// outranks a name it inherited (ADR 2384).
+    #[test]
+    fn the_nearest_statement_of_a_position_wins() {
+        use pdf_model::structure::{StandardType, TextPosition};
+        let paragraph = entered(
+            super::Inline::default(),
+            &StandardType::Paragraph,
+            super::InlineStatements {
+                position: Some(TextPosition::Sub),
+                ..Default::default()
+            },
+        );
+        assert_eq!(paragraph.position, TextPosition::Sub);
+        let named = entered(
+            paragraph,
+            &StandardType::Span,
+            super::InlineStatements {
+                position: Some(TextPosition::Normal),
+                baseline_shift: Some(5.0),
+                ..Default::default()
+            },
+        );
+        assert_eq!(named.position, TextPosition::Normal);
+        let shifted = entered(
+            paragraph,
+            &StandardType::Span,
+            super::InlineStatements {
+                baseline_shift: Some(5.0),
+                ..Default::default()
+            },
+        );
+        assert_eq!(shifted.position, TextPosition::Sup);
+        let inherited = entered(
+            paragraph,
+            &StandardType::Paragraph,
+            super::InlineStatements::default(),
+        );
+        assert_eq!(
+            inherited.position,
+            TextPosition::Sub,
+            "TextPosition is inheritable"
+        );
+    }
+
+    /// `/TextDecorationColor` is "(Optional; inheritable)" with no narrowing, so it reaches a
+    /// nested block that the decoration itself does not.
+    #[test]
+    fn a_decoration_colour_is_inherited_by_every_descendant() {
+        use pdf_model::structure::StandardType;
+        let division = entered(
+            super::Inline::default(),
+            &StandardType::Division,
+            super::InlineStatements {
+                decoration_colour: Some([1.0, 0.0, 0.0]),
+                ..Default::default()
+            },
+        );
+        let paragraph = entered(
+            division,
+            &StandardType::Paragraph,
+            super::InlineStatements::default(),
+        );
+        assert_eq!(paragraph.colour, Some([1.0, 0.0, 0.0]));
     }
 
     /// §14.8.5.4.5's mixed element: the marks reach past the text and both are the content.

@@ -335,8 +335,9 @@ impl Device {
         &self.pipelines
     }
 
-    /// The compute lane's persistent capacity, in bytes, so that a test can tell a capacity
-    /// sized by its frame's own count from the guess it replaced (the caller's ADR 2355).
+    /// The compute lane's persistent capacity, in bytes, so that a test can tell whether the
+    /// first frame was sized by its own count or by the floor under it (the caller's ADRs 2355
+    /// and 2388).
     #[cfg(test)]
     pub(crate) fn compute_capacity_bytes(&self) -> u64 {
         self.compute_persist.capacity_bytes()
