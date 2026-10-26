@@ -678,7 +678,7 @@ pub(super) fn invert_matte_in_place(
     // `α | cover` is the alpha byte: 255 where the multiplication comes after, and `α` itself
     // where it is taken here — one walk either way, the choice made once rather than per pixel.
     let cover = if opacity { 0 } else { u8::MAX };
-    let invert = |(pixels, alphas): (&mut [[u8; 4]], &[u8])| match tables {
+    let invert_row = |pixels: &mut [[u8; 4]], alphas: &[u8]| match tables {
         [grey] => {
             for (pixel, &alpha) in pixels.iter_mut().zip(alphas) {
                 let level = entry(grey, alpha, pixel[0]);
@@ -697,6 +697,18 @@ pub(super) fn invert_matte_in_place(
         }
         _ => {}
     };
+    // Where the mask is 0, §11.6.5.2's pre-blending leaves the source colour undetermined and
+    // `Prematte::restore_component` answers the matte whatever the sample, so each table's row at
+    // α = 0 is one value; where every table's is, a row the mask leaves wholly transparent is that
+    // one pixel throughout, written without its samples read. `issue13931.pdf`'s mask is 0 on 3 917 of its 4 256 rows, and this
+    // walk was 293 M instructions of the page's 693 M (ADR 2348).
+    let transparent = wholly_transparent_pixel(tables, cover);
+    let invert = |(pixels, alphas): (&mut [[u8; 4]], &[u8])| match transparent {
+        Some(transparent) if alphas.iter().fold(0, |seen, &alpha| seen | alpha) == 0 => {
+            pixels.fill(transparent);
+        }
+        _ => invert_row(pixels, alphas),
+    };
     // Rows divide across the pool for [`unpack_matted_eight_bit_device`]'s reason: no pixel reads
     // another.
     let (frame, _) = rgba.as_chunks_mut::<4>();
@@ -705,6 +717,22 @@ pub(super) fn invert_matte_in_place(
         .zip(alpha.par_chunks(width))
         .for_each(invert);
     true
+}
+
+/// The pixel [`invert_matte_in_place`] writes where the mask is 0, or `None` where a table's row
+/// at α = 0 is not one value, which leaves every pixel to its lookups. The alpha byte is `cover`,
+/// which is what `α | cover` is at α = 0.
+fn wholly_transparent_pixel(tables: &[MatteTable], cover: u8) -> Option<[u8; 4]> {
+    let at_zero = |table: &MatteTable| {
+        let (row, _) = table.split_at(256);
+        let first = row.first().copied()?;
+        row.iter().all(|&value| value == first).then_some(first)
+    };
+    match tables {
+        [grey] => at_zero(grey).map(|level| [level, level, level, cover]),
+        [red, green, blue] => Some([at_zero(red)?, at_zero(green)?, at_zero(blue)?, cover]),
+        _ => None,
+    }
 }
 
 /// The samples a `DCTDecode`, `CCITTFaxDecode` or `JBIG2Decode` filter delivers, packed as

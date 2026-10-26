@@ -430,6 +430,10 @@ public:
     void probeRecord(const char* kind, QJsonObject fields = {}) const;
     void probeGeometry();
 
+    /// Says the viewport's size as it is now, whether or not it was said before — for a size the
+    /// window could not tell the host when it changed (ADR 2345).
+    void tellSize();
+
 Q_SIGNALS:
     /// The viewport changed size, in device pixels.
     void resizedTo(unsigned int width, unsigned int height, float scale);

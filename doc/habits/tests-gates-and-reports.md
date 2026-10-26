@@ -639,3 +639,12 @@ whether its own files pass the gates further down the list. Round 1751 ran
 `cargo test -p conformance --no-fail-fast` and could name the two reds as `records` on a sibling's
 record and `round_numbers` on a sibling's example, with its own six gates green. A round that shares
 a worktree runs the conformance crate with `--no-fail-fast` and reports which failures are its own.
+
+## A written face is proved by its tables or its advances, because a collection's faces can share every outline
+
+Round 1754 wrote out of a `ttcf` collection the face the descriptor names (ADR 2343) and first proved it
+by comparing glyph outlines with the reader's face — a test that passed with face zero planted in place
+of the named one, because Cambria and Cambria Math share every outline and differ in their tables and
+advances. A proof that the right face was written compares the written tables with the reader's, table
+by table, or the program advances, and a plant of the wrong face is run before the test is believed
+(trap 13).

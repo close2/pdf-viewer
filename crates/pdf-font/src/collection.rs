@@ -54,14 +54,31 @@ pub fn extract(data: &[u8], wanted: Option<&str>) -> Option<Vec<u8>> {
         return None;
     };
     let chosen = wanted
-        .and_then(|wanted| {
-            collection
-                .iter()
-                .flatten()
-                .find(|face| postscript_name(face).is_some_and(|held| same_face(&held, wanted)))
-        })
+        .and_then(|wanted| face_named(&collection, wanted))
         .or_else(|| collection.get(0).ok())?;
     rebuild(&chosen)
+}
+
+/// Extracts the face `wanted` names from a `TrueType` Collection, as a standalone `sfnt`, and
+/// nothing where no face carries that name.
+///
+/// [`extract`] without its fallback: a caller that writes the face into a file of its own states
+/// the choice to every later reader, and face zero is a choice the document did not make (ADR
+/// 0141), so it is given only the face the descriptor names.
+#[must_use]
+pub fn extract_named(data: &[u8], wanted: &str) -> Option<Vec<u8>> {
+    let FileRef::Collection(collection) = FileRef::new(data).ok()? else {
+        return None;
+    };
+    rebuild(&face_named(&collection, wanted)?)
+}
+
+/// The face of `collection` whose PostScript name is the one `wanted` states.
+fn face_named<'a>(collection: &read_fonts::CollectionRef<'a>, wanted: &str) -> Option<FontRef<'a>> {
+    collection
+        .iter()
+        .flatten()
+        .find(|face| postscript_name(face).is_some_and(|held| same_face(&held, wanted)))
 }
 
 /// A face's PostScript name, from its `name` table (name ID 6).

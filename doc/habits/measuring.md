@@ -1775,3 +1775,13 @@ subshell's parentheses close the pipeline before `PIPESTATUS` is read, and a gre
 that `grep` matched a line. Round 1749 wrote each run to a file and printed `$?` on the run itself, then
 read the file for the lines it wanted. A record's exit status comes from the command whose status it
 claims to be, written to a file or captured without a pipe.
+
+## 188. A fast path written as a branch inside a per-pixel loop is read in the disassembly before its ceiling is believed
+
+Round 1757 priced a row-wise matte inversion at about 90 % of 293 M instructions and first wrote the
+lever as an `α = 0` test per pixel; callgrind read 256 M, 13 % of the ceiling, and the disassembly showed
+the compiler had merged the two arms into one store sequence, so the test bought nothing. Written with
+the row as the unit — a row whose mask is all zero filled whole from the matte's pixel — the same lever
+read 42 M (ADR 2348). A fast path that is a branch inside a hot loop is checked in callgrind or the
+disassembly for whether the branch survives before its ceiling is reported, and the unit of the test is
+raised until it does.

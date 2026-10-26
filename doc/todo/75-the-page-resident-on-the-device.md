@@ -113,7 +113,10 @@ read-back lane draws a page on `Cpu` (`coverage_for`), where every glyph is rast
 new view; a re-used encode there, and the whole page taking `Compute`, are priced at their ceilings and
 declined (ADRs 2314, 2315). What a notch draws first instead is the part of the page the viewport
 shows, on `lane_for`'s lane for a moved view, and the page after it as before (ADR 2322); what that
-leaves between a notch and its frame is ADR 2323's.
+leaves between a notch and its frame is ADR 2323's. Its two remainders are priced at their ceilings
+and declined: the read-back lane keeps no records for a `Cpu` draw to drop, and what a window waits
+for is the lane's own passes and the device's wake (ADR 2338); the lane's first use is the first
+notch's, and its ceiling is the second notch, past a frame (ADR 2339).
 
 ## 8. Estimate provenance and live surface observation
 

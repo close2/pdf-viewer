@@ -141,9 +141,12 @@ These are the places where a native host's shape differs from the tier-2 host's,
   `quorra-confined` — until the look that finds it read. **Page one is drawn while it is read** in
   both toolkit windows as in `quorra` (`viewer_host::Ahead`, ADRs 1855, 1867): from half a second
   into the read the window shows the page as it stands, placed where its first frame will be, and
-  the first frame is finished from that drawing. What is still owed: a page interpreted *after* the
-  launch (a turn, a re-interpretation) is read on the toolkit's thread with no bar, and an
-  in-process interpretation has no stop but the window's close. `quorra-confined` owes neither:
+  the first frame is finished from that drawing. **A turn's read is off the toolkit's thread** in
+  both toolkit windows and the C window (`Viewer::read_out`, ADR 2344): the key's handler returns
+  with the retained picture on the screen and a second turn waits for the first's read. What is
+  still owed: `quorra`'s own turn, an arrangement that brings on two unread pages and a
+  re-interpretation are read on the window's thread with no bar, and an in-process interpretation
+  has no stop but the window's close. `quorra-confined` owes neither:
   every command goes to its worker on a thread past `WARN` and the reader's keys are held meanwhile
   (ADR 1827); what it owes is a worker that takes a command while it draws, so that a held key
   reaches the viewer sooner.

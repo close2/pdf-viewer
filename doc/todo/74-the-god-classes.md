@@ -214,10 +214,10 @@ bands — which are lists of cases, the remedy section 15 names for test files.
 
 ## 17. Next, in the census's order
 
-`tools/state.sh gods`'s impl-block table, read past the blocks split above: `Host` in
-`viewer-ui/src/bin/quorra-confined.rs`, `Vfs` in `pdf-vfs/src/lib.rs`, `Carry` in
-`pdf-transform/src/structure.rs` and `App` in `viewer-ui/src/bin/quorra/typing.rs`, in that order
-until the census says otherwise; each is split as entry 1 was, by concern, behind the proof the
+`tools/state.sh gods`'s impl-block table, read past the blocks split above: `Vfs` in
+`pdf-vfs/src/lib.rs`, `Carry` in `pdf-transform/src/structure.rs` and `App` in
+`viewer-ui/src/bin/quorra/typing.rs`, in that order until the census says otherwise (`Host` in
+`viewer-ui/src/bin/quorra-confined.rs` is split into five modules, ADR 2352); each is split as entry 1 was, by concern, behind the proof the
 opening paragraph names.
 
 ## Found, not fixed

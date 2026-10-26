@@ -39,7 +39,8 @@ use viewer_host::drawing::WARN;
 use viewer_host::trace::Topic;
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 
-use crate::{Host, brief};
+use crate::Host;
+use crate::arguments::brief;
 
 /// A command out with the worker on a thread of its own: the worker comes back with what it
 /// answered, and with whether the command carried a file a document named (`asking`'s offer).

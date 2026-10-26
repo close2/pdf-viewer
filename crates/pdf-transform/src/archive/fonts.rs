@@ -1121,7 +1121,11 @@ fn subtype_dictionary(row: Table124) -> Option<Dictionary> {
 /// conversion that left the producer's number would be handing a reader a lie about its own
 /// bytes. Every other key of the source's stream dictionary is carried, because a `/FontFile3`'s
 /// `/Subtype` is one of them and losing it would leave a program no reader could classify.
-fn program_stream(from: Option<&Dictionary>, program: &[u8], length1: bool) -> Option<Object> {
+pub(super) fn program_stream(
+    from: Option<&Dictionary>,
+    program: &[u8],
+    length1: bool,
+) -> Option<Object> {
     let mut dict = from.cloned().unwrap_or_default();
     dict.remove("Length1");
     dict.remove("Length2");

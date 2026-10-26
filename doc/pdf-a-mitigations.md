@@ -1221,29 +1221,46 @@ ISO 19005-2 6.2.11.4.1, ISO 19005-4 6.2.10.4.1 · all six · `Mechanical`, **bui
   removes the map and moves the program to `/FontFile3` `/OpenType` (ADR 2326): Table 115's
   `Identity` makes each CID its own glyph index, and §9.7.4.2 uses the CIDs of such a program
   directly as glyph indices under `CIDFontType0`, so every CID selects the glyph it selected.
+  **Where the map is a stream** (ADR 2342) the CIDs change to the glyph indices they selected: each
+  `Type0` font naming the descendant under `Identity-H` or `Identity-V` is given an embedded `CMap`
+  (§9.7.5.3) sending every two-byte code to the glyph this reader drew it with, codes that drew glyph
+  0 left to a `notdefrange` onto CID 0, and `/W` states each glyph's width as the advance its codes
+  had — read for every code through `pdf_font::LoadedFont`, so the re-keyed font is the page as it
+  was drawn. The `CMap` states the descendant's own `CIDSystemInfo`, which ISO 19005-2 section
+  6.2.11.3.1 holds a non-identity `CMap` to.
 - **Refused, by name**: a program no row admits under its dictionary — a `glyf` program under
   `CIDFontType0` — since a true filing would need the dictionary's subtype changed and with it how a
   CID selects a glyph, and a CFF-flavoured `OTTO` program under `/FontFile2` in a `TrueType`
   dictionary (`issue215`), which Table 124 admits only under `Type1` and `CIDFontType0`; a
-  CFF-flavoured program under a `CIDFontType2` whose map is not `Identity` or which is CID-keyed,
-  since its CIDs would select other glyphs under `CIDFontType0` (`bug1186827`, whose map stream sends
-  CID *c* to glyph *c* − 31 from CID 32); a font collection (below); a move into `/FontFile` or
-  `/FontFile2`, whose lengths this does not compute; a finding list the validator shortened.
+  CFF-flavoured program under a `CIDFontType2` stating no map, or a CID-keyed one, whose CIDs nothing
+  says selected the glyphs `CIDFontType0` would give them; a stream-mapped one whose re-keying would
+  move something, each by its sentence — an encoding other than the two identities, a `/W2`, a
+  descriptor's `/CIDSet` (both keyed by the CIDs that change), a `Type0` font written inside another
+  object, a code reaching no glyph or one past the program's last, two codes reaching one glyph at
+  two widths; a collection none of whose faces the descriptor names (below); a move into
+  `/FontFile` or `/FontFile2`, whose lengths this does not compute; a finding list the validator
+  shortened.
 - **A `ttcf` collection is in no row** (ADR 2327): the `FontFile2` row's program shall conform to
   the TrueType Reference Manual, whose font file is one font opening with its own font directory, an
   offset subtable whose scaler type (`true` or 0x00010000 for TrueType outlines, `OTTO` for CFF)
   names that font's outlines; the Manual names no `ttcf` and describes no collection. The OpenType
   specification makes a collection the delivery of several font resources, each with a directory of
   its own, of which a descriptor names none, so the `OpenType` row's single program is not one
-  either. The validator fails it under any key and the conversion refuses it in a sentence of its
-  own (`issue13193`, `issue9262_reduced`, which converted before into outputs veraPDF failed). What
-  would answer it: the face this reader draws, chosen by the descriptor's `/FontName` (ADR 0141),
-  written out of the collection as a TrueType program of its own with its `/Length1`.
+  either. The validator fails it under any key, and **the face this reader draws is written out**
+  (ADR 2343): the face whose PostScript name the descriptor's `/FontName` states (ADR 0141), its own
+  tables byte for byte and no other face's, under a directory written afresh with every table's
+  checksum and `head`'s `checkSumAdjustment` (the Manual's font directory), filed by its own format
+  with its `/Length1`. Face zero, which this reader draws where no face carries the name, is a choice
+  the document did not make, so such a collection stays refused by a sentence of its own.
 - **Witnesses** — `issue4668`, `issue5751`, `issue6782`, `issue7598`, `bug921409` convert at 4 and
   2b, page 1 byte-identical to the source's at 100 dpi, veraPDF passing all five; `issue5084`
   converts at 4 and 2b under both shipped profiles, page 1 byte-identical to the source's at 100 dpi
-  and at 360, veraPDF passing all four outputs; `issue9949`, `issue11740_reduced`, `issue215`,
-  `bug1186827`, `issue13193` and `issue9262_reduced` are refused.
+  and at 360, veraPDF passing all four outputs; `bug1186827` (re-keyed), `issue13193` and
+  `issue9262_reduced` (a face written out) convert at 4 and 2b under both shipped profiles, page 1
+  byte-identical to the source's at 100 dpi and at 360, veraPDF 1.30.3 passing all six outputs,
+  every code of the two-byte codespace drawing the source's glyph, advance and outline
+  (`archive_corpus`'s `a_refiled_composite_font_draws_every_code_as_its_source_did`);
+  `issue9949`, `issue11740_reduced` and `issue215` are refused.
 
 #### `fonts/cmap-embedded-or-predefined`
 #### `fonts/cmap-uses-only-predefined-cmaps`
@@ -1579,7 +1596,7 @@ rewrite
   level of the source; veraPDF passes 21 and fails five on a descendant font program
   (6.2.10.4.1): a program filed under a key or name its bytes are not, which
   `fonts/font-programs-filed-by-their-format` now refiles or refuses, or a TrueType collection,
-  which it refuses by name (ADRs 2307, 2327).
+  whose named face it writes out (ADRs 2307, 2327, 2343).
 
 #### `fonts/actual-text-covers-private-use-characters`
 ISO 19005-2 6.2.11.7.3 · PDF/A-2a · today `the-fence`

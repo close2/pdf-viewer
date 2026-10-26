@@ -229,6 +229,16 @@ impl Rewriter<'_> {
                 return Rewritten::Changed(restated.clone());
             }
         }
+        // A font collection's program, now the one face its descriptor names written out as a
+        // program of its own: a whole stream, because its bytes and both lengths change (ADR
+        // 2343). It is filed under the row that face's format takes, and a TrueType program's row
+        // is under the key it was already filed by with no `/Subtype` to state.
+        if self.wants(Rewrite::FontProgramRefiled)
+            && let Some(face) = self.font_files.and_then(|refiled| refiled.faces.get(&id))
+        {
+            count(applied, Rewrite::FontProgramRefiled);
+            return Rewritten::Changed(face.clone());
+        }
         // The JPEG 2000 data itself, with the colour specification boxes the part directs a
         // processor to ignore taken out: the bytes and the `/Length` change together, so it is a
         // whole stream for the same reason the font program above is.

@@ -66,7 +66,7 @@ impl Viewer {
                 of: open.page_count,
             },
             Query::PageGeometry(index) => self
-                .geometry(open, index)
+                .shown_geometry(open, id, index)
                 .map_or(Answer::None, Answer::Geometry),
             // The three as this crate holds them, settled: `Viewer::handle` clamps the scroll at
             // the end of every command, so what a host reads here is where the reader is rather

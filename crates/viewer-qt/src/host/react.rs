@@ -4,7 +4,7 @@
 
 use std::collections::VecDeque;
 
-use viewer_core::{Answer, Command, DocumentId, Event, Query};
+use viewer_core::{Answer, Command, DocumentId, Query};
 use viewer_host::PresentationPump as _;
 use viewer_host::form::control_kind;
 use viewer_host::native_window::NativeWindow;
@@ -94,10 +94,9 @@ impl Host {
             self.spoken = None;
         }
         let supplied = matches!(command, Command::Supply { .. });
-        let events: Vec<Event> = if matches!(command, Command::GoTo(_)) {
-            self.turn(command)
-        } else {
-            self.state.viewer.handle(command).collect()
+        // A command that waits behind a turn's read is handed on when the read is in (ADR 2344).
+        let Some(events) = self.through_the_viewer(command) else {
+            return;
         };
         if let Some(described) = described {
             self.state.trace.say(

@@ -427,6 +427,17 @@ against 6.85–7.99, its `encode` 5.07–5.36 against 3.83–4.51: a long-lived 
 another document's glyphs, which this table does not divide further. Growing `wgpu`'s pool of command
 encoders ahead of the frames was measured on both kinds of device and is not built (ADR 1606).
 
+**`images.pdf`'s and `issue13931.pdf`'s interpretations were re-measured on 2026-10-26 after ADR
+2348**, one clock hold interleaving HEAD's export with the change's, pinned, load 2.5–2.9: an
+eight-bit device image under the default `/Decode` is copied four pixels a step rather than looked
+up a channel at a time, and a row its `/Matte`'d mask leaves wholly transparent is written as the
+matte's one pixel without its samples read. `frame_budget`'s turn read 33.25–34.77 ms against HEAD's
+36.54–38.31 on `images.pdf` and 19.15–20.84 against 21.86–22.65 on `issue13931.pdf`, all of it in
+`interp`; callgrind puts the two interpretations at 612.1 → 432.7 M and 692.5 → 457.7 M
+instructions. The display lists' digests are unchanged, and no byte moved on six arms. What is left of `bug1721218_reduced.pdf`'s
+content read once a plane is priced at about 155 M for some 12.7 MB held against ADR 0365's window,
+and not built (ADR 2349).
+
 **`bug1721218_reduced.pdf`'s and `personwithdog.pdf`'s interpretations were re-measured on
 2026-10-26 after ADR 2332**, one clock hold interleaving HEAD's export with the change's, pinned,
 load 1.2–2.2: a paint inside a four-component group asks its space for the alpha rather than

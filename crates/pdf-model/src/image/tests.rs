@@ -218,9 +218,10 @@ fn a_mask_multiplied_in_place_is_the_combination() {
 }
 
 /// An eight-bit grey or RGB image unpacked by the table route is the image the per-sample
-/// route builds, pixel for pixel: a `/Decode` that is not the identity, a width whose rows
-/// are not a multiple of eight bytes, and a stream that stops two and a half samples into its
-/// last row, whose uncarried samples §7.3.8.2 leaves unpainted (ADR 1433).
+/// route builds, pixel for pixel: a `/Decode` that is not the identity and the default one,
+/// whose tables the route leaves unread (ADR 2348), a width whose rows are not a multiple of
+/// eight bytes, and a stream that stops two and a half samples into its last row, whose
+/// uncarried samples §7.3.8.2 leaves unpainted (ADR 1433).
 #[test]
 fn the_table_route_unpacks_the_per_sample_routes_pixels() {
     for (space, stated) in [
@@ -229,8 +230,11 @@ fn the_table_route_unpacks_the_per_sample_routes_pixels() {
             super::space::ColourSpace::Rgb,
             vec![0.2, 0.9, 1.0, 0.0, 0.0, 0.5],
         ),
+        (super::space::ColourSpace::Gray, vec![]),
+        (super::space::ColourSpace::Rgb, vec![]),
     ] {
         let decode = super::space::Decode::from_pairs(&stated, &space, 8);
+        assert_eq!(decode.is_identity(), stated.is_empty(), "{space:?}");
         let into = super::Conversion::device();
         let samples = super::unpack::Samples {
             bits: 8,
@@ -465,8 +469,9 @@ fn an_indexed_image_unpacks_a_byte_at_a_time_at_every_depth_to_eight() {
 
 /// The tabulated inversion of §11.6.5.2's pre-blending writes the per-sample route's pixels:
 /// grey and RGB under a `/Decode` that is not the identity, a matte inside and one at the
-/// range's edge, every mask value from 0 to 255 met, a mask shorter than the image (whose
-/// missing values are 0), and a stream that stops short of its last row (ADR 1457).
+/// range's edge, every mask value from 0 to 255 met, a row the mask leaves wholly transparent,
+/// which the inversion in place writes without its samples (ADR 2348), a mask shorter than the
+/// image (whose missing values are 0), and a stream that stops short of its last row (ADR 1457).
 #[test]
 fn the_matte_table_route_unpacks_the_per_sample_routes_pixels() {
     for (space, stated, matte) in [
@@ -484,9 +489,10 @@ fn the_matte_table_route_unpacks_the_per_sample_routes_pixels() {
         let decode = super::space::Decode::from_pairs(&stated, &space, 8);
         let into = super::Conversion::device();
         let (width, height) = (37_usize, 9_usize);
-        let alpha: Vec<u8> = (0..width * height - 5)
+        let mut alpha: Vec<u8> = (0..width * height - 5)
             .map(|index| u8::try_from((index * 53 + 7) % 256).expect("under 256"))
             .collect();
+        alpha[width..2 * width].fill(0);
         let prematte = super::unpack::Prematte {
             matte: &matte,
             alpha: &alpha,

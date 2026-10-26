@@ -295,6 +295,11 @@ pub struct WindowState {
     /// it is not ready inside `crate::drawing::WARN`, until the tick that finds it ready (ADR
     /// 1811).
     pub anticipated: Option<crate::Loading<(Viewer, Vec<Event>)>>,
+    /// A page turn's read, out on a thread of its own until the window takes it in (ADR 2344).
+    pub turning: Option<crate::loading::Turning>,
+    /// The commands that came after a second turn while a turn's read was out, in the order they
+    /// came, for the window to hand on once the read is in (ADR 2344).
+    pub behind_the_turn: VecDeque<Command>,
     /// The latest viewport the window was given while the document was still opening, which the
     /// join tells the core rather than the first one.
     pub awaiting: Option<Command>,
@@ -435,6 +440,8 @@ impl WindowState {
             ahead: Some(ahead),
             read_look: None,
             anticipated: None,
+            turning: None,
+            behind_the_turn: VecDeque::new(),
             awaiting: None,
             sized: false,
             presented: false,
@@ -474,14 +481,17 @@ impl WindowState {
     }
 
     /// When the window should look at its pages again: the drawing thread's interval or the
-    /// lane's beside it, the sooner, and `None` while neither has anything out (ADR 2070).
+    /// lane's beside it, the sooner, and `None` while neither has anything out (ADR 2070) — and
+    /// [`crate::drawing::POLL`] while a turn's read is out, which the same look takes in (ADR
+    /// 2344).
     #[must_use]
     pub fn drawing_interval(&self) -> Option<std::time::Duration> {
         let lane = self.lane.as_ref().and_then(|lane| lane.interval());
-        match (self.drawing.interval(), lane) {
-            (Some(drawing), Some(lane)) => Some(drawing.min(lane)),
-            (drawing, lane) => drawing.or(lane),
-        }
+        let turning = self.turning.as_ref().map(|_| crate::drawing::POLL);
+        [self.drawing.interval(), lane, turning]
+            .into_iter()
+            .flatten()
+            .min()
     }
 }
 
@@ -680,7 +690,14 @@ pub trait NativeWindow {
     /// request: `None` where nothing is owed. The decision `viewer-qt` and the C window share
     /// (`placing`, ADR 2308).
     fn place_the_window(&mut self, scale: f32, extents: Extents) -> Option<Placement> {
-        placing::place(self, scale, extents)
+        let placement = placing::place(self, scale, extents);
+        // Said on the launch topic, because the act is the toolkit's and comes later: a drive
+        // reading the window's position reads it against this line (ADR 2345).
+        self.state().trace.say(
+            Topic::Launch,
+            format_args!("placing the window, measured {extents:?}: {placement:?}"),
+        );
+        placement
     }
 
     /// Shows the document opening in front the way Table 29's `/PageMode` asks, with the chrome
@@ -1035,6 +1052,7 @@ pub trait NativeWindow {
     /// ready in three milliseconds. A window with nothing on the screen has no frame to spoil and
     /// no input to lose, and `crate::drawing::SETTLE` bounds the whole of what it may spend.
     fn take_the_drawn(&mut self, queue: &mut VecDeque<Command>) {
+        self.take_the_turn(queue);
         let laned = self.take_the_lane();
         let drawn = if self.state().presented {
             self.state_mut().drawing.collect()
@@ -1660,16 +1678,54 @@ pub trait NativeWindow {
         }
     }
 
-    /// A page turn, with the page it brings on drawn while it is read (ADRs 1871, 1886).
+    /// One command through the viewer — a page turn through [`Self::turn`] — answering what it
+    /// raised, or `None` for a command that waits behind a turn's read and is handed on by
+    /// [`Self::take_the_turn`].
     ///
-    /// `quorra`'s `App::turn`, in this window: the turn is handled with the read left to this
-    /// window ([`Viewer::handle_unread`]); the page is read here, on the toolkit thread, where a
-    /// turn's read has always been, because the read is the turn's critical path (trap 154); it is
-    /// drawn beside the read on a thread [`crate::Ahead`] spawns; and the frame of it is finished
-    /// by [`WindowState::drawing`] from that drawing where the request is for that list at that
-    /// target. Nothing is drawn ahead until the read has run `GLIMPSE_AFTER`, so a page that reads
-    /// quickly is a turn as before and a thread. Before the first allocation there is no target to
-    /// draw into, and the turn is handled whole.
+    /// **A second turn waits for the first turn's read, and so does every command after it**, in
+    /// the order they came (ADR 2344). The core has no way to stop a read part-way, so a turn
+    /// handed out while another page is read would read both at once on the same cores; and a
+    /// command let past a turn that waits would be handled before it, out of the order it was
+    /// given. A command that comes while the read is out and no turn waits is handled at once —
+    /// a frame answered, a zoom, a tick — and the core leaves the page being read unread for it.
+    fn through_the_viewer(&mut self, command: Command) -> Option<Vec<Event>> {
+        let turn = matches!(command, Command::GoTo(_));
+        if self.state().turning.is_some() && (turn || !self.state().behind_the_turn.is_empty()) {
+            self.state().trace.say(
+                Topic::Events,
+                format_args!(
+                    "{} waits for page {}'s read",
+                    crate::trace::described(&command, 60),
+                    self.state()
+                        .turning
+                        .as_ref()
+                        .map_or(0, |turning| turning.page().saturating_add(1))
+                ),
+            );
+            self.state_mut().behind_the_turn.push_back(command);
+            return None;
+        }
+        Some(if turn {
+            self.turn(command)
+        } else {
+            self.state_mut().viewer.handle(command).collect()
+        })
+    }
+
+    /// A page turn, with the page it brings on read on a thread of its own and drawn while it is
+    /// read (ADRs 1871, 1886, 2344).
+    ///
+    /// `quorra`'s `App::turn`, in this window, with the read off the toolkit's thread: the turn is
+    /// handled with the read left to this window ([`Viewer::handle_unread`]) and the read handed
+    /// out ([`Viewer::read_out`]) to a thread [`crate::Ahead::read_out`] spawns, the page drawn
+    /// beside it; the handler returns at once, so the window paints the page's retained picture
+    /// while it is read, and [`Self::take_the_turn`] takes the read in when it ends, after which
+    /// the frame is finished by [`WindowState::drawing`] from that drawing where the request is
+    /// for that list at that target. Nothing is drawn ahead until the read has run
+    /// `GLIMPSE_AFTER`. Where the core hands out no read — an arrangement that brings on more than
+    /// one unread page — the page is read here as before, beside the same drawing (trap 154's
+    /// arrangement), and before the first allocation there is no target to draw into, and the
+    /// turn is handled whole.
     fn turn(&mut self, command: Command) -> Vec<Event> {
         let Some(window) = self.state().extent else {
             return self.state_mut().viewer.handle(command).collect();
@@ -1677,10 +1733,56 @@ pub trait NativeWindow {
         let mut events: Vec<Event> = self.state_mut().viewer.handle_unread(command).collect();
         let ahead = crate::Ahead::page_sized();
         ahead.window_is(window);
+        let (viewport, scale) = (window.viewport(), window.scale);
+        if let Some(read_out) = self.state_mut().viewer.read_out(viewport, scale) {
+            self.state().trace.say(
+                Topic::Frames,
+                format_args!(
+                    "page {} read off the toolkit thread",
+                    read_out.page().saturating_add(1)
+                ),
+            );
+            self.state_mut().turning = Some(ahead.read_out(read_out));
+            return events;
+        }
         events.extend(ahead.anticipate(&mut self.state_mut().viewer));
         events.extend(self.state_mut().viewer.read_the_rest());
         self.state_mut().drawing.draw_ahead(ahead);
         events
+    }
+
+    /// Takes in a turn's read once it has ended — [`Self::turn`]'s second half, on the look the
+    /// drawing already gets — answers what it raised, and hands on the commands that waited for
+    /// it (ADR 2344).
+    fn take_the_turn(&mut self, queue: &mut VecDeque<Command>) {
+        if !self
+            .state()
+            .turning
+            .as_ref()
+            .is_some_and(crate::loading::Turning::ended)
+        {
+            return;
+        }
+        let Some(turning) = self.state_mut().turning.take() else {
+            return;
+        };
+        let (page, read) = (turning.page(), turning.since());
+        let (mut events, ahead) = turning.land(&mut self.state_mut().viewer);
+        events.extend(self.state_mut().viewer.read_the_rest());
+        self.state_mut().drawing.draw_ahead(ahead);
+        self.state().trace.say(
+            Topic::Frames,
+            format_args!(
+                "page {} read off the toolkit thread in {read:?}, {} event(s)",
+                page.saturating_add(1),
+                events.len()
+            ),
+        );
+        for event in events {
+            self.react(event, queue);
+        }
+        let behind = std::mem::take(&mut self.state_mut().behind_the_turn);
+        queue.extend(behind);
     }
 
     /// A step of the search reported. Says what it found, and how much is left to read.

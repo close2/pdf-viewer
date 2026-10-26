@@ -147,6 +147,28 @@ fn transparent_stop(position: f32, colour: Color) -> tiny_skia::GradientStop {
     tiny_skia::GradientStop::new(position, crate::convert::color(Color { a: 0.0, ..colour }))
 }
 
+/// A colour component in `0.0..=1.0` as the eight-bit level nearest its exact value, half away
+/// from zero — ADR 2311's rule, which the device's `nearest_level` writes (ADR 2325) — so that a
+/// cell of the oracle's grid and the device's function lane are asked for the same byte (ADR 2340).
+///
+/// The `f32` product with 255 is not that value: it rounds a component a hair below a half level
+/// onto the half, and the rounding after it then goes up — `0.7` is 178.499 997 levels and its
+/// `f32` product is 178.5. Twice the exact level is taken instead, in `f64`, where a 24-bit
+/// significand times 510 needs 33 bits of 53 and is therefore exact; the cast truncates it, which is
+/// the floor of a value that is not negative, and the level is half of that floor rounded up —
+/// `(⌊510 c⌋ + 1) / 2`, the device's own construction (ADR 2325 §2). The one exact half in the
+/// range is `0.5`, which is 128; a NaN clamps to NaN and the cast makes it level 0.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the component is clamped to 0..=1, so twice its level is at most 510 and the level \
+              at most 255; the first cast is the floor of a value that is not negative"
+)]
+fn nearest_level(component: f32) -> u8 {
+    let doubled = (f64::from(component.clamp(0.0, 1.0)) * 510.0) as u32;
+    doubled.div_ceil(2) as u8
+}
+
 /// Builds a pattern shader over a sampled shading's grid.
 ///
 /// The grid is the device's: `Shading::sampled_at` derives it from how many device pixels
@@ -176,7 +198,20 @@ fn sampled_shader<'a>(
 
     let mut pixmap = tiny_skia::Pixmap::new(grid.width, grid.height)?;
     for (destination, colour) in pixmap.pixels_mut().iter_mut().zip(grid.pixels.iter()) {
-        *destination = crate::convert::color(*colour).premultiply().to_color_u8();
+        // Each cell holds the level nearest its own value, the byte the device's function lane
+        // writes for the same answer (ADR 2340); `to_color_u8` rounds the `f32` product with 255,
+        // which breaks a component a hair below a half level upwards.
+        let premultiplied = crate::convert::color(*colour).premultiply();
+        let level = nearest_level;
+        // A premultiplied channel is never above its alpha, and the level of a smaller fraction
+        // is never the larger, so `from_rgba`'s refusal of a channel past its alpha cannot fire.
+        *destination = tiny_skia::PremultipliedColorU8::from_rgba(
+            level(premultiplied.red()),
+            level(premultiplied.green()),
+            level(premultiplied.blue()),
+            level(premultiplied.alpha()),
+        )
+        .unwrap_or(tiny_skia::PremultipliedColorU8::TRANSPARENT);
     }
 
     // The cells cover `grid.covers`, so the pattern is scaled from pixel coordinates onto
@@ -553,4 +588,60 @@ fn fill_with_raster(
     // matrix, and the shape is measured on the page's grid and written at the surface's corner
     // (ADR 2148).
     crate::scan::fill_positioned(pixmap, path, &paint, fill_rule, shape, clip);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::nearest_level;
+
+    /// ADR 2340: every level `k` below 255 at the `f32` nearest `(k + ½) / 255` and at the `f32`
+    /// either side of it — the 765 greys ADR 2325 proved the device's `nearest_level` with — is
+    /// the level nearest its exact value, half away from zero. The exact value is `f64`'s
+    /// product, which holds a 24-bit significand times 255 without rounding; the count beside it
+    /// is the calibration (trap 13), that the fixture reaches greys `to_color_u8`'s `f32` form breaks.
+    #[test]
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "the construction this test calibrates against: a component of 0..=1 times 255, \
+                  rounded, and in range by construction"
+    )]
+    fn a_component_is_the_level_nearest_its_exact_value() {
+        let mut broken_by_the_f32_product = 0_u32;
+        for k in 0..255_u16 {
+            let nearest = ((f32::from(k) + 0.5) / 255.0).to_bits();
+            for bits in [
+                nearest.saturating_sub(1),
+                nearest,
+                nearest.saturating_add(1),
+            ] {
+                let component = f32::from_bits(bits);
+                let exact = f64::from(component) * 255.0;
+                let level = nearest_level(component);
+                assert!(
+                    f64::from(level) - 0.5 <= exact && exact < f64::from(level) + 0.5,
+                    "{component} is {exact} levels and was written as {level}"
+                );
+                if (component * 255.0 + 0.5) as u8 != level {
+                    broken_by_the_f32_product = broken_by_the_f32_product.saturating_add(1);
+                }
+            }
+        }
+        assert!(
+            broken_by_the_f32_product > 0,
+            "the fixture reaches the greys `to_color_u8`'s f32 product rounds onto a half"
+        );
+        for (component, level) in [
+            (0.0, 0),
+            (0.3, 77),
+            (0.5, 128),
+            (0.7, 178),
+            (1.0, 255),
+            (-1.0, 0),
+            (2.0, 255),
+            (f32::NAN, 0),
+        ] {
+            assert_eq!(nearest_level(component), level, "{component}");
+        }
+    }
 }

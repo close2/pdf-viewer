@@ -812,3 +812,14 @@ count of a sentence, not of a shape: before a remedy is briefed or built, three 
 in their bytes, and a site whose sentence covers more than one shape is split, one sentence per shape, so
 the next census counts what the files hold.
 
+### 265. A colour is not a coverage, and one side made exact moves two alike sides apart
+
+Round 1753 was briefed that `scan::level_of`'s rounding set the oracle's levels on the eleven page-lanes
+ADR 2324 §4 names. The function turns a *coverage* into a mask byte; the oracle's *colour* bytes come
+from `tiny-skia`'s high-precision store for solid paints and ramps and from `to_color_u8` for a type 1
+shading's grid cells, and only the grid is this tree's code (ADR 2340). Made exact on its own,
+`level_of` moved none of the eleven and moved one text pixel of `issue5501` away from all three lanes,
+because raster's coverage accumulators round the same `f32` product and now disagreed with it. A brief's
+name for the function behind a pixel difference is checked against the code path first; a colour's
+level is sought where colours are stored, not where coverage is; and where the oracle and the device
+round a quantity alike, the two are made exact in one commit or neither is.

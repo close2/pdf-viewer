@@ -586,6 +586,36 @@ enum Outcome {
     Failed(String, String),
 }
 
+/// The plan a window folds one profile's contribution into (`viewer_host::archiving`) and, where
+/// given, the operator's press profile.
+fn plan_under(
+    target: Target,
+    contribution: &pdf_transform::profiles::Contribution,
+    press: Option<&std::sync::Arc<[u8]>>,
+) -> Plan {
+    Plan::Archive(ArchivePlan {
+        source: 0,
+        names: "out.pdf".parse().expect("a pattern"),
+        target,
+        authorised: contribution.authorised,
+        profile: press.cloned(),
+        substitute_fonts: true,
+        supplied_fonts: BTreeMap::new(),
+        cjk_pack: pack_from_environment(),
+        departures: contribution.departures.clone(),
+        claim_conformance: false,
+        forms: contribution.forms,
+        derivations: contribution.derivations.clone(),
+        supplies: contribution.supplies.clone(),
+        preservations: contribution.preservations.clone(),
+        annotation_flags: contribution.annotation_flags,
+        resolutions: contribution.resolutions.clone(),
+        tool_outputs: ToolOutputs::new(),
+        external_data: BTreeMap::new(),
+        clock: pdf_transform::archive::Clock::System,
+    })
+}
+
 /// One document converted to `target` under one profile's contribution and, where given, the
 /// operator's press profile.
 fn convert_under(
@@ -604,27 +634,7 @@ fn convert_under(
     drop(document);
     let sinks = MemorySinks::new();
     let report = apply(
-        &Plan::Archive(ArchivePlan {
-            source: 0,
-            names: "out.pdf".parse().expect("a pattern"),
-            target,
-            authorised: contribution.authorised,
-            profile: press.cloned(),
-            substitute_fonts: true,
-            supplied_fonts: BTreeMap::new(),
-            cjk_pack: pack_from_environment(),
-            departures: contribution.departures.clone(),
-            claim_conformance: false,
-            forms: contribution.forms,
-            derivations: contribution.derivations.clone(),
-            supplies: contribution.supplies.clone(),
-            preservations: contribution.preservations.clone(),
-            annotation_flags: contribution.annotation_flags,
-            resolutions: contribution.resolutions.clone(),
-            tool_outputs: ToolOutputs::new(),
-            external_data: BTreeMap::new(),
-            clock: pdf_transform::archive::Clock::System,
-        }),
+        &plan_under(target, contribution, press),
         &[Source::new(bytes)],
         &sinks,
         &Policy::default(),
@@ -718,6 +728,150 @@ fn sweep_under(
         }
     }
     census
+}
+
+/// The one composite font a witness's page shows, loaded as this reader loads it.
+fn the_composite_font(document: &Document) -> pdf_font::LoadedFont {
+    let mut fonts = document.xref().object_numbers().filter_map(|number| {
+        let object = document.get(pdf_syntax::ObjectId::new(number, 0));
+        let dict = object.as_dict()?.clone();
+        let subtype = document.get_key(&dict, "Subtype");
+        (subtype.as_name()?.as_bytes() == b"Type0").then_some(dict)
+    });
+    let dict = fonts.next().expect("the witness shows a composite font");
+    assert!(
+        fonts.next().is_none(),
+        "the witness shows one composite font"
+    );
+    pdf_font::LoadedFont::load(document, &dict, "witness").expect("the font loads")
+}
+
+/// The one `/FontFile2` program a witness embeds, decoded, and the `/FontName` its descriptor
+/// states.
+fn the_true_type_program(document: &Document) -> Option<(Vec<u8>, String)> {
+    document.xref().object_numbers().find_map(|number| {
+        let object = document.get(pdf_syntax::ObjectId::new(number, 0));
+        let descriptor = object.as_dict()?;
+        let Object::Stream(program) = document.get_key(descriptor, "FontFile2") else {
+            return None;
+        };
+        let name = document.get_key(descriptor, "FontName");
+        let name = String::from_utf8_lossy(name.as_name()?.as_bytes()).into_owned();
+        Some((document.decoded_stream_data(&program)?.to_vec(), name))
+    })
+}
+
+/// An sfnt's tables by tag, `head`'s `checkSumAdjustment` read as zero: what a face *is*, apart
+/// from the directory and the checksums a rebuilt file states afresh.
+fn tables_of(program: &[u8]) -> BTreeMap<[u8; 4], Vec<u8>> {
+    let bytes = |at: usize, width: usize| {
+        program
+            .get(at..at.saturating_add(width))
+            .expect("the directory is inside the program")
+    };
+    let field = |at: usize, width: usize| {
+        bytes(at, width)
+            .iter()
+            .fold(0_usize, |value, byte| value << 8 | usize::from(*byte))
+    };
+    (0..field(4, 2))
+        .map(|index| {
+            let entry = index.saturating_mul(16).saturating_add(12);
+            let tag: [u8; 4] = bytes(entry, 4).try_into().expect("four bytes");
+            let at = field(entry.saturating_add(8), 4);
+            let mut data = bytes(at, field(entry.saturating_add(12), 4)).to_vec();
+            if &tag == b"head" {
+                data[8..12].fill(0);
+            }
+            (tag, data)
+        })
+        .collect()
+}
+
+/// **A composite font refiled by re-keying its CIDs, or by writing its face out of a collection,
+/// draws every code as the source drew it** (ADRs 2342, 2343).
+///
+/// The three witnesses `doc/history/1746` left refused: `bug1186827`, a `CIDFontType2` over a
+/// name-keyed CFF whose `/CIDToGIDMap` is a stream, and `issue13193` and `issue9262_reduced`, each
+/// a `ttcf` collection under `/FontFile2`. For every code of the `Identity-H` codespace the
+/// output's font reaches the same glyph index, at the same advance, with the same outline as the
+/// source's — the whole codespace and not only the codes a page shows, because the re-keying is
+/// of the font and not of one page's text. A collection's faces can share their outlines
+/// (`Cambria` and `CambriaMath` do), so the face written out is also held table by table to the
+/// face this reader chose from the source (ADR 0141), and each code's advance in the program to
+/// the source's.
+#[test]
+#[ignore = "needs doc/pdf.js, which is not part of a checkout"]
+fn a_refiled_composite_font_draws_every_code_as_its_source_did() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/pdf.js/test/pdfs");
+    if !root.is_dir() {
+        println!("doc/pdf.js is not here; nothing to compare");
+        return;
+    }
+    let shipped = pdf_transform::profiles::named("as-if-printed").expect("a shipped profile");
+    for name in ["bug1186827", "issue13193", "issue9262_reduced"] {
+        let bytes = std::fs::read(root.join(format!("{name}.pdf"))).expect("the witness reads");
+        let source = Document::open_with_limits(bytes.clone(), Limits::DEFAULT).expect("opens");
+        let before = the_composite_font(&source);
+        for target in REAL_TARGETS {
+            let contribution = pdf_transform::profiles::Contribution::read(shipped.text, target)
+                .expect("a shipped profile reads for every target");
+            let sinks = MemorySinks::new();
+            apply(
+                &plan_under(target, &contribution, None),
+                &[Source::new(bytes.clone())],
+                &sinks,
+                &Policy::default(),
+                &Budget::default(),
+            )
+            .expect("the conversion applies");
+            let (_, output) = sinks
+                .into_outputs()
+                .pop()
+                .unwrap_or_else(|| panic!("{name} converts to {target}"));
+            let output = Document::open_with_limits(output, Limits::DEFAULT).expect("opens");
+            let after = the_composite_font(&output);
+            if let Some((collection, wanted)) = the_true_type_program(&source)
+                && collection.starts_with(b"ttcf")
+            {
+                let (written, _) = the_true_type_program(&output).expect("a FontFile2 is written");
+                let chosen = pdf_font::collection::extract(&collection, Some(&wanted))
+                    .expect("the source embeds a collection");
+                assert_eq!(
+                    tables_of(&written),
+                    tables_of(&chosen),
+                    "{name} at {target}: the program written is not the face this reader draws"
+                );
+            }
+            for value in 0..=u16::MAX {
+                let bytes = value.to_be_bytes();
+                let (was, is) = (before.decode(&bytes), after.decode(&bytes));
+                assert_eq!(was.len(), 1, "{name}: code {value} is one code");
+                assert_eq!(is.len(), 1, "{name} at {target}: code {value} is one code");
+                let (was, is) = (was[0], is[0]);
+                assert_eq!(
+                    before.glyph_index(was),
+                    after.glyph_index(is),
+                    "{name} at {target}: code {value} reaches another glyph"
+                );
+                assert_eq!(
+                    before.advance(was).to_bits(),
+                    after.advance(is).to_bits(),
+                    "{name} at {target}: code {value} advances by another width"
+                );
+                assert_eq!(
+                    before.program_advance(was).map(f32::to_bits),
+                    after.program_advance(is).map(f32::to_bits),
+                    "{name} at {target}: code {value} has another advance in the program"
+                );
+                assert_eq!(
+                    before.outline(was).map(|path| path.commands().to_vec()),
+                    after.outline(is).map(|path| path.commands().to_vec()),
+                    "{name} at {target}: code {value} draws another outline"
+                );
+            }
+        }
+    }
 }
 
 /// Converts every document under `part` to `target` under one shipped profile.

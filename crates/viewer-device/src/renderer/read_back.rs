@@ -25,17 +25,20 @@
 //!
 //! # A window ahead of its page
 //!
-//! **Where the view moved, the part of the page the viewport shows is drawn first** (ADR 2322):
-//! the window's own target on the page's transform, on the coverage lane `quorra` takes for a
-//! moved view (`lane::lane_for`, the compute lane and its record replay on a device worth the
-//! name), read back at the window's size and handed to the window as a picture of the request —
-//! no answer to the viewer — and then the page itself as before, on the launch rule's lane. A
-//! toolkit's notch was the read back, the copy and the paint of the whole page after an encode the
-//! processor's glyph lane redoes at every magnification (ADRs 2314, 2315); the window is a third
-//! to a half of those pixels, and the compute lane's replay is zoom-invariant. What the window
-//! shows at rest is the page drawn as before, so the window's lane differs from it only until the
-//! page lands. A launch, a view that did not move and a page the viewport holds whole draw the page
-//! alone.
+//! **Where the view moved, the part of the page the viewport shows is drawn first** (ADR 2322): the
+//! window's own target on the page's transform, on the coverage lane `quorra` takes for a moved
+//! view (`lane::lane_for`, the compute lane on a device worth the name), read back at the window's
+//! size and handed to the window as a picture of the request — no answer to the viewer — and then
+//! the page itself as before, on the launch rule's lane. A toolkit's notch was the read back, the
+//! copy and the paint of the whole page after an encode the processor's glyph lane redoes at every
+//! magnification (ADRs 2314, 2315); the window is a third to a half of those pixels, and the
+//! compute lane flattens its outlines on the device, so no glyph is rasterised again on the host at
+//! a new magnification. Each window is a fresh scene through `Rasterizer::rasterize`, which keeps
+//! no records between draws; keeping them would buy nothing, because the walk is a fraction of a
+//! millisecond of the window's device job and the rest is the lane's own passes (ADR 2338). What
+//! the window shows at rest is the page drawn as before, so the window's lane differs from it only
+//! until the page lands. A launch, a view that did not move and a page the viewport holds whole
+//! draw the page alone.
 //!
 //! # What crosses
 //!

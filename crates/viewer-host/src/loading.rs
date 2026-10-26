@@ -35,7 +35,7 @@ use std::time::{Duration, Instant};
 use pdf_model::progress::{Handed, Parts, Progress, Reading};
 use pdf_render::{DisplayList, Raster, TargetSpec};
 use render_cpu::{CpuRasterizer, Underway};
-use viewer_core::{Anticipating, Event, Foreseen, Viewer};
+use viewer_core::{Anticipated, Event, Foreseen, ReadOut, Viewer};
 
 use crate::drawing::{GLIMPSE_AFTER, GLIMPSE_EVERY, WARN};
 
@@ -427,7 +427,8 @@ impl Ahead {
         // before, by the figure installed on this thread.
         let (read, drawn) = std::thread::scope(|scope| {
             let (looking, handing) = (&anticipating, &parts);
-            let drawer = scope.spawn(move || self.draw_beside(looking, handing, &ended));
+            let foresee = |window: Window| looking.foresee(window.viewport(), window.scale);
+            let drawer = scope.spawn(move || self.draw_beside(foresee, handing, &ended));
             let read = {
                 let _ended = Ended(tell);
                 reading.read(&parts)
@@ -443,12 +444,63 @@ impl Ahead {
         events
     }
 
+    /// A page turn's read, run on a thread of its own with the page drawn beside it as
+    /// [`Self::anticipate`] draws it, so that the window's own thread goes on answering its
+    /// toolkit while the page is read (ADR 2344).
+    ///
+    /// **The read leaves the window's thread here, where [`Self::anticipate`] keeps it on the
+    /// opening thread**, and trap 154's measurement is why the two differ: at launch the read is
+    /// the first frame's critical path and the opening thread is the one the launch placed, while
+    /// at a turn the window's thread is the toolkit's, and a read held there froze the window —
+    /// the retained picture of the page, its key's release and its close included — for the
+    /// length of the read (ADR 2328). The window takes the read in with [`Turning::land`] once
+    /// [`Turning::ended`] says so.
+    ///
+    /// # Panics
+    ///
+    /// Where the operating system refuses a thread, as `std::thread::spawn` does.
+    #[must_use]
+    pub fn read_out(self, read_out: ReadOut) -> Turning {
+        let page = read_out.page();
+        let ahead = self.clone();
+        let thread = std::thread::spawn(move || ahead.read_beside(&read_out));
+        Turning {
+            thread,
+            ahead: self,
+            page,
+            began: Instant::now(),
+        }
+    }
+
+    /// [`Self::read_out`]'s thread: the read here, the drawing on a thread beside it, exactly as
+    /// [`Self::anticipate`] arranges the two.
+    fn read_beside(&self, read_out: &ReadOut) -> (Anticipated, Parts, Option<Underway>) {
+        let parts = Parts::new();
+        let (tell, ended) = channel();
+        let foreseen = read_out.foreseen();
+        let (read, drawn) = std::thread::scope(|scope| {
+            let handing = &parts;
+            let drawer = scope.spawn(move || self.draw_beside(|_| foreseen, handing, &ended));
+            let read = {
+                let _ended = Ended(tell);
+                read_out.read(&parts)
+            };
+            (read, drawer.join())
+        });
+        let drawn = match drawn {
+            Ok(drawn) => drawn,
+            Err(panic) => std::panic::resume_unwind(panic),
+        };
+        (read, parts, drawn)
+    }
+
     /// The drawer's side: waits for the read to have run [`GLIMPSE_AFTER`] and for the window's
     /// size, then draws every part as it arrives and takes a look every [`GLIMPSE_EVERY`] —
-    /// `None` where nothing was drawn ahead, or what was drawn is not the page.
+    /// `None` where nothing was drawn ahead, or what was drawn is not the page. `foresee` is
+    /// where the page's first frame will be asked for a window of the size given.
     fn draw_beside(
         &self,
-        anticipating: &Anticipating<'_>,
+        foresee: impl Fn(Window) -> Option<Foreseen>,
         parts: &Parts,
         read_ended: &Receiver<()>,
     ) -> Option<Underway> {
@@ -471,7 +523,7 @@ impl Ahead {
                 break window;
             }
         };
-        let foreseen = anticipating.foresee(window.viewport(), window.scale)?;
+        let foreseen = foresee(window)?;
         let target = (self.shared.place)(foreseen, window);
         // In strips on the pool, so that the rest of the page is drawn there once the read ends:
         // on the owner's drawing one thread finished the frame later than the pool draws the
@@ -519,6 +571,59 @@ impl Ahead {
                 looked = Some(Instant::now());
             }
         }
+    }
+}
+
+/// A page turn's read running on a thread of its own, with the page drawn beside it, until the
+/// window takes it in (ADR 2344) — [`Ahead::read_out`]'s answer.
+#[derive(Debug)]
+pub struct Turning {
+    /// The thread reading, until the window joins it.
+    thread: JoinHandle<(Anticipated, Parts, Option<Underway>)>,
+    /// The drawing beside the read, which the frame of the page is finished from.
+    ahead: Ahead,
+    /// Which page is being read, counted from zero.
+    page: usize,
+    /// When the read was handed out.
+    began: Instant,
+}
+
+impl Turning {
+    /// Whether the read has ended, however it ended — one look, which blocks on nothing.
+    #[must_use]
+    pub fn ended(&self) -> bool {
+        self.thread.is_finished()
+    }
+
+    /// Which page is being read, counted from zero.
+    #[must_use]
+    pub const fn page(&self) -> usize {
+        self.page
+    }
+
+    /// How long ago the read was handed out.
+    #[must_use]
+    pub fn since(&self) -> Duration {
+        self.began.elapsed()
+    }
+
+    /// Takes the read into `viewer` ([`Viewer::anticipated`]) and hands back what it raised with
+    /// the drawing it was drawn beside, for the window's [`crate::Drawing::draw_ahead`] — after
+    /// which the window owes the viewer its [`Viewer::read_the_rest`]. Joins the thread, so it is
+    /// asked once [`Self::ended`] says the join waits for nothing.
+    ///
+    /// # Panics
+    ///
+    /// Where the interpretation or the drawing panicked, with its panic, as a read on the
+    /// window's own thread would have.
+    pub fn land(self, viewer: &mut Viewer) -> (Vec<Event>, Ahead) {
+        let (read, parts, drawn) = match self.thread.join() {
+            Ok(read) => read,
+            Err(panic) => std::panic::resume_unwind(panic),
+        };
+        let events = viewer.anticipated(read, Some(&parts)).collect();
+        *lock(&self.ahead.shared.drawn) = drawn.map(|underway| (parts, underway));
+        (events, self.ahead)
     }
 }
 

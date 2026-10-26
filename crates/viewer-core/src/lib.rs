@@ -134,5 +134,6 @@ pub use scripting::{ScriptAsks, ScriptRunners, Scripting};
 pub use secret::Secret;
 pub use select::find_in_text;
 pub use viewer::{
-    Anticipated, Anticipating, DocumentId, Foreseen, MAX_PIXELS, Reader, RenderToken, Viewer,
+    Anticipated, Anticipating, DocumentId, Foreseen, MAX_PIXELS, ReadOut, Reader, RenderToken,
+    Viewer,
 };

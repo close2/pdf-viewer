@@ -1736,6 +1736,11 @@ impl Prepared {
                 out.insert(*id, object.clone());
             }
         }
+        if let Ok(refiled) = &self.owed.font_files {
+            for (id, object) in refiled.written() {
+                out.insert(*id, object.clone());
+            }
+        }
         out
     }
 }
@@ -1856,7 +1861,7 @@ impl Owed {
                 sites::cid_to_gid_maps(document, input, plan.target)
             }),
             font_files: asked(wanted(Rewrite::FontProgramRefiled), || {
-                super::font_files::refiled(document, input)
+                super::font_files::refiled(document, input, spare)
             }),
             filter_names: asked(wanted(Rewrite::FilterNamesSpelledOut), || {
                 sites::abbreviated_filters(input)

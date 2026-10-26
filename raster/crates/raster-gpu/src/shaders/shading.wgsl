@@ -5,7 +5,7 @@
 // device position maps back through the inverse of the command × viewport transform
 // carried in the params, so a sheared or rotated placement sweeps correctly. The
 // ramp's own stops travel as `f32` bits (deterministic), read with textureLoad — no
-// sampler, no filtering, adapter-invariant — and `ramp_colour` interpolates between the
+// sampler, no filtering, adapter-invariant — and `ramp_interpolated` interpolates between the
 // two either side of t at t itself, so a hard step lies at its own offset (ADR 2310).
 //
 // Coverage comes either from the frame's scratch (a rasterised fill/stroke shape,
@@ -220,7 +220,7 @@ fn paint_at(p: vec2f) -> vec4f {
     if t < 0.0 {
         return vec4f(0.0, 0.0, 0.0, -1.0);
     }
-    return ramp_colour(t);
+    return ramp_interpolated(t);
 }
 
 // One word of the ramp's table: four RGBA8 bytes, little-endian. An `rgba8unorm`
@@ -241,25 +241,6 @@ fn ramp_stop_colour(i: i32) -> vec4f {
     return vec4f(ramp_stop(i, 1), ramp_stop(i, 2), ramp_stop(i, 3), ramp_stop(i, 4));
 }
 
-// The ramp's colour at `t` (ADR 2310).
-//
-// §8.7.4.5.3 makes a pixel's colour the function's at the `t` of its centre, so the colour is
-// interpolated between the two stops either side of that `t`, at that `t`, and never read off
-// a grid. At or below the first offset it is the first stop's (§7.10.4's degenerate first
-// interval); otherwise the first stop whose offset is above `t` is found by halving — §7.10.4's
-// intervals are closed on the left, so a hard step, two stops at one offset, lies at its own
-// bound — and with none above it is the last stop's (§7.10.1's clipping).
-//
-// The answer leaves as the level nearest it (`nearest_level`), because what a fragment hands
-// an eight-bit target is not converted alike on every adapter: RADV exports it as a half float
-// rounded toward zero, which takes up to an eighth of a level off a component above one half,
-// and 51 of `issue14165.pdf`'s 842 rows a level down with it. A level survives that export —
-// the half float is under an eighth of a level from it and the target rounds to nearest — so
-// every adapter writes the byte this function chose.
-fn ramp_colour(t: f32) -> vec4f {
-    return nearest_level(ramp_interpolated(t));
-}
-
 // The level nearest each component, `⌊255 c + ½⌋ / 255` of the exact product (ADR 2311), so a
 // component a hair below a half level — `0.7` is 178.499 997 levels — is not carried onto it by the
 // `f32` product's rounding. The product is taken in integers (ADR 2324): a component in `0..=1` is
@@ -277,8 +258,15 @@ fn nearest_level(c: vec4f) -> vec4f {
     return vec4f((doubled + 1u) >> vec4u(1u)) / 255.0;
 }
 
-// The interpolation `ramp_colour` rounds: the colour at `t` itself (`device/ramp.rs`'s
-// `colour_for` states it in Rust).
+// The ramp's colour at `t` (ADR 2310), as it is: `fs_main` decides where it becomes a level, and
+// `device/ramp.rs`'s `colour_for` states this function in Rust.
+//
+// §8.7.4.5.3 makes a pixel's colour the function's at the `t` of its centre, so the colour is
+// interpolated between the two stops either side of that `t`, at that `t`, and never read off
+// a grid. At or below the first offset it is the first stop's (§7.10.4's degenerate first
+// interval); otherwise the first stop whose offset is above `t` is found by halving — §7.10.4's
+// intervals are closed on the left, so a hard step, two stops at one offset, lies at its own
+// bound — and with none above it is the last stop's (§7.10.1's clipping).
 fn ramp_interpolated(t: f32) -> vec4f {
     let dims = textureDimensions(paint_tex);
     let count = i32(dims.x) * i32(dims.y / 5u);
@@ -312,7 +300,14 @@ fn fs_main(in: VsOut) -> @location(0) vec4f {
     if straight.a < 0.0 {
         return vec4f(0.0);
     }
-    return vec4f(straight.rgb * straight.a, straight.a) * (shape_at(p) * soft_mask_at(p));
+    // An opaque paint is handed over as the level nearest it, because what a fragment hands an
+    // eight-bit target is not converted alike on every adapter: RADV exports it as a half float
+    // rounded toward zero, up to an eighth of a level low, which took 51 of `issue14165.pdf`'s 842
+    // rows a level down, and a level survives that export (ADR 2310). A paint below full alpha is
+    // handed over as it is: its alpha multiplies it before the blend, so a level taken here would
+    // be rounded a second time there (trap 257), and the blend rounds it once (ADR 2350).
+    let paint = select(straight, nearest_level(straight), straight.a >= 1.0);
+    return vec4f(paint.rgb * paint.a, paint.a) * (shape_at(p) * soft_mask_at(p));
 }
 
 // The knockout erase pass wants the shape alone (§11.4.6, ADR 0010). Where an

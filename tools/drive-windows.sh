@@ -1220,6 +1220,7 @@ launch() { # file [arguments]
 }
 main_window() { xdotool search --onlyvisible --pid "$APP" 2>/dev/null | head -1; }
 title() { xdotool getwindowname "$(main_window)" 2>/dev/null; }
+off_the_origin() { ! xdotool getwindowgeometry "$(main_window)" 2>/dev/null | grep -q "Position: 0,0 "; }
 origin() { xdotool getwindowgeometry --shell "$(main_window)" 2>/dev/null | awk -F= '/^[XY]=/{printf "%s ", $2}'; }
 # `click` and `wheel` settle for the reason `key` gives below: nothing says when a press is done.
 click() { # x y, in the main window's own coordinates
@@ -1694,11 +1695,16 @@ drive() {
     # §12.3.3's section in the opening caption: the outline is read beside page one rather than by
     # the open, and the window says the page again once it has been (ADRs 1543, 1553).
     expect_title 01-section "page 1 of 3 — Chapter one"
+    # The window centres itself after its first frame — the fit's resize, then the move at the
+    # frame that measures it — and neither title waits for that, so the position is waited for
+    # (ADR 2345). One still at 0,0 is judged with its own last placing decision beside it: under
+    # Xvfb no window manager stands between the request and the position, so 0,0 is the window's.
+    [ "$WINDOW" != quorra-gtk ] && wait_for 10 off_the_origin
     seen=$(xdotool getwindowgeometry "$(main_window)" | tr '\n' ' ')
     case "$WINDOW" in
         quorra-gtk) verdict 01-center-window "not offered" "GTK 4 places no window (ADR 1429): $seen" ;;
         *) case "$seen" in
-               *"Position: 0,0 "*) verdict 01-center-window wrong "$seen" ;;
+               *"Position: 0,0 "*) verdict 01-center-window wrong "$seen; $(grep -o 'placing the window.*' "$LOG" | tail -1)" ;;
                *) verdict 01-center-window works "$seen" ;;
            esac ;;
     esac
@@ -3632,15 +3638,15 @@ PY2
 # this the photograph held page two (`quorra-gtk`, whose pictures stayed up) or the ground
 # (`quorra-qt`) — and must fill the box the landed frame gives it, to within the picture's blur.
 #
-# **The turn back is read on the toolkit thread** (ADR 1886, trap 154), and the window paints nothing
-# until the read returns: this page's read takes seconds at a neighbour's load, so the sentence is
-# waited for under the drive's long ceiling, not two seconds. And the drawer drew the page beside the
-# read, so its frame follows the sentence by well under a second: what spoils the photograph is the
-# frame handed to the window (`RenderReady`, under `events`), not the drawing thread's `rasterised`
-# line, which comes before the frame is on the screen. In `quorra-gtk` the window's own paint record
-# (`PDFVIEWER_ZOOM_PROBE`'s `raster-paint`, ADR 2225) says what was painted first after the turn,
-# which no camera's timing moves: page one's retained pixels at the extent of its landed frame (ADR
-# 2328).
+# **The turn back is read on a thread of its own** (ADR 2344), so the key's handler returns at once
+# and the window paints the retained picture for as long as the read takes: the sentence is waited
+# for under two seconds, and the timeline the step prints — the key's arrival, its command handled,
+# the retained picture said, the read taken in, the frame handed over — is the key trace. What spoils
+# the photograph is the frame handed to the window (`RenderReady`, under `events`), not the drawing
+# thread's `rasterised` line, which comes before the frame is on the screen. In `quorra-gtk` the
+# window's own paint record (`PDFVIEWER_ZOOM_PROBE`'s `raster-paint`, ADR 2225) says what was painted
+# first after the turn, which no camera's timing moves: page one's retained pixels at the extent of its
+# landed frame (ADR 2328).
 retained_page() {
     local step=82-retained-page file="$FIXTURES/drive-retained.pdf" traced=$LAUNCH_TRACE mark mid settled blue
     local late painted
@@ -3676,7 +3682,7 @@ PY2
     sleep 0.3
     mark=$(lines)
     xdotool key Left
-    if ! wait_for 30 said_since "$mark" "its retained"; then
+    if ! wait_for 2 said_since "$mark" "its retained"; then
         # What the window showed instead, photographed for the record: the other page or the ground.
         shot "$step-mid"
         mid=$(magick "$OUT/shots/$WINDOW/$step-mid.png" -alpha off -fuzz 6% -fill black +opaque "#ff0000" -fill white -opaque "#ff0000" -format '%[fx:int(mean*w*h+0.5)]' info: 2>/dev/null)
@@ -3698,6 +3704,7 @@ PY2
     xdotool key shift; sleep 0.5
     shot "$step-settled"
     [ "$WINDOW" = quorra-gtk ] && painted=$(retained_paint "$mark")
+    echo "drive-windows: $WINDOW: $step's key trace: $(turn_timeline "$mark")" >&2
     mid=$(magick "$OUT/shots/$WINDOW/$step-mid.png" -alpha off -fuzz 6% -fill white +opaque "#ff0000" -format %@ info: 2>/dev/null)
     blue=$(magick "$OUT/shots/$WINDOW/$step-mid.png" -alpha off -fuzz 6% -fill black +opaque "#0000ff" -fill white -opaque "#0000ff" -format '%[fx:int(mean*w*h+0.5)]' info: 2>/dev/null)
     settled=$(magick "$OUT/shots/$WINDOW/$step-settled.png" -alpha off -fuzz 6% -fill white +opaque "#ff0000" -format %@ info: 2>/dev/null)
@@ -3716,6 +3723,27 @@ PY2
         verdict "$step" wrong "the retained picture's red block $mid against the landed frame's $settled"
     fi
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+# turn_timeline N: the seconds, on the window's trace clock and after the key, of a turn's moments
+# after line N — the key's arrival, its command handled, the retained picture said, the read taken in
+# off the toolkit thread, and the frame handed over — each the first line of its kind (ADR 2344).
+turn_timeline() {
+    tail -n "+$(($1 + 1))" "$LOG" 2>/dev/null | python3 -c '
+import re, sys
+kinds = [("key", r"key \w+ arrives"), ("handled", r"GoTo\(.*-> \d+ event"),
+         ("retained", r"its retained"), ("read", r"read off the toolkit thread in"),
+         ("frame", r"RenderReady")]
+seen = {}
+for line in sys.stdin:
+    match = re.match(r"trace: +([0-9.]+) (.*)", line)
+    if not match:
+        continue
+    for name, pattern in kinds:
+        if name not in seen and re.search(pattern, match.group(2)):
+            seen[name] = float(match.group(1))
+key = seen.get("key")
+print(", ".join("%s %s" % (name, ("at %.3f s" % seen[name]) + (" (%+.3f s)" % (seen[name] - key) if key is not None else ""))
+                if name in seen else "%s -" % name for name, _ in kinds))'
 }
 # retained_paint N: in `quorra-gtk`, the first paint record of page one after line N, as "retained
 # WxH at EXTENT" where its pixels are not its frame's and its extent is the extent page one's frame is
@@ -4908,10 +4936,10 @@ bare_session_start() {
 
 # ISO 19005's conversion, in all four windows (ADR 1954): each launched with `--archive
 # 2b:as-if-printed` and Shift+A pressed on the page, over two documents. The drive's own fixture
-# names a standard 14 font with no descriptor, which the converter refuses by name; a one-page
-# rectangle converts. The three that convert say the profile once, the report's lines per site, and
-# either the file written beside the document — read back here for its header and its
-# `pdfaid:part` — or the sentence saying none was, after the refusal; the confined window says it
+# names a standard 14 font with no descriptor, which the converter gives the face this reader draws
+# it from and says so by name (ADR 2146); a one-page rectangle converts with nothing to say. The
+# three that convert say the profile once, the report's lines per site, and the file written beside
+# the document — read back here for its header and its `pdfaid:part`; the confined window says it
 # converts nothing, because a conversion reads the whole document again outside its worker.
 archive_fixture() { # path: one page, one filled rectangle, nothing PDF/A-2b refuses
     python3 - "$1" <<'PY'
@@ -5068,7 +5096,7 @@ archive_converted() {
         [ -f "$FIXTURES/drive-archive.pdf" ] || archive_fixture "$FIXTURES/drive-archive.pdf"
         copy="$OUT/$WINDOW-$(basename "$file")"
         written="${copy%.pdf}.pdfa-2b.pdf"
-        step=88-archive; [ "$file" = "$FIXTURES/drive.pdf" ] && step=88-archive-refused
+        step=88-archive; [ "$file" = "$FIXTURES/drive.pdf" ] && step=88-archive-substituted
         cp "$file" "$copy"
         rm -f "$written"
         launch "$copy" --archive 2b:as-if-printed
@@ -5098,9 +5126,10 @@ archive_converted() {
         elif [ "$step" = 88-archive ] && [ -f "$written" ] && head -c 5 "$written" | grep -q '%PDF-' &&
             grep -aq 'pdfaid:part' "$written" && [ -n "$said" ]; then
             verdict "$step" works "$said, $sites report line(s) before it"
-        elif [ "$step" = 88-archive-refused ] && [ ! -f "$written" ] && [ -n "$said" ] &&
-            said_since "$mark" "refused: fonts/font-programs-embedded"; then
-            verdict "$step" works "$(tail -n "+$((mark + 1))" "$LOG" | grep -o 'refused: fonts/font-programs-embedded ([^)]*)' | head -1); $said"
+        elif [ "$step" = 88-archive-substituted ] && [ -f "$written" ] && head -c 5 "$written" | grep -q '%PDF-' &&
+            grep -aq 'pdfaid:part' "$written" && [ -n "$said" ] &&
+            said_since "$mark" "Helvetica (resource F1) is drawn from"; then
+            verdict "$step" works "$(tail -n "+$((mark + 1))" "$LOG" | grep -o 'Helvetica (resource F1) is drawn from [A-Za-z ]*' | head -1); $said"
         else
             verdict "$step" wrong "${said:-no verdict line}: $LOG"
         fi

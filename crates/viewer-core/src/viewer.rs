@@ -46,7 +46,7 @@ mod printing;
 mod scripts;
 mod search;
 
-pub use self::anticipation::{Anticipated, Anticipating, Foreseen, Reader};
+pub use self::anticipation::{Anticipated, Anticipating, Foreseen, ReadOut, Reader};
 use self::editing::commit_typed;
 use self::layout::damage;
 pub(crate) use self::layout::px;
@@ -169,6 +169,11 @@ pub struct Viewer {
     /// Whether the arrangement's unread pages are left for the host to read, for the length of
     /// one [`Self::handle_unread`] (ADR 1871).
     unread: bool,
+    /// The page whose read a host is running on a thread of its own, which no `settle` reads in
+    /// the meantime ([`Self::read_out`], ADR 2344).
+    out: Option<anticipation::Out>,
+    /// The next [`Self::out`]'s serial, which only ever increases.
+    next_out: u64,
     /// Whether the host says §12.4.4's presentation is running.
     ///
     /// Held here rather than per document for [`Self::delegated`]'s reason: it is a fact about the
@@ -308,6 +313,8 @@ impl Viewer {
             raising: false,
             stepping: false,
             unread: false,
+            out: None,
+            next_out: 0,
             presenting: crate::PresentationMode::default(),
             holds_rasters: true,
             oversize: crate::Oversize::Refused,
@@ -758,6 +765,96 @@ mod tests {
             foreseen.map(|foreseen| foreseen.target),
             expected.first().map(|&(_, target, _)| target),
             "the target foretold is the target asked at"
+        );
+    }
+
+    /// A turn's read handed out to a host's thread leaves the viewer answering meanwhile: a
+    /// command handled before the read comes back neither reads the page nor asks for it, and the
+    /// read taken in then asks for exactly what the turn handled whole asks for (ADR 2344).
+    #[test]
+    fn a_read_out_is_left_unread_by_the_commands_handled_while_it_runs() {
+        let mut whole = showing_page_one();
+        let expected: Vec<crate::Event> = whole
+            .handle(Command::GoTo(crate::PageTarget::Next))
+            .collect();
+        let expected = asked(&expected);
+
+        let mut viewer = showing_page_one();
+        viewer
+            .handle_unread(Command::GoTo(crate::PageTarget::Next))
+            .for_each(drop);
+        let read_out = viewer
+            .read_out((300, 200), 1.0)
+            .expect("the page the turn brought on is handed out");
+        assert_eq!(read_out.page(), 1);
+        assert_eq!(
+            read_out.foreseen().map(|foreseen| foreseen.target),
+            expected.first().map(|&(_, target, _)| target),
+            "the target foretold is the target asked at"
+        );
+        let meanwhile: Vec<crate::Event> = viewer.read_the_rest().collect();
+        assert!(
+            asked(&meanwhile).is_empty(),
+            "a settle while the read is out neither reads the page nor asks for it"
+        );
+        assert!(
+            matches!(
+                viewer.query(crate::Query::PageGeometry(1)),
+                crate::Answer::Geometry(_)
+            ),
+            "and the page is placed meanwhile, for a window to show what it retains of it"
+        );
+        let read = std::thread::scope(|scope| {
+            scope
+                .spawn(|| read_out.read(&pdf_model::progress::Parts::new()))
+                .join()
+                .expect("the read on its own thread ends")
+        });
+        let mut events: Vec<crate::Event> = viewer.anticipated(read, None).collect();
+        events.extend(viewer.read_the_rest());
+        assert_eq!(asked(&events), expected);
+    }
+
+    /// A read out that comes back to a view changed while it ran is dropped, and the page is then
+    /// read by the viewer under the view as it stands — the same page a turn handled whole after
+    /// the change asks for (ADR 2344). Planted: with the view's check taken out of
+    /// `Viewer::anticipated`, the stale read is installed and the page is not read again.
+    #[test]
+    fn a_read_out_under_a_view_changed_since_is_dropped_and_read_again() {
+        let mut viewer = showing_page_one();
+        viewer
+            .handle_unread(Command::GoTo(crate::PageTarget::Next))
+            .for_each(drop);
+        let read_out = viewer
+            .read_out((300, 200), 1.0)
+            .expect("the page the turn brought on is handed out");
+        let read = read_out.read(&pdf_model::progress::Parts::new());
+        viewer
+            .handle(Command::Delegate(
+                pdf_model::view::WidgetAppearances::Delegated,
+            ))
+            .for_each(drop);
+        let revision = viewer
+            .documents
+            .get(&DocumentId(1))
+            .map(|open| open.revision);
+        let mut events: Vec<crate::Event> = viewer.anticipated(read, None).collect();
+        events.extend(viewer.read_the_rest());
+        assert_eq!(
+            asked(&events)
+                .iter()
+                .map(|&(page, ..)| page)
+                .collect::<Vec<_>>(),
+            [1],
+            "page two is read again and asked for once"
+        );
+        assert_eq!(
+            viewer
+                .documents
+                .get(&DocumentId(1))
+                .map(|open| open.revision),
+            revision.map(|revision| revision.saturating_add(1)),
+            "by one interpretation under the changed view, not by the stale read"
         );
     }
 

@@ -255,16 +255,16 @@ or name its bytes contradict, which `fonts/font-programs-filed-by-their-format` 
 (`bug921409`, `issue5751`) or refuses (`issue9949`, a `glyf` program under `CIDFontType0`), and two
 hold a TrueType collection under `FontFile2` (`issue13193`, `issue9262_reduced`), which the
 TrueType Reference Manual's font file — one font, opening with its own font directory — is not, and
-which no row of Table 124 admits: both are refused by a sentence naming the collection (ADR 2327).
-**Owed** for them: the face this reader draws, chosen by the descriptor's `/FontName` (ADR 0141),
-written out of the collection as a TrueType program of its own. The row cost pdf.js four documents
+which no row of Table 124 admits (ADR 2327): both now convert with the face this reader draws, chosen
+by the descriptor's `/FontName` (ADR 0141), written out of the collection as a TrueType program of its
+own (ADR 2343). The row cost pdf.js four documents
 (ADR 2307 section 3): `issue9949`, `issue11740_reduced` (a Type 1 program under `CIDFontType0`,
 veraPDF agrees), and two CFF-flavoured `OTTO` programs under `/FontFile2` in a `CIDFontType2`. Of
 those two, `issue5084`'s `/CIDToGIDMap` is `Identity` over a name-keyed CFF, so the dictionary is
 retyped `CIDFontType0` with every CID selecting the glyph it selected (§9.7.4.2, ADR 2326), and it
-converts; `bug1186827`'s map is a stream sending CID *c* to glyph *c* − 31, so under `CIDFontType0`
-its CIDs would select other glyphs — **owed** for it: re-keying the encoding and the widths to the
-glyph indices.
+converts; `bug1186827`'s map is a stream whose CIDs are Unicode values sent to glyph indices, so the
+CIDs are re-keyed to the glyphs they selected — an embedded `CMap` for the identity encoding and `/W`
+by glyph index — and it converts (ADR 2342).
 
 veraPDF's two disagreements on `me450f12project10_report` were this validator's (ADR 2295): an
 `xmpMM` structure is now held to the September 2005 edition's `ResourceEvent`, `ResourceRef` and

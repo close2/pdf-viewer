@@ -107,9 +107,10 @@ pub(super) fn ramp_table(stops: &[Stop]) -> RampTable {
 
 /// The colour the shader's `ramp_interpolated` gives `t`, stated in Rust over the bytes
 /// [`ramp_table`] writes — the lookup the tests hold to [`ramp_color_at`] bit for bit. The
-/// WGSL function is this function's copy, statement for statement, and its caller
-/// `ramp_colour` hands the target the level nearest the answer, `⌊255 c + ½⌋ / 255`, so that
-/// no adapter's conversion of a fragment's output chooses the byte instead (ADR 2310).
+/// WGSL function is this function's copy, statement for statement, and the shader's `fs_main`
+/// hands the target the level nearest an opaque answer, `⌊255 c + ½⌋ / 255`, so that no adapter's
+/// conversion of a fragment's output chooses the byte instead (ADR 2310); an answer below full
+/// alpha reaches the blend as it is (ADR 2350).
 ///
 /// At or below the first offset the first stop's colour (§7.10.4's degenerate first interval,
 /// closed on both sides); otherwise the first stop whose offset is **above** `t` is found by

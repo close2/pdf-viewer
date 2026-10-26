@@ -23,6 +23,12 @@ impl Host {
         let Some(stated) = keys::stated(code) else {
             return;
         };
+        // When the key reached this window, against the `events` line its command prints once
+        // handled: the length of the handler, which a page turn no longer spends reading (ADR
+        // 2344).
+        self.state
+            .trace
+            .say(Topic::Events, format_args!("key {stated:?} arrives"));
         let mode = viewer_host::Mode::of(&self.state.presenting);
         let waiting = self.waiting();
         let held = viewer_host::Modifiers {

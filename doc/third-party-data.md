@@ -1053,3 +1053,25 @@ paraphrased in source and in the ledger alike. What `crates/pdf-model/src/geospa
 the Note is its formulas, which are the method rather than prose about it, and its worked examples'
 numbers as test inputs (ADR 1587). Nothing from the EPSG Dataset is carried: the parameter and
 method codes `system.rs` recognises are the identifiers the Note itself prints beside each method.
+
+## Apple's TrueType Reference Manual and Microsoft's OpenType font file chapter, read online
+
+ISO 32000-2's Table 124 files a `/FontFile2` program as a TrueType font program as the TrueType
+Reference Manual describes one, and its `OpenType` row hands the format to ISO/IEC 14496-22, which
+this tree does not hold. Neither text is on this disk: both were read on their publishers' sites for
+ADRs 2327 and 2343, and nothing was downloaded or kept.
+
+| text | read at |
+|---|---|
+| **TrueType Reference Manual**, chapter 6, *Font Files* (Apple) | `https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6.html` |
+| **OpenType specification 1.9.1**, *OpenType font file* (Microsoft), read as evidence for ISO/IEC 14496-22 | `https://learn.microsoft.com/en-us/typography/opentype/spec/otff` |
+
+**Cited by section and paraphrased, never quoted.** Neither page states terms that would let this
+tree reproduce its prose, which under ADR 0187 is the same as none granted, and the quotation gate
+reads a quotation mark as ISO 32000-2's. What the tree takes from them is the shape of a file — one
+font opening with its own font directory, whose scaler type names its outlines; the nine tables the
+Manual requires of a font with TrueType outlines; a table's checksum as the sum of its 32-bit words,
+and `head`'s `checkSumAdjustment` as 0xB1B0AFBA less the whole file's sum with that field zero — and,
+from the OpenType chapter, that a collection is several fonts' directories under a `ttcf` header,
+whose `checkSumAdjustment` a collection does not use. `crates/pdf-font/src/sfnt.rs`'s `checksummed`
+and `crates/pdf-font/src/embedding.rs`'s `collection_face` are where those facts act.

@@ -1854,3 +1854,14 @@ directory (habit 185) already holds every binary name, so the check passed on th
 group after 368 s and quoted nothing from it. A hold is queued only after every build it depends on has
 ended, and a binary is called fresh by cargo's own word — a build that ends with no `Compiling` line —
 never by its presence on disk.
+
+### 262. A GPU figure taken while another process holds the render node is a figure of the contention
+
+Round 1752 priced a toolkit notch's window on the Radeon 890M headless and found the device running at
+one of two speeds in stretches lasting seconds: a window's emit and deposit took 0.8–1.6 ms or 3.2–4.2 ms,
+in every arm alike, and all six bare runs were slow while a sibling's corpus walk held the render node
+outside the lock (ADR 2338). That spread is ADR 2323's 1.8–5.8 ms remainder — the device's state, not
+the lane's. The lock keeps the walks apart but not the device: a bare GPU test or a window drive opens
+`/dev/dri/renderD*` without it. Before an arm, the processes holding the render node are listed and the
+list printed beside the figure; emit+deposit is read to say which speed the arm ran at; and a term is
+attributed only across arms that ran at one speed.

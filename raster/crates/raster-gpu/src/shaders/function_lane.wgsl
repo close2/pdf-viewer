@@ -161,10 +161,10 @@ fn nearest_level(c: vec4f) -> vec4f {
     return vec4f((doubled + 1u) >> vec4u(1u)) / 255.0;
 }
 
-// The program's answer leaves as the level nearest it, as a ramp's colour does (`shading.wgsl`'s
-// `ramp_colour`, ADR 2310): RADV exports a fragment's colour to an eight-bit target as a half
-// float rounded toward zero, up to an eighth of a level low, and a level survives that export
-// where an unrounded answer does not (ADR 2311).
+// The program's answer leaves as the level nearest it, as an opaque ramp's colour does
+// (`shading.wgsl`'s `fs_main`, ADR 2310): RADV exports a fragment's colour to an eight-bit
+// target as a half float rounded toward zero, up to an eighth of a level low, and a level
+// survives that export where an unrounded answer does not (ADR 2311).
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4f {
     let p = floor(in.position.xy) + params.origin;

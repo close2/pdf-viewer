@@ -99,7 +99,7 @@ impl Viewer {
                 });
                 open.on_screen.sort_by_key(|on_screen| on_screen.page);
             }
-            Self::interpret_arranged(open, id, &mut events);
+            Self::interpret_arranged(open, id, None, &mut events);
         }
         events.into_iter()
     }
@@ -169,20 +169,74 @@ impl Viewer {
         })
     }
 
-    /// Takes in the read [`Reader::read`] made, as [`Self::anticipate`] would have, and
-    /// names the list to `parts` so that a drawer handed it later knows it for the one it drew.
+    /// [`Self::anticipating`] for a read the host runs on a thread of its own while this viewer
+    /// goes on answering on the host's (ADR 2344): the page a [`Self::handle_unread`] brought on,
+    /// handed out as an owned [`ReadOut`] with the target its first frame is foretold at, for a
+    /// viewport of `viewport` device pixels at `scale`.
+    ///
+    /// **Until the read comes back, no `settle` reads the page**, so a command handled in the
+    /// meantime — a frame answered, a zoom, a tick — neither reads it a second time on the host's
+    /// thread nor asks for it to be drawn; [`Self::anticipated`] takes it in, and
+    /// [`Self::read_the_rest`] then asks for its frame. The read is of the view as it stands now,
+    /// and a read that comes back to a view changed since is dropped, after which `settle` reads
+    /// the page as it always did. `None` where [`Self::anticipating`] answers `None`.
+    ///
+    /// **The core still spawns nothing** (rule 4): the thread is the host's.
+    pub fn read_out(&mut self, viewport: (u32, u32), scale: f32) -> Option<ReadOut> {
+        let serial = self.next_out;
+        let read_out = {
+            let anticipating = self.anticipating()?;
+            let foreseen = anticipating.foresee(viewport, scale);
+            let Anticipating { open, reader, .. } = anticipating;
+            ReadOut {
+                id: reader.id,
+                page: reader.page,
+                object: reader.object,
+                document: reader.document,
+                view: open.view.clone(),
+                fonts: Arc::clone(&open.fonts),
+                references: Arc::clone(&open.references),
+                serial,
+                foreseen,
+            }
+        };
+        self.next_out = serial.wrapping_add(1);
+        self.out = Some(Out {
+            document: read_out.id,
+            page: read_out.page,
+            serial,
+        });
+        Some(read_out)
+    }
+
+    /// Takes in the read [`Reader::read`] or [`ReadOut::read`] made, as [`Self::anticipate`]
+    /// would have, and names the list to `parts` so that a drawer handed it later knows it for
+    /// the one it drew.
+    ///
+    /// A read out ([`Self::read_out`]) is taken in only where the page still waits for it under
+    /// the view it was read under; whether taken or dropped, the page is then `settle`'s again.
     pub fn anticipated(
         &mut self,
         read: Anticipated,
         parts: Option<&pdf_model::progress::Parts>,
     ) -> impl Iterator<Item = Event> + use<> {
         let mut events = Vec::new();
+        if let Some((serial, _)) = &read.out
+            && self.out.is_some_and(|out| out.serial == *serial)
+        {
+            self.out = None;
+        }
         if let Some(open) = self.documents.get_mut(&read.id)
             && Arc::ptr_eq(&open.document, &read.document)
             && let Some(index) = open
                 .on_screen
                 .iter()
                 .position(|on_screen| on_screen.page == read.page)
+            && read.out.as_ref().is_none_or(|(_, view)| {
+                *view == open.view
+                    && open.on_screen[index].interpreted.is_none()
+                    && open.on_screen[index].replaceable.is_none()
+            })
             && let Some(done) = read.read
             && let Some(list) = Self::install(open, read.id, index, done, &mut events)
             && let Some(parts) = parts
@@ -254,6 +308,72 @@ pub struct Anticipated {
     /// is told apart (trap 104).
     document: Arc<pdf_syntax::Document>,
     read: Option<crate::open::Read>,
+    /// For a [`ReadOut`]'s read, its serial and the view it was read under, which the viewer may
+    /// have moved past while it ran.
+    out: Option<(u64, pdf_model::view::ViewState)>,
+}
+
+/// A page turn's read, owned, for a thread of the host's choosing while the viewer goes on
+/// answering on the host's own (ADR 2344) — [`Viewer::read_out`]'s answer.
+///
+/// [`Reader`] borrows the viewer for the length of the read, so the host's thread can do nothing
+/// else until it ends; this holds its own handles on the same document, font cache and target
+/// files, and a copy of the view the page is read under.
+#[derive(Debug)]
+pub struct ReadOut {
+    id: DocumentId,
+    page: usize,
+    object: pdf_model::Page,
+    document: Arc<pdf_syntax::Document>,
+    view: pdf_model::view::ViewState,
+    fonts: Arc<pdf_model::FontCache>,
+    references: Arc<pdf_model::reference::Supply>,
+    serial: u64,
+    foreseen: Option<Foreseen>,
+}
+
+/// The page a [`ReadOut`] is reading, as the viewer remembers it until the read comes back.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Out {
+    pub(super) document: DocumentId,
+    pub(super) page: usize,
+    serial: u64,
+}
+
+impl ReadOut {
+    /// Reads the page, handing its list over to `parts` as it is built — the read
+    /// [`Reader::read`] makes.
+    #[must_use]
+    pub fn read(&self, parts: &pdf_model::progress::Parts) -> Anticipated {
+        Anticipated {
+            id: self.id,
+            page: self.page,
+            document: Arc::clone(&self.document),
+            read: Some(parts.during(|| {
+                crate::open::first_read(
+                    &self.document,
+                    self.object.clone(),
+                    &self.view,
+                    &self.fonts,
+                    &self.references,
+                )
+            })),
+            out: Some((self.serial, self.view.clone())),
+        }
+    }
+
+    /// Where the page's first frame will be drawn, foretold when the read was handed out
+    /// ([`Anticipating::foresee`]).
+    #[must_use]
+    pub const fn foreseen(&self) -> Option<Foreseen> {
+        self.foreseen
+    }
+
+    /// Which page is being read, counted from zero.
+    #[must_use]
+    pub const fn page(&self) -> usize {
+        self.page
+    }
 }
 
 /// Where page one's first frame will be drawn, asked before the page has been read.
@@ -329,6 +449,7 @@ impl Reader<'_> {
                     self.references,
                 )
             })),
+            out: None,
         }
     }
 }

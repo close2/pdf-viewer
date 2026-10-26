@@ -147,6 +147,21 @@ pub fn with_tables(program: &[u8], tables: &[([u8; 4], Vec<u8>)]) -> Option<Vec<
     crate::embed::assembled(&kept, program.get(..4)?.try_into().ok()?)
 }
 
+/// The face of a font collection the descriptor's `/FontName` names, written out as one font
+/// program with every checksum stated.
+///
+/// Table 124 files a TrueType program "as described in the TrueType Reference Manual", whose font
+/// file is one font opening with its own font directory, and a `ttcf` collection is several (ADR
+/// 2327). The face's own tables are copied byte for byte and no table of another face is taken;
+/// what is written afresh is the directory, its search fields, every table's checksum and
+/// `head`'s `checkSumAdjustment`, which the Manual's font directory states and a file this tree
+/// hands to a reader does not leave false (ADR 2343). `None` where the bytes are no collection,
+/// where no face carries the name, or where the face cannot be taken apart.
+#[must_use]
+pub fn collection_face(program: &[u8], font_name: &str) -> Option<Vec<u8>> {
+    crate::sfnt::checksummed(crate::collection::extract_named(program, font_name)?)
+}
+
 /// One table's bytes out of an sfnt, where the container holds it.
 fn sfnt_table<'a>(program: &'a [u8], tag: &[u8]) -> Option<&'a [u8]> {
     let tables = crate::sfnt::sfnt_tables(program)?;

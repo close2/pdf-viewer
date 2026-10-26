@@ -33,6 +33,12 @@ impl Host {
         let Some(stated) = key_pressed(key) else {
             return false;
         };
+        // When the key reached this window, against the `events` line its command prints once
+        // handled: the length of the handler, which a page turn no longer spends reading (ADR
+        // 2344).
+        self.state
+            .trace
+            .say(Topic::Events, format_args!("key {stated:?} arrives"));
         // A push-button §12.5.1's focus is on takes Space and Enter before the page does, since no
         // toolkit button stands over one to take them (ADR 1357) — unless one of this host's own
         // controls has the keyboard, which has had the key first and whose Enter GTK may pass on.

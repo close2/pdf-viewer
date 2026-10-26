@@ -382,7 +382,11 @@ pub(crate) struct Open {
     /// the pointer — and a loaded font is a function of the document alone, so a font that was
     /// right before the layer switch is right after it. Dropping it there would make every layer
     /// switch re-read the page's font programs for no change in any answer.
-    pub(crate) fonts: pdf_model::FontCache,
+    ///
+    /// **Shared rather than owned** so that a page turn's read can run on a host's thread while
+    /// this document goes on answering on its own ([`crate::ReadOut`], ADR 2344); the cache locks
+    /// per lookup and per insertion, never for an interpretation.
+    pub(crate) fonts: Arc<pdf_model::FontCache>,
     /// ISO 32000-2 §8.10.4's target documents, as [`crate::Command::References`] supplied them.
     ///
     /// Empty for every document a host said nothing about, which is every document by default.
@@ -974,7 +978,7 @@ impl Open {
             opening_file: None,
             highlights: Vec::new(),
             readbacks: crate::readback::Readbacks::default(),
-            fonts: pdf_model::FontCache::new(),
+            fonts: Arc::new(pdf_model::FontCache::new()),
             references: Arc::new(pdf_model::reference::Supply::none()),
             losses_said: 0,
             scan_refusal_said: false,

@@ -46,8 +46,11 @@ pub enum CoverageChoice {
 ///   change into a full re-encode.
 /// - **There is no shown frame** — the launch path — which keeps the lane the
 ///   time-to-first-page gates were measured on ([`coverage_for`]'s magnification rule);
-///   the compute lane's first frame pays its pipeline compile and its segment
-///   residency, and the launch path pays for nothing it can defer.
+///   the compute lane's first frame pays its pipeline compile, its segment residency and,
+///   where its edges capacity first grows, a second run of the frame (raster's ADR 0095),
+///   and the launch path pays for nothing it can defer. Taking that first use off the
+///   first moved view was priced and declined: its ceiling is a later view's frame
+///   (ADR 2339).
 ///
 /// The sampled [`Gpu`](raster_gpu::Coverage::Gpu) lane is deliberately absent from the
 /// moved-view case: the compute lane beats it on the cold sweep (0.93 against 9.8 ms),

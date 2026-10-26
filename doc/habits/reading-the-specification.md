@@ -292,3 +292,13 @@ the result to the budget the decision records.
 1436). Before a note records that a value is unheld, the standard's EXAMPLEs and NOTEs around the
 subject are grepped for it — they are part of the held text, and a silence recorded over one of them
 is the decay CLAUDE.md's fifth principle warns about.
+
+## A rule obeyed on one structure and undone by a recovery over the same bytes is implemented in name only
+
+Round 1756 was briefed to obey Table 15's `/Size` sentence by letting the objects it ignores come back
+through "the repair this tree already has". The repair, `xref::rebuild`, scans the file for every
+`N G obj` header and restores every object the sentence had ignored, so the sentence would have
+taken effect only on the one document whose table was otherwise sound — and there it lost page one —
+at a whole-file scan on sixty-six documents (ADR 2346 §4). Before a brief's premise that a recovery
+will catch what a rule drops is built on, the recovery is read for what it restores: if it restores
+exactly what the rule removed, the rule is obeyed in name only and the departure stands.

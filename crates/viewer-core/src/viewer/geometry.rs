@@ -5,7 +5,7 @@ use pdf_model::measurement;
 use pdf_render::{DisplayList, Rect, Transform};
 use pdf_syntax::ObjectId;
 
-use super::Viewer;
+use super::{DocumentId, Viewer};
 #[cfg(doc)]
 use crate::Answer;
 use crate::open::Open;
@@ -623,6 +623,31 @@ impl Viewer {
         // Answered only once the page has been interpreted, as it always was: a geometry taken
         // from an extent nothing has drawn yet is a promise about a frame that may not arrive.
         on_screen.interpreted.as_ref()?;
+        self.placed_geometry(open, index)
+    }
+
+    /// [`Self::geometry`], and for the page a host is reading on a thread of its own as well
+    /// ([`Self::read_out`]): that page's frame is asked for the moment its read is taken in, or
+    /// read here if the read is dropped, so the promise is kept, and a window shows what it
+    /// retains of the page where the page will be until the frame lands (ADR 2344).
+    pub(super) fn shown_geometry(
+        &self,
+        open: &Open,
+        id: DocumentId,
+        index: usize,
+    ) -> Option<PageGeometry> {
+        if self
+            .out
+            .is_some_and(|out| out.document == id && out.page == index)
+        {
+            return self.placed_geometry(open, index);
+        }
+        self.geometry(open, index)
+    }
+
+    /// Where the arrangement places an arranged page, interpreted or not.
+    fn placed_geometry(&self, open: &Open, index: usize) -> Option<PageGeometry> {
+        let on_screen = open.on(index)?;
         Some(PageGeometry {
             page: open.page_size(index)?,
             scale: open.magnification(self.viewport, self.scale)?,

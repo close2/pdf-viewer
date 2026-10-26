@@ -1428,6 +1428,12 @@ void PageArea::viewportChanged()
                      static_cast<float>(scale));
 }
 
+void PageArea::tellSize()
+{
+    toldDevice_ = QSize();
+    viewportChanged();
+}
+
 void PageArea::wheelEvent(QWheelEvent* event)
 {
     // **The wheel, which this host had no binding for until Table 29's `/PageLayout` was
@@ -1744,7 +1750,13 @@ MainWindow::MainWindow(rust::Box<Host> host)
     buildFindBar();
 
     connect(page_, &PageArea::resizedTo, this, [this](unsigned int width, unsigned int height, float scale) {
+        // **A size that arrives inside another call into the host is told once that call has
+        // returned**, never dropped: `placeWindow`'s own `resize`, run from `applyUpdates` inside
+        // a call, is delivered there when the window is resized before the loop turns, and a
+        // size dropped was a viewport the core never learnt — no frame followed, so `/FitWindow`
+        // was not measured again and `/CenterWindow` never moved the window (ADR 2345).
         if (busy_) {
+            QTimer::singleShot(0, this, [this] { page_->tellSize(); });
             return;
         }
         Busy guard(busy_);

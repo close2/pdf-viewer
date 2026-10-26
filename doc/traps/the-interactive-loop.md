@@ -641,3 +641,21 @@ screen (round 1747, ADR 2328). A drive's ceiling after a key covers everything t
 prints, so the step waits for the frame it needs, gives the read its time, and counts a photograph late
 only after `RenderReady`; in GTK it reads the window's own paint record and asks that the first paint
 after the turn be the retained picture.
+
+### 263. A re-entrancy guard that drops an event drops a fact
+
+Qt's page area guards its `resizedTo` handler with a `busy_` flag against re-entry from its own
+drawing. The fit fixture's resize arrived while the flag was set and the handler returned without
+telling the core, so no viewport change reached it, no next frame was asked for and the centring move
+that follows the first frame was never requested; the window sat at 0,0 in 7 of 25 headless launches
+(round 1755, ADR 2345). An input may be refused while busy — the user can press again — but a size is a
+fact about the window that will not be stated twice. State that arrives under a guard is remembered and
+told on the next loop turn (`PageArea::tellSize`), never dropped.
+
+### 264. Under Xvfb a window at 0,0 put itself there
+
+The drive runs the windows under Xvfb with no window manager, so no compositor places or moves a window
+and the drive's photograph cannot race a placement that nobody makes. Round 1747 read Qt's window at 0,0
+twice under load and left it as a flake; round 1755's placement trace showed the window's own dropped
+resize (trap 263). Before a racer is named for a window out of place, the window's own placing decision
+is read from its trace — what size it was told, what frame followed, and what move it asked for.

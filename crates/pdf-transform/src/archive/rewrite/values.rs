@@ -10,12 +10,13 @@ use super::{Entry, Rewrite, Rewriter, count, resources_with_default, with_defaul
 
 impl Rewriter<'_> {
     /// Moves a descriptor's program to `/FontFile3`, the same stream under the key §9.9's Table
-    /// 124 files its format under (ADR 2307), and writes a `CIDFont` the move retypes as the
-    /// subtype that row is under (ADR 2326).
+    /// 124 files its format under (ADR 2307), writes a `CIDFont` the move retypes as the subtype
+    /// that row is under (ADR 2326), and gives a `Type0` font over a re-keyed one the `CMap` that
+    /// re-keys its codes (ADR 2342).
     ///
     /// Counted once, at the stream, which every refiled program has.
     pub(super) fn refile_font_program(&self, id: ObjectId, out: &mut Dictionary) -> bool {
-        if self.retype_cid_font(id, out) {
+        if self.retype_cid_font(id, out) || self.reencode_type0(id, out) {
             return true;
         }
         let Some(from) = self
@@ -51,6 +52,32 @@ impl Rewriter<'_> {
             Object::Name(Name::new(&b"CIDFontType0"[..])),
         );
         out.remove("CIDToGIDMap");
+        // §9.7.4.3 keys `/W` by CID, and the CIDs of a font whose map was a stream are now the
+        // glyph indices they selected (ADR 2342).
+        if let Some(rekeyed) = self.font_files.and_then(|refiled| refiled.rekeyed.get(&id)) {
+            if rekeyed.widths.is_empty() {
+                out.remove("W");
+            } else {
+                out.insert(Name::new(&b"W"[..]), Object::Array(rekeyed.widths.clone()));
+            }
+        }
+        true
+    }
+
+    /// Writes a `Type0` font over a re-keyed `CIDFont` with the embedded `CMap` that sends each
+    /// code to the glyph index it drew, where the font named an identity `CMap` (ADR 2342).
+    ///
+    /// A `Type0` font is neither a `CIDFont` nor a descriptor, so an object is at most one of the
+    /// three edits [`Self::refile_font_program`] makes.
+    fn reencode_type0(&self, id: ObjectId, out: &mut Dictionary) -> bool {
+        let Some(at) = self
+            .font_files
+            .filter(|_| self.wants(Rewrite::FontProgramRefiled))
+            .and_then(|refiled| refiled.encodings.get(&id))
+        else {
+            return false;
+        };
+        out.insert(Name::new(&b"Encoding"[..]), Object::Reference(*at));
         true
     }
 

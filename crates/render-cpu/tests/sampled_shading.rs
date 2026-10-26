@@ -207,3 +207,89 @@ fn zooming_resolves_the_shading_again_without_rebuilding_the_list() {
         "a target containing the whole domain clips nothing away"
     );
 }
+
+/// A producer that answers one flat colour everywhere it is asked.
+#[derive(Debug)]
+struct FlatSource(Color);
+
+impl ColoursAtDeviceScale for FlatSource {
+    fn colours(&self, patch: Patch) -> ColourGrid {
+        let grid = patch.grid;
+        ColourGrid {
+            width: grid.width,
+            height: grid.height,
+            pixels: vec![self.0; (grid.width as usize) * (grid.height as usize)].into(),
+            covers: [0.0, 1.0, 0.0, 1.0],
+        }
+    }
+
+    fn is_opaque(&self) -> bool {
+        true
+    }
+}
+
+/// A cell of the grid holds the level nearest the producer's own value (ADR 2340), the byte the
+/// device's function lane writes for the same answer (ADR 2325).
+///
+/// Each grey is the largest `f32` whose exact value lies below a half level, at four of the 127
+/// levels — 128 to 254 — where its `f32` product with 255 is that half — the greys `to_color_u8` broke upwards — and `0.7`, ADR
+/// 2311's example at 178.499 997 levels. The square is drawn whole, so its interior is the
+/// cells themselves and nothing of an edge.
+#[test]
+fn a_cell_holds_the_level_nearest_the_producers_own_value() {
+    let below_a_half = |k: u16| {
+        let half = (f32::from(k) + 0.5) / 255.0;
+        let mut grey = half;
+        while f64::from(grey) * 255.0 >= f64::from(k) + 0.5 {
+            grey = f32::from_bits(grey.to_bits() - 1);
+        }
+        assert!(
+            (grey * 255.0 - (f32::from(k) + 0.5)).abs() == 0.0,
+            "{grey}'s f32 product is the half level above {k}"
+        );
+        (grey, k as u8)
+    };
+    let mut greys: Vec<(f32, u8)> = [128, 178, 200, 254].map(below_a_half).to_vec();
+    greys.push((0.7, 178));
+    for (grey, level) in greys {
+        let mut list = DisplayList::new(Size::new(40.0, 40.0));
+        let mut path = Path::new();
+        path.push(PathCommand::MoveTo(Point::new(10.0, 10.0)));
+        path.push(PathCommand::LineTo(Point::new(30.0, 10.0)));
+        path.push(PathCommand::LineTo(Point::new(30.0, 30.0)));
+        path.push(PathCommand::LineTo(Point::new(10.0, 30.0)));
+        path.push(PathCommand::Close);
+        list.push(Command::Fill {
+            path: Arc::new(path),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            paint: Paint::Shading(Arc::new(Shading {
+                background: None,
+                kind: Arc::new(ShadingKind::Sampled {
+                    domain: [0.0, 1.0, 0.0, 1.0],
+                    source: DeferredColours::new(
+                        Arc::new(FlatSource(Color::rgb(grey, grey, grey)))
+                            as Arc<dyn ColoursAtDeviceScale>,
+                    ),
+                    program: None,
+                }),
+                transform: Transform::new(20.0, 0.0, 0.0, 20.0, 10.0, 10.0),
+            })),
+            clip: None,
+            mask: None,
+            blend: BlendMode::Normal,
+        });
+        let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+        let raster = CpuRasterizer::new()
+            .rasterize(&list, target)
+            .expect("a sampled shading is supported");
+        for (x, y) in [(11, 11), (20, 20), (28, 28)] {
+            assert_eq!(
+                at(&raster, x, y),
+                (level, level, level),
+                "a cell of {grey}, {} levels, at ({x}, {y})",
+                f64::from(grey) * 255.0
+            );
+        }
+    }
+}

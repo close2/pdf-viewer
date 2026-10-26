@@ -259,7 +259,7 @@ pub(super) fn unpack(
             width_usize,
             height_usize,
             row_bytes,
-            &tables,
+            (&tables, decode.is_identity()),
         ));
     }
     if let Some(table) = packed_pixels(samples, palette.as_deref()) {
@@ -499,7 +499,7 @@ fn unpack_eight_bit_device(
     width: usize,
     height: usize,
     row_bytes: usize,
-    tables: &[&[u8; 256]],
+    (tables, identity): (&[&[u8; 256]], bool),
 ) -> Vec<u8> {
     let components = tables.len().max(1);
     let pixel_row = width.saturating_mul(4);
@@ -507,6 +507,11 @@ fn unpack_eight_bit_device(
     if pixel_row == 0 {
         return out;
     }
+    // Where every channel's table maps each byte to itself — §8.9.5.2's default `/Decode` on a
+    // device space — a pixel is its sample's own bytes and an opaque alpha, which is what the
+    // lookups would write, so they are left out and the copy is one the compiler widens. On
+    // `images.pdf`, four `DeviceRGB` images of 12.3 million pixels under the default `/Decode`,
+    // this walk was 213 M instructions of the page's 612 M (ADR 2348).
     for (y, pixels) in out.chunks_exact_mut(pixel_row).enumerate() {
         let start = y.saturating_mul(row_bytes);
         let available = data.len().saturating_sub(start).min(row_bytes);
@@ -514,6 +519,46 @@ fn unpack_eight_bit_device(
             .get(start..start.saturating_add(available))
             .unwrap_or_default();
         match tables {
+            [_] if identity => {
+                for (pixel, &value) in pixels.as_chunks_mut::<4>().0.iter_mut().zip(row) {
+                    *pixel = [value, value, value, u8::MAX];
+                }
+            }
+            [_, _, _] if identity => {
+                // Four pixels a step, twelve bytes into sixteen, which the compiler makes one
+                // shuffle; the pixels past the last whole four, and a short row's, one at a time.
+                let (quads, _) = pixels.as_chunks_mut::<16>();
+                let (twelves, _) = row.as_chunks::<12>();
+                let whole = quads.len().min(twelves.len());
+                for (quad, s) in quads.iter_mut().zip(twelves) {
+                    *quad = [
+                        s[0],
+                        s[1],
+                        s[2],
+                        u8::MAX,
+                        s[3],
+                        s[4],
+                        s[5],
+                        u8::MAX,
+                        s[6],
+                        s[7],
+                        s[8],
+                        u8::MAX,
+                        s[9],
+                        s[10],
+                        s[11],
+                        u8::MAX,
+                    ];
+                }
+                let (pixels, _) = pixels.as_chunks_mut::<4>();
+                let (samples, _) = row.as_chunks::<3>();
+                let tail = whole.saturating_mul(4);
+                for (pixel, &[red, green, blue]) in
+                    pixels.iter_mut().skip(tail).zip(samples.iter().skip(tail))
+                {
+                    *pixel = [red, green, blue, u8::MAX];
+                }
+            }
             [grey] => {
                 for (pixel, &value) in pixels.chunks_exact_mut(4).zip(row) {
                     let level = grey[usize::from(value)];

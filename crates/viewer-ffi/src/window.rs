@@ -44,6 +44,8 @@ mod placement;
 mod repainted;
 mod restrictions;
 mod shown;
+#[cfg(test)]
+mod turn_tests;
 mod wheel;
 
 use std::collections::VecDeque;
@@ -825,10 +827,9 @@ impl Window {
     /// One command through the viewer, with what it produced put back on the queue.
     fn run(&mut self, command: Command, queue: &mut VecDeque<Command>) {
         let supplied = matches!(command, Command::Supply { .. });
-        let events: Vec<Event> = if matches!(command, Command::GoTo(_)) {
-            self.turn(command)
-        } else {
-            self.state.viewer.handle(command).collect()
+        // A command that waits behind a turn's read is handed on when the read is in (ADR 2344).
+        let Some(events) = self.through_the_viewer(command) else {
+            return;
         };
         for event in events {
             self.react(event, queue);
