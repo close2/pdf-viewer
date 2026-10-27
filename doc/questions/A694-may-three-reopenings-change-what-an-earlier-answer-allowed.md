@@ -1,0 +1,12 @@
+Status: complete
+Given: 2026-10-27, in conversation — transcribed by the round
+Owes: (1) widen ADR 2394's page-photograph gate under `as-if-printed` (at 2b and part 4 flavours; 2u and 2a keep the refusal) to pages holding R08 or R03 faults (`text-as-image` per affected page, with its text named in the report); (2) build R05 (a) (`press-assumed` under `as-if-printed` using the shipped CMYK profile when none is supplied) and (b) (`as-shown` ICC CMYK profile synthesized from `pdf_colour`'s conversion, after its table-writer round), and clarify in the profile documentation that we always assume documents are displayed only — `as-if-printed` means *"as if printed and scanned"* (a lower bound on what may be lost, never an instruction to imitate physical printing); (3) build R11 (under both `as-shown` and `as-if-printed`) and R03a, baking the state the viewer currently shows into the PDF when the input is malformed (archive rounds, in ADR 2490's ranking order)
+
+> q694 1) yes allowed
+> q694 2) yes to a and b, although we will always assume that docs are displayed only. add a note to the "as-if-printed" to specify that it's more like: "as if printed and scanned". the profile shouldn't try to print correctly. it's just a lower bound that what we are allowed to lose if we printed and scanned, but it does not mean, that we should try to "imitate" printing!
+> q694 3) agree. if the input is bad we will never be able to get "correct" input. we will just bake something into the pdf representing the state we currently show the pdf
+
+Reading:
+- **1 (The photograph's gate, R08 and R03)**: adopts the recommendation — allowed under `as-if-printed` at 2b and every part 4 flavour (while `as-shown`, 2u and 2a keep the refusal), recording `text-as-image` and the page's text in the report.
+- **2 (The press, R05)**: adopts (a) and (b), with a required clarification on the meaning of `as-if-printed`: we always assume documents are displayed only. Add an explicit note to `as-if-printed`'s description and docs stating that it means *"as if printed and scanned"* — it defines a lower bound on what information we are allowed to lose if the document were printed and scanned, and must never be read as trying to imitate a physical press print.
+- **3 (A48's line on R11 and R03a)**: adopts the recommendation (R11 under both `as-shown` and `as-if-printed`, and R03a). When the producer's input is broken or incomplete, we cannot recover "correct" original input; the converter bakes into the PDF a conforming representation of the state the viewer currently displays.
