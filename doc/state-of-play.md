@@ -186,7 +186,8 @@ performing every one of Table 201's actions that is not clause 13's media — `J
 reader's `Scripts` level, as the scripts below say, and a launch of a program the one half this host never performs, with
 `pdf_model::action`'s table the list — and a rendition action's clip judged by §13.2.2's viability,
 reported with its §14.9.2.4 alternate text and handed to the host at the reader's level for Table
-286's `/TF`, with no player started (ADRs 1960, 1961), and a movie's or a sound's file through the
+286's `/TF`, with no player started (ADRs 1960, 1961), a media clip section's §13.2.4.3 offsets judged
+against the clip's own container headers, which no sample is decoded to read (ADR 2452), and a movie's or a sound's file through the
 same hand-off, a sound holding its own samples written as a RIFF WAVE file first (ADRs 2382, 2398),
 while a rich media annotation's §13.7.2.3.2 assets are listed and saved as embedded files from its page
 and handed to no player (ADR 2399) — §14.9's accessibility entries, §12.4.4's whole presentation
@@ -479,7 +480,10 @@ packet and every other byte is the producer's, and a field whose data it cannot 
 by name (ADR 2396). **A numeric, date or time field's data is its canonical form**, parsed from
 what was typed by its own picture clause in the form's own locales (XFA 3.3 chapters 4, 24 and 26;
 ADR 2414), and **written out by its `bind` picture, where its `validate` picture's format test
-passes it** — a value the test fails is reported by name (ADR 2434).
+passes it** — a value the test fails is reported by name (ADR 2434) — or by the default bind
+picture a `config` packet's `transform` gives its data element (chapter 15; ADR 2451). **Where the
+form asks for its validations before a save, the save runs its null tests** and reports each field
+left empty in the form's own message, saving it all the same, as XFA 3.3 page 1340 has it (ADR 2450).
 
 **Table 22's bit 12 is a second operation beside bit 3, at four levels of its own**, because the
 cell states two consequences: bit 3 clear withholds printing, and bit 12 clear limits a print that
@@ -1123,14 +1127,15 @@ not hold restated on `WinAnsiEncoding` (ADR 2278) — a font program filed under
 CIDFont's absent `/CIDToGIDMap` written `Identity` where the edition the source is labelled with
 gives that default (ADR 2246), a composite font of an
 Adobe character collection given a subset of the CJK pack's program for that collection, a second
-download beside the converter that CI builds by digest and the snapshot publishes, under the loss `machine-face` (ADRs 2302, 2303, 2386, `doc/cjk-pack.md`), an `Adobe-Identity` font re-keyed from its `/ToUnicode` values (ADR 2378) or, where no face can be keyed and the page reads back no character, its page photographed as the window draws it under the loss `text-as-image` both shipped profiles carry (ADR 2394) — an extension schema described from what the packet
+download beside the converter that CI builds by digest and the snapshot publishes, under the loss `machine-face` (ADRs 2302, 2303, 2386, `doc/cjk-pack.md`), its descendant given a descriptor of its own where it states none or shares one at other widths (ADR 2461), an `Adobe-Identity` font re-keyed from its `/ToUnicode` values (ADR 2378) or, where no face can be keyed and the page reads back no character, its page photographed as the window draws it under the loss `text-as-image` both shipped profiles carry (ADR 2394) — an extension schema described from what the packet
 states and an amendment identifier cut by span (ADRs 1245, 1246), a form's appearances constructed so
 that `/NeedAppearances` can go (ADR 1257), a push button's single appearance stream made the one
 entry of a subdictionary a new `/AS` selects (ADR 2319), an embedded file no part admits taken out with every
 reference to it (ADR 1258), a JPEG 2000 image outside the baseline transcoded to `FlateDecode` in the
 space it states, its opacity channel as Table 87's soft-mask image (ADRs 1400, 1412), a reference XObject's proxy kept and a named CMap embedded (ADRs 1285, 1286),
 a TrueType code's glyph named in the encoding where only a reader's choice reached it and a Type 3
-`.notdef` renamed (ADR 1942), a filter named by its inline-image abbreviation named in full
+`.notdef` renamed (ADR 1942), a code a standard font's own encoding sends to `.notdef` given an empty
+glyph in its CFF face (ADR 2458), a filter named by its inline-image abbreviation named in full
 (ADR 1952), and a destination profile's header restated as the ICC edition its own tags are written
 in, or its Profile ID as the profile's digest (ADR 2021). An ICC profile short of the tags its
 edition requires is given the operator's text where this reader drew through it and lacks only

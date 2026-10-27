@@ -252,6 +252,8 @@ pub(super) fn embed(
         described: None,
         losses: Losses::one(Loss::MachineFace).with(Loss::GlyphsFromToUnicode),
         fitting: None,
+        empty_glyphs: Vec::new(),
+        font: super::selected(used),
     });
     Ok(())
 }

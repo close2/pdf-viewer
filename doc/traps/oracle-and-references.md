@@ -835,3 +835,12 @@ them all along (ADR 2358). The refusal had been standing in front of two validat
 is removed, the documents it frees are run through veraPDF at every target the converter writes, not only
 the one that freed them, and a failure this validator did not predict is named in the record as the
 validator's gap, with the construction that slipped through.
+
+### 282. veraPDF is no witness on glyph presence
+
+Round 1812 (ADR 2458) built A48's empty glyph for codes a substituted font's own encoding sends to `.notdef` (ISO 19005-2
+section 6.2.11.8, ISO 19005-4 section 6.2.10.9). All eight freed outputs passed veraPDF 1.30.3 — and so did a planted file
+whose `/Differences` names a glyph the embedded Type1C program does not have. On the glyph-presence and `.notdef` rules
+veraPDF's PASS is therefore no evidence: a remedy there is calibrated by planting the defect, reading that the validator
+misses it, and taking this tree's own output check (`fonts/no-notdef-glyph-shown`, which failed the planted-out build) as
+the witness. veraPDF stays required at both targets for every freed output (trap 267); it is simply not the proof here.

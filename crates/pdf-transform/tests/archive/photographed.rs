@@ -229,3 +229,110 @@ fn both_shipped_profiles_carry_the_photograph_and_as_shown_nothing_else_of_the_s
         assert_eq!(authorised.grants(Loss::MachineFace), machine_face, "{name}");
     }
 }
+
+/// Converts `source` with `text-as-image` and every font loss authorised, and returns what the
+/// report lists as substituted, what it lists as photographed, and the output's bytes.
+fn photographed_beside(source: &[u8]) -> (Vec<String>, usize, Vec<u8>) {
+    let target = Target::Two(Level::B);
+    let mut plan = photographing(target);
+    plan.authorised.authorise(Loss::MachineFace);
+    plan.authorised.authorise(Loss::SubstituteStretch);
+    let (report, output) = convert_with_plan(source, &plan);
+    let output = output.unwrap_or_else(|| {
+        panic!(
+            "the page is photographed: {:?}",
+            decision(&report, "fonts/font-programs-embedded")
+        )
+    });
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let converted = conversion(&report);
+    let substituted = converted
+        .substituted
+        .iter()
+        .map(|font| font.requested.clone())
+        .collect();
+    (substituted, converted.photographed.len(), output)
+}
+
+/// Object 9, a simple font with no program and no descriptor, which the conversion embeds a
+/// shipped face for (ISO 19005-2 section 6.2.11.4.1).
+const HELVETICA: &str =
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>";
+
+#[test]
+fn a_font_only_the_photographed_content_selected_is_not_reported_embedded() {
+    // The page's resources go with its content (`doc/adr/2394`), so a font only that content
+    // selected is in no object the output holds: neither the report nor the file's
+    // `xmpMM:History` may say a face was embedded for it (`doc/adr/2454`). A space reads back as
+    // white space, so the owner's gate still admits the page (§9.10.2).
+    let source = a_page_no_reader_can_read(
+        "/F2 9 0 R",
+        b"BT /F2 12 Tf 10 150 Td ( ) Tj ET",
+        "",
+        &[HELVETICA],
+    );
+    let (substituted, photographed, output) = photographed_beside(&source);
+    assert_eq!(photographed, 1);
+    assert!(substituted.is_empty(), "{substituted:?}");
+    let written = String::from_utf8_lossy(&output);
+    assert!(
+        !written.contains("Helvetica"),
+        "no font, no report and no history entry names it"
+    );
+}
+
+#[test]
+fn a_font_an_annotation_on_the_photographed_page_still_shows_is_reported_embedded() {
+    // The control: the annotation stays an annotation over the photograph (ADR 2394), and its
+    // appearance's resources still select the font, so the output carries it and its face, and
+    // the report and the history say so.
+    let appearance = "BT /F2 12 Tf 2 2 Td ( ) Tj ET";
+    let source = a_page_no_reader_can_read(
+        "/F2 9 0 R",
+        b"BT /F2 12 Tf 10 150 Td ( ) Tj ET",
+        "/Annots [11 0 R]",
+        &[
+            HELVETICA,
+            &format!(
+                "<< /Type /XObject /Subtype /Form /BBox [0 0 40 20] /Resources << /Font << /F2 9 \
+                 0 R >> >> /Length {} >>\nstream\n{appearance}\nendstream",
+                appearance.len() + 1
+            ),
+            "<< /Type /Annot /Subtype /Square /Rect [150 150 190 170] /F 4 /AP << /N 10 0 R >> >>",
+        ],
+    );
+    let (substituted, photographed, output) = photographed_beside(&source);
+    assert_eq!(photographed, 1);
+    assert_eq!(substituted, ["Helvetica"]);
+    let held = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let page = Pages::new(&held).get(0).expect("a first page");
+    let annotations = held.get_key(&page.dict, "Annots");
+    let annotation = held
+        .resolve(&annotations)
+        .as_array()
+        .and_then(|annotations| annotations.first().cloned())
+        .expect("the annotation stays");
+    let annotation = held.resolve(&annotation);
+    let appearances = held.get_key(annotation.as_dict().expect("a dictionary"), "AP");
+    let normal = held.get_key(held.resolve(&appearances).as_dict().expect("an AP"), "N");
+    let Object::Stream(normal) = held.resolve(&normal) else {
+        panic!("the normal appearance is a stream");
+    };
+    let resources = held.get_key(&normal.dict, "Resources");
+    let fonts = held.get_key(
+        held.resolve(&resources).as_dict().expect("resources"),
+        "Font",
+    );
+    let font = held.get_key(held.resolve(&fonts).as_dict().expect("fonts"), "F2");
+    let font = held.resolve(&font);
+    let descriptor = held.get_key(font.as_dict().expect("the font"), "FontDescriptor");
+    let descriptor = held.resolve(&descriptor);
+    assert!(
+        descriptor
+            .as_dict()
+            .is_some_and(|descriptor| descriptor.get("FontFile2").is_some()
+                || descriptor.get("FontFile").is_some()
+                || descriptor.get("FontFile3").is_some()),
+        "and the face reported is the face written: {descriptor:?}"
+    );
+}

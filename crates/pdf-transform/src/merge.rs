@@ -1897,8 +1897,8 @@ struct FieldEntry {
 ///
 /// The clause says "\[a]n interactive PDF processor shall not limit the range of inheritance for
 /// field dictionaries", which is a statement about *inheritance* rather than a licence to walk a
-/// cycle; the visited set is what stops one and this is the belt beside it. The number is
-/// `pdf-model`'s `MAX_FIELD_ANCESTRY`, eight times the deepest chain on this disk (ADR 1198), and
+/// cycle; the visited set is what stops one and this is the belt beside it. The number is eight
+/// times the deepest chain on this disk (ADR 1198), and
 /// a hierarchy that reaches it is reported by [`claim_field_names`] rather than cut in silence,
 /// because the fields below the cut are neither tested for a collision nor have a signature's
 /// `/V` withheld (ADR 2154).

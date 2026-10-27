@@ -182,6 +182,10 @@ one §2.1 makes.
 - **The font is *not* embedded, and §4.9 is substituting anyway.** Then the converter is building
   the embedded program and chooses what each code maps to, so it need never reference glyph 0 —
   and the clause is satisfied without anything being edited. **Convert.**
+  Built for a Compact Font Format face under a `Type1` dictionary that stated no descriptor (ADR
+  2458). A `glyf` face goes under a non-symbolic `TrueType` dictionary, where a code reaches a glyph
+  only through a name the Adobe Glyph List gives a character (ISO 32000-2 §9.6.5.4, ISO 19005-2
+  section 6.2.11.6), so the absence cannot be kept there and the code is refused.
   - **The honest way to do that, and the tension in it.** Where this program's own renderer draws
     nothing for a code today, the substituted program gets a real but *empty* glyph: the page
     looks exactly as it did, and no `.notdef` is referenced. That satisfies the clause's letter.

@@ -229,7 +229,7 @@ impl ViewState {
             return None;
         }
         let value = self.text_of(document, widget).unwrap_or_default();
-        let stated = field.ancestry.iter().find_map(|level| {
+        let stated = field.chain().into_iter().find_map(|level| {
             crate::variable_text::value_text(document, &document.get_key(level, "RV"))
         });
         Some(

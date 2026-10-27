@@ -439,3 +439,60 @@ fn a_document_only_recovery_reads_is_refused_by_name_rather_than_reported_as_an_
         "the message names the clause it refuses on: {refusal}"
     );
 }
+
+/// `poppler-91414-0-53.pdf`'s page tree, written with a cross-reference table so that nothing but
+/// the node is wrong: the root's `/Count` names a stream.
+fn a_count_that_names_a_stream() -> Vec<u8> {
+    use std::fmt::Write as _;
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [ 4 0 R ] /Count 3 0 R >>",
+        "<< /Length 1 >>\nstream\n2\nendstream",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [ 0 0 100 100 ] >>",
+    ];
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for (index, object) in objects.iter().enumerate() {
+        offsets.push(out.len());
+        let _ = writeln!(out, "{} 0 obj\n{object}\nendobj", index.saturating_add(1));
+    }
+    let at = out.len();
+    let _ = writeln!(out, "xref\n0 5\n0000000000 65535 f ");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// ISO 32000-2 §7.7.3.2's Table 30 makes `/Count` a required integer, and this verb's closure copy
+/// carries the node as it stands, so it is refused by name rather than written into a file that
+/// does not open (ADR 2457). The reader still opens the source, which is what makes the refusal a
+/// writer's.
+#[test]
+fn a_page_tree_node_no_reader_can_count_is_refused_by_name() {
+    let bytes = a_count_that_names_a_stream();
+    let document = Document::open_with_limits(bytes.clone(), Limits::DEFAULT).expect("it opens");
+    assert_eq!(
+        Pages::new(&document).len(),
+        1,
+        "the reader counts the leaves"
+    );
+    let refusal = apply(
+        &Plan::Optimize(default_plan()),
+        &[Source::new(bytes)],
+        &MemorySinks::new(),
+        &Policy::default(),
+        &Budget::default(),
+    )
+    .expect_err("the node is not carried");
+    assert!(matches!(refusal, Refusal::Reconstructed(_)), "{refusal}");
+    assert_eq!(refusal.exit().code(), 4, "{refusal}");
+    assert!(
+        refusal.to_string().contains("7.7.3.2") && refusal.to_string().contains("/Count"),
+        "{refusal}"
+    );
+}

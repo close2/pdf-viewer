@@ -570,3 +570,11 @@ error" as "shall refuse". The tree had since gained decodes that carry an error 
 ADR 0836's `CheckValue`), and the reason had expired unannounced. A departure whose reason is "refusing would
 lose X" is re-read against whether the tree can now report the error and keep X, each time a decode or a
 consumer gains a way to carry damage.
+
+## A remedy that replaces a structure wholesale is read for what a passing row relied on
+
+Round 1810 (ADR 2455) found that a fresh catalog metadata packet, composed to meet section 6.6.2.1 of ISO 19005, dropped the
+identification schema the source's broken packet had already stated correctly: ADR 1245 said the fresh packet carries it, but
+it was restated only when some row asked, so the output failed section 6.6.4's part and conformance rows and the output check
+refused it. A remedy that replaces a packet, a dictionary or a stream wholesale is read for every property it takes away that
+a row passing on the source relied on, not only for the row that failed, and a test plants a source that passes those rows.

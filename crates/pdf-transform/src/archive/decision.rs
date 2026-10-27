@@ -2271,6 +2271,14 @@ pub(super) const REMEDIES: &[Remedy] = &[
         requirement: "optional-content/no-automatic-states",
         answer: Answer::Loses(Loss::AutomaticStates, Rewrite::AutomaticStatesRemoved),
     },
+    // Section 5.1 of both parts, at ISO 32000-2 §7.7.3.2's Table 30 `/Count`: the entry the
+    // table defines as the number of descendant leaves, and whose NOTE puts its consistency on the
+    // writer, states the leaves this reader walks beneath the node; the pages drawn are the same
+    // pages (`doc/adr/2456`).
+    Remedy {
+        requirement: "file-structure/page-tree-node-count-is-an-integer",
+        answer: Answer::Mechanical(Rewrite::PageCountRestated),
+    },
     // ISO 19005-2 section 6.2.2, ISO 19005-4 section 6.2.2 — the page half of A003's reading.
     Remedy {
         requirement: "graphics/content-streams-have-an-explicit-resources-dictionary",
@@ -2909,6 +2917,13 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "logical-structure/word-boundaries",
         Because::TheFence(WORD_BOUNDARIES_ARE_ON_THE_PAGE),
     ),
+    // Section 5.1 of both parts, at ISO 32000-2 §7.7.3.2's Table 30 `/Kids`: a node stating no
+    // children has no tree for a rewrite to state, and the verb refuses it before stage 1
+    // (`super::page_tree`, `doc/adr/2444`); this is the row's own answer for the census.
+    (
+        "file-structure/page-tree-node-kids-is-an-array",
+        Because::TheFence(A_NODE_WITH_NO_CHILDREN),
+    ),
     // ISO 19005-2 section 6.2.11.7.3's `/ActualText` is a marked-content property list or a
     // structure element's entry over a *span of a content stream*, so supplying one means
     // deciding where the span starts and ends inside the producer's page.
@@ -3203,6 +3218,12 @@ pub(super) const THE_GLYPH_IS_NOT_IN_THE_PROGRAM: &str = "this file shows a char
      all, because doc/pdf-a-conversion-limits.md section 4.9 then builds the program and chooses \
      what each code maps to; supplying the intended font with --font moves this document into \
      that case";
+
+/// Why a page tree node with no `/Kids` array is not rewritten (`doc/adr/2444`).
+const A_NODE_WITH_NO_CHILDREN: &str = "a page tree node here states no Kids array, so the tree \
+     names no child beneath it: the pages a reader draws from such a node - none, or the ones a \
+     scan of the file finds - are not the producer's tree, and writing one would be this \
+     converter deciding which pages the document has";
 
 /// `doc/pdf-a-conversion-limits.md` section 5.1's sentence, at the clauses that are the tree.
 const WILL_NOT_INVENT_STRUCTURE: &str = "this converter will not invent a structure tree. \

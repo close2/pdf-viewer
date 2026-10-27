@@ -10,10 +10,8 @@ use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 
 use super::fields::{field_name_of, named_field, state_name, toggles};
 use super::markup::{FREE_TEXT_BASE_FONT, FREE_TEXT_FONT, is_free_text, is_text_note};
-use super::{
-    AnnotationView, Displayed, FieldValue, FilingHome, MAX_FIELD_DEPTH, Property, ViewState,
-    Written,
-};
+use super::{AnnotationView, Displayed, FieldValue, FilingHome, Property, ViewState, Written};
+use crate::inheritance::Ancestors;
 
 impl ViewState {
     /// §7.5.6's incremental update for everything a person changed.
@@ -191,7 +189,7 @@ impl ViewState {
         self.write_scripted_annotations(document, &mut update);
         // After every `write_*` above, because each of them can write a `/V`, and §K.2's rule
         // is about the value the file ends up stating (ADR 2396).
-        let xfa_unkept = Self::write_xfa_data(document, &mut update);
+        let (xfa_unkept, xfa_invalid) = Self::write_xfa_data(document, &mut update);
         // Table 224's flag is written only for what this program could not write itself. §12.7.2
         // states what setting it admits — "[i]f such an object defines an appearance stream, the
         // appearance shall be consistent with the object's current value as a field" — so a
@@ -226,41 +224,53 @@ impl ViewState {
             still_reached,
             unwritten_pages: self.appended.len(),
             xfa_unkept,
+            xfa_invalid,
         })
     }
 
-    /// Writes §K.2's consistency: the data value of every field whose value the update changed.
+    /// Writes §K.2's consistency: the data value of every field whose value the update changed;
+    /// and runs the form's null tests where it asks for its validations before a save.
     ///
     /// A field changed is one whose inherited `/V` (§12.7.4.1) reads differently through the
     /// update than through the file, so whichever `write_*` step wrote it — a typed value, a
     /// reset, an import, a script — is kept, and a field nothing changed is not touched. The
-    /// packet is read only where the document states an XFA resource and some field changed, so
-    /// a save of any other document costs one catalog lookup.
+    /// packet is read only where the document states an XFA resource, so a save of any other
+    /// document costs one catalog lookup.
     ///
     /// A form XFA 3.3 does not call XFAF — Table 29's `/NeedsRendering`, or page 333's test on
     /// its template (ADR 2380) — is the dynamic half's, which waits on Q639, and its fields are
-    /// named rather than half-written (trap 5).
-    fn write_xfa_data(document: &Document, update: &mut Update) -> Vec<(String, String)> {
+    /// named rather than half-written (trap 5), and its validations are not run.
+    ///
+    /// The second half of the answer is [`Written::xfa_invalid`]: XFA 3.3 page 1340's `preSave`
+    /// makes a save a moment the form's validations run at, and its null test is of every field
+    /// the form holds, by the value the save leaves in its `/V` (ADR 2450).
+    fn write_xfa_data(
+        document: &Document,
+        update: &mut Update,
+    ) -> (Vec<(String, String)>, Vec<Vec<String>>) {
         let Some(stated) = crate::xfa::stated(document).filter(|stated| stated.resource) else {
-            return Vec::new();
+            return (Vec::new(), Vec::new());
         };
         let mut unkept = Vec::new();
         let mut changes = Vec::new();
+        let mut fields = Vec::new();
         for (name, widgets) in super::widgets_by_field_name(document) {
             let Some(&widget) = widgets.first() else {
                 continue;
             };
             let after = inherited_value(document, Some(update), widget);
-            if inherited_value(document, None, widget) == after {
+            let edited = inherited_value(document, None, widget) != after;
+            let change = xfa_change(document, update, &widgets, &after);
+            if let Some(change) = &change {
+                fields.push((name.clone(), change.clone()));
+            }
+            if !edited {
                 continue;
             }
-            match xfa_change(document, update, &widgets, &after) {
+            match change {
                 Some(change) => changes.push((name, change)),
                 None => unkept.push((name, "its /V is of a type no XFA field holds".to_owned())),
             }
-        }
-        if changes.is_empty() {
-            return unkept;
         }
         let refuse_all = |reason: String, unkept: &mut Vec<(String, String)>| {
             unkept.extend(
@@ -276,29 +286,33 @@ impl ViewState {
                     .to_owned(),
                 &mut unkept,
             );
-            return unkept;
+            return (unkept, Vec::new());
         }
         let resource = match crate::xfa::Resource::read(document) {
             Some(Ok(resource)) => resource,
             Some(Err(error)) => {
                 refuse_all(error.to_string(), &mut unkept);
-                return unkept;
+                return (unkept, Vec::new());
             }
-            None => return unkept,
+            None => return (unkept, Vec::new()),
         };
         if let Some(why) = resource.template.dynamic() {
             refuse_all(format!("its XFA form is a dynamic one: {why}"), &mut unkept);
-            return unkept;
+            return (unkept, Vec::new());
         }
-        let kept = resource
-            .datasets
-            .keep(&resource.template, &resource.locales, &changes);
-        if let Some(text) = kept.text {
-            let stream = replaced_stream(document, resource.datasets_stream, text.into_bytes());
-            update.put(resource.datasets_stream, stream);
+        if !changes.is_empty() {
+            let kept = resource.datasets.keep(
+                &resource.template,
+                (&resource.locales, &resource.config),
+                &changes,
+            );
+            if let Some(text) = kept.text {
+                let stream = replaced_stream(document, resource.datasets_stream, text.into_bytes());
+                update.put(resource.datasets_stream, stream);
+            }
+            unkept.extend(kept.unkept);
         }
-        unkept.extend(kept.unkept);
-        unkept
+        (unkept, resource.before_save(&fields))
     }
 
     /// Writes §12.7.6.3's reset onto the fields it reached and nothing has replaced since.
@@ -1305,24 +1319,23 @@ impl Update {
 /// is where one belongs: writing it onto one widget of a field with several would leave the
 /// others reading the old inheritance.
 ///
-/// The bound is this module's own, for the reason §12.7.4.1's row gives: a `/Parent` chain in a
-/// hostile file can be a cycle, and a chain nobody can reach the top of stops rather than being
-/// followed for ever.
+/// The chain is followed to its top, which §12.7.4.1 asks; one that returns to a field it has
+/// passed stops where the cycle is found, at the last object the walk reached (ADR 2448).
 fn holder(document: &Document, widget: ObjectId, dict: Dictionary) -> (ObjectId, Dictionary) {
-    let (mut id, mut current) = (widget, dict);
-    for _ in 0..MAX_FIELD_DEPTH {
-        if !document.get_key(&current, "V").is_null() || current.get("FT").is_some() {
+    let fetch = |id: ObjectId| document.get(id).as_dict().cloned();
+    let mut last = (widget, Dictionary::new());
+    for (id, current) in Ancestors::from((Some(widget), dict), fetch) {
+        // A parent written inside its child has no object a value could be written onto.
+        let Some(id) = id else {
+            break;
+        };
+        let stops = !document.get_key(&current, "V").is_null() || current.get("FT").is_some();
+        last = (id, current);
+        if stops {
             break;
         }
-        let Some(parent) = current.get("Parent").and_then(Object::as_reference) else {
-            break;
-        };
-        let Some(next) = document.get(parent).as_dict().cloned() else {
-            break;
-        };
-        (id, current) = (parent, next);
     }
-    (id, current)
+    last
 }
 
 /// §12.8.2.3's withdrawal: the object to rewrite so that `/UR3` is gone, if it has to go.
@@ -1604,20 +1617,21 @@ fn inherited_value(document: &Document, update: Option<&Update>, widget: ObjectI
         Some(update) => update.current_object(document, id),
         None => document.get(id),
     };
-    let mut id = widget;
-    for _ in 0..MAX_FIELD_DEPTH {
-        let Some(dict) = read(id).as_dict().cloned() else {
+    let fetch = |id: ObjectId| read(id).as_dict().cloned();
+    let Some(start) = fetch(widget) else {
+        return Object::Null;
+    };
+    for (id, dict) in Ancestors::from((Some(widget), start), fetch) {
+        // Read by reference only, as an update replaces objects and not what is written inside
+        // them.
+        if id.is_none() {
             break;
-        };
+        }
         match dict.get("V") {
             Some(Object::Reference(value)) => return read(*value),
             Some(Object::Null) | None => {}
             Some(value) => return value.clone(),
         }
-        let Some(parent) = dict.get("Parent").and_then(Object::as_reference) else {
-            break;
-        };
-        id = parent;
     }
     Object::Null
 }
@@ -1677,19 +1691,18 @@ fn xfa_change(
 
 /// An inheritable entry up the `/Parent` chain, read through the update.
 fn inherited_entry(document: &Document, update: &Update, widget: ObjectId, key: &str) -> Object {
-    let mut id = widget;
-    for _ in 0..MAX_FIELD_DEPTH {
-        let Some(dict) = update.current(document, id) else {
+    let fetch = |id: ObjectId| update.current(document, id);
+    let Some(start) = fetch(widget) else {
+        return Object::Null;
+    };
+    for (id, dict) in Ancestors::from((Some(widget), start), fetch) {
+        if id.is_none() {
             break;
-        };
+        }
         let value = document.get_key(&dict, key);
         if !value.is_null() {
             return value;
         }
-        let Some(parent) = dict.get("Parent").and_then(Object::as_reference) else {
-            break;
-        };
-        id = parent;
     }
     Object::Null
 }

@@ -67,6 +67,7 @@
 
 mod composite;
 mod described;
+mod empty;
 mod notices;
 mod pack;
 mod photographed;
@@ -84,6 +85,7 @@ use pdf_archive::survey::{SelectedFont, Survey};
 use pdf_font::standard::{ShippedFace, SuppliedFace};
 use pdf_font::substitute::Format;
 use pdf_font::{Code, LoadedFont};
+use pdf_model::content::ledger::Outcome;
 use pdf_syntax::Document;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
 use pdf_syntax::serialize::flate_encode;
@@ -165,6 +167,27 @@ pub struct SubstitutedFont {
     /// The horizontal scale the viewer drew the shipped face at, where embedding the face
     /// unmodified removed it: the figure the loss `substitute-stretch` is about.
     pub fitting: Option<f32>,
+    /// The codes the file's own encoding sent to `.notdef` that were given an empty glyph in the
+    /// embedded program, which `doc/questions/A48` allows on condition that each is reported and
+    /// recorded (`doc/adr/2458`).
+    pub empty_glyphs: Vec<u8>,
+    /// The font this entry substituted, as a content stream's lookup finds it — its object, or
+    /// its dictionary where a resource dictionary states it directly — so that an entry whose
+    /// font no object of the output holds is not reported (`doc/adr/2454`).
+    pub(crate) font: Outcome,
+}
+
+/// What an empty glyph given in place of `.notdef` is, in one clause naming the codes and the
+/// clause, for the report and for the file's own `xmpMM:History` alike (`doc/questions/A48`).
+#[must_use]
+pub(super) fn empty_glyphs_given(codes: &[u8]) -> String {
+    format!(
+        "the codes {} reached .notdef under the file's own encoding, which ISO 19005-2 section \
+         6.2.11.8 and ISO 19005-4 section 6.2.10.9 forbid a text-showing operator to reference, \
+         and were each given a glyph that draws nothing at the width the font dictionary states, \
+         named outside the Adobe Glyph List so that no character is stated for them",
+        empty::listed(codes)
+    )
 }
 
 /// Whose font program a substitution embedded.
@@ -707,7 +730,7 @@ pub(super) fn embed_faces(
             if named_program(supplied, &requested).is_some() {
                 return Err(Because::NotBuiltYet(NO_DESCRIPTOR_FOR_A_SUPPLIED_PROGRAM));
             }
-            described::describe(document, used, spare, &mut substitutes)?;
+            described::describe(document, used, spare, &mut substitutes, target)?;
             continue;
         }
         // The *raw* entry rather than the resolved one: a program is embedded by writing a key
@@ -813,6 +836,8 @@ pub(super) fn embed_faces(
             described: restated.as_ref().map(|restatement| restatement.described),
             losses,
             fitting,
+            empty_glyphs: Vec::new(),
+            font: selected(used),
         });
         if !entries.is_empty() {
             gains(document, used, entries, spare, &mut substitutes)?;
@@ -942,13 +967,21 @@ fn face_widths(
     for text in used.shown.keys() {
         for code in font.decode(text) {
             let byte = single_byte(code).ok_or(Because::NotBuiltYet(NOT_A_SIMPLE_CODE))?;
+            // A code the file's own encoding sends to `.notdef` reaches it in any program, so no
+            // face resolves it; the empty glyph `doc/questions/A48` allows is written on the route
+            // that writes the descriptor (`empty`, `doc/adr/2458`).
+            let missing = if empty::reaches_notdef(font, code) {
+                Because::NotBuiltYet(empty::NOTDEF_BESIDE_A_DESCRIPTOR)
+            } else {
+                Because::NotBuiltYet(match face.authority() {
+                    FaceAuthority::Shipped => NO_SHIPPED_FACE_COVERS_IT,
+                    FaceAuthority::Operator => NO_SUPPLIED_FACE_COVERS_IT,
+                })
+            };
             let glyph = face
                 .glyph(byte)
                 .filter(|glyph| *glyph != pdf_font::NOTDEF_GLYPH)
-                .ok_or(Because::NotBuiltYet(match face.authority() {
-                    FaceAuthority::Shipped => NO_SHIPPED_FACE_COVERS_IT,
-                    FaceAuthority::Operator => NO_SUPPLIED_FACE_COVERS_IT,
-                }))?;
+                .ok_or(missing)?;
             let stated = font.advance(code);
             match widths.entry(glyph) {
                 Entry::Vacant(slot) => {
@@ -1216,6 +1249,15 @@ fn name_of(document: &Document, dict: &Dictionary, key: &str) -> Option<String> 
         .get_key(dict, key)
         .as_name()
         .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
+}
+
+/// A selected font as a content stream's lookup finds it: its object, or for a direct entry its
+/// dictionary as `Debug` prints it, which is how the ledger names one (`Ledger::select`).
+fn selected(used: &SelectedFont) -> Outcome {
+    used.id.map_or_else(
+        || Outcome::Direct(format!("{:?}", Object::Dictionary(used.dict.clone()))),
+        Outcome::Reference,
+    )
 }
 
 /// The `/BaseFont` a font dictionary names, for a report that has to say what was asked for.

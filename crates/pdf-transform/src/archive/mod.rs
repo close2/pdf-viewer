@@ -155,7 +155,7 @@ mod in_place;
 mod jpeg2000;
 mod languages;
 mod overprint;
-mod page_tree;
+pub(crate) mod page_tree;
 mod prepare;
 mod preserve;
 mod protection;
@@ -456,7 +456,7 @@ pub(crate) fn run(
     })?;
     let root = crate::optimize::catalog_of(document)?;
     crate::optimize::refuse_a_document_only_recovery_reads(document, root)?;
-    page_tree::refuse_a_page_tree_no_reader_can_walk(document, root)?;
+    page_tree::refuse_a_page_tree_node_with_no_children(document, root)?;
 
     // Stage 1: the validator is the reading. Nothing below re-reads ISO 19005.
     let input = pdf_archive::check(document, plan.target);
@@ -710,7 +710,7 @@ fn decide_every_failure(
             changed: 0,
         });
     }
-    schemas_met_by_the_replacement(&mut conversion.decided, &prepared);
+    met_by_the_replacement(&mut conversion.decided, &prepared);
     // What the appended pages carry is the report's to say and the packet's to record, and both
     // are read off the one composition rather than recomputed: `doc/adr/1014` section 5's *a page
     // was appended, carrying this, from there, placed so*.
@@ -733,29 +733,54 @@ fn decide_every_failure(
     (conversion, version, prepared)
 }
 
-/// Why section 6.6.2.3.2 is refused where the replacement that would meet it was decided nowhere.
+/// Why a metadata requirement is refused where the replacement that would meet it was decided
+/// nowhere.
 ///
 /// A requirement the caller departed from is not decided, so a replaced packet whose replacement
 /// no decided row asks for is one nothing in this conversion writes.
-const REPLACEMENT_NOT_DECIDED: &str = "the packet that uses these extension schemas is one ISO \
-     19005-2 section 6.6.2.1's replacement composes afresh, and no requirement of that section \
-     was decided for this conversion, so nothing here describes or replaces it";
+const REPLACEMENT_NOT_DECIDED: &str = "the packet this requirement failed in is one ISO 19005-2 \
+     section 6.6.2.1's replacement composes afresh, and no requirement of that section was \
+     decided for this conversion, so nothing here edits or replaces it";
 
-/// **ISO 19005-2 section 6.6.2.3.2, met at a stream by section 6.6.2.1's replacement**
-/// (`doc/adr/2442`).
+/// **A metadata requirement met at a stream by ISO 19005-2 section 6.6.2.1's replacement**
+/// (`doc/adr/2442`, `doc/adr/2455`).
 ///
 /// A packet this tree cannot read is replaced by one stating no property at all, and a packet
-/// stating no property uses no extension schema — so where every stream the requirement failed at
-/// is replaced, the replacement is what meets it, and the decision is the one the packet's own
-/// requirement took: the same rewrite, the same loss under the same authorisation or `preserve`,
-/// and nothing lost twice. The table's container would have described nothing. Where the packet
-/// requirements took different decisions, the one that stops the conversion is named, since that
-/// is the one the conversion stops for.
-fn schemas_met_by_the_replacement(decided: &mut [Decided], prepared: &Prepared) {
-    let Ok(described) = &prepared.described else {
-        return;
-    };
-    if described.replaced.is_empty() || !described.packets.is_empty() {
+/// stating no property uses no extension schema (section 6.6.2.3.2), states no amendment
+/// identifier (section 6.6.4) and no structure field (section 6.6.2.3.1) — so where every stream
+/// one of those requirements failed at is replaced and none edited, the replacement is what meets
+/// it, and the decision is the one the packet's own requirement took: the same rewrite, the same
+/// loss under the same authorisation or `preserve`, and nothing lost twice. The editor would have
+/// written into bytes nothing writes. Where the packet requirements took different decisions, the
+/// one that stops the conversion is named, since that is the one the conversion stops for.
+fn met_by_the_replacement(decided: &mut [Decided], prepared: &Prepared) {
+    let met: Vec<&str> = [
+        (
+            prepare::SCHEMAS_REQUIREMENT,
+            prepared
+                .described
+                .as_ref()
+                .is_ok_and(prepare::SchemasDescribed::only_replaced),
+        ),
+        (
+            prepare::AMENDMENT_REQUIREMENT,
+            prepared
+                .amended
+                .as_ref()
+                .is_ok_and(prepare::Amended::only_replaced),
+        ),
+        (
+            prepare::FIELDS_SITE,
+            prepared
+                .fields_described
+                .as_ref()
+                .is_ok_and(prepare::FieldsDescribed::only_replaced),
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(requirement, met)| met.then_some(requirement))
+    .collect();
+    if met.is_empty() {
         return;
     }
     let replacements: Vec<Decision> = decided
@@ -773,7 +798,7 @@ fn schemas_met_by_the_replacement(decided: &mut [Decided], prepared: &Prepared) 
         )));
     for row in decided
         .iter_mut()
-        .filter(|row| row.requirement == prepare::SCHEMAS_REQUIREMENT)
+        .filter(|row| met.contains(&row.requirement))
     {
         row.decision = replacement;
     }

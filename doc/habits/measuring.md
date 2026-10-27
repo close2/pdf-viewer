@@ -1823,3 +1823,13 @@ same audit found the AAC suite's two PNS streams OFF by the same RMS to three fi
 noise-substitution stream is not judged sample for sample, and two decoders agreeing on a miss is a sentence
 about the instrument. A suite's reference is taken from the line of its readme that names the expected
 output, and a stream whose tool is random by definition is judged by the measure its standard states.
+
+## 193. A memo that replaces a cheap walk is priced on the corpus, not only on the hostile case
+
+Round 1807 (ADR 2448) replaced §12.7.4.1's bounded `/Parent` walks with one memoised resolution per field, so that a chain
+4 096 links deep is drawn and a cycle is found without a set. The hostile case was the reason; the corpus was the cost. Over
+103 form documents and 782 fields (`examples/field_walk_cost`, three runs each in one `--clock --nice 0` hold, load 2.3),
+HEAD read 0.008/0.008/0.007 s and the first cut 0.010/0.010/0.009 s — 25 % slower on real one-to-four-link chains, where the
+memo's allocation outweighs the walk it saves — until a field stating none of the inherited entries shared its parent's
+resolution (0.009/0.008/0.008 s). A memo, cache or index justified by a pathological input is measured on the files that
+exist as well, before and after, and the slower one is not merged on the strength of the case it was built for.

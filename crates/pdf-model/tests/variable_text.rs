@@ -4114,57 +4114,18 @@ fn a_rich_text_fields_default_style_string_is_drawn() {
     );
 }
 
-/// §12.7.4.1's bound is reported rather than read as "this field states nothing".
+/// §12.7.4.1's range of inheritance is not limited: a value stated four thousand and ninety-six
+/// links above the widget, sixteen times the bound this crate once kept, is the field's and drawn.
 ///
 /// > An interactive PDF processor shall not limit the range of inheritance for field dictionaries
 ///
-/// The clause forbids the bound and principle 3's budget requires one, so the bound is a decided
-/// departure and what makes it honest is that reaching it is named: a widget whose `/Parent`
-/// chain runs past `appearance::MAX_FIELD_ANCESTRY` refuses, saying the chain is longer than
-/// this crate follows, instead of drawing the empty field a silent bound would produce. The
-/// number is 256 because 32 was refusing real documents (ADR 1198), so the fixture is built one
-/// link past it rather than written out.
+/// The control for the cycle below: the same construction with a top, so what the cycle's report
+/// measures is the cycle and not the depth (trap 8, ADR 2448).
 #[test]
-fn a_parent_chain_past_the_bound_is_named_rather_than_read_as_no_value() {
-    let mut extra = String::new();
-    // 8 is the field that states everything; 9 upwards are the links between it and the widget,
-    // one more than the bound so that the walk cannot reach object 8.
-    let _ = write!(
-        extra,
-        "8 0 obj\n<< /FT /Tx /T (deep) /V (Hi) /DA (/Helv 12 Tf 0 g) >>\nendobj\n"
-    );
-    let links = 257;
-    for object in 0..links {
-        let parent = 8 + object;
-        let _ = write!(
-            extra,
-            "{} 0 obj\n<< /Parent {parent} 0 R >>\nendobj\n",
-            parent + 1
-        );
-    }
-    let (reports, _) = draw(pdf_with_objects(
-        &format!(
-            "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /Parent {} 0 R >>",
-            8 + links
-        ),
-        &extra,
-    ));
-    assert_eq!(reports.len(), 1, "{reports:?}");
-    assert!(
-        reports[0].contains("/Parent chain"),
-        "the bound names itself: {reports:?}"
-    );
-}
-
-/// The control: one link inside the bound resolves, so the bound is what the test above measured.
-///
-/// Two fixtures differing in one `/Parent` link, which is the only way to tell a bound from a
-/// walk that never worked (trap 8).
-#[test]
-fn a_parent_chain_inside_the_bound_is_read_to_its_end() {
+fn a_parent_chain_deeper_than_any_bound_is_read_to_its_end() {
     let mut extra =
         String::from("8 0 obj\n<< /FT /Tx /T (deep) /V (Hi) /DA (/Helv 12 Tf 0 g) >>\nendobj\n");
-    let links = 254;
+    let links = 4096;
     for object in 0..links {
         let parent = 8 + object;
         let _ = write!(
@@ -4183,7 +4144,27 @@ fn a_parent_chain_inside_the_bound_is_read_to_its_end() {
     assert!(reports.is_empty(), "{reports:?}");
     assert!(
         !inked_columns(&raster).is_empty(),
-        "the value two hundred and fifty-five links up is still the field's"
+        "the value four thousand and ninety-six links up is still the field's"
+    );
+}
+
+/// A `/Parent` chain that returns to a field it has passed is named rather than followed: it is
+/// no hierarchy, so the widget refuses with a sentence saying so instead of drawing the empty field
+/// a walk that gave up in silence would produce.
+#[test]
+fn a_parent_chain_that_returns_to_a_field_it_passed_is_named_rather_than_followed() {
+    let extra = "8 0 obj\n<< /FT /Tx /T (loop) /V (Hi) /DA (/Helv 12 Tf 0 g) /Parent 10 0 R >>\n\
+                 endobj\n\
+                 9 0 obj\n<< /Parent 8 0 R >>\nendobj\n\
+                 10 0 obj\n<< /Parent 9 0 R >>\nendobj\n";
+    let (reports, _) = draw(pdf_with_objects(
+        "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /Parent 10 0 R >>",
+        extra,
+    ));
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    assert!(
+        reports[0].contains("/Parent chain returns to a field it has already passed"),
+        "the cycle names itself: {reports:?}"
     );
 }
 

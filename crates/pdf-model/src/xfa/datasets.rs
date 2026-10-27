@@ -16,6 +16,7 @@
 use std::fmt::Write as _;
 
 use super::canonical;
+use super::config::Config;
 use super::locale::{LocaleSet, Patterns};
 use super::picture::{self, Category};
 use super::template::{Binding, Class, Container, FormatTest, Template};
@@ -152,15 +153,25 @@ impl Datasets {
     ///
     /// `changes` are PDF field names — §12.7.4.2's qualified names, which an XFAF form makes SOM
     /// expressions (XFA 3.3 page 72) — with what the save writes to each `/V`; `locales` are the
-    /// form's, which a numeric, date or time field's value is canonicalised in (ADR 2414).
+    /// form's, which a numeric, date or time field's value is canonicalised in (ADR 2414);
+    /// `config` is the form's `config` packet, whose default bind pictures a field with none of
+    /// its own is written by, and whose extended mapping rules this program does not carry out
+    /// leave every field named (XFA 3.3 chapter 15; ADR 2450).
     #[must_use]
     pub fn keep(
         &self,
         template: &Template,
-        locales: &LocaleSet,
+        (locales, config): (&LocaleSet, &Config),
         changes: &[(String, Change)],
     ) -> Kept {
         let mut kept = Kept::default();
+        if let Some(reason) = config.unfollowed() {
+            kept.unkept = changes
+                .iter()
+                .map(|(name, _)| (name.clone(), reason.clone()))
+                .collect();
+            return kept;
+        }
         let (Some(data), Some(record)) = (self.data, self.record()) else {
             kept.unkept = changes
                 .iter()
@@ -186,7 +197,7 @@ impl Datasets {
         let mut any_kept = false;
         for (name, entered) in changes {
             match self.keep_one(
-                (template, locales),
+                (template, locales, config),
                 &mut nodes,
                 (data_node, record_node),
                 record,
@@ -205,7 +216,7 @@ impl Datasets {
 
     fn keep_one(
         &self,
-        (template, locales): (&Template, &LocaleSet),
+        (template, locales, config): (&Template, &LocaleSet, &Config),
         nodes: &mut Vec<Node>,
         (data_node, record_node): (usize, usize),
         record: usize,
@@ -218,8 +229,14 @@ impl Datasets {
         let container = template
             .get(target)
             .ok_or("its name points at no field of the XFA template")?;
-        let content = content(template, locales, target, container, entered)?;
         let binding = template.binding(target).map_err(str::to_owned)?;
+        let content = content(
+            template,
+            locales,
+            target,
+            &defaulted(config, container, &binding)?,
+            entered,
+        )?;
         let node = match binding {
             Binding::Nothing => return Ok(()),
             Binding::Direct(steps) => descend(nodes, record_node, &steps, true)?,
@@ -541,11 +558,16 @@ fn typed(
         match picture::format(validate, hint, &locale, locales, &canonical) {
             Ok(Some(_)) => {}
             Ok(None) => {
+                // Page 383: the form designer's message for the test where the form gives one.
+                let said = pictures
+                    .message("formatTest")
+                    .map(|said| format!(" — its form's message for it is {said:?}"))
+                    .unwrap_or_default();
                 return Err(format!(
                     "its value {canonical:?} fails its validate picture's format test (XFA 3.3 \
-                     page 382) at the level {level}, and page 162 updates the data only once the \
-                     test succeeds; a warning's override (page 385) is the person's, and this \
-                     save asks no one"
+                     page 382) at the level {level}{said}, and page 162 updates the data only \
+                     once the test succeeds; a warning's override (page 385) is the person's, \
+                     and this save asks no one"
                 ));
             }
             Err(reason) => {
@@ -639,8 +661,33 @@ fn canonicalized(
     }
 }
 
+/// `container` with the default bind picture XFA 3.3 page 527 gives it where its template states
+/// none: the `config` packet's `transform` naming the data element it binds, which a direct match
+/// and an explicit reference name by their last step and a global binding by its name. A container
+/// bound to nothing binds no data element for a `transform` to name (ADR 2450).
+fn defaulted(
+    config: &Config,
+    container: &Container,
+    binding: &Binding,
+) -> Result<Container, String> {
+    let mut container = container.clone();
+    if container.pictures.bind.is_none() {
+        let named = match binding {
+            Binding::Direct(steps) | Binding::Explicit { steps, .. } => {
+                steps.last().map(|(name, _)| name.as_str())
+            }
+            Binding::Global(_, name) => Some(name.as_str()),
+            Binding::Nothing => None,
+        };
+        if let Some(name) = named {
+            container.pictures.bind = config.bind_picture(name)?.map(str::to_owned);
+        }
+    }
+    Ok(container)
+}
+
 /// A check button's on (`0`) or off (`1`) value: the `items` element's, empty where it states none.
-fn item(container: &Container, which: usize) -> String {
+pub(super) fn item(container: &Container, which: usize) -> String {
     container
         .items
         .first()
@@ -652,6 +699,7 @@ fn item(container: &Container, which: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{Change, Datasets};
+    use crate::xfa::config::Config;
     use crate::xfa::locale::LocaleSet;
     use crate::xfa::template::Template;
     use crate::xfa::xml::parse;
@@ -685,7 +733,7 @@ mod tests {
         );
         let kept = d.keep(
             &t,
-            &LocaleSet::default(),
+            (&LocaleSet::default(), &Config::default()),
             &[
                 (
                     "order[0].customer[0].name[0]".to_owned(),
@@ -708,7 +756,7 @@ mod tests {
         let empty = datasets("<xfa:datasets><xfa:data><order/></xfa:data></xfa:datasets>");
         let kept = empty.keep(
             &t,
-            &LocaleSet::default(),
+            (&LocaleSet::default(), &Config::default()),
             &[(
                 "order.customer.name".to_owned(),
                 Change::Text("A".to_owned()),
@@ -733,7 +781,7 @@ mod tests {
         );
         let kept = d.keep(
             &t,
-            &LocaleSet::default(),
+            (&LocaleSet::default(), &Config::default()),
             &[
                 ("order.region".to_owned(), Change::Text("US".to_owned())),
                 ("order.code".to_owned(), Change::Text("c".to_owned())),
@@ -754,7 +802,7 @@ mod tests {
         let d = datasets("<datasets><data><order><total>1</total></order></data></datasets>");
         let kept = d.keep(
             &t,
-            &LocaleSet::default(),
+            (&LocaleSet::default(), &Config::default()),
             &[
                 ("order.total".to_owned(), Change::Text("1,5".to_owned())),
                 ("order.size".to_owned(), Change::On("M".to_owned())),

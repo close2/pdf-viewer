@@ -109,6 +109,7 @@ impl Viewer {
                     });
                 }
                 events.extend(xfa_unkept(id, written.xfa_unkept));
+                events.extend(xfa_invalid(id, written.xfa_invalid));
                 for (name, homes) in written.still_reached {
                     events.push(Event::Reported {
                         document: id,
@@ -643,6 +644,19 @@ fn xfa_unkept(id: DocumentId, unkept: Vec<(String, String)>) -> impl Iterator<It
              because {reason}, so the file states two values for it (ISO 32000-2 §K.2)"
             )],
         })
+}
+
+/// One report per message of the XFA form's null tests a save ran.
+///
+/// XFA 3.3 page 383 has the person shown each validation's message, and page 386's
+/// `validationMessaging` decides how they are grouped, which `pdf_model` has already done: each
+/// group is one report, on the channel ADR 1592 reports a `/K` refusal on (ADR 2450).
+fn xfa_invalid(id: DocumentId, invalid: Vec<Vec<String>>) -> impl Iterator<Item = Event> {
+    invalid.into_iter().map(move |notes| Event::Reported {
+        document: id,
+        page: None,
+        notes,
+    })
 }
 
 /// Which of §7.6.4.1's operations an [`crate::Edit`] is.

@@ -11,9 +11,10 @@ use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 use super::field_tree::{Omitted, field_table, widgets_by_field_name};
 use super::pages::NamedPageAppearances;
 use super::{
-    ChosenFile, Entered, Entry, FieldGlyph, FieldName, FieldValue, Imported, MAX_FIELD_DEPTH,
-    Property, ShownValue, ViewState, scripts,
+    ChosenFile, Entered, Entry, FieldGlyph, FieldName, FieldValue, Imported, Property, ShownValue,
+    ViewState, scripts,
 };
+use crate::inheritance::Inherited;
 
 impl ViewState {
     /// Imports one FDF file's field values into this view of the document (§12.7.8).
@@ -496,21 +497,16 @@ impl ViewState {
 /// The field a widget belongs to: the nearest dictionary of its `/Parent` chain, itself first, that
 /// states §12.7.4.2's `/T` — "\[a] field dictionary that does not have a partial field name ( T
 /// entry) of its own shall not be considered a field but simply a Widget annotation" — or the
-/// widget itself where none does, for `holder`'s bound.
+/// widget itself where none does, or where the chain returns to a field it has passed.
 pub(super) fn named_field(document: &Document, widget: ObjectId) -> ObjectId {
-    let mut id = widget;
-    for _ in 0..MAX_FIELD_DEPTH {
-        let object = document.get(id);
-        let Some(current) = object.as_dict() else {
-            return widget;
+    for (id, current) in crate::inheritance::ancestors_of(document, widget) {
+        // A parent written inside its child has no object to name it by.
+        let Some(id) = id else {
+            break;
         };
         if current.get("T").is_some() {
             return id;
         }
-        let Some(parent) = current.get("Parent").and_then(Object::as_reference) else {
-            return widget;
-        };
-        id = parent;
     }
     widget
 }
@@ -626,42 +622,21 @@ pub fn is_file_select(document: &Document, name: &str) -> bool {
     let Some(widget) = table.get(name).and_then(|widgets| widgets.first()) else {
         return false;
     };
-    let mut current = match document.get(*widget).as_dict() {
-        Some(dict) => dict.clone(),
-        None => return false,
-    };
-    for _ in 0..MAX_FIELD_DEPTH {
-        if let Some(flags) = document.get_key(&current, "Ff").as_integer() {
-            return flags & crate::appearance::FLAG_FILE_SELECT != 0;
-        }
-        let Some(parent) = document.get_key(&current, "Parent").as_dict().cloned() else {
-            return false;
-        };
-        current = parent;
-    }
-    false
+    document.get(*widget).as_dict().is_some_and(|dict| {
+        Inherited::of(document, dict)
+            .integer(document, "Ff")
+            .is_some_and(|flags| flags & crate::appearance::FLAG_FILE_SELECT != 0)
+    })
 }
 
 /// Whether a widget belongs to one of §12.7.5.2's two toggling buttons: Table 226's `/FT` `/Btn`,
 /// inherited, without Table 229 bit 17's `Pushbutton`, which "holds no value".
 pub(super) fn toggles(document: &Document, widget: &Dictionary) -> bool {
-    let mut current = widget.clone();
-    let (mut kind, mut flags) = (None, None);
-    for _ in 0..MAX_FIELD_DEPTH {
-        if kind.is_none() {
-            kind = document
-                .get_key(&current, "FT")
-                .as_name()
-                .map(|name| name.as_bytes() == b"Btn");
-        }
-        if flags.is_none() {
-            flags = document.get_key(&current, "Ff").as_integer();
-        }
-        let Some(parent) = document.get_key(&current, "Parent").as_dict().cloned() else {
-            break;
-        };
-        current = parent;
-    }
+    let inherited = Inherited::of(document, widget);
+    let kind = inherited
+        .name(document, "FT")
+        .map(|name| name.as_bytes() == b"Btn");
+    let flags = inherited.integer(document, "Ff");
     kind == Some(true) && flags.unwrap_or(0) & (1 << 16) == 0
 }
 
@@ -676,20 +651,11 @@ pub(super) fn state_name(value: &Object) -> Object {
 }
 
 fn is_read_only(document: &Document, widget: ObjectId) -> bool {
-    let mut current = match document.get(widget).as_dict() {
-        Some(dict) => dict.clone(),
-        None => return false,
-    };
-    for _ in 0..MAX_FIELD_DEPTH {
-        if let Some(flags) = document.get_key(&current, "Ff").as_integer() {
-            return flags & 1 != 0;
-        }
-        let Some(parent) = document.get_key(&current, "Parent").as_dict().cloned() else {
-            return false;
-        };
-        current = parent;
-    }
-    false
+    document.get(widget).as_dict().is_some_and(|dict| {
+        Inherited::of(document, dict)
+            .integer(document, "Ff")
+            .is_some_and(|flags| flags & 1 != 0)
+    })
 }
 
 /// §12.7.4.2's qualified name of the field a widget belongs to, or the widget's own object.
@@ -725,21 +691,15 @@ impl FieldName {
 /// and its `/Parent` where the widget is a kid with no `/T` — which is the same distinction
 /// `walk` makes one level up, from the other end.
 pub(crate) fn alternative_name(document: &Document, widget: ObjectId) -> Option<String> {
-    let mut node = widget;
-    let mut seen = BTreeSet::new();
-    for _ in 0..MAX_FIELD_DEPTH {
-        if !seen.insert(node) {
-            return None;
-        }
-        let resolved = document.get(node);
-        let dict = resolved.as_dict()?;
-        if matches!(document.get_key(dict, "T"), Object::String(_)) {
-            let Object::String(bytes) = document.get_key(dict, "TU") else {
+    for (id, dict) in crate::inheritance::ancestors_of(document, widget) {
+        // A parent written inside its child is no field §12.7.4.1 would have, which is indirect.
+        id?;
+        if matches!(document.get_key(&dict, "T"), Object::String(_)) {
+            let Object::String(bytes) = document.get_key(&dict, "TU") else {
                 return None;
             };
             return Some(pdf_syntax::text_string(&bytes));
         }
-        node = document.get_key(dict, "Parent").as_reference()?;
     }
     None
 }

@@ -386,6 +386,29 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Implemented(hexadecimal_string_holds_only_digits),
     },
     Requirement {
+        id: "file-structure/page-tree-node-kids-is-an-array",
+        asks: "Every page tree node shall state Kids, and its value shall be an array.",
+        // Neither part states this one either: section 5.1 binds it, through ISO 32000-2
+        // §7.7.3.2's Table 30 (and ISO 32000-1:2008's Table 29, in the same words for part 2),
+        // whose `/Kids` row is "( Required ) An array of indirect references to the immediate
+        // children of this node." Narrowed to the entry's presence and type, which is what a
+        // reader needs to reach a child at all; the form of each element is not judged here.
+        clauses: Clauses::both("5.1", "5.1"),
+        applies: Applies::Always,
+        check: Check::Implemented(page_tree_node_kids_is_an_array),
+    },
+    Requirement {
+        id: "file-structure/page-tree-node-count-is-an-integer",
+        asks: "Every page tree node shall state Count, and its value shall be an integer.",
+        // The same table's `/Count` row, "( Required ) The number of leaf nodes (page objects)
+        // that are descendants of this node within the page tree.", with `integer` in its type
+        // column; narrowed to presence and type, so a `/Count` that disagrees with the leaves is
+        // not judged here (ADR 2456).
+        clauses: Clauses::both("5.1", "5.1"),
+        applies: Applies::Always,
+        check: Check::Implemented(page_tree_node_count_is_an_integer),
+    },
+    Requirement {
         id: "file-structure/bound-names-are-valid-utf8",
         asks: "Font names, the colourant names of Separation and DeviceN colour spaces, and \
                structure type names shall be valid UTF-8 once their number-sign escapes are \
@@ -2178,6 +2201,102 @@ fn hexadecimal_string_holds_only_digits(exam: &Examination<'_>, findings: &mut F
     }
 }
 
+/// How deep [`each_page_tree_node`] descends, `pdf_model`'s own bound over the same tree.
+const MAX_PAGE_TREE_DEPTH: usize = 64;
+
+/// How many nodes [`each_page_tree_node`] visits before it stops, `pdf_model`'s own bound.
+const MAX_PAGE_TREE_NODES: usize = 1 << 20;
+
+/// Every page tree node the catalog's `/Pages` reaches, with the place a finding about it names.
+///
+/// ISO 32000-2 §7.7.3.2. A dictionary is a node where it states `/Kids` or declares `/Type
+/// /Pages`, `pdf_model::Pages`'s own reading; any other kid is a leaf and is not visited. A node
+/// written by reference is named by its object; one written directly inside an array names no
+/// object, because the object holding it is not the node (`doc/traps` 279). Each indirect node is
+/// visited once, so a tree that names one node from two parents costs one visit, and a kid naming
+/// a node above it is the cycle `pdf_model` steps over and is stepped over here too.
+fn each_page_tree_node(document: &Document, visit: &mut dyn FnMut(Where, &Dictionary)) {
+    let Ok(catalog) = document.catalog() else {
+        return;
+    };
+    let Some(root) = catalog.get("Pages") else {
+        return;
+    };
+    let mut seen = std::collections::BTreeSet::new();
+    let mut visited = 0_usize;
+    let mut stack: Vec<(Object, usize)> = vec![(root.clone(), 0)];
+    while let Some((entry, depth)) = stack.pop() {
+        if depth > MAX_PAGE_TREE_DEPTH || visited >= MAX_PAGE_TREE_NODES {
+            continue;
+        }
+        let (place, value) = match &entry {
+            Object::Reference(id) => {
+                if !seen.insert(*id) {
+                    continue;
+                }
+                (Where::object(*id), document.get(*id))
+            }
+            Object::Dictionary(_) => (
+                Where::file().named("a page tree node written inside its parent's Kids"),
+                entry.clone(),
+            ),
+            _ => continue,
+        };
+        let Some(node) = value.as_dict() else {
+            continue;
+        };
+        let declares_a_node = document
+            .get_key(node, "Type")
+            .as_name()
+            .is_some_and(|name| name.as_bytes() == b"Pages");
+        let kids = document.get_key(node, "Kids");
+        if matches!(kids, Object::Null) && !declares_a_node {
+            continue;
+        }
+        visited = visited.saturating_add(1);
+        visit(place, node);
+        if let Some(kids) = kids.as_array() {
+            // Pushed in reverse so that the stack visits them in the order the array states.
+            for kid in kids.iter().rev() {
+                stack.push((kid.clone(), depth.saturating_add(1)));
+            }
+        }
+    }
+}
+
+/// Section 5.1, at ISO 32000-2 §7.7.3.2's Table 30 `/Kids` row.
+///
+/// A node with no `/Kids` array has stated no child, so the pages a reader finds without one are
+/// not the producer's tree; the converter refuses such a document before it writes anything (ADR
+/// 2444), and this row is what the validator says about it.
+fn page_tree_node_kids_is_an_array(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    each_page_tree_node(document, &mut |place, node| {
+        let what = match (node.get("Kids"), document.get_key(node, "Kids")) {
+            (_, Object::Array(_)) => return,
+            (None, _) => "a page tree node states no Kids",
+            (Some(_), _) => "a page tree node's Kids is not an array",
+        };
+        findings.record(place, what);
+    });
+}
+
+/// Section 5.1, at ISO 32000-2 §7.7.3.2's Table 30 `/Count` row.
+///
+/// A `/Count` resolving to an integer meets it, an indirect one included: the table states the
+/// type, not the form.
+fn page_tree_node_count_is_an_integer(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    each_page_tree_node(document, &mut |place, node| {
+        let what = match (node.get("Count"), document.get_key(node, "Count")) {
+            (_, Object::Integer(_)) => return,
+            (None, _) => "a page tree node states no Count",
+            (Some(_), _) => "a page tree node's Count is not an integer",
+        };
+        findings.record(place, what);
+    });
+}
+
 /// How many bytes are read at a cross-reference section's `xref` keyword.
 ///
 /// Enough for the keyword, whatever stands between it and the subsection header, and the header
@@ -2532,7 +2651,8 @@ mod tests {
     use super::{
         LARGEST_INTEGER, LONGEST_NAME, LONGEST_STRING, SMALLEST_INTEGER,
         cross_reference_keyword_line_endings, for_each_value, hexadecimal_string_digits,
-        hexadecimal_string_holds_only_digits, shortened, stream_keyword_line_endings,
+        hexadecimal_string_holds_only_digits, page_tree_node_count_is_an_integer,
+        page_tree_node_kids_is_an_array, shortened, stream_keyword_line_endings,
     };
 
     /// Builds a dictionary from pairs, for the small hand-made objects the tests walk.
@@ -2776,6 +2896,76 @@ mod tests {
             &show("<41425>"),
         ]);
         assert!(!judged(&odd, hexadecimal_string_digits).met());
+    }
+
+    /// ISO 32000-2 §7.7.3.2's Table 30, at section 5.1: `/Kids` a required array and `/Count` a
+    /// required integer at every node the catalog's `/Pages` reaches; a kid stating neither
+    /// `/Kids` nor `/Type /Pages` is a leaf and is held to neither.
+    #[test]
+    fn a_page_tree_node_is_held_to_table_30s_two_entries() {
+        let catalog = "<< /Type /Catalog /Pages 2 0 R >>";
+        let page = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>";
+        let sound = document_of(&[
+            catalog,
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Pages /Parent 2 0 R /Kids [4 0 R 2 0 R] /Count 5 0 R >>",
+            page,
+            "1",
+        ]);
+        assert!(judged(&sound, page_tree_node_kids_is_an_array).met());
+        assert!(
+            judged(&sound, page_tree_node_count_is_an_integer).met(),
+            "an indirect integer is an integer, and the kid naming the root is a cycle stepped over"
+        );
+
+        // `poppler-91414-0-53.pdf`'s shape: the root's `/Count` names a stream.
+        let streamed = document_of(&[
+            catalog,
+            "<< /Type /Pages /Kids [4 0 R] /Count 3 0 R >>",
+            "<< /Length 1 >>\nstream\n2\nendstream",
+            page,
+        ]);
+        let found = judged(&streamed, page_tree_node_count_is_an_integer);
+        assert_eq!(found.kept().len(), 1);
+        assert_eq!(
+            found.kept()[0].place.object.map(|id| id.number),
+            Some(2),
+            "the node is named, so the converter can restate it there"
+        );
+        assert!(judged(&streamed, page_tree_node_kids_is_an_array).met());
+
+        // `T02-02_008`'s shape, one level down: a nested node with no `/Count`.
+        let nested = document_of(&[
+            catalog,
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Pages /Parent 2 0 R /Kids [4 0 R] >>",
+            page,
+        ]);
+        let found = judged(&nested, page_tree_node_count_is_an_integer);
+        assert_eq!(found.kept().len(), 1);
+        assert_eq!(found.kept()[0].place.object.map(|id| id.number), Some(3));
+        assert_eq!(found.kept()[0].what, "a page tree node states no Count");
+
+        // `poppler-937-0-fuzzed.pdf`'s shape: a declared node whose `/Kids` is a bare reference.
+        let bare = document_of(&[catalog, "<< /Type /Pages /Kids 3 0 R /Count 1 >>", page]);
+        let found = judged(&bare, page_tree_node_kids_is_an_array);
+        assert_eq!(found.kept().len(), 1);
+        assert_eq!(
+            found.kept()[0].what,
+            "a page tree node's Kids is not an array"
+        );
+        assert!(judged(&bare, page_tree_node_count_is_an_integer).met());
+
+        let childless = document_of(&[catalog, "<< /Type /Pages /Count 1 >>"]);
+        assert!(!judged(&childless, page_tree_node_kids_is_an_array).met());
+
+        let untyped_leaf = document_of(&[
+            catalog,
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+        ]);
+        assert!(judged(&untyped_leaf, page_tree_node_kids_is_an_array).met());
+        assert!(judged(&untyped_leaf, page_tree_node_count_is_an_integer).met());
     }
 
     #[test]

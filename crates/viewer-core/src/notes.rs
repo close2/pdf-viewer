@@ -292,7 +292,10 @@ pub(crate) fn what_a_print_does_not_do(document: &Document) -> Vec<String> {
 /// §K.2's two forms, and Table 29's `/NeedsRendering` stated `true` — and
 /// [`pdf_model::xfa::stated`] reads them without decoding a packet (RFC 0009 §4.4, ADR 1932).
 /// A save keeps a static form's data consistent with what was filled, by §K.2's writer rule, and
-/// names each field it cannot keep where it saves (ADRs 2396, 2414).
+/// names each field it cannot keep where it saves (ADRs 2396, 2414); it writes the data through
+/// the form's own pictures and runs its format tests and, where the form asks for its validations
+/// before a save, its null tests (ADRs 2434, 2450), so what is not carried out is its
+/// calculations, its scripts and its events.
 fn xfa_form(document: &Document, notes: &mut Vec<String>) {
     let Some(stated) = pdf_model::xfa::stated(document) else {
         return;
@@ -303,8 +306,10 @@ fn xfa_form(document: &Document, notes: &mut Vec<String>) {
         (true, false) => "this document carries an XFA form (Annex K); the form shown and filled \
                           here is its AcroForm, which §K.2 requires to be consistent with the XFA \
                           resource, and saving it keeps the form's XFA data consistent with what \
-                          was filled, naming any field it cannot — what only the XFA resource states, such as its own \
-                          calculations, validations and formatting, is not carried out"
+                          was filled, in the form's own data formats, naming any field it \
+                          cannot and any field the form's validations find left empty — what \
+                          only the XFA resource states beyond that, such as its own calculations \
+                          and scripts, is not carried out"
             .to_owned(),
         (true, true) => format!(
             "this document is an XFA form that asks to be regenerated when it is opened \

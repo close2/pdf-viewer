@@ -30,25 +30,14 @@ pub enum Site {
     NotRun(String),
 }
 
-/// How far up a `/Parent` chain the walk looks, the field tree's own bound.
-const MAX_ANCESTRY: usize = crate::appearance::MAX_FIELD_ANCESTRY;
-
 /// The script a field states for `trigger`, read from a widget and its ancestors.
+///
+/// The chain is resolved once per field and followed to its top, or to where it returns to a
+/// field it has passed (ADR 2448).
 pub fn of_widget(document: &Document, widget: &Dictionary, trigger: Trigger) -> Site {
-    let mut current = widget.clone();
-    for _ in 0..=MAX_ANCESTRY {
-        let additional = document.get_key(&current, "AA");
-        if let Some(additional) = additional.as_dict()
-            && let Some(entry) = additional.get(trigger.key())
-        {
-            return of_action(document, entry, trigger);
-        }
-        let Some(parent) = document.get_key(&current, "Parent").as_dict().cloned() else {
-            return Site::Absent;
-        };
-        current = parent;
-    }
-    Site::Absent
+    crate::inheritance::Inherited::of(document, widget)
+        .action(document, trigger.key())
+        .map_or(Site::Absent, |entry| of_action(document, &entry, trigger))
 }
 
 /// The script a field dictionary states for `trigger` on that dictionary alone.

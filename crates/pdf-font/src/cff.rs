@@ -470,6 +470,8 @@ struct Moved {
     fd_array_at: Option<i64>,
     /// Where the `CharStrings` INDEX now is, where the rebuild wrote a fresh one.
     charstrings_at: Option<i64>,
+    /// Where the charset now is, where the rebuild wrote a fresh one.
+    charset_at: Option<i64>,
 }
 
 impl Moved {
@@ -479,6 +481,7 @@ impl Moved {
             delta,
             fd_array_at: None,
             charstrings_at: None,
+            charset_at: None,
         }
     }
 
@@ -491,6 +494,12 @@ impl Moved {
     /// The same, with a fresh `CharStrings` INDEX at `at`.
     const fn charstrings_to(mut self, at: i64) -> Self {
         self.charstrings_at = Some(at);
+        self
+    }
+
+    /// The same, with a fresh charset at `at`.
+    const fn charset_to(mut self, at: i64) -> Self {
+        self.charset_at = Some(at);
         self
     }
 }
@@ -610,6 +619,52 @@ impl Layout {
         out
     }
 
+    /// The program with a String INDEX, a `CharStrings` INDEX and a charset of its own.
+    ///
+    /// [`Self::with_charstrings`]'s move with one more table in it: the String INDEX sits between
+    /// the Top DICT INDEX and everything the Top DICT's offsets locate (Adobe Technical Note #5176,
+    /// section 2), so both are re-encoded, everything after the String INDEX is copied verbatim
+    /// and shifted by the two differences together, and the fresh `CharStrings` INDEX and charset
+    /// are appended past the end. A name-keyed program's only other absolute offsets — its
+    /// `Encoding` and its `Private` DICT — move with the copied bytes, and a Private DICT's
+    /// `Subrs` is relative to the Private DICT itself.
+    fn with_glyph_tables(
+        &self,
+        data: &[u8],
+        strings: &[Vec<u8>],
+        charstrings: &[Vec<u8>],
+        charset: &[u8],
+    ) -> Option<Vec<u8>> {
+        let old_strings = index_extent(data, self.top_index.end)?;
+        let placeholder = self.top_dict(Moved::by(0).charstrings_to(0).charset_to(0));
+        let new_index_len = 3usize
+            .saturating_add(2 * 4)
+            .saturating_add(placeholder.len());
+        let mut strings_index = Vec::new();
+        push_index(&mut strings_index, strings);
+        let grown = i64::try_from(new_index_len.saturating_add(strings_index.len())).ok()?;
+        let old = i64::try_from(old_strings.end.saturating_sub(self.top_index.start)).ok()?;
+        let delta = grown.saturating_sub(old);
+        let charstrings_at = i64::try_from(data.len()).ok()?.saturating_add(delta);
+        let mut charstrings_index = Vec::new();
+        push_index(&mut charstrings_index, charstrings);
+        let charset_at =
+            charstrings_at.saturating_add(i64::try_from(charstrings_index.len()).ok()?);
+        let top_dict = self.top_dict(
+            Moved::by(delta)
+                .charstrings_to(charstrings_at)
+                .charset_to(charset_at),
+        );
+        let mut out = Vec::with_capacity(data.len().saturating_mul(2));
+        out.extend_from_slice(data.get(..self.top_index.start)?);
+        push_index(&mut out, std::slice::from_ref(&top_dict));
+        out.extend_from_slice(&strings_index);
+        out.extend_from_slice(data.get(old_strings.end..)?);
+        out.extend_from_slice(&charstrings_index);
+        out.extend_from_slice(charset);
+        Some(out)
+    }
+
     /// The Top DICT's bytes, every offset it states restated under `moved`.
     fn top_dict(&self, moved: Moved) -> Vec<u8> {
         let delta = moved.delta;
@@ -619,6 +674,9 @@ impl Layout {
                 // A charset or Encoding operand below the first custom offset names a
                 // predefined table (ISOAdobe/Expert/ExpertSubset, standard/expert) and is
                 // not an offset.
+                OP_CHARSET if moved.charset_at.is_some() => {
+                    out.extend_from_slice(&int5(moved.charset_at.unwrap_or(0)));
+                }
                 OP_CHARSET | OP_ENCODING => {
                     let at = dict_int(operands).unwrap_or(0);
                     let custom = if *op == OP_CHARSET { at > 2 } else { at > 1 };
@@ -1458,6 +1516,130 @@ pub fn with_advances(data: &[u8], advances: &BTreeMap<u16, i64>) -> Result<Vec<u
     Ok(layout.with_charstrings(data, &charstrings))
 }
 
+/// One glyph [`with_empty_glyphs`] added, by index and name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AddedGlyph {
+    /// Its index in the rebuilt program's `CharStrings` INDEX.
+    pub glyph: u16,
+    /// The name the rebuilt program's charset gives it.
+    pub name: String,
+}
+
+/// A name-keyed program with one empty glyph appended per advance, each under a fresh name.
+///
+/// **What this is for is ISO 19005-2 section 6.2.11.8 and ISO 19005-4 section 6.2.10.9 under
+/// `doc/questions/A48`'s permission**: a code a substituted font's encoding sends to `.notdef`
+/// is given a real glyph that draws nothing instead, so that no text-showing operator references
+/// `.notdef` and the page shows what it showed. The glyph is a Type 2 charstring of one width
+/// operand and `endchar` (Adobe Technical Note #5177, sections 3.1 and 4.1), so it has no
+/// outline at all, and its advance is the one asked for — the font dictionary's own width for
+/// the code, which section 6.2.11.5 holds the program to.
+///
+/// **The names are `notdef`, `notdef.1`, `notdef.2`, … , the first the program does not already
+/// hold.** None is in the Adobe Glyph List, so a code naming one is given no character by
+/// ISO 32000-2 §9.10.2's glyph-name method: the absence the page had is kept rather than filled
+/// in, which is the condition A48 sets. Every glyph the program held keeps its index, its name
+/// and its charstring byte for byte.
+///
+/// # Errors
+///
+/// [`CffError::Malformed`] where the program does not open, is CID-keyed (which names no glyph),
+/// or its INDEX structures do not read; [`CffError::NoCharset`] where it states no charset; and
+/// [`CffError::AdvanceNotRestatable`] where an advance does not fit a charstring's width operand.
+pub fn with_empty_glyphs(
+    data: &[u8],
+    advances: &[i64],
+) -> Result<(Vec<u8>, Vec<AddedGlyph>), CffError> {
+    let malformed = |detail: &str| CffError::Malformed {
+        detail: detail.to_owned(),
+    };
+    let font = open(data)?;
+    if font.is_cid() {
+        return Err(malformed(
+            "the program is CID-keyed, and a CID-keyed program names no glyph",
+        ));
+    }
+    let layout =
+        Layout::read(data).ok_or_else(|| malformed("the Top DICT INDEX could not be located"))?;
+    let charstrings_at = layout
+        .entries
+        .iter()
+        .find(|(_, op)| *op == OP_CHARSTRINGS)
+        .and_then(|(operands, _)| dict_int(operands))
+        .and_then(|at| usize::try_from(at).ok())
+        .ok_or_else(|| malformed("the Top DICT states no CharStrings offset"))?;
+    let mut charstrings: Vec<Vec<u8>> = index_items(data, charstrings_at)
+        .ok_or_else(|| malformed("the CharStrings INDEX could not be read"))?
+        .into_iter()
+        .map(<[u8]>::to_vec)
+        .collect();
+    let mut strings: Vec<Vec<u8>> = index_items(data, layout.top_index.end)
+        .ok_or_else(|| malformed("the String INDEX could not be read"))?
+        .into_iter()
+        .map(<[u8]>::to_vec)
+        .collect();
+    let charset = font.charset().ok_or(CffError::NoCharset)?;
+    // Charset format 0 (Technical Note #5176, section 13): a format byte, then one SID for every
+    // glyph after `.notdef`, which has none.
+    let mut table = vec![0u8];
+    for (glyph, sid) in charset.iter() {
+        if glyph.to_u32() != 0 {
+            table.extend_from_slice(&sid.to_u16().to_be_bytes());
+        }
+    }
+    let nominal = nominal_widths(data, &layout, false)
+        .first()
+        .copied()
+        .unwrap_or(0);
+    let no_subroutines = Subroutines {
+        global: &[],
+        local: &[],
+    };
+    let mut added = Vec::with_capacity(advances.len());
+    let mut suffix = 0usize;
+    for advance in advances {
+        // The first of `notdef`, `notdef.1`, … that neither the program nor this call has named:
+        // no standard string is spelt either way, so the String INDEX is the whole of the check.
+        let name = loop {
+            let candidate = if suffix == 0 {
+                "notdef".to_owned()
+            } else {
+                format!("notdef.{suffix}")
+            };
+            suffix = suffix.saturating_add(1);
+            if !strings
+                .iter()
+                .any(|held| held.as_slice() == candidate.as_bytes())
+            {
+                break candidate;
+            }
+        };
+        let glyph = u16::try_from(charstrings.len()).map_err(|_| {
+            malformed("the program already holds as many glyphs as an INDEX counts")
+        })?;
+        let sid = u16::try_from(STANDARD_STRINGS.saturating_add(strings.len()))
+            .map_err(|_| malformed("the String INDEX holds as many strings as a SID counts"))?;
+        let charstring = charstring_with_advance(
+            &[stack_clearing::ENDCHAR],
+            *advance,
+            nominal,
+            &no_subroutines,
+        )
+        .ok_or(CffError::AdvanceNotRestatable {
+            glyph,
+            detail: "the advance does not fit a charstring's width operand".to_owned(),
+        })?;
+        charstrings.push(charstring);
+        strings.push(name.as_bytes().to_vec());
+        table.extend_from_slice(&sid.to_be_bytes());
+        added.push(AddedGlyph { glyph, name });
+    }
+    let rebuilt = layout
+        .with_glyph_tables(data, &strings, &charstrings, &table)
+        .ok_or_else(|| malformed("the String INDEX could not be located"))?;
+    Ok((rebuilt, added))
+}
+
 // ---------------------------------------------------------------------------------------------
 // The pieces a subsetter rebuilds a program from.
 // ---------------------------------------------------------------------------------------------
@@ -1905,5 +2087,107 @@ mod font_dict_repair {
             .expect("repaired");
         assert_eq!((harmless.glyphs, harmless.lost.len()), (2, 0));
         assert_eq!(segments(&harmless.data, 1), Ok(4));
+    }
+}
+
+#[cfg(test)]
+mod empty_glyphs {
+    use super::*;
+
+    /// Every point a pen is handed, in order, which is what "the outline is untouched" means.
+    #[derive(Default, PartialEq, Debug)]
+    struct Points(Vec<(u8, i64, i64)>);
+    impl Points {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a test's comparison key: coordinates scaled and rounded to integers"
+        )]
+        fn push(&mut self, kind: u8, x: f32, y: f32) {
+            self.0
+                .push((kind, (x * 64.0).round() as i64, (y * 64.0).round() as i64));
+        }
+    }
+    impl OutlinePen for Points {
+        fn move_to(&mut self, x: f32, y: f32) {
+            self.push(0, x, y);
+        }
+        fn line_to(&mut self, x: f32, y: f32) {
+            self.push(1, x, y);
+        }
+        fn quad_to(&mut self, cx: f32, cy: f32, x: f32, y: f32) {
+            self.push(2, cx, cy);
+            self.push(2, x, y);
+        }
+        fn curve_to(&mut self, ax: f32, ay: f32, bx: f32, by: f32, x: f32, y: f32) {
+            self.push(3, ax, ay);
+            self.push(3, bx, by);
+            self.push(3, x, y);
+        }
+        fn close(&mut self) {
+            self.push(4, 0.0, 0.0);
+        }
+    }
+
+    /// The glyph names a program's charset gives, by glyph index.
+    fn names(data: &[u8]) -> Vec<String> {
+        let font = open(data).expect("opens");
+        font.charset()
+            .expect("a charset")
+            .iter()
+            .map(|(_, sid)| {
+                String::from_utf8_lossy(font.string(sid).expect("a string")).into_owned()
+            })
+            .collect()
+    }
+
+    /// Each compiled-in name-keyed face gains its empty glyphs, and keeps every glyph it had.
+    #[test]
+    fn an_empty_glyph_is_appended_and_nothing_else_moves() {
+        let faces: [&[u8]; 4] = [
+            include_bytes!("../../../data/standard-fonts/FoxitSerif.pfb"),
+            include_bytes!("../../../data/standard-fonts/FoxitFixedBold.pfb"),
+            include_bytes!("../../../data/standard-fonts/FoxitSymbol.pfb"),
+            include_bytes!("../../../data/standard-fonts/FoxitDingbats.pfb"),
+        ];
+        for face in faces {
+            let (rebuilt, added) = with_empty_glyphs(face, &[250, 0, 778]).expect("rebuilt");
+            let before = glyph_count(face).expect("counts");
+            assert_eq!(glyph_count(&rebuilt), Ok(before + 3));
+            let held = u16::try_from(before).expect("a glyph count");
+            assert_eq!(
+                added,
+                ["notdef", "notdef.1", "notdef.2"]
+                    .iter()
+                    .zip(held..)
+                    .map(|(name, glyph)| AddedGlyph {
+                        glyph,
+                        name: (*name).to_owned()
+                    })
+                    .collect::<Vec<_>>()
+            );
+            let (old, new) = (names(face), names(&rebuilt));
+            assert_eq!(new.get(..old.len()), Some(old.as_slice()));
+            assert_eq!(new.get(old.len()..).map(<[String]>::len), Some(3));
+            let glyphs: Vec<u16> = added.iter().map(|added| added.glyph).collect();
+            let stated = advances(&rebuilt, &glyphs).expect("advances");
+            let wanted = vec![Some(250.0), Some(0.0), Some(778.0)];
+            assert_eq!(stated, wanted);
+            for glyph in glyphs {
+                let mut points = Points::default();
+                draw(&rebuilt, glyph, &mut points).expect("draws");
+                assert!(points.0.is_empty(), "an added glyph draws nothing");
+            }
+            let every: Vec<u16> = (0..held).collect();
+            assert_eq!(
+                advances(&rebuilt, &every).expect("advances"),
+                advances(face, &every).expect("advances")
+            );
+            for glyph in every {
+                let (mut was, mut is) = (Points::default(), Points::default());
+                draw(face, glyph, &mut was).expect("draws");
+                draw(&rebuilt, glyph, &mut is).expect("draws");
+                assert_eq!(was, is, "glyph {glyph}'s outline");
+            }
+        }
     }
 }

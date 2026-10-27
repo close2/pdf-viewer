@@ -13,6 +13,7 @@
 //! than a cache read (ADR 0260). [`DECODED_BUDGET`] and [`Document::decoded_streams`] are the
 //! shape, ADR 0317 the argument.
 
+use std::any::{Any, TypeId};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Arc, OnceLock, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::thread::ThreadId;
@@ -184,6 +185,9 @@ pub struct Document {
     encryption: Option<Encryption>,
     /// The object number holding the encryption dictionary, whose strings §7.6.2 exempts.
     encrypt_object: Option<u32>,
+    /// What a crate above this one derived from these bytes and keeps for the document's life,
+    /// one memo per type. See [`Document::derived`].
+    derived: RwLock<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
 }
 
 impl std::fmt::Debug for Document {
@@ -337,7 +341,37 @@ impl Document {
             recovered_compressed: CompressedRecovery::default(),
             encryption: None,
             encrypt_object: None,
+            derived: RwLock::new(HashMap::new()),
         }
+    }
+
+    /// The memo of type `T` that a crate above this one keeps beside this document, made empty
+    /// the first time it is asked for.
+    ///
+    /// **Why the syntax layer holds a memo it cannot read**: a fact a higher layer derives from
+    /// the bytes alone — `pdf-model`'s §12.7.4.1 field inheritance, resolved once per field
+    /// rather than once per widget — is a property of this document and lives as long as it,
+    /// and this is the one value every such caller already holds. Keyed by the memo's own type,
+    /// so two crates' memos cannot collide and this crate names none of them. The memo is
+    /// responsible for staying a function of the bytes: [`Document`] is immutable (`CLAUDE.md`,
+    /// "`pdf_syntax::Document` stays immutable"), and a memo that recorded a viewer's state would
+    /// make it silently mutable. ADR 2448.
+    #[must_use]
+    pub fn derived<T: Any + Send + Sync + Default>(&self) -> Arc<T> {
+        if let Some(found) = read(&self.derived).get(&TypeId::of::<T>())
+            && let Ok(typed) = Arc::clone(found).downcast::<T>()
+        {
+            return typed;
+        }
+        let mut memos = write(&self.derived);
+        let entry = memos
+            .entry(TypeId::of::<T>())
+            .or_insert_with(|| Arc::new(T::default()));
+        // The entry is keyed by `T`'s own `TypeId`, so the downcast cannot fail; were it ever to,
+        // a fresh memo is a correct one that has merely forgotten what it had derived.
+        Arc::clone(entry)
+            .downcast::<T>()
+            .unwrap_or_else(|_| Arc::new(T::default()))
     }
 
     /// The same bytes read through an earlier revision's cross-reference table.

@@ -249,7 +249,7 @@ pub(crate) fn run(
     })?;
 
     let root = catalog_of(document)?;
-    refuse_a_document_only_recovery_reads(document, root)?;
+    refuse_a_source_a_copy_would_carry_broken(document, root)?;
 
     let mut assembly = Assembly::new(vec![document]);
     let mut images = plan
@@ -489,6 +489,22 @@ pub(crate) fn catalog_of(document: &Document) -> Result<ObjectId, Refusal> {
                     .to_owned(),
             )
         })
+}
+
+/// What a verb carrying the producer's objects as they stand refuses before it writes: a
+/// structure only §C.4's recovery reads, and a page tree §7.7.3.2's Table 30 makes unwalkable or
+/// uncountable, which this verb's closure copy would carry into a file that does not open
+/// (`doc/adr/2457`). `redact` asks the same.
+///
+/// # Errors
+///
+/// [`Refusal::Reconstructed`], from either refusal, naming the clause and the object.
+pub(crate) fn refuse_a_source_a_copy_would_carry_broken(
+    document: &Document,
+    root: ObjectId,
+) -> Result<(), Refusal> {
+    refuse_a_document_only_recovery_reads(document, root)?;
+    crate::archive::page_tree::refuse_a_page_tree_no_reader_can_walk(document, root)
 }
 
 /// Refuses a document whose structure this program reaches only by §C.4's recovery.

@@ -49,6 +49,7 @@ pub use pdf_colour::function;
 pub use pdf_colour::icc;
 mod icon;
 pub mod image;
+mod inheritance;
 pub mod inline_image;
 mod integer_entry;
 pub mod jpeg2000;

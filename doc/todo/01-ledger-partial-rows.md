@@ -35,7 +35,9 @@ reading in one line per row, and the note is where it is argued. The membership 
 - **§12.2** — owed by CI's first green run of the `window` job's Table 147 step: the WinUI
   window's native full screen and its exit's `/NonFullScreenPageMode`, and `/FitWindow` and
   `/CenterWindow` answered through `quorra_window_place`, read back under the window's `--probe`
-  word (ADR 2436); the row moves to `implemented` at the merge that reads that run. The dialogues
+  word (ADR 2436). Its first run was red on the placed page: the window answered a placement before
+  its page area had taken the resize, which it now waits for (ADR 2446). The row moves to
+  `implemented` at the merge that reads a green run. The dialogues
   the library holds while presenting are the library's, proved by `held_tests.rs` (ADRs 2308,
   2309); `partial` rather than `departed`, because nothing decided against them (ADR 2301). Every
   window that resizes and moves itself asks one placement decision; Qt under Wayland and GTK say

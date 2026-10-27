@@ -660,11 +660,11 @@ fn chosen(
             continue;
         };
         let field = Field::read(document, dict, view.annotation(*widget).value);
-        if field.too_deep {
+        if field.cyclic {
             owed.push(format!(
-                "field {name}: its /Parent chain is deeper than this reader walks, so \
-                 §12.7.4.1's inheritance could not be resolved and neither its flags nor its \
-                 value are known"
+                "field {name}: its /Parent chain returns to a field it has already passed, so \
+                 it is no hierarchy, §12.7.4.1's inheritance cannot be resolved and neither its \
+                 flags nor its value are known"
             ));
             continue;
         }
@@ -2226,14 +2226,12 @@ struct Placed {
 /// field data from the document", from the nearest dictionary up the `/Parent` chain that states
 /// it.
 fn mapping_name(document: &Document, widget: &Dictionary) -> Option<String> {
-    let mut current = widget.clone();
-    for _ in 0..crate::appearance::MAX_FIELD_ANCESTRY {
-        if let Object::String(bytes) = document.get_key(&current, "TM") {
-            return Some(pdf_syntax::text_string(&bytes));
+    crate::inheritance::ancestors(document, widget.clone()).find_map(|(_, dict)| {
+        match document.get_key(&dict, "TM") {
+            Object::String(bytes) => Some(pdf_syntax::text_string(&bytes)),
+            _ => None,
         }
-        current = document.get_key(&current, "Parent").as_dict()?.clone();
-    }
-    None
+    })
 }
 
 /// The URL with the query appended, for an HTTP GET.

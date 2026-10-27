@@ -725,3 +725,10 @@ and its first plants named the font in resources and showed nothing with it: ISO
 bind fonts that are rendered, so the requirement never failed and the plant tested nothing. A plant for a font
 remedy carries a text-showing operator (`Tj`, `TJ`, `'` or `"`) in the stream that names the font, and the
 validator's finding on the unremedied plant is read before the remedy is believed.
+
+## An export's patch carries context; the shared tree's hunks stay `-U0`
+
+Round 1813 (ADR 2461) handed `tools/batch.sh export --patch` the `-U0` diff trap 193 asks for in the shared worktree, and the
+export refused it twice: the export applies with plain `git apply`, which rejects a hunk without context. The patch for an
+export is taken with context (`diff -u`, or `git diff` with its default three lines) from a copy of HEAD carrying only the
+round's own edits; the `-U0` form is for the shared tree, where a neighbour's lines sit beside yours.

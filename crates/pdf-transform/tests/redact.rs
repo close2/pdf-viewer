@@ -5963,3 +5963,39 @@ fn a_form_that_is_also_a_soft_mask_s_group_is_copied_for_the_mask() {
     );
     held_outside_and_blank_inside(&bytes, &out, region, &[]);
 }
+
+/// ISO 32000-2 §7.7.3.2's Table 30: a node whose `/Kids` is no array, `poppler-937-0-fuzzed.pdf`'s
+/// shape, and one whose `/Count` names a stream, `poppler-91414-0-53.pdf`'s, are each refused by
+/// name, because this verb carries the page tree as it stands (ADR 2457).
+#[test]
+fn a_page_tree_node_no_reader_can_walk_or_count_is_refused_by_name() {
+    let page = "<< /Type /Page /Parent 2 0 R /MediaBox [ 0 0 200 200 ] >>".to_owned();
+    for (node, entry) in [
+        ("<< /Type /Pages /Kids 3 0 R /Count 1 >>", "/Kids"),
+        ("<< /Type /Pages /Kids [ 3 0 R ] /Count 4 0 R >>", "/Count"),
+    ] {
+        let bytes = assemble(&[
+            "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+            node.to_owned(),
+            page.clone(),
+            "<< /Length 1 >> stream\n1\nendstream".to_owned(),
+        ]);
+        let refusal = apply(
+            &Plan::Redact(RedactPlan {
+                source: 0,
+                names: "out.pdf".parse().expect("a pattern"),
+                image_samples: None,
+            }),
+            &[Source::new(bytes)],
+            &MemorySinks::new(),
+            &Policy::default(),
+            &Budget::default(),
+        )
+        .expect_err("the node is not carried");
+        assert!(matches!(refusal, Refusal::Reconstructed(_)), "{refusal}");
+        assert!(
+            refusal.to_string().contains("7.7.3.2") && refusal.to_string().contains(entry),
+            "{refusal}"
+        );
+    }
+}

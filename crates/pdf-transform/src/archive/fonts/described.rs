@@ -42,6 +42,8 @@
 //! dictionary whose `/Differences` give every code the glyph name the original gave it, so the
 //! code-to-name table — which is what an encoding *is* (§9.6.5.1) — does not change.
 
+use std::collections::BTreeMap;
+
 use pdf_archive::survey::SelectedFont;
 use pdf_font::encoding::BaseEncoding;
 use pdf_font::standard::ShippedFace;
@@ -223,7 +225,7 @@ pub(super) fn restated_kind(
         // the unchanged outline proof still decides whether they reach the same shapes.
         entries.insert(
             Name::new(&b"Encoding"[..]),
-            Object::Dictionary(restated_encoding(&source, None)),
+            Object::Dictionary(restated_encoding(&source, None, &BTreeMap::new())),
         );
     }
     Ok(Some(Restatement {
@@ -349,7 +351,9 @@ fn drawn_from(
     }
     for text in used.shown.keys() {
         for code in source.decode(text) {
-            if shipped_glyph(face, code).is_none() {
+            // A code the encoding sends to `.notdef` draws nothing in either face; whether it is
+            // given an empty glyph is [`super::empty`]'s question, asked where the program is.
+            if shipped_glyph(face, code).is_none() && !super::empty::reaches_notdef(source, code) {
                 return Err(Because::NotBuiltYet(ANOTHER_FACE_DRAWS_A_SHOWN_CODE));
             }
         }
@@ -373,6 +377,7 @@ pub(super) fn describe(
     used: &SelectedFont,
     spare: &mut Spare,
     substitutes: &mut Substitutes,
+    target: pdf_archive::Target,
 ) -> Result<(), Because> {
     let requested = base_font(document, &used.dict);
     if name_of(document, &used.dict, "Subtype").as_deref() != Some("Type1")
@@ -385,9 +390,13 @@ pub(super) fn describe(
     let source = LoadedFont::load(document, &used.dict, &used.name)
         .map_err(|_| Because::NotBuiltYet(super::FONT_NOT_READ))?;
     let drawn = drawn_from(&source, used, &face)?;
+    let (program, empty) = with_empty_glyphs(&face, &source, used, target)?;
     let symbolic = matches!(face.request.family, Family::Symbol | Family::ZapfDingbats);
     let (subtype, encoding) = match face.format {
-        Format::BareCff => ("Type1", symbolic.then(|| restated_encoding(&source, None))),
+        Format::BareCff => (
+            "Type1",
+            (symbolic || !empty.is_empty()).then(|| restated_encoding(&source, None, &empty)),
+        ),
         Format::Sfnt => ("TrueType", truetype_encoding(document, &used.dict, &source)),
         // `Format` is non-exhaustive; a reader added to it is not a program Table 124 has been
         // read against here, and is refused by the table's own sentence.
@@ -397,7 +406,11 @@ pub(super) fn describe(
         .ok_or_else(|| Because::NotBuiltYet(no_row(subtype, face.format, face.program)))?;
     let measured = Measured::of(&face).ok_or(Because::NotBuiltYet(PROGRAM_NOT_MEASURED))?;
 
-    let program_at = shared_program(document, &face, row, spare, substitutes)?;
+    let program_at = if empty.is_empty() {
+        shared_program(document, &face, row, spare, substitutes)?
+    } else {
+        own_program(document, &face, &program, row, spare, substitutes)?
+    };
     let descriptor_at = spare
         .take(document)
         .ok_or(Because::NotBuiltYet(super::NO_SPARE_OBJECT))?;
@@ -441,7 +454,7 @@ pub(super) fn describe(
         &entries,
         &descriptor,
         row,
-        face.program,
+        &program,
     )?;
 
     substitutes
@@ -463,6 +476,8 @@ pub(super) fn describe(
         }),
         losses,
         fitting,
+        empty_glyphs: empty.keys().copied().collect(),
+        font: super::selected(used),
     });
     Ok(())
 }
@@ -540,6 +555,65 @@ fn shared_program(
     Ok(at)
 }
 
+/// A font's program, borrowed from the shipped face or written afresh, and the name of the empty
+/// glyph each code it gained one for is drawn with.
+type ProgramWithEmptyGlyphs<'face> = (std::borrow::Cow<'face, [u8]>, BTreeMap<u8, String>);
+
+/// The program a font is written with, and the empty glyph each of its codes gained.
+///
+/// **A code the file's own encoding sends to `.notdef` is given an empty glyph** where the face
+/// can carry one, `doc/questions/A48`'s permission (`doc/adr/2458`): the program written is then
+/// this font's own, and the encoding names every such code's glyph. A font with no such code
+/// keeps the shipped program, shared with every other font that selects it.
+fn with_empty_glyphs<'face>(
+    face: &'face ShippedFace,
+    source: &LoadedFont,
+    used: &SelectedFont,
+    target: pdf_archive::Target,
+) -> Result<ProgramWithEmptyGlyphs<'face>, Because> {
+    let empty_codes = super::empty::codes(source, used, |code| shipped_glyph(face, code));
+    if empty_codes.is_empty() {
+        return Ok((std::borrow::Cow::Borrowed(face.program), BTreeMap::new()));
+    }
+    if !super::empty::offered(target) {
+        return Err(Because::NotThisTarget(
+            super::empty::NO_CHARACTER_AT_THIS_LEVEL,
+        ));
+    }
+    let (program, names) = super::empty::written(face.program, face.format, &empty_codes)?;
+    Ok((std::borrow::Cow::Owned(program), names))
+}
+
+/// The program object for one font whose face gained empty glyphs, which no other font shares:
+/// the glyphs are named by this font's encoding and stated at this font's widths.
+fn own_program(
+    document: &Document,
+    face: &ShippedFace,
+    program: &[u8],
+    row: Table124,
+    spare: &mut Spare,
+    substitutes: &mut Substitutes,
+) -> Result<ObjectId, Because> {
+    let at = spare
+        .take(document)
+        .ok_or(Because::NotBuiltYet(super::NO_SPARE_OBJECT))?;
+    let mut stream = program_stream(
+        subtype_dictionary(row).as_ref(),
+        program,
+        row.key == "FontFile2",
+    )
+    .ok_or(Because::NotBuiltYet(super::PROGRAM_NOT_ENCODED))?;
+    super::notices::attach(
+        document,
+        face.program,
+        &mut stream,
+        spare,
+        &mut substitutes.written,
+    )?;
+    substitutes.written.insert(at, stream);
+    Ok(at)
+}
+
 /// Whether the face's own advance is the width every shown code is laid out by: route 1 alone.
 ///
 /// A face whose advances are not the file's numbers would have to be restated, which modifies the
@@ -558,6 +632,11 @@ fn advances_are_the_faces(
                 Drawn::FromTheShippedFace => source.glyph_index(code),
                 Drawn::FromAMachineFace => shipped_glyph(face, code),
             };
+            // A code the encoding sends to `.notdef` has an empty glyph of the font's own width
+            // by now, or has refused (`super::empty::written`); [`same_metrics`] holds it.
+            if super::empty::reaches_notdef(source, code) {
+                continue;
+            }
             let glyph = glyph
                 .filter(|glyph| *glyph != pdf_font::NOTDEF_GLYPH)
                 .ok_or(Because::NotBuiltYet(super::NO_SHIPPED_FACE_COVERS_IT))?;
@@ -593,6 +672,7 @@ fn truetype_encoding(
     Some(restated_encoding(
         source,
         Some((BaseEncoding::WinAnsi, "WinAnsiEncoding")),
+        &BTreeMap::new(),
     ))
 }
 
@@ -626,13 +706,21 @@ fn differences_are_listed_names(document: &Document, encoding: &Dictionary) -> b
 /// *program's* built-in encoding, and the Annex D.5 and D.6 table the viewer read the source's
 /// names from is not the shipped program's. [`proved`] then checks that each name reaches the
 /// same glyph.
-fn restated_encoding(source: &LoadedFont, base: Option<(BaseEncoding, &str)>) -> Dictionary {
+fn restated_encoding(
+    source: &LoadedFont,
+    base: Option<(BaseEncoding, &str)>,
+    empty: &BTreeMap<u8, String>,
+) -> Dictionary {
     let mut differences = Vec::new();
     let mut run: Option<u8> = None;
     for code in 0..=u8::MAX {
-        let wanted = source
-            .selected_glyph_name(Code::single_byte(code))
-            .filter(|name| !name.is_empty() && *name != ".notdef");
+        // A code given an empty glyph names it (`super::empty`); every other code names what it
+        // named before.
+        let wanted = empty.get(&code).map(String::as_str).or_else(|| {
+            source
+                .selected_glyph_name(Code::single_byte(code))
+                .filter(|name| !name.is_empty() && *name != ".notdef")
+        });
         let Some(name) = wanted else {
             continue;
         };
@@ -801,6 +889,9 @@ fn proved(
                     match (&source.outline(code), &converted.outline(code)) {
                         (Some(before), Some(after)) => same_once_wound(before, after),
                         (None, None) => true,
+                        // An empty glyph given where the encoding reached `.notdef` draws what no
+                        // glyph drew (`super::empty`).
+                        (None, Some(after)) => after.commands().is_empty(),
                         _ => false,
                     }
                 }

@@ -33,13 +33,16 @@
 //! rendered as if it were any other data type", which is presenting content over time in the
 //! screen annotation's rectangle — the playing the entry excludes, whatever the data is (ADR 1960).
 
+use std::cell::RefCell;
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
-use pdf_syntax::{Dictionary, Document, Object, ObjectId};
+use pdf_syntax::{Dictionary, Document, Object, ObjectId, Stream};
 
 use crate::attachment::Attachment;
 use crate::file_spec::FileSpec;
 
+pub mod container;
 mod deprecated;
 mod wave;
 
@@ -263,6 +266,7 @@ pub fn judge(document: &Document, rendition: &Object, processor: Processor<'_>) 
         visited: 0,
         bounded: false,
         report: Report::default(),
+        timelines: RefCell::new(Vec::new()),
     };
     walk.rendition(rendition, 0);
     walk.report
@@ -278,6 +282,39 @@ struct Walk<'a> {
     /// per rendition it still names.
     bounded: bool,
     report: Report,
+    /// Each embedded clip's timeline once read, by its stream, so that a chain of sections reads
+    /// its data once. The stream is held, not its address, so no entry can name another stream.
+    timelines: RefCell<Vec<(Arc<Stream>, TimelineRead)>>,
+}
+
+/// What reading one clip's container gave: its timeline, or the sentence a person is told.
+type TimelineRead = Result<container::Timeline, String>;
+
+/// What §13.2.4.3's rules make of a section's next-level clip under the hand-off, which plays its
+/// file from the beginning to the end: whether the clip begins where the file does, and whether it
+/// ends where the file does.
+#[derive(Debug, Clone, Copy)]
+struct Span {
+    starts: bool,
+    ends: bool,
+}
+
+/// A §13.2.6.2 media offset, as Tables 296 to 300 read it.
+enum Offset {
+    /// Table 297's time, in seconds, over a Table 300 simple timespan.
+    Time(f64),
+    /// Table 298's frame.
+    Frame(i64),
+    /// Table 299's marker name.
+    Marker(String),
+    /// A Table 296 or Table 300 `/S` stated with a value this processor does not recognise, of
+    /// which each table says "The rendition is non-viable if the interactive PDF processor does
+    /// not recognise the value of this entry" — the rendition, in `MH` or `BE` (ADR 2447); the
+    /// table it is.
+    Unrecognised(&'static str),
+    /// One no player is told: a negative timespan ("\[n\]egative timespans are prohibited in this
+    /// context"), a negative frame ("out of range"), or a required entry missing.
+    Unviable,
 }
 
 impl Walk<'_> {
@@ -455,9 +492,9 @@ impl Walk<'_> {
                 // beginning is honoured by the hand-off, and only one: a time or frame `/B` is
                 // "relative to the start of the next-level media clip", which is the file's
                 // beginning only where every `/B` below it names its own clip's start too.
-                let below_starts = next
+                let next_span = next
                     .as_dict()
-                    .is_some_and(|next| self.begins_at_start(next, depth.saturating_add(1)));
+                    .map(|next| self.span(next, depth.saturating_add(1)));
                 let mut unhonoured = Vec::new();
                 for (key, entry) in [("MH", true), ("BE", false)] {
                     let options = document.get_key(dict, key);
@@ -470,16 +507,34 @@ impl Walk<'_> {
                         if known && ignored {
                             continue;
                         }
-                        if name == "B"
-                            && below_starts
-                            && is_start(document, &document.get_key(options, "B"))
+                        if known
+                            && let Offset::Unrecognised(table) =
+                                read_offset(document, &document.get_key(options, &name))
                         {
+                            // Tables 296 and 300 name the rendition, so a `BE` holding it is no
+                            // refuge (ADR 2447).
+                            reasons.push(unrecognised(key, &name, table));
                             continue;
                         }
+                        let held = match (known, next_span, next.as_dict()) {
+                            (true, Some(next_span), Some(next)) => self.bound(
+                                &name,
+                                &document.get_key(options, &name),
+                                next,
+                                next_span,
+                                depth.saturating_add(1),
+                            ),
+                            _ => Err(String::new()),
+                        };
+                        let why = match held {
+                            Ok(()) => continue,
+                            Err(why) if why.is_empty() => String::new(),
+                            Err(why) => format!(": {why}"),
+                        };
                         match (entry, known) {
                             (true, true) => reasons.push(format!(
                                 "its media clip section must start or end at Table 289's /{name}, \
-                                 and a player handed the file plays all of it"
+                                 and a player handed the file plays all of it{why}"
                             )),
                             (true, false) => reasons.push(format!(
                                 "its media clip section's MH holds /{name}, which Table 289 does \
@@ -514,14 +569,20 @@ impl Walk<'_> {
         }
     }
 
-    /// Whether the next-level clip `dict` begins where its file does: media clip data, or a
-    /// section whose `MH` and `BE` `/B`, where stated, each name the start of a next-level clip
-    /// that begins there in turn (§13.2.4.3). A chain past [`MAX_DEPTH`] begins nowhere this
-    /// judges, and the clip above it is non-viable on its own account.
-    fn begins_at_start(&self, dict: &Dictionary, depth: usize) -> bool {
+    /// What the next-level clip `dict` spans of its file (§13.2.4.3): media clip data spans the
+    /// whole of it, and a section begins where its file does when its own next-level clip does and
+    /// each `/B` it states, in `MH` or `BE`, holds at the file's start ([`Self::bound`]), and ends
+    /// where its file does on the same terms for each `/E`. Best-effort entries count here because
+    /// they move the clip whatever this player does with them, and §13.2.4.3 binds them as must-honour
+    /// where a section above states the same entry in its `MH`. A chain past [`MAX_DEPTH`] spans
+    /// nothing this judges, and the clip above it is non-viable on its own account.
+    fn span(&self, dict: &Dictionary, depth: usize) -> Span {
         let document = self.document;
         if depth > MAX_DEPTH {
-            return false;
+            return Span {
+                starts: false,
+                ends: false,
+            };
         }
         match document
             .get_key(dict, "S")
@@ -529,20 +590,234 @@ impl Walk<'_> {
             .map(pdf_syntax::Name::as_bytes)
         {
             Some(b"MCS") => {
-                let starts = ["MH", "BE"].into_iter().all(|key| {
-                    document.get_key(dict, key).as_dict().is_none_or(|options| {
-                        options.get("B").is_none()
-                            || is_start(document, &document.get_key(options, "B"))
+                let next = document.get_key(dict, "D");
+                let Some(next) = next.as_dict() else {
+                    return Span {
+                        starts: false,
+                        ends: false,
+                    };
+                };
+                let below = self.span(next, depth.saturating_add(1));
+                let holds = |key: &str| {
+                    ["MH", "BE"].into_iter().all(|options| {
+                        document
+                            .get_key(dict, options)
+                            .as_dict()
+                            .is_none_or(|options| {
+                                options.get(key).is_none()
+                                    || self
+                                        .bound(
+                                            key,
+                                            &document.get_key(options, key),
+                                            next,
+                                            below,
+                                            depth.saturating_add(1),
+                                        )
+                                        .is_ok()
+                            })
                     })
-                });
-                starts
-                    && document
-                        .get_key(dict, "D")
-                        .as_dict()
-                        .is_some_and(|next| self.begins_at_start(next, depth.saturating_add(1)))
+                };
+                Span {
+                    starts: below.starts && holds("B"),
+                    ends: below.ends && holds("E"),
+                }
             }
-            _ => true,
+            _ => Span {
+                starts: true,
+                ends: true,
+            },
         }
+    }
+
+    /// Whether a section's `/B` or `/E` (`key`), with the value `offset`, holds for a player that
+    /// plays the file from its beginning to its end, where `next` is the section's next-level clip
+    /// and `below` what that clip spans; the error says why not, or is empty where the sentence
+    /// that follows it in the report is the whole reason.
+    ///
+    /// §13.2.4.3's rules, in order:
+    ///
+    /// - "For media types where an offset makes no sense (such as JPEG images), B and E shall be
+    ///   ignored, with no effect on viability" ([`timeless`]).
+    /// - "When B or E are specified by time or frames, their value shall be considered to be
+    ///   relative to the start of the next-level media clip", so a `/B` of zero seconds or frame 0
+    ///   is the file's start where the next-level clip begins there. "However, if E specifies an
+    ///   offset beyond the end of the next-level media clip, the end value shall be used instead,
+    ///   and there is no effect on viability", so an `/E` at or past the next-level clip's length
+    ///   is the file's end where that clip is the whole file — its length the container's
+    ///   ([`container::timeline`]), in seconds or in frames as the offset is.
+    /// - "When B or E are specified by markers, there shall be a corresponding absolute offset into
+    ///   the underlying media clip data object. If this offset is not within the range defined by
+    ///   the next-level media clip (if any), or if the marker is not present in the underlying
+    ///   media clip, the existence of the entry shall be ignored, and there is no effect on
+    ///   viability." A marker the container's table does not name holds; one it names holds where
+    ///   it falls at the start (a `/B`) or at or past the end (an `/E`) of a next-level clip that
+    ///   is the whole file, or past that file's end, outside its range.
+    ///
+    /// Anything else is a place inside the clip the player would have to be told, and §13.2.4.3's
+    /// NOTE 2 says what that is: "The entry cannot be honoured if its value was not viable or if
+    /// the player did not support its value". A container this program cannot read is said as the
+    /// reason, because whether an end or a marker holds is then a fact nobody here knows (ADR 2452).
+    fn bound(
+        &self,
+        key: &str,
+        offset: &Object,
+        next: &Dictionary,
+        below: Span,
+        depth: usize,
+    ) -> Result<(), String> {
+        let document = self.document;
+        let terminal = self.terminal(next, depth);
+        if terminal
+            .as_ref()
+            .and_then(|data| content_type(document, data))
+            .is_some_and(|content_type| timeless(&content_type))
+        {
+            return Ok(());
+        }
+        let whole = below.starts && below.ends;
+        let begin = key == "B";
+        match read_offset(document, offset) {
+            Offset::Unrecognised(table) => Err(format!(
+                "its /{key} states a {table} /S this program does not recognise"
+            )),
+            Offset::Unviable => Err(format!(
+                "its /{key} is not an offset Tables 296 to 300 recognise, which they make \
+                 non-viable"
+            )),
+            Offset::Time(seconds) if begin => (seconds == 0.0 && below.starts)
+                .then_some(())
+                .ok_or_else(String::new),
+            Offset::Frame(frame) if begin => (frame == 0 && below.starts)
+                .then_some(())
+                .ok_or_else(String::new),
+            Offset::Time(seconds) => {
+                if !whole {
+                    return Err(String::new());
+                }
+                let timeline = self.timeline(terminal.as_ref())?;
+                let length = timeline.seconds.ok_or_else(|| {
+                    "its container does not state how long the clip runs".to_owned()
+                })?;
+                (seconds >= length)
+                    .then_some(())
+                    .ok_or_else(|| format!("the clip runs {length} s, past its /E"))
+            }
+            Offset::Frame(frame) => {
+                if !whole {
+                    return Err(String::new());
+                }
+                let timeline = self.timeline(terminal.as_ref())?;
+                let frames = timeline.frames.ok_or_else(|| {
+                    "its container states no frames for a frame offset to count".to_owned()
+                })?;
+                (u64::try_from(frame).is_ok_and(|frame| frame >= frames))
+                    .then_some(())
+                    .ok_or_else(|| format!("the clip holds {frames} frames, past its /E"))
+            }
+            Offset::Marker(name) => {
+                let timeline = self.timeline(terminal.as_ref())?;
+                let Some(marker) = timeline.markers.iter().find(|marker| marker.name == name)
+                else {
+                    return Ok(());
+                };
+                let length = timeline.seconds;
+                let past_the_file = length.is_some_and(|length| marker.seconds > length);
+                let at_the_bound = if begin {
+                    marker.seconds == 0.0
+                } else {
+                    length.is_some_and(|length| marker.seconds >= length)
+                };
+                (whole && (past_the_file || at_the_bound))
+                    .then_some(())
+                    .ok_or_else(|| {
+                        format!(
+                            "its container places the marker {name:?} at {} s",
+                            marker.seconds
+                        )
+                    })
+            }
+        }
+    }
+
+    /// The media clip data a chain of sections from `dict` ends in, within [`MAX_DEPTH`] levels.
+    fn terminal(&self, dict: &Dictionary, depth: usize) -> Option<Dictionary> {
+        let document = self.document;
+        let mut current = dict.clone();
+        for _ in depth..=MAX_DEPTH {
+            match document
+                .get_key(&current, "S")
+                .as_name()
+                .map(pdf_syntax::Name::as_bytes)
+            {
+                Some(b"MCD") => return Some(current),
+                Some(b"MCS") => current = document.get_key(&current, "D").as_dict()?.clone(),
+                _ => return None,
+            }
+        }
+        None
+    }
+
+    /// The timeline of the media clip data `data`, read once per stream.
+    ///
+    /// Only data the document embeds is read: a URL or a file named outside the document is a
+    /// resource this program does not fetch to judge viability (the renderer opens no path and no
+    /// connection, `CLAUDE.md` principle 3), and the error says so. The stream is decoded under the
+    /// document's own limits, and only once a container this program reads is named, so a clip of
+    /// any other type costs nothing.
+    fn timeline(&self, data: Option<&Dictionary>) -> Result<container::Timeline, String> {
+        let document = self.document;
+        let data = data.ok_or_else(|| {
+            "its sections do not end in media clip data this program could read".to_owned()
+        })?;
+        let content_type = content_type(document, data)
+            .ok_or_else(|| "its media clip data states no Table 285 /CT".to_owned())?;
+        if !container::is_read(&content_type) {
+            return Err(format!(
+                "this program reads the timeline of no {content_type:?} file"
+            ));
+        }
+        let stream = match self.data(data, &mut Vec::new()) {
+            Some(Data::Embedded(file)) => file.stream,
+            Some(Data::Url(_)) => {
+                return Err(
+                    "its media data is a URL, which this program does not fetch to judge \
+                            it"
+                    .to_owned(),
+                );
+            }
+            Some(Data::File(_)) => {
+                return Err(
+                    "its media data is a file outside the document, which this program does not \
+                     open to judge it"
+                        .to_owned(),
+                );
+            }
+            _ => return Err("its media data is not a file this program could read".to_owned()),
+        };
+        if let Some((_, read)) = self
+            .timelines
+            .borrow()
+            .iter()
+            .find(|(held, _)| Arc::ptr_eq(held, &stream))
+        {
+            return read.clone();
+        }
+        // A decode that kept what it read before damage is not the file, and a container cut short
+        // would state a shorter clip than the producer embedded (trap 5).
+        let read = match document.decoded_stream_data_reported(&stream) {
+            Ok(decoded) if decoded.damage.is_none() => {
+                container::timeline(&content_type, &decoded.data)
+            }
+            Ok(_) => Err("its embedded file decoded only in part".to_owned()),
+            Err(pdf_syntax::StreamRefusal::Filter { name, .. }) => Err(format!(
+                "its embedded file's /{name} filter would not decode it"
+            )),
+            Err(_) => Err("its embedded file could not be decrypted or read".to_owned()),
+        };
+        self.timelines
+            .borrow_mut()
+            .push((Arc::clone(&stream), read.clone()));
+        read
     }
 
     /// §13.2.4.2's media clip data, against Tables 285 to 287 and §13.2.7.2.2's player algorithm.
@@ -554,10 +829,7 @@ impl Walk<'_> {
         set_aside: &mut Vec<String>,
     ) -> Option<Clip> {
         let document = self.document;
-        let content_type = match document.get_key(dict, "CT") {
-            Object::String(bytes) => Some(String::from_utf8_lossy(&bytes).into_owned()),
-            _ => None,
-        };
+        let content_type = content_type(document, dict);
         let data = self.data(dict, reasons);
 
         // Table 285's `/P`, with the clause's own rule: "If the dictionary contains unrecognised
@@ -1007,15 +1279,25 @@ fn timeless(content_type: &str) -> bool {
         .any(|still| essence.eq_ignore_ascii_case(still))
 }
 
-/// Whether §13.2.6.2's media offset dictionary `offset` names the start of the clip it is an offset
-/// into: a time offset (Table 297) whose §13.2.6.3 simple timespan is zero seconds, or frame 0
-/// (Table 298), "\[f]rame numbers begin at 0". A marker (Table 299) names a place only the media
-/// container's own marker table locates, and of an unrecognised `/S` Table 296 says "\[t]he
-/// rendition is non-viable if the interactive PDF processor does not recognise the value of this
-/// entry", so neither is a start.
-fn is_start(document: &Document, offset: &Object) -> bool {
+/// The reason a section's `/B` or `/E` stating an unrecognised Table 296 or Table 300 `/S` gives,
+/// from the `options` dictionary (`MH` or `BE`) that holds it.
+fn unrecognised(options: &str, key: &str, table: &str) -> String {
+    format!(
+        "its media clip section's {options} /{key} states a {table} /S this program does not \
+         recognise, and \"The rendition is non-viable if the interactive PDF processor does not \
+         recognise the value of this entry\""
+    )
+}
+
+/// §13.2.6.2's media offset dictionary `offset`, read by Tables 296 to 300.
+///
+/// Of an unrecognised `/S` in either table, "\[t\]he rendition is non-viable if the interactive PDF
+/// processor does not recognise the value of this entry"; Table 297 says "Negative timespans are
+/// prohibited in this context", and Table 298 "\[f\]rame numbers begin at 0; negative frame numbers
+/// are out of range".
+fn read_offset(document: &Document, offset: &Object) -> Offset {
     let Some(offset) = offset.as_dict() else {
-        return false;
+        return Offset::Unviable;
     };
     match document
         .get_key(offset, "S")
@@ -1024,21 +1306,41 @@ fn is_start(document: &Document, offset: &Object) -> bool {
     {
         Some(b"T") => {
             let timespan = document.get_key(offset, "T");
-            timespan.as_dict().is_some_and(|timespan| {
-                // Table 300: "The value shall be S (simple timespan)", and the rendition is
-                // non-viable where `/S` is not recognised.
-                document
-                    .get_key(timespan, "S")
-                    .as_name()
-                    .is_some_and(|kind| kind.as_bytes() == b"S")
-                    && document
-                        .get_key(timespan, "V")
-                        .as_number()
-                        .is_some_and(|seconds| seconds == 0.0)
-            })
+            let Some(timespan) = timespan.as_dict() else {
+                return Offset::Unviable;
+            };
+            // Table 300: "The value shall be S (simple timespan)".
+            let simple = match document.get_key(timespan, "S") {
+                Object::Null => false,
+                kind if kind.as_name().is_some_and(|kind| kind.as_bytes() == b"S") => true,
+                _ => return Offset::Unrecognised("Table 300"),
+            };
+            match document.get_key(timespan, "V").as_number() {
+                Some(seconds) if simple && seconds.is_finite() && seconds >= 0.0 => {
+                    Offset::Time(seconds)
+                }
+                _ => Offset::Unviable,
+            }
         }
-        Some(b"F") => document.get_key(offset, "F").as_integer() == Some(0),
-        _ => false,
+        Some(b"F") => match document.get_key(offset, "F").as_integer() {
+            Some(frame) if frame >= 0 => Offset::Frame(frame),
+            _ => Offset::Unviable,
+        },
+        Some(b"M") => match document.get_key(offset, "M") {
+            Object::String(bytes) => Offset::Marker(pdf_syntax::text_string(&bytes)),
+            _ => Offset::Unviable,
+        },
+        // An absent `/S` is not a value the processor fails to recognise (ADR 2447).
+        None if matches!(document.get_key(offset, "S"), Object::Null) => Offset::Unviable,
+        _ => Offset::Unrecognised("Table 296"),
+    }
+}
+
+/// Table 285's `/CT` of the media clip data `data`.
+fn content_type(document: &Document, data: &Dictionary) -> Option<String> {
+    match document.get_key(data, "CT") {
+        Object::String(bytes) => Some(String::from_utf8_lossy(&bytes).into_owned()),
+        _ => None,
     }
 }
 

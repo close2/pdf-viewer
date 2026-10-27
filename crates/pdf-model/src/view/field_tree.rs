@@ -1,13 +1,17 @@
 //! §12.7.4.1's field tree walked from a name to its widgets, and from a widget to its name.
 //!
-//! Every walk here is bounded by [`MAX_FIELD_DEPTH`], because the tree is one a document controls
-//! and `/Kids` may point back up it.
+//! Every walk here goes to the end of the tree, which §12.7.4.1 asks — "\[a]n interactive PDF
+//! processor shall not limit the range of inheritance for field dictionaries" — and stops where
+//! the document makes the tree come back on itself: a `/Parent` chain is followed by
+//! [`crate::inheritance::Ancestors`], which finds a cycle without a set, and a walk down `/Kids`
+//! keeps the set of fields it has entered, since a field reached twice is reached by more than
+//! one path and not only round a loop (ADR 2448).
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 
-use super::MAX_FIELD_DEPTH;
+use crate::inheritance::{Ending, ancestors, ancestors_of};
 
 /// Every widget annotation in the document, keyed by its field's fully qualified name.
 ///
@@ -119,14 +123,7 @@ pub(crate) fn field_table(
     let mut seen = BTreeSet::new();
     for field in &fields {
         let inherited = ancestry(document, field);
-        walk(
-            document,
-            field,
-            inherited.as_deref(),
-            &mut out,
-            &mut seen,
-            0,
-        );
+        walk(document, field, inherited.as_deref(), &mut out, &mut seen);
     }
     match omitted {
         Omitted::Listed => {}
@@ -149,7 +146,6 @@ pub(crate) fn field_table(
                         None,
                         &mut out,
                         &mut seen,
-                        0,
                     );
                 }
             }
@@ -194,14 +190,14 @@ fn recover_omitted(
         // A root already walked whose walk did not reach this widget — a `/Parent` the root's
         // `/Kids` does not answer — leaves the widget out, as the `/Fields` walk would.
         if !seen.contains(&root) {
-            walk(document, &Object::Reference(root), None, out, seen, 0);
+            walk(document, &Object::Reference(root), None, out, seen);
         }
     }
 }
 
 /// The top of a widget annotation's `/Parent` chain, where something on the chain states a `/T`;
 /// `None` for an annotation that is not a widget, and for a chain no `/T` names — §12.7.4.2's
-/// "simply a Widget annotation". Bounded by [`MAX_FIELD_DEPTH`], since a chain can be a cycle.
+/// "simply a Widget annotation".
 fn omitted_root(document: &Document, widget: ObjectId) -> Option<ObjectId> {
     let object = document.get(widget);
     let dict = object.as_dict()?;
@@ -218,53 +214,43 @@ fn omitted_root(document: &Document, widget: ObjectId) -> Option<ObjectId> {
 
 /// The top of a dictionary's `/Parent` chain, where the dictionary or something above it states a
 /// `/T`; `None` where nothing on the chain does.
+///
+/// The chain is followed by reference only, since a dictionary written inside its child has no
+/// identity to be a root.
 fn named_root(document: &Document, node: ObjectId) -> Option<ObjectId> {
-    let object = document.get(node);
-    let dict = object.as_dict()?;
-    let mut named = matches!(document.get_key(dict, "T"), Object::String(_));
-    let mut current = node;
-    for _ in 0..MAX_FIELD_DEPTH {
-        let object = document.get(current);
-        let Some(parent) = object
-            .as_dict()
-            .and_then(|dict| dict.get("Parent"))
-            .and_then(Object::as_reference)
-        else {
+    let mut named = false;
+    let mut top = None;
+    for (id, dict) in ancestors_of(document, node) {
+        let Some(id) = id else {
             break;
         };
-        current = parent;
-        let object = document.get(current);
-        named |= object
-            .as_dict()
-            .is_some_and(|dict| matches!(document.get_key(dict, "T"), Object::String(_)));
+        named |= matches!(document.get_key(&dict, "T"), Object::String(_));
+        top = Some(id);
     }
-    named.then_some(current)
+    top.filter(|_| named)
 }
 
 /// The qualified name a `/Fields` entry's `/Parent` chain gives it, if any.
 ///
 /// `None` where the entry states no `/Parent`, or where nothing above it states a `/T` — the two
-/// cases in which the ancestry contributes no name. Bounded by [`MAX_FIELD_DEPTH`] for the reason
-/// `crate::appearance`'s inheritance walk is: a `/Parent` chain in a hostile file can be a cycle.
+/// cases in which the ancestry contributes no name — and a third, a chain that returns to a field
+/// it has passed, which is no hierarchy for §12.7.4.2 to name a field in.
 fn ancestry(document: &Document, node: &Object) -> Option<String> {
     let id = node.as_reference()?;
     let object = document.get(id);
-    let mut current = document
+    let parent = document
         .get_key(object.as_dict()?, "Parent")
         .as_dict()?
         .clone();
     // Nearest ancestor first, so the name is assembled by walking back down at the end.
     let mut partials: Vec<String> = Vec::new();
-    for _ in 0..MAX_FIELD_DEPTH {
+    let mut walk = ancestors(document, parent);
+    for (_, current) in walk.by_ref() {
         if let Object::String(bytes) = document.get_key(&current, "T") {
             partials.push(pdf_syntax::text_string(&bytes));
         }
-        let Some(parent) = document.get_key(&current, "Parent").as_dict().cloned() else {
-            break;
-        };
-        current = parent;
     }
-    if partials.is_empty() {
+    if partials.is_empty() || walk.ending() == Some(Ending::Cycle) {
         return None;
     }
     partials.reverse();
@@ -277,50 +263,44 @@ fn ancestry(document: &Document, node: &Object) -> Option<String> {
 ///
 /// `prefix` is the fully qualified name of this node's ancestors, or `None` where no ancestor
 /// states a `/T` — which is the state in which a node stating none itself is not a field.
+///
+/// Taken with a stack of its own rather than by recursion, so that a tree as deep as a document
+/// makes it costs memory and never the thread's stack; children are pushed last first, so the
+/// fields are entered in the order recursion would enter them.
 fn walk(
     document: &Document,
     node: &Object,
     prefix: Option<&str>,
     out: &mut BTreeMap<String, Vec<ObjectId>>,
     seen: &mut BTreeSet<ObjectId>,
-    depth: usize,
 ) {
-    if depth > MAX_FIELD_DEPTH {
-        return;
-    }
-    let Some(id) = node.as_reference() else {
-        // A field has to be an indirect object for anything to name it; a direct dictionary
-        // in `/Kids` has no identity a hide action could reach.
-        return;
-    };
-    if !seen.insert(id) {
-        return;
-    }
-    let resolved = document.get(id);
-    let Some(dict) = resolved.as_dict() else {
-        return;
-    };
-
-    let name = qualified_name(document, dict, prefix);
-    let kids = document.get_key(dict, "Kids");
-    match kids.as_array().map(<[Object]>::to_vec) {
-        Some(kids) if !kids.is_empty() => {
-            for kid in &kids {
-                walk(
-                    document,
-                    kid,
-                    name.as_deref(),
-                    out,
-                    seen,
-                    depth.saturating_add(1),
-                );
-            }
+    let mut pending = vec![(node.clone(), prefix.map(str::to_owned))];
+    while let Some((node, prefix)) = pending.pop() {
+        let Some(id) = node.as_reference() else {
+            // A field has to be an indirect object for anything to name it; a direct dictionary
+            // in `/Kids` has no identity a hide action could reach.
+            continue;
+        };
+        if !seen.insert(id) {
+            continue;
         }
-        // A leaf: the field dictionary and its widget annotation merged into one — unless
-        // §12.7.4.2 leaves it nameless, in which case it is "simply a Widget annotation".
-        _ => {
-            if let Some(name) = name {
-                out.entry(name).or_default().push(id);
+        let resolved = document.get(id);
+        let Some(dict) = resolved.as_dict() else {
+            continue;
+        };
+
+        let name = qualified_name(document, dict, prefix.as_deref());
+        let kids = document.get_key(dict, "Kids");
+        match kids.as_array() {
+            Some(kids) if !kids.is_empty() => {
+                pending.extend(kids.iter().rev().map(|kid| (kid.clone(), name.clone())));
+            }
+            // A leaf: the field dictionary and its widget annotation merged into one — unless
+            // §12.7.4.2 leaves it nameless, in which case it is "simply a Widget annotation".
+            _ => {
+                if let Some(name) = name {
+                    out.entry(name).or_default().push(id);
+                }
             }
         }
     }
@@ -346,43 +326,30 @@ fn walk(
 /// annotations to reset rather than the fields to list, and a `/Kids` entry with no `/T` of its
 /// own is exactly the widget of the field that was named.
 ///
-/// Bounded by [`MAX_FIELD_DEPTH`] and guarded against a cycle for [`walk`]'s reason: `/Kids` is
-/// the document's to write and §12.7.4.1 states no acyclicity rule.
+/// Guarded against a cycle for [`walk`]'s reason, and walked with a stack of its own for the same
+/// reason: `/Kids` is the document's to write and §12.7.4.1 states no acyclicity rule.
 pub(crate) fn widgets_under(document: &Document, field: ObjectId) -> Vec<ObjectId> {
     let mut out = Vec::new();
     let mut seen = BTreeSet::new();
-    descend(document, field, &mut out, &mut seen, 0);
-    out
-}
-
-/// One node of [`widgets_under`]'s walk.
-fn descend(
-    document: &Document,
-    node: ObjectId,
-    out: &mut Vec<ObjectId>,
-    seen: &mut BTreeSet<ObjectId>,
-    depth: usize,
-) {
-    if depth > MAX_FIELD_DEPTH || !seen.insert(node) {
-        return;
-    }
-    let object = document.get(node);
-    let kids = object
-        .as_dict()
-        .map_or(Object::Null, |dict| document.get_key(dict, "Kids"));
-    match kids.as_array() {
-        Some(kids) if !kids.is_empty() => {
-            // Collected before the recursion: `kids` borrows the object this walk is about, and
-            // the identities are all the descent needs from it.
-            let children: Vec<ObjectId> = kids.iter().filter_map(Object::as_reference).collect();
-            for kid in children {
-                descend(document, kid, out, seen, depth.saturating_add(1));
-            }
+    let mut pending = vec![field];
+    while let Some(node) = pending.pop() {
+        if !seen.insert(node) {
+            continue;
         }
-        // A leaf: the field dictionary and its widget annotation merged into one, or a kid of
-        // the referenced field that is simply a widget.
-        _ => out.push(node),
+        let object = document.get(node);
+        let kids = object
+            .as_dict()
+            .map_or(Object::Null, |dict| document.get_key(dict, "Kids"));
+        match kids.as_array() {
+            Some(kids) if !kids.is_empty() => {
+                pending.extend(kids.iter().rev().filter_map(Object::as_reference));
+            }
+            // A leaf: the field dictionary and its widget annotation merged into one, or a kid of
+            // the referenced field that is simply a widget.
+            _ => out.push(node),
+        }
     }
+    out
 }
 
 /// This node's fully qualified name: the prefix, and its own `/T` if it has one.

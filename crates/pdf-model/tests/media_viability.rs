@@ -165,6 +165,28 @@ fn a_media_clip_of_an_unrecognised_subtype_is_not_viable() {
     )));
 }
 
+/// §13.2.6.2 and §13.2.6.3 as far as the hand-off executes them: whether a must-honour `/B` names
+/// the start of its clip, read through Tables 296 to 300. Table 298: "Frame numbers begin at 0;
+/// negative frame numbers are out of range". Table 300: "Non-integral values shall be allowed", so
+/// half a second is read as a number, and is a seek. An offset or a timespan with no `/S`, which
+/// both tables require, names no subtype and so no start.
+#[test]
+fn an_offset_names_its_clips_start_only_as_zero_seconds_or_frame_zero() {
+    let clip = clip();
+    let must_begin =
+        |offset: &str| format!("<< /S /MR /C << /S /MCS /D {clip} /MH << /B {offset} >> >> >>");
+    assert!(viable(&must_begin("<< /S /T /T << /S /S /V 0.0 >> >>")));
+    assert!(viable(&must_begin("<< /S /F /F 0 >>")));
+    for seek in [
+        "<< /S /F /F -1 >>",
+        "<< /S /T /T << /S /S /V 0.5 >> >>",
+        "<< /T << /S /S /V 0 >> >>",
+        "<< /S /T /T << /V 0 >> >>",
+    ] {
+        assert!(!viable(&must_begin(seek)), "{seek}");
+    }
+}
+
 /// §13.2.4.3: "If the next-level media object is non-viable, the media clip section shall be also
 /// non-viable", Table 288's `/D` is required, and an offset in `MH` is one the hand-off cannot
 /// honour, because a player handed the file plays all of it.
@@ -441,4 +463,305 @@ fn a_negative_version_number_makes_the_software_identifier_non_viable() {
     assert!(with_players(&entry("/L [1 -2]")).0);
     assert!(with_players(&entry("/H [3 0 -0.5]")).0);
     assert!(!with_players(&entry("/L [0] /H []")).0);
+}
+
+/// Judges the rendition `body` as object 2 beside an embedded file whose stream is object 4 and
+/// holds `file`, written in `ASCIIHexDecode` so that the fixture stays text.
+fn judged_over(body: &str, file: &[u8]) -> Report {
+    let mut hex = String::new();
+    for byte in file {
+        let _ = write!(hex, "{byte:02X}");
+    }
+    hex.push('>');
+    let stream = format!(
+        "<< /Length {} /Type /EmbeddedFile /Filter /ASCIIHexDecode >>\nstream\n{hex}\nendstream",
+        hex.len()
+    );
+    let doc = document(&["<< /Type /Catalog >>", body, "null", &stream]);
+    let rendition = Object::Reference(ObjectId {
+        number: 2,
+        generation: 0,
+    });
+    judge(&doc, &rendition, Processor::default())
+}
+
+/// A rendition of one section whose options are `options`, over media clip data of `content_type`
+/// embedded as [`EMBEDDED`].
+fn section_over(content_type: &str, options: &str) -> String {
+    format!(
+        "<< /S /MR /C << /S /MCS /D << /S /MCD /CT ({content_type}) /D {EMBEDDED} >> {options} >> \
+         >>"
+    )
+}
+
+fn riff_chunk(id: [u8; 4], data: &[u8]) -> Vec<u8> {
+    let mut chunk = id.to_vec();
+    chunk.extend_from_slice(&u32::try_from(data.len()).expect("small").to_le_bytes());
+    chunk.extend_from_slice(data);
+    if data.len() % 2 == 1 {
+        chunk.push(0);
+    }
+    chunk
+}
+
+/// A PCM WAVE file, 8 000 16-bit mono samples a second for two seconds, with a labelled cue point
+/// for each of `cues` (a name and a sample position).
+fn wave_file(cues: &[(&str, u32)]) -> Vec<u8> {
+    let mut format = Vec::new();
+    for field in [1u16, 1] {
+        format.extend_from_slice(&field.to_le_bytes());
+    }
+    format.extend_from_slice(&8000u32.to_le_bytes());
+    format.extend_from_slice(&16000u32.to_le_bytes());
+    for field in [2u16, 16] {
+        format.extend_from_slice(&field.to_le_bytes());
+    }
+    let mut body = b"WAVE".to_vec();
+    body.extend(riff_chunk(*b"fmt ", &format));
+    body.extend(riff_chunk(*b"data", &vec![0; 32000]));
+    let mut cue = u32::try_from(cues.len())
+        .expect("few")
+        .to_le_bytes()
+        .to_vec();
+    let mut list = b"adtl".to_vec();
+    for (index, (name, position)) in cues.iter().enumerate() {
+        let id = u32::try_from(index.saturating_add(1)).expect("few");
+        cue.extend_from_slice(&id.to_le_bytes());
+        cue.extend_from_slice(&position.to_le_bytes());
+        cue.extend_from_slice(b"data");
+        cue.extend_from_slice(&[0; 8]);
+        cue.extend_from_slice(&position.to_le_bytes());
+        let mut label = id.to_le_bytes().to_vec();
+        label.extend_from_slice(name.as_bytes());
+        label.push(0);
+        list.extend(riff_chunk(*b"labl", &label));
+    }
+    body.extend(riff_chunk(*b"cue ", &cue));
+    body.extend(riff_chunk(*b"LIST", &list));
+    let mut file = b"RIFF".to_vec();
+    file.extend_from_slice(&u32::try_from(body.len()).expect("small").to_le_bytes());
+    file.extend(body);
+    file
+}
+
+fn mp4_box(kind: [u8; 4], payload: &[u8]) -> Vec<u8> {
+    let mut item = u32::try_from(payload.len().saturating_add(8))
+        .expect("small")
+        .to_be_bytes()
+        .to_vec();
+    item.extend_from_slice(&kind);
+    item.extend_from_slice(payload);
+    item
+}
+
+fn full_box(kind: [u8; 4], fields: &[u8]) -> Vec<u8> {
+    let mut payload = vec![0; 4];
+    payload.extend_from_slice(fields);
+    mp4_box(kind, &payload)
+}
+
+/// An MP4 file whose movie runs ten seconds (6 000 units at 600 a second) over one picture track of
+/// 250 samples, and no chapter list.
+fn mp4_file() -> Vec<u8> {
+    let mut mvhd = vec![0; 8];
+    mvhd.extend_from_slice(&600u32.to_be_bytes());
+    mvhd.extend_from_slice(&6000u32.to_be_bytes());
+    let mut tkhd = vec![0; 8];
+    tkhd.extend_from_slice(&1u32.to_be_bytes());
+    let mut hdlr = vec![0; 4];
+    hdlr.extend_from_slice(b"vide");
+    let mut stsz = 0u32.to_be_bytes().to_vec();
+    stsz.extend_from_slice(&250u32.to_be_bytes());
+    let stbl = mp4_box(*b"stbl", &full_box(*b"stsz", &stsz));
+    let mdia = mp4_box(
+        *b"mdia",
+        &[
+            full_box(*b"mdhd", &mvhd),
+            full_box(*b"hdlr", &hdlr),
+            mp4_box(*b"minf", &stbl),
+        ]
+        .concat(),
+    );
+    let trak = mp4_box(*b"trak", &[full_box(*b"tkhd", &tkhd), mdia].concat());
+    let moov = mp4_box(*b"moov", &[full_box(*b"mvhd", &mvhd), trak].concat());
+    [mp4_box(*b"ftyp", b"isom\0\0\0\0"), moov].concat()
+}
+
+fn seconds(value: &str) -> String {
+    format!("<< /S /T /T << /S /S /V {value} >> >>")
+}
+
+/// §13.2.4.3: "However, if E specifies an offset beyond the end of the next-level media clip, the
+/// end value shall be used instead, and there is no effect on viability." A player handed the file
+/// stops at its end, so a must-honour `/E` at or past the clip's own length — read from its
+/// container, in seconds or in frames as the offset is — is honoured, and an `/E` inside the clip
+/// is a stop the player would have to be told. **The controls**: an end one unit inside the clip;
+/// a frame offset over a sound, which has no frames; a next-level section that ends earlier, best
+/// effort or not, under §13.2.4.3's "all B or E entries, respectively, at deeper levels (closer to
+/// the media clip data), shall be evaluated as if they were in an MH dictionary"; a type whose
+/// container this program does not read; and the same file named by URL, which it does not fetch.
+#[test]
+fn an_end_past_the_clips_own_length_is_the_end_and_has_no_effect_on_viability() {
+    let mp4 = mp4_file();
+    let ends = |options: &str| {
+        judged_over(&section_over("video/mp4", options), &mp4)
+            .chosen()
+            .is_some()
+    };
+    for end in [seconds("10"), seconds("12.5"), "<< /S /F /F 250 >>".into()] {
+        assert!(ends(&format!("/MH << /E {end} >>")), "{end}");
+        let report = judged_over(
+            &section_over("video/mp4", &format!("/BE << /E {end} >>")),
+            &mp4,
+        );
+        let (_, chosen) = report
+            .chosen()
+            .expect("a best-effort end at the clip's end");
+        assert!(chosen.unhonoured.is_empty(), "{end}: {chosen:?}");
+    }
+    for inside in [seconds("9.5"), "<< /S /F /F 249 >>".into()] {
+        assert!(!ends(&format!("/MH << /E {inside} >>")), "{inside}");
+    }
+    let report = judged_over(
+        &section_over("video/mp4", &format!("/MH << /E {} >>", seconds("9.5"))),
+        &mp4,
+    );
+    let reasons = format!("{report:?}");
+    assert!(reasons.contains("runs 10 s"), "{reasons}");
+
+    let wave = wave_file(&[]);
+    let sound = |options: &str| {
+        judged_over(&section_over("audio/wav", options), &wave)
+            .chosen()
+            .is_some()
+    };
+    assert!(sound(&format!("/MH << /E {} >>", seconds("2"))));
+    assert!(!sound(&format!("/MH << /E {} >>", seconds("1.9"))));
+    assert!(
+        !sound("/MH << /E << /S /F /F 100000 >> >>"),
+        "a sound has no frames"
+    );
+
+    let nested = |inner: &str| {
+        let body = format!(
+            "<< /S /MR /C << /S /MCS /MH << /E {} >> /D << /S /MCS {inner} /D << /S /MCD /CT \
+             (video/mp4) /D {EMBEDDED} >> >> >> >>",
+            seconds("20")
+        );
+        judged_over(&body, &mp4).chosen().is_some()
+    };
+    assert!(nested(""));
+    assert!(nested(&format!("/BE << /E {} >>", seconds("30"))));
+    assert!(
+        !nested(&format!("/BE << /E {} >>", seconds("5"))),
+        "a next-level section that ends at 5 s"
+    );
+
+    let unread = judged_over(
+        &section_over("video/mpeg", &format!("/MH << /E {} >>", seconds("20"))),
+        &mp4,
+    );
+    assert!(unread.chosen().is_none());
+    assert!(format!("{unread:?}").contains("video/mpeg"), "{unread:?}");
+    let url = format!(
+        "<< /S /MR /C << /S /MCS /D << /S /MCD /CT (video/mp4) /D << /Type /Filespec /FS /URL /F \
+         (https://example.org/clip.mp4) >> >> /MH << /E {} >> >> >>",
+        seconds("20")
+    );
+    let report = judged_over(&url, &mp4);
+    assert!(report.chosen().is_none());
+    assert!(format!("{report:?}").contains("URL"), "{report:?}");
+}
+
+/// §13.2.4.3: "When B or E are specified by markers, there shall be a corresponding absolute offset
+/// into the underlying media clip data object. If this offset is not within the range defined by the
+/// next-level media clip (if any), or if the marker is not present in the underlying media clip, the
+/// existence of the entry shall be ignored, and there is no effect on viability." A marker the
+/// container's table does not name is ignored, in `MH` as in `BE`; one it names inside the clip is a
+/// place the player would have to be told, and one at the clip's start is where a player handed the
+/// file begins. **The controls**: the named marker inside the clip, and a container this program
+/// cannot read, where whether a marker is present is not known.
+#[test]
+fn a_marker_the_clip_lacks_is_ignored_and_one_it_names_inside_the_clip_is_not() {
+    let wave = wave_file(&[("Start", 0), ("Chapter One", 4000)]);
+    let marker = |name: &str| format!("<< /S /M /M ({name}) >>");
+    let judged = |options: &str| judged_over(&section_over("audio/wav", options), &wave);
+    for options in [
+        format!("/MH << /B {} >>", marker("Intro")),
+        format!("/MH << /E {} >>", marker("Intro")),
+        format!("/BE << /B {} >>", marker("Intro")),
+        format!("/MH << /B {} >>", marker("Start")),
+    ] {
+        let report = judged(&options);
+        let (_, chosen) = report.chosen().expect("an absent marker is ignored");
+        assert!(chosen.unhonoured.is_empty(), "{options}: {chosen:?}");
+    }
+    for options in [
+        format!("/MH << /B {} >>", marker("Chapter One")),
+        format!("/MH << /E {} >>", marker("Chapter One")),
+        format!("/MH << /E {} >>", marker("Start")),
+    ] {
+        let report = judged(&options);
+        assert!(report.chosen().is_none(), "{options}");
+        assert!(
+            format!("{report:?}").contains("places the marker"),
+            "{report:?}"
+        );
+    }
+    assert!(
+        judged_over(
+            &section_over("video/mp4", &format!("/MH << /B {} >>", marker("Intro"))),
+            &mp4_file()
+        )
+        .chosen()
+        .is_some(),
+        "an MP4 file with no chapter list names no marker"
+    );
+    assert!(
+        judged_over(
+            &section_over("video/mp4", &format!("/MH << /B {} >>", marker("Intro"))),
+            b"moov"
+        )
+        .chosen()
+        .is_none(),
+        "a container cut short cannot say whether a marker is present"
+    );
+}
+
+/// Tables 296 and 300: "The rendition is non-viable if the interactive PDF processor does not
+/// recognise the value of this entry". The sentence names the rendition, so a section's `/B` or `/E`
+/// whose offset or timespan states an unrecognised `/S` makes it non-viable from a `BE` as from an
+/// `MH` (ADR 2447). **The control** is an absent `/S`, which is no value at all: in a `BE` it stays
+/// an offset not honoured, and the rendition is chosen.
+#[test]
+fn an_unrecognised_offset_subtype_makes_the_rendition_non_viable_from_either_dictionary() {
+    let clip = clip();
+    let section = |options: &str| format!("<< /S /MR /C << /S /MCS /D {clip} {options} >> >>");
+    for unrecognised in [
+        "<< /S /X /F 0 >>",
+        "<< /S 7 /F 0 >>",
+        "<< /S /T /T << /S /Q /V 0 >> >>",
+    ] {
+        for dictionary in ["MH", "BE"] {
+            for key in ["B", "E"] {
+                let report = judged(
+                    &section(&format!("/{dictionary} << /{key} {unrecognised} >>")),
+                    Processor::default(),
+                );
+                assert!(
+                    report.chosen().is_none(),
+                    "{dictionary} {key} {unrecognised}"
+                );
+                assert!(
+                    format!("{report:?}").contains("does not recognise"),
+                    "{report:?}"
+                );
+            }
+        }
+    }
+    let report = judged(&section("/BE << /B << /F 3 >> >>"), Processor::default());
+    let (_, chosen) = report
+        .chosen()
+        .expect("an absent /S is no unrecognised value");
+    assert!(!chosen.unhonoured.is_empty(), "{chosen:?}");
 }

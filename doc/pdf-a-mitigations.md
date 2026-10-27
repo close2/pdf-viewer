@@ -401,6 +401,33 @@ ISO 19005-2 6.1.10, ISO 19005-4 6.1.9 · all six · today `the-fence`
   `filters = ["LZWDecode"]`. It is the cleanest example in the catalogue of `doc/rfc/0007` section
   4.7.2's narrowing doing real work.
 
+### `file-structure/page-tree-node-count-is-an-integer`
+ISO 19005-2 5.1, ISO 19005-4 5.1 · all six · **built** (`Mechanical`, ADR 2456)
+
+- **What was built.** Section 5.1 binds the base standard, and ISO 32000-2 §7.7.3.2's Table 30
+  (ISO 32000-1's Table 29 for part 2) makes `/Count` a required integer at every page tree node,
+  defined as the number of descendant leaves; the NOTE in ISO 32000-2 puts its consistency on the
+  writer. A node whose `/Count` is missing or no integer fails, named by its object, and the
+  conversion writes there the number of leaves this reader walks beneath it — the value the cell
+  defines — so the pages drawn are the pages the source drew. The count stays refused where the
+  node is written inside its parent's `/Kids` (no object to restate at), where it is reached by two
+  routes with a different number of leaves beneath each, and past the walk's bounds.
+- **By target** — none.
+- **From a configuration** — nothing: the remedy loses nothing and asks nothing.
+- **Departure** — not needed; departing would leave a node veraPDF reported it could not parse, so
+  **C**.
+
+### `file-structure/page-tree-node-kids-is-an-array`
+ISO 19005-2 5.1, ISO 19005-4 5.1 · all six · today `the-fence` (ADR 2444)
+
+- **Mitigation** — **none.** A node that states no `/Kids` array names no child, so the pages a
+  reader draws from it — none, or the ones a scan of the file finds — are not the producer's tree,
+  and writing one would be this converter deciding which pages the document has. The verb refuses
+  such a document by name before it writes anything.
+- **By target** — none.
+- **From a configuration** — nothing.
+- **Departure** — **C**: the output would state a page tree no reader can walk.
+
 ---
 
 ## 3. Implementation limits — ten requirements with one argument and one exception
@@ -1233,6 +1260,15 @@ face is drawn narrowed to the file's widths, **built** (`doc/questions/A47`, `A5
   the page, by name, where its readback names any character, where the interpreter reports anything
   but the fonts it could not draw, and in a document stating a structure tree or optional content;
   offered at 2b and at part 4, never at 2u or 2a. A font only an annotation shows keeps its refusal.
+  A font substituted beside it that only the photographed content reached leaves the report and the
+  history with the content; one the output still holds stays named (ADR 2454).
+- **A code the font's own encoding sends to `.notdef`** — named nothing, or `.notdef` in
+  `/Differences` — which this reader draws nothing for, in one of the standard 14 stated by name
+  alone whose face is a CFF one: an empty glyph of the stated width, named outside the Adobe Glyph
+  List, added to the face and named by the restated encoding (`doc/questions/A48`, ADR 2458); the
+  codes are reported and recorded in `xmpMM:History` with the clause. Under a `glyf` face the code
+  is refused on the fence's side, since a non-symbolic `TrueType` font reaches a glyph only by a
+  name the list gives a character; with the file's own descriptor, not built yet.
 - **Still refused, by name**: a composite font nobody named a program for that the gate refuses or
   that is not `Adobe-Identity`; a font no shipped face covers; a machine's face drawn for a code the page shows that the shipped face lacks; and a
   result the proof finds drawn differently.
@@ -2276,6 +2312,9 @@ ISO 19005-2 6.6.2.3.1 · PDF/A-2b, 2u, 2a · today **built**
   once `pdf_model::xmp` can take a field out of a structure, and is not built.
 - **Departure** — **B**, for `metadata/extension-schema-container-fields`' reason: an undescribed
   field still says what the producer wrote.
+- **A packet section 6.6.2.1 replaces** states no value type, so no field in it is undescribed: the
+  row takes the decision the packet's own row took, as `metadata/extension-schemas-embedded` does
+  (ADR 2455).
 
 #### `metadata/identification-amendment-form`
 ISO 19005-2 6.6.4 · PDF/A-2b, 2u, 2a · today **built**
@@ -2293,6 +2332,9 @@ ISO 19005-2 6.6.4 · PDF/A-2b, 2u, 2a · today **built**
 - **From a configuration** — `remedy = "discard"`. The cost sentence is almost nothing, and saying
   so is useful: *the file stops claiming an amendment it identified incorrectly*.
 - **Departure** — **B**, and hard to want.
+- **A catalog packet section 6.6.2.1 replaces** states no identifier: the row takes the decision
+  the packet's own row took, with no `amendment-identifier` loss beside it, and the fresh packet is
+  given the identification schema whether or not a row asked for it (ADR 2455).
 
 #### `metadata/provenance-recorded-action-fields-four`
 ISO 19005-4 6.7.5 · PDF/A-4, 4f, 4e · today `the-fence`

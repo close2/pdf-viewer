@@ -44,8 +44,9 @@ already reads them.
 
 - §12.2 — WinUI applies Table 147's chrome, fitting and centring and Table 29's full screen, and
   the library holds a document's dialogues while presenting (ADRs 2308, 2309); CI's `window` job
-  runs the window's half under its `--probe` word (ADR 2436), and the row moves on that step's
-  first green run. Keep ADR 1145's reason for preserving the
+  runs the window's half under its `--probe` word (ADR 2436); its first run was red on the placed
+  page, where the window answered a placement between its resize and its page area's new size,
+  which it now waits for (ADR 2446), and the row moves on that step's first green run. Keep ADR 1145's reason for preserving the
   reader's restriction controls. The deliberate GTK/Qt menu and GTK placement departures remain
   (ADRs 1145, 1429); the row is `partial` because the Windows run is owed.
 
@@ -208,11 +209,11 @@ The rich text build's last residue, pair kerning in §9.6.2.2's fourteen, is lai
 published pairs (`doc/questions/A308`, ADR 1916); the rows here are the cases §13.2's viability
 judgement does not yet reach, opened when its family was read against `pdf_model::media` (ADR 2376).
 
-- §13.2.4.3 — `pdf_model::media::judge` reads a must-honour /E past the next-level clip's end, and
-  a marker the clip lacks, as non-viable where the clause gives each "no effect on viability". Both
-  need the clip's duration, frame count and marker table from its media container (ADR 2392); a /B
-  at the clip's start, read through §13.2.6.2's offset dictionary, is honoured (ADR 2431). §13.2.7.2.1, §13.2.7.3, §13.2.7.4.1 and §13.2.7.4.4 were here and are `implemented`:
-  a player info dictionary's own viability is judged before an array's emptiness is read.
+- §13.2.6.2 and §13.2.6.3 — `pdf_model::media::judge` reads an offset and its timespan for whether
+  a `/B` names the clip's start (ADR 2431). An unrecognised Table 296 or Table 300 `/S` makes "the
+  rendition" non-viable whichever dictionary holds it, but in a `BE` it leaves the rendition chosen,
+  and in an `MH` it is given Table 289's reason. What a later offset or a marker names belongs to the
+  clip's container, as with §13.2.4.3 (ADR 2447).
 
 - **Beside this bucket and not in it** — §12.5.6.23 is `departed` on two refusals with their cost
   recorded, a calculator function serving region-only colours (ADR 1363) and a `JPXDecode` component
@@ -317,7 +318,7 @@ exactly the rows `Ledger::is_aggregate` names and the frontier gate fails on any
 "Aggregate of the rows below" and the reason is the owing row's. They are not independently actionable
 — do not brief a round to *take* one; they flip when the last binding row flips.
 
-§7.4, §7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4, §13.2, §13.2.4, §14.8, §14.8.5, §14.8.5.4, §K.
+§7.4, §7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4, §13.2, §13.2.6, §14.8, §14.8.5, §14.8.5.4, §K.
 
 
 ### Not owed — a documented choice, an exclusion, a deprecation, or a standard-gap

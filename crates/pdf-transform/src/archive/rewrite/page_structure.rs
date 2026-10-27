@@ -35,6 +35,26 @@ impl Rewriter<'_> {
         true
     }
 
+    /// §7.7.3.2's Table 30 `/Count`, written as the leaves beneath the node where the source's is
+    /// missing or no integer; `super::super::page_tree::restated` counted them (`doc/adr/2456`).
+    pub(super) fn restate_page_count(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let Some(stated) = self
+            .page_counts
+            .filter(|_| self.wants(Rewrite::PageCountRestated))
+            .and_then(|counts| counts.get(&id))
+        else {
+            return false;
+        };
+        out.insert(Name::new(&b"Count"[..]), Object::Integer(*stated));
+        count(applied, Rewrite::PageCountRestated);
+        true
+    }
+
     /// The out-of-range optional page boundary entries one page loses.
     ///
     /// ISO 19005-2 section 6.1.13's limit, answered by ISO 32000-2 §7.7.3.3's Table 31 and

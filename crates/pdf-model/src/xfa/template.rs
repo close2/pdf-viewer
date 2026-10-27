@@ -4,8 +4,9 @@
 //! including its fields, calculations, validations, and formatting". This module reads its
 //! containers — `subform`, `subformSet`, `field`, `exclGroup`, `area`, `pageSet`, `pageArea` —
 //! with each one's name, its `scope`, its `bind`, its `ui`, its `items`, its `occur`, its
-//! `value`'s type, its `locale` and the pictures of its `ui`, `bind` and `validate`, and nothing
-//! of its layout or its scripts: those are RFC 0011 section 5's later steps (ADRs 2396, 2414).
+//! `value`'s type, its `locale`, the pictures of its `ui`, `bind` and `validate` and its
+//! `validate`'s tests and messages, and nothing of its layout or its scripts: those are RFC 0011
+//! section 5's later steps (ADRs 2396, 2414, 2450).
 //!
 //! Two questions are answered from it. **Which container an `AcroForm` field is**: XFA 3.3 chapter
 //! 2, *Field Names* (pages 72–73), makes an XFAF form's PDF field name a SOM expression pointing
@@ -87,6 +88,33 @@ pub(crate) struct Pictures {
     pub(crate) validate: Option<String>,
     /// Its `validate`'s `formatTest` (page 880).
     pub(crate) format_test: FormatTest,
+    /// Its `validate`'s `nullTest` (pages 880–881).
+    pub(crate) null_test: NullTest,
+    /// Its `validate`'s `message` texts, each by the test its `name` gives it — `nullTest`,
+    /// `formatTest` or `scriptTest` (page 383) — and the form designer's words for that test.
+    pub(crate) messages: Vec<(String, String)>,
+}
+
+impl Pictures {
+    /// The form designer's message for `test` (page 383), where the `validate` element gives one.
+    pub(crate) fn message(&self, test: &str) -> Option<&str> {
+        self.messages
+            .iter()
+            .find(|(name, _)| name == test)
+            .map(|(_, text)| text.as_str())
+    }
+}
+
+/// A `validate` element's `nullTest` (XFA 3.3 pages 880–881, the levels of page 384).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum NullTest {
+    /// No null test: page 881's default, an empty field being acceptable.
+    #[default]
+    Disabled,
+    /// An empty value is warned about, and the person may dismiss or override it (page 384).
+    Warning,
+    /// An empty value makes the container invalid (page 384).
+    Error,
 }
 
 /// A `validate` element's `formatTest` (XFA 3.3 page 880, the levels of pages 384–385).
@@ -504,6 +532,28 @@ fn read_properties(container: &mut Container, tree: &Tree, element: &Element) {
                     // Page 880's default, which a value it does not list falls back to as well.
                     _ => FormatTest::Warning,
                 };
+                container.pictures.null_test = match property.attribute("nullTest") {
+                    Some("warning") => NullTest::Warning,
+                    Some("error") => NullTest::Error,
+                    // Page 881's default, which a value it does not list falls back to as well.
+                    _ => NullTest::Disabled,
+                };
+                container.pictures.messages = tree
+                    .child(child, "message")
+                    .and_then(|message| tree.get(message))
+                    .map(|message| {
+                        message
+                            .children
+                            .iter()
+                            .filter_map(|&text| tree.get(text))
+                            .filter_map(|text| {
+                                let said = text.text.split_whitespace().collect::<Vec<_>>();
+                                Some((text.attribute("name")?.to_owned(), said.join(" ")))
+                            })
+                            .filter(|(_, said)| !said.is_empty())
+                            .collect()
+                    })
+                    .unwrap_or_default();
             }
             "occur" => {
                 let bound = |name: &str, default: i64| {

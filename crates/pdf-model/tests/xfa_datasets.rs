@@ -253,7 +253,7 @@ fn a_save_that_changes_no_field_writes_no_packet() {
     clippy::format_collect,
     reason = "a fixture of a few fields and a few kilobytes, built once; clarity over allocation"
 )]
-fn fixture(fields: &[(&str, &str)]) -> Document {
+fn fixture(fields: &[(&str, &str)], config: Option<&str>) -> Document {
     use std::fmt::Write as _;
     let template = format!(
         "<template xmlns=\"http://www.xfa.org/schema/xfa-template/3.3/\">\
@@ -305,10 +305,15 @@ fn fixture(fields: &[(&str, &str)]) -> Document {
             text.len() + 1
         )
     };
+    // A `config` packet goes after the widgets, so that their numbers stay 8 onwards.
+    let config_packet = config
+        .map(|_| format!(" (config) {} 0 R", 8 + fields.len()))
+        .unwrap_or_default();
     let mut objects = vec![
-        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] \
-         /XFA [(template) 5 0 R (datasets) 6 0 R (localeSet) 7 0 R] >> >>"
-            .to_owned(),
+        format!(
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] \
+             /XFA [(template) 5 0 R (datasets) 6 0 R (localeSet) 7 0 R{config_packet}] >> >>"
+        ),
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
         format!(
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [{}] >>",
@@ -326,6 +331,9 @@ fn fixture(fields: &[(&str, &str)]) -> Document {
              /Rect [72 {y} 300 {}] /DA (/Helv 10 Tf 0 g) >>",
             y + 20
         ));
+    }
+    if let Some(config) = config {
+        objects.push(stream(config));
     }
     let mut out = String::from("%PDF-1.7\n");
     let mut offsets = Vec::new();
@@ -349,7 +357,7 @@ fn fixture(fields: &[(&str, &str)]) -> Document {
 /// Fills the fixture's fields, saves, re-reads the `datasets` packet; each field's data value
 /// and what the save named unkept.
 fn saved(fields: &[(&str, &str)], typed: &[(&str, &str)]) -> (Vec<Option<String>>, Vec<String>) {
-    let document = fixture(fields);
+    let document = fixture(fields, None);
     let mut view = ViewState::of(&document);
     for (name, value) in typed {
         let name = format!("form1[0].{name}[0]");
@@ -579,5 +587,142 @@ fn a_typed_field_this_cannot_write_is_named() {
     assert!(
         values.iter().all(|v| v.as_deref() == Some("-")),
         "{values:?}"
+    );
+}
+
+/// XFA 3.3's null test at a save, on a form whose `config` asks for its validations before one
+/// (page 1340's `preSave`): page 381's first test, page 384's two levels, page 383's message
+/// (EXAMPLE 10.5's), and page 881's default, `disabled`.
+///
+/// Each field the person emptied is reported, and the save is not refused — page 1340 has a
+/// processor save the form whether its validations succeed or fail — so the empty value is the
+/// data's as it is the `/V`'s, and nothing is unkept (ADR 2450). The same form configured to
+/// validate before submitting alone, page 1340's default, is saved with no report.
+#[test]
+fn a_save_reports_each_field_its_null_test_holds_and_writes_it_empty() {
+    let fields = [
+        (
+            "amount",
+            "<field name=\"amount\"><ui><textEdit/></ui><validate nullTest=\"error\">\
+             <message><text name=\"nullTest\">Enter the amount of the loan in dollars.</text>\
+             </message></validate></field>",
+        ),
+        (
+            "remark",
+            "<field name=\"remark\"><ui><textEdit/></ui><validate nullTest=\"warning\"/></field>",
+        ),
+        (
+            "free",
+            "<field name=\"free\"><ui><textEdit/></ui><validate/></field>",
+        ),
+    ];
+    let typed = [("amount", ""), ("remark", ""), ("free", "")];
+    let reported = |validate: &str| {
+        let config = format!(
+            "<config xmlns=\"http://www.xfa.org/schema/xci/3.1/\"><acrobat>\
+             <validate>{validate}</validate></acrobat></config>"
+        );
+        let document = fixture(&fields, Some(&config));
+        let mut view = ViewState::of(&document);
+        for (name, value) in typed {
+            let name = format!("form1[0].{name}[0]");
+            assert!(
+                view.set_field(&document, &name, &Entered::Text(value.to_owned())) > 0,
+                "{name} took no value"
+            );
+        }
+        let written = view.save(&document).expect("the fixture saves");
+        assert!(written.xfa_unkept.is_empty(), "{:?}", written.xfa_unkept);
+        let saved = Document::open(written.bytes).expect("the save opens");
+        let after = Resource::read(&saved)
+            .expect("the resource is still stated")
+            .expect("the written packet reads");
+        for (name, _) in typed {
+            assert_eq!(
+                after
+                    .datasets
+                    .value(&after.template, &format!("form1[0].{name}[0]"))
+                    .as_deref(),
+                Some(""),
+                "{name}"
+            );
+        }
+        written.xfa_invalid
+    };
+    let said = reported("preSubmit preSave");
+    assert_eq!(said.len(), 2, "{said:?}");
+    assert!(
+        said[0][0].starts_with("form1[0].amount[0] is saved empty, and its XFA form requires")
+            && said[0][0].contains("\"Enter the amount of the loan in dollars.\""),
+        "{said:?}"
+    );
+    assert!(
+        said[1][0].starts_with("form1[0].remark[0] is saved empty, and its XFA form recommends"),
+        "{said:?}"
+    );
+    assert!(reported("preSubmit").is_empty());
+}
+
+/// XFA 3.3 page 527's default bind picture: a field whose template states no bind picture is
+/// written by the one a `config` packet's `transform` gives the data element it binds, named by
+/// the transform's `ref` — here a `decimal` typed in `nl_NL`, whose canonical `12.50` (chapter
+/// 24) the picture `zz9.99` writes in that locale's symbols, its radix a comma. A `transform`
+/// naming another element leaves the field canonical (ADR 2450).
+#[test]
+fn a_config_transform_gives_a_field_its_default_bind_picture() {
+    let fields = [(
+        "prix",
+        "<field name=\"prix\"><ui><numericEdit/></ui><value><decimal/></value></field>",
+    )];
+    let written = |reference: &str| {
+        let config = format!(
+            "<config xmlns=\"http://www.xfa.org/schema/xci/3.1/\"><acrobat><common><data>\
+             <transform ref=\"{reference}\"><picture>zz9.99</picture></transform></data>\
+             </common></acrobat></config>"
+        );
+        let document = fixture(&fields, Some(&config));
+        let mut view = ViewState::of(&document);
+        assert!(
+            view.set_field(
+                &document,
+                "form1[0].prix[0]",
+                &Entered::Text("12,50".to_owned())
+            ) > 0
+        );
+        let written = view.save(&document).expect("the fixture saves");
+        assert!(written.xfa_unkept.is_empty(), "{:?}", written.xfa_unkept);
+        let saved = Document::open(written.bytes).expect("the save opens");
+        let after = Resource::read(&saved)
+            .expect("the resource is still stated")
+            .expect("the written packet reads");
+        after.datasets.value(&after.template, "form1[0].prix[0]")
+    };
+    assert_eq!(written("prix").as_deref(), Some("12,50"));
+    assert_eq!(written("price").as_deref(), Some("12.50"));
+}
+
+/// An extended mapping rule this program does not carry out — page 509's table's
+/// `startNode`, here — changes which data node a field binds, so the save names the field rather
+/// than binding past the rule (trap 5; ADR 2450).
+#[test]
+fn a_mapping_rule_this_does_not_carry_out_leaves_the_field_named() {
+    let fields = [("note", "<field name=\"note\"><ui><textEdit/></ui></field>")];
+    let config = "<config xmlns=\"http://www.xfa.org/schema/xci/3.1/\"><present><common><data>\
+                  <startNode>xfa.datasets.data.form1</startNode></data></common></present></config>";
+    let document = fixture(&fields, Some(config));
+    let mut view = ViewState::of(&document);
+    assert!(
+        view.set_field(
+            &document,
+            "form1[0].note[0]",
+            &Entered::Text("x".to_owned())
+        ) > 0
+    );
+    let written = view.save(&document).expect("the fixture saves");
+    assert_eq!(written.xfa_unkept.len(), 1, "{:?}", written.xfa_unkept);
+    assert!(
+        written.xfa_unkept[0].1.contains("startNode"),
+        "{:?}",
+        written.xfa_unkept
     );
 }

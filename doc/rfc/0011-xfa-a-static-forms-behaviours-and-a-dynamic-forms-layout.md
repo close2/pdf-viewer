@@ -427,8 +427,16 @@ half; §K.2 is `partial`, three writer's rules kept and the template's events ow
    value is written out by a picture clause in the prevailing locale, so a `bind` picture writes
    the field's data in its own format (page 176) and a `validate` picture's format test (page 382)
    decides whether the data takes the value; a value the test fails is named in
-   `Written::xfa_unkept` at either level. Step 4's null test and its report to the person, the
-   way the windows report a commit a field's `/K` refuses, are next.
+   `Written::xfa_unkept` at either level.
+   **Step 4's null test and its report built** (session 1808, ADR 2450): where the form's `config`
+   lists `preSave` (page 1340), a save runs the `validate` element's null test over every field
+   at page 384's levels and reports each one left empty in the form's own message (page 383),
+   grouped as page 386's `validationMessaging` says, on the channel the windows report a `/K`
+   refusal on (ADR 1592); the save is not refused and the empty value is the data's, as page 1340
+   has it. A `config` `transform`'s default bind picture (chapter 15, page 527) governs the
+   `datasets` packet in the file, and is built; the extended mapping rules this program does not
+   carry out leave a changed field named (ADR 2451). Step 4's script test is step 5's engine's,
+   and step 5 is next.
 4. **On Q639's answer**: the dynamic half, whose first round is a measurement — the cost of laying
    out page one of the census's `/NeedsRendering` documents — before a line of layout ships.
 

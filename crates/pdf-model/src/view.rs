@@ -66,16 +66,6 @@ pub use scripts::{
     Committed, Displayed, FocusRequest, Resumed, ScriptEvent, ScriptResult, ScriptRunner,
 };
 
-/// Deepest nesting of `/Kids`, and longest `/Parent` chain, walked in §12.7.4.1's field tree.
-///
-/// The tree is one a document controls, and `/Kids` may point back up it, so every walk is
-/// bounded — which §12.7.4.1 forbids ("\[a]n interactive PDF processor shall not limit the range of
-/// inheritance for field dictionaries") and its ledger row records as departed. The bound is the
-/// appearance construction's own, [`crate::appearance::MAX_FIELD_ANCESTRY`], because ADR 1198
-/// found real fields thirty-two links deep: one number for one tree, so no walk here stops
-/// silently short of where the construction reports.
-const MAX_FIELD_DEPTH: usize = crate::appearance::MAX_FIELD_ANCESTRY;
-
 /// The document state a viewer holds and §12.6.4's actions change.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ViewState {
@@ -1179,6 +1169,17 @@ pub struct Written {
     /// every document with no XFA resource, and for the four hybrid forms of the corpora filled
     /// in their text, choice and button fields (ADR 2396).
     pub xfa_unkept: Vec<(String, String)>,
+    /// The messages of the XFA form's null tests this save ran, one `Vec` per message the
+    /// person is shown and one sentence per field in it (XFA 3.3 pages 384 and 386).
+    ///
+    /// A form whose `config` lists `preSave` among the activities its validations run before
+    /// (page 1340) has each field its `validate` element requires or recommends a value in, and
+    /// that is saved empty, named here. The save is not refused: page 1340 has a processor save
+    /// the form whether validation succeeds or fails, and the empty value is written to the data
+    /// as to the `/V`. Empty for every document with no XFA resource, and for a form that
+    /// validates before submitting alone, page 1340's default, which all four hybrid forms of the
+    /// corpora state (ADR 2450).
+    pub xfa_invalid: Vec<Vec<String>>,
 }
 
 /// What a field says now, and whether saying it was Table 231 bit 14's substitution.

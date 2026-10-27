@@ -105,7 +105,7 @@ fn entry_text(document: &Document, value: &Object) -> Option<String> {
 /// Table 228 marks `/DA` and `/Q` inheritable and neither `/RV` nor `/DS`, so this is the walk for
 /// a widget merged with its field, or one whose field sits above it in `/Kids` — the dictionaries
 /// that *are* the field — and not §12.7.4.1's inheritance.
-fn nearest(document: &Document, chain: &[Dictionary], key: &str) -> Option<(usize, Object)> {
+fn nearest(document: &Document, chain: &[&Dictionary], key: &str) -> Option<(usize, Object)> {
     chain.iter().enumerate().find_map(|(at, dict)| {
         let value = document.get_key(dict, key);
         (!value.is_null()).then_some((at, value))
@@ -164,7 +164,7 @@ pub(crate) struct Stated<'a> {
 /// 1635).
 pub(crate) fn for_field(
     document: &Document,
-    chain: &[Dictionary],
+    chain: &[&Dictionary],
     plain: &str,
     stated: Stated<'_>,
     root: &Character,

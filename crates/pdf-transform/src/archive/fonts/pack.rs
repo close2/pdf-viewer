@@ -23,7 +23,9 @@
 //! stream is untouched. The descendant becomes a `CIDFontType0` where it said `CIDFontType2`,
 //! because Table 124 puts a CFF program under that subtype and no program was there for the old
 //! subtype to describe; its `/BaseFont` and the descriptor's `/FontName` become the subset's name,
-//! which Table 117 requires of a `CIDFontType0` and §9.9.2 of a subset. The Type 0 font's own
+//! which Table 117 requires of a `CIDFontType0` and §9.9.2 of a subset. A descendant that states
+//! no descriptor, writes one inside itself, or names one that already holds a subset at other
+//! widths is given a descriptor object of its own (`home_of`, ADR 2461). The Type 0 font's own
 //! `/BaseFont` is the producer's statement of the face they meant and is kept (Table 119 asks the
 //! concatenation with a "should").
 //!
@@ -48,6 +50,9 @@ use pdf_font::substitute::Format;
 use pdf_syntax::Document;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId};
 use sha2::{Digest as _, Sha256};
+use skrifa::MetadataProvider as _;
+use skrifa::instance::{LocationRef, Size};
+use skrifa::outline::{DrawSettings, OutlinePen};
 
 use super::super::decision::{Because, Loss, Losses};
 use super::super::prepare::Spare;
@@ -252,8 +257,8 @@ pub(super) fn collection_of(
 /// # Errors
 ///
 /// [`Because::NotBuiltYet`] naming the condition met — the pack absent or not this tree's, a
-/// shown CID the program has no glyph for, a descendant or descriptor that is no object — and
-/// [`Because::TheFence`] where the dictionary asks two widths of one CID.
+/// shown CID the program has no glyph for, a descendant that is no object, a descriptor that is
+/// no dictionary — and [`Because::TheFence`] where the dictionary asks two widths of one CID.
 pub(super) fn embed(
     document: &Document,
     used: &SelectedFont,
@@ -264,10 +269,6 @@ pub(super) fn embed(
     substitutes: &mut Substitutes,
 ) -> Result<(), Because> {
     let program = program_of(pack, collection)?;
-    let descriptor = descendant
-        .get("FontDescriptor")
-        .and_then(Object::as_reference)
-        .ok_or(Because::NotBuiltYet(NO_DESCRIPTOR_OBJECT))?;
     let descendant_at = descendant_object(document, &used.dict)
         .ok_or(Because::NotBuiltYet(NO_DESCENDANT_OBJECT))?;
     let encoding = name_of(document, &used.dict, "Encoding").unwrap_or_default();
@@ -275,35 +276,16 @@ pub(super) fn embed(
     let font = LoadedFont::metrics_only(document, &used.dict, &used.name)
         .ok_or(Because::NotBuiltYet(NO_CMAP))?;
     let mut widths = shown_widths(&font, &cmap, used)?;
-
-    // **One subset per descriptor, of every CID any font reaching it shows.** The survey meets a
-    // font once per page that selects it, and two Type 0 dictionaries may share one descendant;
-    // each meeting widens the one program rather than writing a second over the first.
-    let at = match substitutes.packed.get(&descriptor) {
-        Some(earlier) if earlier.collection == collection => {
-            for (cid, width) in &earlier.widths {
-                match widths.entry(*cid) {
-                    Entry::Vacant(slot) => {
-                        slot.insert(*width);
-                    }
-                    Entry::Occupied(held) if disagrees(*held.get(), *width) => {
-                        return Err(Because::TheFence(TWO_WIDTHS_FOR_ONE_GLYPH));
-                    }
-                    Entry::Occupied(_) => {}
-                }
-            }
-            earlier.at
-        }
-        Some(_) => return Err(Because::NotBuiltYet(SHARED_DESCRIPTOR)),
-        None if substitutes.at.contains_key(&descriptor)
-            || substitutes.described.contains_key(&descriptor) =>
-        {
-            return Err(Because::NotBuiltYet(SHARED_DESCRIPTOR));
-        }
-        None => spare
-            .take(document)
-            .ok_or(Because::NotBuiltYet(super::NO_SPARE_OBJECT))?,
-    };
+    let home = home_of(
+        document,
+        descendant,
+        descendant_at,
+        collection,
+        &mut widths,
+        spare,
+        substitutes,
+    )?;
+    let at = home.program;
     let (bytes, name, route) = written_program(&program, collection, &widths)?;
 
     let row = Table124 {
@@ -320,23 +302,42 @@ pub(super) fn embed(
         &mut substitutes.written,
     )?;
     substitutes.written.insert(at, stream);
-    substitutes
-        .at
-        .insert(descriptor, Embedding { key: row.key, at });
+    let embedding = Embedding { key: row.key, at };
+    match &home.own {
+        None => {
+            substitutes.at.insert(home.descriptor, embedding);
+        }
+        Some(template) => {
+            let mut own = match template {
+                Template::Copied(stated) => stated.clone(),
+                Template::Built => built_descriptor(&bytes, &program, collection)?,
+            };
+            embedding.write_into(&mut own);
+            own.insert(
+                Name::new(&b"FontName"[..]),
+                Object::Name(Name::new(name.as_bytes())),
+            );
+            substitutes
+                .written
+                .insert(home.descriptor, Object::Dictionary(own));
+        }
+    }
     rename(
         document,
         descendant,
         descendant_at,
-        descriptor,
+        &home,
         &name,
         substitutes,
     );
     substitutes.packed.insert(
-        descriptor,
+        home.descriptor,
         Packed {
             collection,
             widths,
             at,
+            own: home.own,
+            descendants: home.descendants,
         },
     );
     substitutes.done.push(SubstitutedFont {
@@ -348,17 +349,315 @@ pub(super) fn embed(
         described: None,
         losses: Losses::default().with(Loss::MachineFace),
         fitting: None,
+        empty_glyphs: Vec::new(),
+        font: super::selected(used),
     });
     Ok(())
 }
 
 /// What the pack route wrote into one descriptor: the collection, every CID shown through it with
-/// its width, and the stream object holding the subset.
+/// its width, the stream object holding the subset, what the descriptor was made from where this
+/// conversion wrote it, and the descendants that name it.
 #[derive(Debug)]
 pub(super) struct Packed {
     collection: Collection,
     widths: BTreeMap<u16, f32>,
     at: ObjectId,
+    own: Option<Template>,
+    descendants: BTreeSet<ObjectId>,
+}
+
+/// Where one font's subset is written: the descriptor that names it, the stream object holding
+/// it, and — where the descriptor is one this conversion writes — what it is made from.
+struct Home {
+    descriptor: ObjectId,
+    program: ObjectId,
+    own: Option<Template>,
+    descendants: BTreeSet<ObjectId>,
+}
+
+/// What a descriptor this conversion writes for a descendant is made from.
+#[derive(Debug, Clone)]
+enum Template {
+    /// The descriptor the descendant states, written inside it or shared with a font another
+    /// subset was written for: its entries are the producer's and are carried.
+    Copied(Dictionary),
+    /// No descriptor at all: every entry Table 120 requires is read off the written program.
+    Built,
+}
+
+/// The descriptor one descendant's subset goes into (`doc/adr/2461`).
+///
+/// ISO 32000-2 Table 117 requires a `CIDFont`'s `/FontDescriptor` and makes it an indirect
+/// reference, and §9.9 embeds a program by a key of that descriptor, which holds one program. So
+/// the subset goes into the descriptor the descendant names where that descriptor is an object no
+/// other program was written into, or was written into by this route for the same collection at
+/// the same widths — one subset of every CID the fonts reaching it show. **Otherwise the
+/// descendant is given a descriptor object of its own**: where it states none, where it writes
+/// one inside itself, and where the one it names already holds a program another font's widths
+/// were held to. Two `CIDFont`s whose `/W` give one CID two advances cannot share a program,
+/// since a program states one advance per glyph (§9.2.4); each is a font of its own, and its
+/// descriptor is too.
+///
+/// # Errors
+///
+/// [`Because::TheFence`] where a descendant met again asks two widths of one CID, and
+/// [`Because::NotBuiltYet`] where a descriptor is no dictionary or no object is spare.
+fn home_of(
+    document: &Document,
+    descendant: &Dictionary,
+    descendant_at: ObjectId,
+    collection: Collection,
+    widths: &mut BTreeMap<u16, f32>,
+    spare: &mut Spare,
+    substitutes: &Substitutes,
+) -> Result<Home, Because> {
+    // A descendant met again on another page: its own descriptor, widened.
+    if let Some((descriptor, earlier)) = substitutes
+        .packed
+        .iter()
+        .find(|(_, earlier)| earlier.own.is_some() && earlier.descendants.contains(&descendant_at))
+    {
+        widen(widths, &earlier.widths)?;
+        return Ok(Home {
+            descriptor: *descriptor,
+            program: earlier.at,
+            own: earlier.own.clone(),
+            descendants: earlier.descendants.clone(),
+        });
+    }
+    let template = match descendant.get("FontDescriptor") {
+        None | Some(Object::Null) => Template::Built,
+        Some(Object::Dictionary(inline)) => Template::Copied(inline.clone()),
+        Some(Object::Reference(stated)) => {
+            let stated = *stated;
+            match substitutes.packed.get(&stated) {
+                Some(earlier)
+                    if earlier.collection == collection && agrees(widths, &earlier.widths) =>
+                {
+                    widen(widths, &earlier.widths)?;
+                    let mut descendants = earlier.descendants.clone();
+                    descendants.insert(descendant_at);
+                    return Ok(Home {
+                        descriptor: stated,
+                        program: earlier.at,
+                        own: None,
+                        descendants,
+                    });
+                }
+                None if !substitutes.at.contains_key(&stated)
+                    && !substitutes.described.contains_key(&stated) =>
+                {
+                    let program = spare
+                        .take(document)
+                        .ok_or(Because::NotBuiltYet(super::NO_SPARE_OBJECT))?;
+                    return Ok(Home {
+                        descriptor: stated,
+                        program,
+                        own: None,
+                        descendants: BTreeSet::from([descendant_at]),
+                    });
+                }
+                _ => {}
+            }
+            let resolved = document.resolve(&Object::Reference(stated));
+            Template::Copied(
+                resolved
+                    .as_dict()
+                    .ok_or(Because::NotBuiltYet(NOT_A_DESCRIPTOR))?
+                    .clone(),
+            )
+        }
+        Some(_) => return Err(Because::NotBuiltYet(NOT_A_DESCRIPTOR)),
+    };
+    let descriptor = spare
+        .take(document)
+        .ok_or(Because::NotBuiltYet(super::NO_SPARE_OBJECT))?;
+    let program = spare
+        .take(document)
+        .ok_or(Because::NotBuiltYet(super::NO_SPARE_OBJECT))?;
+    Ok(Home {
+        descriptor,
+        program,
+        own: Some(template),
+        descendants: BTreeSet::from([descendant_at]),
+    })
+}
+
+/// Whether every CID both width lists name has one advance in both.
+fn agrees(widths: &BTreeMap<u16, f32>, earlier: &BTreeMap<u16, f32>) -> bool {
+    widths.iter().all(|(cid, width)| {
+        earlier
+            .get(cid)
+            .is_none_or(|held| !disagrees(*held, *width))
+    })
+}
+
+/// `widths` widened by every CID an earlier meeting showed.
+///
+/// # Errors
+///
+/// [`Because::TheFence`] where the two give one CID two advances.
+fn widen(widths: &mut BTreeMap<u16, f32>, earlier: &BTreeMap<u16, f32>) -> Result<(), Because> {
+    for (cid, width) in earlier {
+        match widths.entry(*cid) {
+            Entry::Vacant(slot) => {
+                slot.insert(*width);
+            }
+            Entry::Occupied(held) if disagrees(*held.get(), *width) => {
+                return Err(Because::TheFence(TWO_WIDTHS_FOR_ONE_GLYPH));
+            }
+            Entry::Occupied(_) => {}
+        }
+    }
+    Ok(())
+}
+
+/// A descriptor for a descendant that states none, every entry Table 120 requires read off the
+/// subset written (`subset`) or the pack's own program (`program`).
+///
+/// ISO 32000-2 Table 120 makes `/Type`, `/FontName`, `/Flags`, `/FontBBox`, `/ItalicAngle`,
+/// `/Ascent`, `/Descent` and `/StemV` required, and `/CapHeight` "Required for fonts that have
+/// Latin characters"; `/FontName` and the program's key are written by the caller. Each value is
+/// the definition's own measurement:
+///
+/// - `/Flags` is Table 121's `Symbolic` alone: a collection's program "contains glyphs outside the
+///   Standard Latin character set", and the pack's faces are upright, sans-serif and
+///   proportional.
+/// - `/FontBBox` encloses every glyph of the subset — "the shape that would result if all of the
+///   glyphs of the font were placed with their origins coincident and then filled" — `.notdef`
+///   included, since the font holds it.
+/// - `/Ascent` and `/Descent` are the highest and lowest points of the subset's glyphs but
+///   `.notdef`, which no shown code reaches.
+/// - `/CapHeight` is the top of the collection's `H`, which every collection the pack holds has:
+///   stated whether or not the page shows Latin text, since Table 120 asks it of a font that has
+///   Latin characters and the program does.
+/// - `/ItalicAngle` is the program's `post` table's, and `/StemV` is 0, Table 120's "unknown
+///   stem thickness": a CID-keyed program states its stems per Font DICT, not once.
+///
+/// # Errors
+///
+/// [`Because::NotBuiltYet`] where a program does not draw, or the subset's glyphs reach no point
+/// below the baseline, which Table 120's `/Descent` "shall be a negative number" cannot state.
+fn built_descriptor(
+    subset: &[u8],
+    program: &[u8],
+    collection: Collection,
+) -> Result<Dictionary, Because> {
+    let unmeasured = || Because::NotBuiltYet(DESCRIPTOR_NOT_MEASURED);
+    let glyphs = pdf_font::cff::glyph_count(subset).map_err(|_| unmeasured())?;
+    let mut all = Bounds::default();
+    let mut shown = Bounds::default();
+    for glyph in 0..glyphs {
+        let glyph = u16::try_from(glyph).map_err(|_| unmeasured())?;
+        let mut pen = Bounds::default();
+        pdf_font::cff::draw(subset, glyph, &mut pen).map_err(|_| unmeasured())?;
+        all.include(&pen);
+        if glyph != pdf_font::NOTDEF_GLYPH {
+            shown.include(&pen);
+        }
+    }
+    let (Some(bbox), Some([_, descent, _, ascent])) = (all.rectangle(), shown.rectangle()) else {
+        return Err(unmeasured());
+    };
+    if descent >= 0.0 {
+        return Err(unmeasured());
+    }
+    let face = skrifa::FontRef::new(program).map_err(|_| unmeasured())?;
+    let italic_angle = face
+        .metrics(Size::unscaled(), LocationRef::default())
+        .italic_angle;
+    let cap_height = capital_height(&face, collection).ok_or_else(unmeasured)?;
+    let number = |value: f32| {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a glyph-space measurement in thousandths of an em, rounded to the whole \
+                      unit a descriptor states it in and clamped far inside i64"
+        )]
+        Object::Integer(value.round().clamp(-1.0e6, 1.0e6) as i64)
+    };
+    let mut dict = Dictionary::new();
+    dict.insert(
+        Name::new(&b"Type"[..]),
+        Object::Name(Name::new(&b"FontDescriptor"[..])),
+    );
+    dict.insert(Name::new(&b"Flags"[..]), Object::Integer(1 << 2));
+    dict.insert(
+        Name::new(&b"FontBBox"[..]),
+        Object::Array(bbox.iter().map(|side| number(*side)).collect()),
+    );
+    dict.insert(
+        Name::new(&b"ItalicAngle"[..]),
+        Object::Real(f64::from(italic_angle)),
+    );
+    dict.insert(Name::new(&b"Ascent"[..]), number(ascent));
+    dict.insert(Name::new(&b"Descent"[..]), number(descent));
+    dict.insert(Name::new(&b"CapHeight"[..]), number(cap_height));
+    dict.insert(Name::new(&b"StemV"[..]), Object::Integer(0));
+    Ok(dict)
+}
+
+/// The top of the collection's first CID for `H`, through the collection's own `Adobe-*-UCS2`
+/// table (§9.10.2's third method), in the pack's program, whose glyph N is CID N.
+fn capital_height(face: &skrifa::FontRef<'_>, collection: Collection) -> Option<f32> {
+    let table = pdf_font::predefined::cid_to_unicode("Adobe", collection.ordering())?;
+    let glyphs = face.outline_glyphs();
+    let cid = (1..u32::from(u16::MAX)).find(|cid| table.char_for(*cid) == Some('H'))?;
+    let mut pen = Bounds::default();
+    glyphs
+        .get(skrifa::GlyphId::new(cid))?
+        .draw(
+            DrawSettings::unhinted(Size::unscaled(), LocationRef::default()),
+            &mut pen,
+        )
+        .ok()?;
+    pen.rectangle().map(|[_, _, _, top]| top)
+}
+
+/// The extent a pen was drawn over, in the program's units.
+#[derive(Debug, Default)]
+struct Bounds(Option<[f32; 4]>);
+
+impl Bounds {
+    fn point(&mut self, x: f32, y: f32) {
+        self.0 = Some(match self.0 {
+            None => [x, y, x, y],
+            Some([x0, y0, x1, y1]) => [x0.min(x), y0.min(y), x1.max(x), y1.max(y)],
+        });
+    }
+
+    fn include(&mut self, other: &Self) {
+        if let Some([x0, y0, x1, y1]) = other.0 {
+            self.point(x0, y0);
+            self.point(x1, y1);
+        }
+    }
+
+    /// `[x_min, y_min, x_max, y_max]`, where anything was drawn.
+    fn rectangle(&self) -> Option<[f32; 4]> {
+        self.0
+    }
+}
+
+/// The on-curve and control points bound a glyph's outline, which is all a bounding box and
+/// Table 120's heights need: a curve stays inside its control points' hull.
+impl OutlinePen for Bounds {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.point(x, y);
+    }
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.point(x, y);
+    }
+    fn quad_to(&mut self, cx: f32, cy: f32, x: f32, y: f32) {
+        self.point(cx, cy);
+        self.point(x, y);
+    }
+    fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
+        self.point(cx0, cy0);
+        self.point(cx1, cy1);
+        self.point(x, y);
+    }
+    fn close(&mut self) {}
 }
 
 /// The subset of the pack's `program` keeping each of `widths`' CIDs, its advances the
@@ -432,12 +731,13 @@ fn program_of(pack: Option<&CjkPack>, collection: Collection) -> Result<Arc<[u8]
 
 /// The names Table 117 and §9.9.2 ask of a `CIDFontType0` holding a subset: the descendant's
 /// `/BaseFont` and the descriptor's `/FontName` are the program's own, and the descendant's
-/// `/Subtype` is the one Table 124 puts a CFF program under.
+/// `/Subtype` is the one Table 124 puts a CFF program under; a descendant given a descriptor of
+/// its own is pointed at it.
 fn rename(
     document: &Document,
     descendant: &Dictionary,
     descendant_at: ObjectId,
-    descriptor: ObjectId,
+    home: &Home,
     subset: &str,
     substitutes: &mut Substitutes,
 ) {
@@ -450,10 +750,20 @@ fn rename(
             Object::Name(Name::new(&b"CIDFontType0"[..])),
         );
     }
+    if home.own.is_some() {
+        // The descriptor this conversion wrote carries its `/FontName` itself; the descendant
+        // is pointed at it, which Table 117's indirect reference asks.
+        gains.insert(
+            Name::new(&b"FontDescriptor"[..]),
+            Object::Reference(home.descriptor),
+        );
+        substitutes.described.insert(descendant_at, gains);
+        return;
+    }
     substitutes.described.insert(descendant_at, gains);
     let mut named = Dictionary::new();
     named.insert(Name::new(&b"FontName"[..]), name);
-    substitutes.described.insert(descriptor, named);
+    substitutes.described.insert(home.descriptor, named);
 }
 
 /// The CIDs the page shows, each with the width the dictionary gives it.
@@ -492,7 +802,7 @@ fn shown_widths(
 fn draws(program: &[u8], glyph: u16) -> bool {
     /// Whether any segment was drawn.
     struct Drew(bool);
-    impl skrifa::outline::OutlinePen for Drew {
+    impl OutlinePen for Drew {
         fn move_to(&mut self, _: f32, _: f32) {}
         fn line_to(&mut self, _: f32, _: f32) {
             self.0 = true;
@@ -550,22 +860,23 @@ const NO_CMAP: &str = "this document renders a composite font of an Adobe charac
      whose Encoding names a predefined CMap this reader could not read, so which CIDs the page \
      shows is not a question it can answer";
 
-/// Why a descendant whose descriptor is written inline is refused.
-const NO_DESCRIPTOR_OBJECT: &str = "this composite font's descendant CIDFont states its \
-     FontDescriptor as a dictionary written inside itself rather than as the indirect reference \
-     ISO 32000-2's Table 115 requires, and a program is embedded by writing a FontFile3 key into a \
-     descriptor object. There is no object here to write into";
+/// Why a descendant whose `/FontDescriptor` is neither absent nor a dictionary is refused.
+const NOT_A_DESCRIPTOR: &str = "this composite font's descendant CIDFont states a \
+     FontDescriptor that is not a dictionary, and a program is embedded by a key of the font \
+     descriptor ISO 32000-2's Table 120 describes. There is no descriptor here to embed into, and \
+     none to carry into one written for it";
+
+/// Why a descriptor written for a descendant that states none is refused.
+const DESCRIPTOR_NOT_MEASURED: &str = "this composite font's descendant CIDFont states no \
+     FontDescriptor, which ISO 32000-2's Table 117 requires, and the descriptor written for it \
+     could not be measured off the CJK pack's program: its glyphs did not draw, or reach no point \
+     below the baseline, and Table 120 requires a Descent that is a negative number";
 
 /// Why a descendant written inline is refused.
 const NO_DESCENDANT_OBJECT: &str = "this composite font's DescendantFonts array holds the \
      CIDFont dictionary itself rather than a reference to one, and embedding the CJK pack's \
      program rewrites that dictionary's Subtype and BaseFont. There is no object here to write \
      those entries into";
-
-/// Why a descriptor another route or another collection already wrote into is refused.
-const SHARED_DESCRIPTOR: &str = "this composite font's FontDescriptor is shared with a font that \
-     was given a program of another collection, or by another route, and one descriptor holds \
-     one program; separate descendant descriptors are not built yet, so the font is not written";
 
 #[cfg(test)]
 mod tests {

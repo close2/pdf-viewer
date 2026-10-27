@@ -185,3 +185,186 @@ fn the_pack_answers_a_collections_font_as_the_named_loss_machine_face() {
         "{font:?}"
     );
 }
+
+/// The pack's reader, for the tests that need a built pack.
+fn the_pack() -> CjkPack {
+    let directory = std::env::var_os("QUORRA_CJK_PACK")
+        .expect("QUORRA_CJK_PACK names the directory the pack was unpacked into");
+    CjkPack::new(Arc::new(Directory(Some(directory.into()))))
+}
+
+/// `source` converted to PDF/A-2b with the pack and the loss `machine-face` authorised, opened.
+fn converted_with_the_pack(source: &[u8]) -> Document {
+    let mut plan = a_supplied_font(Target::Two(Level::B), "NotThisFont", &[]);
+    plan.cjk_pack = Some(the_pack());
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::MachineFace);
+    plan.authorised = authorised;
+    let (report, output) = convert_with_plan(source, &plan);
+    let Some(output) = output else {
+        panic!(
+            "it converts: {:?}",
+            decision(&report, "fonts/font-programs-embedded")
+        );
+    };
+    Document::open_with_limits(output, Limits::DEFAULT).expect("it opens")
+}
+
+/// Each descendant `CIDFont` the converted file holds, by object number, with its descriptor
+/// reference as the dictionary states it and the descriptor it resolves to.
+fn descendants_and_descriptors(
+    held: &Document,
+) -> Vec<(
+    pdf_syntax::object::Dictionary,
+    Option<pdf_syntax::object::ObjectId>,
+    pdf_syntax::object::Dictionary,
+)> {
+    held.xref()
+        .object_numbers()
+        .filter_map(|number| {
+            let object = held.resolve(&pdf_syntax::Object::Reference(
+                pdf_syntax::object::ObjectId::new(number, 0),
+            ));
+            let dict = object.as_dict()?.clone();
+            let subtype = held.get_key(&dict, "Subtype");
+            (subtype.as_name()?.as_bytes() == b"CIDFontType0").then_some(dict)
+        })
+        .map(|descendant| {
+            let stated = descendant
+                .get("FontDescriptor")
+                .and_then(pdf_syntax::Object::as_reference);
+            let descriptor = held
+                .get_key(&descendant, "FontDescriptor")
+                .as_dict()
+                .cloned()
+                .expect("a descriptor");
+            (descendant, stated, descriptor)
+        })
+        .collect()
+}
+
+#[test]
+#[ignore = "needs the CJK pack, a second download that is not part of a checkout: \
+            QUORRA_CJK_PACK=<dir> names it (doc/cjk-pack.md)"]
+fn a_descendant_stating_no_descriptor_is_given_one_measured_off_the_pack_program() {
+    // Table 117 makes a CIDFont's /FontDescriptor required and an indirect reference; this one
+    // states none, so the converter writes one, every Table 120 entry the table requires present.
+    let source = Conforming {
+        resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td <30423044> Tj ET".to_vec(),
+        )),
+        objects: vec![
+            "<< /Type /Font /Subtype /Type0 /BaseFont /HeiseiMin-W3-UniJIS-UCS2-H \
+             /Encoding /UniJIS-UCS2-H /DescendantFonts [7 0 R] >>"
+                .to_owned(),
+            "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /HeiseiMin-W3 \
+             /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 2 >> /DW 1000 >>"
+                .to_owned(),
+        ],
+        ..Conforming::part_two()
+    }
+    .build();
+    let held = converted_with_the_pack(&source);
+    let [(descendant, stated, descriptor)] = &descendants_and_descriptors(&held)[..] else {
+        panic!("one descendant");
+    };
+    assert!(stated.is_some(), "Table 117's indirect reference");
+    assert_eq!(
+        held.get_key(descendant, "BaseFont").as_name(),
+        held.get_key(descriptor, "FontName").as_name(),
+        "Table 120: the FontName is the BaseFont of the CIDFont that refers to it"
+    );
+    for key in [
+        "Type",
+        "FontName",
+        "Flags",
+        "FontBBox",
+        "ItalicAngle",
+        "Ascent",
+        "Descent",
+        "CapHeight",
+        "StemV",
+        "FontFile3",
+    ] {
+        assert!(descriptor.get(key).is_some(), "{key}: {descriptor:?}");
+    }
+    let number = |key: &str| {
+        held.get_key(descriptor, key)
+            .as_integer()
+            .expect("a whole number")
+    };
+    // Table 121's Symbolic alone; Table 120's Descent "shall be a negative number".
+    assert_eq!(number("Flags"), 4);
+    assert!(number("Descent") < 0 && number("Ascent") > 0);
+    assert!(number("CapHeight") > 0 && number("CapHeight") <= number("Ascent"));
+}
+
+#[test]
+#[ignore = "needs the CJK pack, a second download that is not part of a checkout: \
+            QUORRA_CJK_PACK=<dir> names it (doc/cjk-pack.md)"]
+fn descendants_sharing_a_descriptor_at_two_widths_are_each_given_their_own() {
+    // §9.7.4.3: /DW is the advance of every CID /W does not list, so CID 843 is 1000 units wide
+    // in one descendant and 500 in the other. A program states one advance per glyph (§9.2.4),
+    // so the two cannot share one; each is given a descriptor and a subset of its own.
+    let source = Conforming {
+        resources: "/Font << /F1 6 0 R /F2 7 0 R >> /ColorSpace << /CS0 [/CalGray << \
+                    /WhitePoint [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td <3042> Tj /F2 12 Tf <3042> Tj ET".to_vec(),
+        )),
+        objects: vec![
+            "<< /Type /Font /Subtype /Type0 /BaseFont /Ryumin-Light-UniJIS-UCS2-H \
+             /Encoding /UniJIS-UCS2-H /DescendantFonts [9 0 R] >>"
+                .to_owned(),
+            "<< /Type /Font /Subtype /Type0 /BaseFont /Ryumin-Light-UniJIS-UCS2-H \
+             /Encoding /UniJIS-UCS2-H /DescendantFonts [10 0 R] >>"
+                .to_owned(),
+            "<< /Type /FontDescriptor /FontName /Ryumin-Light /Flags 4 \
+             /FontBBox [-170 -331 1024 903] /ItalicAngle 0 /Ascent 723 /Descent -241 \
+             /CapHeight 709 /StemV 69 >>"
+                .to_owned(),
+            "<< /Type /Font /Subtype /CIDFontType0 /BaseFont /Ryumin-Light \
+             /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 2 >> \
+             /FontDescriptor 8 0 R /DW 1000 >>"
+                .to_owned(),
+            "<< /Type /Font /Subtype /CIDFontType0 /BaseFont /Ryumin-Light \
+             /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 2 >> \
+             /FontDescriptor 8 0 R /DW 500 >>"
+                .to_owned(),
+        ],
+        ..Conforming::part_two()
+    }
+    .build();
+    let held = converted_with_the_pack(&source);
+    let found = descendants_and_descriptors(&held);
+    let [(one, at_one, first), (other, at_other, second)] = &found[..] else {
+        panic!("two descendants: {}", found.len());
+    };
+    assert_ne!(
+        at_one, at_other,
+        "each descendant names a descriptor of its own"
+    );
+    assert_ne!(
+        held.get_key(first, "FontFile3")
+            .as_stream()
+            .map(|it| it.data.clone()),
+        held.get_key(second, "FontFile3")
+            .as_stream()
+            .map(|it| it.data.clone()),
+        "each descriptor holds a subset of its own, at its own advances"
+    );
+    for (descendant, descriptor) in [(one, first), (other, second)] {
+        assert_eq!(
+            held.get_key(descendant, "BaseFont").as_name(),
+            held.get_key(descriptor, "FontName").as_name()
+        );
+        // The copy carries the producer's entries.
+        assert_eq!(held.get_key(descriptor, "StemV").as_integer(), Some(69));
+    }
+}

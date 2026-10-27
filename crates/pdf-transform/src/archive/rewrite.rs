@@ -525,6 +525,10 @@ pub enum Rewrite {
     /// Type 3 glyph procedure with no resources draws with whatever invoked it, and one
     /// dictionary cannot answer for every invocation.
     PageResources,
+    /// Every page tree node whose `/Count` is missing or no integer states the number of leaves
+    /// this reader walks beneath it, which ISO 32000-2 §7.7.3.2's Table 30 defines the entry as
+    /// (`doc/adr/2456`).
+    PageCountRestated,
     /// Every font descriptor whose `/CharSet` or `/CIDSet` does not describe the whole of its own
     /// embedded program loses that entry.
     ///
@@ -1361,6 +1365,11 @@ impl Rewrite {
                 "a page that names a resource and states no Resources of its own is given the \
                  dictionary ISO 32000-2 \u{a7}7.7.3.4's inheritance already puts in force for it"
             }
+            Self::PageCountRestated => {
+                "a page tree node whose Count is missing or is no integer states the number of \
+                 page objects beneath it, which ISO 32000-2 \u{a7}7.7.3.2's Table 30 defines the \
+                 entry as and which this reader counted"
+            }
             Self::DescriptorSetRemoved => {
                 "a font descriptor's CharSet or CIDSet, which describes the embedded program \
                  incompletely, is removed — both editions of the base standard make the entry \
@@ -1678,6 +1687,7 @@ impl Rewrite {
             Self::NormalAppearanceFromState => "normal-appearance-from-state",
             Self::OptionalContentOrder => "optional-content-order",
             Self::PageResources => "page-resources",
+            Self::PageCountRestated => "page-count-restated",
             Self::DescriptorSetRemoved => "descriptor-set-removed",
             Self::CidToGidIdentity => "cid-to-gid-identity",
             Self::PacketHeaderAttributes => "packet-header-attributes",
@@ -1884,6 +1894,12 @@ impl<'a> Rewriter<'a> {
             appearance_states: prepared.owed.appearance_states.as_ref().ok(),
             orders: prepared.owed.orders.as_ref().ok(),
             page_resources: prepared.owed.page_resources.as_ref().ok(),
+            page_counts: prepared
+                .owed
+                .page_counts
+                .as_ref()
+                .ok()
+                .map(|counts| &counts.at),
             descriptor_sets: prepared.owed.descriptor_sets.as_ref().ok(),
             cid_to_gid: prepared.owed.cid_to_gid.as_ref().ok(),
             font_files: prepared.owed.font_files.as_ref().ok(),
@@ -2781,6 +2797,8 @@ struct Rewriter<'a> {
     orders: Option<&'a CompletedOrders>,
     /// The `/Resources` each page with none of its own is given.
     page_resources: Option<&'a PageResources>,
+    /// The `/Count` each page tree node whose own is no integer states (`doc/adr/2456`).
+    page_counts: Option<&'a BTreeMap<ObjectId, i64>>,
     /// The subset descriptions removed from each font descriptor.
     descriptor_sets: Option<&'a DescriptorSets>,
     /// The `CIDFont`s given `/CIDToGIDMap` `/Identity`.
@@ -3157,6 +3175,7 @@ impl Rewriter<'_> {
         // After both, for the same reason: it edits what `out` holds by then.
         changed |= self.name_configurations(id, out, applied);
         changed |= self.attach_page_resources(id, out, applied);
+        changed |= self.restate_page_count(id, out, applied);
         changed |= self.remove_descriptor_sets(id, out, applied);
         changed |= self.remove_page_boundaries(id, out, applied);
         changed |= self.write_cid_to_gid_map(id, out, applied);

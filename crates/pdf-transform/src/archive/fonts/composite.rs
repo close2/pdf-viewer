@@ -215,6 +215,8 @@ pub(super) fn embed(
         // is drawn at no stretch.
         losses: super::Losses::default(),
         fitting: None,
+        empty_glyphs: Vec::new(),
+        font: super::selected(used),
     });
     Ok(())
 }

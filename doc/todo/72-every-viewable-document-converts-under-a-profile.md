@@ -240,6 +240,14 @@ code-to-name table when TrueType became CFF; stating the source selections clear
 refusal, while their independent content-stream fences remain. The direct-resource and
 machine-face cases were addressed in ADR 2162; `machine-face` remains a named loss, accepted by
 `as-if-printed` and stopped by `as-shown`.
+The sixteen refused because "no face this program ships has a glyph" were no script: fifteen show
+a code their own encoding sends to `.notdef` — unnamed (a line feed, a control code, Annex D.6's
+unencoded 0200–0215) or `.notdef` written into `/Differences` — and one shows `Delta`, which the
+shipped serif lacks. A48's empty glyph is built where the face is a CFF one and the font states no
+descriptor (ADR 2458): `ZapfDingbats.pdf` and `issue4304.pdf` convert; the `glyf` half is the
+fence's, since every name that reaches a glyph under a non-symbolic `TrueType` dictionary states a
+character; a font stating its own descriptor is refused by a sentence of its own, and the seven
+govdocs files it holds stop at the content-stream fence besides.
 Its largest refusal at part 4 over the two corpora together, an embedded Type 2 CIDFont stating
 no `/CIDToGIDMap` in a file labelled PDF 1.x, is built as a statement under both profiles (ADR
 2246). Its largest in pdf.js alone, a composite font nobody named a program for, stays refused by
@@ -289,11 +297,12 @@ ModDate that is not §7.9.4's date", is answered (ADR 2358): a date is read as t
 form Table 349 states, is dropped under the row's `unreadable = "discard"`, which the three
 metadata-tolerant profiles say; and an empty or dangling `/Info` moves nothing and goes. The
 fuzzed documents that converted into files veraPDF cannot parse — a root page node whose `/Count`
-is a stream, or whose `/Kids` is no array — are refused by name before anything is written (ADR
-2444); restating such a `/Count`, which Table 30's NOTE asks of a writer, waits for a section 5.1
-row to fail it. A font only an annotation's appearance shows is re-keyed where its `/ToUnicode`
-answers; the photographed half, and a photographed page's substitutes leaving the report, are
-deferred with no corpus witness (ADR 2445). A Type 0 font whose `/DescendantFonts` is
+is a stream, or whose `/Kids` is no array — fail two section 5.1 rows of their own: a `/Count`
+that is no integer is restated from the leaves this reader walks (ADR 2456), so both `91414`
+documents and `T02-02_008` convert, and a node with no `/Kids` array is refused by name before
+anything is written (ADR 2444); `optimize` and `redact` refuse both shapes (ADR 2457). A font only an annotation's appearance shows is re-keyed where its `/ToUnicode`
+answers; the photographed half is deferred with no corpus witness (ADR 2445). A font substituted
+beside a photographed page is reported only where the output still holds it (ADR 2454). A Type 0 font whose `/DescendantFonts` is
 not the one `CIDFont` §9.7.6.1's Table 119 asks for — `issue12823.pdf`'s `[ null ]` — fails the
 implemented row `fonts/descendant-fonts-holds-one-cidfont` and is refused by name (ADR 2433); the
 rest of ISO 19005's "fonts conform to §9.6 and §9.7" sentence stays `Unchecked`. The font population
@@ -308,8 +317,14 @@ at `metadata/extension-schemas-embedded` with a placeholder no report was meant 
 packet section 6.6.2.1 replaces: the fresh packet states no schema, so the replacement meets the
 row and the row takes the packet row's decision (ADR 2442). Seven convert; the larger reasons
 above it are a profile's `stop`, the fence, a press profile, the CJK pack and a glyph no face has.
-The amendment and field-description editors return the same placeholder on the same shape, and no
-corpus document reaches them.
+The amendment and field-description editors take the same construction, and a fresh catalog packet
+is given the identification schema whether or not a row asked for it (ADR 2455).
+
+The CJK pack is a second download, so the census counts a collection's font refused as the pack's
+absence unless `QUORRA_CJK_PACK` names it, and its first line now says which (ADR 2460). With the
+pack, of the thirteen pdf.js documents refused for its absence nine convert under `as-if-printed`,
+two stop on an independent fence row, and the last two convert once a descendant stating no
+descriptor, or sharing one at other widths, is given a descriptor of its own (ADR 2461).
 
 Table 109's widths-array count is checked independently for simple fonts. A nonempty short
 array narrows LastChar; a long array loses only entries beyond it. This `Stated` rewrite keeps

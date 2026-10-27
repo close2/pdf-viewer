@@ -138,6 +138,8 @@ seed() {
         ;;
     # The UCD's bidirectional cases and cursive words.
     shaping) python3 "$here/seed_shaping.py" "$root/$t" ;;
+    # One small file of each media container §13.2.4.3's judgement reads, built rather than found.
+    media_container) python3 "$here/seed_media_container.py" "$root/$t" > /dev/null ;;
     # §12.7.8's FDF files, one per entry the reader handles, and §7.9.4's dates.
     forms_data) python3 "$here/seed_forms_data.py" "$root/$t" ;;
     # A field's one-call script, its value and a keystroke, each function under every argument shape.

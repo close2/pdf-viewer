@@ -51,6 +51,11 @@ public sealed partial class MainWindow : Window
     private WindowProbe? probe;
     private double scale;
     private bool sized;
+    // Set from the moment this window carries out a resize the library asked for until the page
+    // area's next size has reached the library. In between, AppWindow.ClientSize is already the
+    // new size while the library's viewport is still the one before it, and a placement answered
+    // from that pair counts the resize twice (ADR 2446).
+    private bool resizing;
     private bool pressed;
     private bool presentOwed;
     // Where the pictures were when the controls were last placed: a control moves with the page,
@@ -180,6 +185,7 @@ public sealed partial class MainWindow : Window
         }
         scale = now;
         window.Resize(width, height, (float)now);
+        resizing = false;
         if (!sized)
         {
             sized = true;
@@ -253,6 +259,13 @@ public sealed partial class MainWindow : Window
     // `positions` is one (ADR 2308).
     private void Place(QuorraWindow open)
     {
+        // The library owes this record again when the page area's new size reaches it, so the
+        // record waits for that size rather than being answered from either side of it (ADR 2446).
+        if (resizing)
+        {
+            probe?.Waiting();
+            return;
+        }
         AppWindow app = AppWindow;
         RectInt32 work = DisplayArea.GetFromWindowId(app.Id, DisplayAreaFallback.Nearest).WorkArea;
         double at = scale > 0 ? scale : 1.0;
@@ -277,7 +290,15 @@ public sealed partial class MainWindow : Window
         if (placed.resize != 0)
         {
             probe?.AskedToResize(placed.width, placed.height);
+            // Set before the act, so that a page area told its size during the act clears it.
+            SizeInt32 before = app.ClientSize;
+            resizing = true;
             app.ResizeClient(new SizeInt32(Physical(placed.width), Physical(placed.height)));
+            // A platform that leaves the client size as it was gives the page area no new size.
+            if (app.ClientSize.Equals(before))
+            {
+                resizing = false;
+            }
         }
         if (placed.move_to != 0)
         {

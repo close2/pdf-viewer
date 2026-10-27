@@ -78,12 +78,15 @@ pub fn stated(document: &Document) -> Option<Stated> {
 }
 
 mod canonical;
+mod config;
 mod datasets;
 mod locale;
 mod picture;
 mod template;
+mod validate;
 mod xml;
 
+pub use config::Config;
 pub use datasets::{Change, Datasets, Kept};
 pub use locale::LocaleSet;
 pub use template::Template;
@@ -141,6 +144,9 @@ pub struct Resource {
     /// The `localeSet` packet's locales and the `config` packet's default locale, which a
     /// field's picture clauses are read in (XFA 3.3 pages 153 and 158; ADR 2414).
     pub locales: LocaleSet,
+    /// The `config` packet's extended mapping rules and validation options (XFA 3.3 chapter 15,
+    /// pages 386 and 1340; ADR 2450); its defaults where the resource holds no `config`.
+    pub config: Config,
     /// The stream whose text [`Datasets::keep`] splices: the `datasets` packet's in the array
     /// form, the whole resource's in the stream form. A save replaces this one object, which is
     /// §7.5.6's "objects that have been changed, replaced, or deleted".
@@ -148,6 +154,16 @@ pub struct Resource {
 }
 
 impl Resource {
+    /// The messages of the null tests a save runs, where the form's `config` asks for its
+    /// validations before a save (XFA 3.3 pages 396, 506 and 1340): one `Vec` per message the
+    /// person is shown, as page 386's `validationMessaging` groups them, each holding one sentence
+    /// per field its `validate` element's null test fails. `fields` are every field of the form by
+    /// its PDF name, with the value the save leaves in its `/V` (ADR 2450).
+    #[must_use]
+    pub fn before_save(&self, fields: &[(String, Change)]) -> Vec<Vec<String>> {
+        validate::before_save(&self.template, &self.config, fields)
+    }
+
     /// The resource of `document`'s interactive form dictionary; `None` where it states none in
     /// either of §K.2's forms.
     ///
@@ -183,6 +199,7 @@ impl Resource {
         Ok(Self {
             template: Template::read(&tree, template),
             locales,
+            config: Config::read(&tree),
             datasets: Datasets::new(text, tree, datasets),
             datasets_stream: id,
         })
@@ -211,11 +228,19 @@ impl Resource {
         let datasets = tree
             .first("datasets")
             .ok_or(ResourceError::Missing("datasets"))?;
+        // A `config` packet that is stated and does not read leaves the form without its
+        // configured locale and with page 509's and page 1340's defaults, rather than refusing
+        // the fields that need neither.
+        let config = match named("config").map(|id| packet(document, id, "config")) {
+            Some(Ok((_, tree))) => Some(tree),
+            _ => None,
+        };
         Ok(Self {
             template: Template::read(&template_tree, template),
             datasets: Datasets::new(text, tree, datasets),
             datasets_stream: datasets_id,
-            locales: Self::locales(document, named("localeSet"), named("config")),
+            locales: Self::locales(document, named("localeSet"), config.as_ref()),
+            config: config.as_ref().map(Config::read).unwrap_or_default(),
         })
     }
 
@@ -225,16 +250,12 @@ impl Resource {
     fn locales(
         document: &Document,
         locale_set: Option<ObjectId>,
-        config: Option<ObjectId>,
+        config: Option<&xml::Tree>,
     ) -> LocaleSet {
-        let config = match config.map(|id| packet(document, id, "config")) {
-            Some(Ok((_, tree))) => Some(tree),
-            _ => None,
-        };
         match locale_set.map(|id| packet(document, id, "localeSet")) {
-            None => LocaleSet::read(None, config.as_ref()),
+            None => LocaleSet::read(None, config),
             Some(Ok((_, tree))) => match tree.first("localeSet") {
-                Some(at) => LocaleSet::read(Some((&tree, at)), config.as_ref()),
+                Some(at) => LocaleSet::read(Some((&tree, at)), config),
                 None => LocaleSet::unreadable(
                     "its localeSet packet holds no localeSet element".to_owned(),
                 ),

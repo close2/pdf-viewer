@@ -162,8 +162,8 @@ const FLAGS: &[Flag] = &[
 
 /// How far §12.7.4.1's `/Parent` chain is followed here, which is this census's own bound.
 ///
-/// Deliberately *not* `appearance::MAX_FIELD_ANCESTRY`: a census whose inheritance walk moved
-/// with the bound it is measuring could not say what the bound costs.
+/// The census's own, deliberately: `pdf-model` follows the chain to its top (ADR 2448), and a
+/// census whose walk moved with the reader it measures could not say what that reader meets.
 const MAX_ANCESTRY: usize = 32;
 
 /// How far [`parent_links`] walks, which is further so that the bound above can be measured.
@@ -202,10 +202,8 @@ fn main() {
     // value is (ADR 1197). Counted beside `/DS`, the default style string of the same table.
     let mut rich_text_markup_value = 0_usize;
     let mut rich_text_with_ds = 0_usize;
-    // §12.7.4.1's departure, priced: the clause forbids bounding the range of inheritance and
-    // `appearance::MAX_FIELD_ANCESTRY` bounds it anyway, so what the bound costs is how close a
-    // real field's `/Parent` chain comes to it. This is the measurement that chose the number
-    // (ADR 1198), and it is re-run rather than quoted when the number is questioned.
+    // §12.7.4.1's range of inheritance, measured: how deep a real field's `/Parent` chain goes,
+    // which ADRs 1198 and 2448 rest on, re-run rather than quoted when a depth is questioned.
     let mut deepest_chain = 0_usize;
     let mut at_or_past_the_bound: Vec<String> = Vec::new();
     // Table 231 bit 25's own population. The flag is counted above; what a layout needs beside it
@@ -453,9 +451,8 @@ fn inherited(document: &Document, widget: &Dictionary, key: &str) -> Option<pdf_
 
 /// How many `/Parent` links a widget's field chain has, up to a bound well past this tree's own.
 ///
-/// Walked further than `appearance::MAX_FIELD_ANCESTRY` on purpose: a census that stopped where
-/// the departure stops could not say whether any field reaches it. A cycle is what the outer
-/// bound is for, and a chain that hits it is counted as hitting it.
+/// Bounded by the census's own number so that a cycle stops it — `pdf-model` finds a cycle without
+/// one (ADR 2448) — and a chain that reaches it is counted as reaching it.
 fn parent_links(document: &Document, widget: &Dictionary) -> usize {
     let mut current = widget.clone();
     for links in 0..CENSUS_MAX_ANCESTRY {

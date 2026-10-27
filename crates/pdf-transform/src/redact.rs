@@ -225,7 +225,7 @@ use pdf_syntax::lexer::{Lexer, Token};
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
 use pdf_syntax::serialize::{Assembly, Form, Options, flate_encode};
 
-use crate::optimize::{catalog_of, copy_closure, refuse_a_document_only_recovery_reads};
+use crate::optimize::{catalog_of, copy_closure, refuse_a_source_a_copy_would_carry_broken};
 use crate::pattern::{Fill, Pattern};
 use crate::{Declined, Departure, Origin, Output, Protect, Refusal, Report, Sinks, Warning};
 
@@ -273,7 +273,7 @@ pub(crate) fn run(
         count: documents.len(),
     })?;
     let root = catalog_of(document)?;
-    refuse_a_document_only_recovery_reads(document, root)?;
+    refuse_a_source_a_copy_would_carry_broken(document, root)?;
     if document.is_encrypted() && protect.is_none() {
         // §12.5.6.23 requires a redaction to "remove all traces of the specified content", and a
         // person who put a password on a document meant its contents not to be read. Writing the

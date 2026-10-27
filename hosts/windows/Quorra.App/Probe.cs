@@ -1,8 +1,8 @@
 // The window's own account of what it did for §12.2's Table 147 and Table 29's FullScreen, written
-// to its log under --probe for CI's smoke step (ADR 2436). Every sentence but the first states what
-// the window reads back from its own AppWindow and page area after acting, never what it was
-// asked, so a step that holds these sentences to the table holds the window rather than the
-// library, whose half drive_a_window.c already proves (ADR 2308).
+// to its log under --probe for CI's smoke step (ADRs 2436, 2446). Every sentence but the two about
+// a resize states what the window reads back from its own AppWindow and page area after acting,
+// never what it was asked, so a step that holds these sentences to the table holds the window
+// rather than the library, whose half drive_a_window.c already proves (ADR 2308).
 
 using System;
 using Microsoft.UI.Windowing;
@@ -30,13 +30,28 @@ internal sealed class WindowProbe
     private AppWindowPresenterKind? presenter;
     private string? pane;
     private bool escaped;
+    private bool waiting;
 
     /// <summary>A probe writing to <paramref name="log"/>, the window's own log.</summary>
     internal WindowProbe(Action<string> log) => this.log = log;
 
     /// <summary>The library asked for the window's inner size to change: Table 147's /FitWindow at work.</summary>
-    internal void AskedToResize(int width, int height) =>
+    internal void AskedToResize(int width, int height)
+    {
+        waiting = false;
         log($"probe: asked to resize the window to {width} by {height}");
+    }
+
+    /// <summary>
+    /// A placement was owed before the window's last resize reached the page area, so it waits
+    /// for that size: said once per resize (ADR 2446).
+    /// </summary>
+    internal void Waiting()
+    {
+        if (waiting) return;
+        waiting = true;
+        log("probe: the placement waits for the page area to take the resize");
+    }
 
     /// <summary>The library's last answer for the placement was carried out, and this is where the window is.</summary>
     internal void Placed(ReadBack at)

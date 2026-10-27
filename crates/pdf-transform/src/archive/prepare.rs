@@ -1145,6 +1145,7 @@ impl Prepared {
             prepare_field_descriptions(
                 document,
                 catalog.as_ref(),
+                &schema_packets(document, input, FIELDS_SITE),
                 Edited {
                     fresh: fresh.as_ref().ok(),
                     headers: headers.as_ref().ok(),
@@ -1322,8 +1323,19 @@ impl Prepared {
             catalog.as_ref(),
             &mut spare,
             &Recording {
-                // Edited when the schema is wanted or when it is deliberately omitted (`A59`).
-                schema: wanted(Rewrite::IdentificationSchema) || omit_identification,
+                // Edited when the schema is wanted or when it is deliberately omitted (`A59`), and
+                // when the catalog's packet is composed afresh: the replacement states no property,
+                // so an identification the producer's packet already stated rightly goes with it
+                // unless it is written again (`doc/adr/2455`).
+                schema: wanted(Rewrite::IdentificationSchema)
+                    || omit_identification
+                    || fresh.as_ref().is_ok_and(|fresh| {
+                        catalog
+                            .as_ref()
+                            .and_then(|catalog| catalog.get("Metadata"))
+                            .and_then(Object::as_reference)
+                            .is_some_and(|at| fresh.packet(at).is_some())
+                    }),
                 omit_identification,
                 departure: provenance.departure,
                 derived: provenance.derived,
@@ -1564,6 +1576,7 @@ impl Prepared {
             }
             Rewrite::OptionalContentOrder => self.owed.orders.as_ref().err().copied(),
             Rewrite::PageResources => self.owed.page_resources.as_ref().err().copied(),
+            Rewrite::PageCountRestated => self.owed.page_counts.as_ref().err().copied(),
             Rewrite::DescriptorSetRemoved => self.owed.descriptor_sets.as_ref().err().copied(),
             Rewrite::CidToGidIdentity => self.owed.cid_to_gid.as_ref().err().copied(),
             Rewrite::FontProgramRefiled => self.owed.font_files.as_ref().err().copied(),
@@ -1770,6 +1783,8 @@ pub(super) struct Owed {
     pub(super) orders: Result<CompletedOrders, Because>,
     /// The pages given the resources dictionary they inherit, or why none are.
     pub(super) page_resources: Result<PageResources, Because>,
+    /// The page tree nodes whose `/Count` is restated, or why none are (`doc/adr/2456`).
+    pub(super) page_counts: Result<super::page_tree::RestatedCounts, Because>,
     /// The font descriptors whose incomplete subset description goes, or why none do.
     pub(super) descriptor_sets: Result<DescriptorSets, Because>,
     /// The `CIDFont`s given `/CIDToGIDMap` `/Identity`, or why none are.
@@ -1826,6 +1841,12 @@ pub(super) struct Owed {
 
 impl Owed {
     /// Each of them, where a failed requirement asked for it.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one field per preparation, each asked only where a failed requirement wants \
+                  it; the list is read straight down, and splitting it would hide which \
+                  preparation a rewrite is given behind a call"
+    )]
     pub(super) fn of(
         plan: &ArchivePlan,
         document: &Document,
@@ -1858,6 +1879,9 @@ impl Owed {
             }),
             page_resources: asked(wanted(Rewrite::PageResources), || {
                 sites::page_resources(document, input)
+            }),
+            page_counts: asked(wanted(Rewrite::PageCountRestated), || {
+                super::page_tree::restated(document)
             }),
             descriptor_sets: asked(wanted(Rewrite::DescriptorSetRemoved), || {
                 sites::descriptor_sets(document, input)
@@ -3256,6 +3280,14 @@ pub(super) struct SchemasDescribed {
     pub(super) replaced: Vec<ObjectId>,
 }
 
+impl SchemasDescribed {
+    /// Whether every stream the requirement failed at was replaced and none described, so that
+    /// the replacement's decision is the row's (`doc/adr/2442`).
+    pub(super) fn only_replaced(&self) -> bool {
+        self.packets.is_empty() && !self.replaced.is_empty()
+    }
+}
+
 /// One extension schema this conversion described, as the report names it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DescribedSchema {
@@ -3475,6 +3507,18 @@ pub(super) struct FieldsDescribed {
     pub(super) packets: BTreeMap<ObjectId, Vec<u8>>,
     /// Every field described, for the report, in the order the packets state them.
     pub(super) described: Vec<DescribedField>,
+    /// Every metadata stream the requirement failed at whose packet section 6.6.2.1's replacement
+    /// composes afresh, stating no value type at all: there the replacement is what meets the
+    /// requirement, and nothing is described (`doc/adr/2455`).
+    pub(super) replaced: Vec<ObjectId>,
+}
+
+impl FieldsDescribed {
+    /// Whether every stream the requirement failed at was replaced and none described, so that
+    /// the replacement's decision is the row's (`doc/adr/2455`).
+    pub(super) fn only_replaced(&self) -> bool {
+        self.packets.is_empty() && !self.replaced.is_empty()
+    }
 }
 
 /// One structure field this conversion described in its value type, as the report names it.
@@ -3597,10 +3641,22 @@ const FIELD_STILL_UNDESCRIBED: &str = "a structure field this conversion describ
 fn prepare_field_descriptions(
     document: &Document,
     catalog: Option<&Dictionary>,
+    failing: &[ObjectId],
     edited: Edited<'_>,
     supplied: &BTreeMap<String, String>,
 ) -> Result<FieldsDescribed, Because> {
     let mut out = FieldsDescribed::default();
+    // A stream the fresh packet replaces states no value type of the producer's, so no field in
+    // it is described; where the requirement failed there, the replacement meets it, and the
+    // decision is the replacement's own (`doc/adr/2455`, `doc/adr/2442`'s construction).
+    if let Some(fresh) = edited.fresh {
+        out.replaced.extend(
+            failing
+                .iter()
+                .copied()
+                .filter(|at| fresh.packet(*at).is_some()),
+        );
+    }
     for (at, bytes, inherited, undescribed) in fields_by_packet(document, catalog, edited)? {
         let inherited = inherited.as_deref();
         let mut rows = Vec::with_capacity(undescribed.len());
@@ -3642,7 +3698,7 @@ fn prepare_field_descriptions(
         out.packets.insert(at, written);
         out.described.extend(rows);
     }
-    if out.packets.is_empty() {
+    if out.packets.is_empty() && out.replaced.is_empty() {
         return Err(Because::NotBuiltYet(NOT_ASKED_FOR));
     }
     Ok(out)
@@ -3933,7 +3989,23 @@ pub(super) struct Amended {
     pub(super) packets: BTreeMap<ObjectId, Vec<u8>>,
     /// Every identifier removed, spelled and with the value that was there, for the report.
     pub(super) removed: Vec<RemovedIdentifier>,
+    /// The catalog's metadata stream, where section 6.6.2.1's replacement composes its packet
+    /// afresh: a packet stating no property states no amendment identifier, so the replacement is
+    /// what meets the requirement, and nothing is cut (`doc/adr/2455`).
+    pub(super) replaced: Option<ObjectId>,
 }
+
+impl Amended {
+    /// Whether the packet the requirement failed in was replaced rather than edited, so that the
+    /// replacement's decision is the row's (`doc/adr/2455`).
+    pub(super) fn only_replaced(&self) -> bool {
+        self.packets.is_empty() && self.replaced.is_some()
+    }
+}
+
+/// ISO 19005-2 section 6.6.4's form of an amendment identifier, the requirement
+/// [`prepare_amendment`] answers.
+pub(super) const AMENDMENT_REQUIREMENT: &str = "metadata/identification-amendment-form";
 
 /// One amendment or corrigendum identifier this conversion cut, as the report names it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3999,6 +4071,15 @@ fn prepare_amendment(
         .and_then(|catalog| catalog.get("Metadata"))
         .and_then(Object::as_reference)
         .ok_or(Because::NotBuiltYet(NOT_ASKED_FOR))?;
+    // The requirement is read out of this one packet, so where the fresh packet replaces it the
+    // replacement meets the requirement and the decision is the replacement's own (`doc/adr/2455`,
+    // `doc/adr/2442`'s construction).
+    if edited.fresh.is_some_and(|fresh| fresh.packet(at).is_some()) {
+        return Ok(Amended {
+            replaced: Some(at),
+            ..Amended::default()
+        });
+    }
     let Object::Stream(stream) = document.get(at) else {
         return Err(Because::NotBuiltYet(NOT_A_PACKET));
     };
@@ -4039,6 +4120,7 @@ fn prepare_amendment(
     Ok(Amended {
         packets: BTreeMap::from([(at, cut)]),
         removed: stated,
+        replaced: None,
     })
 }
 
@@ -4982,9 +5064,16 @@ pub(super) fn substituted_fonts_recorded(fonts: &[fonts::SubstitutedFont]) -> St
                     format!(" (the face had been drawn at the horizontal scale {fitting})")
                 })
                 .unwrap_or_default();
+            // `doc/questions/A48`'s condition: each empty glyph is in the file's own history,
+            // naming the clause it answers (`doc/adr/2458`).
+            let empty = if font.empty_glyphs.is_empty() {
+                String::new()
+            } else {
+                format!("; {}", fonts::empty_glyphs_given(&font.empty_glyphs))
+            };
             format!(
                 "{} was not embedded and {} was embedded in its place, {}, taking the {} \
-                 route{described}{lost}{fitting}",
+                 route{described}{lost}{fitting}{empty}",
                 font.requested,
                 font.face,
                 font.authority.describe(),

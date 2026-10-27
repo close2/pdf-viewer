@@ -134,25 +134,9 @@ use pdf_syntax::{Dictionary, Document, Name, Object};
 use std::fmt::Write as _;
 
 use crate::icon::{self, Mark};
+use crate::inheritance::Inherited;
 use crate::variable_text::{self, Asked, LayoutFonts, Owed, Quadding, Request, Shape};
 use crate::view::FieldValue;
-
-/// How many `/Parent` links a field's inheritable entry is followed through.
-///
-/// §12.7.4.1 makes `/FT`, `/Ff`, `/V` and `/DV` inheritable, so a widget merged with its field
-/// may hold none of them itself. **The clause forbids this bound** — "An interactive PDF
-/// processor shall not limit the range of inheritance for field dictionaries" — and it exists
-/// anyway, because a `/Parent` chain in a hostile file can be a cycle and principle 3's budgets
-/// outrank an unbounded walk. Reaching it is reported rather than treated as "no value", so the
-/// departure cannot hide: a bound that is silent is the defect, not the bound.
-///
-/// **The number is chosen so that it decides nothing about a legitimate file**, which is what a
-/// resource budget owes a departure the clause forbids. The deepest `/Parent` chain any document
-/// on this disk states is 32 links — `examples/field_flag_census` prints it, with the widgets
-/// that reach it — so 32 was the one value at which the bound refused real fields instead of
-/// cycles, and this is eight times the measurement. A cycle costs 256 dictionary lookups once
-/// per field and is still refused by name (ADR 1198).
-pub(crate) const MAX_FIELD_ANCESTRY: usize = 256;
 
 /// The default border width §12.5.4 states: "If neither the Border nor the BS entry is present,
 /// the border shall be drawn as a solid line with a width of 1 point."
@@ -1526,8 +1510,8 @@ fn scripted_appearance(
 ) -> Option<(Name, Object)> {
     let form = interactive_form(document).unwrap_or_default();
     let sources: Vec<&Dictionary> = field
-        .ancestry
-        .iter()
+        .chain()
+        .into_iter()
         .chain(std::iter::once(&form))
         .collect();
     let mut appearance = variable_text::bytes(document, &sources, "DA").unwrap_or_default();
@@ -1724,8 +1708,8 @@ pub(crate) fn draws_dingbats(document: &Document, annotation: &Dictionary) -> bo
     let field = Field::read(document, annotation, FieldValue::Stored);
     let form = interactive_form(document).unwrap_or_default();
     let sources: Vec<&Dictionary> = field
-        .ancestry
-        .iter()
+        .chain()
+        .into_iter()
         .chain(std::iter::once(&form))
         .collect();
     let Some(appearance) = variable_text::bytes(document, &sources, "DA") else {
@@ -3989,10 +3973,10 @@ fn field_text(
     fonts: &LayoutFonts<'_>,
 ) -> Result<Option<variable_text::LaidOut>, Refusal> {
     let field = Field::read(document, annotation, value);
-    if field.too_deep {
+    if field.cyclic {
         return Err(Refusal::NotDerivable(
-            "its field's /Parent chain is longer than this crate follows, so what it holds is \
-             unknown",
+            "its field's /Parent chain returns to a field it has already passed, so it is no \
+             hierarchy and §12.7.4.1's inheritance gives it nothing to hold",
         ));
     }
     let Some(kind) = field.kind else {
@@ -4117,8 +4101,8 @@ fn field_text(
 
     let form = interactive_form(document).unwrap_or_default();
     let sources: Vec<&Dictionary> = field
-        .ancestry
-        .iter()
+        .chain()
+        .into_iter()
         .chain(std::iter::once(&form))
         .collect();
     // Table 228 marks `/DA` and `/Q` inheritable, and Table 224 gives the interactive form
@@ -4139,7 +4123,7 @@ fn field_text(
         let root = crate::rich_text::root_style(document, &resources, &default_appearance);
         if let Some(chosen) = crate::rich_text::for_field(
             document,
-            &field.ancestry,
+            &field.chain(),
             &text,
             crate::rich_text::Stated {
                 markup: source.markup.as_deref(),
@@ -4622,7 +4606,7 @@ fn frame(
         return free_text_frame(document, annotation, view);
     }
     let field = Field::read(document, annotation, view.value);
-    if field.too_deep
+    if field.cyclic
         || !matches!(
             field.kind,
             Some(FieldKind::Text | FieldKind::Choice { combo: true })
@@ -4723,7 +4707,7 @@ pub(crate) fn field_text_value(
     value: FieldValue<'_>,
 ) -> Option<crate::view::ShownValue> {
     let field = Field::read(document, annotation, value);
-    if field.too_deep {
+    if field.cyclic {
         return None;
     }
     if !matches!(
@@ -4821,9 +4805,7 @@ pub(crate) fn accepted_prefix(
             indices: None,
         },
     );
-    if field.too_deep
-        || field.kind != Some(FieldKind::Text)
-        || field.flags & FLAG_DO_NOT_SCROLL == 0
+    if field.cyclic || field.kind != Some(FieldKind::Text) || field.flags & FLAG_DO_NOT_SCROLL == 0
     {
         return None;
     }
@@ -4840,8 +4822,8 @@ pub(crate) fn accepted_prefix(
 
     let form = interactive_form(document).unwrap_or_default();
     let sources: Vec<&Dictionary> = field
-        .ancestry
-        .iter()
+        .chain()
+        .into_iter()
         .chain(std::iter::once(&form))
         .collect();
     let default_appearance = variable_text::bytes(document, &sources, "DA")?;
@@ -5403,11 +5385,11 @@ pub(crate) struct Field {
     pub(crate) flags: i64,
     /// Table 226's `/V`.
     pub(crate) value: Option<Object>,
-    /// The widget and its ancestors, nearest first, for the inheritable entries of Table 228
-    /// that are read later.
-    pub(crate) ancestry: Vec<Dictionary>,
-    /// Whether the `/Parent` chain ran past [`MAX_FIELD_ANCESTRY`].
-    pub(crate) too_deep: bool,
+    /// The widget and what its `/Parent` chain resolves to, for the entries read later — Table
+    /// 228's `/DA` and `/Q` among them. [`Field::chain`] is how a reader looks through it.
+    inherited: Inherited,
+    /// Whether the `/Parent` chain is a cycle rather than a hierarchy.
+    pub(crate) cyclic: bool,
     /// Whether the value above is the file's own `/V`, or something that replaced it.
     ///
     /// Two clauses replace it and both have the same consequence for a check box, which is why
@@ -5423,103 +5405,78 @@ pub(crate) struct Field {
 }
 
 impl Field {
-    /// Walks §12.7.4.1's `/Parent` chain once, taking each inheritable entry from the nearest
-    /// dictionary that states it.
+    /// Reads a widget's field through §12.7.4.1's inheritance, taking each inheritable entry from
+    /// the nearest dictionary that states it.
     ///
     /// > Many field attributes are inheritable , meaning that if they are not explicitly
     /// > specified for a given field, their values are taken from those of its parent in the
     /// > field hierarchy.
     ///
-    /// One walk rather than one per entry, because the chain is the same for all of them and
-    /// [`MAX_FIELD_ANCESTRY`] should bound the work once rather than once per key.
+    /// The chain is resolved by [`Inherited::of`], which reads each field above a widget once per
+    /// document and follows the chain to its top however long it is — "\[a]n interactive PDF
+    /// processor shall not limit the range of inheritance for field dictionaries" — stopping
+    /// only where it returns to a field it has passed, which [`Field::cyclic`] reports (ADR
+    /// 2448).
     pub(crate) fn read(
         document: &Document,
         annotation: &Dictionary,
         source: FieldValue<'_>,
     ) -> Self {
-        let mut field = Self {
-            kind: None,
-            flags: 0,
+        let inherited = Inherited::of(document, annotation);
+        let kind = inherited.name(document, "FT");
+        let flags = inherited.integer(document, "Ff");
+        let value = match source {
             // Both of the values that come from outside this document's `/Parent` chain, and
-            // neither is walked for: §12.7.8.3.2's "replace" puts another file's value here, and
+            // neither is read from it: §12.7.8.3.2's "replace" puts another file's value here, and
             // an FDF field stating no `/V` leaves the widget with no value at all; what a person
             // entered arrives already in the object type Table 226's `/V` takes — §7.9.2.2's text
             // string for characters and for §12.7.5.2's state names, an array of them where
             // §12.7.5.4's field has several items selected.
             // `crate::view::ViewState::set_field` builds the second, once, so that this and the
             // file a save writes cannot disagree about what was chosen.
-            value: match source {
-                FieldValue::Imported { value, .. } | FieldValue::Edited { value, .. } => {
-                    value.cloned()
-                }
-                FieldValue::Stored | FieldValue::Default => None,
-            },
-            ancestry: Vec::new(),
-            too_deep: false,
+            FieldValue::Imported { value, .. } | FieldValue::Edited { value, .. } => value.cloned(),
+            FieldValue::Stored => Some(inherited.get(document, "V")).filter(|v| !v.is_null()),
+            // §12.7.6.3: the action "shall set the value of the V entry in the field dictionary
+            // to that of the DV entry … If no default value is defined for a field, its V entry
+            // shall be removed". So the *same* inheritance reads a different entry, and a field
+            // with no `/DV` anywhere in its ancestry ends with no value at all — which is what
+            // the clause's "removed" means for a program that does not write to the file.
+            FieldValue::Default => Some(inherited.get(document, "DV")).filter(|v| !v.is_null()),
+        };
+        // Table 249's `/Ff` "shall replace that of the Ff entry in the form's corresponding field
+        // dictionary", and `/SetFf` and `/ClrFf` modify it — so the import applies to whatever
+        // §12.7.4.1's inheritance produced.
+        let flags = match source {
+            FieldValue::Imported { flags: change, .. } => {
+                change.applied_to(flags.unwrap_or_default())
+            }
+            // Typing into a field changes its value and not its flags: §12.7.8's is the one
+            // statement about a value that carries Table 249's `/Ff` beside it.
+            FieldValue::Stored | FieldValue::Default | FieldValue::Edited { .. } => {
+                flags.unwrap_or_default()
+            }
+        };
+        let cyclic = inherited.cyclic();
+        Self {
+            kind: FieldKind::of(kind.as_ref().map(Name::as_bytes), flags),
+            flags,
+            value,
+            inherited,
+            cyclic,
             overridden: !matches!(source, FieldValue::Stored),
             imported: matches!(source, FieldValue::Imported { .. }),
             imported_rich: match source {
                 FieldValue::Imported { rich, .. } => rich.map(str::to_owned),
                 _ => None,
             },
-        };
-        let stated_value = match source {
-            FieldValue::Stored => Some("V"),
-            // §12.7.6.3: the action "shall set the value of the V entry in the field dictionary
-            // to that of the DV entry … If no default value is defined for a field, its V entry
-            // shall be removed". So the *same* walk reads a different entry, and a field with no
-            // `/DV` anywhere in its ancestry ends with no value at all — which is what the
-            // clause's "removed" means for a program that does not write to the file.
-            FieldValue::Default => Some("DV"),
-            // Both come from outside the file, so there is nothing in this document's `/Parent`
-            // chain to read them from and an absent value is an absent value.
-            FieldValue::Imported { .. } | FieldValue::Edited { .. } => None,
-        };
-        let mut current = annotation.clone();
-        let mut flags = None;
-        let mut kind: Option<Vec<u8>> = None;
-        for _ in 0..MAX_FIELD_ANCESTRY {
-            if kind.is_none() {
-                kind = document
-                    .get_key(&current, "FT")
-                    .as_name()
-                    .map(|name| name.as_bytes().to_vec());
-            }
-            if flags.is_none() {
-                flags = document.get_key(&current, "Ff").as_integer();
-            }
-            if let Some(key) = stated_value
-                && field.value.is_none()
-            {
-                let value = document.get_key(&current, key);
-                if !value.is_null() {
-                    field.value = Some(value);
-                }
-            }
-            let parent = document.get_key(&current, "Parent").as_dict().cloned();
-            field.ancestry.push(current);
-            let Some(parent) = parent else {
-                // Table 249's `/Ff` "shall replace that of the Ff entry in the form's
-                // corresponding field dictionary", and `/SetFf` and `/ClrFf` modify it — so the
-                // import applies to whatever §12.7.4.1's inheritance produced, which is exactly
-                // the flag word this walk has just finished computing.
-                field.flags = match source {
-                    FieldValue::Imported { flags: change, .. } => {
-                        change.applied_to(flags.unwrap_or_default())
-                    }
-                    // Typing into a field changes its value and not its flags: §12.7.8's is the
-                    // one statement about a value that carries Table 249's `/Ff` beside it.
-                    FieldValue::Stored | FieldValue::Default | FieldValue::Edited { .. } => {
-                        flags.unwrap_or_default()
-                    }
-                };
-                field.kind = FieldKind::of(kind.as_deref(), field.flags);
-                return field;
-            };
-            current = parent;
         }
-        field.too_deep = true;
-        field
+    }
+
+    /// The dictionaries an entry of the field is looked for in, nearest first: the widget's own,
+    /// then the nearest stated value of each of [`crate::inheritance::READ_UP_THE_CHAIN`] above
+    /// it.
+    pub(crate) fn chain(&self) -> [&Dictionary; 2] {
+        self.inherited.chain()
     }
 
     /// Table 231's shape for a text field: comb, multiline, or one line.
@@ -5533,7 +5490,7 @@ impl Field {
             return Shape::Multiline;
         }
         if self.flags & FLAG_COMB != 0 && self.flags & FLAG_PASSWORD == 0 {
-            let sources: Vec<&Dictionary> = self.ancestry.iter().collect();
+            let sources: Vec<&Dictionary> = self.chain().into_iter().collect();
             let length = sources
                 .iter()
                 .find_map(|source| document.get_key(source, "MaxLen").as_integer())
@@ -5680,8 +5637,8 @@ impl Field {
         // field whose one widget is merged into it states none, and a set of one has nothing to be
         // exclusive with.
         let kids = self
-            .ancestry
-            .iter()
+            .chain()
+            .into_iter()
             .map(|source| document.get_key(source, "Kids"))
             .find(|value| value.as_array().is_some());
         let Some(kids) = kids.as_ref().and_then(Object::as_array) else {

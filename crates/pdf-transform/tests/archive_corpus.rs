@@ -46,8 +46,8 @@ use std::path::{Path, PathBuf};
 use pdf_archive::{Flavour, Level, Target, Verdict};
 use pdf_syntax::{Document, Limits, Object};
 use pdf_transform::archive::{
-    ArchivePlan, Authorisations, CjkPack, Decision, Described, ExternalData, FormAnswers, Loss,
-    PLACEMENT_ON_PAGE, PackFiles, Preservation,
+    ArchivePlan, Authorisations, CjkPack, Collection, Decision, Described, ExternalData,
+    FormAnswers, Loss, PLACEMENT_ON_PAGE, PackFiles, Preservation,
 };
 use pdf_transform::tool::ToolOutputs;
 use pdf_transform::{Budget, MemorySinks, Plan, Policy, Source, apply};
@@ -100,12 +100,15 @@ fn authorise_everything() -> Authorisations {
     authorised
 }
 
-/// The corpus root, or `None` where the submodule is not checked out.
 /// The CJK pack the walks convert with, where `QUORRA_CJK_PACK` names its directory.
 ///
 /// The pack is a second download and no part of the tree (`doc/cjk-pack.md`), so a walk without
 /// it measures what a person who has not installed it gets: every collection font refused as the
 /// pack's absence. Naming the directory is how the census measures the other column.
+///
+/// **One pack for the whole walk**, read once: every plan holds a clone of it, so each
+/// collection's program is read and held to its digest the first time any document asks rather
+/// than once per document.
 fn pack_from_environment() -> Option<CjkPack> {
     /// The files of the directory the variable names, read when a font first asks for one.
     #[derive(Debug)]
@@ -115,12 +118,49 @@ fn pack_from_environment() -> Option<CjkPack> {
             std::fs::read(self.0.join(file)).ok()
         }
     }
-    let directory = std::env::var_os("QUORRA_CJK_PACK")?;
-    Some(CjkPack::new(std::sync::Arc::new(Directory(PathBuf::from(
-        directory,
-    )))))
+    static PACK: std::sync::OnceLock<Option<CjkPack>> = std::sync::OnceLock::new();
+    PACK.get_or_init(|| {
+        let directory = std::env::var_os("QUORRA_CJK_PACK")?;
+        Some(CjkPack::new(std::sync::Arc::new(Directory(PathBuf::from(
+            directory,
+        )))))
+    })
+    .clone()
 }
 
+/// The census's first line: whether the CJK pack was present, so that a count taken with it is
+/// never compared with one taken without it (`doc/adr/2460`).
+///
+/// **A pack that was named and does not answer stops the census** rather than being printed and
+/// walked past: every collection font would then be refused as the pack's absence, and the
+/// counts would be the no-pack column under a line saying the pack was there (trap 5).
+fn pack_line() -> String {
+    let Some(pack) = pack_from_environment() else {
+        return "CJK pack: absent (QUORRA_CJK_PACK is not set), so every composite font of an \
+                Adobe character collection the document does not embed is refused as the \
+                pack's absence"
+            .to_owned();
+    };
+    let gaps: Vec<String> = Collection::ALL
+        .into_iter()
+        .filter_map(|collection| {
+            pack.program(collection)
+                .err()
+                .map(|gap| format!("{} {gap:?}", collection.file()))
+        })
+        .collect();
+    assert!(
+        gaps.is_empty(),
+        "QUORRA_CJK_PACK names a directory that is not this tree's CJK pack: {}",
+        gaps.join(", ")
+    );
+    format!(
+        "CJK pack: present (QUORRA_CJK_PACK), all {} programs held to their digests",
+        Collection::ALL.len()
+    )
+}
+
+/// The corpus root, or `None` where the submodule is not checked out.
 fn corpus() -> Option<PathBuf> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/veraPDF-corpus");
     root.is_dir().then_some(root)
@@ -480,6 +520,7 @@ fn sweep(root: &Path, part: &str, target: Target, authorised: Authorisations) ->
 #[test]
 #[ignore = "needs doc/veraPDF-corpus, which is 239 MB and not part of a checkout"]
 fn a_conforming_document_stays_conforming_and_nothing_errors() {
+    println!("{}", pack_line());
     let Some(root) = corpus() else {
         println!("doc/veraPDF-corpus is not here; nothing to sweep");
         return;
@@ -930,6 +971,7 @@ fn print_refusals(label: &str, census: &UnderProfile) {
 #[test]
 #[ignore = "needs doc/veraPDF-corpus, which is 239 MB and not part of a checkout"]
 fn the_shipped_profiles_list_every_refusal_by_site_and_reason() {
+    println!("{}", pack_line());
     let Some(root) = corpus() else {
         println!("doc/veraPDF-corpus is not here; nothing to sweep");
         return;
@@ -965,6 +1007,7 @@ const REAL_TARGETS: [Target; 2] = [Target::Two(Level::B), Target::Four(Flavour::
 #[test]
 #[ignore = "needs doc/pdf.js and doc/corpora, which are not part of a checkout"]
 fn the_shipped_profiles_list_what_real_producers_files_refuse_on() {
+    println!("{}", pack_line());
     let doc = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc");
     let corpora: Vec<(&str, Vec<PathBuf>)> = ["pdf.js", "corpora"]
         .into_iter()
@@ -996,6 +1039,7 @@ fn the_shipped_profiles_list_what_real_producers_files_refuse_on() {
 #[test]
 #[ignore = "needs doc/veraPDF-corpus, which is 239 MB and not part of a checkout"]
 fn a_supplied_press_profile_answers_the_colour_family_refusals() {
+    println!("{}", pack_line());
     let Some(root) = corpus() else {
         println!("doc/veraPDF-corpus is not here; nothing to sweep");
         return;
@@ -1127,6 +1171,7 @@ fn preserve_sweep(root: &Path, part: &str, target: Target) -> Preserved {
 #[test]
 #[ignore = "needs doc/veraPDF-corpus, which is 239 MB and not part of a checkout"]
 fn preserving_forbidden_annotations_relocates_where_it_can() {
+    println!("{}", pack_line());
     let Some(root) = corpus() else {
         println!("doc/veraPDF-corpus is not here; nothing to sweep");
         return;
@@ -1262,6 +1307,7 @@ fn separation_sweep(root: &Path, part: &str, target: Target, winner: &str) -> Ag
 #[test]
 #[ignore = "needs doc/veraPDF-corpus, which is 239 MB and not part of a checkout"]
 fn a_supplied_separation_winner_answers_the_documents_that_disagree() {
+    println!("{}", pack_line());
     let Some(root) = corpus() else {
         println!("doc/veraPDF-corpus is not here; nothing to sweep");
         return;

@@ -667,6 +667,39 @@ fn the_catalogs_version_is_restated_in_the_shape_part_four_requires() {
 }
 
 #[test]
+fn a_page_tree_nodes_count_that_is_no_integer_is_restated_from_its_leaves() {
+    // ISO 19005-2 and ISO 19005-4 section 5.1, at ISO 32000-2 §7.7.3.2's Table 30: `/Count` is a
+    // required integer, "[t]he number of leaf nodes (page objects) that are descendants of this
+    // node within the page tree", and the NOTE puts its consistency on the writer. The fixture's
+    // root states a string of the same length as `1`, so every cross-reference offset still holds;
+    // its one page is the one leaf, and that is the count written (ADR 2456).
+    let sound = b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>";
+    for (fixture, target) in [
+        (Conforming::part_two(), Target::Two(Level::B)),
+        (Conforming::default(), Target::Four(Flavour::Plain)),
+    ] {
+        let mut source = fixture.build();
+        let at = source
+            .windows(sound.len())
+            .position(|window| window == sound)
+            .expect("the fixture's page tree node");
+        source[at..at + sound.len()].copy_from_slice(b"<< /Type /Pages /Kids [3 0 R] /Count() >>");
+        let (report, output) = convert(&source, target, Authorisations::default());
+        assert_eq!(
+            decision(&report, "file-structure/page-tree-node-count-is-an-integer"),
+            Decision::Mechanical(Rewrite::PageCountRestated)
+        );
+        let output = output.expect("the document converts");
+        assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+        let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+        let catalog = document.catalog().expect("a catalog");
+        let root = document.get_key(&catalog, "Pages");
+        let count = root.as_dict().map(|node| document.get_key(node, "Count"));
+        assert_eq!(count.and_then(|count| count.as_integer()), Some(1));
+    }
+}
+
+#[test]
 fn a_header_stating_the_wrong_part_is_rewritten() {
     // ISO 19005-4 section 6.1.2 admits 2.0 to 2.9; a 1.7 header is a failure rather than a
     // curiosity. Raising the version is allowed and lowering it is not — the other half is
@@ -15493,6 +15526,8 @@ mod default_rgb_page_intent;
 
 #[path = "archive/cjk_pack.rs"]
 mod cjk_pack;
+#[path = "archive/empty_glyphs.rs"]
+mod empty_glyphs;
 #[path = "archive/photographed.rs"]
 mod photographed;
 #[path = "archive/rekeyed.rs"]

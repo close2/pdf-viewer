@@ -121,9 +121,11 @@ field may have `/Kids` — more fields, or widget annotations — and the tree i
    widget, the two "may be merged into a single dictionary containing entries that pertain to both a
    field and an annotation", which is what object 6 is. `field_tree.rs` treats a leaf with no
    `/Kids` as its own widget.
-3. **The walk is bounded and recovers what the array forgot.** `/Kids` may point back up the tree, so
-   every walk stops at `MAX_FIELD_DEPTH` (ADR 1198); a widget a page lists whose root `/Fields`
-   omits is recovered from the page (ADR 1653).
+3. **The walk goes to the end of the tree and recovers what the array forgot.** `/Kids` may point
+   back up the tree, so a walk down keeps the set of fields it entered and a walk up `/Parent` finds a
+   cycle with two positions on the chain, and neither stops at a depth; each field's inherited entries
+   are resolved once per document, in `crates/pdf-model/src/inheritance.rs` (ADR 2448); a widget a
+   page lists whose root `/Fields` omits is recovered from the page (ADR 1653).
 4. **The table is asked for at most the page in view.** `field_tree.rs::widgets_by_field_name` walks
    every page and is for what a person asked of the whole document — a typed value, a save;
    `field_tree.rs::widgets_on_page_by_field_name` is what a page being shown asks
@@ -137,7 +139,7 @@ field may have `/Kids` — more fields, or widget annotations — and the tree i
 ```mermaid
 flowchart LR
     CAT["catalog /AcroForm<br/>pdf-syntax/src/document/objects.rs<br/>clause 12.7.3"]
-    FIELDS["/Fields, /Kids, /Parent<br/>pdf-model/src/view/field_tree.rs<br/>clause 12.7.4.1, ADR 1198, ADR 1653"]
+    FIELDS["/Fields, /Kids, /Parent<br/>pdf-model/src/view/field_tree.rs<br/>clause 12.7.4.1, ADR 2448, ADR 1653"]
     NAME["fully qualified name: Silly prose<br/>field_tree.rs::qualified_name<br/>clause 12.7.4.2"]
     TABLE["name to widgets<br/>widgets_by_field_name, widgets_on_page_by_field_name"]
     DESC["FormField, Control, Widget<br/>pdf-model/src/form.rs<br/>clause 12.7.5"]
@@ -151,9 +153,9 @@ flowchart LR
 ```
 
 **Maintenance note.** Depends on: `crates/pdf-model/src/view/field_tree.rs`,
-`crates/pdf-model/src/view.rs` (`MAX_FIELD_DEPTH`), `crates/pdf-model/src/form.rs`,
+`crates/pdf-model/src/inheritance.rs`, `crates/pdf-model/src/form.rs`,
 `crates/pdf-model/src/view/fields.rs`, `crates/viewer-core/src/query.rs`,
-`crates/viewer-core/src/viewer/geometry.rs`, ADR 1198 and ADR 1653. Redraw it when the field table
+`crates/viewer-core/src/viewer/geometry.rs`, ADR 2448 and ADR 1653. Redraw it when the field table
 is cached rather than walked, when a host is handed something other than `FormField`, or when a field
 comes to be addressed by anything but its fully qualified name.
 

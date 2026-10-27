@@ -1512,7 +1512,7 @@ impl ViewState {
             .catalog()
             .ok()
             .and_then(|catalog| document.get_key(&catalog, "AcroForm").as_dict().cloned());
-        let char_limit = inherited(document, &field.ancestry, form.as_ref(), "MaxLen")
+        let char_limit = inherited(document, &field.chain(), form.as_ref(), "MaxLen")
             .as_integer()
             .and_then(|limit| u32::try_from(limit).ok());
         let mut state = FieldState {
@@ -1594,17 +1594,17 @@ impl ViewState {
         }
         // Table 228's `/DA` and `/Q` are inheritable and Table 224 states the form's default for
         // each, so each is read up this widget's own chain.
-        let tf = tf_of(document, &field.ancestry, form);
+        let tf = tf_of(document, &field.chain(), form);
         Some(WidgetState {
             display,
-            text_color: match inherited(document, &field.ancestry, form, "DA") {
+            text_color: match inherited(document, &field.chain(), form, "DA") {
                 Object::String(bytes) => text_colour(&bytes),
                 _ => None,
             },
             fill_color: characteristic("BG"),
             stroke_color: characteristic("BC"),
             border_style,
-            alignment: match inherited(document, &field.ancestry, form, "Q").as_integer() {
+            alignment: match inherited(document, &field.chain(), form, "Q").as_integer() {
                 Some(1) => Alignment::Center,
                 Some(2) => Alignment::Right,
                 _ => Alignment::Left,
@@ -1634,7 +1634,7 @@ impl ViewState {
 /// Table 230's and inherits with the rest of a field's entries.
 fn inherited(
     document: &Document,
-    ancestry: &[Dictionary],
+    ancestry: &[&Dictionary],
     form: Option<&Dictionary>,
     key: &str,
 ) -> Object {
@@ -1848,7 +1848,7 @@ fn line_width_of(document: &Document, widget: &Dictionary) -> f64 {
 /// from the form, where the string holds one.
 fn tf_of(
     document: &Document,
-    ancestry: &[Dictionary],
+    ancestry: &[&Dictionary],
     form: Option<&Dictionary>,
 ) -> Option<(Option<pdf_syntax::Name>, Option<f64>)> {
     let Object::String(bytes) = inherited(document, ancestry, form, "DA") else {

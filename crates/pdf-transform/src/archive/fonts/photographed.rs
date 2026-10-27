@@ -49,6 +49,8 @@
 //! (`pdf_model::content::base_transform`), so `/Rotate`, the crop box's origin and `/UserUnit` stay
 //! the page's and the annotations keep their places over it.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use pdf_archive::survey::SelectedFont;
 use pdf_archive::{Level, Target};
 use pdf_model::Pages;
@@ -126,14 +128,8 @@ pub(super) fn defer(
     refusal: Because,
     substitutes: &mut Substitutes,
 ) {
-    // The ledger names a direct entry by its value as `Debug` prints it (`Ledger::select`), so a
-    // direct font is looked for by the same spelling of the dictionary the survey kept.
-    let selected = used.id.map_or_else(
-        || Outcome::Direct(format!("{:?}", Object::Dictionary(used.dict.clone()))),
-        Outcome::Reference,
-    );
     substitutes.deferred.push(Deferred {
-        selected,
+        selected: super::selected(used),
         requested: super::base_font(document, &used.dict),
         refusal,
         mapped: matches!(document.get_key(&used.dict, "ToUnicode"), Object::Stream(_)),
@@ -225,15 +221,93 @@ pub(super) fn photograph(
     // A font no page's content showed was reached some other way — an annotation's appearance is
     // the one the content-only interpretation leaves out — and a photograph of a page cannot take
     // it out of the file, so it keeps the refusal it had.
-    match substitutes
+    if let Some((font, _)) = substitutes
         .deferred
         .iter()
         .zip(&reached)
         .find(|(_, reached)| !**reached)
     {
-        Some((font, _)) => Err(font.refusal),
-        None => Ok(()),
+        return Err(font.refusal);
     }
+    // A substituted font only the photographed content selected went with that content, so the
+    // report and the file's history name only the fonts the output still holds (`doc/adr/2454`).
+    if !substitutes.photographs.is_empty() {
+        let held = still_held(document, &substitutes.photographs, &substitutes.done);
+        substitutes.done.retain(|font| held.contains(&font.font));
+    }
+    Ok(())
+}
+
+/// The keys a photographed page's dictionary loses, whose values the output therefore does not
+/// reach through it: what [`Photograph`] replaces, and the group `rewrite` removes with them.
+const PHOTOGRAPHED_AWAY: [&str; 3] = ["Contents", "Resources", "Group"];
+
+/// Which of the substituted fonts an object the output holds still names, once every
+/// photographed page has lost its content and its resources.
+///
+/// **Reached, the way the writer reaches what it copies**: `super::super::rewrite::convert` writes
+/// what the catalog and the information dictionary lead to, so a font whose every route ran
+/// through a photographed page's own resources is in no object of the output, while one an
+/// annotation's appearance, another page or an inherited resource dictionary names is still
+/// there, its face with it. The walk is over the source's objects, each read once, with an
+/// explicit stack rather than recursion, because a document's graph is the file's to shape.
+fn still_held(
+    document: &Document,
+    photographs: &BTreeMap<ObjectId, Photograph>,
+    fonts: &[super::SubstitutedFont],
+) -> BTreeSet<Outcome> {
+    let direct: BTreeSet<&String> = fonts
+        .iter()
+        .filter_map(|font| match &font.font {
+            Outcome::Direct(spelled) => Some(spelled),
+            _ => None,
+        })
+        .collect();
+    let wanted: BTreeSet<&Outcome> = fonts.iter().map(|font| &font.font).collect();
+    let trailer = document.trailer();
+    let mut pending: Vec<Object> = ["Root", "Info"]
+        .into_iter()
+        .filter_map(|key| trailer.get(key).cloned())
+        .collect();
+    let mut seen = BTreeSet::new();
+    let mut held = BTreeSet::new();
+    while let Some(object) = pending.pop() {
+        match object {
+            Object::Reference(id) => {
+                if !seen.insert(id) {
+                    continue;
+                }
+                let reached = Outcome::Reference(id);
+                if wanted.contains(&reached) {
+                    held.insert(reached);
+                }
+                let mut value = document.get(id);
+                if photographs.contains_key(&id)
+                    && let Object::Dictionary(page) = &mut value
+                {
+                    for key in PHOTOGRAPHED_AWAY {
+                        page.remove(key);
+                    }
+                }
+                pending.push(value);
+            }
+            Object::Dictionary(dict) => {
+                // A direct font has no identity but its value (`Outcome::Direct`), so a dictionary
+                // that could be one is spelled out only while a direct font is still looked for.
+                if !direct.is_empty() && dict.get("Subtype").is_some() {
+                    let spelled = format!("{:?}", Object::Dictionary(dict.clone()));
+                    if direct.contains(&spelled) {
+                        held.insert(Outcome::Direct(spelled));
+                    }
+                }
+                pending.extend(dict.iter().map(|(_, value)| value.clone()));
+            }
+            Object::Array(items) => pending.extend(items),
+            Object::Stream(stream) => pending.push(Object::Dictionary(stream.dict.clone())),
+            _ => {}
+        }
+    }
+    held
 }
 
 /// The owner's gate over one page's content-only interpretation: nothing a reader can extract,

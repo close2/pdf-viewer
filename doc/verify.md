@@ -674,6 +674,11 @@ cd fuzz && cargo +nightly fuzz run page -- -runs=50000 -fork=6 -rss_limit_mb=409
   # ceiling for a corpus held in memory rather than any budget this program states. Expect
   # `slow-unit-` artefacts and read them in a **release** binary before believing them: ASan, the
   # debug assertions and six forks on one machine make a unit look many times slower than it is.
+cd fuzz && cargo +nightly fuzz run media_container -- -max_total_time=600   # §13.2.4.3's clip
+  # timeline: `pdf_model::media::container`'s header reader for RIFF WAVE, AVI, AIFF and the ISO
+  # base media file format, walked by the sizes an embedded file states (ADR 2452). Seeded by
+  # `fuzz/seed_media_container.py`, one built file per container with the cue points, markers and
+  # chapter track the reader walks, because no corpus document holds a media clip section.
 cd fuzz && cargo +nightly fuzz run xmp           -- -runs=50000   # §14.3.2's XMP.
   # Seeded by `fuzz/seeds.sh` with one metadata packet per shape the documents decode
   # to, which `fuzz/seed_streams.py` takes out of them with the CMap, font, fax, security-handler

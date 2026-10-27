@@ -491,10 +491,10 @@ fn read(
     let annotation = view.annotation(first);
     let dict = &*appearance::with_rewritten_options(document, stored, annotation.scripted);
     let field = Field::read(document, dict, annotation.value);
-    // A `/Parent` chain past the bound is a field nobody can name the type or the flags of, and
-    // answering from a half-walked ancestry would be a description of a field this crate could not
+    // A `/Parent` chain that is a cycle is a field nobody can name the type or the flags of, and
+    // answering from what the walk passed would be a description of a field this crate could not
     // draw either. `crate::appearance::field_text_value` refuses the same case.
-    if field.too_deep {
+    if field.cyclic {
         return None;
     }
     let control = control(document, &field, dict);
@@ -587,8 +587,8 @@ fn on_state(document: &Document, annotation: &Dictionary) -> Option<String> {
 /// rather than in the widget's own dictionary alone.
 fn export(document: &Document, field: &Field, kid: usize) -> Option<String> {
     let stated = field
-        .ancestry
-        .iter()
+        .chain()
+        .into_iter()
         .map(|source| document.get_key(source, "Opt"))
         .find(|value| value.as_array().is_some())?;
     let items = stated.as_array()?;
@@ -650,8 +650,8 @@ fn control(document: &Document, field: &Field, annotation: &Dictionary) -> Contr
 /// Table 234's `/Opt`, in both the forms the table gives an element.
 pub(crate) fn options(document: &Document, field: &Field) -> Vec<Choice> {
     let Some(stated) = field
-        .ancestry
-        .iter()
+        .chain()
+        .into_iter()
         .map(|source| document.get_key(source, "Opt"))
         .find(|value| value.as_array().is_some())
     else {
@@ -716,8 +716,8 @@ pub(crate) fn selected(document: &Document, field: &Field, options: &[Choice]) -
     }
 
     let indices: Vec<usize> = field
-        .ancestry
-        .iter()
+        .chain()
+        .into_iter()
         .map(|source| document.get_key(source, "I"))
         .find_map(|value| {
             let items = value.as_array()?;
@@ -774,8 +774,8 @@ pub(crate) fn inherited_number(
     key: &str,
 ) -> Option<u32> {
     let stated = field
-        .ancestry
-        .iter()
+        .chain()
+        .into_iter()
         .find_map(|source| document.get_key(source, key).as_integer())
         .or_else(|| document.get_key(annotation, key).as_integer())?;
     u32::try_from(stated).ok()

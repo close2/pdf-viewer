@@ -1423,6 +1423,13 @@ impl Conversion {
                         ", the horizontal scale {fitting} this viewer drew the face at"
                     );
                 }
+                if !font.empty_glyphs.is_empty() {
+                    let _ = write!(
+                        out,
+                        "; {}",
+                        super::fonts::empty_glyphs_given(&font.empty_glyphs)
+                    );
+                }
                 let _ = writeln!(out);
             }
         }
@@ -1629,6 +1636,17 @@ fn substituted_to_json(font: &SubstitutedFont) -> Value {
     }
     if let Some(fitting) = font.fitting {
         fields.push(("fitting".to_owned(), Value::text(fitting.to_string())));
+    }
+    if !font.empty_glyphs.is_empty() {
+        fields.push((
+            "empty_glyphs".to_owned(),
+            Value::Array(
+                font.empty_glyphs
+                    .iter()
+                    .map(|code| Value::text(format!("{code:#04x}")))
+                    .collect(),
+            ),
+        ));
     }
     Value::Object(fields)
 }

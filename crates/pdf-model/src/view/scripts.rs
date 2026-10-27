@@ -533,8 +533,8 @@ impl Typed {
             Some(crate::appearance::FieldKind::Text) => {
                 let mut fits = super::fields::accepted(document, taking, text);
                 let limit = field
-                    .ancestry
-                    .iter()
+                    .chain()
+                    .into_iter()
                     .find_map(|dictionary| document.get_key(dictionary, "MaxLen").as_integer())
                     .and_then(|limit| usize::try_from(limit).ok());
                 if let Some(limit) = limit
@@ -551,7 +551,7 @@ impl Typed {
             }
             Some(crate::appearance::FieldKind::Choice { .. }) => Self {
                 change: text.to_owned(),
-                change_ex: export_value(document, &field.ancestry, text)
+                change_ex: export_value(document, &field.chain(), text)
                     .unwrap_or_else(|| text.to_owned()),
                 full: false,
             },
@@ -566,7 +566,7 @@ impl Typed {
 
 /// The export value of the option of Table 233's `/Opt` whose text a person sees is `shown`:
 /// the first string of a two-string entry, `None` where no entry is a pair showing it.
-fn export_value(document: &Document, ancestry: &[Dictionary], shown: &str) -> Option<String> {
+fn export_value(document: &Document, ancestry: &[&Dictionary], shown: &str) -> Option<String> {
     let options = ancestry
         .iter()
         .map(|dictionary| document.get_key(dictionary, "Opt"))
@@ -664,28 +664,20 @@ fn calculation_order(document: &Document) -> Vec<ObjectId> {
 /// one action, or where the text cannot be read or is longer than [`MAX_SCRIPT_BYTES`]: each of
 /// those stays reported as Tier 0 reports it.
 fn supplied_script(document: &Document, widget: &Dictionary, trigger: Trigger) -> Option<String> {
-    let mut current = widget.clone();
-    for _ in 0..=crate::appearance::MAX_FIELD_ANCESTRY {
-        let additional = document.get_key(&current, "AA");
-        if let Some(additional) = additional.as_dict()
-            && let Some(entry) = additional.get(trigger.key())
-        {
-            let Object::Dictionary(action) = document.resolve(entry) else {
-                return None;
-            };
-            let follows = match document.get_key(&action, "Next") {
-                Object::Null => false,
-                Object::Array(items) => !items.is_empty(),
-                _ => true,
-            };
-            if follows {
-                return None;
-            }
-            return script_text(document, &action);
-        }
-        current = document.get_key(&current, "Parent").as_dict().cloned()?;
+    let entry =
+        crate::inheritance::Inherited::of(document, widget).action(document, trigger.key())?;
+    let Object::Dictionary(action) = document.resolve(&entry) else {
+        return None;
+    };
+    let follows = match document.get_key(&action, "Next") {
+        Object::Null => false,
+        Object::Array(items) => !items.is_empty(),
+        _ => true,
+    };
+    if follows {
+        return None;
     }
-    None
+    script_text(document, &action)
 }
 
 /// Table 221's `/JS` of one action dictionary, where it is an ECMAScript action whose text can be

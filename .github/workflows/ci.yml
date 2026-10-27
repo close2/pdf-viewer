@@ -579,12 +579,15 @@ jobs:
               "/CenterWindow, 'A flag specifying whether to position the document's window in the centre of the screen'" `
               "the window $($n[2]) by $($n[3]) at $($n[4]), $($n[5]), where the centre of the work area puts it at $x, $y"
           } else {
-            Verdict $false "/FitWindow and /CenterWindow: the window said where it was placed" "no placement line: '$line'"
+            Verdict $false "/FitWindow and /CenterWindow: the window said where it was placed" "no placement line, after $resized resize(s) asked"
           }
+          # Held at the placement line, the window's last act for this document, so a window that
+          # never came to rest is never read as one that ignored the entry (ADR 2446).
           $opened = @($probe | Where-Object { $_ -like 'probe: the pane is open on *' -or $_ -eq 'probe: the presenter is FullScreen' })
+          $rest = if ($null -ne $line) { 'up to its placement line' } else { 'and no placement line to hold them at' }
           Verdict ($null -ne $line -and $opened.Count -eq 0) `
             "/NonFullScreenPageMode, 'it shall be ignored otherwise'" `
-            "with no /PageMode /FullScreen, $($opened.Count) line(s) of a pane opened or a full screen"
+            "with no /PageMode /FullScreen, $($opened.Count) line(s) of a pane opened or a full screen $rest"
 
           # A deck stating Table 29's /PageMode /FullScreen and /NonFullScreenPageMode /UseOutlines:
           # presented full screen, then left as Escape leaves it, which the probe presses once a
