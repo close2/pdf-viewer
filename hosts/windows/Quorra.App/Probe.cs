@@ -1,8 +1,10 @@
 // The window's own account of what it did for §12.2's Table 147 and Table 29's FullScreen, written
-// to its log under --probe for CI's smoke step (ADRs 2436, 2446). Every sentence but the two about
-// a resize states what the window reads back from its own AppWindow and page area after acting,
-// never what it was asked, so a step that holds these sentences to the table holds the window
-// rather than the library, whose half drive_a_window.c already proves (ADR 2308).
+// to its log under --probe for CI's smoke step (ADRs 2436, 2446, 2478). Every sentence but the
+// two about a resize asked and waited for states what the window reads back from its own
+// AppWindow and page area, never what it was asked, so a step that holds these sentences to the
+// table holds the window rather than the library, whose half drive_a_window.c already proves (ADR
+// 2308). The measured pair and the client size read after a resize are said so that a failing run
+// says which of the two sizes moved first.
 
 using System;
 using Microsoft.UI.Windowing;
@@ -20,6 +22,16 @@ namespace Quorra.App;
 internal readonly record struct ReadBack(
     int AreaWidth, int AreaHeight, int Width, int Height, int X, int Y, (int, int, int, int) Work);
 
+/// <summary>
+/// The window's inner size and its page area's, in logical pixels, from the one layout pass whose
+/// page area size the library was last told (ADR 2478).
+/// </summary>
+/// <param name="Width">The inner width: the window's content, everything inside its frame.</param>
+/// <param name="Height">The inner height.</param>
+/// <param name="AreaWidth">The page area's width, the viewport the library was told.</param>
+/// <param name="AreaHeight">The page area's height.</param>
+internal readonly record struct Measure(int Width, int Height, int AreaWidth, int AreaHeight);
+
 /// <summary>The --probe word's sentences, each written once per change of what it states.</summary>
 internal sealed class WindowProbe
 {
@@ -31,6 +43,7 @@ internal sealed class WindowProbe
     private string? pane;
     private bool escaped;
     private bool waiting;
+    private bool empty;
 
     /// <summary>A probe writing to <paramref name="log"/>, the window's own log.</summary>
     internal WindowProbe(Action<string> log) => this.log = log;
@@ -52,6 +65,36 @@ internal sealed class WindowProbe
         waiting = true;
         log("probe: the placement waits for the page area to take the resize");
     }
+
+    /// <summary>
+    /// What a placement is answered from: the pair the library's viewport was told with, beside the
+    /// client size AppWindow reads at the moment of asking (ADR 2478).
+    /// </summary>
+    internal void Measured(Measure told, int clientWidth, int clientHeight)
+    {
+        log($"probe: measured: the window {told.Width} by {told.Height} around the page area " +
+            $"{told.AreaWidth} by {told.AreaHeight} last told, the client area {clientWidth} by {clientHeight} now");
+    }
+
+    /// <summary>The client size AppWindow reads straight after a resize was carried out.</summary>
+    internal void ClientAfterResize(int width, int height)
+    {
+        log($"probe: the client area reads {width} by {height} after the resize");
+    }
+
+    /// <summary>
+    /// The page area was laid out with no extent, so the library is told no size and owes no frame
+    /// for it: said once until a size is told again.
+    /// </summary>
+    internal void Empty(uint width, uint height)
+    {
+        if (empty) return;
+        empty = true;
+        log($"probe: the page area is {width} by {height} device pixels, so no size is told");
+    }
+
+    /// <summary>A size was told to the library, so a later empty page area is said again.</summary>
+    internal void Told() => empty = false;
 
     /// <summary>The library's last answer for the placement was carried out, and this is where the window is.</summary>
     internal void Placed(ReadBack at)

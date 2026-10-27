@@ -69,6 +69,9 @@ thiserror.workspace = true
 # (`tests/redact.rs`) names it too, selecting `Isolation::InProcess` so that it needs no worker
 # binary beside it while running the same `decode::here` routine the worker runs.
 pdf-sandbox.workspace = true
+# A cleared `JPXDecode` component deeper than Table 87's sixteen bits is written back as
+# JPEG 2000 by the tree's own lossless writer (ADR 2470).
+pdf-jpx-write.workspace = true
 
 # The oracle's own comparison, for one gate: RFC 0002 section 9 asks for "the
 # rotation-transformed comparison for rotate", and a page rotated a quarter turn is rasterised on

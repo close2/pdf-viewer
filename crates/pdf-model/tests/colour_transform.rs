@@ -43,10 +43,10 @@
 //! as a direct key of the image dictionary is not this parameter and the clause's default
 //! governs instead.
 //!
-//! **And three are about the frame's component identifiers**, which `zune-jpeg` reads as saying
+//! **And four are about the frame's component identifiers**, which `zune-jpeg` reads as saying
 //! the samples are already transformed. A marker outranks them, an entry outranks them, and where
-//! neither is present they decide — which is this tree's one departure from Table 13, held here as
-//! a fixture rather than as a sentence. ADRs 1177, 1183.
+//! neither is present the clause's default of 1 outranks them as well: they decide nothing.
+//! ADRs 1177, 1183, 2468.
 
 #![expect(
     clippy::expect_used,
@@ -90,8 +90,8 @@ fn jpeg(samples: &[u8], transform: Option<u8>) -> Vec<u8> {
 ///
 /// No clause of ISO 32000-2 and none of ISO/IEC 10918-1 gives a component identifier any meaning;
 /// the convention is `libjpeg`'s, and `zune-jpeg` reads it as saying the samples are already
-/// transformed. The three tests that use this are about which of the two — the identifiers, or
-/// Table 13 — decides, and the clause's answer differs by case.
+/// transformed. The tests that use this are about which of the two — the identifiers, or
+/// Table 13 — decides, and the clause's answer is Table 13 in every case.
 fn rgb_identified_jpeg(samples: &[u8], transform: Option<u8>) -> Vec<u8> {
     jpeg_of(samples, transform, true)
 }
@@ -494,18 +494,38 @@ fn the_entry_outranks_the_component_identifiers() {
     assert_eq!(spelt(None, &parms(0)), three(None, &parms(0)));
 }
 
-/// With neither, the identifiers decide — and that is this tree's one departure from Table 13.
+/// With neither, the clause's default of 1 governs, `R`, `G`, `B` included (ISO 32000-2 §7.4.8,
+/// Table 13).
 ///
-/// The clause's default here is 1, and this tree does not apply it: a frame declaring `R`, `G`,
-/// `B` and carrying neither the marker nor the entry is read as already transformed, which is
-/// what `poppler`, `mupdf` and `hayro` also do and what `ghostscript` does not. The cost is one
-/// corpus page, held by name in `oracle.rs`'s `AMBIGUOUS_JPEG_COMPONENT_IDS`, and ADR 1183 is the
-/// argument. This test exists so that the departure is a fixture rather than a sentence, and so
-/// that a later round changing it is told.
+/// > If the Adobe-defined marker code (APP14) in the encoded data indicating the ColorTransform
+/// > value is not present and this dictionary entry is not present in the filter dictionary then
+/// > the default value of ColorTransform shall be 1 if the image has three components and 0
+/// > otherwise.
+///
+/// The frame declares `R`, `G`, `B`, which no clause gives a meaning, so it is a three-component
+/// frame like any other: "from YCbCr to RGB after decoding", whose arithmetic
+/// [`a_three_component_frame_whose_entry_says_one_is_transformed_to_rgb`] states (ADR 2468).
+/// This test asserts the transformed pixel, and that the identifiers change nothing by comparing
+/// with the same frame identified the ordinary way.
 #[test]
-fn with_neither_the_component_identifiers_decide_which_is_the_one_departure() {
-    assert_eq!(spelt(None, ""), (128, 64, 192));
-    assert_ne!(spelt(None, ""), three(None, ""));
+fn with_neither_the_clauses_default_of_one_governs_whatever_the_identifiers_spell() {
+    let (red, green, blue) = spelt(None, "");
+    assert!(red.abs_diff(218) <= 1, "red was {red}");
+    assert!(green.abs_diff(104) <= 1, "green was {green}");
+    assert!(blue.abs_diff(15) <= 1, "blue was {blue}");
+    assert_eq!(spelt(None, ""), three(None, ""));
+    assert_eq!(spelt(None, ""), spelt(None, &parms(1)));
+    assert_ne!(spelt(None, ""), (128, 64, 192));
+    // The untransformed reading stays reachable by the clause's own means: an entry of 0.
+    assert_eq!(spelt(None, &parms(0)), (128, 64, 192));
+}
+
+/// An entry outside Table 13's two values states no code, so the default governs there too.
+#[test]
+fn an_entry_outside_the_tables_values_leaves_the_default_over_rgb_identifiers_as_well() {
+    for value in [-1, 2, 7] {
+        assert_eq!(spelt(None, &parms(value)), spelt(None, ""));
+    }
 }
 
 /// Table 13 describes two values and no others, so an entry stating a third states no code.

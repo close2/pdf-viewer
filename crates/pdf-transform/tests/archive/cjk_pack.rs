@@ -368,3 +368,61 @@ fn descendants_sharing_a_descriptor_at_two_widths_are_each_given_their_own() {
         assert_eq!(held.get_key(descriptor, "StemV").as_integer(), Some(69));
     }
 }
+
+#[test]
+#[ignore = "needs the CJK pack, a second download that is not part of a checkout: \
+            QUORRA_CJK_PACK=<dir> names it (doc/cjk-pack.md)"]
+fn a_descendant_nothing_shows_keeps_a_descriptor_stating_its_own_name() {
+    // Table 120: a descriptor's /FontName "shall be the same as the value of BaseFont in the font
+    // or CIDFont dictionary that refers to this font descriptor." The shown descendant is
+    // renamed to the subset it now holds, and with it the descriptor it names; the descendant
+    // nothing shows names the same object and keeps the /BaseFont its producer wrote, so it is
+    // pointed at a copy of the producer's descriptor, which embeds nothing: no page renders it.
+    let source = Conforming {
+        resources: "/Font << /F1 6 0 R /F2 7 0 R >> /ColorSpace << /CS0 [/CalGray << \
+                    /WhitePoint [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td <3042> Tj ET".to_vec(),
+        )),
+        objects: vec![
+            "<< /Type /Font /Subtype /Type0 /BaseFont /Ryumin-Light-UniJIS-UCS2-H \
+             /Encoding /UniJIS-UCS2-H /DescendantFonts [9 0 R] >>"
+                .to_owned(),
+            "<< /Type /Font /Subtype /Type0 /BaseFont /Ryumin-Light-UniJIS-UCS2-H \
+             /Encoding /UniJIS-UCS2-H /DescendantFonts [10 0 R] >>"
+                .to_owned(),
+            "<< /Type /FontDescriptor /FontName /Ryumin-Light /Flags 4 \
+             /FontBBox [-170 -331 1024 903] /ItalicAngle 0 /Ascent 723 /Descent -241 \
+             /CapHeight 709 /StemV 69 >>"
+                .to_owned(),
+            "<< /Type /Font /Subtype /CIDFontType0 /BaseFont /Ryumin-Light \
+             /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 2 >> \
+             /FontDescriptor 8 0 R /DW 1000 >>"
+                .to_owned(),
+            "<< /Type /Font /Subtype /CIDFontType0 /BaseFont /Ryumin-Light \
+             /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 2 >> \
+             /FontDescriptor 8 0 R /DW 960 >>"
+                .to_owned(),
+        ],
+        ..Conforming::part_two()
+    }
+    .build();
+    let held = converted_with_the_pack(&source);
+    let found = descendants_and_descriptors(&held);
+    assert_eq!(found.len(), 2, "both descendants are still there");
+    for (descendant, _, descriptor) in &found {
+        assert_eq!(
+            held.get_key(descendant, "BaseFont").as_name(),
+            held.get_key(descriptor, "FontName").as_name(),
+            "Table 120"
+        );
+    }
+    let embedding = found
+        .iter()
+        .filter(|(_, _, descriptor)| !held.get_key(descriptor, "FontFile3").is_null())
+        .count();
+    assert_eq!(embedding, 1, "only the descendant the page shows embeds");
+    assert_ne!(found[0].1, found[1].1, "each names a descriptor of its own");
+}

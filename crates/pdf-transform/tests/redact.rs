@@ -4315,22 +4315,23 @@ fn a_jpx_image_whose_components_disagree_on_a_depth_keeps_every_integer() {
     }
 }
 
-/// A `JPXDecode` component deeper than sixteen bits refuses the page by name (ADR 1371).
+/// A `JPXDecode` component deeper than the decoder reads exactly refuses the page by name (ADRs
+/// 1371, 2470).
 ///
-/// §7.4.9 lets a component be "between 1 to 38 inclusive" bits, and Table 87 lets an image sample
-/// be at most sixteen: "[t]he value shall be 1 , 2 , 4 , 8 , or (from PDF 1.5) 16". So no image
-/// this removal can write holds a seventeen-bit integer, and carrying it coarser would change the
-/// samples outside the region. [`JPX_TWELVE_BIT_RAMP`] with its `Ssiz` byte (offset 42) stating
-/// seventeen bits is refused before any sample is decoded.
+/// §7.4.9 lets a component be "between 1 to 38 inclusive" bits, and Table 87 lets every other
+/// filter's sample be at most sixteen: "[t]he value shall be 1 , 2 , 4 , 8 , or (from PDF 1.5)
+/// 16". A deeper component goes back as JPEG 2000, as far as this tree's decoder reads its
+/// integers exactly — 24 bits, an `f32`'s. [`JPX_TWELVE_BIT_RAMP`] with its `Ssiz` byte (offset
+/// 42) stating twenty-five bits is refused before any sample is decoded.
 #[test]
-fn a_jpx_component_deeper_than_sixteen_bits_refuses_the_page() {
+fn a_jpx_component_deeper_than_the_decoder_reads_exactly_refuses_the_page() {
     pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
     let mut codestream = JPX_TWELVE_BIT_RAMP.to_vec();
     assert_eq!(
         codestream[42], 0x0b,
         "the fixture's Ssiz: twelve bits, unsigned"
     );
-    codestream[42] = 0x10;
+    codestream[42] = 0x18;
     let bytes = jpx_page("", &codestream);
     let (report, _out) = redact(&bytes);
     let refused = report
@@ -4339,10 +4340,233 @@ fn a_jpx_component_deeper_than_sixteen_bits_refuses_the_page() {
         .find(|declined| declined.page == Some(1))
         .expect("the page is refused");
     assert!(
-        refused.detail.contains("17 bits") && refused.detail.contains("Table 87"),
-        "the refusal names the depth and the clause: {}",
+        refused.detail.contains("25 bits")
+            && refused.detail.contains("Table 87")
+            && refused.detail.contains("exactly to 24 bits"),
+        "the refusal names the depth, the clause and the decoder's bound: {}",
         refused.detail
     );
+}
+
+/// `count` integers below 2^`depth` from a fixed xorshift sequence, the two extremes first.
+fn deep_samples(depth: u8, count: usize, seed: u64) -> Vec<u32> {
+    let mask = (1u64 << depth) - 1;
+    let mut state = seed | 1;
+    (0..count)
+        .map(|index| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            let value = match index {
+                0 => 0,
+                1 => mask,
+                _ => state & mask,
+            };
+            u32::try_from(value).expect("masked below 2^24")
+        })
+        .collect()
+}
+
+/// The output's `/Im1` stream data, decoded as a writer decodes it: each channel's own
+/// integers, opacity last.
+fn read_back_deep(bytes: &[u8]) -> pdf_sandbox::Raster {
+    let document = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let entry = document
+        .get_key(&page.resources, "XObject")
+        .as_dict()
+        .and_then(|dict| dict.get("Im1"))
+        .cloned()
+        .expect("/Im1 in the resources");
+    let image = document.resolve(&entry);
+    let stream = image.as_stream().expect("the image is a stream");
+    let request = pdf_sandbox::Request::JpxWhole {
+        data: &stream.data,
+        indices: false,
+        samples: 1 << 20,
+    };
+    let decoded =
+        pdf_sandbox::decode_here(&request).expect("the written image decodes as JPEG 2000");
+    let pdf_sandbox::Decoded::Raster(raster) = decoded else {
+        unreachable!("a whole JPEG 2000 decode answers a raster")
+    };
+    raster
+}
+
+/// A `JPXDecode` image whose components are deeper than sixteen bits is cleared and written back
+/// as JPEG 2000 at each component's own depth (ADR 2470).
+///
+/// §12.5.6.23: "that portion of the image data shall be destroyed". Table 87 gives every other
+/// filter's sample at most sixteen bits, so the integers go back into a `JPXDecode` stream whose
+/// components keep their own depths — twenty, eighteen and twenty-four here — with no
+/// `/BitsPerComponent`, and with each component's `/Decode` pair at its own depth. The region's
+/// samples (the left half) read back as zero and every other sample as the integer it was.
+#[test]
+fn a_jpx_image_deeper_than_sixteen_bits_is_written_back_as_jpeg_2000() {
+    pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
+    let depths = [20u8, 18, 24];
+    let planes: Vec<Vec<u32>> = depths
+        .iter()
+        .zip(7u64..)
+        .map(|(depth, seed)| deep_samples(*depth, 64, seed))
+        .collect();
+    let source = pdf_jpx_write::jp2(
+        (8, 8),
+        pdf_jpx_write::Colour::Srgb,
+        &planes
+            .iter()
+            .zip(depths)
+            .map(|(samples, depth)| pdf_jpx_write::Plane { depth, samples })
+            .collect::<Vec<_>>(),
+        None,
+    )
+    .expect("the fixture's planes fit");
+    let mut image = format!(
+        "<< /Type /XObject /Subtype /Image /Width 8 /Height 8 /ColorSpace /DeviceRGB \
+         /Filter /JPXDecode /Length {} >>\nstream\n",
+        source.len()
+    )
+    .into_bytes();
+    image.extend_from_slice(&source);
+    image.extend_from_slice(b"\nendstream");
+    let bytes = masked_page(image, b"null".to_vec());
+    let before = decode_fixture_rgba(&bytes);
+
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "cleared: {:?}", report.refused);
+    assert!(!contains(&out, &source), "the original codestream is gone");
+    // Drawn, the right half is the picture it was and the left half the space's zero, black.
+    let after = decode_fixture_rgba(&out);
+    for at in 0..64usize {
+        let pixel = &after[at * 4..at * 4 + 3];
+        if at % 8 < 4 {
+            assert_eq!(pixel, [0, 0, 0], "sample {at} is cleared to black");
+        } else {
+            assert_eq!(
+                pixel,
+                &before[at * 4..at * 4 + 3],
+                "sample {at} draws as it did"
+            );
+        }
+    }
+    assert_eq!(
+        image_entries(&out),
+        ("JPXDecode".to_owned(), "DeviceRGB".to_owned(), 0),
+        "JPEG 2000 again, the space carried, no /BitsPerComponent"
+    );
+    let decode = image_numbers(&out, "Decode").expect("a /Decode is stated");
+    assert_eq!(
+        decode,
+        vec![0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
+        "each pair at its own depth"
+    );
+    let raster = read_back_deep(&out);
+    for (channel, depth) in depths.iter().enumerate() {
+        assert_eq!(
+            raster.depth_of(channel),
+            *depth,
+            "channel {channel} keeps its depth"
+        );
+    }
+    for row in 0..8usize {
+        for col in 0..8usize {
+            for (channel, plane) in planes.iter().enumerate() {
+                let want = if col < 4 { 0 } else { plane[row * 8 + col] };
+                assert_eq!(
+                    raster.sample((row * 8 + col) * 3 + channel),
+                    Some(want),
+                    "row {row} column {col} channel {channel}"
+                );
+            }
+        }
+    }
+}
+
+/// A deep `JPXDecode` image's opacity channel is cleared with it and goes back inside the
+/// codestream, where `/SMaskInData` still says how to read it (ADR 2470).
+///
+/// Table 87's `/SMaskInData` 1 says the codestream's opacity channel is the soft mask; §7.4.9
+/// allows "only one opacity channel in the JPEG 2000 data and it shall apply to all colour
+/// channels". Written back, the file keeps the entry and the channel, so no `/SMask` is created,
+/// and the region's opacity reads zero as its colour does.
+#[test]
+fn a_deep_jpx_opacity_channel_is_cleared_inside_the_codestream() {
+    pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
+    let grey = deep_samples(21, 64, 3);
+    let alpha = deep_samples(17, 64, 5);
+    let source = pdf_jpx_write::jp2(
+        (8, 8),
+        pdf_jpx_write::Colour::Greyscale,
+        &[pdf_jpx_write::Plane {
+            depth: 21,
+            samples: &grey,
+        }],
+        Some((
+            pdf_jpx_write::Plane {
+                depth: 17,
+                samples: &alpha,
+            },
+            pdf_jpx_write::Opacity::Plain,
+        )),
+    )
+    .expect("the fixture's planes fit");
+    let mut image = format!(
+        "<< /Type /XObject /Subtype /Image /Width 8 /Height 8 /ColorSpace /DeviceGray \
+         /SMaskInData 1 /Filter /JPXDecode /Length {} >>\nstream\n",
+        source.len()
+    )
+    .into_bytes();
+    image.extend_from_slice(&source);
+    image.extend_from_slice(b"\nendstream");
+    let bytes = masked_page(image, b"null".to_vec());
+
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "cleared: {:?}", report.refused);
+    let document = Document::open_with_limits(out.clone(), Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let entry = document
+        .get_key(&page.resources, "XObject")
+        .as_dict()
+        .and_then(|dict| dict.get("Im1"))
+        .cloned()
+        .expect("/Im1");
+    let written = document.resolve(&entry);
+    let stream = written.as_stream().expect("a stream");
+    assert_eq!(
+        document.get_key(&stream.dict, "SMaskInData").as_integer(),
+        Some(1),
+        "the entry is carried"
+    );
+    assert!(
+        matches!(document.get_key(&stream.dict, "SMask"), Object::Null),
+        "no soft-mask image is created beside the channel"
+    );
+    let raster = read_back_deep(&out);
+    assert!(
+        raster.has_opacity,
+        "the opacity channel is still in the codestream"
+    );
+    assert_eq!((raster.depth_of(0), raster.depth_of(1)), (21, 17));
+    for row in 0..8usize {
+        for col in 0..8usize {
+            let at = row * 8 + col;
+            let (want_grey, want_alpha) = if col < 4 {
+                (0, 0)
+            } else {
+                (grey[at], alpha[at])
+            };
+            assert_eq!(
+                raster.sample(at * 2),
+                Some(want_grey),
+                "row {row} column {col}"
+            );
+            assert_eq!(
+                raster.sample(at * 2 + 1),
+                Some(want_alpha),
+                "row {row} column {col}"
+            );
+        }
+    }
 }
 
 /// A §8.9.6.2 image mask behind `CCITTFaxDecode` is decoded, cleared and written as a one-bit

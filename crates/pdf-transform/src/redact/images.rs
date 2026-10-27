@@ -615,7 +615,22 @@ impl Walk<'_> {
                 ));
             }
         }
-        let bits = if samples.precision > 8 { 16 } else { 8 };
+        let bits = match samples.precision {
+            0..=8 => 8,
+            9..=16 => 16,
+            _ => 24,
+        };
+        if bits > 16 && !matches!(samples.components, 1 | 3) {
+            // ISO/IEC 15444-1 I.5.3.3 enumerates greyscale and sRGB for a JP2 file; any other
+            // count needs T.801's JPX file and its reader requirements box (M.11.1), which this
+            // writer does not build.
+            return Err(format!(
+                "§7.4.9: the JPEG 2000 image /{shown} has {} colour components deeper than \
+                 sixteen bits, which go back only as JPEG 2000, and this removal writes a JP2 \
+                 file of one or three colour components only; the page is refused",
+                samples.components
+            ));
+        }
         let decode = samples
             .decode
             .iter()
@@ -636,6 +651,7 @@ impl Walk<'_> {
             opacity_decode,
             premultiplied: samples.premultiplied,
             depths: samples.depths.clone(),
+            opacity_depth: samples.opacity_depth,
             pairs: samples.decode.clone(),
         };
         Ok(ImageClear {
@@ -670,11 +686,12 @@ impl Walk<'_> {
     /// - **Table 87's `/SMaskInData` is one of the three codes it defines.** Codes 1 and 2 say
     ///   the codestream carries an opacity channel from which "\[a] PDF processor shall create a
     ///   soft-mask image", and [`Walk::plan_jpx_clear`] writes that image (ADR 1277).
-    /// - **Every component fits a sample Table 87 can state.** §7.4.9 lets a component be "between
-    ///   1 to 38 inclusive" bits; Table 87 lets an image's samples be at most sixteen — "\[t]he
-    ///   value shall be 1 , 2 , 4 , 8 , or (from PDF 1.5) 16" — so a deeper component's integers
-    ///   have no field in any image this removal can write, and carrying them coarser would
-    ///   change content the annotation did not identify.
+    /// - **Every component's integers are read exactly.** §7.4.9 lets a component be "between 1
+    ///   to 38 inclusive" bits, and Table 87 lets every other filter's samples be at most sixteen
+    ///   — "\[t]he value shall be 1 , 2 , 4 , 8 , or (from PDF 1.5) 16" — so a deeper component
+    ///   goes back as JPEG 2000 (ADR 2470). What bounds it is the decoder: it carries a sample in
+    ///   an `f32`, exact to [`pdf_sandbox::MAX_PRECISION`] bits, and a deeper component's
+    ///   integers outside the region would be carried coarser than the file states them.
     fn jpx_admits_a_clear(
         &self,
         shown: &str,
@@ -713,13 +730,15 @@ impl Walk<'_> {
         if let Some(deep) = depths
             .iter()
             .map(|depth| depth.bits)
-            .find(|bits| *bits > 16)
+            .find(|bits| *bits > pdf_sandbox::MAX_PRECISION)
         {
             return Err(format!(
-                "§7.4.9: the JPEG 2000 image /{shown} states a component of {deep} bits, and \
-                 Table 87 gives an image sample at most sixteen, so no image this removal writes \
-                 can carry its integers; the page is refused rather than coarsen the samples \
-                 outside the region"
+                "§7.4.9: the JPEG 2000 image /{shown} states a component of {deep} bits; Table 87 \
+                 gives every other filter's sample at most sixteen, so its integers go back only \
+                 as JPEG 2000, and this tree's decoder reads a component exactly to {} bits, so \
+                 the integers outside the region cannot be carried as the file states them; the \
+                 page is refused",
+                pdf_sandbox::MAX_PRECISION
             ));
         }
         Ok(())

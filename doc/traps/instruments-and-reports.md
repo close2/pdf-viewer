@@ -1982,6 +1982,11 @@ space that crosses the limit, not residency. The same command outside the walk e
 tail names no lint is re-run as the walk's command with its whole output kept before any doc comment is
 suspected, and the bound is named in the merge's words as the instrument's, never as the tree's.
 
+Closed by ADR 2466: the docs step's walk carries a data bound of its own, `DOCS_DATA_GIB` in
+`tools/state.sh`, sized from the step's measured address-space peak, and its filter keeps the walk
+wrapper's own "STOPPED BY THE DATA LIMIT" sentence, so a stop by that bound reads as itself in the
+step's tail. The rustdoc `-D warnings` over every crate and `--document-private-items` is unchanged.
+
 ### 281. A seed taken after the export's extraction
 
 `tools/batch.sh export` extracts HEAD with today's time (`tar -m`) so that a rebuild over a re-export is not
@@ -1993,3 +1998,8 @@ as a sibling's lint, round 1804 (ADR 2442) as E0004 in HEAD's `pdf-font`. Both r
 export's `.rs` and `Cargo.toml` files. A seeded export's sources are touched after the seed and before its first
 build, or the seed is taken before the extraction; a build error in an export that names a crate the round did
 not change is this trap until a touched rebuild says otherwise.
+
+Closed by ADR 2467: `tools/batch.sh export --seed <build directory>` copies the seed itself and then
+stamps every regular file it extracted with a time later than anything the seed holds, so the
+export's first build compiles every workspace crate from the export's own sources;
+`tools/conformance/tests/batch.rs` holds it with a seed whose artefacts are dated ahead of the clock.

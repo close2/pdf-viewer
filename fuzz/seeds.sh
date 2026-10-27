@@ -122,6 +122,15 @@ seed() {
             done
         done
         ;;
+    # The lossless JPEG 2000 writer's round trip (ADR 2470): a grey, a colour and an opacity head
+    # over the deepest, a middling and the shallowest depths, each followed by pseudo-random samples.
+    jpx_write)
+        local head
+        for head in '\x08\x08\x00\x00\x17' '\x46\x43\x01\x01\x13\x0b\x17\x10' '\x00\x00\x00\x02\x00\x00'; do
+            { printf "$head"; head -c 4096 /dev/urandom; } \
+                > "$root/$t/$(printf "$head" | od -An -tx1 | tr -d ' \n')"
+        done
+        ;;
     # The faces this machine offers, which is what `pdf_font::embed` writes into a document.
     embed)
         find /usr/share/fonts -size -128k \( -name '*.ttf' -o -name '*.otf' \) -print0 2>/dev/null \

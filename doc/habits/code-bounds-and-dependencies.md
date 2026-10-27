@@ -503,3 +503,13 @@ fell from 16 strips to 1 and the witness from 9 to 8, slower, because cuts throu
 replayed past the bound (round 1500, ADR 1837). A planner handed more rows is asked at every count
 against the rows it had before, and the plan with the most strips is kept, so no page gets fewer
 strips than it had.
+
+## A report channel is found in the function before a field is added
+
+When a brief asks that a finding go out "on the same report channel" from a function whose return type
+shows no channel of that name, read what the function already reports before adding a field. Round 1820
+(ADR 2475) was asked to report XFA validation failures from `submission::compose`, whose `Submission`
+has no report field — and found that Table 227 bit 2's Required field is already named on
+`Submission::owed` (ADR 1198), with the cancelling left to the host's policy. The validations went out the
+same way. A new `Submission` field would have widened the confined-process protocol's serialisation and
+the C ABI for a sentence a precedent already carried.

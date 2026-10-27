@@ -294,8 +294,9 @@ pub(crate) fn what_a_print_does_not_do(document: &Document) -> Vec<String> {
 /// A save keeps a static form's data consistent with what was filled, by §K.2's writer rule, and
 /// names each field it cannot keep where it saves (ADRs 2396, 2414); it writes the data through
 /// the form's own pictures and runs its format tests and, where the form asks for its validations
-/// before a save, its null tests (ADRs 2434, 2450), so what is not carried out is its
-/// calculations, its scripts and its events.
+/// before a save, its null and datatype tests (ADRs 2434, 2450, 2474); a submit runs those and the
+/// format test, naming each failure on the submission (ADR 2475). So what is not carried out is
+/// its calculations, its scripts and its events.
 fn xfa_form(document: &Document, notes: &mut Vec<String>) {
     let Some(stated) = pdf_model::xfa::stated(document) else {
         return;
@@ -307,9 +308,10 @@ fn xfa_form(document: &Document, notes: &mut Vec<String>) {
                           here is its AcroForm, which §K.2 requires to be consistent with the XFA \
                           resource, and saving it keeps the form's XFA data consistent with what \
                           was filled, in the form's own data formats, naming any field it \
-                          cannot and any field the form's validations find left empty — what \
-                          only the XFA resource states beyond that, such as its own calculations \
-                          and scripts, is not carried out"
+                          cannot and any field the form's validations find empty or of the wrong \
+                          type, and submitting it names the same — what only the XFA resource \
+                          states beyond that, such as its own calculations and scripts, is not \
+                          carried out"
             .to_owned(),
         (true, true) => format!(
             "this document is an XFA form that asks to be regenerated when it is opened \

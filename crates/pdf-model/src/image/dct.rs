@@ -238,7 +238,8 @@ fn ycck_to_cmyk(pixels: &mut [u8]) {
 /// `zune-jpeg` does this itself for every frame it reads *as* `YCbCr`, and it is the whole of
 /// what this filter's default case asks for — so the only samples that reach here are a frame
 /// the decoder read as already `RGB` (its component identifiers spell the three letters) over
-/// which Table 13's entry states the transform anyway. [`decode_jpeg`] has that reading.
+/// which Table 13 says the transform applies, by the marker, the entry or the default.
+/// [`decode_jpeg`] has that reading.
 fn ycbcr_to_rgb(pixels: &mut [u8]) {
     for pixel in pixels.chunks_exact_mut(3) {
         let (Some(y), Some(cb), Some(cr)) = (
@@ -278,10 +279,10 @@ fn jfif_inverse(y: u8, cb: u8, cr: u8) -> [u8; 3] {
 /// Whether §7.4.8's Table 13 says a codestream's samples are to be transformed, where it says.
 ///
 /// `None` is the ranking ending without an answer, and the codestream's own declaration answers
-/// there — which is what the decoder inferred. Three things produce it: a component count Table 13
-/// describes nothing for, a stated code naming a channel count the frame does not have, and the
-/// clause's third case, where the default *is* stated and this tree departs from it for a reason
-/// ADR 1183 records.
+/// there — which is what the decoder inferred. Two things produce it: a component count Table 13
+/// describes nothing for, and a marker code naming a channel count the frame does not have. The
+/// clause's third case is not one of them: its default is stated and obeyed whatever the frame's
+/// component identifiers spell (ADR 2468).
 ///
 /// The ranking is the clause's, in its order:
 ///
@@ -320,15 +321,14 @@ fn colour_transform(data: &[u8], components: u8, stated: Option<i64>) -> Option<
     // else has specified no transformation code and falls through to the default — the same
     // reading ADR 1177 gave a producer who writes the name where §7.4.1 puts no parameter.
     //
-    // And with no entry either, the answer would be the clause's default, `Some(components == 3)`.
-    // It is `None` instead, and that is this tree's one departure from Table 13: where the frame's
-    // component identifiers spell `R`, `G`, `B` the decoder reads the samples as already
-    // transformed, and this tree keeps that reading against the clause's default of 1, on a page
-    // three other renderers agree with us about. ADR 1183 prices it.
+    // With no entry either, the clause's own default governs: "1 if the image has three
+    // components and 0 otherwise". It does so whatever the frame's component identifiers spell,
+    // `R`, `G`, `B` included — no clause of ISO 32000-2 or of ISO/IEC 10918-1 gives an identifier
+    // a meaning (ADR 2468).
     match stated {
         Some(0) => Some(false),
         Some(1) => Some(true),
-        _ => None,
+        _ => Some(components == 3),
     }
 }
 
@@ -697,13 +697,13 @@ pub(super) fn jpeg_options() -> zune_jpeg::zune_core::options::DecoderOptions {
 /// sentence above both takes the small counts out: "This option shall be ignored if the image
 /// has one or two colour components".
 ///
-/// **The marker and the entry are both honoured over the frame's component identifiers.** A
-/// three-component frame whose identifiers spell `R`, `G`, `B` is read by `zune-jpeg` as
-/// already transformed, and no clause of ISO 32000-2 or of ISO/IEC 10918-1 gives an identifier
-/// any meaning — the convention is `libjpeg`'s, and a convention no standard defines does not
-/// outrank a value this clause reads. What is left to the identifiers is the third case alone,
-/// where this tree departs from the clause's stated default of 1 for a page
-/// `AMBIGUOUS_JPEG_COMPONENT_IDS` in `oracle.rs` holds and ADR 1183 prices.
+/// **The marker, the entry and the default are all honoured over the frame's component
+/// identifiers.** A three-component frame whose identifiers spell `R`, `G`, `B` is read by
+/// `zune-jpeg` as already transformed, and no clause of ISO 32000-2 or of ISO/IEC 10918-1 gives
+/// an identifier any meaning — the convention is `libjpeg`'s, and a convention no standard
+/// defines does not outrank a value this clause reads. With neither marker nor entry the
+/// clause's default of 1 applies to such a frame as to any other three-component one, and the
+/// samples are transformed here ([`ycbcr_to_rgb`]) because the decoder will not (ADR 2468).
 ///
 /// # Errors
 ///

@@ -732,3 +732,13 @@ Round 1813 (ADR 2461) handed `tools/batch.sh export --patch` the `-U0` diff trap
 export refused it twice: the export applies with plain `git apply`, which rejects a hunk without context. The patch for an
 export is taken with context (`diff -u`, or `git diff` with its default three lines) from a copy of HEAD carrying only the
 round's own edits; the `-U0` form is for the shared tree, where a neighbour's lines sit beside yours.
+
+## A hold that rests on a value read back logs the value
+
+A hold or a wait that rests on reading a platform value back straight after an act — a client size
+after a resize, a frame count after a present — prints that value under the probe every time it is
+read, whether or not the hold engages. Round 1822 (ADR 2478): ADR 2446's hold on the WinUI window
+read `AppWindow.ClientSize` straight after `ResizeClient`, found it unchanged, and cleared itself at
+once, so its own probe line appeared 0 times in CI run 40486886833 and the log could not say which of
+two paths gave the stale placement; the fix records the root element's and the page area's sizes from
+one layout pass and answers from that pair. A run where a hold never engages must be able to say why.

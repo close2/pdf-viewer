@@ -46,7 +46,9 @@ already reads them.
   the library holds a document's dialogues while presenting (ADRs 2308, 2309); CI's `window` job
   runs the window's half under its `--probe` word (ADR 2436); its first run was red on the placed
   page, where the window answered a placement between its resize and its page area's new size,
-  which it now waits for (ADR 2446), and the row moves on that step's first green run. Keep ADR 1145's reason for preserving the
+  and the merge's run after ADR 2446's hold (CI 40486886833) was red the same way; the window now
+  answers from the inner size its page area was measured in (ADR 2478), and the row moves on that
+  step's first green run. Keep ADR 1145's reason for preserving the
   reader's restriction controls. The deliberate GTK/Qt menu and GTK placement departures remain
   (ADRs 1145, 1429); the row is `partial` because the Windows run is owed.
 
@@ -166,9 +168,10 @@ the last rendering one, §10.7.4's mark for a stroke its matrix collapses, was b
 
 - §K.2 — XFA's static half, at one round a batch (`doc/questions/A633`): the resource is read and a
   save keeps the `datasets` packet consistent with every `/V` it writes, naming each field it cannot
-  (ADRs 2396, 2414); the template's calculations, validations, formatting and events are not run,
-  and every window says so. RFC 0011 section 5's steps 4 to 6 are the build, the output formatter
-  and the validate picture first (ADR 2430).
+  (ADRs 2396, 2414); the template's validations are run (a save's null and datatype tests, a
+  submit's null, datatype and format tests, ADRs 2450, 2474, 2475), while its calculations and events
+  are not, and every window says so. RFC 0011 section 5's step 5, a FormCalc engine, and step 6 are
+  what remains (ADR 2430).
  *One raster carries the product of shape and opacity where the clause wants the pair* is not
 among them: §11.4.6 is the one reader of the pair the standard has, every knockout element states its
 shape, and §11.3.7.3's NOTE 2 licenses the product everywhere else (§11.4.3's row, ADR 1340).
@@ -206,18 +209,17 @@ The feature draws; the residue is a case the first build did not reach. **What w
 a normal round extending the existing code.
 
 The rich text build's last residue, pair kerning in §9.6.2.2's fourteen, is laid out from Adobe's
-published pairs (`doc/questions/A308`, ADR 1916); the rows here are the cases §13.2's viability
-judgement does not yet reach, opened when its family was read against `pdf_model::media` (ADR 2376).
+published pairs (`doc/questions/A308`, ADR 1916); no clause 13 row is owed in this bucket (ADR 2376).
 
-- §13.2.6.2 and §13.2.6.3 — `pdf_model::media::judge` reads an offset and its timespan for whether
-  a `/B` names the clip's start (ADR 2431). An unrecognised Table 296 or Table 300 `/S` makes "the
-  rendition" non-viable whichever dictionary holds it, but in a `BE` it leaves the rendition chosen,
-  and in an `MH` it is given Table 289's reason. What a later offset or a marker names belongs to the
-  clip's container, as with §13.2.4.3 (ADR 2447).
+§13.2.6.2 and §13.2.6.3 are `implemented`: `pdf_model::media::judge` reads an offset and
+its timespan, a section's `/B` and `/E` and a `BE` media duration's `/T` alike, and an unrecognised Table 296
+or Table 300 `/S` makes "the rendition" non-viable from either dictionary (ADRs 2447, 2452, 2472, 2473).
 
 - **Beside this bucket and not in it** — §12.5.6.23 is `departed` on two refusals with their cost
   recorded, a calculator function serving region-only colours (ADR 1363) and a `JPXDecode` component
-  deeper than sixteen bits (ADR 1371); every other content class the clause reaches is removed, and
+  past the twenty-four bits the decoder reads exactly, or deeper than sixteen in an image of other than
+  one or three colour components, which T.801's JPX file would carry (ADRs 1371, 2470); a component of
+  seventeen to twenty-four bits is written back as JPEG 2000 by `pdf-jpx-write`; every other content class the clause reaches is removed, and
   Table 195's overlay is a choice its own `should` leaves (ADRs 1124, 1622).
 
 ### 5. Answered, awaiting a real trigger — the public-key security handler
@@ -318,7 +320,7 @@ exactly the rows `Ledger::is_aggregate` names and the frontier gate fails on any
 "Aggregate of the rows below" and the reason is the owing row's. They are not independently actionable
 — do not brief a round to *take* one; they flip when the last binding row flips.
 
-§7.4, §7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4, §13.2, §13.2.6, §14.8, §14.8.5, §14.8.5.4, §K.
+§7.4, §7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4, §14.8, §14.8.5, §14.8.5.4, §K.
 
 
 ### Not owed — a documented choice, an exclusion, a deprecation, or a standard-gap

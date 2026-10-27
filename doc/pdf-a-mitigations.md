@@ -1225,6 +1225,10 @@ face is drawn narrowed to the file's widths, **built** (`doc/questions/A47`, `A5
   serif) is restated as the face's kind, on the same proof (ADR 2147). A `Type1` dictionary restated
   as `TrueType` has its descriptor copy flagged Nonsymbolic and not Symbolic, since its encoding is
   a Latin one over a Latin face and section 6.2.11.6 gives a symbolic TrueType font none (ADR 2278).
+- **A font that names a descriptor the conversion renamed** (the CJK pack's subset, a re-keyed
+  face) and that no route embedded into keeps its own `/BaseFont`, so it is pointed at a copy of
+  the producer's descriptor, which embeds nothing: Table 120 makes `/FontName` the `/BaseFont` of
+  every font that refers to the descriptor (ADR 2476).
 - **A font written directly inside its resource dictionary** is written out as an object of its
   own holding what it gains, and a reference stands where it stood; §7.3.10 makes the two spellings
   equivalent, and equal dictionaries share the one object (ADR 2162).

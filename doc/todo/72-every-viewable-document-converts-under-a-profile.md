@@ -326,6 +326,14 @@ pack, of the thirteen pdf.js documents refused for its absence nine convert unde
 two stop on an independent fence row, and the last two convert once a descendant stating no
 descriptor, or sharing one at other widths, is given a descriptor of its own (ADR 2461).
 
+With the pack named, the largest reason a remedy could carry is a font that names a face other
+than the standard 14 and states neither a descriptor nor `/Widths` (ten documents, eight of which
+convert with the refusal lifted): the widths would be this viewer's guess at a layout the file
+never stated, which `doc/questions/A48` forbids filling in, so it waits on `doc/questions/Q687`
+(ADR 2477). A font that names a descriptor this conversion renamed, and that the conversion left its
+own `/BaseFont`, keeps a copy of the producer's descriptor, so Table 120's `/FontName` still matches
+(ADR 2476).
+
 Table 109's widths-array count is checked independently for simple fonts. A nonempty short
 array narrows LastChar; a long array loses only entries beyond it. This `Stated` rewrite keeps
 all effective advances and does not replace dictionary widths with a font program's metrics

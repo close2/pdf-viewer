@@ -537,6 +537,82 @@ fn typed(
     if value.is_empty() {
         return Ok(String::new());
     }
+    let canonical = canonical_text(template, locales, target, container, ui, value)
+        .map_err(|cannot| cannot.reason)?;
+    let pictures = &container.pictures;
+    match format_test(container, locales, &canonical) {
+        Formatted::Untested | Formatted::Passes => {}
+        Formatted::Fails { level } => {
+            // Page 383: the form designer's message for the test where the form gives one.
+            let said = pictures
+                .message("formatTest")
+                .map(|said| format!(" — its form's message for it is {said:?}"))
+                .unwrap_or_default();
+            return Err(format!(
+                "its value {:?} fails its validate picture's format test (XFA 3.3 \
+                 page 382) at the level {level}{said}, and page 162 updates the data only \
+                 once the test succeeds; a warning's override (page 385) is the person's, \
+                 and this save asks no one",
+                canonical.value
+            ));
+        }
+        Formatted::Unrun(reason) => {
+            return Err(format!(
+                "its validate picture's format test (XFA 3.3 page 382) cannot be run: {reason}"
+            ));
+        }
+    }
+    if let Some(bind) = &pictures.bind {
+        return Ok(picture::format(
+            bind,
+            canonical.hint,
+            &canonical.locale,
+            locales,
+            &canonical.value,
+        )
+        .map_err(|reason| format!("its bind picture cannot write its data: {reason}"))?
+        .unwrap_or(canonical.value));
+    }
+    Ok(canonical.value)
+}
+
+/// A typed value in the Form DOM's canonical form, with what was read to get it there.
+pub(super) struct Canonical {
+    /// The canonical value (chapter 24), the one page 382's validation tests are run against.
+    pub(super) value: String,
+    hint: picture::Hint,
+    locale: String,
+}
+
+/// Why a typed value has no canonical form this reader can name.
+pub(super) struct Cannot {
+    /// The sentence saying so.
+    pub(super) reason: String,
+    /// Whether the reason is that a numeric field's text is no number (page 156), which is a
+    /// value the field's type cannot hold and not a limit of this reader.
+    pub(super) not_a_number: bool,
+}
+
+impl From<String> for Cannot {
+    fn from(reason: String) -> Self {
+        Self {
+            reason,
+            not_a_number: false,
+        }
+    }
+}
+
+/// The canonical value of the non-empty `value` a person typed into the `ui` field `container`:
+/// chapter 4's input parsing (pages 162–164) by the picture hint its value type gives and the
+/// prevailing locale at `target`.
+pub(super) fn canonical_text(
+    template: &Template,
+    locales: &LocaleSet,
+    target: usize,
+    container: &Container,
+    ui: &str,
+    value: &str,
+) -> Result<Canonical, Cannot> {
     let hint = match container.value_type.as_deref() {
         Some("date") => Some(Category::Date),
         Some("time") => Some(Category::Time),
@@ -546,43 +622,57 @@ fn typed(
         _ => None,
     };
     let locale = locales.prevailing(template.locale(target));
-    let canonical = canonicalized(locales, container, ui, value, hint, &locale)?;
+    let value = canonicalized(locales, container, ui, value, hint, &locale)?;
+    Ok(Canonical {
+        value,
+        hint,
+        locale,
+    })
+}
+
+/// What a `validate` picture's format test made of a canonical value.
+pub(super) enum Formatted {
+    /// The container states no picture or turns the test off.
+    Untested,
+    /// The picture can format the value (page 382).
+    Passes,
+    /// The picture cannot, at the level `formatTest` gives (pages 384–385).
+    Fails {
+        /// `error` or `warning`.
+        level: &'static str,
+    },
+    /// The picture is one this reader does not read, or XFA leaves undefined.
+    Unrun(String),
+}
+
+/// Page 382's format test of `canonical` by `container`'s `validate` picture.
+pub(super) fn format_test(
+    container: &Container,
+    locales: &LocaleSet,
+    canonical: &Canonical,
+) -> Formatted {
     let pictures = &container.pictures;
-    if let Some(validate) = &pictures.validate
-        && pictures.format_test != FormatTest::Disabled
-    {
-        let level = match pictures.format_test {
-            FormatTest::Error => "error",
-            FormatTest::Warning | FormatTest::Disabled => "warning",
-        };
-        match picture::format(validate, hint, &locale, locales, &canonical) {
-            Ok(Some(_)) => {}
-            Ok(None) => {
-                // Page 383: the form designer's message for the test where the form gives one.
-                let said = pictures
-                    .message("formatTest")
-                    .map(|said| format!(" — its form's message for it is {said:?}"))
-                    .unwrap_or_default();
-                return Err(format!(
-                    "its value {canonical:?} fails its validate picture's format test (XFA 3.3 \
-                     page 382) at the level {level}{said}, and page 162 updates the data only \
-                     once the test succeeds; a warning's override (page 385) is the person's, \
-                     and this save asks no one"
-                ));
-            }
-            Err(reason) => {
-                return Err(format!(
-                    "its validate picture's format test (XFA 3.3 page 382) cannot be run: {reason}"
-                ));
-            }
-        }
+    let Some(validate) = &pictures.validate else {
+        return Formatted::Untested;
+    };
+    if pictures.format_test == FormatTest::Disabled {
+        return Formatted::Untested;
     }
-    if let Some(bind) = &pictures.bind {
-        return Ok(picture::format(bind, hint, &locale, locales, &canonical)
-            .map_err(|reason| format!("its bind picture cannot write its data: {reason}"))?
-            .unwrap_or(canonical));
+    let level = match pictures.format_test {
+        FormatTest::Error => "error",
+        FormatTest::Warning | FormatTest::Disabled => "warning",
+    };
+    match picture::format(
+        validate,
+        canonical.hint,
+        &canonical.locale,
+        locales,
+        &canonical.value,
+    ) {
+        Ok(Some(_)) => Formatted::Passes,
+        Ok(None) => Formatted::Fails { level },
+        Err(reason) => Formatted::Unrun(reason),
     }
-    Ok(canonical)
 }
 
 /// What a person typed as the Form DOM's canonical value: chapter 4's input parsing (pages
@@ -610,15 +700,18 @@ fn canonicalized(
     value: &str,
     hint: picture::Hint,
     locale: &str,
-) -> Result<String, String> {
+) -> Result<String, Cannot> {
     let value_type = container.value_type.as_deref();
     let numeric = ui == "numericEdit";
-    let as_typed = || -> Result<String, String> {
+    let as_typed = || -> Result<String, Cannot> {
         if numeric && !canonical::is_number(value) {
-            return Err(format!(
-                "its /V {value:?} is not a number, which XFA 3.3 page 156 evaluates as zero in a \
-                 numeric field, and a zero beside that /V would not be consistent with it"
-            ));
+            return Err(Cannot {
+                reason: format!(
+                    "its /V {value:?} is not a number, which XFA 3.3 page 156 evaluates as zero \
+                     in a numeric field, and a zero beside that /V would not be consistent with it"
+                ),
+                not_a_number: true,
+            });
         }
         Ok(value.to_owned())
     };
@@ -638,7 +731,8 @@ fn canonicalized(
             return Err(format!(
                 "its /V {value:?} is a date-time typed with no edit picture, which XFA 3.3 reads \
                  by a default page 165 joins with a T and page 1156 with a space"
-            ));
+            )
+            .into());
         }
         _ => None,
     };
@@ -657,7 +751,7 @@ fn canonicalized(
         Ok(Some(canonical)) => Ok(canonical),
         Ok(None) => as_typed(),
         Err(_) if already => Ok(value.to_owned()),
-        Err(reason) => Err(reason),
+        Err(reason) => Err(reason.into()),
     }
 }
 

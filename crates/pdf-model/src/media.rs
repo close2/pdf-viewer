@@ -422,6 +422,7 @@ impl Walk<'_> {
         let play_players = parameters.map(|parameters| document.get_key(parameters, "PL"));
         if let Some(parameters) = parameters {
             unhonourable(document, parameters, "Table 291", &mut reasons);
+            unrecognised_duration(document, parameters, &mut reasons);
         }
         let screen = document.get_key(dict, "SP");
         if let Some(screen) = screen.as_dict() {
@@ -1127,6 +1128,49 @@ fn unhonourable(document: &Document, dict: &Dictionary, table: &str, reasons: &m
     }
 }
 
+/// ISO 32000-2 §13.2.5's Table 292 media duration `/D` under the play parameters' `BE`, whose
+/// explicit duration `/T` is a §13.2.6.3 Table 300 timespan.
+///
+/// Table 291's `BE` entries are honoured in a best-effort sense only, so a duration this program
+/// cannot be told leaves the rendition chosen. One sentence is not about the entry but about the
+/// rendition, and a `BE` does not set it aside (ADR 2447, ADR 2472): Table 300's, of a timespan's
+/// `/S`,
+///
+/// > The rendition is non-viable if the interactive PDF processor does not recognise the value of
+/// > this entry.
+///
+/// Table 292 reaches a timespan only when its own `/S` is `T`; otherwise `/T` is ignored. A duration
+/// whose own `/S` is not recognised is a non-viable duration dictionary, and so is a timespan with
+/// a negative or a missing `/V`; a `BE` sets those aside. An `MH` duration is read by
+/// [`unhonourable`] already, as every `MH` entry is.
+fn unrecognised_duration(document: &Document, parameters: &Dictionary, reasons: &mut Vec<String>) {
+    let best_effort = document.get_key(parameters, "BE");
+    let Some(best_effort) = best_effort.as_dict() else {
+        return;
+    };
+    let duration = document.get_key(best_effort, "D");
+    let Some(duration) = duration.as_dict() else {
+        return;
+    };
+    let explicit = document
+        .get_key(duration, "S")
+        .as_name()
+        .is_some_and(|subtype| subtype.as_bytes() == b"T");
+    if explicit
+        && matches!(
+            read_timespan(document, &document.get_key(duration, "T")),
+            Timespan::Unrecognised
+        )
+    {
+        reasons.push(
+            "its media play parameters' BE /D states a Table 300 /S this program does not \
+             recognise, and \"The rendition is non-viable if the interactive PDF processor does \
+             not recognise the value of this entry\""
+                .to_owned(),
+        );
+    }
+}
+
 /// §13.2.7.2.2's algorithm, for the one player this program has: whichever program this machine
 /// starts for the content type, which no software identifier names.
 ///
@@ -1289,6 +1333,43 @@ fn unrecognised(options: &str, key: &str, table: &str) -> String {
     )
 }
 
+/// What Table 300 makes of a §13.2.6.3 timespan dictionary.
+enum Timespan {
+    /// A simple timespan, in seconds: `/S` is `S` and `/V` a number that is not negative.
+    Seconds(f64),
+    /// A `/S` stated with a value this processor does not recognise, of which Table 300 says "The
+    /// rendition is non-viable if the interactive PDF processor does not recognise the value of
+    /// this entry".
+    Unrecognised,
+    /// A timespan no player is told: no dictionary, no `/S`, a negative `/V` ("\[n\]egative values
+    /// shall not be used") or none at all.
+    Unviable,
+}
+
+/// §13.2.6.3's timespan dictionary `timespan`, read by Table 300. It is the one reading a media
+/// offset's `/T` (Table 297) and a media duration's `/T` (Table 292) share, so that the two give the
+/// same answer for the same dictionary (ADR 2472).
+///
+/// > The value shall be S (simple timespan).
+///
+/// And of `/V`, "Non-integral values shall be allowed."
+fn read_timespan(document: &Document, timespan: &Object) -> Timespan {
+    let Some(timespan) = timespan.as_dict() else {
+        return Timespan::Unviable;
+    };
+    let simple = match document.get_key(timespan, "S") {
+        Object::Null => false,
+        kind if kind.as_name().is_some_and(|kind| kind.as_bytes() == b"S") => true,
+        _ => return Timespan::Unrecognised,
+    };
+    match document.get_key(timespan, "V").as_number() {
+        Some(seconds) if simple && seconds.is_finite() && seconds >= 0.0 => {
+            Timespan::Seconds(seconds)
+        }
+        _ => Timespan::Unviable,
+    }
+}
+
 /// §13.2.6.2's media offset dictionary `offset`, read by Tables 296 to 300.
 ///
 /// Of an unrecognised `/S` in either table, "\[t\]he rendition is non-viable if the interactive PDF
@@ -1304,24 +1385,11 @@ fn read_offset(document: &Document, offset: &Object) -> Offset {
         .as_name()
         .map(pdf_syntax::Name::as_bytes)
     {
-        Some(b"T") => {
-            let timespan = document.get_key(offset, "T");
-            let Some(timespan) = timespan.as_dict() else {
-                return Offset::Unviable;
-            };
-            // Table 300: "The value shall be S (simple timespan)".
-            let simple = match document.get_key(timespan, "S") {
-                Object::Null => false,
-                kind if kind.as_name().is_some_and(|kind| kind.as_bytes() == b"S") => true,
-                _ => return Offset::Unrecognised("Table 300"),
-            };
-            match document.get_key(timespan, "V").as_number() {
-                Some(seconds) if simple && seconds.is_finite() && seconds >= 0.0 => {
-                    Offset::Time(seconds)
-                }
-                _ => Offset::Unviable,
-            }
-        }
+        Some(b"T") => match read_timespan(document, &document.get_key(offset, "T")) {
+            Timespan::Seconds(seconds) => Offset::Time(seconds),
+            Timespan::Unrecognised => Offset::Unrecognised("Table 300"),
+            Timespan::Unviable => Offset::Unviable,
+        },
         Some(b"F") => match document.get_key(offset, "F").as_integer() {
             Some(frame) if frame >= 0 => Offset::Frame(frame),
             _ => Offset::Unviable,

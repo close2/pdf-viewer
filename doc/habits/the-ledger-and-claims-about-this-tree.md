@@ -578,3 +578,13 @@ identification schema the source's broken packet had already stated correctly: A
 it was restated only when some row asked, so the output failed section 6.6.4's part and conformance rows and the output check
 refused it. A remedy that replaces a packet, a dictionary or a stream wholesale is read for every property it takes away that
 a row passing on the source relied on, not only for the row that failed, and a test plants a source that passes those rows.
+
+## A departed row's finish line counts the refusals it departs on
+
+A brief that sets a `departed` row's finish line at `implemented` has read the row's first sentence for
+how many refusals it departs on, and names each the slot ends. Round 1818 (ADR 2470) was briefed to end
+§12.5.6.23's departure by writing a redacted deep JPEG 2000 image back losslessly, and built the writer —
+but the row departs on two refusals (ADR 2439), and the other, ADR 1363's calculator function, was outside
+the owner's answer the slot executed, so the row stayed `departed` with a narrower note. The work was
+right and the finish line was wrong; a finish line a slot cannot reach by its own contract is read as a
+brief's defect, not the round's.

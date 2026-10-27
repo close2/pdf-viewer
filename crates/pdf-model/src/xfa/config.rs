@@ -39,7 +39,7 @@ pub(crate) enum Messaging {
 }
 
 /// What a form's `config` packet states about its data and its validations.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Config {
     /// Each `transform`'s `ref` and the default bind picture its `picture` gives, in document
     /// order (page 527).
@@ -49,8 +49,24 @@ pub struct Config {
     unfollowed: Vec<String>,
     /// Whether validations run before a form is saved to a file (page 1340's `preSave`).
     validates_on_save: bool,
+    /// Whether validations run before a submit (page 1340's `preSubmit`, the default).
+    validates_on_submit: bool,
     /// Page 386's option.
     messaging: Messaging,
+}
+
+impl Default for Config {
+    /// A form with no `config` packet, which page 1340 has validate before a submit and before
+    /// nothing else.
+    fn default() -> Self {
+        Self {
+            pictures: Vec::new(),
+            unfollowed: Vec::new(),
+            validates_on_save: false,
+            validates_on_submit: true,
+            messaging: Messaging::default(),
+        }
+    }
 }
 
 impl Config {
@@ -89,8 +105,13 @@ impl Config {
             let application = tree.child(root, name)?;
             tree.get(tree.child(application, "validate")?)
         });
-        config.validates_on_save =
-            validate.is_some_and(|element| element.text.split_whitespace().any(|a| a == "preSave"));
+        let lists = |activity: &str| {
+            validate.is_some_and(|element| element.text.split_whitespace().any(|a| a == activity))
+        };
+        config.validates_on_save = lists("preSave");
+        // Page 1340 makes validating before a submit alone the default, and an element supplied
+        // and left empty prevents even that.
+        config.validates_on_submit = validate.is_none_or(|_| lists("preSubmit"));
         config
     }
 
@@ -193,6 +214,12 @@ impl Config {
         self.validates_on_save
     }
 
+    /// Whether the form asks for its validations before a submit (page 1340's `preSubmit`, which
+    /// is also the default where the `config` states no `validate` element).
+    pub(crate) fn validates_on_submit(&self) -> bool {
+        self.validates_on_submit
+    }
+
     /// Page 386's option.
     pub(crate) fn messaging(&self) -> Messaging {
         self.messaging
@@ -218,6 +245,7 @@ mod tests {
         );
         assert_eq!(read.unfollowed(), None);
         assert!(!read.validates_on_save());
+        assert!(read.validates_on_submit());
         assert_eq!(read.bind_picture("prix"), Ok(None));
         assert_eq!(read.messaging(), Messaging::Individually);
     }
@@ -243,6 +271,23 @@ mod tests {
              </acrobat></config>",
         );
         assert!(!read.validates_on_save());
+        assert!(!read.validates_on_submit());
+    }
+
+    #[test]
+    fn a_config_that_states_no_validate_validates_before_a_submit_alone() {
+        // Page 1340 makes `preSubmit` the default; an empty element, or one listing other
+        // activities, is not.
+        let submit = |text: &str| config(text).validates_on_submit();
+        assert!(submit("<config/>"));
+        assert!(submit("<config><acrobat><common/></acrobat></config>"));
+        assert!(submit(
+            "<config><acrobat><validate>preSave preSubmit</validate></acrobat></config>"
+        ));
+        assert!(!submit("<config><acrobat><validate/></acrobat></config>"));
+        assert!(!submit(
+            "<config><acrobat><validate>preSave</validate></acrobat></config>"
+        ));
     }
 
     #[test]

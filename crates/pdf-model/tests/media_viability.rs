@@ -765,3 +765,104 @@ fn an_unrecognised_offset_subtype_makes_the_rendition_non_viable_from_either_dic
         .expect("an absent /S is no unrecognised value");
     assert!(!chosen.unhonoured.is_empty(), "{chosen:?}");
 }
+
+/// Table 300: "The rendition is non-viable if the interactive PDF processor does not recognise the
+/// value of this entry." A media duration's explicit `/T` (Table 292) is a Table 300 timespan, and
+/// Table 291 asks the play parameters' `BE` to be honoured in a best-effort sense only, so every
+/// other fault in a `BE` duration leaves the rendition chosen and this sentence, which names the
+/// rendition, does not (ADR 2472). **The controls**: Table 292 reaches `/T` only "if the value of S
+/// is T"; a duration whose own `/S` is not recognised is "non-viable" as a dictionary, which a `BE`
+/// sets aside; a timespan with a negative or a missing `/V`, or no `/S`, is not an unrecognised
+/// value; and the same timespan in an `MH` makes the rendition non-viable as every `MH` entry does.
+#[test]
+fn an_unrecognised_timespan_in_a_best_effort_duration_makes_the_rendition_non_viable() {
+    let clip = clip();
+    let parameters = |options: &str| format!("<< /S /MR /C {clip} /P << {options} >> >>");
+    let duration = |entries: &str| parameters(&format!("/BE << /D << {entries} >> >>"));
+    for unrecognised in [
+        "/S /T /T << /S /Q /V 3 >>",
+        "/S /T /T << /S 7 /V 3 >>",
+        "/S /T /T << /S /Q >>",
+    ] {
+        let report = judged(&duration(unrecognised), Processor::default());
+        assert!(report.chosen().is_none(), "{unrecognised}");
+        let reasons = format!("{report:?}");
+        assert!(
+            reasons.contains("Table 300") && reasons.contains("does not recognise"),
+            "{reasons}"
+        );
+    }
+    for honoured in [
+        "/S /T /T << /S /S /V 3 >>",
+        "/S /T /T << /S /S /V 2.5 >>",
+        "/S /T /T << /S /S /V -1 >>",
+        "/S /T /T << /S /S >>",
+        "/S /T /T << /V 3 >>",
+        "/S /T",
+        "/S /T /T 3",
+        "/S /I /T << /S /Q /V 3 >>",
+        "/S /F /T << /S /Q /V 3 >>",
+        "/S /Unknown /T << /S /Q /V 3 >>",
+        "/T << /S /Q /V 3 >>",
+    ] {
+        assert!(viable(&duration(honoured)), "{honoured}");
+    }
+    assert!(
+        !viable(&parameters("/MH << /D << /S /T /T << /S /Q /V 3 >> >> >>")),
+        "an MH duration is a must-honour entry"
+    );
+}
+
+/// §13.2.6.2: "Different media types support different types of offsets." An offset a media type
+/// does not carry is one the player "did not support" (§13.2.4.3 NOTE 2), so a section's must-honour
+/// offset of that type cannot be honoured and the rendition is non-viable, with the reason said.
+/// **The cases**: a frame offset over a sound, which has no frames; a time offset over a container
+/// the reader does not read, where whether an end reaches the clip's own end is not known; the file
+/// named by URL is `an_end_past_the_clips_own_length_is_the_end_and_has_no_effect_on_viability`'s.
+/// **The controls**: the same offsets in a `BE`, which a player may
+/// ignore, leave the rendition chosen; and a still image's offsets make no sense and are ignored
+/// (§13.2.4.3).
+#[test]
+fn an_offset_a_media_type_does_not_carry_is_a_value_the_player_cannot_honour() {
+    let wave = wave_file(&[]);
+    let frames = "<< /S /F /F 100000 >>";
+    let sound = judged_over(
+        &section_over("audio/wav", &format!("/MH << /E {frames} >>")),
+        &wave,
+    );
+    assert!(sound.chosen().is_none());
+    assert!(
+        format!("{sound:?}").contains("states no frames"),
+        "{sound:?}"
+    );
+
+    let unread = judged_over(
+        &section_over("audio/mpeg", &format!("/MH << /E {} >>", seconds("2"))),
+        &wave,
+    );
+    assert!(unread.chosen().is_none());
+    assert!(format!("{unread:?}").contains("audio/mpeg"), "{unread:?}");
+
+    for (content_type, entry) in [
+        ("audio/wav", frames.to_owned()),
+        ("audio/mpeg", seconds("2")),
+    ] {
+        let report = judged_over(
+            &section_over(content_type, &format!("/BE << /E {entry} >>")),
+            &wave,
+        );
+        let (_, chosen) = report
+            .chosen()
+            .expect("a best-effort offset may be ignored");
+        assert!(!chosen.unhonoured.is_empty(), "{content_type}: {chosen:?}");
+    }
+    assert!(
+        judged_over(
+            &section_over("image/jpeg", &format!("/MH << /E {frames} >>")),
+            &wave
+        )
+        .chosen()
+        .is_some(),
+        "a still image has no offsets to carry"
+    );
+}

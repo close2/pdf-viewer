@@ -132,7 +132,6 @@ kind_gates() {
 # The every-round list, as `path  what it is`; a `#section` suffix names the one section a round
 # reads of a longer file, and `--lines` counts that section alone.
 every_round_reading() {
-    printf 'CLAUDE.md                                the five principles, and what *done* means\n'
     printf 'doc/todo/02-every-round.md#0             section 0: the round on one page — the contract, tier 1, the record\n'
     printf 'doc/environment.md#rules                 the rule block that opens it: one line per shared-machine rule\n'
     printf 'doc/traps/every-round.md                 the ten traps the records cite most (tools/state.sh traps)\n'

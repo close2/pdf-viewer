@@ -130,6 +130,45 @@ pub(crate) enum FormatTest {
     Error,
 }
 
+/// The digits a `decimal` element allows on either side of its radix point (XFA 3.3 page 671).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Digits {
+    /// `fracDigits`: the most digits after the point; page 671's default is 2 and `-1`, read here
+    /// as `None`, allows any number.
+    pub(crate) fraction: Option<usize>,
+    /// `leadDigits`: the most digits before the point; page 671's default, `-1`, read here as
+    /// `None`, retains however many there are.
+    pub(crate) lead: Option<usize>,
+}
+
+impl Default for Digits {
+    fn default() -> Self {
+        Self {
+            fraction: Some(2),
+            lead: None,
+        }
+    }
+}
+
+impl Digits {
+    /// The limits `element` states, the defaults for one it does not or states badly: a negative
+    /// bound is page 671's `-1`, no limit, and a value that is no integer is not a statement.
+    fn of(element: &Element) -> Self {
+        let bound = |name: &str, default: Option<usize>| match element
+            .attribute(name)
+            .and_then(|text| text.trim().parse::<i64>().ok())
+        {
+            Some(limit) => usize::try_from(limit).ok(),
+            None => default,
+        };
+        let default = Self::default();
+        Self {
+            fraction: bound("fracDigits", default.fraction),
+            lead: bound("leadDigits", default.lead),
+        }
+    }
+}
+
 /// One container of the template.
 #[derive(Debug, Clone)]
 pub(crate) struct Container {
@@ -151,6 +190,8 @@ pub(crate) struct Container {
     /// The element its `value` holds — `text`, `integer`, `decimal`, `float`, `date`, `time`,
     /// `dateTime`, … — the content type chapter 4's Rules 2A and 4 (pages 164–165) read.
     pub(crate) value_type: Option<String>,
+    /// The digits its `value`'s `decimal` allows (page 671).
+    pub(crate) digits: Digits,
     /// Its `locale`, page 1153's second source of the prevailing locale.
     pub(crate) locale: Option<String>,
     /// Its picture clauses.
@@ -255,6 +296,7 @@ impl Template {
                 items: Vec::new(),
                 rich: false,
                 value_type: None,
+                digits: Digits::default(),
                 locale: element
                     .attribute("locale")
                     .filter(|locale| !locale.trim().is_empty())
@@ -518,11 +560,9 @@ fn read_properties(container: &mut Container, tree: &Tree, element: &Element) {
             }
             "value" => {
                 container.rich |= tree.child(child, "exData").is_some();
-                container.value_type = property
-                    .children
-                    .first()
-                    .and_then(|&kind| tree.get(kind))
-                    .map(|kind| kind.local.clone());
+                let kind = property.children.first().and_then(|&kind| tree.get(kind));
+                container.value_type = kind.map(|kind| kind.local.clone());
+                container.digits = kind.map(Digits::of).unwrap_or_default();
             }
             "validate" => {
                 container.pictures.validate = picture(tree, child);

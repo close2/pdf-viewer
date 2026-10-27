@@ -1,0 +1,17 @@
+[package]
+name = "pdf-jpx-write"
+description = "Lossless ISO/IEC 15444-1 JPEG 2000 writing, as a redaction re-encodes a JPXDecode image whose components are deeper than ISO 32000-2 Table 87's sixteen bits."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# No dependencies, on purpose: the crate takes integers and writes a codestream, and the round
+# trip that proves it is read back by `pdf-sandbox`, the tree's own JPEG 2000 decoder (ADR 2470).
+
+[dev-dependencies]
+pdf-sandbox.workspace = true
+
+[lints]
+workspace = true

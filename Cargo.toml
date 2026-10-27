@@ -30,6 +30,7 @@ pdf-colour = { path = "crates/pdf-colour", version = "0.1.0" }
 pdf-render = { path = "crates/pdf-render", version = "0.1.0" }
 pdf-sandbox = { path = "crates/pdf-sandbox", version = "0.1.0" }
 pdf-ccitt = { path = "crates/pdf-ccitt", version = "0.1.0" }
+pdf-jpx-write = { path = "crates/pdf-jpx-write", version = "0.1.0" }
 render-cpu = { path = "crates/render-cpu", version = "0.1.0" }
 render-gpu = { path = "crates/render-gpu", version = "0.1.0" }
 raster-compare = { path = "crates/raster-compare", version = "0.1.0" }

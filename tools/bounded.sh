@@ -98,7 +98,7 @@
 # every round (`doc/environment.md`'s parallel-round agreements carry them too):
 #
 #   1. one corpus walk at a time across ALL rounds, not one per round;
-#   2. `--data` never above 12 GiB for a round;
+#   2. `--data` never above 12 GiB for a round, except the docs step's own bound (ADR 2466, `tools/state.sh`);
 #   3. every bounded run also carries `--tree` — 12 GiB for a walk, 8 for a build — and this
 #      script defaults it to 12 where the caller gave none, so that a run without a tree ceiling
 #      cannot be started by omission;

@@ -195,6 +195,7 @@
 //! `forms`, `located`, `mesh`, `paths`, `shading` and `type3` are the constructions
 //! those concerns call.
 
+mod deep;
 mod forms;
 mod frames;
 mod graphics_state;
@@ -401,7 +402,8 @@ struct ClearedImage {
     /// Whether this is a picture the page draws or the §8.9.6.3 / §11.6.5.2 mask of one, so the
     /// report counts the pictures and not the masks that travel with them.
     role: Role,
-    /// The cleared samples, re-encoded `FlateDecode`.
+    /// The cleared samples, re-encoded `FlateDecode` — or `JPXDecode` where a component is
+    /// deeper than Table 87's sixteen bits ([`OwnRaster::written_as_jpx`]).
     encoded: Vec<u8>,
     /// How [`build_cleared_image`] describes the samples: the source dictionary carried, carried
     /// with the codec's depth restated, or a `JPXDecode` image's own description.
@@ -473,8 +475,9 @@ enum Described {
 struct OwnRaster {
     /// The colour space the samples are in.
     space: pdf_model::image::JpxSpace,
-    /// The depth the samples are written at: 8 where every component is eight bits or fewer, 16
-    /// above.
+    /// The depth of the field the samples are cleared in: 8 where every component is eight bits
+    /// or fewer, 16 to sixteen, and 24 above, where they are written back as JPEG 2000 at each
+    /// component's own depth ([`Self::written_as_jpx`]).
     bits: usize,
     /// The `/Decode` to state: the pairs the source's samples were read through, each component's
     /// own depth widened to [`Self::bits`] keeping its integers and moving the pair's far end so
@@ -488,8 +491,19 @@ struct OwnRaster {
     premultiplied: bool,
     /// Each component's own depth, which its integers are still at.
     depths: Vec<u8>,
+    /// The opacity channel's own depth, where one is carried.
+    opacity_depth: u8,
     /// The `/Decode` pair a reader maps each component through at its own depth.
     pairs: Vec<(f32, f32)>,
+}
+
+impl OwnRaster {
+    /// Whether the samples go back as JPEG 2000 rather than `FlateDecode`: a component deeper
+    /// than the sixteen bits Table 87 gives any other filter's samples — "\[t]he value shall be
+    /// 1 , 2 , 4 , 8 , or (from PDF 1.5) 16" — has no other field to be written in (ADR 2470).
+    fn written_as_jpx(&self) -> bool {
+        self.bits > 16
+    }
 }
 
 /// Groups **one page's** image clears by object and destroys each image's samples once.
@@ -2379,6 +2393,23 @@ fn cleared_image_samples(
             );
         }
     }
+    if let Source::Own(decoded) = &first.source
+        && decoded.own.written_as_jpx()
+    {
+        // The opacity channel goes back inside the codestream it came out of, where Table 87's
+        // `/SMaskInData` still says how to read it.
+        let encoded = deep::encode(
+            &samples,
+            opacity.as_ref().map(|(channel, _)| channel.as_slice()),
+            layout,
+            &decoded.own,
+        )?;
+        return Ok(ClearedSamples {
+            encoded,
+            written,
+            opacity: None,
+        });
+    }
     let encoded = flate_encode(&samples, 6)
         .ok_or_else(|| "the cleared samples could not be re-encoded".to_owned())?;
     let opacity = opacity
@@ -3560,10 +3591,11 @@ fn build_cleared_image(
             );
         }
     }
-    dict.insert(
-        Name::new(&b"Filter"[..]),
-        Object::Name(Name::new(&b"FlateDecode"[..])),
-    );
+    let filter: &[u8] = match &image.written {
+        Described::Own { own, .. } if own.written_as_jpx() => b"JPXDecode",
+        _ => b"FlateDecode",
+    };
+    dict.insert(Name::new(&b"Filter"[..]), Object::Name(Name::new(filter)));
     dict.insert(
         Name::new(&b"Length"[..]),
         Object::Integer(i64::try_from(image.encoded.len()).unwrap_or(i64::MAX)),
@@ -3636,7 +3668,8 @@ fn own_dictionary(
     for (key, value) in source.dict.iter() {
         let dropped = match key.as_bytes() {
             b"Filter" | b"DecodeParms" | b"DP" | b"Length" | b"Alternates"
-            | b"BitsPerComponent" | b"Decode" | b"SMaskInData" => true,
+            | b"BitsPerComponent" | b"Decode" => true,
+            b"SMaskInData" => !own.written_as_jpx(),
             b"ColorSpace" => !stated,
             b"SMask" | b"Mask" => image.opacity.is_some(),
             _ => false,
@@ -3684,6 +3717,10 @@ fn own_dictionary(
     };
     if let Some(space) = space {
         dict.insert(Name::new(&b"ColorSpace"[..]), space);
+    }
+    if own.written_as_jpx() {
+        deep::describe(own, dict);
+        return Ok(());
     }
     dict.insert(
         Name::new(&b"BitsPerComponent"[..]),

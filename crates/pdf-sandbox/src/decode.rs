@@ -988,26 +988,34 @@ struct Integers {
 /// stretch is a drawing's answer to the first half — each channel scaled to one domain — and a
 /// writer cannot take it, because a stretched integer is not the one the codestream states.
 /// So every channel keeps its own integers, in a field of one byte where the widest is eight
-/// bits or fewer and two above, and the depths travel beside them where they differ.
+/// bits or fewer, two to sixteen and three to [`crate::MAX_PRECISION`]
+/// ([`crate::Raster::field_bytes`]), and the depths travel beside them where they differ. A
+/// field past sixteen bits is a `JPXDecode` writer's alone (ADR 2470): Table 87 gives every
+/// other filter's samples at most sixteen.
 ///
 /// # Errors
 ///
-/// A channel of more than sixteen bits: no field here holds its integers, and §8.9.5.1 Table 87
-/// gives an image sample no depth above sixteen, so there is nothing to carry them in.
+/// A channel deeper than [`crate::MAX_PRECISION`]: the decoder carries a sample in an `f32`,
+/// whose integers are exact to 2^24 and no further, so a deeper channel's integers are not the
+/// codestream's and there is nothing exact to carry.
 fn jpx_own_integers(decoded: &hayro_jpeg2000::DecodedImage<'_>) -> Result<Integers, String> {
     let components = decoded.components();
     let depths: Vec<u8> = components
         .iter()
         .map(hayro_jpeg2000::ComponentData::bit_depth)
         .collect();
-    if let Some(wide) = depths.iter().find(|depth| !(1..=16).contains(*depth)) {
+    if let Some(wide) = depths
+        .iter()
+        .find(|depth| !(1..=crate::MAX_PRECISION).contains(*depth))
+    {
         return Err(format!(
-            "JPX: a channel of {wide} bits, whose integers no sample of sixteen bits or fewer holds"
+            "JPX: a channel of {wide} bits, whose integers this decoder does not carry exactly: \
+             it computes in f32, whose integers are exact to 2^24"
         ));
     }
     let precision = depths.iter().copied().max().unwrap_or(8);
     let uniform = depths.iter().all(|depth| *depth == precision);
-    let width = if precision > 8 { 2 } else { 1 };
+    let width = Raster::field_bytes(precision);
     Ok(Integers {
         precision,
         depths: if uniform { Vec::new() } else { depths },
@@ -1016,7 +1024,7 @@ fn jpx_own_integers(decoded: &hayro_jpeg2000::DecodedImage<'_>) -> Result<Intege
 }
 
 /// Each channel's samples rounded to its own integers and interleaved, `width` bytes a sample,
-/// big-endian where two.
+/// big-endian where more than one.
 fn interleaved(components: &[hayro_jpeg2000::ComponentData], width: usize) -> Vec<u8> {
     let samples = components.first().map_or(0, |first| first.samples().len());
     let mut data = Vec::with_capacity(
@@ -1028,23 +1036,23 @@ fn interleaved(components: &[hayro_jpeg2000::ComponentData], width: usize) -> Ve
         for component in components {
             // `2^depth − 1` computed in `u32`, because `1u16 << 16` is not a `u16` and the
             // sixteen-bit case is exactly the one a narrower shift would answer one short of.
-            let highest = f32::from(
-                u16::try_from((1u32 << u32::from(component.bit_depth())).saturating_sub(1))
-                    .unwrap_or(u16::MAX),
-            );
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "the depth is at most MAX_PRECISION, 24, and every integer below 2^24 \
+                          is an f32 exactly"
+            )]
+            let highest =
+                (1u32 << u32::from(component.bit_depth()).min(24)).saturating_sub(1) as f32;
             let raw = component.samples().get(sample).copied().unwrap_or(0.0);
             #[expect(
                 clippy::cast_possible_truncation,
                 clippy::cast_sign_loss,
-                reason = "clamped finite into 0..=highest, which is at most 65535, before the \
-                          cast; a float-to-integer cast saturates rather than wrapping"
+                reason = "clamped finite into 0..=highest, which is below 2^24, before the cast; \
+                          a float-to-integer cast saturates rather than wrapping"
             )]
-            let value = raw.round().clamp(0.0, highest) as u16;
-            if width == 2 {
-                data.extend_from_slice(&value.to_be_bytes());
-            } else {
-                data.push(u8::try_from(value).unwrap_or(u8::MAX));
-            }
+            let value = raw.round().clamp(0.0, highest) as u32;
+            let bytes = value.to_be_bytes();
+            data.extend_from_slice(&bytes[bytes.len().saturating_sub(width)..]);
         }
     }
     data

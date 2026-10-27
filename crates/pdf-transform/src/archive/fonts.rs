@@ -65,6 +65,7 @@
 //! guess", which is also section 2.1's line about a substitution that answers *what does this
 //! glyph look like* being unable to answer *which character is this code*.
 
+mod bystanders;
 mod composite;
 mod described;
 mod empty;
@@ -843,8 +844,11 @@ pub(super) fn embed_faces(
             gains(document, used, entries, spare, &mut substitutes)?;
         }
     }
-    // Last, once every font is in: a page is photographed whole, so whether it may be is a
-    // question about everything it shows rather than about one font (`doc/adr/2394`).
+    // Once every font is in, the descriptors the routes renamed are known, and so are the fonts
+    // that name one without being part of the decision (`doc/adr/2476`).
+    bystanders::keep_their_own_descriptors(document, spare, &mut substitutes)?;
+    // Last: a page is photographed whole, so whether it may be is a question about everything it
+    // shows rather than about one font (`doc/adr/2394`).
     photographed::photograph(
         document,
         photographed::offered(target),

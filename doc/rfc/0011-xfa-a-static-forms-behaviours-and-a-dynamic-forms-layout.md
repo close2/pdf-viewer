@@ -437,6 +437,12 @@ half; §K.2 is `partial`, three writer's rules kept and the template's events ow
    `datasets` packet in the file, and is built; the extended mapping rules this program does not
    carry out leave a changed field named (ADR 2451). Step 4's script test is step 5's engine's,
    and step 5 is next.
+   **Step 4's datatype test and its run before a submit built** (session 1820, ADRs 2474, 2475): a
+   field whose `value` holds a scalar type is tested against the content clause of that element
+   (pages 626–868) at a save that lists `preSave`; a submit runs the null, datatype and format
+   tests by page 1340's default, `preSubmit`, and names each failure on `Submission::owed`, the
+   cancelling an error asks for being the host's submit policy's (ADR 1198). §K.2's validations
+   sentence is discharged; its calculations and events are the half owed, with step 5.
 4. **On Q639's answer**: the dynamic half, whose first round is a measurement — the cost of laying
    out page one of the census's `/NeedsRendering` documents — before a line of layout ships.
 

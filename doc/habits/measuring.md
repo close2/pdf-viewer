@@ -1761,6 +1761,11 @@ hold is queued, and trap 238's check at the top of the hold's script names it (A
 `--profile gates` reads its worker from the `gates` directory, not the release one, so there the rebuild is
 `cargo build --profile gates -p pdf-sandbox --bins` — round 1778's first export failed its three corpus
 gates at once for want of it (ADR 2390).
+`tools/batch.sh export --seed <build directory>` does the seeding and stamps the extracted sources after
+it, which trap 281 asks (ADR 2467).
+The debug profile is no exception: a fresh export's `cargo nextest run -p pdf-model` failed 21 sandbox-dependent
+tests with "worker not found" until `cargo build -p pdf-sandbox --bins` had run (round 1817, ADR 2468), so the
+worker is built in the profile the tests will read it from, release, gates or debug, before the tests are run.
 
 ## 186. An arm inside a hold starts when the one-minute load is below three, with a cap
 
@@ -1833,3 +1838,12 @@ HEAD read 0.008/0.008/0.007 s and the first cut 0.010/0.010/0.009 s — 25 % slo
 memo's allocation outweighs the walk it saves — until a field stating none of the inherited entries shared its parent's
 resolution (0.009/0.008/0.008 s). A memo, cache or index justified by a pathological input is measured on the files that
 exist as well, before and after, and the slower one is not merged on the strength of the case it was built for.
+
+## 194. A walk's memory sampler is filtered by the walk's working directory
+
+A sampler that reads a walk's peak memory selects the processes to sum by their working directory — the
+export or the tree the walk runs in — and never by process name. Round 1816 (ADR 2466) first sampled
+`VmData` of every `rustdoc` on the machine and read a figure that held siblings' doctests and their
+rustdoc runs; filtered by the export's directory, rustdoc's address space peaked at 16.2 GiB and the tree
+at 7.80 GiB resident, the figures ADR 2466 sized the docs step's bound from. A shared machine runs the
+same binaries for several rounds at once, so a name selects the machine, not the walk.

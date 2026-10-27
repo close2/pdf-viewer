@@ -89,15 +89,14 @@ impl Codestream {
         }
     }
 
-    /// Whether the codestream alone asks for a transform out of a luminance-chrominance space —
-    /// the clause's third case, no marker and no entry, which is what `image::dct::decode_jpeg`
-    /// falls back to (ADR 1183) for a frame carrying no APP14 marker.
+    /// Whether the clause's third case, no marker and no entry, asks for a transform out of a
+    /// luminance-chrominance space — which is what `image::dct::decode_jpeg` does for a frame
+    /// carrying no APP14 marker (ADR 2468).
     ///
-    /// Three components are `YCbCr` unless the identifiers spell `RGB`; four are `CMYK`, which
-    /// is no transform at all. A count of one or two never reaches here — Table 13's own
-    /// sentence takes them out.
+    /// "1 if the image has three components and 0 otherwise", whatever the component identifiers
+    /// spell. A count of one or two never reaches here — Table 13's own sentence takes them out.
     fn this_tree_transforms(&self) -> bool {
-        self.components == 3 && !self.identifiers_spell_rgb
+        self.components == 3
     }
 }
 
@@ -178,6 +177,10 @@ struct Says {
     witnesses: Vec<Witness>,
     /// Every image writing the name where the clause does not read it.
     misplaced: Vec<Witness>,
+    /// Every image in the clause's third case whose frame has three components and whose
+    /// identifiers spell `RGB`: the images ADR 2468 moves from the codestream's reading to the
+    /// clause's default of 1. Each is a document and the site within it.
+    rgb_default: Vec<(String, String)>,
 }
 
 impl Says {
@@ -196,6 +199,7 @@ impl Says {
         self.marker_agrees = self.marker_agrees.saturating_add(other.marker_agrees);
         self.witnesses.extend(other.witnesses);
         self.misplaced.extend(other.misplaced);
+        self.rgb_default.extend(other.rgb_default);
     }
 
     /// Counts one image.
@@ -253,7 +257,12 @@ impl Says {
                     changes_a_pixel: clause_transforms != codestream.this_tree_transforms(),
                 });
             }
-            Case::Ignored | Case::Default => {}
+            Case::Default => {
+                if codestream.components == 3 && codestream.identifiers_spell_rgb {
+                    self.rgb_default.push((document.to_owned(), site));
+                }
+            }
+            Case::Ignored => {}
         }
     }
 }
@@ -510,6 +519,12 @@ fn main() {
         );
     }
 
+    for (document, site) in &says.rgb_default {
+        println!(
+            "{document}: {site} is three components with identifiers RGB and neither marker nor \
+             entry, so the clause's default of 1 now transforms it"
+        );
+    }
     let opened = paths.len();
     println!(
         "\n{opened} path(s), {} DCTDecode image(s), {} whose markers could not be read",
@@ -543,5 +558,16 @@ fn main() {
          \u{a7}7.4.1 puts no filter parameter; {misplaced_changed} of those would draw \
          differently if it were honoured there anyway",
         says.misplaced.len()
+    );
+    let documents: std::collections::BTreeSet<&String> = says
+        .rgb_default
+        .iter()
+        .map(|(document, _)| document)
+        .collect();
+    println!(
+        "  {} image(s) over {} document(s) are three components with identifiers RGB in the \
+         clause's third case, which ADR 2468 moves to the clause's default of 1",
+        says.rgb_default.len(),
+        documents.len()
     );
 }

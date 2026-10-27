@@ -895,6 +895,10 @@ cd fuzz && cargo +nightly fuzz run x509         -- -runs=1000000  # the signer's
   # this same three-member shape, satisfies that RFC's section 4.1.1.2 rule that the two algorithm identifiers
   # agree, and sits in `/CRLs` immediately beside `/Certs` — so the second route reads as far as
   # `Validity`, where a certificate states two `Time`s and a revocation list one.
+cd fuzz && cargo +nightly fuzz run jpx_write    -- -max_total_time=600 -rss_limit_mb=2048 -timeout=30
+  # The lossless JPEG 2000 writer a redaction writes a cleared deep image back with (ADR 2470): four
+  # head bytes choose the grid, the space and the opacity channel, a byte a channel its depth, and
+  # the rest are samples; every input is written and read back by `pdf-sandbox`'s decoder exactly.
 cd fuzz && cargo +nightly fuzz run ccitt        -- -max_total_time=600 -timeout=20  # §7.4.6's fax
   # decoder of this tree's own (ADR 1349): six head bytes choose Table 11's parameters, the rest is
   # coded data. Seeded from the fax streams of the corpus (ADR 1423).

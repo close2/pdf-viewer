@@ -283,6 +283,8 @@ pub fn compose(
 ) -> Result<Submission, Refusal> {
     let flags = action.flags;
     let mut owed = Vec::new();
+    let table = widgets_by_field_name(document);
+    xfa_validations(document, view, &table, &mut owed);
 
     // Table 240 bit 9: "If set, the document shall be submitted as PDF … If set, all other
     // flags shall be ignored except GetMethod." Read before bit 6 for that reason.
@@ -295,7 +297,6 @@ pub fn compose(
         excluded_by_xfdf(flags, &mut owed);
     }
 
-    let table = widgets_by_field_name(document);
     let chosen = chosen(document, view, action, format, &table, &mut owed);
     let entries = if flags.canonical_format() {
         canonical_dates(document, &table, chosen.entries, &mut owed)
@@ -337,6 +338,94 @@ pub fn compose(
         body,
         fields,
         owed,
+    })
+}
+
+/// XFA 3.3's validations of a hybrid form, run where the form asks for them before a submit and
+/// named on `owed` (ADR 2475).
+///
+/// Page 1340's `validate` option lists the activities a form validates before, `preSubmit` alone
+/// by default, and page 447's standard submit processing runs the null test and the format test
+/// over the whole form whatever the submit carries, so every field the form holds is tested, by
+/// the value this view shows. The datatype test (page 386) is implied by the
+/// field's value type and runs with them.
+///
+/// **They are named and not enforced.** Page 1340 has an error cancel the submit and a warning let
+/// it go ahead, but nothing in §12.7.6.2 tells a processor to abandon a submit, and a refusal a
+/// host cannot turn into a question is what `CLAUDE.md` principle 3 warns against: the same
+/// shape as Table 227 bit 2's Required in [`chosen`], decided where the host's submit policy
+/// can be told (ADR 1198). One entry per message the person is shown, as page 386's
+/// `validationMessaging` groups them. A form this program does not lay out (the dynamic half,
+/// Table 29's `/NeedsRendering`) is named as not validated rather than passed.
+fn xfa_validations(
+    document: &Document,
+    view: &ViewState,
+    table: &BTreeMap<String, Vec<ObjectId>>,
+    owed: &mut Vec<String>,
+) {
+    let Some(stated) = crate::xfa::stated(document).filter(|stated| stated.resource) else {
+        return;
+    };
+    let not_run = |why: &str| {
+        format!("the document's XFA validations were not run before this submit: {why}")
+    };
+    if stated.needs_rendering {
+        owed.push(not_run(
+            "it asks to be regenerated when opened (Table 29's /NeedsRendering), so its XFA form \
+             is a dynamic one",
+        ));
+        return;
+    }
+    let resource = match crate::xfa::Resource::read(document) {
+        Some(Ok(resource)) => resource,
+        Some(Err(error)) => {
+            owed.push(not_run(&error.to_string()));
+            return;
+        }
+        None => return,
+    };
+    if let Some(why) = resource.template.dynamic() {
+        owed.push(not_run(&format!("its XFA form is a dynamic one: {why}")));
+        return;
+    }
+    let fields: Vec<(String, crate::xfa::Change)> = table
+        .iter()
+        .filter_map(|(name, widgets)| {
+            let widget = *widgets.first()?;
+            let object = document.get(widget);
+            let field = Field::read(document, object.as_dict()?, view.annotation(widget).value);
+            if field.cyclic {
+                return None;
+            }
+            Some((name.clone(), xfa_change(document, field.value.as_ref())?))
+        })
+        .collect();
+    owed.extend(
+        resource
+            .before_submit(&fields)
+            .into_iter()
+            .map(|message| message.join("; ")),
+    );
+}
+
+/// A field's `/V` in the terms an XFA data value needs, as the body would carry it: a button's
+/// state is its name (§7.3.5), which is all the validations ask of one — whether it is empty.
+fn xfa_change(document: &Document, value: Option<&Object>) -> Option<crate::xfa::Change> {
+    use crate::xfa::Change;
+    let text = |object: &Object| match document.resolve(object) {
+        Object::String(bytes) => Some(pdf_syntax::text_string(&bytes)),
+        _ => None,
+    };
+    let Some(value) = value else {
+        return Some(Change::Cleared);
+    };
+    Some(match document.resolve(value) {
+        Object::Null => Change::Cleared,
+        Object::String(bytes) => Change::Text(pdf_syntax::text_string(&bytes)),
+        Object::Array(items) => Change::Choices(items.iter().map(text).collect::<Option<_>>()?),
+        Object::Name(state) if state.as_bytes() == crate::appearance::OFF => Change::Off,
+        Object::Name(state) => Change::On(String::from_utf8_lossy(state.as_bytes()).into_owned()),
+        _ => return None,
     })
 }
 

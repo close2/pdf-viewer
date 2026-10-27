@@ -2072,3 +2072,105 @@ fn export_refuses_a_path_with_no_change_and_a_patch_of_another_tree_and_keeps_th
         "a refused patch removed the last export"
     );
 }
+
+/// **A seeded export's first build compiles a crate whose source differs from the seed's** (trap
+/// 281, ADR 2467). A sibling built its edit of `probe` into a build directory, whose artefacts are
+/// dated two hours ahead of the clock — newer than any source the export extracts, as a neighbour's
+/// rebuild is newer than the extraction the seed follows — and the export is seeded from that
+/// directory. HEAD's `probe` is a different file, and the export's own build has to say it
+/// compiled `probe`; cargo calls a crate fresh whose artefacts are newer than its sources, so a
+/// seed left to stand over unstamped sources would print only `Finished`.
+///
+/// Calibrated by planting (trap 13): with the stamp taken out of `export_round`, the build printed
+/// `Finished` alone and this test failed.
+#[test]
+fn a_seeded_exports_first_build_compiles_a_crate_whose_source_differs_from_the_seeds() {
+    let package = "[package]\nname = \"probe\"\nversion = \"0.1.0\"\nedition = \"2021\"\n";
+    let workspace = "[workspace]\nmembers = [\"probe\"]\nresolver = \"2\"\n";
+    let sandbox = Sandbox::with_files(
+        "export-seed",
+        &[
+            ("Cargo.toml", workspace),
+            ("probe/Cargo.toml", package),
+            ("probe/src/lib.rs", "pub const WHICH: u32 = 2;\n"),
+        ],
+    );
+    // The sibling's mid-edit tree, built into the directory the export will be seeded from.
+    let sibling = sandbox.base.join("sibling");
+    std::fs::create_dir_all(sibling.join("probe/src")).expect("the sibling's tree");
+    std::fs::write(sibling.join("Cargo.toml"), workspace).expect("the sibling's manifest");
+    std::fs::write(sibling.join("probe/Cargo.toml"), package).expect("the sibling's package");
+    std::fs::write(
+        sibling.join("probe/src/lib.rs"),
+        "pub const WHICH: u32 = 1;\n",
+    )
+    .expect("the sibling's edit");
+    let seed = sandbox.base.join("seed");
+    let built = sandbox
+        .command("cargo", &sibling)
+        .args(["build", "--offline", "--target-dir"])
+        .arg(&seed)
+        .output()
+        .expect("cargo runs");
+    assert!(built.status.success(), "the seed's build: {}", text(&built));
+    let aged = Command::new("find")
+        .arg(&seed)
+        .args(["-exec", "touch", "-d", "2 hours", "{}", "+"])
+        .status()
+        .is_ok_and(|status| status.success());
+    assert!(aged, "the seed's artefacts could not be dated ahead");
+
+    let targets = sandbox.base.join("targets");
+    let made = sandbox
+        .command("bash", &sandbox.repo())
+        .env("BATCH_EXPORT_TARGET_ROOT", &targets)
+        // The temporary directory is not on a filesystem that clones.
+        .env("BATCH_SEED_REFLINK", "auto")
+        .arg(sandbox.repo().join("tools/batch.sh"))
+        .args(["export", "9001", "--seed"])
+        .arg(seed.join("debug"))
+        .output()
+        .expect("bash runs tools/batch.sh");
+    assert!(made.status.success(), "export failed: {}", text(&made));
+    let out = sandbox.worktree().join("scratchpad/r9001/export");
+    let first = sandbox
+        .command("cargo", &out)
+        .args(["build", "--offline"])
+        .output()
+        .expect("cargo runs");
+    assert!(
+        first.status.success() && text(&first).contains("Compiling probe"),
+        "a seeded export's first build did not compile the crate HEAD changed: {}",
+        text(&first)
+    );
+    let record = std::fs::read_to_string(sandbox.worktree().join("scratchpad/r9001/export.export"))
+        .expect("the export's record");
+    assert!(
+        record.contains("seed: ") && record.contains("copied by reflink"),
+        "the record does not say the target was seeded: {record}"
+    );
+    assert!(
+        targets.join("r9001-export/debug").is_dir(),
+        "the seed was not copied into the export's target"
+    );
+
+    // A re-export keeps the target the round built in, so the batch's older artefacts do not
+    // go over the round's newer ones.
+    let again = sandbox
+        .command("bash", &sandbox.repo())
+        .env("BATCH_EXPORT_TARGET_ROOT", &targets)
+        // The temporary directory is not on a filesystem that clones.
+        .env("BATCH_SEED_REFLINK", "auto")
+        .arg(sandbox.repo().join("tools/batch.sh"))
+        .args(["export", "9001", "--seed"])
+        .arg(seed.join("debug"))
+        .output()
+        .expect("bash runs tools/batch.sh");
+    assert!(again.status.success(), "re-export failed: {}", text(&again));
+    let record = std::fs::read_to_string(sandbox.worktree().join("scratchpad/r9001/export.export"))
+        .expect("the re-export's record");
+    assert!(
+        record.contains("already held, not seeded again"),
+        "a re-export seeded over the round's own build: {record}"
+    );
+}

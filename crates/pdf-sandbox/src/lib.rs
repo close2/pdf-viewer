@@ -98,7 +98,7 @@ mod worker;
 
 pub use in_process::{decode_here, decode_here_within};
 pub use protocol::{
-    Bilevel, CcittParameters, Colour, DctComponents, DctParameters, Raster, Request,
+    Bilevel, CcittParameters, Colour, DctComponents, DctParameters, MAX_PRECISION, Raster, Request,
 };
 pub use worker::serve;
 

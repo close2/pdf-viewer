@@ -440,7 +440,7 @@ pub struct Raster {
     pub has_opacity: bool,
     /// What the codestream says the colour components mean.
     pub colour: Colour,
-    /// Bits per sample in [`Self::data`], from 1 to 16.
+    /// Bits per sample in [`Self::data`], from 1 to [`MAX_PRECISION`].
     ///
     /// Eight for every decoder here but one. ISO 32000-2 §7.4.9 leaves a JPEG 2000 image's
     /// depth to the processor — Table 87 says `/BitsPerComponent` "shall be ignored if
@@ -449,7 +449,8 @@ pub struct Raster {
     /// own, because §8.9.6.4's ranges are integers in *that* domain and a narrowing here
     /// cannot be undone above. So a codestream of more than eight bits a component arrives at
     /// its own depth, and the eight-bit raster the page is drawn on is reached afterwards, by
-    /// the `/Decode` map §8.9.5.2 puts between the two. ADR 1242.
+    /// the `/Decode` map §8.9.5.2 puts between the two. ADR 1242. Only a writer's request
+    /// ([`crate::Request::JpxWhole`]) is answered above sixteen bits (ADR 2470).
     pub precision: u8,
     /// Each channel's own depth, opacity last, where the channels' integers are not all at
     /// [`Self::precision`]; empty where they are.
@@ -463,12 +464,29 @@ pub struct Raster {
     pub depths: Vec<u8>,
     /// Interleaved samples at [`Self::precision`] bits each, opacity last where present.
     ///
-    /// One byte per sample at eight bits or fewer, two big-endian bytes above that, which is
-    /// how a PDF image stream writes a sample of more than eight bits itself (§8.9.5.1).
+    /// One byte per sample at eight bits or fewer, two big-endian bytes to sixteen, which is
+    /// how a PDF image stream writes a sample of more than eight bits itself (§8.9.5.1), and
+    /// three big-endian bytes above that ([`Raster::field_bytes`]).
     pub data: Vec<u8>,
 }
 
+/// The deepest sample a [`Raster`] carries: the JPEG 2000 decoder computes in `f32`, whose
+/// integers are exact to 2^24 and no further, so a deeper component's integers would not be
+/// the codestream's (ADR 2470).
+pub const MAX_PRECISION: u8 = 24;
+
 impl Raster {
+    /// Bytes a sample of `precision` bits takes: one to eight bits, two to sixteen, three to
+    /// [`MAX_PRECISION`].
+    #[must_use]
+    pub fn field_bytes(precision: u8) -> usize {
+        match precision {
+            0..=8 => 1,
+            9..=16 => 2,
+            _ => 3,
+        }
+    }
+
     /// Channels per pixel, opacity included.
     #[must_use]
     pub fn channels(&self) -> usize {
@@ -478,7 +496,7 @@ impl Raster {
     /// Bytes each sample of [`Self::data`] takes.
     #[must_use]
     pub fn bytes_per_sample(&self) -> usize {
-        if self.precision > 8 { 2 } else { 1 }
+        Self::field_bytes(self.precision)
     }
 
     /// The depth channel `channel`'s integers are at: its own where [`Self::depths`] states
@@ -499,12 +517,14 @@ impl Raster {
     /// Sample `index` of [`Self::data`], counting channels across the whole raster.
     #[must_use]
     pub fn sample(&self, index: usize) -> Option<u32> {
-        let at = index.checked_mul(self.bytes_per_sample())?;
-        if self.bytes_per_sample() == 1 {
-            return self.data.get(at).map(|byte| u32::from(*byte));
-        }
-        let pair: [u8; 2] = self.data.get(at..at.checked_add(2)?)?.try_into().ok()?;
-        Some(u32::from(u16::from_be_bytes(pair)))
+        let width = self.bytes_per_sample();
+        let at = index.checked_mul(width)?;
+        let field = self.data.get(at..at.checked_add(width)?)?;
+        Some(
+            field
+                .iter()
+                .fold(0u32, |value, byte| (value << 8) | u32::from(*byte)),
+        )
     }
 }
 
@@ -862,7 +882,7 @@ pub(crate) fn parse_response(
             let precision = *rest
                 .get(2)
                 .ok_or_else(|| malformed("no precision".to_owned()))?;
-            if !(1..=16).contains(&precision) {
+            if !(1..=MAX_PRECISION).contains(&precision) {
                 return Err(malformed(format!(
                     "a raster of {precision} bits a sample, which no decoder here produces"
                 )));
@@ -895,7 +915,7 @@ pub(crate) fn parse_response(
                 .get(after_depths..)
                 .ok_or_else(|| malformed("truncated samples".to_owned()))?;
 
-            let per_sample = if precision > 8 { 2usize } else { 1 };
+            let per_sample = Raster::field_bytes(precision);
             let expected = usize::try_from(width)
                 .ok()
                 .zip(usize::try_from(height).ok())

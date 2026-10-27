@@ -16,7 +16,7 @@ without running the gate. Every figure this file used to carry went stale at lea
 The rest of this file is the argument and the lookup; this section is the contract, and a round
 reads the section below it only where a line here sends it (ADR 1639).
 
-1. **Read, in this order, and nothing else up front**: `CLAUDE.md`; this section; the rule block
+1. **Read, in this order, and nothing else up front**: this section (`CLAUDE.md` is already in your context, ADR 2462 rule 7); the rule block
    that opens `doc/environment.md`; `doc/traps/every-round.md`; `doc/habits/every-round.md`; then
    what `tools/round.sh <kind>` names for the kind of round you are, and what your contract names.
    `doc/HANDOVER.md` is the index to open when you need a file this list did not give you.

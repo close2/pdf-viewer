@@ -51,10 +51,16 @@ public sealed partial class MainWindow : Window
     private WindowProbe? probe;
     private double scale;
     private bool sized;
+    // The window's inner size and its page area's, both in logical pixels and both from the one
+    // layout pass whose page area size the library was last told: quorra_window_place answers
+    // inner - viewport + page against that viewport, so the inner size it is given is read in the
+    // same pass, never from AppWindow.ClientSize, which a resize can change before the layout that
+    // tells the library has run (ADR 2478). Null until a size has been told.
+    private Measure? told;
     // Set from the moment this window carries out a resize the library asked for until the page
-    // area's next size has reached the library. In between, AppWindow.ClientSize is already the
-    // new size while the library's viewport is still the one before it, and a placement answered
-    // from that pair counts the resize twice (ADR 2446).
+    // area's next size has reached the library: until then the answer would be the same resize
+    // again, and each answer spends one of the frames the library gives a placement (ADRs 2446,
+    // 2478).
     private bool resizing;
     private bool pressed;
     private bool presentOwed;
@@ -181,9 +187,14 @@ public sealed partial class MainWindow : Window
         // A minimised window has no viewport, and quorra_window_resize refuses an empty one.
         if (width == 0 || height == 0)
         {
+            probe?.Empty(width, height);
             return;
         }
         scale = now;
+        told = new Measure(
+            (int)Math.Round(Root.ActualWidth), (int)Math.Round(Root.ActualHeight),
+            (int)Math.Round(Area.ActualWidth), (int)Math.Round(Area.ActualHeight));
+        probe?.Told();
         window.Resize(width, height, (float)now);
         resizing = false;
         if (!sized)
@@ -261,7 +272,7 @@ public sealed partial class MainWindow : Window
     {
         // The library owes this record again when the page area's new size reaches it, so the
         // record waits for that size rather than being answered from either side of it (ADR 2446).
-        if (resizing)
+        if (resizing || told is not Measure measured)
         {
             probe?.Waiting();
             return;
@@ -271,10 +282,13 @@ public sealed partial class MainWindow : Window
         double at = scale > 0 ? scale : 1.0;
         int Logical(int physical) => (int)Math.Round(physical / at);
         int Physical(int logical) => (int)Math.Round(logical * at);
+        probe?.Measured(measured, Logical(app.ClientSize.Width), Logical(app.ClientSize.Height));
         quorra_window_extents extents = new()
         {
-            window_width = Logical(app.ClientSize.Width),
-            window_height = Logical(app.ClientSize.Height),
+            // The frame is the outer size less the client size, read together from AppWindow,
+            // and a resize of the client leaves it as it was.
+            window_width = measured.Width,
+            window_height = measured.Height,
             frame_width = Logical(app.Size.Width - app.ClientSize.Width),
             frame_height = Logical(app.Size.Height - app.ClientSize.Height),
             screen_left = Logical(work.X),
@@ -294,7 +308,10 @@ public sealed partial class MainWindow : Window
             SizeInt32 before = app.ClientSize;
             resizing = true;
             app.ResizeClient(new SizeInt32(Physical(placed.width), Physical(placed.height)));
-            // A platform that leaves the client size as it was gives the page area no new size.
+            probe?.ClientAfterResize(Logical(app.ClientSize.Width), Logical(app.ClientSize.Height));
+            // A platform that leaves the client size as it was gives the page area no new size;
+            // where the read lags the act instead, the wait is given up early, and the next answer
+            // is the same resize again from the same measured pair (ADR 2478).
             if (app.ClientSize.Equals(before))
             {
                 resizing = false;
@@ -304,15 +321,32 @@ public sealed partial class MainWindow : Window
         {
             app.Move(new PointInt32(Physical(placed.x), Physical(placed.y)));
         }
-        // A resize is asked again at the next record; any other answer is the library's last.
-        if (placed.resize == 0)
+        // A resize is asked again at the next record; any other answer is the library's last, and
+        // the probe reads where the window is once the act's own messages and layout have been
+        // handled, after this batch, rather than inside the act (ADR 2478).
+        if (placed.resize == 0 && probe is WindowProbe saying)
         {
-            probe?.Placed(new ReadBack(
-                (int)Math.Round(Area.ActualWidth), (int)Math.Round(Area.ActualHeight),
-                Logical(app.Size.Width), Logical(app.Size.Height),
-                Logical(app.Position.X), Logical(app.Position.Y),
-                (Logical(work.X), Logical(work.Y), Logical(work.Width), Logical(work.Height))));
+            bool queued = DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low,
+                () => Guard("the placement's read-back", () => ReadBackPlacement(saying, at)));
+            // A queue that is shutting down takes nothing, and the read is then taken at once.
+            if (!queued)
+            {
+                ReadBackPlacement(saying, at);
+            }
         }
+    }
+
+    // Where the window is after Table 147's placement, read from its own AppWindow and page area.
+    private void ReadBackPlacement(WindowProbe saying, double at)
+    {
+        AppWindow app = AppWindow;
+        RectInt32 work = DisplayArea.GetFromWindowId(app.Id, DisplayAreaFallback.Nearest).WorkArea;
+        int Logical(int physical) => (int)Math.Round(physical / at);
+        saying.Placed(new ReadBack(
+            (int)Math.Round(Area.ActualWidth), (int)Math.Round(Area.ActualHeight),
+            Logical(app.Size.Width), Logical(app.Size.Height),
+            Logical(app.Position.X), Logical(app.Position.Y),
+            (Logical(work.X), Logical(work.Y), Logical(work.Width), Logical(work.Height))));
     }
 
     private void Act(Owed owed)

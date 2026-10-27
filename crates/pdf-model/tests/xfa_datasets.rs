@@ -663,6 +663,86 @@ fn a_save_reports_each_field_its_null_test_holds_and_writes_it_empty() {
     assert!(reported("preSubmit").is_empty());
 }
 
+/// A submit-form action over a fixed URL and no flags, Table 239 read from a one-object document.
+fn submit_action() -> pdf_model::action::SubmitForm {
+    let source = "%PDF-2.0\n1 0 obj\n<< /Type /Catalog >>\nendobj\n\
+                  2 0 obj\n<< /S /SubmitForm /F << /FS /URL /F (https://example.invalid/cgi) >> \
+                  /Flags 0 >>\nendobj\ntrailer\n<< /Root 1 0 R /Size 3 >>\n";
+    let holder = Document::open(pdf_syntax::FileBytes::from(source.as_bytes().to_vec()))
+        .expect("the action parses");
+    let read =
+        pdf_model::action::read(&holder, &Object::Reference(pdf_syntax::ObjectId::new(2, 0)));
+    read.into_iter()
+        .find_map(|action| match action {
+            pdf_model::action::Action::SubmitForm(submit) => Some(submit),
+            _ => None,
+        })
+        .expect("Table 239's action is read whole")
+}
+
+/// What a submit of the fixture, with `typed` entered, says it owes (`Submission::owed`).
+fn owed_at_submit(
+    fields: &[(&str, &str)],
+    config: Option<&str>,
+    typed: &[(&str, &str)],
+) -> Vec<String> {
+    let document = fixture(fields, config);
+    let mut view = ViewState::of(&document);
+    for (name, value) in typed {
+        let name = format!("form1[0].{name}[0]");
+        assert!(
+            view.set_field(&document, &name, &Entered::Text((*value).to_owned())) > 0,
+            "{name} took no value"
+        );
+    }
+    pdf_model::submission::compose(&document, &view, &submit_action(), None)
+        .expect("the fixture composes")
+        .owed
+}
+
+/// XFA 3.3 pages 381 and 386's datatype test and the null test, run before a submit as page 1340's
+/// default, `preSubmit`, asks (ADR 2475): an integer field holding no integer and a required field
+/// left empty are named on the submission, which is composed whatever is found, and a form that
+/// supplies an empty `validate` element is not tested at all.
+#[test]
+fn a_submit_names_the_validations_the_form_fails_and_still_composes() {
+    let fields = [
+        (
+            "count",
+            "<field name=\"count\"><ui><textEdit/></ui><value><integer/></value></field>",
+        ),
+        (
+            "amount",
+            "<field name=\"amount\"><ui><textEdit/></ui><validate nullTest=\"error\">\
+             <message><text name=\"nullTest\">Enter the amount.</text></message></validate>\
+             </field>",
+        ),
+        (
+            "free",
+            "<field name=\"free\"><ui><textEdit/></ui><value><text/></value></field>",
+        ),
+    ];
+    let typed = [("count", "abc"), ("amount", ""), ("free", "anything")];
+    let owed = owed_at_submit(&fields, None, &typed);
+    assert_eq!(owed.len(), 2, "{owed:?}");
+    let count = owed
+        .iter()
+        .find(|said| said.starts_with("form1[0].count[0] holds \"abc\""))
+        .expect("the datatype test names the integer field");
+    assert!(
+        count.contains("is no integer") && count.contains("before a submit (page 1340)"),
+        "{count}"
+    );
+    let amount = owed
+        .iter()
+        .find(|said| said.starts_with("form1[0].amount[0] is submitted empty"))
+        .expect("the null test names the required field");
+    assert!(amount.contains("\"Enter the amount.\""), "{amount}");
+    let config = "<config xmlns=\"http://www.xfa.org/schema/xci/3.1/\"><acrobat><validate/>\
+                  </acrobat></config>";
+    assert!(owed_at_submit(&fields, Some(config), &typed).is_empty());
+}
+
 /// XFA 3.3 page 527's default bind picture: a field whose template states no bind picture is
 /// written by the one a `config` packet's `transform` gives the data element it binds, named by
 /// the transform's `ref` — here a `decimal` typed in `nl_NL`, whose canonical `12.50` (chapter

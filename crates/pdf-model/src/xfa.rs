@@ -154,14 +154,37 @@ pub struct Resource {
 }
 
 impl Resource {
-    /// The messages of the null tests a save runs, where the form's `config` asks for its
-    /// validations before a save (XFA 3.3 pages 396, 506 and 1340): one `Vec` per message the
-    /// person is shown, as page 386's `validationMessaging` groups them, each holding one sentence
-    /// per field its `validate` element's null test fails. `fields` are every field of the form by
-    /// its PDF name, with the value the save leaves in its `/V` (ADR 2450).
+    /// The messages of the validations a save runs, where the form's `config` asks for them before
+    /// one (XFA 3.3 pages 396, 506 and 1340): one `Vec` per message the person is shown, as page
+    /// 386's `validationMessaging` groups them, each holding one sentence per field one of its
+    /// tests fails — the `validate` element's null test and the datatype test its `value`
+    /// implies. `fields` are every field of the form by its PDF name, with the value the save
+    /// leaves in its `/V` (ADRs 2450, 2474).
     #[must_use]
     pub fn before_save(&self, fields: &[(String, Change)]) -> Vec<Vec<String>> {
-        validate::before_save(&self.template, &self.config, fields)
+        self.validations(validate::Occasion::Save, fields)
+    }
+
+    /// The messages of the validations a submit runs, where the form's `config` asks for them
+    /// before one (page 1340's `preSubmit`, the default; page 447's standard submit processing):
+    /// the null test, the datatype test and the format test, over every field of the form
+    /// whatever the submit carries. `fields` are every field of the form by its PDF name, with the
+    /// value the submit carries from its `/V` (ADR 2475).
+    #[must_use]
+    pub fn before_submit(&self, fields: &[(String, Change)]) -> Vec<Vec<String>> {
+        self.validations(validate::Occasion::Submit, fields)
+    }
+
+    fn validations(
+        &self,
+        occasion: validate::Occasion,
+        fields: &[(String, Change)],
+    ) -> Vec<Vec<String>> {
+        validate::before(
+            occasion,
+            (&self.template, &self.locales, &self.config),
+            fields,
+        )
     }
 
     /// The resource of `document`'s interactive form dictionary; `None` where it states none in

@@ -8285,57 +8285,35 @@ const AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE: [&str; 181] = [
     "TAMReview.pdf page 23",
 ];
 
-/// Ambiguous, and the reference is the one departing — from a rule PDF states for *encoders*.
+/// Ambiguous, and three references are the ones reading a convention no clause states.
 ///
 /// `issue11931.pdf` is 1280 × 720 and two `Do`s: a full-page `FlateDecode` `DeviceRGB` image and
-/// a 256 × 16 `DCTDecode` one stretched across a 1146 × 72 band. Ink: ours **1.357**,
-/// `hayro` 1.371, `mupdf` 1.382, `poppler` 1.395 — and `ghostscript` **8.831**, which is six and
-/// a half times the page. The band is a magenta bar with a green arc in it where the other four
-/// draw nothing anybody would notice.
+/// a 256 × 16 `DCTDecode` one stretched across a 1146 × 72 band. `ghostscript` paints the band
+/// as a magenta bar with a green arc in it, at six and a half times the page's ink, and this tree
+/// paints it the same way; `hayro`, `mupdf` and `poppler` draw nothing anybody would notice.
 ///
-/// # What the codestream says, read rather than guessed
+/// # What the codestream says
 ///
 /// The JPEG's `SOF0` declares three components with identifiers `0x52 0x47 0x42` — the ASCII
 /// letters **R, G, B**. There is no `JFIF` `APP0` and no Adobe `APP14`, and the image dictionary
 /// states no `/DecodeParms`.
 ///
-/// # What §7.4.8's Table 13 determines, and it is the opposite
+/// # What §7.4.8's Table 13 determines
 ///
 /// > If the Adobe-defined marker code (APP14) in the encoded data indicating the ColorTransform
 /// > value is not present and this dictionary entry is not present in the filter dictionary then
 /// > the default value of ColorTransform shall be 1 if the image has three components and 0
 /// > otherwise.
 ///
-/// `ColorTransform` 1 means "from YCbCr to RGB after decoding". So **`ghostscript` is the one
-/// obeying the clause**, and its magenta band is what this file says on a literal reading. The
-/// other four — this tree among them — treat the samples as RGB already, because the component
-/// identifiers say so; `zune-jpeg` does it in ten lines whose own comment reads "I am not sure
-/// if this is even specified in any standard".
+/// `ColorTransform` 1 means "from YCbCr to RGB after decoding", and this tree obeys it (ADR
+/// 2468): the three references that treat the samples as RGB already do so because the component
+/// identifiers say so, a convention that is `libjpeg`'s — `zune-jpeg` carries it in ten lines
+/// whose own comment reads "I am not sure if this is even specified in any standard" — and that
+/// no clause of ISO 32000-2 or ISO/IEC 10918-1 gives any meaning at all.
 ///
-/// It is not. The convention is `libjpeg`'s, and no clause of ISO 32000-2 or ISO/IEC 10918-1
-/// gives a component identifier any meaning at all.
-///
-/// # Why that is still the right answer here, and it is `CLAUDE.md`'s two denominators
-///
-/// §7.4.8 closes with a `shall` that is addressed to the *producer*:
-///
-/// > The exact rules for producing and consuming DCT encoded data within PostScript language are
-/// > provided in Adobe Technical Note #5116 and PDF DCT encoding shall exactly follow all those
-/// > rules established by Adobe for the PostScript language.
-///
-/// A conforming file's three-component codestream carries the `APP14` marker or is YCbCr. This
-/// one is neither, so it is outside what the clause describes, and the question stops being
-/// *coverage* — which of the standard's requirements are implemented — and becomes
-/// *robustness*: what a reader does with a file the standard does not describe. Table 13's
-/// default is the answer for files that follow the rules; the codestream's own declaration is
-/// the only evidence there is for a file that does not.
-///
-/// **This is the whole of the departure and it is the clause's third case alone.** Table 13 ranks
-/// Adobe's `APP14` segment above the filter's `/DecodeParms` entry above the default, and this
-/// tree obeys the first two: a marker stating 0 or 1 over three components is honoured whatever
-/// the identifiers say, and so is the entry (ADR 1183). The identifiers decide only where the
-/// ranking ends without an answer, which is this page and no other, and
-/// `tests/colour_transform.rs` holds it as a fixture as well as a name here.
+/// The page stays on this list because the disagreement between references is real, and a
+/// disagreement is a question for the specification rather than a target to move toward
+/// (`CLAUDE.md`, principle 5). `tests/colour_transform.rs` holds the frame as a fixture.
 const AMBIGUOUS_JPEG_COMPONENT_IDS: [&str; 1] = ["issue11931.pdf page 1"];
 
 /// Ambiguous, and the page exists at all because §7.7.3.2's tree was rebuilt from Table 31.

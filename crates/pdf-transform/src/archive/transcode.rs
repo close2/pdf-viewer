@@ -395,7 +395,9 @@ fn admitted_samples(document: &Document, stream: &Stream) -> Result<JpxSamples, 
         (&stream.data, ORDINARY_JPX_SAMPLES),
     )
     .map_err(|error| Because::NotBuiltYet(not_decoded(&error)))?;
-    if samples.depths.iter().any(|depth| *depth > 16) {
+    // The widest channel, the opacity channel's included, sizes every sample's field, and a
+    // field past sixteen bits is the three-byte one only a JPEG 2000 writer reads (ADR 2470).
+    if samples.precision > 16 {
         return Err(Because::NotBuiltYet(DEEPER_THAN_SIXTEEN));
     }
     let expected = if mask {

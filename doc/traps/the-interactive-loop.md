@@ -678,3 +678,13 @@ came from a nested, headless `kwin_wayland --virtual` on the render node — the
 `tools/zoom-probe-wayland.py` already brings up (`doc/environment.md`) — at the owner's mode, natively on
 Wayland, with notches sent through KWin's EIS input. A window figure meant for the real adapter is taken in
 that compositor, and the adapter line the window prints is read before the figure is (habit 113).
+
+### 283. The noun a non-viability sentence names
+
+Round 1819 (ADR 2472) executed Table 300's "The rendition is non-viable if the interactive PDF processor does not
+recognise the value of this entry" for a media duration's timespan, and found that the neighbouring Table 292 says
+something different about the duration dictionary's own `/S`: it makes the *dictionary* non-viable, and §13.2.6.2's
+best-effort (`BE`) dictionary sets that aside, where nothing sets a non-viable *rendition* aside. One reading applied
+to both tables would have made a rendition non-viable that the standard leaves chosen. Before applying a sentence's
+consequence across neighbouring tables, read the noun each sentence names — the rendition, the dictionary, the
+entry — and apply the consequence to that noun only.

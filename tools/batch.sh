@@ -19,7 +19,7 @@
 #   tools/batch.sh gates --merge           # the merge's tiers 2 and 3, one line per gate, into batch-gates.log
 #   tools/batch.sh raster-examples         # CI's raster examples with --check under Xvfb (one gate of those)
 #   tools/batch.sh arms [<dir>]            # HEAD's six corpus arms, by page, once a batch (open runs it)
-#   tools/batch.sh export 1527 [--as head] [--patch f]... [path]...  # a round's HEAD plus its own hunks
+#   tools/batch.sh export 1527 [--as head] [--seed dir] [--patch f]... [path]...  # a round's HEAD plus its own hunks
 #   tools/batch.sh export-sums 1527 [--as head]  # the export's binaries' SHA-256, after its build
 #   tools/batch.sh check                   # what a merge would otherwise look at by hand, one line each
 #   tools/batch.sh summary <gate> < <out>  # the summary a gate's line in the log carries, read from its output
@@ -935,6 +935,44 @@ close_batch() {
     debug_over_the_rule
 }
 
+# `--seed <dir>` copies a build directory of the batch (`release`, `debug`, `gates`) into the export's
+# own target by reflink, which spares the dependencies' cold build. Only a directory the target does
+# not already hold is seeded: a re-export keeps the target, and a second copy over a build the round
+# made would put the batch's older artefacts over the round's newer ones. The copy is `--reflink=always`
+# so that a filesystem without reflinks refuses rather than copies a build directory of tens of
+# gigabytes in silence; `BATCH_SEED_REFLINK=auto` is for a test on a temporary filesystem. Prints
+# what it did, one line, for the export's record.
+seed_export_target() {
+    local seed=$1 target=$2 name; name=$(basename "$seed")
+    if [ -e "$target/$name" ]; then
+        echo "$target/$name already held, not seeded again"
+        return 0
+    fi
+    mkdir -p "$target"
+    cp -a --reflink="${BATCH_SEED_REFLINK:-always}" -- "$seed" "$target/$name" ||
+        { echo "export: the seed $seed could not be copied by reflink into $target — nothing is built from it" >&2; return 1; }
+    echo "$seed copied by reflink into $target/$name"
+}
+
+# Stamps every regular file the export extracted with a time later than anything the seed holds
+# (ADR 2467, trap 281). The export's sources are today's (`tar -m`), but the seed is copied *after*
+# them, and its artefacts were built by whichever sibling last rebuilt the batch's directory, from
+# that sibling's edited sources: artefacts newer than the sources are fresh to cargo, and the export
+# compiled HEAD's crates against a mid-edit neighbour. After this stamp every workspace crate
+# rebuilds from the export's own sources and every dependency, whose sources lie outside the export,
+# stays fresh. The stamp is now, or one second past the newest file of a seed whose clock ran ahead.
+# Symbolic links (the linked corpora) are not files here and are left alone, and so is `.cargo/`.
+stamp_sources() {
+    local out=$1 seed=${2:-} stamp newest
+    stamp=$(date +%s)
+    if [ -n "$seed" ]; then
+        newest=$(find "$seed" -type f -printf '%T@\n' | sort -n | tail -n 1)
+        newest=${newest%.*}
+        [ -z "$newest" ] || [ "$newest" -lt "$stamp" ] || stamp=$((newest + 1))
+    fi
+    find "$out" -path "$out/.cargo" -prune -o -type f -exec touch -d "@$stamp" -- {} +
+}
+
 # A round's own export: HEAD plus the paths and patches it names, in `scratchpad/r<session>/export/`
 # (or `--as <name>`'s directory beside it), for the clock holds and gates a round runs on its change
 # alone while five siblings edit the same worktree (ADR 1890). Each trap an export built by hand
@@ -957,6 +995,10 @@ close_batch() {
 #     record counts them.
 #   - **Its own target directory**, `/home/AI/cargo-target/r<session>-<name>`, named in the export's
 #     own `.cargo/config.toml`, which cargo reads before the worktree's (traps 50, 129).
+#   - **A seed, if asked for, copied before the sources are stamped** (`--seed <build directory>`):
+#     the artefacts of a directory the batch's siblings rebuilt are newer than sources extracted
+#     before the copy, and cargo calls such a crate fresh and compiles HEAD against a neighbour's
+#     edit; every extracted file is stamped after the seed and before the first build (trap 281).
 #   - **The binaries' hashes**: `export-sums` writes the SHA-256 of every executable the export's
 #     target directory holds into the record, so two exports' binaries are compared by digest
 #     before a difference between them is quoted (trap 50).
@@ -966,9 +1008,9 @@ close_batch() {
 # target directory, which the fresh times make rebuild what changed. Nothing here walks or builds,
 # so nothing here takes the lock; the build in the export is the round's, behind the lock.
 export_round() {
-    local session=${1:-} name=export path entry patch found
+    local session=${1:-} name=export path entry patch found seed=
     local -a patches=() paths=() taken=() patched_paths=()
-    [[ "$session" =~ ^[0-9]+$ ]] || { echo "export: give the session number first, then [--as <name>] [--patch <file>]... [<path>...]"; return 1; }
+    [[ "$session" =~ ^[0-9]+$ ]] || { echo "export: give the session number first, then [--as <name>] [--seed <build directory>] [--patch <file>]... [<path>...]"; return 1; }
     shift
     while [ $# -gt 0 ]; do
         case $1 in
@@ -976,6 +1018,9 @@ export_round() {
             --patch)
                 [ -s "${2:-}" ] || { echo "export: --patch ${2:-} is not a patch file"; return 1; }
                 patches+=("$(realpath "$2")"); shift 2 ;;
+            --seed)
+                [ -d "${2:-}" ] || { echo "export: --seed ${2:-} is not a build directory"; return 1; }
+                seed=$(realpath "$2"); shift 2 ;;
             --) shift; paths+=("$@"); break ;;
             -*) echo "export: no option $1"; return 1 ;;
             *) paths+=("$1"); shift ;;
@@ -1050,6 +1095,9 @@ export_round() {
     done
     mkdir -p "$out/.cargo"
     printf '[build]\ntarget-dir = "%s"\n' "$target" > "$out/.cargo/config.toml"
+    local seeded=none
+    [ -z "$seed" ] || seeded=$(seed_export_target "$seed" "$target") || return 1
+    stamp_sources "$out" "$seed"
     # What stays HEAD's: the worktree's changed paths that are neither taken nor patched.
     local left; left=$( { printf 'taken\t%s\n' "${taken[@]#*$'\t'}" "${patched_paths[@]}"; printf '%s\n' "$changed"; } |
         awk -F'\t' '$1 == "taken" { own[$2] = 1; next } NF > 1 && !($2 in own) { n++ } END { print n + 0 }')
@@ -1057,6 +1105,7 @@ export_round() {
         printf 'HEAD plus %s path(s) and %s patch(es), of %s, exported %s from %s into %s\n' \
             "${#taken[@]}" "${#patches[@]}" "$commit" "$(date '+%Y-%m-%d %H:%M')" "$wt" "$out"
         printf 'target-dir: %s, named in the export'"'"'s own .cargo/config.toml (traps 50, 129)\n' "$target"
+        printf 'seed: %s\n' "$seeded"
         for entry in "${taken[@]}"; do printf 'taken: %s\n' "$entry"; done
         printf '%s' "$numstat"
         printf 'left at HEAD: %s changed path(s) of the worktree that no path or patch named (trap 153)\n' "$left"

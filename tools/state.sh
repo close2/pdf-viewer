@@ -341,10 +341,16 @@ section_conformance() {
 # (ADR 2190). A warm documentation build alone does not measure that rebuilding cost.
 # `--keep-going`, because without it the first crate that fails ends the build and the crates after
 # it report nothing: one failing crate would hide the next one's errors (ADR 1938).
+# The walk's data bound is the step's own, not the corpus walks' 12 GiB: rustdoc rewrites the
+# workspace's shared search index for every crate (trap 280, ADR 2466), and the address space it
+# asks for passed 15 GiB beside a resident peak under 8 — `RLIMIT_DATA` counts the first, and the
+# tree ceiling of 12 GiB resident, which stays, bounds the second. DOCS_DATA_GIB is about half again over
+# the address-space peak sampled from the rustdoc processes' `VmData` through a whole run.
+DOCS_DATA_GIB=24
 section_docs() {
-    run "rustdoc with warnings denied, over the whole workspace (ADRs 1938, 2190)" \
-        '^(error|warning)|Generated|Finished' \
-        walk large -- env RUSTDOCFLAGS="-D warnings" cargo doc -j 2 --keep-going --no-deps \
+    run "rustdoc with warnings denied, over the whole workspace (ADRs 1938, 2190, 2466)" \
+        '^(error|warning)|Generated|Finished|^bounded: (exit|STOPPED|KILLED)' \
+        walk large --data "$DOCS_DATA_GIB" -- env RUSTDOCFLAGS="-D warnings" cargo doc -j 2 --keep-going --no-deps \
         --document-private-items --workspace
 }
 

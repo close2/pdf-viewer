@@ -35,6 +35,18 @@ fn an_identity_font_not_embedded(stated: bool) -> Vec<u8> {
 
 /// The same font with its `/ToUnicode` entries, the string it shows and a third `/W` run given.
 fn an_identity_font(entries: &str, shown: &[u8], third: &str) -> Vec<u8> {
+    an_identity_font_beside(entries, shown, third, false, "Arial")
+}
+
+/// [`an_identity_font`], with, where `sibling` is true, a second `CIDFont` that the page
+/// never shows, states the producer's own `/BaseFont /{name}` and names the same descriptor object.
+fn an_identity_font_beside(
+    entries: &str,
+    shown: &[u8],
+    third: &str,
+    sibling: bool,
+    name: &str,
+) -> Vec<u8> {
     let cmap = format!(
         "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
          /CMapName /Test def\n/CMapType 2 def\n\
@@ -42,9 +54,11 @@ fn an_identity_font(entries: &str, shown: &[u8], third: &str) -> Vec<u8> {
          endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n"
     );
     Conforming {
-        resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
-                    [0.9505 1.0 1.089] >>] >>"
-            .to_owned(),
+        resources: format!(
+            "/Font << /F1 6 0 R{} >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+             [0.9505 1.0 1.089] >>] >>",
+            if sibling { " /F2 10 0 R" } else { "" }
+        ),
         contents: Some((
             String::new(),
             [
@@ -55,20 +69,39 @@ fn an_identity_font(entries: &str, shown: &[u8], third: &str) -> Vec<u8> {
             .concat(),
         )),
         objects: vec![
-            "<< /Type /Font /Subtype /Type0 /BaseFont /Arial /Encoding /Identity-H \
-             /DescendantFonts [7 0 R] /ToUnicode 9 0 R >>"
-                .to_owned(),
             format!(
-                "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /Arial /CIDSystemInfo \
+                "<< /Type /Font /Subtype /Type0 /BaseFont /{name} /Encoding /Identity-H \
+                 /DescendantFonts [7 0 R] /ToUnicode 9 0 R >>"
+            ),
+            format!(
+                "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /{name} /CIDSystemInfo \
              << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 8 0 R \
              /DW 1000 /W [36 [667 667] {third}] >>"
             ),
-            "<< /Type /FontDescriptor /FontName /Arial /Flags 32 \
-             /FontBBox [-665 -325 2000 1006] /ItalicAngle 0 /Ascent 905 /Descent -212 \
-             /CapHeight 716 /StemV 80 >>"
-                .to_owned(),
+            format!(
+                "<< /Type /FontDescriptor /FontName /{name} /Flags 32 \
+                 /FontBBox [-665 -325 2000 1006] /ItalicAngle 0 /Ascent 905 /Descent -212 \
+                 /CapHeight 716 /StemV 80 >>"
+            ),
         ],
-        binary_objects: vec![stream(&format!("/Length {}", cmap.len()), cmap.as_bytes())],
+        binary_objects: [stream(&format!("/Length {}", cmap.len()), cmap.as_bytes())]
+            .into_iter()
+            .chain(sibling.then(|| {
+                format!(
+                    "<< /Type /Font /Subtype /Type0 /BaseFont /{name}-Sibling /Encoding \
+                     /Identity-H /DescendantFonts [11 0 R] >>"
+                )
+                .into_bytes()
+            }))
+            .chain(sibling.then(|| {
+                format!(
+                    "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /{name} /CIDSystemInfo \
+                     << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor \
+                     8 0 R /DW 1000 >>"
+                )
+                .into_bytes()
+            }))
+            .collect(),
         ..Conforming::part_two()
     }
     .build()
@@ -150,6 +183,70 @@ fn an_identity_font_is_given_the_glyphs_its_to_unicode_values_select_at_its_own_
         "two CIDs stating one character show one glyph"
     );
     assert_eq!(mapped(40), 0, "a CID nothing shows reaches .notdef");
+}
+
+// ISO 32000-2 Table 120's `/FontName`: "This name shall be the same as the value of BaseFont in
+// the font or CIDFont dictionary that refers to this font descriptor." The re-keyed font's
+// descriptor is renamed for the face it now carries, so a font the page never shows that names
+// the same object must be pointed at a descriptor stating its own name instead.
+#[test]
+fn a_font_that_shares_a_rekeyed_descriptor_keeps_the_name_it_states() {
+    let mut plan = a_supplied_font(Target::Two(Level::B), "NotThisFont", &[]);
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::MachineFace);
+    authorised.authorise(Loss::GlyphsFromToUnicode);
+    plan.authorised = authorised;
+    let source = an_identity_font_beside(
+        "3 beginbfchar\n<0024> <0041>\n<0025> <0042>\n<0030> <0041>\nendbfchar\n",
+        b"<002400250030>",
+        "48 [667]",
+        true,
+        "TimesNewRoman",
+    );
+    let (_, output) = convert_with_plan(&source, &plan);
+    let held = Document::open_with_limits(output.expect("it converts"), Limits::DEFAULT)
+        .expect("it opens");
+    let mut named = Vec::new();
+    for number in 1..held.xref().next_object_number() {
+        let object = held.get(pdf_syntax::object::ObjectId::new(number, 0));
+        let Some(font) = object.as_dict() else {
+            continue;
+        };
+        let Some(base_font) = held
+            .get_key(font, "BaseFont")
+            .as_name()
+            .map(|name| name.as_bytes().to_vec())
+        else {
+            continue;
+        };
+        let descriptor = held.get_key(font, "FontDescriptor");
+        let Some(descriptor) = held.resolve(&descriptor).as_dict().cloned() else {
+            continue;
+        };
+        let font_name = held
+            .get_key(&descriptor, "FontName")
+            .as_name()
+            .map(|name| name.as_bytes().to_vec());
+        assert_eq!(
+            font_name.as_deref(),
+            Some(base_font.as_slice()),
+            "Table 120: object {number}'s descriptor names the font its BaseFont names"
+        );
+        let embedded = ["FontFile", "FontFile2", "FontFile3"]
+            .iter()
+            .any(|key| !held.get_key(&descriptor, key).is_null());
+        named.push((base_font, embedded));
+    }
+    assert!(
+        named
+            .iter()
+            .any(|(name, embedded)| name == b"TimesNewRoman" && !embedded),
+        "the font nothing shows keeps a descriptor with no program: {named:?}"
+    );
+    assert!(
+        named.iter().any(|(_, embedded)| *embedded),
+        "the font the page shows carries the face: {named:?}"
+    );
 }
 
 #[test]

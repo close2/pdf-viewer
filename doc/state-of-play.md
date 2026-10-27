@@ -173,7 +173,7 @@ defining text is not held and which takes the clause's device fallback rather th
 and T.6 decoder, which conceals the damaged rows §7.4.6's `/DamagedRowsBeforeError` tolerates as the
 clause states (ADR 1349), and Table 13's `/ColorTransform` read where the clause states it —
 the entry, the `APP14` segment that silences it, and the component count, ranked in the order
-§7.4.8 gives them (ADR 1183); a JPEG is decoded in bands on the pool wherever a band reads the frame as
+§7.4.8 gives them and ending in the clause's default of 1 for three components whatever the component identifiers spell (ADRs 1183, 2468); a JPEG is decoded in bands on the pool wherever a band reads the frame as
 the whole decoder would, an image is reduced to the page's scale across the device's threads, and
 a soft mask is decoded beside its image (ADRs 1433, 1457, 1469, 1481, 1493, 1513, 1519, 1557). Encryption at every revision Table 21 lists and every method Table 25 names, in both
 directions — including revision 5, whose algorithm is the Adobe extension the table points at
@@ -187,7 +187,7 @@ reader's `Scripts` level, as the scripts below say, and a launch of a program th
 `pdf_model::action`'s table the list — and a rendition action's clip judged by §13.2.2's viability,
 reported with its §14.9.2.4 alternate text and handed to the host at the reader's level for Table
 286's `/TF`, with no player started (ADRs 1960, 1961), a media clip section's §13.2.4.3 offsets judged
-against the clip's own container headers, which no sample is decoded to read (ADR 2452), and a movie's or a sound's file through the
+against the clip's own container headers, which no sample is decoded to read (ADR 2452), a play parameters' `BE` duration's timespan read by the one Table 300 reading an offset's is (ADR 2472), and a movie's or a sound's file through the
 same hand-off, a sound holding its own samples written as a RIFF WAVE file first (ADRs 2382, 2398),
 while a rich media annotation's §13.7.2.3.2 assets are listed and saved as embedded files from its page
 and handed to no player (ADR 2399) — §14.9's accessibility entries, §12.4.4's whole presentation
@@ -482,8 +482,11 @@ what was typed by its own picture clause in the form's own locales (XFA 3.3 chap
 ADR 2414), and **written out by its `bind` picture, where its `validate` picture's format test
 passes it** — a value the test fails is reported by name (ADR 2434) — or by the default bind
 picture a `config` packet's `transform` gives its data element (chapter 15; ADR 2451). **Where the
-form asks for its validations before a save, the save runs its null tests** and reports each field
-left empty in the form's own message, saving it all the same, as XFA 3.3 page 1340 has it (ADR 2450).
+form asks for its validations before a save, the save runs its null tests and its datatype tests**
+and reports each field that fails in the form's own message, saving it all the same, as XFA 3.3
+page 1340 has it (ADRs 2450, 2474). **A submit runs them, and the format test, by default**: page
+1340's `preSubmit` is the default, each failure is named on the submission's `owed`, and whether an
+error cancels the submit is the host's policy to say (ADR 2475).
 
 **Table 22's bit 12 is a second operation beside bit 3, at four levels of its own**, because the
 cell states two consequences: bit 3 clear withholds printing, and bit 12 clear limits a print that
@@ -1196,7 +1199,9 @@ colour (ADR 1324); a form entered under its `/Matrix`, an object another page al
 rather than replaced, a clipping boundary kept without its marks, and Type 3, composite and vertical
 codes, `sh`, soft-mask groups and shadings each cut by their own clause's geometry (ADRs 1351, 1352,
 1363). It refuses rather than cuts wrong — a calculator function serving the region's own colours, a
-JPX image beyond the operator's budget or with a component deeper than sixteen bits, or in
+JPX image beyond the operator's budget or with a component deeper than the decoder reads exactly,
+or deeper than sixteen bits in other than one or three colour components — a component of seventeen to
+twenty-four bits goes back as JPEG 2000 through the tree's own lossless writer (ADR 2470) — or in
 e-sRGB or e-sYCC, which no §8.6 space restates (ADR 2293), a file whose
 dictionary contradicts its codec — each with its sentence, and the overlay text and fill it does not
 compose (A65's fence), said as a departure in the report; §12.5.6.23 is `departed` on the two

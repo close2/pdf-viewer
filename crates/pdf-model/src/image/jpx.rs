@@ -181,8 +181,9 @@ pub struct JpxSamples {
     pub height: u32,
     /// Colour components per pixel.
     pub components: usize,
-    /// Bits per sample of the widest channel, 1 to 16, which sizes every sample's field: one
-    /// byte to eight, two big-endian bytes above.
+    /// Bits per sample of the widest channel, 1 to [`pdf_sandbox::MAX_PRECISION`], which sizes
+    /// every sample's field as [`pdf_sandbox::Raster::field_bytes`] says: one byte to eight, two
+    /// big-endian bytes to sixteen, three above (ADR 2470).
     pub precision: u8,
     /// Each colour component's own depth, which its integers are at within that field — all
     /// [`Self::precision`] unless §7.4.9's "\[t]he colour components in an image may have
@@ -406,7 +407,7 @@ fn split_opacity(raster: &pdf_sandbox::Raster, has_opacity: bool) -> (Vec<u8>, O
     if !has_opacity {
         return (raster.data.clone(), None);
     }
-    let width = if raster.precision > 8 { 2 } else { 1 };
+    let width = pdf_sandbox::Raster::field_bytes(raster.precision);
     let colour_bytes = usize::from(raster.components).saturating_mul(width);
     let pixel_bytes = colour_bytes.saturating_add(width);
     let mut colour = Vec::with_capacity(raster.data.len());
@@ -1146,5 +1147,6 @@ pub(super) fn jpx_sample_domain(
 /// codestream declares.
 const JPX_INDEX_BITS: u32 = 8;
 
-/// The widest sample `pdf_sandbox::Raster` carries, which is this tree's limit and not a clause's.
+/// The widest sample a drawing decode of `pdf_sandbox` hands back, which is this tree's limit and
+/// not a clause's; only a writer's whole decode is answered deeper (ADR 2470).
 const JPX_MAX_SAMPLE_BITS: u32 = 16;

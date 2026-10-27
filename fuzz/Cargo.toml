@@ -59,6 +59,7 @@ viewer-core = { path = "../crates/viewer-core" }
 # ISO 32000-2 §7.4.6's fax decoder, whose bit reader and damaged-row search read untrusted bytes
 # (ADR 1349).
 pdf-ccitt = { path = "../crates/pdf-ccitt" }
+pdf-jpx-write = { path = "../crates/pdf-jpx-write" }
 # §7.4.7's and §7.4.9's filters as the confined worker runs them, reached in-process through
 # `pdf_sandbox::Isolation::InProcess`, which calls the very functions the worker does.
 pdf-sandbox = { path = "../crates/pdf-sandbox" }
@@ -197,6 +198,12 @@ bench = false
 [[bin]]
 name = "ccitt"
 path = "fuzz_targets/ccitt.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "jpx_write"
+path = "fuzz_targets/jpx_write.rs"
 test = false
 doc = false
 bench = false
