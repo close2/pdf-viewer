@@ -287,16 +287,29 @@ The largest refusal at part 4 a conversion answers, ISO 19005-4 section 6.1.3's 
 ModDate that is not §7.9.4's date", is answered (ADR 2358): a date is read as the text string
 §7.9.4 makes it, so a UTF-16BE or UTF-8 date moves; one no reading makes a date, and a value of no
 form Table 349 states, is dropped under the row's `unreadable = "discard"`, which the three
-metadata-tolerant profiles say; and an empty or dangling `/Info` moves nothing and goes. Owed: the
-fuzzed documents that now convert at part 4, as they already did at part 2, into files veraPDF
-cannot parse — a root page node whose `/Count` is a stream, or which states no `/Kids` — belong
-with `optimize::refuse_a_document_only_recovery_reads`; and a Type 0 font whose `/DescendantFonts`
-is `[ null ]` (`issue12823.pdf`) passes here and fails veraPDF at part 2 and part 4, because the row
-for ISO 19005's "fonts conform to §9.6 and §9.7" sentence is `Unchecked`. The font population itself
-reaches a font written directly inside an object — `Test-plusminus.pdf`'s direct `CIDFontType2` with
-no `/CIDToGIDMap` is now refused by name (ADR 2413) — and a packet using a namespace prefix nothing
-declares is not well-formed at either part, so `issue20453.pdf` meets at part 4 the refusal it met at
-part 2 (ADR 2412).
+metadata-tolerant profiles say; and an empty or dangling `/Info` moves nothing and goes. The
+fuzzed documents that converted into files veraPDF cannot parse — a root page node whose `/Count`
+is a stream, or whose `/Kids` is no array — are refused by name before anything is written (ADR
+2444); restating such a `/Count`, which Table 30's NOTE asks of a writer, waits for a section 5.1
+row to fail it. A font only an annotation's appearance shows is re-keyed where its `/ToUnicode`
+answers; the photographed half, and a photographed page's substitutes leaving the report, are
+deferred with no corpus witness (ADR 2445). A Type 0 font whose `/DescendantFonts` is
+not the one `CIDFont` §9.7.6.1's Table 119 asks for — `issue12823.pdf`'s `[ null ]` — fails the
+implemented row `fonts/descendant-fonts-holds-one-cidfont` and is refused by name (ADR 2433); the
+rest of ISO 19005's "fonts conform to §9.6 and §9.7" sentence stays `Unchecked`. The font population
+reaches a font written directly inside an object (ADR 2413), and `Test-plusminus.pdf`'s direct
+`CIDFontType2` with no `/CIDToGIDMap` is given `Identity` inside its Type 0 font's array under the
+same edition test as an indirect one (ADR 2432). A packet using a namespace prefix nothing declares
+is not well-formed at either part, so `issue20453.pdf` meets at part 4 the refusal it met at part 2
+(ADR 2412).
+
+The largest 2b refusal a remedy carries under the profiles' own losses, twelve documents refused
+at `metadata/extension-schemas-embedded` with a placeholder no report was meant to print, was a
+packet section 6.6.2.1 replaces: the fresh packet states no schema, so the replacement meets the
+row and the row takes the packet row's decision (ADR 2442). Seven convert; the larger reasons
+above it are a profile's `stop`, the fence, a press profile, the CJK pack and a glyph no face has.
+The amendment and field-description editors return the same placeholder on the same shape, and no
+corpus document reaches them.
 
 Table 109's widths-array count is checked independently for simple fonts. A nonempty short
 array narrows LastChar; a long array loses only entries beyond it. This `Stated` rewrite keeps

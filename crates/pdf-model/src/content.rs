@@ -49,6 +49,7 @@ mod colour;
 pub mod divide;
 mod ext_gstate;
 mod font;
+mod guidelines;
 mod image;
 pub mod ledger;
 mod list_budget;
@@ -2160,6 +2161,8 @@ fn complete(
     // from the boundary set above — an annotation is displayed content of the page — and it
     // does not have to be told, because the boundary belongs to the list rather than to a mark.
     interpreter.draw_annotations(page, base);
+    // §14.11.2.2's guidelines, over the annotations too, where a person asked for them (ADR 2440).
+    interpreter.draw_guidelines(page, base);
     // Asked once the page is complete, because the condition is about the whole of it: an
     // annotation composites into the page group exactly as the content stream's marks do.
     interpreter.note_page_blending_space();
@@ -3450,6 +3453,7 @@ mod tests {
             substituted_media_box: None,
             damaged_dictionary: None,
             crop_box: [0.0, 0.0, 400.0, 200.0],
+            crop_box_defined: false,
             bleed_box: [0.0, 0.0, 400.0, 200.0],
             trim_box: [0.0, 0.0, 400.0, 200.0],
             art_box: [0.0, 0.0, 400.0, 200.0],

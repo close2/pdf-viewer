@@ -395,6 +395,9 @@ fn every_carried_command_round_trips() {
         // encoding that wrote the wrong byte would look like the other answer.
         Command::Separations(true),
         Command::Separations(false),
+        // §14.11.2.2's guidelines, in both answers, for the bit's reason above (ADR 2440).
+        Command::Guidelines(true),
+        Command::Guidelines(false),
         Command::Beside(None),
         Command::Beside(Some(DocumentId(9))),
         // §8.11.4.4's answers about the reader, in both the shapes that differ on the wire:

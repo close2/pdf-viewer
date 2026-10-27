@@ -561,12 +561,12 @@ pub enum Rewrite {
     DescriptorSetRemoved,
     /// Every embedded Type 2 `CIDFont` stating no `/CIDToGIDMap` is given the name `Identity`.
     ///
-    /// ISO 19005-2 section 6.2.11.3.2 requires the entry. **Written only at a part 2 target**,
-    /// and the reason is which base document the target names: ISO 19005-2 section 5.1 makes a
-    /// PDF/A-2 file one that adheres to ISO 32000-1, whose Table 117 gives `Identity` as this
-    /// entry's own default — so writing it restates what a reader of that edition already
-    /// applies. ISO 32000-2's Table 121 states no default, so the same write at a part 4 target
-    /// would assert a mapping its base document does not supply.
+    /// ISO 19005-2 section 6.2.11.3.2 and ISO 19005-4 section 6.2.10.3.2 require the entry.
+    /// **Written only where ISO 32000-1 describes the file**, whose table gives `Identity` as the
+    /// entry's default: every part 2 target, and a part 4 one for a file labelled below PDF 2.0
+    /// (ADR 2246); ISO 32000-2's Table 115 states no default. Into the `CIDFont` where it is an
+    /// object of its own, and into its Type 0 font's `/DescendantFonts` array where it is written
+    /// there (ADR 2432).
     CidToGidIdentity,
     /// Every XMP packet whose header states the deprecated `bytes` or `encoding` attribute loses
     /// it.
@@ -2784,7 +2784,7 @@ struct Rewriter<'a> {
     /// The subset descriptions removed from each font descriptor.
     descriptor_sets: Option<&'a DescriptorSets>,
     /// The `CIDFont`s given `/CIDToGIDMap` `/Identity`.
-    cid_to_gid: Option<&'a sites::Sites>,
+    cid_to_gid: Option<&'a sites::CidToGidSites>,
     /// The key and name each misfiled font program is filed under instead.
     font_files: Option<&'a super::font_files::Refiled>,
     /// The packets whose header loses a deprecated attribute, where any do.

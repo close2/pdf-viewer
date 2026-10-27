@@ -18,7 +18,7 @@ use std::fmt::Write as _;
 use super::canonical;
 use super::locale::{LocaleSet, Patterns};
 use super::picture::{self, Category};
-use super::template::{Binding, Class, Container, Template};
+use super::template::{Binding, Class, Container, FormatTest, Template};
 use super::xml::{self, Tree};
 
 /// A value a save writes to a field's `/V`, in the terms its data value needs.
@@ -496,27 +496,19 @@ fn content(
 }
 
 /// The data value of a text, numeric or date-and-time field a person typed `value` into: XFA 3.3
-/// chapter 4's input parsing (pages 162–164), which turns what was typed into the canonical form
-/// the data holds (page 156, chapter 24).
+/// chapter 4's input parsing (pages 162–164) turns what was typed into the canonical form the
+/// Form DOM holds (page 156, chapter 24), the `validate` picture's format test decides whether the
+/// data takes it (page 162), and the `bind` picture writes it in the data's own format (page 176).
 ///
-/// - **Rule 2**: with an edit picture (`ui`'s), the first alternative that matches gives the
-///   canonical value; where none matches, the text is taken to be canonical already and is
-///   written as typed — page 163's French word for two stays as it was typed.
-/// - **Rule 2A**: with no edit picture, a `date`, `time`, `float` or `decimal` value is parsed by
-///   the locale's default picture — the `med` date or time pattern, the `numeric` number pattern
-///   — and accepted as typed where it is already canonical. Page 166 adds that a number is
-///   localised only where the `ui` is `numericEdit`, so a `float` or `decimal` elsewhere is not.
-/// - **Page 156's exception**: in a `numericEdit` field, text that is not a number counts as
-///   zero. Writing zero beside a `/V` that says otherwise is not §K.2's consistency, so such
-///   a field is named and not written.
-/// - A `dateTime` with no edit picture is written where it is already canonical and named
-///   otherwise: Rule 4 (page 165) joins the default date and time pictures with a `T` and page
-///   1156 with a space, and this program does not choose between them for a person's input.
-/// - **What is not built is named**: a `bind` picture asks the data to be written localised
-///   (page 161's data pattern), which is the formatting half of chapter 26; a `validate` picture's
-///   format test requires the picture to format the canonical value (page 382) before the data is
-///   updated (page 162), and that test is RFC 0011's validation step. Page 396 exempts an empty
-///   value from it, and `formatTest="disabled"` (page 385) turns it off.
+/// - **The format test**: page 382 passes a value its `validate` picture can format, and page 162
+///   updates the data only once the test succeeds. A value the test fails is named and not
+///   written, at `error` (page 385's refusal) and at `warning`, page 880's default, alike: a
+///   warning's override is the person's to give (page 385), and a save asks no one (ADR 2434).
+///   Page 396 exempts an empty value, and `formatTest="disabled"` turns the test off.
+/// - **The `bind` picture**: page 176 converts the data from canonical into its local format
+///   when it is saved, so the data value is the canonical value written out by it. A value it
+///   cannot write is written canonical, as page 493 has a widget show a value its picture cannot
+///   format just as it is, and as Rule 2 reads such data back (ADR 2434).
 fn typed(
     template: &Template,
     locales: &LocaleSet,
@@ -528,31 +520,77 @@ fn typed(
     if value.is_empty() {
         return Ok(String::new());
     }
-    if container.pictures.bind.is_some() {
-        return Err(
-            "its bind picture writes its data in a localised form (XFA 3.3 page 161), which is \
-             the output formatting this program does not yet do"
-                .to_owned(),
-        );
-    }
-    if container.pictures.validate.is_some() && !container.pictures.format_test_disabled {
-        return Err(
-            "its validate picture's format test (XFA 3.3 page 382) decides whether its data is \
-             updated (page 162), and that test is RFC 0011's validation step, not yet built"
-                .to_owned(),
-        );
-    }
-    let value_type = container.value_type.as_deref();
-    let numeric = ui == "numericEdit";
-    let hint = match value_type {
+    let hint = match container.value_type.as_deref() {
         Some("date") => Some(Category::Date),
         Some("time") => Some(Category::Time),
         Some("integer" | "decimal" | "float") => Some(Category::Num),
         Some("text") => Some(Category::Text),
-        _ if numeric => Some(Category::Num),
+        _ if ui == "numericEdit" => Some(Category::Num),
         _ => None,
     };
     let locale = locales.prevailing(template.locale(target));
+    let canonical = canonicalized(locales, container, ui, value, hint, &locale)?;
+    let pictures = &container.pictures;
+    if let Some(validate) = &pictures.validate
+        && pictures.format_test != FormatTest::Disabled
+    {
+        let level = match pictures.format_test {
+            FormatTest::Error => "error",
+            FormatTest::Warning | FormatTest::Disabled => "warning",
+        };
+        match picture::format(validate, hint, &locale, locales, &canonical) {
+            Ok(Some(_)) => {}
+            Ok(None) => {
+                return Err(format!(
+                    "its value {canonical:?} fails its validate picture's format test (XFA 3.3 \
+                     page 382) at the level {level}, and page 162 updates the data only once the \
+                     test succeeds; a warning's override (page 385) is the person's, and this \
+                     save asks no one"
+                ));
+            }
+            Err(reason) => {
+                return Err(format!(
+                    "its validate picture's format test (XFA 3.3 page 382) cannot be run: {reason}"
+                ));
+            }
+        }
+    }
+    if let Some(bind) = &pictures.bind {
+        return Ok(picture::format(bind, hint, &locale, locales, &canonical)
+            .map_err(|reason| format!("its bind picture cannot write its data: {reason}"))?
+            .unwrap_or(canonical));
+    }
+    Ok(canonical)
+}
+
+/// What a person typed as the Form DOM's canonical value: chapter 4's input parsing (pages
+/// 162–164).
+///
+/// - **Rule 2**: with an edit picture (`ui`'s), the first alternative that matches gives the
+///   canonical value; where none matches, the text is taken to be canonical already and is
+///   written as typed — page 163's French word for two stays as it was typed. Rule 2 names a
+///   `bind` picture beside the edit picture, and page 177 treats a script assigning a value as a
+///   person typing one through it, so a field with no edit picture is parsed by its `bind`.
+/// - **Rule 2A**: with neither, a `date`, `time`, `float` or `decimal` value is parsed by the
+///   locale's default picture — the `med` date or time pattern, the `numeric` number pattern —
+///   and accepted as typed where it is already canonical. Page 166 adds that a number is
+///   localised only where the `ui` is `numericEdit`, so a `float` or `decimal` elsewhere is not.
+/// - **Page 156's exception**: in a `numericEdit` field, text that is not a number counts as
+///   zero. Writing zero beside a `/V` that says otherwise is not §K.2's consistency, so such
+///   a field is named and not written.
+/// - A `dateTime` with no picture is written where it is already canonical and named otherwise:
+///   Rule 4 (page 165) joins the default date and time pictures with a `T` and page 1156 with a
+///   space, and this program does not choose between them for a person's input.
+fn canonicalized(
+    locales: &LocaleSet,
+    container: &Container,
+    ui: &str,
+    value: &str,
+    hint: picture::Hint,
+    locale: &str,
+) -> Result<String, String> {
+    let value_type = container.value_type.as_deref();
+    let numeric = ui == "numericEdit";
     let as_typed = || -> Result<String, String> {
         if numeric && !canonical::is_number(value) {
             return Err(format!(
@@ -562,8 +600,9 @@ fn typed(
         }
         Ok(value.to_owned())
     };
-    if let Some(edit) = &container.pictures.edit {
-        return match picture::canonicalize(edit, hint, &locale, locales, value)? {
+    let pictures = &container.pictures;
+    if let Some(edit) = pictures.edit.as_ref().or(pictures.bind.as_ref()) {
+        return match picture::canonicalize(edit, hint, locale, locales, value)? {
             Some(canonical) => Ok(canonical),
             None => as_typed(),
         };
@@ -590,8 +629,8 @@ fn typed(
         Patterns::Number => canonical::is_number(value),
     };
     let parsed = locales
-        .pattern(&locale, which, name)
-        .and_then(|pattern| picture::canonicalize(pattern, hint, &locale, locales, value));
+        .pattern(locale, which, name)
+        .and_then(|pattern| picture::canonicalize(pattern, hint, locale, locales, value));
     match parsed {
         Ok(Some(canonical)) => Ok(canonical),
         Ok(None) => as_typed(),

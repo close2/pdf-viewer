@@ -84,11 +84,18 @@ impl Document {
                 .iter()
                 .find(|&&other| other > relative)
                 .map(|&next| first.saturating_add(next))
-                .or(if decoded.damage.is_some() {
-                    None
-                } else {
-                    Some(data.len())
-                });
+                // §7.4.2's error is met on the way to the end-of-data rather than in front of
+                // it, so the end is known there and the parser judges the bytes (ADR 2438).
+                .or(
+                    if decoded
+                        .damage
+                        .is_some_and(|damage| damage != crate::Damage::ForeignCharacter)
+                    {
+                        None
+                    } else {
+                        Some(data.len())
+                    },
+                );
             // A prefix of an object stream is a smaller *collection* of whole objects, and an
             // object the prefix does not wholly carry is not one of them: a truncated token
             // parses — `/Length 12345` cut short is `/Length 123` — so reading it would put a

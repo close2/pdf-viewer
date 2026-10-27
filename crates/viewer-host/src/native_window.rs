@@ -210,6 +210,12 @@ impl Showing {
 /// Each field is one that a method of [`NativeWindow`] reads; the fields only one toolkit's code
 /// reads stay on that toolkit's `Host`, beside its widgets.
 #[derive(Debug)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "four independent facts about four subjects — a first size, a first frame, \
+              §10.8.3's simulation and §14.11.2.2's guidelines — none of them a state of another, \
+              so no enumeration folds two of them into one (ADR 2440)"
+)]
 pub struct WindowState {
     /// The state machine every host on this boundary drives.
     pub viewer: Viewer,
@@ -348,6 +354,10 @@ pub struct WindowState {
     /// `viewer-core` holds none: this is the window's record of the answer it last sent, so the
     /// toggle knows which way to go. `--separations=` sets what it starts at (ADR 1228).
     pub separations: bool,
+    /// §14.11.2.2: whether this window has asked for the guidelines on the page boundaries.
+    ///
+    /// Held here for [`Self::separations`]' reason, and off when a window opens (ADR 2440).
+    pub guidelines: bool,
     /// §12.6.4.8: what this window does when a link asks for a URI, per `--links=`.
     ///
     /// The other direction from [`Self::restrictions`], and that is why it is a second value
@@ -453,6 +463,7 @@ impl WindowState {
             widget_appearances,
             restrictions: standing(settings),
             separations: settings.separations,
+            guidelines: false,
             links: settings.links,
             remote_documents: settings.remote_documents,
         }

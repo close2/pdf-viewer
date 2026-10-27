@@ -209,7 +209,8 @@ internal static partial class Native
     internal const uint QUORRA_KEY_DOWN = 30;
     internal const uint QUORRA_KEY_PAGE_UP = 31;
     internal const uint QUORRA_KEY_PAGE_DOWN = 32;
-    internal const uint QUORRA_KEY_COUNT = 33;
+    internal const uint QUORRA_KEY_B = 33;
+    internal const uint QUORRA_KEY_COUNT = 34;
 
     internal const uint QUORRA_ACT_NOTHING = 0;
     internal const uint QUORRA_ACT_SAY = 1;
@@ -233,7 +234,8 @@ internal static partial class Native
     internal const uint QUORRA_ACT_CLOSE_DOCUMENT = 19;
     internal const uint QUORRA_ACT_OPEN_DOCUMENT = 20;
     internal const uint QUORRA_ACT_SEPARATIONS = 21;
-    internal const uint QUORRA_ACT_COUNT = 22;
+    internal const uint QUORRA_ACT_GUIDELINES = 22;
+    internal const uint QUORRA_ACT_COUNT = 23;
 
     internal const uint QUORRA_CONTROL_ENTRY = 0;
     internal const uint QUORRA_CONTROL_CHECK = 1;

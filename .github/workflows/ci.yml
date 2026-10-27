@@ -411,17 +411,18 @@ jobs:
   # viewer_ffi.dll first, which no other job builds for Windows, so the window's project copies the
   # library it loads beside the executable and the step after it checks that it did.
   #
-  # The ceiling is thirty minutes, restated from runs as ADR 2024's are: the four green runs of
+  # The ceiling is thirty-six minutes, restated from runs as ADR 2024's are: the four green runs of
   # 2026-10-20 to 22 took 311 to 610 s, twice the longer is about twenty minutes, and the publish,
   # its check and the start on a document added after them are priced at up to seven more, the
-  # start's own five-minute ceiling among them (ADR 2374).
+  # start's own five-minute ceiling among them (ADR 2374), and Table 147's run after it at up to
+  # eight, its own ceiling, for two windows of up to two minutes each (ADR 2436).
   #
   # The window is released (ADR 2374): on a push to main the published folder is handed to
   # `snapshot-window` below, which puts the decoder's worker beside it for the snapshot.
   window:
     runs-on: windows-latest
     name: window (WinUI 3)
-    timeout-minutes: 30  # see `check` above, and the comment above this job
+    timeout-minutes: 36  # see `check` above, and the comment above this job
     steps:
       - uses: actions/checkout@v5
         with:
@@ -473,14 +474,11 @@ jobs:
           $bytes = ($files | Measure-Object -Property Length -Sum).Sum
           "published: $($files.Count) files, $bytes bytes"
 
-      # The one run of the window any job makes (ADR 2374): the published executable started on a
-      # document, and its title read until it names that document. It shows that the runtimes the
-      # folder carries start, that the library loads beside them and that a document opens -- not
-      # that a page is drawn right, which no job here can see. Advisory, because no run of it exists
-      # yet and the snapshot should not wait on its first answer; the round that reads that answer
-      # makes it a gate or says why not.
+      # The published executable started on a document, and its title read until it names that
+      # document (ADR 2374). It shows that the runtimes the folder carries start, that the library
+      # loads beside them and that a document opens -- not that a page is drawn right, which no job
+      # here can see. A gate since its first five runs on main passed, each in 2 to 7 s (ADR 2436).
       - name: Start the published window on a document and read its title
-        continue-on-error: true
         timeout-minutes: 5
         shell: pwsh
         run: |
@@ -499,6 +497,113 @@ jobs:
           if (-not $window.HasExited) { Stop-Process -Id $window.Id -Force }
           if ($title -notlike '*type4_pi*') { throw "after 120 s the window's title is '$title', which does not name type4_pi" }
           "the window's title: $title"
+
+      # §12.2's half that only Windows can run (ADRs 2301, 2308, 2436): the published window started
+      # under its own `--probe` word on two documents written here, its log read back, and each
+      # assertion a sentence of Table 147 held to what the window says it did. The window writes
+      # what it reads back from its own AppWindow and page area after acting, never what it was
+      # asked, and the sentences matched below are copied from Probe.cs, which writes them. The
+      # library's half -- the numbers a placement is -- is drive_a_window.c's (ADR 2308); this step
+      # holds the window to carrying them out. Its ceiling is the title step's, for two windows.
+      - name: Run Table 147's placement and full screen in the published window
+        timeout-minutes: 8
+        shell: pwsh
+        run: |
+          # A document of numbered objects with a cross-reference table whose offsets are counted
+          # here, as crates/viewer-ffi/tests/a_c_program_drives_the_abi.rs writes its fixtures.
+          function Write-Document([string]$path, [string]$catalog) {
+            $objects = @(
+              $catalog,
+              '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+              '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 100] /Resources << >> /Contents 6 0 R >>',
+              '<< /Type /Outlines /First 5 0 R /Last 5 0 R /Count 1 >>',
+              '<< /Title (The page) /Parent 4 0 R /Dest [3 0 R /Fit] >>',
+              "<< /Length 25 >>`nstream`n0 0 1 rg 0 0 300 100 re f`nendstream")
+            $text = "%PDF-1.7`n"
+            $offsets = @()
+            for ($at = 0; $at -lt $objects.Count; $at++) {
+              $offsets += $text.Length
+              $text += "$($at + 1) 0 obj`n$($objects[$at])`nendobj`n"
+            }
+            $start = $text.Length
+            $text += "xref`n0 $($objects.Count + 1)`n0000000000 65535 f `n"
+            foreach ($offset in $offsets) { $text += ('{0:D10} 00000 n ' -f $offset) + "`n" }
+            $text += "trailer`n<< /Size $($objects.Count + 1) /Root 1 0 R >>`nstartxref`n$start`n%%EOF`n"
+            [System.IO.File]::WriteAllText($path, $text, [System.Text.Encoding]::ASCII)
+          }
+          # The window on one document under --probe, until its log has a line matching $until or
+          # 120 s have passed. The whole log is shown and its probe lines are returned.
+          function Read-Probe([string]$document, [string]$until) {
+            $log = Join-Path $env:RUNNER_TEMP "$([IO.Path]::GetFileNameWithoutExtension($document)).log"
+            $window = Start-Process -FilePath (Resolve-Path 'window-publish/Quorra.App.exe').Path `
+              -ArgumentList "--probe `"$document`"" -PassThru `
+              -RedirectStandardError $log -RedirectStandardOutput "$log.out"
+            $null = $window.Handle
+            $deadline = (Get-Date).AddSeconds(120)
+            $lines = @()
+            while ((Get-Date) -lt $deadline) {
+              Start-Sleep -Seconds 1
+              if (Test-Path $log) { $lines = @(Get-Content $log) }
+              if ($lines | Where-Object { $_ -match $until }) { break }
+              if ($window.HasExited) { break }
+            }
+            if (-not $window.HasExited) { Stop-Process -Id $window.Id -Force }
+            if (Test-Path $log) { $lines = @(Get-Content $log) }
+            Write-Host "--- the window's log on $([IO.Path]::GetFileName($document)):"
+            $lines | ForEach-Object { Write-Host "  $_" }
+            return ,@($lines | Where-Object { $_ -like 'probe: *' })
+          }
+          $failed = @()
+          function Verdict([bool]$held, [string]$sentence, [string]$found) {
+            if ($held) { "works: $sentence -- $found" }
+            else { "WRONG: $sentence -- $found"; $script:failed += $sentence }
+          }
+
+          # A 300 by 100 page stating /FitWindow and /CenterWindow, and /NonFullScreenPageMode
+          # /UseOutlines beside an outline, which a document opened outside full screen ignores.
+          $placed = Join-Path $env:RUNNER_TEMP 'placed.pdf'
+          Write-Document $placed '<< /Type /Catalog /Pages 2 0 R /Outlines 4 0 R /ViewerPreferences << /FitWindow true /CenterWindow true /NonFullScreenPageMode /UseOutlines >> >>'
+          $probe = Read-Probe $placed '^probe: placed: '
+          $line = @($probe | Where-Object { $_ -like 'probe: placed: *' })[-1]
+          $resized = @($probe | Where-Object { $_ -like 'probe: asked to resize the window to *' }).Count
+          if ($line -match '^probe: placed: the page area (\d+) by (\d+), the window (\d+) by (\d+) at (-?\d+), (-?\d+), on the work area (-?\d+), (-?\d+), (\d+) by (\d+)$') {
+            $n = $Matches[1..10] | ForEach-Object { [int]$_ }
+            # A page drawn at the page area's width is three units wide for every one tall, so a
+            # page area fitted to it has that shape, within the rounding of its two sides.
+            Verdict ($resized -ge 1 -and [Math]::Abs($n[0] - 3 * $n[1]) -le 3) `
+              "/FitWindow, 'A flag specifying whether to resize the document's window to fit the size of the first displayed page'" `
+              "$resized resize(s) asked, the page area $($n[0]) by $($n[1]) for a 300 by 100 page"
+            $x = $n[6] + [Math]::Max(0, ($n[8] - $n[2]) / 2)
+            $y = $n[7] + [Math]::Max(0, ($n[9] - $n[3]) / 2)
+            Verdict ([Math]::Abs($n[4] - $x) -le 1 -and [Math]::Abs($n[5] - $y) -le 1) `
+              "/CenterWindow, 'A flag specifying whether to position the document's window in the centre of the screen'" `
+              "the window $($n[2]) by $($n[3]) at $($n[4]), $($n[5]), where the centre of the work area puts it at $x, $y"
+          } else {
+            Verdict $false "/FitWindow and /CenterWindow: the window said where it was placed" "no placement line: '$line'"
+          }
+          $opened = @($probe | Where-Object { $_ -like 'probe: the pane is open on *' -or $_ -eq 'probe: the presenter is FullScreen' })
+          Verdict ($null -ne $line -and $opened.Count -eq 0) `
+            "/NonFullScreenPageMode, 'it shall be ignored otherwise'" `
+            "with no /PageMode /FullScreen, $($opened.Count) line(s) of a pane opened or a full screen"
+
+          # A deck stating Table 29's /PageMode /FullScreen and /NonFullScreenPageMode /UseOutlines:
+          # presented full screen, then left as Escape leaves it, which the probe presses once a
+          # page has been drawn.
+          $deck = Join-Path $env:RUNNER_TEMP 'deck.pdf'
+          Write-Document $deck '<< /Type /Catalog /Pages 2 0 R /Outlines 4 0 R /PageMode /FullScreen /ViewerPreferences << /NonFullScreenPageMode /UseOutlines >> >>'
+          $probe = Read-Probe $deck '^probe: the pane is open on '
+          $full = [Array]::IndexOf($probe, 'probe: the presenter is FullScreen')
+          $escape = [Array]::IndexOf($probe, 'probe: a page was drawn full screen, so Escape is pressed as the key presses it')
+          $after = @($probe | Select-Object -Skip ($escape + 1))
+          $back = @($after | Where-Object { $_ -like 'probe: the presenter is *' -and $_ -ne 'probe: the presenter is FullScreen' })
+          Verdict ($full -ge 0 -and $escape -gt $full) `
+            "Table 29's /FullScreen, 'Full-screen mode, with no menu bar, window controls, or any other window visible'" `
+            "the presenter line at $full, the page drawn full screen at $escape"
+          Verdict ($escape -ge 0 -and $back.Count -ge 1 -and ($after -contains 'probe: the pane is open on Contents')) `
+            "/NonFullScreenPageMode /UseOutlines, 'specifying how to display the document on exiting full-screen mode', 'Document outline visible'" `
+            "after Escape: $(($after | Where-Object { $_ -like 'probe: the p*' }) -join '; ')"
+
+          if ($failed.Count -gt 0) { throw "$($failed.Count) of Table 147's sentences were not held: $($failed -join ' | ')" }
 
       - name: Hand the published window to the snapshot
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

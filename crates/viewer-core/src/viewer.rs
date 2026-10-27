@@ -254,6 +254,12 @@ pub struct Viewer {
     /// §10.8.2's alternate space and tint transform are what every colour is drawn through.
     /// ADR 1228.
     separations: bool,
+    /// Whether §14.11.2.2's guidelines are what this reader has asked to see.
+    ///
+    /// Held here for `separations`' reason and pushed into each document's
+    /// [`pdf_model::view::ViewState`] by [`Command::Guidelines`]. `false` until a host says
+    /// otherwise, under which no page carries one. ADR 2440.
+    guidelines: bool,
     /// The name the next document opened **beside** the one showing would be called by.
     ///
     /// The eleventh host-supplied policy value, held here for `separations`'s reason — it is a
@@ -326,6 +332,7 @@ impl Viewer {
             audience: pdf_model::optional_content::Audience::NONE,
             clock: None,
             separations: false,
+            guidelines: false,
             beside: None,
             locked: None,
             references: Arc::new(pdf_model::reference::Supply::none()),
@@ -513,6 +520,16 @@ impl Viewer {
                 self.separations = simulate;
                 for open in self.documents.values_mut() {
                     if open.view.set_separation_simulation(simulate) {
+                        open.stale();
+                    }
+                }
+            }
+            // §14.11.2.2's guidelines, on `Separations`' rule: every open document and every one
+            // opened afterwards, and a page interpreted for the other answer is superseded.
+            Command::Guidelines(shown) => {
+                self.guidelines = shown;
+                for open in self.documents.values_mut() {
+                    if open.view.set_guidelines(shown) {
                         open.stale();
                     }
                 }
@@ -1103,6 +1120,7 @@ mod tests {
             Command::Audience(audience.clone()),
             Command::Clock(clock),
             Command::Separations(true),
+            Command::Guidelines(true),
             Command::Present(crate::PresentationMode::On),
         ] {
             viewer.handle(command).for_each(drop);
@@ -1128,6 +1146,7 @@ mod tests {
             assert_eq!(open.view.audience(), &audience, "{id:?}: §8.11.4.4");
             assert_eq!(open.view.modification_time(), clock, "{id:?}: Table 166");
             assert!(open.view.separation_simulation(), "{id:?}: §10.8.3");
+            assert!(open.view.guidelines(), "{id:?}: §14.11.2.2");
         }
         assert_eq!(
             viewer.focused,

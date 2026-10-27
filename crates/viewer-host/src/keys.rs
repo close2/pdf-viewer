@@ -137,6 +137,8 @@ use viewer_core::{Answer, Command, Edit, FocusMove, PageTarget, Query, Selection
 pub enum Key {
     /// The letter `a` — select everything on the page.
     A,
+    /// The letter `b` — §14.11.2.2's guidelines for the page boundaries.
+    B,
     /// The letter `c` — §14.8.2.5's copy.
     C,
     /// The letter `f` — the find bar.
@@ -213,6 +215,7 @@ impl Key {
     /// array of variants can get wrong.
     pub const ALL: &'static [Self] = &[
         Self::A,
+        Self::B,
         Self::C,
         Self::F,
         Self::H,
@@ -433,6 +436,12 @@ pub enum WindowAct {
     /// window is what shows them which one is on. What crosses the boundary is
     /// [`viewer_core::Command::Separations`] with the answer. ADR 1228.
     Separations,
+    /// Show §14.11.2.2's guidelines for the page boundaries, or stop showing them.
+    ///
+    /// A window act for [`Self::Separations`]' reason: which of the two pictures the reader has
+    /// asked for is the window's state, and what crosses is
+    /// [`viewer_core::Command::Guidelines`] with the answer. ADR 2440.
+    Guidelines,
 }
 
 /// Whether a draw the window has already warned about is still running.
@@ -557,6 +566,9 @@ pub fn meaning(key: Key, held: Modifiers, mode: Mode, waiting: Waiting) -> Optio
         // reason: unshifted `S` is `Command::Save` and has been since this table existed, and
         // the clause names no key at all.
         Key::S if shift => Meaning::Window(WindowAct::Separations),
+        // §14.11.2.2's guidelines, on the first letter of "boundaries" and on no modifier: the
+        // clause names no key, and nothing else binds `b` (ADR 2440).
+        Key::B => Meaning::Window(WindowAct::Guidelines),
         Key::S => Meaning::Send(Command::Save),
         Key::Z => Meaning::Send(Command::Undo),
         Key::Y => Meaning::Send(Command::Redo),
@@ -853,6 +865,7 @@ mod tests {
             // only way a list like this stays complete.
             match key {
                 Key::A
+                | Key::B
                 | Key::C
                 | Key::F
                 | Key::H
@@ -894,7 +907,7 @@ mod tests {
         }
         assert_eq!(
             seen.len(),
-            33,
+            34,
             "the list is the enumeration, and no shorter"
         );
     }
@@ -1262,6 +1275,13 @@ mod tests {
             meaning(Key::S, Modifiers::SHIFT, Mode::Reading, Waiting::Nothing),
             Some(Meaning::Window(WindowAct::Separations))
         ));
+        // §14.11.2.2's guidelines on `b`, with or without Shift (ADR 2440).
+        for held in [Modifiers::NONE, Modifiers::SHIFT] {
+            assert!(matches!(
+                meaning(Key::B, held, Mode::Reading, Waiting::Nothing),
+                Some(Meaning::Window(WindowAct::Guidelines))
+            ));
+        }
         assert!(matches!(
             meaning(Key::A, Modifiers::NONE, Mode::Reading, Waiting::Nothing),
             Some(Meaning::Send(Command::Select(Selection::All)))

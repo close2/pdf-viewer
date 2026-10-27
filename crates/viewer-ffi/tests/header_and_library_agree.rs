@@ -734,6 +734,7 @@ fn the_keyboard(expected: &mut BTreeMap<String, i64>) {
         ("DOWN", KeyKind::Down),
         ("PAGE_UP", KeyKind::PageUp),
         ("PAGE_DOWN", KeyKind::PageDown),
+        ("B", KeyKind::B),
     ] {
         expected.insert(format!("QUORRA_KEY_{name}"), kind as i64);
     }
@@ -761,6 +762,7 @@ fn the_keyboard(expected: &mut BTreeMap<String, i64>) {
         ("CLOSE_DOCUMENT", ActKind::CloseDocument),
         ("OPEN_DOCUMENT", ActKind::OpenDocument),
         ("SEPARATIONS", ActKind::Separations),
+        ("GUIDELINES", ActKind::Guidelines),
     ] {
         expected.insert(format!("QUORRA_ACT_{name}"), i64::from(kind.code()));
     }

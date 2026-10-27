@@ -1,5 +1,9 @@
 //! A page turn's key returns with the page's read out on a thread of its own, the window goes on
 //! answering, and a second turn waits for the first's read (ADR 2344).
+//!
+//! The read is held out by the test, at `Window::holding`, for as long as the test needs it out:
+//! a page of one fill can be read before the second key comes, so the read is held rather than
+//! raced (ADR 2437).
 
 use super::Window;
 use std::fmt::Write as _;
@@ -77,6 +81,7 @@ fn a_turn_returns_with_its_read_out_and_a_second_turn_waits_for_it() {
     rest(&mut window);
     assert_eq!(framed(&window), [0], "page one is on the screen");
 
+    window.holding = true;
     window.dispatch(Command::GoTo(PageTarget::Next));
     assert!(
         window.state.turning.is_some(),
@@ -95,6 +100,7 @@ fn a_turn_returns_with_its_read_out_and_a_second_turn_waits_for_it() {
         "a second turn waits for the first's read"
     );
 
+    window.holding = false;
     rest(&mut window);
     assert!(window.state.turning.is_none() && window.state.behind_the_turn.is_empty());
     assert_eq!(

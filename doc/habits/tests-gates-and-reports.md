@@ -691,3 +691,37 @@ without the window focused first (the habit above on `windowfocus --sync`). The 
 continuous `xwd -root` loop started before the notch, its frames read afterwards for the one that showed both
 pages at the new view's places. A frame that lives for one refresh or a few is photographed by a loop already
 running when the event is sent, never by a capture issued after it.
+
+## A new key or act is searched for in the tests that call it unbound
+
+Round 1803 (ADR 2440) bound `b` to §14.11.2.2's page-boundary guidelines and appended `QUORRA_KEY_B` and
+`QUORRA_ACT_GUIDELINES` to the C ABI; five tests went red only at nextest time — three used `b` as their example
+of a key nothing binds, two counted the keys and acts (`keys N (header N)`, `seen.len()`). Before a key or an act
+is added, `grep` the tests for the letter used as the unbound example and for every hard-coded key or act count,
+and change them in the same hunk as the binding, so the first full test run is not where they are found.
+
+## The C program's ABI test runs where cargo metadata names the target
+
+Round 1801 (ADR 2437) ran `viewer-ffi`'s tests in an export built with `--target-dir`, and
+`a_c_program_drives_the_abi` could not find the library it links: its `Artifacts::new` takes the target
+directory from `cargo metadata`, which does not see a `--target-dir` flag. The test was run in the worktree
+once the shared build compiled again (8 of 8, exit 0). A test that locates artefacts through `cargo metadata`
+is run where the target directory is the workspace's own, and an export's red in it is the export's, not the
+change's.
+
+## A writer beside a parser is proved by the round trip, not only by the printed tables
+
+Round 1800 (ADR 2434) built XFA's output formatter beside the picture-clause parser and proved it by parse ∘
+format = identity on each picture category as well as against chapter 26's printed output tables. The round
+trip found three parser defects no printed row exercised — an `8` right of the radix reading one digit,
+`zero{9}` refused outright, and a zero clause matching any digit. A writer built as the inverse of an existing
+reader is tested by composing the two over every category, and a failure of the composition is read as a
+defect of either side until the clause says which.
+
+## A font remedy's plant shows text in the font
+
+Round 1805 (ADR 2445) planted an appearance-only `Adobe-Identity` font to test the converter's font remedies,
+and its first plants named the font in resources and showed nothing with it: ISO 19005's font requirements
+bind fonts that are rendered, so the requirement never failed and the plant tested nothing. A plant for a font
+remedy carries a text-showing operator (`Tj`, `TJ`, `'` or `"`) in the stream that names the font, and the
+validator's finding on the unremedied plant is read before the remedy is believed.

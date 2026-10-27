@@ -44,6 +44,7 @@ pub mod form;
 pub mod forms_data;
 pub mod fragment;
 pub mod geospatial;
+pub mod guidelines;
 pub use pdf_colour::function;
 pub use pdf_colour::icc;
 mod icon;

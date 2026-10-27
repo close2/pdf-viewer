@@ -124,6 +124,11 @@ fn digits(text: &str, count: usize) -> Option<u16> {
 /// Whether `text` is one of page 1045's date forms, `YYYY[MM[DD]]` or `YYYY[-MM[-DD]]`, naming a
 /// month and a day that exist.
 pub(crate) fn is_date(text: &str) -> bool {
+    date(text).is_some()
+}
+
+/// The date `text` states in one of page 1045's forms, where it is one.
+pub(crate) fn date(text: &str) -> Option<Date> {
     let parts: Vec<&str> = if text.contains('-') {
         text.split('-').collect()
     } else if text.is_ascii() {
@@ -133,35 +138,51 @@ pub(crate) fn is_date(text: &str) -> bool {
             .filter(|part| !part.is_empty())
             .collect()
     } else {
-        return false;
+        return None;
     };
     if !text.contains('-') && parts.iter().map(|p| p.len()).sum::<usize>() != text.len() {
-        return false;
+        return None;
     }
     let mut parts = parts.into_iter();
-    let Some(year) = parts.next().and_then(|p| digits(p, 4)) else {
-        return false;
+    let year = parts.next().and_then(|p| digits(p, 4))?;
+    let only_year = Date {
+        year,
+        month: None,
+        day: None,
     };
     let month = match parts.next() {
-        None => return true,
+        None => return Some(only_year),
         Some(part) => match digits(part, 2) {
-            Some(month @ 1..=12) => month,
-            _ => return false,
+            Some(month @ 1..=12) => u8::try_from(month).ok()?,
+            _ => return None,
         },
     };
     let day = match parts.next() {
-        None => return true,
-        Some(part) => digits(part, 2),
+        None => {
+            return Some(Date {
+                month: Some(month),
+                ..only_year
+            });
+        }
+        Some(part) => digits(part, 2)?,
     };
-    let (Ok(month), Some(day)) = (u8::try_from(month), day) else {
-        return false;
-    };
-    parts.next().is_none() && day >= 1 && day <= u16::from(days_in_month(year, month))
+    (parts.next().is_none() && day >= 1 && day <= u16::from(days_in_month(year, month))).then(
+        || Date {
+            month: Some(month),
+            day: u8::try_from(day).ok(),
+            ..only_year
+        },
+    )
 }
 
 /// Whether `text` is one of page 1046's time forms: `HH[MM[SS[.FFF][zone]]]` or the same with
 /// colons, the zone `Z`, `+HH[MM]` or `-HH[MM]` (colons again in the colon form).
 pub(crate) fn is_time(text: &str) -> bool {
+    time(text).is_some()
+}
+
+/// The time `text` states in one of page 1046's forms, and its zone as written, where it is one.
+pub(crate) fn time(text: &str) -> Option<(Time, Option<&str>)> {
     let colons = text.contains(':');
     let (clock, zone) = match text.find(['Z', '+', '-']) {
         Some(at) => (&text[..at], Some(&text[at..])),
@@ -178,25 +199,35 @@ pub(crate) fn is_time(text: &str) -> bool {
             .filter_map(|i| clock.get(i.saturating_mul(2)..i.saturating_mul(2).saturating_add(2)))
             .collect()
     } else {
-        return false;
+        return None;
     };
     let limits = [23, 59, 59];
     if fields.is_empty() || fields.len() > 3 {
-        return false;
+        return None;
     }
-    for (field, limit) in fields.iter().zip(limits) {
-        if digits(field, 2).is_none_or(|value| value > limit) {
-            return false;
+    let mut values = [None; 3];
+    for ((field, limit), value) in fields.iter().zip(limits).zip(values.iter_mut()) {
+        match digits(field, 2) {
+            Some(read) if read <= limit => *value = u8::try_from(read).ok(),
+            _ => return None,
         }
     }
     // Page 1046 hangs the fraction and the zone on the seconds.
     if (fraction.is_some() || zone.is_some()) && fields.len() < 3 {
-        return false;
+        return None;
     }
-    if fraction.is_some_and(|f| digits(f, 3).is_none()) {
-        return false;
-    }
-    match zone {
+    let millisecond = match fraction {
+        Some(f) => Some(digits(f, 3)?),
+        None => None,
+    };
+    let [hour, minute, second] = values;
+    let clock = Time {
+        hour: hour?,
+        minute,
+        second,
+        millisecond,
+    };
+    let stated = match zone {
         None | Some("Z") => true,
         Some(offset) => {
             let offset = &offset[1..];
@@ -209,13 +240,14 @@ pub(crate) fn is_time(text: &str) -> bool {
                 match (offset.get(..2), offset.get(2..)) {
                     (Some(h), Some("")) => (h, None),
                     (Some(h), Some(m)) => (h, Some(m)),
-                    _ => return false,
+                    _ => return None,
                 }
             };
             digits(hours, 2).is_some_and(|h| h <= 23)
                 && minutes.is_none_or(|m| digits(m, 2).is_some_and(|m| m <= 59))
         }
-    }
+    };
+    stated.then_some((clock, zone))
 }
 
 /// Whether `text` is page 1047's date-time: a date, `T`, a time.
@@ -250,6 +282,43 @@ pub(crate) fn is_number(text: &str) -> bool {
             !exponent.is_empty() && all_digits(exponent)
         }
     }
+}
+
+/// A number as a picture clause writes it out: its sign, its integer digits and its fraction
+/// digits.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Decimal {
+    /// Whether it is below zero; a zero is never negative.
+    pub(crate) negative: bool,
+    /// The integer digits with no leading zero, empty for a number under one.
+    pub(crate) whole: String,
+    /// The fraction digits, where it is written with a decimal point (`"123."` has an empty one).
+    pub(crate) fraction: Option<String>,
+}
+
+/// The number `text` states as page 1047's literal, where it is one with no exponent; a number
+/// with an exponent is `None`, because the one picture symbol that writes an exponent, `E`, is one
+/// this program does not read.
+pub(crate) fn decimal(text: &str) -> Option<Decimal> {
+    if !is_number(text) || text.contains(['e', 'E']) {
+        return None;
+    }
+    let negative = text.starts_with('-');
+    let unsigned = text.strip_prefix(['+', '-']).unwrap_or(text);
+    let (whole, fraction) = match unsigned.split_once('.') {
+        Some((whole, fraction)) => (whole, Some(fraction.to_owned())),
+        None => (unsigned, None),
+    };
+    let whole = whole.trim_start_matches('0').to_owned();
+    let zero = whole.is_empty()
+        && fraction
+            .as_deref()
+            .is_none_or(|f| f.bytes().all(|b| b == b'0'));
+    Some(Decimal {
+        negative: negative && !zero,
+        whole,
+        fraction,
+    })
 }
 
 /// A number from its parts as a picture clause took them apart: the sign, the integer digits and

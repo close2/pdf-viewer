@@ -155,6 +155,7 @@ mod in_place;
 mod jpeg2000;
 mod languages;
 mod overprint;
+mod page_tree;
 mod prepare;
 mod preserve;
 mod protection;
@@ -431,8 +432,9 @@ impl Clock {
 /// # Errors
 ///
 /// [`Refusal::NoSuchSource`], [`Refusal::Reconstructed`] where the source states its structure
-/// only through §C.4's recovery, [`Refusal::Assembly`] where the document cannot be rewritten at
-/// all, and [`Refusal::Sink`] where the output cannot be written. A document that cannot be
+/// only through §C.4's recovery or states a page tree node §7.7.3.2's Table 30 makes unwalkable
+/// (ADR 2444), [`Refusal::Assembly`] where the document cannot be rewritten at all, and
+/// [`Refusal::Sink`] where the output cannot be written. A document that cannot be
 /// *converted* is not an error: it is [`Report::refused`] beside the conversion's own report,
 /// which is where a caller reads which requirement stopped it.
 #[expect(
@@ -454,6 +456,7 @@ pub(crate) fn run(
     })?;
     let root = crate::optimize::catalog_of(document)?;
     crate::optimize::refuse_a_document_only_recovery_reads(document, root)?;
+    page_tree::refuse_a_page_tree_no_reader_can_walk(document, root)?;
 
     // Stage 1: the validator is the reading. Nothing below re-reads ISO 19005.
     let input = pdf_archive::check(document, plan.target);
@@ -707,6 +710,7 @@ fn decide_every_failure(
             changed: 0,
         });
     }
+    schemas_met_by_the_replacement(&mut conversion.decided, &prepared);
     // What the appended pages carry is the report's to say and the packet's to record, and both
     // are read off the one composition rather than recomputed: `doc/adr/1014` section 5's *a page
     // was appended, carrying this, from there, placed so*.
@@ -727,6 +731,52 @@ fn decide_every_failure(
     }
     conversion.signatures = signature_decision(plan, &prepared);
     (conversion, version, prepared)
+}
+
+/// Why section 6.6.2.3.2 is refused where the replacement that would meet it was decided nowhere.
+///
+/// A requirement the caller departed from is not decided, so a replaced packet whose replacement
+/// no decided row asks for is one nothing in this conversion writes.
+const REPLACEMENT_NOT_DECIDED: &str = "the packet that uses these extension schemas is one ISO \
+     19005-2 section 6.6.2.1's replacement composes afresh, and no requirement of that section \
+     was decided for this conversion, so nothing here describes or replaces it";
+
+/// **ISO 19005-2 section 6.6.2.3.2, met at a stream by section 6.6.2.1's replacement**
+/// (`doc/adr/2442`).
+///
+/// A packet this tree cannot read is replaced by one stating no property at all, and a packet
+/// stating no property uses no extension schema — so where every stream the requirement failed at
+/// is replaced, the replacement is what meets it, and the decision is the one the packet's own
+/// requirement took: the same rewrite, the same loss under the same authorisation or `preserve`,
+/// and nothing lost twice. The table's container would have described nothing. Where the packet
+/// requirements took different decisions, the one that stops the conversion is named, since that
+/// is the one the conversion stops for.
+fn schemas_met_by_the_replacement(decided: &mut [Decided], prepared: &Prepared) {
+    let Ok(described) = &prepared.described else {
+        return;
+    };
+    if described.replaced.is_empty() || !described.packets.is_empty() {
+        return;
+    }
+    let replacements: Vec<Decision> = decided
+        .iter()
+        .filter(|row| prepare::PACKET_REQUIREMENTS.contains(&row.requirement))
+        .map(|row| row.decision)
+        .collect();
+    let replacement = replacements
+        .iter()
+        .find(|decision| !decision.proceeds())
+        .or_else(|| replacements.first())
+        .copied()
+        .unwrap_or(Decision::Refused(Because::NotBuiltYet(
+            REPLACEMENT_NOT_DECIDED,
+        )));
+    for row in decided
+        .iter_mut()
+        .filter(|row| row.requirement == prepare::SCHEMAS_REQUIREMENT)
+    {
+        row.decision = replacement;
+    }
 }
 
 /// The decision a configured remedy takes about one requirement, where one reached it.

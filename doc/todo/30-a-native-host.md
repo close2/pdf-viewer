@@ -282,12 +282,13 @@ Ranked by ADR 0509's criterion; `tools/state.sh windows` prints the window rows 
   decoration and position among it, with the attributes each maps to named (ADR 2422). **It is
   released**: `window` publishes it self-contained, and the snapshot pre-release carries it as
   `quorra-winui-x64-<commit>.zip` with `viewer_ffi.dll` and `pdf-sandbox-worker.exe` beside
-  `Quorra.App.exe`. The same job starts it once on a document and reads its title, advisory until a
-  run has passed (ADR 2374); signing it is `doc/questions/Q636`. **What would run §12.2's placement**,
-  the next host slot's contract: a `windows-latest` step opening documents that state `/FitWindow`,
-  `/CenterWindow` and `/PageMode /FullScreen`, reading back the window's rectangle and its
-  presenter's kind, and held to the numbers `drive_a_window.c` derives for the library's half
-  (ADR 2308); the title step becomes a gate in the same slot.
+  `Quorra.App.exe`. The same job starts it once on a document and reads its title, a gate since
+  its first five runs passed (ADRs 2374, 2436); signing it is `doc/questions/Q636`. **§12.2's
+  placement runs there too**: under its `--probe` word the window writes what it reads back from its
+  own `AppWindow` and page area (`Probe.cs`), and the job's Table 147 step opens a page stating
+  `/FitWindow`, `/CenterWindow` and `/NonFullScreenPageMode` and a deck stating `/PageMode
+  /FullScreen`, presses Escape once a page is drawn full screen, and holds each line to a sentence of
+  Table 147 (ADR 2436). §12.2 moves to `implemented` on that step's first green run.
 - **A dmabuf texture in GTK and a `QRhiWidget` in Qt** — ADR 2049's step after the device path,
   which is built: the renderer is the library `crates/viewer-device/` (ADR 2052), and both toolkit
   windows draw on the device, page one by default, and read the frame back into the

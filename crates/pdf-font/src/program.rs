@@ -431,9 +431,10 @@ fn no_program(decoded: &[u8]) -> bool {
 /// # Errors
 ///
 /// [`FontError::Malformed`] where the decode stopped short of the program the file states, where
-/// no clause states an extent, where the damage is a corruption rather than a truncation, or
-/// where the filter's check value disagrees over bytes that are otherwise whole — the last of
-/// which carries [`extent_corroboration`]'s reading of Table 125 in its detail.
+/// no clause states an extent, where the damage is a corruption rather than a truncation, where
+/// the filter's check value disagrees over bytes that are otherwise whole — which carries
+/// [`extent_corroboration`]'s reading of Table 125 in its detail — or where §7.4.2's error was
+/// caused on the way to the end-of-data (ADR 2438).
 fn whole_program(
     document: &Document,
     dict: &Dictionary,
@@ -467,6 +468,16 @@ fn whole_program(
                  whose content may not be its own draws glyphs in place of the producer's{}",
                 decoded.data.len(),
                 extent_corroboration(stated, decoded.data.len())
+            ),
+            // §7.4.2's error: the filter decoded to its end-of-data past a character outside
+            // its alphabet, and cannot say whether the pairs after it are the producer's
+            // (ADR 2438) — `Damage::CheckValue`'s uncertainty, arriving by another filter.
+            Damage::ForeignCharacter => format!(
+                "/{key} decoded whole past a character ASCIIHexDecode's alphabet does not admit \
+                 ({} bytes): a digit written over leaves every byte after it a nibble out of \
+                 step, and a font program whose content may not be its own draws glyphs in place \
+                 of the producer's",
+                decoded.data.len()
             ),
             Damage::Truncated | Damage::Corrupt => format!(
                 "/{key} decoded only as far as its damage ({damage:?}, {} bytes): a prefix of a \

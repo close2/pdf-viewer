@@ -19,10 +19,11 @@
 //! the machine. **The player is the hand-off**: the one player this program has is whichever
 //! program this machine starts for the clip's content type, and what this program can pass that
 //! player is the clip's bytes or its address and nothing else. So every entry whose honouring
-//! needs the player to be *told* something — a volume, a start offset, a base URL, a window — is
-//! an entry this player cannot honour, and the clause says exactly what that costs: in an `MH`
-//! dictionary, "otherwise, the containing object shall be considered non-viable"; in a `BE`
-//! dictionary, "the containing object is still considered viable". ADR 1960 is the argument.
+//! needs the player to be *told* something — a volume, a start offset past the clip's beginning, a
+//! base URL, a window — is an entry this player cannot honour, and the clause says exactly what
+//! that costs: in an `MH` dictionary, "otherwise, the containing object shall be considered
+//! non-viable"; in a `BE` dictionary, "the containing object is still considered viable". ADR 1960
+//! is the argument.
 //!
 //! # What is not judged here
 //!
@@ -450,7 +451,13 @@ impl Walk<'_> {
                     .is_some_and(timeless);
                 // Otherwise Table 289's `/B` and `/E` in an `MH` "shall be honoured at play-time in
                 // order for the media clip section to be considered viable", and a player handed a
-                // file is started at its beginning and stopped at its end.
+                // file is started at its beginning and stopped at its end. So a `/B` naming that
+                // beginning is honoured by the hand-off, and only one: a time or frame `/B` is
+                // "relative to the start of the next-level media clip", which is the file's
+                // beginning only where every `/B` below it names its own clip's start too.
+                let below_starts = next
+                    .as_dict()
+                    .is_some_and(|next| self.begins_at_start(next, depth.saturating_add(1)));
                 let mut unhonoured = Vec::new();
                 for (key, entry) in [("MH", true), ("BE", false)] {
                     let options = document.get_key(dict, key);
@@ -461,6 +468,12 @@ impl Walk<'_> {
                         let name = String::from_utf8_lossy(name.as_bytes()).into_owned();
                         let known = matches!(name.as_str(), "B" | "E");
                         if known && ignored {
+                            continue;
+                        }
+                        if name == "B"
+                            && below_starts
+                            && is_start(document, &document.get_key(options, "B"))
+                        {
                             continue;
                         }
                         match (entry, known) {
@@ -498,6 +511,37 @@ impl Walk<'_> {
                 reasons.push("its media clip's Table 284 /S is neither MCD nor MCS".to_owned());
                 None
             }
+        }
+    }
+
+    /// Whether the next-level clip `dict` begins where its file does: media clip data, or a
+    /// section whose `MH` and `BE` `/B`, where stated, each name the start of a next-level clip
+    /// that begins there in turn (§13.2.4.3). A chain past [`MAX_DEPTH`] begins nowhere this
+    /// judges, and the clip above it is non-viable on its own account.
+    fn begins_at_start(&self, dict: &Dictionary, depth: usize) -> bool {
+        let document = self.document;
+        if depth > MAX_DEPTH {
+            return false;
+        }
+        match document
+            .get_key(dict, "S")
+            .as_name()
+            .map(pdf_syntax::Name::as_bytes)
+        {
+            Some(b"MCS") => {
+                let starts = ["MH", "BE"].into_iter().all(|key| {
+                    document.get_key(dict, key).as_dict().is_none_or(|options| {
+                        options.get("B").is_none()
+                            || is_start(document, &document.get_key(options, "B"))
+                    })
+                });
+                starts
+                    && document
+                        .get_key(dict, "D")
+                        .as_dict()
+                        .is_some_and(|next| self.begins_at_start(next, depth.saturating_add(1)))
+            }
+            _ => true,
         }
     }
 
@@ -961,6 +1005,41 @@ fn timeless(content_type: &str) -> bool {
     STILL
         .iter()
         .any(|still| essence.eq_ignore_ascii_case(still))
+}
+
+/// Whether §13.2.6.2's media offset dictionary `offset` names the start of the clip it is an offset
+/// into: a time offset (Table 297) whose §13.2.6.3 simple timespan is zero seconds, or frame 0
+/// (Table 298), "\[f]rame numbers begin at 0". A marker (Table 299) names a place only the media
+/// container's own marker table locates, and of an unrecognised `/S` Table 296 says "\[t]he
+/// rendition is non-viable if the interactive PDF processor does not recognise the value of this
+/// entry", so neither is a start.
+fn is_start(document: &Document, offset: &Object) -> bool {
+    let Some(offset) = offset.as_dict() else {
+        return false;
+    };
+    match document
+        .get_key(offset, "S")
+        .as_name()
+        .map(pdf_syntax::Name::as_bytes)
+    {
+        Some(b"T") => {
+            let timespan = document.get_key(offset, "T");
+            timespan.as_dict().is_some_and(|timespan| {
+                // Table 300: "The value shall be S (simple timespan)", and the rendition is
+                // non-viable where `/S` is not recognised.
+                document
+                    .get_key(timespan, "S")
+                    .as_name()
+                    .is_some_and(|kind| kind.as_bytes() == b"S")
+                    && document
+                        .get_key(timespan, "V")
+                        .as_number()
+                        .is_some_and(|seconds| seconds == 0.0)
+            })
+        }
+        Some(b"F") => document.get_key(offset, "F").as_integer() == Some(0),
+        _ => false,
+    }
 }
 
 /// §14.9.2.4's search of a multi-language text array for the reader's language.

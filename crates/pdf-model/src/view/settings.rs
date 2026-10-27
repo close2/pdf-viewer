@@ -182,6 +182,31 @@ impl ViewState {
         self.separation_simulation
     }
 
+    /// Says whether §14.11.2.2's guidelines for the page boundaries are being asked for.
+    ///
+    /// **A person's request, and the clause's own condition**: "\[i\]nteractive PDF processors may
+    /// offer the ability to display guidelines on the screen for the various page boundaries",
+    /// so the offer is this program's and the asking is the reader's, and no document turns it
+    /// on. It arrives the way [`Self::set_separation_simulation`] does, for that function's
+    /// reason. Read only under [`Purpose::View`]: the clause's guidelines are "on the screen",
+    /// so a page put onto paper carries none.
+    ///
+    /// Returns whether the answer moved, which is what a caller needs — a guideline is a mark
+    /// over the page, so an answer that changes supersedes the ink already produced. ADR 2440.
+    pub fn set_guidelines(&mut self, shown: bool) -> bool {
+        if self.guidelines == shown {
+            return false;
+        }
+        self.guidelines = shown;
+        true
+    }
+
+    /// Whether §14.11.2.2's guidelines are being asked for; see [`Self::set_guidelines`].
+    #[must_use]
+    pub fn guidelines(&self) -> bool {
+        self.guidelines
+    }
+
     /// What a host's clock says, for Table 166's `/M` on what [`Self::save`] writes.
     ///
     /// The entry is "\[t]he date and time when the annotation was most recently modified", and

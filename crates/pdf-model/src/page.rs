@@ -482,6 +482,14 @@ pub struct Page {
     pub damaged_dictionary: Option<DictionaryDamage>,
     /// The crop box, after inheritance, defaulting to the media box.
     pub crop_box: [f32; 4],
+    /// Whether the page object, or an ancestor it inherits the entry from, states a usable
+    /// `/CropBox` — rather than [`Self::crop_box`] being the media box by default.
+    ///
+    /// Kept because §14.11.2.2's Table 396 conditions an entry on it: the `/CropBox` style
+    /// "shall be ignored if no crop box is defined in the page object", and an inherited value is
+    /// the page object's own under §7.7.3.4. The other three boxes are not inheritable, so
+    /// [`Self::defines`] reads them off [`Self::dict`]. ADR 2440.
+    pub crop_box_defined: bool,
     /// §14.11.2.1's bleed box, defaulting to the crop box. Not inheritable (§7.7.3.4).
     pub bleed_box: [f32; 4],
     /// §14.11.2.1's trim box, defaulting to the crop box. Not inheritable (§7.7.3.4).
@@ -603,6 +611,25 @@ impl Page {
             Boundary::Trim => self.trim_box,
             Boundary::Art => self.art_box,
         }
+    }
+
+    /// Whether the page object defines one of §14.11.2's boundaries, rather than taking it by
+    /// default — Table 396's condition on each of its entries ("\[t\]his entry shall be ignored if
+    /// no crop box is defined in the page object", and the same sentence for the bleed, trim and
+    /// art boxes).
+    ///
+    /// The media box is always defined: §7.7.3.3 requires it, and a page whose ancestry omits it
+    /// is drawn on [`Self::DEFAULT_MEDIA_BOX`] with a report rather than on no box. ADR 2440.
+    #[must_use]
+    pub fn defines(&self, document: &Document, boundary: Boundary) -> bool {
+        let key = match boundary {
+            Boundary::Media => return true,
+            Boundary::Crop => return self.crop_box_defined,
+            Boundary::Bleed => "BleedBox",
+            Boundary::Trim => "TrimBox",
+            Boundary::Art => "ArtBox",
+        };
+        rectangle(document, &document.get_key(&self.dict, key)).is_some()
     }
 
     /// Returns the content streams for this page, concatenated and decoded.
@@ -1809,6 +1836,7 @@ fn build_page(
         // a dictionary it read whole.
         damaged_dictionary: None,
         crop_box,
+        crop_box_defined: inherited.crop_box.is_some(),
         bleed_box,
         trim_box,
         art_box,

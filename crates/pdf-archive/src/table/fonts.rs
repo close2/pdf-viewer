@@ -155,8 +155,17 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
              sfnt, CFF and Type 1 that nothing in this tree is; `pdf-font` reads those formats \
              to draw from them and reports what it could not use, not whether the program is \
              well-formed. The dictionary's widths-array length is checked separately by \
-             fonts/widths-array-covers-character-range (doc/adr/2178)",
+             fonts/widths-array-covers-character-range (doc/adr/2178), and a Type 0 font's \
+             descendant by fonts/descendant-fonts-holds-one-cidfont (doc/adr/2433)",
         ),
+    },
+    Requirement {
+        id: "fonts/descendant-fonts-holds-one-cidfont",
+        asks: "A Type 0 font's DescendantFonts shall be a one-element array whose element is a \
+               CIDFont dictionary.",
+        clauses: Clauses::both("6.2.11.2", "6.2.10.2"),
+        applies: Applies::Always,
+        check: Check::Implemented(descendant_fonts_holds_one_cidfont),
     },
     Requirement {
         id: "fonts/widths-array-covers-character-range",
@@ -557,6 +566,68 @@ fn widths_array_covers_character_range(exam: &Examination<'_>, findings: &mut Fi
     });
 }
 
+/// Every Type 0 font a content stream uses whose `/DescendantFonts` is not the one `CIDFont`
+/// Table 119 asks for.
+///
+/// ISO 32000-2 §9.7.6.1's Table 119 makes `/DescendantFonts` required of a Type 0 font, as a
+/// "one-element array specifying the `CIDFont` dictionary that is the descendant of this Type 0
+/// font", and §9.7.4.1's Table 115 makes `/Subtype` `CIDFontType0` or `CIDFontType2` the entry
+/// that says which kind of `CIDFont` a dictionary is. ISO 19005-2 section 6.2.11.2 and ISO 19005-4
+/// section 6.2.10.2 make every font conform to those clauses, so a Type 0 font whose entry is
+/// missing, is not an array, holds other than one element, or holds an element that is not such a
+/// dictionary fails them. **Only that is judged**: the rest of the general sentence — a font
+/// program against its own format — stays `fonts/font-programs-conform-to-their-own-specifications`'
+/// gap. A `null` element, or a reference to an object the file does not define, is §7.3.10's null
+/// and is no dictionary (`doc/adr/2433`).
+///
+/// **The population is the fonts a text-showing operator ran with, in any rendering mode** —
+/// [`crate::survey::Survey::fonts`] — because both parts bind the fonts *used* in the file,
+/// whatever the mode they are shown in, rather than every font dictionary it holds; a Type 0 font
+/// only an interactive form's `/DR` names, and no content shows, is not judged here.
+fn descendant_fonts_holds_one_cidfont(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    for used in exam.survey().fonts() {
+        if subtype(document, &used.dict).as_deref() != Some("Type0") {
+            continue;
+        }
+        let fault = match document.get_key(&used.dict, "DescendantFonts") {
+            Object::Null => "a Type 0 font states no DescendantFonts".to_owned(),
+            Object::Array(items) => match items.as_slice() {
+                [only] => match document.resolve(only) {
+                    Object::Dictionary(dict) => match subtype(document, &dict).as_deref() {
+                        Some("CIDFontType0" | "CIDFontType2") => continue,
+                        Some(other) => format!(
+                            "a Type 0 font's descendant states the Subtype {other}, which is not \
+                             a CIDFont's"
+                        ),
+                        None => "a Type 0 font's descendant states no Subtype, so it is no \
+                                 CIDFont dictionary"
+                            .to_owned(),
+                    },
+                    other => format!(
+                        "a Type 0 font's DescendantFonts array holds {}, not a CIDFont dictionary",
+                        other.type_name()
+                    ),
+                },
+                items => format!(
+                    "a Type 0 font's DescendantFonts array holds {} elements, where it is a \
+                     one-element array",
+                    items.len()
+                ),
+            },
+            other => format!(
+                "a Type 0 font's DescendantFonts is {}, not an array",
+                other.type_name()
+            ),
+        };
+        let place = used.id.map_or_else(
+            || Where::page(used.page).named(used.name.clone()),
+            |id| Where::object(id).named(used.name.clone()),
+        );
+        findings.record(place, fault);
+    }
+}
+
 /// A name as a string a report can print.
 fn named(name: Option<&Name>) -> Option<String> {
     name.map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
@@ -569,8 +640,9 @@ fn subtype(document: &Document, font: &Dictionary) -> Option<String> {
 
 /// The descendant `CIDFont` of a composite font, with the object it is where it is one.
 ///
-/// ISO 32000-2 §9.7.6.2 makes `/DescendantFonts` "a one-element array", so the first element is
-/// the whole of it.
+/// ISO 32000-2 §9.7.6.1's Table 119 makes `/DescendantFonts` "a one-element array", so the first
+/// element is the whole of it; [`descendant_fonts_holds_one_cidfont`] reports a font where it is
+/// not.
 fn descendant(document: &Document, font: &Dictionary) -> Option<(Option<ObjectId>, Dictionary)> {
     let Object::Array(fonts) = document.get_key(font, "DescendantFonts") else {
         return None;
@@ -834,12 +906,7 @@ fn cid_system_info_agrees_with_the_cmap(exam: &Examination<'_>, findings: &mut F
 fn cid_to_gid_map_present(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_font(exam, |site, font| {
-        if subtype(document, font).as_deref() != Some("CIDFontType2") {
-            return;
-        }
-        if !descriptor(document, font)
-            .is_some_and(|descriptor| carries_a_program(document, &descriptor))
-        {
+        if !owes_a_cid_to_gid_map(document, font) {
             return;
         }
         match document.get_key(font, "CIDToGIDMap") {
@@ -859,6 +926,57 @@ fn cid_to_gid_map_present(exam: &Examination<'_>, findings: &mut Findings) {
             ),
         }
     });
+}
+
+/// Whether a font is the one [`cid_to_gid_map_present`] asks the entry of: a Type 2 `CIDFont`
+/// whose descriptor carries a program.
+fn owes_a_cid_to_gid_map(document: &Document, font: &Dictionary) -> bool {
+    subtype(document, font).as_deref() == Some("CIDFontType2")
+        && descriptor(document, font)
+            .is_some_and(|descriptor| carries_a_program(document, &descriptor))
+}
+
+/// Every embedded Type 2 `CIDFont` written directly inside another object and stating no
+/// `/CIDToGIDMap`, as `fonts/cid-to-gid-map-present` reports it, each with the Type 0 font
+/// object whose `/DescendantFonts` array holds it where that is where it is written.
+///
+/// The row reports such a font at no object (`doc/adr/2413`), so a converter answering it needs
+/// the place in another form. **`Some(font)` is the one place a converter can write the entry
+/// into**: the font is the element of a `/DescendantFonts` array written directly in a Type 0
+/// font that is an object of its own, which ISO 32000-2 §9.7.6.1 allows. `None` is any other
+/// holder — a Type 0 font itself written inside another object, an array that is an object of
+/// its own — which the caller refuses rather than guesses at (`doc/adr/2432`). An entry that is
+/// present and of the wrong type is not listed: the row reports it, and no write answers it.
+#[must_use]
+pub fn direct_cid_fonts_stating_no_cid_to_gid_map(
+    document: &Document,
+    target: crate::Target,
+) -> Vec<Option<ObjectId>> {
+    let exam = Examination::new(document, target);
+    let mut out = Vec::new();
+    for_each_font(&exam, |site, font| {
+        if site.own_object().is_some()
+            || !owes_a_cid_to_gid_map(document, font)
+            || !document.get_key(font, "CIDToGIDMap").is_null()
+        {
+            return;
+        }
+        let holder = site.object;
+        let in_its_type0_font = match document.get(holder) {
+            Object::Dictionary(type0) => {
+                is_a_font(document, &type0)
+                    && subtype(document, &type0).as_deref() == Some("Type0")
+                    && matches!(
+                        type0.get("DescendantFonts"),
+                        Some(Object::Array(items))
+                            if matches!(items.first(), Some(Object::Dictionary(held)) if held == font)
+                    )
+            }
+            _ => false,
+        };
+        out.push(in_its_type0_font.then_some(holder));
+    });
+    out
 }
 
 /// Whether a `CMap` name is one ISO 19005's section on `CMaps` lets a file use without embedding.
@@ -3020,9 +3138,10 @@ mod tests {
     use super::{
         Findings, actual_text_covers_private_use_characters, actual_text_states_no_private_use,
         charset_names, cid_system_info_agrees_with_the_cmap, cid_to_gid_map_present,
-        cmap_embedded_or_predefined, embedded_cmap_states_its_own_write_mode,
-        font_programs_embedded, font_programs_filed_by_their_format, glyph_procedure_width,
-        is_private_use, no_notdef_glyph_shown, non_symbolic_truetype_differences_are_listed_names,
+        cmap_embedded_or_predefined, descendant_fonts_holds_one_cidfont,
+        embedded_cmap_states_its_own_write_mode, font_programs_embedded,
+        font_programs_filed_by_their_format, glyph_procedure_width, is_private_use,
+        no_notdef_glyph_shown, non_symbolic_truetype_differences_are_listed_names,
         non_symbolic_truetype_uses_a_standard_encoding, private_use_codes,
         symbolic_truetype_states_no_encoding, table_124_rows, to_unicode_present,
         to_unicode_values_are_usable, type3_glyph_procedures_state_their_width,
@@ -3093,6 +3212,53 @@ mod tests {
             assert_eq!(
                 findings(&source, widths_array_covers_character_range).len(),
                 expected
+            );
+        }
+    }
+
+    /// Table 119's one-element array, read through §7.3.10's null: `issue12823.pdf`'s
+    /// `[ null ]` is the first case, and a direct `CIDFont` is as much the descendant as an
+    /// indirect one (`doc/adr/2433`).
+    #[test]
+    fn a_type_0_fonts_descendant_fonts_holds_exactly_one_cidfont_dictionary() {
+        let cases = [
+            ("/DescendantFonts [null]", 1),
+            ("/DescendantFonts [9 0 R]", 1),
+            ("", 1),
+            ("/DescendantFonts 6 0 R", 1),
+            ("/DescendantFonts []", 1),
+            ("/DescendantFonts [6 0 R 6 0 R]", 1),
+            ("/DescendantFonts [<< /Type /Font /BaseFont /F >>]", 1),
+            (
+                "/DescendantFonts [<< /Type /Font /Subtype /Type1 /BaseFont /F >>]",
+                1,
+            ),
+            ("/DescendantFonts [6 0 R]", 0),
+            (
+                "/DescendantFonts [<< /Type /Font /Subtype /CIDFontType0 /BaseFont /F >>]",
+                0,
+            ),
+        ];
+        let unused = page_with(
+            "BT /F1 12 Tf ET",
+            "5 0 obj\n<< /Type /Font /Subtype /Type0 /BaseFont /F /Encoding /Identity-H >>\nendobj\n",
+        );
+        assert!(
+            findings(&unused, descendant_fonts_holds_one_cidfont).is_empty(),
+            "a font no text-showing operator runs with is not a font the file uses"
+        );
+        for (entry, expected) in cases {
+            let source = page_with(
+                "BT /F1 12 Tf <0001> Tj ET",
+                &format!(
+                    "5 0 obj\n<< /Type /Font /Subtype /Type0 /BaseFont /F /Encoding /Identity-H {entry} >>\nendobj\n\
+                     6 0 obj\n<< /Type /Font /Subtype /CIDFontType2 /BaseFont /F >>\nendobj\n"
+                ),
+            );
+            assert_eq!(
+                findings(&source, descendant_fonts_holds_one_cidfont).len(),
+                expected,
+                "{entry}"
             );
         }
     }

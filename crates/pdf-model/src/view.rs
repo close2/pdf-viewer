@@ -259,6 +259,13 @@ pub struct ViewState {
     /// its tint transform are what a `Separation` or `DeviceN` colour is drawn through — the
     /// behaviour that clause states as the expected one for a screen. ADR 1228.
     separation_simulation: bool,
+    /// Whether a person has asked to see §14.11.2.2's guidelines for the page boundaries.
+    ///
+    /// `false` until a person says otherwise, under which no page carries one: the clause is a
+    /// permission — "\[i\]nteractive PDF processors may offer the ability to display guidelines on
+    /// the screen for the various page boundaries" — and what it permits is offered, not imposed.
+    /// ADR 2440.
+    guidelines: bool,
     /// Annotations a person has **added**, in the order they added them.
     ///
     /// The fifth thing in this struct that comes from outside the document, and the first that
@@ -1055,6 +1062,7 @@ impl ViewState {
             purpose: Purpose::View,
             paper: None,
             separation_simulation: false,
+            guidelines: false,
             added: Vec::new(),
             retyped: BTreeMap::new(),
             filed: Vec::new(),

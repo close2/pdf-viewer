@@ -3367,6 +3367,30 @@ fn a_composite_font_is_refused_for_its_kind_rather_than_for_a_missing_glyph_name
 /// Liberation Sans — its `A`, whose advance of 1366 units in 2048 is the 667 `/W` states. A
 /// `/ToUnicode` `CMap` names the character, so the entry under test is the one the fixture lacks.
 fn an_embedded_cid_font_stating_no_map_under(header: &'static str) -> Vec<u8> {
+    an_embedded_cid_font_stating_no_map(header, Descendant::OwnObject)
+}
+
+/// Where [`an_embedded_cid_font_stating_no_map`] writes its Type 0 font's descendant.
+#[derive(Clone, Copy)]
+enum Descendant {
+    /// Object 7, which the `/DescendantFonts` array references.
+    OwnObject,
+    /// Directly inside the array, as ISO 32000-2 §9.7.6.1 allows; object 7 is then `null`.
+    Direct,
+    /// `[null]`, as `issue12823.pdf` writes it.
+    Null,
+}
+
+/// The fixture above with its descendant written where `descendant` says.
+fn an_embedded_cid_font_stating_no_map(header: &'static str, descendant: Descendant) -> Vec<u8> {
+    let cid_font = "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /LiberationSans \
+                    /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> \
+                    /FontDescriptor 8 0 R /DW 1000 /W [36 [667]] >>";
+    let (array, object_seven) = match descendant {
+        Descendant::OwnObject => ("7 0 R".to_owned(), cid_font.to_owned()),
+        Descendant::Direct => (cid_font.to_owned(), "null".to_owned()),
+        Descendant::Null => ("null".to_owned(), "null".to_owned()),
+    };
     let cmap = "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
                 /CMapName /Test def\n/CMapType 2 def\n\
                 1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n\
@@ -3381,13 +3405,11 @@ fn an_embedded_cid_font_stating_no_map_under(header: &'static str) -> Vec<u8> {
             b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td <0024> Tj ET".to_vec(),
         )),
         objects: vec![
-            "<< /Type /Font /Subtype /Type0 /BaseFont /LiberationSans /Encoding /Identity-H \
-             /DescendantFonts [7 0 R] /ToUnicode 9 0 R >>"
-                .to_owned(),
-            "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /LiberationSans /CIDSystemInfo \
-             << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 8 0 R \
-             /DW 1000 /W [36 [667]] >>"
-                .to_owned(),
+            format!(
+                "<< /Type /Font /Subtype /Type0 /BaseFont /LiberationSans /Encoding /Identity-H \
+                 /DescendantFonts [{array}] /ToUnicode 9 0 R >>"
+            ),
+            object_seven,
             "<< /Type /FontDescriptor /FontName /LiberationSans /Flags 32 \
              /FontBBox [-543 -303 1300 980] /ItalicAngle 0 /Ascent 905 /Descent -212 \
              /CapHeight 716 /StemV 80 /FontFile2 10 0 R >>"
@@ -3456,6 +3478,107 @@ fn a_cid_to_gid_map_a_pdf_one_file_left_out_is_written_as_identity_at_part_four(
         Some(b"Identity".to_vec()),
         "the first edition's default, now stated"
     );
+}
+
+#[test]
+fn a_cid_to_gid_map_left_out_of_a_direct_descendant_is_written_into_its_type0_font() {
+    // `Test-plusminus.pdf`'s shape: the `CIDFont` is written inside the Type 0 font's
+    // `/DescendantFonts` array, which §9.7.6.1 allows, so the row reports it at no object
+    // (ADR 2413). Where it is written changes nothing about what its absent entry said, so the
+    // entry is written there, at both parts (ADR 2432).
+    let source = an_embedded_cid_font_stating_no_map("%PDF-1.6", Descendant::Direct);
+    let row = "fonts/cid-to-gid-map-present";
+    for (target, (report, output)) in [
+        (Target::Four(Flavour::Plain), to_part_four(&source)),
+        (Target::Two(Level::B), to_part_two(&source)),
+    ] {
+        let found = holds(&source, target);
+        let failed = found
+            .failures()
+            .find(|failed| failed.id == row)
+            .expect("the absent entry fails the rule before anything is converted");
+        let Outcome::Failed { places, .. } = &failed.outcome else {
+            panic!("a failure");
+        };
+        assert!(
+            places.iter().all(|finding| finding.place.object.is_none()),
+            "a direct font is reported at no object"
+        );
+        assert!(
+            matches!(
+                decision(&report, row),
+                Decision::Stated {
+                    rewrite: Rewrite::CidToGidIdentity,
+                    ..
+                }
+            ),
+            "{target:?}: {:?}",
+            decision(&report, row)
+        );
+        let output = output.expect("the document converts");
+        assert_eq!(
+            holds(&output, target).verdict(),
+            Verdict::Conforms,
+            "{target:?}"
+        );
+        let held = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+        let font = font_resource(&held);
+        let Some(pdf_syntax::Object::Array(kids)) = font.get("DescendantFonts") else {
+            panic!("the array is still written in the Type 0 font");
+        };
+        let Some(pdf_syntax::Object::Dictionary(descendant)) = kids.first() else {
+            panic!("and the descendant is still written inside it: {kids:?}");
+        };
+        assert_eq!(
+            held.get_key(descendant, "CIDToGIDMap")
+                .as_name()
+                .map(|name| name.as_bytes().to_vec()),
+            Some(b"Identity".to_vec()),
+            "{target:?}: the first edition's default, stated where the font is written"
+        );
+    }
+}
+
+#[test]
+fn a_direct_descendant_of_a_pdf_two_file_stays_refused_at_part_four() {
+    // The control for the test above: labelled 2.0, the same direct font is the file's own
+    // statement under an edition with no default, and keeps the refusal that names the label.
+    let source = an_embedded_cid_font_stating_no_map("%PDF-2.0", Descendant::Direct);
+    let (report, output) = to_part_four(&source);
+    let Decision::Refused(Because::NotBuiltYet(because)) =
+        decision(&report, "fonts/cid-to-gid-map-present")
+    else {
+        panic!("no edition supplies the mapping");
+    };
+    assert!(because.contains("labelled PDF 2.0"), "{because}");
+    assert!(output.is_none(), "and nothing is written");
+}
+
+#[test]
+fn a_type0_font_whose_descendant_is_null_is_refused_by_name() {
+    // `issue12823.pdf`'s `/DescendantFonts [ null ]`: §7.3.10's null is no `CIDFont`, so
+    // §9.7.6.1's Table 119 is failed, and the refusal says what is missing (ADR 2433).
+    let source = an_embedded_cid_font_stating_no_map("%PDF-1.7", Descendant::Null);
+    let row = "fonts/descendant-fonts-holds-one-cidfont";
+    for (target, (report, output)) in [
+        (Target::Four(Flavour::Plain), to_part_four(&source)),
+        (Target::Two(Level::B), to_part_two(&source)),
+    ] {
+        assert!(
+            holds(&source, target)
+                .failures()
+                .any(|failed| failed.id == row),
+            "{target:?}: the null descendant fails the row"
+        );
+        let Decision::Refused(Because::NotBuiltYet(because)) = decision(&report, row) else {
+            panic!("{target:?}: {:?}", decision(&report, row));
+        };
+        assert!(
+            because.contains("no CIDFont as its descendant"),
+            "{because}"
+        );
+        assert!(output.is_none(), "{target:?}: and nothing is written");
+    }
 }
 
 #[test]
@@ -4466,7 +4589,7 @@ const SRGB: &[u8] = include_bytes!("../../../data/icc/sRGB2014.icc");
 /// A fixture whose `OutputIntents` array holds a PDF/A entry and a PDF/X one, each naming its
 /// own copy of a destination profile.
 ///
-/// §14.11.5's Table 400 and Table 401 shape both entries. The profile streams are objects 8 and
+/// §14.11.5's Table 401 shapes both entries. The profile streams are objects 8 and
 /// 9, and `second` is what object 9 carries — the same bytes for the lossless case, and
 /// something else for the case that is not.
 fn two_output_intents(second: &[u8]) -> Vec<u8> {
@@ -15374,3 +15497,5 @@ mod cjk_pack;
 mod photographed;
 #[path = "archive/rekeyed.rs"]
 mod rekeyed;
+#[path = "archive/replaced_schemas.rs"]
+mod replaced_schemas;

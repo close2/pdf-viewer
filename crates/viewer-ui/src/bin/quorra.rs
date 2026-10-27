@@ -503,6 +503,7 @@ fn main() {
         drawing: None,
         printing: false,
         separations,
+        guidelines: false,
         pages: viewer_host::Miniatures::new(),
         page_count: 0,
         information: pdf_model::metadata::Information::default(),

@@ -311,3 +311,12 @@ names it lists — `layout="tb"`, a page's `w` and `h` — which the table's not
 express the form's logic. A recogniser built on presence alone would have refused every hybrid the
 corpora hold; the specification's own cut is `occur` and `subformSet` with `/NeedsRendering` false. Before a
 table of prohibitions becomes a test of presence, each row's note is read for the use it still permits.
+
+## A requirement on fonts that are used takes its population from the fonts the content uses
+
+Round 1799 (ADR 2433) gave the validator a narrow row for a Type 0 font's `/DescendantFonts` (§9.7.6.1's
+Table 119) and first checked every font dictionary in the file; the census then refused `PDFBOX-5784.pdf`,
+whose broken Type 0 font is named only in the form's `/DR` and shown by no content stream, and whose outputs
+pass veraPDF at both targets. The archive parts bind fonts that are used, in any rendering mode, so the row
+reads `Survey::fonts` rather than `for_each_font`. A new row under a clause whose subject is what is used takes
+its population from the use, and is censused before it is called narrow.

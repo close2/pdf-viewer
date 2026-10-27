@@ -376,6 +376,18 @@ pub enum Command {
     /// again, which is [`Self::Restrict`]'s rule and for [`Self::Restrict`]'s reason: it is a
     /// fact about the *reader* rather than about any one file. ADR 1228.
     Separations(bool),
+    /// Whether this reader is asking to see §14.11.2.2's guidelines for the page boundaries.
+    ///
+    /// The clause is a permission — "\[i\]nteractive PDF processors may offer the ability to
+    /// display guidelines on the screen for the various page boundaries" — and this is the
+    /// asking: a guideline is drawn over each crop, bleed, trim and art box a page defines, in
+    /// the style its `/BoxColorInfo` states or in this program's own defaults
+    /// (`pdf_model::guidelines`). **A preference and not a restriction level**, for
+    /// [`Self::Separations`]' reason, and nothing changes for a host that never sends it.
+    ///
+    /// Applies to every open document and to every one opened afterwards, until it is sent
+    /// again, which is [`Self::Separations`]' rule for its reason. ADR 2440.
+    Guidelines(bool),
     /// What this host does with a page whose whole raster would be past [`crate::MAX_PIXELS`].
     ///
     /// **A statement about the host's drawing, and the same shape as [`Self::Delegate`].**

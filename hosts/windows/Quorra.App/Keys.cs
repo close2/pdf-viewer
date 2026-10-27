@@ -27,6 +27,7 @@ internal static class Keys
     internal static uint? Of(VirtualKey key, bool shift) => key switch
     {
         VirtualKey.A => Native.QUORRA_KEY_A,
+        VirtualKey.B => Native.QUORRA_KEY_B,
         VirtualKey.C => Native.QUORRA_KEY_C,
         VirtualKey.F => Native.QUORRA_KEY_F,
         VirtualKey.H => Native.QUORRA_KEY_H,

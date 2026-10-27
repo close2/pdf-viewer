@@ -357,7 +357,8 @@ fn rewritten_sfnt(
 ///
 /// # What the file says twice
 ///
-/// §9.9 Table 126 sends a `/FontFile2` to the TrueType Reference Manual and ISO/IEC 14496-22,
+/// §9.9 Table 124 sends a `/FontFile2` to the TrueType Reference Manual and an OpenType
+/// `/FontFile3` to ISO/IEC 14496-22,
 /// and both define `loca` as holding one offset per glyph plus a terminator — so a font states
 /// that table's extent twice over: once in its directory record's `length`, and once as
 /// `numGlyphs + 1` in `maxp`. `3867363.pdf` embeds a 3254-glyph `CourierNew` subset whose

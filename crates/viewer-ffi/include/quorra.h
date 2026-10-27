@@ -344,7 +344,8 @@ extern "C" {
 #define QUORRA_KEY_DOWN       30u
 #define QUORRA_KEY_PAGE_UP    31u
 #define QUORRA_KEY_PAGE_DOWN  32u
-#define QUORRA_KEY_COUNT 33u
+#define QUORRA_KEY_B          33u
+#define QUORRA_KEY_COUNT 34u
 
 /*
  * What is left for the window once quorra_key_press has acted: NOTHING (the events are the whole
@@ -376,7 +377,8 @@ extern "C" {
 #define QUORRA_ACT_CLOSE_DOCUMENT     19u
 #define QUORRA_ACT_OPEN_DOCUMENT      20u
 #define QUORRA_ACT_SEPARATIONS        21u
-#define QUORRA_ACT_COUNT 22u
+#define QUORRA_ACT_GUIDELINES         22u
+#define QUORRA_ACT_COUNT 23u
 
 /*
  * Which platform control a §12.7 field is — `viewer_host::ControlKind`, which is one variant per

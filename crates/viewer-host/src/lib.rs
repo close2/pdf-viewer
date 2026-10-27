@@ -203,13 +203,13 @@ pub use policy::{
     SEPARATIONS, SUBMISSIONS, SUBMIT_SCHEMES, Scripts, Sending, Settings, Submissions,
     TRUST_ANCHORS, URI_HANDLER, Unpacking, answered, asked_for, asked_to_fetch, asked_to_open,
     asked_to_open_embedded, asked_to_open_remote, asked_to_run_scripts, asked_to_submit, audience,
-    embedded_declined, embedded_documents, embedded_note, fetch_note, handed_media,
-    import_is_fetched, link, links, may_choose_file, may_fetch_import, may_open_extracted,
-    may_open_uri, may_submit, may_write_extracted, offers_machine_fonts, open_chosen, open_uri,
-    opening_embedded, opens_as_document, read_import, reference_files, refused, remote,
-    remote_declined, remote_documents, remote_note, resolve_import, resolve_uri, restrictions,
-    scripting, scripts, scripts_answered, separations, separations_note, submissions, supply_note,
-    trust_anchors, unanswerable, under_remote_documents, uri_note, warned,
+    embedded_declined, embedded_documents, embedded_note, fetch_note, guidelines_note,
+    handed_media, import_is_fetched, link, links, may_choose_file, may_fetch_import,
+    may_open_extracted, may_open_uri, may_submit, may_write_extracted, offers_machine_fonts,
+    open_chosen, open_uri, opening_embedded, opens_as_document, read_import, reference_files,
+    refused, remote, remote_declined, remote_documents, remote_note, resolve_import, resolve_uri,
+    restrictions, scripting, scripts, scripts_answered, separations, separations_note, submissions,
+    supply_note, trust_anchors, unanswerable, under_remote_documents, uri_note, warned,
 };
 pub use policy::{LAUNCHED_DOCUMENTS, Launched, LaunchedDocuments};
 pub use popup::Window;

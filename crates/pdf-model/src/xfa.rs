@@ -1,13 +1,15 @@
 //! What Annex K's two entries say a document is, so that a reader can be told what is not done.
 //!
-//! This program does not implement XFA, on the permission ISO 32000-2 §K.1 grants in as many
-//! words:
+//! This program does not implement XFA's dynamic half, its schema-driven page generation, on the
+//! permission ISO 32000-2 §K.1 grants in as many words:
 //!
 //! > The implementation of such a schema driven page generation involves considerable effort
 //! > beyond that for a simple PDF viewer and therefore a PDF processor may choose to not
 //! > implement this feature.
 //!
-//! Declining is safe for the form a reader fills because §K.2 binds the writer of a hybrid file:
+//! Its static half, a form whose pages the producer wrote, is in scope (`CLAUDE.md`'s XFA entry,
+//! `doc/questions/A639`, RFC 0011), and declining the dynamic half is safe for the form a reader
+//! fills because §K.2 binds the writer of a hybrid file:
 //!
 //! > The other entries in the interactive form dictionary shall be consistent with the information
 //! > in the XFA resource.
@@ -27,7 +29,9 @@
 //! > objects.
 //!
 //! so a save that writes a `/V` reads the template and the `datasets` packet far enough to write
-//! the data value that field binds (RFC 0011 section 5's first two steps; ADR 2396).
+//! the data value that field binds: in its canonical form, written out by its `bind` picture and
+//! passed by its `validate` picture's format test (RFC 0011 section 5's steps 1 to 3 and step 4's
+//! format test; ADRs 2396, 2414, 2434).
 
 use pdf_syntax::{Document, Object, ObjectId};
 

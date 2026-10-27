@@ -43,8 +43,9 @@ print path. A new host reopens the entries it has not yet connected, even when t
 already reads them.
 
 - §12.2 — WinUI applies Table 147's chrome, fitting and centring and Table 29's full screen, and
-  the library holds a document's dialogues while presenting (ADRs 2308, 2309); all of it is
-  compiled, not run. Drive each entry on Windows; keep ADR 1145's reason for preserving the
+  the library holds a document's dialogues while presenting (ADRs 2308, 2309); CI's `window` job
+  runs the window's half under its `--probe` word (ADR 2436), and the row moves on that step's
+  first green run. Keep ADR 1145's reason for preserving the
   reader's restriction controls. The deliberate GTK/Qt menu and GTK placement departures remain
   (ADRs 1145, 1429); the row is `partial` because the Windows run is owed.
 
@@ -159,9 +160,15 @@ repository and its source** — none a candidate, and none re-read:
 
 ### 3. Hard rendering / architecture — a real build across several rounds
 
-No row is here at present. The bucket is for a genuine model or rasteriser gap that only a build
-across several rounds closes, and the last one, §10.7.4's mark for a stroke its matrix collapses,
-was built (ADR 1360). *One raster carries the product of shape and opacity where the clause wants the pair* is not
+The bucket is for a genuine model or rasteriser gap that only a build across several rounds closes;
+the last rendering one, §10.7.4's mark for a stroke its matrix collapses, was built (ADR 1360).
+
+- §K.2 — XFA's static half, at one round a batch (`doc/questions/A633`): the resource is read and a
+  save keeps the `datasets` packet consistent with every `/V` it writes, naming each field it cannot
+  (ADRs 2396, 2414); the template's calculations, validations, formatting and events are not run,
+  and every window says so. RFC 0011 section 5's steps 4 to 6 are the build, the output formatter
+  and the validate picture first (ADR 2430).
+ *One raster carries the product of shape and opacity where the clause wants the pair* is not
 among them: §11.4.6 is the one reader of the pair the standard has, every knockout element states its
 shape, and §11.3.7.3's NOTE 2 licenses the product everywhere else (§11.4.3's row, ADR 1340).
 
@@ -202,10 +209,9 @@ published pairs (`doc/questions/A308`, ADR 1916); the rows here are the cases §
 judgement does not yet reach, opened when its family was read against `pdf_model::media` (ADR 2376).
 
 - §13.2.4.3 — `pdf_model::media::judge` reads a must-honour /E past the next-level clip's end, and
-  a marker the clip lacks, as non-viable where the clause gives each "no effect on viability", and
-  so a /B at the clip's start, which the hand-off honours. The first two need the clip's duration,
-  frame count and marker table from its media container; the third needs §13.2.6.2's offset value
-  (ADR 2392). §13.2.7.2.1, §13.2.7.3, §13.2.7.4.1 and §13.2.7.4.4 were here and are `implemented`:
+  a marker the clip lacks, as non-viable where the clause gives each "no effect on viability". Both
+  need the clip's duration, frame count and marker table from its media container (ADR 2392); a /B
+  at the clip's start, read through §13.2.6.2's offset dictionary, is honoured (ADR 2431). §13.2.7.2.1, §13.2.7.3, §13.2.7.4.1 and §13.2.7.4.4 were here and are `implemented`:
   a player info dictionary's own viability is judged before an array's emptiness is read.
 
 - **Beside this bucket and not in it** — §12.5.6.23 is `departed` on two refusals with their cost
@@ -311,7 +317,7 @@ exactly the rows `Ledger::is_aggregate` names and the frontier gate fails on any
 "Aggregate of the rows below" and the reason is the owing row's. They are not independently actionable
 — do not brief a round to *take* one; they flip when the last binding row flips.
 
-§7.4, §7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4, §13.2, §13.2.4, §14.8, §14.8.5, §14.8.5.4.
+§7.4, §7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4, §13.2, §13.2.4, §14.8, §14.8.5, §14.8.5.4, §K.
 
 
 ### Not owed — a documented choice, an exclusion, a deprecation, or a standard-gap

@@ -1693,6 +1693,23 @@ pub fn separations_note(simulating: bool) -> String {
     }
 }
 
+/// What a window says when §14.11.2.2's guidelines are turned on or off.
+///
+/// One sentence in one place, for [`separations_note`]'s reason. It says what the colours mean
+/// because a person who has just seen four rectangles appear is owed which is which, and where
+/// the page states its own (ADR 2440).
+#[must_use]
+pub fn guidelines_note(shown: bool) -> String {
+    if shown {
+        "page-boundary guidelines are on: each crop, bleed, trim and art box the page defines is \
+         outlined in the style its /BoxColorInfo states, or else black, blue, green and red \
+         (ISO 32000-2 §14.11.2.2)"
+            .to_owned()
+    } else {
+        "page-boundary guidelines are off (ISO 32000-2 §14.11.2.2)".to_owned()
+    }
+}
+
 /// The values a person's command line sets, carried into a window as one thing.
 ///
 /// **One argument rather than four, and `viewer-ui`'s own `Policies` is the precedent**: these are

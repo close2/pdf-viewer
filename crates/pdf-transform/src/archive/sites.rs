@@ -660,14 +660,14 @@ fn descriptor_object(document: &Document, font: ObjectId, descendant: bool) -> O
 /// Why a `/CIDToGIDMap` is not written, and why a stated one is not replaced.
 /// Why a `CIDFont` written directly inside another object is not given the entry.
 ///
-/// `pdf_archive` reports a font with no object of its own at no object (ADR 2413), and this
-/// rewrite edits a font object; writing into the Type 0 font's `/DescendantFonts` array instead is
-/// a different edit, not built.
-const CID_TO_GID_MAP_IN_ANOTHER_OBJECT: &str = "an embedded Type 2 CIDFont here states no \
-     CIDToGIDMap and is written directly inside another object - its Type 0 font's \
-     DescendantFonts array, as ISO 32000-2 \u{a7}9.7.6.1 allows - rather than as an object of its \
-     own, and this rewrite writes the entry into a font object; editing the array that holds the \
-     font is not built";
+/// `pdf_archive` reports a font with no object of its own at no object (ADR 2413), and lists
+/// where each such font stating no entry is written; this rewrite writes into the one place that
+/// list names, the `/DescendantFonts` array of a Type 0 font object (ADR 2432).
+const CID_TO_GID_MAP_IN_ANOTHER_OBJECT: &str = "an embedded Type 2 CIDFont here is written \
+     directly inside another object rather than as an object of its own, and either it states a \
+     CIDToGIDMap that is neither a stream nor the name Identity, or what holds it is not the \
+     DescendantFonts array written in a Type 0 font that is an object of its own - the one place \
+     ISO 32000-2 \u{a7}9.7.6.1 allows that this rewrite writes the entry into";
 
 const CID_TO_GID_MAP_NOT_DERIVED: &str = "an embedded Type 2 CIDFont here states no \
      CIDToGIDMap, or states one that is neither a stream nor the name Identity, and which of \
@@ -685,6 +685,15 @@ const CID_TO_GID_MAP_NOT_DERIVED: &str = "an embedded Type 2 CIDFont here states
 /// The first version ISO 32000-2 describes; every earlier one is ISO 32000-1's (§I.2).
 const FIRST_VERSION_WITHOUT_THE_DEFAULT: Version = Version { major: 2, minor: 0 };
 
+/// The embedded Type 2 `CIDFont`s that gain `/CIDToGIDMap` `/Identity`, by where each is written.
+#[derive(Debug, Default)]
+pub(super) struct CidToGidSites {
+    /// The `CIDFont`s that are objects of their own, in the source's numbering.
+    pub(super) at: BTreeSet<ObjectId>,
+    /// The Type 0 font objects whose `/DescendantFonts` array writes the `CIDFont` directly.
+    pub(super) descendant_in: BTreeSet<ObjectId>,
+}
+
 /// Every embedded Type 2 `CIDFont` that is to be given `/CIDToGIDMap` `/Identity`.
 ///
 /// ISO 19005-2 section 6.2.11.3.2, ISO 19005-4 section 6.2.10.3.2. Only where the entry is absent
@@ -698,11 +707,17 @@ const FIRST_VERSION_WITHOUT_THE_DEFAULT: Version = Version { major: 2, minor: 0 
 /// said `Identity`; the write carries that into the edition that has no default (ADR 2246). The
 /// label is [`Document::version`]'s — the header raised by any catalog's `/Version` — and a file
 /// that states none never said which edition describes it.
+///
+/// **Where the dictionary is written does not change what its absent entry said**, so a `CIDFont`
+/// written directly in its Type 0 font's `/DescendantFonts` array, as §9.7.6.1 allows, is given
+/// the entry there under the same two conditions (ADR 2432). The row reports such a font at no
+/// object (ADR 2413); `pdf_archive` lists where each one is, and every finding at no object has to
+/// be one the list places, or the whole requirement is refused rather than half answered.
 pub(super) fn cid_to_gid_maps(
     document: &Document,
     input: &pdf_archive::Report,
     target: Target,
-) -> Result<Sites, Because> {
+) -> Result<CidToGidSites, Because> {
     let described_by_the_first_edition = match target.part() {
         Part::Two => true,
         Part::Four => document
@@ -712,9 +727,17 @@ pub(super) fn cid_to_gid_maps(
     if !described_by_the_first_edition {
         return Err(Because::NotBuiltYet(CID_TO_GID_MAP_NOT_DERIVED));
     }
-    let (named, elsewhere) = objects_named(input, &["fonts/cid-to-gid-map-present"]);
+    let (named, elsewhere) = objects_named(input, &[CID_TO_GID_MAP_PRESENT]);
+    let mut descendant_in = BTreeSet::new();
     if elsewhere {
-        return Err(Because::NotBuiltYet(CID_TO_GID_MAP_IN_ANOTHER_OBJECT));
+        let placed = pdf_archive::direct_cid_fonts_stating_no_cid_to_gid_map(document, target);
+        if placed.len() != findings_at_no_object(input, CID_TO_GID_MAP_PRESENT) {
+            return Err(Because::NotBuiltYet(CID_TO_GID_MAP_IN_ANOTHER_OBJECT));
+        }
+        for holder in placed {
+            descendant_in
+                .insert(holder.ok_or(Because::NotBuiltYet(CID_TO_GID_MAP_IN_ANOTHER_OBJECT))?);
+        }
     }
     let mut at = BTreeSet::new();
     for id in named {
@@ -726,7 +749,24 @@ pub(super) fn cid_to_gid_maps(
         }
         at.insert(id);
     }
-    Ok(Sites { at })
+    Ok(CidToGidSites { at, descendant_in })
+}
+
+/// The requirement [`cid_to_gid_maps`] answers.
+const CID_TO_GID_MAP_PRESENT: &str = "fonts/cid-to-gid-map-present";
+
+/// How many of one requirement's findings name no object.
+fn findings_at_no_object(input: &pdf_archive::Report, requirement: &str) -> usize {
+    input
+        .failures()
+        .filter(|judgement| judgement.id == requirement)
+        .filter_map(|judgement| match &judgement.outcome {
+            Outcome::Failed { places, .. } => Some(places),
+            _ => None,
+        })
+        .flatten()
+        .filter(|finding| finding.place.object.is_none())
+        .count()
 }
 
 /// Why an `/Order` array could not be completed.

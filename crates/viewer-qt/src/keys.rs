@@ -63,6 +63,8 @@ const QUESTION: u32 = 0x3f;
 const ZERO: u32 = 0x30;
 /// `Qt::Key_A`.
 const A: u32 = 0x41;
+/// `Qt::Key_B`.
+const B: u32 = 0x42;
 /// `Qt::Key_C`.
 const C: u32 = 0x43;
 /// `Qt::Key_F`.
@@ -100,6 +102,7 @@ const Z: u32 = 0x5a;
 pub(crate) fn stated(code: u32) -> Option<Stated> {
     Some(match code {
         A => Stated::A,
+        B => Stated::B,
         C => Stated::C,
         F => Stated::F,
         H => Stated::H,
@@ -166,6 +169,7 @@ mod tests {
         for key in Stated::ALL {
             let code = match key {
                 Stated::A => 0x41,
+                Stated::B => 0x42,
                 Stated::C => 0x43,
                 Stated::F => 0x46,
                 Stated::H => 0x48,
@@ -218,6 +222,6 @@ mod tests {
     /// A key this host does not bind produces nothing rather than a default one.
     #[test]
     fn an_unbound_key_is_nothing_rather_than_something() {
-        assert_eq!(stated(0x42), None);
+        assert_eq!(stated(0x47), None);
     }
 }

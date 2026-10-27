@@ -71,10 +71,11 @@ pub enum FilterRefusal {
 /// is the rest of that sentence, "to convert the information back to its original form", and
 /// the difference between those two is exactly this value. ADR 0343.
 ///
-/// **Two of the three stop short of the filter's own end-of-data and the third does not**, which
-/// is why this sentence no longer says "stopped before" as it did until ADR 0836:
-/// [`Self::CheckValue`] is a decode that reached the end and produced every byte the encoded
-/// data describes, over which the check value the stream carries disagrees.
+/// **Two of the four stop short of the filter's own end-of-data and two do not**, which is why
+/// this sentence does not say "stopped before": [`Self::CheckValue`] is a decode that reached the
+/// end and produced every byte the encoded data describes, over which the check value the stream
+/// carries disagrees (ADR 0836), and [`Self::ForeignCharacter`] is a decode that reached the end
+/// past a character its filter's alphabet does not admit (ADR 2438).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Damage {
     /// The encoded data ran out before the filter's end-of-data marker.
@@ -120,6 +121,33 @@ pub enum Damage {
     /// operators — rather than a 32-bit sum over all of it. ADR 0836; `only_the_check_value`
     /// is what tells this from a deflate stream that really broke.
     CheckValue,
+    /// The decode reached the filter's end-of-data past a character its alphabet does not admit.
+    ///
+    /// **`ASCIIHexDecode` alone reaches this, and it is the error §7.4.2 asks for**: "Any other
+    /// characters shall cause an error." The clause says what causes the error and nothing about
+    /// what a processor does once it has one — where the standard wants an error refused it says
+    /// so beside it, as §12.6.4.4's NOTE does of a cycle of target dictionaries — so the error is
+    /// carried here, to whoever consumes the bytes, and the decode goes on past the character to
+    /// the filter's end-of-data (ADR 2438).
+    ///
+    /// **What came out past the character is not certainly the producer's**, which is why this is
+    /// a damage and not a remark. A character *inserted* between two digits costs nothing: the
+    /// pairs after it are the pairs the producer wrote. A character written *in place of* a digit
+    /// leaves every pair after it a nibble out of step, and the filter cannot tell the two apart.
+    /// So a consumer whose bytes have a grammar decides, exactly as for [`Self::CheckValue`].
+    ForeignCharacter,
+}
+
+impl Damage {
+    /// Whether the decode stopped before the filter's end-of-data, so that the bytes it handed
+    /// over are a prefix of the stream rather than all of it.
+    ///
+    /// [`Self::CheckValue`] and [`Self::ForeignCharacter`] reached the end-of-data and handed
+    /// over every byte; what they report is an error over those bytes, not a missing tail.
+    #[must_use]
+    pub const fn stops_short(self) -> bool {
+        matches!(self, Self::Truncated | Self::Corrupt)
+    }
 }
 
 /// What a filter stage produced, and whether it is all of it.
@@ -472,7 +500,7 @@ pub fn decode_reported(
     match filter {
         b"FlateDecode" | b"Fl" => flate(data, limits),
         b"LZWDecode" | b"LZW" => lzw(data, early_change(parms), limits),
-        b"ASCIIHexDecode" | b"AHx" => Ok(Decoded::whole(ascii_hex(data))),
+        b"ASCIIHexDecode" | b"AHx" => Ok(ascii_hex(data)),
         b"ASCII85Decode" | b"A85" => ascii85(data, limits),
         b"RunLengthDecode" | b"RL" => run_length(data, limits),
         // Not a compression filter: it declares that the stream is encrypted, which is
@@ -922,9 +950,13 @@ fn ended_on_a_block(encoded: &[u8], zlib_header: bool) -> bool {
             // The framed decoder answered `Truncated` over these bytes, so a raw replay that
             // ends or breaks over them is two decoders disagreeing rather than an answer.
             // [`turn`] classifies a decoder's status into `Truncated` and `Corrupt` only —
-            // `CheckValue` is decided one level up, by [`only_the_check_value`] — so the third
-            // arm here is unreachable and is written out rather than caught by a wildcard.
-            Turn::Whole | Turn::Damaged(Damage::Corrupt | Damage::CheckValue) => return false,
+            // `CheckValue` is decided one level up, by [`only_the_check_value`], and
+            // `ForeignCharacter` is `ASCIIHexDecode`'s — so those two are unreachable here and
+            // are written out rather than caught by a wildcard.
+            Turn::Whole
+            | Turn::Damaged(Damage::Corrupt | Damage::CheckValue | Damage::ForeignCharacter) => {
+                return false;
+            }
             Turn::Damaged(Damage::Truncated) => break,
         }
     }
@@ -1355,6 +1387,9 @@ struct AsciiHex {
     /// §7.4.2's EOD has been read, or the input ran out; what may be left is the odd digit's
     /// zero.
     ended: bool,
+    /// A character outside the alphabet has been met, which [`ascii_hex`] makes the decode's
+    /// [`Damage::ForeignCharacter`] once it reaches the end.
+    foreign: bool,
 }
 
 /// One `ASCII85Decode` in progress, ISO 32000-2 §7.4.3. See [`ascii85`] for the clause.
@@ -1611,6 +1646,10 @@ fn decoded_extent(stage: Stage, data: &[u8], ceiling: usize) -> EncodedExtent {
             // The input ending before the marker is what [`Damage::Truncated`] is, and it is
             // the one damage a longer buffer could still answer.
             Standing::Damaged(Damage::Truncated) => return EncodedExtent::Short,
+            // The end-of-data was read past the character, so where it stands is known.
+            Standing::Damaged(Damage::ForeignCharacter) => {
+                return EncodedExtent::Ends(consumed.min(data.len()));
+            }
             Standing::Damaged(_) => return EncodedExtent::Unknown,
         }
     }
@@ -2045,14 +2084,17 @@ impl Pump {
             }
         }
 
+        let first_damage = self.first_damage();
         match self.running.last().and_then(|last| last.done) {
             Some(Ending::Ended) => {
                 self.finished = true;
-                Pumped::Ended(wrote)
+                first_damage.map_or(Pumped::Ended(wrote), |damage| {
+                    Pumped::Damaged(wrote, damage)
+                })
             }
-            Some(Ending::Damaged(damage)) => {
+            Some(Ending::Damaged(last_damage)) => {
                 self.finished = true;
-                Pumped::Damaged(wrote, damage)
+                Pumped::Damaged(wrote, first_damage.unwrap_or(last_damage))
             }
             None if progressed => Pumped::Wrote(wrote),
             // **Unreachable, and loud rather than silent because the alternative is a hang.**
@@ -2065,6 +2107,18 @@ impl Pump {
                 Pumped::Damaged(wrote, Damage::Truncated)
             }
         }
+    }
+
+    /// The damage of the earliest stage that ended with one.
+    ///
+    /// The *first* damage in a chain is the one reported, which is `Document::chain_over`'s rule
+    /// over a whole buffer: a stage that ended past an error ahead of one that ended well —
+    /// §7.4.2's, ADR 2438 — has still caused it.
+    fn first_damage(&self) -> Option<Damage> {
+        self.running.iter().find_map(|stage| match stage.done {
+            Some(Ending::Damaged(damage)) => Some(damage),
+            _ => None,
+        })
     }
 
     /// How many of the still-encoded bytes the first stage has taken, and how many there are.
@@ -2250,9 +2304,13 @@ impl AsciiHex {
                 b'0'..=b'9' => byte.saturating_sub(b'0'),
                 b'a'..=b'f' => byte.saturating_sub(b'a').saturating_add(10),
                 b'A'..=b'F' => byte.saturating_sub(b'A').saturating_add(10),
-                // [`ascii_hex`]'s deliberate departure from "[a]ny other characters shall cause
-                // an error", stated there and pinned by its own test.
-                _ => continue,
+                _ if crate::lexer::is_whitespace(byte) => continue,
+                // "Any other characters shall cause an error": [`ascii_hex`]'s reading, the
+                // error carried to the end rather than ending the decode here (ADR 2438).
+                _ => {
+                    self.foreign = true;
+                    continue;
+                }
             };
             match self.pending.take() {
                 Some(high) => {
@@ -2289,7 +2347,13 @@ impl AsciiHex {
         Turned {
             took,
             wrote,
-            state: Standing::Ended,
+            // Every byte is handed over before the error is, as [`Inflate`] hands over a stream
+            // whose check value disagrees.
+            state: if self.foreign {
+                Standing::Damaged(Damage::ForeignCharacter)
+            } else {
+                Standing::Ended
+            },
         }
     }
 }
@@ -2642,14 +2706,17 @@ fn finish(out: &[u8], damage: Option<Damage>, limits: Limits) -> Result<Decoded,
 /// > reading an odd number of hexadecimal digits, it shall behave as if a 0 (zero) followed
 /// > the last digit.
 ///
-/// Four of those five sentences are executed here. The fourth is a **deliberate departure**:
-/// a stray byte is skipped rather than made an error, because a hex stream with one bad byte
-/// in it decodes to what its producer meant everywhere except at that byte, and refusing loses
-/// the whole stream. §7.4.3's identical sentence *is* enforced, in [`ascii85`], and the
-/// difference between the two is that base-85 has no way to resynchronise: a skipped character
-/// shifts every group after it, so what would come back is not the producer's data. The ledger
-/// carries the departure as this clause's `departed` row (ADR 0036), and
-/// `ascii_hex_skips_a_character_the_clause_calls_an_error` is what pins it.
+/// All five are executed here. **The fourth causes its error without refusing the stream**: a
+/// character outside the alphabet makes the decode [`Damage::ForeignCharacter`], and the decode
+/// goes on past it to the end-of-data, because the clause states what is an error and not that an
+/// error ends the decode — so the bytes on either side reach the consumer with the error beside
+/// them, and the consumer decides by the grammar of what they are (ADR 2438). §7.4.3's identical
+/// sentence refuses the stream in [`ascii85`], and the difference is the alphabet's: base-85 has
+/// no way to resynchronise, since a skipped character shifts every group after it, while a
+/// hexadecimal character inserted between two digits shifts nothing.
+/// `ascii_hex_reports_a_character_the_clause_calls_an_error` and
+/// `ascii_hex_reports_a_digit_written_over_and_the_pairs_after_it_are_out_of_step` pin both
+/// halves.
 ///
 /// **The one filter here that takes no [`Limits`], and the reason is the clause's arithmetic
 /// rather than an omission.** One byte comes out for every two that go in, so this is a 2:1
@@ -2657,9 +2724,10 @@ fn finish(out: &[u8], damage: Option<Damage>, limits: Limits) -> Result<Decoded,
 /// `max_stream_len` where the parser reads them (`Parser::parse_stream_data`), which is what makes
 /// that bound "raw or decoded" rather than only the second. `Document::pumping` states the
 /// same ratio for the road not taken.
-fn ascii_hex(data: &[u8]) -> Arc<[u8]> {
+fn ascii_hex(data: &[u8]) -> Decoded {
     let mut out = Vec::new();
     let mut pending: Option<u8> = None;
+    let mut foreign = false;
 
     for &byte in data {
         if byte == b'>' {
@@ -2669,7 +2737,12 @@ fn ascii_hex(data: &[u8]) -> Arc<[u8]> {
             b'0'..=b'9' => byte - b'0',
             b'a'..=b'f' => byte - b'a' + 10,
             b'A'..=b'F' => byte - b'A' + 10,
-            _ => continue,
+            // §7.2.3's white space, which the clause says "shall be ignored".
+            _ if crate::lexer::is_whitespace(byte) => continue,
+            _ => {
+                foreign = true;
+                continue;
+            }
         };
         match pending.take() {
             Some(high) => out.push(high.saturating_mul(16).saturating_add(value)),
@@ -2680,7 +2753,11 @@ fn ascii_hex(data: &[u8]) -> Arc<[u8]> {
     if let Some(high) = pending {
         out.push(high.saturating_mul(16));
     }
-    Arc::from(out.as_slice())
+    if foreign {
+        Decoded::damaged(out, Damage::ForeignCharacter)
+    } else {
+        Decoded::whole(out)
+    }
 }
 
 /// Decodes `ASCII85Decode`, ISO 32000-2 §7.4.3.
@@ -2943,19 +3020,83 @@ mod tests {
         assert_eq!(&*out, &[0x4a, 0x50]);
     }
 
-    /// §7.4.2 says a stray character "shall cause an error", and this decoder recovers instead.
+    /// §7.4.2: "Any other characters shall cause an error" — and the error is carried, not a
+    /// refusal (ADR 2438).
     ///
-    /// **A deliberate departure, and until this test only prose said so** — the ledger row for
-    /// the clause and a comment in [`ascii_hex`]. A departure nothing exercises is one a later
-    /// round can undo by accident and every gate will agree with, which is the same argument
-    /// the rest of this module's tests are written from. What is pinned is the recovery: the
-    /// bytes on either side of the stray character are the producer's and are decoded, so a
-    /// hex stream with one bad byte in it loses that byte rather than the page.
+    /// The asterisk is the error and the decode says so; the bytes on either side of it are the
+    /// pairs the producer wrote, so they come back with the error beside them. Every character of
+    /// §7.2.3's Table 1 next to it is white space, which "shall be ignored" and causes nothing.
     #[test]
-    fn ascii_hex_skips_a_character_the_clause_calls_an_error() {
-        let out = decode(b"ASCIIHexDecode", b"48 65 6C*6C 6F>", None, Limits::DEFAULT)
-            .expect("the stray asterisk is skipped, not refused");
-        assert_eq!(&*out, b"Hello", "and the white space is ignored beside it");
+    fn ascii_hex_reports_a_character_the_clause_calls_an_error() {
+        let stray =
+            super::decode_reported(b"ASCIIHexDecode", b"48 65 6C*6C 6F>", None, Limits::DEFAULT)
+                .expect("an error carried, not a refusal");
+        assert_eq!(
+            &*stray.data, b"Hello",
+            "the pairs either side are the producer's"
+        );
+        assert_eq!(stray.damage, Some(super::Damage::ForeignCharacter));
+
+        let spaced = super::decode_reported(
+            b"ASCIIHexDecode",
+            b"48\t65\n6C\r6C\x0c6F\0 >",
+            None,
+            Limits::DEFAULT,
+        )
+        .expect("white space is not an error");
+        assert_eq!(&*spaced.data, b"Hello");
+        assert_eq!(
+            spaced.damage, None,
+            "Table 1's six characters cause nothing"
+        );
+    }
+
+    /// A character written *over* a digit leaves every pair after it a nibble out of step, which
+    /// is why §7.4.2's error is a [`super::Damage`] and not a remark.
+    ///
+    /// The producer wrote `48656C`, "Hel"; a `G` in place of the `5` leaves the digits `4 8 6 6 C`,
+    /// which decode to `0x48 0x66 0xC0` — the first pair the producer's, the second and third not.
+    /// The filter cannot tell this from an insertion, so the consumer decides (ADR 2438).
+    #[test]
+    fn ascii_hex_reports_a_digit_written_over_and_the_pairs_after_it_are_out_of_step() {
+        let decoded = super::decode_reported(b"ASCIIHexDecode", b"486G6C>", None, Limits::DEFAULT)
+            .expect("an error carried, not a refusal");
+        assert_eq!(&*decoded.data, &[0x48, 0x66, 0xC0]);
+        assert_eq!(decoded.damage, Some(super::Damage::ForeignCharacter));
+    }
+
+    /// Through a window §7.4.2's error arrives after every byte, and a later stage that ends well
+    /// does not hide it: the first damage in a chain is the one reported, as over a whole buffer.
+    #[test]
+    fn a_windowed_hex_stage_reports_its_error_through_a_chain_that_ends_well() {
+        for window in [1usize, 4, 4096] {
+            let mut pump = chain_pump(&[super::Stage::AsciiHex], b"48 65 6C*6C 6F>");
+            let (pumped, ended) = drain(&mut pump, window);
+            assert_eq!(pumped.as_slice(), b"Hello", "through {window} bytes");
+            assert!(
+                matches!(
+                    ended,
+                    super::Pumped::Damaged(_, super::Damage::ForeignCharacter)
+                ),
+                "through {window} bytes: {ended:?}"
+            );
+
+            // §7.4.5's run of five literal bytes and its EOD, armoured in hex with a stray
+            // character inside the armour.
+            let mut pump = chain_pump(
+                &[super::Stage::AsciiHex, super::Stage::RunLength],
+                b"0448656C*6C6F80>",
+            );
+            let (pumped, ended) = drain(&mut pump, window);
+            assert_eq!(pumped.as_slice(), b"Hello", "through {window} bytes");
+            assert!(
+                matches!(
+                    ended,
+                    super::Pumped::Damaged(_, super::Damage::ForeignCharacter)
+                ),
+                "the run-length stage ended well, and through {window} bytes: {ended:?}"
+            );
+        }
     }
 
     /// §7.4.4.2's own worked example, decoded.

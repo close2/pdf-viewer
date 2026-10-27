@@ -768,6 +768,12 @@ impl App {
                 self.dispatch(Command::Separations(self.separations));
                 println!("note: {}", viewer_host::separations_note(self.separations));
             }
+            // §14.11.2.2, for `Separations`' reason (ADR 2440).
+            viewer_host::WindowAct::Guidelines => {
+                self.guidelines = !self.guidelines;
+                self.dispatch(Command::Guidelines(self.guidelines));
+                println!("note: {}", viewer_host::guidelines_note(self.guidelines));
+            }
             viewer_host::WindowAct::FreeText => {
                 self.drawing = if self.drawing.is_some() {
                     println!("note: not drawing a free text annotation after all");
@@ -870,6 +876,7 @@ fn character(text: &str) -> Option<viewer_host::Key> {
     }
     Some(match first.to_ascii_lowercase() {
         'a' => Stated::A,
+        'b' => Stated::B,
         'c' => Stated::C,
         'f' => Stated::F,
         'h' => Stated::H,
@@ -1167,6 +1174,7 @@ mod tests {
         for stated in Stated::ALL {
             let key: Key<&str> = match stated {
                 Stated::A => Key::Character("a"),
+                Stated::B => Key::Character("b"),
                 Stated::C => Key::Character("c"),
                 Stated::F => Key::Character("f"),
                 Stated::H => Key::Character("h"),

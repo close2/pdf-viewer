@@ -639,6 +639,9 @@ pub(crate) struct App {
     /// so a toggle knows which way to go and the menu knows what to show. `--separations=` sets
     /// what it starts at (ADR 1228).
     pub(crate) separations: bool,
+    /// Whether §14.11.2.2's guidelines are on, held for `separations`' reason; off when the window
+    /// opens (ADR 2440).
+    pub(crate) guidelines: bool,
     /// §12.3.4's tab: one entry per page, with its label and its decoded thumbnail.
     ///
     /// **Empty until that tab is first shown**, which is principle 2 with a clause behind it:

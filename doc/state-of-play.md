@@ -471,13 +471,15 @@ than it shows on the screen (ADR 1227). **Before the grant, a print through §14
 says what it does not do with it**: the device the page was drawn through is named, and Table 401's
 output transformation into that device's colourants is not performed, because the page goes to the
 print system as the RGB the screen shows (ADR 1932). An XFA form is said on the document's report,
-once: this program does not implement XFA, as §K.1 permits, and what it shows instead. **A
+once, as §K.1 requires, with what of it is carried out; a form whose template generates its pages is
+not laid out, as §K.1 permits (ADR 2430). **A
 hybrid form saved here keeps its `datasets` packet consistent with the `/V` entries the save
 writes**, §K.2's first writer rule: the data value each changed field binds is spliced into the
 packet and every other byte is the producer's, and a field whose data it cannot write is reported
 by name (ADR 2396). **A numeric, date or time field's data is its canonical form**, parsed from
 what was typed by its own picture clause in the form's own locales (XFA 3.3 chapters 4, 24 and 26;
-ADR 2414).
+ADR 2414), and **written out by its `bind` picture, where its `validate` picture's format test
+passes it** — a value the test fails is reported by name (ADR 2434).
 
 **Table 22's bit 12 is a second operation beside bit 3, at four levels of its own**, because the
 cell states two consequences: bit 3 clear withholds printing, and bit 12 clear limits a print that
@@ -585,6 +587,12 @@ would not be used to produce separations", and §10.8.1 says whose choice that i
 wire, `quorra_separations` for a C caller, and `ViewState::separation_simulation` where it reaches
 the colour route. A preference rather than one of the four levels, because nothing in any file asks
 for it and there is nobody to ask on the reader's behalf (ADR 1228).
+
+**§14.11.2.2's guidelines for the page boundaries are offered on the same shape**: `b` in every
+window, `Command::Guidelines` across the confined wire, and `ViewState::guidelines` where the
+interpreter draws a stroke over each crop, bleed, trim and art box the page defines, in the style
+its `/BoxColorInfo` states or this program's own default — on the screen only, and not over a page
+composited in a blending space of its own, which is said (ADR 2440).
 
 **And under that control §10.8.3's four steps are performed, which is what §8.6.6.5's per-component
 sentence needed.** A `DeviceN` space whose `/Subtype` is `NChannel` and which names a spot colourant
@@ -1026,13 +1034,14 @@ the compositor's first configure, so page one is asked for at the scale the wind
   document's preferences (ADR 2200), Table 29's `HideWindowUI` hiding the navigation toggle and the
   status line and never the document or its outline (ADR 2201); Table 29's full screen as the
   `AppWindow`'s own presenter and Table 147's fit and centre through `quorra_window_place`, compiled
-  and not yet run (ADR 2308);
+  and given to CI's `window` job to run (ADRs 2308, 2436);
   the pictures copied only where a repaint calls them fresh (ADR 2168), Table 231's combs, the
   measured fit, §12.5.6.14's popups and §12.9's traced path drawn (ADR 2169); its C# compiled on
   Linux against the Windows App SDK's references by `tools/dotnet-check.sh` (ADR 2184), its XAML only by CI's `window` job, on
   `windows-latest`, with `viewer_ffi.dll` beside it (ADRs 2136, 2137, 2152, 2153); published
   self-contained by that job and shipped in the snapshot pre-release as
-  `quorra-winui-x64-<commit>.zip`, started once there on a document, advisory (ADR 2374).
+  `quorra-winui-x64-<commit>.zip`, started there on a document and its title read, a gate (ADRs 2374,
+  2436), and run there under its `--probe` word on Table 147's placement and full screen (ADR 2436).
   ADRs 0247, 0509.
 
 ### A password field's value on a save

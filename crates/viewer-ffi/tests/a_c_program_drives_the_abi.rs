@@ -401,7 +401,7 @@ fn what_it_printed(said: &str) {
         // header's, the acts the windows' keys come to, the markup key's sentence with nothing
         // selected, and Space on the push-button the Tab key reached — whose §12.7.6.2 submission
         // owes Table 240 bit 11, set without bit 8, as a sentence beside the request.
-        "keys 33 (header 33), acts 22 (header 22), unknown is unknown",
+        "keys 34 (header 34), acts 23 (header 23), unknown is unknown",
         "keyboard: Down scrolls 60.0, Control + F is Find, F presenting is Nothing, Control + T is \
          Nothing, Escape warned is AbortDrawing",
         "keyboard: H with nothing selected says \"select some text first",

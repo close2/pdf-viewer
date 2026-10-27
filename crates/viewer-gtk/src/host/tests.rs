@@ -45,6 +45,7 @@ fn every_key_the_table_states_has_one_in_this_toolkit() {
     for stated in Stated::ALL {
         let key = match stated {
             Stated::A => Gdk::a,
+            Stated::B => Gdk::b,
             Stated::C => Gdk::c,
             Stated::F => Gdk::f,
             Stated::H => Gdk::h,
@@ -146,7 +147,7 @@ fn a_capital_letter_is_the_same_key_as_its_lower_case() {
 #[test]
 fn an_unbound_key_is_nothing_rather_than_something() {
     assert_eq!(key_pressed(Gdk::F1), None);
-    assert_eq!(key_pressed(Gdk::b), None);
+    assert_eq!(key_pressed(Gdk::g), None);
 }
 
 /// A right-to-left paragraph's stops reach Pango from the line's start edge with each side

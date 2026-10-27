@@ -1123,6 +1123,7 @@ impl Prepared {
             prepare_schema_descriptions(
                 document,
                 catalog.as_ref(),
+                &schema_packets(document, input, SCHEMAS_REQUIREMENT),
                 plan.preservations.iter().any(|preservation| {
                     preservation.site == SCHEMAS_REQUIREMENT && preservation.discard_undeterminable
                 }),
@@ -1772,7 +1773,7 @@ pub(super) struct Owed {
     /// The font descriptors whose incomplete subset description goes, or why none do.
     pub(super) descriptor_sets: Result<DescriptorSets, Because>,
     /// The `CIDFont`s given `/CIDToGIDMap` `/Identity`, or why none are.
-    pub(super) cid_to_gid: Result<Sites, Because>,
+    pub(super) cid_to_gid: Result<sites::CidToGidSites, Because>,
     /// The font programs filed under the key and name of their format, or why none are (ADR 2307).
     pub(super) font_files: Result<super::font_files::Refiled, Because>,
     /// The packets whose header loses a deprecated attribute, or why none do.
@@ -2480,7 +2481,7 @@ pub(super) fn profile_stream(bytes: &[u8], family: DeviceFamily) -> Object {
 
 /// The output intent dictionary a conversion adds.
 ///
-/// §14.11.5's Table 400 and Table 401 decide every entry, and one of them is a choice this file
+/// §14.11.5's Table 401 decides every entry, and one of them is a choice this file
 /// records rather than derives. `OutputConditionIdentifier` is required and the table says that
 /// "\[i]f the intended production condition is not a recognised standard, the value of this entry
 /// may be `Custom` or an application-specific, machine-readable name" — so `Custom` is the
@@ -3237,7 +3238,7 @@ fn prepare_properties(
 }
 
 /// The requirement the container answers.
-const SCHEMAS_REQUIREMENT: &str = "metadata/extension-schemas-embedded";
+pub(super) const SCHEMAS_REQUIREMENT: &str = "metadata/extension-schemas-embedded";
 
 /// The packets that gain a container describing the extension schemas they use.
 #[derive(Debug, Default)]
@@ -3249,6 +3250,10 @@ pub(super) struct SchemasDescribed {
     /// Every property `undeterminable = "discard"` took out of a packet, which the report names
     /// as it names every other property a conversion removes (`doc/adr/1991`).
     pub(super) cut: Vec<MisusedProperty>,
+    /// Every metadata stream the requirement failed at whose packet section 6.6.2.1's replacement
+    /// composes afresh, stating no schema at all: there the replacement is what meets the
+    /// requirement, and nothing is described (`doc/adr/2442`).
+    pub(super) replaced: Vec<ObjectId>,
 }
 
 /// One extension schema this conversion described, as the report names it.
@@ -3353,20 +3358,22 @@ const SCHEMA_STILL_UNDESCRIBED: &str = "an extension schema this conversion desc
 fn prepare_schema_descriptions(
     document: &Document,
     catalog: Option<&Dictionary>,
+    failing: &[ObjectId],
     discard_undeterminable: bool,
     edited: Edited<'_>,
 ) -> Result<SchemasDescribed, Because> {
-    let catalog_packet = catalog
-        .and_then(|catalog| catalog.get("Metadata"))
-        .and_then(Object::as_reference)
-        .and_then(|at| match document.get(at) {
-            Object::Stream(stream) => edited
-                .packet(at)
-                .or_else(|| document.decoded_stream_data(&stream).map(|it| it.to_vec())),
-            _ => None,
-        });
+    let catalog_packet = document_packet(document, catalog, edited);
     let mut out = SchemasDescribed::default();
     for at in pdf_archive::metadata_streams(document) {
+        // A stream the fresh packet replaces carries no schema of the producer's, so nothing in it
+        // is described; where the requirement failed there, the replacement meets it, and the
+        // decision is the replacement's own (`doc/adr/2442`).
+        if edited.fresh.is_some_and(|fresh| fresh.packet(at).is_some()) {
+            if failing.contains(&at) {
+                out.replaced.push(at);
+            }
+            continue;
+        }
         let Object::Stream(stream) = document.get(at) else {
             return Err(Because::NotBuiltYet(NOT_A_PACKET));
         };
@@ -3455,7 +3462,7 @@ fn prepare_schema_descriptions(
         out.packets.insert(at, written);
         out.described.extend(rows);
     }
-    if out.packets.is_empty() {
+    if out.packets.is_empty() && out.replaced.is_empty() {
         return Err(Because::NotBuiltYet(NOT_ASKED_FOR));
     }
     Ok(out)
@@ -3787,7 +3794,7 @@ fn cut_the_undeterminable(
 /// alone; its identifier from [`pdf_archive::PacketFault::requirement`] is absent from a part 4
 /// target's failed requirements because the rule does not bind there, and
 /// [`prepare_fresh_packets`] tests that set before replacing a packet for this fault.
-const PACKET_REQUIREMENTS: [&str; 3] = [
+pub(super) const PACKET_REQUIREMENTS: [&str; 3] = [
     "metadata/xmp-packets-well-formed",
     "metadata/xmp-packets-state-one-rdf-element",
     "metadata/xmp-packets-meet-the-xmp-data-model",

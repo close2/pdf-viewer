@@ -2926,6 +2926,13 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "fonts/embedded-programs-define-every-glyph-shown",
         Because::TheFence(THE_GLYPH_IS_NOT_IN_THE_PROGRAM),
     ),
+    // ISO 19005-2 section 6.2.11.2 and ISO 19005-4 section 6.2.10.2 through §9.7.6.1's Table 119:
+    // a font a text-showing operator runs with that has no `CIDFont` states nothing a rewrite
+    // could restate, and building one is a substitution nothing here performs (ADR 2433).
+    (
+        "fonts/descendant-fonts-holds-one-cidfont",
+        Because::NotBuiltYet(NO_CIDFONT_TO_DESCEND_TO),
+    ),
     // ISO 19005-2 section 6.7.3.4 needs a judgement about what a producer's own structure type
     // *meant*, which `doc/pdf-a-conversion-limits.md` section 5.1 calls an **Ask**: the
     // operator's `role-map` answers it in advance (`doc/adr/1990` section 6).
@@ -3163,6 +3170,21 @@ pub(super) const CONTAINER_DESCRIBES_SHAPE: &str = "an extension schema this fil
      this conversion put in them is one fixed sentence saying so. The archive therefore carries \
      a description of the shape of the producer's metadata and no statement of what it means; \
      the report names every schema described";
+
+/// Why a Type 0 font that has no `CIDFont` is refused.
+///
+/// ISO 32000-2 §9.7.6.1's Table 119 makes `/DescendantFonts` the one-element array naming the
+/// `CIDFont`, and §9.7.4.1 makes the `CIDFont` what carries the glyph selection, the widths and the
+/// character collection. With none there is no statement for a rewrite to restate, only a
+/// dictionary to build, which is `doc/pdf-a-conversion-limits.md` section 4.9's substitution
+/// carried out for a font with nothing to substitute into (ADR 2433).
+const NO_CIDFONT_TO_DESCEND_TO: &str = "a Type 0 font here has no CIDFont as its descendant - its \
+     DescendantFonts is missing, is not the one-element array ISO 32000-2 \u{a7}9.7.6.1's Table \
+     119 requires, or holds something other than a CIDFont dictionary, a null among them - so the \
+     file states no glyph selection, widths or character collection for any code the font shows. \
+     Building a CIDFont for it would be doc/pdf-a-conversion-limits.md section 4.9's substitution \
+     carried out for a font that has no CIDFont dictionary to substitute into, and that is not \
+     built";
 
 /// Why a page that draws a glyph its own embedded program has not got is refused.
 ///

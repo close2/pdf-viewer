@@ -129,6 +129,9 @@ pub(super) mod command_kind {
     // What a draw of a page declined. It crosses because the window draws a page whose marks
     // crossed, and the confined worker holds the viewer that tells the page of it (ADR 2290).
     pub(in crate::protocol) const DECLINED: u8 = 44;
+    // §14.11.2.2's guidelines, asked for by the reader. It crosses for `SEPARATIONS`' reason: the
+    // confined worker interprets the pages a guideline is drawn over (ADR 2440).
+    pub(in crate::protocol) const GUIDELINES: u8 = 45;
 }
 
 /// How [`Command::Open`]'s document is held, on the wire.
@@ -413,6 +416,9 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
         },
         Command::Separations(simulate) => {
             writer.u8(k::SEPARATIONS).bool(*simulate);
+        }
+        Command::Guidelines(shown) => {
+            writer.u8(k::GUIDELINES).bool(*shown);
         }
         // Table 29's arrangement crosses for the reason every other policy value does: the
         // confined process is the one that decides which pages to interpret and where each of
@@ -814,6 +820,7 @@ pub(crate) fn decode_command_holding(
             }))
         }
         k::SEPARATIONS => Command::Separations(reader.bool("whether separations are simulated")?),
+        k::GUIDELINES => Command::Guidelines(reader.bool("whether guidelines are shown")?),
         k::BESIDE => Command::Beside(match reader.u8("a reserved name")? {
             0 => None,
             1 => Some(reader.document(what)?),

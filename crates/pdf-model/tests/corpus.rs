@@ -717,6 +717,18 @@ fn whose_defect(report: &Unsupported) -> Option<(Whose, &'static str)> {
             Whose::NeitherOne,
             "a visibility expression nested past this program's bound",
         ),
+        // Raised only while a person has asked for §14.11.2.2's guidelines, which no corpus walk
+        // does: a `/BoxColorInfo` value Table 397 does not admit is the file's, and a page whose
+        // compositing route carries no guideline is this reader's (ADR 2440).
+        Unsupported::Guidelines { detail } if detail.starts_with("/BoxColorInfo") => (
+            Whose::TheFile,
+            "a page-boundary guideline style Table 397 does not admit (§14.11.2.2)",
+        ),
+        Unsupported::Guidelines { .. } => (
+            Whose::ThisReader,
+            "page-boundary guidelines not drawn over a page composited in its own space \
+             (§14.11.2.2)",
+        ),
         Unsupported::MediaBox { .. } => (
             Whose::TheFile,
             "no usable /MediaBox anywhere in the page's ancestry (§7.7.3.4)",

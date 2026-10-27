@@ -561,3 +561,12 @@ before ADR 2376's merge, unpacked with `git archive 298e1852^`: it reproduced AD
 rows, 31 cited) and listed all three, each by a table term reaching one file. A sweep whose calibration rows
 an earlier round has since moved is calibrated on that round's parent tree, where the rows still sit under
 the swept statuses, and the figures it reproduces there are the earlier ADR's own.
+
+## A departure that refuses to lose something is re-read when the tree learns to carry an error
+
+Round 1802 (ADR 2438) ended §7.4.2's departure: ADR 0036 had skipped a character ASCIIHexDecode does not
+admit, without a word, because refusing the stream would lose all of it — a reason that read "shall cause an
+error" as "shall refuse". The tree had since gained decodes that carry an error beside their bytes (ADR 0343,
+ADR 0836's `CheckValue`), and the reason had expired unannounced. A departure whose reason is "refusing would
+lose X" is re-read against whether the tree can now report the error and keep X, each time a decode or a
+consumer gains a way to carry damage.

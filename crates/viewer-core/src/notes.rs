@@ -268,9 +268,15 @@ pub(crate) fn what_a_print_does_not_do(document: &Document) -> Vec<String> {
     )]
 }
 
-/// Annex K's form, declined on its own permission and said to be declined, once per document.
+/// Annex K's form, said to be one once per document, with what of it is carried out.
 ///
-/// §K.1, the permission this program takes (`CLAUDE.md`'s XFA exclusion):
+/// §K.1's requirement on a processor that supports XFA forms, which this program does for a static
+/// form's data (`CLAUDE.md`'s XFA entry, ADR 2430):
+///
+/// > If an interactive processor supports XFA forms, that processor shall clearly indicate to the
+/// > user when they are interacting with an XFA form that they are interacting with an XFA form.
+///
+/// And the permission it takes for a form whose template generates its pages:
 ///
 /// > The implementation of such a schema driven page generation involves considerable effort
 /// > beyond that for a simple PDF viewer and therefore a PDF processor may choose to not
@@ -285,18 +291,21 @@ pub(crate) fn what_a_print_does_not_do(document: &Document) -> Vec<String> {
 /// resource". Both conditions are the annex's own entries — Table 224's `/XFA` in either of
 /// §K.2's two forms, and Table 29's `/NeedsRendering` stated `true` — and
 /// [`pdf_model::xfa::stated`] reads them without decoding a packet (RFC 0009 §4.4, ADR 1932).
+/// A save keeps a static form's data consistent with what was filled, by §K.2's writer rule, and
+/// names each field it cannot keep where it saves (ADRs 2396, 2414).
 fn xfa_form(document: &Document, notes: &mut Vec<String>) {
     let Some(stated) = pdf_model::xfa::stated(document) else {
         return;
     };
-    let declined = "this program does not implement XFA, which §K.1 permits a processor to choose";
+    let declined = "this program does not generate a form's pages from its XFA template, which \
+                    §K.1 permits a processor to choose";
     notes.push(match (stated.resource, stated.needs_rendering) {
-        (true, false) => format!(
-            "this document carries an XFA form (Annex K); {declined}, so the form shown and \
-             filled here is its AcroForm, which §K.2 requires to be consistent with the XFA \
-             resource — what only the XFA resource states, such as its own calculations, \
-             validations and formatting, is not carried out"
-        ),
+        (true, false) => "this document carries an XFA form (Annex K); the form shown and filled \
+                          here is its AcroForm, which §K.2 requires to be consistent with the XFA \
+                          resource, and saving it keeps the form's XFA data consistent with what \
+                          was filled, naming any field it cannot — what only the XFA resource states, such as its own \
+                          calculations, validations and formatting, is not carried out"
+            .to_owned(),
         (true, true) => format!(
             "this document is an XFA form that asks to be regenerated when it is opened \
              (Table 29's /NeedsRendering, Annex K); {declined}, so the pages shown are the ones \
@@ -3509,14 +3518,17 @@ mod tests {
         assert_eq!(kinds(signed_under_a_policy(None)), ["reported"]);
     }
 
-    /// Annex K's form is declined out loud, once per kind, on the annex's own two entries.
+    /// Annex K's form is said to be one, once per kind, on the annex's own two entries.
     ///
-    /// §K.1's permission — "a PDF processor may choose to not implement this feature" — is taken,
-    /// and the sentence says so and says what is done instead. The three kinds are the two
-    /// entries' combinations a document can state; **the control is the same form without
-    /// `/XFA`**, which is an `AcroForm` and owes nothing (trap 11). ADR 1932.
+    /// §K.1: a processor that supports XFA forms "shall clearly indicate to the user when they are
+    /// interacting with an XFA form that they are interacting with an XFA form". A hybrid form's
+    /// sentence says what is carried out, and §K.1's permission — "a PDF processor may choose to
+    /// not implement this feature" — is said to be taken where the form's template would generate
+    /// its pages. The three kinds are the two entries' combinations a document can state; **the
+    /// control is the same form without `/XFA`**, which is an `AcroForm` and owes nothing (trap
+    /// 11). ADRs 1932, 2430.
     #[test]
-    fn an_xfa_form_is_said_to_be_declined_and_its_acroform_named() {
+    fn an_xfa_form_is_said_to_be_one_and_what_of_it_is_carried_out() {
         let said = |catalog: &str| {
             about(
                 &document(&[
@@ -3533,8 +3545,9 @@ mod tests {
             said("<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [] /XFA 3 0 R >> >>");
         assert!(
             hybrid.contains("carries an XFA form (Annex K)")
-                && hybrid.contains("§K.1")
-                && hybrid.contains("its AcroForm"),
+                && hybrid.contains("its AcroForm")
+                && hybrid.contains("keeps the form's XFA data consistent")
+                && !hybrid.contains("§K.1"),
             "{hybrid}"
         );
         let dynamic = said(
@@ -3543,6 +3556,7 @@ mod tests {
         );
         assert!(
             dynamic.contains("asks to be regenerated when it is opened")
+                && dynamic.contains("§K.1 permits")
                 && dynamic.contains("often only a notice"),
             "{dynamic}"
         );

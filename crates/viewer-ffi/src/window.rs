@@ -124,6 +124,11 @@ pub struct Window {
     refused: std::sync::mpsc::Receiver<String>,
     /// What Control and the wheel have travelled and not yet spent on a step (ADR 2152).
     zoom_wheel: viewer_host::ZoomWheel,
+    /// While set, the window takes in nothing its threads have finished, so a turn's read stays out
+    /// however soon it ends: a test holds the read open here, at something it owns, rather than
+    /// racing it (ADR 2437).
+    #[cfg(test)]
+    holding: bool,
 }
 
 impl Window {
@@ -174,6 +179,8 @@ impl Window {
             printing: None,
             zoom_wheel: viewer_host::ZoomWheel::default(),
             refused,
+            #[cfg(test)]
+            holding: false,
         })
     }
 
@@ -244,7 +251,12 @@ impl Window {
             self.dispatch(Command::Find(viewer_core::Find::Continue));
         }
         let mut queue = VecDeque::new();
+        #[cfg(not(test))]
         self.take_the_drawn(&mut queue);
+        #[cfg(test)]
+        if !self.holding {
+            self.take_the_drawn(&mut queue);
+        }
         if queue.is_empty() {
             if self.state.drawing.glimpsed() {
                 self.repaint();
@@ -778,6 +790,11 @@ impl Window {
                 self.dispatch(Command::Separations(self.state.separations));
                 self.say(&viewer_host::separations_note(self.state.separations));
             }
+            WindowAct::Guidelines => {
+                self.state.guidelines = !self.state.guidelines;
+                self.dispatch(Command::Guidelines(self.state.guidelines));
+                self.say(&viewer_host::guidelines_note(self.state.guidelines));
+            }
             WindowAct::NextLayout => {
                 self.state.showing.layout =
                     viewer_host::arrangement::next_layout(self.state.showing.layout);
@@ -1165,7 +1182,12 @@ impl NativeWindow for Window {
             }
             self.ask_for_windows();
             self.take_the_thread_back();
+            #[cfg(not(test))]
             self.take_the_drawn(&mut queue);
+            #[cfg(test)]
+            if !self.holding {
+                self.take_the_drawn(&mut queue);
+            }
             if queue.is_empty() && std::mem::take(&mut self.state.showing.catalog_due) {
                 self.obey_the_catalog(&mut queue, true);
                 self.state.pump.owe_synchronizing();

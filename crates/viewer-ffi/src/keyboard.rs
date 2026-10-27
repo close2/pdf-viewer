@@ -101,6 +101,9 @@ pub enum KeyKind {
     PageUp = 31,
     /// Page Down.
     PageDown = 32,
+    /// The letter `b`. Numbered after the rest rather than in its alphabetical place, so that no
+    /// number a caller already passes changes its meaning (ADR 2440).
+    B = 33,
 }
 
 impl KeyKind {
@@ -110,7 +113,7 @@ impl KeyKind {
     /// the caller passes, and one this build does not define is refused by name. What the count is
     /// for is the other direction — a caller held to translating every key the library binds, as
     /// each window is held to [`Key::ALL`].
-    pub const COUNT: u32 = 33;
+    pub const COUNT: u32 = 34;
 
     /// The number `viewer-host`'s key has here. Exhaustive with no catch-all arm.
     #[must_use]
@@ -149,6 +152,7 @@ impl KeyKind {
             Key::Down => Self::Down,
             Key::PageUp => Self::PageUp,
             Key::PageDown => Self::PageDown,
+            Key::B => Self::B,
         }
     }
 
@@ -189,6 +193,7 @@ impl KeyKind {
             30 => Self::Down,
             31 => Self::PageUp,
             32 => Self::PageDown,
+            33 => Self::B,
             _ => return None,
         })
     }
@@ -230,6 +235,7 @@ impl KeyKind {
             Self::Down => Key::Down,
             Self::PageUp => Key::PageUp,
             Self::PageDown => Key::PageDown,
+            Self::B => Key::B,
         }
     }
 }
@@ -287,12 +293,14 @@ pub enum ActKind {
     OpenDocument = 20,
     /// Turn §10.8.3's separation simulation on, or off again.
     Separations = 21,
+    /// Show §14.11.2.2's guidelines for the page boundaries, or stop showing them.
+    Guidelines = 22,
 }
 
 impl ActKind {
     /// How many acts this build answers with: `QUORRA_ACT_COUNT`. Not part of `quorra_abi_check`,
     /// for [`KeyKind::COUNT`]'s reason; `quorra_act_name` names one a caller has no arm for.
-    pub const COUNT: u32 = 22;
+    pub const COUNT: u32 = 23;
 
     /// The act a window act is, and the distance [`WindowAct::ScrollBy`] carries (zero for every
     /// other). Exhaustive with no catch-all arm.
@@ -319,6 +327,7 @@ impl ActKind {
             WindowAct::CloseDocument => Self::CloseDocument,
             WindowAct::OpenDocument => Self::OpenDocument,
             WindowAct::Separations => Self::Separations,
+            WindowAct::Guidelines => Self::Guidelines,
         };
         (kind, 0.0)
     }
@@ -349,6 +358,7 @@ impl ActKind {
             19 => Self::CloseDocument,
             20 => Self::OpenDocument,
             21 => Self::Separations,
+            22 => Self::Guidelines,
             _ => return None,
         })
     }
@@ -379,6 +389,7 @@ impl ActKind {
             Self::CloseDocument => "CloseDocument\0",
             Self::OpenDocument => "OpenDocument\0",
             Self::Separations => "Separations\0",
+            Self::Guidelines => "Guidelines\0",
         }
     }
 

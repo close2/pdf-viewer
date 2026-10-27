@@ -85,8 +85,21 @@ pub(crate) struct Pictures {
     pub(crate) edit: Option<String>,
     pub(crate) bind: Option<String>,
     pub(crate) validate: Option<String>,
-    /// Whether its `validate` states `formatTest="disabled"` (page 385).
-    pub(crate) format_test_disabled: bool,
+    /// Its `validate`'s `formatTest` (page 880).
+    pub(crate) format_test: FormatTest,
+}
+
+/// A `validate` element's `formatTest` (XFA 3.3 page 880, the levels of pages 384–385).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum FormatTest {
+    /// A value the picture cannot format is warned about, and the person may override it: page
+    /// 880's default.
+    #[default]
+    Warning,
+    /// No format test.
+    Disabled,
+    /// A value the picture cannot format is refused.
+    Error,
 }
 
 /// One container of the template.
@@ -485,8 +498,12 @@ fn read_properties(container: &mut Container, tree: &Tree, element: &Element) {
             }
             "validate" => {
                 container.pictures.validate = picture(tree, child);
-                container.pictures.format_test_disabled =
-                    property.attribute("formatTest") == Some("disabled");
+                container.pictures.format_test = match property.attribute("formatTest") {
+                    Some("disabled") => FormatTest::Disabled,
+                    Some("error") => FormatTest::Error,
+                    // Page 880's default, which a value it does not list falls back to as well.
+                    _ => FormatTest::Warning,
+                };
             }
             "occur" => {
                 let bound = |name: &str, default: i64| {

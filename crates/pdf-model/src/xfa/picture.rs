@@ -1,5 +1,6 @@
 //! XFA 3.3's picture clauses, read for input parsing: a value a person typed, taken apart by the
-//! field's picture and written in [`super::canonical`]'s form.
+//! field's picture and written in [`super::canonical`]'s form. The same reading serves output
+//! formatting, the inverse, which [`format()`] writes (ADR 2434).
 //!
 //! Chapter 26, *Picture Clause Specification* (pages 1150–1186), is the grammar: alternates
 //! separated by `|` (page 1159), each a run of literals and of `category(locale){symbols}`
@@ -22,6 +23,8 @@ use std::collections::HashSet;
 
 use super::canonical::{self, Date, Time};
 use super::locale::{LocaleSet, Names, Patterns};
+
+mod format;
 
 /// A picture clause's category (page 1157's keywords).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,12 +71,52 @@ pub(crate) fn canonicalize(
         ));
     }
     for alternative in split_unquoted(picture, '|') {
-        let clauses = clauses(alternative.trim(), hint, locale, locales)?;
+        let clauses = clauses(alternative.trim(), hint, locale, locales, Purpose::Parse)?;
         if let Some(canonical) = parse_clauses(&clauses, input) {
             return Ok(Some(canonical));
         }
     }
     Ok(None)
+}
+
+/// Formats the canonical `value` under `picture` in the prevailing `locale`: the output of the
+/// first alternative that can write it (page 1159 tries them in order, as EXAMPLE 26.12 does for
+/// output), `Ok(None)` where none can.
+///
+/// # Errors
+///
+/// A sentence saying which part of the picture this module does not read, or why XFA 3.3 leaves
+/// the picture's output undefined.
+pub(crate) fn format(
+    picture: &str,
+    hint: Hint,
+    locale: &str,
+    locales: &LocaleSet,
+    value: &str,
+) -> Result<Option<String>, String> {
+    if picture.len() > MAX_PICTURE {
+        return Err(format!(
+            "its picture clause is {} bytes, past this reader's {MAX_PICTURE}",
+            picture.len()
+        ));
+    }
+    for alternative in split_unquoted(picture, '|') {
+        let clauses = clauses(alternative.trim(), hint, locale, locales, Purpose::Format)?;
+        if let Some(formatted) = format::pieces(&clauses, value) {
+            return Ok(Some(formatted));
+        }
+    }
+    Ok(None)
+}
+
+/// What a picture is read for. Chapter 26 holds a picture read for parsing to stricter rules
+/// than one read for formatting (page 1170): a repeated kind of date symbol (page 1171) and an
+/// hour of the meridiem without its meridiem (page 1175) are refused for parsing only, and an
+/// `8` left of the radix, whose meaning page 1181 leaves undefined, is refused for formatting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Purpose {
+    Parse,
+    Format,
 }
 
 /// One piece of an alternative: a clause of one category in one locale, or literal text between
@@ -177,9 +220,16 @@ fn clauses(
     hint: Hint,
     locale: &str,
     locales: &LocaleSet,
+    purpose: Purpose,
 ) -> Result<Vec<Piece>, String> {
     if !has_opener(alternative) {
-        return Ok(vec![clause(alternative, None, hint, locale, locales)?]);
+        return Ok(vec![clause(
+            alternative,
+            None,
+            (hint, purpose),
+            locale,
+            locales,
+        )?]);
     }
     let mut pieces = Vec::new();
     let mut literal = String::new();
@@ -214,7 +264,13 @@ fn clauses(
                 Some(sub) => predefined(category, sub, clause_locale, locales)?,
                 None => rest[used..used + close].to_owned(),
             };
-            pieces.push(clause(&body, category, hint, clause_locale, locales)?);
+            pieces.push(clause(
+                &body,
+                category,
+                (hint, purpose),
+                clause_locale,
+                locales,
+            )?);
             rest = &rest[used + close + 1..];
             continue;
         }
@@ -318,12 +374,18 @@ enum Token {
     Digits(Field, usize, usize, (u16, u16)),
     /// A name from a locale list, its index into `field` (offset by `base`).
     Name(Field, Vec<String>, u16),
-    /// A numeric digit: `9` required; `z` and `8` optional; `Z` a digit or a space.
-    NumDigit { required: bool, space: bool },
+    /// A numeric digit: `9` required; `z` and `8` optional; `Z` a digit or a space; `8` right
+    /// of the radix writes every fraction digit the value states (page 1180).
+    NumDigit {
+        required: bool,
+        space: bool,
+        expands: bool,
+    },
     /// The grouping separator, optional until a digit has been read.
     Grouping(String),
-    /// The radix: the locale's for `.`; implied as well for `V` and `v` (page 1178).
-    Radix(String, bool),
+    /// The radix: the locale's for `.`; implied as well for `V` and `v` when parsing, and for
+    /// `v` alone when formatting (page 1178).
+    Radix(String, bool, bool),
     /// `S` and `s`: a minus or a plus, `S` a space as well, either nothing (page 1182's `S9999`).
     Sign(String, bool),
     /// `CR`, `DB` (or spaces) and `cr`, `db` (or nothing): the text that marks a negative.
@@ -379,14 +441,14 @@ impl Field {
 fn clause(
     body: &str,
     category: Option<Category>,
-    hint: Hint,
+    (hint, purpose): (Hint, Purpose),
     locale: &str,
     locales: &LocaleSet,
 ) -> Result<Piece, String> {
     if let Some(category) = category {
         return Ok(Piece::Clause(
             category,
-            tokens(body, category, locale, locales)?,
+            tokens(body, category, purpose, locale, locales)?,
         ));
     }
     let mut readings = Vec::new();
@@ -397,7 +459,7 @@ fn clause(
         Category::Num,
         Category::Text,
     ] {
-        match tokens(body, category, locale, locales) {
+        match tokens(body, category, purpose, locale, locales) {
             Ok(tokens) if tokens.iter().any(is_symbol) => readings.push((category, tokens)),
             Ok(_) => {}
             Err(error) => errors.push((category, error)),
@@ -441,7 +503,7 @@ const fn is_symbol(token: &Token) -> bool {
 fn separator(c: char, category: Category) -> bool {
     match c {
         '-' | ':' | '/' | ' ' => true,
-        ',' | '.' => category != Category::Num,
+        ',' | '.' => !matches!(category, Category::Num | Category::Null | Category::Zero),
         _ => false,
     }
 }
@@ -454,6 +516,7 @@ fn separator(c: char, category: Category) -> bool {
 fn tokens(
     body: &str,
     category: Category,
+    purpose: Purpose,
     locale: &str,
     locales: &LocaleSet,
 ) -> Result<Vec<Token>, String> {
@@ -480,6 +543,7 @@ fn tokens(
                 used = length;
                 if let Token::Digits(field, ..) | Token::Name(field, ..) = &token
                     && !seen.insert(field.kind())
+                    && purpose == Purpose::Parse
                 {
                     return Err(format!(
                         "its picture clause states the same kind of date or time symbol twice, \
@@ -492,7 +556,7 @@ fn tokens(
         out.push(token);
         at += used;
     }
-    if category == Category::Time {
+    if category == Category::Time && purpose == Purpose::Parse {
         let meridiem = seen.contains(&Field::Meridiem.kind());
         let twelve = out
             .iter()
@@ -501,6 +565,22 @@ fn tokens(
             return Err(
                 "its time picture states an hour of the meridiem without the meridiem, which \
                  XFA 3.3 page 1175 makes invalid for parsing"
+                    .to_owned(),
+            );
+        }
+    }
+    if purpose == Purpose::Format {
+        let radix = out
+            .iter()
+            .position(|t| matches!(t, Token::Radix(..)))
+            .unwrap_or(out.len());
+        if out[..radix]
+            .iter()
+            .any(|t| matches!(t, Token::NumDigit { expands: true, .. }))
+        {
+            return Err(
+                "its numeric picture puts an 8 left of the radix, whose meaning XFA 3.3 page 1181 \
+                 leaves undefined"
                     .to_owned(),
             );
         }
@@ -581,7 +661,11 @@ fn symbol(
         (Category::Time, 'S', 2) => digits(Field::Second, 2, 2, (0, 59)),
         (Category::Time, 'F', 3) => digits(Field::Millisecond, 3, 3, (0, 999)),
         (Category::Time, 'A', 1) => names(Field::Meridiem, Names::Meridiems, 0),
-        (Category::Num, _, _) => num_symbol(chars, locale, locales),
+        // Page 1184: a null or a zero clause "may use any of the symbols defined for numeric
+        // picture clauses".
+        (Category::Num | Category::Null | Category::Zero, _, _) => {
+            num_symbol(chars, locale, locales)
+        }
         (Category::Text, 'A', _) => Ok((Token::Character(char::is_alphabetic), 1)),
         (Category::Text, 'X', _) => Ok((Token::Character(|_| true), 1)),
         (Category::Text, 'O' | '0', _) => Ok((Token::Character(char::is_alphanumeric), 1)),
@@ -600,6 +684,7 @@ fn num_symbol(chars: &[char], locale: &str, locales: &LocaleSet) -> Result<(Toke
             Token::NumDigit {
                 required: true,
                 space: false,
+                expands: false,
             },
             1,
         ),
@@ -607,6 +692,7 @@ fn num_symbol(chars: &[char], locale: &str, locales: &LocaleSet) -> Result<(Toke
             Token::NumDigit {
                 required: false,
                 space: false,
+                expands: c == '8',
             },
             1,
         ),
@@ -614,12 +700,13 @@ fn num_symbol(chars: &[char], locale: &str, locales: &LocaleSet) -> Result<(Toke
             Token::NumDigit {
                 required: false,
                 space: true,
+                expands: false,
             },
             1,
         ),
         (',', _) => (Token::Grouping(symbol("grouping")?), 1),
-        ('.', _) => (Token::Radix(symbol("decimal")?, false), 1),
-        ('V' | 'v', _) => (Token::Radix(symbol("decimal")?, true), 1),
+        ('.', _) => (Token::Radix(symbol("decimal")?, false, false), 1),
+        ('V' | 'v', _) => (Token::Radix(symbol("decimal")?, true, c == 'v'), 1),
         ('S', _) => (Token::Sign(symbol("minus")?, true), 1),
         ('s', _) => (Token::Sign(symbol("minus")?, false), 1),
         ('C', Some('R')) => (Token::Negative("CR", true), 2),
@@ -854,7 +941,25 @@ impl Walker<'_> {
                     }
                 }
             }
-            Token::NumDigit { required, space } => {
+            Token::NumDigit {
+                required,
+                space,
+                expands,
+            } => {
+                // Page 1177: an `8` right of the radix parses as it formats, every fraction digit
+                // there is, so it may read a digit and stay where it is.
+                if *expands
+                    && read.fraction.is_some()
+                    && let Some(digit) = here.filter(char::is_ascii_digit)
+                {
+                    let mut more = read.clone();
+                    if let Some(fraction) = &mut more.fraction {
+                        fraction.push(digit);
+                    }
+                    if let Some(found) = self.walk(p, t, at + 1, more) {
+                        return Some(found);
+                    }
+                }
                 if let Some(digit) = here.filter(char::is_ascii_digit) {
                     options.push((
                         1,
@@ -879,7 +984,7 @@ impl Walker<'_> {
                     options.push((0, keep()));
                 }
             }
-            Token::Radix(symbol, implied) => {
+            Token::Radix(symbol, implied, _) => {
                 let start = || -> Box<dyn Fn(&mut Read)> {
                     Box::new(|r: &mut Read| r.fraction = Some(String::new()))
                 };
@@ -987,7 +1092,12 @@ fn finish(category: Category, read: &Read) -> Option<String> {
         // Page 1184: a null clause matches a null value, which the data writes as nothing, and
         // a zero clause a zero.
         Category::Null => Some(String::new()),
-        Category::Zero => Some("0".to_owned()),
+        Category::Zero => (read.whole.bytes().all(|b| b == b'0')
+            && read
+                .fraction
+                .as_deref()
+                .is_none_or(|f| f.bytes().all(|b| b == b'0')))
+        .then(|| "0".to_owned()),
     }
 }
 
@@ -1096,7 +1206,7 @@ fn time(read: &Read) -> Option<Time> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Category, canonicalize};
+    use super::{Category, Hint, canonicalize, format};
     use crate::xfa::locale::LocaleSet;
     use crate::xfa::xml::parse;
 
@@ -1137,6 +1247,10 @@ mod tests {
 
     fn parsed(picture: &str, locale: &str, input: &str) -> Option<String> {
         canonicalize(picture, None, locale, &locales(), input).expect("a picture this reads")
+    }
+
+    fn formatted(picture: &str, hint: Hint, locale: &str, value: &str) -> Option<String> {
+        format(picture, hint, locale, &locales(), value).expect("a picture this reads")
     }
 
     /// Chapter 26's numeric input-parsing table (EXAMPLE 26.29, page 1182), its `%` table
@@ -1281,6 +1395,243 @@ mod tests {
         assert_eq!(
             canonicalize("999-9999", Some(Category::Num), "en_US", &set, "555-1212"),
             Ok(Some("5551212".to_owned()))
+        );
+    }
+
+    /// Chapter 26's date and time output tables as printed: the dates of EXAMPLE 26.19 (page
+    /// 1172) that use no week symbol and chapter 4's French EXAMPLE 4.45 (page 165), and the
+    /// times of EXAMPLE 26.22 (page 1175) that use no zone.
+    #[test]
+    fn the_chapters_date_and_time_output_examples_format_as_printed() {
+        for (picture, hint, locale, value, output) in [
+            (
+                "MMMM DD, YYYY",
+                None,
+                "en_US",
+                "2002-10-25",
+                "October 25, 2002",
+            ),
+            (
+                "e 'days after Sunday'",
+                None,
+                "en_US",
+                "20040722",
+                "4 days after Sunday",
+            ),
+            (
+                "E 'days after Saturday'",
+                None,
+                "en_US",
+                "20040722",
+                "5 days after Saturday",
+            ),
+            (
+                "EEEE, 'the' D 'of' MMMM, YYYY",
+                None,
+                "en_US",
+                "2000-01-01",
+                "Saturday, the 1 of January, 2000",
+            ),
+            (
+                "D-MMMM-YYYY",
+                None,
+                "fr_FR",
+                "2004-01-12",
+                "12-janvier-2004",
+            ),
+            ("h:MM A", None, "en_US", "11:11:11", "11:11 AM"),
+            ("h:MM A", None, "en_US", "14:30:59", "2:30 PM"),
+        ] {
+            assert_eq!(
+                formatted(picture, hint, locale, value).as_deref(),
+                Some(output),
+                "{picture} {value}"
+            );
+        }
+    }
+
+    /// Chapter 26's numeric, text and alternate output tables as printed: the `z` and `Z` table of
+    /// EXAMPLE 26.25 and the `8` table of EXAMPLE 26.26 (page 1180); the `%` rows of EXAMPLE 26.27
+    /// and the rows of EXAMPLE 26.28 (pages 1181–1182) that use no exponent; the text rows of
+    /// EXAMPLE 26.31 (page 1183); the alternates of EXAMPLE 26.12 (page 1159) and of EXAMPLE 26.37
+    /// (page 1185).
+    ///
+    /// EXAMPLE 26.28's `$ZZ,ZZ9.99CR` row prints two spaces after the `$` where its five digit
+    /// places hold four digits and so pad one; it is left out rather than matched (ADR 2434).
+    #[test]
+    fn the_chapters_numeric_text_and_alternate_output_examples_format_as_printed() {
+        let text = Some(Category::Text);
+        for (picture, hint, locale, value, output) in [
+            ("zz9.zzz", None, "en_US", "1.234", "1.234"),
+            ("zz9.zzz", None, "en_US", "12.345", "12.345"),
+            ("zz9.zzz", None, "en_US", "123", "123"),
+            ("zz9.zzz", None, "en_US", "123.", "123."),
+            ("zz9.zzz", None, "en_US", "123.0", "123.0"),
+            ("zz9.zzz", None, "en_US", "123.000", "123.000"),
+            ("ZZ9.ZZZ", None, "en_US", "1.234", "  1.234"),
+            ("ZZ9.ZZZ", None, "en_US", "12.345", " 12.345"),
+            ("ZZ9.ZZZ", None, "en_US", "123.456", "123.456"),
+            ("ZZ9.ZZZ", None, "en_US", "123", "123."),
+            ("ZZ9.ZZZ", None, "en_US", "123.", "123."),
+            ("ZZ9.ZZZ", None, "en_US", "123.0", "123.0"),
+            ("zzz,zz9.8888", None, "en_US", "123456.000", "123,456.000"),
+            ("zzz,zz9.8888", None, "en_US", "123456.0", "123,456.0"),
+            ("zzz,zz9.8888", None, "en_US", "123456", "123,456"),
+            ("zzz,zz9.88", None, "en_US", "123456", "123,456"),
+            ("zzz,zz9.88888888", None, "en_US", "12345.67", "12,345.67"),
+            (
+                "zzz,zz9.88888888",
+                None,
+                "en_US",
+                "12345.0000",
+                "12,345.0000",
+            ),
+            ("zzz,zz9.8", None, "en_US", "12345.6789", "12,345.6789"),
+            ("zzz,zz9.8", None, "en_US", "12345.", "12,345"),
+            ("zz9%", None, "en_US", "0.12", "12%"),
+            ("zzz,zz9.99%", None, "en_US", "12.345", "1,234.50%"),
+            ("S999v99", None, "en_US", "-1.23", "-00123"),
+            ("S999V99", None, "en_US", "1.23", " 001.23"),
+            ("S999V99", None, "en_US", "123", " 123.00"),
+            ("SZZ9.99", None, "en_US", "12.3", "  12.30"),
+            ("SZZ9.99", None, "en_US", "-12.3", "- 12.30"),
+            ("szz9.99", None, "en_US", "123", "123.00"),
+            ("szz9.99", None, "en_US", "-123", "-123.00"),
+            // EXAMPLE 26.28 prints no space after this row's "$1,234.00"; page 1178's own row
+            // for `DB` writes spaces where the number is not negative, and the symbol's row is
+            // what this follows (ADR 2434).
+            ("$z,zz9.99DB", None, "en_US", "1234", "$1,234.00  "),
+            ("$z,zz9.99DB", None, "en_US", "-1234", "$1,234.00DB"),
+            ("z,zz9.99", None, "fr_FR", "1234.56", "1 234,56"),
+            ("A9A 9A9", text, "en_US", "K1S5K2", "K1S 5K2"),
+            (
+                "'+1 ('999') '999-9999",
+                text,
+                "en_US",
+                "6135551212",
+                "+1 (613) 555-1212",
+            ),
+            ("999.999.9999", text, "en_US", "6135551212", "613.555.1212"),
+        ] {
+            assert_eq!(
+                formatted(picture, hint, locale, value).as_deref(),
+                Some(output),
+                "{picture} {value}"
+            );
+        }
+        let phone = "null{'No data'}|null{}|text{999*9999}|text{999*999*9999}";
+        for (value, output) in [
+            ("5551212", "555 1212"),
+            ("6135551212", "613 555 1212"),
+            // EXAMPLE 26.12's null; this program's data holds a null as the empty string.
+            ("", "No data"),
+        ] {
+            assert_eq!(
+                formatted(phone, None, "en_US", value).as_deref(),
+                Some(output)
+            );
+        }
+        let amount = "null{'n/a'}|zero{9}|num{z,zz9.9}";
+        for (value, output) in [("", "n/a"), ("0", "0"), ("1234.5", "1,234.5")] {
+            assert_eq!(
+                formatted(amount, None, "en_US", value).as_deref(),
+                Some(output)
+            );
+        }
+    }
+
+    /// Parsing what formatting wrote gives the canonical value back, one or more pictures per
+    /// category: date, time, numeric, text, null, zero, and a compound date and time.
+    #[test]
+    fn parse_after_format_is_the_identity() {
+        let text = Some(Category::Text);
+        for (picture, hint, locale, canonical) in [
+            ("DD-MM-YYYY", None, "en_US", "2026-10-26"),
+            ("D MMMM YYYY", None, "fr_FR", "2004-01-12"),
+            ("EEEE, MMMM D, YYYY", None, "en_US", "2000-01-01"),
+            ("MM/DD/YY", None, "en_US", "1999-12-02"),
+            ("JJJ-YYYY", None, "en_US", "2004-03-01"),
+            ("date.medium{}", None, "en_US", "2006-07-01"),
+            ("HH:MM:SS", None, "en_US", "14:30:59"),
+            ("h:MM A", None, "en_US", "14:30"),
+            ("HH:MM:SS.FFF", None, "en_US", "09:05:07.250"),
+            ("KK:MM", None, "en_US", "00:15"),
+            ("z,zz9.99", None, "en_US", "1234.50"),
+            ("z,zz9.99", None, "fr_FR", "1234.56"),
+            ("S999V99", None, "en_US", "-1.23"),
+            ("zz9%", None, "en_US", "0.12"),
+            ("$z,zz9.99DB", None, "en_US", "-1234.00"),
+            ("zzz,zz9.8", None, "en_US", "12345.6789"),
+            ("(zz9.99)", None, "en_US", "-12.50"),
+            ("num.integer{}", None, "en_US", "1234567"),
+            ("AAA-9999-X", text, "en_US", "ABC12345"),
+            ("999*9999", text, "en_US", "5551212"),
+            ("null{'n/a'}|num{z9}", None, "en_US", ""),
+            ("zero{'none'}|num{z9}", None, "en_US", "0"),
+            ("zero{9}|num{z9}", None, "en_US", "0"),
+            (
+                "date{DD-MM-YYYY} time{HH:MM}",
+                None,
+                "en_US",
+                "2026-10-26T14:30",
+            ),
+        ] {
+            let output = formatted(picture, hint, locale, canonical)
+                .unwrap_or_else(|| panic!("{picture} writes {canonical}"));
+            let set = locales();
+            assert_eq!(
+                canonicalize(picture, hint, locale, &set, &output),
+                Ok(Some(canonical.to_owned())),
+                "{picture} {canonical} {output}"
+            );
+        }
+        // A zero clause reads a zero only: a five is the next alternative's.
+        assert_eq!(
+            parsed("zero{9}|num{z9}", "en_US", "5").as_deref(),
+            Some("5")
+        );
+    }
+
+    /// A value a picture cannot write without dropping or inventing a part is `None`; a picture
+    /// whose output XFA 3.3 leaves undefined, or whose symbol this does not read, is an error; and
+    /// what page 1171 and page 1175 refuse only for parsing is written.
+    #[test]
+    fn what_a_picture_cannot_write_is_none() {
+        let (text, num) = (Some(Category::Text), Some(Category::Num));
+        for (picture, hint, value) in [
+            ("999", num, "1234"),
+            ("999", num, "-12"),
+            ("9.9", num, "1.25"),
+            ("zz9", None, "abc"),
+            ("zz9", None, "1E3"),
+            ("DD-MM-YYYY", None, "2004-01"),
+            ("HH:MM:SS", None, "14:30"),
+            ("HH:MM", None, "14:30:00Z"),
+            ("AAA", text, "AB1"),
+            ("AAA", text, "ABCD"),
+            ("null{'n/a'}", None, "12"),
+            ("zero{9}", None, "12"),
+        ] {
+            assert_eq!(
+                formatted(picture, hint, "en_US", value),
+                None,
+                "{picture} {value}"
+            );
+        }
+        let set = locales();
+        for picture in ["8999.99", "99.999E", "HH:MM Z", "YYYY-'W'WW"] {
+            assert!(
+                format(picture, None, "en_US", &set, "1").is_err(),
+                "{picture}"
+            );
+        }
+        assert_eq!(
+            formatted("DD/MM/DD", None, "en_US", "2004-01-12").as_deref(),
+            Some("12/01/12")
+        );
+        assert_eq!(
+            formatted("h:MM", None, "en_US", "14:30").as_deref(),
+            Some("2:30")
         );
     }
 }

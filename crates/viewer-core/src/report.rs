@@ -13,6 +13,25 @@
 
 use pdf_model::Unsupported;
 
+/// The sentence for a content stream drawn as far as it decoded: the bytes on the page are the
+/// producer's own and what is missing is everything past the damage (§7.8.2, ADR 0359) — or, where
+/// the filter reached its end-of-data, nothing is missing and the error is over what was drawn
+/// (ADRs 0836, 2438).
+fn damaged_content_stream(stream: &pdf_model::content::DamagedStream) -> String {
+    if stream.damage.stops_short() {
+        format!(
+            "{} decoded only {} byte(s) before it was {:?}, and the rest of it is not on the page",
+            stream.detail, stream.kept, stream.damage
+        )
+    } else {
+        format!(
+            "{} decoded whole, {} byte(s), and its filter reported {:?} over them, so what is on \
+             the page may not be what the producer wrote",
+            stream.detail, stream.kept, stream.damage
+        )
+    }
+}
+
 /// One sentence naming what could not be drawn.
 ///
 /// Deliberately says what is *missing from the page* rather than what the interpreter did,
@@ -53,6 +72,7 @@ pub(crate) fn describe(item: &Unsupported) -> String {
             format!("part of the page's content is missing: {issue:?}")
         }
         Unsupported::Annotation { detail } => format!("an annotation was not drawn: {detail}"),
+        Unsupported::Guidelines { detail } => format!("a guideline is not as stated: {detail}"),
         // Worded as *something is missing* rather than as *the page stopped*, because both
         // shapes reach here: `MAX_TILE_COPIES` ends a tiling and `MAX_FORM_DEPTH` a nested
         // stream, while `max_clips` and `max_cmap_ranges` leave the page drawn to its end with a
@@ -94,12 +114,7 @@ pub(crate) fn describe(item: &Unsupported) -> String {
         Unsupported::MissingResource { category, detail } => {
             format!("the document names a /{category} resource it does not define: {detail}")
         }
-        // Drawn as well, and worded so: the bytes on the page are the producer's own and what
-        // is missing is everything past the damage (§7.8.2, ADR 0359).
-        Unsupported::DamagedContentStream { stream } => format!(
-            "{} decoded only {} byte(s) before it was {:?}, and the rest of it is not on the page",
-            stream.detail, stream.kept, stream.damage
-        ),
+        Unsupported::DamagedContentStream { stream } => damaged_content_stream(stream),
         Unsupported::OptionalContent { detail } => {
             format!(
                 "optional content was drawn because its visibility could not be decided: {detail}"

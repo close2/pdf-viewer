@@ -32,9 +32,11 @@ reading in one line per row, and the note is where it is argued. The membership 
 - **§7.6.5.1, §7.6.5.2, §7.6.5.3** (`reported`) — the handler is refused by name; the build
   waits on `doc/questions/A66`'s trigger, which `doc/questions/A168` reads as unlit.
 - **§7.6.6** — Table 27, which is the handler's; moves on the same trigger.
-- **§12.2** — owed by a run on Windows alone: the WinUI window's native full screen,
-  `/FitWindow` and `/CenterWindow` answered through `quorra_window_place`, and the dialogues the
-  library holds while presenting are built and compiled against the real SDK, not run (ADRs 2308,
+- **§12.2** — owed by CI's first green run of the `window` job's Table 147 step: the WinUI
+  window's native full screen and its exit's `/NonFullScreenPageMode`, and `/FitWindow` and
+  `/CenterWindow` answered through `quorra_window_place`, read back under the window's `--probe`
+  word (ADR 2436); the row moves to `implemented` at the merge that reads that run. The dialogues
+  the library holds while presenting are the library's, proved by `held_tests.rs` (ADRs 2308,
   2309); `partial` rather than `departed`, because nothing decided against them (ADR 2301). Every
   window that resizes and moves itself asks one placement decision; Qt under Wayland and GTK say
   and title a centre they cannot give. The deliberate menu and placement departures remain (ADRs

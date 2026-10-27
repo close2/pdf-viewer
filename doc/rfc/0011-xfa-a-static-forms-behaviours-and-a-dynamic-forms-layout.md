@@ -388,6 +388,9 @@ first steps land the rows do not move to `implemented` — §K.1's permission wa
 annex — but to `partial` once the owner has ratified this RFC and `CLAUDE.md`'s XFA entry says the
 static half is in scope; that is the owner's edit, and the status follows it. §K.2's writer rules
 (section 3.1) are owed as soon as this tree writes a hybrid file, which it already does.
+**Moved** (session 1798, ADR 2430): the condition is met — `doc/questions/A639` and `CLAUDE.md`'s XFA
+entry — and §K.1 is `implemented`, its indication executed and its permission taken for the dynamic
+half; §K.2 is `partial`, three writer's rules kept and the template's events owed; K derives `partial`.
 
 ## 12. Questions for the owner
 
@@ -419,9 +422,13 @@ static half is in scope; that is the owner's edit, and the status follows it. §
    **Step 3's parsing half built** (session 1790, ADR 2414): a numeric, decimal, float, date, time
    or date-time field's data value is written in chapter 24's canonical form, parsed from what was
    typed by its edit picture or its locale's default picture (chapter 4's Rules 2 and 2A, chapter
-   26's grammar), in the locales of the form's own `localeSet` packet. Its formatting half — a
-   canonical value written out by a picture, which a `bind` picture and step 4's format test both
-   need — is named in `Written::xfa_unkept` and goes with step 4, which is next.
+   26's grammar), in the locales of the form's own `localeSet` packet.
+   **Its formatting half and step 4's format test built** (session 1800, ADR 2434): a canonical
+   value is written out by a picture clause in the prevailing locale, so a `bind` picture writes
+   the field's data in its own format (page 176) and a `validate` picture's format test (page 382)
+   decides whether the data takes the value; a value the test fails is named in
+   `Written::xfa_unkept` at either level. Step 4's null test and its report to the person, the
+   way the windows report a commit a field's `/K` refuses, are next.
 4. **On Q639's answer**: the dynamic half, whose first round is a measurement — the cost of laying
    out page one of the census's `/NeedsRendering` documents — before a line of layout ships.
 

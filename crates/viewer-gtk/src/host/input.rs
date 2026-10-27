@@ -267,6 +267,12 @@ impl Host {
                 self.dispatch(Command::Separations(self.state.separations));
                 self.say(&viewer_host::separations_note(self.state.separations));
             }
+            // §14.11.2.2, for `Separations`' reason (ADR 2440).
+            viewer_host::WindowAct::Guidelines => {
+                self.state.guidelines = !self.state.guidelines;
+                self.dispatch(Command::Guidelines(self.state.guidelines));
+                self.say(&viewer_host::guidelines_note(self.state.guidelines));
+            }
             viewer_host::WindowAct::Notices => self.show_notices(),
             // **From the idle queue**: `popup` runs the button's create-popup hook synchronously,
             // and that hook fills the menu through the host this call is holding — so asked from
@@ -871,6 +877,7 @@ pub(super) fn key_pressed(key: gtk4::gdk::Key) -> Option<viewer_host::Key> {
     use viewer_host::Key as Stated;
     Some(match key {
         Gdk::a | Gdk::A => Stated::A,
+        Gdk::b | Gdk::B => Stated::B,
         Gdk::c | Gdk::C => Stated::C,
         Gdk::f | Gdk::F => Stated::F,
         Gdk::h | Gdk::H => Stated::H,

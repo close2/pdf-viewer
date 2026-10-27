@@ -47,6 +47,8 @@ public sealed partial class MainWindow : Window
     private readonly List<string> beside = new();
     private readonly HashSet<uint> named = new();
     private QuorraWindow? window;
+    // Set by the --probe word alone, before the first document opens (ADR 2436).
+    private WindowProbe? probe;
     private double scale;
     private bool sized;
     private bool pressed;
@@ -138,6 +140,11 @@ public sealed partial class MainWindow : Window
                 paths.Add(argument);
                 continue;
             }
+            if (argument == WindowProbe.Word)
+            {
+                probe = new WindowProbe(Log);
+                continue;
+            }
             string? refused = settings.Take(argument);
             if (refused is not null)
             {
@@ -221,6 +228,7 @@ public sealed partial class MainWindow : Window
         StatusLine.Visibility = shown.Status ? Visibility.Visible : Visibility.Collapsed;
         Navigation.IsPaneToggleButtonVisible = shown.Navigation;
         panels.SetAvailable(shown.Panels, shown.PaneOpen, panel);
+        probe?.Pane(Navigation.IsPaneOpen, PanelChoice.SelectedItem as string);
     }
 
     // Table 29's FullScreen, "with no menu bar, window controls, or any other window visible": the
@@ -235,6 +243,7 @@ public sealed partial class MainWindow : Window
         {
             AppWindow.SetPresenter(wanted);
         }
+        probe?.Presenting(AppWindow.Presenter.Kind);
     }
 
     // Table 147's /FitWindow and /CenterWindow. The library decides from this window's own
@@ -267,11 +276,21 @@ public sealed partial class MainWindow : Window
         }
         if (placed.resize != 0)
         {
+            probe?.AskedToResize(placed.width, placed.height);
             app.ResizeClient(new SizeInt32(Physical(placed.width), Physical(placed.height)));
         }
         if (placed.move_to != 0)
         {
             app.Move(new PointInt32(Physical(placed.x), Physical(placed.y)));
+        }
+        // A resize is asked again at the next record; any other answer is the library's last.
+        if (placed.resize == 0)
+        {
+            probe?.Placed(new ReadBack(
+                (int)Math.Round(Area.ActualWidth), (int)Math.Round(Area.ActualHeight),
+                Logical(app.Size.Width), Logical(app.Size.Height),
+                Logical(app.Position.X), Logical(app.Position.Y),
+                (Logical(work.X), Logical(work.Y), Logical(work.Width), Logical(work.Height))));
         }
     }
 
@@ -291,6 +310,12 @@ public sealed partial class MainWindow : Window
                 break;
             case Native.QUORRA_OWED_REPAINT:
                 Repaint(open, owed);
+                if (probe?.LeaveNow(open.FullScreen) == true)
+                {
+                    // After the batch this record is in, as a key would come.
+                    DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low,
+                        () => Guard("the probe's Escape", () => Press(open, Native.QUORRA_KEY_ESCAPE, false, false)));
+                }
                 break;
             case Native.QUORRA_OWED_CHROME:
                 ApplyChrome(open.Chrome, owed.Panel);
@@ -438,12 +463,15 @@ public sealed partial class MainWindow : Window
             return;
         }
         e.Handled = true;
-        Guard("a key", () =>
-        {
-            uint act = open.Press(key, shift, command);
-            Settle();
-            WindowAct(open, act);
-        });
+        Guard("a key", () => Press(open, key, shift, command));
+    }
+
+    // A key through quorra_window_press, then what only a window can do with what it left.
+    private void Press(QuorraWindow open, uint key, bool shift, bool command)
+    {
+        uint act = open.Press(key, shift, command);
+        Settle();
+        WindowAct(open, act);
     }
 
     // What only a window can do, after quorra_window_press has done the rest.

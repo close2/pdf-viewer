@@ -1341,14 +1341,37 @@ earlier (ADR 2246); a part 4 file labelled 2.0, or with no version, stays `not-b
   a 2.0 label no mitigation except deriving the map from the embedded program, which is a reading
   of the font this converter does not make. An entry that is present and neither shape is the
   producer's statement, refused at every target. A `CIDFont` written directly into its Type 0
-  font's `/DescendantFonts` is in the row's population and is reported at no object, so the
-  rewrite, which edits a font object, refuses it by name (ADR 2413).
+  font's `/DescendantFonts` is in the row's population and is reported at no object (ADR 2413);
+  where it was written does not change what its absent entry said, so the same `Stated` rewrite
+  writes the entry into the array's element under the same two conditions (ADR 2432). A direct
+  `CIDFont` held anywhere else — inside a Type 0 font that is itself direct, or in an array that is
+  an object of its own — is still refused by name, and so is the whole row while any finding at no
+  object is one `pdf_archive::direct_cid_fonts_stating_no_cid_to_gid_map` does not place.
 - **From a configuration** — at a part 4 target with a 2.0 label, `remedy = "supply"` with
   `cid-to-gid = "identity"` is expressible and is the operator asserting that their producer's
   fonts are identity-ordered — which for a subset-embedded TrueType CIDFont is nearly always true
   and is exactly the kind of fact a fleet operator knows.
 - **Departure** — **B** at part 4 for a 2.0 label, narrowed by the same predicate; elsewhere the
   rewrite answers it.
+
+#### `fonts/descendant-fonts-holds-one-cidfont`
+ISO 19005-2 6.2.11.2, ISO 19005-4 6.2.10.2 · all six · `not-built-yet`, refused by name (ADR 2433)
+
+- **The row** — the narrow, implemented half of the general sentence that every font conform to
+  the base standard's font clauses, whose remainder (a program against its own format) stays
+  `fonts/font-programs-conform-to-their-own-specifications`' `Unchecked` gap. ISO 32000-2
+  §9.7.6.1's Table 119 makes a Type 0 font's `/DescendantFonts` a one-element array naming its
+  `CIDFont`, and §9.7.4.1's Table 115 makes `CIDFontType0` or `CIDFontType2` the `/Subtype` that
+  says a dictionary is one; a missing entry, another shape, or an element that is no such
+  dictionary — §7.3.10's null among them, `issue12823.pdf`'s `[ null ]` — fails it.
+- **Mitigation** — **none built.** A font with no `CIDFont` states no glyph selection, widths or
+  character collection, so there is nothing to restate; the only answer is a `CIDFont` built for
+  it, which is the limits document's section 4.9 substitution carried out for a font with no
+  dictionary to substitute into.
+- **By target** — the same refusal at every target.
+- **From a configuration** — none today.
+- **Departure** — **C**: a font whose codes select nothing is the font half of the format's central
+  promise.
 
 #### `fonts/cid-system-info-agrees-with-the-cmap`
 ISO 19005-2 6.2.11.3.1, ISO 19005-4 6.2.10.3.1 · all six · today `the-fence`
@@ -2179,6 +2202,9 @@ ISO 19005-2 6.6.2.3.2 · PDF/A-2b, 2u, 2a · today **built**
   and that a property whose type nobody can tell will be dropped or will stop the run.
 - **Departure** — **A**, confirmed, and narrowable by namespace — which is the ZUGFeRD shape again:
   *accept our own schema, described or not, and nobody else's*.
+- **A packet section 6.6.2.1 replaces** states no property, so it uses no extension schema: the
+  replacement meets the requirement at that stream, and the row takes the decision the packet's
+  own row took — the same loss or `preserve`, nothing lost twice (ADR 2442).
 
 #### `metadata/extension-schema-container-fields`
 ISO 19005-2 6.6.2.3.3 · PDF/A-2b, 2u, 2a · today **mechanical for a misspelled field**, **built** as

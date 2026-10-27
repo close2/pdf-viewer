@@ -194,6 +194,69 @@ fn a_section_is_viable_with_its_next_level_clip_and_a_must_honour_offset_is_not(
     )));
 }
 
+/// §13.2.4.3 under §13.2.6.2: a `/B` "specified by time or frames" is "relative to the start of the
+/// next-level media clip", and a player handed the file starts at its beginning, so a must-honour
+/// `/B` of zero seconds (Table 297 over a Table 300 simple timespan) or of frame 0 (Table 298) is
+/// honoured and the section stays viable. **The controls are the offsets the hand-off cannot honour**:
+/// a later start, a marker only the container locates, a subtype Table 296 or Table 300 does not
+/// recognise, an `/E` whose clip end only the container states, and a start of zero relative to a
+/// next-level section that itself begins later, best effort or not.
+#[test]
+fn a_must_honour_begin_at_the_clips_start_is_honoured_by_the_hand_off() {
+    let clip = clip();
+    let section = |options: &str| format!("<< /S /MR /C << /S /MCS /D {clip} {options} >> >>");
+    let zero_seconds = "<< /S /T /T << /S /S /V 0 >> >>";
+    for start in [
+        zero_seconds,
+        "<< /Type /MediaOffset /S /T /T << /Type /Timespan /S /S /V 0.0 >> >>",
+        "<< /S /F /F 0 >>",
+    ] {
+        let report = judged(
+            &section(&format!("/MH << /B {start} >>")),
+            Processor::default(),
+        );
+        let (_, chosen) = report.chosen().expect("a begin at the clip's start");
+        assert!(chosen.unhonoured.is_empty(), "{start}: {chosen:?}");
+        let report = judged(
+            &section(&format!("/BE << /B {start} >>")),
+            Processor::default(),
+        );
+        let (_, chosen) = report
+            .chosen()
+            .expect("a best-effort begin at the clip's start");
+        assert!(chosen.unhonoured.is_empty(), "{start}: {chosen:?}");
+    }
+    for later in [
+        "<< /S /T /T << /S /S /V 5 >> >>",
+        "<< /S /T /T << /S /S /V -1 >> >>",
+        "<< /S /F /F 1 >>",
+        "<< /S /M /M (Chapter One) >>",
+        "<< /S /X /F 0 >>",
+        "<< /S /T /T << /S /Q /V 0 >> >>",
+    ] {
+        assert!(
+            !viable(&section(&format!("/MH << /B {later} >>"))),
+            "{later}"
+        );
+    }
+    assert!(
+        !viable(&section(&format!("/MH << /E {zero_seconds} >>"))),
+        "an /E's clip end is the container's to state"
+    );
+    let nested = |inner: &str| {
+        format!(
+            "<< /S /MR /C << /S /MCS /MH << /B {zero_seconds} >> /D << /S /MCS {inner} /D {clip} \
+             >> >> >>"
+        )
+    };
+    assert!(viable(&nested(&format!("/MH << /B {zero_seconds} >>"))));
+    assert!(viable(&nested("")));
+    assert!(
+        !viable(&nested("/BE << /B << /S /F /F 20 >> >>")),
+        "a start relative to a next-level section that begins at frame 20"
+    );
+}
+
 /// §13.2.5 and Table 290: the play parameters' `MH` options are ones the hand-off cannot pass to a
 /// player, its `BE` options are ignored, and of its `/PL`: "If this object is non-viable, the media
 /// play parameters dictionary shall be considered non-viable."

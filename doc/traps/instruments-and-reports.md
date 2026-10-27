@@ -1981,3 +1981,15 @@ documentation shares (104 MiB on disk at that merge) is rewritten by every crate
 space that crosses the limit, not residency. The same command outside the walk exited 0. A docs red whose
 tail names no lint is re-run as the walk's command with its whole output kept before any doc comment is
 suspected, and the bound is named in the merge's words as the instrument's, never as the tree's.
+
+### 281. A seed taken after the export's extraction
+
+`tools/batch.sh export` extracts HEAD with today's time (`tar -m`) so that a rebuild over a re-export is not
+handed the previous binary (trap 114), and habit 185 then seeds the export's target by reflink from the batch's
+build directory. In batch 120 two rounds seeded after siblings had rebuilt that directory from their own edited
+sources: those artefacts were newer than the export's extracted sources, cargo judged them fresh, and the
+export's clippy compiled HEAD's crates against a sibling's mid-edit `pdf-syntax` — round 1798 (ADR 2430) saw it
+as a sibling's lint, round 1804 (ADR 2442) as E0004 in HEAD's `pdf-font`. Both rebuilt after touching the
+export's `.rs` and `Cargo.toml` files. A seeded export's sources are touched after the seed and before its first
+build, or the seed is taken before the extraction; a build error in an export that names a crate the round did
+not change is this trap until a touched rebuild says otherwise.

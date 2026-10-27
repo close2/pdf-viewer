@@ -465,10 +465,74 @@ fn a_typed_field_writes_its_canonical_value() {
     }
 }
 
+/// A `bind` picture writes the data in its own format (XFA 3.3 page 176), and a `validate`
+/// picture's format test passes what it can format (page 382), in the field's prevailing locale,
+/// `nl_NL`, whose radix is `,` and whose grouping is `.` (ADR 2434):
+///
+/// - `paid`, a `decimal` with no edit picture and the bind picture `zzz9.99`: what was typed is
+///   parsed by the bind picture (Rule 2, page 163), and the data is the canonical `12.50` written
+///   out by it;
+/// - `born`, a `date` typed through `DD-MM-YYYY` and bound by `DD.MM.YYYY`;
+/// - `memo`, text whose bind picture is numeric and cannot write it: written as it is;
+/// - `checked`, an `integer` whose validate picture `9999` formats `12` as `0012`, so it passes;
+/// - `code`, text whose validate picture `AAA-999` formats `ABC123`;
+/// - `loose`, whose validate picture would refuse its value, with `formatTest="disabled"`.
+#[test]
+fn a_bind_and_a_validate_picture_write_their_data() {
+    let fields = [
+        (
+            "paid",
+            "<field name=\"paid\"><ui><numericEdit/></ui><bind><picture>zzz9.99</picture></bind>\
+             <value><decimal/></value></field>",
+        ),
+        (
+            "born",
+            "<field name=\"born\"><ui><picture>DD-MM-YYYY</picture><dateTimeEdit/></ui>\
+             <bind><picture>DD.MM.YYYY</picture></bind><value><date/></value></field>",
+        ),
+        (
+            "memo",
+            "<field name=\"memo\"><ui><textEdit/></ui><bind><picture>num{zz9}</picture></bind>\
+             </field>",
+        ),
+        (
+            "checked",
+            "<field name=\"checked\"><ui><numericEdit/></ui><validate><picture>9999</picture>\
+             </validate><value><integer/></value></field>",
+        ),
+        (
+            "code",
+            "<field name=\"code\"><ui><textEdit/></ui><validate formatTest=\"error\">\
+             <picture>AAA-999</picture></validate><value><text/></value></field>",
+        ),
+        (
+            "loose",
+            "<field name=\"loose\"><ui><numericEdit/></ui><validate formatTest=\"disabled\">\
+             <picture>99</picture></validate><value><integer/></value></field>",
+        ),
+    ];
+    let (values, unkept) = saved(
+        &fields,
+        &[
+            ("paid", "12,50"),
+            ("born", "26-10-2026"),
+            ("memo", "binnenkort"),
+            ("checked", "12"),
+            ("code", "ABC123"),
+            ("loose", "12345"),
+        ],
+    );
+    assert!(unkept.is_empty(), "{unkept:?}");
+    let expected = ["12,50", "26.10.2026", "binnenkort", "12", "ABC123", "12345"];
+    for (value, expected) in values.iter().zip(expected) {
+        assert_eq!(value.as_deref(), Some(expected));
+    }
+}
+
 /// What is not written is named, each with its sentence, and its data value is left as it was:
-/// non-numeric text in a `numericEdit` (page 156 would make it zero), a `bind` picture's
-/// localised data (page 161), a `validate` picture's format test (pages 162 and 382), a
-/// date-time typed with no picture, and a time zone in a picture (page 1176).
+/// non-numeric text in a `numericEdit` (page 156 would make it zero), a value its `validate`
+/// picture's format test fails at `error` and at `warning`, page 880's default (pages 162, 382
+/// and 385), a date-time typed with no picture, and a time zone in a picture (page 1176).
 #[test]
 fn a_typed_field_this_cannot_write_is_named() {
     let fields = [
@@ -477,13 +541,13 @@ fn a_typed_field_this_cannot_write_is_named() {
             "<field name=\"total\"><ui><numericEdit/></ui><value><integer/></value></field>",
         ),
         (
-            "paid",
-            "<field name=\"paid\"><ui><numericEdit/></ui><bind><picture>zzz9.99</picture></bind>\
-             <value><decimal/></value></field>",
+            "refused",
+            "<field name=\"refused\"><ui><numericEdit/></ui><validate formatTest=\"error\">\
+             <picture>99</picture></validate><value><integer/></value></field>",
         ),
         (
-            "checked",
-            "<field name=\"checked\"><ui><numericEdit/></ui><validate><picture>9999</picture>\
+            "warned",
+            "<field name=\"warned\"><ui><numericEdit/></ui><validate><picture>99</picture>\
              </validate><value><integer/></value></field>",
         ),
         (
@@ -498,8 +562,8 @@ fn a_typed_field_this_cannot_write_is_named() {
     ];
     let typed = [
         ("total", "veel"),
-        ("paid", "12"),
-        ("checked", "12"),
+        ("refused", "123"),
+        ("warned", "456"),
         ("when", "26-10-2026 14:30"),
         ("zoned", "14:30 CET"),
     ];

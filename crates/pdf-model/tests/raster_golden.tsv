@@ -914,7 +914,7 @@ poppler-395-0-fuzzed.pdf p1	drawn	612x792	991629e147f8dd0f	7140592a93a7be30	542b
 poppler-67295-0.pdf p1	drawn	612x792	381bc08e6a181eac	c8a7dc96ca038ad4	4f53cda18c2baa0c
 poppler-742-0-fuzzed.pdf p1	drawn	596x842	462d6fdbd534229c	14a29cde56480e7b	bee1b39a6a703cb4
 poppler-85140-0.pdf p1	no-page	-	-	-	-
-poppler-90-0-fuzzed.pdf p1	drawn	612x792	8d848d9d29128a1d	80f9c03fb3d15d3b	59fcf4fc1782c52e
+poppler-90-0-fuzzed.pdf p1	drawn	612x792	8d848d9d29128a1d	80f9c03fb3d15d3b	4b49c27fd4d1a467
 poppler-91414-0-53.pdf p1	drawn	795x842	842de48bee5935b7	1d61c597bbbf0dfe	4f53cda18c2baa0c
 poppler-91414-0-54.pdf p1	drawn	795x842	842de48bee5935b7	1d61c597bbbf0dfe	4f53cda18c2baa0c
 poppler-937-0-fuzzed.pdf p1	no-page	-	-	-	-

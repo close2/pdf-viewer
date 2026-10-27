@@ -66,6 +66,15 @@ pub enum Unsupported {
         /// The subtype and what was wrong with it.
         detail: String,
     },
+    /// §14.11.2.2's guidelines, asked for by a person, drawn otherwise than the page states.
+    ///
+    /// Raised only while the guidelines are shown, which no document turns on: a value in
+    /// `/BoxColorInfo` that Table 397 does not admit and was drawn at its default, or a page
+    /// whose compositing route is not the one a `DeviceRGB` guideline can be drawn over. ADR 2440.
+    Guidelines {
+        /// What was drawn otherwise, and why.
+        detail: String,
+    },
     /// A bound was reached and interpretation stopped early.
     LimitReached {
         /// Which bound.

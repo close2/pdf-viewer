@@ -104,6 +104,12 @@ impl Host {
                 self.dispatch(Command::Separations(self.state.separations));
                 self.say(&viewer_host::separations_note(self.state.separations));
             }
+            // §14.11.2.2, for `Separations`' reason (ADR 2440).
+            viewer_host::WindowAct::Guidelines => {
+                self.state.guidelines = !self.state.guidelines;
+                self.dispatch(Command::Guidelines(self.state.guidelines));
+                self.say(&viewer_host::guidelines_note(self.state.guidelines));
+            }
             viewer_host::WindowAct::Notices => self.update.notices = true,
             viewer_host::WindowAct::Restrictions => self.update.menu = true,
             viewer_host::WindowAct::Present | viewer_host::WindowAct::LeaveFullScreen => {
