@@ -1,0 +1,9 @@
+Status: complete
+Given: 2026-10-27, in conversation — transcribed by the round
+Owes: (1) §7.4.8's departure ended — apply Table 13's default of 1 to a three-component frame with no Adobe marker regardless of whether its component identifiers are `R`, `G`, `B`; (2) §12.6.4.6's departure kept as-is (a program is never launched on a document's say-so, at any level); (3) §12.5.6.23's >16-bit `JPXDecode` redaction refusal investigated to end the departure — find an admissible safe-Rust library or investigate implementing a minimal lossless JPEG 2000 encoder in safe Rust (considering unsafe code only if safe Rust proves too complicated) so redacted >16-bit `JPXDecode` images can be written back without waiting for a corpus document (acting round)
+
+> Q668 7.4.8 agree
+> Q668 12.6.4.6 agree, keep departure
+> Q668 12.5.6.23 unless I don't understand the question a document never needs this. it's part of the viewers job to redact and directly store the modified content (otherwise redaction wouldn't make much sense). either find a safe rust library or investigate if we could implement it ourself (only if this is too complicated, we will consider unsafe code) (we might be able to implement a very rudimentary encoder, as all we need is replacing pixels to black pixels)
+
+Reading: adopts Q668's recommendations for items 1 (§7.4.8: end the departure and apply Table 13's default of 1) and 2 (§12.6.4.6: keep the departure refusing to launch programs), and overrules Q668's recommendation on item 3 (§12.5.6.23): rather than keeping the refusal on redacting `JPXDecode` images with components deeper than 16 bits until a corpus document asks, a round is to look for a safe-Rust JPEG 2000 encoder crate or investigate implementing a minimal lossless JPEG 2000 encoder in safe Rust (only considering `unsafe` if that is too complicated) so that modified >16-bit samples can be stored back in a `JPXDecode` stream.
