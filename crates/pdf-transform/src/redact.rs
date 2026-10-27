@@ -403,7 +403,7 @@ struct ClearedImage {
     /// report counts the pictures and not the masks that travel with them.
     role: Role,
     /// The cleared samples, re-encoded `FlateDecode` — or `JPXDecode` where a component is
-    /// deeper than Table 87's sixteen bits ([`OwnRaster::written_as_jpx`]).
+    /// deeper than Table 87's sixteen bits or signed ([`OwnRaster::written_as_jpx`]).
     encoded: Vec<u8>,
     /// How [`build_cleared_image`] describes the samples: the source dictionary carried, carried
     /// with the codec's depth restated, or a `JPXDecode` image's own description.
@@ -495,14 +495,22 @@ struct OwnRaster {
     opacity_depth: u8,
     /// The `/Decode` pair a reader maps each component through at its own depth.
     pairs: Vec<(f32, f32)>,
+    /// Which components the codestream's `Ssiz` states signed, the colour components first and
+    /// the opacity channel last, or empty where none is (ADR 2481).
+    signed: Vec<bool>,
+    /// The first colour specification box the source file stated, which a file of a colour
+    /// count JP2 does not enumerate carries (ADR 2480).
+    colour_box: Option<deep::StatedColour>,
 }
 
 impl OwnRaster {
     /// Whether the samples go back as JPEG 2000 rather than `FlateDecode`: a component deeper
     /// than the sixteen bits Table 87 gives any other filter's samples — "\[t]he value shall be
-    /// 1 , 2 , 4 , 8 , or (from PDF 1.5) 16" — has no other field to be written in (ADR 2470).
+    /// 1 , 2 , 4 , 8 , or (from PDF 1.5) 16" — has no other field to be written in (ADR 2470),
+    /// and a signed component has no statement of its sign in any other filter's samples
+    /// (ADR 2481).
     fn written_as_jpx(&self) -> bool {
-        self.bits > 16
+        self.bits > 16 || self.signed.iter().any(|signed| *signed)
     }
 }
 

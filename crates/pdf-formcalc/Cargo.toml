@@ -1,0 +1,22 @@
+[package]
+name = "pdf-formcalc"
+description = "FormCalc, XFA 3.3 chapter 25's calculation language, lexed, parsed and evaluated over a host's field values under a budget."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# No dependencies, on purpose: the crate takes a script's text and a host that answers for the
+# form's values, and it is run inside the confined script worker beside the ECMAScript engine
+# (RFC 0011 section 5's step 6, ADR 2482).
+
+[dev-dependencies]
+# For the census example alone, which reads the corpora's XFA templates (ADR 2482).
+pdf-model.workspace = true
+pdf-syntax.workspace = true
+rayon.workspace = true
+xmlparser.workspace = true
+
+[lints]
+workspace = true

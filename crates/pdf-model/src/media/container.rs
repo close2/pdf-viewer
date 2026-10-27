@@ -51,6 +51,23 @@
 //! gives (`stsc`, `stco` or `co64`, `stsz`); a title is text, and reading it plays nothing. A file
 //! that lists no chapter track names no offset, and a marker over it is absent.
 //!
+//! **SWF**, Adobe's *SWF File Format Specification* version 19 (`swf`): the header's frame rate
+//! and frame count give the length and the picture count, and the frame labels of the main
+//! timeline are its named offsets.
+//!
+//! **ASF**, Microsoft's *Advanced Systems Format (ASF) Specification* revision 01.20.03, which
+//! Windows Media files are (`asf`): the File Properties Object states the play duration and the
+//! Marker Object names jump points.
+//!
+//! **An MPEG-2 program stream**, ITU-T H.222.0 | ISO/IEC 13818-1 (1995) clause 2.5.3
+//! (`program_stream`): its first pack header identifies it, and the clause states neither a
+//! length nor a named offset, so a marker over one is absent.
+//!
+//! What is **not** read, with the reason: MPEG audio (MP3) frames are defined by ISO/IEC 11172-3
+//! and 13818-3, and an MPEG-1 system stream by ISO/IEC 11172-1, none of which this tree holds, and
+//! a container is never read from a secondary description of it as though it were the
+//! specification (`CLAUDE.md` principle 5; ADRs 2488 and 2489).
+//!
 //! # Bounds
 //!
 //! The input is a file an untrusted document embedded. Every walk is bounded by [`MAX_ITEMS`]
@@ -68,6 +85,10 @@ pub const MAX_ITEMS: usize = 4096;
 /// Most named offsets read from one clip.
 pub const MAX_MARKERS: usize = 4096;
 
+mod asf;
+mod program_stream;
+mod swf;
+
 /// What a clip's container states about its timeline.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Timeline {
@@ -80,7 +101,8 @@ pub struct Timeline {
     pub markers: Vec<Marker>,
 }
 
-/// One named offset a container states: a WAVE cue point's label, or a `QuickTime` chapter's title.
+/// One named offset a container states: a WAVE cue point's label, a `QuickTime` chapter's title, an
+/// ASF marker's description, or an SWF frame label.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Marker {
     /// The name, which a Table 299 `/M` is matched against.
@@ -96,6 +118,9 @@ enum Family {
     Avi,
     Aiff,
     BaseMedia,
+    Swf,
+    Asf,
+    ProgramStream,
 }
 
 /// The family a content type names, matched as RFC 2045 section 5.1 matches a type: without case,
@@ -125,6 +150,21 @@ fn family(content_type: &str) -> Option<Family> {
         "video/x-msvideo",
     ];
     const AIFF: [&str; 3] = ["audio/aiff", "audio/x-aiff", "audio/x-aifc"];
+    // The flash movie type is registered with the IANA as `application/vnd.adobe.flash.movie`; the
+    // other name is the one the files carry.
+    const SWF: [&str; 2] = [
+        "application/x-shockwave-flash",
+        "application/vnd.adobe.flash.movie",
+    ];
+    // The IANA registers `application/vnd.ms-asf`; the three `x-ms` names are Windows Media's.
+    const ASF: [&str; 4] = [
+        "application/vnd.ms-asf",
+        "video/x-ms-asf",
+        "video/x-ms-wmv",
+        "audio/x-ms-wma",
+    ];
+    // RFC 2046 registers `video/mpeg`; the other two are the names files carry.
+    const PROGRAM_STREAM: [&str; 3] = ["video/mpeg", "video/mpg", "video/x-mpeg"];
     let essence = content_type
         .split(';')
         .next()
@@ -139,6 +179,12 @@ fn family(content_type: &str) -> Option<Family> {
         Some(Family::Aiff)
     } else if named(&BASE_MEDIA) {
         Some(Family::BaseMedia)
+    } else if named(&SWF) {
+        Some(Family::Swf)
+    } else if named(&ASF) {
+        Some(Family::Asf)
+    } else if named(&PROGRAM_STREAM) {
+        Some(Family::ProgramStream)
     } else {
         None
     }
@@ -163,11 +209,38 @@ pub fn timeline(content_type: &str, bytes: &[u8]) -> Result<Timeline, String> {
         Some(Family::Avi) => avi(bytes),
         Some(Family::Aiff) => aiff(bytes),
         Some(Family::BaseMedia) => base_media(bytes),
-        None => Err(format!(
-            "this program reads the timeline of no {content_type:?} file, so it cannot say how \
-             long the clip runs or which markers it names"
-        )),
+        Some(Family::Swf) => swf::timeline(bytes),
+        Some(Family::Asf) => asf::timeline(bytes),
+        Some(Family::ProgramStream) => program_stream::timeline(bytes),
+        None => Err(unread(content_type)),
     }
+}
+
+/// The sentence for a type whose container this reader has no arm for.
+///
+/// MPEG audio is named with the reason it stays unread, because it is the type the corpus holds
+/// most of: its frame headers are ISO/IEC 11172-3's and ISO/IEC 13818-3's, and this tree holds
+/// neither text.
+#[must_use]
+pub fn unread(content_type: &str) -> String {
+    let essence = content_type
+        .split(';')
+        .next()
+        .unwrap_or(content_type)
+        .trim();
+    let because = if ["audio/mpeg", "audio/mp3", "audio/x-mpeg", "audio/mpeg3"]
+        .iter()
+        .any(|name| essence.eq_ignore_ascii_case(name))
+    {
+        "; MPEG audio frames are defined by ISO/IEC 11172-3 and 13818-3, which this program does \
+         not hold"
+    } else {
+        ""
+    };
+    format!(
+        "this program reads the timeline of no {content_type:?} file, so it cannot say how long \
+         the clip runs or which markers it names{because}"
+    )
 }
 
 /// A run of bytes read from the front, every read checked against what is left.
@@ -211,6 +284,10 @@ impl<'a> Bytes<'a> {
 
     fn u32_le(&mut self) -> Option<u32> {
         self.array().map(u32::from_le_bytes)
+    }
+
+    fn u64_le(&mut self) -> Option<u64> {
+        self.array().map(u64::from_le_bytes)
     }
 }
 
@@ -1020,7 +1097,29 @@ mod tests {
     fn a_wave_type_over_other_bytes_and_an_unread_type_are_said() {
         assert!(timeline("audio/wav", b"OggS").is_err());
         assert!(timeline("video/x-msvideo", b"RIFF").is_err());
-        assert!(!is_read("application/x-shockwave-flash"));
+        assert!(!is_read("audio/mpeg"));
+        let said = timeline("audio/mpeg", b"ID3").expect_err("MPEG audio is unread");
+        assert!(said.contains("11172-3"), "{said}");
+        assert!(unread("video/x-flv").contains("video/x-flv"));
+        assert!(!unread("video/x-flv").contains("11172"));
+    }
+
+    #[test]
+    fn the_flash_windows_media_and_program_stream_types_are_read_by_their_own_names() {
+        for name in [
+            "application/x-shockwave-flash",
+            "Application/Vnd.Adobe.Flash.Movie; version=9",
+            "video/x-ms-wmv",
+            "audio/x-ms-wma",
+            "application/vnd.ms-asf",
+            "video/x-ms-asf",
+            "video/mpeg",
+            "video/x-mpeg",
+        ] {
+            assert!(is_read(name), "{name}");
+        }
+        // Each type reads its own container and no other: a SWF file under an ASF type is not one.
+        assert!(timeline("video/x-ms-wmv", b"FWS\x09").is_err());
     }
 
     #[test]

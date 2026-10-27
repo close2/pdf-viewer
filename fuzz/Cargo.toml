@@ -70,6 +70,8 @@ raster-gpu = { path = "../raster/crates/raster-gpu" }
 # A document's scripts: the engine, which `script` runs as the confined worker does, and the
 # worker's own wire, which `script_wire` decodes from both sides (ADR 1609).
 pdf-script = { path = "../crates/pdf-script", features = ["engine"] }
+# FormCalc, XFA 3.3 chapter 25's calculation language, which `formcalc` fuzzes (ADR 2482).
+pdf-formcalc = { path = "../crates/pdf-formcalc" }
 pdf-script-worker = { path = "../crates/pdf-script-worker" }
 
 [profile.release]
@@ -309,6 +311,13 @@ bench = false
 [[bin]]
 name = "script"
 path = "fuzz_targets/script.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "formcalc"
+path = "fuzz_targets/formcalc.rs"
 test = false
 doc = false
 bench = false

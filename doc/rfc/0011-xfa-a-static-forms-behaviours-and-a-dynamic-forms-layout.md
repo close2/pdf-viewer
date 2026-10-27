@@ -443,6 +443,14 @@ half; §K.2 is `partial`, three writer's rules kept and the template's events ow
    tests by page 1340's default, `preSubmit`, and names each failure on `Submission::owed`, the
    cancelling an error asks for being the host's submit policy's (ADR 1198). §K.2's validations
    sentence is discharged; its calculations and events are the half owed, with step 5.
+   **Step 6's calculations built** (session 1824, ADR 2482): the census over the crawl cache found
+   24 live FormCalc calculations in 5 hybrid forms against 36 JavaScript ones in 5, so FormCalc
+   comes first for calculations. `pdf-formcalc` lexes and parses chapter 25 whole and evaluates it,
+   carrying `Sum`, `Concat`, `Replace` and `HasValue` and refusing every other built-in by name;
+   `pdf_model::xfa::Form` is the hook (page 114's scope search, page 115's inferred index), and
+   all 24 evaluate against their own forms. No window runs them yet: the worker's host, the
+   activation order of page 379 and the result's route into the save are next, and JavaScript
+   calculations and the events with step 5.
 4. **On Q639's answer**: the dynamic half, whose first round is a measurement — the cost of laying
    out page one of the census's `/NeedsRendering` documents — before a line of layout ships.
 

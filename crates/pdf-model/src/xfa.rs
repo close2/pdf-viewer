@@ -77,6 +77,7 @@ pub fn stated(document: &Document) -> Option<Stated> {
     })
 }
 
+mod calculate;
 mod canonical;
 mod config;
 mod datasets;
@@ -86,10 +87,11 @@ mod template;
 mod validate;
 mod xml;
 
+pub use calculate::{Calculation, Form, Occurrence, Scalar, Step};
 pub use config::Config;
 pub use datasets::{Change, Datasets, Kept};
 pub use locale::LocaleSet;
-pub use template::Template;
+pub use template::{Language, Template};
 pub use xml::XmlError;
 
 /// The largest XFA packet this module decodes.
@@ -210,8 +212,14 @@ impl Resource {
 
     fn from_stream(document: &Document, id: ObjectId) -> Result<Self, ResourceError> {
         let (text, tree) = packet(document, id, "XDP")?;
+        // The `template` packet is a child of the `xdp:xdp` root. A `config` packet before it
+        // holds a `template` element of its own, the configuration's (XFA 3.3 page 1335), which
+        // is not the form's (ADR 2482).
         let template = tree
-            .first("template")
+            .child(0, "template")
+            // Only a stream whose root has no `template` child falls back to any depth: it is
+            // not the shape §K.2 gives, and a configuration's `template` can be picked there.
+            .or_else(|| tree.first("template"))
             .ok_or(ResourceError::Missing("template"))?;
         let datasets = tree
             .first("datasets")

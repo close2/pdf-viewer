@@ -88,7 +88,8 @@ impl Tree {
     }
 
     /// The first element of this local name, at any depth — how a whole-resource stream's
-    /// `template` or `datasets` packet is found inside its `xdp:xdp` (§K.2's first form).
+    /// `datasets` packet is found inside its `xdp:xdp` (§K.2's first form), and its `template`
+    /// only where no child of the root is one.
     pub(crate) fn first(&self, local: &str) -> Option<usize> {
         self.elements
             .iter()

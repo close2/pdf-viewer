@@ -588,3 +588,12 @@ but the row departs on two refusals (ADR 2439), and the other, ADR 1363's calcul
 the owner's answer the slot executed, so the row stayed `departed` with a narrower note. The work was
 right and the finish line was wrong; a finish line a slot cannot reach by its own contract is read as a
 brief's defect, not the round's.
+
+## A ratified RFC's census is re-run over the crawl cache before its "none" decides an order
+
+A census an RFC took over a small corpus is re-run over the crawl cache before its "the corpora hold none"
+decides what is built first. RFC 0011 section 4 walked 1 479 files, found four hybrids and no calculation,
+and ordered the static half's behaviours on that; round 1824 (ADR 2482) walked the 90 319 documents the crawl
+cache holds and found 11 hybrids with a `calculate` — 24 live FormCalc scripts and 36 live JavaScript ones —
+which put FormCalc before the JavaScript step the RFC had placed first. A population figure that orders work
+is taken over the largest corpus the machine holds, and the RFC's figure is read as the sample it was.

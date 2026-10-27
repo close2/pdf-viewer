@@ -214,7 +214,9 @@ groups, in the order a slot should take them:
 5. **Losses both profiles leave at `stop` by their yardstick.** Transfer functions, halftones under
    `as-if-printed`, image interpolation: section 3's argument stands, and an operator's
    `--authorise` answers each.
-6. **`not-built-yet` sites each reached by one to three witnesses**: the JPEG 2000 rows, the
+6. **`not-built-yet` sites each reached by one to three witnesses**: the JPEG 2000 rows (a
+   component deeper than sixteen bits is written back as JPEG 2000, ADR 2484; the corpora's
+   count of such images is in `doc/history/1825-a-deep-jpeg-2000-image-is-written-back-as-jpeg-2000-and-the-census-finds-none.md`), the
    composite font rows (`cid-to-gid-map-present` for a file labelled PDF 2.0, ADR 2246 writing it
    for a 1.x label, `embedded-cmap-states-its-own-write-mode`,
    `font-programs-embedded`'s shapes, the TrueType route), `spot-colourants-appear-in-the-colorants-dictionary`
@@ -332,7 +334,9 @@ convert with the refusal lifted): the widths would be this viewer's guess at a l
 never stated, which `doc/questions/A48` forbids filling in, so it waits on `doc/questions/Q687`
 (ADR 2477). A font that names a descriptor this conversion renamed, and that the conversion left its
 own `/BaseFont`, keeps a copy of the producer's descriptor, so Table 120's `/FontName` still matches
-(ADR 2476).
+(ADR 2476), whether it is an object or written directly inside another dictionary (ADR 2487), and
+two shown descendants over one re-keyed descriptor all state the name its widened program ends
+with (ADR 2486).
 
 Table 109's widths-array count is checked independently for simple fonts. A nonempty short
 array narrows LastChar; a long array loses only entries beyond it. This `Stated` rewrite keeps

@@ -8,9 +8,11 @@ license.workspace = true
 repository.workspace = true
 
 # No dependencies, on purpose: the crate takes integers and writes a codestream, and the round
-# trip that proves it is read back by `pdf-sandbox`, the tree's own JPEG 2000 decoder (ADR 2470).
+# trip that proves it is read back by `pdf-sandbox`, the tree's own JPEG 2000 decoder (ADR 2470),
+# and the boxes around it by `pdf-model`'s reader of them (ADR 2480).
 
 [dev-dependencies]
+pdf-model.workspace = true
 pdf-sandbox.workspace = true
 
 [lints]

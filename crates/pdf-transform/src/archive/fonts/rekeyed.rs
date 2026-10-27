@@ -105,13 +105,17 @@ pub(super) fn is_adobe_identity(document: &Document, descendant: &Dictionary) ->
 }
 
 /// What this route wrote into one descriptor: every CID shown through it with its character and
-/// width, and the objects it wrote, so that a font met again on another page widens the one
-/// program rather than writing a second.
+/// width, the objects it wrote and the `CIDFont`s that show it, so that a font met again on another
+/// page widens the one program rather than writing a second.
 #[derive(Debug)]
 pub(super) struct Rekeyed {
     shown: BTreeMap<u16, (char, f32)>,
     at: ObjectId,
     map_at: Option<ObjectId>,
+    /// Every `CIDFont` object that shows the descriptor's program: Table 120 makes the descriptor's
+    /// `/FontName` the `/BaseFont` of each, so a program widened for a later font restates the
+    /// name, and the face's other gains, on all of them (`doc/adr/2486`).
+    descendants: Vec<ObjectId>,
 }
 
 /// The face the characters are drawn from.
@@ -239,10 +243,22 @@ pub(super) fn embed(
         named.insert(Name::new(&b"FontName"[..]), name);
         substitutes.described.insert(descriptor, named);
     }
-    substitutes.described.insert(descendant_at, gains);
-    substitutes
-        .rekeyed
-        .insert(descriptor, Rekeyed { shown, at, map_at });
+    let mut descendants = earlier
+        .map(|earlier| earlier.descendants)
+        .unwrap_or_default();
+    if !descendants.contains(&descendant_at) {
+        descendants.push(descendant_at);
+    }
+    restate_on_each(document, &descendants, &gains, descendant, substitutes)?;
+    substitutes.rekeyed.insert(
+        descriptor,
+        Rekeyed {
+            shown,
+            at,
+            map_at,
+            descendants,
+        },
+    );
     substitutes.done.push(SubstitutedFont {
         resource: used.name.clone(),
         requested: base_font(document, &used.dict),
@@ -256,6 +272,60 @@ pub(super) fn embed(
         font: super::selected(used),
     });
     Ok(())
+}
+
+/// Gives every `CIDFont` that shows the descriptor's program the gains the face brings, so that
+/// each states the `/BaseFont` the descriptor now carries (Table 120).
+fn restate_on_each(
+    document: &Document,
+    descendants: &[ObjectId],
+    gains: &Dictionary,
+    reference: &Dictionary,
+    substitutes: &mut Substitutes,
+) -> Result<(), Because> {
+    for sharing in descendants {
+        let own = document.get(*sharing);
+        let own = own
+            .as_dict()
+            .ok_or(Because::NotBuiltYet(NO_DESCENDANT_OBJECT))?;
+        substitutes
+            .described
+            .insert(*sharing, gains_for(document, own, gains, reference));
+    }
+    Ok(())
+}
+
+/// What the face gives the `CIDFont` `own` that shares a descriptor with `reference`: the gains
+/// computed for `reference`, with `/Subtype` stated only where `own` does not already state the
+/// one the face's program needs.
+///
+/// A `CIDFont` that shows a program sits under the subtype Table 124's row for that program names
+/// (`/CIDFontType2` for `/FontFile2`, `/CIDFontType0` for `/FontFile3`), so the subtype is the
+/// one part of the gains that depends on the dictionary they are written into.
+fn gains_for(
+    document: &Document,
+    own: &Dictionary,
+    gains: &Dictionary,
+    reference: &Dictionary,
+) -> Dictionary {
+    let mut restated = gains.clone();
+    let needed = match gains.get("Subtype") {
+        Some(Object::Name(name)) => Some(name.as_bytes().to_vec()),
+        _ => name_of(document, reference, "Subtype").map(String::into_bytes),
+    };
+    let stated = name_of(document, own, "Subtype").map(String::into_bytes);
+    match needed {
+        Some(needed) if stated.as_deref() != Some(needed.as_slice()) => {
+            restated.insert(
+                Name::new(&b"Subtype"[..]),
+                Object::Name(Name::new(needed.as_slice())),
+            );
+        }
+        _ => {
+            restated.remove("Subtype");
+        }
+    }
+    restated
 }
 
 /// Writes the `/CIDToGIDMap` stream a `glyf` face needs at the object a font met earlier already

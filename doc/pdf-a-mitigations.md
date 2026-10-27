@@ -1009,7 +1009,8 @@ by name
   subject, as the baseline's does, so the transcode below answers them for the same shape — an
   image whose dictionary states its `ColorSpace` — and refuses the same way where it states none.
   The bit-depth row is answered where Table 87 can hold the depths (a codestream whose channels
-  differ); a component deeper than sixteen bits keeps the refusal. Two costs that have to be said
+  differ); a component deeper than sixteen bits is written as JPEG 2000 again, losslessly, by the
+  tree's own writer (ADR 2484). Two costs that have to be said
   out loud, and the second is the serious one: the file grows, often by a great deal; and **this
   tree's own JPEG 2000 decoder's output becomes the archive permanently**, so a bug in it is baked
   in rather than re-decodable later. One cheaper case exists for the channel count and is unbuilt —
@@ -1049,10 +1050,16 @@ refused by name
   reason it is the operator's answer: the file grows, and this tree's decoder's output is kept as
   the picture. An opacity channel in the data (`SMaskInData` non-zero) becomes the soft-mask image
   Table 87 has a processor create, `DeviceGray` under `FlateDecode`, with a zero `Matte` for code 2
-  (ADR 1412). Refused by name within the shape: code 2 over an `Indexed` space, `SMask` beside a
-  non-zero `SMaskInData`, an image mask whose data carries opacity, a component deeper than sixteen
-  bits, a
-  decode that is not whole at the ordinary budget, a channel count the space does not have — and
+  (ADR 1412). **A component deeper than sixteen bits has no Flate field** (Table 87 stops at 16),
+  so such an image is written as a JP2 file of `pdf_jpx_write` under `JPXDecode` — one tile, the
+  reversible 5-3 filter, one depth for every colour channel with `Decode` widened where they
+  differed, the opacity channel inside the file and `SMaskInData` as it stood (ADR 2484). Refused
+  by name there: four colour channels (a JPX file's CMYK, which a JP2 file cannot name), a grey
+  image beside an opacity channel and an opacity channel of another depth than the colour
+  channels (veraPDF fails the two channel counts and the `bpcc` box, ADR 2485). Refused by name
+  within the shape: code 2 over an `Indexed` space, `SMask` beside a non-zero `SMaskInData`, an
+  image mask whose data carries opacity, a decode that is not whole at the ordinary budget, a
+  channel count the space does not have — and
   the decode's own failures one sentence each: not whole at the budget or a feature the decoder
   lacks; a colour space no PDF space restates for the samples, PIMA 7667's e-sRGB and e-sYCC
   among them (ADR 2292); a codestream its dictionary contradicts; a depth or filter not unpacked. Where
@@ -1228,7 +1235,10 @@ face is drawn narrowed to the file's widths, **built** (`doc/questions/A47`, `A5
 - **A font that names a descriptor the conversion renamed** (the CJK pack's subset, a re-keyed
   face) and that no route embedded into keeps its own `/BaseFont`, so it is pointed at a copy of
   the producer's descriptor, which embeds nothing: Table 120 makes `/FontName` the `/BaseFont` of
-  every font that refers to the descriptor (ADR 2476).
+  every font that refers to the descriptor (ADR 2476). One written directly inside another
+  dictionary is first written out as an object of its own, as below (ADR 2487). Two shown
+  descendants over one re-keyed descriptor all state the name the widened program ends with (ADR
+  2486).
 - **A font written directly inside its resource dictionary** is written out as an object of its
   own holding what it gains, and a reference stands where it stood; §7.3.10 makes the two spellings
   equivalent, and equal dictionaries share the one object (ADR 2162).

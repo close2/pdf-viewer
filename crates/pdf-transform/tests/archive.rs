@@ -15526,6 +15526,8 @@ mod default_rgb_page_intent;
 
 #[path = "archive/cjk_pack.rs"]
 mod cjk_pack;
+#[path = "archive/deep_jpx.rs"]
+mod deep_jpx;
 #[path = "archive/empty_glyphs.rs"]
 mod empty_glyphs;
 #[path = "archive/photographed.rs"]

@@ -1006,7 +1006,8 @@ pub enum Rewrite {
     /// goes is the pointer, and the report names the file and page it named (`doc/adr/1285`).
     ReferenceXObjectProxied,
     /// Every JPEG 2000 image the baseline requirement named, where its dictionary states its own
-    /// colour space, is decoded to its samples and written again under `FlateDecode`.
+    /// colour space, is decoded to its samples and written again under `FlateDecode`, or as
+    /// JPEG 2000 again where a component is deeper than sixteen bits (`doc/adr/2484`).
     ///
     /// ISO 19005-2 section 6.2.8.3 and ISO 19005-4 section 6.2.7.3 bind JPEG 2000 data, and
     /// §7.4.9 has a stated `/ColorSpace` decide what the samples mean — so the copy keeps that
@@ -1627,7 +1628,8 @@ impl Rewrite {
             Self::Jpeg2000TranscodedToFlate => {
                 "a JPEG 2000 image outside the JPX baseline that states its own ColorSpace is \
                  decoded to its samples and written again under FlateDecode in that space, each \
-                 integer kept at its own depth"
+                 integer kept at its own depth, or, past sixteen bits, as a JP2 file of this \
+                 program's lossless writer"
             }
         }
     }

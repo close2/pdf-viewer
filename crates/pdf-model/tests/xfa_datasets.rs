@@ -806,3 +806,274 @@ fn a_mapping_rule_this_does_not_carry_out_leaves_the_field_named() {
         written.xfa_unkept
     );
 }
+
+/// The calculations and the form they run in (RFC 0011 section 5's step 6, ADR 2482): the scripts
+/// in document order with their language (XFA 3.3 page 412), the names a script reaches by page
+/// 114's search and page 115's inferred index, and the values it reads and assigns.
+mod calculations {
+    use pdf_model::xfa::{Change, Language, Occurrence, Resource, Scalar, Step};
+    use pdf_syntax::Document;
+
+    use super::fixture;
+
+    fn step(name: &str) -> Step {
+        Step {
+            name: name.to_owned(),
+            occurrence: Occurrence::Same,
+        }
+    }
+
+    fn at(name: &str, index: i64) -> Step {
+        Step {
+            name: name.to_owned(),
+            occurrence: Occurrence::At(index),
+        }
+    }
+
+    fn resource(fields: &[(&str, &str)]) -> Resource {
+        Resource::read(&fixture(fields, None))
+            .expect("the fixture states an XFA resource")
+            .expect("its resource reads")
+    }
+
+    #[test]
+    fn scripts_are_listed_in_document_order_with_their_language() {
+        let resource = resource(&[
+            (
+                "Units",
+                "<field name=\"Units\"><value><integer/></value></field>",
+            ),
+            (
+                "Total",
+                "<field name=\"Total\"><calculate><script>Units * 2</script></calculate></field>",
+            ),
+            (
+                "Script",
+                "<field name=\"Script\"><calculate><script \
+                 contentType=\"application/x-javascript\">this.rawValue = 1;</script>\
+                 </calculate></field>",
+            ),
+            (
+                "Blank",
+                "<field name=\"Blank\"><calculate><script>  </script></calculate></field>",
+            ),
+        ]);
+        let form = resource.form(&[("form1[0].Total[0]".to_owned(), Change::Text(String::new()))]);
+        let listed = form.calculations();
+        assert_eq!(listed.len(), 2, "a blank script is no calculation");
+        assert_eq!(listed[0].language, Language::FormCalc);
+        assert_eq!(listed[0].script, "Units * 2");
+        assert_eq!(listed[0].field.as_deref(), Some("form1[0].Total[0]"));
+        assert!(listed[0].sets_value);
+        assert_eq!(listed[1].language, Language::JavaScript);
+        assert_eq!(listed[1].field, None);
+    }
+
+    #[test]
+    fn a_name_is_searched_from_the_children_up_through_the_siblings_of_each_ancestor() {
+        // Page 114: children first, then the container and its siblings, then the parent and its
+        // siblings, so an inner field shadows an outer one of the same name and a name only an
+        // outer container holds is still found.
+        let resource = resource(&[
+            ("Units", "<field name=\"Units\"/>"),
+            (
+                "Group",
+                "<subform name=\"Group\"><field name=\"Units\"/>\
+                 <field name=\"Inner\"><calculate><script>Units</script></calculate></field>\
+                 <field name=\"Other\"><calculate><script>Total</script></calculate></field>\
+                 </subform>",
+            ),
+            ("Total", "<field name=\"Total\"/>"),
+        ]);
+        let form = resource.form(&[]);
+        let listed = form.calculations();
+        let (inner, other) = (listed[0].node, listed[1].node);
+        let outer_units = form.resolve(other, &[step("Units")]).unwrap();
+        let inner_units = form.resolve(inner, &[step("Units")]).unwrap();
+        assert_eq!(outer_units.len(), 1);
+        assert_eq!(inner_units.len(), 1);
+        assert_eq!(
+            outer_units, inner_units,
+            "both reach the Units beside them, in Group"
+        );
+        let top_units = form.resolve(inner, &[at("Units", 0)]).unwrap();
+        assert_eq!(top_units, inner_units);
+        let total = form.resolve(other, &[step("Total")]).unwrap();
+        assert_eq!(
+            total.len(),
+            1,
+            "a name only the parent's sibling holds is found"
+        );
+        assert_eq!(form.resolve(inner, &[step("Missing")]).unwrap(), vec![]);
+        assert_eq!(
+            form.resolve(inner, &[step("Group"), step("Inner")])
+                .unwrap(),
+            vec![inner],
+            "a name's later terms are children of the one before"
+        );
+    }
+
+    #[test]
+    fn a_dollar_names_the_script_container_and_escapes_the_search() {
+        // Page 114: `$.` is qualified and relative to the container, so it does not find the
+        // same-named field a level up.
+        let resource = resource(&[
+            ("Price", "<field name=\"Price\"/>"),
+            (
+                "Detail",
+                "<subform name=\"Detail\"><field name=\"Cost\"><calculate>\
+                 <script>$.Price</script></calculate></field></subform>",
+            ),
+        ]);
+        let form = resource.form(&[]);
+        let cost = form.calculations()[0].node;
+        assert_eq!(form.resolve(cost, &[step("$")]).unwrap(), vec![cost]);
+        assert_eq!(
+            form.resolve(cost, &[step("$"), step("Price")]).unwrap(),
+            vec![]
+        );
+        assert_eq!(form.resolve(cost, &[step("Price")]).unwrap().len(), 1);
+        assert!(
+            form.resolve(cost, &[step("$record"), step("Price")])
+                .is_err()
+        );
+        assert!(form.resolve(cost, &[step("$"), step("parent")]).is_err());
+    }
+
+    #[test]
+    fn an_omitted_index_is_the_index_of_the_script_container() {
+        // Page 115 (Example 3.39): in a matrix of same-named fields, Total[n] reads Units[n].
+        let resource = resource(&[(
+            "Sheet",
+            "<subform name=\"Sheet\"><field name=\"Units\"/>\
+             <field name=\"Total\"><calculate><script>Units</script></calculate></field>\
+             <field name=\"Units\"/>\
+             <field name=\"Total\"><calculate><script>Units</script></calculate></field>\
+             </subform>",
+        )]);
+        let form = resource.form(&[]);
+        let listed = form.calculations();
+        let (first, second) = (listed[0].node, listed[1].node);
+        let units = |here, index| form.resolve(here, &[at("Units", index)]).unwrap();
+        assert_eq!(
+            form.resolve(first, &[step("Units")]).unwrap(),
+            units(first, 0)
+        );
+        assert_eq!(
+            form.resolve(second, &[step("Units")]).unwrap(),
+            units(second, 1)
+        );
+        assert_ne!(units(first, 0), units(first, 1));
+        let relative = Step {
+            name: "Units".to_owned(),
+            occurrence: Occurrence::Relative(-1),
+        };
+        assert_eq!(form.resolve(second, &[relative]).unwrap(), units(second, 0));
+        assert_eq!(
+            form.resolve(first, &[at("Units", 5)]).unwrap(),
+            vec![],
+            "an index outside the range names nothing"
+        );
+    }
+
+    #[test]
+    fn values_are_typed_by_the_container_and_assignments_are_named() {
+        let resource = resource(&[
+            (
+                "Units",
+                "<field name=\"Units\"><value><integer/></value></field>",
+            ),
+            (
+                "Note",
+                "<field name=\"Note\"><value><text/></value></field>",
+            ),
+            (
+                "Total",
+                "<field name=\"Total\"><value><decimal/></value><calculate>\
+                 <script>Units</script></calculate></field>",
+            ),
+            ("Group", "<subform name=\"Group\"/>"),
+        ]);
+        let mut form = resource.form(&[
+            ("form1[0].Units[0]".to_owned(), Change::Text("3".to_owned())),
+            ("form1[0].Note[0]".to_owned(), Change::Text("3".to_owned())),
+            ("form1[0].Total[0]".to_owned(), Change::Text(String::new())),
+        ]);
+        let total = form.calculations()[0].node;
+        let units = form.resolve(total, &[step("Units")]).unwrap()[0];
+        let note = form.resolve(total, &[step("Note")]).unwrap()[0];
+        let group = form.resolve(total, &[step("Group")]).unwrap()[0];
+        assert_eq!(form.value(units), Scalar::Number(3.0));
+        assert_eq!(form.value(note), Scalar::Text("3".to_owned()));
+        assert_eq!(form.value(total), Scalar::Null);
+        assert!(form.edits().is_empty());
+        form.set(total, Scalar::Number(6.0)).unwrap();
+        assert!(
+            form.set(group, Scalar::Null).is_err(),
+            "a subform holds no value"
+        );
+        assert_eq!(
+            form.edits(),
+            vec![("form1[0].Total[0]".to_owned(), Scalar::Number(6.0))]
+        );
+    }
+
+    /// A document whose `/XFA` entry is one stream holding the whole `xdp:xdp` (§K.2's first form).
+    fn whole_resource(xdp: &str) -> Document {
+        use std::fmt::Write as _;
+        let objects = [
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [] /XFA 4 0 R >> >>".to_owned(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>".to_owned(),
+            format!(
+                "<< /Length {} >>\nstream\n{xdp}\nendstream",
+                xdp.len().saturating_add(1)
+            ),
+        ];
+        let mut out = String::from("%PDF-1.7\n");
+        let mut offsets = Vec::new();
+        for (index, body) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", index.saturating_add(1));
+        }
+        let xref_at = out.len();
+        let _ = write!(
+            out,
+            "xref\n0 {}\n0000000000 65535 f \n",
+            objects.len().saturating_add(1)
+        );
+        for offset in &offsets {
+            let _ = writeln!(out, "{offset:010} 00000 n ");
+        }
+        let _ = write!(
+            out,
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
+            objects.len().saturating_add(1)
+        );
+        Document::open(out.into_bytes()).expect("the fixture opens")
+    }
+
+    #[test]
+    fn a_configs_template_element_is_not_the_forms_template() {
+        // Page 1335: the configuration has a `template` element of its own (a base, a start page,
+        // a uri), and in a whole-resource stream it comes before the form's, so the form's is the
+        // `xdp:xdp` root's child.
+        let document = whole_resource(
+            "<xdp:xdp xmlns:xdp=\"http://ns.adobe.com/xdp/\">\
+             <config xmlns=\"http://www.xfa.org/schema/xci/1.0/\"><agent name=\"designer\">\
+             <template><base/></template></agent></config>\
+             <template xmlns=\"http://www.xfa.org/schema/xfa-template/3.3/\">\
+             <subform name=\"form1\"><field name=\"Total\"><calculate>\
+             <script>1 + 1</script></calculate></field></subform></template>\
+             <xfa:datasets xmlns:xfa=\"http://www.xfa.org/schema/xfa-data/1.0/\">\
+             <xfa:data><form1/></xfa:data></xfa:datasets></xdp:xdp>",
+        );
+        let resource = Resource::read(&document)
+            .expect("the entry is an XFA resource")
+            .expect("its resource reads");
+        let form = resource.form(&[]);
+        let listed = form.calculations();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].script, "1 + 1");
+    }
+}

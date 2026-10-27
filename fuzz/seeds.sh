@@ -138,6 +138,8 @@ seed() {
         ;;
     # Readbacks that fold, decompose and carry marks, with needles typed against them.
     find) python3 "$here/seed_find.py" "$root/$t" > /dev/null ;;
+    # Scripts shaped like XFA 3.3 chapter 25's examples and a form's usual calculations.
+    formcalc) python3 "$here/seed_formcalc.py" "$root/$t" > /dev/null ;;
     # The meet's own test shapes and polygons on a sixteenth-pixel grid.
     meet) python3 "$here/seed_meet.py" "$root/$t" > /dev/null ;;
     # Small documents under each of RFC 0003's five write verbs.

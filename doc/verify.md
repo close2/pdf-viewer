@@ -675,8 +675,9 @@ cd fuzz && cargo +nightly fuzz run page -- -runs=50000 -fork=6 -rss_limit_mb=409
   # `slow-unit-` artefacts and read them in a **release** binary before believing them: ASan, the
   # debug assertions and six forks on one machine make a unit look many times slower than it is.
 cd fuzz && cargo +nightly fuzz run media_container -- -max_total_time=600   # §13.2.4.3's clip
-  # timeline: `pdf_model::media::container`'s header reader for RIFF WAVE, AVI, AIFF and the ISO
-  # base media file format, walked by the sizes an embedded file states (ADR 2452). Seeded by
+  # timeline: `pdf_model::media::container`'s header reader for RIFF WAVE, AVI, AIFF, the ISO
+  # base media file format, SWF, ASF and an MPEG-2 program stream, walked by the sizes an embedded
+  # file states (ADRs 2452, 2488, 2489). Seeded by
   # `fuzz/seed_media_container.py`, one built file per container with the cue points, markers and
   # chapter track the reader walks, because no corpus document holds a media clip section.
 cd fuzz && cargo +nightly fuzz run xmp           -- -runs=50000   # §14.3.2's XMP.
@@ -1009,6 +1010,10 @@ cd fuzz && cargo +nightly fuzz run vfs_write    -- -max_total_time=600 -rss_limi
   # RFC 0003 section 5.2's five write verbs over a document in memory through the in-process
   # worker: every commit begins with the file it replaces (§7.5.6), a deleted page is one page.
   # Seeded by `fuzz/seed_vfs_write.py` from the pdf.js documents under 32 KiB.
+cd fuzz && cargo +nightly fuzz run formcalc     -- -max_total_time=600 -rss_limit_mb=2048 -timeout=20 -max_len=4096
+  # XFA 3.3 chapter 25's `FormCalc` lexed, parsed and evaluated over a small form under a budget
+  # (ADR 2482): the budgets hold, a run is a function of its input, and a script that does not
+  # parse assigns nothing. Seeded by `fuzz/seed_formcalc.py` from the chapter's example shapes.
 # **A campaign runs the targets without the sanitiser, under the lock and `tools/bounded.sh`.** The
 # crates a fuzz target reaches forbid `unsafe`, so what AddressSanitizer adds over Rust's own checks
 # is a dependency's unsafe code, and what it costs is the shadow memory that `tools/bounded.sh`'s

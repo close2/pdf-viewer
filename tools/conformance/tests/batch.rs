@@ -2135,6 +2135,9 @@ fn a_seeded_exports_first_build_compiles_a_crate_whose_source_differs_from_the_s
     let out = sandbox.worktree().join("scratchpad/r9001/export");
     let first = sandbox
         .command("cargo", &out)
+        // CI colours cargo's output (`CARGO_TERM_COLOR=always`), and an escape between "Compiling"
+        // and the crate's name would hide the word this test reads.
+        .env("CARGO_TERM_COLOR", "never")
         .args(["build", "--offline"])
         .output()
         .expect("cargo runs");

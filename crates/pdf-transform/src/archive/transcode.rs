@@ -1,5 +1,6 @@
 //! `preserve` for a JPEG 2000 image outside the JPX baseline: its samples, written again under
-//! `FlateDecode` in the colour space its own dictionary states.
+//! `FlateDecode` in the colour space its own dictionary states, or as JPEG 2000 again where a
+//! component is deeper than any Flate field holds.
 //!
 //! ISO 19005-2 section 6.2.8.3 and ISO 19005-4 section 6.2.7.3 restrict *JPEG 2000 data* to the
 //! JPX baseline set of features, which ITU-T T.801 M.9.2 defines (ADR 1383). Every other
@@ -32,11 +33,28 @@
 //! they are written in the field of the widest, eight bits or sixteen, with each component's
 //! `/Decode` pair widened from its own depth so that §8.9.5.2's map gives every integer the value
 //! it had (the redaction writer's construction, ADR 1371).
+//!
+//! **A component deeper than sixteen bits goes back into the one filter that holds it.** Table 87
+//! gives every filter but `JPXDecode` at most sixteen bits a sample, and §7.4.9 lets a JPEG 2000
+//! component be as deep as 38, so a Flate copy has no field for those integers (ADR 2470). They are
+//! written again through the tree's lossless writer, `pdf_jpx_write`, as a JP2 file: a plain
+//! codestream of one tile inside the boxes of ISO/IEC 15444-1 Annex I, which is inside T.801
+//! M.9.2's baseline (M.9.2.3's codestream asks for no extension, M.9.2.4's list holds the
+//! enumerated colour space of the file's one specification). ISO 19005-2 section 6.2.8.3 and ISO
+//! 19005-4 section 6.2.7.3 then bind the new data and admit it: one or three colour channels, a
+//! depth from 1 to 38, and one depth for every colour channel — so the integers of components of
+//! different depths keep their values at the widest's depth, and `/Decode` is widened as for a
+//! Flate field. An opacity channel of another depth than that waits (ADR 2485): the file would
+//! need a `bpcc` box, which the reference validator fails, and so does a grey image beside an
+//! opacity channel, whose two channels it counts against section 6.2.8.3's one, three or four.
+//! The dictionary's `/SMaskInData` stays, because the opacity channel travels inside the file.
+//! Four colour channels wait for a JPX file, which states a four-channel space (ADR 2484).
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use pdf_archive::Outcome;
+use pdf_jpx_write::{Colour, Opacity, Plane};
 use pdf_model::image::{ImageError, JpxSamples, ORDINARY_JPX_SAMPLES};
 use pdf_syntax::Document;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
@@ -66,11 +84,12 @@ pub(super) const SITES: [&str; 4] = [
 /// What an operator answering the site with `preserve` is agreeing to.
 pub(super) const TRANSCODED: &str = "each JPEG 2000 image outside the JPX baseline whose \
      dictionary states its own ColorSpace is decoded to its samples, at the depth its codestream \
-     gives each component, and written again under FlateDecode in that same ColorSpace. Two costs \
-     come with it: the file grows, often by a great deal, and this program's JPEG 2000 decoder's \
-     output becomes the archive's copy of the picture, so a fault in that decoder is kept rather \
-     than left re-decodable. The report names every image with its size before and after \
-     (doc/adr/1400)";
+     gives each component, and written again under FlateDecode in that same ColorSpace, or, where \
+     a component is deeper than sixteen bits and no Flate field holds it, as a JP2 file of this \
+     program's lossless writer. Two costs come with it: the file grows, often by a great deal, \
+     and this program's JPEG 2000 decoder's output becomes the archive's copy of the picture, so \
+     a fault in that decoder is kept rather than left re-decodable. The report names every image \
+     with its size before and after (doc/adr/1400, doc/adr/2484)";
 
 /// Why a finding naming no object cannot be acted on.
 const NO_IMAGE_OBJECT: &str = "a JPX baseline failure was reported without the image XObject it \
@@ -136,10 +155,46 @@ const NOT_DECODED: &str = "a JPEG 2000 image outside the JPX baseline was not de
      samples this conversion can write: the decode reported a depth or a filter this reader \
      does not unpack, so there is nothing a Flate copy could be built from";
 
-/// Why a component deeper than sixteen bits is not transcoded.
-const DEEPER_THAN_SIXTEEN: &str = "a JPEG 2000 image outside the JPX baseline has a component \
-     deeper than sixteen bits, which ISO 32000-2 \u{a7}7.4.9 permits a codestream and Table 87 \
-     permits no other image: its integers have no field a Flate copy could hold them in";
+/// Why a component deeper than sixteen bits is not written back when the image has a number of
+/// colour channels no JP2 file names.
+const DEEP_WITHOUT_A_JP2_SPACE: &str = "a JPEG 2000 image outside the JPX baseline has a component \
+     deeper than sixteen bits, which no Flate field holds, and a number of colour channels other \
+     than one or three. The tree's JP2 writer names a greyscale or an sRGB space, and a \
+     four-channel space is one a JPX file states, as the CMYK that JPX enumerates and JPX \
+     baseline does not, or by an ICC profile";
+
+/// Why a deep image whose opacity channel has another depth than its colour channels is not
+/// written back (ADR 2485).
+const DEEP_OPACITY_AT_ANOTHER_DEPTH: &str = "a JPEG 2000 image outside the JPX baseline has a \
+     component deeper than sixteen bits and an opacity channel of another depth than its colour \
+     channels. A JP2 file whose channels differ in depth states each in a bpcc box (ISO/IEC \
+     15444-1 I.5.3.2), and veraPDF 1.30.3 fails any file with one at ISO 19005-2 section \
+     6.2.8.3, although that clause requires one depth for the colour channels alone, so the \
+     copy is not written rather than written to fail the reference validator";
+
+/// Why a deep grey image with an opacity channel is not written back (ADR 2485).
+const DEEP_GREY_WITH_OPACITY: &str = "a JPEG 2000 image outside the JPX baseline has a component \
+     deeper than sixteen bits, one colour channel and an opacity channel. veraPDF 1.30.3 counts \
+     every channel of the file against ISO 19005-2 section 6.2.8.3's one, three or four, which \
+     that clause states of the colour channels, and fails a file of two, so the copy is not \
+     written rather than written to fail the reference validator";
+
+/// Why the lossless writer refused the samples of a deep image.
+const NOT_WRITTEN_AS_JPEG_2000: &str = "a JPEG 2000 image outside the JPX baseline has a component \
+     deeper than sixteen bits and the tree's lossless JPEG 2000 writer did not take its samples, \
+     so there is no file to put in the Flate copy's place";
+
+/// Why the lossless writer refused a deep image because a component's depth is outside the range
+/// it writes.
+const NOT_WRITTEN_DEPTH: &str = "a JPEG 2000 image outside the JPX baseline has a component \
+     deeper than sixteen bits and a depth the tree's lossless JPEG 2000 writer does not write, \
+     so there is no file to put in the Flate copy's place";
+
+/// Why the lossless writer refused a deep image because its decoded samples do not fit the grid
+/// or the depth they were stated at.
+const NOT_WRITTEN_SAMPLES: &str = "a JPEG 2000 image outside the JPX baseline has a component \
+     deeper than sixteen bits whose decoded samples do not fit the grid and depths the tree's \
+     lossless JPEG 2000 writer was given, so there is no file to put in the Flate copy's place";
 
 /// Why an image whose component count contradicts its colour space is not transcoded.
 const COMPONENTS_DISAGREE: &str = "a JPEG 2000 image outside the JPX baseline decodes to a \
@@ -162,7 +217,11 @@ pub struct TranscodedImage {
     pub at: ObjectId,
     /// Each component's depth in the codestream.
     pub depths: Vec<u8>,
-    /// The `/BitsPerComponent` written.
+    /// The filter the image is written under: `FlateDecode`, or `JPXDecode` where a component is
+    /// deeper than sixteen bits (ADR 2484).
+    pub filter: &'static str,
+    /// The `/BitsPerComponent` written; under `JPXDecode`, which states none (Table 87), the
+    /// depth every colour channel of the file has.
     pub bits: u8,
     /// The stream's length under `JPXDecode`.
     pub before: usize,
@@ -190,6 +249,7 @@ impl TranscodedImage {
                         .collect(),
                 ),
             ),
+            ("filter".to_owned(), Value::text(self.filter)),
             (
                 "bits_per_component".to_owned(),
                 Value::count(usize::from(self.bits)),
@@ -284,8 +344,11 @@ fn transcode(
     let Object::Stream(stream) = document.get(id) else {
         return Err(Because::NotBuiltYet(NO_IMAGE_OBJECT));
     };
-    let dict = &stream.dict;
     let samples = admitted_samples(document, &stream)?;
+    if samples.precision > 16 {
+        return written_as_jpeg_2000(document, id, &stream, &samples);
+    }
+    let dict = &stream.dict;
     let soft_mask = soft_mask_for(document, dict, &samples, spare)?;
     let (bits, data, decode) = laid_out(&samples);
     let encoded = pdf_syntax::serialize::flate_encode(&data, COMPRESSION_LEVEL)
@@ -335,6 +398,7 @@ fn transcode(
     let row = TranscodedImage {
         at: id,
         depths: samples.depths.clone(),
+        filter: "FlateDecode",
         bits,
         before: stream.data.len(),
         after: replacement.data.len(),
@@ -395,11 +459,6 @@ fn admitted_samples(document: &Document, stream: &Stream) -> Result<JpxSamples, 
         (&stream.data, ORDINARY_JPX_SAMPLES),
     )
     .map_err(|error| Because::NotBuiltYet(not_decoded(&error)))?;
-    // The widest channel, the opacity channel's included, sizes every sample's field, and a
-    // field past sixteen bits is the three-byte one only a JPEG 2000 writer reads (ADR 2470).
-    if samples.precision > 16 {
-        return Err(Because::NotBuiltYet(DEEPER_THAN_SIXTEEN));
-    }
     let expected = if mask {
         Some(1)
     } else {
@@ -414,6 +473,174 @@ fn admitted_samples(document: &Document, stream: &Stream) -> Result<JpxSamples, 
         return Err(Because::NotBuiltYet(COMPONENTS_DISAGREE));
     }
     Ok(samples)
+}
+
+/// An image with a component deeper than sixteen bits, written again as a JP2 file under
+/// `JPXDecode` and proved (ADR 2484).
+///
+/// The widest channel, the opacity channel's included, sizes every sample's field, and a field
+/// past sixteen bits is the three-byte one only a JPEG 2000 writer reads (ADR 2470). The
+/// dictionary is the producer's with a new `/Length`: the filter, the stated `/ColorSpace` that
+/// §7.4.9 has govern the file's own specifications, and `/SMaskInData`, whose channel is inside
+/// the file, all stand. The one entry that may change is `/Decode`, widened where the colour
+/// components were of different depths and are now written at the widest.
+fn written_as_jpeg_2000(
+    document: &Document,
+    id: ObjectId,
+    stream: &Stream,
+    samples: &JpxSamples,
+) -> Result<Transcoded, Because> {
+    let colour = match samples.components {
+        1 => Colour::Greyscale,
+        3 => Colour::Srgb,
+        _ => return Err(Because::NotBuiltYet(DEEP_WITHOUT_A_JP2_SPACE)),
+    };
+    let depth = samples.depths.iter().copied().max().unwrap_or(1);
+    if samples.components == 1 && samples.opacity.is_some() {
+        return Err(Because::NotBuiltYet(DEEP_GREY_WITH_OPACITY));
+    }
+    if samples.opacity.is_some() && samples.opacity_depth != depth {
+        return Err(Because::NotBuiltYet(DEEP_OPACITY_AT_ANOTHER_DEPTH));
+    }
+    let field = pdf_sandbox::Raster::field_bytes(samples.precision);
+    let planes: Vec<Vec<u32>> = (0..samples.components)
+        .map(|index| channel(&samples.colour, index, samples.components, field))
+        .collect();
+    let opacity = samples
+        .opacity
+        .as_deref()
+        .map(|alpha| channel(alpha, 0, 1, field));
+    let colour_planes: Vec<Plane<'_>> = planes
+        .iter()
+        .map(|plane| Plane {
+            depth,
+            samples: plane,
+        })
+        .collect();
+    // Channel type 1, whatever `/SMaskInData` says. The decoder this tree reads with takes a
+    // channel of type 1 as the opacity channel and a channel of type 2 (I.5.3.6's premultiplied
+    // opacity) as no opacity at all, so the data that reached this function carried type 1, and
+    // type 1 is what the proof below can read back. `/SMaskInData`, which Table 87 gives the
+    // premultiplication and which stays as the producer wrote it, is what states it.
+    let opacity_plane = opacity.as_ref().map(|plane| {
+        (
+            Plane {
+                depth: samples.opacity_depth,
+                samples: plane,
+            },
+            Opacity::Plain,
+        )
+    });
+    let file = pdf_jpx_write::jp2(
+        (samples.width, samples.height),
+        colour,
+        &colour_planes,
+        opacity_plane,
+    )
+    .map_err(|error| Because::NotBuiltYet(not_written(&error)))?;
+    let mut written = stream.dict.clone();
+    if samples.depths.iter().any(|each| *each != depth) {
+        let decode: Vec<f32> = samples
+            .decode
+            .iter()
+            .zip(&samples.depths)
+            .flat_map(|(pair, own)| {
+                crate::redact::widened_decode(&[*pair], *own, usize::from(depth))
+            })
+            .collect();
+        written.insert(
+            Name::new(&b"Decode"[..]),
+            Object::Array(
+                decode
+                    .into_iter()
+                    .map(|value| Object::Real(f64::from(value)))
+                    .collect(),
+            ),
+        );
+    }
+    written.insert(
+        Name::new(&b"Length"[..]),
+        Object::Integer(i64::try_from(file.len()).unwrap_or(i64::MAX)),
+    );
+    let replacement = Stream {
+        dict: written,
+        data: file.into(),
+        decryption_failed: false,
+    };
+    if !reads_back_as(document, &replacement, samples, depth) {
+        return Err(Because::NotBuiltYet(NOT_PROVED));
+    }
+    let row = TranscodedImage {
+        at: id,
+        depths: samples.depths.clone(),
+        filter: "JPXDecode",
+        bits: depth,
+        before: stream.data.len(),
+        after: replacement.data.len(),
+        soft_mask: None,
+    };
+    Ok(Transcoded {
+        stream: Object::Stream(Arc::new(replacement)),
+        row,
+        soft_mask: None,
+    })
+}
+
+/// The sentence for the writer's own refusal of a deep image's samples: which of its checks the
+/// samples failed.
+fn not_written(error: &pdf_jpx_write::Error) -> &'static str {
+    use pdf_jpx_write::Error;
+    match error {
+        Error::Depth { .. } => NOT_WRITTEN_DEPTH,
+        Error::Samples { .. } | Error::Sample { .. } => NOT_WRITTEN_SAMPLES,
+        _ => NOT_WRITTEN_AS_JPEG_2000,
+    }
+}
+
+/// Whether the written file decodes to the integers it was built from: every colour channel at
+/// `depth`, the opacity channel at its own, the grid and the premultiplication as they were.
+fn reads_back_as(
+    document: &Document,
+    replacement: &Stream,
+    samples: &JpxSamples,
+    depth: u8,
+) -> bool {
+    pdf_model::image::jpx_samples(
+        document,
+        &replacement.dict,
+        &Dictionary::new(),
+        (&replacement.data, ORDINARY_JPX_SAMPLES),
+    )
+    .is_ok_and(|back| {
+        (back.width, back.height, back.components, back.precision)
+            == (
+                samples.width,
+                samples.height,
+                samples.components,
+                samples.precision,
+            )
+            && back.depths == vec![depth; samples.components]
+            && back.colour == samples.colour
+            && back.opacity == samples.opacity
+            && (back.opacity.is_none() || back.opacity_depth == samples.opacity_depth)
+            && back.premultiplied == samples.premultiplied
+    })
+}
+
+/// One channel of interleaved samples as integers: `count` channels to a pixel, each in a
+/// big-endian field of `field` bytes, which is how the decoder delivers them
+/// ([`JpxSamples::colour`]).
+fn channel(data: &[u8], index: usize, count: usize, field: usize) -> Vec<u32> {
+    let pixel = count.saturating_mul(field);
+    let from = index.saturating_mul(field);
+    data.chunks_exact(pixel.max(1))
+        .filter_map(|pixel| pixel.get(from..from.saturating_add(field)))
+        .map(|bytes| {
+            bytes
+                .iter()
+                .fold(0u32, |value, byte| (value << 8) | u32::from(*byte))
+        })
+        .collect()
 }
 
 /// The soft-mask image Table 87 has a processor create from the codestream's opacity channel,
@@ -643,5 +870,19 @@ mod tests {
         assert_eq!(decode.len(), 4);
         assert!((decode[1] - 255.0 / 31.0).abs() < 1e-4, "{decode:?}");
         assert!((decode[3] - 1.0).abs() < 1e-6, "{decode:?}");
+    }
+
+    /// A channel is read out of interleaved three-byte fields as the big-endian integers the
+    /// decoder put there, one for each pixel.
+    #[test]
+    fn a_channel_is_read_out_of_its_field() {
+        let data = [0, 0, 1, 0, 1, 0, 1, 0, 0, 2, 0, 0];
+        assert_eq!(channel(&data, 0, 2, 3), vec![1, 0x01_0000]);
+        assert_eq!(channel(&data, 1, 2, 3), vec![0x0100, 0x02_0000]);
+        assert_eq!(
+            channel(&data[..11], 0, 2, 3),
+            vec![1],
+            "a short pixel is dropped"
+        );
     }
 }

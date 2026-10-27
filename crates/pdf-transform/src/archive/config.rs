@@ -964,10 +964,11 @@ fn in_place_preservation(requirement: &str) -> Option<&'static str> {
         "graphics/jpeg2000-uses-the-baseline-feature-set" => Some(
             "preserve — a JPEG 2000 image outside the JPX baseline whose dictionary states its \
              own ColorSpace is decoded to its samples and written again under FlateDecode in that \
-             space, each component at its own depth; the file grows, often by a great deal, and \
-             this program's decoder's output becomes the archive's copy of the picture. An image \
-             whose colour comes from its data keeps the refusal, and the report names each image \
-             with its size before and after (doc/adr/1400)",
+             space, each component at its own depth, or as JPEG 2000 again where a component is \
+             deeper than sixteen bits; the file grows, often by a great deal, and this program's \
+             decoder's output becomes the archive's copy of the picture. An image whose colour \
+             comes from its data keeps the refusal, and the report names each image with its size \
+             before and after (doc/adr/1400, doc/adr/2484)",
         ),
         "graphics/jpeg2000-bit-depth"
         | "graphics/jpeg2000-channel-count"
@@ -977,8 +978,9 @@ fn in_place_preservation(requirement: &str) -> Option<&'static str> {
              again under FlateDecode in that space, and this rule's subject is JPEG 2000 data, \
              which the copy is not; an opacity channel becomes the soft-mask image Table 87 \
              names. The file grows and this program's decoder's output becomes the archive's \
-             copy of the picture; an image whose colour comes from its data, or with a component \
-             deeper than sixteen bits, keeps the refusal (doc/adr/1400, doc/adr/1412)",
+             copy of the picture; an image whose colour comes from its data keeps the refusal, and \
+             one with a component deeper than sixteen bits is written again as JPEG 2000, which \
+             alone holds the integers (doc/adr/1400, doc/adr/1412, doc/adr/2484)",
         ),
         "graphics/no-reference-xobjects" => Some(
             "preserve — the form XObject stays and its Ref entry goes, so every reader draws the \

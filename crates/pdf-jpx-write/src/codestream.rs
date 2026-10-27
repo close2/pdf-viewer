@@ -41,6 +41,7 @@ fn segment(out: &mut Vec<u8>, marker: u8, parameters: &[u8]) {
 }
 
 /// The codestream for `planes` on a `width` × `height` grid, already validated by the caller.
+/// `signed` holds one flag per plane, or none where every plane is unsigned.
 #[expect(
     clippy::arithmetic_side_effects,
     clippy::cast_possible_truncation,
@@ -49,7 +50,7 @@ fn segment(out: &mut Vec<u8>, marker: u8, parameters: &[u8]) {
               count is validated to fit `Csiz` and the depth to fit `Ssiz` and `εb`; the \
               tile-part length is stated as 0 where it would pass 2^32 − 1"
 )]
-pub(crate) fn write(width: u32, height: u32, planes: &[Plane<'_>]) -> Vec<u8> {
+pub(crate) fn write(width: u32, height: u32, planes: &[Plane<'_>], signed: &[bool]) -> Vec<u8> {
     let mut out = vec![0xFF, 0x4F]; // SOC, A.4.1.
     // SIZ, A.5.1.
     let mut siz = Vec::with_capacity(36 + 3 * planes.len());
@@ -58,9 +59,18 @@ pub(crate) fn write(width: u32, height: u32, planes: &[Plane<'_>]) -> Vec<u8> {
         siz.extend_from_slice(&value.to_be_bytes());
     }
     siz.extend_from_slice(&(planes.len() as u16).to_be_bytes());
-    for plane in planes {
-        // Ssiz: depth − 1 with the sign bit clear, then XRsiz and YRsiz.
-        siz.extend_from_slice(&[plane.depth - 1, 1, 1]);
+    for (index, plane) in planes.iter().enumerate() {
+        // Ssiz (Table A-11): depth − 1 with the sign bit set for a signed component, then XRsiz
+        // and YRsiz. A plane's integers are the reader's (`crate::Plane`): a signed component's
+        // value `s` is carried as `s + 2^(depth − 1)`, so the coefficient below, the integer
+        // less 2^(depth − 1), is `s` itself, which G.1.2 leaves unshifted for a signed
+        // component, and the coded bytes are those of the unsigned plane.
+        let sign = if crate::is_signed(signed, index) {
+            0x80
+        } else {
+            0
+        };
+        siz.extend_from_slice(&[(plane.depth - 1) | sign, 1, 1]);
     }
     segment(&mut out, 0x51, &siz);
     // COD, A.6.1: Scod 0; LRCP, one layer, no MCT; zero levels, 64 × 64 code-blocks, style 0,

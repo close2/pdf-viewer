@@ -1847,3 +1847,22 @@ export or the tree the walk runs in — and never by process name. Round 1816 (A
 rustdoc runs; filtered by the export's directory, rustdoc's address space peaked at 16.2 GiB and the tree
 at 7.80 GiB resident, the figures ADR 2466 sized the docs step's bound from. A shared machine runs the
 same binaries for several rounds at once, so a name selects the machine, not the walk.
+
+## 195. A census parser matches a document name that contains spaces
+
+A parser over a census log takes the document's name as the field the log delimits, never as the run of
+non-space characters after a marker. Round 1828 (ADR 2490) first parsed the archive census's declined
+sources by splitting on whitespace and missed "PDF 2.0 via incremental save.pdf" — one of 23 documents the
+verb declines as a source, a population the owner's blocking-issues document had to count. The corpora hold
+names with spaces ("All Quiet on the Third Coast.pdf" among them), so a count by name is checked against the
+census's own total before it is written down.
+
+## 196. A census over objects visits the dictionaries nested inside a direct one
+
+A census that counts a construct by walking a document's objects visits every dictionary nested directly
+inside another, not only the indirect objects the cross-reference table names. Round 1827 (ADRs 2488, 2489)
+first walked the indirect objects for media clip dictionaries and found 15 documents; renditions write
+their media clip data inline (`/R << /C << /CT (video/mpeg) … >> >>`), and the walk that recursed through
+direct dictionaries found 28 — nearly double, with every `video/mpeg` clip among the ones the first walk
+missed. A count that decides a slot's premise (which formats the corpus holds) is taken by the recursive
+walk, and its total is checked against a text search for the key before it is written down.

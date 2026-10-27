@@ -14,12 +14,15 @@ use libfuzzer_sys::fuzz_target;
 use pdf_model::media::container::{MAX_MARKERS, timeline};
 
 /// One type of each family the reader knows, and one it refuses before reading a byte.
-const TYPES: [&str; 5] = [
+const TYPES: [&str; 8] = [
     "audio/wav",
     "video/avi",
     "audio/aiff",
     "video/mp4",
+    "application/x-shockwave-flash",
+    "video/x-ms-wmv",
     "video/mpeg",
+    "audio/mpeg",
 ];
 
 fuzz_target!(|data: &[u8]| {

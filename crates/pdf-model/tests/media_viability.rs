@@ -658,11 +658,11 @@ fn an_end_past_the_clips_own_length_is_the_end_and_has_no_effect_on_viability() 
     );
 
     let unread = judged_over(
-        &section_over("video/mpeg", &format!("/MH << /E {} >>", seconds("20"))),
+        &section_over("video/x-flv", &format!("/MH << /E {} >>", seconds("20"))),
         &mp4,
     );
     assert!(unread.chosen().is_none());
-    assert!(format!("{unread:?}").contains("video/mpeg"), "{unread:?}");
+    assert!(format!("{unread:?}").contains("video/x-flv"), "{unread:?}");
     let url = format!(
         "<< /S /MR /C << /S /MCS /D << /S /MCD /CT (video/mp4) /D << /Type /Filespec /FS /URL /F \
          (https://example.org/clip.mp4) >> >> /MH << /E {} >> >> >>",
@@ -864,5 +864,153 @@ fn an_offset_a_media_type_does_not_carry_is_a_value_the_player_cannot_honour() {
         .chosen()
         .is_some(),
         "a still image has no offsets to carry"
+    );
+}
+
+/// A SWF file of `version` running `frames` frames at 10 frames a second with one frame label,
+/// `label` on the second frame: the header's rate and count are the clip's length, and the label is
+/// its one named offset (ADR 2488).
+fn swf_file(frames: u16, label: &str) -> Vec<u8> {
+    let tag = |kind: u16, body: &[u8]| {
+        let mut out = ((kind << 6) | u16::try_from(body.len()).expect("short"))
+            .to_le_bytes()
+            .to_vec();
+        out.extend_from_slice(body);
+        out
+    };
+    // A RECT of Nbits 1 holding four zero fields: 5 + 4 bits, padded to two bytes.
+    let mut file = b"FWS".to_vec();
+    file.push(9);
+    let mut body = vec![0b0000_1000, 0b0000_0000];
+    body.extend_from_slice(&0x0A00u16.to_le_bytes());
+    body.extend_from_slice(&frames.to_le_bytes());
+    body.extend(tag(1, &[]));
+    let mut name = label.as_bytes().to_vec();
+    name.push(0);
+    body.extend(tag(43, &name));
+    body.extend(tag(1, &[]));
+    body.extend(tag(0, &[]));
+    file.extend_from_slice(
+        &u32::try_from(body.len().saturating_add(8))
+            .expect("small")
+            .to_le_bytes(),
+    );
+    file.extend(body);
+    file
+}
+
+/// An ASF file whose File Properties Object states `play` in 100 ns units and no preroll.
+fn asf_file(play: u64) -> Vec<u8> {
+    // GUIDs as the Windows fields their text spells: ASF_Header_Object and
+    // ASF_File_Properties_Object.
+    let header_guid = [
+        0x30, 0x26, 0xB2, 0x75, 0x8E, 0x66, 0xCF, 0x11, 0xA6, 0xD9, 0x00, 0xAA, 0x00, 0x62, 0xCE,
+        0x6C,
+    ];
+    let properties_guid = [
+        0xA1, 0xDC, 0xAB, 0x8C, 0x47, 0xA9, 0xCF, 0x11, 0x8E, 0xE4, 0x00, 0xC0, 0x0C, 0x20, 0x53,
+        0x65,
+    ];
+    let mut data = vec![0; 40];
+    data.extend_from_slice(&play.to_le_bytes());
+    data.extend_from_slice(&play.to_le_bytes());
+    data.extend_from_slice(&[0; 8]);
+    data.extend_from_slice(&2u32.to_le_bytes());
+    data.extend_from_slice(&[0; 12]);
+    let mut properties = properties_guid.to_vec();
+    properties.extend_from_slice(
+        &u64::try_from(data.len().saturating_add(24))
+            .expect("small")
+            .to_le_bytes(),
+    );
+    properties.extend(data);
+    let mut file = header_guid.to_vec();
+    file.extend_from_slice(
+        &u64::try_from(properties.len().saturating_add(30))
+            .expect("small")
+            .to_le_bytes(),
+    );
+    file.extend_from_slice(&1u32.to_le_bytes());
+    file.extend_from_slice(&[1, 2]);
+    file.extend(properties);
+    file
+}
+
+/// §13.2.4.3's end and marker rules over the three containers ADR 2488 and ADR 2489 add — a SWF
+/// file, an ASF file and an MPEG-2 program stream — each judged by its own header.
+///
+/// > However, if E specifies an offset beyond the end of the next-level media clip, the end value
+/// > shall be used instead, and there is no effect on viability.
+///
+/// **The controls**: an end one unit inside the clip; a marker the file names inside the clip; a
+/// time over a program stream, whose clause states no length; and a type whose bytes are another
+/// container.
+#[test]
+fn a_flash_a_windows_media_and_a_program_stream_clip_are_judged_by_their_own_headers() {
+    let marker = |name: &str| format!("<< /S /M /M ({name}) >>");
+    let end = |value: &str| format!("/MH << /E {} >>", seconds(value));
+    let swf = swf_file(30, "intro");
+    let flash = |options: &str| {
+        judged_over(
+            &section_over("application/x-shockwave-flash", options),
+            &swf,
+        )
+    };
+    // 30 frames at 10 a second: three seconds.
+    assert!(flash(&end("3")).chosen().is_some());
+    assert!(flash(&end("4")).chosen().is_some());
+    assert!(flash(&end("2")).chosen().is_none());
+    assert!(
+        flash(&format!("/MH << /B {} >>", marker("outro")))
+            .chosen()
+            .is_some()
+    );
+    let named = flash(&format!("/MH << /E {} >>", marker("intro")));
+    assert!(named.chosen().is_none());
+    assert!(
+        format!("{named:?}").contains("places the marker"),
+        "{named:?}"
+    );
+    let frames = flash("/MH << /E << /S /F /F 30 >> >>");
+    assert!(frames.chosen().is_some(), "{frames:?}");
+    assert!(flash("/MH << /E << /S /F /F 29 >> >>").chosen().is_none());
+
+    let asf = asf_file(300_000_000);
+    let media = |options: &str| judged_over(&section_over("video/x-ms-wmv", options), &asf);
+    assert!(media(&end("30")).chosen().is_some());
+    assert!(media(&end("29")).chosen().is_none());
+    assert!(
+        media(&format!("/MH << /B {} >>", marker("Start")))
+            .chosen()
+            .is_some()
+    );
+    assert!(
+        media("/MH << /E << /S /F /F 100 >> >>").chosen().is_none(),
+        "an ASF file states no frames"
+    );
+
+    // An MPEG-2 pack header: 0x000001BA, '01' and the marker bits, a mux rate of 1.
+    let program = [
+        0x00, 0x00, 0x01, 0xBA, 0x44, 0x00, 0x04, 0x00, 0x04, 0x01, 0x00, 0x00, 0x07, 0xF8,
+    ];
+    let mpeg = |options: &str| judged_over(&section_over("video/mpeg", options), &program);
+    assert!(
+        mpeg(&format!("/MH << /B {} >>", marker("Intro")))
+            .chosen()
+            .is_some()
+    );
+    let timed = mpeg(&end("20"));
+    assert!(timed.chosen().is_none());
+    assert!(
+        format!("{timed:?}").contains("does not state how long"),
+        "{timed:?}"
+    );
+
+    // Another container's bytes under the type are not the container the type names.
+    let wrong = judged_over(&section_over("video/x-ms-wmv", &end("30")), &swf);
+    assert!(wrong.chosen().is_none());
+    assert!(
+        format!("{wrong:?}").contains("not the ASF file"),
+        "{wrong:?}"
     );
 }

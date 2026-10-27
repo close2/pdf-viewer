@@ -35,18 +35,41 @@ fn an_identity_font_not_embedded(stated: bool) -> Vec<u8> {
 
 /// The same font with its `/ToUnicode` entries, the string it shows and a third `/W` run given.
 fn an_identity_font(entries: &str, shown: &[u8], third: &str) -> Vec<u8> {
-    an_identity_font_beside(entries, shown, third, false, "Arial")
+    an_identity_font_beside(entries, shown, third, Sibling::Absent, "Arial")
 }
 
-/// [`an_identity_font`], with, where `sibling` is true, a second `CIDFont` that the page
-/// never shows, states the producer's own `/BaseFont /{name}` and names the same descriptor object.
+/// A second composite font that names the first one's descriptor object.
+#[derive(Clone, Copy)]
+enum Sibling {
+    /// There is none.
+    Absent,
+    /// The page never shows it; its `CIDFont` states the producer's own `/BaseFont /{name}`.
+    Unshown,
+    /// The page never shows it, and its `CIDFont` is written directly inside its `/DescendantFonts`
+    /// array rather than as an object.
+    InlineUnshown,
+    /// The page shows these codes in it, through the first font's `/ToUnicode`.
+    Shown(&'static [u8]),
+}
+
+/// [`an_identity_font`], with a [`Sibling`] `CIDFont` that names the same descriptor object.
 fn an_identity_font_beside(
     entries: &str,
     shown: &[u8],
     third: &str,
-    sibling: bool,
+    sibling: Sibling,
     name: &str,
 ) -> Vec<u8> {
+    let present = !matches!(sibling, Sibling::Absent);
+    let second = match sibling {
+        Sibling::Shown(codes) => [&b" /F2 12 Tf 10 80 Td "[..], codes, &b" Tj"[..]].concat(),
+        Sibling::Absent | Sibling::Unshown | Sibling::InlineUnshown => Vec::new(),
+    };
+    let sibling_cid_font = format!(
+        "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /{name} /CIDSystemInfo \
+         << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor \
+         8 0 R /DW 1000 >>"
+    );
     let cmap = format!(
         "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
          /CMapName /Test def\n/CMapType 2 def\n\
@@ -57,14 +80,16 @@ fn an_identity_font_beside(
         resources: format!(
             "/Font << /F1 6 0 R{} >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
              [0.9505 1.0 1.089] >>] >>",
-            if sibling { " /F2 10 0 R" } else { "" }
+            if present { " /F2 10 0 R" } else { "" }
         ),
         contents: Some((
             String::new(),
             [
                 &b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td "[..],
                 shown,
-                &b" Tj ET"[..],
+                &b" Tj"[..],
+                &second,
+                &b" ET"[..],
             ]
             .concat(),
         )),
@@ -86,21 +111,22 @@ fn an_identity_font_beside(
         ],
         binary_objects: [stream(&format!("/Length {}", cmap.len()), cmap.as_bytes())]
             .into_iter()
-            .chain(sibling.then(|| {
+            .chain(present.then(|| {
+                let descendants = if matches!(sibling, Sibling::InlineUnshown) {
+                    format!("[{sibling_cid_font}]")
+                } else {
+                    "[11 0 R]".to_owned()
+                };
                 format!(
                     "<< /Type /Font /Subtype /Type0 /BaseFont /{name}-Sibling /Encoding \
-                     /Identity-H /DescendantFonts [11 0 R] >>"
+                     /Identity-H /DescendantFonts {descendants} /ToUnicode 9 0 R >>"
                 )
                 .into_bytes()
             }))
-            .chain(sibling.then(|| {
-                format!(
-                    "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /{name} /CIDSystemInfo \
-                     << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor \
-                     8 0 R /DW 1000 >>"
-                )
-                .into_bytes()
-            }))
+            .chain(
+                (present && !matches!(sibling, Sibling::InlineUnshown))
+                    .then(|| sibling_cid_font.clone().into_bytes()),
+            )
             .collect(),
         ..Conforming::part_two()
     }
@@ -185,27 +211,10 @@ fn an_identity_font_is_given_the_glyphs_its_to_unicode_values_select_at_its_own_
     assert_eq!(mapped(40), 0, "a CID nothing shows reaches .notdef");
 }
 
-// ISO 32000-2 Table 120's `/FontName`: "This name shall be the same as the value of BaseFont in
-// the font or CIDFont dictionary that refers to this font descriptor." The re-keyed font's
-// descriptor is renamed for the face it now carries, so a font the page never shows that names
-// the same object must be pointed at a descriptor stating its own name instead.
-#[test]
-fn a_font_that_shares_a_rekeyed_descriptor_keeps_the_name_it_states() {
-    let mut plan = a_supplied_font(Target::Two(Level::B), "NotThisFont", &[]);
-    let mut authorised = Authorisations::default();
-    authorised.authorise(Loss::MachineFace);
-    authorised.authorise(Loss::GlyphsFromToUnicode);
-    plan.authorised = authorised;
-    let source = an_identity_font_beside(
-        "3 beginbfchar\n<0024> <0041>\n<0025> <0042>\n<0030> <0041>\nendbfchar\n",
-        b"<002400250030>",
-        "48 [667]",
-        true,
-        "TimesNewRoman",
-    );
-    let (_, output) = convert_with_plan(&source, &plan);
-    let held = Document::open_with_limits(output.expect("it converts"), Limits::DEFAULT)
-        .expect("it opens");
+/// Every font dictionary that has a descriptor, as its `/BaseFont` and whether the descriptor
+/// carries a program, after asserting Table 120's rule on each: the descriptor's `/FontName` is the
+/// `/BaseFont` of the dictionary that refers to it.
+fn fonts_and_their_descriptors(held: &Document) -> Vec<(Vec<u8>, bool)> {
     let mut named = Vec::new();
     for number in 1..held.xref().next_object_number() {
         let object = held.get(pdf_syntax::object::ObjectId::new(number, 0));
@@ -237,6 +246,31 @@ fn a_font_that_shares_a_rekeyed_descriptor_keeps_the_name_it_states() {
             .any(|key| !held.get_key(&descriptor, key).is_null());
         named.push((base_font, embedded));
     }
+    named
+}
+
+// ISO 32000-2 Table 120's `/FontName`: "This name shall be the same as the value of BaseFont in
+// the font or CIDFont dictionary that refers to this font descriptor." The re-keyed font's
+// descriptor is renamed for the face it now carries, so a font the page never shows that names
+// the same object must be pointed at a descriptor stating its own name instead.
+#[test]
+fn a_font_that_shares_a_rekeyed_descriptor_keeps_the_name_it_states() {
+    let mut plan = a_supplied_font(Target::Two(Level::B), "NotThisFont", &[]);
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::MachineFace);
+    authorised.authorise(Loss::GlyphsFromToUnicode);
+    plan.authorised = authorised;
+    let source = an_identity_font_beside(
+        "3 beginbfchar\n<0024> <0041>\n<0025> <0042>\n<0030> <0041>\nendbfchar\n",
+        b"<002400250030>",
+        "48 [667]",
+        Sibling::Unshown,
+        "TimesNewRoman",
+    );
+    let (_, output) = convert_with_plan(&source, &plan);
+    let held = Document::open_with_limits(output.expect("it converts"), Limits::DEFAULT)
+        .expect("it opens");
+    let named = fonts_and_their_descriptors(&held);
     assert!(
         named
             .iter()
@@ -246,6 +280,79 @@ fn a_font_that_shares_a_rekeyed_descriptor_keeps_the_name_it_states() {
     assert!(
         named.iter().any(|(_, embedded)| *embedded),
         "the font the page shows carries the face: {named:?}"
+    );
+}
+
+// Table 120's rule again, for a font no object holds: the sibling's `CIDFont` is written directly
+// inside its Type 0 font's `/DescendantFonts`, and §7.3.10 lets it stay a direct value, so it is
+// pointed at the producer's descriptor by being written out as an object of its own.
+#[test]
+fn an_inline_font_that_shares_a_rekeyed_descriptor_keeps_the_name_it_states() {
+    let mut plan = a_supplied_font(Target::Two(Level::B), "NotThisFont", &[]);
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::MachineFace);
+    authorised.authorise(Loss::GlyphsFromToUnicode);
+    plan.authorised = authorised;
+    let source = an_identity_font_beside(
+        "3 beginbfchar\n<0024> <0041>\n<0025> <0042>\n<0030> <0041>\nendbfchar\n",
+        b"<002400250030>",
+        "48 [667]",
+        Sibling::InlineUnshown,
+        "TimesNewRoman",
+    );
+    let (_, output) = convert_with_plan(&source, &plan);
+    let held = Document::open_with_limits(
+        output.expect(
+            "it converts: an inline CIDFont left over the renamed descriptor is a Type 2 font with \
+             a program and no /CIDToGIDMap, and the conversion declines to write it",
+        ),
+        Limits::DEFAULT,
+    )
+    .expect("it opens");
+    let named = fonts_and_their_descriptors(&held);
+    assert!(
+        named
+            .iter()
+            .any(|(name, embedded)| name == b"TimesNewRoman" && !embedded),
+        "the inline font nothing shows keeps a descriptor with no program: {named:?}"
+    );
+    assert!(
+        named.iter().any(|(_, embedded)| *embedded),
+        "the font the page shows carries the face: {named:?}"
+    );
+}
+
+// ISO 32000-2 Table 120's `/FontName`, and §9.9.2's subset tag, whose letters
+// `pdf_font::embed` derives from the glyphs the subset holds (the clause leaves the letters
+// arbitrary and requires only that two subsets differ): two shown descendants over one descriptor
+// widen one program, so the name it carries changes with the second font's glyphs, and every
+// descendant must state the name the descriptor ends with.
+#[test]
+fn two_shown_descendants_of_one_rekeyed_descriptor_state_the_descriptors_final_name() {
+    let mut plan = a_supplied_font(Target::Two(Level::B), "NotThisFont", &[]);
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::MachineFace);
+    authorised.authorise(Loss::GlyphsFromToUnicode);
+    plan.authorised = authorised;
+    let source = an_identity_font_beside(
+        "4 beginbfchar\n<0024> <0041>\n<0025> <0042>\n<0030> <0041>\n<0026> <0043>\nendbfchar\n",
+        b"<002400250030>",
+        "48 [667]",
+        Sibling::Shown(b"<0026>"),
+        "TimesNewRoman",
+    );
+    let (_, output) = convert_with_plan(&source, &plan);
+    let held = Document::open_with_limits(output.expect("it converts"), Limits::DEFAULT)
+        .expect("it opens");
+    let named = fonts_and_their_descriptors(&held);
+    assert_eq!(
+        named.iter().filter(|(_, embedded)| *embedded).count(),
+        2,
+        "both shown descendants carry the one program: {named:?}"
+    );
+    assert!(
+        named.iter().all(|(name, _)| name != b"TimesNewRoman"),
+        "no shown descendant keeps the producer's name over the renamed program: {named:?}"
     );
 }
 

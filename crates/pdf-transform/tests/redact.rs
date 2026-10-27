@@ -6223,3 +6223,331 @@ fn a_page_tree_node_no_reader_can_walk_or_count_is_refused_by_name() {
         );
     }
 }
+
+/// The output's `/Im1` stream data, which `read_back_deep` decodes, as its own bytes.
+fn written_image_data(bytes: &[u8]) -> Vec<u8> {
+    let document = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let entry = document
+        .get_key(&page.resources, "XObject")
+        .as_dict()
+        .and_then(|dict| dict.get("Im1"))
+        .cloned()
+        .expect("/Im1 in the resources");
+    let image = document.resolve(&entry);
+    image
+        .as_stream()
+        .expect("the image is a stream")
+        .data
+        .to_vec()
+}
+
+/// The output's `/Im1` as the tree's image reader delivers its samples, which reads a file's
+/// colour and channel boxes where the sandbox's decoder alone does not.
+fn read_through_image_reader(bytes: &[u8]) -> pdf_model::image::JpxSamples {
+    let document = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let entry = document
+        .get_key(&page.resources, "XObject")
+        .as_dict()
+        .and_then(|dict| dict.get("Im1"))
+        .cloned()
+        .expect("/Im1 in the resources");
+    let image = document.resolve(&entry);
+    let stream = image.as_stream().expect("the image is a stream");
+    pdf_model::image::jpx_samples(
+        &document,
+        &stream.dict,
+        &page.resources,
+        (&stream.data, 1 << 20),
+    )
+    .expect("the image reader reads the written image")
+}
+
+/// A page whose `/Im1` is `source`, an 8 × 8 `JPXDecode` image in `space`, cleared on its left
+/// half by [`masked_page`]'s region.
+fn jpx_masked_page(source: &[u8], space: &str) -> Vec<u8> {
+    let mut image = format!(
+        "<< /Type /XObject /Subtype /Image /Width 8 /Height 8 /ColorSpace /{space} \
+         /Filter /JPXDecode /Length {} >>\nstream\n",
+        source.len()
+    )
+    .into_bytes();
+    image.extend_from_slice(source);
+    image.extend_from_slice(b"\nendstream");
+    masked_page(image, b"null".to_vec())
+}
+
+/// Every integer of `raster` against `planes` (interleaved channels), the left four columns
+/// being the cleared region and so zero.
+fn assert_region_cleared_and_rest_kept(raster: &pdf_sandbox::Raster, planes: &[Vec<u32>]) {
+    for row in 0..8usize {
+        for col in 0..8usize {
+            for (channel, plane) in planes.iter().enumerate() {
+                let want = if col < 4 { 0 } else { plane[row * 8 + col] };
+                assert_eq!(
+                    raster.sample((row * 8 + col) * planes.len() + channel),
+                    Some(want),
+                    "row {row} column {col} channel {channel}"
+                );
+            }
+        }
+    }
+}
+
+/// A deep `JPXDecode` image of four colour components is cleared and written back as a JPX file
+/// with its Reader Requirements box, every sample read back exactly (ADR 2480).
+///
+/// ISO/IEC 15444-1 I.5.3.3 enumerates two colour spaces for a JP2 file, so four colour
+/// components cannot go back as JP2; T.801 M.11.1 makes the Reader Requirements box mandatory in
+/// the JPX file that holds them, and T.801 Table M.25 enumerates 12 for CMYK. The region reads zero
+/// and every other integer is the one the source held, at its own depth.
+#[test]
+fn a_four_component_deep_jpx_image_is_written_back_as_a_jpx_file() {
+    pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
+    let depths = [18u8, 20, 16, 24];
+    let planes: Vec<Vec<u32>> = depths
+        .iter()
+        .zip(31u64..)
+        .map(|(depth, seed)| deep_samples(*depth, 64, seed))
+        .collect();
+    let source = pdf_jpx_write::file(
+        (8, 8),
+        pdf_jpx_write::Space::Cmyk,
+        &planes
+            .iter()
+            .zip(depths)
+            .map(|(samples, depth)| pdf_jpx_write::Plane { depth, samples })
+            .collect::<Vec<_>>(),
+        None,
+        &[],
+    )
+    .expect("the fixture's planes fit");
+    let bytes = jpx_masked_page(&source, "DeviceCMYK");
+
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "cleared: {:?}", report.refused);
+    assert!(!contains(&out, &source), "the original codestream is gone");
+    assert_eq!(
+        image_entries(&out),
+        ("JPXDecode".to_owned(), "DeviceCMYK".to_owned(), 0),
+        "JPEG 2000 again, the space carried, no /BitsPerComponent"
+    );
+    let written = written_image_data(&out);
+    let headers = pdf_model::jpeg2000::Headers::parse(&written).expect("a JPEG 2000 file");
+    assert_eq!(
+        headers.file_type.expect("an ftyp box").brand,
+        *b"jpx ",
+        "a JPX file"
+    );
+    assert_eq!(headers.colour.len(), 1);
+    assert_eq!(
+        headers.colour[0].enumerated,
+        Some(12),
+        "T.801 Table M.25's CMYK"
+    );
+    assert!(
+        headers.top_level.contains(b"rreq") || headers.jp2_header_contents.contains(b"rreq"),
+        "the Reader Requirements box T.801 M.11.1 makes mandatory"
+    );
+    let samples = read_through_image_reader(&out);
+    assert_eq!(
+        (samples.components, samples.depths.clone()),
+        (4, depths.to_vec()),
+        "the image reader reads four colour components at their own depths"
+    );
+    let raster = read_back_deep(&out);
+    assert_eq!(raster.components, 4);
+    for (channel, depth) in depths.iter().enumerate() {
+        assert_eq!(raster.depth_of(channel), *depth, "channel {channel}");
+    }
+    assert_region_cleared_and_rest_kept(&raster, &planes);
+}
+
+/// A signed `JPXDecode` component keeps its sign statement through a redaction, at twelve bits
+/// in grey and at twenty in RGB (ADR 2481).
+///
+/// ISO/IEC 15444-1 Table A-11 gives `Ssiz` a sign bit, and §8.9.5.2 of ISO 32000-2 defines the
+/// samples as "integers in the domain 0 to 2 n -1" without a map from a signed value, so the
+/// output stays JPEG 2000 and states the sign again: the twelve-bit image, which every other
+/// filter could hold, is the case that would otherwise lose it. Each integer outside the region
+/// reads back as it was and the region reads zero.
+#[test]
+fn a_signed_jpx_component_keeps_its_sign_statement_through_a_redaction() {
+    pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
+    let sign_bits = |out: &[u8]| -> Vec<bool> {
+        pdf_model::jpeg2000::Headers::parse(&written_image_data(out))
+            .expect("a JPEG 2000 file")
+            .codestream
+            .expect("a codestream")
+            .depths
+            .iter()
+            .map(|depth| depth.signed)
+            .collect()
+    };
+
+    let grey = vec![deep_samples(12, 64, 41)];
+    let source = pdf_jpx_write::file(
+        (8, 8),
+        pdf_jpx_write::Space::Greyscale,
+        &[pdf_jpx_write::Plane {
+            depth: 12,
+            samples: &grey[0],
+        }],
+        None,
+        &[true],
+    )
+    .expect("the fixture's plane fits");
+    let (report, out) = redact(&jpx_masked_page(&source, "DeviceGray"));
+    assert!(report.refused.is_empty(), "cleared: {:?}", report.refused);
+    assert_eq!(
+        image_entries(&out).0,
+        "JPXDecode",
+        "a signed component is not written under FlateDecode, which cannot state its sign"
+    );
+    assert_eq!(sign_bits(&out), [true], "the twelve-bit sign is kept");
+    assert_region_cleared_and_rest_kept(&read_back_deep(&out), &grey);
+
+    let depths = [20u8, 20, 20];
+    let planes: Vec<Vec<u32>> = depths
+        .iter()
+        .zip(43u64..)
+        .map(|(depth, seed)| deep_samples(*depth, 64, seed))
+        .collect();
+    let source = pdf_jpx_write::file(
+        (8, 8),
+        pdf_jpx_write::Space::Srgb,
+        &planes
+            .iter()
+            .zip(depths)
+            .map(|(samples, depth)| pdf_jpx_write::Plane { depth, samples })
+            .collect::<Vec<_>>(),
+        None,
+        &[true, false, true],
+    )
+    .expect("the fixture's planes fit");
+    let (report, out) = redact(&jpx_masked_page(&source, "DeviceRGB"));
+    assert!(report.refused.is_empty(), "cleared: {:?}", report.refused);
+    assert_eq!(
+        sign_bits(&out),
+        [true, false, true],
+        "each component's own sign is kept"
+    );
+    assert_eq!(read_through_image_reader(&out).components, 3);
+    assert_region_cleared_and_rest_kept(&read_back_deep(&out), &planes);
+}
+
+/// A deep image whose `/SMaskInData` is 2 is written back so that the tree's image reader, not
+/// only the sandbox's decoder, still reads its opacity channel and its premultiplication (ADR
+/// 2480).
+///
+/// Table 87's `/SMaskInData` 2 says the colour channels were multiplied by the opacity; that
+/// entry is carried, and the channel is typed plain in the file because the tree's decoder reads
+/// no other channel type as opacity. Read through `pdf_model::image::jpx_samples`, the output
+/// states an opacity channel, premultiplied, and every integer outside the region as it was.
+#[test]
+fn a_premultiplied_deep_jpx_image_reads_back_through_the_image_reader() {
+    pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
+    let grey = deep_samples(20, 64, 51);
+    let alpha = deep_samples(18, 64, 53);
+    let source = pdf_jpx_write::jp2(
+        (8, 8),
+        pdf_jpx_write::Colour::Greyscale,
+        &[pdf_jpx_write::Plane {
+            depth: 20,
+            samples: &grey,
+        }],
+        Some((
+            pdf_jpx_write::Plane {
+                depth: 18,
+                samples: &alpha,
+            },
+            pdf_jpx_write::Opacity::Plain,
+        )),
+    )
+    .expect("the fixture's planes fit");
+    let mut image = format!(
+        "<< /Type /XObject /Subtype /Image /Width 8 /Height 8 /ColorSpace /DeviceGray \
+         /SMaskInData 2 /Filter /JPXDecode /Length {} >>\nstream\n",
+        source.len()
+    )
+    .into_bytes();
+    image.extend_from_slice(&source);
+    image.extend_from_slice(b"\nendstream");
+    let (report, out) = redact(&masked_page(image, b"null".to_vec()));
+    assert!(report.refused.is_empty(), "cleared: {:?}", report.refused);
+
+    let document = Document::open_with_limits(out.clone(), Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let entry = document
+        .get_key(&page.resources, "XObject")
+        .as_dict()
+        .and_then(|dict| dict.get("Im1"))
+        .cloned()
+        .expect("/Im1");
+    let written = document.resolve(&entry);
+    let stream = written.as_stream().expect("a stream");
+    let samples = pdf_model::image::jpx_samples(
+        &document,
+        &stream.dict,
+        &page.resources,
+        (&stream.data, 1 << 20),
+    )
+    .expect("the image reader reads the written image");
+    assert!(samples.premultiplied, "/SMaskInData 2 still governs");
+    let channel = samples.opacity.expect("the opacity channel is read");
+    assert_eq!((samples.depths[0], samples.opacity_depth), (20, 18));
+    let field = usize::from(samples.precision).div_ceil(8);
+    let integer = |data: &[u8], at: usize| {
+        data[at * field..(at + 1) * field]
+            .iter()
+            .fold(0u32, |value, byte| (value << 8) | u32::from(*byte))
+    };
+    for at in 0..64usize {
+        let (want_grey, want_alpha) = if at % 8 < 4 {
+            (0, 0)
+        } else {
+            (grey[at], alpha[at])
+        };
+        assert_eq!(integer(&samples.colour, at), want_grey, "pixel {at} colour");
+        assert_eq!(integer(&channel, at), want_alpha, "pixel {at} opacity");
+    }
+}
+
+/// A shallow `JPXDecode` image of two colour components in a raw codestream is cleared under
+/// `FlateDecode`, which needs no colour specification box (ADRs 1371, 2480).
+///
+/// §7.4.9 has the dictionary's `/ColorSpace` govern the codestream's, and Table 87 gives every
+/// other filter's samples up to sixteen bits, so an eight-bit image goes back as it did before
+/// the JPX writer: only a component past sixteen bits, or one stating a sign, needs the file a
+/// colour box belongs to. The space here is a `DeviceN` of two colorants with a Type 4 tint.
+#[test]
+fn a_shallow_two_component_raw_codestream_is_cleared_under_flate() {
+    pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
+    let planes: Vec<Vec<u32>> = (0..2).map(|seed| deep_samples(8, 64, 61 + seed)).collect();
+    let codestream = pdf_jpx_write::codestream(
+        8,
+        8,
+        &planes
+            .iter()
+            .map(|samples| pdf_jpx_write::Plane { depth: 8, samples })
+            .collect::<Vec<_>>(),
+    )
+    .expect("the fixture's planes fit");
+    let image = stream_object(
+        "/Type /XObject /Subtype /Image /Width 8 /Height 8 /ColorSpace [/DeviceN [/A /B] \
+         /DeviceGray 7 0 R] /Filter /JPXDecode",
+        &codestream,
+    );
+    let function = stream_object(
+        "/FunctionType 4 /Domain [0 1 0 1] /Range [0 1]",
+        b"{ add 2 div }",
+    );
+    let (report, out) = redact(&masked_page(image, function));
+    assert!(report.refused.is_empty(), "cleared: {:?}", report.refused);
+    assert_eq!(
+        image_entries(&out),
+        ("FlateDecode".to_owned(), "DeviceN".to_owned(), 8),
+        "the shallow image goes back under Flate, as before the JPX writer"
+    );
+}

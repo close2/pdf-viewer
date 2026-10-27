@@ -272,6 +272,35 @@ pub fn judge(document: &Document, rendition: &Object, processor: Processor<'_>) 
     walk.report
 }
 
+/// What the container of the media clip data `data` states about its timeline, read the way the
+/// judgement reads it for an offset (§13.2.4.3, ADR 2452).
+///
+/// This is the census's door onto the same code path: it decodes the embedded file under the
+/// document's own limits and reads the header of the container the clip's Table 285 `/CT` names,
+/// so a count of clips this returns `Ok` for is a count of clips whose offsets the judgement can
+/// decide.
+///
+/// # Errors
+///
+/// The sentence the report would give: a data dictionary without a `/CT`, a type whose container is
+/// not read, data named by URL or by a file outside the document, a file that decodes only in
+/// part, and a container that is cut short or past one of the reader's bounds.
+pub fn clip_timeline(
+    document: &Document,
+    data: &Dictionary,
+) -> Result<container::Timeline, String> {
+    let walk = Walk {
+        document,
+        processor: Processor::default(),
+        seen: BTreeSet::new(),
+        visited: 0,
+        bounded: false,
+        report: Report::default(),
+        timelines: RefCell::new(Vec::new()),
+    };
+    walk.timeline(Some(data))
+}
+
 /// The state of one walk: the bounds and what has been found.
 struct Walk<'a> {
     document: &'a Document,
@@ -773,9 +802,7 @@ impl Walk<'_> {
         let content_type = content_type(document, data)
             .ok_or_else(|| "its media clip data states no Table 285 /CT".to_owned())?;
         if !container::is_read(&content_type) {
-            return Err(format!(
-                "this program reads the timeline of no {content_type:?} file"
-            ));
+            return Err(container::unread(&content_type));
         }
         let stream = match self.data(data, &mut Vec::new()) {
             Some(Data::Embedded(file)) => file.stream,

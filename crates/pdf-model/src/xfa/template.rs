@@ -53,7 +53,7 @@ impl Class {
     }
 
     /// The name `#class` spells this class with (chapter 3, *Reference by Class*).
-    fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Subform => "subform",
             Self::SubformSet => "subformSet",
@@ -169,6 +169,37 @@ impl Digits {
     }
 }
 
+/// The language of a script, by its `contentType` (XFA 3.3 page 412: absent means `FormCalc`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Language {
+    /// No `contentType`, or `application/x-formcalc`: chapter 25's language.
+    FormCalc,
+    /// `application/x-javascript`.
+    JavaScript,
+    /// Any other `contentType`, as written.
+    Other(String),
+}
+
+impl Language {
+    /// The language a `script` element's `contentType` attribute names.
+    fn of(content_type: Option<&str>) -> Self {
+        match content_type.map(str::trim) {
+            None | Some("" | "application/x-formcalc") => Self::FormCalc,
+            Some("application/x-javascript") => Self::JavaScript,
+            Some(other) => Self::Other(other.to_owned()),
+        }
+    }
+}
+
+/// The `script` of a container's `calculate` element.
+#[derive(Debug, Clone)]
+pub(crate) struct Script {
+    /// Its language.
+    pub(crate) language: Language,
+    /// Its text, as the template states it.
+    pub(crate) text: String,
+}
+
 /// One container of the template.
 #[derive(Debug, Clone)]
 pub(crate) struct Container {
@@ -198,6 +229,8 @@ pub(crate) struct Container {
     pub(crate) pictures: Pictures,
     /// Whether its `occur` bounds differ or are unbounded, page 333's dynamic subform.
     pub(crate) occurs_variably: bool,
+    /// Its `calculate`'s script, where it holds a non-blank one (page 379).
+    pub(crate) calculation: Option<Script>,
     /// The container it is in; `None` for a top-level subform.
     pub(crate) parent: Option<usize>,
     /// Its own containers, in document order.
@@ -303,6 +336,7 @@ impl Template {
                     .map(str::to_owned),
                 pictures: Pictures::default(),
                 occurs_variably: false,
+                calculation: None,
                 parent,
                 children: Vec::new(),
             };
@@ -334,6 +368,11 @@ impl Template {
             at = container.parent;
         }
         None
+    }
+
+    /// How many containers the template holds.
+    pub(crate) fn container_count(&self) -> usize {
+        self.containers.len()
     }
 
     /// The container at an index this template handed out.
@@ -413,6 +452,64 @@ impl Template {
                 _ => self.som_named(&container.children, name, out),
             }
         }
+    }
+
+    /// The containers named `name` among `parent`'s own, nameless ones and areas looked through
+    /// (pages 94 and 95); a `None` parent is the template's top level.
+    pub(crate) fn named_within(&self, parent: Option<usize>, name: &str) -> Vec<usize> {
+        let mut found = Vec::new();
+        match parent {
+            Some(at) => {
+                if let Some(container) = self.get(at) {
+                    self.som_named(&container.children, name, &mut found);
+                }
+            }
+            None => self.som_named(&self.roots, name, &mut found),
+        }
+        found
+    }
+
+    /// The containers an unqualified SOM name reaches from the script container `here`, by page
+    /// 114's order: the container's children; the container and its siblings; its parent and the
+    /// parent's siblings; and so up to the root, the first level that holds a match deciding.
+    pub(crate) fn unqualified(&self, here: usize, name: &str) -> Vec<usize> {
+        let below = self.named_within(Some(here), name);
+        if !below.is_empty() {
+            return below;
+        }
+        let mut level = Some(here);
+        while let Some(at) = level {
+            let parent = self.get(at).and_then(|container| container.parent);
+            let found = self.named_within(parent, name);
+            if !found.is_empty() {
+                return found;
+            }
+            level = parent;
+        }
+        Vec::new()
+    }
+
+    /// The index of the container at `at` among the containers of its own name beside it, which
+    /// page 115 infers for a reference that states none; 0 for a nameless one.
+    pub(crate) fn own_index(&self, at: usize) -> usize {
+        let Some(container) = self.get(at) else {
+            return 0;
+        };
+        let Some(name) = container.name.as_deref() else {
+            return 0;
+        };
+        self.named_within(container.parent, name)
+            .iter()
+            .position(|&sibling| sibling == at)
+            .unwrap_or(0)
+    }
+
+    /// The containers with a `calculate` script, in document order (the order the containers
+    /// are read in).
+    pub(crate) fn calculating(&self) -> Vec<usize> {
+        (0..self.containers.len())
+            .filter(|&at| self.get(at).is_some_and(|c| c.calculation.is_some()))
+            .collect()
     }
 
     /// Where the container at `target` binds, by chapter 4's direct match.
@@ -594,6 +691,16 @@ fn read_properties(container: &mut Container, tree: &Tree, element: &Element) {
                             .collect()
                     })
                     .unwrap_or_default();
+            }
+            "calculate" => {
+                container.calculation = tree
+                    .child(child, "script")
+                    .and_then(|script| tree.get(script))
+                    .filter(|script| !script.text.trim().is_empty())
+                    .map(|script| Script {
+                        language: Language::of(script.attribute("contentType")),
+                        text: script.text.clone(),
+                    });
             }
             "occur" => {
                 let bound = |name: &str, default: i64| {

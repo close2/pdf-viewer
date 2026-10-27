@@ -622,7 +622,8 @@ pub struct Conversion {
     /// another file, and nothing in the output says it was there, so each row names the file and
     /// the page (`doc/adr/1285`).
     pub proxied_references: Vec<super::ProxiedReference>,
-    /// Every JPEG 2000 image this conversion transcoded to `FlateDecode`.
+    /// Every JPEG 2000 image this conversion transcoded to `FlateDecode`, or to JPEG 2000 again
+    /// where a component is deeper than sixteen bits (`doc/adr/2484`).
     ///
     /// ISO 19005-2 section 6.2.8.3, answered with `preserve` where the image states its own
     /// colour space: the samples are this program's decoder's output from here on and the stream
@@ -1338,18 +1339,19 @@ impl Conversion {
         if !self.transcoded_images.is_empty() {
             let _ = writeln!(
                 out,
-                "  {} JPEG 2000 image(s) decoded and written again under FlateDecode in the \
-                 colour space each states, this program's decoder's output kept as the picture:",
+                "  {} JPEG 2000 image(s) decoded and written again in the colour space each \
+                 states, this program's decoder's output kept as the picture:",
                 self.transcoded_images.len()
             );
             for image in &self.transcoded_images {
                 let _ = writeln!(
                     out,
-                    "      object {} {}, depths {:?} written at {} bits, {} bytes before and {} \
-                     after",
+                    "      object {} {}, depths {:?} written under {} at {} bits, {} bytes before \
+                     and {} after",
                     image.at.number,
                     image.at.generation,
                     image.depths,
+                    image.filter,
                     image.bits,
                     image.before,
                     image.after

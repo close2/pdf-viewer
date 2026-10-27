@@ -42,16 +42,6 @@ presentations. **What builds a row here:** the host work of `doc/todo/30`–`38`
 print path. A new host reopens the entries it has not yet connected, even when the shared core
 already reads them.
 
-- §12.2 — WinUI applies Table 147's chrome, fitting and centring and Table 29's full screen, and
-  the library holds a document's dialogues while presenting (ADRs 2308, 2309); CI's `window` job
-  runs the window's half under its `--probe` word (ADR 2436); its first run was red on the placed
-  page, where the window answered a placement between its resize and its page area's new size,
-  and the merge's run after ADR 2446's hold (CI 40486886833) was red the same way; the window now
-  answers from the inner size its page area was measured in (ADR 2478), and the row moves on that
-  step's first green run. Keep ADR 1145's reason for preserving the
-  reader's restriction controls. The deliberate GTK/Qt menu and GTK placement departures remain
-  (ADRs 1145, 1429); the row is `partial` because the Windows run is owed.
-
 - **Beside this bucket and not in it** — §13.2.4.2 is `implemented`: its clip is judged by §13.2.2,
   Table 286's /TF asked at the reader's restriction level for `Operation::HandOverMedia`, and the data
   handed to the host as `viewer_core::Event::Media` (ADRs 1960, 1961). What is left owes no row: the
@@ -217,9 +207,9 @@ or Table 300 `/S` makes "the rendition" non-viable from either dictionary (ADRs 
 
 - **Beside this bucket and not in it** — §12.5.6.23 is `departed` on two refusals with their cost
   recorded, a calculator function serving region-only colours (ADR 1363) and a `JPXDecode` component
-  past the twenty-four bits the decoder reads exactly, or deeper than sixteen in an image of other than
-  one or three colour components, which T.801's JPX file would carry (ADRs 1371, 2470); a component of
-  seventeen to twenty-four bits is written back as JPEG 2000 by `pdf-jpx-write`; every other content class the clause reaches is removed, and
+  past the twenty-four bits the decoder reads exactly (ADRs 1371, 2470); a component of
+  seventeen to twenty-four bits, or one stating a sign, is written back as JPEG 2000 by `pdf-jpx-write`,
+  as a JPX file where the image has other than one or three colour components, refused where a raw codestream of two, five or more states no colour box (ADRs 2480, 2481); every other content class the clause reaches is removed, and
   Table 195's overlay is a choice its own `should` leaves (ADRs 1124, 1622).
 
 ### 5. Answered, awaiting a real trigger — the public-key security handler

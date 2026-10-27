@@ -488,3 +488,13 @@ at no object with its holder named in words, and the remedies that need an objec
 their own sentence. Before a population is widened to dictionaries without an object number, grep the
 converter for what it does with `place.object` (and `objects_named`); trap 243 is the same reader seen from
 its findings list.
+
+### 284. A writer's round trip goes through both readers
+
+Round 1823 (ADR 2480) proved `pdf-jpx-write`'s output by reading it back through `pdf_sandbox::decode_here`,
+and the premultiplied-opacity case passed. Round 1825, reading the same kind of file through
+`pdf_model::image::jpx_samples` for the archive, got "the colour space takes 3 components but the codestream
+has 4": the image reader takes a `cdef` channel of type 1 as opacity and rejects type 2, and the sandbox
+decoder tolerates type 2. A writer whose files the tree will read again proves its round trip through every
+reader that will read them — here both — and the fixture that passed one reader alone was the gap the
+second found.

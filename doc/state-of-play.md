@@ -1199,9 +1199,10 @@ colour (ADR 1324); a form entered under its `/Matrix`, an object another page al
 rather than replaced, a clipping boundary kept without its marks, and Type 3, composite and vertical
 codes, `sh`, soft-mask groups and shadings each cut by their own clause's geometry (ADRs 1351, 1352,
 1363). It refuses rather than cuts wrong — a calculator function serving the region's own colours, a
-JPX image beyond the operator's budget or with a component deeper than the decoder reads exactly,
-or deeper than sixteen bits in other than one or three colour components — a component of seventeen to
-twenty-four bits goes back as JPEG 2000 through the tree's own lossless writer (ADR 2470) — or in
+JPX image beyond the operator's budget or with a component deeper than the decoder reads exactly — a
+component of seventeen to twenty-four bits, or one that states a sign, goes back as JPEG 2000 through
+the tree's own lossless writer, as a JPX file with its reader requirements box where the colour
+components are other than one or three, and refused by name where a raw codestream of two, five or more states no colour box (ADRs 2470, 2480, 2481) — or in
 e-sRGB or e-sYCC, which no §8.6 space restates (ADR 2293), a file whose
 dictionary contradicts its codec — each with its sentence, and the overlay text and fill it does not
 compose (A65's fence), said as a departure in the report; §12.5.6.23 is `departed` on the two

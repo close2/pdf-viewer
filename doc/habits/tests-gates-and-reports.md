@@ -742,3 +742,14 @@ read `AppWindow.ClientSize` straight after `ResizeClient`, found it unchanged, a
 once, so its own probe line appeared 0 times in CI run 40486886833 and the log could not say which of
 two paths gave the stale placement; the fix records the root element's and the page area's sizes from
 one layout pass and answers from that pair. A run where a hold never engages must be able to say why.
+
+## A new writer shape is planted on the reference validator before it is declared freed
+
+A converter that writes a file shape it never wrote before — a JP2 with a `bpcc` box, a grey image with an
+opacity channel, a vendor colour space — plants that exact shape in a document and runs veraPDF on the output
+at both targets before the remedy is declared to free anything. Round 1825 (ADRs 2484, 2485) found veraPDF
+1.30.3 failing two shapes the clause's text does not forbid (ISO 19005-2 6.2.8.3 names colour channels only):
+opacity at another depth than the colour channels (a `bpcc` box) and grey plus opacity; the round kept both
+as named refusals rather than ship outputs the reference validator rejects. The clause decides what is
+conforming (trap 282 on glyph claims); the validator decides what a reader using it will accept, and a new
+shape is read by both before it ships.

@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use super::{
     Decoded, ImageClear, ImageLayout, OwnRaster, Role, Source, StatedMask, StatedMasks, Walk,
-    decode_pairs, matte_samples, narrow, positive_dim, row_stride, widened_decode,
+    decode_pairs, deep, matte_samples, narrow, positive_dim, row_stride, widened_decode,
 };
 
 impl Walk<'_> {
@@ -620,17 +620,7 @@ impl Walk<'_> {
             9..=16 => 16,
             _ => 24,
         };
-        if bits > 16 && !matches!(samples.components, 1 | 3) {
-            // ISO/IEC 15444-1 I.5.3.3 enumerates greyscale and sRGB for a JP2 file; any other
-            // count needs T.801's JPX file and its reader requirements box (M.11.1), which this
-            // writer does not build.
-            return Err(format!(
-                "§7.4.9: the JPEG 2000 image /{shown} has {} colour components deeper than \
-                 sixteen bits, which go back only as JPEG 2000, and this removal writes a JP2 \
-                 file of one or three colour components only; the page is refused",
-                samples.components
-            ));
-        }
+        let (signed, colour_box) = Self::jpx_statements(shown, codestream, &samples)?;
         let decode = samples
             .decode
             .iter()
@@ -653,6 +643,8 @@ impl Walk<'_> {
             depths: samples.depths.clone(),
             opacity_depth: samples.opacity_depth,
             pairs: samples.decode.clone(),
+            signed,
+            colour_box,
         };
         Ok(ImageClear {
             image_id,
@@ -668,6 +660,96 @@ impl Walk<'_> {
             }),
             fill: None,
         })
+    }
+
+    /// What the source file stated that its samples do not carry, and that a writer of a deep or
+    /// signed image restates (ADRs 2480, 2481): which components `Ssiz` states signed, the colour
+    /// components first and the opacity channel last, and the first colour specification box.
+    ///
+    /// ISO/IEC 15444-1 Table A-11 gives a signed component a sign bit in its `Ssiz`, and ISO
+    /// 32000-2 §8.9.5.2 defines no map from a signed value, so the decoder's integers are written
+    /// back as they came and the sign statement alone is kept. A signed component of an image
+    /// whose codestream has other components than the raster's (a palette's indices, an opacity
+    /// the dictionary does not ask for) cannot be matched to a plane: past sixteen bits, where
+    /// the image can go back only as JPEG 2000, the page is refused by name, and otherwise it is
+    /// cleared under `FlateDecode` without the statement. The colour box is read, and refused
+    /// where it cannot be written, only for an image that goes back as JPEG 2000.
+    fn jpx_statements(
+        shown: &str,
+        codestream: &[u8],
+        samples: &pdf_model::image::JpxSamples,
+    ) -> Result<(Vec<bool>, Option<deep::StatedColour>), String> {
+        let headers = pdf_model::jpeg2000::Headers::parse(codestream).map_err(|error| {
+            format!(
+                "§7.4.9: the JPEG 2000 image /{shown} does not state its own precision \
+                 ({error}); the page is refused rather than re-encode a grid this removal \
+                 cannot show it preserves"
+            )
+        })?;
+        let states = headers
+            .codestream
+            .as_ref()
+            .map_or_else(|| headers.component_depths(), |first| first.depths.clone());
+        let planes = samples
+            .components
+            .saturating_add(usize::from(samples.opacity.is_some()));
+        let mut signed: Vec<bool> = states.iter().map(|depth| depth.signed).collect();
+        if !signed.iter().any(|flag| *flag) {
+            signed.clear();
+        } else if signed.len() != planes {
+            if samples.precision > 16 {
+                return Err(format!(
+                    "ISO/IEC 15444-1 Table A-11: the JPEG 2000 image /{shown} states {} \
+                     components, some of them signed, and the decoder delivered {planes}; this \
+                     removal cannot say which delivered plane each sign belongs to, so the page \
+                     is refused",
+                    signed.len()
+                ));
+            }
+            // An image of sixteen bits or fewer goes back under `FlateDecode` as the samples
+            // it holds, which state no sign: the page is cleared without the statement it
+            // could not place (ADR 2481).
+            signed.clear();
+        }
+        if samples.precision <= 16 && signed.is_empty() {
+            return Ok((signed, None));
+        }
+        let colour_box = match Self::jpx_colour_box(shown, &headers, samples.components) {
+            Ok(found) => found,
+            // A signed image of sixteen bits or fewer whose colour box cannot be written is
+            // cleared under `FlateDecode` without the sign statement (ADR 2481).
+            Err(_) if samples.precision <= 16 => return Ok((Vec::new(), None)),
+            Err(refusal) => return Err(refusal),
+        };
+        Ok((signed, colour_box))
+    }
+
+    /// The first colour specification box the file stated, as a writer of a JPX file restates
+    /// it, or a refusal where it cannot be written (ADR 2480).
+    fn jpx_colour_box(
+        shown: &str,
+        headers: &pdf_model::jpeg2000::Headers<'_>,
+        components: usize,
+    ) -> Result<Option<deep::StatedColour>, String> {
+        let colour_box = match headers.colour.first() {
+            Some(first) => Some(deep::StatedColour::from_header(first).map_err(|detail| {
+                format!(
+                    "§7.4.9: the JPEG 2000 image /{shown} states {detail}, which this removal \
+                     cannot write back as JPEG 2000; the page is refused"
+                )
+            })?),
+            None => None,
+        };
+        if colour_box.is_none() && !matches!(components, 1 | 3 | 4) {
+            return Err(format!(
+                "§7.4.9: the JPEG 2000 image /{shown} has {components} colour components and \
+                 states no colour specification box, which a space without an enumeration is to \
+                 state as a vendor colour space in the JPX data; this removal writes back the \
+                 box the file stated and invents none (ITU-T T.801 M.11.7.2), so a file that \
+                 departs from §7.4.9's full JPX structure here is refused"
+            ));
+        }
+        Ok(colour_box)
     }
 
     /// The conditions a `JPXDecode` image's codestream has to meet before its samples are

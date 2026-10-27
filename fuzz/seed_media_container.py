@@ -3,22 +3,26 @@
 
     python3 fuzz/seed_media_container.py fuzz/corpus/media_container
 
-`pdf_model::media::container` reads RIFF WAVE, AVI, AIFF and the ISO base media file format's
-headers for ISO 32000-2 §13.2.4.3's offset rules (ADR 2452). A fuzzer will not invent a `moov`
+`pdf_model::media::container` reads RIFF WAVE, AVI, AIFF, the ISO base media file format, SWF, ASF
+and an MPEG-2 program stream's headers for ISO 32000-2 §13.2.4.3's offset rules (ADRs 2452, 2488,
+2489). A fuzzer will not invent a `moov`
 box whose `trak` names a chapter track through `tref`, or a `cue ` chunk whose points an `adtl`
 list labels, so each seed states the structures the reader walks: a WAVE file with labelled cue
 points, an AVI file with an `avih` header and an OpenDML `dmlh`, an AIFF file with a `MARK`
-chunk, and a QuickTime file with a picture track and a chapter track of two titles. The target's
-first byte chooses the content type (0 WAVE, 1 AVI, 2 AIFF, 3 MP4), so each seed starts with its
-own. The files are built here rather than taken from documents: no corpus document holds a media
-clip section, and so none exercises the reader. Seeds are named by content, so a re-run adds
-nothing.
+chunk, a QuickTime file with a picture track and a chapter track of two titles, a plain and a
+zlib-compressed SWF file with frame labels and a scene tag, an ASF file with a File Properties
+Object and a Marker Object, and an MPEG-2 pack header. The target's first byte chooses the
+content type (0 WAVE, 1 AVI, 2 AIFF, 3 MP4, 4 SWF, 5 ASF, 6 MPEG program stream, 7 MPEG audio),
+so each seed starts with its own. The files are built here rather than taken from documents: the
+corpora's few media clips are large and mostly outside the reader's reach, and so exercise little
+of it. Seeds are named by content, so a re-run adds nothing.
 """
 
 import hashlib
 import os
 import struct
 import sys
+import zlib
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 
@@ -103,13 +107,67 @@ def mp4():
     return ftyp + mdat + moov
 
 
+def swf_body(version):
+    # A RECT of Nbits 4 with four zero fields (5 + 16 bits, padded to 3 bytes), 10 frames a second
+    # (0x0A00 in 8.8) and 30 frames.
+    body = bytes([0b00100000, 0, 0]) + struct.pack("<HH", 0x0A00, 30)
+
+    def tag(kind, data):
+        if len(data) < 0x3F:
+            return struct.pack("<H", (kind << 6) | len(data)) + data
+        return struct.pack("<HI", (kind << 6) | 0x3F, len(data)) + data
+
+    body += tag(1, b"") + tag(43, b"intro\0") + tag(1, b"") + tag(43, b"anchor\0\x01")
+    scenes = bytes([2, 0]) + b"Scene 1\0" + bytes([20]) + b"Scene 2\0" + bytes([1, 5]) + b"mid\0"
+    body += tag(86, scenes) + tag(39, b"\x01\0\x01\0" + tag(43, b"inner\0") + tag(0, b""))
+    return body + tag(1, b"") + tag(0, b"")
+
+
+def swf(compressed):
+    body = swf_body(9)
+    head = struct.pack("<I", len(body) + 8)
+    if compressed:
+        return b"CWS" + bytes([9]) + head + zlib.compress(body)
+    return b"FWS" + bytes([9]) + head + body
+
+
+def asf_guid(data1, data2, data3, data4):
+    return struct.pack("<IHH", data1, data2, data3) + bytes(data4)
+
+
+def asf():
+    properties_data = (b"\0" * 40 + struct.pack("<QQQI", 300_000_000, 300_000_000, 0, 2)
+                       + b"\0" * 12)
+    properties = (asf_guid(0x8CABDCA1, 0xA947, 0x11CF, [0x8E, 0xE4, 0, 0xC0, 0x0C, 0x20, 0x53, 0x65])
+                  + struct.pack("<Q", len(properties_data) + 24) + properties_data)
+    entries = b""
+    for time, text in [(0, "Start"), (150_000_000, "Middle")]:
+        wide = (text + "\0").encode("utf-16-le")
+        entries += (struct.pack("<QQHII", 0, time, len(wide) + 12, 0, 0)
+                    + struct.pack("<I", len(wide) // 2) + wide)
+    marker_data = b"\0" * 16 + struct.pack("<IHH", 2, 0, 0) + entries
+    markers = (asf_guid(0xF487CD01, 0xA951, 0x11CF, [0x8E, 0xE6, 0, 0xC0, 0x0C, 0x20, 0x53, 0x65])
+               + struct.pack("<Q", len(marker_data) + 24) + marker_data)
+    body = properties + markers
+    header = (asf_guid(0x75B22630, 0x668E, 0x11CF, [0xA6, 0xD9, 0, 0xAA, 0, 0x62, 0xCE, 0x6C])
+              + struct.pack("<QI", len(body) + 30, 2) + bytes([1, 2]))
+    return header + body
+
+
+def program_stream():
+    return bytes([0, 0, 1, 0xBA, 0x44, 0x00, 0x04, 0x00, 0x04, 0x01, 0x00, 0x00, 0x07, 0xF8])
+
+
 def main():
     out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
         ROOT, "fuzz", "corpus", "media_container")
     os.makedirs(out, exist_ok=True)
     added = 0
-    for head, build in enumerate([wave, avi, aiff, mp4]):
+    builds = [wave, avi, aiff, mp4, lambda: swf(False), asf, program_stream]
+    for head, build in enumerate(builds):
         added += write(out, bytes([head]) + build())
+    added += write(out, bytes([4]) + swf(True))
+    added += write(out, bytes([7]) + b"ID3\x04\0\0\0\0\0\0")
     print(f"seed_media_container: {added} seeds added to {out}")
 
 
