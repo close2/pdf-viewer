@@ -259,6 +259,7 @@ fn layers_of<'a>(shapes: &[Shape], textures: &'a [wgpu::Texture]) -> Vec<Layer<'
             texture,
             placement: Affine::translate(shape.at.0, shape.at.1),
             filter: ImageFilter::Nearest,
+            within: None,
         })
         .collect()
 }

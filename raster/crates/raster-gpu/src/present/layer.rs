@@ -44,6 +44,31 @@ pub struct Layer<'a> {
     /// precision is the driver's. The same two the image lane offers, decided by the
     /// same caller (brief section 4.5).
     pub filter: ImageFilter,
+    /// The part of the texture this layer shows, or `None` for the whole of it.
+    ///
+    /// **A part is how one texture goes up under several placements.** A window that
+    /// holds a column of pages as one texture can carry each page to where a zoom puts
+    /// it only by drawing that texture once a page, each time under the page's own
+    /// placement and showing that page's rectangle alone — anything else of the texture
+    /// would land beside its own page by the arrangement's gap (the viewer's ADR 2416).
+    /// Outside the part the layer contributes nothing, as it does outside the texture,
+    /// and a linear tap is clamped inside it, so no texel of the rest of the texture is
+    /// filtered into the part's edge.
+    pub within: Option<Texels>,
+}
+
+/// A rectangle of a layer's texels: `left` and `top` the first column and row inside it,
+/// `right` and `bottom` the first outside it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Texels {
+    /// The first column inside the rectangle.
+    pub left: u32,
+    /// The first row inside the rectangle.
+    pub top: u32,
+    /// The first column past it.
+    pub right: u32,
+    /// The first row past it.
+    pub bottom: u32,
 }
 
 /// A layer that passed its contract, and the two things the pass makes of its
@@ -64,10 +89,14 @@ pub(super) struct Placed {
 }
 
 impl Layer<'_> {
-    /// The layer's extent in texels, as the shader's floats.
-    #[expect(clippy::cast_precision_loss)] // texture extents are exact in f32
-    pub(super) fn extent(&self) -> [f32; 2] {
-        [self.texture.width() as f32, self.texture.height() as f32]
+    /// The rectangle of texels this layer shows: [`Layer::within`], or the whole texture.
+    pub(super) fn part(&self) -> Texels {
+        self.within.unwrap_or(Texels {
+            left: 0,
+            top: 0,
+            right: self.texture.width(),
+            bottom: self.texture.height(),
+        })
     }
 
     /// The contract, checked before anything is acquired — the same order
@@ -89,6 +118,7 @@ impl Layer<'_> {
     pub(super) fn check(&self, index: usize, target: (u32, u32)) -> Result<Placed, RenderError> {
         let inverse = self
             .inverse()
+            .and_then(|inverse| self.part_inside().map(|()| inverse))
             .map_err(|reason| RenderError::LayerRefused { index, reason })?;
         Ok(Placed {
             inverse,
@@ -96,8 +126,8 @@ impl Layer<'_> {
         })
     }
 
-    /// Where the placement puts this layer's own rectangle on the target, grown outward
-    /// to whole pixels and clamped to the target's own extent.
+    /// Where the placement puts the part of this layer it shows ([`Layer::part`]) on the
+    /// target, grown outward to whole pixels and clamped to the target's own extent.
     ///
     /// **A bound, and deliberately a loose one.** The fragment stage decides which texel
     /// a pixel gets and whether it gets one at all; this only says which pixels are
@@ -124,13 +154,14 @@ impl Layer<'_> {
                 f64::from(place.b) * across + f64::from(place.d) * down + f64::from(place.f),
             )
         };
-        let texels_wide = f64::from(self.texture.width());
-        let texels_tall = f64::from(self.texture.height());
+        let part = self.part();
+        let (left, right) = (f64::from(part.left), f64::from(part.right));
+        let (top, bottom) = (f64::from(part.top), f64::from(part.bottom));
         let corners = [
-            corner(0.0, 0.0),
-            corner(texels_wide, 0.0),
-            corner(0.0, texels_tall),
-            corner(texels_wide, texels_tall),
+            corner(left, top),
+            corner(right, top),
+            corner(left, bottom),
+            corner(right, bottom),
         ];
         let span = |pick: fn(&(f64, f64)) -> f64, limit: u32| {
             let low = corners.iter().map(pick).fold(f64::INFINITY, f64::min);
@@ -144,6 +175,32 @@ impl Layer<'_> {
         let (left, right) = span(|c| c.0, width);
         let (top, bottom) = span(|c| c.1, height);
         [left, top, right, bottom]
+    }
+
+    /// Whether [`Layer::within`] is a rectangle of texels this texture has, with at least
+    /// one texel in it.
+    ///
+    /// Asked after [`Layer::inverse`], because the texture's own contract comes first, and
+    /// before anything is bound: a part past the texture's edge would be a rectangle of the
+    /// window the layer claims and has no texel for, and an empty one a layer drawing
+    /// nothing that its host believes it drew.
+    fn part_inside(&self) -> Result<(), LayerProblem> {
+        let Some(within) = self.within else {
+            return Ok(());
+        };
+        let fits = within.left < within.right
+            && within.top < within.bottom
+            && within.right <= self.texture.width()
+            && within.bottom <= self.texture.height();
+        if fits {
+            Ok(())
+        } else {
+            Err(LayerProblem::Within {
+                within,
+                width: self.texture.width(),
+                height: self.texture.height(),
+            })
+        }
     }
 
     /// The inverse of the placement — what the fragment stage maps a surface pixel back
@@ -236,6 +293,7 @@ mod tests {
             texture,
             placement,
             filter: ImageFilter::Nearest,
+            within: None,
         };
         match layer.check(3, TARGET) {
             Ok(_) => None,
@@ -357,6 +415,7 @@ mod tests {
             texture: &texture,
             placement,
             filter: ImageFilter::Nearest,
+            within: None,
         }
         .device_bounds(TARGET)
     }

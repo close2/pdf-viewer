@@ -899,9 +899,10 @@ fn a_zoom_of_a_column_is_refused_because_no_one_placement_carries_it() {
             NONE_HELD,
             REFRESH,
             LANDED,
-            QUADS
+            Standing::Resample
         ),
-        Plan::Refused(refused)
+        Plan::Refused(refused),
+        "a window that resamples its pixels has one placement or none"
     );
     // And the single page it is not about.
     let mut alone_stale = Stale::default();
@@ -921,6 +922,103 @@ fn a_zoom_of_a_column_is_refused_because_no_one_placement_carries_it() {
             )
             .stands_in(),
         "one page has one placement and always did"
+    );
+}
+
+/// **A zoom of a real column stands in from its last frame, each page carried to where the view
+/// puts it** — the owner's "zooming out, always shows the blurry frame" in a column (ADR 2408 §3,
+/// ADR 2416).
+///
+/// One placement for the whole picture puts the second page of a column `GAP × (1 − k)` device
+/// pixels from where a zoom by `k` puts it, past [`AGREEMENT`], because `viewer_core::layout`'s
+/// gap does not scale; so the last frame used to be refused and the window stood in from the
+/// 512-pixel retained pages alone. On a surface that draws in quads each page of the last frame
+/// now goes up under its own placement, showing its own rectangle only. What is asserted is
+/// arithmetic on the arrangement the core states, never a figure fitted to a run: the plan stands
+/// in from the last frame; every page the view and the picture share gets a part; each part's
+/// corners land where the view puts that page's corners, to within [`AGREEMENT`]; and no two parts
+/// share a texel, so no page's pixels are drawn beside another page.
+#[test]
+fn a_zoom_of_a_real_column_stands_in_from_its_last_frame_page_by_page() {
+    use viewer_core::{Command, Zoom};
+
+    let mut column = Column::opened();
+    let mut settled = column.send(Command::Zoom {
+        zoom: Zoom::Scale(0.4),
+        at: None,
+    });
+    let mut checked = 0;
+    for zoom in [Zoom::In, Zoom::In, Zoom::Out, Zoom::Out, Zoom::Out] {
+        let mut stale = Stale::default();
+        stale.settled(&settled, Duration::from_millis(700), true);
+        let asked = column.send(Command::Zoom { zoom, at: None });
+        let shared = asked
+            .iter()
+            .filter(|page| settled.iter().any(|held| held.of == page.of))
+            .count();
+        assert_eq!(
+            stale.plan(&asked, NONE_HELD, REFRESH, LANDED, QUADS),
+            Plan::Approximate(Stand {
+                from: Source::LastFrame,
+                instead_of_the_base: None,
+                missed: Missed::Predicted {
+                    frame: stale.expected(),
+                },
+            }),
+            "{zoom:?}: the last frame stands in, rather than nothing or the retained pages"
+        );
+        let carry = stale
+            .reproject_on_quads(&asked)
+            .unwrap_or_else(|why| panic!("{zoom:?}: {why}"));
+        let super::Carry::ByPage { parts, apart } = &carry else {
+            panic!("{zoom:?}: a zoom of a column has no one placement: {carry:?}");
+        };
+        assert!(*apart > AGREEMENT, "{zoom:?}: {apart}");
+        assert_eq!(parts.len(), shared, "{zoom:?}: one part a page held");
+        for (part, page) in parts.iter().zip(
+            asked
+                .iter()
+                .filter(|page| settled.iter().any(|held| held.of == page.of)),
+        ) {
+            let held = settled
+                .iter()
+                .find(|held| held.of == page.of)
+                .expect("a page the picture holds");
+            let size = page.list.page_size;
+            for (x, y) in [
+                (0.0, 0.0),
+                (size.width, 0.0),
+                (0.0, size.height),
+                (size.width, size.height),
+            ] {
+                let corner = pdf_render::Point::new(x, y);
+                let through = part.placement.apply(held.target.transform.apply(corner));
+                let wanted = page.target.transform.apply(corner);
+                let off = (through.x - wanted.x).hypot(through.y - wanted.y);
+                assert!(
+                    off <= AGREEMENT,
+                    "{zoom:?}: page {} lands {off} px from where the view puts it",
+                    page.of.page() + 1
+                );
+            }
+        }
+        for (index, one) in parts.iter().enumerate() {
+            for other in &parts[index + 1..] {
+                let ([a_left, a_top, a_right, a_bottom], [b_left, b_top, b_right, b_bottom]) = (
+                    one.texels.expect("a page's part"),
+                    other.texels.expect("a page's part"),
+                );
+                let overlap =
+                    a_left < b_right && b_left < a_right && a_top < b_bottom && b_top < a_bottom;
+                assert!(!overlap, "{zoom:?}: {one:?} and {other:?} share texels");
+            }
+        }
+        checked += parts.len();
+        settled = asked;
+    }
+    assert!(
+        checked >= 10,
+        "five zooms of a column of two pages or more: {checked} parts"
     );
 }
 
@@ -1160,8 +1258,20 @@ fn a_zoom_of_a_column_places_every_retained_page_by_itself() {
             "page {index}: {through:?} {directly:?}"
         );
     }
+    // The last frame goes over them a page at a time (ADR 2416); a window that resamples its
+    // pixels shows them alone.
     assert_eq!(
         stale.plan(&asked, 2, REFRESH, LANDED, QUADS),
+        Plan::Approximate(Stand {
+            from: Source::LastFrameOverPages,
+            instead_of_the_base: None,
+            missed: Missed::Predicted {
+                frame: stale.expected(),
+            },
+        }),
+    );
+    assert_eq!(
+        stale.plan(&asked, 2, REFRESH, LANDED, Standing::Resample),
         Plan::Approximate(Stand {
             from: Source::RetainedPages,
             instead_of_the_base: Some(match stale.reproject(&asked) {

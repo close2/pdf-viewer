@@ -124,8 +124,9 @@ pub(super) const AGREEMENT: f32 = 0.5;
 ///   and a column reprojects as a single page always did. A *zoom* does not:
 ///   `viewer_core::layout`'s gap between rows is stated in logical pixels and so does not scale
 ///   with the magnification, while the pages either side of it do — so no one affine carries both,
-///   and the honest answer is to wait for the real frame rather than to move a page to a place it
-///   is not.
+///   and moving the picture whole would put a page where it is not. A surface that draws in quads
+///   carries it a page at a time instead ([`carrying_on_quads`], ADR 2416); one that resamples a
+///   window of pixels waits for the real frame.
 ///
 /// The disagreement it did absorb comes back with the answer, because a bound nobody can see the
 /// far side of is a bound nobody can re-measure ([`Carried::within`]).
@@ -143,42 +144,7 @@ fn one_placement(settled: &[Placed], asked: &[Placed]) -> Result<Carried, Refusa
             continue;
         };
         let target = &placed.target;
-        // A scroll changes only the translation, and the linear parts say so by bit
-        // equality — so the placement is *constructed* as the exact translation
-        // `t2 − t1` rather than computed through an inverse whose round-trip would
-        // leave the scale at 0.99999994 and the whole window resampled for it. This
-        // is what lets the snap below recognise a scroll with no tolerance anywhere.
-        let same_linear = [
-            (was.transform.a, target.transform.a),
-            (was.transform.b, target.transform.b),
-            (was.transform.c, target.transform.c),
-            (was.transform.d, target.transform.d),
-        ]
-        .iter()
-        .all(|(then, now)| then.to_bits() == now.to_bits());
-        let moved = if same_linear {
-            Some(Transform {
-                a: 1.0,
-                b: 0.0,
-                c: 0.0,
-                d: 1.0,
-                e: target.transform.e - was.transform.e,
-                f: target.transform.f - was.transform.f,
-            })
-        } else {
-            was.transform
-                .invert()
-                .map(|back| back.then(target.transform))
-        };
-        let Some(moved) = moved else {
-            return Err(Refusal::NoPlacement);
-        };
-        if ![moved.a, moved.b, moved.c, moved.d, moved.e, moved.f]
-            .iter()
-            .all(|coefficient| coefficient.is_finite())
-        {
-            return Err(Refusal::NoPlacement);
-        }
+        let moved = moved(&was, target)?;
         match agreed {
             // Every page is compared against the placement that will actually be used rather than
             // against its neighbour, so `within` is a statement about the picture drawn: no page
@@ -203,6 +169,49 @@ fn one_placement(settled: &[Placed], asked: &[Placed]) -> Result<Carried, Refusa
             within,
         })
         .ok_or(Refusal::AnotherPage)
+}
+
+/// The placement that carries one page's picture, drawn at `was`, onto `now`: `was⁻¹ ∘ now`, in
+/// the picture's own texel space.
+///
+/// Asked once a page by both answers — [`one_placement`], which needs every page's to agree, and
+/// [`page_by_page`], which puts each page up under its own.
+fn moved(was: &TargetSpec, now: &TargetSpec) -> Result<Transform, Refusal> {
+    // A scroll changes only the translation, and the linear parts say so by bit
+    // equality — so the placement is *constructed* as the exact translation
+    // `t2 − t1` rather than computed through an inverse whose round-trip would
+    // leave the scale at 0.99999994 and the whole window resampled for it. This
+    // is what lets the snap recognise a scroll with no tolerance anywhere.
+    let same_linear = [
+        (was.transform.a, now.transform.a),
+        (was.transform.b, now.transform.b),
+        (was.transform.c, now.transform.c),
+        (was.transform.d, now.transform.d),
+    ]
+    .iter()
+    .all(|(then, now)| then.to_bits() == now.to_bits());
+    let moved = if same_linear {
+        Some(Transform {
+            a: 1.0,
+            b: 0.0,
+            c: 0.0,
+            d: 1.0,
+            e: now.transform.e - was.transform.e,
+            f: now.transform.f - was.transform.f,
+        })
+    } else {
+        was.transform.invert().map(|back| back.then(now.transform))
+    };
+    let Some(moved) = moved else {
+        return Err(Refusal::NoPlacement);
+    };
+    if ![moved.a, moved.b, moved.c, moved.d, moved.e, moved.f]
+        .iter()
+        .all(|coefficient| coefficient.is_finite())
+    {
+        return Err(Refusal::NoPlacement);
+    }
+    Ok(moved)
 }
 
 /// Says how far the pages of the picture disagreed about the placement it went up at.
@@ -296,6 +305,149 @@ pub(super) fn carrying(drawn: &[Placed], wanted: &[Placed]) -> Result<Carried, R
         return Err(Refusal::Resized);
     }
     one_placement(drawn, wanted)
+}
+
+/// One page's rectangle of the picture held and where it goes — what carries a column's last frame
+/// through a zoom, a page at a time (ADR 2416).
+///
+/// `texels` is `None` for the whole picture under one placement, which is every view change but a
+/// column's zoom, and `Some([left, top, right, bottom])` for one page of it: the rectangle the
+/// page's own box covered when the picture was drawn, grown outward to whole texels and clipped to
+/// the picture, so that its edge row is the page's edge row and no texel of the next page is in it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Part {
+    /// Which texels of the picture held, left and top the first inside, right and bottom the
+    /// first past it; `None` for all of them.
+    pub texels: Option<[u32; 4]>,
+    /// Where they go, from the picture's own texel space to the window's pixels.
+    pub placement: Transform,
+}
+
+impl Part {
+    /// The whole picture under one placement.
+    #[must_use]
+    pub const fn whole(placement: Transform) -> Self {
+        Self {
+            texels: None,
+            placement,
+        }
+    }
+}
+
+/// How the last rendering goes up under a view it is not of, on a surface that draws in quads.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Carry {
+    /// One placement is true of every page, to within half a device pixel: the picture goes up whole.
+    Whole(Carried),
+    /// No one placement is — a zoom in a column, whose gap does not scale — so each page goes up
+    /// under its own, and the gap between them is the window's again (ADR 2416).
+    ByPage {
+        /// One part a page, for every page of the view that the picture held has.
+        parts: Vec<Part>,
+        /// How far apart one placement would have put the pages, in device pixels at the worst
+        /// corner — the [`Refusal::Rearranged`] this answers instead of refusing.
+        apart: f32,
+    },
+}
+
+impl Carry {
+    /// The parts the presenter draws, in the picture's texel space.
+    #[must_use]
+    pub fn parts(&self) -> Vec<Part> {
+        match self {
+            Self::Whole(carried) => vec![Part::whole(carried.placement)],
+            Self::ByPage { parts, .. } => parts.clone(),
+        }
+    }
+
+    /// Rule 3 over how the picture went up: [`absorbed`]'s sentence for a whole picture, and for
+    /// one carried a page at a time, how far one placement would have put its pages apart.
+    pub fn say(&self, pages: usize, trace: impl crate::FrameLines) {
+        match self {
+            Self::Whole(carried) => absorbed(*carried, pages, trace),
+            Self::ByPage { parts, apart } => trace.say(format_args!(
+                "{} of {pages} pages carried one by one: one placement would put them {apart:.4} \
+                 px apart at the worst corner, past the bound of {AGREEMENT}, so each page goes \
+                 up under its own and the gap between them is kept",
+                parts.len()
+            )),
+        }
+    }
+}
+
+/// Whether a picture of `drawn` carries onto `wanted` on a surface that draws in quads, and how.
+///
+/// [`carrying`]'s answer where it has one. Where it refuses because the pages disagree, a surface
+/// that puts a texture up in quads can still carry the picture: one quad a page, each under that
+/// page's own placement and showing that page's rectangle alone, which is the arrangement the
+/// retained layer is already drawn in ([`Proxies::placements`]). Every other refusal stands.
+///
+/// [`Proxies::placements`]: super::Proxies::placements
+pub(super) fn carrying_on_quads(drawn: &[Placed], wanted: &[Placed]) -> Result<Carry, Refusal> {
+    match carrying(drawn, wanted) {
+        Ok(carried) => Ok(Carry::Whole(carried)),
+        Err(Refusal::Rearranged { by, .. }) => {
+            page_by_page(drawn, wanted).map(|parts| Carry::ByPage { parts, apart: by })
+        }
+        Err(other) => Err(other),
+    }
+}
+
+/// One [`Part`] a page of `wanted` that `drawn` holds: the page's rectangle of the picture, and
+/// that page's own `was⁻¹ ∘ now`.
+///
+/// The rectangle is the page's box — `[0, 0]` to its `page_size` in the user space the page's
+/// list is in (`TargetSpec::for_page`) — under the placement it was drawn at, so it is the page
+/// the picture shows and nothing beside it; a page the picture held entirely off its own edge has
+/// no texel to carry and is left out, as a retained page whose composition fails is.
+fn page_by_page(drawn: &[Placed], wanted: &[Placed]) -> Result<Vec<Part>, Refusal> {
+    let mut parts = Vec::new();
+    for placed in wanted {
+        let Some(was) = drawn.iter().find(|held| held.of == placed.of) else {
+            continue;
+        };
+        let placement = snapped(moved(&was.target, &placed.target)?);
+        if let Some(texels) = page_texels(was) {
+            parts.push(Part {
+                texels: Some(texels),
+                placement,
+            });
+        }
+    }
+    if parts.is_empty() {
+        return Err(Refusal::AnotherPage);
+    }
+    Ok(parts)
+}
+
+/// The texels of its picture a page's box covered: left, top, right, bottom, grown outward to
+/// whole texels and clipped to the picture, or `None` where nothing of the page is in it.
+fn page_texels(page: &Placed) -> Option<[u32; 4]> {
+    let size = page.list.page_size;
+    let place = page.target.transform;
+    let corners = [
+        (0.0, 0.0),
+        (size.width, 0.0),
+        (0.0, size.height),
+        (size.width, size.height),
+    ]
+    .map(|(x, y)| place.apply(pdf_render::Point::new(x, y)));
+    let span = |pick: fn(&pdf_render::Point) -> f32, limit: u32| {
+        let low = corners.iter().map(pick).fold(f32::INFINITY, f32::min);
+        let high = corners.iter().map(pick).fold(f32::NEG_INFINITY, f32::max);
+        // In `f64` so that a page placed far outside the window clamps rather than overflows.
+        let limit = f64::from(limit);
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "clamped to [0, the picture's extent], which u32 holds"
+        )]
+        let texel = |at: f64| at.clamp(0.0, limit) as u32;
+        (texel(f64::from(low).floor()), texel(f64::from(high).ceil()))
+    };
+    let (left, right) = span(|point| point.x, page.target.width);
+    let (top, bottom) = span(|point| point.y, page.target.height);
+    (left < right && top < bottom).then_some([left, top, right, bottom])
 }
 
 /// Whether a frame *now being drawn* of `drawn` would be worth anything once it landed.

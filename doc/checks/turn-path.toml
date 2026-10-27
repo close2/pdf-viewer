@@ -49,6 +49,15 @@
 # enough for both would hold the regression each was taken to see. Where no device publishes the
 # table the header line says so and every figure is judged against `<figure>_ms`, as before.
 #
+# **The middle line is a continuum, so a row with both bands states where its raised band was taken
+# from** (ADR 2421): `<figure>_raised_mhz`, the slowest clock its `<figure>_ms` runs were read at. A
+# figure read on a raised line below it is not judged, said out loud, because the middle line read 601
+# to 628 MHz on 2026-10-26 and a figure there can read as the lowest level does. **The lowest level comes
+# with the processor's load** (ADR 2420): over one hold's 18 gate runs on 2026-10-26, no child of 231
+# taken at a load under 3 ran at 600 MHz, and 80 of 135 at a load of 9 or more did, so a lowest band
+# is taken from the runs the gate itself admits at loads up to its ceiling, never from arms started
+# under 3, which do not see it.
+#
 # **`seventh_ms` is the turn again on a device that has lived** (ADR 1607): the same page, lane
 # and interpretation drawn as the seventh frame of one device, after five page turns through the
 # warm-up document and back to its first page. Every other figure here is drawn on a device made
@@ -99,7 +108,14 @@ turn_ms = 4.8 .. 10.8
 # against HEAD's 5.58, so the lexer moved none of it (ADR 1870). What moved the stage since the
 # table — the device lane's changes since it or the day's machine — is not separated.
 seventh_ms = 4.8 .. 9.8
+# The raised band holds HEAD's twelve raised runs of one hold on 2026-10-26, 1.65 .. 1.94 ms, read at
+# 796 MHz and up, every one of them on the table's middle line (ADR 2420).
 step_ms = 1.3 .. 2.1
+# The step at the device's lowest clock (ADR 2420): HEAD's two runs the gate admitted wholly at 600 MHz
+# in that hold, 5.57 and 5.68 ms at loads of 7.5 and 9.8, this file's rule over them; three more at 600
+# MHz, 5.46 .. 5.63, were declined by the calibration probe and lie inside it.
+step_lowest_ms = 4.7 .. 6.9
+step_raised_mhz = 796
 why = "text, 3 007 commands: the turn is raster's encode of the glyphs on the fan-out, which runs at the clock the processor gives the cores its threads wake on, so a child's figure is 7.2 to about 9.5 ms by that clock and not by the tree, and the band spans both ends (ADR 1519)"
 
 [[page]]
@@ -262,6 +278,10 @@ step_ms = 1.1 .. 1.8
 # ecb6bea0 and on the fix, with `pp_dpm_sclk` at 600 MHz through the whole child; this file's rule
 # over them. HEAD before the fix, 004f8e73, read 9.07 .. 9.59 at the same clock, past the ceiling.
 step_lowest_ms = 4.3 .. 7.3
+# The slowest clock HEAD's raised runs of one hold on 2026-10-26 were read at, twelve runs from 860 MHz
+# (ADR 2421); the band held nine of them, 1.48 .. 1.78 ms, and three read 1.81 .. 1.97 at 889 .. 1422
+# MHz, outside it, which no band here is widened for.
+step_raised_mhz = 860
 why = "1 032 commands of text and rules"
 
 [[page]]

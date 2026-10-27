@@ -1,7 +1,8 @@
 # 75 — The page resident on the device, and a zoom that sends only a matrix
 
 Status: **open** — the evaluation is ADR 1992; items 1, 2, 3 and 5 are built (ADRs 1993, 2022, 2056, 2134, 2030);
-the rest are the order; the window's trace prints each frame's streams (ADR 2009).
+the rest are the order; the window's trace prints each frame's streams (ADR 2009); what a step still
+computes, term by term, and what blocks each is ADR 2418 (`zoom_frame`'s `ZOOM_FRAME_COLUMN` draws a column).
 Priority: the owner's, 2026-10-19: "evaluate: keep the page's intermediate representation resident
 on the GPU and have a compute stage re-rasterise it at the new transform, so a zoom sends only a
 matrix."
@@ -101,7 +102,8 @@ starting 1 MiB. A zoom releases nothing; the holes are a turn's and the cache's 
 A stroke with joins, dashes or a turned transform is expanded and rasterised on the host per view
 into the coverage sheet, whose bytes grow with the area: the next stream at a deep zoom once items
 2–3 have taken the lines. A compute expansion over resident outlines, as the fills' flattening is
-(ADRs 0080, 0081), is the item; it is not priced until 2–3 show what is left.
+(ADRs 0080, 0081), is the item; `22060_A1_01_Plans.pdf` re-walks every step and sends
+processor-rasterised coverage on the scratch sheet each step (ADR 2418).
 
 ## 7. Not owed
 

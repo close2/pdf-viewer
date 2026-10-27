@@ -290,10 +290,13 @@ form Table 349 states, is dropped under the row's `unreadable = "discard"`, whic
 metadata-tolerant profiles say; and an empty or dangling `/Info` moves nothing and goes. Owed: the
 fuzzed documents that now convert at part 4, as they already did at part 2, into files veraPDF
 cannot parse — a root page node whose `/Count` is a stream, or which states no `/Kids` — belong
-with `optimize::refuse_a_document_only_recovery_reads`; and the validator's font population is the
-indirect font dictionaries alone, so a direct descendant (`Test-plusminus.pdf`'s `CIDFontType2`
-with no `/CIDToGIDMap`) and a font resource that resolves to null (`issue12823.pdf`) pass it while
-veraPDF fails both, at part 2 and part 4 alike.
+with `optimize::refuse_a_document_only_recovery_reads`; and a Type 0 font whose `/DescendantFonts`
+is `[ null ]` (`issue12823.pdf`) passes here and fails veraPDF at part 2 and part 4, because the row
+for ISO 19005's "fonts conform to §9.6 and §9.7" sentence is `Unchecked`. The font population itself
+reaches a font written directly inside an object — `Test-plusminus.pdf`'s direct `CIDFontType2` with
+no `/CIDToGIDMap` is now refused by name (ADR 2413) — and a packet using a namespace prefix nothing
+declares is not well-formed at either part, so `issue20453.pdf` meets at part 4 the refusal it met at
+part 2 (ADR 2412).
 
 Table 109's widths-array count is checked independently for simple fonts. A nonempty short
 array narrows LastChar; a long array loses only entries beyond it. This `Stated` rewrite keeps

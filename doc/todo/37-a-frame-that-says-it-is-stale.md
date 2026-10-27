@@ -120,16 +120,12 @@ in the picture. `stale::one_placement` composes each page's own `settled⁻¹ �
 the last bits of an `f32` inverse, so the sharp layer was refused for a share of a column's ordinary
 view changes (ADR 0444, and the section at the head of this file). What replaced the exactness is a
 bound with a derivation rather than a threshold: half a device pixel, at the worst corner of the
-picture. What would remove the refusal rather than bound it is a placement *per page* — the presenter putting up
-one textured quad per page instead of one for the frame — and that is a change to
-`crate::renderer`'s three layers rather than to the policy.
-
-**It is priced and declined** (ADR 0461). A zoom in a column does not show the previous frame
-unmoved for one render: since ADR 0443 built the retained pages, six zoom steps fire this refusal
-seven times on the device and the layer underneath answers **all seven**, so what is shown is the
-incoming arrangement at 512 pixels rather than the previous frame unmoved. That changes the
-value of the change from *a picture instead of nothing* to *a sharp layer instead of a blurred one*,
-which is what the decision turned on.
+picture. What removes the refusal on the device rather than bounding it is a placement *per page*:
+the presenter puts the one page texture up once a page, each under that page's own placement and
+showing that page's rectangle alone, so a zoom in a column stands in from the last frame as a single
+page's does (ADR 2416, which takes the price ADR 0461 declined at down to no texture and no render
+added). The processor's window, which resamples one window of pixels, still refuses and stands in
+from the retained pages.
 
 ## What is left
 
@@ -214,14 +210,12 @@ on being drawn sharp says nothing and asserts something false. The memory bound 
   is the one thing the question expected and did not get: a resample is not free, it is only no
   longer added to the frame. The measurements are in ADR 0461 — the event thread's median tick over
   a `--cpu` scroll fell from 58.3 ms to 0.3 ms and the present rate did not move.
-- ~~**A placement per page in the presenter.**~~ **Priced and declined**, with the numbers in ADR
-  0461. Six zoom steps in a column fire `Refusal::Rearranged` seven times on the device, and the
-  retained pages answered **all seven** — so what it would buy is the sharp layer instead of a
-  512-pixel page, rather than a picture instead of a blank window, which is what it would have
-  bought before ADR 0443. What it would cost is one texture per page where `render-raster` draws one
-  per *frame* — an ask to quorra, or N renders — three times the page half of a frame's memory in a
-  column of three, and `stale::AGREEMENT` with 609's test and the measurement they carry. A later
-  round may still take it; it starts from that price rather than from this sentence.
+- ~~**A placement per page in the presenter.**~~ **Built (ADR 2416)**, at a price below the one ADR
+  0461 declined it at: the page texture is still one texture, put up once a page under that page's own
+  placement and showing that page's rectangle alone (`raster_gpu::Layer::within`), so no render and no
+  texture is added. `stale::AGREEMENT` and 609's test stay — every view change one placement carries
+  still goes up whole — and the processor's window, which resamples a window of pixels, still refuses
+  a column's zoom and stands in from the retained pages.
 
 ## The same question, asked of a frame that has not been drawn — 749
 

@@ -1340,7 +1340,9 @@ earlier (ADR 2246); a part 4 file labelled 2.0, or with no version, stays `not-b
 - **By target** — the `Stated` rewrite at 2b/2u/2a, and at 4/4f/4e for a 1.x label; at 4/4f/4e for
   a 2.0 label no mitigation except deriving the map from the embedded program, which is a reading
   of the font this converter does not make. An entry that is present and neither shape is the
-  producer's statement, refused at every target.
+  producer's statement, refused at every target. A `CIDFont` written directly into its Type 0
+  font's `/DescendantFonts` is in the row's population and is reported at no object, so the
+  rewrite, which edits a font object, refuses it by name (ADR 2413).
 - **From a configuration** — at a part 4 target with a 2.0 label, `remedy = "supply"` with
   `cid-to-gid = "identity"` is expressible and is the operator asserting that their producer's
   fonts are identity-ordered — which for a subset-embedded TrueType CIDFont is nearly always true
@@ -2086,7 +2088,10 @@ ISO 19005-2 6.6.2.1, ISO 19005-4 6.7.2.1 · all six / part 2 for the third · **
 - **Departure** — **B** for the one-`rdf:RDF` and data-model rules, where a tolerant parser still
   reads the packet; **C** for a packet that does not parse at all, because metadata no machine can
   read is the one thing an archival format cannot shrug at. The data-model rule is part 2's only
-  (confirmed **A**), which gives an operator a cheaper route than departing.
+  (confirmed **A**), which gives an operator a cheaper route than departing — except for a name
+  whose prefix no declaration binds, which Namespaces in XML refuses before the data model is
+  reached, so the well-formed row reports it at all six targets and the same fresh packet answers
+  it (`PacketFault::UndeclaredPrefix`, ADR 2412).
 
 #### `metadata/xmp-packet-header-attributes`
 ISO 19005-2 6.6.2.1, ISO 19005-4 6.7.2.1 · all six · **built in session 962**

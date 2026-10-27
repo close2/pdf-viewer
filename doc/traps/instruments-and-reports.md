@@ -1942,3 +1942,42 @@ so trap 274's "it climbs only while another process keeps it 30–49 % busy" did
 step bands (EC3 p101, `images.pdf`, `issue14415.pdf`) turned out to have been taken raised. A figure is
 compared by the table line it ran at together with the MHz range the sampler printed beside it; a "raised"
 or "lowest" label without the range is not evidence that two arms ran at one speed.
+
+### 277. The Radeon's lowest clock comes with the processor's load, not with a quiet device
+
+Round 1793 held HEAD's turn gate eighteen times in one `--clock --nice 0` hold to give three step rows their
+`_lowest_ms` bands (ADR 2420), each arm started once the one-minute load was under three (habit 186). Of the
+231 gate children started at load under three, none ran at 600 MHz; of the 135 started at load nine or
+more, 80 did. The Radeon 890M shares its power budget with the processor, so a busy processor holds the
+device at its minimum and a quiet one lets it climb — the opposite of trap 274's "with nothing else on the
+device it held its lowest level", and the middle line of trap 275 read from 601 MHz, not 605. A hold whose
+arms start quiet therefore cannot be relied on to give lowest-level figures, and `images.pdf` and
+`issue14415.pdf` got none in eighteen runs. A figure's level is read from its own sampled residency, never
+inferred from the load it started at or from the device's busy share, and a raised band states the slowest
+clock its runs were read at (`<figure>_raised_mhz`, ADR 2421), so a figure on the middle line just above the
+minimum is not judged against a band taken at 860 MHz.
+
+### 278. A plant is reversed by its own patch, taken against the copy before it, never against HEAD
+
+Round 1790 planted a calibration defect (trap 13) in `crates/pdf-model/src/xfa/datasets.rs` — the
+canonicalisation removed, so both new fixtures in `tests/xfa_datasets.rs` had to fail — and reversed it with
+`git apply -R` of a `-U0` diff of that file. The diff had been taken against HEAD, and the round had already
+edited the file, so it held all of the round's hunks beside the plant, and the reversal returned the file to
+HEAD (ADR 2414). The file was restored from a copy the round had taken before planting. The tests-gates habit
+"A measurement patch is applied and reversed as a patch file" holds only where the patch is the plant alone:
+the plant's patch is `diff -u <copy before planting> <file>`, applied and reversed as itself, and `git diff`
+against HEAD is never the record of a plant in a file the round owns.
+
+### 280. A workspace rustdoc red with no lint in it is read under the walk's data limit first
+
+Batch 119's merge saw tier 1's docs step (`tools/state.sh docs`, rustdoc with warnings denied over the whole
+workspace) exit 101 three times with nothing but "could not document `viewer-gtk`" and "could not document
+`viewer-ui`" in the step's tail, while every crate rustdoc'd alone with `-D warnings` was green. The full
+output, taken by running the walk's own command line by hand, was rustdoc's allocation failure — "memory
+allocation of 1567555872 bytes failed" in `html::render::search_index::SerializedSearchIndex::write_to`, under
+`write_rendered_cross_crate_info` — and the walk's own sentence: stopped by the data limit after 36 s, the
+tree resident at 7.13 GiB under an `RLIMIT_DATA` of 12 GiB. The cross-crate search index the workspace's
+documentation shares (104 MiB on disk at that merge) is rewritten by every crate's rustdoc, and it is address
+space that crosses the limit, not residency. The same command outside the walk exited 0. A docs red whose
+tail names no lint is re-run as the walk's command with its whole output kept before any doc comment is
+suspected, and the bound is named in the merge's words as the instrument's, never as the tree's.

@@ -15,6 +15,9 @@
 
 use std::fmt::Write as _;
 
+use super::canonical;
+use super::locale::{LocaleSet, Patterns};
+use super::picture::{self, Category};
 use super::template::{Binding, Class, Container, Template};
 use super::xml::{self, Tree};
 
@@ -148,9 +151,15 @@ impl Datasets {
     /// Writes each changed field's value into the data value it binds.
     ///
     /// `changes` are PDF field names — §12.7.4.2's qualified names, which an XFAF form makes SOM
-    /// expressions (XFA 3.3 page 72) — with what the save writes to each `/V`.
+    /// expressions (XFA 3.3 page 72) — with what the save writes to each `/V`; `locales` are the
+    /// form's, which a numeric, date or time field's value is canonicalised in (ADR 2414).
     #[must_use]
-    pub fn keep(&self, template: &Template, changes: &[(String, Change)]) -> Kept {
+    pub fn keep(
+        &self,
+        template: &Template,
+        locales: &LocaleSet,
+        changes: &[(String, Change)],
+    ) -> Kept {
         let mut kept = Kept::default();
         let (Some(data), Some(record)) = (self.data, self.record()) else {
             kept.unkept = changes
@@ -177,7 +186,7 @@ impl Datasets {
         let mut any_kept = false;
         for (name, entered) in changes {
             match self.keep_one(
-                template,
+                (template, locales),
                 &mut nodes,
                 (data_node, record_node),
                 record,
@@ -196,7 +205,7 @@ impl Datasets {
 
     fn keep_one(
         &self,
-        template: &Template,
+        (template, locales): (&Template, &LocaleSet),
         nodes: &mut Vec<Node>,
         (data_node, record_node): (usize, usize),
         record: usize,
@@ -209,7 +218,7 @@ impl Datasets {
         let container = template
             .get(target)
             .ok_or("its name points at no field of the XFA template")?;
-        let content = content(template, container, entered)?;
+        let content = content(template, locales, target, container, entered)?;
         let binding = template.binding(target).map_err(str::to_owned)?;
         let node = match binding {
             Binding::Nothing => return Ok(()),
@@ -409,13 +418,12 @@ enum Content {
 ///   is (chapter 4, pages 195–197, the group named and its buttons not).
 /// - A choice list's is the export value; with `open="multiSelect"` its data is a group of
 ///   `value` elements, one per selection (page 198).
-/// - A text field's is the text.
-///
-/// A numeric or date field's data is the canonical form chapter 3 defines and a `/V` need not
-/// be; that conversion is RFC 0011 section 5's formatting step, so such a field is said rather
-/// than written.
+/// - A text, numeric or date-and-time field's is the text a person typed, canonicalised as
+///   [`typed`] says.
 fn content(
     template: &Template,
+    locales: &LocaleSet,
+    target: usize,
     container: &Container,
     entered: &Change,
 ) -> Result<Content, String> {
@@ -468,17 +476,127 @@ fn content(
         ("choiceList", Change::Choices(values)) if values.len() == 1 => {
             Ok(Content::Text(values.concat()))
         }
-        ("choiceList" | "textEdit" | "passwordEdit", Change::Text(value)) => {
-            Ok(Content::Text(value.clone()))
+        ("choiceList", Change::Text(value)) => Ok(Content::Text(value.clone())),
+        (
+            "choiceList" | "textEdit" | "passwordEdit" | "numericEdit" | "dateTimeEdit",
+            Change::Cleared,
+        ) => Ok(Content::Text(String::new())),
+        ("textEdit" | "passwordEdit" | "numericEdit" | "dateTimeEdit", Change::Text(value)) => {
+            typed(template, locales, target, container, ui, value).map(Content::Text)
         }
-        ("choiceList" | "textEdit" | "passwordEdit", Change::Cleared) => {
-            Ok(Content::Text(String::new()))
-        }
-        ("checkButton" | "choiceList" | "textEdit" | "passwordEdit", _) => Err(mismatch()),
+        (
+            "checkButton" | "choiceList" | "textEdit" | "passwordEdit" | "numericEdit"
+            | "dateTimeEdit",
+            _,
+        ) => Err(mismatch()),
         (other, _) => Err(format!(
-            "its XFA {other} holds its data in the canonical form XFA 3.3 chapter 3 defines, which \
-             is RFC 0011's formatting step"
+            "its XFA {other} holds a value no /V of this program's writes"
         )),
+    }
+}
+
+/// The data value of a text, numeric or date-and-time field a person typed `value` into: XFA 3.3
+/// chapter 4's input parsing (pages 162–164), which turns what was typed into the canonical form
+/// the data holds (page 156, chapter 24).
+///
+/// - **Rule 2**: with an edit picture (`ui`'s), the first alternative that matches gives the
+///   canonical value; where none matches, the text is taken to be canonical already and is
+///   written as typed — page 163's French word for two stays as it was typed.
+/// - **Rule 2A**: with no edit picture, a `date`, `time`, `float` or `decimal` value is parsed by
+///   the locale's default picture — the `med` date or time pattern, the `numeric` number pattern
+///   — and accepted as typed where it is already canonical. Page 166 adds that a number is
+///   localised only where the `ui` is `numericEdit`, so a `float` or `decimal` elsewhere is not.
+/// - **Page 156's exception**: in a `numericEdit` field, text that is not a number counts as
+///   zero. Writing zero beside a `/V` that says otherwise is not §K.2's consistency, so such
+///   a field is named and not written.
+/// - A `dateTime` with no edit picture is written where it is already canonical and named
+///   otherwise: Rule 4 (page 165) joins the default date and time pictures with a `T` and page
+///   1156 with a space, and this program does not choose between them for a person's input.
+/// - **What is not built is named**: a `bind` picture asks the data to be written localised
+///   (page 161's data pattern), which is the formatting half of chapter 26; a `validate` picture's
+///   format test requires the picture to format the canonical value (page 382) before the data is
+///   updated (page 162), and that test is RFC 0011's validation step. Page 396 exempts an empty
+///   value from it, and `formatTest="disabled"` (page 385) turns it off.
+fn typed(
+    template: &Template,
+    locales: &LocaleSet,
+    target: usize,
+    container: &Container,
+    ui: &str,
+    value: &str,
+) -> Result<String, String> {
+    if value.is_empty() {
+        return Ok(String::new());
+    }
+    if container.pictures.bind.is_some() {
+        return Err(
+            "its bind picture writes its data in a localised form (XFA 3.3 page 161), which is \
+             the output formatting this program does not yet do"
+                .to_owned(),
+        );
+    }
+    if container.pictures.validate.is_some() && !container.pictures.format_test_disabled {
+        return Err(
+            "its validate picture's format test (XFA 3.3 page 382) decides whether its data is \
+             updated (page 162), and that test is RFC 0011's validation step, not yet built"
+                .to_owned(),
+        );
+    }
+    let value_type = container.value_type.as_deref();
+    let numeric = ui == "numericEdit";
+    let hint = match value_type {
+        Some("date") => Some(Category::Date),
+        Some("time") => Some(Category::Time),
+        Some("integer" | "decimal" | "float") => Some(Category::Num),
+        Some("text") => Some(Category::Text),
+        _ if numeric => Some(Category::Num),
+        _ => None,
+    };
+    let locale = locales.prevailing(template.locale(target));
+    let as_typed = || -> Result<String, String> {
+        if numeric && !canonical::is_number(value) {
+            return Err(format!(
+                "its /V {value:?} is not a number, which XFA 3.3 page 156 evaluates as zero in a \
+                 numeric field, and a zero beside that /V would not be consistent with it"
+            ));
+        }
+        Ok(value.to_owned())
+    };
+    if let Some(edit) = &container.pictures.edit {
+        return match picture::canonicalize(edit, hint, &locale, locales, value)? {
+            Some(canonical) => Ok(canonical),
+            None => as_typed(),
+        };
+    }
+    let default = match value_type {
+        Some("date") => Some((Patterns::Date, "med")),
+        Some("time") => Some((Patterns::Time, "med")),
+        Some("decimal" | "float") if numeric => Some((Patterns::Number, "numeric")),
+        Some("dateTime") if canonical::is_date_time(value) => return Ok(value.to_owned()),
+        Some("dateTime") => {
+            return Err(format!(
+                "its /V {value:?} is a date-time typed with no edit picture, which XFA 3.3 reads \
+                 by a default page 165 joins with a T and page 1156 with a space"
+            ));
+        }
+        _ => None,
+    };
+    let Some((which, name)) = default else {
+        return as_typed();
+    };
+    let already = match which {
+        Patterns::Date => canonical::is_date(value),
+        Patterns::Time => canonical::is_time(value),
+        Patterns::Number => canonical::is_number(value),
+    };
+    let parsed = locales
+        .pattern(&locale, which, name)
+        .and_then(|pattern| picture::canonicalize(pattern, hint, &locale, locales, value));
+    match parsed {
+        Ok(Some(canonical)) => Ok(canonical),
+        Ok(None) => as_typed(),
+        Err(_) if already => Ok(value.to_owned()),
+        Err(reason) => Err(reason),
     }
 }
 
@@ -495,6 +613,7 @@ fn item(container: &Container, which: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{Change, Datasets};
+    use crate::xfa::locale::LocaleSet;
     use crate::xfa::template::Template;
     use crate::xfa::xml::parse;
 
@@ -527,6 +646,7 @@ mod tests {
         );
         let kept = d.keep(
             &t,
+            &LocaleSet::default(),
             &[
                 (
                     "order[0].customer[0].name[0]".to_owned(),
@@ -549,6 +669,7 @@ mod tests {
         let empty = datasets("<xfa:datasets><xfa:data><order/></xfa:data></xfa:datasets>");
         let kept = empty.keep(
             &t,
+            &LocaleSet::default(),
             &[(
                 "order.customer.name".to_owned(),
                 Change::Text("A".to_owned()),
@@ -573,6 +694,7 @@ mod tests {
         );
         let kept = d.keep(
             &t,
+            &LocaleSet::default(),
             &[
                 ("order.region".to_owned(), Change::Text("US".to_owned())),
                 ("order.code".to_owned(), Change::Text("c".to_owned())),
@@ -584,14 +706,16 @@ mod tests {
         assert_eq!(written.value(&t, "order.code").as_deref(), Some("c"));
     }
 
-    /// What this step cannot write is said: a numeric field's canonical form, an on value no button
-    /// of the group has, a name the template does not hold. Nothing is written for them.
+    /// What cannot be written is said: text that is no number in a numeric field (XFA 3.3 page
+    /// 156), an on value no button of the group has, a name the template does not hold. Nothing
+    /// is written for them.
     #[test]
     fn what_cannot_be_kept_is_named() {
         let t = template(TEMPLATE);
         let d = datasets("<datasets><data><order><total>1</total></order></data></datasets>");
         let kept = d.keep(
             &t,
+            &LocaleSet::default(),
             &[
                 ("order.total".to_owned(), Change::Text("1,5".to_owned())),
                 ("order.size".to_owned(), Change::On("M".to_owned())),

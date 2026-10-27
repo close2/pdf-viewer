@@ -276,7 +276,10 @@ Ranked by ADR 0509's criterion; `tools/state.sh windows` prints the window rows 
   231 bit 25's combs, the measured fit `w` sends, §12.5.6.14's popups and §12.9's traced path are
   drawn (ADRs 2168, 2169). Its controls still lack bit 21's chooser (N4) and a popup's retyping; the
   panels and the cards are written (ADR 2185), compiled by the portable C# check; Windows layout
-  and interaction validation, and N4's printer selection and spooling, remain owed. **It is
+  and interaction validation, and N4's printer selection and spooling, remain owed. N4's UI
+  Automation peers are unbuilt — the window sets an automation name on each widget's control and
+  builds no tree — and the C ABI already carries what their text ranges answer, Table 380's
+  decoration and position among it, with the attributes each maps to named (ADR 2422). **It is
   released**: `window` publishes it self-contained, and the snapshot pre-release carries it as
   `quorra-winui-x64-<commit>.zip` with `viewer_ffi.dll` and `pdf-sandbox-worker.exe` beside
   `Quorra.App.exe`. The same job starts it once on a document and reads its title, advisory until a

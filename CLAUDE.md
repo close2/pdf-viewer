@@ -236,18 +236,30 @@ The exclusions, closed, each with its reason:
   and reported in the clause's own terms — and the media file saved or handed to this machine's
   own player under *A document's restrictions are the reader's to set*, `ask` by default.
   **Excluded still**, each with the trigger that reopens it: decoding or presenting audio and
-  video (an H.264 and AAC decoder admissible under `deny.toml`, or C in a confined media worker
-  accepted in writing under ADR 0014), and rendering U3D or PRC artwork (a U3D reader in Rust that
-  reads ECMA-363's fourth edition whole and is fuzzed, or the owner's decision to write one in-tree).
+  video (the owner's decision to build the player, on an H.264 and an AAC decoder admissible under
+  `deny.toml` — RFC 0012 audits two that are, and ADR 2428 records the build and the order a
+  reopening takes — or on C in a confined media worker accepted in writing under ADR 0014), and
+  rendering U3D or PRC artwork (a U3D reader in Rust that reads ECMA-363's fourth edition whole and
+  is fuzzed, or the owner's decision to write one in-tree; ADR 2400).
   Ratified on 2026-10-08 (`doc/questions/Q254`, `A254`: RFC 0009 section 11's question 2
   adopted as written); RFC 0009 section 3 is the argument, ADR 1946 the ledger's reading.
-- **XFA** — the standard hands this one over itself: "[t]he implementation of such a schema
-  driven page generation involves considerable effort beyond that for a simple PDF viewer and
-  therefore **a PDF processor may choose to not implement this feature**" (§K.1). Annex K is
-  normative and in ISO 32000-2; what is documented separately is the XFA template architecture.
-  Annex K also says what makes declining it safe: in a conforming hybrid file "[t]he other
-  entries in the interactive form dictionary shall be consistent with the information in the XFA
-  resource", so the AcroForm this tree reads *is* the form.
+- **XFA's dynamic half** — a form whose template generates its pages: Table 29's
+  `/NeedsRendering` true, or grammar XFA 3.3 excludes from an XFAF form (an `occur` whose bounds
+  differ, a `subformSet`). The standard hands this one over itself: "[t]he implementation of such
+  a schema driven page generation involves considerable effort beyond that for a simple PDF viewer
+  and therefore **a PDF processor may choose to not implement this feature**" (§K.1). It stays
+  excluded until a measurement round has priced laying out page one of the corpora's
+  `/NeedsRendering` documents and the owner has accepted, separately, the fifth near-side
+  construction RFC 0011 section 7 asks for (`doc/questions/Q639`, `A639`).
+
+  **XFA's static half is in scope** (RFC 0011, cut where XFA 3.3 cuts static from dynamic by ADR
+  2380; `doc/questions/A633`, `A639`): a hybrid form's template behaviours — its `datasets` packet
+  kept consistent on save, formatting, validations, calculations and events — at one round per
+  batch, every mark still the AcroForm widget's. Annex K is normative and in ISO 32000-2; what is
+  documented separately is the XFA template architecture. Annex K also says why the static half
+  needs no layout: in a conforming hybrid file "[t]he other entries in the interactive form
+  dictionary shall be consistent with the information in the XFA resource", so the AcroForm this
+  tree reads *is* the form.
 - **JavaScript and script-driven form behaviour beyond this document and this viewer** — a script
   runs in scope as far as it reaches *this document's* field values and appearance properties and
   *this viewer's* state, evaluated in a confined worker of its own under a memory and a wall-clock
@@ -283,7 +295,7 @@ The exclusions, closed, each with its reason:
   Stirling's watermarking are **deliberately not in this suite** despite being conventional —
   taking them later must be its own argued amendment, not scope creep. Variable-text field
   appearances (`crates/pdf-model/src/variable_text.rs`) sit on this line, sanctioned by
-  §12.7.4.3's own requirement. Two amendments, each ratified by the owner, place two
+  §12.7.4.3's own requirement. Three amendments, each ratified by the owner, place three
   constructions on the near side:
 
   - **A page composed solely of content the document already holds.** An archival conversion
@@ -294,11 +306,11 @@ The exclusions, closed, each with its reason:
     whose content did not come from the file, and under a Level A target the structure-tree
     entries such a page owes (ISO 19005-2 section 6.7) are inside the same permission, because
     refusing to describe a page this program appended would make the output non-conforming
-    rather than more honest. It is the one content stream this program writes that no clause
-    specifies. Ratified 2026-09-12 (`doc/questions/Q58`, `A58`: "Q58 agree with
-    recommendation"); ADR 1014 is the argument and names what an appended page owes —
-    page labels, the outline, the structure tree, and the report's sentence saying a page was
-    appended.
+    rather than more honest. It and the photographed page below are the content streams this
+    program writes that no clause specifies. Ratified 2026-09-12 (`doc/questions/Q58`, `A58`:
+    "Q58 agree with recommendation"); ADR 1014 is the argument and names what an appended page
+    owes — page labels, the outline, the structure tree, and the report's sentence saying a page
+    was appended.
   - **A producer's own marks written onto a page the producer wrote** — **clause-driven
     relocation of producer-written appearance streams**, on a two-part test: a clause requires
     the move, and that clause fixes the position (§12.5.5 computes an appearance's matrix from
@@ -314,6 +326,17 @@ The exclusions, closed, each with its reason:
     stated in a sentence: a producer whose content stream pops further than it pushes, and a
     moved appearance a remaining, unhidden annotation would be drawn over. Ratified 2026-09-14
     (`doc/questions/Q65`, `A65`: "Rule provenance."); ADR 1120 is the argument.
+  - **A page photographed as this reader draws it, where no reader could read its text.** An
+    archival conversion may replace a page's content with one image of the window's own rendering
+    of it — blank marks included, its annotations left drawn over it — where an unembedded
+    `Adobe-Identity` font left text that nothing in the file names (often under an Identity
+    CMap, which §9.7.5.2 forbids with such a font), and only there: last in the owner's order after
+    `--font`, the shipped faces and re-keying, and refused by name wherever the page's readback
+    names any character, the interpreter reports more than the fonts it could not draw, or the
+    document states a structure tree or optional content. It chooses no font and composes nothing
+    — every mark is the producer's as this reader draws it — and it is carried as the named loss
+    `text-as-image`, which the report and the file's own history state. Ratified 2026-10-26
+    (`doc/questions/Q570`, `A570`: "agreed, please answer"); ADR 2394 is the construction.
 
   What a *user* does to a document already open — an annotation added, a field filled — is not
   authoring, and it is written back by §7.5.6's incremental update: the new objects and a new

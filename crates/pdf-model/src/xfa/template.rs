@@ -1,11 +1,11 @@
-//! XFA 3.3's template, read as far as binding a field to its data needs.
+//! XFA 3.3's template, read as far as binding a field to its data and writing that data needs.
 //!
 //! The template is §K.2's "form template, which describes the characteristics of the form,
 //! including its fields, calculations, validations, and formatting". This module reads its
 //! containers — `subform`, `subformSet`, `field`, `exclGroup`, `area`, `pageSet`, `pageArea` —
-//! with each one's name, its `scope`, its `bind`, its `ui`, its `items` and its `occur`, and
-//! nothing of its layout or its scripts: those are RFC 0011 section 5's later steps, and this one
-//! is the second (ADR 2396).
+//! with each one's name, its `scope`, its `bind`, its `ui`, its `items`, its `occur`, its
+//! `value`'s type, its `locale` and the pictures of its `ui`, `bind` and `validate`, and nothing
+//! of its layout or its scripts: those are RFC 0011 section 5's later steps (ADRs 2396, 2414).
 //!
 //! Two questions are answered from it. **Which container an `AcroForm` field is**: XFA 3.3 chapter
 //! 2, *Field Names* (pages 72–73), makes an XFAF form's PDF field name a SOM expression pointing
@@ -15,7 +15,7 @@
 //! match by name and by index among same-named siblings, through the transparent nodes page 193
 //! lists. XFA 3.3 is cited and paraphrased, never quoted (RFC 0011's preamble).
 
-use super::xml::Tree;
+use super::xml::{Element, Tree};
 
 /// The container classes this module reads, by their element names in XFA 3.3's template grammar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,6 +78,17 @@ pub(crate) enum Bind {
     DataRef(String),
 }
 
+/// A container's picture clauses: the `picture` of its `ui` (the edit pattern), its `bind` (the
+/// data pattern) and its `validate`, as XFA 3.3 page 161's table names them.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Pictures {
+    pub(crate) edit: Option<String>,
+    pub(crate) bind: Option<String>,
+    pub(crate) validate: Option<String>,
+    /// Whether its `validate` states `formatTest="disabled"` (page 385).
+    pub(crate) format_test_disabled: bool,
+}
+
 /// One container of the template.
 #[derive(Debug, Clone)]
 pub(crate) struct Container {
@@ -96,6 +107,13 @@ pub(crate) struct Container {
     pub(crate) items: Vec<(bool, Vec<String>)>,
     /// Whether its `value` holds `exData`, rich text whose data is markup.
     pub(crate) rich: bool,
+    /// The element its `value` holds — `text`, `integer`, `decimal`, `float`, `date`, `time`,
+    /// `dateTime`, … — the content type chapter 4's Rules 2A and 4 (pages 164–165) read.
+    pub(crate) value_type: Option<String>,
+    /// Its `locale`, page 1153's second source of the prevailing locale.
+    pub(crate) locale: Option<String>,
+    /// Its picture clauses.
+    pub(crate) pictures: Pictures,
     /// Whether its `occur` bounds differ or are unbounded, page 333's dynamic subform.
     pub(crate) occurs_variably: bool,
     /// The container it is in; `None` for a top-level subform.
@@ -195,65 +213,17 @@ impl Template {
                 ui: None,
                 items: Vec::new(),
                 rich: false,
+                value_type: None,
+                locale: element
+                    .attribute("locale")
+                    .filter(|locale| !locale.trim().is_empty())
+                    .map(str::to_owned),
+                pictures: Pictures::default(),
                 occurs_variably: false,
                 parent,
                 children: Vec::new(),
             };
-            for &child in &element.children {
-                let Some(property) = tree.get(child) else {
-                    continue;
-                };
-                match property.local.as_str() {
-                    "bind" => {
-                        container.bind = match property.attribute("match") {
-                            Some("none") => Bind::None,
-                            Some("global") => Bind::Global,
-                            Some("dataRef") => {
-                                Bind::DataRef(property.attribute("ref").unwrap_or("").to_owned())
-                            }
-                            _ => Bind::Once,
-                        };
-                    }
-                    "ui" => {
-                        container.ui = property
-                            .children
-                            .iter()
-                            .filter_map(|&kind| tree.get(kind))
-                            .find(|kind| kind.local != "extras" && kind.local != "picture")
-                            .map(|kind| {
-                                (
-                                    kind.local.clone(),
-                                    kind.attribute("open").map(str::to_owned),
-                                )
-                            });
-                    }
-                    "items" => {
-                        let values = property
-                            .children
-                            .iter()
-                            .filter_map(|&item| tree.get(item))
-                            .map(|item| item.text.clone())
-                            .collect();
-                        container
-                            .items
-                            .push((property.attribute("save") == Some("1"), values));
-                    }
-                    "value" => {
-                        container.rich |= tree.child(child, "exData").is_some();
-                    }
-                    "occur" => {
-                        let bound = |name: &str, default: i64| {
-                            property
-                                .attribute(name)
-                                .and_then(|value| value.trim().parse::<i64>().ok())
-                                .unwrap_or(default)
-                        };
-                        let (min, max) = (bound("min", 1), bound("max", 1));
-                        container.occurs_variably = max < 0 || min != max;
-                    }
-                    _ => {}
-                }
-            }
+            read_properties(&mut container, tree, element);
             match parent.and_then(|parent| template.containers.get_mut(parent)) {
                 Some(parent) => parent.children.push(at),
                 None => template.roots.push(at),
@@ -268,6 +238,19 @@ impl Template {
             );
         }
         template
+    }
+
+    /// The `locale` the container at `index` states or inherits from the nearest container
+    /// above it that states one (page 1153's second source; page 153's EXAMPLE 4.33).
+    pub(crate) fn locale(&self, index: usize) -> Option<&str> {
+        let mut at = Some(index);
+        while let Some(container) = at.and_then(|i| self.containers.get(i)) {
+            if let Some(locale) = &container.locale {
+                return Some(locale);
+            }
+            at = container.parent;
+        }
+        None
     }
 
     /// The container at an index this template handed out.
@@ -446,6 +429,85 @@ impl Template {
         }
         seen
     }
+}
+
+/// The properties of one container element — its `bind`, `ui`, `items`, `value`, `validate` and
+/// `occur` — read into `container`.
+fn read_properties(container: &mut Container, tree: &Tree, element: &Element) {
+    for &child in &element.children {
+        let Some(property) = tree.get(child) else {
+            continue;
+        };
+        match property.local.as_str() {
+            "bind" => {
+                container.pictures.bind = picture(tree, child);
+                container.bind = match property.attribute("match") {
+                    Some("none") => Bind::None,
+                    Some("global") => Bind::Global,
+                    Some("dataRef") => {
+                        Bind::DataRef(property.attribute("ref").unwrap_or("").to_owned())
+                    }
+                    _ => Bind::Once,
+                };
+            }
+            "ui" => {
+                container.pictures.edit = picture(tree, child);
+                container.ui = property
+                    .children
+                    .iter()
+                    .filter_map(|&kind| tree.get(kind))
+                    .find(|kind| kind.local != "extras" && kind.local != "picture")
+                    .map(|kind| {
+                        (
+                            kind.local.clone(),
+                            kind.attribute("open").map(str::to_owned),
+                        )
+                    });
+            }
+            "items" => {
+                let values = property
+                    .children
+                    .iter()
+                    .filter_map(|&item| tree.get(item))
+                    .map(|item| item.text.clone())
+                    .collect();
+                container
+                    .items
+                    .push((property.attribute("save") == Some("1"), values));
+            }
+            "value" => {
+                container.rich |= tree.child(child, "exData").is_some();
+                container.value_type = property
+                    .children
+                    .first()
+                    .and_then(|&kind| tree.get(kind))
+                    .map(|kind| kind.local.clone());
+            }
+            "validate" => {
+                container.pictures.validate = picture(tree, child);
+                container.pictures.format_test_disabled =
+                    property.attribute("formatTest") == Some("disabled");
+            }
+            "occur" => {
+                let bound = |name: &str, default: i64| {
+                    property
+                        .attribute(name)
+                        .and_then(|value| value.trim().parse::<i64>().ok())
+                        .unwrap_or(default)
+                };
+                let (min, max) = (bound("min", 1), bound("max", 1));
+                container.occurs_variably = max < 0 || min != max;
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The text of the `picture` element under `property`, where it states a non-empty one.
+fn picture(tree: &Tree, property: usize) -> Option<String> {
+    let at = tree.child(property, "picture")?;
+    let text = tree.get(at)?.text.trim();
+    (!text.is_empty()).then(|| text.to_owned())
 }
 
 /// A `dataRef`'s SOM expression as a path: `$record.` or `$data.` followed by names with

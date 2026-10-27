@@ -478,6 +478,13 @@ struct Row {
     seventh_lowest_ms: Option<Band>,
     /// The step's.
     step_lowest_ms: Option<Band>,
+    /// The slowest clock the turn's `turn_ms` runs were read at, stated beside `turn_lowest_ms`
+    /// ([`band_for`]).
+    turn_raised_mhz: Option<u32>,
+    /// The seventh frame's.
+    seventh_raised_mhz: Option<u32>,
+    /// The step's.
+    step_raised_mhz: Option<u32>,
 }
 
 /// The check file.
@@ -532,6 +539,11 @@ fn parse(text: &str) -> Check {
                 .parse()
                 .unwrap_or_else(|_| panic!("line {at} is not a count"))
         };
+        let mhz = || -> u32 {
+            value
+                .parse()
+                .unwrap_or_else(|_| panic!("line {at} is not a clock in whole megahertz"))
+        };
         match (check.pages.last_mut(), key) {
             (None, "machine") | (Some(_), "why") => {}
             (None, "profile") => check.profile = text(),
@@ -553,6 +565,9 @@ fn parse(text: &str) -> Check {
             (Some(row), "turn_lowest_ms") => row.turn_lowest_ms = Some(band(value, at)),
             (Some(row), "seventh_lowest_ms") => row.seventh_lowest_ms = Some(band(value, at)),
             (Some(row), "step_lowest_ms") => row.step_lowest_ms = Some(band(value, at)),
+            (Some(row), "turn_raised_mhz") => row.turn_raised_mhz = Some(mhz()),
+            (Some(row), "seventh_raised_mhz") => row.seventh_raised_mhz = Some(mhz()),
+            (Some(row), "step_raised_mhz") => row.step_raised_mhz = Some(mhz()),
             _ => panic!("line {at}: `{key}` is not a key of the check file"),
         }
     }
@@ -735,8 +750,26 @@ fn level(clock: &Residency) -> Level {
     }
 }
 
-/// The band a figure read at `at` is judged against, with the words that say which it is, or why
-/// it is not judged.
+/// The slowest clock `clock` read on any line of the table above its first, where it read one.
+fn slowest_raised_mhz(clock: &Residency) -> Option<u32> {
+    (1..LEVELS)
+        .filter(|&line| clock.samples[line] > 0)
+        .map(|line| clock.low_mhz[line])
+        .min()
+}
+
+/// What a row states for one figure: its band, and — where the device's lowest clock moves the
+/// figure out of it — the band at that clock and the slowest clock the first band's runs were
+/// read at ([`band_for`]).
+#[derive(Debug, Clone, Copy)]
+struct Bands {
+    main: Band,
+    lowest: Option<Band>,
+    raised_from_mhz: Option<u32>,
+}
+
+/// The band a figure whose frames read `clock` is judged against, with the words that say which
+/// it is, or why it is not judged.
 ///
 /// **A band is a claim about the clock its figures were read at** (ADR 2402, trap 274). The device
 /// runs a row at its lowest clock level or at a raised one, both with the device check's quiet
@@ -748,15 +781,32 @@ fn level(clock: &Residency) -> Level {
 /// the two through its frames is not judged where the row states both, and every other figure —
 /// one level, or a clock this machine does not publish — against `<figure>_ms`, as the gate
 /// judged before it read the clock.
-fn band_for(main: Band, lowest: Option<Band>, at: Level) -> Result<(Band, &'static str), String> {
-    match (at, lowest) {
+///
+/// **The table's middle line is a continuum, and a raised band is a claim from the clock its runs
+/// were read at** (ADR 2421). The middle line is the clock of the moment, read from 601 MHz up,
+/// and a figure read there at 601 to 628 MHz can read as the lowest level does — `issue19802.pdf`'s
+/// step 5.33 ms at 601 to 602 MHz, judged against the raised band and failed. So a row that states
+/// both bands states `<figure>_raised_mhz` beside them, the slowest clock its raised band's runs
+/// were read at, and a figure read on a raised line below it is not judged: no band was taken
+/// there. The bound is an observation of the band's own runs, as the band is, never a cut chosen
+/// to sort figures.
+fn band_for(bands: Bands, clock: &Residency) -> Result<(Band, &'static str), String> {
+    match (level(clock), bands.lowest) {
         (Level::Lowest, Some(band)) => Ok((band, " (the lowest clock's)")),
         (Level::Mixed, Some(_)) => Err(
             "the device's clock moved between its lowest level and a raised one through these \
              frames, and the row states a band for each"
                 .to_owned(),
         ),
-        _ => Ok((main, "")),
+        (Level::Raised, Some(_)) => match (bands.raised_from_mhz, slowest_raised_mhz(clock)) {
+            (Some(from), Some(read)) if read < from => Err(format!(
+                "the device's clock read {read} MHz on a raised line, below the {from} MHz the \
+                 row's raised band was taken from and above its lowest level, where neither \
+                 band was taken"
+            )),
+            _ => Ok((bands.main, "")),
+        },
+        _ => Ok((bands.main, "")),
     }
 }
 
@@ -971,19 +1021,23 @@ impl Tally {
         let any = |of: fn(&Figures) -> Figure| taken.any.as_ref().map(of);
         self.figure(
             (&name, row.page, "turn"),
-            (row.turn_ms, row.turn_lowest_ms),
+            (row.turn_ms, row.turn_lowest_ms, row.turn_raised_mhz),
             judged(|figures| figures.turn),
             (any(|figures| figures.turn), &why),
         );
         self.figure(
             (&name, row.page, "seventh"),
-            (row.seventh_ms, row.seventh_lowest_ms),
+            (
+                row.seventh_ms,
+                row.seventh_lowest_ms,
+                row.seventh_raised_mhz,
+            ),
             judged(|figures| figures.seventh),
             (any(|figures| figures.seventh), &why),
         );
         self.figure(
             (&name, row.page, "step"),
-            (row.step_ms, row.step_lowest_ms),
+            (row.step_ms, row.step_lowest_ms, row.step_raised_mhz),
             judged(|figures| figures.step),
             (any(|figures| figures.step), &why),
         );
@@ -1010,7 +1064,7 @@ impl Tally {
     fn figure(
         &mut self,
         (name, page, figure): (&str, usize, &str),
-        (main, lowest): (Option<Band>, Option<Band>),
+        (main, lowest, raised_from_mhz): (Option<Band>, Option<Band>, Option<u32>),
         fit: Option<Figure>,
         (any, why): (Option<Figure>, &str),
     ) {
@@ -1019,9 +1073,14 @@ impl Tally {
             return;
         };
         self.banded = self.banded.saturating_add(1);
+        let bands = Bands {
+            main,
+            lowest,
+            raised_from_mhz,
+        };
         let unjudged = |value: Option<Figure>, why: &str| {
             let (band, which) = value
-                .and_then(|value| band_for(main, lowest, level(&value.clock)).ok())
+                .and_then(|value| band_for(bands, &value.clock).ok())
                 .unwrap_or((main, ""));
             println!(
                 "  {name} p{page} {figure} {} ms, band {:.2} .. {:.2}{which}, {}: not judged ({why})",
@@ -1035,7 +1094,7 @@ impl Tally {
             unjudged(any, why);
             return;
         };
-        let (band, which) = match band_for(main, lowest, level(&clock)) {
+        let (band, which) = match band_for(bands, &clock) {
             Ok(chosen) => chosen,
             Err(why) => {
                 unjudged(fit, &why);
@@ -1090,14 +1149,20 @@ fn the_check_file_states_a_band_for_every_row() {
                 row.path
             );
         }
-        for band in [
-            row.turn_lowest_ms,
-            row.seventh_lowest_ms,
-            row.step_lowest_ms,
-        ]
-        .into_iter()
-        .flatten()
-        {
+        for (figure, lowest, raised_from) in [
+            ("turn", row.turn_lowest_ms, row.turn_raised_mhz),
+            ("seventh", row.seventh_lowest_ms, row.seventh_raised_mhz),
+            ("step", row.step_lowest_ms, row.step_raised_mhz),
+        ] {
+            assert_eq!(
+                lowest.is_some(),
+                raised_from.is_some(),
+                "{} states `{figure}_lowest_ms` and `{figure}_raised_mhz` together (ADR 2421)",
+                row.path
+            );
+            let Some(band) = lowest else {
+                continue;
+            };
             assert!(
                 band.low < band.high,
                 "{}'s lowest-clock floor is below its ceiling",
@@ -1213,14 +1278,34 @@ fn a_figure_is_judged_against_the_band_of_its_clock() {
     assert_eq!(level(&raised), Level::Raised);
     assert_eq!(level(&mixed), Level::Mixed);
     assert_eq!(level(&Residency::default()), Level::Unread);
-    let chosen =
-        |at: Level, lowest: Option<Band>| band_for(main, lowest, at).map(|(band, _)| band.low);
-    assert_eq!(chosen(Level::Lowest, Some(lowest)), Ok(4.3));
-    assert_eq!(chosen(Level::Raised, Some(lowest)), Ok(1.1));
-    assert_eq!(chosen(Level::Unread, Some(lowest)), Ok(1.1));
-    assert!(chosen(Level::Mixed, Some(lowest)).is_err());
-    assert_eq!(chosen(Level::Lowest, None), Ok(1.1));
-    assert_eq!(chosen(Level::Mixed, None), Ok(1.1));
+    let chosen = |clock: &Residency, lowest: Option<Band>, raised_from_mhz: Option<u32>| {
+        let bands = Bands {
+            main,
+            lowest,
+            raised_from_mhz,
+        };
+        band_for(bands, clock).map(|(band, _)| band.low)
+    };
+    let unread = Residency::default();
+    assert_eq!(chosen(&at_lowest, Some(lowest), Some(860)), Ok(4.3));
+    assert_eq!(chosen(&unread, Some(lowest), Some(860)), Ok(1.1));
+    assert!(chosen(&mixed, Some(lowest), Some(860)).is_err());
+    assert_eq!(chosen(&at_lowest, None, None), Ok(1.1));
+    assert_eq!(chosen(&mixed, None, None), Ok(1.1));
+    // The middle line from its slowest reading: 601 MHz is below the raised band's runs and not
+    // judged, 900 MHz is inside them, and a row with one band judges both against it (ADR 2421).
+    let on_the_middle_line = |low: u32, high: u32| {
+        let mut clock = raised;
+        (clock.low_mhz[1], clock.high_mhz[1]) = (low, high);
+        clock
+    };
+    let (slow, quick) = (on_the_middle_line(601, 602), on_the_middle_line(900, 1163));
+    assert_eq!(slowest_raised_mhz(&slow), Some(601));
+    assert!(chosen(&slow, Some(lowest), Some(860)).is_err());
+    assert_eq!(chosen(&quick, Some(lowest), Some(860)), Ok(1.1));
+    assert_eq!(chosen(&quick, Some(lowest), Some(900)), Ok(1.1));
+    assert_eq!(chosen(&slow, None, None), Ok(1.1));
+    assert_eq!(chosen(&slow, Some(lowest), None), Ok(1.1));
 }
 
 /// [`Stages`] is the table's quantity: the budget a window waits for, the readback left out.

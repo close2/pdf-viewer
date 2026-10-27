@@ -475,3 +475,16 @@ appearance dictionary holds `/N 0 0 R`: the validator, which resolved it, said t
 while the converter's site, which read the entry with `get`, counted a present `N` that failed
 structurally, so the two censuses disagreed on the same file (round 1746). A sentence that says an entry
 is absent is written after the value is resolved, and a null — written or by reference — is absent.
+
+### 279. A finding's object is the converter's edit target, so a direct dictionary is reported at no object
+
+Round 1789 widened `pdf-archive`'s font population so `fonts::for_each_font` also reaches a `/Type /Font`
+dictionary written directly inside an object — a direct descendant, or a font inside a `/Font` resource
+dictionary — because `Test-plusminus` passed here and failed veraPDF at 2b and 4 (ADR 2413). The obvious
+witness for such a font is the object that holds it, and it is the wrong one: `archive::sites`, `font_widths`
+and `descriptor_sets` in `pdf-transform` read a finding's object as the font to edit, so a finding naming the
+page or the Type 0 font would have aimed the converter's remedy at that dictionary. The direct font is reported
+at no object with its holder named in words, and the remedies that need an object of its own refuse it with
+their own sentence. Before a population is widened to dictionaries without an object number, grep the
+converter for what it does with `place.object` (and `objects_named`); trap 243 is the same reader seen from
+its findings list.

@@ -658,6 +658,17 @@ fn descriptor_object(document: &Document, font: ObjectId, descendant: bool) -> O
 }
 
 /// Why a `/CIDToGIDMap` is not written, and why a stated one is not replaced.
+/// Why a `CIDFont` written directly inside another object is not given the entry.
+///
+/// `pdf_archive` reports a font with no object of its own at no object (ADR 2413), and this
+/// rewrite edits a font object; writing into the Type 0 font's `/DescendantFonts` array instead is
+/// a different edit, not built.
+const CID_TO_GID_MAP_IN_ANOTHER_OBJECT: &str = "an embedded Type 2 CIDFont here states no \
+     CIDToGIDMap and is written directly inside another object - its Type 0 font's \
+     DescendantFonts array, as ISO 32000-2 \u{a7}9.7.6.1 allows - rather than as an object of its \
+     own, and this rewrite writes the entry into a font object; editing the array that holds the \
+     font is not built";
+
 const CID_TO_GID_MAP_NOT_DERIVED: &str = "an embedded Type 2 CIDFont here states no \
      CIDToGIDMap, or states one that is neither a stream nor the name Identity, and which of \
      those two it is decides the answer together with the file's own version. ISO 32000-1's table \
@@ -703,7 +714,7 @@ pub(super) fn cid_to_gid_maps(
     }
     let (named, elsewhere) = objects_named(input, &["fonts/cid-to-gid-map-present"]);
     if elsewhere {
-        return Err(Because::NotBuiltYet(CID_TO_GID_MAP_NOT_DERIVED));
+        return Err(Because::NotBuiltYet(CID_TO_GID_MAP_IN_ANOTHER_OBJECT));
     }
     let mut at = BTreeSet::new();
     for id in named {

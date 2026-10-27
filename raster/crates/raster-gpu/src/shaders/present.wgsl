@@ -32,17 +32,18 @@ struct Params {
     // layer's texel space to the surface's pixels, so its inverse maps a surface pixel
     // back to the texel that is under it.
     inv0: vec4f,
-    // e, f of the same inverse, then the filter (1 = linear, 0 = nearest), then a zero
-    // this shader never reads — WGSL's uniform layout rounds the struct to 16 bytes and
-    // a named lane is easier to check than a gap (`shaders/layout.rs` proves the
-    // offsets).
+    // e, f of the same inverse, then the filter (1 = linear, 0 = nearest), then whether
+    // the layer shows a part of its texture (1) or the whole of it (0) — a float for the
+    // filter's reason (`shaders/layout.rs` proves the offsets).
     inv1: vec4f,
     // The rectangle this pass draws, in clip space: left, top, right, bottom. The host
     // computes it from the placement (ADR 0058); see `vs_main`.
     bounds: vec4f,
-    // The layer's extent in texels. The sample point is inside the layer exactly when it
-    // is inside [0, source), and outside it this shader writes transparency.
-    source: vec2f,
+    // The texels the layer shows: left, top, right, bottom — the whole texture, or the
+    // part a host named (`Layer::within`). The sample point is inside the layer exactly
+    // when it is inside [left, right) × [top, bottom), and outside it this shader writes
+    // transparency.
+    source: vec4f,
 }
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -83,13 +84,22 @@ fn layer_at(p: vec2f) -> vec4f {
         params.inv0.x * centre.x + params.inv0.z * centre.y + params.inv1.x,
         params.inv0.y * centre.x + params.inv0.w * centre.y + params.inv1.y,
     );
-    if any(q < vec2f(0.0)) || any(q >= params.source) {
+    if any(q < params.source.xy) || any(q >= params.source.zw) {
         return vec4f(0.0);
     }
     if params.inv1.z > 0.5 {
-        // The sampler's coordinates are normalised, and q is in texels: the division is
+        // A part's linear tap is held inside the part's outer texel centres, which is what
+        // the sampler's clamp to the edge does at the whole texture's: the texel beside the
+        // part is another page's, and a filter reaching it would draw that page's edge
+        // into this one. The whole texture is left to the sampler, unchanged.
+        var at = q;
+        if params.inv1.w > 0.5 {
+            at = clamp(q, params.source.xy + vec2f(0.5), params.source.zw - vec2f(0.5));
+        }
+        // The sampler's coordinates are normalised, and `at` is in texels: the division is
         // the whole conversion, and at a texel's centre it lands on that texel exactly.
-        return textureSampleLevel(layer_tex, layer_sampler, q / params.source, 0.0);
+        let extent = vec2f(textureDimensions(layer_tex));
+        return textureSampleLevel(layer_tex, layer_sampler, at / extent, 0.0);
     }
     return textureLoad(layer_tex, vec2i(floor(q)), 0);
 }

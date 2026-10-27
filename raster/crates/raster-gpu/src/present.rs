@@ -54,7 +54,7 @@ mod pass;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-pub use layer::Layer;
+pub use layer::{Layer, Texels};
 
 use crate::error::RenderError;
 use crate::pipeline::{Kind, PipelineStore};

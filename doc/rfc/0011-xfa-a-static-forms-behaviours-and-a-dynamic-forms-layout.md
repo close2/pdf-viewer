@@ -416,6 +416,12 @@ static half is in scope; that is the owner's edit, and the status follows it. §
    field's canonical form, a dynamic form, a binding it does not follow — is `Written::xfa_unkept`,
    and the first of those is step 3's. Step 3 is next.
 3. **Then, one round per batch**: steps 3 to 6 in order, each with its ledger note.
+   **Step 3's parsing half built** (session 1790, ADR 2414): a numeric, decimal, float, date, time
+   or date-time field's data value is written in chapter 24's canonical form, parsed from what was
+   typed by its edit picture or its locale's default picture (chapter 4's Rules 2 and 2A, chapter
+   26's grammar), in the locales of the form's own `localeSet` packet. Its formatting half — a
+   canonical value written out by a picture, which a `bind` picture and step 4's format test both
+   need — is named in `Written::xfa_unkept` and goes with step 4, which is next.
 4. **On Q639's answer**: the dynamic half, whose first round is a measurement — the cost of laying
    out page one of the census's `/NeedsRendering` documents — before a line of layout ships.
 

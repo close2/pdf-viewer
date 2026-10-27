@@ -81,6 +81,11 @@
 //! that subclause's own first sentence and ISO 32000-2 §14.3.2 — which is why the `rdf:RDF` row
 //! binds both parts and the data-model row does not.
 //!
+//! **A name in no namespace is the data model's fault only where XML allowed it.** A prefix no
+//! declaration binds is a Namespaces in XML fault before it is a data-model one, and RDF/XML takes
+//! no document with one, so `metadata/xmp-packets-well-formed` reports it at both parts and the
+//! data-model row adds its own sentence at part 2 (`doc/adr/2412`).
+//!
 //! # section 6.6.6 and section 6.7.5, one subclause each, and only one of them a check
 //!
 //! The provenance subclauses ask that each high-level action be recorded in `xmpMM:History` and
@@ -533,6 +538,12 @@ fn for_each_metadata_stream(exam: &Examination<'_>, mut visit: impl FnMut(Object
 /// ISO 16684-1 sections 7.4 to 7.9, held by nobody in this tree, and
 /// `metadata/xmp-packets-meet-the-xmp-serialisation` is the row that says so.
 ///
+/// **One condition the RDF half sets is read here, because it is XML's**: the RDF/XML Syntax
+/// Specification takes no document that fails Namespaces in XML, whose section 5 requires every
+/// prefix to be declared where it is used. A packet writing `dc:` with no `xmlns:dc` in scope
+/// therefore is not well-formed XMP under either part, although `xmlparser` accepts it and
+/// `pdf_model::xmp` reads it; [`Xmp::undeclared_prefixes`] names the prefixes (`doc/adr/2412`).
+///
 /// **A stream this reader could not get to is recorded too, and the message says which it was.**
 /// A packet past `pdf_model::xmp`'s decompression bound or behind a filter that would not decode
 /// has not been shown to be well-formed, and reporting the requirement as met over it would be
@@ -548,11 +559,21 @@ fn xmp_packets_well_formed(exam: &Examination<'_>, findings: &mut Findings) {
             );
             return;
         };
-        if let Err(error) = Xmp::parse(&bytes) {
-            findings.record(
+        match Xmp::undeclared_prefixes(&bytes) {
+            Err(error) => findings.record(
                 Where::object(id),
                 format!("a metadata stream's packet could not be read: {error}"),
-            );
+            ),
+            Ok(prefixes) => {
+                for prefix in prefixes {
+                    findings.record(
+                        Where::object(id).named(format!("{prefix}:")),
+                        "the packet uses this prefix where no namespace declaration in scope \
+                         binds it, so it is not namespace-well-formed XML, which RDF/XML and \
+                         therefore well-formed XMP require",
+                    );
+                }
+            }
         }
     });
 }
@@ -2422,6 +2443,9 @@ pub enum PacketFault {
     WillNotDecode,
     /// The packet is not well-formed: `metadata/xmp-packets-well-formed`.
     WillNotParse,
+    /// The packet uses a namespace prefix no declaration in scope binds, which makes it not
+    /// well-formed under the same row: `metadata/xmp-packets-well-formed` (`doc/adr/2412`).
+    UndeclaredPrefix,
     /// The packet serialises more than one `rdf:RDF` element:
     /// `metadata/xmp-packets-state-one-rdf-element`.
     ManyRdfElements,
@@ -2435,7 +2459,9 @@ impl PacketFault {
     #[must_use]
     pub const fn requirement(self) -> &'static str {
         match self {
-            Self::WillNotDecode | Self::WillNotParse => "metadata/xmp-packets-well-formed",
+            Self::WillNotDecode | Self::WillNotParse | Self::UndeclaredPrefix => {
+                "metadata/xmp-packets-well-formed"
+            }
             Self::ManyRdfElements => "metadata/xmp-packets-state-one-rdf-element",
             Self::BreaksTheDataModel => "metadata/xmp-packets-meet-the-xmp-data-model",
         }
@@ -2476,6 +2502,9 @@ pub fn packet_faults(packet: &[u8]) -> Vec<PacketFault> {
         return vec![PacketFault::WillNotParse];
     }
     let mut out = Vec::new();
+    if Xmp::undeclared_prefixes(packet).is_ok_and(|prefixes| !prefixes.is_empty()) {
+        out.push(PacketFault::UndeclaredPrefix);
+    }
     if Xmp::rdf_elements(packet).is_ok_and(|roots| roots > 1) {
         out.push(PacketFault::ManyRdfElements);
     }
@@ -3702,6 +3731,32 @@ mod tests {
              <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"></rdf:RDF>\n\
              </x:xmpmeta>\n<?xpacket end=\"w\"?>";
         assert_eq!(packet_faults(two), vec![PacketFault::ManyRdfElements]);
+
+        // pdf.js's issue20453: a description declaring `pdf` and writing `dc`. The packet parses,
+        // and Namespaces in XML refuses it before the data model is reached, so the well-formed
+        // row reports it at part 4 as well as at part 2 (`doc/adr/2412`); the data-model row's own
+        // finding, a name in no namespace, is reported beside it where that row binds.
+        let undeclared = "<?xpacket begin=\"\"?>\n<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n\
+             <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n\
+             <rdf:Description rdf:about=\"\" xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\">\n\
+             <dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\"></rdf:li></rdf:Alt></dc:title>\n\
+             </rdf:Description>\n</rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>";
+        assert_eq!(
+            packet_faults(undeclared.as_bytes()),
+            vec![
+                PacketFault::UndeclaredPrefix,
+                PacketFault::BreaksTheDataModel
+            ]
+        );
+        assert_eq!(
+            PacketFault::UndeclaredPrefix.requirement(),
+            "metadata/xmp-packets-well-formed"
+        );
+        assert_eq!(
+            found(xmp_packets_well_formed, &document(undeclared)),
+            1,
+            "held to part 4, the one prefix is the one finding"
+        );
     }
 
     /// An undescribed schema is read with what the packet states and nothing more.

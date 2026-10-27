@@ -38,13 +38,15 @@
 //!    what lets this layer answer a zoom in a column and a page turn where the one below it
 //!    cannot (ADR 0443). Absent on a frame that is not standing in, where they would be entirely
 //!    hidden by the layer over them.
-//! 3. **the pages**, drawn into one texture and put up under the single placement
-//!    [`crate::stale`] computes. The identity where the frame on hand is of the view being asked
-//!    for; `settled⁻¹ ∘ asked` where it is not. **One texture and one placement whatever Table
-//!    29's arrangement is** — the pages of a column move together, so what carries one onto the
-//!    view carries all of them, and [`crate::stale`] refuses outright where that is not true
-//!    rather than moving a page to somewhere it is not (ADR 0442). Absent where that refusal
-//!    fired and the layer under it is standing in alone.
+//! 3. **the pages**, drawn into one texture and put up under the placements [`crate::stale`]
+//!    computes. The identity where the frame on hand is of the view being asked for;
+//!    `settled⁻¹ ∘ asked` where it is not. **One texture whatever Table 29's arrangement is, and
+//!    one placement wherever one is true of every page** — a scroll moves the pages of a column
+//!    together (ADR 0442). A zoom in a column does not, because the gap between rows does not
+//!    scale, so the texture goes up once a page, each time under that page's own placement and
+//!    showing that page's rectangle alone ([`crate::stale::Part`], ADR 2416): no page is moved to
+//!    somewhere it is not, and nothing is drawn twice. Absent where the last frame carries onto
+//!    the view at no placement — a page turn, a resize — and the layer under it stands in alone.
 //! 4. **the chrome**, at the identity, on transparency. It is drawn in window pixels and it does
 //!    not move with the page, which is what keeps a sidebar still while a page is being zoomed.
 //!

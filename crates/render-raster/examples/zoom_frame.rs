@@ -18,7 +18,17 @@
 //! ZOOM_FRAME_DUMP=<dir> cargo run … --example zoom_frame -- …
 //! ZOOM_FRAME_ARENA=1 cargo run … --example zoom_frame -- …
 //! ZOOM_FRAME_IDLE=1 cargo run … --example zoom_frame -- …
+//! ZOOM_FRAME_WINDOW=800x1600 ZOOM_FRAME_COLUMN=2 [ZOOM_FRAME_GAP=12.8] cargo run … --example zoom_frame -- …
+//! ZOOM_FRAME_WINDOW=800x1600 ZOOM_FRAME_COLUMN=2 ZOOM_FRAME_COLUMN_ONLY=2 cargo run … --example zoom_frame -- …
 //! ```
+//!
+//! **`ZOOM_FRAME_COLUMN` draws that many pages from `page` on as one column** (ADR 2418): stacked in
+//! a `ZOOM_FRAME_WINDOW` as `viewer_core::layout` lays a `OneColumn` arrangement, each page centred
+//! across, the column's middle on the window's, `ZOOM_FRAME_GAP` device pixels between pages (8
+//! logical pixels at a display scale of 1.6 by default). A frame of several pages keeps the baked
+//! path (ADR 0702), so each step rebuilds its scene; `ZOOM_FRAME_COLUMN_ONLY=<k>` draws the column's
+//! `k`-th page alone at its place in it — one page, so in page space — which is what each page costs
+//! where a column is drawn one viewport a page.
 //!
 //! **`ZOOM_FRAME_IDLE` runs the idle build after the sequence's first frame** (ADR 2134): the frame
 //! walked again culling no line, as a window does while nobody waits, so that a window opened zoomed
@@ -278,6 +288,31 @@ fn main() {
         .get(index.saturating_sub(1))
         .expect("that page exists");
     let list = Arc::new(pdf_model::content::interpret(&document, &page).display_list);
+    // A column (ADR 2418): the pages after `index` stacked under it as `viewer_core::layout` lays a
+    // `OneColumn` arrangement, each page centred on the window's middle across and the gap in device
+    // pixels between them — so the frame is the multi-page frame a window draws, which keeps the
+    // baked path (ADR 0702).
+    let column: usize = variable("ZOOM_FRAME_COLUMN").map_or(1, |n| {
+        n.parse().expect("ZOOM_FRAME_COLUMN is a number of pages")
+    });
+    let gap: f32 = variable("ZOOM_FRAME_GAP").map_or(12.8, |gap| {
+        gap.parse()
+            .expect("ZOOM_FRAME_GAP is a gap in device pixels")
+    });
+    // One page of the column alone, at its place in it (ADR 2418): a frame of one page, so in page
+    // space, which is what each page of a column drawn one viewport a page would cost.
+    let only: Option<usize> = variable("ZOOM_FRAME_COLUMN_ONLY").map(|k| {
+        k.parse()
+            .expect("ZOOM_FRAME_COLUMN_ONLY is a page of the column, from 1")
+    });
+    let lists: Vec<Arc<pdf_render::DisplayList>> = std::iter::once(Arc::clone(&list))
+        .chain((1..column).map(|after| {
+            let page = pages
+                .get(index.saturating_sub(1).saturating_add(after))
+                .expect("every page of the column exists");
+            Arc::new(pdf_model::content::interpret(&document, &page).display_list)
+        }))
+        .collect();
     // The page's middle held in the window's middle, which is what the keyboard zoom does: the
     // core keeps the viewport's centre when no anchor is given. `zoom_ladder`'s own arithmetic.
     let window = variable("ZOOM_FRAME_WINDOW").map(|spec| {
@@ -315,8 +350,47 @@ fn main() {
     );
     assert!(!sequence.is_empty(), "a sequence needs a frame in it");
     let targets: Vec<TargetSpec> = sequence.iter().map(|zoom| placed(scale * zoom)).collect();
+    // Each rung's placements of the column's pages, the first page's being `targets`' own.
+    let columns: Vec<Vec<TargetSpec>> = sequence
+        .iter()
+        .zip(&targets)
+        .map(|(zoom, first)| {
+            if lists.len() == 1 {
+                return vec![*first];
+            }
+            let (width, height) = window.expect("a column is drawn into ZOOM_FRAME_WINDOW");
+            let zoom = scale * zoom;
+            let tall: f32 = lists
+                .iter()
+                .map(|list| list.page_size.height * zoom)
+                .sum::<f32>()
+                + gap * lists.len().saturating_sub(1) as f32;
+            let mut offset = 0.0_f32;
+            lists
+                .iter()
+                .map(|list| {
+                    let page = TargetSpec::for_page(list, zoom, 1 << 30).expect("a target");
+                    let size = list.page_size;
+                    let placed = pdf_render::Transform::translate(
+                        (width as f32).mul_add(0.5, -(size.width * zoom * 0.5)),
+                        (height as f32).mul_add(0.5, -(tall * 0.5)) + offset,
+                    );
+                    offset += size.height * zoom + gap;
+                    TargetSpec {
+                        width,
+                        height,
+                        transform: page.transform.then(placed),
+                    }
+                })
+                .collect()
+        })
+        .collect();
 
     if variable("ZOOM_FRAME_BACKEND").as_deref() == Some("cpu") {
+        assert!(
+            lists.len() == 1,
+            "the CPU backend draws one page: no ZOOM_FRAME_COLUMN"
+        );
         cpu_backend(&path, index, &list, &sequence, &targets, rounds);
         return;
     }
@@ -334,11 +408,18 @@ fn main() {
         .expect("an adapter");
         backend.set_coverage(coverage);
         backend.adapter_description().clone_into(&mut adapter);
-        for (slot, target) in best.iter_mut().zip(targets.iter().copied()) {
+        for ((slot, target), column) in best.iter_mut().zip(targets.iter().copied()).zip(&columns) {
+            let placed: Vec<(&Arc<pdf_render::DisplayList>, TargetSpec)> = lists
+                .iter()
+                .zip(column.iter().copied())
+                .enumerate()
+                .filter(|(at, _)| only.is_none_or(|only| only == at.saturating_add(1)))
+                .map(|(_, placed)| placed)
+                .collect();
             let frame = PresentFrame {
                 width: target.width,
                 height: target.height,
-                pages: &[(&list, target)],
+                pages: &placed,
                 raster: None,
                 overlays: &[],
             };

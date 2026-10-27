@@ -406,6 +406,28 @@ impl Xmp {
         Ok(Reader::new(false).run(&text)?.strays)
     }
 
+    /// Every namespace prefix a packet uses on an element or an attribute that no declaration in
+    /// scope binds to a namespace, each named once, in the order the packet first uses it.
+    ///
+    /// ISO 16684-1 section 7.1 requires serialised XMP to be well-formed XML and well-formed RDF,
+    /// and the RDF/XML Syntax Specification (section 6) does not take a document that fails to
+    /// conform to Namespaces in XML. That recommendation's section 5 requires every prefix but
+    /// `xml` and `xmlns` to have been declared on the element using it or on one of its
+    /// ancestors, and its section 3 forbids declaring a prefix to an empty namespace name — so a
+    /// prefix that resolves to no namespace here breaks one of the two, whichever it is.
+    ///
+    /// [`Self::parse`] reads such a packet anyway, with the name in no namespace, because a
+    /// viewer showing a title is better served by the bytes than by a refusal; a validator has
+    /// to be able to ask, for [`Self::rdf_elements`]'s reason, and this is the question.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::parse`].
+    pub fn undeclared_prefixes(bytes: &[u8]) -> Result<Vec<String>, XmpError> {
+        let text = text_of(bytes)?;
+        Ok(Reader::new(false).run(&text)?.undeclared)
+    }
+
     /// Every property, in the order the packet states them.
     #[must_use]
     pub fn properties(&self) -> &[(Name, Value)] {
@@ -2473,6 +2495,9 @@ struct Reader {
     /// packet nothing: the vector stays empty, and what fills it is one comparison per element
     /// over character content this reader has already accumulated.
     strays: Vec<String>,
+    /// The prefixes used where no binding in scope declares them, for
+    /// [`Xmp::undeclared_prefixes`], built by every walk for the reason [`Reader::strays`] is.
+    undeclared: Vec<String>,
 }
 
 impl Reader {
@@ -2486,6 +2511,30 @@ impl Reader {
             fields: 0,
             rdf_elements: 0,
             strays: Vec::new(),
+            undeclared: Vec::new(),
+        }
+    }
+
+    /// Notes a prefix the bindings in scope do not declare, once, within [`MAX_PROPERTIES`].
+    ///
+    /// The empty prefix is not one: an unprefixed name is in the default namespace or in none,
+    /// and both are namespace-well-formed. `xml` is bound by the recommendation itself and
+    /// `xmlns` names the declarations, so neither is ever declared.
+    fn note_undeclared(&mut self, prefix: &str) {
+        if prefix.is_empty() || prefix == "xml" || prefix == "xmlns" {
+            return;
+        }
+        let declared = self
+            .bindings
+            .iter()
+            .rev()
+            .find(|(bound, _)| bound == prefix)
+            .is_some_and(|(_, uri)| !uri.is_empty());
+        if !declared
+            && self.undeclared.len() < MAX_PROPERTIES
+            && !self.undeclared.iter().any(|seen| seen == prefix)
+        {
+            self.undeclared.push(prefix.to_owned());
         }
     }
 
@@ -2596,6 +2645,13 @@ impl Reader {
                 }
                 _ => {}
             }
+        }
+
+        // After the bindings, because an element may declare the prefix it is itself spelled
+        // with; see `Xmp::undeclared_prefixes` for the rule.
+        self.note_undeclared(&name.0);
+        for (prefix, _, _) in attributes {
+            self.note_undeclared(prefix);
         }
 
         let namespace = self.namespace(&name.0);
@@ -4034,6 +4090,57 @@ mod tests {
         assert_eq!(
             Xmp::stray_character_data(structured.as_bytes()).expect("well-formed"),
             vec!["pdf:Keywords".to_owned()]
+        );
+    }
+
+    /// Namespaces in XML section 5's Prefix Declared constraint, which ISO 16684-1 section 7.1's
+    /// well-formed RDF carries: a packet that writes `dc:` with no `xmlns:dc` in scope is read,
+    /// and the prefix is named.
+    #[test]
+    fn a_prefix_no_declaration_binds_is_named() {
+        assert!(
+            Xmp::undeclared_prefixes(PACKET.as_bytes())
+                .expect("well-formed")
+                .is_empty(),
+            "a packet declaring every prefix it uses names none"
+        );
+
+        // The shape of pdf.js's issue20453: the description declares `pdf` and writes `dc`.
+        let undeclared = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\
+             <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
+             <rdf:Description rdf:about=\"\" xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\">\
+             <dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\">t</rdf:li></rdf:Alt></dc:title>\
+             <dc:description/><pdf:Producer>p</pdf:Producer>\
+             </rdf:Description></rdf:RDF></x:xmpmeta>";
+        assert!(
+            Xmp::parse(undeclared.as_bytes()).is_ok(),
+            "a viewer still reads it"
+        );
+        assert_eq!(
+            Xmp::undeclared_prefixes(undeclared.as_bytes()).expect("well-formed"),
+            vec!["dc".to_owned()],
+            "named once however often it is used, and xml: is bound by the recommendation"
+        );
+
+        // An attribute's prefix is held to the same constraint, and a binding on an ancestor or on
+        // the element itself counts while one on a sibling does not.
+        let attribute = "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
+             <rdf:Description rdf:about=\"\" pdf:Producer=\"p\"/>\
+             <rdf:Description rdf:about=\"\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" \
+             xmp:CreatorTool=\"c\"/>\
+             <rdf:Description rdf:about=\"\" xmp:Label=\"l\"/></rdf:RDF>";
+        assert_eq!(
+            Xmp::undeclared_prefixes(attribute.as_bytes()).expect("well-formed"),
+            vec!["pdf".to_owned(), "xmp".to_owned()]
+        );
+
+        // Section 3 forbids a prefix declared to an empty namespace name.
+        let emptied = "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
+             <rdf:Description rdf:about=\"\" xmlns:pdf=\"\"><pdf:Producer>p</pdf:Producer>\
+             </rdf:Description></rdf:RDF>";
+        assert_eq!(
+            Xmp::undeclared_prefixes(emptied.as_bytes()).expect("well-formed"),
+            vec!["pdf".to_owned()]
         );
     }
 

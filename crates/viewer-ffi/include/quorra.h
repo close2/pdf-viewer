@@ -576,6 +576,20 @@ extern "C" {
 #define QUORRA_SCOPE_COLUMN  1u
 #define QUORRA_SCOPE_BOTH    2u
 
+/* Table 380's /TextDecorationType as it reaches an element's own text, which
+ * `quorra_structure_style` answers with. */
+#define QUORRA_DECORATION_NONE          0u
+#define QUORRA_DECORATION_UNDERLINE     1u  /* "A line below the text" */
+#define QUORRA_DECORATION_OVERLINE      2u  /* "A line above the text" */
+#define QUORRA_DECORATION_LINE_THROUGH  3u  /* "A line through the middle of the text" */
+
+/* Whether that text sits raised or lowered off its line: Table 380's /TextPosition, or the sign of
+ * /BaselineShift where no /TextPosition is nearer — the second a reading this program chose,
+ * because the entry states a distance and not a meaning (ADR 2384). */
+#define QUORRA_POSITION_NORMAL       0u
+#define QUORRA_POSITION_SUPERSCRIPT  1u
+#define QUORRA_POSITION_SUBSCRIPT    2u
+
 /* Table 153's /View: how §12.3.5's collection is first presented. HIDDEN is the one value that is
  * load-bearing rather than a preference — §7.6.7's unencrypted wrapper requires it, because the
  * wrapper's own page says the payload is encrypted and a file browser over it would hide that. */
@@ -1822,6 +1836,18 @@ int32_t quorra_structure_line(const quorra_structure *structure, size_t entry, s
  * the file does not state. */
 int32_t quorra_structure_character(const quorra_structure *structure, size_t entry, size_t node,
                                  size_t line, size_t character, size_t *bytes, float *into);
+/* Table 380's decoration and position as they reach the element's own text: a QUORRA_DECORATION_*,
+ * a QUORRA_POSITION_*, and /TextDecorationColor as three floats in 0..1 where the element or an
+ * ancestor states one. `has_colour` false writes nothing into `colour`: the entry's default is "the
+ * current fill colour in effect at the start of its associated content", which our readback does
+ * not carry, so you are told we do not know rather than handed a colour we made up. SET THEM ON THE
+ * ELEMENT'S OWN LINES AND NOWHERE ELSE: each entry was resolved by its own reach — a decoration
+ * "shall not apply to nested BLSEs" — and a platform that inherits text attributes down its own
+ * tree would carry a paragraph's underline into the block inside it. A new function rather than a
+ * wider quorra_structure_node, so QUORRA_ABI_VERSION did not move (ADR 2422). */
+int32_t quorra_structure_style(const quorra_structure *structure, size_t entry, size_t node,
+                             uint32_t *decoration, uint32_t *position, float *colour,
+                             bool *has_colour);
 
 /* §12.3.5's portable collection, where the catalogue states one — QUORRA_NO_ANSWER otherwise, which
  * is every document in this project's corpora. The clause is a `shall` on a viewer: "[i]f this

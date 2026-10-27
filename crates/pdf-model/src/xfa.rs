@@ -73,11 +73,15 @@ pub fn stated(document: &Document) -> Option<Stated> {
     })
 }
 
+mod canonical;
 mod datasets;
+mod locale;
+mod picture;
 mod template;
 mod xml;
 
 pub use datasets::{Change, Datasets, Kept};
+pub use locale::LocaleSet;
 pub use template::Template;
 pub use xml::XmlError;
 
@@ -130,6 +134,9 @@ pub struct Resource {
     pub template: Template,
     /// The `datasets` packet.
     pub datasets: Datasets,
+    /// The `localeSet` packet's locales and the `config` packet's default locale, which a
+    /// field's picture clauses are read in (XFA 3.3 pages 153 and 158; ADR 2414).
+    pub locales: LocaleSet,
     /// The stream whose text [`Datasets::keep`] splices: the `datasets` packet's in the array
     /// form, the whole resource's in the stream form. A save replaces this one object, which is
     /// §7.5.6's "objects that have been changed, replaced, or deleted".
@@ -166,8 +173,12 @@ impl Resource {
         let datasets = tree
             .first("datasets")
             .ok_or(ResourceError::Missing("datasets"))?;
+        let locale_set = tree.first("localeSet").map(|at| (&tree, at));
+        let config = tree.first("config").is_some().then_some(&tree);
+        let locales = LocaleSet::read(locale_set, config);
         Ok(Self {
             template: Template::read(&tree, template),
+            locales,
             datasets: Datasets::new(text, tree, datasets),
             datasets_stream: id,
         })
@@ -200,7 +211,32 @@ impl Resource {
             template: Template::read(&template_tree, template),
             datasets: Datasets::new(text, tree, datasets),
             datasets_stream: datasets_id,
+            locales: Self::locales(document, named("localeSet"), named("config")),
         })
+    }
+
+    /// The array form's `localeSet` and `config` packets, each optional. A packet that is stated
+    /// and does not read leaves the form without locales and says why, rather than refusing the
+    /// fields that need none.
+    fn locales(
+        document: &Document,
+        locale_set: Option<ObjectId>,
+        config: Option<ObjectId>,
+    ) -> LocaleSet {
+        let config = match config.map(|id| packet(document, id, "config")) {
+            Some(Ok((_, tree))) => Some(tree),
+            _ => None,
+        };
+        match locale_set.map(|id| packet(document, id, "localeSet")) {
+            None => LocaleSet::read(None, config.as_ref()),
+            Some(Ok((_, tree))) => match tree.first("localeSet") {
+                Some(at) => LocaleSet::read(Some((&tree, at)), config.as_ref()),
+                None => LocaleSet::unreadable(
+                    "its localeSet packet holds no localeSet element".to_owned(),
+                ),
+            },
+            Some(Err(error)) => LocaleSet::unreadable(error.to_string()),
+        }
     }
 }
 

@@ -201,6 +201,7 @@ impl Ungrounded {
             texture: &self.0.medium,
             placement: affine(extent),
             filter: raster_scene::ImageFilter::Nearest,
+            within: None,
         }];
         let refused = self.0.presenter.present(&layers).err();
         // Taken whether the present refused or not: `Surface::configure` returns `()`, so a
@@ -818,12 +819,13 @@ impl Window {
         self.proxies.len()
     }
 
-    /// Puts the frame on hand on the window, with the page under `placement`.
+    /// Puts the frame on hand on the window, its pages under the placements `base` names.
     ///
-    /// `placement` maps the page texture's own texels to the window's pixels — the identity where
-    /// the frame is of the view being asked for, and `settled⁻¹ ∘ asked` where it is not. `None`
-    /// leaves the sharp layer out altogether, which is the picture drawn from the retained pages
-    /// alone: a page turn, a `GoTo`, a resize, a zoom in a column.
+    /// Each [`crate::stale::Part`] maps the page texture's own texels to the window's pixels — one
+    /// whole part at the identity where the frame is of the view being asked for, one whole part at
+    /// `settled⁻¹ ∘ asked` where it is not, and one part a page where a zoom in a column has no one
+    /// placement true of every page (ADR 2416). Empty leaves the sharp layer out altogether, which
+    /// is the picture drawn from the retained pages alone: a page turn, a `GoTo`, a resize.
     ///
     /// `under` is [`Self::underlay`]'s answer, empty on every frame that is not standing in.
     ///
@@ -838,13 +840,13 @@ impl Window {
     /// and is handled by the caller exactly as it was when the device owned the surface.
     pub fn present(
         &mut self,
-        placement: Option<Transform>,
+        base: &[crate::stale::Part],
         under: &[(usize, Transform)],
     ) -> Result<bool, raster_gpu::RenderError> {
         let Some(shown) = self.shown.as_ref() else {
             return Ok(false);
         };
-        if placement.is_none() && under.is_empty() {
+        if base.is_empty() && under.is_empty() {
             return Ok(false);
         }
         #[expect(
@@ -858,6 +860,7 @@ impl Window {
             texture: &self.medium,
             placement: affine(Transform::scale(width, height)),
             filter: raster_scene::ImageFilter::Nearest,
+            within: None,
         }];
         // The blurrier layer first, so that the sharp one is drawn over it wherever it has pixels.
         for (index, moved) in under {
@@ -868,26 +871,38 @@ impl Window {
                 texture: &retained.pixels,
                 placement: affine(*moved),
                 filter: raster_scene::ImageFilter::Linear,
+                within: None,
             });
         }
-        if let Some(placement) = placement {
-            // The sharp picture substitutes for the base wherever it is still true of it:
-            // twice the window's texels drawn at half scale, which through the presenter's
-            // one bilinear tap is an exact 2×2 box average (ADR 0699) — the same pixels a
-            // high-resolution rendering scaled down would show. Under a reprojection it
-            // rides the same placement the base would have, composed after the halving.
-            let sharp = self.sharp.as_ref().filter(|sharp| {
-                (sharp.width, sharp.height) == self.size && same_pages(&sharp.pages, &shown.pages)
-            });
+        // The sharp picture substitutes for the base wherever it is still true of it:
+        // twice the window's texels drawn at half scale, which through the presenter's
+        // one bilinear tap is an exact 2×2 box average (ADR 0699) — the same pixels a
+        // high-resolution rendering scaled down would show. Under a reprojection it
+        // rides the same placement the base would have, composed after the halving, and
+        // a page's part of it is the page's part of the base at twice the texels.
+        let sharp = self.sharp.as_ref().filter(|sharp| {
+            (sharp.width, sharp.height) == self.size && same_pages(&sharp.pages, &shown.pages)
+        });
+        for part in base {
+            let texels = |times: u32| {
+                part.texels
+                    .map(|[left, top, right, bottom]| raster_gpu::Texels {
+                        left: left.saturating_mul(times),
+                        top: top.saturating_mul(times),
+                        right: right.saturating_mul(times),
+                        bottom: bottom.saturating_mul(times),
+                    })
+            };
             match sharp {
                 Some(sharp) => layers.push(raster_gpu::Layer {
                     texture: &sharp.texture,
-                    placement: affine(Transform::scale(0.5, 0.5).then(placement)),
+                    placement: affine(Transform::scale(0.5, 0.5).then(part.placement)),
                     filter: raster_scene::ImageFilter::Linear,
+                    within: texels(2),
                 }),
                 None => layers.push(raster_gpu::Layer {
                     texture: &shown.textures.page,
-                    placement: affine(placement),
+                    placement: affine(part.placement),
                     // **Smoothed on purpose, and it is the one place this host chooses how a
                     // stand-in looks.** A blur is what an approximation should look like — nobody
                     // mistakes it for the page — where squares of four device pixels look like a
@@ -895,6 +910,7 @@ impl Window {
                     // centres and the two filters agree exactly, so this costs a frame of the real
                     // page nothing (raster's `present.wgsl`).
                     filter: raster_scene::ImageFilter::Linear,
+                    within: texels(1),
                 }),
             }
         }
@@ -904,6 +920,7 @@ impl Window {
             // does not move because a page is being zoomed.
             placement: raster_scene::Affine::IDENTITY,
             filter: raster_scene::ImageFilter::Nearest,
+            within: None,
         });
         self.presenter.present(&layers)?;
         Ok(true)
@@ -961,16 +978,19 @@ impl Window {
                 texture: &self.medium,
                 placement: affine(Transform::scale(width, height)),
                 filter: raster_scene::ImageFilter::Nearest,
+                within: None,
             },
             raster_gpu::Layer {
                 texture: &partial.textures.page,
                 placement: raster_scene::Affine::IDENTITY,
                 filter: raster_scene::ImageFilter::Nearest,
+                within: None,
             },
             raster_gpu::Layer {
                 texture: &partial.textures.chrome,
                 placement: raster_scene::Affine::IDENTITY,
                 filter: raster_scene::ImageFilter::Nearest,
+                within: None,
             },
         ];
         let fraction = partial.fraction;

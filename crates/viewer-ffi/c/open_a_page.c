@@ -423,6 +423,20 @@ static void exercise_the_other_half(quorra_viewer *viewer)
                        bounded == QUORRA_OK ? "yes" : "no", headers);
                 free(role);
             }
+            /* Table 380's decoration and position, which a text interface sets on each node's own
+             * lines; here only counted. */
+            size_t decorated = 0;
+            size_t shifted = 0;
+            for (size_t node = 0; node < nodes; ++node) {
+                uint32_t decoration = QUORRA_DECORATION_NONE;
+                uint32_t position = QUORRA_POSITION_NORMAL;
+                if (quorra_structure_style(structure, entry, node, &decoration, &position, NULL,
+                                           NULL) == QUORRA_OK) {
+                    decorated += decoration != QUORRA_DECORATION_NONE;
+                    shifted += position != QUORRA_POSITION_NORMAL;
+                }
+            }
+            printf(", %zu decorated, %zu raised or lowered", decorated, shifted);
             printf("\n");
         }
         quorra_structure_free(structure);

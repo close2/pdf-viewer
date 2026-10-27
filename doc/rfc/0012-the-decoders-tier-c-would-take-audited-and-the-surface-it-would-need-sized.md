@@ -1,9 +1,13 @@
 # RFC 0012 — The decoders Tier C would take, audited, and the surface it would need, sized
 
-Status: **proposed** — ready for the owner. Nothing in this document changes a ledger status, a
-`Cargo.toml` or a line of code that ships. The round that wrote it fetched four crates and two
-published conformance suites into scratch, and built nothing into the tree. Its one edit to
-`CLAUDE.md` is the Tier D trigger sentence A632 dictated (ADR 2400).
+Status: **accepted** — 2026-10-27, by the owner's answer to Q649, given in chat: "Agreed with all
+three recommendations" of section 10 (ADR 2428). Tier C stays excluded until the owner decides to
+build the player, and `CLAUDE.md`'s trigger now says so. Section 10's second and third answers, the
+two decoders with `default-features = false` and the order Tier B → wire → worker → sink →
+parameters, are recorded for a reopening in ADR 2428 and in `doc/stack.md`. Nothing in this
+document changes a ledger status, a `Cargo.toml` or a line of code that ships. The round that
+wrote it fetched four crates and two published conformance suites into scratch, and built nothing
+into the tree. Its one edit to `CLAUDE.md` is the Tier D trigger sentence A632 dictated (ADR 2400).
 Round: 1783 — the round the owner set in `doc/questions/A632` (2026-10-26): *"Q632 as recommended
 please"*. The recommendation it adopted: *"an RFC first, nothing built — one round that audits the
 decoders (their conformance claims run here against published streams, fuzzed in the worker,

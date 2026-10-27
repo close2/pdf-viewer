@@ -681,3 +681,13 @@ refused: two of that file's choice fields carry `/Ff` bit 1, ReadOnly (Table 227
 viewer's correct answer, not the defect under test (ADR 2396). A fixture that fills, resets or imports a field
 reads the field's inherited `/Ff` first and picks a field whose flags admit the operation, so a red test is
 about the code it names.
+
+## A stand-in is photographed by a capture loop started before the notch
+
+Round 1791 built a column's stand-in from the last sharp frame carried page by page (ADR 2416) and owed a
+picture of it (trap 1). Under Xvfb with single-threaded llvmpipe the stand-in stayed on screen about 75 ms,
+and a capture with `import` taken after the Control+wheel notch never caught it; neither did a notch sent
+without the window focused first (the habit above on `windowfocus --sync`). The photograph came from a
+continuous `xwd -root` loop started before the notch, its frames read afterwards for the one that showed both
+pages at the new view's places. A frame that lives for one refresh or a few is photographed by a loop already
+running when the event is sent, never by a capture issued after it.

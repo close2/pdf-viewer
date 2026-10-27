@@ -39,6 +39,20 @@ UCD's own tables**, reaching each form as a presentation-form code point (ADR 14
 source is a face on the machine covering the shaped value, since no compiled-in face has an Arabic
 glyph; executing a face's `GSUB` through `read-fonts` is priced there and not built.
 
+**Not used, and recorded for a reopening: an H.264 and an AAC decoder.** Clause 13's playing of
+audio and video stays excluded until the owner decides to build the player (`CLAUDE.md`, the
+owner's answer to Q649 of 2026-10-27, ADR 2428), so no `Cargo.toml` names a decoder. When the
+exclusion is reopened, the decoders are already chosen on RFC 0012's audit:
+`rusty_h264-decoder` with `default-features = false, features = ["std"]`, and `rusty_aac` with
+`default-features = false`. They run in a confined media worker of their own and never in the host.
+The default features are refused because they bring in what `deny.toml`'s four checks do not see:
+a process-wide `#[global_allocator]` and a SIMD crate under the first, and the `unsafe` SIMD
+kernels under the second (RFC 0012 section 2.2). `rust_h264` and `oxideav-aac` are declined on
+their conformance figures. The build order is Tier B's audio sink, then the wire's streaming arm,
+then the worker with the two decoders and an audited `mp4` demuxer, then the frame sink, then
+§13.2.6's parameters, one round and one ADR each. A version newer than the one RFC 0012 audited is
+run against that RFC's streams again before it is taken.
+
 ## The public-key *constructions* are in the tree; the arithmetic under them no longer is
 
 **Where they live: `crates/pdf-signature`, and nowhere else.** The modules left `pdf-model` with their cryptographic

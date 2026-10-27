@@ -290,7 +290,9 @@ impl ViewState {
             refuse_all(format!("its XFA form is a dynamic one: {why}"), &mut unkept);
             return unkept;
         }
-        let kept = resource.datasets.keep(&resource.template, &changes);
+        let kept = resource
+            .datasets
+            .keep(&resource.template, &resource.locales, &changes);
         if let Some(text) = kept.text {
             let stream = replaced_stream(document, resource.datasets_stream, text.into_bytes());
             update.put(resource.datasets_stream, stream);

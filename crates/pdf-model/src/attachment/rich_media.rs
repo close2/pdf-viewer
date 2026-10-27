@@ -226,6 +226,36 @@ mod tests {
         );
     }
 
+    /// §13.7.2.3.1's Table 341, reached through an indirect `/RichMediaContent`: its `/Assets` is
+    /// "[a] name tree of embedded file specification dictionaries" and is read, while its
+    /// `/Configurations` and `/Views` are the artwork's and give no file; a content dictionary
+    /// stating no `/Assets` has none, because the table makes the entry optional (ADR 2410).
+    #[test]
+    fn table_341s_assets_are_read_and_its_configurations_and_views_give_no_file() {
+        let doc = document(&[
+            "<< /Type /Catalog >>",
+            "<< /Type /Annot /Subtype /RichMedia /Rect [0 0 1 1] /RichMediaContent 3 0 R >>",
+            "<< /Type /RichMediaContent /Assets << /Names [(clip.mp4) 4 0 R] >> \
+             /Configurations [6 0 R] /Views [7 0 R] >>",
+            "<< /Type /Filespec /F (clip.mp4) /UF (clip.mp4) /EF << /F 5 0 R >> >>",
+            "<< /Type /EmbeddedFile /Length 3 >>\nstream\nmp4\nendstream",
+            "<< /Type /RichMediaConfiguration /Subtype /Video /Instances [8 0 R] >>",
+            "<< /Type /3DView /XN (Default) >>",
+            "<< /Type /RichMediaInstance /Subtype /Video /Asset 4 0 R >>",
+            "<< /Type /Annot /Subtype /RichMedia /Rect [0 0 1 1] /RichMediaContent \
+             << /Configurations [6 0 R] >> >>",
+        ]);
+        let found = assets(&doc, &annotation(&doc));
+        let names: Vec<&str> = found.files.iter().map(|file| file.name.as_str()).collect();
+        assert_eq!(names, ["clip.mp4"]);
+        let without = doc
+            .get(ObjectId::new(9, 0))
+            .as_dict()
+            .cloned()
+            .expect("the second annotation is a dictionary");
+        assert!(assets(&doc, &without).files.is_empty());
+    }
+
     /// Only a `RichMedia` annotation has assets: the same content dictionary on a `Screen`
     /// annotation is not Table 333's.
     #[test]

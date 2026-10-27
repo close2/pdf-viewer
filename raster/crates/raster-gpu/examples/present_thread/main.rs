@@ -211,11 +211,13 @@ fn main() {
             texture: &page,
             placement,
             filter: ImageFilter::Nearest,
+            within: None,
         },
         Layer {
             texture: &chrome,
             placement: Affine::IDENTITY,
             filter: ImageFilter::Nearest,
+            within: None,
         },
     ];
     let shot = settled
@@ -330,6 +332,7 @@ fn render_on_another_thread_while_presenting(
         texture: chrome,
         placement: Affine::IDENTITY,
         filter: ImageFilter::Nearest,
+        within: None,
     }];
     presenter
         .present(&chrome_only)
@@ -452,6 +455,7 @@ fn check_the_other_filter_runs(
         texture: page,
         placement,
         filter: ImageFilter::Linear,
+        within: None,
     }];
     // **The capture that failed once in five real-display runs.** It read the previous
     // present, which still carried the chrome — and that picture is exactly what `settled`

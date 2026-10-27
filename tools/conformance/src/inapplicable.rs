@@ -54,6 +54,22 @@
 //! citing a clause whose row says the clause is not this program's is a finding whatever the row's
 //! status, which is the trap's rule; [`Report::cited`] counts them.
 //!
+//! # The tables the clause's own text names
+//!
+//! A clause whose subject is a dictionary is executed under that dictionary's **table**, not under
+//! the clause's number: `media.rs` judged §13.2.4.1's clip by "Table 284's `/S`" and §13.2.6.1's
+//! screen parameters by Table 294's `MH`, and walked §13.2.7.4.2's software identifier as
+//! "§13.2.7.4's software identifier", so none of the three was named by its citation and all three
+//! were found by hand (ADR 2376). So a row also states the terms of **the tables its own clause
+//! names in `doc/md/`** — its own text, subclauses excluded, read under the row's own number
+//! rather than any word of its note (trap 272): every table the text captions or cites by number,
+//! and every table whose caption's subject the text names as a dictionary, which is how
+//! §13.2.7.4.2's "a software identifier dictionary" reaches Table 303 under §13.2.7.4.1. Each such
+//! table is two terms ([`Kind::Table`] and [`Kind::Subject`]): its number as a source cites one,
+//! and the caption's subject — "Entries in a **software identifier** dictionary" — as a source's
+//! prose writes it, because a reader names a dictionary by what it is as often as by its table.
+//! [`Report::tabled`] counts the rows a source names that way (ADR 2410).
+//!
 //! # The noise, printed rather than filtered
 //!
 //! - **The standard's shared vocabulary.** `DeviceRGB`, `XObject` and `Subtype` are named by
@@ -65,6 +81,9 @@
 //!   allowed to say what happens instead — §12.5.6.25's `RichMedia` annotation says its
 //!   appearance streams are drawn like any other's — and a witness confirms that sentence rather
 //!   than contradicting it.
+//! - **A table the clause names for another clause's sake.** A clause citing a neighbour's table
+//!   to say what its own entry holds states that table's terms too; the witness path says which
+//!   dictionary the naming file reads.
 //!
 //! # Why it is not a gate
 //!
@@ -75,7 +94,7 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use crate::clause::ClauseNumber;
+use crate::clause::{self, ClauseIndex, ClauseNumber};
 use crate::ledger::{Ledger, Row, Status};
 
 /// The forms in which the tree may name a `/Key`.
@@ -119,7 +138,31 @@ pub enum Kind {
     /// The row's own clause number written as the tree cites one, `§` before it, searched for as
     /// a whole citation: `§13.2.3` is named by `§13.2.3's` and not by `§13.2.3.3`.
     Citation,
+    /// A table the row's own clause names in `doc/md/`, written `Table 284` and searched for as a
+    /// whole designation: `Table 28` is not named by `Table 284`.
+    Table,
+    /// The subject of such a table's caption — `media clip` out of "Entries common to all media
+    /// clip dictionaries" — searched for as a whole phrase in a source's prose, case and line
+    /// breaks and comment markers folded away ([`fold`]).
+    Subject,
 }
+
+/// One caption of the standard, as this sweep reads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Caption {
+    /// The table's designation, `284` or `Annex O.3`.
+    pub designation: String,
+    /// What the table's entries belong to, lower-cased — `software identifier` out of "Entries in
+    /// a software identifier dictionary" — or `None` where the title names no dictionary.
+    pub subject: Option<String>,
+}
+
+/// The fewest words a caption's subject needs to be asked about.
+///
+/// One word is the tree's own English — `viewport`, `measure`, `rendition`, `border` name a
+/// hundred things a viewer has that are not the table — while two are a phrase only the
+/// dictionary's readers write; a one-word subject's table is still asked about by its number.
+pub const SUBJECT_WORDS: usize = 2;
 
 /// A ledger row that is neither `inapplicable` nor `out-of-scope` and names the same term.
 ///
@@ -186,6 +229,9 @@ pub struct Report {
     /// How many of those rows have their own clause cited by a source — trap 268's shape, a
     /// clause the tree executes under a row that says it is not this program's.
     pub cited: usize,
+    /// How many of those rows have a table their own clause names, by number or by its caption's
+    /// subject, named by a source — the clause executed under its dictionary's table (ADR 2410).
+    pub tabled: usize,
     /// How many distinct terms those rows state, over all of them.
     pub stated: usize,
     /// How many stated terms no Rust source names — the claims this run confirms.
@@ -217,13 +263,22 @@ impl Report {
 /// The checker's own directory witnesses nothing, for [`crate::NOT_SCANNED`]'s second reason one
 /// step along: this module's documentation quotes the very rows it exists to find, so scanning it
 /// would witness every one of them against itself.
+///
+/// `index` is the standard's conversion, read for the tables each row's own clause names
+/// ([`tables_named`]).
 #[must_use]
-pub fn sweep(ledger: &Ledger, sources: &[(PathBuf, String)]) -> Report {
-    let scanned: Vec<(String, &String)> = sources
+pub fn sweep(ledger: &Ledger, index: &ClauseIndex, sources: &[(PathBuf, String)]) -> Report {
+    let scanned: Vec<Scanned<'_>> = sources
         .iter()
         .map(|(path, text)| (path.to_string_lossy().replace('\\', "/"), text))
         .filter(|(path, _)| !path.starts_with(crate::NOT_SCANNED))
+        .map(|(path, text)| Scanned {
+            folded: fold(text),
+            path,
+            text,
+        })
         .collect();
+    let standard = captions(index);
     let mut report = Report::default();
     for row in &ledger.rows {
         if !SWEPT.contains(&row.status) {
@@ -231,8 +286,12 @@ pub fn sweep(ledger: &Ledger, sources: &[(PathBuf, String)]) -> Report {
         }
         report.population = report.population.saturating_add(1);
         let mut terms = Vec::new();
+        let mut tabled = false;
         let citation = (format!("\u{a7}{}", row.clause), Kind::Citation);
-        for (text, kind) in std::iter::once(citation).chain(terms_of(row)) {
+        let stated = std::iter::once(citation)
+            .chain(tables_named(index, &row.clause, &standard))
+            .chain(terms_of(row));
+        for (text, kind) in stated {
             report.stated = report.stated.saturating_add(1);
             let (reach, witnesses) = named_by(&text, kind, &scanned);
             if reach == 0 {
@@ -242,6 +301,7 @@ pub fn sweep(ledger: &Ledger, sources: &[(PathBuf, String)]) -> Report {
             if kind == Kind::Citation {
                 report.cited = report.cited.saturating_add(1);
             }
+            tabled |= matches!(kind, Kind::Table | Kind::Subject);
             terms.push(Term {
                 cousins: cousins_of(&text, kind, row, ledger),
                 text,
@@ -249,6 +309,9 @@ pub fn sweep(ledger: &Ledger, sources: &[(PathBuf, String)]) -> Report {
                 reach,
                 witnesses,
             });
+        }
+        if tabled {
+            report.tabled = report.tabled.saturating_add(1);
         }
         if terms.is_empty() {
             continue;
@@ -264,6 +327,135 @@ pub fn sweep(ledger: &Ledger, sources: &[(PathBuf, String)]) -> Report {
     }
     report.findings.sort_by_key(Finding::rarest);
     report
+}
+
+/// One Rust source as the sweep reads it.
+struct Scanned<'a> {
+    /// Its path, relative to the root and with forward solidi.
+    path: String,
+    /// Its text, as written.
+    text: &'a str,
+    /// Its text as [`fold`] gives it, for [`Kind::Subject`], folded once rather than per term.
+    folded: String,
+}
+
+/// Every caption in the standard, each designation once, in document order.
+#[must_use]
+pub fn captions(index: &ClauseIndex) -> Vec<Caption> {
+    let mut found: Vec<Caption> = Vec::new();
+    for heading in index.headings() {
+        for line in crate::entries::own_text(index, heading).lines() {
+            let Some((designation, title)) = clause::caption_of(line) else {
+                continue;
+            };
+            if found.iter().any(|seen| seen.designation == designation) {
+                continue;
+            }
+            found.push(Caption {
+                designation: designation.to_owned(),
+                subject: subject_of(title),
+            });
+        }
+    }
+    found
+}
+
+/// What a caption's entries belong to, lower-cased, where its title names a dictionary.
+///
+/// The standard writes an entry table's title in a handful of shapes — "Entries in a …
+/// dictionary", "Additional entries specific to an … dictionary", "Entries common to all …
+/// dictionaries" — and every one puts the subject between the first article and the word
+/// *dictionary*. A title that is not about entries ("Monitor specifier values") or names no
+/// dictionary ("Entries for specific types of requirements") has no subject.
+#[must_use]
+pub fn subject_of(title: &str) -> Option<String> {
+    let title = title.to_lowercase();
+    let words: Vec<&str> = title.split_whitespace().collect();
+    if !words.contains(&"entries") {
+        return None;
+    }
+    let opening = words
+        .iter()
+        .position(|word| matches!(*word, "a" | "an" | "the" | "all"))?;
+    let closing = words
+        .iter()
+        .position(|word| matches!(*word, "dictionary" | "dictionaries"))?;
+    let subject = words.get(opening.saturating_add(1)..closing)?;
+    if subject.is_empty() {
+        return None;
+    }
+    Some(subject.join(" "))
+}
+
+/// The terms of every table the clause `number` names in its own text, subclauses excluded.
+///
+/// A table is named where the text captions it or cites it by number (`Table 284`, as a whole
+/// designation), or names its caption's subject as a dictionary — "a software identifier
+/// dictionary". Each table states its number ([`Kind::Table`]) and, where its subject has
+/// [`SUBJECT_WORDS`] words or more, the subject ([`Kind::Subject`]); each term once.
+#[must_use]
+pub fn tables_named(
+    index: &ClauseIndex,
+    number: &ClauseNumber,
+    standard: &[Caption],
+) -> Vec<(String, Kind)> {
+    let own: Vec<&str> = index
+        .headings()
+        .iter()
+        .filter(|heading| &heading.number == number)
+        .map(|heading| crate::entries::own_text(index, heading))
+        .collect();
+    let folded: Vec<String> = own.iter().map(|text| fold(text)).collect();
+    let mut terms: Vec<(String, Kind)> = Vec::new();
+    for caption in standard {
+        let table = format!("Table {}", caption.designation);
+        let cited = own.iter().any(|text| whole_citation(text, &table));
+        let as_dictionary = caption.subject.as_ref().is_some_and(|subject| {
+            folded.iter().any(|text| {
+                whole_word(text, &format!("{subject} dictionary"))
+                    || whole_word(text, &format!("{subject} dictionaries"))
+            })
+        });
+        if !cited && !as_dictionary {
+            continue;
+        }
+        let subject = caption
+            .subject
+            .clone()
+            .filter(|subject| subject.split(' ').count() >= SUBJECT_WORDS)
+            .map(|subject| (subject, Kind::Subject));
+        for term in std::iter::once((table, Kind::Table)).chain(subject) {
+            if !terms.contains(&term) {
+                terms.push(term);
+            }
+        }
+    }
+    terms
+}
+
+/// A text as prose: lower-cased, each comment marker opening a line dropped, every run of
+/// whitespace one space.
+///
+/// A doc comment breaks "software identifier" across `///` lines as readily as a sentence of the
+/// standard breaks across a page, and a phrase is asked about as a reader writes it.
+#[must_use]
+pub fn fold(text: &str) -> String {
+    let mut folded = String::with_capacity(text.len());
+    for line in text.lines() {
+        let line = line.trim_start();
+        let line = line
+            .strip_prefix("//!")
+            .or_else(|| line.strip_prefix("///"))
+            .or_else(|| line.strip_prefix("//"))
+            .unwrap_or(line);
+        for word in line.split_whitespace() {
+            if !folded.is_empty() {
+                folded.push(' ');
+            }
+            folded.push_str(&word.to_lowercase());
+        }
+    }
+    folded
 }
 
 /// The terms one row's prose states, in the order they are first written, without repeats.
@@ -366,23 +558,28 @@ fn push_identifier(found: &mut Vec<(String, Kind)>, word: &str, opening: bool) {
 }
 
 /// How many sources name a term, and up to [`WITNESSES`] of them.
-fn named_by(text: &str, kind: Kind, sources: &[(String, &String)]) -> (usize, Vec<String>) {
+fn named_by(text: &str, kind: Kind, sources: &[Scanned<'_>]) -> (usize, Vec<String>) {
     let mut reach = 0usize;
     let mut witnesses = Vec::new();
-    for (path, source) in sources {
-        if !names(source, text, kind) {
+    for source in sources {
+        let named = match kind {
+            Kind::Subject => whole_word(&source.folded, text),
+            _ => names(source.text, text, kind),
+        };
+        if !named {
             continue;
         }
         reach = reach.saturating_add(1);
         if witnesses.len() < WITNESSES {
-            witnesses.push(path.clone());
+            witnesses.push(source.path.clone());
         }
     }
     (reach, witnesses)
 }
 
 /// Whether one text names a term: a key in either of `KEY_FORMS`, an identifier as a whole
-/// word, a citation as a whole clause number.
+/// word, a citation or a table as a whole designation, a caption's subject as a whole phrase of
+/// the text's [`fold`].
 ///
 /// Case-sensitive, because these are the standard's identifiers rather than English: `DPart` is
 /// a document part and `dpart` is nothing.
@@ -394,22 +591,51 @@ pub fn names(text: &str, term: &str, kind: Kind) -> bool {
             .any(|form| text.contains(form(term).as_str())),
         Kind::Identifier => whole_word(text, term),
         Kind::Citation => whole_citation(text, term),
+        Kind::Table => whole_table(text, term),
+        Kind::Subject => whole_word(&fold(text), term),
     }
 }
 
 /// Whether `text` holds the citation `term` with nothing after it that continues a clause number:
 /// no digit, and no full stop followed by one, so a sentence ending `§13.2.3.` still cites it.
 fn whole_citation(text: &str, term: &str) -> bool {
+    whole_designation(text, term, |_| true)
+}
+
+/// Whether `text` cites the table `term` by ISO 32000-2's number: a whole designation, as
+/// [`whole_citation`] reads one, that no `32000-1` within [`OTHER_EDITION_REACH`] bytes before it
+/// gives to the other edition — `structure.rs`'s "ISO 32000-1's Table 334" is a heading level, and
+/// this edition's Table 334 a `RichMediaSettings` dictionary.
+fn whole_table(text: &str, term: &str) -> bool {
+    whole_designation(text, term, |at| {
+        let window = &text.as_bytes()[at.saturating_sub(OTHER_EDITION_REACH)..at];
+        !window
+            .windows(OTHER_EDITION.len())
+            .any(|seen| seen == OTHER_EDITION)
+    })
+}
+
+/// The edition a table number belongs to when a sentence says so, and this sweep's are not its.
+const OTHER_EDITION: &[u8] = b"32000-1";
+
+/// How far before a table number `OTHER_EDITION` is looked for: "ISO 32000-1:2008's Table" puts
+/// it fifteen bytes back.
+pub const OTHER_EDITION_REACH: usize = 16;
+
+/// Whether `text` holds `term` with nothing after it that continues a number, at a position
+/// `admits` accepts.
+fn whole_designation(text: &str, term: &str, admits: impl Fn(usize) -> bool) -> bool {
     let mut from = 0usize;
     while let Some(found) = text[from..].find(term) {
-        let end = from.saturating_add(found).saturating_add(term.len());
+        let at = from.saturating_add(found);
+        let end = at.saturating_add(term.len());
         let mut after = text[end..].chars();
         let continues = match after.next() {
             Some(character) if character.is_ascii_digit() => true,
             Some('.') => after.next().is_some_and(|next| next.is_ascii_digit()),
             _ => false,
         };
-        if !continues {
+        if !continues && admits(at) {
             return true;
         }
         from = end;
@@ -481,6 +707,110 @@ mod tests {
         (PathBuf::from(path), text.to_owned())
     }
 
+    /// A conversion captioning no table, for the tests about a row's own prose.
+    fn no_standard() -> ClauseIndex {
+        ClauseIndex::parse("## 1 Scope\nThis document specifies a format.\n".to_owned())
+    }
+
+    /// ADR 2376's three missed rows, planted as they stood: each clause is executed under its
+    /// dictionary's table — Table 284's `/S`, Table 294's `MH`, and §13.2.7.4.2's software
+    /// identifier dictionary, whose table §13.2.7.4.1 captions — and no source cites the row's own
+    /// number, so only the tables its clause names can list it.
+    #[test]
+    fn a_clause_executed_under_its_tables_number_or_subject_is_listed() {
+        let standard = ClauseIndex::parse(
+            "## 13.2.4.1 General\nA media clip object shall be a dictionary.\n\n\
+             Table 284 -Entries common to all media clip dictionaries\n\n\
+             | Key | Type | Value |\n|---|---|---|\n| S | name | (Required) |\n\n\
+             ## 13.2.4.2 Media clip data\nOther text.\n\n\
+             ## 13.2.6.1 General\nScreen parameters.\n\n\
+             Table 293 -Entries in a media screen parameters dictionary\n\n\
+             Table 294 -Entries in a media screen parameters MH/BE dictionary\n\n\
+             ## 13.2.7.4.1 General\nIts entries are listed in Table 303.\n\n\
+             Table 303 -Entries in a software identifier dictionary\n\n\
+             ## 13.2.7.4.2 Algorithm: software identifier\n\
+             The following procedure shall be used to determine whether a piece of software is \
+             considered to match a software identifier dictionary:\n\n\
+             ## 13.2.7.4.3 Software URIs\nThe U entry is a URI.\n"
+                .to_owned(),
+        );
+        let template = "CLAUDE.md's clause 13 exclusion holds it: a media engine's.";
+        let ledger = Ledger {
+            rows: vec![
+                row("13.2.4.1", Status::OutOfScope, "General", template),
+                row("13.2.6.1", Status::OutOfScope, "General", template),
+                row(
+                    "13.2.7.4.2",
+                    Status::OutOfScope,
+                    "Algorithm: software identifier",
+                    template,
+                ),
+            ],
+        };
+        let sources = vec![source(
+            "crates/pdf-model/src/media.rs",
+            "// Table 284's /S: the clip is non-viable.\n\
+             let screen = get_key(dict, \"SP\"); // Table 294's MH\n\
+             /// a player is found only by \u{a7}13.2.7.4's software\n\
+             /// identifier.\n",
+        )];
+        let report = sweep(&ledger, &standard, &sources);
+        assert_eq!(report.cited, 0, "no source cites the rows' own numbers");
+        assert_eq!(report.tabled, 3);
+        let first = |clause: &str| -> (String, Kind) {
+            let finding = report
+                .findings
+                .iter()
+                .find(|finding| finding.clause.to_string() == clause)
+                .expect("the row is listed");
+            (finding.terms[0].text.clone(), finding.terms[0].kind)
+        };
+        assert_eq!(first("13.2.4.1").1, Kind::Table);
+        assert_eq!(first("13.2.4.1").0, "Table 284");
+        assert_eq!(first("13.2.6.1").0, "Table 294");
+        assert_eq!(
+            first("13.2.7.4.2"),
+            ("software identifier".to_owned(), Kind::Subject)
+        );
+    }
+
+    /// A caption's subject is what lies between its first article and *dictionary*, and a title
+    /// that names no dictionary has none.
+    #[test]
+    fn a_captions_subject_is_what_its_entries_belong_to() {
+        assert_eq!(
+            subject_of("Entries in a software identifier dictionary").as_deref(),
+            Some("software identifier")
+        );
+        assert_eq!(
+            subject_of("Entries common to all media clip dictionaries").as_deref(),
+            Some("media clip")
+        );
+        assert_eq!(
+            subject_of("Additional entries specific to a sound object"),
+            None
+        );
+        assert_eq!(subject_of("Monitor specifier values"), None);
+    }
+
+    /// A table is a whole designation, and a subject a whole phrase across a comment's line break.
+    #[test]
+    fn a_table_is_a_whole_designation_and_a_subject_a_folded_phrase() {
+        assert!(names("Table 284's /S", "Table 284", Kind::Table));
+        assert!(!names("Table 284's /S", "Table 28", Kind::Table));
+        assert!(!names(
+            "level six (ISO 32000-1's Table 334)",
+            "Table 334",
+            Kind::Table
+        ));
+        assert!(names(
+            "/// the media\n    /// Clip it names",
+            "media clip",
+            Kind::Subject
+        ));
+        assert!(!names("multimedia clip", "media clip", Kind::Subject));
+    }
+
     /// The vocabulary comes out of the row's own two fields, keys first and without repeats.
     #[test]
     fn a_rows_own_title_and_note_are_the_vocabulary() {
@@ -531,7 +861,7 @@ mod tests {
             "crates/pdf-model/src/annotation.rs",
             "PrinterMark,\n",
         )];
-        let report = sweep(&ledger, &sources);
+        let report = sweep(&ledger, &no_standard(), &sources);
         assert_eq!(report.population, 2);
         let swept: Vec<(String, Status)> = report
             .findings
@@ -574,7 +904,7 @@ mod tests {
             "crates/pdf-model/src/media.rs",
             "// \u{a7}13.2.3.3: the first viable media rendition shall be played.\n",
         )];
-        let report = sweep(&ledger, &sources);
+        let report = sweep(&ledger, &no_standard(), &sources);
         assert_eq!(report.population, 2);
         assert_eq!(
             report.cited, 1,
@@ -621,6 +951,7 @@ mod tests {
         };
         let report = sweep(
             &ledger,
+            &no_standard(),
             &[source("crates/pdf-model/src/lib.rs", "fn draw() {}\n")],
         );
         assert!(report.findings.is_empty());
@@ -643,7 +974,7 @@ mod tests {
             source("crates/b.rs", "XObject\n"),
             source("crates/c.rs", "XObject\n"),
         ];
-        let report = sweep(&ledger, &sources);
+        let report = sweep(&ledger, &no_standard(), &sources);
         let terms = &report.findings[0].terms;
         assert_eq!(terms[0].text, "DPart");
         assert_eq!(terms[0].reach, 1);
@@ -682,7 +1013,7 @@ mod tests {
             "crates/pdf-model/src/annotation.rs",
             "PrinterMark,\n",
         )];
-        let report = sweep(&ledger, &sources);
+        let report = sweep(&ledger, &no_standard(), &sources);
         let cousins = &report.findings[0].terms[0].cousins;
         assert_eq!(cousins.len(), 1);
         assert_eq!(cousins[0].clause.to_string(), "12.5.6.20");
@@ -738,6 +1069,6 @@ mod tests {
             "tools/conformance/src/inapplicable.rs",
             "//! PrinterMark is the standing example.\n",
         )];
-        assert!(sweep(&ledger, &sources).findings.is_empty());
+        assert!(sweep(&ledger, &no_standard(), &sources).findings.is_empty());
     }
 }

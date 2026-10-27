@@ -174,7 +174,11 @@ wording it retired. It is marked rather than dropped wherever a sweep can recogn
    and note apart into `/Key`s and identifiers, adds the row's own clause number, and asks whether
    the tree names them; **the count of swept rows whose clause a source cites opens its summary**,
    because an exclusion's notes share one template and only the citation is the clause's own (trap
-   268, ADR 2376). **The count of naming files is the discriminator**: the standard's shared
+   268, ADR 2376). **It reads the tables the row's own clause names in `doc/md/`** — captioned, cited
+   by number, or named by a caption's subject as a dictionary — as `Table N` and as the subject's
+   phrase, because a clause about a dictionary is executed under that dictionary's table; `-- --root
+   <tree>` runs it over a past tree, which is how it is calibrated against rows a past tree executed
+   (ADR 2410). **The count of naming files is the discriminator**: the standard's shared
    vocabulary reaches dozens of files and sorts last, a rare word sorts first. Read the **cousin**
    it prints before anything else — a row that is not swept and says the same word is the seventh
    failure shape. What it cannot see is a row

@@ -51,6 +51,24 @@ pub enum LayerProblem {
     /// arithmetic to do rather than a degenerate picture to draw (brief section 4.7).
     #[error("the layer's placement is not a finite, invertible transform")]
     Placement,
+    /// A [`Layer::within`](crate::Layer::within) that is empty or reaches past the
+    /// texture: a rectangle of the window the layer would claim and has no texel for.
+    #[error(
+        "the layer shows texels {}..{} across and {}..{} down of a {width}x{height} texture, \
+         which is empty or past its edge",
+        within.left,
+        within.right,
+        within.top,
+        within.bottom
+    )]
+    Within {
+        /// The part asked for.
+        within: crate::present::Texels,
+        /// The texture's width in texels.
+        width: u32,
+        /// The texture's height in texels.
+        height: u32,
+    },
     /// `wgpu` refused to bind the texture — the way a texture belonging to *another*
     /// device arrives, and anything else its validation objects to.
     ///

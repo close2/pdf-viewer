@@ -251,6 +251,7 @@ impl Ungrounded {
             texture: &self.0.medium,
             placement: affine(extent),
             filter: raster_scene::ImageFilter::Nearest,
+            within: None,
         }];
         let refused = self.0.presenter.present(&layers).err();
         // Taken whether the present refused or not: `Surface::configure` returns `()`, so a
@@ -453,16 +454,19 @@ impl Device {
                     texture: &self.medium,
                     placement: affine(extent),
                     filter: raster_scene::ImageFilter::Nearest,
+                    within: None,
                 },
                 raster_gpu::Layer {
                     texture: &shown.page,
                     placement: raster_scene::Affine::IDENTITY,
                     filter: raster_scene::ImageFilter::Nearest,
+                    within: None,
                 },
                 raster_gpu::Layer {
                     texture: &shown.chrome,
                     placement: raster_scene::Affine::IDENTITY,
                     filter: raster_scene::ImageFilter::Nearest,
+                    within: None,
                 },
             ];
             self.presenter.present(&layers)

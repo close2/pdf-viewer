@@ -16,6 +16,9 @@ use crate::overlays::Overlays;
 use crate::timing::Stages;
 use crate::trace::Topic;
 
+/// The frame on hand put up as it was drawn: the whole picture at the identity.
+const AS_DRAWN: [crate::stale::Part; 1] = [crate::stale::Part::whole(Transform::IDENTITY)];
+
 impl App {
     /// Everything a tick does with a window that has a graphics device: adopt, ask, place.
     ///
@@ -132,7 +135,7 @@ impl App {
             // The clock stays armed, so page one arrives on the tick after it is drawn rather
             // than waiting for an event that is not coming.
             self.cadence.owed(now);
-            return self.put_up(Some(Transform::IDENTITY), &[], stages);
+            return self.put_up(&AS_DRAWN, &[], stages);
         }
         // Which retained pages have pixels for this view — asked before the plan, because whether
         // a page turn is a refusal or a blurred picture depends on it (ADR 0443).
@@ -161,7 +164,7 @@ impl App {
                 if self.device_window().is_some_and(|window| window.drawing()) {
                     self.cadence.owed(now);
                 }
-                return self.put_up(Some(Transform::IDENTITY), &[], stages);
+                return self.put_up(&AS_DRAWN, &[], stages);
             }
             crate::stale::Plan::Approximate(stand) => stand,
             crate::stale::Plan::Refused(why) => {
@@ -175,16 +178,18 @@ impl App {
                 return None;
             }
         };
-        // The sharp layer, where the plan says there is one. Asked through `Stale::reproject` and
-        // nowhere else, so that no caller can compose against anything but the last rendering.
+        // The sharp layer, where the plan says there is one. Asked through
+        // `Stale::reproject_on_quads` and nowhere else, so that no caller can compose against
+        // anything but the last rendering — whole, or a page at a time where a zoom in a column
+        // has no one placement true of every page (ADR 2416).
         let base = if stand.from.has_base() {
-            match self.stale.reproject(pages) {
-                Ok(carried) => {
+            match self.stale.reproject_on_quads(pages) {
+                Ok(carry) => {
                     // Rule 3 over the bound the placements were accepted under: a column says how
                     // far its pages disagreed, so the number the bound is set against is one a
                     // run prints rather than one this program asserts.
-                    crate::stale::absorbed(carried, pages.len(), self.trace);
-                    Some(carried.placement)
+                    carry.say(pages.len(), self.trace);
+                    carry.parts()
                 }
                 Err(why) => {
                     let trace = self.trace;
@@ -200,11 +205,11 @@ impl App {
                 let trace = self.trace;
                 self.stale.without_base(why, under.len(), trace);
             }
-            None
+            Vec::new()
         };
         stages.approximated = Some(stand.from);
         stages.missed = Some(stand.missed);
-        self.put_up(base, &under, stages)
+        self.put_up(&base, &under, stages)
     }
 
     /// The share drawn into the title whatever is on the window, and the frame up as it stands
@@ -272,7 +277,8 @@ impl App {
         }
     }
 
-    /// Puts the frame on hand on the window under `placement`, and says what it was.
+    /// Puts the frame on hand on the window, its pages under the parts `base` names, and says what
+    /// it was.
     ///
     /// The one place a swapchain state is answered, and it is answered exactly as it was when the
     /// device owned the surface: raster's presenter reconfigures itself on a timeout or an
@@ -283,7 +289,7 @@ impl App {
     /// of its request by the frame that *answers* it, and a stand-in answers nothing.
     fn put_up(
         &mut self,
-        placement: Option<Transform>,
+        base: &[crate::stale::Part],
         under: &[(usize, Transform)],
         stages: &mut Stages,
     ) -> Option<Rendered> {
@@ -293,7 +299,7 @@ impl App {
         let (outcome, cost, retained, said) = {
             let window = self.device_window()?;
             (
-                window.present(placement, under),
+                window.present(base, under),
                 window.last_present(),
                 window.retained(),
                 // **The one place a device's uncaptured complaint is taken**, and it is here
@@ -506,7 +512,7 @@ impl App {
             if asked {
                 self.cadence.owed(now);
             }
-            return self.put_up(Some(Transform::IDENTITY), &[], stages);
+            return self.put_up(&AS_DRAWN, &[], stages);
         }
         // The composing thread's counterpart, and the same reason: a refusal it reported has to be
         // taken before anything is asked for again, or a window that cannot draw spins.

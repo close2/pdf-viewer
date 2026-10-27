@@ -658,6 +658,112 @@ mod tests {
         );
     }
 
+    /// A tagged page whose text Table 380 decorates and raises: an underlined paragraph with a raised
+    /// span and a struck-through red one inside it, and an underlined `Div` around a paragraph.
+    fn with_inline_attributes() -> Vec<u8> {
+        use std::fmt::Write as _;
+        let content = "BT /F1 12 Tf 20 60 Td /P <</MCID 0>> BDC (E = mc) Tj EMC \
+             /Span <</MCID 1>> BDC 4 Ts (2) Tj EMC 0 Ts /Span <</MCID 2>> BDC ( gone) Tj EMC ET\n\
+             BT /F1 12 Tf 20 30 Td /P <</MCID 3>> BDC (plain) Tj EMC ET\n";
+        let body = format!(
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 6 0 R \
+              /MarkInfo << /Marked true >> >>\nendobj\n\
+             2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+             3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 4 0 R \
+              /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n\
+             4 0 obj\n<< /Length {} >>\nstream\n{content}endstream\nendobj\n\
+             5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n\
+             6 0 obj\n<< /Type /StructTreeRoot /K [7 0 R 10 0 R] >>\nendobj\n\
+             7 0 obj\n<< /Type /StructElem /S /P /P 6 0 R /Pg 3 0 R /K [0 8 0 R 9 0 R] \
+              /A << /O /Layout /TextDecorationType /Underline >> >>\nendobj\n\
+             8 0 obj\n<< /Type /StructElem /S /Span /P 7 0 R /Pg 3 0 R /K [1] \
+              /A << /O /Layout /BaselineShift 4 >> >>\nendobj\n\
+             9 0 obj\n<< /Type /StructElem /S /Span /P 7 0 R /Pg 3 0 R /K [2] \
+              /A << /O /Layout /TextDecorationType /LineThrough /TextDecorationColor [1 0 0] >> >>\
+              \nendobj\n\
+             10 0 obj\n<< /Type /StructElem /S /Div /P 6 0 R /Pg 3 0 R /K [11 0 R] \
+              /A << /O /Layout /TextDecorationType /Underline >> >>\nendobj\n\
+             11 0 obj\n<< /Type /StructElem /S /P /P 10 0 R /Pg 3 0 R /K [3] >>\nendobj\n",
+            content.len(),
+        );
+        let mut out = String::from("%PDF-1.7\n");
+        let mut offsets = Vec::new();
+        for object in body.split_inclusive("endobj\n") {
+            offsets.push(out.len());
+            out.push_str(object);
+        }
+        let xref_at = out.len();
+        let size = offsets.len().saturating_add(1);
+        let _ = writeln!(out, "xref\n0 {size}");
+        out.push_str("0000000000 65535 f \n");
+        for offset in &offsets {
+            let _ = writeln!(out, "{offset:010} 00000 n ");
+        }
+        let _ = write!(
+            out,
+            "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+        );
+        out.into_bytes()
+    }
+
+    /// ISO 32000-2 §14.8.5.4.4's decoration, its colour and the text's position reach a C caller
+    /// as `viewer-core`'s walk resolved them (ADRs 2384, 2422): `/TextDecorationType` "inheritable
+    /// only for directly nested ILSEs" and "shall not apply to nested BLSEs", so the raised span
+    /// inside the underlined paragraph is underlined and the paragraph inside the underlined `Div`
+    /// is not; the struck-through span's `[1 0 0]` crosses, and an unstated colour crosses as none.
+    #[test]
+    fn table_380s_decoration_and_position_cross_on_each_elements_own_text() {
+        use crate::kinds::{DecorationKind, PositionKind};
+        let mut session = Session::new(400, 300, 1.0);
+        let events = session.open(1, with_inline_attributes(), None, None);
+        let asked = (0..events.len())
+            .find(|index| events.kind(*index) == Ok(EventKind::NeedsRender))
+            .expect("opening a document asks for its first page");
+        let request = events.render_request(asked).expect("that is the kind");
+        let raster = rasterise(&request).expect("the page draws");
+        drop(session.render_ready_raster(&request, raster));
+
+        let structure = session.structure().expect("the page is tagged");
+        let (_, nodes) = structure.page(0).expect("one page on the screen");
+        let style_of = |name: &str| {
+            let node = (0..nodes)
+                .find(|node| {
+                    structure
+                        .text(0, *node, crate::kinds::ElementKind::Name)
+                        .is_ok_and(|text| text.trim() == name)
+                })
+                .unwrap_or_else(|| panic!("{name} is on the page"));
+            assert!(
+                structure.lines(0, node).is_ok_and(|lines| lines > 0),
+                "{name} has lines to carry it"
+            );
+            structure.style(0, node).expect("in range")
+        };
+        assert_eq!(
+            style_of("E = mc"),
+            (DecorationKind::Underline, None, PositionKind::Normal)
+        );
+        assert_eq!(
+            style_of("2"),
+            (DecorationKind::Underline, None, PositionKind::Superscript),
+            "a directly nested ILSE takes the paragraph's underline, and its own shift raises it"
+        );
+        assert_eq!(
+            style_of("gone"),
+            (
+                DecorationKind::LineThrough,
+                Some([1.0, 0.0, 0.0]),
+                PositionKind::Normal
+            )
+        );
+        assert_eq!(
+            style_of("plain"),
+            (DecorationKind::None, None, PositionKind::Normal),
+            "a block inside the underlined Div is not underlined"
+        );
+        assert_eq!(structure.style(0, nodes), Err(Status::OutOfRange));
+    }
+
     /// §12.3.3's outline crosses owned, which is ADR 0247's second amendment from the C side.
     #[test]
     fn the_outline_crosses_as_rows_with_a_depth_and_an_object_on_each() {

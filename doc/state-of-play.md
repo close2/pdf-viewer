@@ -475,7 +475,9 @@ once: this program does not implement XFA, as §K.1 permits, and what it shows i
 hybrid form saved here keeps its `datasets` packet consistent with the `/V` entries the save
 writes**, §K.2's first writer rule: the data value each changed field binds is spliced into the
 packet and every other byte is the producer's, and a field whose data it cannot write is reported
-by name (ADR 2396).
+by name (ADR 2396). **A numeric, date or time field's data is its canonical form**, parsed from
+what was typed by its own picture clause in the form's own locales (XFA 3.3 chapters 4, 24 and 26;
+ADR 2414).
 
 **Table 22's bit 12 is a second operation beside bit 3, at four levels of its own**, because the
 cell states two consequences: bit 3 clear withholds printing, and bit 12 clear limits a print that
@@ -1385,7 +1387,8 @@ page could not draw**, because the person who cannot see the page is the one for
 the title bar is no answer. An element's own text carries Table 380's line under, over or through
 it and its raised or lowered position — `/TextPosition`, else the sign of `/BaselineShift` read as a
 superscript or a subscript, a choice the clause leaves — on its runs, where AT-SPI publishes the
-underline and the line-through (ADR 2384). An untagged page says that it is one rather than being given an
+underline and the line-through (ADR 2384); a C caller reads the same three through
+`quorra_structure_style`, an unstated colour as an absence rather than black (ADR 2422). An untagged page says that it is one rather than being given an
 invented reading order, and its widget annotations cross as controls a client can press, named by
 Table 226's `/TU` and in §12.5.1's tab order (ADR 1369); a tagged page's widget its structure left
 out crosses the same way, after the structure's own nodes (ADR 1381). A client's click on a text field or a choice gives the keyboard to that field in all three windows (ADR 1566), and each window tells the bridge whether it has the keyboard, so a client following the active window reaches the page (ADR 1565). A tagged document's page its

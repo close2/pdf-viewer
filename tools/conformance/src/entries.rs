@@ -259,8 +259,8 @@ pub fn tables_of(index: &ClauseIndex, number: &ClauseNumber) -> Vec<Table> {
 /// The text belonging to a heading itself, up to the next numbered heading of any kind.
 ///
 /// [`Heading::span`] runs to the end of the clause's *descendants*, which is what a quotation
-/// needs and is the opposite of what this sweep needs.
-fn own_text<'a>(index: &'a ClauseIndex, heading: &Heading) -> &'a str {
+/// needs and is the opposite of what this sweep, and the seventh's table terms, need.
+pub(crate) fn own_text<'a>(index: &'a ClauseIndex, heading: &Heading) -> &'a str {
     let end = index
         .headings()
         .iter()

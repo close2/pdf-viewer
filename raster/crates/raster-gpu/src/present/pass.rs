@@ -12,14 +12,15 @@
 
 use raster_scene::ImageFilter;
 
-use super::Layer;
 use super::layer::Placed;
+use super::{Layer, Texels};
 use crate::error::{LayerProblem, RenderError};
 use crate::pipeline::captured;
 
 /// The 64 bytes `present.wgsl`'s `Params` reads, in its order: the placement's inverse
-/// in §8.3.3's `[a b c d e f]` order across two `vec4f`s, the filter, the rectangle the
-/// vertex stage draws, and the layer's extent in texels.
+/// in §8.3.3's `[a b c d e f]` order across two `vec4f`s, the filter, whether the layer
+/// is a part of its texture, the rectangle the vertex stage draws, and the texels the
+/// layer shows.
 ///
 /// The `vec4f` split is the shader's arithmetic written down: `inv0` is the linear part
 /// a fragment's centre is multiplied by, `inv1.xy` the translation added to it. The
@@ -34,7 +35,8 @@ use crate::pipeline::captured;
 fn params_bytes(
     placed: Placed,
     filter: ImageFilter,
-    extent: [f32; 2],
+    shown: Texels,
+    a_part: bool,
     target: (u32, u32),
 ) -> [u8; 64] {
     let filter = match filter {
@@ -54,6 +56,8 @@ fn params_bytes(
     let (width, height) = (target.0 as f32, target.1 as f32);
     let clip_x = |x: f32| 2.0 * x / width - 1.0;
     let clip_y = |y: f32| 1.0 - 2.0 * y / height;
+    #[expect(clippy::cast_precision_loss)] // a texture's extent is exact in f32
+    let texel = |at: u32| at as f32;
     let values = [
         inverse.a,
         inverse.b,
@@ -62,13 +66,15 @@ fn params_bytes(
         inverse.e,
         inverse.f,
         filter,
-        0.0, // inv1
+        if a_part { 1.0 } else { 0.0 }, // inv1
         clip_x(left),
         clip_y(top),
         clip_x(right),
         clip_y(bottom), // bounds
-        extent[0],
-        extent[1], // source
+        texel(shown.left),
+        texel(shown.top),
+        texel(shown.right),
+        texel(shown.bottom), // source
     ];
     let mut bytes = [0_u8; 64];
     for (slot, value) in bytes.chunks_exact_mut(4).zip(values) {
@@ -95,7 +101,13 @@ fn bind_layer(
     placed: Placed,
     target: (u32, u32),
 ) -> Result<wgpu::BindGroup, LayerProblem> {
-    let bytes = params_bytes(placed, layer.filter, layer.extent(), target);
+    let bytes = params_bytes(
+        placed,
+        layer.filter,
+        layer.part(),
+        layer.within.is_some(),
+        target,
+    );
     let uniform = gpu.create_buffer(&wgpu::BufferDescriptor {
         label: Some("raster present placement"),
         size: bytes.len() as u64,
@@ -232,7 +244,7 @@ pub(super) fn record(
 mod tests {
     use raster_scene::{Affine, ImageFilter};
 
-    use super::{Layer, Placed, bind_layers, params_bytes};
+    use super::{Layer, Placed, Texels, bind_layers, params_bytes};
     use crate::device::Device;
     use crate::error::{LayerProblem, RenderError};
     use crate::pipeline::WARM_FORMAT;
@@ -301,6 +313,7 @@ mod tests {
                 texture,
                 placement: Affine::IDENTITY,
                 filter: ImageFilter::Linear,
+                within: None,
             }],
             (64, 64),
         )
@@ -362,16 +375,22 @@ mod tests {
             inverse,
             bounds: [0.0, 0.0, 1.0, 2.0],
         };
-        let bytes = params_bytes(placed, ImageFilter::Linear, [640.0, 480.0], (2, 2));
+        let shown = Texels {
+            left: 7,
+            top: 9,
+            right: 640,
+            bottom: 480,
+        };
+        let bytes = params_bytes(placed, ImageFilter::Linear, shown, true, (2, 2));
         check(
             shaders::PRESENT,
             "Params",
             &bytes,
             &[
                 ("inv0", Lane::Vec4([1.5, 2.5, 3.5, 4.5])),
-                ("inv1", Lane::Vec4([5.5, 6.5, 1.0, 0.0])),
+                ("inv1", Lane::Vec4([5.5, 6.5, 1.0, 1.0])),
                 ("bounds", Lane::Vec4([-1.0, 1.0, 0.0, -1.0])),
-                ("source", Lane::Vec2([640.0, 480.0])),
+                ("source", Lane::Vec4([7.0, 9.0, 640.0, 480.0])),
             ],
         );
     }
@@ -384,8 +403,14 @@ mod tests {
             inverse: Affine::IDENTITY,
             bounds: [0.0, 0.0, 1.0, 1.0],
         };
-        let nearest = params_bytes(placed, ImageFilter::Nearest, [1.0, 1.0], (1, 1));
-        let linear = params_bytes(placed, ImageFilter::Linear, [1.0, 1.0], (1, 1));
+        let one = Texels {
+            left: 0,
+            top: 0,
+            right: 1,
+            bottom: 1,
+        };
+        let nearest = params_bytes(placed, ImageFilter::Nearest, one, false, (1, 1));
+        let linear = params_bytes(placed, ImageFilter::Linear, one, false, (1, 1));
         assert_eq!(&nearest[24..28], &0.0_f32.to_le_bytes());
         assert_eq!(&linear[24..28], &1.0_f32.to_le_bytes());
     }
@@ -412,14 +437,26 @@ mod tests {
         let whole = params_bytes(
             placed([0.0, 0.0, 640.0, 480.0]),
             ImageFilter::Nearest,
-            [640.0, 480.0],
+            Texels {
+                left: 0,
+                top: 0,
+                right: 640,
+                bottom: 480,
+            },
+            false,
             (640, 480),
         );
         assert_eq!(read(whole), [-1.0, 1.0, 1.0, -1.0]);
         let inset = params_bytes(
             placed([319.0, 239.0, 385.0, 273.0]),
             ImageFilter::Nearest,
-            [64.0, 32.0],
+            Texels {
+                left: 0,
+                top: 0,
+                right: 64,
+                bottom: 32,
+            },
+            false,
             (640, 480),
         );
         assert_eq!(
@@ -431,5 +468,215 @@ mod tests {
                 1.0 - 2.0 * 273.0 / 480.0,
             ]
         );
+    }
+
+    /// **A part of a texture goes up alone, and its edge is not filtered from the texel
+    /// beside it** — the presenter half of a column's stand-in carried page by page (the
+    /// viewer's ADR 2416).
+    ///
+    /// One 8×2 texture, red in its left four columns and blue in its right four, is put up
+    /// twice under a linear filter at twice its size: its left half at the origin and its
+    /// right half four pixels further right than the whole texture would put it, which is a
+    /// gap opened between two pages. Every expected value is the texture's own: red over
+    /// device columns 0..8, nothing over the opened gap 8..12, blue over 12..20, nothing
+    /// past it. Column 7 is the test of the clamp — its centre maps to texel 3.75, where an
+    /// unclamped tap takes a quarter of the blue texel beside it — and column 12 is the same
+    /// test of the other part's left edge. A whole-texture layer drawn under the first
+    /// placement would put blue over 8..16, which is what the part removes.
+    #[test]
+    fn a_part_of_a_texture_is_drawn_alone_and_filtered_inside_itself() {
+        use crate::pipeline::Kind;
+
+        const RED: [u8; 4] = [255, 0, 0, 255];
+        const BLUE: [u8; 4] = [0, 0, 255, 255];
+        const NOTHING: [u8; 4] = [0, 0, 0, 0];
+        let (device, _) = two_devices();
+        let (gpu, queue) = device.wgpu();
+        let source = layer_texture_of(&device, 8, 2, wgpu::TextureUsages::COPY_DST);
+        let texels: Vec<u8> = (0..2)
+            .flat_map(|_| (0..8).flat_map(|x| if x < 4 { RED } else { BLUE }))
+            .collect();
+        queue.write_texture(
+            source.as_image_copy(),
+            &texels,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(8 * 4),
+                rows_per_image: None,
+            },
+            source.size(),
+        );
+        let (width, height) = (24_u32, 4_u32);
+        let target = layer_texture_of(&device, width, height, wgpu::TextureUsages::COPY_SRC);
+        let sampler = gpu.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("the presenter's sampler"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let half = |left: u32| Texels {
+            left,
+            top: 0,
+            right: left + 4,
+            bottom: 2,
+        };
+        let layers = [
+            Layer {
+                texture: &source,
+                placement: Affine::scale(2.0, 2.0),
+                filter: ImageFilter::Linear,
+                within: Some(half(0)),
+            },
+            Layer {
+                texture: &source,
+                placement: Affine::scale(2.0, 2.0).then(Affine::translate(4.0, 0.0)),
+                filter: ImageFilter::Linear,
+                within: Some(half(4)),
+            },
+        ];
+        let binds = bind_layers(
+            gpu,
+            queue,
+            &sampler,
+            &device.pipelines().present_layout(),
+            &layers,
+            (width, height),
+        )
+        .expect("two parts inside their texture");
+        let (pipeline, _) = device
+            .pipelines()
+            .get(Kind::Present, WARM_FORMAT)
+            .expect("llvmpipe compiles the present pass");
+        let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+        super::record(gpu, queue, &pipeline, &view, &binds);
+        let row = read_row(gpu, queue, &target, 1);
+        for (x, pixel) in row.iter().enumerate() {
+            let wanted = match x {
+                0..8 => RED,
+                12..20 => BLUE,
+                _ => NOTHING,
+            };
+            assert_eq!(*pixel, wanted, "device column {x}: {row:?}");
+        }
+    }
+
+    /// A part past its texture's edge is refused by name, before anything is bound.
+    #[test]
+    fn a_part_past_the_texture_is_refused() {
+        let (device, _) = two_devices();
+        let texture = layer_texture(&device);
+        let past = Layer {
+            texture: &texture,
+            placement: Affine::IDENTITY,
+            filter: ImageFilter::Nearest,
+            within: Some(Texels {
+                left: 0,
+                top: 0,
+                right: 33,
+                bottom: 16,
+            }),
+        };
+        assert!(matches!(
+            past.check(0, (64, 64)),
+            Err(RenderError::LayerRefused {
+                index: 0,
+                reason: LayerProblem::Within { .. }
+            })
+        ));
+        let empty = Layer {
+            within: Some(Texels {
+                left: 4,
+                top: 0,
+                right: 4,
+                bottom: 16,
+            }),
+            ..past
+        };
+        assert!(
+            empty.check(0, (64, 64)).is_err(),
+            "an empty part is refused"
+        );
+    }
+
+    /// A layer texture of a size, carrying `extra` usage beside the contract's two.
+    fn layer_texture_of(
+        device: &Device,
+        width: u32,
+        height: u32,
+        extra: wgpu::TextureUsages,
+    ) -> wgpu::Texture {
+        let (gpu, _) = device.wgpu();
+        gpu.create_texture(&wgpu::TextureDescriptor {
+            label: Some("a layer"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: WARM_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | extra,
+            view_formats: &[],
+        })
+    }
+
+    /// One row of `texture`'s pixels, read back.
+    fn read_row(
+        gpu: &wgpu::Device,
+        queue: &wgpu::Queue,
+        texture: &wgpu::Texture,
+        y: u32,
+    ) -> Vec<[u8; 4]> {
+        let width = texture.width();
+        let bytes = width.checked_mul(4).expect("a test texture's row fits u32");
+        let padded = bytes.next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
+        let buffer = gpu.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("present test readback"),
+            size: u64::from(padded),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder =
+            gpu.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d { x: 0, y, z: 0 },
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded),
+                    rows_per_image: None,
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+        queue.submit([encoder.finish()]);
+        buffer.slice(..).map_async(wgpu::MapMode::Read, |_| {});
+        gpu.poll(wgpu::PollType::wait_indefinitely())
+            .expect("the copy completes");
+        let mapped = buffer
+            .slice(..)
+            .get_mapped_range()
+            .expect("the buffer is mapped");
+        let row = mapped[..bytes as usize]
+            .chunks_exact(4)
+            .map(|pixel| [pixel[0], pixel[1], pixel[2], pixel[3]])
+            .collect();
+        drop(mapped);
+        buffer.unmap();
+        row
     }
 }

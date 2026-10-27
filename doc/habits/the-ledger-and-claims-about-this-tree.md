@@ -550,3 +550,14 @@ drawn one device pixel wide (ADR 2404). The cells cover `pdf_render::stroked_bou
 follows §8.4.3 term by term (ADR 0165), and its calibration test goes red at the outline's box grown by half a
 width. A brief's sentence about which region a mark paints is checked against every route the backend draws
 that mark through before it becomes an extent (trap 265's rule for a function's name, applied to a bound).
+
+## A sweep calibrated on rows a round already moved runs on that round's parent tree
+
+Round 1788 gave the seventh sweep a term from each table a clause names (ADR 2410), and its brief calibrated
+it on the three rows round 1771 had found by hand — §13.2.4.1, §13.2.6.1 and §13.2.7.4.2. On HEAD all three
+were already `implemented`, so no sweep over the `out-of-scope` and `inapplicable` statuses could list them,
+and a clean listing would have proved nothing. The sweep was given `--root <tree>` and run over the commit
+before ADR 2376's merge, unpacked with `git archive 298e1852^`: it reproduced ADR 2376's own figures (118
+rows, 31 cited) and listed all three, each by a table term reaching one file. A sweep whose calibration rows
+an earlier round has since moved is calibrated on that round's parent tree, where the rows still sit under
+the swept statuses, and the figures it reproduces there are the earlier ADR's own.

@@ -144,7 +144,7 @@ mod status;
 mod window;
 
 pub use answers::{
-    Collection, ColumnFacts, Matches, Miniature, NodeFacts, ObjectRef, Popups, Structure,
+    Collection, ColumnFacts, Matches, Miniature, NodeFacts, NodeStyle, ObjectRef, Popups, Structure,
 };
 pub use events::{Events, ScriptQuestionNumbers, Searched, TransitionNumbers};
 pub use form::Form;
@@ -152,12 +152,13 @@ pub use keyboard::{ActKind, KeyKind};
 pub use kinds::{
     AcceptKind, AlertButtonKind, AlertButtonsKind, AlertIconKind, AnsweredKind, AttachKind,
     BoundaryKind, BoxKind, CollectionViewKind, ColumnKind, ColumnTextKind, ControlKind,
-    DataFormatKind, DelegateKind, DirectionKind, DuplexKind, ElementKind, EventKind, FocusKind,
-    FolderTextKind, InitialKind, LayoutKind, LevelKind, MarkupKind, MeasurePart, MethodKind,
-    NavigatorKind, NoteKind, OrderKind, OversizeKind, PageModeKind, PageTargetKind, PixelFormat,
-    PointerKind, PolicyKind, PreferenceKey, PresentKind, PrintScalingKind, PurposeKind, ReaderKind,
-    RestrictKind, RestrictedKind, RowKind, ScopeKind, ScriptAnswerKind, ScriptQuestionKind,
-    ScriptTextKind, ScriptsKind, SelectKind, ShortfallKind, TextKind, ZoomKind,
+    DataFormatKind, DecorationKind, DelegateKind, DirectionKind, DuplexKind, ElementKind,
+    EventKind, FocusKind, FolderTextKind, InitialKind, LayoutKind, LevelKind, MarkupKind,
+    MeasurePart, MethodKind, NavigatorKind, NoteKind, OrderKind, OversizeKind, PageModeKind,
+    PageTargetKind, PixelFormat, PointerKind, PolicyKind, PositionKind, PreferenceKey, PresentKind,
+    PrintScalingKind, PurposeKind, ReaderKind, RestrictKind, RestrictedKind, RowKind, ScopeKind,
+    ScriptAnswerKind, ScriptQuestionKind, ScriptTextKind, ScriptsKind, SelectKind, ShortfallKind,
+    TextKind, ZoomKind,
 };
 pub use panels::{Outline, Panel};
 pub use reads::Reads;

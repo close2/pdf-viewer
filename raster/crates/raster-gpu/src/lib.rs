@@ -82,7 +82,7 @@ pub use frame::{
     Counters, CoverageSheet, EncodeSource, Frame, LaneCounts, Raster, TimingProvenance, Timings,
     UploadSplit,
 };
-pub use present::{ForeignPresenter, Layer, PresentCost, Presenter};
+pub use present::{ForeignPresenter, Layer, PresentCost, Presenter, Texels};
 pub use report::{Report, ReportKind};
 pub use retained::RetainedScene;
 pub use startup::{

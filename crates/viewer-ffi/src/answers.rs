@@ -30,7 +30,8 @@
 use viewer_core::{AccessibilityNode, PageStructure, PopupWindow};
 
 use crate::kinds::{
-    BoxKind, ColumnKind, ColumnTextKind, ElementKind, FolderTextKind, NoteKind, ScopeKind,
+    BoxKind, ColumnKind, ColumnTextKind, DecorationKind, ElementKind, FolderTextKind, NoteKind,
+    PositionKind, ScopeKind,
 };
 use crate::status::Status;
 
@@ -490,6 +491,10 @@ impl Popups {
 /// `/Scope` for a header cell.
 pub type NodeFacts = (Option<usize>, bool, Option<ScopeKind>);
 
+/// What [`Structure::style`] answers: Table 380's decoration, its colour where the element or an
+/// ancestor states one, and the raised or lowered position of the element's own text.
+pub type NodeStyle = (DecorationKind, Option<[f32; 3]>, PositionKind);
+
 /// §14.7's logical structure for every page the arrangement is showing.
 ///
 /// **Two indices, and the standard is why.** [`viewer_core::PageStructure`] carries one tree per
@@ -570,6 +575,28 @@ impl Structure {
             node.parent,
             node.substituted,
             node.header_scope.map(ScopeKind::of),
+        ))
+    }
+
+    /// Table 380's decoration and position as they reach the element's own text (ADR 2384).
+    ///
+    /// **They belong on [`Self::lines`] and on nothing else**: `viewer-core` resolved each entry by
+    /// its cell's own reach — `/TextDecorationType` "shall not apply to nested BLSEs or to content
+    /// items other than text" — so a caller whose platform inherits text attributes down its own
+    /// tree sets them on this element's text runs, never on the element, or a paragraph's underline
+    /// reaches the block nested inside it. A colour of `None` is the entry's default, "the current
+    /// fill colour in effect at the start of its associated content", which the readback does not
+    /// carry, and it crosses as an absence rather than as a colour this program made up (ADR 2422).
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] where there is no such page or node.
+    pub fn style(&self, entry: usize, index: usize) -> Result<NodeStyle, Status> {
+        let node = self.node(entry, index)?;
+        Ok((
+            DecorationKind::of(node.decoration),
+            node.decoration_colour,
+            PositionKind::of(node.position),
         ))
     }
 

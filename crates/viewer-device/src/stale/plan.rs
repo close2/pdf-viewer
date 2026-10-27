@@ -57,7 +57,7 @@ pub struct Stand {
     /// Why the last rendering does not carry onto this view, where it does not.
     ///
     /// `Some` is a picture drawn from the retained pages alone — a page turn, a `GoTo`, a resize,
-    /// a zoom in a column — and it is still a refusal of the *sharp* layer, so it is said out loud
+    /// a zoom in a column on the processor's window — and it is still a refusal of the *sharp* layer, so it is said out loud
     /// and counted ([`Stale::without_base`]). What it is no longer is a blank window.
     ///
     /// [`Stale::without_base`]: super::Stale::without_base
@@ -162,7 +162,8 @@ pub enum Refusal {
     ///
     /// **What produces it is a zoom in a column** (ADR 0442): `viewer_core::layout`'s gap between
     /// rows is stated in logical pixels and does not scale with the magnification, while the pages
-    /// either side of it do. A scroll moves every page by the same distance, so what separates its
+    /// either side of it do. **It is the refusal of a window that resamples its pixels**: a window
+    /// that draws in quads carries the picture a page at a time instead (ADR 2416). A scroll moves every page by the same distance, so what separates its
     /// placements is arithmetic rather than arrangement and `AGREEMENT` absorbs it. The two
     /// placements are carried because a reader has to be able to see *how* they differ, and
     /// [`Self::Rearranged::by`] because how far apart they are is what the refusal turns on.

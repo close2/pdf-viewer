@@ -1679,6 +1679,38 @@ pub enum ScopeKind {
     Both = 2,
 }
 
+/// Table 380's `/TextDecorationType` as it reaches an element's own text.
+///
+/// An enumeration this ABI answers with, so it has a [`Self::from_code`] for a number a caller
+/// meets and this build does not define.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum DecorationKind {
+    /// "No text decoration", the entry's default.
+    #[default]
+    None = 0,
+    /// "A line below the text".
+    Underline = 1,
+    /// "A line above the text".
+    Overline = 2,
+    /// "A line through the middle of the text".
+    LineThrough = 3,
+}
+
+/// Whether an element's own text sits raised or lowered off its line: Table 380's
+/// `/TextPosition`, or the sign of `/BaselineShift` where no `/TextPosition` is nearer (ADR 2384).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum PositionKind {
+    /// "Position is neither elevated nor lowered", the entry's default.
+    #[default]
+    Normal = 0,
+    /// "Position is elevated, like for superscript."
+    Superscript = 1,
+    /// "Position is lowered, like for subscript".
+    Subscript = 2,
+}
+
 /// Table 153's `/View`: how §12.3.5's collection is first presented.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u32)]
@@ -1914,6 +1946,54 @@ impl ScopeKind {
             pdf_model::structure::HeaderScope::Column => Self::Column,
             pdf_model::structure::HeaderScope::Both => Self::Both,
         }
+    }
+}
+
+impl DecorationKind {
+    /// The decoration `viewer-core`'s walk resolved.
+    #[must_use]
+    pub const fn of(decoration: pdf_model::structure::TextDecoration) -> Self {
+        match decoration {
+            pdf_model::structure::TextDecoration::None => Self::None,
+            pdf_model::structure::TextDecoration::Underline => Self::Underline,
+            pdf_model::structure::TextDecoration::Overline => Self::Overline,
+            pdf_model::structure::TextDecoration::LineThrough => Self::LineThrough,
+        }
+    }
+
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::None,
+            1 => Self::Underline,
+            2 => Self::Overline,
+            3 => Self::LineThrough,
+            _ => return None,
+        })
+    }
+}
+
+impl PositionKind {
+    /// The position `viewer-core`'s walk resolved.
+    #[must_use]
+    pub const fn of(position: pdf_model::structure::TextPosition) -> Self {
+        match position {
+            pdf_model::structure::TextPosition::Normal => Self::Normal,
+            pdf_model::structure::TextPosition::Sup => Self::Superscript,
+            pdf_model::structure::TextPosition::Sub => Self::Subscript,
+        }
+    }
+
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::Normal,
+            1 => Self::Superscript,
+            2 => Self::Subscript,
+            _ => return None,
+        })
     }
 }
 

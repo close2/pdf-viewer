@@ -3845,6 +3845,10 @@ fn why_a_packet_was_replaced(fault: pdf_archive::PacketFault) -> &'static str {
             "the stream's data would not decode, so there was no packet to read"
         }
         pdf_archive::PacketFault::WillNotParse => "the packet is not well-formed XML",
+        pdf_archive::PacketFault::UndeclaredPrefix => {
+            "the packet uses a namespace prefix no declaration binds, so it is not \
+             namespace-well-formed XML"
+        }
         pdf_archive::PacketFault::ManyRdfElements => {
             "the packet serialises more than one rdf:RDF element, and the XMP standard \
              serialises one packet as one"

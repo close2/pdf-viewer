@@ -482,7 +482,7 @@ event (ADR 1144).
 1. **A key means copy in every window alike.** `C` and Ctrl + C are `WindowAct::Copy` in
    `crates/viewer-host/src/keys.rs::meaning` and `crates/viewer-host/src/keys.rs::ctrl_meaning`;
    each window's `copy_selection` sends `Command::Copy` where something is selected
-   (`crates/viewer-ui/src/bin/quorra/typing.rs::copy_selection`, and
+   (`crates/viewer-ui/src/bin/quorra/typing/clipboard.rs::copy_selection`, and
    `crates/viewer-host/src/native_window.rs`'s for the toolkits).
 2. **The text is taken before the policy is asked.**
    `crates/viewer-core/src/viewer/editing.rs::copy` takes the selection in both orders at once — page
@@ -520,7 +520,7 @@ event (ADR 1144).
 ```mermaid
 flowchart TD
     KEY["C or Ctrl + C: WindowAct::Copy<br/>viewer-host/src/keys.rs::meaning, ctrl_meaning"]
-    CMD["Command::Copy<br/>quorra typing.rs::copy_selection, viewer-host/src/native_window.rs"]
+    CMD["Command::Copy<br/>crates/viewer-ui/src/bin/quorra/typing/clipboard.rs::copy_selection, viewer-host/src/native_window.rs"]
     TAKE["both orders taken first<br/>viewer-core/src/viewer/editing.rs::copy<br/>select.rs::rejoined, logical_selection<br/>clause 14.8.2.3, ADR 1971"]
     POLICY["Operation::Extract at the reader's level<br/>off, on, ask, warn<br/>clause 7.6.4.2 Table 22 bit 5, ADR 1144"]
     EVENT["Event::Copied: logical and page order"]
@@ -545,7 +545,7 @@ flowchart TD
 `crates/viewer-host/src/native_window.rs`, `crates/viewer-host/src/copying.rs`,
 `crates/viewer-core/src/viewer/editing.rs`, `crates/viewer-core/src/select.rs`,
 `crates/viewer-core/src/event.rs`, `crates/viewer-core/src/command.rs`,
-`crates/viewer-ui/src/bin/quorra/typing.rs`, `crates/viewer-ui/src/clipboard.rs`,
+`crates/viewer-ui/src/bin/quorra/typing/clipboard.rs`, `crates/viewer-ui/src/clipboard.rs`,
 `crates/viewer-gtk/src/host.rs`, `crates/viewer-qt/src/host.rs`, `crates/viewer-qt/cpp/window.cpp`,
 `crates/viewer-ffi/src/events.rs`, `crates/viewer-ffi/src/session/editing.rs`, ADR 0519, ADR 1144,
 ADR 1971 and ADR 2087. Redraw it when the copy stops being a command, when the order is chosen anywhere but

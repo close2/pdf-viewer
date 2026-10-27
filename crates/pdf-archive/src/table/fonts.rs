@@ -69,9 +69,10 @@
 //! Almost every rule here is about *a font dictionary*, so its population is **every
 //! `/Type /Font` dictionary the cross-reference table reaches** — the same bound
 //! `super::file_structure` takes, for the same reason: both parts exempt an indirect object no
-//! cross-reference section names. What that population includes and should not is a font
-//! object no page ever selects, and what it misses is a font dictionary written directly inside
-//! a resource dictionary rather than as an object of its own.
+//! cross-reference section names. A font written directly inside one of those objects — a
+//! descendant inside `/DescendantFonts`, a font inside a `/Font` resource dictionary — is reached
+//! through the object holding it, which is what a finding names (`doc/adr/2413`). What the
+//! population includes and should not is a font no page ever selects.
 //!
 //! Embedding is the exception, because its clause defines its own population: a font is used
 //! when a content stream references one of its glyphs, and one shown only in rendering mode 3
@@ -395,22 +396,130 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
 // The population every dictionary-shaped rule is about.
 // --------------------------------------------------------------------------------------------
 
-/// Visits every `/Type /Font` dictionary the cross-reference table reaches.
+/// Visits every `/Type /Font` dictionary the cross-reference table reaches, with where it is.
 ///
 /// Bounded by that table for the reason `super::file_structure::for_each_stream` gives: ISO 19005-2
 /// Section 6.1.4 and ISO 19005-4 section 6.1.4 exempt an indirect object no cross-reference section
-/// names, so this is the population the requirements bind. A font dictionary written directly
-/// inside a resource dictionary has no object of its own and is not reached; see the module
-/// documentation for why that under-reports rather than mis-reports.
-fn for_each_font(exam: &Examination<'_>, mut visit: impl FnMut(ObjectId, &Dictionary)) {
+/// names, so this is the population the requirements bind. **A font written directly inside one of
+/// those objects is in it**, the way a direct descendant inside a Type 0 font's
+/// `/DescendantFonts` array or a font written into a `/Font` resource dictionary is: the object
+/// the table names holds the dictionary, and the clauses bind fonts, not objects (`doc/adr/2413`).
+/// [`FontSite::place_named`] says where a finding about either kind is reported.
+fn for_each_font(exam: &Examination<'_>, mut visit: impl FnMut(FontSite, &Dictionary)) {
     let document = exam.document;
     for (id, object) in exam.objects() {
         if let Object::Dictionary(dict) = object
-            && named(document.get_key(dict, "Type").as_name()).as_deref() == Some("Font")
+            && is_a_font(document, dict)
         {
-            visit(*id, dict);
+            visit(
+                FontSite {
+                    object: *id,
+                    own: true,
+                },
+                dict,
+            );
         }
     }
+    for (id, dict) in exam.direct_fonts() {
+        visit(
+            FontSite {
+                object: *id,
+                own: false,
+            },
+            dict,
+        );
+    }
+}
+
+/// Where the font population's walk found one font dictionary.
+#[derive(Debug, Clone, Copy)]
+struct FontSite {
+    /// The object the cross-reference table names that holds the dictionary.
+    object: ObjectId,
+    /// Whether the dictionary is that object, rather than written directly inside it.
+    own: bool,
+}
+
+impl FontSite {
+    /// The font's own object, where it is one; a direct dictionary has none.
+    const fn own_object(self) -> Option<ObjectId> {
+        if self.own { Some(self.object) } else { None }
+    }
+
+    /// Where a finding about this font is reported, naming the entry it is about.
+    ///
+    /// **A font written inside another object is reported at no object**, with the object that
+    /// holds it named in words. The converter reads a finding's object as the font to edit
+    /// (`pdf-transform`'s `archive::sites`, `font_widths` and `descriptor_sets`), and the holder
+    /// is a page, a resource dictionary's object or a Type 0 font — so naming it there would aim
+    /// an edit at the wrong dictionary, where no object makes each of those refuse by name.
+    fn place_named(self, entry: impl Into<String>) -> Where {
+        let entry = entry.into();
+        if self.own {
+            Where::object(self.object).named(entry)
+        } else {
+            Where::file().named(format!("{entry}, in {}", self.held()))
+        }
+    }
+
+    /// The words that say where a direct font is.
+    fn held(self) -> String {
+        format!(
+            "a font written directly inside object {} {}",
+            self.object.number, self.object.generation
+        )
+    }
+}
+
+/// Whether a dictionary states itself a font: ISO 32000-2 §9.6.2.1's Table 109 and §9.7.4.1's
+/// Table 115 make `/Type /Font` required of every font and `CIDFont` dictionary.
+fn is_a_font(document: &Document, dict: &Dictionary) -> bool {
+    named(document.get_key(dict, "Type").as_name()).as_deref() == Some("Font")
+}
+
+/// Every font dictionary written directly inside an object the cross-reference table names, with
+/// that object, in object order.
+///
+/// The object itself is not one of these even when it is a font — that is [`for_each_font`]'s
+/// indirect half — so the walk starts at what each object holds: a dictionary's values, a
+/// stream's dictionary's values, an array's items, and inward through every direct dictionary and
+/// array they contain, a font's own included, since a direct font may hold a direct descendant.
+/// A reference is not followed: what it names is an object of its own, which the table's walk
+/// visits on its own turn. Direct objects form a tree the parser has already bounded, so the walk
+/// is linear in what was parsed and needs no budget of its own.
+pub(crate) fn direct_font_dictionaries(exam: &Examination<'_>) -> Vec<(ObjectId, Dictionary)> {
+    let document = exam.document;
+    let mut out = Vec::new();
+    let mut pending: Vec<&Object> = Vec::new();
+    for (id, object) in exam.objects() {
+        match object {
+            Object::Dictionary(dict) => pending.extend(dict.iter().map(|(_, value)| value)),
+            Object::Stream(stream) => pending.extend(stream.dict.iter().map(|(_, value)| value)),
+            Object::Array(items) => pending.extend(items.iter()),
+            _ => {}
+        }
+        // Reversed onto the stack, so that what is popped comes out in the order it is written.
+        pending.reverse();
+        while let Some(held) = pending.pop() {
+            match held {
+                Object::Dictionary(dict) => {
+                    if is_a_font(document, dict) {
+                        out.push((*id, dict.clone()));
+                    }
+                    let at = pending.len();
+                    pending.extend(dict.iter().map(|(_, value)| value));
+                    pending[at..].reverse();
+                }
+                Object::Array(items) => {
+                    let at = pending.len();
+                    pending.extend(items.iter());
+                    pending[at..].reverse();
+                }
+                _ => {}
+            }
+        }
+    }
+    out
 }
 
 /// The count Table 109 states, also inherited by TrueType fonts through §9.6.3.
@@ -420,7 +529,7 @@ fn for_each_font(exam: &Examination<'_>, mut visit: impl FnMut(ObjectId, &Dictio
 /// distinct width interpretation and is not judged here. No glyph needs to be rendered.
 fn widths_array_covers_character_range(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
-    for_each_font(exam, |id, font| {
+    for_each_font(exam, |site, font| {
         if !matches!(
             subtype(document, font).as_deref(),
             Some("Type1" | "MMType1" | "TrueType")
@@ -441,7 +550,7 @@ fn widths_array_covers_character_range(exam: &Examination<'_>, findings: &mut Fi
             return;
         };
         if widths.len() != wanted {
-            findings.record(Where::object(id).named("Widths"), format!(
+            findings.record(site.place_named("Widths"), format!(
                 "the Widths array has {} entries for character codes {first} through {last}, which require {wanted}", widths.len()
             ));
         }
@@ -666,7 +775,7 @@ static PREDEFINED_CMAPS: &[&str] = &[
 /// paragraph records that the material for the other choice is already on disk.
 fn cid_system_info_agrees_with_the_cmap(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
-    for_each_font(exam, |id, font| {
+    for_each_font(exam, |site, font| {
         if subtype(document, font).as_deref() != Some("Type0") {
             return;
         }
@@ -694,7 +803,7 @@ fn cid_system_info_agrees_with_the_cmap(exam: &Examination<'_>, findings: &mut F
             };
             if one != other {
                 findings.record(
-                    Where::object(id).named(key),
+                    site.place_named(key),
                     format!("the CMap and its CIDFont state different {key} strings"),
                 );
             }
@@ -707,7 +816,7 @@ fn cid_system_info_agrees_with_the_cmap(exam: &Examination<'_>, findings: &mut F
         };
         if used < stated {
             findings.record(
-                Where::object(id).named("Supplement"),
+                site.place_named("Supplement"),
                 format!(
                     "the CIDFont's supplement {used} is below the CMap's {stated}, so the CMap \
                      can name CIDs the font does not have"
@@ -724,7 +833,7 @@ fn cid_system_info_agrees_with_the_cmap(exam: &Examination<'_>, findings: &mut F
 /// here even though it is legal in the base document.
 fn cid_to_gid_map_present(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
-    for_each_font(exam, |id, font| {
+    for_each_font(exam, |site, font| {
         if subtype(document, font).as_deref() != Some("CIDFontType2") {
             return;
         }
@@ -737,11 +846,11 @@ fn cid_to_gid_map_present(exam: &Examination<'_>, findings: &mut Findings) {
             Object::Stream(_) => {}
             Object::Name(name) if name.as_bytes() == b"Identity" => {}
             Object::Null => findings.record(
-                Where::object(id).named("CIDToGIDMap"),
+                site.place_named("CIDToGIDMap"),
                 "an embedded Type 2 CIDFont states no CIDToGIDMap",
             ),
             other => findings.record(
-                Where::object(id).named("CIDToGIDMap"),
+                site.place_named("CIDToGIDMap"),
                 format!(
                     "an embedded Type 2 CIDFont's CIDToGIDMap is {}, which is neither a stream \
                      nor the name Identity",
@@ -774,7 +883,12 @@ pub fn fonts_naming_an_undefined_cmap(
 ) -> Vec<(ObjectId, String)> {
     let exam = Examination::new(document, target);
     let mut out = Vec::new();
-    for_each_font(&exam, |id, font| {
+    // A font written directly inside another object has no object a converter could edit as the
+    // font, so it is left to the row, which reports it, and to the validation of the output.
+    for_each_font(&exam, |site, font| {
+        let Some(id) = site.own_object() else {
+            return;
+        };
         if subtype(document, font).as_deref() != Some("Type0") {
             return;
         }
@@ -793,7 +907,7 @@ pub fn fonts_naming_an_undefined_cmap(
 /// ISO 19005-2 section 6.2.11.3.3, ISO 19005-4 section 6.2.10.3.3.
 fn cmap_embedded_or_predefined(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
-    for_each_font(exam, |id, font| {
+    for_each_font(exam, |site, font| {
         if subtype(document, font).as_deref() != Some("Type0") {
             return;
         }
@@ -807,7 +921,7 @@ fn cmap_embedded_or_predefined(exam: &Examination<'_>, findings: &mut Findings) 
         };
         if !PREDEFINED_CMAPS.contains(&name.as_str()) {
             findings.record(
-                Where::object(id).named(name.clone()),
+                site.place_named(name.clone()),
                 format!(
                     "a composite font names the CMap {name}, which the base standard does not \
                      predefine and the file does not embed"
@@ -1258,7 +1372,7 @@ fn charset_names(bytes: &[u8]) -> Option<BTreeSet<String>> {
 /// different fault, which this clause does not state.
 fn charset_lists_every_glyph_in_the_program(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
-    for_each_font(exam, |id, font| {
+    for_each_font(exam, |site, font| {
         if !matches!(
             subtype(document, font).as_deref(),
             Some("Type1" | "MMType1")
@@ -1289,7 +1403,7 @@ fn charset_lists_every_glyph_in_the_program(exam: &Examination<'_>, findings: &m
             return;
         }
         findings.record(
-            Where::object(id).named("CharSet"),
+            site.place_named("CharSet"),
             format!(
                 "the CharSet string omits {} of the font program's glyph names, including /{}",
                 missing.len(),
@@ -1321,7 +1435,7 @@ fn charset_lists_every_glyph_in_the_program(exam: &Examination<'_>, findings: &m
 /// carry names and not CIDs, so there is no set of the clause's kind to compare.
 fn cidset_lists_every_cid_in_the_program(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
-    for_each_font(exam, |id, font| {
+    for_each_font(exam, |site, font| {
         if subtype(document, font).as_deref() != Some("Type0") {
             return;
         }
@@ -1361,7 +1475,7 @@ fn cidset_lists_every_cid_in_the_program(exam: &Examination<'_>, findings: &mut 
             return;
         }
         findings.record(
-            Where::object(id).named("CIDSet"),
+            site.place_named("CIDSet"),
             format!(
                 "the CIDSet stream leaves {} of the font program's CIDs unmarked, including \
                  CID {}",
@@ -1991,7 +2105,7 @@ fn vertical_metrics_agree_with_the_program(exam: &Examination<'_>, findings: &mu
 /// undecided there.
 fn non_symbolic_truetype_uses_a_standard_encoding(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
-    for_each_font(exam, |id, font| {
+    for_each_font(exam, |site, font| {
         if subtype(document, font).as_deref() != Some("TrueType")
             || is_symbolic(document, font) != Some(false)
         {
@@ -2000,14 +2114,14 @@ fn non_symbolic_truetype_uses_a_standard_encoding(exam: &Examination<'_>, findin
         match base_encoding_name(document, font).as_deref() {
             Some("MacRomanEncoding" | "WinAnsiEncoding") => {}
             Some(other) => findings.record(
-                Where::object(id).named(other.to_owned()),
+                site.place_named(other.to_owned()),
                 format!(
                     "a non-symbolic TrueType font's encoding is {other} rather than \
                      MacRomanEncoding or WinAnsiEncoding"
                 ),
             ),
             None => findings.record(
-                Where::object(id).named("Encoding"),
+                site.place_named("Encoding"),
                 "a non-symbolic TrueType font names neither MacRomanEncoding nor \
                  WinAnsiEncoding",
             ),
@@ -2018,7 +2132,7 @@ fn non_symbolic_truetype_uses_a_standard_encoding(exam: &Examination<'_>, findin
 /// ISO 19005-2 section 6.2.11.6, ISO 19005-4 section 6.2.10.6, fourth paragraph.
 fn symbolic_truetype_states_no_encoding(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
-    for_each_font(exam, |id, font| {
+    for_each_font(exam, |site, font| {
         if subtype(document, font).as_deref() != Some("TrueType")
             || is_symbolic(document, font) != Some(true)
         {
@@ -2026,7 +2140,7 @@ fn symbolic_truetype_states_no_encoding(exam: &Examination<'_>, findings: &mut F
         }
         if states(document, font, "Encoding") {
             findings.record(
-                Where::object(id).named("Encoding"),
+                site.place_named("Encoding"),
                 "a symbolic TrueType font states an Encoding entry",
             );
         }
@@ -2057,7 +2171,7 @@ fn non_symbolic_truetype_differences_are_listed_names(
     findings: &mut Findings,
 ) {
     let document = exam.document;
-    for_each_font(exam, |id, font| {
+    for_each_font(exam, |site, font| {
         if subtype(document, font).as_deref() != Some("TrueType")
             || is_symbolic(document, font) != Some(false)
         {
@@ -2080,7 +2194,7 @@ fn non_symbolic_truetype_differences_are_listed_names(
             };
             if encoding::text_for(&name).is_none() {
                 findings.record(
-                    Where::object(id).named(name.clone()),
+                    site.place_named(name.clone()),
                     format!(
                         "a non-symbolic TrueType font's Differences array names /{name}, which \
                          the Adobe Glyph List does not hold"
@@ -2334,13 +2448,19 @@ fn name_is_in_either_list(name: &str) -> bool {
 ///
 /// A substituted font answers for the substitute's names rather than the file's, so it is passed
 /// over — the same guard [`font_with_its_own_program`] applies, for the same reason.
-fn references_an_unlisted_glyph_name(exam: &Examination<'_>, id: ObjectId, subtype: &str) -> bool {
+fn references_an_unlisted_glyph_name(
+    exam: &Examination<'_>,
+    site: FontSite,
+    font: &Dictionary,
+    subtype: &str,
+) -> bool {
     let document = exam.document;
-    let Some(used) = exam
-        .survey()
-        .fonts()
-        .find(|used| used.id == Some(id) && used.shown_complete)
-    else {
+    // The survey names an indirect font by its object and a direct one by nothing, so a direct
+    // font is matched by its dictionary, which is all that identifies it.
+    let own = site.own_object();
+    let Some(used) = exam.survey().fonts().find(|used| {
+        used.shown_complete && used.id == own && (own.is_some() || used.dict == *font)
+    }) else {
         // A font no content stream selected references no glyph, so nothing rules the
         // exemption out; a font whose strings overran the survey's budget is not one whose
         // referenced names are all known.
@@ -2386,7 +2506,7 @@ fn references_an_unlisted_glyph_name(exam: &Examination<'_>, id: ObjectId, subty
 /// dictionary, and a descendant is not a font a content stream can select.
 fn to_unicode_present(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
-    for_each_font(exam, |id, font| {
+    for_each_font(exam, |site, font| {
         let Some(subtype) = subtype(document, font) else {
             return;
         };
@@ -2434,7 +2554,7 @@ fn to_unicode_present(exam: &Examination<'_>, findings: &mut Findings) {
             // with interpolated designs (ISO 32000-2 §9.6.3) and its glyph names are Type 1
             // names, so it takes the same route.
             "Type1" | "MMType1" | "Type3" => {
-                if !references_an_unlisted_glyph_name(exam, id, &subtype) {
+                if !references_an_unlisted_glyph_name(exam, site, font, &subtype) {
                     return;
                 }
             }
@@ -2443,7 +2563,7 @@ fn to_unicode_present(exam: &Examination<'_>, findings: &mut Findings) {
             _ => return,
         }
         findings.record(
-            Where::object(id).named("ToUnicode"),
+            site.place_named("ToUnicode"),
             format!("a {subtype} font outside the clause's exemptions states no ToUnicode CMap"),
         );
     });
@@ -2482,7 +2602,7 @@ static UNUSABLE_VALUES: [char; 3] = ['\u{0}', '\u{FEFF}', '\u{FFFE}'];
 /// dictionary, so a `/ToUnicode` on a descendant is not a map any code reaches.
 fn to_unicode_values_are_usable(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
-    for_each_font(exam, |id, font| {
+    for_each_font(exam, |site, font| {
         let Object::Stream(stream) = document.get_key(font, "ToUnicode") else {
             return;
         };
@@ -2498,7 +2618,7 @@ fn to_unicode_values_are_usable(exam: &Examination<'_>, findings: &mut Findings)
             match mapping {
                 Mapping::Single { code, text } => {
                     for character in text.chars() {
-                        report_unusable_value(id, code, character, &mut reported, findings);
+                        report_unusable_value(site, code, character, &mut reported, findings);
                     }
                 }
                 Mapping::Span { low, high, first } => {
@@ -2511,7 +2631,7 @@ fn to_unicode_values_are_usable(exam: &Examination<'_>, findings: &mut Findings)
                             continue;
                         }
                         let code = low.saturating_add(value.saturating_sub(first));
-                        report_unusable_value(id, code, character, &mut reported, findings);
+                        report_unusable_value(site, code, character, &mut reported, findings);
                     }
                 }
             }
@@ -2524,7 +2644,7 @@ fn to_unicode_values_are_usable(exam: &Examination<'_>, findings: &mut Findings)
 /// `reported` is per font rather than per document, so two fonts stating U+FEFF are two faults;
 /// the same font stating it for a hundred codes is one.
 fn report_unusable_value(
-    id: ObjectId,
+    site: FontSite,
     code: u32,
     character: char,
     reported: &mut [bool; UNUSABLE_VALUES.len()],
@@ -2541,7 +2661,7 @@ fn report_unusable_value(
     }
     *seen = true;
     findings.record(
-        Where::object(id).named("ToUnicode"),
+        site.place_named("ToUnicode"),
         format!(
             "a ToUnicode CMap maps code {code} to U+{:04X}, which the clause names as a \
              placeholder rather than a usable value",
@@ -3204,6 +3324,74 @@ mod tests {
              4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n",
         );
         assert!(findings(&identity, cid_to_gid_map_present).is_empty());
+    }
+
+    /// The population is fonts, not objects: a `CIDFont` written directly into a Type 0 font's
+    /// `/DescendantFonts` — pdf.js's `Test-plusminus.pdf` — and a Type 0 font written directly into
+    /// a page's `/Font` resource dictionary are both in it, each reported with the object holding
+    /// it named (`doc/adr/2413`).
+    #[test]
+    fn a_font_written_directly_inside_an_object_is_in_the_population() {
+        let direct_descendant = document(
+            "1 0 obj\n<< /Type /Catalog >>\nendobj\n\
+             2 0 obj\n<< /Type /Font /Subtype /Type0 /BaseFont /Tahoma /Encoding /Identity-H \
+             /DescendantFonts [<< /Type /Font /Subtype /CIDFontType2 /BaseFont /Tahoma \
+             /FontDescriptor 3 0 R >>] >>\nendobj\n\
+             3 0 obj\n<< /Type /FontDescriptor /FontFile2 4 0 R >>\nendobj\n\
+             4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n",
+        );
+        let mut found = Findings::default();
+        cid_to_gid_map_present(
+            &Examination::new(&direct_descendant, Target::Four(Flavour::Plain)),
+            &mut found,
+        );
+        assert_eq!(
+            found
+                .kept()
+                .iter()
+                .map(|finding| (finding.place.object, finding.place.name.as_deref()))
+                .collect::<Vec<_>>(),
+            vec![(
+                None,
+                Some("CIDToGIDMap, in a font written directly inside object 2 0")
+            )],
+            "the descendant is reported once, at no object — a converter reads a finding's object \
+             as the font to edit — and the Type 0 font holding it is named in words"
+        );
+
+        // A whole composite font written into the resource dictionary, its descendant inside it:
+        // both are reached, and the page is the object that holds them.
+        let in_resources = document(
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+             2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+             3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] \
+             /Resources << /Font << /F1 << /Type /Font /Subtype /Type0 /BaseFont /T \
+             /Encoding /NotACMap /DescendantFonts [<< /Type /Font /Subtype /CIDFontType2 \
+             /BaseFont /T /FontDescriptor 4 0 R >>] >> >> >> >>\nendobj\n\
+             4 0 obj\n<< /Type /FontDescriptor /FontFile2 5 0 R >>\nendobj\n\
+             5 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n",
+        );
+        assert_eq!(findings(&in_resources, cid_to_gid_map_present).len(), 1);
+        assert_eq!(
+            findings(&in_resources, cmap_embedded_or_predefined).len(),
+            1
+        );
+        assert!(
+            super::fonts_naming_an_undefined_cmap(&in_resources, Target::Four(Flavour::Plain))
+                .is_empty(),
+            "a direct font has no object of its own for a converter to edit, so the converter's \
+             list leaves it to the row"
+        );
+
+        // The control the walk is held to: the same font as an object of its own is found once,
+        // not once as an object and again as a dictionary inside one.
+        let indirect = document(
+            "1 0 obj\n<< /Type /Catalog >>\nendobj\n\
+             2 0 obj\n<< /Type /Font /Subtype /CIDFontType2 /FontDescriptor 3 0 R >>\nendobj\n\
+             3 0 obj\n<< /Type /FontDescriptor /FontFile2 4 0 R >>\nendobj\n\
+             4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n",
+        );
+        assert_eq!(findings(&indirect, cid_to_gid_map_present).len(), 1);
     }
 
     #[test]

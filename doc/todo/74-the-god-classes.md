@@ -215,7 +215,7 @@ bands — which are lists of cases, the remedy section 15 names for test files.
 ## 17. Next, in the census's order
 
 `tools/state.sh gods`'s impl-block table, read past the blocks split above: `App` in
-`viewer-ui/src/bin/quorra/typing.rs` until the census says otherwise (`Carry` in
+`viewer-ui/src/bin/quorra/typing.rs` (split into five modules, section 21, ADR 2424) until the census says otherwise (`Carry` in
 `pdf-transform/src/structure.rs` is split into six modules, section 19, ADR 2390; `Vfs` in
 `pdf-vfs/src/lib.rs` is split into seven modules, section 18, ADR 2368; `Host` in
 `viewer-ui/src/bin/quorra-confined.rs` is split into five modules, ADR 2352); each is split as entry 1 was, by concern, behind the proof the
@@ -257,4 +257,12 @@ became `pub(super)`.
 The impl block was 1 579 lines. `run.rs` keeps the loop (`run`, `run_source`, `run_from`, `settle_step`, `run_operator`,
 the stream's end). The children: `steps`, `operands`, `machine`, `graphics`, `text_ops`, `xobject_ops`, `marked_ops`,
 `compat_type3_ops`, `nested` and `notes`; the methods of each Table 50 family are in the file named for it. Tokens are
-unchanged; the next block `gods` names is `App` in `crates/viewer-ui/src/bin/quorra/typing.rs`.
+unchanged; the next block `gods` named was `App` in `crates/viewer-ui/src/bin/quorra/typing.rs`, section 21.
+
+## 21. Built — `App`'s keyboard in `typing.rs` (`crates/viewer-ui/src/bin/quorra/typing.rs`, with `typing/`), ADR 2424
+
+The impl block was 1 039 lines of twenty-five methods. `typing.rs` keeps the types (`Typing`, `Target`, `Aim`,
+`Pressed`, `Choosing`, `Drawing`), the caret arithmetic and its tests. The children: `clipboard` (a copy off the page,
+a field's copy, cut and paste), `aiming` (which control a press or a focus addresses), `choices` (the open list),
+`annotations` (free text being drawn, a note being typed into) and `keys` (one press while a field has the keyboard).
+Tokens are unchanged; the eight methods a sibling calls became `pub(super)`.

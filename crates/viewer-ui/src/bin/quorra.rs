@@ -57,7 +57,7 @@
 //! | [`dispatch`] | commands into `viewer-core` and what this window does about each event |
 //! | [`files`] | the filesystem, which rule 2 leaves entirely to a host |
 //! | [`sidebar`] | the panel this program draws, and where the pointer is with respect to it |
-//! | [`typing`] | the keyboard inside a field's value, and the clipboard |
+//! | [`typing`] | the keyboard inside a field's value, and the clipboard (its `impl App` in five children, ADR 2424) |
 //! | [`find`] | Annex O's `search`: the bar, its steps, and the colour over what it found |
 //! | [`overlays`] | the geometry drawn over the page, in colours no clause states |
 //! | [`presentation`] | §12.4.4's clock and the transitions it draws |

@@ -182,7 +182,7 @@ There are two shapes of window, and the difference is who draws the field.
   `Command::Delegate` asks for that page (`crates/viewer-host/src/native_window.rs`, ADR 0244 and
   ADR 0245). The toolkit owns the caret and the selection.
 - **`quorra` draws the field itself.** It places no toolkit control: a click aims the keyboard at
-  the field (`crates/viewer-ui/src/bin/quorra/typing.rs::aim_at_field`, through `Query::FieldAt`),
+  the field (`crates/viewer-ui/src/bin/quorra/typing/aiming.rs::aim_at_field`, through `Query::FieldAt`),
   and the caret and the selection are asked of the core (`Query::Caret`, `Query::FieldSelection`)
   so that they sit on the glyphs stage 5 lays out. `crates/viewer-ui/src/bin/quorra/window.rs`'s
   `pressed` offers every key to the field first, then to
@@ -224,7 +224,7 @@ flowchart TD
 ```
 
 **Maintenance note.** Depends on: `crates/viewer-host/src/keys.rs`, `crates/viewer-host/src/form.rs`,
-`crates/viewer-host/src/native_window.rs`, `crates/viewer-ui/src/bin/quorra/typing.rs`,
+`crates/viewer-host/src/native_window.rs`, `crates/viewer-ui/src/bin/quorra/typing.rs`, `crates/viewer-ui/src/bin/quorra/typing/aiming.rs`,
 `crates/viewer-ui/src/bin/quorra/window.rs`, `crates/viewer-ui/src/bin/quorra-confined/typing.rs`,
 `crates/viewer-gtk/src/controls.rs`, `crates/viewer-gtk/src/host/forms.rs`,
 `crates/viewer-qt/src/host/forms.rs`, `crates/viewer-qt/cpp/window.cpp`, ADR 0244, ADR 0245,

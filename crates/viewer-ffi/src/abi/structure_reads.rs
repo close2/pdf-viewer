@@ -396,3 +396,49 @@ pub unsafe extern "C" fn quorra_structure_character(
         Err(status) => status.code(),
     }
 }
+
+/// Table 380's decoration and position as they reach the element's own text (ADR 2384, ADR 2422).
+///
+/// `decoration` is a `QUORRA_DECORATION_*`, `position` a `QUORRA_POSITION_*`. `colour` receives
+/// `/TextDecorationColor` as three floats in `0.0..=1.0` and `has_colour` says whether it did:
+/// where the element and its ancestors state none the entry's default is "the current fill colour
+/// in effect at the start of its associated content", which this program's readback does not
+/// carry, so nothing is written rather than a colour made up. **Set them on the element's own
+/// lines and on nothing else**: the walk resolved each entry by its cell's reach, and a platform
+/// that inherits text attributes down its tree would carry a paragraph's underline into the block
+/// nested inside it. Any out-parameter may be null.
+///
+/// # Safety
+///
+/// See the module documentation. `colour` is writable for three floats, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_structure_style(
+    structure: *const Structure,
+    entry: usize,
+    node: usize,
+    decoration: *mut u32,
+    position: *mut u32,
+    colour: *mut f32,
+    has_colour: *mut bool,
+) -> c_int {
+    let Some(structure) = structure.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    let (decorated, stated, placed) = match structure.style(entry, node) {
+        Ok(style) => style,
+        Err(status) => return status.code(),
+    };
+    if let Some(decoration) = decoration.as_mut() {
+        *decoration = decorated as u32;
+    }
+    if let Some(position) = position.as_mut() {
+        *position = placed as u32;
+    }
+    if let (Some(stated), false) = (stated, colour.is_null()) {
+        core::slice::from_raw_parts_mut(colour, stated.len()).copy_from_slice(&stated);
+    }
+    if let Some(has_colour) = has_colour.as_mut() {
+        *has_colour = stated.is_some();
+    }
+    Status::Ok.code()
+}

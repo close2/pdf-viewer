@@ -69,6 +69,9 @@ pub struct Examination<'a> {
     reach: OnceCell<Reach>,
     /// Section 6.2.2's exempt population, computed once; see [`Self::exempt`].
     exempt: OnceCell<Exempt>,
+    /// Every font dictionary written directly inside an object, found once; see
+    /// [`Self::direct_fonts`].
+    direct_fonts: OnceCell<Vec<(ObjectId, Dictionary)>>,
 }
 
 /// One annotation, with the page it is on and the object it was reached through.
@@ -100,6 +103,7 @@ impl<'a> Examination<'a> {
             spans: OnceCell::new(),
             reach: OnceCell::new(),
             exempt: OnceCell::new(),
+            direct_fonts: OnceCell::new(),
         }
     }
 
@@ -192,6 +196,17 @@ impl<'a> Examination<'a> {
     pub(crate) fn hexadecimal_spans(&self) -> &[HexadecimalSpan] {
         self.spans
             .get_or_init(|| crate::table::file_structure::hexadecimal_spans(self))
+    }
+
+    /// Every font dictionary written directly inside another object, each with that object.
+    ///
+    /// Thirteen rows of the font tranche walk the font population, and the indirect half of it is
+    /// [`Self::objects`] filtered; this is the other half, which only a walk into each object's
+    /// own structure finds, so it is walked once rather than by every row (`doc/adr/2413`). The
+    /// walk is `crate::table::fonts::direct_font_dictionaries`, beside the rows that read it.
+    pub(crate) fn direct_fonts(&self) -> &[(ObjectId, Dictionary)] {
+        self.direct_fonts
+            .get_or_init(|| crate::table::fonts::direct_font_dictionaries(self))
     }
 
     /// Every annotation of every page, resolved once.

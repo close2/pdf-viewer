@@ -162,11 +162,12 @@ cargo test --release -p render-raster --test turn_path -- --ignored --nocapture
   # is judged only on a quiet device too: amdgpu's `gpu_busy_percent`, averaged over half a second
   # before the child and after it, at or under the check file's `device_busy_percent`; above it the
   # row prints "not judged (device N% busy against T%)" and the run exits 0, as it does over the
-  # load ceiling; a device with no such counter is printed unread (ADR 1537). And only at the
-  # device's lowest clock level, which the bands are a claim about: each figure prints its residency
-  # per `pp_dpm_sclk` level, a child read above the lowest is printed "not judged (the device's clock
-  # above its lowest level …)", and the render node's holders of this account are listed beside each
-  # child (ADRs 2402, 2403)
+  # load ceiling; a device with no such counter is printed unread (ADR 1537). A band is a claim
+  # about the device's clock: each figure prints its residency per `pp_dpm_sclk` level, a row whose
+  # figure the lowest level moves states `<figure>_lowest_ms` and `<figure>_raised_mhz` beside its
+  # band, a figure wholly at the lowest level is judged against the first, and one whose clock moved
+  # between levels or read a raised line below the second is printed "not judged" with the reason;
+  # the render node's holders of this account are listed beside each child (ADRs 2402, 2403, 2421)
 cargo test --release -p render-raster --test turn_path -- --ignored --nocapture a_planted_busy_device_is_seen_as_busy
   # the device check's calibration: this binary keeps the adapter busy with a compute loop for six
   # seconds and the counter must read over the threshold while it runs, behind the heavy-walk lock

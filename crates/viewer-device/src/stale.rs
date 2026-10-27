@@ -171,8 +171,8 @@ use pdf_render::{DisplayList, TargetSpec};
 use viewer_core::DocumentId;
 
 pub use canvas::Canvas;
-pub use placement::{Carried, absorbed, could_stand_in};
-use placement::{carrying, depicts};
+pub use placement::{Carried, Carry, Part, absorbed, could_stand_in};
+use placement::{carrying, carrying_on_quads, depicts};
 pub use plan::{Drawn, Missed, Plan, Refusal, Refusals, Source, Stand};
 pub use retained::{PROXY_PAGES, Proxies, Retained, proxy_target};
 
@@ -475,13 +475,19 @@ impl Stale {
         out_for.is_some_and(|out| out > period) || self.expected() > period
     }
 
-    /// Whether the last rendering carries onto this view, and why not where it does not.
+    /// Whether the last rendering carries onto this view on this surface, and why not where it
+    /// does not.
     ///
     /// Split out of [`Self::plan`] when the retained pages arrived (ADR 0443), because the answer
     /// stopped deciding the whole frame: a base that does not carry used to mean a window that
-    /// showed nothing, and now means a window drawn from the blurrier layer alone.
-    fn carries(settled: &Settled, pages: &[Placed]) -> Result<(), Refusal> {
-        carrying(&settled.pages, pages).map(|_| ())
+    /// showed nothing, and now means a window drawn from the blurrier layer alone. **The surface
+    /// is asked since ADR 2416**: one that draws in quads carries a column's zoom a page at a time
+    /// ([`Self::reproject_on_quads`]), and one that resamples a window of pixels does not.
+    fn carries(settled: &Settled, pages: &[Placed], standing: Standing) -> Result<(), Refusal> {
+        match standing {
+            Standing::Quads => carrying_on_quads(&settled.pages, pages).map(|_| ()),
+            Standing::Resample => carrying(&settled.pages, pages).map(|_| ()),
+        }
     }
 
     /// **Rule 4.** Whether standing in buys at least the refresh it costs, on this surface.
@@ -547,7 +553,7 @@ impl Stale {
         // because a page turn and a rearrangement are impossibilities and rule 5 is a judgement
         // about two measurements. Nothing about the outgoing pages' pixels says anything true
         // about the incoming ones, at any placement.
-        let base = Self::carries(settled, pages);
+        let base = Self::carries(settled, pages, standing);
         // Nothing true to draw from either layer is the refusal this has always been. **The
         // condition gained its second half in ADR 0443**: a page turn with a retained picture of
         // the incoming page is no longer a window that shows nothing, so an impossibility for the
@@ -789,5 +795,20 @@ impl Stale {
             return Err(Refusal::NothingRendered);
         };
         carrying(&settled.pages, pages)
+    }
+
+    /// Where the last rendering goes on a surface that draws it in quads — whole, as
+    /// [`Self::reproject`] places it, or a page at a time where no one placement is true of every
+    /// page (ADR 2416). The composition is against the last rendering's own placements, as it is
+    /// there, so a part is a single resample of true pixels whatever stood in before it.
+    ///
+    /// # Errors
+    ///
+    /// [`Self::reproject`]'s, but for [`Refusal::Rearranged`], which this answers page by page.
+    pub fn reproject_on_quads(&self, pages: &[Placed]) -> Result<Carry, Refusal> {
+        let Some(settled) = self.settled.as_ref() else {
+            return Err(Refusal::NothingRendered);
+        };
+        carrying_on_quads(&settled.pages, pages)
     }
 }
