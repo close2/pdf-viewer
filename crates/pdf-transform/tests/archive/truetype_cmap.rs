@@ -461,7 +461,7 @@ fn a_code_whose_standard_name_would_move_it_is_restated_where_the_narrow_rewrite
     // Code 0xE9 is `eacute` under `WinAnsiEncoding` and `Odieresis` under `StandardEncoding`, so
     // writing either admitted name over this file's encoding would move the mark and the narrow
     // rewrite refuses; the restated `cmap` states the glyph this reader drew instead
-    // (`Answer::OrCmapRestated`).
+    // (`Answer::OrStated`).
     let source = super::a_truetype_font("32", "/Encoding /StandardEncoding", Some("\\351"));
     restated_and_unmoved(
         &source,

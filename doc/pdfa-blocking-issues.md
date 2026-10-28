@@ -139,9 +139,11 @@ alone in 16 and 15). ISO 19005-2 section 6.2.11.8 forbids a reference to `.notde
 because the code is in the content stream. **Remedy**: leave the content stream as it is and give
 the embedded program a glyph for that code whose outline is the program's own `.notdef` outline
 (empty, or the box the producer drew): the page draws exactly what this reader drew, and no glyph
-shown is `.notdef`. Said plainly, this meets the section's letter; the archive is no less legible
-than the source. If the owner prefers the section's purpose, R03's photograph carries the same pages
-with the larger loss; Q694 asks which. Mitigations `fonts/no-notdef-glyph-shown`; limits 2.2.
+shown is `.notdef`. A694 item 3 adopts it. **Built for a simple TrueType program** (ADR 2543,
+`Rewrite::NotdefGlyphGiven`): one copy of glyph 0 for each distinct width among the codes on it, the
+restated `cmap` mapping each code to its copy; the ten documents of this row whose fonts are simple
+TrueType convert in six at 2b and five at part 4. A `CIDFontType2` (its `CIDToGIDMap`) and a CFF or
+Type 1 program (a charstring writer) are owed. Mitigations `fonts/no-notdef-glyph-shown`; limits 2.2.
 
 **R11 — a TrueType code that reaches its glyph by a route ISO 19005 does not admit** (built; 13
 documents left of the 30 at 2b and 28 at 4, alone in 3 under `as-if-printed` and 1 under
@@ -156,7 +158,7 @@ row is untouched). Four rows answer by it: `non-symbolic-truetype-differences-ar
 `-differences-need-the-unicode-cmap`, `-program-maps-every-code` and
 `symbolic-truetype-program-has-a-usable-cmap`; the three others (`truetype-codes-reach-glyphs-by-the-standard-route`,
 `symbolic-truetype-states-no-encoding`, `non-symbolic-truetype-uses-a-standard-encoding`) take it as
-their second answer where their own narrower rewrite refuses (`Answer::OrCmapRestated`). **Left**: 5,
+their second answer where their own narrower rewrite refuses (`Answer::OrStated`). **Left**: 5,
 5 and 3 documents of those three, where the restatement could not be proved either. A conversion
 copies at most 32 MiB of font program and copies none for a file another requirement refuses by
 name. Probe of the 32 named documents: exit 0 rose from 2 to 14 under each of the four arms, veraPDF
@@ -261,7 +263,7 @@ and record the source's header bytes in `xmpMM:History`. ADR 2490.
 and print it. **Remedy**: write the structure the reader recovered — the catalog and page tree it
 walked — loss `recovered-structure` (new), the report naming what was rebuilt; the photograph is the
 fallback where the recovered objects do not convert. ADR 2490 reopens the declining sentence ("would
-state a structure no producer wrote"): the output states the structure this reader drew from. **Built** by ADR 2502, its outcome in ADR 2503; the encrypted and the signed source (the claim and the signatures are the source's) and the direct page, parented or not, are ADR 2523's, which removed `refuse_what_is_not_rebuilt`; the stated-count refusal of ADR 2502 decision 7 stands. Of the six ADR 2503 left, `poppler-742-0-fuzzed` (a page's dictionary does not parse whole) still stops here; `027613` states `/N 429` and the reader now reaches all 429 pages (ADR 2526), so its refusal is an ordinary requirement's and not this row's; `issue19484_1`, `issue19484_2` and `poppler-395-0-fuzzed` get past the rebuild and are refused by other rows, and `issue9105_other` by the file-header row.
+state a structure no producer wrote"): the output states the structure this reader drew from. **Built** by ADR 2502, its outcome in ADR 2503; the encrypted and the signed source (the claim and the signatures are the source's) and the direct page, parented or not, are ADR 2523's, which removed `refuse_what_is_not_rebuilt`; the stated-count refusal of ADR 2502 decision 7 stands. Of the six ADR 2503 left, `poppler-742-0-fuzzed` (its page's dictionary stops being readable at byte 678) is rebuilt from the seven entries the reader drew the page from, named as read in part (ADR 2551), and refused by other rows; `027613` states `/N 429` and the reader now reaches all 429 pages (ADR 2526), so its refusal is an ordinary requirement's and not this row's; `issue19484_1`, `issue19484_2` and `poppler-395-0-fuzzed` get past the rebuild and are refused by other rows, and `issue9105_other` by the file-header row.
 
 **R07 — a filter no reader decodes** (the seven `UnknownFilter-*` files; never alone — each also
 needs R06b or a font route). **Remedy**: the stream is what the reader treated it as, absent — an
@@ -299,7 +301,10 @@ here renders them, and the loss says so); the annotation or GoTo pointing at the
 Loss `attachment-as-pages` (new). At PDF/A-4f the file is kept as it is (Annex A), so 4f is the
 answer for the office files. Part 4's missing media type (2) is §14.13.2's
 `application/octet-stream`, or the type the bytes' own header names. Mitigations section 11;
-limits 3.1.
+limits 3.1. **Built** (ADR 2536): a text, PDF, PNG or JPEG attachment appended as pages under a
+`preserve` row with `on-failure` per file, a PDF converted one level deep; HTML and XML as text.
+Still blocked: an attachment in a tagged document (its pages need structure elements) and office
+files below 4f.
 
 ## 7. The exceptions, each with its reason
 
@@ -335,20 +340,24 @@ row is 4 per profile and target (ADRs 2534 and 2535). The families, by cause:
 | cause | documents | state |
 |---|---|---|
 | An appearance the conversion constructed (a free-text or widget stream built from the field's variable text) is content no pass saw: it names an unembedded Helvetica, selects a device colour no default licenses, or sets a blend mode | `annotation-tx`, `bug1538111`, `bug1865341`, `bug1871353`, `freetext_no_appearance`, `issue12750`, `issue16021` | fixed: a second conversion over the first output, only where the first would be refused (ADR 2534) |
-| The validator keeps 32 places of a requirement and counts the rest; the rendering-intent rewrite was gated on the kept prefix | `AIAA-2002-4016-606` (114 places) | fixed for `graphics/rendering-intent-entries-name-one-of-four` (ADR 2535); the other users of `sites::objects_named` have the same latent prefix |
+| The validator keeps 32 places of a requirement and counts the rest; the rendering-intent rewrite was gated on the kept prefix | `AIAA-2002-4016-606` (114 places) | fixed: the validator names every place up to 4 096 and says when it stopped short; `sites::objects_named` refuses a requirement whose places it cut short rather than act on a prefix, and the rendering-intent rewrite walks every graphics state only then (ADRs 2535, 2540) |
 | An annotation dictionary written directly in a page's `/Annots` array has no object number and was never given `/F` | `CLLASS Report for ER&L 2020`, `Wiki SI 563 2021` | fixed (ADR 2535) |
 | A font with a descriptor and no `/Widths` (Table 109 makes the fourteen all-or-none) was embedded as a face whose dictionary states none, so shown codes were 0 wide | `NeilJairath_3`, `issue2099-1`, `issue5470` | fixed: the widths the viewer draws it with are stated (ADR 2535); `NeilJairath_3` at part 4 is now R05's press refusal |
 | The signature decision is not in `decided` | the five above | counted; at part 4 no `file-structure/document-signature-states-no-digest` row exists, so a profile's `discard` there authorises nothing (`config.rs` `authorisations`), while §5 above keys the loss `signature-assertion` by loss and lists both shipped profiles as `discard/stop` |
-| The source's object headers disagree with its cross-reference table; the output copies stream `/Length` 8700 over 5958 bytes, an unbalanced packet, no `/ID` | `veraPDFHiResWrongObjectID` | open: not traced to the writer |
+| Page 9 names `/Im0 99 0 R` and object 99 does not exist, which §7.3.9 makes null and so undefined; the survey counted the entry present without resolving it (trap 258), so the output's own check found the name undefined and no output was written. The object headers agree with both cross-reference sections, and the writer restates every `/Length` from the bytes it writes | `veraPDFHiResWrongObjectID` | fixed: the survey resolves the entry, and the name is defined empty in its place; it converts at 2b and 4 under both profiles (ADR 2550) |
 | The output's page 1 has a `/Font` dictionary without the `/F3` its content names, which the source met | `AIAA-2005-6173-712` | open: not traced |
 | A symbolic TrueType program whose `cmap` has (0,3), (1,0) and (3,1) | `bug864847` (2b) | open: rule `fonts/symbolic-truetype-program-has-a-usable-cmap` |
 | A transparency group in `DeviceCMYK` with no CMYK intent and no `/DefaultCMYK`; the decision says the output intent licensed it | `issue14200` | open |
-| `pdf-archive`'s `non_symbolic_truetype_differences_are_listed_names` (`crates/pdf-archive/src/table/fonts.rs`) accepts `Differences` names `uniXXXX`, with `_` ligatures and `.suffix`, through `encoding::text_for`, the Adobe Glyph List Specification's *algorithm*; ISO 19005-2 6.2.11.6 asks that the names be ones the list itself lists (the 2002 `glyphlist.txt`), where `uni0042` is no row, and veraPDF follows the text | `issue6961` (converted, fails veraPDF at 6.2.11.4.1, 6.2.11.6 and 6.2.11.5), four more fonts with `uni` names in it | open: a checker defect for a `pdf-archive` round (ADR 2520 section 8); the census counts it converted until then |
+| The checker accepted `Differences` names `uniXXXX`, `_` ligatures and `.suffix` variants through `encoding::text_for`, the Adobe Glyph List Specification's *algorithm*, where ISO 19005-2 6.2.11.6 asks for names the 2002 list itself lists | `issue6961`, `bug1132849`, `issue6068`, `issue6889`, `issue6894` | fixed in the checker: `encoding::is_listed` is the row test, and the five are refused under ADR 2520's restatement (ADR 2540) |
+| The rows of 6.2.11.4.1 (every glyph shown is in the program) and 6.2.11.5 (its width agrees) still reach a `uniXXXX` glyph through the reader's lenient name mapping, where the clause's own mapping of a non-symbolic TrueType font (6.2.11.6's) finds none; veraPDF fails such a file at all three | a planted `/uni00A7` in place of `/section`: this tree fails it at 6.2.11.6 alone | open, owed: the two rows to resolve a name as 6.2.11.6 does (ADR 2540 section 5) |
 | A crypt filter and an embedded file that is not itself PDF/A, both still failing after their decisions | `auth-event-ef-open` (part 4) | open |
 
-One document passes this tree's checker and fails veraPDF's ISO 19005-2 6.2.11.5: `0004-637X_751_2_90` (a CMR10 subset,
-glyph 61, program width 776.89 against `/Widths` 778). `pdf-font`'s `program_advance` reads no width of a bare Type 1 program (`hsbw`),
-so `fonts/widths-agree-with-the-program` cannot fail it: a blind spot of the checker's width source, not a defect of the rewrite.
+`0004-637X_751_2_90` is a CFF witness (`/FontFile3 /Type1C`, a CMR10 subset whose glyph 61 is 776.89 wide against
+`/Widths` 778): the CFF width reader rounded to whole units and read 777, inside the tolerance, while veraPDF fails
+ISO 19005-2 6.2.11.5. The reader now keeps the charstring's fraction, and its private `nominalWidthX`, written as a real
+(495 after its floor here), is floored as the evaluator adds it rather than read as 0, so the converter restates the
+width and the output passes both (ADR 2540). A bare Type 1 program's width is read from `hsbw`/`sbw`; where it
+disagrees with `/Widths` the refusal's sentence is `PROGRAM_NOT_RESTATABLE`.
 
 ## 9. The documents behind each remedy
 

@@ -44,10 +44,11 @@ use pdf_syntax::serialize::flate_encode;
 use crate::tool::{Tool, ToolOutcome, ToolOutputs, ToolRequest, ToolResult};
 
 use super::config::{
-    Derivation, Resolution, Supplied, Supply, Winner, WriteModeSource, specification_name,
+    Derivation, Placement, Resolution, Supplied, Supply, Winner, WriteModeSource,
+    specification_name,
 };
 use super::external::{ExternalData, external_stream_data};
-use super::report::{Derived, DerivedOutcome, Resolved, SuppliedFact};
+use super::report::{ConvertedTo, Derived, DerivedOutcome, Resolved, SuppliedFact};
 use super::rewrite::Rewrite;
 use super::sites::{ConfigurationNames, SeparationUse, configuration_names, separation_uses};
 
@@ -73,6 +74,35 @@ pub(super) const AWAITING_TOOL: &str = "a remedy in this configuration answers t
      rather than starting a process (doc/questions/A54); the caller runs it through the shared \
      executor and applies again, which is what `quorra-transform archive` does in one command";
 
+/// A derived PDF this converter converted to the outer target, whose pages are to be appended.
+pub(super) struct AppendedFile {
+    /// The requirement the derivation answers.
+    pub(super) site: &'static str,
+    /// The inner conversion's file.
+    pub(super) bytes: Vec<u8>,
+    /// The device colour families the file's own output intent licenses, which the archive's
+    /// intent then has to license in its place.
+    pub(super) families: Vec<pdf_archive::survey::DeviceFamily>,
+}
+
+/// An embedded file a `preserve` row draws on appended pages (`super::drawn`).
+pub(super) struct DrawnFile {
+    /// The requirement the row answers.
+    pub(super) site: &'static str,
+    /// What is drawn.
+    pub(super) drawn: Drawn,
+    /// The device colour families its pages paint in, which the archive's intent licenses.
+    pub(super) families: Vec<pdf_archive::survey::DeviceFamily>,
+}
+
+/// The two things a drawn attachment can be.
+pub(super) enum Drawn {
+    /// A PDF, converted by this converter to the outer target, whose pages are imported.
+    Pdf(Vec<u8>),
+    /// An image, drawn on one page of its own size.
+    Image(super::drawn::Image),
+}
+
 /// One `[tool.…]` invocation this conversion needs, and what came back where anything did.
 pub(super) struct Remedies {
     /// Invocations the caller has to perform before the conversion can proceed.
@@ -81,6 +111,22 @@ pub(super) struct Remedies {
     pub(super) derived: BTreeMap<ObjectId, Object>,
     /// The requirements a derivation answered at every place they failed.
     pub(super) derive_sites: BTreeSet<&'static str>,
+    /// The file specifications whose derived attachment states `/AFRelationship /Alternative`.
+    ///
+    /// Part 4 only: ISO 19005-4 section 6.9 requires every embedded file's specification to state
+    /// how the file relates to the document, and a file this converter derived from the
+    /// producer's attachment is, in ISO 32000-2 §7.11.3's Table 43, an alternative representation
+    /// of content the document carries. `A55`'s *derived, not original*, in the file's own words.
+    pub(super) alternatives: BTreeSet<ObjectId>,
+    /// The bytes the derived files this conversion converted hold, together, of the budget
+    /// (`super::derived`, `doc/adr/2539`).
+    pub(super) held: usize,
+    /// Each derived PDF whose pages are appended (`derive:<tool>:append`), by the file
+    /// specification of the attachment it was derived from.
+    pub(super) appended: BTreeMap<ObjectId, AppendedFile>,
+    /// Each embedded file a `preserve` row draws, by its file specification, or the sentence
+    /// saying why it is not drawn (`super::drawn`).
+    pub(super) drawn: BTreeMap<ObjectId, Result<DrawnFile, String>>,
     /// The bytes an operator's tool fetched for each stream that keeps its data outside the file.
     ///
     /// The seam `doc/adr/1199` built, reached from the other side: the embedding does not care
@@ -126,6 +172,10 @@ impl Remedies {
             pending: Vec::new(),
             derived: BTreeMap::new(),
             derive_sites: BTreeSet::new(),
+            alternatives: BTreeSet::new(),
+            held: 0,
+            appended: BTreeMap::new(),
+            drawn: BTreeMap::new(),
             external: BTreeMap::new(),
             supplied: BTreeMap::new(),
             separations: BTreeMap::new(),
@@ -148,26 +198,102 @@ impl Remedies {
     /// `input` is stage one's validation, and the population every remedy runs over is **its
     /// findings** rather than a walk of this converter's: which embedded file failed which rule is
     /// `pdf_archive`'s reading, and a second walk here would be a second reading of ISO 19005.
+    ///
+    /// `budget` is the caller's, and a derived PDF is converted under what is left of it once the
+    /// derived files before it are charged (`super::derived`).
     pub(super) fn of(
         document: &Document,
         input: &pdf_archive::Report,
-        target: Target,
-        derivations: &[Derivation],
-        supplies: &[Supply],
-        resolutions: &[Resolution],
-        recorded: &ToolOutputs,
+        plan: &super::ArchivePlan,
+        budget: &crate::Budget,
     ) -> Self {
         let mut out = Self::none();
-        for derivation in derivations {
-            out.derive(document, input, target, derivation, recorded);
+        for derivation in &plan.derivations {
+            out.derive(document, input, plan, budget, derivation);
         }
-        for supply in supplies {
+        for supply in &plan.supplies {
             out.supply(document, input, supply);
         }
-        for resolution in resolutions {
-            out.resolve(document, input, target, resolution, recorded);
+        for resolution in &plan.resolutions {
+            out.resolve(document, input, plan.target, resolution, &plan.tool_outputs);
         }
+        out.draw(document, input, plan, budget);
         out
+    }
+
+    /// The embedded files a `preserve` row at an embedded-file site draws as pages.
+    ///
+    /// R15 (`doc/adr/2536`): a PDF is converted by [`super::derived::convert`] under the budget
+    /// the derivations share, and an image is read by [`super::drawn::image`]; a text file is
+    /// `super::prepare`'s to set. Run here rather than there because the device colour a drawn
+    /// file paints in decides the output intent, which is prepared before any page is composed.
+    /// A site a derivation answered draws nothing, because its files are the derivation's.
+    fn draw(
+        &mut self,
+        document: &Document,
+        input: &pdf_archive::Report,
+        plan: &super::ArchivePlan,
+        budget: &crate::Budget,
+    ) {
+        for site in super::prepare::ATTACHMENT_REQUIREMENTS {
+            let asked = plan.preservations.iter().any(|preservation| {
+                preservation.site == site && preservation.by_page && preservation.draws_documents
+            });
+            if !asked
+                || self.derive_sites.contains(site)
+                || self.appended.values().any(|file| file.site == site)
+                || !input.failures().any(|judgement| judgement.id == site)
+            {
+                continue;
+            }
+            let Ok((specifications, _)) = super::sites::objects_named(input, &[site]) else {
+                continue;
+            };
+            // The same count bound `super::prepare` lays out under, so that no file is converted
+            // that no page could then carry.
+            for specification in specifications
+                .into_iter()
+                .take(super::prepare::MOST_ATTACHMENTS_AS_PAGES)
+            {
+                let Some(bytes) = super::prepare::attached_bytes(document, specification) else {
+                    continue;
+                };
+                let Some(shape) = super::drawn::shape_of(&bytes) else {
+                    continue;
+                };
+                // Checked before the conversion it would make useless: an appended page of
+                // marks is the shape a tagged document refuses (`super::tagged`).
+                let drawn = if super::tagged::describes_its_content(document) {
+                    Err(super::tagged::MARKS_IN_A_TAGGED_DOCUMENT.to_owned())
+                } else if shape == super::drawn::Shape::Pdf {
+                    super::derived::convert(
+                        plan,
+                        budget,
+                        &mut self.held,
+                        &bytes,
+                        Placement::Append,
+                        "the PDF the embedded file holds",
+                    )
+                    .map(|converted| DrawnFile {
+                        site,
+                        families: super::derived::licensed_families(
+                            &converted.bytes,
+                            budget.limits,
+                        ),
+                        drawn: Drawn::Pdf(converted.bytes),
+                    })
+                } else {
+                    super::drawn::image(&bytes, shape, budget.max_pixels)
+                        .map(|image| DrawnFile {
+                            site,
+                            families: vec![image.family],
+                            drawn: Drawn::Image(image),
+                        })
+                        .map_err(str::to_owned)
+                };
+                self.drawn.insert(specification, drawn);
+            }
+        }
     }
 
     /// One `preserve`-by-fetch site, over every stream whose data the file keeps outside itself.
@@ -250,10 +376,11 @@ impl Remedies {
         &mut self,
         document: &Document,
         input: &pdf_archive::Report,
-        target: Target,
+        plan: &super::ArchivePlan,
+        budget: &crate::Budget,
         derivation: &Derivation,
-        recorded: &ToolOutputs,
     ) {
+        let (target, recorded) = (plan.target, &plan.tool_outputs);
         let Some(judgement) = input
             .failures()
             .find(|judgement| judgement.id == derivation.site)
@@ -266,7 +393,7 @@ impl Remedies {
             return;
         }
         let mut answered = true;
-        for (at, name) in streams {
+        for (at, specification, name) in streams {
             let Some(stream) = document.get(at).as_stream().cloned() else {
                 answered = false;
                 continue;
@@ -286,11 +413,12 @@ impl Remedies {
             answered &= self.place(
                 document,
                 judgement.id,
-                &derivation.tool,
+                derivation,
                 &stream,
-                at,
+                (at, specification),
                 &name,
                 result,
+                (plan, budget),
             );
         }
         if answered {
@@ -304,22 +432,31 @@ impl Remedies {
     /// checking: **what comes back is not trusted**, so the media type the tool declared is held
     /// against what it produced, and whatever survives that still goes through `doc/adr/0947`'s
     /// third stage, which re-opens the assembled output and holds it to the same target.
+    ///
+    /// A PDF that survives is converted before it is placed (`doc/rfc/0014` section 5's second
+    /// stage, [`super::derived`]), and what is attached is that conversion's file. `at` is the
+    /// embedded file stream and the file specification holding it, in that order; `nested` is
+    /// the plan and the budget the conversion runs under.
     #[expect(
         clippy::too_many_arguments,
         reason = "every one is a different fact about the place this result answers — which \
-                  requirement, which tool, which stream, where it is, what it is called — and a \
-                  struct bundling them would be this function's arguments under another name"
+                  requirement, which derivation, which stream, where it is, what it is called, \
+                  and what the derived file is converted under — and a struct bundling them would \
+                  be this function's arguments under another name"
     )]
     fn place(
         &mut self,
         document: &Document,
         site: &'static str,
-        tool: &Tool,
+        derivation: &Derivation,
         stream: &Stream,
-        at: ObjectId,
+        at: (ObjectId, ObjectId),
         name: &str,
         result: &ToolResult,
+        nested: (&super::ArchivePlan, &crate::Budget),
     ) -> bool {
+        let tool = &derivation.tool;
+        let (at, specification) = at;
         let was = document
             .get_key(&stream.dict, "Subtype")
             .as_name()
@@ -335,6 +472,7 @@ impl Remedies {
             bytes: result.output.len(),
             stderr: result.stderr.clone(),
             outcome: DerivedOutcome::Attached,
+            converted: None,
         };
         match &result.outcome {
             ToolOutcome::Produced => {}
@@ -354,10 +492,70 @@ impl Remedies {
             self.derived_report.push(row);
             return false;
         }
-        self.derived.insert(
-            at,
-            derived_stream(&stream.dict, &tool.expects, &result.output),
-        );
+        // Both sites this remedy answers require the embedded file to conform to a part of
+        // ISO 19005, so what is attached is a PDF this converter converted rather than what the
+        // tool returned: the tool's word is not the archive's (`doc/rfc/0014` section 5).
+        if tool.expects != "application/pdf" {
+            self.derived.insert(
+                at,
+                derived_stream(&stream.dict, &tool.expects, &result.output),
+            );
+            self.derived_report.push(row);
+            return true;
+        }
+        let (plan, budget) = nested;
+        let converted = match super::derived::convert(
+            plan,
+            budget,
+            &mut self.held,
+            &result.output,
+            derivation.placement,
+            "the PDF the tool returned",
+        ) {
+            Ok(converted) => converted,
+            Err(sentence) => {
+                row.outcome = DerivedOutcome::NotConverted(sentence);
+                self.derived_report.push(row);
+                return false;
+            }
+        };
+        row.converted = Some(ConvertedTo {
+            target: converted.target.to_string(),
+            placement: derivation.placement.word(),
+            bytes: converted.bytes.len(),
+            decided: converted
+                .conversion
+                .decided
+                .iter()
+                .map(|decided| decided.requirement)
+                .collect(),
+        });
+        match derivation.placement {
+            // `derive:<tool>:append`: the attachment goes and the converted file's pages are
+            // appended, which `super::prepare` composes from these bytes. A specification naming
+            // the one file under two keys is laid out once.
+            Placement::Append => {
+                self.appended
+                    .entry(specification)
+                    .or_insert_with(|| AppendedFile {
+                        site,
+                        families: super::derived::licensed_families(
+                            &converted.bytes,
+                            budget.limits,
+                        ),
+                        bytes: converted.bytes,
+                    });
+            }
+            Placement::Attach => {
+                self.derived.insert(
+                    at,
+                    derived_stream(&stream.dict, &tool.expects, &converted.bytes),
+                );
+                if matches!(plan.target, Target::Four(_)) {
+                    self.alternatives.insert(specification);
+                }
+            }
+        }
         self.derived_report.push(row);
         true
     }
@@ -413,7 +611,7 @@ impl Remedies {
             return;
         }
         let mut answered = true;
-        for (at, name) in streams {
+        for (at, _, name) in streams {
             let Some(media_type) = for_extension(&name, by_extension) else {
                 // The format's `unlisted` key is the operator's answer to an attachment their own
                 // table does not name, and `stop` is the only value built — the configuration
@@ -912,11 +1110,11 @@ fn most_used<'a>(document: &Document, uses: &[&'a SeparationUse]) -> &'a Separat
 fn embedded_streams(
     document: &Document,
     judgement: &pdf_archive::Judgement,
-) -> Vec<(ObjectId, String)> {
+) -> Vec<(ObjectId, ObjectId, String)> {
     let Outcome::Failed { places, .. } = &judgement.outcome else {
         return Vec::new();
     };
-    let mut out: Vec<(ObjectId, String)> = Vec::new();
+    let mut out: Vec<(ObjectId, ObjectId, String)> = Vec::new();
     for finding in places {
         let Some(specification) = finding.place.object else {
             continue;
@@ -940,10 +1138,10 @@ fn embedded_streams(
             let Some(at) = files.get(key).and_then(Object::as_reference) else {
                 continue;
             };
-            if out.iter().any(|(held, _)| *held == at) {
+            if out.iter().any(|(held, _, _)| *held == at) {
                 continue;
             }
-            out.push((at, name.clone()));
+            out.push((at, specification, name.clone()));
         }
     }
     out
@@ -1080,12 +1278,31 @@ pub(super) fn derived_history(rows: &[Derived]) -> Option<String> {
         if index > 0 {
             out.push_str("; ");
         }
+        let appended = row
+            .converted
+            .as_ref()
+            .is_some_and(|converted| converted.placement == Placement::Append.word());
         let _ = write!(
             out,
-            "the embedded file {} was replaced by {} derived from it by the tool {} ({}), \
-             SHA-256 {}",
-            row.attachment, row.expects, row.tool, row.program, row.digest
+            "the embedded file {} was {} {} derived from it by the tool {} ({}), SHA-256 {}",
+            row.attachment,
+            if appended {
+                "removed, and its pages appended from"
+            } else {
+                "replaced by"
+            },
+            row.expects,
+            row.tool,
+            row.program,
+            row.digest
         );
+        if let Some(converted) = &row.converted {
+            let _ = write!(
+                out,
+                ", which this converter converted to {} and placed by {}",
+                converted.target, converted.placement
+            );
+        }
     }
     Some(out)
 }

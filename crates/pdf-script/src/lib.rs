@@ -75,4 +75,6 @@ pub use question::{Answer, Asker, Button, Buttons, Icon, Nobody, Question};
 pub use request::{Budget, Event, Request, utf16_offset};
 
 #[cfg(feature = "engine")]
+pub use engine::xfa;
+#[cfg(feature = "engine")]
 pub use engine::{Engine, Realm, run};

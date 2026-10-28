@@ -1217,12 +1217,14 @@ pub trait NativeWindow {
     fn answered(&mut self, request: &viewer_core::RenderRequest, queue: &mut VecDeque<Command>) {
         // The reader has their page, so the document may now be asked what it says about
         // itself — §12.8's signatures above all, whose answer digests the signed part of the
-        // file. Once per opened document; `crate::report::Due` is the rule. ADR 1044.
-        if self.state_mut().showing.report_due.after_a_frame() {
-            queue.push_back(Command::Report);
-            // And its open sequence, at the same moment and for the same reason: after the
-            // first present, never in front of it (ADR 1602).
-            queue.push_back(Command::Presented);
+        // file — and its open sequence may run (ADR 1602). Once per opened document, and only
+        // for the document in front: both commands are about the focused one, and a page of a
+        // tab behind is asked for by its own frame on the screen (`crate::report`, ADRs 1044,
+        // 2544).
+        if request.document == self.state().documents.focused()
+            && self.state_mut().showing.report_due.after_a_frame()
+        {
+            queue.extend(crate::report::owed());
         }
         // Table 147's `/FitWindow` and `/CenterWindow` are about the first displayed page's
         // size, which is known now and not before (ADR 1429).

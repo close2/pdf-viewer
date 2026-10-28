@@ -29,7 +29,7 @@
 //! must no longer need a mapping of the reader's choosing. A font failing the proof is refused
 //! with a sentence that says so.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_font::{Code, LoadedFont};
 use pdf_syntax::Document;
@@ -40,6 +40,7 @@ use pdf_archive::Outcome;
 use super::super::decision::Because;
 use super::super::prepare::Spare;
 use super::super::sites::{dictionary_of, loaded_as_stated, objects_named};
+use super::notdef_glyph;
 
 /// The requirements a font's restated `cmap` answers.
 pub(in crate::archive) const ANSWERED: [&str; 4] = [
@@ -50,7 +51,7 @@ pub(in crate::archive) const ANSWERED: [&str; 4] = [
 ];
 
 /// The three rows whose own rewrites name a font's encoding, which this restatement answers for
-/// a font whose own preparation refused (`super::super::decision::Answer::OrCmapRestated`).
+/// a font whose own preparation refused (`super::super::decision::Answer::OrStated`).
 pub(in crate::archive) const STANDARD_ROUTE_ROWS: [&str; 3] = [
     "fonts/truetype-codes-reach-glyphs-by-the-standard-route",
     "fonts/symbolic-truetype-states-no-encoding",
@@ -86,11 +87,62 @@ const NOT_RESTATED: &str = "a rendered TrueType font in this file breaks ISO 190
      proof, or the checker named only the first places of a requirement this file fails in more \
      places than it keeps, so the fonts past them are not known";
 
+/// The two `.notdef` rows a restated program answers by a glyph of its own for each code that
+/// reached glyph 0 (`doc/adr/2543`).
+pub(in crate::archive) const NOTDEF_ROWS: [&str; 2] = [
+    "fonts/no-notdef-glyph-shown",
+    "fonts/embedded-programs-define-every-glyph-shown",
+];
+
+/// Why a `.notdef` row stays refused where the restatement answered the rest.
+pub(in crate::archive) const NOTDEF_NOT_GIVEN: &str = "this file shows a character code that \
+     reaches the .notdef glyph of an embedded TrueType program, and this conversion gives such a \
+     code a glyph of its own whose outline and advance are copied from the program's .notdef \
+     glyph, reached through a restated cmap. It does that only for a simple TrueType font whose \
+     program it can extend and prove, and only where every font the requirement names is one: a \
+     font here is another kind, reaches no glyph at all for its code, or could not be extended";
+
+/// Whether every font the [`NOTDEF_ROWS`] name is a simple TrueType font, every place they name
+/// is an object and no list of their places was cut short — the condition for the rows to join
+/// [`restated`], which refuses whole on a font it cannot carry.
+pub(in crate::archive) fn notdef_fonts_are_truetype(
+    document: &Document,
+    input: &pdf_archive::Report,
+) -> bool {
+    let Ok((named, elsewhere)) = objects_named(input, &NOTDEF_ROWS) else {
+        return false;
+    };
+    let cut_short = input.failures().any(|judgement| {
+        NOTDEF_ROWS.contains(&judgement.id)
+            && matches!(&judgement.outcome,
+                Outcome::Failed { places, total } if *total > places.len())
+    });
+    !elsewhere
+        && !cut_short
+        && !named.is_empty()
+        && named.into_iter().all(|id| {
+            let resolved = document.get(id);
+            dictionary_of(&resolved).is_some_and(|dict| {
+                document
+                    .get_key(dict, "Subtype")
+                    .as_name()
+                    .map(Name::as_bytes)
+                    == Some(&b"TrueType"[..])
+            })
+        })
+}
+
 /// The fonts whose program is restated, and the objects that restate them.
 #[derive(Debug, Default)]
 pub(in crate::archive) struct CmapRestated {
     /// The descriptor each font dictionary now names, by font dictionary.
     pub(in crate::archive) descriptors: BTreeMap<ObjectId, ObjectId>,
+    /// The fonts whose program was given a glyph for the codes that reached `.notdef`, a subset
+    /// of [`Self::descriptors`]'s keys.
+    pub(in crate::archive) notdef_given: BTreeSet<ObjectId>,
+    /// Whether every font the [`NOTDEF_ROWS`] name is in [`Self::notdef_given`], which is when
+    /// those rows are answered.
+    pub(in crate::archive) notdef_answered: bool,
     /// The descriptors and programs this conversion adds.
     written: BTreeMap<ObjectId, Object>,
 }
@@ -122,12 +174,22 @@ impl CmapRestated {
         } else {
             format!(", and {rest} more")
         };
+        let given = if self.notdef_given.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "; for ISO 19005-2 section 6.2.11.8 and ISO 19005-4 section 6.2.10.9, the \
+                 program of {} of them gained one glyph whose outline and advance are its own \
+                 .notdef glyph's, and each code that reached .notdef now reaches that glyph",
+                self.notdef_given.len()
+            )
+        };
         Some(format!(
             "ISO 19005-2 section 6.2.11.6 and ISO 19005-4 section 6.2.10.6: the program of {} \
              rendered TrueType font(s) now carries the Macintosh Roman (1, 0) and Microsoft \
              Symbol (3, 0) cmap subtables mapping each code to the glyph this reader drew, the \
              font is the symbolic font ISO 32000-2 section 9.6.5.4 describes and states no \
-             Encoding, so no mark moved and no content stream changed: fonts, in the source's object numbering, {}{tail}",
+             Encoding{given}, so no mark moved and no content stream changed: fonts, in the source's object numbering, {}{tail}",
             self.descriptors.len(),
             named.join(", ")
         ))
@@ -146,8 +208,9 @@ const NONSYMBOLIC: i64 = 1 << 5;
 /// The first code of the Microsoft Symbol subtable's range, ISO 32000-2 §9.6.5.4's 0xF000.
 const SYMBOL_PREFIX: u16 = 0xF000;
 
-/// Every TrueType font the four `cmap` requirements name, restated, and with `standard_route_too`
-/// the fonts the three encoding requirements name as well.
+/// Every TrueType font the four `cmap` requirements name, restated, with `standard_route_too`
+/// the fonts the three encoding requirements name as well, and with `notdef_too` the fonts the
+/// two [`NOTDEF_ROWS`] name, each given a glyph for the codes that reached `.notdef`.
 ///
 /// **The copies are bounded twice.** The checker keeps the first places of each requirement and
 /// counts the rest (`pdf_archive`'s `Findings`), so the fonts named are at most the kept places
@@ -162,7 +225,7 @@ pub(in crate::archive) fn restated(
     input: &pdf_archive::Report,
     spare: &mut Spare,
     programs: &BTreeMap<ObjectId, Object>,
-    standard_route_too: bool,
+    (standard_route_too, notdef_too): (bool, bool),
 ) -> Result<CmapRestated, Because> {
     let refused = Because::NotBuiltYet(NOT_RESTATED);
     let rows: Vec<&str> = ANSWERED
@@ -173,9 +236,15 @@ pub(in crate::archive) fn restated(
                 .into_iter()
                 .flatten(),
         )
+        .chain(notdef_too.then_some(&NOTDEF_ROWS).into_iter().flatten())
         .copied()
         .collect();
-    let (named, elsewhere) = objects_named(input, &rows);
+    let (named, elsewhere) = objects_named(input, &rows)?;
+    let notdef: BTreeSet<ObjectId> = if notdef_too {
+        objects_named(input, &NOTDEF_ROWS)?.0
+    } else {
+        BTreeSet::new()
+    };
     let cut_short = input.failures().any(|judgement| {
         rows.contains(&judgement.id)
             && matches!(&judgement.outcome,
@@ -191,7 +260,7 @@ pub(in crate::archive) fn restated(
         let dict = dictionary_of(&resolved).ok_or(refused)?;
         if restate_one(
             document,
-            id,
+            (id, notdef.contains(&id)),
             dict,
             (spare, programs, &mut copied),
             &mut found,
@@ -205,13 +274,36 @@ pub(in crate::archive) fn restated(
             });
         }
     }
+    found.notdef_answered = notdef_too && notdef.is_subset(&found.notdef_given);
     Ok(found)
+}
+
+/// The codes grouped by the advance the font gives them, in the program's units.
+///
+/// `None` where an advance falls outside what a 16-bit unit count holds.
+fn codes_by_advance(font: &LoadedFont, codes: &[u8], units: f32) -> Option<BTreeMap<u16, Vec<u8>>> {
+    let mut by_advance: BTreeMap<u16, Vec<u8>> = BTreeMap::new();
+    for code in codes {
+        let advance = (font.advance(Code::single_byte(*code)) * units).round();
+        if !(0.0..=f32::from(u16::MAX)).contains(&advance) {
+            return None;
+        }
+        // Within the range just checked, so the conversion neither truncates nor wraps.
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "the advance was checked to lie in 0..=u16::MAX and is a whole number"
+        )]
+        let advance = advance as u16;
+        by_advance.entry(advance).or_default().push(*code);
+    }
+    Some(by_advance)
 }
 
 /// One font: the new descriptor and program, proved, and the objects that hold them.
 fn restate_one(
     document: &Document,
-    id: ObjectId,
+    (id, notdef): (ObjectId, bool),
     dict: &Dictionary,
     (spare, programs, copied): (&mut Spare, &BTreeMap<ObjectId, Object>, &mut usize),
     found: &mut CmapRestated,
@@ -221,8 +313,14 @@ fn restate_one(
     }
     let before = loaded_as_stated(document, dict)?;
     let reached = codes_reached(&before);
-    let descriptor_at = dict.get("FontDescriptor")?.as_reference()?;
-    let resolved = document.get(descriptor_at);
+    let on_notdef = if notdef {
+        codes_on_notdef(&before)
+    } else {
+        Vec::new()
+    };
+    // A descriptor written inside the font dictionary is read where it is; the restated one is
+    // written as an object of its own either way, which ISO 32000-2 §9.6.3 and Table 109 require.
+    let resolved = document.resolve(dict.get("FontDescriptor")?);
     let descriptor = dictionary_of(&resolved)?;
     let program_at = descriptor.get("FontFile2")?.as_reference()?;
     // The program the conversion writes for this font is the one it writes for the original, so
@@ -239,8 +337,38 @@ fn restate_one(
     if *copied > MAX_COPIED_BYTES {
         return None;
     }
-    let restated =
-        pdf_font::embedding::with_tables(&program, &[(*b"cmap", cmap_table(&reached)?)])?;
+    // A font named by a `.notdef` row with no code on glyph 0 is restated as the other rows ask
+    // and given no glyph: its shown code reaches no glyph at all, and a copy of `.notdef` would
+    // draw a mark the reader did not. It is left out of `notdef_given`, so its row stays refused.
+    let mut tables = Vec::new();
+    let mut map = reached.clone();
+    let mut given: BTreeMap<u8, u16> = BTreeMap::new();
+    if !on_notdef.is_empty() {
+        // One glyph for each width the dictionary gives these codes, in the program's units,
+        // because the program's advance for a glyph is held to the width of every code that
+        // reaches it (ISO 19005-2 section 6.2.11.5).
+        let units = f32::from(notdef_glyph::units_per_em(&program)?);
+        let by_advance = codes_by_advance(&before, &on_notdef, units)?;
+        let advances: Vec<u16> = by_advance.keys().copied().collect();
+        let glyphs = notdef_glyph::with_notdef_copied(&program, &advances)?;
+        for (codes, glyph) in by_advance.values().zip(&glyphs.glyphs) {
+            for code in codes {
+                map.insert(*code, *glyph);
+                given.insert(*code, *glyph);
+            }
+        }
+        tables.extend(glyphs.tables);
+    }
+    tables.push((*b"cmap", cmap_table(&map)?));
+    let restated = pdf_font::embedding::with_tables(&program, &tables)?;
+    // Each new glyph is proved to be glyph 0's own outline in the program as written.
+    let notdef_outline = notdef_glyph::outline(&program, NOTDEF);
+    if given
+        .values()
+        .any(|glyph| notdef_glyph::outline(&restated, *glyph) != notdef_outline)
+    {
+        return None;
+    }
     let new_program = super::program_stream(Some(&stream.dict), &restated, true)?;
 
     let mut new_descriptor = descriptor.clone();
@@ -263,7 +391,17 @@ fn restate_one(
         Object::Dictionary(proof_descriptor),
     );
     let after = LoadedFont::load(document, &candidate, "").ok()?;
-    if after.is_substituted() || !on_the_same_glyphs(&reached, &after) {
+    if after.is_substituted() || !on_the_same_glyphs(&reached, &given, &after) {
+        return None;
+    }
+    // And the program's advance for each is the width the dictionary gives its code, which is
+    // what the reader advanced by (ISO 19005-2 section 6.2.11.5's thousandth of an em).
+    if given.keys().any(|code| {
+        let code = Code::single_byte(*code);
+        after
+            .program_advance(code)
+            .is_none_or(|program| (program - after.advance(code)).abs() > super::CONSISTENT)
+    }) {
         return None;
     }
 
@@ -275,6 +413,9 @@ fn restate_one(
         .written
         .insert(descriptor_id, Object::Dictionary(new_descriptor));
     found.descriptors.insert(id, descriptor_id);
+    if !given.is_empty() {
+        found.notdef_given.insert(id);
+    }
     Some(())
 }
 
@@ -293,6 +434,16 @@ fn codes_reached(font: &LoadedFont) -> BTreeMap<u8, u16> {
         .collect()
 }
 
+/// The codes of a simple font that reached glyph 0, which this reader drew as the program's
+/// `.notdef` outline.
+///
+/// A code that reached no glyph at all is not one of them: the reader drew nothing for it.
+fn codes_on_notdef(font: &LoadedFont) -> Vec<u8> {
+    (0..=u8::MAX)
+        .filter(|byte| font.glyph_index(Code::single_byte(*byte)) == Some(NOTDEF))
+        .collect()
+}
+
 /// Glyph 0, which every TrueType program keeps for a character it has no glyph for.
 const NOTDEF: u16 = 0;
 
@@ -300,10 +451,19 @@ const NOTDEF: u16 = 0;
 /// its program's own subtables and not by a mapping of the reader's choosing.
 ///
 /// A code the font as read left on glyph 0 is held to no more than still not reaching another
-/// glyph.
-fn on_the_same_glyphs(reached: &BTreeMap<u8, u16>, after: &LoadedFont) -> bool {
+/// glyph, unless it is one of `given`, which must reach the glyph given it by the program's own
+/// subtables.
+fn on_the_same_glyphs(
+    reached: &BTreeMap<u8, u16>,
+    given: &BTreeMap<u8, u16>,
+    after: &LoadedFont,
+) -> bool {
     (0..=u8::MAX).all(|byte| {
         let code = Code::single_byte(byte);
+        if let Some(glyph) = given.get(&byte) {
+            return after.glyph_index(code) == Some(*glyph)
+                && !after.glyph_needed_a_reader_chosen_mapping(code);
+        }
         match reached.get(&byte) {
             Some(glyph) => {
                 after.glyph_index(code) == Some(*glyph)

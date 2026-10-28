@@ -259,7 +259,7 @@ compiling and the windows driven, and none composes a mark.
    `/K` refuses (ADR 1592).
 5. **Calculations, validations and events in JavaScript** — through `pdf-script`, behind RFC
    0008's order and under the reader's `Scripts` level, `off` by default: a script element whose
-   content type is JavaScript runs in the same realm as the document's other scripts, with an
+   content type is JavaScript runs in a form realm of its own beside the document's (ADR 2545), with an
    `xfa` host object of the XFA-SOM the template needs (chapter 3, *Scripting Object Model*,
    pages 86–121) where `pdf-script`'s surface today lists `xfa` as absent, and the activation order
    chapter 10 states: on one stimulus events first, then calculations, then validations (page 379
@@ -460,6 +460,14 @@ half; §K.2 is `partial`, three writer's rules kept and the template's events ow
    host that holds the form; `override`'s `error` and `warning` reach a window as the notice it
    draws for a script's question. JavaScript calculations and the other events are step 5's, and
    are owed.
+   **Step 5's realm built** (session 1855, ADRs 2544, 2545): a form's JavaScript has a realm of its
+   own in `pdf-script` whose object model is the form's containers as the host answers for them —
+   `this`, naked references, `rawValue`, `isNull`, `resolveNode` and `resolveNodes`, everything
+   else refused by name — and every window gives a document opened beside its merge when its own
+   frame is shown; the activation carries a JavaScript calculation or `change` or `initialize`
+   event to that realm in the confined worker, under the level, the per-run deadline and the
+   sequence clock `FormCalc`'s runs are held to. The other events, validations that are scripts
+   and page 642's dismissal of a `warning` remain.
 4. **On Q639's answer**: the dynamic half, whose first round is a measurement — the cost of laying
    out page one of the census's `/NeedsRendering` documents — before a line of layout ships.
 

@@ -131,8 +131,8 @@ const STRIPS: u32 = 1;
 ///
 /// Both pages were then diagnosed by what they actually differ by, one clause apart:
 /// `issue21346.pdf` by its coincident clip edges ([`CONTRADICTED_COINCIDENT_CLIP_EDGES`], empty
-/// since ADR 0476) and now held in [`CONTRADICTED_LUMINOSITY_OF_A_CIE_BASED_MASK`] for §11.5.3's
-/// reading (ADR 0797), and `colorkeymask.pdf` by where an image sample falls
+/// since ADR 0476) and then by §11.5.3's reading ([`CONTRADICTED_LUMINOSITY_OF_A_CIE_BASED_MASK`],
+/// empty since the owner chose the device branch, ADR 2552), and `colorkeymask.pdf` by where an image sample falls
 /// ([`CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE`]), now held in [`AMBIGUOUS_DIVIDED_CONSENSUS`]
 /// (ADR 0617). That is the tenth
 /// and eleventh time a group's name in this file has named a hypothesis rather than a diagnosis,
@@ -174,10 +174,11 @@ const CONTRADICTED_PAGE_ROUNDING: [&str; 0] = [];
 /// `issue21346.pdf` is 178.34645 points square and holds one mark: a 150 × 150 square
 /// of `(0.227, 0.498, 0.690)` painted through a `/Luminosity` mask whose group paints white at
 /// `/ca 0.25`. Every reference draws the interior at the device branch's 0.25, `0.25 c + 0.75` per
-/// channel, which is **(206, 223, 235)** (`mupdf` one level up on each); this tree takes §11.5.3's
-/// colorimetric `Y` of the group's sRGB profile, 0.0508, so the square is nearly white and the
-/// page is in [`CONTRADICTED_LUMINOSITY_OF_A_CIE_BASED_MASK`] (ADR 0797). This note is about the
-/// square's one-pixel border, and its levels below are the ones measured against that interior.
+/// channel, which is **(206, 223, 235)** (`mupdf` one level up on each), and so does this tree,
+/// the device branch being the owner's choice for every mask group
+/// ([`CONTRADICTED_LUMINOSITY_OF_A_CIE_BASED_MASK`], ADR 2552). This note is about the square's
+/// one-pixel border, and its levels below were measured against the clause's nearly white
+/// interior, the profile's `Y` of 0.0508, which ADR 2552 replaced.
 ///
 /// # The boundaries, counted
 ///
@@ -262,8 +263,8 @@ const CONTRADICTED_PAGE_ROUNDING: [&str; 0] = [];
 /// included by a fill operation", so the two are one rule — and the mark's edge went
 /// **0.306 → 0.469** of the mark on both axes, level 240 to level 232 against an interior of 206.
 /// Both numbers are `examples/render_at` at scale 1, either side of the change in one sitting.
-/// That crossed the bound on the edge; the page is contradicted on its interior, for §11.5.3's
-/// reading, in [`CONTRADICTED_LUMINOSITY_OF_A_CIE_BASED_MASK`] (ADR 0797).
+/// That crossed the bound on the edge, and the page agrees since its interior is the device
+/// branch's ([`CONTRADICTED_LUMINOSITY_OF_A_CIE_BASED_MASK`], ADR 2552).
 ///
 /// **Item 4 is half paid** (ADR 0492): a group whose opacity is one carries its shape and meets a
 /// coincident clip as a set, and the edge is **0.694** of the mark where departure (1)'s answer for
@@ -4122,40 +4123,18 @@ const CONTRADICTED_UNEXPLAINED: [&str; 0] = [];
 /// [`WHOSE_DEPARTURE`].
 const CONTRADICTED_TIGHT_CONSENSUS: [&str; 1] = ["issue7891_bc1.pdf page 1"];
 
-/// Contradicted because the three references take §11.5.3's device branch for a mask group
-/// whose `/CS` is an sRGB profile, and this tree takes the clause's colorimetric one (ADR 0797).
+/// Contradicted where a mask group's `/CS` is CIE-based and its luminosity is §11.5.3's
+/// colorimetric `Y` while the references weigh the components by the device branch.
 ///
-/// `issue21346.pdf` is Typst's: a blue rectangle drawn through a `/Luminosity` mask whose group
-/// states an sRGB matrix profile as its `/CS` and paints white at `/ca 0.25` over the default
-/// black backdrop. The group composites in the profile's components, as §11.6.5.1 requires the
-/// `/CS` for, to an encoded (0.25, 0.25, 0.25). §11.5.3 then branches on the space's kind:
-///
-/// > For CIE-based spaces, convert to the CIE 1931 XYZ space and use the Y component as the
-/// > luminosity. This produces a colorimetrically correct luminosity.
-///
-/// and, for device spaces, "with no compensation for gamma or other colour calibration". An
-/// `ICCBased` space is CIE-based (§8.6.5.1), its `Y` is the profile's, and the profile's tone
-/// curve takes 0.25 to **0.0508** — so the mask is a twentieth and the rectangle nearly white.
-/// `poppler`, `mupdf` and `ghostscript` — and, by pdf.js issue #21346's own report, Acrobat and
-/// five more — weigh the encoded 0.25 with no gamma, the device branch's answer for a space that
-/// is not a device space, and draw a quarter blue. The reading was checked against the clause's
-/// EXAMPLE 1, whose `CalRGB` formula carries the gamma, and against §11.7.2's NOTES 3 and 4, which
-/// say compositing in a nonlinear space such as sRGB gives results that "might not match the
-/// user's expectations" and are "still well-defined"; it is kept, and ADR 0797 records what it
-/// costs and that it is the owner's to rank.
-///
-/// **What it fails, in the gate's own words**: furthest outside on the **differing fraction**, at
-/// **37.63x** the bound — ours at worst mean 14.23, worst tile 20.00, differing 53.26%, ssim
-/// 0.9426, against a bound of mean 1.22, worst tile 5.00, differing 1.42%, ssim 0.9900 — and
-/// 11.17 from the nearest reference. Every pixel of the rectangle differs, which is what a mask
-/// value moved everywhere it applies looks like: this is a *different mask*, not a rounding of
-/// one, and the group is named for the reading rather than for a mechanism.
-///
-/// # Whose departure this is (ADR 1483)
-///
-/// The references', on the §11.5.3 sentence quoted above: an `ICCBased` group space is CIE-based
-/// and its luminosity is the profile's `Y`. [`Whose::References`] in [`WHOSE_DEPARTURE`].
-const CONTRADICTED_LUMINOSITY_OF_A_CIE_BASED_MASK: [&str; 1] = ["issue21346.pdf page 1"];
+/// Empty: every mask group's luminosity is the device branch, the owner's choice in A23 (ADR
+/// 2552). `issue21346.pdf` is the page that tells the two apart — Typst's blue rectangle drawn
+/// through a `/Luminosity` mask whose group states an sRGB matrix profile as its `/CS` and paints
+/// white at `/ca 0.25` over the default black backdrop, compositing to an encoded
+/// (0.25, 0.25, 0.25). The device branch weighs that 0.25 as it stands and the rectangle is
+/// **(206, 223, 235)** in ours and in `poppler`'s, `mupdf`'s and `ghostscript`'s alike; the
+/// profile's `Y` of it, **0.0508**, would draw it nearly white. A page that returns here is a
+/// mask group weighed by the clause's `Y` again.
+const CONTRADICTED_LUMINOSITY_OF_A_CIE_BASED_MASK: [&str; 0] = [];
 
 /// Documents where our page geometry differs from the references' by more than the one
 /// pixel a fractional page size can round to.
@@ -9999,11 +9978,13 @@ const AMBIGUOUS_GRADIENT_QUANTISATION: [&str; 2] =
 /// where the closest voting pair is 8.5400 and 0.94612. That is `doc/todo/00`'s two-camp reading at
 /// its extreme, and it is evidence about the verdict rather than about us
 /// (`Reference::independence`).
-const AMBIGUOUS_GLYPH_COVERAGE: [&str; 3] = [
-    "copy_paste_ligatures.pdf page 1",
-    "endchar.pdf page 1",
-    "issue16316.pdf page 1",
-];
+///
+/// `endchar.pdf` is held in [`AMBIGUOUS_ON_A_PAGE_WE_REPORT`] rather than here: its `/BG /Identity`
+/// and `/UCR /Identity` are not functions and the interpreter reports them (ADR 2549), which makes it
+/// a page this tree reports, and the groups above hold complete pages only. The reading of its glyph
+/// above stands; the report says nothing about the glyph.
+const AMBIGUOUS_GLYPH_COVERAGE: [&str; 2] =
+    ["copy_paste_ligatures.pdf page 1", "issue16316.pdf page 1"];
 
 /// Ambiguous, and §12.5.4's one sentence settles it against `poppler`.
 ///
@@ -11619,11 +11600,12 @@ const AMBIGUOUS_PAGE_PLACED_A_ROW_APART: [&str; 4] = [
 /// rather than copying it. What this group adds is the verdict: of the incomplete pages the walk
 /// judges, these are the ones no two references settle, and a page arriving here or leaving is a
 /// change to a page whose report says why it is short.
-const AMBIGUOUS_ON_A_PAGE_WE_REPORT: [&str; 26] = [
+const AMBIGUOUS_ON_A_PAGE_WE_REPORT: [&str; 27] = [
     "ContentStreamCycleType3insideType3.pdf page 1",
     "ThuluthFeatures.pdf page 1",
     "bug1050040.pdf page 1",
     "checkbox_no_appearance.pdf page 1",
+    "endchar.pdf page 1",
     "issue11242_reduced.pdf page 1",
     "issue11578_reduced.pdf page 1",
     "issue11651.pdf page 1",
@@ -14482,11 +14464,6 @@ const WHOSE_DEPARTURE: &[(&str, Whose, &str)] = &[
     ("CONTRADICTED_GLYPH_EDGES", Whose::Choice, "§10.7.1"),
     ("CONTRADICTED_SUBSTITUTED_FONT", Whose::Choice, "§9.5"),
     ("CONTRADICTED_TIGHT_CONSENSUS", Whose::References, "§10.7.4"),
-    (
-        "CONTRADICTED_LUMINOSITY_OF_A_CIE_BASED_MASK",
-        Whose::References,
-        "§11.5.3",
-    ),
 ];
 
 /// The [`Whose`] and the deciding clause of the group named `group`.

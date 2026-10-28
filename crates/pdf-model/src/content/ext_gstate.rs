@@ -209,6 +209,29 @@ impl Component {
     }
 }
 
+impl Interpreter<'_> {
+    /// Says which of Table 57's black-generation entries a graphics state stated and this reader
+    /// could not take as a function — [`Unsupported::UnreadableBlackGeneration`].
+    ///
+    /// `label` names the state: the `/ExtGState` resource a `gs` named, or the shading pattern
+    /// whose own `/ExtGState` it is (Table 75). Nothing is said inside an uncoloured figure, where
+    /// §8.6.8 has the entries "ignored", nor in content a reader cannot see.
+    pub(super) fn note_unreadable_black_generation(
+        &mut self,
+        label: &str,
+        unreadable: Vec<String>,
+    ) {
+        if self.uncoloured || self.is_hidden() {
+            return;
+        }
+        for sentence in unreadable {
+            self.note(Unsupported::UnreadableBlackGeneration {
+                detail: format!("{label}: {sentence}"),
+            });
+        }
+    }
+}
+
 /// Applies an `/ExtGState` resource.
 impl Interpreter<'_> {
     #[expect(
@@ -243,10 +266,12 @@ impl Interpreter<'_> {
             return;
         };
 
-        // Table 57's pair is graphics state, saved by q/Q. A departure is recorded only
-        // at a paint that actually converts DeviceRGB (§11.7.5.3, ADR 2187).
-        state.black_generation =
-            BlackGeneration::read(self.document, dict, state.black_generation.as_deref());
+        // Table 57's pair is graphics state, saved by q/Q, and it is read at the paint that
+        // converts a `DeviceRGB` colour (§11.7.5.3), never here.
+        let read = BlackGeneration::read(self.document, dict, state.black_generation.as_deref());
+        state.black_generation = read.pair;
+        let label = format!("/{}", String::from_utf8_lossy(name.as_bytes()));
+        self.note_unreadable_black_generation(&label, read.unreadable);
         if let Some(alpha) = self.document.get_key(dict, "ca").as_number() {
             state.fill_alpha = clamp_unit(alpha);
         }

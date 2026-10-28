@@ -604,6 +604,11 @@ impl Absent {
         match self {
             // Unchanged wording, deliberately: ADR 0255's population is counted by it, and only
             // the documents that were never in it move.
+            // §7.3.5 makes a lone `/` "a unique valid name defined by the empty sequence of
+            // characters", which printed bare reads as no name at all.
+            Self::NoSuchResource if name.is_empty() => {
+                String::from("no /Font resource named / (the empty name, §7.3.5)")
+            }
             Self::NoSuchResource => format!("no /Font resource named /{name}"),
             Self::NotAFontDictionary => format!(
                 "the /Font entry {name} is stated and is not a font dictionary — §7.3.10 makes \
@@ -640,12 +645,11 @@ impl Interpreter<'_> {
         if let (Some(Object::Reference(id)), Some(size)) = (reference, size) {
             let font_dict = self.document.get(id).as_dict().cloned();
             let name = format!("object {} {}", id.number, id.generation);
-            state.text.font = self.load_font(
-                Some(FontKey::Referenced(id)),
-                font_dict.as_ref(),
-                &name,
-                Absent::NotAFontDictionary,
-            );
+            state.text.owed_font_report = font_dict
+                .is_none()
+                .then(|| Absent::NotAFontDictionary.detail(&name));
+            state.text.font =
+                self.load_font(Some(FontKey::Referenced(id)), font_dict.as_ref(), &name);
             state.text.size = narrow(size);
         } else {
             // A `/Font` this crate cannot read as the clause states it is reported rather
@@ -657,11 +661,32 @@ impl Interpreter<'_> {
         }
     }
 
-    /// Loads a font by resource name, caching the result including failures.
+    /// Loads a font by resource name, caching the result including failures, and returns beside
+    /// it the report a show under the name owes where the name reaches no font dictionary.
     ///
     /// A failure is cached too: a page that names an unloadable font on every `Tf` should
     /// pay for the attempt once, and should report it once.
-    pub(super) fn font(&mut self, resources: &Dictionary, name: &Name) -> Option<Font> {
+    ///
+    /// # Why a name that reaches no dictionary is reported by the show and not by `Tf`
+    ///
+    /// ISO 32000-2 §9.3.1's Table 103 makes `Tf` set two text state parameters and nothing
+    /// else, and the font is what a later show draws with:
+    ///
+    /// > There is no initial value for either font or size; they shall be specified explicitly by
+    /// > using Tf before any text is shown.
+    ///
+    /// So a `Tf` whose name the resources do not define costs a mark only where text is shown
+    /// under it, and a text object that selects such a font and shows nothing — `BT / -1 Tf ET`,
+    /// §7.3.5's empty name — is drawn as its producer wrote it. The report is the show's
+    /// (`super::text::show`), made once per page as before, and a page that never shows under
+    /// the name is not reported incomplete for it: trap 11's condition is the mark (`doc/adr/2550`).
+    /// A dictionary that is there and whose program does not load is still reported at its load,
+    /// because what it says is about the font and not about a show.
+    pub(super) fn font(
+        &mut self,
+        resources: &Dictionary,
+        name: &Name,
+    ) -> (Option<Font>, Option<String>) {
         // **Keyed by the font's identity, never by the name the stream used.** A resource name
         // is scoped to the resource dictionary that defines it, and §8.10.1 gives a form
         // `XObject` a `/Resources` of its own — so a page's `/F1` and a form's `/F1` are two
@@ -688,7 +713,14 @@ impl Interpreter<'_> {
         // Table 57's route reaches it without coming through here.
         let label = String::from_utf8_lossy(name.as_bytes());
         if let Some(cached) = self.cached_font(key.as_ref(), &label) {
-            return cached;
+            // A cached failure is either kind, and only the one with no dictionary is owed by a
+            // show; the entry is resolved again on that path alone, which is a failure's.
+            let owed = (cached.is_none()
+                && entry
+                    .as_ref()
+                    .is_some_and(|entry| self.document.resolve(entry).as_dict().is_none()))
+            .then(|| Absent::NotAFontDictionary.detail(&label));
+            return (cached, owed);
         }
 
         // Which of §7.8.3's two failures this is has to be decided *here*, because it is the
@@ -701,12 +733,9 @@ impl Interpreter<'_> {
             Absent::NoSuchResource
         };
         let resolved = entry.map(|object| self.document.resolve(&object));
-        self.load_font(
-            key,
-            resolved.as_ref().and_then(Object::as_dict),
-            &label,
-            absent,
-        )
+        let dict = resolved.as_ref().and_then(Object::as_dict);
+        let owed = dict.is_none().then(|| absent.detail(&label));
+        (self.load_font(key, dict, &label), owed)
     }
 
     /// What a previous load left under `key`, where there was one.
@@ -806,7 +835,6 @@ impl Interpreter<'_> {
         key: Option<FontKey>,
         dict: Option<&Dictionary>,
         name: &str,
-        absent: Absent,
     ) -> Option<Font> {
         if let Some(cached) = self.cached_font(key.as_ref(), name) {
             return cached;
@@ -855,12 +883,9 @@ impl Interpreter<'_> {
                 dict.and_then(|dict| pdf_font::LoadedFont::metrics_only(self.document, dict, name))
                     .map(|font| Font::Program(Arc::new(font)))
             }
-            None => {
-                self.note(Unsupported::Font {
-                    detail: absent.detail(name),
-                });
-                None
-            }
+            // No dictionary: the caller hands the sentence to the text state, and the first show
+            // under it says it (see `font`).
+            None => None,
         };
 
         if let Some(key) = key {

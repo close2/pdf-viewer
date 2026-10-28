@@ -37,7 +37,10 @@ use skrifa::raw::FontRead;
 use skrifa::raw::ps::cff::CffFontRef;
 use skrifa::raw::ps::cff::charset::CharsetKind;
 use skrifa::raw::ps::cff::dict;
+use skrifa::raw::ps::cs::CommandSink;
+use skrifa::raw::ps::transform::Transform;
 use skrifa::raw::tables::cff::Cff;
+use skrifa::raw::types::Fixed;
 
 use crate::name_keyed::NameKeyed;
 
@@ -235,18 +238,34 @@ pub fn draw(data: &[u8], glyph: u16, pen: &mut impl OutlinePen) -> Result<(), Cf
 /// page draws a few dozen glyphs out of hundreds, while this is asked at load time for
 /// every code at once.
 ///
+/// The width is the charstring's own number, fractions kept: a Type 2 charstring may state a
+/// width as a 16.16 fixed operand or reach it through `div`, and ISO 19005-2 6.2.11.5 compares
+/// the program's width with the document's, so a reader that rounded 776.89 to 777 would call a
+/// disagreement agreement. The outline reader's [`CffFontRef::draw`] rounds the width to whole
+/// units before it applies the matrix, which suits a rasteriser at a pixel size and is not what
+/// the program states; this evaluates the charstring and applies the same normalised matrix and
+/// scale itself, without that rounding (ADR 2540).
+///
 /// # Errors
 ///
 /// See [`CffError`]. A glyph the program cannot evaluate yields `None` rather than an error,
 /// because one unreadable charstring is not a reason to lose the other 255 widths.
 pub fn advances(data: &[u8], glyphs: &[u16]) -> Result<Vec<Option<f32>>, CffError> {
     /// Discards the outline: only the charstring's width operand is wanted here.
-    struct NoOutline;
-    impl OutlinePen for NoOutline {
-        fn move_to(&mut self, _x: f32, _y: f32) {}
-        fn line_to(&mut self, _x: f32, _y: f32) {}
-        fn quad_to(&mut self, _cx: f32, _cy: f32, _x: f32, _y: f32) {}
-        fn curve_to(&mut self, _cx0: f32, _cy0: f32, _cx1: f32, _cy1: f32, _x: f32, _y: f32) {}
+    struct NoCommands;
+    impl CommandSink for NoCommands {
+        fn move_to(&mut self, _x: Fixed, _y: Fixed) {}
+        fn line_to(&mut self, _x: Fixed, _y: Fixed) {}
+        fn curve_to(
+            &mut self,
+            _cx0: Fixed,
+            _cy0: Fixed,
+            _cx1: Fixed,
+            _cy1: Fixed,
+            _x: Fixed,
+            _y: Fixed,
+        ) {
+        }
         fn close(&mut self) {}
     }
 
@@ -257,9 +276,35 @@ pub fn advances(data: &[u8], glyphs: &[u16]) -> Result<Vec<Option<f32>>, CffErro
             let id = GlyphId::from(*glyph);
             let index = font.subfont_index(id)?;
             let subfont = font.subfont(index, &[]).ok()?;
-            font.draw(&subfont, id, &[], None, &mut NoOutline).ok()?
+            let width = font
+                .evaluate_charstring(&subfont, id, &[], &mut NoCommands)
+                .ok()??;
+            Some(horizontal_metric(&font.transform(&subfont, None), width))
         })
         .collect())
+}
+
+/// A horizontal metric in font units carried through a program's normalised `FontMatrix`.
+///
+/// The steps are those of the outline reader's own metric transform — the matrix's `xx`, then
+/// its `dx`, then the scale that restates the matrix's units per em in the reader's (Technical
+/// Note 5176, Table 9; ADR 2180) — with the metric kept as the fixed-point number the charstring
+/// produced. The scale is a 26.6 factor, which is why it is divided by 64. A width below zero is
+/// read as zero, as the outline reader reads it.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "Fixed's product is formed in i64, which two i32 operands cannot overflow"
+)]
+fn horizontal_metric(transform: &Transform, metric: Fixed) -> f32 {
+    let mut metric = metric;
+    if transform.matrix.xx != Fixed::ONE {
+        metric *= transform.matrix.xx;
+    }
+    metric = metric.saturating_add(transform.matrix.dx);
+    if let Some(scale) = transform.scale {
+        metric = metric.mul_div(scale, Fixed::from_i32(64));
+    }
+    metric.to_f32().max(0.0)
 }
 
 /// Whether a CFF program's Top DICT uses `CIDFont` operators.
@@ -1049,10 +1094,6 @@ fn calls_local_subr(charstring: &[u8], font: &CffFontRef<'_>, depth: u8) -> bool
 // Restating a program's advances, which is the one thing a converter may change about a font.
 // ---------------------------------------------------------------------------------------------
 
-/// The Private DICT operator naming the advance every charstring's width is stated against
-/// (Adobe Technical Note #5176, Table 23: `nominalWidthX`, operator 21, default 0).
-const OP_NOMINAL_WIDTH: u16 = 21;
-
 /// The Type 2 operators that clear the operand stack, and may therefore carry a width.
 ///
 /// Adobe Technical Note #5177, section 3.1: "The first stack-clearing operator, which must be
@@ -1341,13 +1382,21 @@ fn charstring_with_advance(
     Some(out)
 }
 
-/// A DICT's `nominalWidthX`, which is zero where the DICT does not state one.
+/// A Private DICT's `nominalWidthX` as the charstring evaluator adds it, which is zero where the
+/// DICT does not state one.
+///
+/// Technical Note 5176's Table 23 makes the operand a number, and a producer may write it as a
+/// real (operand 30). `read-fonts` adds the operand floored to a whole unit to every charstring
+/// width it evaluates, so a width restated as `advance - nominal` reads back as `advance` only
+/// when `nominal` is that same floor; an integer-only reading took a real as zero and wrote a
+/// width the read-back then found larger by the whole nominal.
 fn nominal_width(private: &[u8]) -> i64 {
-    dict_entries(private)
-        .unwrap_or_default()
-        .iter()
-        .find(|(_, op)| *op == OP_NOMINAL_WIDTH)
-        .and_then(|(operands, _)| dict_int(operands))
+    dict::entries(private, None)
+        .filter_map(Result::ok)
+        .find_map(|entry| match entry {
+            dict::Entry::NominalWidthX(width) => Some(i64::from(width.floor().to_i32())),
+            _ => None,
+        })
         .unwrap_or(0)
 }
 

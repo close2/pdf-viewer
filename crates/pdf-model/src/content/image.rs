@@ -371,15 +371,10 @@ impl Interpreter<'_> {
             &mut self.image_masks,
         ) {
             Ok(crate::image::Parts {
-                black_generation_bypassed,
                 picture,
                 shortfall,
                 contradiction,
             }) => {
-                self.black_generation_painted |= black_generation_bypassed;
-                if stencil {
-                    self.report_solid_black_generation(state, true);
-                }
                 // §7.4.8 puts a JPEG's dimensions in the codestream and this tree draws them from
                 // there, so an image whose dictionary says something else is *drawn* rather than
                 // refused — and said out loud all the same, because the picture on the page is

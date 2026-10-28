@@ -844,3 +844,12 @@ whose `/Differences` names a glyph the embedded Type1C program does not have. On
 veraPDF's PASS is therefore no evidence: a remedy there is calibrated by planting the defect, reading that the validator
 misses it, and taking this tree's own output check (`fonts/no-notdef-glyph-shown`, which failed the planted-out build) as
 the witness. veraPDF stays required at both targets for every freed output (trap 267); it is simply not the proof here.
+
+### 290. An export's oracle run points at the shared reference cache
+
+Round 1859 (ADR 2552) ran the oracle in its export to judge a luminosity change. The reference cache
+defaults to a path under the current target directory, and an export's target is its own, so the run
+found no cache and re-rendered every one of the 6 806 references — over thirteen minutes holding both
+lanes of the lock under `--clock`, for a comparison whose references had not changed. An oracle run
+anywhere but the batch's own worktree sets `PDFREF_CACHE=/home/AI/cargo-target/pdf-viewer-batch/tmp/pdfref-cache`
+first, and a round that forgot reads the walk's opening lines for "rendering references" before it waits.

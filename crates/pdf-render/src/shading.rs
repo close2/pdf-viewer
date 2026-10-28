@@ -122,6 +122,7 @@ impl Shading {
                         .flat_map(|mesh| mesh.patches.iter())
                         .all(|patch| match &patch.corners {
                             PatchCorners::Colours(colours) => colours.iter().all(opaque),
+                            PatchCorners::Grid(lattice) => lattice.colours().iter().all(opaque),
                             PatchCorners::Parameters(_) => false,
                         })
                 }
@@ -751,10 +752,10 @@ pub enum ShadingKind {
         /// Types 6 and 7, where the interpreter left the fineness to the device.
         ///
         /// `None` for the triangle meshes (types 4 and 5), whose geometry is exactly the
-        /// triangles the file states and has no fineness to choose, and for a patch mesh whose
-        /// colours §8.7.4.4 requires be interpolated in a space no backend holds — there the
-        /// interpreter tessellates and converts, and the triangles above are the answer.
-        /// [`PatchMesh`] has the whole of why the rest travel.
+        /// triangles the file states and has no fineness to choose. A patch whose colours
+        /// §8.7.4.4 requires be interpolated in a space no backend holds travels too, its colours
+        /// converted at a lattice ([`PatchCorners::Grid`], ADR 2546). [`PatchMesh`] has the whole
+        /// of why patches travel.
         patches: Option<PatchMesh>,
         /// The shading's `/Function`, sampled — present exactly where the corners carry
         /// [`Corners::Parameters`], because that is the entry whose presence makes them
@@ -2008,7 +2009,7 @@ pub enum Corners {
 /// where it is read. So the patch itself travels — the same answer [`ShadingKind::Sampled`]
 /// gives §8.7.4.5.2's function — and [`Self::steps`] derives the fineness where the device
 /// transform is known. ADR 1217.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SurfacePatch {
     /// The 4×4 control net of the bicubic surface, in the shading's own coordinates, the first
     /// index running with `u` and the second with `v`.
@@ -2030,13 +2031,167 @@ pub struct SurfacePatch {
 /// of these four — "\[c]olours are specified for each corner of the unit square, and bilinear
 /// interpolation is used to fill in colours over the entire unit square" — and §8.7.4.5.5's
 /// choice of *what* is interpolated is the same choice a triangle's corners make.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PatchCorners {
     /// A colour per corner: the mesh states its components and no `/Function`.
     Colours([Color; 4]),
     /// §8.7.4.5.5's parametric value per corner. The colour is [`ShadingKind::Mesh`]'s ramp at
     /// the interpolated value.
     Parameters([f32; 4]),
+    /// Colours converted at a lattice of the unit square rather than at its four corners alone.
+    ///
+    /// The one patch a device cannot draw from four colours: its components are in a space
+    /// §8.7.4.4 requires the interpolation be performed in — of a CIE-based space, "all gradient
+    /// fill calculations shall be performed in that space", and a `Separation` or `DeviceN`
+    /// space's are performed in it "before conversion to the alternate space" — and the
+    /// conversion out of it is not linear across the patch to §10.7.3's tolerance, so the bilinear mix of the four converted corners is
+    /// not the conversion of the bilinear mix of the four stated ones. The interpreter, which
+    /// holds the space, converts the mix at every lattice point and stops refining where the
+    /// bilinear mix of each cell's four converted corners is within that tolerance of the
+    /// conversion; the device, which holds the pixels, derives the silhouette's fineness as it
+    /// does for every other patch, and draws each lattice cell from its own four corners. ADR
+    /// 2546.
+    Grid(PatchGrid),
+}
+
+/// Most cells a [`PatchGrid`] may have along either axis.
+///
+/// Half of `MAX_PATCH_STEPS`, so that a device drawing a patch at its own fineness can always
+/// place a whole number of its steps in each lattice cell — the condition under which every cell
+/// it draws lies inside one cell of the lattice and is coloured from that cell's corners alone.
+/// §10.7.3 licenses a bound of this kind: "\[e]ach output device may have internal limits on the
+/// maximum and minimum tolerances attainable".
+pub const MAX_PATCH_GRID_CELLS: u32 = MAX_PATCH_STEPS / 2;
+
+/// A patch's colours at the points of a lattice over its unit square, `(u, v)` running from
+/// `(0, 0)` to `(1, 1)` in [`Self::cells`] uniform steps along each axis — [`PatchCorners::Grid`].
+///
+/// The lattice is the patch's own parameter space and not the device's, which is why it can be
+/// decided where the shading is read: §8.7.4.5.7 fills a patch "over the entire unit square", and
+/// how far apart the lattice points must be is a question about the colour space's conversion
+/// alone, answered in the fraction of a component's range §10.7.3 states its tolerance in.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PatchGrid {
+    /// Cells along `u` and along `v`, each at least one and at most [`MAX_PATCH_GRID_CELLS`].
+    cells: (u32, u32),
+    /// `(cells.0 + 1) · (cells.1 + 1)` colours, `u`-major: the colour at lattice point `(i, j)`,
+    /// which is `(u, v) = (i / cells.0, j / cells.1)`, is at `i · (cells.1 + 1) + j`.
+    colours: Arc<[Color]>,
+}
+
+impl PatchGrid {
+    /// A lattice of `cells` along `u` and `v`, or `None` where either count is zero or past
+    /// [`MAX_PATCH_GRID_CELLS`], or `colours` is not one colour per lattice point.
+    #[must_use]
+    pub fn new(cells: (u32, u32), colours: Arc<[Color]>) -> Option<Self> {
+        let within = |count: u32| (1..=MAX_PATCH_GRID_CELLS).contains(&count);
+        let points = usize::try_from(cells.0.checked_add(1)?)
+            .ok()?
+            .checked_mul(usize::try_from(cells.1.checked_add(1)?).ok()?)?;
+        (within(cells.0) && within(cells.1) && colours.len() == points)
+            .then_some(Self { cells, colours })
+    }
+
+    /// Cells along `u` and along `v`.
+    #[must_use]
+    pub const fn cells(&self) -> (u32, u32) {
+        self.cells
+    }
+
+    /// The colours, `u`-major, one per lattice point.
+    #[must_use]
+    pub fn colours(&self) -> &[Color] {
+        &self.colours
+    }
+
+    /// The colour at lattice point `(i, j)`; [`Self::new`] made every such index valid.
+    fn at(&self, i: u32, j: u32) -> Color {
+        let stride = self.cells.1.saturating_add(1) as usize;
+        let index = (i.min(self.cells.0) as usize)
+            .saturating_mul(stride)
+            .saturating_add(j.min(self.cells.1) as usize);
+        self.colours
+            .get(index)
+            .copied()
+            .unwrap_or(Color::TRANSPARENT)
+    }
+
+    /// The lattice cell holding `t` along an axis of `cells` cells, and where in it `t` falls.
+    #[expect(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a cell count bounded by MAX_PATCH_GRID_CELLS, exact in an f32, and a floor \
+                  clamped into it"
+    )]
+    fn locate(cells: u32, t: f32) -> (u32, f32) {
+        let scaled = (t.clamp(0.0, 1.0) * cells as f32).max(0.0);
+        let cell = (scaled.floor() as u32).min(cells.saturating_sub(1));
+        (cell, scaled - cell as f32)
+    }
+
+    /// The colour at `(u, v)`: §8.7.4.5.7's bilinear interpolation, over the lattice cell that
+    /// holds the point, of that cell's four converted corners.
+    #[must_use]
+    pub fn colour_at(&self, u: f32, v: f32) -> Color {
+        let (row, along_u) = Self::locate(self.cells.0, u);
+        let (column, along_v) = Self::locate(self.cells.1, v);
+        let (next_row, next_column) = (row.saturating_add(1), column.saturating_add(1));
+        let top = mix_colours(self.at(row, column), self.at(row, next_column), along_v);
+        let bottom = mix_colours(
+            self.at(next_row, column),
+            self.at(next_row, next_column),
+            along_v,
+        );
+        mix_colours(top, bottom, along_u)
+    }
+
+    /// The largest bilinear cross term over the lattice's cells, per channel — the colour
+    /// question [`SurfacePatch::steps`] asks of four corners, asked of each cell.
+    fn largest_cross_term(&self) -> f32 {
+        let mut largest = 0.0_f32;
+        for i in 0..self.cells.0 {
+            for j in 0..self.cells.1 {
+                let (i1, j1) = (i.saturating_add(1), j.saturating_add(1));
+                largest = largest.max(cross_term([
+                    self.at(i, j),
+                    self.at(i, j1),
+                    self.at(i1, j1),
+                    self.at(i1, j),
+                ]));
+            }
+        }
+        largest
+    }
+
+    /// This lattice with `map` applied to every colour.
+    fn map(&self, map: &impl Fn(&Color) -> Color) -> Self {
+        Self {
+            cells: self.cells,
+            colours: self.colours.iter().map(map).collect(),
+        }
+    }
+}
+
+/// The colour `t` of the way from `a` to `b`, channel by channel.
+fn mix_colours(a: Color, b: Color, t: f32) -> Color {
+    Color {
+        r: a.r + (b.r - a.r) * t,
+        g: a.g + (b.g - a.g) * t,
+        b: a.b + (b.b - a.b) * t,
+        a: a.a + (b.a - a.a) * t,
+    }
+}
+
+/// The bilinear cross term of four corners in [`SurfacePatch::corners`]' order — `(0,0)`,
+/// `(0,1)`, `(1,1)`, `(1,0)` — alternately added and subtracted, and the largest over the
+/// channels: §10.7.3's "maximum independent error".
+fn cross_term([c1, c2, c3, c4]: [Color; 4]) -> f32 {
+    let cross = |a: f32, b: f32, c: f32, d: f32| (a - b + c - d).abs();
+    cross(c1.r, c2.r, c3.r, c4.r)
+        .max(cross(c1.g, c2.g, c3.g, c4.g))
+        .max(cross(c1.b, c2.b, c3.b, c4.b))
+        .max(cross(c1.a, c2.a, c3.a, c4.a))
 }
 
 /// How far a patch's flattened boundary may sit from the surface §8.7.4.5.7 defines, in device
@@ -2154,14 +2309,12 @@ impl SurfacePatch {
         };
 
         // The bilinear cross term, per channel, and the largest of them: §10.7.3's "maximum
-        // independent error".
-        let cross = |a: f32, b: f32, c: f32, d: f32| (a - b + c - d).abs();
-        let span = match self.corners {
-            PatchCorners::Colours([c1, c2, c3, c4]) => cross(c1.r, c2.r, c3.r, c4.r)
-                .max(cross(c1.g, c2.g, c3.g, c4.g))
-                .max(cross(c1.b, c2.b, c3.b, c4.b))
-                .max(cross(c1.a, c2.a, c3.a, c4.a)),
-            PatchCorners::Parameters([t1, t2, t3, t4]) => cross(t1, t2, t3, t4),
+        // independent error" — over the four corners, or over each cell of a lattice, whose
+        // steps are then counted per cell.
+        let (span, lattice) = match &self.corners {
+            PatchCorners::Colours(corners) => (cross_term(*corners), (1, 1)),
+            PatchCorners::Parameters([t1, t2, t3, t4]) => ((t1 - t2 + t3 - t4).abs(), (1, 1)),
+            PatchCorners::Grid(grid) => (grid.largest_cross_term(), grid.cells()),
         };
         let smooth = if smoothness > 0.0 && span.is_finite() {
             let steps = (span / (4.0 * smoothness)).sqrt().ceil();
@@ -2182,9 +2335,26 @@ impl SurfacePatch {
         } else {
             1
         };
+        // A whole number of steps in each lattice cell, so that every cell drawn lies inside
+        // one cell of the lattice and its corners are mixed from that cell's four colours alone;
+        // a lattice of one cell is the four corners, and the rounding is then the identity.
+        let axis = |silhouette: u32, cells: u32| {
+            let cells = cells.max(1);
+            let wanted = silhouette.max(smooth.saturating_mul(cells)).max(cells);
+            let most = MAX_PATCH_STEPS
+                .checked_div(cells)
+                .unwrap_or(1)
+                .max(1)
+                .saturating_mul(cells);
+            wanted
+                .div_ceil(cells)
+                .saturating_mul(cells)
+                .min(most)
+                .min(cap)
+        };
         (
-            flatten(along_u).max(smooth).min(cap),
-            flatten(along_v).max(smooth).min(cap),
+            axis(flatten(along_u), lattice.0),
+            axis(flatten(along_v), lattice.1),
         )
     }
 
@@ -2207,26 +2377,22 @@ impl SurfacePatch {
     /// largest `u`. Nesting them the other way round answers with the largest `u` instead,
     /// which is the clause's *tie-breaker* promoted over its rule (ADR 0778).
     pub fn tessellate(&self, steps: (u32, u32), out: &mut Vec<Triangle>) {
-        match self.corners {
+        match &self.corners {
             PatchCorners::Colours(corners) => self.grid(
                 steps,
                 out,
-                corners,
-                |a, b, t| Color {
-                    r: a.r + (b.r - a.r) * t,
-                    g: a.g + (b.g - a.g) * t,
-                    b: a.b + (b.b - a.b) * t,
-                    a: a.a + (b.a - a.a) * t,
-                },
+                |u, v| bilinear_of(*corners, u, v, mix_colours),
                 Corners::Colours,
             ),
             PatchCorners::Parameters(corners) => self.grid(
                 steps,
                 out,
-                corners,
-                |a, b, t| a + (b - a) * t,
+                |u, v| bilinear_of(*corners, u, v, |a, b, t| a + (b - a) * t),
                 Corners::Parameters,
             ),
+            PatchCorners::Grid(lattice) => {
+                self.grid(steps, out, |u, v| lattice.colour_at(u, v), Corners::Colours);
+            }
         }
     }
 
@@ -2239,8 +2405,7 @@ impl SurfacePatch {
         &self,
         steps: (u32, u32),
         out: &mut Vec<Triangle>,
-        corners: [T; 4],
-        mix: impl Fn(T, T, f32) -> T,
+        value_at: impl Fn(f32, f32) -> T,
         wrap: impl Fn([T; 3]) -> Corners,
     ) {
         let (across, down) = (steps.0.max(1), steps.1.max(1));
@@ -2252,11 +2417,7 @@ impl SurfacePatch {
             for v_step in 0..=down {
                 let (u, v) = (u_step as f32 / across as f32, v_step as f32 / down as f32);
                 points.push(self.point_at(u, v));
-                // The corners are `c1` at (0,0), `c2` at (0,1), `c3` at (1,1) and `c4` at
-                // (1,0), matching the order the control points visit them.
-                let top = mix(corners[0], corners[1], v);
-                let bottom = mix(corners[3], corners[2], v);
-                values.push(mix(top, bottom, u));
+                values.push(value_at(u, v));
             }
         }
 
@@ -2282,6 +2443,14 @@ impl SurfacePatch {
             }
         }
     }
+}
+
+/// §8.7.4.5.7's bilinear interpolation of four corners at `(u, v)`: `c1` at (0,0), `c2` at
+/// (0,1), `c3` at (1,1) and `c4` at (1,0), matching the order the control points visit them.
+fn bilinear_of<T: Copy>(corners: [T; 4], u: f32, v: f32, mix: impl Fn(T, T, f32) -> T) -> T {
+    let top = mix(corners[0], corners[1], v);
+    let bottom = mix(corners[3], corners[2], v);
+    mix(top, bottom, u)
 }
 
 /// The four cubic Bernstein basis values at `t`.
@@ -2340,11 +2509,12 @@ impl PatchMesh {
                 .iter()
                 .map(|patch| SurfacePatch {
                     net: patch.net,
-                    corners: match patch.corners {
+                    corners: match &patch.corners {
                         PatchCorners::Colours(corners) => {
                             PatchCorners::Colours(corners.map(|colour| map(&colour)))
                         }
-                        parameters @ PatchCorners::Parameters(_) => parameters,
+                        PatchCorners::Grid(lattice) => PatchCorners::Grid(lattice.map(map)),
+                        parameters @ PatchCorners::Parameters(_) => parameters.clone(),
                     },
                 })
                 .collect(),
@@ -2489,9 +2659,12 @@ impl Triangle {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::{
-        Corners, MESH_PARALLEL_FLOOR, MeshRaster, PatchCorners, PatchMesh, Placed, Ramp, Stop,
-        SurfacePatch, Triangle, blend_parameter, on_the_line, rasterise, simplify,
+        Corners, MAX_PATCH_GRID_CELLS, MAX_PATCH_STEPS, MESH_PARALLEL_FLOOR, MeshRaster,
+        PatchCorners, PatchGrid, PatchMesh, Placed, Ramp, Stop, SurfacePatch, Triangle,
+        blend_parameter, on_the_line, rasterise, simplify,
     };
     use crate::{Color, Point, Transform};
 
@@ -3176,6 +3349,93 @@ mod tests {
         assert_eq!(patch.steps(Transform::IDENTITY, 1.0 / 4096.0, 2), (1, 1));
     }
 
+    /// A lattice whose counts and colours disagree, or whose counts pass the bound, is not one:
+    /// the decoder on the far side of the sandbox builds it through the same constructor.
+    #[test]
+    fn a_patch_lattice_is_refused_where_its_counts_and_colours_disagree() {
+        let colours = |count: usize| Arc::from(vec![Color::BLACK; count]);
+        assert!(PatchGrid::new((0, 1), colours(2)).is_none(), "no cells");
+        assert!(
+            PatchGrid::new((MAX_PATCH_GRID_CELLS + 1, 1), colours(68)).is_none(),
+            "past the bound"
+        );
+        assert!(
+            PatchGrid::new((2, 1), colours(5)).is_none(),
+            "a point short"
+        );
+        assert!(
+            PatchGrid::new((2, 1), colours(6)).is_some(),
+            "three by two points"
+        );
+        let most = MAX_PATCH_GRID_CELLS as usize + 1;
+        assert!(
+            PatchGrid::new(
+                (MAX_PATCH_GRID_CELLS, MAX_PATCH_GRID_CELLS),
+                colours(most * most)
+            )
+            .is_some(),
+            "the bound itself is admitted"
+        );
+    }
+
+    /// A lattice cell's interior is mixed from that cell's four corners and no others, which is
+    /// what ISO 32000-2 §8.7.4.4 asks of a patch converted between its corners: here the colour
+    /// is white at `u = ½` and black at both ends, so four corners alone would draw it black
+    /// throughout, and the lattice draws white down its middle and grey halfway to it.
+    #[test]
+    fn a_lattice_patch_takes_each_cells_own_corners() {
+        let lattice = PatchGrid::new(
+            (2, 1),
+            Arc::from(vec![
+                Color::BLACK,
+                Color::BLACK,
+                Color::WHITE,
+                Color::WHITE,
+                Color::BLACK,
+                Color::BLACK,
+            ]),
+        )
+        .expect("three by two points");
+        let middle = lattice.colour_at(0.5, 0.3);
+        assert!((middle.r - 1.0).abs() < 1e-6, "white at u = ½: {middle:?}");
+        let halfway = lattice.colour_at(0.25, 0.9);
+        assert!((halfway.g - 0.5).abs() < 1e-6, "grey at u = ¼: {halfway:?}");
+        let patch = SurfacePatch {
+            net: flat_patch().net,
+            corners: PatchCorners::Grid(lattice),
+        };
+        let mut out = Vec::new();
+        patch.tessellate((2, 1), &mut out);
+        let white = out
+            .iter()
+            .filter(|triangle| match triangle.corners {
+                Corners::Colours(colours) => colours.contains(&Color::WHITE),
+                Corners::Parameters(_) => false,
+            })
+            .count();
+        assert_eq!(white, 4, "every triangle meets the white column at u = ½");
+    }
+
+    /// A device draws a lattice patch at a whole number of its steps per lattice cell, so that
+    /// every cell it draws lies inside one lattice cell — and never coarser in the silhouette
+    /// than the same patch with four corners would be.
+    #[test]
+    fn a_lattice_patch_is_drawn_a_whole_number_of_steps_per_cell() {
+        let lattice = PatchGrid::new((4, 2), Arc::from(vec![Color::BLACK; 15]))
+            .expect("five by three points");
+        let mut patch = curved_patch();
+        let corners = patch.steps(Transform::scale(4.0, 4.0), 1.0 / 256.0, 1 << 16);
+        patch.corners = PatchCorners::Grid(lattice);
+        let (across, down) = patch.steps(Transform::scale(4.0, 4.0), 1.0 / 256.0, 1 << 16);
+        assert_eq!(across % 4, 0, "{across} steps along u over four cells");
+        assert_eq!(down % 2, 0, "{down} steps along v over two cells");
+        assert!(
+            across >= corners.0 && down >= corners.1,
+            "the silhouette's own fineness, {corners:?}, is kept: ({across}, {down})"
+        );
+        assert!(across <= MAX_PATCH_STEPS && down <= MAX_PATCH_STEPS);
+    }
+
     /// The cells come out in `(v, u)` order, which is ISO 32000-2 §8.7.4.5.7's precedence for a
     /// patch that folds onto itself: "the point selected shall be the one with the largest
     /// value of v . If multiple points have the same v , the one with the largest value of u
@@ -3224,7 +3484,7 @@ mod tests {
             ]),
         };
         let mesh = PatchMesh {
-            patches: std::sync::Arc::from(vec![patch]),
+            patches: Arc::from(vec![patch]),
             smoothness: 1.0 / 256.0,
         };
         let raster = MeshRaster::build(&[], Some(&mesh), None, Transform::IDENTITY, 128, 128)

@@ -42,7 +42,7 @@
 //! producer wrote.
 
 use super::prepare::{DestinationProfile, ProfileSource};
-use pdf_archive::survey::{DeviceFamily, SpaceKind, Survey};
+use pdf_archive::survey::{DeviceFamily, ProcessCmykOverprint, SpaceKind, Survey};
 use pdf_model::icc::Identification;
 use pdf_syntax::Document;
 use pdf_syntax::object::{Name, Object, ObjectId};
@@ -149,20 +149,23 @@ const SUPPLIED_NOT_CMYK: &str = "this file draws in DeviceCMYK, or blends a tran
      --output-intent-profile is not a CMYK one either. ISO 32000-2 \u{a7}8.6.5.6 requires a \
      DefaultCMYK to have four components, so only a CMYK press profile answers it";
 
-/// Why no `DefaultCMYK` is written for a file whose `DeviceCMYK` marks overprint under mode 1, or
-/// whose content walk a bound stopped before it could say that none do.
+/// Why no `DefaultCMYK` is written for a file whose `DeviceCMYK` marks overprint under a mode 1
+/// no rewrite of this conversion sets to 0, or whose content walk a bound stopped before it could
+/// say that none do.
 ///
 /// A `DefaultCMYK` over an ICC profile makes every `DeviceCMYK` colour an `ICCBased` CMYK one
 /// (ISO 32000-2 §8.6.5.6), and ISO 19005-2 and ISO 19005-4 section 6.2.4.2 forbid overprint mode 1
 /// for an `ICCBased` CMYK mark with overprinting on. Writing the default would leave the file
-/// failing a clause the output check does not see, for the operator's press as for the assumed
-/// one, so neither is written (`doc/adr/2518`).
+/// failing that clause, for the operator's press as for the assumed one, so neither is written
+/// and the refusal is this one rather than the output's own verdict (`doc/adr/2518`,
+/// `doc/adr/2541`).
 const OVERPRINT_MODE_ONE: &str = "this file paints in DeviceCMYK with overprinting on and overprint \
      mode 1, or its content could not be read to the end to say that it does not, and a \
      DefaultCMYK over an ICC profile makes those marks ICCBased CMYK marks, for which ISO 19005 \
      section 6.2.4.2 forbids overprint mode 1. No DefaultCMYK is written for it, whatever press \
-     is named: nothing this program does sets the overprint mode to 0 behind a DefaultCMYK, \
-     and a file left with the mode would not conform";
+     is named: the mode is set by a graphics state this conversion does not set to 0, because \
+     no ICCBased CMYK mark of the file's own is painted under it, and a file left with the mode \
+     would not conform";
 
 /// Why no default is written for a document whose content selects no `DeviceCMYK`.
 const NOTHING_IN_CMYK: &str = "nothing this document draws selects DeviceCMYK, so a DefaultCMYK \
@@ -186,6 +189,21 @@ pub(super) fn draws_in_cmyk(survey: &Survey) -> bool {
         || survey.group_spaces().iter().any(|group| {
             group.kind == SpaceKind::Device(DeviceFamily::Cmyk) && group.default.explicit.is_none()
         })
+}
+
+/// Whether a `DeviceCMYK` mark painted under a non-zero overprint mode leaves that mode only
+/// through the graphics state the file's own `ICCBased` CMYK marks already ask
+/// `overprint::zeroing` to set to 0.
+///
+/// That function zeroes every state in [`Survey::icc_overprint_mode_sources`] and refuses inside
+/// a group blending in four components, so a mark governed by one of those states and blended
+/// in three is one a written default leaves under mode 0; any other keeps mode 1 once the
+/// default makes it an `ICCBased` mark.
+fn zeroed_with_the_icc_marks(survey: &Survey, mark: &ProcessCmykOverprint) -> bool {
+    !mark.in_four_components
+        && mark
+            .mode_set_by
+            .is_some_and(|id| survey.icc_overprint_mode_sources().contains(&Some(id)))
 }
 
 /// Prepares the `/DefaultCMYK`: the operator's profile as a stream, and the `ICCBased` array.
@@ -219,10 +237,18 @@ pub(super) fn prepare(
     if !survey.is_some_and(draws_in_cmyk) {
         return Err(Because::NotBuiltYet(NOTHING_IN_CMYK));
     }
-    // The output check does not see a mark a `DefaultCMYK` turns into an `ICCBased` one, so the
-    // default is not written where the walk found such a mark with the mode, or was stopped by a
-    // bound before it could say there is none (`doc/adr/2518`, as `overprint::zeroing` does).
-    if survey.is_some_and(|s| s.stopped_short() || !s.process_cmyk_overprints().is_empty()) {
+    // A `DefaultCMYK` turns every `DeviceCMYK` mark under the mode into an `ICCBased` one, which
+    // section 6.2.4.2 forbids the mode for. The default is written only where each such mark's
+    // mode is set by a graphics state `overprint::zeroing` sets to 0 for the file's own
+    // `ICCBased` marks, and never past a walk a bound stopped before it could say there is no
+    // other (`doc/adr/2518`, `doc/adr/2541`).
+    if survey.is_some_and(|s| {
+        s.stopped_short()
+            || !s
+                .process_cmyk_overprints()
+                .iter()
+                .all(|mark| zeroed_with_the_icc_marks(s, mark))
+    }) {
         return Err(Because::NotBuiltYet(OVERPRINT_MODE_ONE));
     }
     let missing = Because::NotBuiltYet(NO_SPARE_OBJECT);

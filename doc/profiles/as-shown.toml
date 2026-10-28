@@ -41,11 +41,18 @@ recovered-structure = "discard"
 # stopped, not about throwing things away.
 # ---------------------------------------------------------------------------------------------
 
+# An attachment the target does not admit (R15, doc/adr/2490): what a reader can read of an attachment is kept where the window shows it.
+# Each file is its own answer (doc/adr/2536): one this reader can set as text is laid out on
+# appended pages (attachment-as-pages), and one it cannot is removed and named (embedded-file).
 [site."embedded-files/embedded-file-is-itself-pdfa"]
-remedy = "discard"
+remedy = "preserve"
+placement = "append"
+on-failure = "discard"
 
 [site."embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile"]
-remedy = "discard"
+remedy = "preserve"
+placement = "append"
+on-failure = "discard"
 
 [site."embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile".target."4f"]
 remedy = "preserve"

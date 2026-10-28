@@ -175,8 +175,7 @@ would cost live with the item rather than here.
 here: a stream whose data is in an external file (§7.3.8.1 — the renderer has no filesystem, principle 3),
 §12.6.4's sound and movie actions (clause 13's media engine, which the clauses themselves hand
 over), a launch action naming an application (principle 3's sandbox), an appearance-less caret and a stamp's legend (`doc/questions/A72`'s bound, ADR 1367), a filled degenerate subpath's device pixel (§8.5.3.3.1, which the clause
-itself calls "device-dependent and not generally useful"), grid-fitting a stroke's
-coordinates under `/SA`, built off by default until the owner answers `doc/questions/Q714` (see `_scan-conversion.md`), the output medium's white point that
+itself calls "device-dependent and not generally useful"), the output medium's white point that
 `AbsoluteColorimetric` asks to be left uncorrected (ADR 1032 selects a profile's transform by
 intent and §8.6.5.8's row carries what that name still owes), and **a glyph a document's own
 embedded subset does not contain**, which

@@ -1048,3 +1048,77 @@ fn an_unticked_check_box_is_saved_off_in_both_entries() {
     assert_eq!(name_of(&document, "V"), Some(b"Off".to_vec()));
     assert_eq!(name_of(&document, "AS"), Some(b"Off".to_vec()));
 }
+
+/// One empty page and nothing else, built here so the test needs no corpus.
+fn one_empty_page() -> Vec<u8> {
+    let body = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+                2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+                3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] \
+                /Resources << >> /Contents 4 0 R >>\nendobj\n\
+                4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n";
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// An added free text annotation whose text no face this program may write covers is written
+/// without an appearance **and named**, rather than written without one in silence.
+///
+/// §12.5.2: "A PDF writer shall include an appearance dictionary when writing or updating the
+/// PDF file except for the two cases listed below", and a free text annotation is neither case,
+/// so a save that cannot construct one departs from the clause and `Written::unappeared` is where
+/// it says so. U+10FFFD is a private-use code point of plane 16, which no face states a glyph
+/// for, so the layout declines whatever this machine holds; where a face does state one, the
+/// annotation is written with its appearance and the test says so and stops (ADR 1154).
+#[test]
+fn an_added_note_no_face_can_set_is_named_rather_than_written_bare_in_silence() {
+    let document = Document::open(one_empty_page()).expect("the fixture opens");
+    let page = pdf_model::Pages::new(&document)
+        .get(0)
+        .expect("page one")
+        .id
+        .expect("a page reached through the tree is an object");
+    let mut view = ViewState::of(&document);
+    let added = view
+        .add_free_text(
+            &document,
+            page,
+            [20.0, 20.0, 180.0, 80.0],
+            "\u{10FFFD}",
+            [0.0, 0.0, 0.0],
+        )
+        .expect("a rectangle with area is something to write in");
+    let written = view.save(&document).expect("the fixture can be written");
+    let saved = Document::open(written.bytes).expect("what was written can be read");
+    if entry(&saved, added, "AP").as_dict().is_some() {
+        eprintln!("skipped: a face on this machine states a glyph for U+10FFFD");
+        return;
+    }
+    assert_eq!(
+        written.unappeared,
+        vec![added],
+        "the annotation written with no appearance is named"
+    );
+    assert_eq!(
+        entry(&saved, added, "Contents")
+            .as_string()
+            .map(pdf_syntax::text_string::text_string),
+        Some("\u{10FFFD}".to_owned()),
+        "the text is carried for the next reader to lay out from Table 177's /DA"
+    );
+}

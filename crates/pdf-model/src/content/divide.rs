@@ -1391,7 +1391,7 @@ impl Interpreter<'_> {
         if !self.readings.carried_by_join(readings) {
             return Some("a piece changed §11.6.4.3's record of the page's alpha readings");
         }
-        if self.blending_changed || self.black_generation_painted || self.nested_space_departed {
+        if self.blending_changed || self.nested_space_departed {
             return Some("a piece changed the page's compositing record");
         }
         match self.presses.named() {

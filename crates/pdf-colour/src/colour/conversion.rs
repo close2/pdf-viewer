@@ -150,19 +150,6 @@ impl<'a> ConversionContext<'a> {
         self.key() == conversion.key()
     }
 
-    /// [`Conversion::bypasses_black_generation`], asked of the borrowed context.
-    ///
-    /// The one definition: the interpreter asks it of every solid fill, stroke and glyph until
-    /// the page has reported a bypass, and an owned conversion built only to ask it would clone
-    /// up to five `Arc`s per mark (review 1704, finding 2; ADR 2258).
-    #[must_use]
-    pub fn bypasses_black_generation(self, space: &ColourSpace) -> bool {
-        self.black_generation.is_some()
-            && matches!(space, ColourSpace::Rgb)
-            && self.cmyk_group.is_none()
-            && matches!(self.into, Compositing::Subtractive(_, press, _) if press.converts_in_by_profile())
-    }
-
     /// Retains this complete context, including identity-bearing references.
     ///
     /// Named for what it returns: `ToOwned::to_owned` would return this type's owned form, and
@@ -369,21 +356,23 @@ impl Conversion {
         )
     }
 
-    /// §10.4.2.4's pair this conversion carries, if the state stated one.
-    #[must_use]
-    pub fn black_generation(&self) -> Option<&BlackGeneration> {
-        self.black_generation.as_deref()
-    }
-
-    /// Whether painting `space` bypasses a stated §11.7.5.3 black-generation pair.
+    /// §10.4.2.4's pair as §11.7.5.3 applies it to this conversion's target: the state's own,
+    /// where it stated one and the group painted into is not an `ICCBased` one.
     ///
-    /// The first bullet applies only to `DeviceRGB` painted directly into `DeviceCMYK`.
-    /// An `ICCBased` group, including a remapped `DeviceCMYK`, is not that target. A
-    /// `DeviceCMYK` group characterised by its output intent instead converts through the
-    /// profile's B2A table, where the pair has no step to act on (ADR 2187).
+    /// ISO 32000-2 §11.7.5.3 conditions the pair on its target as well as on its source:
+    ///
+    /// > A similar approach works for the black-generation and undercolour-removal functions,
+    /// > which shall be applied only during conversion from DeviceRGB to DeviceCMYK colour spaces:
+    ///
+    /// A group whose blending space is an `ICCBased` CMYK one — stated, or a `/DefaultCMYK`
+    /// remapping its `DeviceCMYK` — is what `cmyk_group` names, and converting into it is not a
+    /// conversion to `DeviceCMYK` (ADR 2170). A `DeviceCMYK` group keeps the pair whichever
+    /// press it is composited in, the output intent's included (ADR 2549).
     #[must_use]
-    pub fn bypasses_black_generation(&self, space: &ColourSpace) -> bool {
-        self.context().bypasses_black_generation(space)
+    pub fn black_generation_in_force(&self) -> Option<&BlackGeneration> {
+        self.black_generation
+            .as_deref()
+            .filter(|_| self.cmyk_group.is_none())
     }
 
     /// The colour `values` become, through [`Compositing::paint_beside`].
@@ -394,7 +383,7 @@ impl Conversion {
             space,
             values,
             self.rendering,
-            self.black_generation(),
+            self.black_generation_in_force(),
         )
     }
 }

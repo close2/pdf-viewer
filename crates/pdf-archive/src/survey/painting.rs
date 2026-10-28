@@ -4,7 +4,7 @@ use crate::finding::Where;
 
 use super::{
     Cmyk, Context, DeviceFamily, IccCmykPaint, Observation, ProcessCmykOverprint, Route, Selected,
-    State, Walk, blends_in_four_components,
+    State, ThroughDefault, Walk, blends_in_four_components,
 };
 
 impl Walk<'_> {
@@ -24,19 +24,29 @@ impl Walk<'_> {
                 state.blending.kind,
             );
         }
-        if fill && state.fill_cmyk == Cmyk::Icc {
-            self.record_icc_paint(false, state.overprint.fill, state, context);
-        }
-        if stroke && state.stroke_cmyk == Cmyk::Icc {
-            self.record_icc_paint(true, state.overprint.stroke, state, context);
-        }
-        // §8.6.7: the mode "shall have an effect only when the overprint parameter is true".
-        if state.overprint.mode != 0 {
-            if fill && state.fill_cmyk == Cmyk::Process && state.overprint.fill {
-                self.record_process_overprint(false, state, context);
+        for (painted, cmyk, overprinting, stroking) in [
+            (fill, state.fill_cmyk, state.overprint.fill, false),
+            (stroke, state.stroke_cmyk, state.overprint.stroke, true),
+        ] {
+            if !painted {
+                continue;
             }
-            if stroke && state.stroke_cmyk == Cmyk::Process && state.overprint.stroke {
-                self.record_process_overprint(true, state, context);
+            match cmyk {
+                Cmyk::Icc => self.record_icc_paint(stroking, overprinting, None, state, context),
+                Cmyk::Remapped(through) => {
+                    self.record_icc_paint(stroking, overprinting, Some(through), state, context);
+                }
+                Cmyk::Process | Cmyk::Neither => {}
+            }
+            // §8.6.7: the mode "shall have an effect only when the overprint parameter is true".
+            // A mark only an inherited default remaps is still the `DeviceCMYK` one parts 2 and 3
+            // read (`ThroughDefault::Inherited`), so it is recorded under both readings.
+            let process = matches!(
+                cmyk,
+                Cmyk::Process | Cmyk::Remapped(ThroughDefault::Inherited)
+            );
+            if process && overprinting && state.overprint.mode != 0 {
+                self.record_process_overprint(stroking, state, context);
             }
         }
     }
@@ -67,6 +77,7 @@ impl Walk<'_> {
         &mut self,
         stroking: bool,
         overprinting: bool,
+        through_default: Option<ThroughDefault>,
         state: &State,
         context: &Context<'_>,
     ) {
@@ -83,6 +94,7 @@ impl Walk<'_> {
             stroking,
             overprinting,
             mode,
+            through_default,
         )) {
             return;
         }
@@ -93,6 +105,7 @@ impl Walk<'_> {
             stroking,
             overprinting,
             mode,
+            through_default,
         });
     }
 }

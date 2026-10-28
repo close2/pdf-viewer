@@ -240,6 +240,27 @@ impl Host {
         glib::idle_add_local_once(move || with(&me, Self::open_the_next));
     }
 
+    /// What the document in front owes once a frame of it is on the screen
+    /// (`viewer_host::report::owed`), from the main loop once this paint has let go.
+    ///
+    /// The paint that found the frame is the moment for a tab whose page was drawn while it was
+    /// behind, which the viewer's answer for a page never reaches (ADR 2544). The document is
+    /// named now and checked again then, so a tab switched in between keeps its own report for
+    /// its own frame.
+    pub(super) fn later_ask_what_it_owes(&self) {
+        let me = self.me.clone();
+        let document = self.state.documents.focused();
+        glib::idle_add_local_once(move || {
+            with(&me, |host| {
+                if host.state.documents.focused() == document
+                    && host.state.showing.report_due.after_a_frame()
+                {
+                    host.pump(viewer_host::report::owed().into());
+                }
+            });
+        });
+    }
+
     /// Closes the document in front, or the window where it is the only one.
     ///
     /// `viewer_host::documents::Close::Last` is where the two part: a window with one document

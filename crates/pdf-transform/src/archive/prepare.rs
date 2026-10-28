@@ -38,6 +38,7 @@ use super::sites::{
     self, AppearanceStates, ColorantEntries, CompletedOrders, DescriptorSets, PageResources,
     SharedProfile, Sites, StandardEncodings, StandardRouteNames, Type3Renames,
 };
+use super::statement;
 use super::tagged;
 use super::to_unicode::{self, DerivedMaps};
 use super::{ArchivePlan, COMPRESSION_LEVEL};
@@ -890,6 +891,9 @@ pub(super) struct Prepared {
     /// says otherwise, so nothing is composed, no font is loaded and no page is measured for a
     /// document that asked for none.
     pub(super) preserved: Result<Composed, Because>,
+    /// What became of each embedded file the embedded-file requirements failed at, one entry per
+    /// file (`doc/adr/2536`); empty where none failed or the files are derived rather than removed.
+    pub(super) attachments: Vec<super::report::AttachmentOutcome>,
     /// The producer's own bytes kept as embedded files, or why none can be.
     ///
     /// `doc/adr/1270`, and the field is `Err(NOT_ASKED_FOR)` for every conversion whose caller
@@ -912,6 +916,9 @@ pub(super) struct Prepared {
     /// get the remedy either, exactly as `doc/questions/A48`'s constructions do not. The permission
     /// and its condition are one thing.
     pub(super) recorded_provenance: bool,
+    /// Whether pages appended from a derived file were licensed by that file's own output intent,
+    /// which does not come across, so that the archive's intent licenses them (`doc/adr/2539`).
+    pub(super) derived_pages_need_an_intent: bool,
 }
 
 /// What this conversion has to write into the document's own provenance.
@@ -962,6 +969,35 @@ impl Prepared {
             && let Ok(alternates) = super::icc::Alternates::of(document, reading)
         {
             for family in alternates.families {
+                failed.insert(match family {
+                    DeviceFamily::Gray => DEVICE_GRAY_ROW,
+                    DeviceFamily::Rgb => DEVICE_RGB_ROWS[0],
+                    DeviceFamily::Cmyk => DEVICE_CMYK_ROWS[0],
+                });
+            }
+        }
+        // The same for a derived file's appended pages: their device colour was licensed by the
+        // derived file's own output intent, which does not come across, so the archive's intent
+        // is prepared as the colour of that intent's family would ask for it (`doc/adr/2539`).
+        // A drawn attachment's pages the same way (`doc/adr/2536`): a converted PDF's colour was
+        // licensed by its own intent, and an image's samples are in the family its file states.
+        let mut derived_pages_need_an_intent = false;
+        let drawn = remedies
+            .drawn
+            .values()
+            .filter_map(|drawn| drawn.as_ref().ok())
+            .map(|file| (file.site, &file.families));
+        for (site, families) in remedies
+            .appended
+            .values()
+            .map(|file| (file.site, &file.families))
+            .chain(drawn)
+        {
+            if !failed.contains(site) {
+                continue;
+            }
+            derived_pages_need_an_intent |= !families.is_empty();
+            for family in families {
                 failed.insert(match family {
                     DeviceFamily::Gray => DEVICE_GRAY_ROW,
                     DeviceFamily::Rgb => DEVICE_RGB_ROWS[0],
@@ -1327,6 +1363,28 @@ impl Prepared {
             }
             sites::interactive_form(document)
         });
+        // **Read before the pages are composed and after the annotations' removal**: an
+        // attachment the plan appends as pages is one of these files, and a file attachment
+        // annotation section 6.3.1 takes off the page no longer reaches its file (`doc/adr/2536`).
+        let as_pages = ATTACHMENT_REQUIREMENTS.into_iter().any(|site| {
+            failed.contains(site)
+                && (plan
+                    .preservations
+                    .iter()
+                    .any(|preservation| preservation.site == site && preservation.by_page)
+                    || appends_derived_pages(remedies, site))
+        });
+        let embedded_files = asked(wanted(Rewrite::EmbeddedFileRemoved), || {
+            sites::embedded_files(
+                document,
+                input,
+                forbidden_annotations
+                    .as_ref()
+                    .ok()
+                    .map(|removals| &removals.at),
+                as_pages,
+            )
+        });
         let preserved = the_preserved_pages(
             plan,
             document,
@@ -1334,7 +1392,9 @@ impl Prepared {
             properties.as_ref(),
             fresh.as_ref(),
             forbidden_annotations.as_ref(),
+            embedded_files.as_ref(),
             intent.is_ok() || states_an_output_intent(document, catalog.as_ref()),
+            remedies,
             &mut spare,
         );
         let attached = the_attached_files(
@@ -1345,12 +1405,30 @@ impl Prepared {
             fresh.as_ref(),
             xfa.as_ref().ok().copied(),
             forbidden_annotations.as_ref().ok(),
+            embedded_files.as_ref().ok(),
             &mut spare,
         );
-        let preserved_history = preserved
-            .as_ref()
-            .ok()
-            .and_then(|composed| preserve::preserved_history(&composed.carried));
+        // The statement's own entry beside what the pages preserved: it carries no content of
+        // the document's, so it is not one of the rows `preserved_history` opens with
+        // `PRESERVED_AS_A_PAGE` (`doc/rfc/0014` section 4).
+        let preserved_history = preserved.as_ref().ok().and_then(|composed| {
+            let kept = preserve::preserved_history(&composed.carried);
+            let stated = composed
+                .statement
+                .as_ref()
+                .map(super::report::StatementPage::sentence);
+            match (kept, stated) {
+                (Some(kept), Some(stated)) => Some(format!("{kept}; {stated}")),
+                (kept, stated) => kept.or(stated),
+            }
+        });
+        let attachments = attachment_outcomes(
+            plan,
+            &failed,
+            embedded_files.as_ref().ok(),
+            preserved.as_ref().ok(),
+        );
+        let attachments_history = super::report::attachments_history(&attachments);
         let attached_history = attached
             .as_ref()
             .ok()
@@ -1457,11 +1535,21 @@ impl Prepared {
                 .as_ref()
                 .map(|metrics| metrics.at.clone())
                 .unwrap_or_default();
-            let asks = wanted(Rewrite::TrueTypeCmapRestated)
+            // The `.notdef` rows join the restatement only where every font they name has a
+            // TrueType program, because a font the restatement cannot carry refuses it whole,
+            // and the fonts the other rows name should not lose their answer to it
+            // (`doc/adr/2543`).
+            let notdef_too = wanted(Rewrite::NotdefGlyphGiven)
+                && fonts::TRUETYPE_NOTDEF_ROWS
+                    .iter()
+                    .any(|row| failed.contains(row))
+                && fonts::notdef_fonts_are_truetype(document, input);
+            let asks = (wanted(Rewrite::TrueTypeCmapRestated)
                 && (fonts::TRUETYPE_CMAP_ROWS
                     .iter()
                     .any(|row| failed.contains(row))
-                    || encoding_row_refused);
+                    || encoding_row_refused))
+                || notdef_too;
             let refused_anyway = !plan.authorised.grants(Loss::PageAsImage)
                 && failed.iter().any(|id| super::decision::answers_nothing(id));
             let cmap_restated = if asks && refused_anyway {
@@ -1473,7 +1561,7 @@ impl Prepared {
                         input,
                         &mut spare,
                         &restated_programs,
-                        encoding_row_refused,
+                        (encoding_row_refused, notdef_too),
                     )
                 })
             };
@@ -1517,6 +1605,7 @@ impl Prepared {
                 protection: provenance.protection,
                 recovered: provenance.recovered,
                 preserved: preserved_history.as_deref(),
+                attachments: attachments_history.as_deref(),
                 attached: attached_history.as_deref(),
                 transfers: transfer_history.as_deref(),
                 smoothing: smoothing_history.as_deref(),
@@ -1631,9 +1720,6 @@ impl Prepared {
                 Ok(FieldAppearances::default())
             }
         });
-        let embedded_files = asked(wanted(Rewrite::EmbeddedFileRemoved), || {
-            sites::embedded_files(document, input)
-        });
         let structure = structure_tree(wanted(Rewrite::MarkInfo), document, catalog.as_ref());
         // One reading of §12.6's action trees for the three rewrites the action clauses ask for,
         // and the rules in force are the ones *this document failed*: a rule the file already
@@ -1725,9 +1811,11 @@ impl Prepared {
             embedded_files,
             constructs_field_appearances: plan.forms.construct_appearances,
             preserved,
+            attachments,
             attached,
             information,
             recorded_provenance,
+            derived_pages_need_an_intent,
         }
     }
 
@@ -1826,6 +1914,11 @@ impl Prepared {
             }
             Rewrite::StandardRouteNames => self.owed.standard_route.as_ref().err().copied(),
             Rewrite::TrueTypeCmapRestated => self.owed.cmap_restated.as_ref().err().copied(),
+            Rewrite::NotdefGlyphGiven => match &self.owed.cmap_restated {
+                Err(because) => Some(*because),
+                Ok(restated) if restated.notdef_answered => None,
+                Ok(_) => Some(Because::NotBuiltYet(fonts::NOTDEF_NOT_GIVEN)),
+            },
             Rewrite::Type3NotdefRenamed => self.owed.type3_notdef.as_ref().err().copied(),
             Rewrite::SharedDestinationProfile => self.owed.shared_profile.as_ref().err().copied(),
             Rewrite::SpotColorantEntry => self.owed.colorants.as_ref().err().copied(),
@@ -2262,7 +2355,7 @@ pub(super) struct Already<'a> {
 /// The preparations that put a rendered TrueType font's codes on §9.6.5.4's route.
 ///
 /// Together because the restated `cmap` answers each of the three encoding rows where that
-/// row's own preparation refuses (`Answer::OrCmapRestated`), so the four are decided as one
+/// row's own preparation refuses (`Answer::OrStated`), so the four are decided as one
 /// (`doc/adr/2520`).
 struct TrueTypeRoutes {
     /// The symbolic fonts whose `/Encoding` is removed, or why none are.
@@ -4508,9 +4601,12 @@ fn the_preserved_pages(
     properties: Result<&Cleaned, &Because>,
     fresh: Result<&Fresh, &Because>,
     forbidden: Result<&ForbiddenAnnotations, &Because>,
+    embedded: Result<&sites::EmbeddedFiles, &Because>,
     has_output_intent: bool,
+    remedies: &super::remedies::Remedies,
     spare: &mut Spare,
 ) -> Result<Composed, Because> {
+    let appended = &remedies.appended;
     let asked = |site: &'static str| {
         plan.preservations
             .iter()
@@ -4589,7 +4685,105 @@ fn the_preserved_pages(
             relocate_marks(document, site, removals, &marks, spare).map(|plan| (site, plan))
         })
         .transpose()?;
-    if packets.is_empty() && replaced.is_empty() && annotation_site.is_none() {
+    // ISO 19005-2 section 6.8 and ISO 19005-4 section 6.9: the files the removal takes out, each
+    // laid out as pages where this reader can lay it out and answered by the row's `on-failure`
+    // where it cannot (`doc/adr/2536`).
+    // `derive:<tool>:append` reaches the same files by the derivation rather than a `preserve`
+    // row: each was converted by `super::derived`, and its pages are appended here.
+    let attachment_site = ATTACHMENT_REQUIREMENTS.into_iter().find(|site| {
+        asked(site) || (failed.contains(site) && appended.values().any(|file| file.site == *site))
+    });
+    let discard_attachments = attachment_site.is_some_and(|site| {
+        plan.preservations.iter().any(|preservation| {
+            preservation.site == site && preservation.no_page_carries == super::RemedyKind::Discard
+        })
+    });
+    let mut attachments = match attachment_site {
+        Some(site) => {
+            let files = embedded.map_err(|because| *because)?;
+            attachments_to_lay_out(
+                document,
+                site,
+                files,
+                discard_attachments,
+                (appended, &remedies.drawn),
+            )?
+        }
+        None => AttachmentsToLayOut::default(),
+    };
+    // **`append-statement`** (`doc/rfc/0014` section 4, `A706`): the loss `discard` takes, then
+    // one page listing every object it took. A row whose first step is the statement removes
+    // every file, as `discard` does; one whose statement follows `preserve:append` lists the files
+    // no page carried.
+    let stated = ATTACHMENT_REQUIREMENTS.into_iter().find_map(|site| {
+        plan.preservations
+            .iter()
+            .find(|preservation| preservation.site == site && failed.contains(site))
+            .and_then(|preservation| preservation.statement.as_ref())
+            .map(|asked| (site, asked))
+    });
+    if let Some((site, _)) = stated
+        && attachment_site != Some(site)
+    {
+        let files = embedded.map_err(|because| *because)?;
+        if files.each.len() > statement::MOST_STATED_OBJECTS {
+            return Err(Because::NotBuiltYet(statement::TOO_MANY_STATED));
+        }
+        attachments
+            .removed
+            .extend(
+                files
+                    .each
+                    .iter()
+                    .map(|(at, name)| super::report::AttachmentOutcome {
+                        site,
+                        object: *at,
+                        name: name.clone(),
+                        annotations: Vec::new(),
+                        answer: super::report::AttachmentAnswer::Removed(
+                            super::report::DISCARDED_BY_THE_ROW.to_owned(),
+                        ),
+                        stated_on: None,
+                    }),
+            );
+    }
+    let statement_text = match stated {
+        Some((_, asked)) if !attachments.removed.is_empty() => Some(
+            statement::text(
+                document,
+                plan.target,
+                &attachments.removed.iter().collect::<Vec<_>>(),
+                asked,
+            )
+            .map_err(Because::NotBuiltYet)?,
+        ),
+        _ => None,
+    };
+    if packets.is_empty()
+        && replaced.is_empty()
+        && annotation_site.is_none()
+        && attachments.texts.is_empty()
+        && attachments.derived.is_empty()
+        && attachments.drawn.is_empty()
+        && statement_text.is_none()
+    {
+        // Every file the row was asked about fell to its `on-failure`: nothing is composed, and
+        // the outcome per file is the whole of what the preservation did.
+        if !attachments.removed.is_empty() {
+            let mut composed = Composed {
+                written: Vec::new(),
+                pages: Vec::new(),
+                labels: None,
+                carried: Vec::new(),
+                relocations: BTreeMap::new(),
+                structure: None,
+                attachments: attachments.removed,
+                linked_annotations: BTreeMap::new(),
+                statement: None,
+            };
+            link_the_annotations(&mut composed, embedded);
+            return Ok(composed);
+        }
         return Err(Because::NotBuiltYet(NOT_ASKED_FOR));
     }
     let mut keeps: Vec<preserve::Keep<'_>> = packets
@@ -4619,6 +4813,119 @@ fn the_preserved_pages(
     // could not be relocated onto the producer's own page (`doc/adr/1123`'s two refusals) falls
     // back to the appended page, which is `doc/adr/1099`'s mechanism kept whole. So the fallback
     // marks join the keeps `compose` lays out, carrying the sentence that says why.
+    let first_attachment = keeps.len();
+    keeps.extend(
+        attachments
+            .texts
+            .iter()
+            .map(|(site, at, name, bytes)| preserve::Keep {
+                site,
+                subject: format!(
+                    "the embedded file {name} (file specification object {} {}), its text as the \
+                     file holds it",
+                    at.number, at.generation
+                ),
+                content: preserve::Kept::Text(bytes),
+                declined: None,
+            }),
+    );
+    // Each derived file's pages, one keep per page, after the texts: a site is answered by a
+    // `preserve` row or by a derivation and never both, so at most one of the two lists is full.
+    let first_derived = keeps.len();
+    if !attachments.derived.is_empty() && tagged::describes_its_content(document) {
+        return Err(Because::NotBuiltYet(
+            super::derived::DERIVED_PAGES_IN_A_TAGGED_DOCUMENT,
+        ));
+    }
+    let mut imported: Vec<(usize, Vec<(ObjectId, Object)>)> = Vec::new();
+    for (_, at, name, bytes) in &attachments.derived {
+        let pages = super::derived::import_pages(
+            document,
+            bytes,
+            document.limits(),
+            preserve::MOST_PAGES,
+            spare,
+        )?;
+        let count = pages.pages.len();
+        for (index, marks) in pages.pages.into_iter().enumerate() {
+            keeps.push(preserve::Keep {
+                site: attachments.derived_site(),
+                subject: format!(
+                    "page {} of the PDF derived from the embedded file {name} (file \
+                     specification object {} {}) and converted by this converter",
+                    index.saturating_add(1),
+                    at.number,
+                    at.generation
+                ),
+                content: preserve::Kept::Marks(marks),
+                declined: None,
+            });
+        }
+        imported.push((count, pages.written));
+    }
+    // Each drawn file's pages after the derived ones (`super::drawn`): a PDF's imported as a
+    // derived file's are, an image's one page of its own. A file whose pages cannot be written
+    // takes the row's `on-failure` like any other file no page carries.
+    let first_drawn = keeps.len();
+    let mut drawn_laid: Vec<DrawnLaid> = Vec::new();
+    for (site, at, name, file) in &attachments.drawn {
+        let pages = match &file.drawn {
+            super::remedies::Drawn::Pdf(bytes) => super::derived::import_pages(
+                document,
+                bytes,
+                document.limits(),
+                preserve::MOST_PAGES,
+                spare,
+            ),
+            super::remedies::Drawn::Image(image) => {
+                super::drawn::image_page(document, image, spare)
+            }
+        };
+        let pages = match pages {
+            Ok(pages) => pages,
+            Err(because) if discard_attachments => {
+                attachments.removed.push(super::report::AttachmentOutcome {
+                    site,
+                    object: *at,
+                    name: name.clone(),
+                    annotations: Vec::new(),
+                    answer: super::report::AttachmentAnswer::Removed(format!(
+                        "no page carries it, because {}",
+                        because.sentence()
+                    )),
+                    stated_on: None,
+                });
+                continue;
+            }
+            Err(because) => return Err(because),
+        };
+        let count = pages.pages.len();
+        let image = matches!(file.drawn, super::remedies::Drawn::Image(_));
+        for (index, marks) in pages.pages.into_iter().enumerate() {
+            keeps.push(preserve::Keep {
+                site,
+                subject: if image {
+                    format!(
+                        "the image the embedded file {name} (file specification object {} {}) \
+                         holds, drawn at one unit per sample",
+                        at.number, at.generation
+                    )
+                } else {
+                    format!(
+                        "page {} of the PDF the embedded file {name} (file specification object \
+                         {} {}) holds, converted by this converter",
+                        index.saturating_add(1),
+                        at.number,
+                        at.generation
+                    )
+                },
+                content: preserve::Kept::Marks(marks),
+                declined: None,
+            });
+        }
+        drawn_laid.push((site, *at, name.clone(), count, pages.written));
+    }
+    let drawn_keeps = keeps.len().saturating_sub(first_drawn);
     let relocation = annotation_site.map(|(site, plan)| {
         for (marks, subject, declined) in plan.fallback {
             keeps.push(preserve::Keep {
@@ -4630,7 +4937,164 @@ fn the_preserved_pages(
         }
         (plan.relocations, plan.written, plan.rows)
     });
-    let mut composed = preserve::compose(document, &keeps, has_output_intent, spare)?;
+    // Last, so that its row is the last `compose` writes and the pages it takes are the last.
+    let statement_site = stated.map(|(site, _)| site);
+    if let (Some(site), Some(text)) = (statement_site, statement_text.as_ref()) {
+        keeps.push(statement_keep(site, text));
+    }
+    let laid_out = attachments.texts.len();
+    // The text keeps a fallback composition leaves out, so that the rows after them are found.
+    let mut texts_dropped = 0;
+    let before = spare.next;
+    let mut composed = match preserve::compose(document, &keeps, has_output_intent, spare) {
+        Ok(composed) => composed,
+        // **A file no page can carry takes `on-failure`, and so does one whose page cannot be
+        // composed** (`doc/adr/2536`): with `discard`, the files set as text and the files drawn
+        // are removed and named with the composition's own sentence, and the rest of what the
+        // plan preserves is composed again without them. The numbers the failed attempt took
+        // are given back first; those the drawn files' imports took stay unused.
+        Err(because) if discard_attachments && (laid_out > 0 || drawn_keeps > 0) => {
+            spare.next = before;
+            let stated_keep = statement_text
+                .as_ref()
+                .map(|_| keeps.len().saturating_sub(1));
+            let mut others: Vec<preserve::Keep<'_>> = keeps
+                .into_iter()
+                .enumerate()
+                .filter(|(index, _)| {
+                    let text = (first_attachment..first_attachment.saturating_add(laid_out))
+                        .contains(index);
+                    let drawn =
+                        (first_drawn..first_drawn.saturating_add(drawn_keeps)).contains(index);
+                    !text && !drawn && Some(*index) != stated_keep
+                })
+                .map(|(_, keep)| keep)
+                .collect();
+            let taken = attachments
+                .texts
+                .iter()
+                .map(|(site, at, name, _)| (*site, *at, name.clone()))
+                .chain(
+                    drawn_laid
+                        .drain(..)
+                        .map(|(site, at, name, _, _)| (site, at, name)),
+                );
+            for (site, at, name) in taken {
+                attachments.removed.push(super::report::AttachmentOutcome {
+                    site,
+                    object: at,
+                    name,
+                    annotations: Vec::new(),
+                    answer: super::report::AttachmentAnswer::Removed(format!(
+                        "no page carries it, because {}",
+                        because.sentence()
+                    )),
+                    stated_on: None,
+                });
+            }
+            // The statement is written again over every file now removed, the ones the failed
+            // composition took with them included.
+            let restated = match stated {
+                Some((_, asked)) => Some(
+                    statement::text(
+                        document,
+                        plan.target,
+                        &attachments.removed.iter().collect::<Vec<_>>(),
+                        asked,
+                    )
+                    .map_err(Because::NotBuiltYet)?,
+                ),
+                None => None,
+            };
+            if let (Some(site), Some(text)) = (statement_site, restated.as_ref()) {
+                others.push(statement_keep(site, text));
+            }
+            if others.is_empty() {
+                let mut composed = Composed {
+                    written: Vec::new(),
+                    pages: Vec::new(),
+                    labels: None,
+                    carried: Vec::new(),
+                    relocations: BTreeMap::new(),
+                    structure: None,
+                    attachments: attachments.removed,
+                    linked_annotations: BTreeMap::new(),
+                    statement: None,
+                };
+                link_the_annotations(&mut composed, embedded);
+                return Ok(composed);
+            }
+            let composed = preserve::compose(document, &others, has_output_intent, spare)?;
+            attachments.texts.clear();
+            texts_dropped = laid_out;
+            composed
+        }
+        Err(because) => return Err(because),
+    };
+    if let Some(site) = statement_site.filter(|_| statement_text.is_some()) {
+        let page = the_statement_page(&mut composed, site, attachments.removed.len())?;
+        for outcome in &mut attachments.removed {
+            outcome.stated_on = Some(page);
+        }
+    }
+    // Each laid-out file's pages, read off the keep that carried it: `compose` writes one
+    // `Preserved` row per keep and in the keeps' order.
+    composed.attachments = attachments.removed;
+    for (row, (site, at, name, _)) in composed
+        .carried
+        .iter()
+        .skip(first_attachment)
+        .zip(&attachments.texts)
+    {
+        composed.attachments.push(super::report::AttachmentOutcome {
+            site,
+            object: *at,
+            name: name.clone(),
+            annotations: Vec::new(),
+            answer: super::report::AttachmentAnswer::AppendedAsPages(row.pages.clone()),
+            stated_on: None,
+        });
+    }
+    let mut rows = composed
+        .carried
+        .iter()
+        .skip(first_derived.saturating_sub(texts_dropped));
+    for ((site, at, name, _), (count, written)) in attachments.derived.iter().zip(imported) {
+        let pages: Vec<usize> = rows
+            .by_ref()
+            .take(count)
+            .flat_map(|row| row.pages.iter().copied())
+            .collect();
+        composed.written.extend(written);
+        composed.attachments.push(super::report::AttachmentOutcome {
+            site,
+            object: *at,
+            name: name.clone(),
+            annotations: Vec::new(),
+            answer: super::report::AttachmentAnswer::AppendedAsPages(pages),
+            stated_on: None,
+        });
+    }
+    for (site, at, name, count, written) in drawn_laid {
+        let pages: Vec<usize> = rows
+            .by_ref()
+            .take(count)
+            .flat_map(|row| row.pages.iter().copied())
+            .collect();
+        composed.written.extend(written);
+        composed.attachments.push(super::report::AttachmentOutcome {
+            site,
+            object: at,
+            name,
+            annotations: Vec::new(),
+            answer: super::report::AttachmentAnswer::AppendedAsPages(pages),
+            stated_on: None,
+        });
+    }
+    composed
+        .attachments
+        .sort_by_key(|outcome| (outcome.object.number, outcome.object.generation));
+    link_the_annotations(&mut composed, embedded);
     // **One act answers all three rows, and each of them gets a row saying so.** A stream's
     // packet is laid out once however many of ISO 19005-2 section 6.6.2.1's rules it broke, so
     // the pages are the same pages — and `super::configured` asks, per requirement, whether the
@@ -4654,6 +5118,334 @@ fn the_preserved_pages(
         composed.relocations = relocations;
     }
     Ok(composed)
+}
+
+/// Points each file attachment annotation that named a file at what became of the file.
+///
+/// §12.5.6.15's annotation stays on its page with the producer's appearance, as a §12.5.6.5 link
+/// to the first page its file was laid out on, or to nothing where its file was removed — either
+/// way it names no file, which is what the embedded-file requirement asks (`doc/adr/2537`). The
+/// appended pages are in page order, so the first page any row carries is the first appended.
+fn link_the_annotations(
+    composed: &mut Composed,
+    embedded: Result<&sites::EmbeddedFiles, &Because>,
+) {
+    let Ok(files) = embedded else {
+        return;
+    };
+    let first = composed
+        .carried
+        .iter()
+        .flat_map(|row| row.pages.iter().copied())
+        .min();
+    for (annotation, named) in &files.annotations {
+        let Some(outcome) = composed
+            .attachments
+            .iter_mut()
+            .find(|outcome| outcome.object == *named)
+        else {
+            continue;
+        };
+        let page = match &outcome.answer {
+            super::report::AttachmentAnswer::AppendedAsPages(pages) => pages
+                .first()
+                .zip(first)
+                .and_then(|(page, first)| page.checked_sub(first))
+                .and_then(|index| composed.pages.get(index))
+                .copied(),
+            super::report::AttachmentAnswer::Removed(_) => None,
+        };
+        outcome.annotations.push(*annotation);
+        composed.linked_annotations.insert(*annotation, page);
+    }
+}
+
+/// What became of each embedded file the embedded-file requirements failed at.
+///
+/// The preservation's own list where a `preserve` by page answered the site; otherwise one
+/// removal per file where the plan authorises `embedded-file` and neither derives nor preserves
+/// the site, which is what the table's `discard` does to each. A site answered by derivation
+/// reports through `Derived` rows instead, and one answered `stop` writes no output.
+fn attachment_outcomes(
+    plan: &ArchivePlan,
+    failed: &BTreeSet<&'static str>,
+    embedded: Option<&sites::EmbeddedFiles>,
+    preserved: Option<&Composed>,
+) -> Vec<super::report::AttachmentOutcome> {
+    if let Some(composed) = preserved
+        && !composed.attachments.is_empty()
+    {
+        return composed.attachments.clone();
+    }
+    let Some(files) = embedded else {
+        return Vec::new();
+    };
+    let Some(site) = ATTACHMENT_REQUIREMENTS.into_iter().find(|site| {
+        failed.contains(site)
+            && !plan.derivations.iter().any(|row| row.site == *site)
+            && !plan.preservations.iter().any(|row| row.site == *site)
+    }) else {
+        return Vec::new();
+    };
+    if !plan.authorised.grants(Loss::EmbeddedFile) {
+        return Vec::new();
+    }
+    files
+        .each
+        .iter()
+        .map(|(at, name)| super::report::AttachmentOutcome {
+            site,
+            object: *at,
+            name: name.clone(),
+            annotations: Vec::new(),
+            answer: super::report::AttachmentAnswer::Removed(
+                super::report::DISCARDED_BY_THE_ROW.to_owned(),
+            ),
+            stated_on: None,
+        })
+        .collect()
+}
+
+/// The keep that lays out a statement's text on ADR 1014's appended page.
+fn statement_keep<'a>(site: &'static str, text: &'a str) -> preserve::Keep<'a> {
+    preserve::Keep {
+        site,
+        subject: statement::SUBJECT.to_owned(),
+        content: preserve::Kept::Text(text.as_bytes()),
+        declined: None,
+    }
+}
+
+/// Takes the statement's row off what `compose` carried and makes it the statement's page.
+///
+/// The statement is the last keep, so its row is the last one `compose` wrote; the pages it took
+/// are bounded by [`statement::MOST_STATEMENT_PAGES`]. Returns the first of them.
+fn the_statement_page(
+    composed: &mut Composed,
+    site: &'static str,
+    objects: usize,
+) -> Result<usize, Because> {
+    let row = composed
+        .carried
+        .pop()
+        .filter(|row| row.subject == statement::SUBJECT)
+        .ok_or(Because::NotBuiltYet(statement::NOTHING_STATED))?;
+    if row.pages.len() > statement::MOST_STATEMENT_PAGES {
+        return Err(Because::NotBuiltYet(statement::STATEMENT_TOO_MANY_PAGES));
+    }
+    let first = row
+        .pages
+        .first()
+        .copied()
+        .ok_or(Because::NotBuiltYet(statement::NOTHING_STATED))?;
+    composed.statement = Some(super::report::StatementPage {
+        site,
+        pages: row.pages,
+        objects,
+        face: row.face,
+    });
+    Ok(first)
+}
+
+/// The two embedded-file requirements, one per part, that a `preserve` by page answers.
+pub(super) const ATTACHMENT_REQUIREMENTS: [&str; 2] = [
+    "embedded-files/embedded-file-is-itself-pdfa",
+    "embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile",
+];
+
+/// How many embedded files one conversion lays out as pages before the rest take `on-failure`.
+///
+/// `CLAUDE.md` principle 3's explicit bound, checked before any file is decoded: the name tree is
+/// the producer's, and a document naming ten thousand files costs ten thousand outcomes rather
+/// than ten thousand layouts. [`preserve`]'s own page budget bounds what the ones taken can cost.
+pub(super) const MOST_ATTACHMENTS_AS_PAGES: usize = 16;
+
+/// The longest file, in decoded bytes, laid out as text.
+///
+/// A bound checked before the layout, so that a hostile attachment cannot make `wrapped` hold
+/// every line of a file whose pages [`preserve`]'s budget would refuse anyway: sixty-four pages
+/// of about sixty lines of about eighty characters is some three hundred thousand, and 256 KiB
+/// sits under it with every character a byte.
+const MOST_BYTES_AS_TEXT: usize = 256 * 1024;
+
+/// Why an embedded file is not laid out because it is not text.
+const ATTACHMENT_NOT_TEXT: &str = "its bytes are not UTF-8 text free of control characters, nor \
+     a PDF, PNG or JPEG file, and this reader lays out as pages only an attachment it can set as \
+     the characters it holds or draw as the pages or the image it holds";
+
+/// Why an embedded file is not laid out because its stream does not decode.
+const ATTACHMENT_NOT_DECODED: &str = "its embedded file stream does not decode, so there are no \
+     bytes a page could carry";
+
+/// Why an embedded file is not laid out because it is longer than the bound.
+const ATTACHMENT_TOO_LONG: &str = "it is longer than the 256 KiB this converter lays out as text \
+     pages (MOST_BYTES_AS_TEXT)";
+
+/// Why an embedded file past the count bound is not laid out.
+const ATTACHMENT_PAST_THE_COUNT: &str = "the document names more embedded files than the sixteen \
+     this converter lays out as pages in one conversion (MOST_ATTACHMENTS_AS_PAGES)";
+
+/// Why an embedded file nothing here can lay out stops a row whose `on-failure` is `stop`.
+const ATTACHMENT_NOT_LAID_OUT: &str = "an embedded file this target does not admit cannot be \
+     laid out as pages (it is neither UTF-8 text nor a PDF, PNG or JPEG file this reader draws, \
+     does not decode, is text longer than 256 KiB, or is past the sixteenth), and the row's \
+     on-failure is stop; on-failure = \"discard\" removes such a file \
+     and names it, one answer per file (doc/adr/2536)";
+
+/// One drawn file whose pages were written: its row, its specification, its name, how many
+/// pages it brought and the objects they reach.
+type DrawnLaid = (
+    &'static str,
+    ObjectId,
+    String,
+    usize,
+    Vec<(ObjectId, Object)>,
+);
+
+/// The files a remedy answered before the layout: each derivation's converted PDF, and each
+/// drawn file or the sentence saying why it is not drawn, by file specification.
+type AnsweredFiles<'a> = (
+    &'a BTreeMap<ObjectId, super::remedies::AppendedFile>,
+    &'a BTreeMap<ObjectId, Result<super::remedies::DrawnFile, String>>,
+);
+
+/// The embedded files one conversion lays out, and the ones it removes instead.
+#[derive(Default)]
+struct AttachmentsToLayOut<'a> {
+    /// Each file laid out as text: its row, its specification, its name and its bytes.
+    texts: Vec<(&'static str, ObjectId, String, std::sync::Arc<[u8]>)>,
+    /// Each file whose derived PDF's pages are appended (`derive:<tool>:append`): its row, its
+    /// specification, its name and the converted file.
+    derived: Vec<(&'static str, ObjectId, String, &'a [u8])>,
+    /// Each file drawn as pages (`super::drawn`): its row, its specification, its name and what
+    /// is drawn.
+    drawn: Vec<(
+        &'static str,
+        ObjectId,
+        String,
+        &'a super::remedies::DrawnFile,
+    )>,
+    /// Each file no page carries, with the sentence saying why.
+    removed: Vec<super::report::AttachmentOutcome>,
+}
+
+/// Sorts the files a removal takes out into those laid out as pages and those removed.
+///
+/// **One answer per file** (`doc/adr/2536`): the row is the site's, and the outcome is each
+/// object's. A file this reader cannot set as text takes the row's `on-failure` — `discard`
+/// removes it and names it, and `stop` refuses the conversion with [`ATTACHMENT_NOT_LAID_OUT`].
+fn attachments_to_lay_out<'a>(
+    document: &Document,
+    site: &'static str,
+    files: &sites::EmbeddedFiles,
+    discard: bool,
+    (appended, drawn): AnsweredFiles<'a>,
+) -> Result<AttachmentsToLayOut<'a>, Because> {
+    let mut out = AttachmentsToLayOut::default();
+    // A derivation answers every file of its site or none (`super::remedies`), so a file it did
+    // not convert is a refusal of the site rather than a file for the text layout.
+    if appended.values().any(|file| file.site == site) {
+        for (at, name) in &files.each {
+            let file = appended
+                .get(at)
+                .ok_or(Because::NotBuiltYet(DERIVED_FILE_NOT_CONVERTED))?;
+            out.derived.push((site, *at, name.clone(), &file.bytes));
+        }
+        return Ok(out);
+    }
+    for (index, (at, name)) in files.each.iter().enumerate() {
+        let refused = if index >= MOST_ATTACHMENTS_AS_PAGES {
+            Some(ATTACHMENT_PAST_THE_COUNT.to_owned())
+        } else if let Some(file) = drawn.get(at) {
+            // A PDF or an image, answered before the layout because the colour it paints in
+            // decided the output intent (`super::remedies`).
+            match file {
+                Ok(file) => {
+                    out.drawn.push((site, *at, name.clone(), file));
+                    None
+                }
+                Err(sentence) => Some(sentence.clone()),
+            }
+        } else {
+            match attached_bytes(document, *at) {
+                None => Some(ATTACHMENT_NOT_DECODED.to_owned()),
+                Some(bytes) if bytes.len() > MOST_BYTES_AS_TEXT => {
+                    Some(ATTACHMENT_TOO_LONG.to_owned())
+                }
+                Some(bytes) if !reads_as_text(&bytes) => Some(ATTACHMENT_NOT_TEXT.to_owned()),
+                Some(bytes) => {
+                    out.texts.push((site, *at, name.clone(), bytes));
+                    None
+                }
+            }
+        };
+        if let Some(because) = refused {
+            if !discard {
+                return Err(Because::NotBuiltYet(ATTACHMENT_NOT_LAID_OUT));
+            }
+            out.removed.push(super::report::AttachmentOutcome {
+                site,
+                object: *at,
+                name: name.clone(),
+                annotations: Vec::new(),
+                answer: super::report::AttachmentAnswer::Removed(format!(
+                    "no page carries it, because {because}"
+                )),
+                stated_on: None,
+            });
+        }
+    }
+    Ok(out)
+}
+
+impl AttachmentsToLayOut<'_> {
+    /// The row the derived files answer; every file of one site carries the same one.
+    fn derived_site(&self) -> &'static str {
+        self.derived
+            .first()
+            .map_or(ATTACHMENT_REQUIREMENTS[0], |(site, ..)| site)
+    }
+}
+
+/// Why a derivation's site is refused where one of its files was not converted.
+const DERIVED_FILE_NOT_CONVERTED: &str = "an embedded file this requirement failed at has no \
+     converted derivation, so the pages derived from the others are not appended alone";
+
+/// Whether `derive:<tool>:append` converted a file of `site` whose pages are to be appended.
+fn appends_derived_pages(remedies: &super::remedies::Remedies, site: &str) -> bool {
+    remedies.appended.values().any(|file| file.site == site)
+}
+
+/// The decoded bytes of the file one specification embeds: §7.11.4's `/EF`, `/UF` before `/F`.
+///
+/// Decoded under the document's own limits, so the filters' budgets bound what this reads.
+pub(super) fn attached_bytes(
+    document: &Document,
+    specification: ObjectId,
+) -> Option<std::sync::Arc<[u8]>> {
+    let object = document.get(specification);
+    let dict = object.as_dict()?;
+    let files = document.get_key(dict, "EF");
+    let files = files.as_dict()?;
+    ["UF", "F"].into_iter().find_map(|key| {
+        let Object::Stream(stream) = document.get_key(files, key) else {
+            return None;
+        };
+        document.decoded_stream_data(&stream)
+    })
+}
+
+/// Whether bytes are text this reader can set as the characters they hold.
+///
+/// UTF-8, not empty, and free of every control character but the four a text file lays out by —
+/// tab, line feed, form feed and carriage return — so that a binary file whose bytes happen to
+/// be valid UTF-8 is not set as a page of invisible characters.
+fn reads_as_text(bytes: &[u8]) -> bool {
+    !bytes.is_empty()
+        && std::str::from_utf8(bytes).is_ok_and(|text| {
+            text.chars()
+                .all(|c| !c.is_control() || matches!(c, '\t' | '\n' | '\u{c}' | '\r'))
+        })
 }
 
 /// The files a `preserve` remedy attaches, or the reason it cannot.
@@ -4680,6 +5472,7 @@ fn the_attached_files(
     fresh: Result<&Fresh, &Because>,
     xfa: Option<Site>,
     forbidden: Option<&ForbiddenAnnotations>,
+    embedded: Option<&sites::EmbeddedFiles>,
     spare: &mut Spare,
 ) -> Result<super::attach::Attached, Because> {
     let asked = |site: &'static str| {
@@ -4731,7 +5524,9 @@ fn the_attached_files(
     } else {
         None
     };
-    let filings = kept_attachments(document, failed, forbidden);
+    let mut filings =
+        kept_attachments(document, failed, forbidden, embedded.map(|files| &files.at));
+    filings.extend(kept_media(document, plan, failed, forbidden));
     if packets.is_empty() && resource.is_none() && filings.is_empty() {
         return Err(Because::NotBuiltYet(NOT_ASKED_FOR));
     }
@@ -4766,10 +5561,16 @@ fn the_attached_files(
 /// 6.3.2 forbids — is not the population. The file's name is §7.11.3's `/UF` where the
 /// specification states one and its `/F` otherwise, as `pdf_model::attachment` reads it; one that
 /// states neither is filed as `attachment` (`doc/adr/2067` section 4).
+///
+/// **A file an embedded-file row answers is that row's, not this one's** (`doc/adr/2536`): where
+/// ISO 19005-2 section 6.8 or ISO 19005-4 section 6.9 failed at the specification the annotation
+/// names, the row removes it, lays it out as pages or derives it, and filing it again here would
+/// put back in the name tree the file that row took out.
 fn kept_attachments(
     document: &Document,
     failed: &BTreeSet<&'static str>,
     forbidden: Option<&ForbiddenAnnotations>,
+    answered_by_their_own_row: Option<&BTreeSet<ObjectId>>,
 ) -> Vec<super::attach::Filing> {
     const SITE: &str = "annotations/file-attachment-only-in-embedded-file-files";
     let Some(forbidden) = forbidden.filter(|_| failed.contains(SITE)) else {
@@ -4786,6 +5587,11 @@ fn kept_attachments(
         let Some(specification) = annotation.get("FS").cloned() else {
             continue;
         };
+        if specification.as_reference().is_some_and(|at| {
+            answered_by_their_own_row.is_some_and(|answered| answered.contains(&at))
+        }) {
+            continue;
+        }
         let resolved = document.resolve(&specification);
         let name = match &resolved {
             Object::Dictionary(dict) => ["UF", "F"].iter().find_map(|key| {
@@ -4802,6 +5608,106 @@ fn kept_attachments(
         out.push(super::attach::Filing {
             site: SITE,
             annotation: removed.at,
+            subtype: "FileAttachment",
+            name,
+            specification,
+        });
+    }
+    out
+}
+
+/// ISO 19005-4 section 6.3.1's Screen and Movie rows at PDF/A-4f and PDF/A-4e: the clip each
+/// removed annotation plays, kept as the embedded file it already is (`keep-media = "attach"`).
+///
+/// The clip is reached by the dictionaries ISO 32000-2 states and no further: a Screen
+/// annotation's `/A` (§12.5.6.18) where it is a §12.6.4.14 rendition action, its `/R` a §13.2.3.2
+/// media rendition, that rendition's `/C` a media clip — a §13.2.4.3 section's `/D` followed once
+/// to the §13.2.4.2 data it narrows — and the data's `/D`; a Movie annotation's `/Movie`
+/// dictionary's `/F` (§13.4). Only a specification holding an `/EF` is filed: §13.2.4.2's `/D` may
+/// name a file outside this one, and the `/EmbeddedFiles` tree files only what the document holds.
+/// A clip the walk does not reach is not filed, and the removal still happens — the poster is
+/// what the row's `preserve` keeps, and the report's kept files say which clips came with it.
+fn kept_media(
+    document: &Document,
+    plan: &ArchivePlan,
+    failed: &BTreeSet<&'static str>,
+    forbidden: Option<&ForbiddenAnnotations>,
+) -> Vec<super::attach::Filing> {
+    let Some(site) = super::config::MEDIA_SITES.into_iter().find(|site| {
+        failed.contains(site)
+            && plan
+                .preservations
+                .iter()
+                .any(|preservation| preservation.site == *site && preservation.keeps_media)
+    }) else {
+        return Vec::new();
+    };
+    let Some(forbidden) = forbidden else {
+        return Vec::new();
+    };
+    let dictionary = |object: &Object| document.resolve(object).as_dict().cloned();
+    let is = |dict: &Dictionary, word: &[u8]| {
+        document
+            .get_key(dict, "S")
+            .as_name()
+            .is_some_and(|name| name.as_bytes() == word)
+    };
+    let mut out = Vec::new();
+    for removed in &forbidden.removed {
+        let Some(annotation) = document.get(removed.at).as_dict().cloned() else {
+            continue;
+        };
+        let (subtype, specification) = match removed.subtype.as_str() {
+            "Screen" => {
+                let clip = annotation
+                    .get("A")
+                    .and_then(dictionary)
+                    .filter(|action| is(action, b"Rendition"))
+                    .and_then(|action| action.get("R").and_then(dictionary))
+                    .filter(|rendition| is(rendition, b"MR"))
+                    .and_then(|rendition| rendition.get("C").and_then(dictionary));
+                let data = clip.and_then(|clip| {
+                    if is(&clip, b"MCS") {
+                        clip.get("D").and_then(dictionary)
+                    } else {
+                        Some(clip)
+                    }
+                });
+                (
+                    "Screen",
+                    data.filter(|data| is(data, b"MCD"))
+                        .and_then(|data| data.get("D").cloned()),
+                )
+            }
+            "Movie" => (
+                "Movie",
+                annotation
+                    .get("Movie")
+                    .and_then(dictionary)
+                    .and_then(|movie| movie.get("F").cloned()),
+            ),
+            _ => continue,
+        };
+        let Some(specification) = specification else {
+            continue;
+        };
+        let Some(held) = dictionary(&specification).filter(|spec| spec.get("EF").is_some()) else {
+            continue;
+        };
+        let name = ["UF", "F"]
+            .iter()
+            .find_map(|key| {
+                document
+                    .get_key(&held, key)
+                    .as_string()
+                    .map(pdf_syntax::text_string)
+                    .filter(|name| !name.is_empty())
+            })
+            .unwrap_or_else(|| "media clip".to_owned());
+        out.push(super::attach::Filing {
+            site,
+            annotation: removed.at,
+            subtype,
             name,
             specification,
         });
@@ -5296,7 +6202,14 @@ fn prepare_fonts(
                 supplied: &plan.supplied_fonts,
                 pack: plan.cjk_pack.as_ref(),
                 target: plan.target,
-                gate: fonts::Gate::new(plan.target, anywhere, &fenced),
+                gate: fonts::Gate::new(
+                    plan.target,
+                    (
+                        anywhere,
+                        plan.authorised.grants(Loss::TaggingOfPhotographedPages),
+                    ),
+                    &fenced,
+                ),
                 defined,
             },
         ),
@@ -5322,7 +6235,10 @@ fn prepare_fonts(
 /// Empty where nothing was substituted. Each font is named by what the file asked for, what was
 /// embedded and which of section 4.9's two metric routes it took, because those three are what
 /// section 4.9 asks a converter to report per font and a provenance entry a reader can act on
-/// has to carry them in the file rather than only in the run's own report.
+/// has to carry them in the file rather than only in the run's own report. The resource name the
+/// content selected it by is stated beside the `/BaseFont`, as the run's report states it, because
+/// two fonts asking for one face are otherwise two identical sentences a later reader cannot
+/// tell apart.
 pub(super) fn substituted_fonts_recorded(fonts: &[fonts::SubstitutedFont]) -> String {
     if fonts.is_empty() {
         return String::new();
@@ -5364,9 +6280,10 @@ pub(super) fn substituted_fonts_recorded(fonts: &[fonts::SubstitutedFont]) -> St
                 format!("; {}", fonts::empty_glyphs_given(&font.empty_glyphs))
             };
             format!(
-                "{} was not embedded and {} was embedded in its place, {}, taking the {} \
-                 route{described}{lost}{fitting}{layout}{empty}",
+                "{} (resource {}) was not embedded and {} was embedded in its place, {}, taking \
+                 the {} route{described}{lost}{fitting}{layout}{empty}",
                 font.requested,
+                font.resource,
                 font.face,
                 font.authority.describe(),
                 font.route.word()
@@ -5414,6 +6331,9 @@ struct Recording<'a> {
     recovered: Option<&'a str>,
     /// What an appended page preserved, where one was appended (`doc/adr/1014` section 5).
     preserved: Option<&'a str>,
+    /// What became of each embedded file a requirement failed at, one clause per file
+    /// (`doc/adr/2536`).
+    attachments: Option<&'a str>,
     /// What an attachment preserved, where anything was attached (`doc/adr/1270`).
     attached: Option<&'a str>,
     /// What every removed transfer function other than the identity said (`doc/adr/1964`).
@@ -5539,7 +6459,7 @@ fn recorded_events<'a>(recording: &Recording<'a>) -> Vec<xmp::Event<'a>> {
         return Vec::new();
     };
     let non_empty = |text: &'a str| (!text.is_empty()).then_some(text);
-    let actions: [(&'a str, Option<&'a str>); 15] = [
+    let actions: [(&'a str, Option<&'a str>); 16] = [
         (DEFAULT_CMYK_ACTION, recording.default_cmyk),
         (REMOVED_PROPERTIES_ACTION, non_empty(recording.removals)),
         (REMOVED_PROPERTIES_ACTION, non_empty(recording.discards)),
@@ -5552,6 +6472,7 @@ fn recorded_events<'a>(recording: &Recording<'a>) -> Vec<xmp::Event<'a>> {
         (RECOVERED_ACTION, recording.recovered),
         (ATTACHED_ACTION, recording.attached),
         (PRESERVED_ACTION, recording.preserved),
+        (PRESERVED_ACTION, recording.attachments),
         (TRANSFER_REMOVED_ACTION, recording.transfers),
         (SMOOTHING_OFF_ACTION, recording.smoothing),
         (CMAP_RESTATED_ACTION, recording.cmap),

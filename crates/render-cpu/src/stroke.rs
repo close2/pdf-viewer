@@ -99,8 +99,8 @@ impl CpuRasterizer {
             return Ok(());
         };
         let at = to_device.of(transform);
-        // §10.7.5's first requirement, where `/SA` asks for it and the caller turned the fit on
-        // (it is off by default, ADR 2531): a thin stroke along the device axes is drawn one
+        // §10.7.5's first requirement, where `/SA` asks for it and the caller has not turned the
+        // fit off (it is on by default, ADR 2553): a thin stroke along the device axes is drawn one
         // whole pixel wide across pixel centres, and everything below strokes the fitted path as
         // though the document had stated it (ADR 2530).
         let fitted = self

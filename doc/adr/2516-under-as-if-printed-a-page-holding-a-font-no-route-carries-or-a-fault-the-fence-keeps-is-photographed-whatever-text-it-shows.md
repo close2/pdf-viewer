@@ -54,9 +54,21 @@ shows.
 6. **The page's text is named.** The report, its JSON and the file's `xmpMM:History` give each
    photographed page's text, white space collapsed, cut at 1000 characters with the count left
    out. A page that was photographed because of a fence row also names the row.
-7. **Conditions kept.** A document stating a structure tree (§14.7) or optional content (§8.11)
-   is still refused by the gate, as ADR 2394 has it: A694 is silent on both. `doc/questions/Q707`
-   asks.
+7. **A tagged document, and the condition kept.** A document stating a structure tree (§14.7) is
+   photographed where the profile also authorises `tagging-of-photographed-pages`, which
+   `as-if-printed` does at the fonts row (A707): the tree's leaves that name a photographed page
+   (an integer of an element whose `/Pg` is the page, a marked-content reference whose `/Pg` or
+   whose element's is, and an object reference to a stream only the old content drew) are taken
+   out, each element that lost one written under its own number, every element and the parent
+   tree kept, and the page loses its `/StructParents`. A leaf of an annotation's appearance
+   stays, since the annotation stays; an integer whose element names no page names none to
+   find, and stays. Each page's count of leaves is in the report, the JSON and `xmpMM:History`
+   (`crates/pdf-transform/src/archive/fonts/untagged.rs`). The parent tree's entry for the page
+   is left, reached from nothing drawn, rather than rewritten: the number tree is the file's to
+   shape, and an entry nothing looks up costs no reader anything. Level A is offered no
+   photograph at all, so it keeps the refusal A707 asks it to keep. Optional content (§8.11)
+   is still refused, as ADR 2394 has it; no document of the corpora asks, and A707 leaves it
+   until one does.
 8. **Bounds.** See ADR 2517.
 
 ## Why not the other way

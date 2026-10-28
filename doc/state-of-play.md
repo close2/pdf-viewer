@@ -41,10 +41,10 @@ stages — the device's decoding, a linear map and the space's own encoding — 
 sampled grid (ADR 1267) — soft masks, with §11.6.5.2's `/Matte` undone in the parent image's own
 space before any conversion, as the clause orders, and a mask's samples read as the opacity whatever
 one-component space it states (ADR 1268), a JPEG 2000 parent decoded at a reduced level
-included, its mask carried onto that grid (ADR 1324) — whose `/Luminosity` groups in such a space take
-§11.5.3's `Y` as three summed curves where the space decomposes, as a sampled grid where it
-does not (ADR 0851), and — where the space has *four* components — off §11.4.7's pair of rasters
-inside the mask, over a grid of the press's own four axes (ADR 0857) — as a `DeviceCMYK` group
+included, its mask carried onto that grid (ADR 1324) — whose `/Luminosity` groups in such a space are
+composited in its components and weighed by §11.5.3's device branch, the owner's choice over the
+clause's `Y` (A23, ADR 2552): EXAMPLE 2's weights on three components, and — where the space has
+*four* — its formula for four inks off §11.4.7's pair of rasters inside the mask (ADR 0857) — as a `DeviceCMYK` group
 whose content blends is, so that §11.3.4's complement meets each component (ADR 1342) — and
 annotations both from
 stored appearance streams and
@@ -58,7 +58,8 @@ annotation drawn from **the group it belongs to** rather than from itself, which
 nine shared entries. §12.7.4.3's variable text is constructed in any script: a value in a
 right-to-left, cursive one is joined by the Unicode Character Database's own tables, ordered by UAX
 #9 and set in a face from the machine where the compiled-in fourteen have no glyph (ADRs 1413,
-1414), which a save writes into the file where the face's licence permits: a `glyf` face subset
+1414) — only a face whose licence lets this program embed it is offered (ADR 2548) — which a save
+writes into the file: a `glyf` face subset
 (ADR 1425), a `CFF ` one subset as a bare CID-keyed program under `/FontFile3` (ADR 1449), an
 accented character in it composed into the outline it draws (ADR 1486), whole
 where its licence forbids subsetting (ADR 1438); in memory a `CFF ` face is described as the
@@ -700,15 +701,16 @@ two graphics backends refuse a non-isolated knockout group by name, because each
 composites with the group's own initial backdrop. **And where the file states a
 black generation, it replaces the device's default**: Table 57's `/BG`, `/BG2`, `/UCR` and `/UCR2`
 reach both routes into a subtractive space — the graphics state's and §11.6.7's pattern dictionary's
-— so §10.4.2.4's conversion runs the producer's functions instead of this device's, `/BG2 /Default`
-puts the default back on Table 57's own precedence, and a function this tree cannot evaluate is
-`Unsupported::BlackGeneration` rather than a silent substitution (ADR 1207). The pair in force at a
+— so §10.4.2.4's conversion runs the producer's functions instead of this device's, and `/BG2
+/Default` puts the default back on Table 57's own precedence (ADR 1207). Over a press sampled from
+the output intent's profile the default is that profile's `B2A` table, and a stated pair replaces it
+there too (ADR 2549). The pair in force at a
 `Do` reaches the conversion of a group's result into a four-component parent as well, which is
 §11.7.5.3's second bullet and is sampled into the cube the backends already take (ADR 1242). **And the
 pair is the one in force when the mark paints**, which is §11.7.5.3's first bullet: an image takes
-the pair into its decoder's conversion beside its own rendering intent, and the departure ADR 1242
-keeps — a `DeviceCMYK` target the output intent characterises converting through its profile — is
-reported at a paint that bypasses the pair, never at a `gs` that only sets one (ADR 2187). A colour
+the pair into its decoder's conversion beside its own rendering intent, and a `gs` that only sets
+one converts nothing (ADR 2187); an `ICCBased` group is not the clause's target and keeps its
+profile's table (ADR 2170). A colour
 is therefore kept as its source until it paints and converted under the context in force then: a
 solid `DeviceRGB` colour's components (ADR 2198), an uncoloured tiling pattern's tint through every
 nested target (ADR 2212), a direct `ICCBased` colour's profile and components, so an `ri`, `RI` or
@@ -1147,7 +1149,7 @@ not hold restated on `WinAnsiEncoding` (ADR 2278) — a font program filed under
 CIDFont's absent `/CIDToGIDMap` written `Identity` where the edition the source is labelled with
 gives that default (ADR 2246), a composite font of an
 Adobe character collection given a subset of the CJK pack's program for that collection, a second
-download beside the converter that CI builds by digest and the snapshot publishes, under the loss `machine-face` (ADRs 2302, 2303, 2386, `doc/cjk-pack.md`), its descendant given a descriptor of its own where it states none or shares one at other widths (ADR 2461), an `Adobe-Identity` font re-keyed from its `/ToUnicode` values (ADR 2378) or, where no face can be keyed and the page reads back no character, its page photographed as the window draws it under the loss `text-as-image` both shipped profiles carry (ADR 2394), and under `as-if-printed` alone a page holding a font no route carries or a fault of its content stream the target refuses photographed whatever text it shows, behind `page-as-image` with the page's text named in the report and the file's history (ADR 2516) — an extension schema described from what the packet
+download beside the converter that CI builds by digest and the snapshot publishes, under the loss `machine-face` (ADRs 2302, 2303, 2386, `doc/cjk-pack.md`), its descendant given a descriptor of its own where it states none or shares one at other widths (ADR 2461), an `Adobe-Identity` font re-keyed from its `/ToUnicode` values (ADR 2378) or, where no face can be keyed and the page reads back no character, its page photographed as the window draws it under the loss `text-as-image` both shipped profiles carry (ADR 2394), and under `as-if-printed` alone a page holding a font no route carries or a fault of its content stream the target refuses photographed whatever text it shows, behind `page-as-image` with the page's text named in the report and the file's history (ADR 2516), and in a tagged document with the structure tree's leaves that name the page taken out of it behind `tagging-of-photographed-pages` (A707) — an extension schema described from what the packet
 states and an amendment identifier cut by span (ADRs 1245, 1246), a form's appearances constructed so
 that `/NeedAppearances` can go (ADR 1257), a push button's single appearance stream made the one
 entry of a subdictionary a new `/AS` selects (ADR 2319), an embedded file no part admits taken out with every

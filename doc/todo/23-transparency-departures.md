@@ -52,7 +52,7 @@ Code: `crates/pdf-model/src/content/transparency.rs` and `transparency/`, `crate
 |---|---|---|---|
 | ~~a non-separable blend mode on such a page (§11.3.5.3)~~ | ~~1~~ → 0 | ~~1 of 1896, 2 of 4000, 27, 28, 31~~ → **0** | **closed, ADR 0277: the K rule is the clause's own four functions on a neutral pair, which is what the black raster is.** No display-list member, no backend arm, no refusal — and the explicit route it replaced (a `Backdrop` blend function, which is Destination-Over exactly) would have cost the quorra backend all 31 |
 | a group inside the page composites in a different space (§11.6.6) — **the standing item now** | 0 | 78, 85 → **8 of 65 944** | 77 of the 85 were a mask's group counted as the page's (ADR 0276). A further **30** — 1 in the corpus, `bug1721218_reduced.pdf` — were a group that *introduces* a space on a page that states none, and **that shape is drawn** where the space is four components this tree can sample (ADR 0327): the corpus witness composites in ink. What the condition still fires on is a space the group-scoped pair cannot carry — a three- or one-component group inside a four-component parent (a per-pixel conversion between two presses) and four components no profile backs — each still reported by name where it composites. §11.7.5.3's black generation is off this list (ADR 1069) and its second bullet is carried out (ADR 1242). **Narrowed by §11.7.2** (ADR 0797): a device-space group of the same count inside a CIE-based one *is* that space and changes nothing, so a `/DeviceCMYK` group inside a profile's press and a `/DeviceRGB` one inside an sRGB page left this condition |
-| an `/ExtGState` states `/BG`, `/BG2`, `/UCR` or `/UCR2` (§11.7.5.3) | 0 | 1 of 1896, 0 of 4000, 7 → **9 of 65 944** | **reported by name**. **All nine state it at `soft_mask_depth` 0**, so the monotone flag costs nothing here |
+| an `/ExtGState` states `/BG`, `/BG2`, `/UCR` or `/UCR2` (§11.7.5.3) | 0 | 1 of 1896, 0 of 4000, 7 → **9 of 65 944** | **carried out** at the paint over every `DeviceCMYK` press, the output intent's included (ADR 2549); all nine state it at `soft_mask_depth` 0 |
 | a page group whose components are not four this tree can sample | 0 | 14 of 4000, 106 → **5 of 65 944** | what is left after ADR 0272: a `/DeviceGray` or `Lab` page group, or four components with no profile behind them, so §11.3.4 has no formula to apply and no conversion out. **`/DeviceGray` is off this row** (ADR 0790): one component is three equal channels, drawn by one interpretation under `Compositing::Grey`. **`CalGray` and a one-component profile are off it** (ADR 0792): the component is composited and a sampled curve out rides on the display list. **`CalRGB` and a bi-directional three-component profile never sat on this row and are drawn** (ADR 0797). What stays is `Lab`, which the clause forbids, a one-component space the clause does not list (`Separation`, `Indexed`), a profile whose curve has no inverse and a three-component table profile with no `B2A` — reported on every mark or where something composites, and the population of that is a number the corpus gate prints. **The table profile is drawn where it has a `B2A`, §11.5.3's mask branch with it, and three former silences are reports** (ADR 0851); **so is the last shape §11.5.3 had left — a four-component profile as a *mask* group's `/CS`, which is §11.4.7's pair of rasters inside the mask** (ADRs 0856, 0857), so what is reported of a four-component space is a profile §11.3.4 rules out or a budget rather than a construction nobody had built. *What the two condition rows still fire on* below says, clause by clause, which of what is left is a debt and which is this reader telling the truth about a file |
 | ~~the document names the press its `DeviceCMYK` is~~ | ~~0~~ | ~~151~~ → **0** | **closed, ADR 0272: the press is a value, and `CMYK_CORNERS` is one of them** |
 | ~~a conversion *into* the blending space~~ | ~~5~~ → 0 | ~~61~~ → 0 | **closed, ADR 0263: a right inverse of the ink cube** |
@@ -276,13 +276,12 @@ crawl holds none: `press_census` over all 145 archives finds every one of its 28
 (187 page groups, 94 output intents, 6 `/DefaultCMYK`) carrying a `B2A` this tree evaluates, while
 `doc/pdf.js` names no profile press at all.
 
-**A one-component CIE-based mask group takes §11.5.3's own `Y`** (ADR 0796): `CalGray`
-or an `ICCBased` 'GRAY' `/CS` on a `/Luminosity` group is painted in its component under
-`Compositing::Calibrated`, `/BC` is that component, and `soft_mask::luminance_derivation` composes
-"convert to the CIE 1931 XYZ space and use the Y component as the luminosity" into the mask's
-table — exact, on the construction ADR 0792 built for a page. `bug1721218_reduced.pdf`'s eight
-such groups are the corpus witness (at most 5 of 255 on 666 pixels at two pixels per unit; the
-masks are nearly binary).
+**A one-component CIE-based mask group is composited in its own component and weighed by the
+device branch** (ADRs 0796, 2552): `CalGray` or an `ICCBased` 'GRAY' `/CS` on a `/Luminosity` group
+is painted in its component under `Compositing::Calibrated`, `/BC` is that component, and the
+component is the luminosity, because the owner's answer A23 chose §11.5.3's device branch over its
+colorimetric `Y` for every mask group. `bug1721218_reduced.pdf`'s eight such groups are the corpus
+witness.
 
 ~~**What is left of §11.3.4 and §11.5.3 together is three components**~~ — **drawn** (ADR 0797), in
 both places: a `CalRGB` or `ICCBased` 'RGB '
@@ -291,11 +290,9 @@ page, isolated group or mask group composites the space's own components under
 3 → 3 grid, because the device's transfer function is fifteen levels of 255
 steep at black on a linear space, but one curve per component, a grid of linear light and the
 device's own curve, which is §8.6.5.3 and a matrix profile *exactly* from eight corners. A mask
-takes §11.5.3's `Y` as three summed curves (`pdf_render::Luminance`). `raster_digest` over
-`doc/pdf.js` moves nine pages: `transparency_group.pdf` toward `mupdf` and `ghostscript`, and
-**`issue21346.pdf` away from every reference including Acrobat** — the clause's `Y` of an sRGB
-group's encoded 0.25 is 0.05, and nine renderers take the device branch's 0.25. The ADR carries
-the argument and the cost, and it is the owner's to rank.
+group in such a space is weighed by EXAMPLE 2's `DeviceRGB` weights, `pdf_render::Luminance::device_rgb`,
+the device branch A23 chose (ADR 2552), so `issue21346.pdf`'s sRGB group at an encoded 0.25 draws the
+0.25 that nine renderers draw.
 
 ~~**What §11.3.4 keeps is the route-into-grey choice below and nothing else. What §11.5.3 keeps is
 two shapes**~~ — **both are drawn** (ADRs 0850, 0851, 0856, 0857).

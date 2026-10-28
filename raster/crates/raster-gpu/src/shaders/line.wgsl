@@ -119,19 +119,42 @@ fn device_line(instance: Instance) -> DeviceLine {
     let resolution = packed / 3u;
     let page_half = instance.pen.xy;
     let m = abs(globals.view_linear);
-    var half = vec2<f32>(
+    let stated = vec2<f32>(
         page_half.x * m.x + page_half.y * m.z,
         page_half.x * m.y + page_half.y * m.w,
     );
+    var half = stated;
     if resolution == 2u {
         half = page_half;
     } else if resolution == 1u && 2.0 * max(half.x, half.y) < 0.5 {
         half = vec2<f32>(0.5);
     }
+    var start = on_view(instance.ends.xy);
+    var end = on_view(instance.ends.zw);
+    // §10.7.5's fit, by the steps `fit_on_device` states on the host: a round pen under 1.5
+    // device pixels across, on a line along a device axis, becomes one device pixel and the
+    // line's ends move across it to the nearest pixel centre. The bounds are `raster::grid_fit`'s:
+    // the stated pen round to 1/1024 of its size, which is the transform stretching both axes
+    // alike, and an axis to 1/64 of a pixel.
+    let alike = abs(stated.x - stated.y) <= max(stated.x, stated.y) / 1024.0;
+    if resolution == 1u && alike && 2.0 * max(half.x, half.y) < 1.5 {
+        let horizontal = abs(end.y - start.y) <= 1.0 / 64.0;
+        let vertical = abs(end.x - start.x) <= 1.0 / 64.0;
+        if horizontal && !vertical {
+            start.y = floor(start.y) + 0.5;
+            end.y = floor(end.y) + 0.5;
+        } else if vertical && !horizontal {
+            start.x = floor(start.x) + 0.5;
+            end.x = floor(end.x) + 0.5;
+        }
+        if horizontal || vertical {
+            half = vec2<f32>(0.5);
+        }
+    }
     let a = on_view(instance.admit.xy);
     let b = on_view(instance.admit.zw);
     var line: DeviceLine;
-    line.ends = vec4<f32>(on_view(instance.ends.xy), on_view(instance.ends.zw));
+    line.ends = vec4<f32>(start, end);
     line.pen = vec3<f32>(half, f32(packed % 3u));
     line.admit = vec4<f32>(
         max(min(a, b), vec2<f32>(0.0)),

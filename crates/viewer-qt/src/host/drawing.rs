@@ -76,6 +76,10 @@ impl Host {
         let held = self.playing.is_some()
             || self.state.oversized.shows(self.state.documents.focused())
             || matches!(self.state.viewer.query(Query::Frame), Answer::Frame(frames) if !frames.is_empty());
+        if held && self.state.showing.report_due.is_owed() {
+            self.owes_its_report = Some(self.state.documents.focused());
+            self.arrival_due = true;
+        }
         if !self.state.presented && held {
             self.state.presented = true;
             self.state.read_look = None;

@@ -202,22 +202,32 @@ impl PagePen {
     /// asks it for the box the plan is grown by; the pixels are the shader's, which WGSL
     /// section 15.7.5 lets a driver fuse, so the two may differ by an ulp (ADR 2022).
     fn on_device(self, view: &DeviceTransform) -> Pen {
-        let (from, to) = (apply(view, self.from), apply(view, self.to));
+        let (mut from, mut to) = (apply(view, self.from), apply(view, self.to));
         let (hx, hy) = self.half;
+        // The pen the stated width makes under the view, before the half-pixel promotion: the
+        // fit asks it whether the transform stretches both axes alike, as `raster::grid_fit`
+        // asks the transform.
+        let stated = (
+            hx * view.a.abs() + hy * view.c.abs(),
+            hx * view.b.abs() + hy * view.d.abs(),
+        );
         let half = match self.resolution {
             Resolution::Fixed => self.half,
             Resolution::Scaled | Resolution::Adjusted => {
-                let half = (
-                    hx * view.a.abs() + hy * view.c.abs(),
-                    hx * view.b.abs() + hy * view.d.abs(),
-                );
-                let thin = 2.0 * half.0.max(half.1) < 0.5;
+                let thin = 2.0 * stated.0.max(stated.1) < 0.5;
                 if self.resolution == Resolution::Adjusted && thin {
                     (0.5, 0.5)
                 } else {
-                    half
+                    stated
                 }
             }
+        };
+        let half = if self.resolution == Resolution::Adjusted
+            && let Some(fitted) = fit_on_device(stated, half, (&mut from, &mut to))
+        {
+            fitted
+        } else {
+            half
         };
         Pen {
             from,
@@ -226,6 +236,39 @@ impl PagePen {
             cap: self.cap,
         }
     }
+}
+
+/// §10.7.5's fit of a line on the device, as `raster::grid_fit` makes it of a stroke's outline
+/// and `line.wgsl`'s `device_line` makes it per vertex: where the `stated` pen is round, the
+/// resolved pen `half` is under [`raster::FIT_BELOW`] device pixels across, and the line lies
+/// along a device axis, its ends move across it to the nearest pixel centre and the pen becomes
+/// one device pixel — the new pen, with the ends moved in place, or `None` and nothing moved.
+///
+/// The stated pen is half the stated width times each device axis's stretch, so it is round
+/// exactly where the transform stretches both axes alike, and [`raster::ALIKE`] is asked of it
+/// rather than of the resolved pen, which the half-pixel promotion makes round under any
+/// transform; a line of no length is the dot, whose ends the fit leaves where they are.
+fn fit_on_device(
+    stated: (f32, f32),
+    half: (f32, f32),
+    (from, to): (&mut Point, &mut Point),
+) -> Option<(f32, f32)> {
+    let round = stated.0.max(stated.1);
+    if (stated.0 - stated.1).abs() > raster::ALIKE * round
+        || 2.0 * half.0.max(half.1) >= raster::FIT_BELOW
+    {
+        return None;
+    }
+    let horizontal = (to.y - from.y).abs() <= raster::ALONG_AN_AXIS;
+    let vertical = (to.x - from.x).abs() <= raster::ALONG_AN_AXIS;
+    let centre = |v: f32| v.floor() + 0.5;
+    match (horizontal, vertical) {
+        (true, true) => {}
+        (true, false) => (from.y, to.y) = (centre(from.y), centre(to.y)),
+        (false, true) => (from.x, to.x) = (centre(from.x), centre(to.x)),
+        (false, false) => return None,
+    }
+    Some((0.5, 0.5))
 }
 
 /// The line in the page's space where the closed form applies at every view that keeps the
@@ -444,16 +487,28 @@ impl Encoder<'_> {
             join: LineJoin::Miter,
             miter_limit: 1.0,
         };
-        let device_width = raster::resolve_width(stroke, *to_device);
+        let segments = [Segment::MoveTo(line.from), Segment::LineTo(line.to)];
+        // §10.7.5's fit at this placement, as the stroke arm takes it (`raster::grid_fit`): one
+        // device pixel wide through pixel centres, an end moved at most half a pixel across.
+        let fitted = raster::grid_fit(&segments, stroke, *to_device);
+        let (device_width, moved) = if fitted.is_some() {
+            (1.0, 0.5)
+        } else {
+            (raster::resolve_width(stroke, *to_device), 0.0)
+        };
         // A projecting cap's corner is half the width away along the segment and across it at
         // once, so the reach that bounds every end is the half-width's diagonal.
-        let reach = device_width * 0.5 * std::f32::consts::SQRT_2;
+        let reach = device_width * 0.5 * std::f32::consts::SQRT_2 + moved;
         let (d0, d1) = (apply(to_device, line.from), apply(to_device, line.to));
         // §8.5.3.2's dot, which the expansion below would drop as a subpath with no length: the
         // pen where the transform keeps the axes, the resolved width's circle where it does not,
         // which is the width the expansion strokes everything else at.
-        let dot = (d0 == d1 && line.cap == LineCap::Round).then(|| {
-            pen(line, to_device).map_or((device_width * 0.5, device_width * 0.5), |pen| pen.half)
+        // A fitted dot is one device pixel across: the fit moves no point of a segment with no
+        // direction, and its width is the fit's.
+        let dot = (d0 == d1 && line.cap == LineCap::Round).then(|| match &fitted {
+            Some(_) => (0.5, 0.5),
+            None => pen(line, to_device)
+                .map_or((device_width * 0.5, device_width * 0.5), |pen| pen.half),
         });
         let bounds = (
             d0.x.min(d1.x) - reach,
@@ -464,12 +519,12 @@ impl Encoder<'_> {
         if self.culled(bounds, resolved) {
             return Ok(());
         }
-        let segments = [Segment::MoveTo(line.from), Segment::LineTo(line.to)];
         self.segments = self.segments.saturating_add(segments.len() as u64);
         let span = self.clock.start();
-        let stroked = match dot {
-            Some(half) => raster::dot_pieces(d0, half),
-            None => {
+        let stroked = match (dot, fitted) {
+            (Some(half), _) => raster::dot_pieces(d0, half),
+            (None, Some(fitted)) => raster::stroke_pieces(&fitted, stroke, device_width).pieces,
+            (None, None) => {
                 Expansion::placed(
                     expansion::expansion(None, &segments, *to_device, stroke),
                     *to_device,

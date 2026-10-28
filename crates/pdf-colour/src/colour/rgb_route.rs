@@ -526,6 +526,10 @@ impl RgbRoute {
     /// `pdf_render::Luminance`. **Without §8.6.5.9's black point compensation**, as the two
     /// separable shapes are: the clause asks for "the CIE 1931 XYZ" of the colour, and the
     /// compensation is a step toward a destination rather than part of a colour's XYZ.
+    ///
+    /// **No mask this tree draws is weighed by it**: the owner chose §11.5.3's device branch for
+    /// every mask group (A23, ADR 2552), and this is the clause's own branch, kept for the
+    /// choice between the two that A23 leaves open.
     #[must_use]
     pub fn luminance(&self) -> Option<pdf_render::Luminance> {
         if let Inward::Profile(profile) = &self.inward

@@ -56,11 +56,50 @@ pub struct Ran {
     pub outcome: Result<Scalar, String>,
 }
 
-/// Runs one script of a form's, in the language of chapter 25.
+/// The language of a script a [`Runner`] is handed: the two a `script` element's `contentType`
+/// names (XFA 3.3 pages 106 and 412), a script in any other being refused before a runner sees it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FormLanguage {
+    /// Chapter 25's language, `application/x-formcalc` or no `contentType`.
+    FormCalc,
+    /// `application/x-javascript` (page 106), reaching the form through its `rawValue` and its
+    /// SOM expressions.
+    JavaScript,
+}
+
+impl FormLanguage {
+    /// The language a script was written in, where a runner is handed it.
+    #[must_use]
+    pub fn of(language: &Language) -> Option<Self> {
+        match language {
+            Language::FormCalc => Some(Self::FormCalc),
+            Language::JavaScript => Some(Self::JavaScript),
+            Language::Other(_) => None,
+        }
+    }
+
+    /// The language's name in a sentence.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::FormCalc => "FormCalc",
+            Self::JavaScript => "JavaScript",
+        }
+    }
+}
+
+/// Runs one script of a form's, in either language page 412 names.
 pub trait Runner {
-    /// Runs `script` as the script of the container `node` against `form`, within `steps_left`
-    /// steps. The script's assignments go through [`Form::set`].
-    fn run(&mut self, form: &mut Form<'_>, node: usize, script: &str, steps_left: u64) -> Ran;
+    /// Runs `script`, written in `language`, as the script of the container `node` against
+    /// `form`, within `steps_left` steps. The script's assignments go through [`Form::set`].
+    fn run(
+        &mut self,
+        form: &mut Form<'_>,
+        node: usize,
+        language: FormLanguage,
+        script: &str,
+        steps_left: u64,
+    ) -> Ran;
 }
 
 /// The ceilings of one activation, which no single script's budget sees.
@@ -364,19 +403,13 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
         language: &Language,
         script: &str,
     ) -> Result<Scalar, String> {
-        match language {
-            Language::FormCalc => {}
-            Language::JavaScript => {
-                return Err(
-                    "its script is JavaScript, which RFC 0011 section 5's step 5 runs \
-                            and this program does not yet"
-                        .to_owned(),
-                );
-            }
-            Language::Other(other) => {
+        let language = match (FormLanguage::of(language), language) {
+            (Some(known), _) => known,
+            (None, Language::Other(other)) => {
                 return Err(format!("its script is in {other}, which no step runs"));
             }
-        }
+            (None, _) => return Err("its script is in a language no step runs".to_owned()),
+        };
         if self.activations_left == 0 {
             self.ended.get_or_insert("activations");
             return Err("the activation ran out of runs".to_owned());
@@ -392,7 +425,7 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             Some(form) => form,
             None => &mut *self.form,
         };
-        let ran = self.runner.run(form, node, script, handed);
+        let ran = self.runner.run(form, node, language, script, handed);
         if form.take_text_exhausted() {
             self.ended.get_or_insert("bytes");
         }

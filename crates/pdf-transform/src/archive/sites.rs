@@ -54,35 +54,44 @@ pub(super) struct Sites {
     pub(super) tables: BTreeSet<ObjectId>,
 }
 
-/// Every object one requirement's findings name, and whether any place named no object.
+/// Every object the requirements' findings name, and whether any place named no object.
 ///
 /// The second half is what separates the two shapes of three of these requirements: a finding
 /// whose place is a page rather than an object is inside a content stream, and this verb carries
 /// those byte for byte.
+///
+/// Read from each judgement's [`pdf_archive::Named`] rather than from the places
+/// [`Outcome::Failed`] keeps, which are a prefix past thirty-two (trap 289): a remedy handed the
+/// prefix restates part of what failed and writes a file failing the row it answered.
+///
+/// # Errors
+///
+/// [`CHECKER_CUT_SHORT`] where a requirement named more distinct objects than
+/// [`pdf_archive::MAX_NAMED`], so that the set held is itself a prefix.
 pub(super) fn objects_named(
     input: &pdf_archive::Report,
     requirements: &[&str],
-) -> (BTreeSet<ObjectId>, bool) {
+) -> Result<(BTreeSet<ObjectId>, bool), Because> {
     let mut objects = BTreeSet::new();
     let mut elsewhere = false;
     for judgement in input.failures() {
         if !requirements.contains(&judgement.id) {
             continue;
         }
-        let Outcome::Failed { places, .. } = &judgement.outcome else {
-            continue;
-        };
-        for finding in places {
-            match finding.place.object {
-                Some(id) => {
-                    objects.insert(id);
-                }
-                None => elsewhere = true,
-            }
+        if judgement.named.cut_short() {
+            return Err(Because::NotBuiltYet(CHECKER_CUT_SHORT));
         }
+        objects.extend(judgement.named.objects().iter().copied());
+        elsewhere |= judgement.named.elsewhere();
     }
-    (objects, elsewhere)
+    Ok((objects, elsewhere))
 }
+
+/// Why a rewrite over a requirement that failed at more objects than the checker holds is refused.
+pub(super) const CHECKER_CUT_SHORT: &str = "the requirement this rewrite answers failed at more \
+     distinct objects than the checker keeps a list of (pdf_archive::MAX_NAMED, 4096), so the \
+     objects to rewrite are not all known and a rewrite of those that are would leave the file \
+     failing the requirement it answered";
 
 /// The four rendering intents §8.6.5.8 defines, which ISO 19005-2 section 6.2.6 restricts a file
 /// to.
@@ -109,8 +118,8 @@ const INLINE_IMAGE_INTENT: &str = "a rendering intent this file states is an inl
 /// ISO 19005-2 section 6.2.6. The population is the validator's, and the one shape it reports
 /// that this rewrite cannot reach is an inline image — whose `/Intent` is content-stream bytes.
 ///
-/// **The validator's list is a prefix when the document states more places than it keeps**
-/// (`pdf_archive`'s `Findings`), and a rewrite gated on a prefix restates the first few and leaves
+/// **The validator's set is a prefix when the requirement names more objects than
+/// [`pdf_archive::MAX_NAMED`]**, and a rewrite gated on a prefix restates the first few and leaves
 /// the rest failing. Then the sites are found structurally, by the validator's own rule for what
 /// a graphics state is (§8.4.5's `ExtGState` table, or a dictionary typed `ExtGState`) and for
 /// which dictionary is an image (§8.9.5.1): [`GraphicsStateReach`]. An object that is neither
@@ -121,12 +130,18 @@ pub(super) fn rendering_intents(
     input: &pdf_archive::Report,
 ) -> Result<Sites, Because> {
     const REQUIREMENT: &str = "graphics/rendering-intent-entries-name-one-of-four";
-    let (mut at, in_content) = objects_named(input, &[REQUIREMENT]);
-    if in_content {
+    let named = input
+        .failures()
+        .find(|judgement| judgement.id == REQUIREMENT)
+        .map(|judgement| &judgement.named);
+    if named.is_some_and(pdf_archive::Named::elsewhere) {
         return Err(Because::TheFence(INLINE_IMAGE_INTENT));
     }
+    let mut at: BTreeSet<ObjectId> = named
+        .map(|named| named.objects().clone())
+        .unwrap_or_default();
     let mut tables = BTreeSet::new();
-    if reports_a_prefix(input, REQUIREMENT) {
+    if named.is_some_and(pdf_archive::Named::cut_short) {
         let reach = GraphicsStateReach::of(document);
         at.extend(reach.sites);
         tables = reach.tables;
@@ -198,14 +213,6 @@ impl GraphicsStateReach {
     }
 }
 
-/// Whether the validator named fewer places for one requirement than the document states.
-fn reports_a_prefix(input: &pdf_archive::Report, requirement: &str) -> bool {
-    input.failures().any(|judgement| {
-        judgement.id == requirement
-            && matches!(&judgement.outcome, Outcome::Failed { places, total } if *total > places.len())
-    })
-}
-
 /// Why a stream naming a filter that is no abbreviation is not rewritten.
 const FILTER_NOT_DECODED: &str = "a stream in this file names a filter that is neither one of \
      the base standard's standard filters nor the abbreviation ISO 32000-2 8.9.7's Table 92 \
@@ -265,7 +272,7 @@ pub(super) fn blend_modes(
     document: &Document,
     input: &pdf_archive::Report,
 ) -> Result<Sites, Because> {
-    let (named, in_content) = objects_named(input, &BLEND_MODE_REQUIREMENTS);
+    let (named, in_content) = objects_named(input, &BLEND_MODE_REQUIREMENTS)?;
     if in_content {
         return Err(Because::NotBuiltYet(BARE_BLEND_MODE));
     }
@@ -485,7 +492,7 @@ pub(super) fn appearance_states(
     input: &pdf_archive::Report,
     spare: &mut Spare,
 ) -> Result<AppearanceStates, Because> {
-    let (named, elsewhere) = objects_named(input, &["annotations/normal-appearance-shape"]);
+    let (named, elsewhere) = objects_named(input, &["annotations/normal-appearance-shape"])?;
     if elsewhere {
         return Err(Because::NotBuiltYet(NOT_AN_APPEARANCE));
     }
@@ -812,7 +819,7 @@ pub(super) fn cid_to_gid_maps(
     if !described_by_the_first_edition {
         return Err(Because::NotBuiltYet(CID_TO_GID_MAP_NOT_DERIVED));
     }
-    let (named, elsewhere) = objects_named(input, &[CID_TO_GID_MAP_PRESENT]);
+    let (named, elsewhere) = objects_named(input, &[CID_TO_GID_MAP_PRESENT])?;
     let mut descendant_in = BTreeSet::new();
     if elsewhere {
         let placed = pdf_archive::direct_cid_fonts_stating_no_cid_to_gid_map(document, target);
@@ -1253,7 +1260,7 @@ const PACKET_HEADER_NOT_CUTTABLE: &str = "an XMP packet in this file states the 
 /// both attributes are reported at it — so a packet stating both is one object here rather than
 /// two, which is what [`Sites`] is a set for.
 pub(super) fn packet_headers(input: &pdf_archive::Report) -> Result<Sites, Because> {
-    let (at, elsewhere) = objects_named(input, &["metadata/xmp-packet-header-attributes"]);
+    let (at, elsewhere) = objects_named(input, &["metadata/xmp-packet-header-attributes"])?;
     if elsewhere {
         return Err(Because::NotBuiltYet(PACKET_HEADER_NOT_CUTTABLE));
     }
@@ -1342,7 +1349,7 @@ pub(super) fn symbolic_truetype_encodings(
     input: &pdf_archive::Report,
     survey: &Survey,
 ) -> Result<Sites, Because> {
-    let (named, elsewhere) = objects_named(input, &["fonts/symbolic-truetype-states-no-encoding"]);
+    let (named, elsewhere) = objects_named(input, &["fonts/symbolic-truetype-states-no-encoding"])?;
     if elsewhere {
         return Err(Because::NotBuiltYet(TRUETYPE_ENCODING_NOT_PROVEN));
     }
@@ -1398,7 +1405,7 @@ pub(super) fn standard_truetype_encodings(
     let (named, elsewhere) = objects_named(
         input,
         &["fonts/non-symbolic-truetype-uses-a-standard-encoding"],
-    );
+    )?;
     if elsewhere {
         return Err(Because::NotBuiltYet(TRUETYPE_ENCODING_NOT_PROVEN));
     }
@@ -1478,7 +1485,7 @@ pub(super) fn type3_notdef_renames(
     input: &pdf_archive::Report,
 ) -> Result<Type3Renames, Because> {
     let refused = Because::NotBuiltYet(TYPE3_NOTDEF_NOT_RENAMED);
-    let (named, elsewhere) = objects_named(input, &["fonts/no-notdef-glyph-shown"]);
+    let (named, elsewhere) = objects_named(input, &["fonts/no-notdef-glyph-shown"])?;
     if elsewhere {
         return Err(refused);
     }
@@ -1600,13 +1607,13 @@ pub(super) fn standard_route_names(
     let (named, elsewhere) = objects_named(
         input,
         &["fonts/truetype-codes-reach-glyphs-by-the-standard-route"],
-    );
+    )?;
     // A font whose base encoding is also being restated would have two values written into one
     // entry; the two proofs are each made against the font as the file states it.
     let (restated, _) = objects_named(
         input,
         &["fonts/non-symbolic-truetype-uses-a-standard-encoding"],
-    );
+    )?;
     if elsewhere || !named.is_disjoint(&restated) {
         return Err(refused);
     }
@@ -1757,7 +1764,7 @@ pub(super) fn profile_references(
     document: &Document,
     input: &pdf_archive::Report,
 ) -> Result<Sites, Because> {
-    let (at, elsewhere) = objects_named(input, &PROFILE_REFERENCE_REQUIREMENTS);
+    let (at, elsewhere) = objects_named(input, &PROFILE_REFERENCE_REQUIREMENTS)?;
     if elsewhere {
         return Err(Because::NotBuiltYet(REFERENCE_NOT_AN_OBJECT));
     }
@@ -2549,14 +2556,30 @@ pub(super) struct EmbeddedFiles {
     pub(super) associated_in_catalog: bool,
     /// Each removed file's name, for the report to say what left.
     pub(super) names: Vec<String>,
+    /// Each specification with its name, in object order, for the outcome per object
+    /// (`doc/adr/2536`).
+    pub(super) each: Vec<(ObjectId, String)>,
+    /// Each file attachment annotation still on a page whose `/FS` names one, with the one it names.
+    ///
+    /// Filled only where the files are laid out as pages: the annotation then becomes a link to
+    /// the first page its file was laid out on, its producer's appearance kept (`doc/adr/2537`).
+    pub(super) annotations: BTreeMap<ObjectId, ObjectId>,
 }
 
 /// Every embedded file the requirement failed at, with the entries that reach it.
+///
+/// `removed_annotations` is what section 6.3.1's removal takes off the pages in the same
+/// conversion: a file attachment annotation in it reaches nothing in the output, so its `/FS` is
+/// not a reason to keep the file (`doc/adr/2536`). `as_pages` says the files are laid out as
+/// pages, where a file attachment annotation that stays on its page is recorded in
+/// [`EmbeddedFiles::annotations`] rather than refused (`doc/adr/2537`).
 pub(super) fn embedded_files(
     document: &Document,
     input: &pdf_archive::Report,
+    removed_annotations: Option<&BTreeSet<ObjectId>>,
+    as_pages: bool,
 ) -> Result<EmbeddedFiles, Because> {
-    let (at, elsewhere) = objects_named(input, &EMBEDDED_FILE_ROWS);
+    let (at, elsewhere) = objects_named(input, &EMBEDDED_FILE_ROWS)?;
     if elsewhere {
         // A leaf the producer wrote out in place has no object number, and this walk removes
         // references to objects. The name-tree node holding it is reachable, but the *finding*
@@ -2581,12 +2604,23 @@ pub(super) fn embedded_files(
         // §12.6.4.4's embedded `GoTo` action names a specification the same way. A specification
         // one of those still reaches survives the removal, and the requirement with it — so the
         // document is refused here rather than half-converted and caught by the output's verdict.
-        if dict
+        if let Some(named) = dict
             .get("FS")
             .and_then(Object::as_reference)
-            .is_some_and(|named| found.at.contains(&named))
+            .filter(|named| found.at.contains(named))
+            && !removed_annotations.is_some_and(|removed| removed.contains(&id))
         {
-            return Err(Because::NotBuiltYet(EMBEDDED_FILE_STILL_REACHED));
+            // §12.5.6.15's annotation, where the file goes to pages: the annotation stops naming
+            // a file and points at the page that now carries it. An embedded `GoTo` names a
+            // target inside the file, which a page of its text does not hold, so it still refuses.
+            let is_attachment_annotation = dict
+                .get("Subtype")
+                .and_then(Object::as_name)
+                .is_some_and(|subtype| subtype.as_bytes() == b"FileAttachment");
+            if !(as_pages && is_attachment_annotation) {
+                return Err(Because::NotBuiltYet(EMBEDDED_FILE_STILL_REACHED));
+            }
+            found.annotations.insert(id, named);
         }
         if names_one_of(document, dict, "AF", &found.at) {
             found.associated_by.insert(id);
@@ -2616,9 +2650,9 @@ pub(super) fn embedded_files(
         let Some(specification) = object.as_dict() else {
             continue;
         };
-        found
-            .names
-            .push(specification_file_name(document, specification));
+        let name = specification_file_name(document, specification);
+        found.each.push((*id, name.clone()));
+        found.names.push(name);
     }
     found.names.sort_unstable();
     found.names.dedup();

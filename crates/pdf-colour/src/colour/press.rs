@@ -252,8 +252,8 @@ impl Press {
     /// press is not a profile's.
     ///
     /// §11.3.4 lists an `ICCBased` bi-directional 'CMYK' space among the blending colour
-    /// spaces and §8.6.5.1 makes it CIE-based, so a `/Luminosity` mask group naming one takes
-    /// §11.5.3's colorimetric branch:
+    /// spaces and §8.6.5.1 makes it CIE-based, so for a `/Luminosity` mask group naming one
+    /// §11.5.3's colorimetric branch asks:
     ///
     /// > For CIE-based spaces, convert to the CIE 1931 XYZ space and use the Y component as
     /// > the luminosity. This produces a colorimetrically correct luminosity.
@@ -268,6 +268,12 @@ impl Press {
     /// **Without §8.6.5.9's black point compensation**, as [`RgbRoute::luminance`] is one
     /// axis down: the clause asks for the colour's XYZ, and the compensation is a step
     /// toward a destination rather than part of it.
+    ///
+    /// **No mask this tree draws is weighed by a profile press's grid**: the owner chose
+    /// §11.5.3's device branch for every mask group (A23, ADR 2552), which a press answers
+    /// with EXAMPLE 2's formula for four inks, `pdf_render::Luminance::device_ink`. The grid
+    /// is the clause's own branch, kept for the choice between the two that A23 leaves open;
+    /// the device-ink press answers that formula here too.
     ///
     /// # What it costs, and why it is behind a lock rather than in `sample_press`
     ///

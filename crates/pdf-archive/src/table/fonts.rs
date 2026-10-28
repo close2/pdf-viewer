@@ -1897,6 +1897,20 @@ fn embedded_programs_define_every_glyph_shown(exam: &Examination<'_>, findings: 
 /// text-space unit (ISO 19005-2 section 6.2.11.5, ISO 19005-4 section 6.2.10.5).
 const CONSISTENT: f64 = 0.001;
 
+/// Whether two widths, in text space units, differ by no more than [`CONSISTENT`].
+///
+/// Both arrive as `f32`, which holds no thousandth exactly: a dictionary's 544 and a program's
+/// 543 at the usual `0.001` matrix are stored as 0.544 and 0.543 and subtract to 0.00100005,
+/// so a one-unit difference — exactly the thousandth of a unit the clause allows —
+/// would be reported. The margin is the operands' own rounding, four `f32` epsilons of each
+/// magnitude (a stored value and the one product that scaled it, with room), about 2.4e-7 of
+/// a unit for a width of 0.5: a thousand times below the tolerance it widens.
+fn consistent(stated: f32, program: f32) -> bool {
+    let margin =
+        4.0 * f64::from(f32::EPSILON) * (f64::from(stated.abs()) + f64::from(program.abs()));
+    (f64::from(stated) - f64::from(program)).abs() <= CONSISTENT + margin
+}
+
 /// How many tokens of a glyph procedure are read looking for its first operator.
 ///
 /// ISO 32000-2 §9.6.4 requires `d0` or `d1` to be the procedure's *first* operator, so a
@@ -2098,9 +2112,9 @@ fn type3_glyph_procedures_state_their_width(exam: &Examination<'_>, findings: &m
 /// - **A code whose glyph selection lands on `.notdef`.** Its advance is a statement about a
 ///   character the program does not have, not about this one — and a file that shows it is
 ///   already failing [`no_notdef_glyph_shown`], under the clause that is about it.
-/// - **A code the program states no advance for.** That is a fact about this reader — a bare
-///   Type 1 program's `hsbw`, a repaired CFF — and naming the file for it would report our gap
-///   as the producer's fault.
+/// - **A code the program states no advance for.** That is a fact about this reader — a Type 1
+///   charstring its evaluator refuses, a repaired CFF — and naming the file for it would report
+///   our gap as the producer's fault.
 ///
 /// A Compact Font Format program's `FontMatrix` need not be the reciprocal of a whole number.
 /// `pdf_font::cff::units_per_em` preserves that fractional scale (ADR 2180): `wp315.pdf`'s
@@ -2127,7 +2141,7 @@ fn widths_agree_with_the_program(exam: &Examination<'_>, findings: &mut Findings
                     continue;
                 };
                 let stated = font.advance(code);
-                if f64::from(stated - program).abs() <= CONSISTENT {
+                if consistent(stated, program) {
                     continue;
                 }
                 findings.record(
@@ -2193,7 +2207,7 @@ fn vertical_metrics_agree_with_the_program(exam: &Examination<'_>, findings: &mu
                 };
                 let (displacement, _) = font.vertical_metrics(code);
                 let stated = displacement[1];
-                if f64::from(stated - program).abs() <= CONSISTENT {
+                if consistent(stated, program) {
                     continue;
                 }
                 findings.record(
@@ -2277,13 +2291,13 @@ fn symbolic_truetype_states_no_encoding(exam: &Examination<'_>, findings: &mut F
 /// because the two bind different populations — a glyph name is readable from the font
 /// dictionary, and the subtable is not.
 ///
-/// # Which list of names, and why the wider one
+/// # Which list of names
 ///
-/// [`pdf_font::encoding::text_for`] is the Adobe Glyph List Specification's own algorithm — a
-/// variant suffix dropped, an underscore-joined name mapped component by component — rather than
-/// a membership test against the list's literal rows. It answers for strictly more names than
-/// the bare list does, so a font it declines is one no reading of the clause excuses, and the
-/// error is in the direction this module always takes it.
+/// The rows of the Adobe Glyph List the part references by its date, 20 September 2002, which is
+/// [`pdf_font::encoding::is_listed`]. The clause asks whether a name is *listed* there, and the
+/// Adobe Glyph List Specification's algorithm ([`pdf_font::encoding::text_for`]) is not that
+/// question: it derives a value for a `uniXXXX` name, a `_` ligature and a `.suffix` variant, none
+/// of which is a row, so asking it passed `issue6961`'s `uni0042` fonts (`doc/adr/2540`).
 fn non_symbolic_truetype_differences_are_listed_names(
     exam: &Examination<'_>,
     findings: &mut Findings,
@@ -2310,7 +2324,7 @@ fn non_symbolic_truetype_differences_are_listed_names(
             let Some(name) = named(Some(&name)) else {
                 continue;
             };
-            if encoding::text_for(&name).is_none() {
+            if !encoding::is_listed(&name) {
                 findings.record(
                     site.place_named(name.clone()),
                     format!(
@@ -2523,11 +2537,11 @@ static EXEMPT_ORDERINGS: &[&str] = &["GB1", "CNS1", "Japan1", "Korea1", "KR"];
 /// Whether a glyph name is in either list ISO 19005's second `/ToUnicode` exemption names.
 ///
 /// The clause's two lists are the Adobe Glyph List and the set of named characters in the Symbol
-/// font, which ISO 32000-2's Annex D prints; [`pdf_font::encoding::text_for`] answers for the
-/// first (by the list's own algorithm, so a ligature or a variant suffix resolves) and
-/// [`SymbolicEncoding::Symbol`] carries the second.
+/// font, which ISO 32000-2's Annex D prints; [`pdf_font::encoding::is_listed`] answers for the
+/// first by its rows, the same reading section 6.2.11.6's `Differences` rule takes of the same
+/// reference (`doc/adr/2540`), and [`SymbolicEncoding::Symbol`] carries the second.
 fn name_is_in_either_list(name: &str) -> bool {
-    encoding::text_for(name).is_some() || SymbolicEncoding::Symbol.character_for(name).is_some()
+    encoding::is_listed(name) || SymbolicEncoding::Symbol.character_for(name).is_some()
 }
 
 /// Whether a Type 1, multiple-master or Type 3 font draws a glyph whose name is in neither list.
@@ -3138,7 +3152,7 @@ mod tests {
     use super::{
         Findings, actual_text_covers_private_use_characters, actual_text_states_no_private_use,
         charset_names, cid_system_info_agrees_with_the_cmap, cid_to_gid_map_present,
-        cmap_embedded_or_predefined, descendant_fonts_holds_one_cidfont,
+        cmap_embedded_or_predefined, consistent, descendant_fonts_holds_one_cidfont,
         embedded_cmap_states_its_own_write_mode, font_programs_embedded,
         font_programs_filed_by_their_format, glyph_procedure_width, is_private_use,
         no_notdef_glyph_shown, non_symbolic_truetype_differences_are_listed_names,
@@ -3147,6 +3161,18 @@ mod tests {
         to_unicode_values_are_usable, type3_glyph_procedures_state_their_width,
         widths_array_covers_character_range,
     };
+
+    #[test]
+    fn a_width_one_unit_from_the_program_is_consistent_and_one_and_a_tenth_is_not() {
+        // ISO 19005-2 section 6.2.11.5: consistent is a difference of at most a thousandth of a unit,
+        // so 544 against 543 at a 0.001 matrix is at the bound and passes, though f32 stores the
+        // two 0.00100005 apart; 544 against 542.9, and 0004-637X's 778 against 776.89, do not.
+        assert!(consistent(0.544, 0.543));
+        assert!(consistent(0.272, 0.271));
+        assert!(consistent(0.5, 0.5));
+        assert!(!consistent(0.544, 0.5429));
+        assert!(!consistent(0.778, 0.776_89));
+    }
 
     /// Wraps numbered objects in a header, a cross-reference table and a trailer.
     ///
@@ -3863,6 +3889,28 @@ mod tests {
                 non_symbolic_truetype_differences_are_listed_names
             )
             .is_empty()
+        );
+        // The clause asks for a row of the 2002 list, and the list's specification derives a
+        // value for these without listing them (`doc/adr/2540`): `issue6961`'s fonts write the
+        // first shape.
+        for derived in ["uni0042", "u1F600", "f_f_i", "grave.sc"] {
+            assert_eq!(
+                findings(
+                    &with(derived),
+                    non_symbolic_truetype_differences_are_listed_names
+                )
+                .len(),
+                1,
+                "/{derived} is no row of the list"
+            );
+        }
+        assert!(
+            findings(
+                &with("dalethatafpatah"),
+                non_symbolic_truetype_differences_are_listed_names
+            )
+            .is_empty(),
+            "a row standing for two characters is a row"
         );
 
         let symbolic = document(

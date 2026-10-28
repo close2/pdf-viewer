@@ -137,9 +137,14 @@ pub struct Host {
     /// The prompt is one `QDialog` and the answer comes back as a bare string, so this is how the
     /// answer finds a document that is not yet in the strip.
     prompting: DocumentId,
-    /// Whether the next of [`WindowState::arrivals`] may start, which C++ answers with
-    /// [`Host::arrive`].
+    /// Whether C++ owes this side a call to [`Host::arrive`]: the next of
+    /// [`WindowState::arrivals`] may start, or [`Self::owes_its_report`] names a document.
     arrival_due: bool,
+    /// Whether the next of [`WindowState::arrivals`] may start when [`Host::arrive`] is called.
+    next_due: bool,
+    /// The document in front whose frame `painted` found on the screen while it still owed what
+    /// `viewer_host::report::owed` asks, answered on [`Host::arrive`] if it is still in front.
+    owes_its_report: Option<DocumentId>,
     /// Whether the panels are to be built again when the pump now running has finished, because
     /// a `Command::Focus` on its queue has moved the front and every panel is an answer about the
     /// focused document.
@@ -401,6 +406,8 @@ impl Host {
             faces_taken: 0,
             prompting: DOCUMENT,
             arrival_due: false,
+            next_due: false,
+            owes_its_report: None,
             panels_due: false,
             documents_moved: false,
             closing: false,

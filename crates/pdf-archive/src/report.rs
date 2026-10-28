@@ -73,6 +73,9 @@ pub struct Judgement {
     pub clarified_by: Option<crate::clarification::Clarification>,
     /// What became of it.
     pub outcome: Outcome,
+    /// Every distinct object a failed requirement's places named, past the places
+    /// [`Outcome::Failed`] keeps as well as inside them; empty for any other outcome.
+    pub named: crate::finding::Named,
 }
 
 /// The answer to "does this document conform".

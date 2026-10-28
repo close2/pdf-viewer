@@ -2094,6 +2094,40 @@ mod simple_font_subtype_tests {
         );
     }
 
+    /// A bare Type 1 program states its advance in the charstring, and it is read there.
+    ///
+    /// `0004-637X_751_2_90`'s shape: the dictionary's `/Widths` says 778 for code 65 and the
+    /// program's `hsbw` says 776.89, which ISO 19005-2 section 6.2.11.5 holds apart by more than
+    /// its thousandth of a unit. Both numbers are in text-space units here, one em being 1.0.
+    #[test]
+    fn a_type1_program_states_its_advance_in_hsbw() {
+        use crate::type1::tests::{ENDCHAR, HSBW, number, plain_glyph, program};
+        let mut a = number(0);
+        a.extend(number(77689));
+        a.extend(number(100));
+        a.extend([12, 12, HSBW, ENDCHAR]);
+        let data = program(&plain_glyph(250), &a, &[]);
+        let font_object = b"1 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Fixture \
+            /FirstChar 65 /LastChar 65 /Widths [778] \
+            /FontDescriptor << /Type /FontDescriptor /FontName /Fixture /Flags 32 \
+            /FontFile 2 0 R >> >>\nendobj\n";
+        let mut stream = format!("2 0 obj\n<< /Length {} >>\nstream\n", data.len()).into_bytes();
+        stream.extend_from_slice(&data);
+        stream.extend_from_slice(b"\nendstream\nendobj\n");
+        let (document, dict) = crate::fixture::document_of(&[font_object, &stream]);
+        let font = LoadedFont::load(&document, &dict, "F1").expect("the fixture font loads");
+        assert!(
+            !font.is_substituted(),
+            "the embedded program is the one drawn"
+        );
+        let code = crate::Code::single_byte(0x41);
+        assert!((font.advance(code) - 0.778).abs() < 1e-6);
+        let stated = font
+            .program_advance(code)
+            .expect("the charstring states a width");
+        assert!((stated - 0.776_89).abs() < 1e-5, "{stated}");
+    }
+
     /// A code the program's own tables do not reach has no advance to compare against.
     ///
     /// The fixture's `cmap` is a format 0 table listing code 0x41 and sending every other code

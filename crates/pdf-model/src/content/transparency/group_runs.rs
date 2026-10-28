@@ -299,13 +299,17 @@ impl<'a> Interpreter<'a> {
                 // painted at a `Do`.
                 Compositing::Luminosity(_) => OwnSpaceRun::GivenUp,
             };
+            // §11.7.5.3's second bullet names a parent "whose colour space is DeviceCMYK", and
+            // an `ICCBased` parent — what `cmyk_outside` names — is not one (ADR 2170), so the
+            // pair at the `Do` reaches the parent's conversion only outside such a parent.
+            let generation = outer
+                .black_generation
+                .as_ref()
+                .filter(|_| cmyk_outside.is_none());
             let drawn = match drawn {
-                OwnSpaceRun::Drawn(out) => self.conversion_into_parent(
-                    own,
-                    out,
-                    outer.rendering(),
-                    outer.black_generation.as_ref(),
-                ),
+                OwnSpaceRun::Drawn(out) => {
+                    self.conversion_into_parent(own, out, outer.rendering(), generation)
+                }
                 OwnSpaceRun::GivenUp => OwnSpaceRun::GivenUp,
             };
             match drawn {

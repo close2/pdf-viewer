@@ -34,14 +34,14 @@ placement = "attach"       # built: the first two of the three preferences below
                            # other target the attachment is one the declared tool derives, and the
                            # report and xmpMM:History say it is derived rather than original.
 prefer = ["attach-unchanged", "attach-converted", "append-pages"]   # NOT-YET-IN-FORMAT
-tool = "office-to-pdf"     # used only by attach-converted and append-pages
+tool = "to-pdf"     # used only by attach-converted and append-pages
 on-failure = "stop"        # never `discard`: that is what this profile is
 
 [site."embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile"]
 remedy = "preserve"
 placement = "attach"
 prefer = ["attach-unchanged", "attach-converted", "append-pages"]   # NOT-YET-IN-FORMAT
-tool = "office-to-pdf"
+tool = "to-pdf"
 on-failure = "stop"
 
 [site."embedded-files/associated-file-media-type"]
@@ -464,7 +464,7 @@ unlisted = "stop"
 # doc/profiles/derive-attachments.toml for the placeholders and the declining exit status.
 # ---------------------------------------------------------------------------------------------
 
-[tool.office-to-pdf]
+[tool.to-pdf]
 program = "/usr/bin/soffice"
 args = ["--headless", "--convert-to", "pdf", "--outdir", "{out}", "{in}"]
 expects = "application/pdf"

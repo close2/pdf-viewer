@@ -174,11 +174,13 @@ glyph from any text-showing operator, in any rendering mode.
 **Whether this refuses anything depends on where the missing glyph is**, and the split is the same
 one §2.1 makes.
 
-- **The font is embedded and its program has no glyph for a code the page shows.** **Refuse**, and
-  it is a true one: the mapping is fixed by a program the file carries, and the only ways out are
-  editing the content stream to stop showing the code or editing the font program to give it a
-  glyph. The first takes a mark off the page and the second invents one; ADR 0816's fence is where
-  both stop.
+- **The font is embedded and its program has no glyph for a code the page shows.** The mapping is
+  fixed by a program the file carries, and the ways out are editing the content stream to stop
+  showing the code, which takes a mark off the page and stops at ADR 0816's fence, or giving the
+  program a glyph for it. A glyph whose outline is the program's own `.notdef` outline draws what
+  this reader drew and invents nothing, which is the line the next case draws too: **convert** a
+  simple TrueType program so (ADR 2543, A694 item 3), and refuse a `CIDFontType2`, CFF or Type 1
+  program until its glyph map or charstrings are written.
 - **The font is *not* embedded, and §4.9 is substituting anyway.** Then the converter is building
   the embedded program and chooses what each code maps to, so it need never reference glyph 0 —
   and the clause is satisfied without anything being edited. **Convert.**

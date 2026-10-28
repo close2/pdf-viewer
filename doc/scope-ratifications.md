@@ -106,6 +106,14 @@ program writes that no clause specifies. Ratified 2026-09-12 (`doc/questions/Q58
 owes — page labels, the outline, the structure tree, and the report's sentence saying a page
 was appended.
 
+**A page may also state what an archival conversion removed**, in facts computed from the file
+and a fixed vocabulary naming the requirement and the loss; it carries no other text. Ratified
+2026-10-28 (`doc/questions/Q706` item 2, `A706`: "agree on all"); RFC 0014 section 4 is the
+design, and ADR 2536's section on the statement page is the construction — the facts each listed
+object carries, the vocabulary fixed in `crates/pdf-transform/src/archive/statement.rs`, and the
+bounds it is refused by name past. It is reopened if a statement is asked to carry anything but
+facts computed from the source and that vocabulary.
+
 ### A producer's own marks written onto a page the producer wrote
 
 **A producer's own marks written onto a page the producer wrote** — **clause-driven

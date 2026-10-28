@@ -329,37 +329,32 @@ departure explains and one it does not:
   describe and it is drawn once (ADR 0213). Both squares are now within 1% to 3% of the geometry
   and within 1% of each other at every scale.
 
-## The one rule this tree does not apply by default, deliberately
+## The rule that snaps to the grid, and only under `/SA`
 
-§10.7.5's stroke adjustment has two halves. The half a display can state exactly — a stroke
-under half a pixel becomes one pixel — is implemented and conditioned on `/SA`, which is what
-makes `AMBIGUOUS_STROKE_ADJUSTMENT`'s reading of `bug1743245.pdf` a derivation rather than a
-preference. The other half asks that "the line width and the coordinates of a stroke shall
-automatically be adjusted": that is grid-fitting, the non-uniformity it removes is an artefact of
-the aliased scan conversion this tree already departs from, and nothing reports it. **Any proposal
-to snap something to the pixel grid has to say why it is not this.**
+§10.7.5's stroke adjustment has two requirements, and both are drawn where `/SA` asks for them.
+The second — a stroke under half a pixel becomes one pixel — is `Stroke::device_width`'s, and
+conditioning it on `/SA` is what makes `AMBIGUOUS_STROKE_ADJUSTMENT`'s reading of `bug1743245.pdf`
+a derivation rather than a preference. The first asks that "the line width and the coordinates of
+a stroke shall automatically be adjusted as necessary to produce lines of uniform thickness", which
+is grid-fitting: `pdf_render::grid_fit` in `render-cpu` (ADR 2530), and `raster::grid_fit` with
+`line.wgsl`'s vertex stage in every lane of `raster` (ADR 2553), draw a `/SA true` stroke under 1.5
+device pixels that lies along the device axes one whole pixel wide through pixel centres, by
+default, as the owner chose (`doc/questions/A714`). **Any proposal to snap something to the pixel
+grid has to say why it is not this**, a fit the document asked for by `/SA`.
 
-**Both halves of that are measured** (ADR 0848), and the instrument is the phase ladder — one width at eight sub-pixel placements, which
-is the only variable "uniform thickness" is a claim about and the one nothing here had moved. At a
-requested 0.6 of a device pixel this device's achieved thickness runs 0.5961 to 0.6000 over the
-eight, against `poppler` 1.0000 flat: the clause bounds thickness at half a device pixel from the
-requested width, we are 0.0039 from it and the only renderer that grid-fits is 0.4000 from it. So
-the fit is declined on the sentence's own second half rather than on this file's departure —
-quantising the coordinates puts both edges on integers only if the device width is a whole number,
-which is compatible with the aliased algorithm above and not with this one. What the old sentence
-got wrong is its *scope*: `pdf-model/examples/stroke_adjustment_census` counts **4832 of the 65 679
-crawl pages that open** as carrying a stroke a fit could move, against 6 of `doc/pdf.js`'s 974, so
-"there is no page on which this device could do better" was a claim about the corpus and not about
-the world. The worst thickness this device produces is **0.1802 of a device pixel**, on a 45° rule
-at or under one pixel where `substitute_width` acts rather than the closed form — this file's own
-departure, inside the clause's bound, and `doc/todo/11`'s to answer.
-
-**The fit is built and is off by default** (ADRs 2530 and 2531): `pdf_render::grid_fit` draws a
-`/SA true` rule under 1.5 device pixels along the device axes one whole pixel wide across pixel
-centres when `CpuRasterizer::with_stroke_adjustment(true)` asks for it. On page one of the pdf.js
-documents it makes 316 of 347 sampled segments one solid row against 4, opens 2 seam pixels and
-closes none, at no measurable draw time; whether it is drawn, with `raster`'s lanes fitted at encode
-beside it, is the owner's choice in `doc/questions/Q714`.
+**Both readings of thickness are measured** (ADRs 0848 and 2530), and the instrument is the phase
+ladder — one width at eight sub-pixel placements, which is the only variable "uniform thickness" is
+a claim about. At a requested 0.6 of a device pixel the unfitted rule runs 0.5961 to 0.6000 over
+the eight, 0.0039 from the requested width under the coverage-weighted reading; the fitted rule is
+one whole row at all eight, up to half a pixel heavier, which is the clause's next sentence's bound
+("no more than half a pixel different") and the trade its first sentence makes. A curve or a
+diagonal keeps its coordinates and its coverage-weighted thickness.
+`pdf-model/examples/stroke_adjustment_census` counts **4832 of the 65 679 crawl pages that open** as carrying a stroke
+the fit can move, against 6 of `doc/pdf.js`'s 974; on page one of the pdf.js documents the fit makes
+316 of 347 sampled segments one solid row against 4, opens 2 seam pixels and closes none, at no
+measurable draw time (ADR 2530). The worst thickness off the fit is **0.1802 of a device pixel**,
+on a 45° rule at or under one pixel where `substitute_width` acts rather than the closed form —
+this file's own departure, inside the clause's bound, and `doc/todo/11`'s to answer.
 
 **ADR 0226 answers it by not snapping anything**, which is the cheapest form of that answer: a
 0.1-unit rule draws 0.1 of a row at the fractional position the document put it, and what is

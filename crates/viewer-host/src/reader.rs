@@ -73,9 +73,10 @@ impl ReaderWords {
     pub const USAGE: &'static str = "[--trust-anchors <dir>] [--accept-unknown-revocation] \
          [--reference-files <dir>] [--reader-name <name>] [--reader-title <title>] \
          [--reader-organisation <organisation>] [--interface-language <tag>] \
-         [--scripts off|ask|warn|on] [--archive <target>:<profile>]";
+         [--scripts off|ask|warn|on] [--archive <target>:<profile>] \
+         [--archive-profiles <dir>]";
 
-    /// Takes `word` if it is one of the nine, reading the value after it from `rest`.
+    /// Takes `word` if it is one of the ten, reading the value after it from `rest`.
     ///
     /// `Ok(false)` where `word` is none of them, which leaves it to the window's own parser.
     ///
@@ -103,6 +104,12 @@ impl ReaderWords {
             self.reference_files = Some(directory(
                 REFERENCE_FILES,
                 "a directory of PDF files",
+                rest.next(),
+            )?);
+        } else if word == crate::archiving::ARCHIVE_PROFILES {
+            crate::archiving::offer_profiles_from(directory(
+                crate::archiving::ARCHIVE_PROFILES,
+                "a directory of archive profiles (.toml)",
                 rest.next(),
             )?);
         } else if word == crate::archiving::ARCHIVE {

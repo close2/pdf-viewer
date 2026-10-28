@@ -631,6 +631,28 @@ pub struct IccCmykPaint {
     pub overprinting: bool,
     /// Table 51's overprint mode, as `OPM` last set it. Its initial value is 0.
     pub mode: i64,
+    /// Whether the content selected `DeviceCMYK` and a `/DefaultCMYK` made the mark an
+    /// `ICCBased` one, and under which reading of the default.
+    ///
+    /// ISO 32000-2 §8.6.5.6 has "its value ... used as the colour space for the operation
+    /// currently being performed", and its NOTE (2020) that the current colour space is then the
+    /// default rather than `DeviceCMYK` — so such a mark is in an `ICCBased` CMYK space for
+    /// section 6.2.4.2 as much as one that named the profile. `None` for a mark that named it.
+    pub through_default: Option<ThroughDefault>,
+}
+
+/// How a `/DefaultCMYK` reached a mark, for the two parts' readings of §8.6.5.6.
+///
+/// [`DefaultSpace`] says why there are two: `TechNote 0010` A028 reads parts 2 and 3 as if a
+/// default had to be in the stream's own explicitly associated resources, and part 4 keeps the
+/// base standard's reading of the dictionary in force.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ThroughDefault {
+    /// The stream's own resources state the default: every part reads the mark as `ICCBased`.
+    ExplicitlyAssociated,
+    /// Only resources the stream falls back on state it: part 4 reads the mark as `ICCBased`,
+    /// and parts 2 and 3 read it as the `DeviceCMYK` mark the content selected.
+    Inherited,
 }
 
 /// One painting operator that marked the page in `DeviceCMYK` with overprinting on and a
@@ -1170,6 +1192,9 @@ enum Cmyk {
     /// An `ICCBased` space whose profile has four components, which ISO 19005-2 section 6.2.4.2
     /// forbids the mode for.
     Icc,
+    /// A selection that reaches `DeviceCMYK`, made where a `/DefaultCMYK` in force is an
+    /// `ICCBased` CMYK space, which §8.6.5.6 puts in its place for the marks painted in it.
+    Remapped(ThroughDefault),
     /// `DeviceCMYK`, or a space reaching it as [`ProcessCmykOverprint`] says: the marks the mode
     /// acts on.
     Process,
@@ -1578,8 +1603,9 @@ enum Observation {
         Option<ObjectId>,
         Option<ObjectId>,
     ),
-    /// A painting operator marking in an `ICCBased` CMYK space, with the overprint parameters.
-    Overprint(usize, &'static str, bool, bool, i64),
+    /// A painting operator marking in an `ICCBased` CMYK space, with the overprint parameters
+    /// and the default that made it one, if one did.
+    Overprint(usize, &'static str, bool, bool, i64, Option<ThroughDefault>),
     /// A painting operator marking in `DeviceCMYK` under a non-zero mode with overprinting on,
     /// by the graphics state that set the mode and whether four components were blending.
     ProcessOverprint(usize, bool, Option<ObjectId>, bool),
@@ -2301,6 +2327,25 @@ mod tests {
             .map(|entry| entry.name.as_str())
             .collect();
         assert_eq!(missing, vec!["Missing"]);
+    }
+
+    /// ISO 32000-2 §7.3.9 makes a reference to a nonexistent object null and a null entry the
+    /// same as none, so a name whose entry is either is reported as one the resources do not
+    /// define, and a name whose reference reaches an object is not (`doc/adr/2550`).
+    #[test]
+    fn a_name_whose_entry_is_null_or_names_no_object_is_reported_undefined() {
+        let document = page_with(
+            "/Here gs /Gone gs /Null gs",
+            "/Resources << /ExtGState << /Here 5 0 R /Gone 99 0 R /Null null >> >>",
+            &["<< /Type /ExtGState >>"],
+        );
+        let survey = Survey::of(&document);
+        let missing: Vec<&str> = survey
+            .missing_resources()
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect();
+        assert_eq!(missing, vec!["Gone", "Null"]);
     }
 
     /// §8.6.5.6's default is read from the resources in force, and only its own family's key.

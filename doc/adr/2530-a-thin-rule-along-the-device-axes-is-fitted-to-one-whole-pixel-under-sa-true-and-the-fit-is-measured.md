@@ -1,6 +1,6 @@
 # 2530 — A thin rule along the device axes is fitted to one whole pixel under `/SA true`, and the fit is measured
 
-Status: accepted, the construction and its figures; it is drawn only where a caller turns it on, off by default (ADR 2531). Session 1848, batch one hundred and twenty-five, the "measure" slot the owner's "10.7.5
+Status: accepted, the construction and its figures; drawn by default in every backend since ADR 2553 (A714), off by default before it (ADR 2531). Session 1848, batch one hundred and twenty-five, the "measure" slot the owner's "10.7.5
 let's measure it" and "Having to implement something is not a blocker, even if expensive" (2026-10-27)
 asked for. I worked in `scratchpad/r1848/`. Context: ADR 0848 (the coordinate fit declined on the
 coverage-weighted reading of thickness), ADRs 0028, 1189 and 1622 (the departure and its grounding), ADR

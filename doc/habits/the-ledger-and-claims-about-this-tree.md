@@ -603,3 +603,11 @@ is taken over the largest corpus the machine holds, and the RFC's figure is read
 A ledger row's `test` list names tests by path and name, and a rename breaks the name silently; round 1847
 (ADR 2528) renamed one and found the row red only in its last conformance run. `cargo test -p conformance
 --test conformance` runs right after any rename of a test a row names, not at the end of the round.
+
+## Before a question says a condition holds back no document, the count is re-taken behind the gates before it
+
+Q707 told the owner that optional content held back no photographed page, counted while the structure-tree
+check still refused every tagged document first. With that check lifted (A707), three of the seven
+documents turned out to be held by optional content and a new question had to be asked (Q717, round 1851).
+A count offered in a question is taken with every gate that runs before the condition lifted or
+excluded, and the question says which gates were lifted to take it.

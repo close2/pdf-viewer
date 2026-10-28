@@ -57,7 +57,7 @@ pub use crate::coverage::{
 pub use crate::editions::{Earlier, SHIFTS, Shift, shift_of};
 pub use crate::errata::Erratum;
 pub use crate::examination::Examination;
-pub use crate::finding::{Finding, Findings, Where};
+pub use crate::finding::{Finding, Findings, MAX_NAMED, Named, Where};
 pub use crate::reach::{Arrival, Entry, Exempt, Limit, Reach};
 pub use crate::report::{Judgement, Outcome, Report, Verdict};
 pub use crate::requirement::{Applies, Check, Clauses, Requirement};
@@ -109,10 +109,10 @@ pub fn check(document: &Document, target: Target) -> Report {
 /// One requirement, applied.
 fn judge(examination: &Examination<'_>, requirement: &Requirement) -> Judgement {
     let target = examination.target;
-    let outcome = match requirement.check {
-        Check::Unchecked(why) => Outcome::Unchecked(why),
-        Check::Processor(why) => Outcome::Processor(why),
-        Check::OutsideValidation(why) => Outcome::OutsideValidation(why),
+    let (outcome, named) = match requirement.check {
+        Check::Unchecked(why) => (Outcome::Unchecked(why), Named::default()),
+        Check::Processor(why) => (Outcome::Processor(why), Named::default()),
+        Check::OutsideValidation(why) => (Outcome::OutsideValidation(why), Named::default()),
         Check::Implemented(predicate) => {
             let mut findings = Findings::default();
             predicate(examination, &mut findings);
@@ -137,12 +137,15 @@ fn judge(examination: &Examination<'_>, requirement: &Requirement) -> Judgement 
                 findings = narrowed;
             }
             if findings.met() {
-                Outcome::Met
+                (Outcome::Met, Named::default())
             } else {
-                Outcome::Failed {
-                    places: findings.kept().to_vec(),
-                    total: findings.seen(),
-                }
+                (
+                    Outcome::Failed {
+                        places: findings.kept().to_vec(),
+                        total: findings.seen(),
+                    },
+                    findings.named().clone(),
+                )
             }
         }
     };
@@ -158,5 +161,6 @@ fn judge(examination: &Examination<'_>, requirement: &Requirement) -> Judgement 
             .unwrap_or_else(|| "no clause for this part".to_owned()),
         asks: requirement.asks,
         outcome,
+        named,
     }
 }

@@ -260,32 +260,6 @@ pub enum Unsupported {
         /// What could not be decided.
         detail: String,
     },
-    /// Table 57's black generation is stated, and this tree converts where it has no step to act.
-    ///
-    /// ISO 32000-2 §11.7.5.3, and the report is the *whole* of what this tree owes the entry —
-    /// see ADR 1069 for the argument, which is a reading of three clauses rather than a plan.
-    ///
-    /// `/BG`, `/BG2`, `/UCR` and `/UCR2` are parameters of one algorithm and the standard names
-    /// it: §10.4.2.4's, "where BG ( k ) and UCR ( k ) are invocations of the black-generation and
-    /// undercolour-removal functions". §10.4.2.1 ranks that algorithm:
-    ///
-    /// > Although ICC enabled PDF processors should always follow the provisions and
-    /// > recommendations provided in 10.3, "CIE-Based colour to device colour", a less-capable PDF
-    /// > processor may choose to use the algorithms specified in the following subclauses 10.4.2.2
-    /// > through 10.4.2.5.
-    ///
-    /// This tree is on §10.3's branch (ADRs 0009, 0042, 0263, 0796), where a colour goes into a
-    /// press through the profile's own `B2A` table or through the ink cube's inverse — neither of
-    /// which has a black-generation step for a stated function to replace. §11.7.5.3's two bullets
-    /// say *which* functions a conversion that uses them uses; they do not require using them, and
-    /// requiring it would contradict §10.4.2.1's own ranking.
-    ///
-    /// So the file states something this processor's conversion has nowhere to put, and that is a
-    /// departure a reader is told about rather than a page that is drawn differently.
-    BlackGeneration {
-        /// Which clause, which condition matched, and what it costs the page.
-        detail: String,
-    },
     /// The page's ancestry states no usable `/MediaBox`, so its geometry is this program's.
     ///
     /// ISO 32000-2 §7.7.3.3 Table 31 makes the entry "( Required; inheritable )" and §7.7.3.4
@@ -472,6 +446,19 @@ pub enum Unsupported {
     SeparationGivenUp {
         /// Which plane could not be made, or which colourant has no curve, and why.
         reason: String,
+    },
+    /// A graphics state parameter dictionary's `/BG`, `/BG2`, `/UCR` or `/UCR2` that is not a
+    /// function, so the pair already in force stayed.
+    ///
+    /// A **malformed file**, like [`Self::MissingResource`]: Table 57 gives `/BG` and `/UCR` the
+    /// type "function", the `2` variants that or the name `Default`, and §10.4.2.4 makes both
+    /// functions "defined as PDF function dictionaries (see 7.10, "Functions")". An entry that is
+    /// none of those sets nothing, and a `DeviceRGB` paint into a `DeviceCMYK` group is then
+    /// separated with functions the file did not state there (§11.7.5.3) — which nothing on the
+    /// page shows, so it is said (trap 5).
+    UnreadableBlackGeneration {
+        /// Which graphics state, which entry, and what it held instead of a function.
+        detail: String,
     },
 }
 

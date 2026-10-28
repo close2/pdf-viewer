@@ -2077,25 +2077,24 @@ fn the_blending_space_is_the_one_in_force_rather_than_the_one_declared() {
     );
 }
 
-/// §11.7.5.3's black generation: the page keeps its space, and what is left is reported.
+/// §11.7.5.3's black generation is not a condition on the page's blending space.
 ///
 /// The clause applies Table 57's `/BG`, `/BG2`, `/UCR` and `/UCR2` "only during conversion from
 /// DeviceRGB to DeviceCMYK colour spaces", and names §10.4.2.4 as the conversion they are
-/// parameters of. Its first bullet is carried out — see the test below, which measures the
-/// separation, and its second bullet is carried out at the `Do` (ADR 1242) — so what a stated pair
-/// costs here is neither the page's blending space nor either bullet: it is the report about a
-/// press sampled from the document's own bi-directional profile, whose `B2A` table is the
-/// conversion in and has no step for the pair to act on (§8.6.5.5, ADRs 0796, 1207).
+/// parameters of — a conversion *into* the page's four components, so a stated pair cannot cost
+/// the page the space §11.4.7 requires. Both bullets are carried out (the tests below measure
+/// them, ADRs 1207, 1242, 2549), over the output intent's press as over the assumed one, so a
+/// page stating one departs from nothing.
 ///
-/// Two halves, and the second is Table 57's rather than §11.7.5.3's: `/BG2`'s second admissible
-/// value is "the name Default, denoting the black-generation function that was in effect at the
-/// start of the page", which is this device's own. A state naming it departs from nothing.
+/// `/BG2`'s second admissible value is Table 57's: "the name Default, denoting the
+/// black-generation function that was in effect at the start of the page", which is this
+/// device's own.
 #[expect(
     clippy::doc_markdown,
     reason = "the comment quotes §11.7.5.3 verbatim, and a quotation is not marked up"
 )]
 #[test]
-fn a_stated_black_generation_is_reported_and_the_page_keeps_its_space() {
+fn a_stated_black_generation_keeps_the_page_in_its_space() {
     let page_cmyk = "/Group << /S /Transparency /CS /DeviceCMYK >>";
     let form_group = "/Group << /S /Transparency >>";
     let drawn = |state: &str| {
@@ -2108,70 +2107,27 @@ fn a_stated_black_generation_is_reported_and_the_page_keeps_its_space() {
             &page,
         ))
     };
+    for (state, what) in [
+        ("", "a page stating no function"),
+        ("/GK gs", "a page stating a function of its own"),
+        (
+            "/GD gs",
+            "a page naming the device's default over a /BG beside it",
+        ),
+    ] {
+        assert!(
+            drawn(state).display_list.blending().is_some(),
+            "{what} is drawn in its four components"
+        );
+    }
 
-    // Nothing stated: the page composites in its ink and says nothing about §11.7.5.3.
-    let silent = drawn("");
-    assert!(
-        silent.display_list.blending().is_some(),
-        "a page whose colours convert into its space is drawn in it"
-    );
-    assert!(
-        !format!("{:?}", silent.unsupported).contains("BlackGeneration"),
-        "a page stating no function has no departure to report: {:?}",
-        silent.unsupported
-    );
-
-    // `/GK` states a function of its own, and on this page every conversion the pair governs
-    // is one §11.7.5.3's first bullet names and this tree performs — so the page keeps
-    // §11.4.7's space *and* has nothing to report. That is the change ADR 1207 made, and trap
-    // 5's distinction is the one to keep in view: this population stops being reported because
-    // the clause is carried out, not because a condition was narrowed until it stopped firing.
-    let stated = drawn("/GK gs");
-    assert!(
-        stated.display_list.blending().is_some(),
-        "a stated black generation no longer costs the page the space §11.4.7 requires"
-    );
-    assert!(
-        !format!("{:?}", stated.unsupported).contains("BlackGeneration"),
-        "the first bullet is performed, so a page reaching only it departs from nothing: {:?}",
-        stated.unsupported
-    );
-
-    // And the report is not dead, which is what says the narrowing above is the clause's: a
-    // `DeviceCMYK` page group that its output intent's bi-directional profile characterises
-    // converts in through that profile's `B2A` (§8.6.5.5, §14.11.5, ADR 0796), which is the
-    // document's measured transform rather than the device default §10.4.2.4's last paragraph
-    // asks for — so a stated pair reaches no step of it, and that is what a reader is told.
+    // The output intent's press: the pair is carried out there too, so the page is whole.
     let content = "/GB gs 0.5 0.5 0.5 rg 0 0 100 100 re f /GS gs 1 1 1 1 k 0 0 100 100 re f";
     let by_intent = interpret(two_way_intent_fixture(content));
-    let reported = format!("{:?}", by_intent.unsupported);
     assert!(
-        reported.contains("BlackGeneration") && reported.contains("B2A table"),
-        "a stated pair over a DeviceCMYK group's profile conversion in is named: {reported}"
-    );
-
-    // An `ICCBased` page group is not `DeviceCMYK`, and the functions "shall be applied only
-    // during conversion from DeviceRGB to DeviceCMYK colour spaces" — so the same content over
-    // the same profile stated as the group's own space carries the clause out, and nothing is
-    // reported (trap 11, ADR 2170).
-    let by_profile = interpret(two_way_press_fixture(content));
-    assert!(
-        !format!("{:?}", by_profile.unsupported).contains("BlackGeneration"),
-        "an ICCBased group's B2A route departs from nothing: {:?}",
-        by_profile.unsupported
-    );
-
-    // `/GD` names the device's own function, with a `/BG` beside it that Table 57's precedence
-    // overrides. Nothing departs, so nothing is reported.
-    let defaulted = drawn("/GD gs");
-    assert!(
-        defaulted.display_list.blending().is_some(),
-        "naming the device's default cannot cost the page its space either"
-    );
-    assert!(
-        !format!("{:?}", defaulted.unsupported).contains("BlackGeneration"),
-        "/BG2 /Default names the function already in force: {:?}",
-        defaulted.unsupported
+        by_intent.display_list.blending().is_some() && by_intent.is_complete(),
+        "a stated pair over the output intent's press departs from nothing: {:?}",
+        by_intent.unsupported
     );
 }
 
@@ -2247,6 +2203,153 @@ fn a_device_rgb_colour_in_a_cmyk_group_is_separated_by_the_stated_functions() {
     assert!(
         control != painted,
         "a stated pair that changed nothing would not witness the clause: {painted:?}"
+    );
+}
+
+/// ISO 32000-2 §11.7.5.3's first bullet over a `DeviceCMYK` page whose press is sampled from
+/// its output intent's bi-directional profile (§14.11.5), and §10.4.2.4's device default where
+/// the state states no pair. ADR 2549. The bullet, §11.7.5.3:
+///
+/// > When painting an elementary object with a DeviceRGB colour directly into a transparency
+/// > group whose colour space is DeviceCMYK , the functions used shall be the current
+/// > black-generation and undercolour-removal functions in effect in the graphics state at the
+/// > time of the painting operation.
+///
+/// The fixture's `/GB` states `BG(x) = 1 − x` and no undercolour removal, so the nominal one
+/// stands. §10.4.2.4's own EXAMPLE colour `0.2 0.7 0.4` is `c = 0.8`, `m = 0.3`, `y = 0.6`, so
+/// `k = 0.3`, `BG(0.3) = 0.7`, and removing `0.3` leaves `0.5 0 0.3` — the inks `0.5 0 0.3 0.7`,
+/// which a `k` of the same four paints into the same press with no conversion at all
+/// (§8.6.5.7). Where nothing is stated the press's own `B2A` table converts the colour in, and
+/// the same profile stated as the page group's `ICCBased` space is that table by ADR 2170 —
+/// with or without the pair, because converting into an `ICCBased` space is not a "conversion
+/// from DeviceRGB to DeviceCMYK".
+#[expect(
+    clippy::doc_markdown,
+    reason = "the comment quotes §11.7.5.3 verbatim, and a quotation is not marked up"
+)]
+#[test]
+fn a_device_rgb_colour_into_the_output_intents_press_is_separated_by_the_stated_functions() {
+    let paint = "0.2 0.7 0.4 rg 0 0 100 100 re f";
+    let stated = interpret(two_way_intent_fixture(&format!("/GB gs {paint}")));
+    assert!(
+        stated.is_complete(),
+        "nothing departs: {:?}",
+        stated.unsupported
+    );
+    let separated = pixel(&stated, 50, 50);
+    let inks = centre_of(two_way_intent_fixture("0.5 0 0.3 0.7 k 0 0 100 100 re f"));
+    assert!(
+        agrees(separated, inks, 1),
+        "§10.4.2.4 with the stated pair is the inks 0.5 0 0.3 0.7: {separated:?} against {inks:?}"
+    );
+
+    let by_table = centre_of(two_way_press_fixture(paint));
+    let unstated = centre_of(two_way_intent_fixture(paint));
+    assert!(
+        agrees(unstated, by_table, 1),
+        "no pair stated: the profile's own B2A, {unstated:?} against {by_table:?}"
+    );
+    assert!(
+        !agrees(unstated, separated, 8),
+        "a pair that changed nothing would not witness the bullet: {separated:?}"
+    );
+    let icc_stated = centre_of(two_way_press_fixture(&format!("/GB gs {paint}")));
+    assert!(
+        agrees(icc_stated, by_table, 1),
+        "an ICCBased page keeps its table under the pair: {icc_stated:?} against {by_table:?}"
+    );
+
+    // The same colour as an image's one sample, `33 B3 66`, which the caches convert through
+    // `Conversion` rather than the interpreter's own route: both branches again.
+    let image = "q 100 0 0 100 0 0 cm BI /W 1 /H 1 /BPC 8 /CS /RGB /F /AHx ID 33B366> EI Q";
+    let sampled = centre_of(two_way_intent_fixture(&format!("/GB gs {image}")));
+    assert!(
+        agrees(sampled, inks, 1),
+        "an image's sample under the pair: {sampled:?} against {inks:?}"
+    );
+    let icc_sampled = centre_of(two_way_press_fixture(&format!("/GB gs {image}")));
+    let icc_table = centre_of(two_way_press_fixture(image));
+    assert!(
+        agrees(icc_sampled, icc_table, 1) && agrees(icc_table, by_table, 1),
+        "an ICCBased page's image keeps its table: {icc_sampled:?} against {icc_table:?}"
+    );
+}
+
+/// §11.7.5.3's second bullet into the same press: a `DeviceRGB` group painted into the output
+/// intent's `DeviceCMYK` page takes the pair in force at its `Do` (ADR 2549).
+///
+/// > When painting a transparency group whose colour space is DeviceRGB into a parent group
+/// > whose colour space is DeviceCMYK , the functions used shall be the ones in effect at the
+/// > time the Do operator is applied to the group.
+///
+/// The group's left half is `0.25 0.75 0.5`: `c = 0.75`, `m = 0.25`, `y = 0.5`, `k = 0.25`,
+/// `BG(0.25) = 0.75` and the nominal removal of `0.25`, so the inks `0.5 0 0.25 0.75`. The
+/// tolerance is the parent cube's interpolation, which ADR 1242 samples.
+#[test]
+fn a_device_rgb_group_into_the_output_intents_press_takes_the_pair_at_the_do() {
+    let form = "0.25 0.75 0.5 rg 0 0 50 100 re f /GS gs 0 0 1 rg 60 0 40 100 re f";
+    let objects = format!(
+        "6 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+         /Group << /S /Transparency /CS /DeviceRGB /I true >> \
+         /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> >> >> /Length {} >>\n\
+         stream\n{form}\nendstream\nendobj\n",
+        form.len() + 1
+    );
+    let at = |content: &str| {
+        let page = interpret(two_way_intent_resources(
+            content,
+            "/XObject << /Fm 6 0 R >>",
+            &objects,
+        ));
+        assert!(page.is_complete(), "{content}: {:?}", page.unsupported);
+        pixel(&page, 25, 50)
+    };
+    let stated = at("/GB gs /Fm Do");
+    let inks = at("0.5 0 0.25 0.75 k 0 0 100 100 re f");
+    assert!(
+        agrees(stated, inks, 3),
+        "§10.4.2.4 with the pair at the Do: {stated:?} against the inks' {inks:?}"
+    );
+    let unstated = at("/Fm Do");
+    assert!(
+        !agrees(unstated, stated, 8),
+        "a pair that changed nothing at the Do would not witness the bullet: {stated:?}"
+    );
+}
+
+/// §11.7.5.3's second bullet names a parent whose colour space is `DeviceCMYK`, and an
+/// `ICCBased` parent is not one (ADR 2170): the same `DeviceRGB` group, drawn under the moving
+/// pair into an isolated `ICCBased` group over the same two-way profile, is the picture drawn
+/// with no pair at all. The page itself reports a `TransparencyGroup` departure for this nesting,
+/// so completeness is not asserted; removing the filter at the `Do` moves the pixel, which is what
+/// makes the comparison a witness.
+#[test]
+fn a_device_rgb_group_into_an_icc_based_parent_takes_no_pair_at_the_do() {
+    let form = "0.25 0.75 0.5 rg 0 0 50 100 re f /GS gs 0 0 1 rg 60 0 40 100 re f";
+    let at = |inner: &str| {
+        let objects = format!(
+            "6 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+             /Group << /S /Transparency /CS /DeviceRGB /I true >> \
+             /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> >> >> /Length {} >>\n\
+             stream\n{form}\nendstream\nendobj\n\
+             7 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+             /Group << /S /Transparency /CS [/ICCBased 5 0 R] /I true >> /Length {} >>\n\
+             stream\n{inner}\nendstream\nendobj\n",
+            form.len() + 1,
+            inner.len() + 1
+        );
+        let page = interpret(two_way_intent_resources(
+            "/Fp Do",
+            "/XObject << /Fm 6 0 R /Fp 7 0 R >>",
+            &objects,
+        ));
+        pixel(&page, 25, 50)
+    };
+    let stated = at("/GB gs /Fm Do");
+    let unstated = at("/Fm Do");
+    assert!(
+        agrees(stated, unstated, 1),
+        "an ICCBased parent is not DeviceCMYK, so the pair is not its: {stated:?} against {unstated:?}"
     );
 }
 
@@ -4851,18 +4954,17 @@ fn calibrated_mask_fixture(mask: &str, backdrop: &str) -> Vec<u8> {
 }
 
 /// A `/Luminosity` mask group whose `/CS` is `CalGray` is composited in its component and
-/// its mask value is §11.5.3's `Y` of the result (ISO 32000-2 §11.5.3, §11.6.5.1, §8.6.5.2).
+/// its mask value is that component, by §11.5.3's device branch (ISO 32000-2 §11.5.3,
+/// §11.6.5.1, §8.6.5.2; A23, ADR 2552).
 ///
-/// §11.5.3: "For CIE-based spaces, convert to the CIE 1931 XYZ space and use the Y component
-/// as the luminosity." §8.6.5.2 gives a `CalGray` component's XYZ as the gamma-decoded
-/// component times the white point, whose `Y` is 1.0 — so a component of 0.5 under `/Gamma 2`
-/// is a luminosity of 0.25, and a black fill through that mask over white leaves 0.75. Table
-/// 142's `/BC` is "n numbers, where n is the number of components in the colour space
-/// specified by the CS entry", so `/BC [0.5]` is the same component and the same 0.75 where
-/// the group paints nothing. The control is the same group in `DeviceGray`, whose 0.5 *is* the
-/// mask value by the clause's device branch.
+/// The clause's colorimetric branch would take the `Y` of the component, 0.25 for a component
+/// of 0.5 under `/Gamma 2`; the owner chose the device branch, "with no compensation for gamma
+/// or other colour calibration", so the component of 0.5 is the mask value and a black fill
+/// through that mask over white leaves 0.5. Table 142's `/BC` is "n numbers, where n is the
+/// number of components in the colour space specified by the CS entry", so `/BC [0.5]` is the
+/// same component and the same 0.5 where the group paints nothing.
 #[test]
-fn a_calibrated_mask_group_takes_the_luminance_of_its_composited_component() {
+fn a_calibrated_mask_group_takes_its_composited_component_as_the_grey() {
     let painted = interpret(calibrated_mask_fixture(
         "/CG cs 0.5 sc 0 0 100 100 re f",
         "",
@@ -4873,28 +4975,28 @@ fn a_calibrated_mask_group_takes_the_luminance_of_its_composited_component() {
         painted.unsupported
     );
     assert_grey(
-        "a component of 0.5 under gamma 2 masks a quarter of the black",
+        "a component of 0.5 masks half of the black, gamma uncompensated",
         pixel(&painted, 50, 50),
-        0.75,
+        0.5,
     );
 
     let backdrop = interpret(calibrated_mask_fixture("", "/BC [0.5]"));
     assert_grey(
         "and /BC states that component where the group paints nothing",
         pixel(&backdrop, 50, 50),
-        0.75,
+        0.5,
     );
 
     let device = interpret(calibrated_mask_fixture("0.5 g 0 0 100 100 re f", ""));
     // A device grey painted *into* the calibrated group is converted in first (§11.6.6): the
     // component whose device colour has that grey, which under gamma 2 is the component whose
-    // square is sRGB's decoding of 0.5 — so the luminosity is that decoding, 0.2140, and the
-    // page keeps 0.786 of its white.
-    let linear = ((0.5f32 + 0.055) / 1.055).powf(2.4);
+    // square is sRGB's decoding of 0.5, 0.2140 — so the component, and the mask value, is that
+    // decoding's square root, and the page keeps the rest of its white.
+    let component = ((0.5f32 + 0.055) / 1.055).powf(2.4).sqrt();
     assert_grey(
-        "a device grey goes in through §11.6.6's conversion and out as its linear light",
+        "a device grey goes in through §11.6.6's conversion and is weighed as that component",
         pixel(&device, 50, 50),
-        1.0 - linear,
+        1.0 - component,
     );
 }
 
@@ -5394,22 +5496,18 @@ fn profile_mask_fixture(profile: &[u8], components: usize, mask: &str, backdrop:
     assemble(&body)
 }
 
-/// A `/Luminosity` mask group whose `/CS` is a three-component **table** profile takes
-/// §11.5.3's `Y` over a sampled grid (ISO 32000-2 §11.5.3, §11.6.5.1, §8.6.5.5; ADR 0851).
+/// A `/Luminosity` mask group whose `/CS` is a three-component **table** profile is
+/// composited in its components and weighed by §11.5.3's device branch (ISO 32000-2 §11.5.3,
+/// §11.6.5.1, §8.6.5.5; A23, ADR 2552).
 ///
-/// §11.5.3 branches on the *kind* of the space and not on the shape of its arithmetic: "For
-/// CIE-based spaces, convert to the CIE 1931 XYZ space and use the Y component as the
-/// luminosity", and EXAMPLE 1 adds that "[a]n analogous computation applies to other CIE-based
-/// colour spaces". An `ICCBased` space is CIE-based (§8.6.5.1) whether its profile carries a
-/// matrix or a lookup table, so the branch is the same and only the way the `Y` is computed
-/// differs — three curves summed where the profile decomposes, this grid where it does not.
-///
-/// [`icc_rgb_table_profile`] states sRGB's colourants at its corners, so a pure green's `Y` is
-/// the middle row's green entry, 0.7169, and a black fill through the mask over a white page
-/// leaves `1 − 0.7169`. **The device branch would leave `1 − 0.59`** — EXAMPLE 2's weights on
-/// the same channels — which is what this tree drew before, with no report to say so.
+/// The owner chose the device branch for every mask group, so the profile's lookup table
+/// decides how the group's marks are composited and nothing about how the result is weighed:
+/// EXAMPLE 2's `DeviceRGB` weights on the components. [`icc_rgb_table_profile`] states sRGB's
+/// colourants at its corners, so a pure green is `0.59` and a black fill through the mask over
+/// a white page leaves `1 − 0.59`, where the colorimetric branch's `Y`, the middle row's green
+/// entry, would leave `1 − 0.7169`.
 #[test]
-fn a_table_profile_mask_group_takes_the_luminance_of_its_composited_components() {
+fn a_table_profile_mask_group_weighs_its_composited_components_by_the_device_branch() {
     let green = interpret(table_profile_mask_fixture(
         "/PR cs 0 1 0 sc 0 0 100 100 re f",
         "",
@@ -5420,58 +5518,54 @@ fn a_table_profile_mask_group_takes_the_luminance_of_its_composited_components()
         green.unsupported
     );
     assert_grey(
-        "a pure green's Y is the profile's own 0.7169, not the device branch's 0.59",
+        "a pure green weighs EXAMPLE 2's 0.59, not the profile's Y of 0.7169",
         pixel(&green, 50, 50),
-        1.0 - 0.7169,
+        1.0 - 0.59,
     );
 
     let device_rgb = interpret(table_profile_mask_fixture("0 1 0 rg 0 0 100 100 re f", ""));
     assert_grey(
         "a DeviceRGB green inside the group is the group's components (§11.7.2)",
         pixel(&device_rgb, 50, 50),
-        1.0 - 0.7169,
+        1.0 - 0.59,
     );
 
     let backdrop = interpret(table_profile_mask_fixture("", "/BC [0 1 0]"));
     assert_grey(
         "and /BC states those components where the group paints nothing",
         pixel(&backdrop, 50, 50),
-        1.0 - 0.7169,
+        1.0 - 0.59,
     );
 }
 
-/// A `/Luminosity` mask group whose `/CS` is a **four-component** `ICCBased` space takes
-/// §11.5.3's `Y` off §11.4.7's pair of rasters (ISO 32000-2 §11.5.3, §11.3.4, §11.4.7,
-/// §8.6.5.1; ADR 0857).
+/// A `/Luminosity` mask group whose `/CS` is a **four-component** `ICCBased` space is
+/// composited in §11.4.7's pair of rasters and weighed by §11.5.3's device branch for four
+/// inks (ISO 32000-2 §11.5.3, §11.3.4, §11.4.7, §8.6.5.1; ADR 0857; A23, ADR 2552).
 ///
 /// §11.3.4 lists, among the spaces a processor shall support as blending colour spaces:
 ///
 /// > - ICCBased bi-directional 'GRAY', 'RGB ', and 'CMYK' colour spaces
 ///
-/// and §8.6.5.1 makes every one of them CIE-based, so §11.5.3's branch is the colorimetric one
-/// — "convert to the CIE 1931 XYZ space and use the Y component as the luminosity" — whatever
-/// the component count. What four components change is not the branch but the *carrier*:
-/// §11.3.4 composites per component, a raster has three channels, so the group is interpreted
-/// twice and the `Y` is a function of what the two hold between them.
-///
-/// [`press_xyz_of`] is the fixture's press and its `Y` is the middle row's product, so every
-/// expected value here comes from the model rather than from what the tree draws. The page is
-/// white with a black fill through the mask, so a pixel is `1 − Y`.
+/// and composites per component; a raster has three channels, so the group is interpreted
+/// twice and the luminosity is a function of what the two hold between them. The owner chose
+/// the device branch for every mask group, so that function is EXAMPLE 2's for `DeviceCMYK`,
+/// `Y = 1 − min(1, 0.3 × C + 0.59 × M + 0.11 × Y + K)`, of the composited inks, and the
+/// profile decides nothing about the weighing. The page is white with a black fill through the
+/// mask, so a pixel is `1 − Y`.
 ///
 /// Three cases, and the second is the one the pair exists for:
 ///
-/// - **A chromatic ink.** `0 1 0 0 k` is magenta alone: `Y = 1 − 0.60`.
+/// - **A chromatic ink.** `0 1 0 0 k` is magenta alone: `Y = 1 − 0.59`.
 /// - **The black ink.** `0 0 0 1 k` paints *nothing* into the chromatic raster, so a reader
-///   with one raster sees paper and masks nothing away. The clause's `Y` is `1 − 0.80`, and
-///   §11.5.3's device branch would give `1 − min(1, 1)` — zero — so the three answers are
-///   three different pictures and this one is the clause's.
+///   with one raster sees paper and masks nothing away. The formula's `Y` is `1 − min(1, 1)`,
+///   zero, so the page keeps all of its white — the opposite picture.
 /// - **`/BC`.** Table 142's backdrop has four components, and each raster composites onto the
 ///   ones it carries; stating the black ink there masks the area outside the group's marks at
-///   the same `1 − 0.80`.
+///   the same zero.
 #[test]
-fn a_four_component_mask_group_takes_the_y_of_its_pair_of_rasters() {
+fn a_four_component_mask_group_weighs_its_pair_of_rasters_by_the_device_branch() {
     let profile = two_way_cmyk_profile();
-    let y_of = |inks: [f32; 4]| press_xyz_of(0, inks)[1];
+    let y_of = |[c, m, y, k]: [f32; 4]| 1.0 - (0.3 * c + 0.59 * m + 0.11 * y + k).min(1.0);
 
     let magenta = interpret(profile_mask_fixture(
         &profile,
@@ -5485,7 +5579,7 @@ fn a_four_component_mask_group_takes_the_y_of_its_pair_of_rasters() {
         magenta.unsupported
     );
     assert_grey(
-        "a magenta ink's Y is the press's own, not EXAMPLE 2's weights on the channels",
+        "a magenta ink weighs EXAMPLE 2's 0.59, not the press's Y",
         pixel(&magenta, 50, 50),
         1.0 - y_of([0.0, 1.0, 0.0, 0.0]),
     );
@@ -5502,7 +5596,7 @@ fn a_four_component_mask_group_takes_the_y_of_its_pair_of_rasters() {
         black.unsupported
     );
     assert_grey(
-        "the black component reaches the Y, which one raster could not have carried",
+        "the black component reaches the luminosity, which one raster could not have carried",
         pixel(&black, 50, 50),
         1.0 - y_of([0.0, 0.0, 0.0, 1.0]),
     );
@@ -5515,13 +5609,13 @@ fn a_four_component_mask_group_takes_the_y_of_its_pair_of_rasters() {
     );
 }
 
-/// A `/Luminosity` mask group whose `/CS` is CIE-based and whose `Y` this reader cannot take
-/// is **named** rather than drawn in silence (ISO 32000-2 §11.5.3, §11.3.4; ADR 0851).
+/// A `/Luminosity` mask group whose `/CS` is CIE-based and which this reader cannot composite
+/// in its own components is **named** rather than drawn in silence (ISO 32000-2 §11.6.5.1,
+/// §11.3.4; ADR 0851, ADR 2552).
 ///
-/// §11.5.3 branches on the space's kind — "For CIE-based spaces, convert to the CIE 1931 XYZ
-/// space and use the Y component as the luminosity" — so a CIE-based space that does not take
-/// that branch is a departure whatever the reason, and the report fires on exactly that
-/// condition rather than on a list of space names.
+/// §11.6.5.1 makes the `/CS` "the colour space in which the compositing computation is to be
+/// performed", so a CIE-based space the group is not composited in is a departure whatever the
+/// reason, and the report fires on exactly that condition rather than on a list of space names.
 ///
 /// Two shapes reach it, and neither had a report before this round:
 ///
@@ -5577,7 +5671,7 @@ fn a_mask_group_in_a_cie_space_with_no_route_is_named_rather_than_drawn_in_silen
     ));
     assert!(
         drawn.is_complete(),
-        "and the same profile with its B2A takes the clause's branch and is not named: {:?}",
+        "and the same profile with its B2A is composited in its components and not named: {:?}",
         drawn.unsupported
     );
 }
@@ -5641,20 +5735,22 @@ fn additive_mask_fixture(mask: &str, backdrop: &str) -> Vec<u8> {
 }
 
 /// A `/Luminosity` mask group whose `/CS` is `CalRGB` is composited in its components and
-/// its mask value is §11.5.3's `Y` of the result (ISO 32000-2 §11.5.3, §11.6.5.1, §8.6.5.3).
+/// its mask value is EXAMPLE 2's `DeviceRGB` weights on the result, §11.5.3's device branch
+/// (ISO 32000-2 §11.5.3, §11.6.5.1, §8.6.5.3; A23, ADR 2552).
 ///
-/// §11.5.3: "For CIE-based spaces, convert to the CIE 1931 XYZ space and use the Y component
-/// as the luminosity", and its EXAMPLE 1 writes the `CalRGB` case out as the `Y` entries of
-/// the `Matrix` weighting each gamma-decoded component. With sRGB's primaries and a gamma of
-/// 2 on each, a component of ½ apiece is `0.2126 × ¼ + 0.7152 × ¼ + 0.0722 × ¼ = ¼`, so a
-/// black fill through that mask over white leaves ¾; a pure green is `0.7152` and leaves
-/// `0.2848`, where the device branch's `0.59` would leave `0.41`. Table 142's `/BC` is "n
-/// numbers, where n is the number of components in the colour space specified by the CS
-/// entry", three, and `/BC [0.5 0.5 0.5]` is the same ¾ where the group paints nothing. A
-/// `DeviceRGB` grey inside the group is the group's components by §11.7.2 and masks the same
-/// ¾; a `DeviceGray` goes in through sRGB's XYZ, so its `Y` is sRGB's decoding of ½, 0.214.
+/// The clause's EXAMPLE 1 writes the colorimetric branch out for `CalRGB`, the `Y` entries of
+/// the `Matrix` weighting each gamma-decoded component; the owner chose the device branch,
+/// "with no compensation for gamma or other colour calibration", so the components are
+/// weighed as they stand. With a gamma of 2 on each, a component of ½ apiece is
+/// `0.30 × ½ + 0.59 × ½ + 0.11 × ½ = ½`, so a black fill through that mask over white leaves
+/// ½, where the clause's `Y` of ¼ would leave ¾; a pure green is `0.59` and leaves `0.41`.
+/// Table 142's `/BC` is "n numbers, where n is the number of components in the colour space
+/// specified by the CS entry", three, and `/BC [0.5 0.5 0.5]` is the same ½ where the group
+/// paints nothing. A `DeviceRGB` grey inside the group is the group's components by §11.7.2
+/// and masks the same ½; a `DeviceGray` goes in through sRGB's XYZ, so each component is the
+/// square root of sRGB's decoding of ½ under the gamma of 2, and that is the mask value.
 #[test]
-fn a_cal_rgb_mask_group_takes_the_luminance_of_its_composited_components() {
+fn a_cal_rgb_mask_group_weighs_its_composited_components_by_the_device_branch() {
     let painted = interpret(additive_mask_fixture(
         "/CR cs 0.5 0.5 0.5 sc 0 0 100 100 re f",
         "",
@@ -5665,9 +5761,9 @@ fn a_cal_rgb_mask_group_takes_the_luminance_of_its_composited_components() {
         painted.unsupported
     );
     assert_grey(
-        "components of ½ under gamma 2 have a Y of ¼ and mask a quarter of the black",
+        "components of ½ weigh ½ and mask half of the black, gamma uncompensated",
         pixel(&painted, 50, 50),
-        0.75,
+        0.5,
     );
 
     let green = interpret(additive_mask_fixture(
@@ -5675,31 +5771,31 @@ fn a_cal_rgb_mask_group_takes_the_luminance_of_its_composited_components() {
         "",
     ));
     assert_grey(
-        "a pure green's Y is its Matrix column's, 0.7152, not the device branch's 0.59",
+        "a pure green weighs EXAMPLE 2's 0.59, not its Matrix column's Y of 0.7152",
         pixel(&green, 50, 50),
-        1.0 - 0.7152,
+        1.0 - 0.59,
     );
 
     let backdrop = interpret(additive_mask_fixture("", "/BC [0.5 0.5 0.5]"));
     assert_grey(
         "and /BC states those components where the group paints nothing",
         pixel(&backdrop, 50, 50),
-        0.75,
+        0.5,
     );
 
     let device_rgb = interpret(additive_mask_fixture("0.5 0.5 0.5 rg 0 0 100 100 re f", ""));
     assert_grey(
         "a DeviceRGB grey inside the group is the group's components (§11.7.2)",
         pixel(&device_rgb, 50, 50),
-        0.75,
+        0.5,
     );
 
     let device_gray = interpret(additive_mask_fixture("0.5 g 0 0 100 100 re f", ""));
-    let linear = ((0.5f32 + 0.055) / 1.055).powf(2.4);
+    let component = ((0.5f32 + 0.055) / 1.055).powf(2.4).sqrt();
     assert_grey(
-        "a DeviceGray goes in through sRGB's XYZ and its Y is that grey's linear light",
+        "a DeviceGray goes in through sRGB's XYZ and is weighed as the components it became",
         pixel(&device_gray, 50, 50),
-        1.0 - linear,
+        1.0 - component,
     );
 }
 
@@ -5826,11 +5922,6 @@ fn a_group_painted_into_a_cmyk_parent_is_converted_by_the_functions_at_the_do() 
     assert!(
         control != painted,
         "a pair that changed nothing at the Do would not witness the bullet: {painted:?}"
-    );
-    assert!(
-        !format!("{:?}", stated.unsupported).contains("BlackGeneration"),
-        "the bullet is carried out, so nothing departs: {:?}",
-        stated.unsupported
     );
 }
 
@@ -5991,10 +6082,35 @@ fn a_groups_opacity_does_not_become_its_shape_inside_a_knockout_group() {
     }
 }
 
-/// §11.7.5.3's first bullet governs a paint with `DeviceRGB` while the pair is current,
-/// rather than a parameter or colour selected anywhere in the content stream.
+/// The centre pixel of a fixture's page, interpreted and rendered.
+fn centre_of(bytes: Vec<u8>) -> [u8; 4] {
+    pixel(&interpret(bytes), 50, 50)
+}
+
+/// Whether two pixels' colour channels agree within `tolerance` levels.
+fn agrees(a: [u8; 4], b: [u8; 4], tolerance: u8) -> bool {
+    a.iter()
+        .zip(b)
+        .take(3)
+        .all(|(a, b)| a.abs_diff(b) <= tolerance)
+}
+
+/// §11.7.5.3's first bullet governs a paint with `DeviceRGB` while the pair is current, rather
+/// than a parameter or colour selected anywhere in the content stream, and it governs it over a
+/// press sampled from the output intent's profile (ADR 2549).
+///
+/// The fixture's `/GB` states `BG(x) = 1 − x` and leaves the undercolour removal nominal, so
+/// §10.4.2.4 takes red to `c = 0`, `m = y = 1`, `k = 0`, and then black `BG(0) = 1` with nothing
+/// removed: the inks `0 1 1 1`, which a `k` of the same four paints into the same press. A
+/// paint the pair does not govern is the same page without the `gs`.
 #[test]
-fn black_generation_report_requires_a_device_rgb_paint_under_the_current_pair() {
+fn the_pair_separates_a_device_rgb_paint_only_while_it_is_current() {
+    let separated = centre_of(two_way_intent_fixture("0 1 1 1 k 0 0 100 100 re f"));
+    let by_table = centre_of(two_way_intent_fixture("1 0 0 rg 0 0 100 100 re f"));
+    assert!(
+        !agrees(separated, by_table, 8),
+        "the witness needs the two conversions apart: {separated:?} against {by_table:?}"
+    );
     for content in [
         "/GB gs",
         "/GB gs 1 0 0 rg",
@@ -6004,38 +6120,36 @@ fn black_generation_report_requires_a_device_rgb_paint_under_the_current_pair() 
         "q /GB gs Q 1 0 0 rg 0 0 100 100 re f",
         "1 0 0 rg 0 0 100 100 re f /GB gs",
     ] {
-        let page = interpret(two_way_intent_fixture(content));
+        let without = content.replace("/GB gs", "");
+        let drawn = centre_of(two_way_intent_fixture(content));
+        let plain = centre_of(two_way_intent_fixture(&without));
         assert!(
-            !page
-                .unsupported
-                .iter()
-                .any(|item| matches!(item, pdf_model::Unsupported::BlackGeneration { .. })),
-            "no governed paint in {content}: {:?}",
-            page.unsupported
+            agrees(drawn, plain, 1),
+            "no governed paint in {content}: {drawn:?} against {plain:?}"
         );
     }
     for content in [
         "/GB gs 1 0 0 rg 0 0 100 100 re f",
-        "/GB gs 1 0 0 RG 0 0 100 100 re S",
+        "/GB gs 1 0 0 RG 200 w 0 0 100 100 re S",
         "1 0 0 rg /GB gs 0 0 100 100 re f",
         "q /GB gs 1 0 0 rg 0 0 100 100 re f Q",
         "/GB gs q 0.5 g 0 0 100 100 re f Q 1 0 0 rg 0 0 100 100 re f",
     ] {
         let page = interpret(two_way_intent_fixture(content));
+        assert!(page.is_complete(), "{content}: {:?}", page.unsupported);
+        let drawn = pixel(&page, 50, 50);
         assert!(
-            page.unsupported
-                .iter()
-                .any(|item| matches!(item, pdf_model::Unsupported::BlackGeneration { .. })),
-            "a governed paint in {content}: {:?}",
-            page.unsupported
+            agrees(drawn, separated, 1),
+            "a governed paint in {content}: {drawn:?} against the inks' {separated:?}"
         );
     }
 }
 
-/// Images and shadings cache converted colours. Their diagnostic must survive a cache hit,
-/// while selecting a shading pattern without painting it must remain silent (§11.7.5.3).
+/// Images and shadings cache converted colours, keyed by the pair (ADR 1242), so a paint under
+/// the pair after the same paint without it must not be handed the first conversion, and a
+/// shading pattern's own `/ExtGState` pair (§11.6.7) governs its colours where the pattern paints.
 #[test]
-fn black_generation_report_follows_image_and_shading_paints_through_their_caches() {
+fn the_pair_reaches_image_and_shading_paints_through_their_caches() {
     const SHADING: &str = "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 100 0] \
         /Function << /FunctionType 2 /Domain [0 1] /C0 [1 0 0] /C1 [0 1 0] /N 1 >> \
         /Extend [true true] >>";
@@ -6047,25 +6161,50 @@ fn black_generation_report_follows_image_and_shading_paints_through_their_caches
     let objects = "6 0 obj\n<< /Type /XObject /Subtype /Image /Width 1 /Height 1 \
         /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /ASCIIHexDecode /Length 8 >>\n\
         stream\nff0000>\nendstream\nendobj\n";
-    for (content, reported) in [
-        ("/GB gs /Im Do /Im Do", true),
-        ("/GB gs /Sh sh /Sh sh", true),
-        ("/Pattern cs /P scn", false),
-        ("/Pattern cs /P scn 0 0 100 100 re f 0 0 100 100 re f", true),
-        ("q /GB gs Q /Im Do", false),
-        ("q /GB gs Q /Sh sh", false),
+    let at = |content: &str| centre_of(two_way_intent_resources(content, &resources, objects));
+    let image = "q 100 0 0 100 0 0 cm /Im Do Q";
+    let separated = at("0 1 1 1 k 0 0 100 100 re f");
+    let shaded = at("/GB gs /Sh sh");
+    assert!(
+        !agrees(shaded, at("/Sh sh"), 4),
+        "the shading's witness needs the pair to move it: {shaded:?}"
+    );
+    for (content, want, what) in [
+        (
+            format!("/GB gs {image}"),
+            separated,
+            "an image under the pair",
+        ),
+        (
+            format!("{image} /GB gs {image}"),
+            separated,
+            "an image cached before the pair",
+        ),
+        (
+            format!("q /GB gs Q {image}"),
+            at(image),
+            "an image after the pair is restored away",
+        ),
+        (
+            "/Sh sh /GB gs /Sh sh".to_owned(),
+            shaded,
+            "a shading cached before the pair",
+        ),
+        (
+            "q /GB gs Q /Sh sh".to_owned(),
+            at("/Sh sh"),
+            "a shading after the pair is restored away",
+        ),
+        (
+            "/Pattern cs /P scn 0 0 100 100 re f".to_owned(),
+            shaded,
+            "a shading pattern under its own pair",
+        ),
     ] {
-        let page = interpret(two_way_intent_resources(content, &resources, objects));
-        let count = page
-            .unsupported
-            .iter()
-            .filter(|item| matches!(item, pdf_model::Unsupported::BlackGeneration { .. }))
-            .count();
-        assert_eq!(
-            count,
-            usize::from(reported),
-            "{content}: {:?}",
-            page.unsupported
+        let drawn = at(&content);
+        assert!(
+            agrees(drawn, want, 1),
+            "{what} ({content}): {drawn:?} against {want:?}"
         );
     }
 }
@@ -6097,9 +6236,14 @@ fn an_images_rgb_samples_use_the_black_generation_pair_at_its_do() {
     }
 }
 
-/// §11.7.5.3 reports the tint's effective source and pair at actual paint, including stencils.
+/// §11.7.5.3 carries a bound `DeviceRGB` tint's pair to the paint, a stencil's included, over
+/// the output intent's press (ADR 2549).
+///
+/// The tint `0.2 0.4 0.6` is `c = 0.8`, `m = 0.6`, `y = 0.4`, so `k = 0.4`; `BG(0.4) = 0.6` and
+/// the nominal removal of `0.4` give the inks `0.4 0.2 0 0.6`. A grey tint is not the clause's
+/// colour and keeps the page's conversion.
 #[test]
-fn a_profiled_pattern_reports_the_bound_rgb_tint_only_when_painted() {
+fn a_profiled_patterns_bound_rgb_tint_is_separated_by_the_pair_when_painted() {
     for cell in ["0 0 100 100 re f", "q 100 0 0 100 0 0 cm /Mask Do Q"] {
         let objects = format!(
             "6 0 obj\n<< /Type /Pattern /PatternType 1 /PaintType 2 /TilingType 1 \
@@ -6113,27 +6257,69 @@ fn a_profiled_pattern_reports_the_bound_rgb_tint_only_when_painted() {
         );
         let resources = "/ColorSpace << /Tint [/Pattern /DeviceRGB] /GreyTint [/Pattern /DeviceGray] >> \
                          /Pattern << /P 6 0 R >> /XObject << /Mask 7 0 R >>";
-        for (content, reported) in [
-            ("/GB gs /Tint cs .2 .4 .6 /P scn", false),
-            ("/GB gs /Tint cs .2 .4 .6 /P scn 0 0 100 100 re f", true),
-            ("/GB gs /GreyTint cs .5 /P scn 0 0 100 100 re f", false),
+        let at = |content: &str| centre_of(two_way_intent_resources(content, resources, &objects));
+        let separated = at("0.4 0.2 0 0.6 k 0 0 100 100 re f");
+        let fill = "0 0 100 100 re f";
+        for (content, want) in [
+            (format!("/GB gs /Tint cs .2 .4 .6 /P scn {fill}"), separated),
             (
-                "/Tint cs .2 .4 .6 /P scn /GB gs q 100 0 0 100 0 0 cm /Mask Do Q",
-                true,
+                format!("/GB gs /GreyTint cs .5 /P scn {fill}"),
+                at(&format!("/GreyTint cs .5 /P scn {fill}")),
+            ),
+            (
+                "/Tint cs .2 .4 .6 /P scn /GB gs q 100 0 0 100 0 0 cm /Mask Do Q".to_owned(),
+                separated,
             ),
         ] {
-            let page = interpret(two_way_intent_resources(content, resources, &objects));
-            let count = page
-                .unsupported
-                .iter()
-                .filter(|item| matches!(item, pdf_model::Unsupported::BlackGeneration { .. }))
-                .count();
-            assert_eq!(
-                count,
-                usize::from(reported),
-                "{cell}; {content}: {:?}",
-                page.unsupported
+            let drawn = at(&content);
+            assert!(
+                agrees(drawn, want, 1),
+                "{cell}; {content}: {drawn:?} against {want:?}"
             );
         }
     }
+}
+
+/// A black generation or undercolour removal that is not a function is the file's, and it is said.
+///
+/// Table 57 gives `/BG` and `/UCR` the type "function" and §10.4.2.4 makes both "defined as PDF
+/// function dictionaries (see 7.10, "Functions")": `/FunctionType 7` is none of §7.10.1's types,
+/// and an integer is not a function at all. Neither sets anything, so the paint below it is
+/// separated with the pair in force — and a `DeviceRGB` paint into a `DeviceCMYK` group would be
+/// drawn with functions the file did not state there (§11.7.5.3) — which is why both are reported,
+/// once through `gs` and once through a shading pattern's own `/ExtGState` (Table 75).
+#[test]
+fn a_black_generation_that_is_not_a_function_is_reported_as_the_files() {
+    let content = "/GX gs 1 0 0 rg 0 0 50 50 re f /Pattern cs /P scn 50 50 50 50 re f";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Group << /S /Transparency /CS /DeviceCMYK >> \
+         /Resources << /ExtGState << /GX << /BG << /FunctionType 7 /Domain [0 1] >> >> >> \
+         /Pattern << /P << /PatternType 2 /ExtGState << /UCR 3 >> \
+         /Shading << /ShadingType 2 /ColorSpace /DeviceRGB /Coords [50 0 100 0] \
+         /Function << /FunctionType 2 /Domain [0 1] /C0 [1 0 0] /C1 [0 0 1] /N 1 >> >> >> >> >> \
+         /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n",
+        content.len() + 1
+    );
+    let drawn = interpret(assemble(&body));
+    let reported: Vec<&str> = drawn
+        .unsupported
+        .iter()
+        .filter_map(|item| match item {
+            pdf_model::Unsupported::UnreadableBlackGeneration { detail } => Some(detail.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        reported,
+        [
+            "/GX: /BG is not a function: function type 7 is not implemented",
+            "the pattern /P: /UCR is a value of type integer, not a function",
+        ],
+        "{:?}",
+        drawn.unsupported
+    );
 }

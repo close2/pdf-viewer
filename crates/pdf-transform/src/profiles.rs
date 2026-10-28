@@ -8,6 +8,8 @@
 //! `doc/profiles/` reaches both or neither (ADR 1954). `tests/profiles.rs` holds every one of them
 //! to every target and this list to the directory.
 
+use std::path::{Path, PathBuf};
+
 use pdf_archive::Target;
 
 use crate::archive::{
@@ -44,7 +46,7 @@ impl Shipped {
 }
 
 /// Every profile this program ships, in the order a person is offered them.
-pub const SHIPPED: [Shipped; 6] = [
+pub const SHIPPED: [Shipped; 8] = [
     Shipped {
         name: "refuse-any-loss",
         text: include_str!("../../../doc/profiles/refuse-any-loss.toml"),
@@ -69,6 +71,15 @@ pub const SHIPPED: [Shipped; 6] = [
         name: "derive-attachments",
         text: include_str!("../../../doc/profiles/derive-attachments.toml"),
     },
+    // `doc/rfc/0014` section 7's two, shipped on `doc/questions/A706` items 3 and 4.
+    Shipped {
+        name: "no-data-loss",
+        text: include_str!("../../../doc/profiles/no-data-loss.toml"),
+    },
+    Shipped {
+        name: "state-every-loss",
+        text: include_str!("../../../doc/profiles/state-every-loss.toml"),
+    },
 ];
 
 /// The shipped profile called `name`, where there is one.
@@ -85,6 +96,153 @@ pub fn names() -> String {
         .map(|shipped| shipped.name)
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+/// Reads `text` at each of the six targets, and answers the first at which it does not read.
+///
+/// **An operator's file is checked before any document is**, the check `tests/profiles.rs` holds
+/// every shipped profile to (`doc/rfc/0014` section 6, `doc/questions/A706` item 5): a
+/// configuration whose answer one target does not admit is the operator's mistake whichever
+/// target a run asks for, and finding it in the middle of a batch of documents — or never, because
+/// no document of the batch reached that site — is what the check is for. A site a target does not
+/// bind is no error at that target ([`Configuration::read`]), so a file answering only part 4's
+/// sites reads at part 2 as well.
+///
+/// # Errors
+///
+/// The first target in [`Target::ALL`]'s order at which the text does not read, with the
+/// [`ConfigError`] that says why.
+pub fn read_at_every_target(text: &str) -> Result<(), (Target, ConfigError)> {
+    for target in Target::ALL {
+        Configuration::read(text, target).map_err(|error| (target, error))?;
+    }
+    Ok(())
+}
+
+/// One profile an operator wrote, read from a directory a host names.
+///
+/// `doc/rfc/0014` section 6: **a window offers the operator's profiles from a directory the host
+/// names, never one a document names**, beside the shipped list — ADR 1954's one list, widened by
+/// the host's directory. Each file is held to what [`read_at_every_target`] holds a shipped one
+/// to, so a profile a window offers reads at every target before any document is converted under
+/// it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OperatorProfile {
+    /// The `[profile] name` the file states, which is the word a person chooses.
+    pub name: String,
+    /// The `[profile] sentence` it states, where it states one.
+    pub sentence: Option<String>,
+    /// The configuration, as the file holds it.
+    pub text: String,
+    /// The file it was read from.
+    pub path: PathBuf,
+}
+
+/// A file of an operator's directory that is not offered, and why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotOffered {
+    /// The file.
+    pub path: PathBuf,
+    /// The sentence saying why it is not offered.
+    pub why: String,
+}
+
+/// How many files of an operator's directory are read.
+///
+/// `CLAUDE.md` principle 3's explicit bound: a directory can hold anything, and a chooser offering
+/// ten thousand profiles is no choice. Far past the shipped list's length.
+pub const MOST_OPERATOR_PROFILES: usize = 64;
+
+/// The longest operator's profile read, in bytes; checked before the file is read.
+///
+/// The longest shipped profile is a few tens of kilobytes, so this is a ceiling on a mistake
+/// rather than on a profile.
+pub const MOST_OPERATOR_PROFILE_BYTES: u64 = 256 * 1024;
+
+/// Every `.toml` file of `directory`, in file-name order: the profiles that read at all six
+/// targets and state a name no shipped profile and no earlier file states, and every other file
+/// with the reason it is not offered.
+///
+/// Read when asked rather than at launch (`CLAUDE.md` principle 2's *no configuration scanning*):
+/// a window asks when its chooser opens and again when it converts, so a file an operator edits
+/// between the two is read as it then is, and held to the same check again.
+#[must_use]
+pub fn operators_profiles(directory: &Path) -> (Vec<OperatorProfile>, Vec<NotOffered>) {
+    let mut offered: Vec<OperatorProfile> = Vec::new();
+    let mut refused = Vec::new();
+    let mut paths: Vec<PathBuf> = match std::fs::read_dir(directory) {
+        Ok(entries) => entries
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension == "toml")
+            })
+            .collect(),
+        Err(error) => {
+            refused.push(NotOffered {
+                path: directory.to_path_buf(),
+                why: format!("the directory does not read: {error}"),
+            });
+            return (offered, refused);
+        }
+    };
+    paths.sort();
+    for (index, path) in paths.into_iter().enumerate() {
+        if index >= MOST_OPERATOR_PROFILES {
+            refused.push(NotOffered {
+                path,
+                why: format!(
+                    "the directory holds more than the {MOST_OPERATOR_PROFILES} profiles a window \
+                     offers (MOST_OPERATOR_PROFILES)"
+                ),
+            });
+            continue;
+        }
+        match operators_profile(&path, &offered) {
+            Ok(profile) => offered.push(profile),
+            Err(why) => refused.push(NotOffered { path, why }),
+        }
+    }
+    (offered, refused)
+}
+
+/// One operator's file, read and checked, or the sentence saying why it is not offered.
+fn operators_profile(path: &Path, earlier: &[OperatorProfile]) -> Result<OperatorProfile, String> {
+    let length = std::fs::metadata(path)
+        .map_err(|error| format!("the file does not read: {error}"))?
+        .len();
+    if length > MOST_OPERATOR_PROFILE_BYTES {
+        return Err(format!(
+            "the file is {length} bytes, past the {MOST_OPERATOR_PROFILE_BYTES} an operator's \
+             profile may be (MOST_OPERATOR_PROFILE_BYTES)"
+        ));
+    }
+    let text = std::fs::read_to_string(path)
+        .map_err(|error| format!("the file does not read: {error}"))?;
+    read_at_every_target(&text)
+        .map_err(|(target, error)| format!("the profile does not read at {target}: {error}"))?;
+    let config = Configuration::read(&text, Target::ALL[0])
+        .map_err(|error| format!("the profile does not read: {error}"))?;
+    let name = config.name.clone().ok_or_else(|| {
+        "the profile states no [profile] name, which is the word a person chooses".to_owned()
+    })?;
+    if named(&name).is_some() {
+        return Err(format!(
+            "the profile is named {name:?}, which is a shipped profile's name, and the shipped \
+             one keeps it"
+        ));
+    }
+    if earlier.iter().any(|profile| profile.name == name) {
+        return Err(format!(
+            "the profile is named {name:?}, which an earlier file of the directory already states"
+        ));
+    }
+    Ok(OperatorProfile {
+        name,
+        sentence: config.sentence,
+        text,
+        path: path.to_path_buf(),
+    })
 }
 
 /// What one configuration adds to an archive plan for one target.

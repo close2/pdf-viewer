@@ -940,9 +940,14 @@ pub(crate) fn substituted_font(name: &pdf_syntax::Name) -> Dictionary {
 
 /// The value set in a face from this machine, where the compiled-in ones cannot draw it.
 ///
-/// The face is [`pdf_font::substitute::installed_covering`]'s answer for every character the
-/// shaped value displays, asked in the family the stand-in's name implies, and the font is the
-/// composite one [`machine_font`] writes around it. `None` where a letter has no presentation
+/// The face is [`pdf_font::substitute::installed_covering_embeddable`]'s answer for every
+/// character the shaped value displays, asked in the family the stand-in's name implies, and the
+/// font is the composite one [`machine_font`] writes around it. **Only a face this program may
+/// write is offered**: what is laid out here is what a save writes, and a face whose licence
+/// forbids embedding it would draw on this screen and leave the saved annotation or field without
+/// its appearance — so it is passed over for the next face, and where none of the machine's
+/// covering faces may be written the value keeps the refusal the compiled-in faces gave it, on
+/// this screen as in the file (ADR 2548). `None` where a letter has no presentation
 /// form to ask for, where the machine offers no face covering the rest, or where the face does
 /// not load — each of which leaves the refusal the caller already had, whole.
 fn machine_set(
@@ -958,7 +963,7 @@ fn machine_set(
     // The machine is being asked because the standard font cannot answer, so the question is
     // not the standard font's any more.
     asked.standard = false;
-    let program = pdf_font::substitute::installed_covering(asked, &wanted)?;
+    let program = pdf_font::substitute::installed_covering_embeddable(asked, &wanted)?;
     let (dict, by_character) = machine_font(&program, &glyphs)?;
     let font = std::sync::Arc::new(pdf_font::LoadedFont::load(document, &dict, label).ok()?);
     let identity = pdf_font::cmap::CMap::identity();
@@ -997,7 +1002,8 @@ fn machine_set_of(character: char) -> u32 {
 /// Fonts around faces from this machine covering `missing`, for a rich text string's runs.
 ///
 /// [`machine_set`]'s question asked for the characters no run's face draws rather than for a whole
-/// value: each face is [`pdf_font::substitute::installed_covering`]'s answer, in the family the
+/// value, under its rule that only a face this program may write is offered: each face is
+/// [`pdf_font::substitute::installed_covering_embeddable`]'s answer, in the family the
 /// stood-in face's name implies, for the missing characters and every form `text` displays them
 /// in, and each font is [`machine_font`]'s. One face where one covers them all; otherwise one per
 /// [`machine_set_of`] set, since a string may mix scripts no one face holds — a Hebrew list tag
@@ -1022,7 +1028,7 @@ pub(crate) fn machine_faces_for(
     let wanted: Vec<char> = glyphs.keys().copied().collect();
     let mut asked = pdf_font::substitute::Request::derive(document, stood_in, None);
     asked.standard = false;
-    if let Some(program) = pdf_font::substitute::installed_covering(asked, &wanted) {
+    if let Some(program) = pdf_font::substitute::installed_covering_embeddable(asked, &wanted) {
         return machine_font(&program, &glyphs)
             .map(|(dict, _)| dict)
             .into_iter()
@@ -1041,7 +1047,7 @@ pub(crate) fn machine_faces_for(
     sets.values()
         .filter_map(|set| {
             let wanted: Vec<char> = set.keys().copied().collect();
-            let program = pdf_font::substitute::installed_covering(asked, &wanted)?;
+            let program = pdf_font::substitute::installed_covering_embeddable(asked, &wanted)?;
             machine_font(&program, set).map(|(dict, _)| dict)
         })
         .collect()
@@ -1176,7 +1182,9 @@ const MACHINE_FACE: &[u8] = b"VariableTextMachineFace";
 ///   index for a particular CID value c shall be a 2-byte value stored in bytes 2 × 𝑐 and 2 × 𝑐 +
 ///   1", which §9.7.4.2 requires wherever the program is embedded.
 /// - **The face's licence is asked**: a face whose `OS/2` `fsType` forbids embedding is not
-///   written, and the sentence returned is what the caller reports as owed. That is the font
+///   written, and the sentence returned is what the caller reports as owed. [`machine_set`] and
+///   [`machine_faces_for`] offer no such face (ADR 2548), so a layout of this module never reaches
+///   the refusal; it stays as the writer's own check on resources it is handed. That is the font
 ///   vendor's condition, which §9.9.1 names — "\[o]ne of the conditions may be that the font
 ///   program cannot be embedded, in which case it should not be incorporated into a PDF file" —
 ///   and not a restriction the document asserts over its reader, so no reader's level reaches it.

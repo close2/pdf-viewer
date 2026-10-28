@@ -30,8 +30,9 @@
 //! - **the interpreter reports anything but the fonts it could not draw**: a mark the window did
 //!   not draw is one another reader might, and the photograph would fix its absence into the file;
 //! - **the document states a structure tree** (§14.7), whose content items would be left pointing
-//!   at marked content no longer on the page, **or optional content** (§8.11), whose other
-//!   configurations a photograph of one would discard.
+//!   at marked content no longer on the page, unless the profile authorised
+//!   [`crate::archive::Loss::TaggingOfPhotographedPages`] (below), **or optional content** (§8.11),
+//!   whose other configurations a photograph of one would discard.
 //!
 //! # The wider gate (A694 item 1)
 //!
@@ -40,9 +41,15 @@
 //! the pages photographed: a page showing a font that any route of this program refused to embed
 //! a face into, and a page holding a fault of its content stream the target refuses
 //! (`super::super::fenced`). The page's text is then named — in the report and in the file's
-//! history — because it is what the photograph turns into pixels. The other two conditions stay:
-//! a structure tree would be left pointing at marked content that is gone, and the other
-//! configurations of optional content would be discarded, which is no part of what a print loses.
+//! history — because it is what the photograph turns into pixels. Optional content stays refused:
+//! its other configurations would be discarded, which is no part of what a print loses.
+//!
+//! # A tagged document (A707)
+//!
+//! Where the profile also authorises [`crate::archive::Loss::TaggingOfPhotographedPages`], a
+//! document that states a structure tree is photographed too, and the tree's leaves that name a
+//! photographed page are taken out of it (`super::untagged`): the loss is then exactly the pages
+//! the photograph already turned into pixels, and every other page keeps its tags.
 //!
 //! # Where it is offered
 //!
@@ -74,7 +81,7 @@ use pdf_syntax::serialize::flate_encode;
 use render_cpu::CpuRasterizer;
 
 use super::super::COMPRESSION_LEVEL;
-use super::super::decision::Because;
+use super::super::decision::{Because, Loss};
 use super::super::prepare::{SRGB, Spare, profile_stream};
 use super::Substitutes;
 
@@ -126,6 +133,36 @@ pub struct PhotographedPage {
     /// Whether the wider gate admitted the page, which the narrow one would have refused; the
     /// loss [`crate::archive::Loss::PageAsImage`] is incurred then, beside [`crate::archive::Loss::TextAsImage`].
     pub anywhere: bool,
+    /// How many leaves of the document's structure tree named this page and were taken out of the
+    /// tree with its content (ISO 32000-2 section 14.7.5): the loss
+    /// [`crate::archive::Loss::TaggingOfPhotographedPages`] where it is not zero.
+    pub structure_leaves: usize,
+}
+
+impl PhotographedPage {
+    /// The losses this page incurred, in the order the report names them.
+    #[must_use]
+    pub fn losses(&self) -> Vec<Loss> {
+        let mut losses = vec![Loss::TextAsImage];
+        if self.anywhere {
+            losses.push(Loss::PageAsImage);
+        }
+        if self.structure_leaves > 0 {
+            losses.push(Loss::TaggingOfPhotographedPages);
+        }
+        losses
+    }
+
+    /// [`Self::losses`] as the words a caller authorises them by, joined for a sentence.
+    #[must_use]
+    pub fn loss_words(&self) -> String {
+        let words: Vec<&str> = self.losses().into_iter().map(Loss::word).collect();
+        match words.split_last() {
+            Some((last, [])) => (*last).to_owned(),
+            Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+            None => String::new(),
+        }
+    }
 }
 
 /// What a photographed page's dictionary is given in place of its content.
@@ -135,6 +172,10 @@ pub(in super::super) struct Photograph {
     pub(in super::super) contents: ObjectId,
     /// The resource dictionary naming the image and nothing else.
     pub(in super::super) resources: Dictionary,
+    /// Whether the document's structure tree was pruned of this page's leaves, so that the page's
+    /// `/StructParents` (ISO 32000-2 section 14.7.5.4), which named the marked content that is
+    /// gone, goes with them.
+    pub(in super::super) untagged: bool,
 }
 
 /// Whether a target admits a page photographed with no text on it: Level B of ISO 19005-2 and
@@ -169,6 +210,10 @@ pub(in super::super) struct Gate<'a> {
     /// The pages (zero-based) that hold a fault of their content stream, with the requirements,
     /// where `anywhere` (`super::super::fenced::pages`).
     pub(in super::super) fenced: &'a super::super::fenced::Fenced,
+    /// Whether the profile authorised [`crate::archive::Loss::TaggingOfPhotographedPages`] at a
+    /// target that offers a photograph, so that a document stating a structure tree is
+    /// photographed and the tree's leaves that name a photographed page are taken out of it.
+    pub(in super::super) untags: bool,
 }
 
 impl<'a> Gate<'a> {
@@ -176,13 +221,14 @@ impl<'a> Gate<'a> {
     /// all, and nothing fenced is photographed where it does not.
     pub(in super::super) fn new(
         target: Target,
-        anywhere: bool,
+        (anywhere, untags): (bool, bool),
         fenced: &'a super::super::fenced::Fenced,
     ) -> Self {
         Self {
             offered: offered(target),
             anywhere: anywhere && offered(target),
             fenced,
+            untags: untags && offered(target),
         }
     }
 
@@ -236,19 +282,15 @@ pub(super) fn photograph(
             None => Err(Because::NotBuiltYet(NOT_OFFERED)),
         };
     }
-    let catalog = document.catalog().unwrap_or_default();
-    if catalog.get("StructTreeRoot").is_some() {
-        return Err(Because::NotBuiltYet(STRUCTURED));
-    }
-    if catalog.get("OCProperties").is_some() {
-        return Err(Because::NotBuiltYet(LAYERED));
-    }
+    let structured = what_the_document_states(document, gate)?;
     let every = Pages::new(document).every();
     if gate.anywhere {
         refuse_fenced_pages_past_the_bounds(&every, gate)?;
     }
     let mut reached = vec![false; substitutes.deferred.len()];
     let mut profile = None;
+    // Each page photographed here, by its object and its place in `substitutes.photographed`.
+    let mut taken_here: Vec<(ObjectId, usize)> = Vec::new();
     for (index, page) in every.into_iter().enumerate() {
         let Some(page) = page else {
             continue;
@@ -304,6 +346,7 @@ pub(super) fn photograph(
                 *seen = true;
             }
         }
+        taken_here.push((id, substitutes.photographed.len()));
         substitutes.photographed.push(photographed_page(
             index,
             &interpretation.text,
@@ -323,11 +366,53 @@ pub(super) fn photograph(
     {
         return Err(font.refusal);
     }
+    if structured && !taken_here.is_empty() {
+        untag(document, &taken_here, substitutes)?;
+    }
     // A substituted font only the photographed content selected went with that content, so the
     // report and the file's history name only the fonts the output still holds (`doc/adr/2454`).
     if !substitutes.photographs.is_empty() {
         let held = still_held(document, &substitutes.photographs, &substitutes.done);
         substitutes.done.retain(|font| held.contains(&font.font));
+    }
+    Ok(())
+}
+
+/// The gate's two conditions on the document as a whole, and whether it states a structure tree
+/// whose leaves are then taken out for each page photographed.
+fn what_the_document_states(document: &Document, gate: Gate<'_>) -> Result<bool, Because> {
+    let catalog = document.catalog().unwrap_or_default();
+    let structured = catalog.get("StructTreeRoot").is_some();
+    if structured && !gate.untags {
+        return Err(Because::NotBuiltYet(STRUCTURED));
+    }
+    if catalog.get("OCProperties").is_some() {
+        return Err(Because::NotBuiltYet(LAYERED));
+    }
+    Ok(structured)
+}
+
+/// Takes the structure tree's leaves that name a photographed page out of the tree, writing each
+/// element that lost one under its own object number, and counts them on the page
+/// (`doc/questions/A707`).
+fn untag(
+    document: &Document,
+    taken_here: &[(ObjectId, usize)],
+    substitutes: &mut Substitutes,
+) -> Result<(), Because> {
+    let pages: BTreeSet<ObjectId> = taken_here.iter().map(|(id, _)| *id).collect();
+    let untagged = super::untagged::untag(document, &pages)?;
+    for (id, element) in untagged.written {
+        substitutes.written.insert(id, element);
+    }
+    for (id, at) in taken_here {
+        let leaves = untagged.leaves.get(id).copied().unwrap_or(0);
+        if let Some(page) = substitutes.photographed.get_mut(*at) {
+            page.structure_leaves = leaves;
+        }
+        if let Some(photograph) = substitutes.photographs.get_mut(id) {
+            photograph.untagged = true;
+        }
     }
     Ok(())
 }
@@ -362,6 +447,7 @@ fn photographed_page(
         text_elided,
         requirements,
         anywhere,
+        structure_leaves: 0,
     }
 }
 
@@ -621,6 +707,7 @@ fn written(
     Ok(Photograph {
         contents,
         resources,
+        untagged: false,
     })
 }
 
@@ -752,14 +839,15 @@ pub(super) fn recorded(pages: &[PhotographedPage]) -> String {
     pages
         .iter()
         .map(|page| {
+            let untagged = leaves_named(page.structure_leaves);
             if !page.anywhere {
                 return format!(
                     "page {} was replaced by a photograph of itself at {} dpi, the text of {} \
-                     that no reader can name left blank as this viewer drew it, losing \
-                     text-as-image",
+                     that no reader can name left blank as this viewer drew it, losing {}{untagged}",
                     page.page,
                     page.dots_per_inch,
-                    page.fonts.join(", ")
+                    page.fonts.join(", "),
+                    page.loss_words(),
                 );
             }
             let mut reasons = Vec::new();
@@ -782,15 +870,24 @@ pub(super) fn recorded(pages: &[PhotographedPage]) -> String {
                 )
             });
             format!(
-                "page {} was replaced by a photograph of itself at {} dpi, losing text-as-image \
-                 and page-as-image, {}",
+                "page {} was replaced by a photograph of itself at {} dpi, losing {}, {}{untagged}",
                 page.page,
                 page.dots_per_inch,
+                page.loss_words(),
                 reasons.join(", "),
             )
         })
         .collect::<Vec<_>>()
         .join("; ")
+}
+
+/// What follows a page's history entry when the structure tree lost leaves that named it.
+pub(in super::super) fn leaves_named(leaves: usize) -> String {
+    if leaves == 0 {
+        String::new()
+    } else {
+        format!(", and {leaves} leaves of the structure tree that named the page")
+    }
 }
 
 /// What follows a page's named text when characters of it are not repeated.
@@ -822,10 +919,12 @@ const NOT_DRAWN_WHOLE: &str = "a page that would be photographed has content thi
      draw whole; a photograph would fix what the window could not draw into the file, so the page \
      is not photographed";
 
-/// The gate: a structure tree a photograph would leave pointing at nothing.
+/// The gate: a structure tree a photograph would leave pointing at nothing, where the profile did
+/// not authorise taking the page's leaves out of it.
 const STRUCTURED: &str = "this document has a page that would be photographed, and states a \
      structure tree (ISO 32000-2 section 14.7) whose content items a photographed page would \
-     leave pointing at marked content no longer on it";
+     leave pointing at marked content no longer on it; authorise tagging-of-photographed-pages \
+     to take that page's leaves out of the tree";
 
 /// The gate: optional content a photograph of one configuration would discard.
 const LAYERED: &str = "this document has a page that would be photographed, and states optional \
@@ -879,6 +978,7 @@ mod tests {
             text_elided: 0,
             requirements: Vec::new(),
             anywhere: true,
+            structure_leaves: 0,
         }
     }
 
@@ -896,7 +996,7 @@ mod tests {
     #[test]
     fn a_construction_this_reader_composites_otherwise_leaves_the_page_refused() {
         let fenced = super::super::super::fenced::Fenced::default();
-        let wide = Gate::new(Target::Two(Level::B), true, &fenced);
+        let wide = Gate::new(Target::Two(Level::B), (true, false), &fenced);
         // §9.3.8, §11.4, §11.6.2 and §11.7.4 define these; a photograph would record this reader's
         // shortfall as the document's loss.
         for gap in [
@@ -918,7 +1018,7 @@ mod tests {
             takes: 4,
         };
         assert!(!leaves_the_page_undrawn(&fault, wide));
-        let narrow = Gate::new(Target::Two(Level::B), false, &fenced);
+        let narrow = Gate::new(Target::Two(Level::B), (false, false), &fenced);
         assert!(leaves_the_page_undrawn(&fault, narrow));
     }
 

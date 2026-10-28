@@ -18,9 +18,9 @@
 //!   would act on survive the trip their encoder makes. Compared as they print, because a field's
 //!   rectangle and a colour cross as `f64`, and a `NaN` that is the same bits is not `==` itself.
 //!
-//! A form's `FormCalc` run is a conversation on the same pipes (ADR 2524): the input is also decoded as
-//! a form run, and as a question and as an answer by the same first-byte rule, with the same two
-//! properties.
+//! A form's run, `FormCalc` or JavaScript, is a conversation on the same pipes (ADRs 2524, 2545):
+//! the input is also decoded as a form run, and as a question and as an answer by the same
+//! first-byte rule, with the same two properties.
 //!
 
 #![no_main]

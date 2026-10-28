@@ -27,6 +27,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::RwLock;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
 
@@ -113,35 +114,93 @@ pub fn pressed(chosen: Option<&Archiving>) -> Pressed {
     }
 }
 
-/// One shipped profile as a window offers it: the name a person chooses, and the one sentence
-/// the profile's file states about itself.
+/// One profile as a window offers it: the name a person chooses, and the one sentence the
+/// profile's file states about itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Offered {
     /// The `[profile] name`, which is the word `--archive` and `--profile` take.
-    pub name: &'static str,
+    pub name: String,
     /// The `[profile] sentence`, or the sentence saying why there is none to show.
     pub sentence: String,
+    /// The file an operator's profile was read from; `None` for a shipped one.
+    pub from: Option<PathBuf>,
 }
 
-/// Every shipped profile, in [`profiles::SHIPPED`]'s order, each with its sentence.
+/// The word that names the directory of an operator's own profiles: `--archive-profiles <dir>`.
+pub const ARCHIVE_PROFILES: &str = "--archive-profiles";
+
+/// The directory [`ARCHIVE_PROFILES`] named, for the process.
+///
+/// **The host's, once, at launch, and never a document's** (`doc/rfc/0014` section 6): only the
+/// path is held here, and nothing in it is read until a chooser opens or a conversion runs, so a
+/// launch that names one reads no file it did not read before (`CLAUDE.md` principle 2). One place
+/// for the process rather than a field each window threads through, because all three windows and
+/// the conversion thread ask the same question of it.
+static OPERATORS_DIRECTORY: RwLock<Option<PathBuf>> = RwLock::new(None);
+
+/// Names the directory a window offers an operator's own profiles from, beside the shipped ones.
+pub fn offer_profiles_from(directory: PathBuf) {
+    // A poisoned lock means a thread panicked while setting the path, which only this function
+    // does; the path it was setting is replaced either way.
+    let mut held = OPERATORS_DIRECTORY
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    *held = Some(directory);
+}
+
+/// The operator's profiles and the files not offered, read now; empty where no directory is named.
+fn operators() -> (Vec<profiles::OperatorProfile>, Vec<profiles::NotOffered>) {
+    let directory = OPERATORS_DIRECTORY
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+    directory.map_or_else(
+        || (Vec::new(), Vec::new()),
+        |directory| profiles::operators_profiles(&directory),
+    )
+}
+
+/// Every shipped profile, in [`profiles::SHIPPED`]'s order, each with its sentence; then every
+/// profile of the directory [`ARCHIVE_PROFILES`] named, in file-name order.
 ///
 /// Read from the profiles' own text each time rather than written beside their names here, so
-/// that what a window offers is what `doc/profiles/` says and nothing else (ADR 1966). A profile
-/// whose text does not read is still offered, with the reason in place of its sentence, because
-/// choosing it is how a person reaches the conversion's own refusal of it.
+/// that what a window offers is what `doc/profiles/` and the operator's files say and nothing else
+/// (ADR 1966). A profile whose text does not read is still offered, with the reason in place of
+/// its sentence, because choosing it is how a person reaches the conversion's own refusal of it —
+/// and an operator's file that does not read is offered under its file name for the same reason.
 #[must_use]
 pub fn offered() -> Vec<Offered> {
-    profiles::SHIPPED
+    let mut offered: Vec<Offered> = profiles::SHIPPED
         .iter()
         .map(|shipped| Offered {
-            name: shipped.name,
+            name: shipped.name.to_owned(),
             sentence: match shipped.sentence() {
                 Ok(Some(sentence)) => sentence,
                 Ok(None) => "(the profile states no sentence about itself)".to_owned(),
                 Err(error) => format!("(the profile does not read: {error})"),
             },
+            from: None,
         })
-        .collect()
+        .collect();
+    let (operators, refused) = operators();
+    offered.extend(operators.into_iter().map(|profile| Offered {
+        name: profile.name,
+        sentence: profile.sentence.unwrap_or_else(|| {
+            "(the operator's profile states no sentence about itself)".to_owned()
+        }),
+        from: Some(profile.path),
+    }));
+    offered.extend(refused.into_iter().map(|file| {
+        Offered {
+            name: file
+                .path
+                .file_stem()
+                .map_or_else(String::new, |stem| stem.to_string_lossy().into_owned()),
+            sentence: format!("(the operator's profile is not offered: {})", file.why),
+            from: Some(file.path),
+        }
+    }));
+    offered
 }
 
 /// What the chooser is called, in all three windows: its card's first line and the dialogues'
@@ -277,11 +336,10 @@ impl Choosing {
                 .get(self.target)
                 .copied()
                 .unwrap_or(Target::ALL[0]),
-            profile: self
-                .profiles
-                .get(self.profile)
-                .map_or(profiles::SHIPPED[0].name, |offered| offered.name)
-                .to_owned(),
+            profile: self.profiles.get(self.profile).map_or_else(
+                || profiles::SHIPPED[0].name.to_owned(),
+                |offered| offered.name.clone(),
+            ),
         }
     }
 }
@@ -368,7 +426,7 @@ pub fn convert(
     };
     let (written, json) = match planned(&asked, &mut lines) {
         Some((plan, profile)) => match passes(plan, source, &mut lines) {
-            Some((report, sinks)) => said(&report, sinks, profile, &mut lines),
+            Some((report, sinks)) => said(&report, sinks, &profile, &mut lines),
             None => (None, None),
         },
         None => (None, None),
@@ -384,38 +442,61 @@ pub fn convert(
 
 /// The plan `asked` names, with the profile's own name, after the lines that say what the profile
 /// contributes; `None` where it cannot be made, and the last line says why.
-fn planned(asked: &Archiving, lines: &mut Vec<String>) -> Option<(ArchivePlan, &'static str)> {
-    let Some(shipped) = profiles::named(&asked.profile) else {
+fn planned(asked: &Archiving, lines: &mut Vec<String>) -> Option<(ArchivePlan, String)> {
+    let shipped = if let Some(shipped) = profiles::named(&asked.profile) {
+        Some((shipped.name.to_owned(), shipped.text.to_owned()))
+    } else {
+        // An operator's profile is read again as the conversion starts, and held to the check
+        // a chooser held it to, so a file edited since it was offered is converted under what it
+        // now says or refused with why (`doc/rfc/0014` section 6).
+        let (operators, refused) = operators();
+        if let Some(file) = refused.iter().find(|file| {
+            file.path
+                .file_stem()
+                .is_some_and(|stem| stem.to_string_lossy() == asked.profile)
+        }) {
+            lines.push(format!(
+                "cannot convert: the operator's profile {} is not offered: {}",
+                file.path.display(),
+                file.why
+            ));
+            return None;
+        }
+        operators
+            .into_iter()
+            .find(|profile| profile.name == asked.profile)
+            .map(|profile| (profile.name, profile.text))
+    };
+    let Some((name, text)) = shipped else {
         lines.push(format!(
-            "cannot convert: {:?} is not a profile this program ships; they are {}",
+            "cannot convert: {:?} is not a profile this program ships or the operator's directory \
+             holds; the shipped ones are {}",
             asked.profile,
             profiles::names()
         ));
         return None;
     };
-    let contribution = match Contribution::read(shipped.text, asked.target) {
+    let contribution = match Contribution::read(&text, asked.target) {
         Ok(contribution) => contribution,
         Err(error) => {
             lines.push(format!(
-                "cannot convert: the profile {:?} does not read: {error}",
-                shipped.name
+                "cannot convert: the profile {name:?} does not read: {error}"
             ));
             return None;
         }
     };
     if !contribution.departures.is_empty() {
         lines.push(format!(
-            "cannot convert: the profile {:?} departs from ISO 19005, which a window does not do; \
+            "cannot convert: the profile {name:?} departs from ISO 19005, which a window does not do; \
              quorra-transform archive --depart-from-the-standard says so at its call site \
-             (doc/rfc/0007 section 4.7.3)",
-            shipped.name
+             (doc/rfc/0007 section 4.7.3)"
         ));
         return None;
     }
     lines.push(format!(
-        "converting to {} under the profile {:?}: the sites below marked as answered by this \
+        "converting to {} under the profile {name:?}: the sites below marked as answered by this \
          configuration were answered by it",
-        asked.target, shipped.name
+        asked.target
     ));
     for unbuilt in &contribution.unbuilt {
         lines.push(format!(
@@ -460,7 +541,7 @@ fn planned(asked: &Archiving, lines: &mut Vec<String>) -> Option<(ArchivePlan, &
         external_data: BTreeMap::new(),
         clock: pdf_transform::archive::Clock::System,
     };
-    Some((plan, shipped.name))
+    Some((plan, name))
 }
 
 /// Applies the plan until no pass asks for a tool it has not had, running each request through
@@ -714,10 +795,12 @@ mod tests {
             panic!("no default target: the key asks")
         };
         assert_eq!(choosing.targets(), &Target::ALL);
+        // The shipped ones, first: a directory another test names adds its profiles after them.
         let names: Vec<&str> = choosing
             .profiles()
             .iter()
-            .map(|offered| offered.name)
+            .filter(|offered| offered.from.is_none())
+            .map(|offered| offered.name.as_str())
             .collect();
         let shipped: Vec<&str> = profiles::SHIPPED
             .iter()
@@ -813,6 +896,67 @@ mod tests {
             "{:?}",
             converted.lines
         );
+    }
+
+    /// `doc/rfc/0014` section 6: the directory the host names is offered beside the shipped list,
+    /// a file that does not read is offered with why, and choosing the operator's profile converts
+    /// under it, the JSON naming it.
+    #[test]
+    fn an_operators_profile_is_offered_after_the_shipped_ones_and_converts() {
+        let directory =
+            std::env::temp_dir().join(format!("archive-profiles-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("a directory");
+        std::fs::write(
+            directory.join("mine.toml"),
+            "[profile]\nname = \"mine-as-printed\"\nsentence = \"mine\"\nbase = \"as-if-printed\"\n",
+        )
+        .expect("written");
+        std::fs::write(directory.join("broken.toml"), "[profile\n").expect("written");
+        offer_profiles_from(directory.clone());
+        let offered = offered();
+        let shipped = profiles::SHIPPED.len();
+        assert!(
+            offered[..shipped]
+                .iter()
+                .all(|offered| offered.from.is_none())
+        );
+        let mine = offered
+            .iter()
+            .find(|offered| offered.name == "mine-as-printed")
+            .expect("offered");
+        assert_eq!(mine.sentence, "mine");
+        let broken = offered
+            .iter()
+            .find(|offered| offered.name == "broken")
+            .expect("offered with why");
+        assert!(
+            broken.sentence.contains("is not offered"),
+            "{}",
+            broken.sentence
+        );
+        let asked = Archiving {
+            target: Target::Two(pdf_archive::Level::B),
+            profile: "mine-as-printed".to_owned(),
+        };
+        let converted = convert(DocumentId(1), test_document().into(), asked, None);
+        assert!(converted.written.is_some(), "{:#?}", converted.lines);
+        let json = converted.json.expect("a report");
+        assert!(json.contains("\"profile\": \"mine-as-printed\""), "{json}");
+        let asked = Archiving {
+            target: Target::Two(pdf_archive::Level::B),
+            profile: "broken".to_owned(),
+        };
+        let refused = convert(DocumentId(1), test_document().into(), asked, None);
+        assert!(refused.written.is_none());
+        assert!(
+            refused
+                .lines
+                .iter()
+                .any(|line| line.contains("is not offered")),
+            "{:?}",
+            refused.lines
+        );
+        let _ = std::fs::remove_dir_all(&directory);
     }
 
     /// A document behind §7.6.4.1's user password converts with the password the window kept,

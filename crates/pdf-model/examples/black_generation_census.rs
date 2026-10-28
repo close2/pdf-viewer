@@ -3,12 +3,11 @@
 //!
 //! ISO 32000-2 §11.7.5.3 applies Table 57's `/BG`, `/BG2`, `/UCR` and `/UCR2` "only during
 //! conversion from DeviceRGB to DeviceCMYK colour spaces", and §10.4.2.4 is the conversion they
-//! are parameters of. A stated function is evaluated where the clause's first bullet names it —
-//! a `DeviceRGB` colour painted into a group whose colour space is `DeviceCMYK`, separated by
-//! `ColourSpace::to_cmyk_under` (ADR 1207) — and what is left is `Unsupported::BlackGeneration`,
-//! which names the moments that are not. This census is the population **both** of those can
-//! reach, and it is two numbers rather than one because §8.4.5's Table 57 admits a second kind
-//! of value:
+//! are parameters of. A stated function is evaluated where the clause's bullets name it — a
+//! `DeviceRGB` colour painted into a group whose colour space is `DeviceCMYK`, separated by
+//! `ColourSpace::to_cmyk_under` (ADRs 1207, 2549), and a `DeviceRGB` group's result at its `Do`
+//! (ADR 1242). This census is the population those can reach, and it is two numbers rather than
+//! one because §8.4.5's Table 57 admits a second kind of value:
 //!
 //! > Same as BG except that the value may also be the name Default, denoting the black-generation
 //! > function that was in effect at the start of the page.

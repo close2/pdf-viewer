@@ -36,7 +36,7 @@
 //! # Where it stops
 //!
 //! A source this does not rebuild is refused by name: one whose header states no version this
-//! tree reads, one whose recovered pages include a page whose dictionary does not parse whole, one the reader draws no page of, and one that states more
+//! tree reads, one the reader draws no page of, and one that states more
 //! pages than the reader reached (a linearization parameter dictionary's `/N`, or the `/Count` of
 //! a page tree root the catalog still names).
 //!
@@ -50,6 +50,7 @@
 //! removed from the objects written.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 
 use pdf_model::Pages;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId};
@@ -83,6 +84,26 @@ pub struct RecoveredStructure {
     pub scanned: Option<usize>,
     /// How the catalog was written.
     pub catalog: RecoveredCatalog,
+    /// The pages whose dictionary this reader read in part, each written as the entries it read.
+    pub read_in_part: Vec<PartlyRead>,
+}
+
+/// A page whose dictionary stops being readable, written as the entries the reader drew it from.
+///
+/// ISO 32000-2 §7.3.7 states a dictionary's extent only as its closing `>>`, so a reader that
+/// never reaches it cannot know how many entries the producer wrote; `pdf_model::Pages` draws the
+/// page from the entries before the damage and says so (ADR 0784). The archive states those
+/// entries and no others, and names the page, the count and the byte where reading stopped, so
+/// that what the producer wrote after them is a stated loss rather than a silent one
+/// (`doc/adr/2551`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PartlyRead {
+    /// The page's number, counting from one in the order this reader draws them.
+    pub page: usize,
+    /// How many entries were read whole and are written.
+    pub entries: usize,
+    /// The byte offset in the source at which reading stopped.
+    pub stopped_at: usize,
 }
 
 impl RecoveredStructure {
@@ -102,10 +123,28 @@ impl RecoveredStructure {
             ),
             None => "walked from the page tree the file states".to_owned(),
         };
+        let mut partly = String::new();
+        for read in &self.read_in_part {
+            // Writing into a `String` cannot fail.
+            let _ = write!(
+                partly,
+                " Page {}'s dictionary stops being readable at byte {} of the source, and is \
+                 written as the {} {} before it, which this reader drew the page from; \
+                 whatever its producer wrote after them is not in the archive.",
+                read.page,
+                read.stopped_at,
+                read.entries,
+                if read.entries == 1 {
+                    "entry"
+                } else {
+                    "entries"
+                }
+            );
+        }
         format!(
             "recovered-structure: {catalog}, and a single page tree node listing the {} page(s) \
              this reader drew, {found}; each page is the producer's, with /Parent restated and \
-             the inheritable entries it stated no value for copied from its old ancestors. \
+             the inheritable entries it stated no value for copied from its old ancestors.{partly} \
              Declined as a source because: {}",
             self.pages, self.because
         )
@@ -144,7 +183,7 @@ pub(super) fn rebuild(document: &Document, declined: &Refusal) -> Result<Recover
 fn build(document: &Document, because: String) -> Result<Recovered, Refusal> {
     let tree = Pages::new(document);
     let scanned = tree.found_by_scanning();
-    let pages = pages_to_carry(&tree)?;
+    let (pages, read_in_part) = pages_to_carry(&tree)?;
     refuse_a_count_the_reader_fell_short_of(document, pages.len())?;
 
     let kept_catalog = document.catalog().ok();
@@ -241,6 +280,7 @@ fn build(document: &Document, because: String) -> Result<Recovered, Refusal> {
             } else {
                 RecoveredCatalog::Written
             },
+            read_in_part,
         },
     })
 }
@@ -256,11 +296,14 @@ enum Carried {
 
 /// The page objects the new root lists, in the order this reader draws them.
 ///
-/// Every page must be a dictionary this reader parsed whole: an object that does not parse cannot
-/// be carried. A page written directly in its parent's `/Kids` is carried too, as an object of its
-/// own, because Table 30 makes a node's `/Kids` an array of indirect references.
-fn pages_to_carry(tree: &Pages<'_>) -> Result<Vec<Carried>, Refusal> {
+/// A page whose dictionary this reader parsed whole is carried as the object it is. One that stops
+/// being readable is carried as the entries the reader drew it from, with the values of the
+/// inheritable entries in force stated on it, and is named in the second list ([`PartlyRead`]). A
+/// page written directly in its parent's `/Kids` is carried too, as an object of its own, because
+/// Table 30 makes a node's `/Kids` an array of indirect references.
+fn pages_to_carry(tree: &Pages<'_>) -> Result<(Vec<Carried>, Vec<PartlyRead>), Refusal> {
     let mut pages = Vec::new();
+    let mut read_in_part = Vec::new();
     for (index, page) in tree.every().into_iter().enumerate() {
         let number = index.saturating_add(1);
         let Some(page) = page else {
@@ -269,10 +312,14 @@ fn pages_to_carry(tree: &Pages<'_>) -> Result<Vec<Carried>, Refusal> {
                 tree.len()
             )));
         };
-        if page.damaged_dictionary.is_some() {
-            return Err(not_rebuilt(&format!(
-                "page {number}'s dictionary does not parse whole, so the object cannot be carried"
-            )));
+        if let Some(damage) = &page.damaged_dictionary {
+            read_in_part.push(PartlyRead {
+                page: number,
+                entries: damage.entries,
+                stopped_at: damage.stopped_at,
+            });
+            pages.push(Carried::Direct(with_resolved_entries(page)));
+            continue;
         }
         // A page written directly in its parent's /Kids is given an object of its own, as Table 30
         // asks of every child. One that names its parent has its inheritable entries read from the
@@ -289,7 +336,7 @@ fn pages_to_carry(tree: &Pages<'_>) -> Result<Vec<Carried>, Refusal> {
     if pages.is_empty() {
         return Err(not_rebuilt("this reader draws no page of it"));
     }
-    Ok(pages)
+    Ok((pages, read_in_part))
 }
 
 /// A direct page that names no `/Parent`, with the inheritable entries the reader resolved for it

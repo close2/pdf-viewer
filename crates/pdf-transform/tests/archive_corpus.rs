@@ -1218,7 +1218,11 @@ fn preserve_sweep(root: &Path, part: &str, target: Target) -> Preserved {
                         by_page: true,
                         by_attachment: false,
                         discard_undeterminable: false,
+                        no_page_carries: pdf_transform::archive::RemedyKind::Stop,
+                        draws_documents: true,
+                        keeps_media: false,
                         unmapped: pdf_transform::archive::Unmapped::Stop,
+                        statement: None,
                         unreadable: pdf_transform::archive::RemedyKind::Stop,
                     })
                     .collect(),

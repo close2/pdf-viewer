@@ -1351,7 +1351,10 @@ widths are the viewer's, **built** (`doc/questions/A47`, `A566`, `A687`, ADRs 12
   image's interpolation, a hexadecimal string with a byte that is no digit, a bound name that is not
   UTF-8, a Type 3 width and an `/ActualText` that the report places on a page). The page's text is
   named in the JSON report and in the file's `xmpMM:History`, as far as 1 000 characters; at most 32
-  pages are photographed. `as-shown`, Level U and Level A, a structure tree and optional content
+  pages are photographed. In a document stating a structure tree the profile's `discard` also
+  authorises `tagging-of-photographed-pages` (A707, ADR 2516 item 7): the tree's leaves that name a
+  photographed page are taken out of it, the rest of the tree kept, and each page's count of leaves
+  is named in the report and the history. `as-shown`, Level U and Level A, and optional content
   keep the refusal.
 - **A code the font's own encoding sends to `.notdef`** — named nothing, or `.notdef` in
   `/Differences` — which this reader draws nothing for, in one of the standard 14 stated by name
@@ -1553,11 +1556,13 @@ ISO 19005-2 6.2.11.4.1 and 6.2.11.8, ISO 19005-4 6.2.10.4.1 and 6.2.10.9 · all 
   is renamed in `/Differences` and `/CharProcs` alike and draws the same marks. The validator
   reports the case since ADR 1942; everything below is about a font that carries a program.
 
-- **Mitigation** — **none**, re-read against both clauses in session 1181 and holding (ADR 1200
-  sections 2 and 3). This is the RFC's font sentence in its proper place: the file carries the
-  program, so the mapping is the producer's and fixed; the only routes are taking the code off the
-  page (a mark removed) or drawing a glyph for it (a mark invented). One escape is not a remedy but
-  is worth repeating in the report: where the font is **not** embedded, the limits document's
+- **Mitigation, built for a simple TrueType program** (ADR 2543, `Rewrite::NotdefGlyphGiven`): the
+  file carries the program, so the mapping is the producer's; the content stream stays as it is and
+  the program is given, for each distinct width among the codes on glyph 0, a copy of glyph 0's own
+  outline that the restated `cmap` maps those codes to. The page draws what this reader drew and no
+  shown code reaches `.notdef`; nothing is invented, because the outline is the program's (A694
+  item 3). A `CIDFontType2`, CFF or Type 1 program keeps the refusal until its glyph map or
+  charstrings are written. One escape is not a remedy but is worth repeating in the report: where the font is **not** embedded, the limits document's
   section 4.9 substitution applies instead, and `--font <base-font>=<path>` supplying the intended
   face moves the document into that case. **The flag is built** (ADR 1209): the program is the
   operator's, the licence ISO 19005-2 section 6.2.11.4.1 demands is theirs to state, and the report
@@ -1741,7 +1746,7 @@ ISO 19005-2 6.2.11.6, ISO 19005-4 6.2.10.6 · all six · **built** as `Stated` (
 - **The three neighbouring rows** (`truetype-codes-reach-glyphs-by-the-standard-route`,
   `symbolic-truetype-states-no-encoding`, `non-symbolic-truetype-uses-a-standard-encoding`) keep
   their own narrower rewrites and proofs, and a font that fails one of them is restated by this
-  rewrite as the row's second answer (`Answer::OrCmapRestated`, ADR 2520). The restatement
+  rewrite as the row's second answer (`Answer::OrStated`, ADR 2520). The restatement
   is written into the file's `xmpMM:History` naming the clause (`doc/questions/A48`), is bounded by
   32 MiB of copied program a conversion, and is not prepared for a file another requirement
   refuses by name.
@@ -2570,7 +2575,7 @@ ISO 19005-2 6.8, ISO 19005-4 6.9 · today **`derive` built, `discard` built** (A
   appending route is available under all six, which is RFC 0007 section 4.6.1's correction and the
   reason no target is left with only `discard`.
 - **From a configuration** — the RFC's own example, and it is expressible: `remedy = "derive"` with
-  `tool = "office-to-pdf"` and `on-failure = "discard"`, plus per-target qualifiers so 4f attaches
+  `tool = "to-pdf"` and `on-failure = "discard"`, plus per-target qualifiers so 4f attaches
   unchanged and 2b appends. What the operator has to understand is which of those four happened to
   each file, and the report has to say it per attachment rather than per document.
   **Built since session 999**, in the third of those four shapes and only that one: a declared tool

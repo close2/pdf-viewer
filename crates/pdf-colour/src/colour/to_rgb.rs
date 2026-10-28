@@ -104,6 +104,10 @@ impl ColourSpace {
     /// The `Y` of `Self::cie_xyz_at`, clamped to the unit a mask value can hold — a
     /// `CalGray` component decoded by its gamma times a white point whose `Y` §8.6.5.2 makes
     /// 1.0, a profile's `Y` at D50, which is also 1.0 at white.
+    ///
+    /// **No mask this tree draws is weighed by it**: the owner chose §11.5.3's device branch for
+    /// every mask group (A23, ADR 2552), and this is the clause's own branch, kept for the
+    /// choice between the two that A23 leaves open.
     #[must_use]
     pub fn cie_luminance(&self, values: &[f32]) -> Option<f32> {
         self.cie_xyz_at(values, 0, Rendering::compensating())

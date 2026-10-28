@@ -22,7 +22,7 @@ use super::Resource;
 use super::datasets::Change;
 use super::template::{Class, Container, Language, Override, Template};
 
-pub use activate::{Activation, Ended, Limits, Overridden, Ran, Runner, Stimulus};
+pub use activate::{Activation, Ended, FormLanguage, Limits, Overridden, Ran, Runner, Stimulus};
 
 mod activate;
 

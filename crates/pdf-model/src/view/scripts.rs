@@ -35,7 +35,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::xfa::{Form, Ran};
+use crate::xfa::{Form, FormLanguage, Ran};
 use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 
 use super::script_model::{
@@ -173,25 +173,31 @@ pub trait ScriptRunner: std::fmt::Debug + Send + Sync {
     /// Runs one event's script and says what it did.
     fn run(&self, event: &ScriptEvent<'_>) -> ScriptResult;
 
-    /// Runs one script of an XFA form's, in the language of chapter 25, against `form` as the script
-    /// of the container `node`, within `steps_left` steps (ADR 2524).
+    /// Runs one script of an XFA form's, written in `language` — chapter 25's `FormCalc` or
+    /// JavaScript — against `form` as the script of the container `node`, within `steps_left`
+    /// steps (ADRs 2524, 2545).
     ///
     /// The form is the caller's and a runner that runs the script elsewhere asks the caller for
     /// what the script reads and tells it what the script assigns, through [`Form::resolve`],
     /// [`Form::value`] and [`Form::set`]. **The default runs nothing**, and says so: a runner that
-    /// has no `FormCalc` is not an error, and the activation reports the sentence for the field
-    /// that carries the script (XFA 3.3 page 412 names the language a script is in).
+    /// has no interpreter for the language is not an error, and the activation reports the
+    /// sentence for the field that carries the script (XFA 3.3 page 412 names the language a
+    /// script is in).
     fn run_form_script(
         &self,
         form: &mut Form<'_>,
         node: usize,
+        language: FormLanguage,
         script: &str,
         steps_left: u64,
     ) -> Ran {
         let _ = (form, node, script, steps_left);
         Ran {
             steps: 0,
-            outcome: Err("not run: this reader's script runner runs no FormCalc".to_owned()),
+            outcome: Err(format!(
+                "not run: this reader's script runner runs no {}",
+                language.name()
+            )),
         }
     }
 

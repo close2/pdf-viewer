@@ -179,6 +179,7 @@ impl ScriptRunner for Withheld {
         &self,
         _form: &mut pdf_model::xfa::Form<'_>,
         _node: usize,
+        language: pdf_model::xfa::FormLanguage,
         script: &str,
         _steps_left: u64,
     ) -> pdf_model::xfa::Ran {
@@ -189,7 +190,7 @@ impl ScriptRunner for Withheld {
         } else {
             if seen.first.is_none() {
                 seen.first = Some((
-                    "a FormCalc calculation of the document's form".to_owned(),
+                    format!("a {} calculation of the document's form", language.name()),
                     first_line(script),
                 ));
             }

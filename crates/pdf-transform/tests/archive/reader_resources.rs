@@ -182,6 +182,51 @@ fn a_graphics_state_and_a_form_nothing_defines_are_defined_empty() {
     }
 }
 
+/// ISO 32000-2 §7.3.9: a reference to a nonexistent object "shall be treated the same as a null
+/// object", and a null entry "shall be equivalent to omitting the entry entirely". So a name whose
+/// entry is either defines nothing, the page draws nothing for it, and the name is defined empty
+/// in place of the entry — `veraPDFHiResWrongObjectID`'s `/Im0 99 0 R` is the first shape
+/// (`doc/adr/2550`).
+#[test]
+fn a_name_whose_entry_is_null_or_names_no_object_is_defined_empty_in_its_place() {
+    for target in TARGETS {
+        let source = page_of(
+            target,
+            "/XObject << /Gone 99 0 R /Null null >>",
+            "/Gone Do /Null Do 0 0 5 5 re f",
+        )
+        .build();
+        let (report, output) = convert(&source, target, Authorisations::default());
+        assert!(
+            matches!(
+                decision(&report, NAMED),
+                Decision::Mechanical(Rewrite::EmptyResourceDefined)
+            ),
+            "the source defines neither name"
+        );
+        let output = output.expect("both names are defined");
+        assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+        let (document, page) = first_page(&output);
+        let resources = document.get_key(&page, "Resources");
+        let resources = resources.as_dict().expect("resources");
+        let forms = document.get_key(resources, "XObject");
+        let forms = forms.as_dict().expect("table");
+        for name in ["Gone", "Null"] {
+            let form = document.get_key(forms, name);
+            let form = form
+                .as_stream()
+                .expect("an empty form in the entry's place");
+            assert!(
+                document
+                    .decoded_stream_data(form)
+                    .expect("decodes")
+                    .is_empty(),
+                "{name} draws nothing, as the source's entry drew nothing"
+            );
+        }
+    }
+}
+
 #[test]
 fn a_font_nothing_defines_is_an_empty_type_3_font_where_only_glyphs_were_shown() {
     // Each content stream shows text under a name no dictionary defines and moves the position by

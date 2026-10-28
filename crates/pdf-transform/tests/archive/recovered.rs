@@ -277,18 +277,6 @@ fn corpus(path: &str) -> Option<Vec<u8>> {
     }
 }
 
-/// The sentence the refusal of `path` states with the loss authorised.
-fn refused_by_name(path: &str) -> Option<String> {
-    let source = corpus(path)?;
-    match attempt(&source, Target::Two(Level::B), authorised()) {
-        Err(pdf_transform::Refusal::Reconstructed(sentence)) => Some(sentence),
-        other => panic!(
-            "{path}: expected a refusal by name, got {:?}",
-            other.map(|(r, _)| r.refused.len())
-        ),
-    }
-}
-
 /// A source whose catalog names no page tree, with one page.
 const DANGLING: [&str; 3] = [
     "<< /Type /Catalog /Pages 9 0 R >>",
@@ -463,11 +451,101 @@ fn a_signed_source_is_rebuilt_and_each_signature_is_reported_against_the_source(
     }
 }
 
+/// A page whose dictionary stops being readable is written as the entries this reader drew it
+/// from, and the report and the file's own history name the page, the count and the byte
+/// (`doc/adr/2551`).
+///
+/// ISO 32000-2 §7.3.7 bounds a dictionary only by its closing `>>`, so what follows the damage is
+/// not known to be entries at all; the page the reader draws is the one the prefix states, and
+/// that is what the archive states.
 #[test]
-fn a_page_whose_dictionary_does_not_parse_whole_is_refused_by_name() {
-    if let Some(sentence) = refused_by_name("doc/pdf.js/test/pdfs/poppler-742-0-fuzzed.pdf") {
-        assert!(sentence.contains("does not parse whole"), "{sentence}");
+fn a_page_whose_dictionary_stops_being_readable_is_written_as_the_entries_the_reader_drew() {
+    let content = "0 0 m 10 10 l S";
+    let stream = format!(
+        "<< /Length {} >>\nstream\n{content}\nendstream",
+        content.len()
+    );
+    // The page's last entry opens a string it never closes, so the parser reads four entries
+    // whole and stops; `/Rotate 90` after the damage is not one of them.
+    let page = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 300] /Contents 4 0 R \
+                /Broken [1 2 (unclosed /Rotate 90 >>";
+    let source = file(
+        &["42", "<< /Type /Pages /Count 1 >>", page, &stream],
+        "/Root 1 0 R",
+    );
+    let drawn = Document::open_with_limits(source.clone(), Limits::DEFAULT).expect("opens");
+    let damage = pdf_model::Pages::new(&drawn)
+        .get(0)
+        .and_then(|page| page.damaged_dictionary)
+        .expect("the reader reads the page in part");
+    assert_eq!(damage.entries, 4, "{damage:?}");
+    for target in TARGETS {
+        let (report, document, output) = recovered(&source, target);
+        let note = conversion(&report)
+            .recovered_structure
+            .as_ref()
+            .expect("the report names what was rebuilt");
+        assert_eq!(
+            note.read_in_part,
+            vec![pdf_transform::archive::PartlyRead {
+                page: 1,
+                entries: 4,
+                stopped_at: damage.stopped_at,
+            }],
+            "{target}"
+        );
+        let page = first_page(&document);
+        let mut keys: Vec<&[u8]> = page.iter().map(|(key, _)| key.as_bytes()).collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            [&b"Contents"[..], b"MediaBox", b"Parent", b"Type"],
+            "{target}: the entries the reader read, and nothing after the damage"
+        );
+        let carried = document.get_key(&page, "Contents");
+        let carried = carried.as_stream().expect("the content stream");
+        assert_eq!(
+            document
+                .decoded_stream_data(carried)
+                .expect("decodes")
+                .as_ref(),
+            content.as_bytes(),
+            "{target}: the producer's content stream, byte for byte"
+        );
+        let sentence = format!("stops being readable at byte {}", damage.stopped_at);
+        assert!(
+            note.sentence().contains(&sentence),
+            "{target}: {}",
+            note.sentence()
+        );
+        assert!(
+            output
+                .windows(sentence.len())
+                .any(|w| w == sentence.as_bytes()),
+            "{target}: the file's own xmpMM:History says it"
+        );
+        let json = format!("{:?}", conversion(&report).to_json());
+        assert!(json.contains("read_in_part"), "{target}: {json}");
     }
+}
+
+/// `poppler-742-0-fuzzed`'s only page stops being readable inside its `/TrimBox`; it is rebuilt
+/// from the seven entries the reader drew it from, and what still refuses it is a row of the table
+/// and not the rebuild.
+#[test]
+fn poppler_742_is_rebuilt_from_the_entries_its_page_states_readably() {
+    let Some(source) = corpus("doc/pdf.js/test/pdfs/poppler-742-0-fuzzed.pdf") else {
+        return;
+    };
+    let (report, _) =
+        attempt(&source, Target::Two(Level::B), authorised()).expect("the rebuild applies");
+    let note = conversion(&report)
+        .recovered_structure
+        .as_ref()
+        .expect("rebuilt");
+    assert_eq!(note.pages, 1);
+    assert_eq!(note.read_in_part.len(), 1, "{note:?}");
+    assert_eq!(note.read_in_part[0].entries, 7, "{note:?}");
 }
 
 #[test]
@@ -618,9 +696,9 @@ fn nested_entry(depth: usize) -> Vec<u8> {
 #[test]
 fn a_value_nested_to_the_parsers_last_depth_is_carried_and_one_deeper_is_refused() {
     // The parser admits a value nested to 255 arrays inside a page dictionary and no deeper; the
-    // value at 255 is carried, and at 256 the page's dictionary does not parse whole, which is
-    // refused by name instead of followed. (`carry`'s own bound is the walk's backstop for a
-    // value no parser built.)
+    // value at 255 is carried, and at 256 the page's dictionary stops being readable at the
+    // value, which is written as the entries before it and not followed (`doc/adr/2551`).
+    // (`carry`'s own bound is the walk's backstop for a value no parser built.)
     let (report, output) =
         attempt(&nested_entry(255), Target::Two(Level::B), authorised()).expect("it applies");
     let output = written(&report, output);
@@ -629,12 +707,23 @@ fn a_value_nested_to_the_parsers_last_depth_is_carried_and_one_deeper_is_refused
         first_page(&document).get("Deep").is_some(),
         "the deep entry is carried"
     );
-    let refusal = attempt(&nested_entry(256), Target::Two(Level::B), authorised())
-        .expect_err("a page that cannot be carried is not rebuilt");
-    let pdf_transform::Refusal::Reconstructed(sentence) = refusal else {
-        panic!("another variant: {refusal}");
-    };
-    assert!(sentence.contains("does not parse whole"), "{sentence}");
+    let (report, output) =
+        attempt(&nested_entry(256), Target::Two(Level::B), authorised()).expect("it applies");
+    let output = written(&report, output);
+    let document = Document::open_with_limits(output, Limits::DEFAULT).expect("opens");
+    assert!(
+        first_page(&document).get("Deep").is_none(),
+        "a value past the parser's depth is not read, and so not written"
+    );
+    let note = conversion(&report)
+        .recovered_structure
+        .as_ref()
+        .expect("rebuilt");
+    assert_eq!(
+        note.read_in_part.len(),
+        1,
+        "the page is named as read in part"
+    );
 }
 
 #[test]

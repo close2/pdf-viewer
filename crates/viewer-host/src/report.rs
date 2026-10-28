@@ -18,6 +18,23 @@
 //! reason: the rule is the same in all of them and a host that forgot it would go quietly silent
 //! about a signature. ADR 1044.
 
+/// What a document is asked for once a frame of it is on the screen, in the order every host sends
+/// it: what the file says about itself, then RFC 0008 section 6.5's open sequence, at the same
+/// moment and for the same reason — after the first present, never in front of it (ADR 1602).
+///
+/// Both commands are about the focused document, so a host sends them only while the document
+/// whose [`Due`] it took is the one in front. **Two moments reach that**, and a host needs both:
+/// the viewer answered for a page of the document in front, and the window put on its screen a
+/// frame the viewer already held — a tab brought to the front whose page was drawn while it was
+/// behind is the second and never the first (ADR 2544).
+#[must_use]
+pub const fn owed() -> [viewer_core::Command; 2] {
+    [
+        viewer_core::Command::Report,
+        viewer_core::Command::Presented,
+    ]
+}
+
 /// Whether the document that is open still owes its report.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Due(bool);
@@ -30,6 +47,14 @@ impl Due {
     /// *new* file says about itself is a different set of sentences.
     pub const fn opened(&mut self) {
         self.0 = true;
+    }
+
+    /// Whether the report is still owed, without taking it: a host that asks from its main loop
+    /// rather than from inside the paint that found a frame takes it there, where the document in
+    /// front can be checked again.
+    #[must_use]
+    pub const fn is_owed(&self) -> bool {
+        self.0
     }
 
     /// A frame has been presented; whether this is the moment to ask.

@@ -104,7 +104,7 @@ format this tree already parses. **TOML**, because `doc/conformance/ledger.toml`
 # Every key is a refusal site's identifier. Absent means `stop`.
 [site."attachments/embedded-file-is-itself-pdfa"]
 remedy = "derive"
-tool   = "office-to-pdf"
+tool   = "to-pdf"
 on-failure = "discard"          # or "stop"
 
 [site."metadata/properties-use-known-schemas"]
@@ -115,7 +115,7 @@ remedy   = "derive"
 tool     = "movie-poster"
 placement = "append"            # remedy-specific, and the site documents its own keys
 
-[tool.office-to-pdf]
+[tool.to-pdf]
 program = "/usr/bin/soffice"
 args    = ["--headless", "--convert-to", "pdf", "--outdir", "{out}", "{in}"]
 expects = "application/pdf"
@@ -259,12 +259,14 @@ to it:
 > insert an embedded pdfa for variant pdfa/4 but not for pdfa/2 (and pdfa/4f would allow any file
 > as embedded file to avoid losing information)
 
-The clauses bear that out exactly. ISO 19005-4 section 6.9 requires every embedded file to conform
-to ISO 19005-1, -2 or -4, so a **derived PDF/A** may be attached under PDF/A-4 and the information
-survives. ISO 19005-2 section 6.8 is narrower about what may be embedded at all, so the same
-derived file is not a remedy there. And PDF/A-4**f** exists precisely to carry arbitrary embedded
-files — under that target the original office document can be attached **unchanged**, and nothing
-is lost or derived.
+The clauses bear the menus out, though not the owner's premise for part 2. ISO 19005-4 section 6.9
+requires every embedded file to conform to ISO 19005-1, -2 or -4, so a **derived PDF/A** may be
+attached under PDF/A-4 and the information survives. ISO 19005-2 section 6.8 admits an embedded
+file that conforms to part 1 or to part 2, so the same route is open there as well: the narrower
+rule is about *which parts*, not about *whether*, and a derived file this converter has converted
+to PDF/A-2 is a remedy under PDF/A-2 (`doc/rfc/0014` section 5's second stage, `doc/adr/2539`).
+And PDF/A-4**f** exists precisely to carry arbitrary embedded files — under that target the
+original attachment can be attached **unchanged**, and nothing is lost or derived.
 
 So one site has three different menus depending on what was asked for, and the best available
 answer is different in kind at each:
@@ -272,8 +274,8 @@ answer is different in kind at each:
 | target | the embedded-file site's best remedy | what happens to the information |
 |---|---|---|
 | PDF/A-4f | attach the original, unchanged | **nothing is lost and nothing is derived** |
-| PDF/A-4 | derive a PDF/A and attach that | the *content* survives, in another format |
-| PDF/A-2 | derive a PDF if it is not one, and **append its pages** | the content survives, in the document's body |
+| PDF/A-4 | derive a PDF, convert it to PDF/A-4, and attach that | the *content* survives, in another format |
+| PDF/A-2 | derive a PDF, convert it to PDF/A-2, and attach that — or **append its pages** | the content survives, attached or in the document's body |
 
 **The last row was wrong in this RFC's first draft, which said PDF/A-2 had neither remedy
 available.** The owner corrected it on 2026-09-11: *appending pages for target 2 could also be an
@@ -339,7 +341,7 @@ remedy = "preserve"                     # 4f can hold the original
 
 [site."attachments/embedded-file-is-itself-pdfa".target."4"]
 remedy = "derive"
-tool   = "office-to-pdf"
+tool   = "to-pdf"
 ```
 
 **And the report should say when another target would have kept what this one loses.** This is the

@@ -59,6 +59,12 @@ pub(super) struct Expansion {
 
 impl Expansion {
     /// Expand `segments` under `transform`'s linear part.
+    ///
+    /// The width is resolved here under the linear part alone, and that is exact: §8.4.3.2's
+    /// thinnest line and §10.7.5's half-pixel promotion are functions of the stretch, not of
+    /// the translation. §10.7.5's grid fit is a function of the translation too, so a stroke
+    /// it fits never comes here — the stroke arm and the line drawn as a stroke expand its
+    /// fitted polylines at their placement instead (`raster::grid_fit`).
     fn of(segments: &[Segment], transform: DeviceTransform, stroke: Stroke) -> Self {
         let linear = linear(transform);
         let flattened = raster::flatten_stroke(segments, linear);

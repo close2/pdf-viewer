@@ -35,6 +35,7 @@ mod members;
 mod pages;
 mod util;
 mod window;
+pub mod xfa;
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
@@ -150,6 +151,7 @@ impl Realm {
         let hooks = Hooks {
             utc_offset_seconds: Rc::clone(&utc_offset_seconds),
             buffer_bytes: budget.buffer_bytes,
+            global_this: None,
         };
         // Boa's default module loader resolves `.` against the file system when a context is
         // built — a `realpath`, which the script worker's confinement kills for (trap 31, ADR
@@ -646,6 +648,10 @@ struct Hooks {
     utc_offset_seconds: Rc<Cell<i32>>,
     /// The largest `ArrayBuffer`.
     buffer_bytes: u64,
+    /// Where a form's realm keeps the object its global code's `this` is, which the hook creates
+    /// and the realm points at each run's container ([`xfa::FormRealm`]); `None` leaves `this` the
+    /// global object, as a document's realm has it.
+    global_this: Option<Rc<RefCell<Option<boa_engine::JsObject>>>>,
 }
 
 impl HostHooks for Hooks {
@@ -655,6 +661,16 @@ impl HostHooks for Hooks {
 
     fn max_buffer_size(&self, _context: &mut Context) -> u64 {
         self.buffer_bytes
+    }
+
+    fn create_global_this(
+        &self,
+        intrinsics: &boa_engine::context::intrinsics::Intrinsics,
+    ) -> Option<boa_engine::JsObject> {
+        let slot = self.global_this.as_ref()?;
+        let this = boa_engine::JsObject::with_object_proto(intrinsics);
+        *slot.borrow_mut() = Some(this.clone());
+        Some(this)
     }
 
     /// A string compiled while a script runs — `eval`, `Function` — is held to the budgets a

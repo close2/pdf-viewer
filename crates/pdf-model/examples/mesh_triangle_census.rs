@@ -7,11 +7,14 @@
 //! > Each output device may have internal limits on the maximum and minimum tolerances
 //! > attainable.
 //!
-//! And the bound is measured in **this program's own triangles** rather than in the
-//! document's patches, because a patch becomes `PATCH_STEPS²` quadrilaterals here. So how many
-//! patches a document is allowed is a function of a constant that has nothing to do with the
-//! document, and the only way to know whether that constant is anywhere near a real file is to
-//! count.
+//! The bound is measured in **this program's own triangles** for a triangle mesh and in the
+//! document's patches for a patch mesh (`mesh::MAX_PATCHES`, ADR 1217), and the only way to know
+//! whether either is anywhere near a real file is to count.
+//!
+//! **It also names every page whose patches carry a lattice** — `pdf_render::PatchCorners::Grid`,
+//! a patch whose colours §8.7.4.4 requires be interpolated in a space whose conversion bends
+//! across it, converted between its corners (ADR 2546) — and every page reporting
+//! `max_mesh_refinement`, because those are the only pages that lattice can move.
 //!
 //! **The count comes off the display list rather than off the stream**, which is the whole of
 //! why this walks pages instead of objects. §8.6.5.1 resolves a `/ColorSpace` stated as a name
@@ -42,7 +45,7 @@ use std::path::{Path, PathBuf};
 use rayon::prelude::{IntoParallelRefIterator as _, ParallelIterator as _};
 
 use pdf_model::{Pages, Unsupported};
-use pdf_render::{Command, Paint, ShadingKind};
+use pdf_render::{Command, Paint, PatchCorners, ShadingKind};
 use pdf_syntax::Document;
 
 /// One mesh command, as the interpreter built it.
@@ -62,6 +65,10 @@ struct Finding {
     meshes: Vec<Mesh>,
     /// Pages whose report names the triangle bound.
     cut: Vec<String>,
+    /// Pages with a patch carried as a lattice, and how many such patches each holds.
+    lattices: Vec<(String, usize)>,
+    /// Pages whose report names `max_mesh_refinement`.
+    coarse: Vec<String>,
 }
 
 fn walk(directory: &Path, found: &mut Vec<PathBuf>) {
@@ -100,8 +107,9 @@ fn paths() -> Vec<PathBuf> {
     found
 }
 
-/// Every mesh a display list paints with, groups included.
-fn meshes_in(commands: &[Command], out: &mut Vec<usize>) {
+/// Every mesh a display list paints with, groups included, with how many of its patches carry a
+/// lattice.
+fn meshes_in(commands: &[Command], out: &mut Vec<(usize, usize)>) {
     for command in commands {
         match command {
             Command::Fill {
@@ -116,8 +124,14 @@ fn meshes_in(commands: &[Command], out: &mut Vec<usize>) {
                     // (ADR 1217), so what this census counts for one is the patches — which is
                     // the number `mesh::MAX_PATCHES` bounds and the one a document decides.
                     out.push(match patches {
-                        Some(mesh) => mesh.patches.len(),
-                        None => triangles.len(),
+                        Some(mesh) => (
+                            mesh.patches.len(),
+                            mesh.patches
+                                .iter()
+                                .filter(|patch| matches!(patch.corners, PatchCorners::Grid(_)))
+                                .count(),
+                        ),
+                        None => (triangles.len(), 0),
                     });
                 }
             }
@@ -149,19 +163,23 @@ fn examine(path: &Path) -> Finding {
         let interpretation = pdf_model::interpret(&document, &page);
         let mut counts = Vec::new();
         meshes_in(interpretation.display_list.commands(), &mut counts);
-        if interpretation.unsupported.iter().any(|item| {
-            matches!(
-                item,
-                Unsupported::LimitReached {
-                    limit: "max_mesh_triangles"
-                }
-            )
-        }) {
-            finding
-                .cut
-                .push(format!("{name} page {}", index.saturating_add(1)));
+        let at = format!("{name} page {}", index.saturating_add(1));
+        let reports = |limit: &str| {
+            interpretation.unsupported.iter().any(|item| {
+                matches!(item, Unsupported::LimitReached { limit: named } if *named == limit)
+            })
+        };
+        if reports("max_mesh_triangles") {
+            finding.cut.push(at.clone());
         }
-        for triangles in counts {
+        if reports("max_mesh_refinement") {
+            finding.coarse.push(at.clone());
+        }
+        let lattices: usize = counts.iter().map(|(_, lattice)| lattice).sum();
+        if lattices > 0 {
+            finding.lattices.push((at, lattices));
+        }
+        for (triangles, _) in counts {
             finding.meshes.push(Mesh {
                 document: name.clone(),
                 page: index.saturating_add(1),
@@ -179,9 +197,13 @@ fn main() {
 
     let mut meshes: Vec<Mesh> = Vec::new();
     let mut cut: Vec<String> = Vec::new();
+    let mut lattices: Vec<(String, usize)> = Vec::new();
+    let mut coarse: Vec<String> = Vec::new();
     for finding in findings {
         meshes.extend(finding.meshes);
         cut.extend(finding.cut);
+        lattices.extend(finding.lattices);
+        coarse.extend(finding.coarse);
     }
 
     let bound = pdf_model::mesh::MAX_TRIANGLES;
@@ -203,5 +225,16 @@ fn main() {
     }
     for page in &cut {
         println!("  cut short: {page}");
+    }
+    println!(
+        "{} page(s) carry a patch as a lattice and {} report max_mesh_refinement",
+        lattices.len(),
+        coarse.len()
+    );
+    for (page, count) in &lattices {
+        println!("  lattice: {page}, {count} patch(es)");
+    }
+    for page in &coarse {
+        println!("  coarse: {page}");
     }
 }

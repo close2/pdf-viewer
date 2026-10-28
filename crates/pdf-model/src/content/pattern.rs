@@ -53,13 +53,6 @@ impl TintBinding {
             .under_black_generation(self.generation.clone())
     }
 
-    /// Whether this same effective conversion bypasses its stated pair.
-    pub(super) fn bypasses_black_generation(&self, interpreter: &Interpreter<'_>) -> bool {
-        interpreter
-            .paint_context(self.rendering, self.generation.as_ref())
-            .bypasses_black_generation(&self.source.space)
-    }
-
     /// Resolves the source in the current nested target without replacing definition state.
     pub(super) fn paint(&self, interpreter: &mut Interpreter<'_>, fill: bool) -> pdf_render::Color {
         if matches!(self.source.space, crate::colour::ColourSpace::Rgb)
@@ -119,8 +112,6 @@ pub(super) enum PatternPaint {
 /// the clause does not put there. See [`Interpreter::shading_paint`].
 #[derive(Debug)]
 pub(super) struct ShadingPattern {
-    /// The colours bypassed a stated pair; consumed only when this pattern paints.
-    black_generation_bypassed: bool,
     /// The colours and the geometry, as built under `built`.
     shading: Arc<Shading>,
     /// Table 77's `/BBox` where the pattern's shading states one, and the transform that
@@ -470,11 +461,13 @@ impl Interpreter<'_> {
         // function belong to the mark, so [`Interpreter::shading_paint`] compares and rebuilds
         // where the mark asks for something else. Building now rather than only at the paint is
         // what makes the common page — one state from the `scn` to every mark — one build.
+        let (initial, unreadable) = self.pattern_initial.clone().augmented(self.document, &dict);
+        self.note_unreadable_black_generation(&format!("the pattern /{label}"), unreadable);
         let definition = ShadingDefinition {
             object: shading_object,
             resources: resources.clone(),
             transform: matrix.then(self.base),
-            initial: self.pattern_initial.clone().augmented(self.document, &dict),
+            initial,
             // Table 77's `/Background` "shall be applied only when the shading is used as part
             // of a shading pattern, not when painted directly with the sh operator", so this is
             // the one place in the interpreter where the entry means anything at all.
@@ -482,10 +475,9 @@ impl Interpreter<'_> {
         };
         let built = self.mark_colouring(&definition);
         match self.build_shading(&definition, &built) {
-            Ok((shading, black_generation_bypassed)) => {
+            Ok(shading) => {
                 self.note_unpainted_background(&label, &definition.object, shading.background);
                 Some(PatternPaint::Shading(Rc::new(ShadingPattern {
-                    black_generation_bypassed,
                     shading: Arc::new(shading),
                     // Stated "in the shading's target coordinate space", which for a pattern is
                     // the pattern space — the shading's own `/Matrix` (type 1 only) is applied
@@ -526,7 +518,6 @@ impl Interpreter<'_> {
     /// applies them ([`Interpreter::mark_transfer`], ADR 1266).
     pub(super) fn fill_paint(&mut self, state: &GraphicsState) -> Paint {
         let Some(PatternPaint::Shading(pattern)) = &state.fill_pattern else {
-            self.report_solid_black_generation(state, true);
             let colour = self.solid_colour(state, true);
             return Paint::Solid(pdf_render::Color {
                 a: colour.a * state.fill_alpha,
@@ -579,7 +570,6 @@ impl Interpreter<'_> {
     /// As [`Interpreter::fill_paint`], for a stroking mark and §11.6.4.4's stroking constant.
     pub(super) fn stroke_paint(&mut self, state: &GraphicsState) -> Paint {
         let Some(PatternPaint::Shading(pattern)) = &state.stroke_pattern else {
-            self.report_solid_black_generation(state, false);
             let colour = self.solid_colour(state, false);
             return Paint::Solid(pdf_render::Color {
                 a: colour.a * state.stroke_alpha,

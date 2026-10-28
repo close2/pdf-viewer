@@ -45,6 +45,22 @@ impl Rewriter<'_> {
         changed
     }
 
+    /// A derived attachment's specification, made to say what the file now is.
+    ///
+    /// Asked before [`Self::complete_file_specification`], whose default relationship says
+    /// nothing: ISO 32000-2 §7.11.3's Table 43 `Alternative`, for an alternative representation of
+    /// content (`super::super::remedies::Remedies::alternatives`, `doc/adr/2539`).
+    pub(super) fn state_a_derived_relationship(&self, id: ObjectId, out: &mut Dictionary) -> bool {
+        if !self.wants(Rewrite::DerivedEmbeddedFile) || !self.remedies.alternatives.contains(&id) {
+            return false;
+        }
+        out.insert(
+            Name::new(&b"AFRelationship"[..]),
+            Object::Name(Name::new(&b"Alternative"[..])),
+        );
+        true
+    }
+
     /// The one ASCII file name a specification missing `/F` or `/UF` states in the other key.
     ///
     /// `None` where both keys are already there, where neither is, or where the one that is

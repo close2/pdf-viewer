@@ -130,6 +130,9 @@ pub enum DerivedOutcome {
     NotWhatItPromised,
     /// The tool could not be run, ran and failed, overran its timeout or its output limit.
     Failed(String),
+    /// The tool's PDF was not converted to the part the target admits, for the reason stated
+    /// (`doc/rfc/0014` section 5's second stage, `doc/adr/2539`).
+    NotConverted(String),
 }
 
 impl DerivedOutcome {
@@ -141,6 +144,7 @@ impl DerivedOutcome {
             Self::Declined => "declined",
             Self::NotWhatItPromised => "not-what-it-promised",
             Self::Failed(_) => "failed",
+            Self::NotConverted(_) => "not-converted",
         }
     }
 }
@@ -173,6 +177,24 @@ pub struct Derived {
     pub stderr: String,
     /// What became of it.
     pub outcome: DerivedOutcome,
+    /// What this converter made of the tool's PDF before it reached the archive, where it did.
+    pub converted: Option<ConvertedTo>,
+}
+
+/// A derived PDF as this converter converted it — `doc/rfc/0014` section 5's second stage.
+///
+/// The tool's bytes are what [`Derived::digest`] identifies; what the archive holds is this
+/// converter's conversion of them, and a reader checking the claim needs both.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConvertedTo {
+    /// The part it was converted to, as [`pdf_archive::Target`] names it.
+    pub target: String,
+    /// Where it went, as the configuration's `placement` word.
+    pub placement: &'static str,
+    /// How many bytes the converted file has.
+    pub bytes: usize,
+    /// The requirements the inner conversion decided, in its own order.
+    pub decided: Vec<&'static str>,
 }
 
 /// One stream whose data an operator's tool fetched from outside the document.
@@ -341,6 +363,44 @@ pub struct SuppliedFact {
 }
 
 impl Derived {
+    /// What became of the artefact, as the rendered report's sentence says it.
+    fn became(&self) -> String {
+        let row = self;
+        match &row.outcome {
+            DerivedOutcome::Attached => match &row.converted {
+                Some(converted) => format!(
+                    "became {} of {} byte(s), SHA-256 {}, converted here to {} \
+                     ({} byte(s), {} requirement(s) decided) and placed by {}",
+                    row.expects,
+                    row.bytes,
+                    row.digest,
+                    converted.target,
+                    converted.bytes,
+                    converted.decided.len(),
+                    converted.placement
+                ),
+                None => format!(
+                    "became {} of {} byte(s), SHA-256 {}",
+                    row.expects, row.bytes, row.digest
+                ),
+            },
+            DerivedOutcome::Declined => {
+                "was declined by the tool, so it is unchanged and the requirement \
+                 stays refused"
+                    .to_owned()
+            }
+            DerivedOutcome::NotWhatItPromised => format!(
+                "was not converted: what came back is not the {} the tool promised, \
+                 and doc/rfc/0007 section 4.2 does not trust it",
+                row.expects
+            ),
+            DerivedOutcome::Failed(sentence) => format!("was not converted: {sentence}"),
+            DerivedOutcome::NotConverted(sentence) => {
+                format!("was derived but not taken into the archive: {sentence}")
+            }
+        }
+    }
+
     /// One derived artefact as JSON.
     fn to_json(&self) -> Value {
         Value::Object(vec![
@@ -360,6 +420,26 @@ impl Derived {
             ("bytes".to_owned(), Value::count(self.bytes)),
             ("stderr".to_owned(), Value::text(self.stderr.clone())),
             ("outcome".to_owned(), Value::text(self.outcome.word())),
+            (
+                "converted".to_owned(),
+                self.converted.as_ref().map_or(Value::Null, |converted| {
+                    Value::Object(vec![
+                        ("target".to_owned(), Value::text(converted.target.clone())),
+                        ("placement".to_owned(), Value::text(converted.placement)),
+                        ("bytes".to_owned(), Value::count(converted.bytes)),
+                        (
+                            "decided".to_owned(),
+                            Value::Array(
+                                converted
+                                    .decided
+                                    .iter()
+                                    .map(|id| Value::text(*id))
+                                    .collect(),
+                            ),
+                        ),
+                    ])
+                }),
+            ),
             (
                 "warns".to_owned(),
                 Value::text(crate::archive::DERIVED_NOT_ORIGINAL),
@@ -381,6 +461,239 @@ impl SuppliedFact {
             ),
         ])
     }
+}
+
+/// What became of one embedded file an embedded-file requirement failed at.
+///
+/// **The configuration is per site and the outcome is per object** (`doc/pdf-a-mitigations.md`
+/// section 14 point 10, `doc/adr/2536`): one row answers every attachment of a document, and one
+/// attachment may be laid out as pages while the next is removed. So the report names each file
+/// and its own answer rather than one verdict for the site.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AttachmentOutcome {
+    /// The requirement identifier whose row answered it.
+    pub site: &'static str,
+    /// The file specification, in the source's numbering.
+    pub object: pdf_syntax::object::ObjectId,
+    /// §7.11.3's `/UF`, else its `/F`, else the words for a specification naming none.
+    pub name: String,
+    /// What this conversion did with it.
+    pub answer: AttachmentAnswer,
+    /// Each file attachment annotation that named it, now a link to its first page or to nothing.
+    ///
+    /// §12.5.6.15's annotation stays on its page with the producer's appearance and names no file
+    /// (`doc/adr/2537`); empty where no annotation on a kept page named the file.
+    pub annotations: Vec<pdf_syntax::object::ObjectId>,
+    /// The first page (zero-based) of the statement `append-statement` appended naming this
+    /// file's removal, where the row's loss was stated (`doc/rfc/0014` section 4).
+    pub stated_on: Option<usize>,
+}
+
+/// The page `append-statement` appended, stating what the conversion removed.
+///
+/// `doc/rfc/0014` section 4 and `A706`: one statement per document, listing every object whose
+/// loss the step took; each such object's [`AttachmentOutcome::stated_on`] points at it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StatementPage {
+    /// The requirement whose row's step appended it.
+    pub site: &'static str,
+    /// The zero-based pages of the output it sits on.
+    pub pages: Vec<usize>,
+    /// How many objects it lists.
+    pub objects: usize,
+    /// The typeface it is set in.
+    pub face: SetIn,
+}
+
+impl StatementPage {
+    /// The page as one sentence, for the text report and `xmpMM:History`.
+    #[must_use]
+    pub fn sentence(&self) -> String {
+        format!(
+            "{} is on page(s) {} of this document, listing {} object(s) removed under {}, in facts \
+             computed from the source and this program's fixed labels{}",
+            super::statement::SUBJECT,
+            self.pages
+                .iter()
+                .map(|page| page.saturating_add(1).to_string())
+                .collect::<Vec<_>>()
+                .join(", "),
+            self.objects,
+            self.site,
+            match &self.face {
+                SetIn::NoText => String::new(),
+                SetIn::TheDocumentsOwnFace => ", in a face this document itself embeds".to_owned(),
+                SetIn::AFaceThisProgramShips(face) =>
+                    format!(", in {face}, a face this program embedded for it"),
+            }
+        )
+    }
+
+    /// The page as JSON.
+    pub(super) fn to_json(&self) -> Value {
+        Value::Object(
+            [
+                ("site".to_owned(), Value::text(self.site)),
+                (
+                    "pages".to_owned(),
+                    Value::Array(
+                        self.pages
+                            .iter()
+                            .map(|page| Value::count(page.saturating_add(1)))
+                            .collect(),
+                    ),
+                ),
+                ("objects".to_owned(), Value::count(self.objects)),
+            ]
+            .into_iter()
+            .collect(),
+        )
+    }
+}
+
+/// The answers one embedded file can take.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AttachmentAnswer {
+    /// Its content laid out on pages appended to the document (zero-based), the file itself gone.
+    ///
+    /// The loss is `ATTACHMENT_AS_PAGES`: what a reader can read is kept, and the file as a
+    /// file — its bytes to open, its name and type as metadata — is not.
+    AppendedAsPages(Vec<usize>),
+    /// Removed, with the sentence saying why no page carries it, or that the row discards it.
+    ///
+    /// The loss is `embedded-file`.
+    Removed(String),
+}
+
+/// The loss word an attachment appended as pages takes (`doc/adr/2490`, `doc/adr/2536`).
+pub(super) const ATTACHMENT_AS_PAGES: &str = "attachment-as-pages";
+
+/// What a row that discards an embedded file states for each one it removes.
+pub(super) const DISCARDED_BY_THE_ROW: &str = "the configuration discards an embedded file this target \
+     does not admit";
+
+impl AttachmentOutcome {
+    /// The loss word this answer takes.
+    #[must_use]
+    pub const fn loss(&self) -> &'static str {
+        match self.answer {
+            AttachmentAnswer::AppendedAsPages(_) => ATTACHMENT_AS_PAGES,
+            AttachmentAnswer::Removed(_) => "embedded-file",
+        }
+    }
+
+    /// One outcome as JSON.
+    pub(super) fn to_json(&self) -> Value {
+        let mut entries = vec![
+            ("site".to_owned(), Value::text(self.site)),
+            (
+                "object".to_owned(),
+                Value::text(format!("{} {}", self.object.number, self.object.generation)),
+            ),
+            ("name".to_owned(), Value::text(self.name.clone())),
+            ("loss".to_owned(), Value::text(self.loss())),
+        ];
+        match &self.answer {
+            AttachmentAnswer::AppendedAsPages(pages) => {
+                entries.push(("answer".to_owned(), Value::text("appended-as-pages")));
+                entries.push((
+                    "pages".to_owned(),
+                    Value::Array(
+                        pages
+                            .iter()
+                            .map(|page| Value::count(page.saturating_add(1)))
+                            .collect(),
+                    ),
+                ));
+            }
+            AttachmentAnswer::Removed(because) => {
+                entries.push(("answer".to_owned(), Value::text("removed")));
+                entries.push(("because".to_owned(), Value::text(because.clone())));
+            }
+        }
+        if let Some(page) = self.stated_on {
+            entries.push(("stated-on".to_owned(), Value::count(page.saturating_add(1))));
+        }
+        if !self.annotations.is_empty() {
+            entries.push((
+                "annotations".to_owned(),
+                Value::Array(
+                    self.annotations
+                        .iter()
+                        .map(|at| Value::text(format!("{} {}", at.number, at.generation)))
+                        .collect(),
+                ),
+            ));
+        }
+        Value::Object(entries.into_iter().collect())
+    }
+
+    /// One outcome as the clause of a sentence, for the text report and `xmpMM:History`.
+    #[must_use]
+    pub fn sentence(&self) -> String {
+        let mut answer = self.answer_sentence();
+        if let Some(page) = self.stated_on {
+            answer = format!(
+                "{answer}; its removal is stated on page {}",
+                page.saturating_add(1)
+            );
+        }
+        if self.annotations.is_empty() {
+            return answer;
+        }
+        let objects = self
+            .annotations
+            .iter()
+            .map(|at| format!("{} {}", at.number, at.generation))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let target = match &self.answer {
+            AttachmentAnswer::AppendedAsPages(pages) => pages.first().map_or_else(
+                || "to nothing".to_owned(),
+                |page| format!("to page {}", page.saturating_add(1)),
+            ),
+            AttachmentAnswer::Removed(_) => "to nothing".to_owned(),
+        };
+        format!(
+            "{answer}; the file attachment annotation(s) {objects} that named it keep their \
+             appearance as a link {target} and name no file"
+        )
+    }
+
+    /// The answer alone, without the annotations that named the file.
+    fn answer_sentence(&self) -> String {
+        match &self.answer {
+            AttachmentAnswer::AppendedAsPages(pages) => format!(
+                "the embedded file {} (object {} {}) is laid out on page(s) {} of this document \
+                 and is no longer a file ({})",
+                self.name,
+                self.object.number,
+                self.object.generation,
+                pages
+                    .iter()
+                    .map(|page| page.saturating_add(1).to_string())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                ATTACHMENT_AS_PAGES
+            ),
+            AttachmentAnswer::Removed(because) => format!(
+                "the embedded file {} (object {} {}) is removed (embedded-file): {because}",
+                self.name, self.object.number, self.object.generation
+            ),
+        }
+    }
+}
+
+/// The `xmpMM:History` entry one conversion's attachment outcomes take, or `None` for none.
+#[must_use]
+pub(super) fn attachments_history(outcomes: &[AttachmentOutcome]) -> Option<String> {
+    (!outcomes.is_empty()).then(|| {
+        outcomes
+            .iter()
+            .map(AttachmentOutcome::sentence)
+            .collect::<Vec<_>>()
+            .join("; ")
+    })
 }
 
 /// One requirement the input failed, with what was decided and what was done about it.
@@ -575,6 +888,9 @@ pub struct Conversion {
     /// asks a removal to be named: an attachment that is gone leaves nothing in the output to
     /// notice, so the report says which file it was. The name is §7.11.3's `/UF`, or its `/F`.
     pub removed_files: Vec<String>,
+    /// What became of each embedded file an embedded-file requirement failed at, one entry per
+    /// file (`doc/adr/2536`).
+    pub attachments: Vec<AttachmentOutcome>,
     /// Every annotation this conversion removed for its subtype.
     ///
     /// `doc/pdf-a-conversion-limits.md` section 3.2's condition on the loss, in its own words:
@@ -703,6 +1019,9 @@ pub struct Conversion {
     /// remedy whose site this document failed. Where it is not empty the report names the page and
     /// what it carries, and the same is recorded in the file's own `xmpMM:History`.
     pub preserved: Vec<Preserved>,
+    /// The page `append-statement` appended, where a row's loss was stated (`doc/rfc/0014`
+    /// section 4); `None` for every other conversion.
+    pub statement: Option<StatementPage>,
     /// What the source's encryption asserted about its reader, where the source carried one.
     ///
     /// **`doc/pdf-a-mitigations.md` section 2's `preserve` beside the `discard`**, and
@@ -967,6 +1286,15 @@ impl Conversion {
                 ),
             ),
             (
+                "attachments".to_owned(),
+                Value::Array(
+                    self.attachments
+                        .iter()
+                        .map(AttachmentOutcome::to_json)
+                        .collect(),
+                ),
+            ),
+            (
                 "removed_embedded_files".to_owned(),
                 Value::Array(
                     self.removed_files
@@ -1017,6 +1345,12 @@ impl Conversion {
             (
                 "preserved".to_owned(),
                 Value::Array(self.preserved.iter().map(Preserved::to_json).collect()),
+            ),
+            (
+                "statement".to_owned(),
+                self.statement
+                    .as_ref()
+                    .map_or(Value::Null, StatementPage::to_json),
             ),
             (
                 "protection".to_owned(),
@@ -1243,6 +1577,24 @@ fn recovered_structure_json(recovered: Option<&crate::archive::RecoveredStructur
                 }),
             ),
             (
+                "read_in_part".to_owned(),
+                Value::Array(
+                    recovered
+                        .read_in_part
+                        .iter()
+                        .map(|partly| {
+                            let number =
+                                |n: usize| Value::Integer(i64::try_from(n).unwrap_or(i64::MAX));
+                            Value::Object(vec![
+                                ("page".to_owned(), number(partly.page)),
+                                ("entries".to_owned(), number(partly.entries)),
+                                ("stopped_at".to_owned(), number(partly.stopped_at)),
+                            ])
+                        })
+                        .collect(),
+                ),
+            ),
+            (
                 "declined_because".to_owned(),
                 Value::text(&recovered.because),
             ),
@@ -1279,23 +1631,7 @@ impl Conversion {
                     "      {} ({}) {} by the tool {:?} ({}), answering {}",
                     row.attachment,
                     row.was.as_deref().unwrap_or("of no stated media type"),
-                    match &row.outcome {
-                        DerivedOutcome::Attached => format!(
-                            "became {} of {} byte(s), SHA-256 {}",
-                            row.expects, row.bytes, row.digest
-                        ),
-                        DerivedOutcome::Declined =>
-                            "was declined by the tool, so it is unchanged and the requirement \
-                             stays refused"
-                                .to_owned(),
-                        DerivedOutcome::NotWhatItPromised => format!(
-                            "was not converted: what came back is not the {} the tool promised, \
-                             and doc/rfc/0007 section 4.2 does not trust it",
-                            row.expects
-                        ),
-                        DerivedOutcome::Failed(sentence) =>
-                            format!("was not converted: {sentence}"),
-                    },
+                    row.became(),
                     row.tool,
                     row.program,
                     row.site
@@ -1304,6 +1640,9 @@ impl Conversion {
                     let _ = writeln!(out, "          the tool said: {}", row.stderr.trim_end());
                 }
             }
+        }
+        if let Some(statement) = &self.statement {
+            let _ = writeln!(out, "  stated: {}", statement.sentence());
         }
         if !self.preserved.is_empty() {
             let _ = writeln!(
@@ -1497,6 +1836,16 @@ impl Conversion {
                 let _ = writeln!(out, "      {name}");
             }
         }
+        if !self.attachments.is_empty() {
+            let _ = writeln!(
+                out,
+                "  {} embedded file(s), each with its own answer:",
+                self.attachments.len()
+            );
+            for outcome in &self.attachments {
+                let _ = writeln!(out, "      {}", outcome.sentence());
+            }
+        }
         if !self.unconstructed.is_empty() {
             let _ = writeln!(
                 out,
@@ -1568,17 +1917,14 @@ impl Conversion {
                 why.extend(page.requirements.iter().cloned());
                 let _ = writeln!(
                     out,
-                    "      page {} at {} dpi, {} by {} pixels, for {}; it loses {}",
+                    "      page {} at {} dpi, {} by {} pixels, for {}; it loses {}{}",
                     page.page,
                     page.dots_per_inch,
                     page.width,
                     page.height,
                     why.join(", "),
-                    if page.anywhere {
-                        "text-as-image and page-as-image"
-                    } else {
-                        "text-as-image"
-                    },
+                    page.loss_words(),
+                    super::fonts::leaves_named(page.structure_leaves),
                 );
                 if !page.text.is_empty() {
                     let _ = writeln!(
@@ -1752,16 +2098,16 @@ fn photographed_to_json(page: &super::PhotographedPage) -> Value {
             Value::Integer(i64::try_from(page.text_elided).unwrap_or(i64::MAX)),
         ),
         (
+            "structure_leaves".to_owned(),
+            Value::Integer(i64::try_from(page.structure_leaves).unwrap_or(i64::MAX)),
+        ),
+        (
             "losses".to_owned(),
             Value::Array(
-                if page.anywhere {
-                    vec!["text-as-image", "page-as-image"]
-                } else {
-                    vec!["text-as-image"]
-                }
-                .into_iter()
-                .map(Value::text)
-                .collect(),
+                page.losses()
+                    .into_iter()
+                    .map(|loss| Value::text(loss.word()))
+                    .collect(),
             ),
         ),
     ])

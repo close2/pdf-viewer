@@ -6,6 +6,20 @@ use pdf_syntax::object::{Dictionary, Name, Object, ObjectId};
 use super::{PRINT, Rewrite, Rewriter, count};
 
 impl Rewriter<'_> {
+    /// Every edit this module makes to one object: a page's `/Annots` and its relocated marks, and
+    /// an annotation whose file went to appended pages.
+    pub(super) fn annotation_edits(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let mut changed = self.remove_the_annotations(id, out, applied);
+        changed |= self.relocate_onto_page(id, out, applied);
+        changed |= self.link_to_the_appended_page(id, out);
+        changed
+    }
+
     /// Puts a forbidden annotation's marks back onto the producer's own page, where §12.5.5 had them.
     ///
     /// `doc/adr/1123`, the construction `doc/adr/1120`'s amendment put in scope. The two edits are
@@ -14,7 +28,7 @@ impl Rewriter<'_> {
     /// `/Resources` gains the appearance under `/XObject`. Neither is a mark — what draws is
     /// §12.5.5's own placement of the producer's own stream. The producer's `/Contents` streams are
     /// referenced, never rewritten, so not a byte of the marks changes.
-    pub(super) fn relocate_onto_page(
+    fn relocate_onto_page(
         &self,
         id: ObjectId,
         out: &mut Dictionary,
@@ -29,6 +43,54 @@ impl Rewriter<'_> {
         out.insert(Name::new(&b"Contents"[..]), relocated.contents.clone());
         out.insert(Name::new(&b"Resources"[..]), relocated.resources.clone());
         count(applied, Rewrite::RelocatedOnPage);
+        true
+    }
+
+    /// Makes a file attachment annotation whose file was laid out as pages a link to them.
+    ///
+    /// `doc/adr/2537`. ISO 19005-2 section 6.8 does not admit the file, and §12.5.6.15's Table 184
+    /// makes `/FS` required, so the annotation cannot stay one and name nothing. It becomes a
+    /// §12.5.6.5 link whose `/Dest` is the first page its file was laid out on — or with no
+    /// destination where the file was removed — and keeps its `/Rect`, its flags and the
+    /// producer's appearance stream, so nothing it drew changes and no mark is composed. `/Name`
+    /// selects an icon only for a file attachment annotation (Table 184), so it goes with `/FS`;
+    /// a zero `/Border` is stated where the annotation states none.
+    fn link_to_the_appended_page(&self, id: ObjectId, out: &mut Dictionary) -> bool {
+        let Some(composed) = self.preserved else {
+            return false;
+        };
+        let Some(page) = composed.linked_annotations.get(&id) else {
+            return false;
+        };
+        out.insert(
+            Name::new(&b"Subtype"[..]),
+            Object::Name(Name::new(&b"Link"[..])),
+        );
+        out.remove("FS");
+        out.remove("Name");
+        // Table 166's `/Border` defaults to a solid line one unit wide, and a reader may draw a
+        // link's border over its appearance; the producer's appearance is the whole of what this
+        // annotation drew, so where it states no border of its own the link states none.
+        if out.get("Border").is_none() && out.get("BS").is_none() {
+            out.insert(
+                Name::new(&b"Border"[..]),
+                Object::Array(vec![
+                    Object::Integer(0),
+                    Object::Integer(0),
+                    Object::Integer(0),
+                ]),
+            );
+        }
+        if let Some(page) = page {
+            // §12.3.2.2's Table 151: `[page /Fit]`, the whole page in the window.
+            out.insert(
+                Name::new(&b"Dest"[..]),
+                Object::Array(vec![
+                    Object::Reference(*page),
+                    Object::Name(Name::new(&b"Fit"[..])),
+                ]),
+            );
+        }
         true
     }
 
@@ -74,7 +136,7 @@ impl Rewriter<'_> {
     /// counts, and they are one pass because each reads the array the other left: a page that
     /// loses its last annotation to either loses the array itself, and a page whose annotations
     /// both rules name loses them together.
-    pub(super) fn remove_the_annotations(
+    fn remove_the_annotations(
         &self,
         id: ObjectId,
         out: &mut Dictionary,

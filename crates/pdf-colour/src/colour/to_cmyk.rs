@@ -31,10 +31,9 @@ impl ColourSpace {
     /// is that conversion: the right inverse of `super::device_cmyk::cmyk`, so an opaque mark painted into a
     /// page composited in ink comes back the colour the file states. ADR 0263.
     ///
-    /// §11.7.5.3's other two bullets are §10.4.2's branch and are not in force here — they say
-    /// *which* black-generation and undercolour-removal functions §10.4.2.4 uses, and a
-    /// document that states its own keeps `pdf_model::content`'s report rather than being drawn
-    /// with them ignored.
+    /// §11.7.5.3's black-generation bullets are §10.4.2's branch and are not in force here —
+    /// they say *which* black-generation and undercolour-removal functions §10.4.2.4 uses, and a
+    /// document that states its own is converted by [`Self::to_cmyk_under`].
     ///
     /// A space that already resolves to `DeviceCMYK` is passed straight through, including a
     /// `Separation` or `DeviceN` whose alternate is one — §11.3.4 requires exactly that:
@@ -92,11 +91,18 @@ impl ColourSpace {
     /// configured with default values that are appropriate for that device". So the file's pair
     /// substitutes for this device's, over the colours the sentence names and no others.
     ///
+    /// **That holds for a press sampled from a profile too.** Its `B2A` table is how this device
+    /// converts into it when nothing is stated, which makes it the default of §10.4.2.4's last
+    /// paragraph for that press, and Table 52 initialises both parameters to the device's own:
+    /// "a PDF reader shall initialise this to a suitable device dependent value". So a stated
+    /// pair replaces the table as it replaces the search.
+    /// ADR 2549.
+    ///
     /// Everything else stays on §10.3's branch, which is what §10.4.2.1's ranking recommends and
     /// what nothing here overrides: a `CalRGB`, a `Lab`, an `ICCBased` or a `DeviceGray` colour
-    /// is not the "DeviceRGB colour" the sentence conditions on, and a press that converts in
-    /// through its own `B2A` is the document's own measured transform rather than a default this
-    /// pair could stand in for. ADR 1207, which supersedes ADR 1069.
+    /// is not the "DeviceRGB colour" the sentence conditions on. The *target* is the caller's to
+    /// decide, since only it knows the group's colour space: `generation` is `None` where the
+    /// group is an `ICCBased` one (`Conversion::paint`). ADR 1207, which supersedes ADR 1069.
     #[expect(
         clippy::doc_markdown,
         reason = "\"DeviceRGB colour\" is quoted from §11.7.5.3, and a quotation may not gain \
@@ -161,19 +167,32 @@ impl ColourSpace {
             // §11.7.5.3's own condition, and it is the leaf rather than the operand that has
             // to meet it: an `Indexed` entry, a `Separation`'s alternate or a `/Default` space
             // arrives here as the `DeviceRGB` colour the clause names, and a `CalRGB` or an
-            // `ICCBased` one never does. A press that converts in through its own `B2A` is not
-            // a default this pair stands in for, so it keeps the profile's table.
-            Self::Rgb if !press.converts_in_by_profile() => generation.map_or_else(
-                || rgb_to_ink(press, self.to_rgb_at(values, depth, rendering)),
-                |generation| generation.separate(at(0), at(1), at(2)),
-            ),
-            // A CIE-based colour goes into a profile's press from its own XYZ (§10.3.1), and
-            // every other colour, and every press without a `B2A`, through this crate's one
-            // RGB route — `xyz_to_ink` and `rgb_to_ink` say which is which.
-            _ => match self.cie_xyz_at(values, depth, rendering) {
-                Some(xyz) if press.converts_in_by_profile() => xyz_to_ink(press, xyz),
-                _ => rgb_to_ink(press, self.to_rgb_at(values, depth, rendering)),
+            // `ICCBased` one never does. Which press it is decides nothing once a pair is
+            // stated: the pair is what §10.4.2.4's device default gives way to, and a press's
+            // `B2A` table is that default for a press sampled from a profile (ADR 2549).
+            Self::Rgb => match generation {
+                Some(generation) => generation.separate(at(0), at(1), at(2)),
+                None => self.to_press(values, depth, rendering, press),
             },
+            _ => self.to_press(values, depth, rendering, press),
+        }
+    }
+
+    /// The conversion into `press` that no stated black generation stands in for.
+    ///
+    /// A CIE-based colour goes into a profile's press from its own XYZ (§10.3.1), and every
+    /// other colour, and every press without a `B2A`, through this crate's one RGB route —
+    /// `xyz_to_ink` and `rgb_to_ink` say which is which.
+    fn to_press(
+        &self,
+        values: &[f32],
+        depth: usize,
+        rendering: Rendering,
+        press: &Press,
+    ) -> [f32; 4] {
+        match self.cie_xyz_at(values, depth, rendering) {
+            Some(xyz) if press.converts_in_by_profile() => xyz_to_ink(press, xyz),
+            _ => rgb_to_ink(press, self.to_rgb_at(values, depth, rendering)),
         }
     }
 }

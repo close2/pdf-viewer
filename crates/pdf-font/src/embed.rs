@@ -217,6 +217,25 @@ pub fn has_cff_outlines(program: &[u8]) -> bool {
     })
 }
 
+/// Whether this program may write a face into a file at all: its licence permits embedding its
+/// outlines, and it has `glyf` or `CFF ` outlines for a row of Table 124 to carry.
+///
+/// The licence and outline halves of [`for_embedding`]'s refusals — [`Refusal::Restricted`],
+/// [`Refusal::BitmapsOnly`] and [`Refusal::NoOutlines`] — read from the table directory and
+/// `OS/2` alone, so a chooser can ask it of each candidate face without subsetting one. It is what
+/// keeps a face this program may not write out of the text a person sets (ADR 2548): a face
+/// `false` here is drawn by nothing a person typed, so no save meets the licence's refusal.
+#[must_use]
+pub fn may_be_embedded(program: &[u8]) -> bool {
+    let permitted = permission(program);
+    if permitted.licence == Licence::Restricted || permitted.bitmaps_only {
+        return false;
+    }
+    sfnt_tables(program).is_some_and(|tables| {
+        tables.contains_key(b"glyf".as_slice()) || tables.contains_key(b"CFF ".as_slice())
+    })
+}
+
 /// Whether each of `glyphs`, shown as a CID equal to its index in the face, reaches that glyph
 /// under the `CIDFont` [`has_cff_outlines`] describes the face by — the question §9.7.4.2 answers
 /// differently for the two `CFF ` cases. Always for a `glyf` face (`/CIDToGIDMap /Identity`) and a
@@ -661,7 +680,7 @@ fn tag(program: &[u8], kept: &BTreeSet<u16>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Licence, Refusal, for_embedding, permission, tag};
+    use super::{Licence, Refusal, for_embedding, may_be_embedded, permission, tag};
     use crate::sfnt::{be16, be32, sfnt_tables};
     use std::collections::{BTreeMap, BTreeSet};
 
@@ -828,6 +847,25 @@ mod tests {
             Licence::Editable
         );
         assert!(for_embedding(&face(&glyphs, 0x0004), &BTreeSet::from([1])).is_ok());
+    }
+
+    /// The chooser's question answers as the writer does for every usage bit: what
+    /// [`may_be_embedded`] refuses is what [`for_embedding`] refuses for the licence, and what it
+    /// accepts is written (ADR 2548).
+    #[test]
+    fn a_chooser_refuses_exactly_the_faces_the_writer_would() {
+        let glyphs: Vec<Vec<u8>> = (0..3).map(simple).collect();
+        for fs_type in [
+            0x0000, 0x0002, 0x0004, 0x0006, 0x0008, 0x000A, 0x0100, 0x0200, 0x0302,
+        ] {
+            let program = face(&glyphs, fs_type);
+            assert_eq!(
+                may_be_embedded(&program),
+                for_embedding(&program, &BTreeSet::from([1])).is_ok(),
+                "fsType {fs_type:#06x}"
+            );
+        }
+        assert!(!may_be_embedded(b"not a font"));
     }
 
     /// A face that forbids subsetting keeps every glyph at its own index, under its plain name.

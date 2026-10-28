@@ -74,6 +74,9 @@ pub fn serve() -> Result<(), std::io::Error> {
     });
     let mut held = Held::default();
     let mut realm = None;
+    // The form's JavaScript realm, apart from the document's: a form's scripts see its containers
+    // and the document's scripts its fields (ADR 2545).
+    let mut form_realm = None;
     loop {
         let incoming = read_frame(&mut pipes.borrow_mut().input)?;
         let Some(incoming) = incoming else {
@@ -86,7 +89,7 @@ pub fn serve() -> Result<(), std::io::Error> {
                 kind: FRAME_FORM_RUN,
                 payload,
             } => {
-                form::serve_run(&pipes, &payload)?;
+                form::serve_run(&pipes, &mut form_realm, &payload)?;
                 continue;
             }
             Incoming::Frame { kind, payload } => {

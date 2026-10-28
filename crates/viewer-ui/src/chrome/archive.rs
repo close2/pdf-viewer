@@ -228,7 +228,7 @@ fn draw_profiles(
         }
         chrome.text(
             list,
-            offered.name,
+            &offered.name,
             (left, layout.baseline(first)),
             layout.size,
             BOLD,

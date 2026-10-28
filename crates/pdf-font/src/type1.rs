@@ -26,7 +26,9 @@ use std::collections::BTreeMap;
 
 use skrifa::GlyphId;
 use skrifa::outline::OutlinePen;
+use skrifa::raw::ps::cs::CommandSink;
 use skrifa::raw::ps::type1::Type1Font;
+use skrifa::raw::types::Fixed;
 
 use crate::name_keyed::NameKeyed;
 
@@ -205,6 +207,48 @@ impl Program {
             .map_err(|e| malformed(&e))?;
         Ok(())
     }
+
+    /// The advance width one glyph's charstring states, in the program's own units.
+    ///
+    /// A Type 1 program has no metrics table: each charstring states its glyph's width itself,
+    /// as the second operand of `hsbw` or the third of `sbw` (Adobe Type 1 Font Format, sections
+    /// 6.4 and 6.5), which is the "actual widths given in the font program" ISO 32000-2
+    /// §9.6.2.1's Table 109 holds a `/Widths` entry to. `read_fonts::ps::type1` reads the
+    /// operator while it evaluates the charstring and returns the width beside the outline, so
+    /// this evaluates it into a sink that keeps nothing; a `seac` glyph's width is its own, since
+    /// the evaluator restores the accented glyph's width after drawing the two components.
+    ///
+    /// No caller that draws asks this: a page is laid out by the *document's* widths (§9.7.4),
+    /// and the program's are wanted only where the two are compared.
+    ///
+    /// # Errors
+    ///
+    /// See [`Type1Error`]: a glyph index past the program's charstrings, or a charstring the
+    /// evaluator refuses. `Ok(None)` is a charstring that ends without stating a width.
+    pub fn advance(&self, glyph: u16) -> Result<Option<f32>, Type1Error> {
+        /// Keeps nothing: only the width the evaluator returns is wanted.
+        struct NoCommands;
+        impl CommandSink for NoCommands {
+            fn move_to(&mut self, _x: Fixed, _y: Fixed) {}
+            fn line_to(&mut self, _x: Fixed, _y: Fixed) {}
+            fn curve_to(
+                &mut self,
+                _cx0: Fixed,
+                _cy0: Fixed,
+                _cx1: Fixed,
+                _cy1: Fixed,
+                _x: Fixed,
+                _y: Fixed,
+            ) {
+            }
+            fn close(&mut self) {}
+        }
+        let width = self
+            .font
+            .evaluate_charstring(GlyphId::from(glyph), &mut NoCommands)
+            .map_err(|e| malformed(&e))?;
+        Ok(width.map(Fixed::to_f32))
+    }
 }
 
 /// Which of the 256 codes a program's own `/Encoding` array assigns a name to.
@@ -281,8 +325,168 @@ fn malformed(error: &skrifa::raw::ps::error::Error) -> Type1Error {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::assigned_codes;
+pub(crate) mod tests {
+    use super::{Program, assigned_codes};
+
+    /// Adobe Type 1 Font Format section 7.1's encryption, with its key `r` and its constants.
+    fn encrypt(plain: &[u8], mut r: u16) -> Vec<u8> {
+        plain
+            .iter()
+            .map(|&byte| {
+                let cipher = byte ^ u8::try_from(r >> 8).expect("a u16 shifted by 8 fits a u8");
+                r = u16::from(cipher)
+                    .wrapping_add(r)
+                    .wrapping_mul(52845)
+                    .wrapping_add(22719);
+                cipher
+            })
+            .collect()
+    }
+
+    /// One charstring number, in section 6.2's encoding.
+    pub(crate) fn number(value: i32) -> Vec<u8> {
+        match value {
+            -107..=107 => vec![u8::try_from(value.saturating_add(139)).expect("in range")],
+            108..=1131 => {
+                let v = value.saturating_sub(108);
+                vec![
+                    u8::try_from((v / 256).saturating_add(247)).expect("in range"),
+                    u8::try_from(v % 256).expect("in range"),
+                ]
+            }
+            _ => {
+                let mut out = vec![255];
+                out.extend_from_slice(&value.to_be_bytes());
+                out
+            }
+        }
+    }
+
+    /// A charstring of `body`, encrypted under section 7.2's key with four leading bytes.
+    fn charstring(body: &[u8]) -> Vec<u8> {
+        let mut plain = vec![0u8; 4];
+        plain.extend_from_slice(body);
+        encrypt(&plain, 4330)
+    }
+
+    /// A bare Type 1 program holding `.notdef` and `A`, each charstring given whole, with the
+    /// subroutines given, in the PFA shape: a cleartext header and a binary `eexec` section.
+    pub(crate) fn program(notdef: &[u8], a: &[u8], subrs: &[Vec<u8>]) -> Vec<u8> {
+        let mut private = b"dup /Private 8 dict dup begin\n\
+            /RD{string currentfile exch readstring pop}executeonly def\n\
+            /ND{noaccess def}executeonly def\n\
+            /NP{noaccess put}executeonly def\n\
+            /lenIV 4 def\n"
+            .to_vec();
+        private.extend_from_slice(format!("/Subrs {} array\n", subrs.len()).as_bytes());
+        for (index, subr) in subrs.iter().enumerate() {
+            let subr = charstring(subr);
+            private.extend_from_slice(format!("dup {index} {} RD ", subr.len()).as_bytes());
+            private.extend_from_slice(&subr);
+            private.extend_from_slice(b" NP\n");
+        }
+        private.extend_from_slice(b"2 index /CharStrings 2 dict dup begin\n");
+        for (name, body) in [(".notdef", notdef), ("A", a)] {
+            let body = charstring(body);
+            private.extend_from_slice(format!("/{name} {} RD ", body.len()).as_bytes());
+            private.extend_from_slice(&body);
+            private.extend_from_slice(b" ND\n");
+        }
+        private.extend_from_slice(b"end\nend\nmark currentfile closefile\n");
+        // Four leading bytes the reader discards; ones whose ciphertext is not hexadecimal, so
+        // the section is read as binary rather than hex.
+        let mut plain = b"\xff\xff\xff\xff".to_vec();
+        plain.extend_from_slice(&private);
+        let mut data = b"%!PS-AdobeFont-1.0: Fixture 001\n\
+            /FontName /Fixture def\n\
+            /FontMatrix [0.001 0 0 0.001 0 0] readonly def\n\
+            /Encoding 256 array\n\
+            0 1 255 {1 index exch /.notdef put} for\n\
+            dup 65 /A put\n\
+            readonly def\n\
+            currentfile eexec\n"
+            .to_vec();
+        data.extend_from_slice(&encrypt(&plain, 55665));
+        data
+    }
+
+    /// The glyph index the program gives a name, which is what a loaded font selects by.
+    fn glyph_named(program: &Program, name: &str) -> u16 {
+        program
+            .font
+            .glyph_names()
+            .find(|(_, named)| *named == name)
+            .and_then(|(glyph, _)| u16::try_from(glyph.to_u32()).ok())
+            .expect("the program holds the glyph")
+    }
+
+    pub(crate) const HSBW: u8 = 13;
+    pub(crate) const ENDCHAR: u8 = 14;
+    const CALLSUBR: u8 = 10;
+    const RETURN: u8 = 11;
+
+    /// `0 <width> hsbw endchar`.
+    pub(crate) fn plain_glyph(width: i32) -> Vec<u8> {
+        let mut body = number(0);
+        body.extend(number(width));
+        body.extend([HSBW, ENDCHAR]);
+        body
+    }
+
+    /// A chain of `levels` subroutines, each calling the next, under a glyph that states 500.
+    fn nested(levels: i32) -> Vec<u8> {
+        let subrs: Vec<Vec<u8>> = (0..levels)
+            .map(|level| {
+                let mut body = Vec::new();
+                if level.saturating_add(1) < levels {
+                    body.extend(number(level.saturating_add(1)));
+                    body.push(CALLSUBR);
+                }
+                body.push(RETURN);
+                body
+            })
+            .collect();
+        let mut a = number(0);
+        a.extend(number(500));
+        a.push(HSBW);
+        a.extend(number(0));
+        a.push(CALLSUBR);
+        a.push(ENDCHAR);
+        program(&plain_glyph(250), &a, &subrs)
+    }
+
+    #[test]
+    fn a_width_is_read_through_subroutines_up_to_the_evaluators_depth_and_refused_past_it() {
+        // `read_fonts::ps::cs` refuses a call nested deeper than its limit of ten before it
+        // evaluates it, which is the only bound on the recursion an input reaches here: a chain
+        // at the limit states its width, one past it is an error and no width.
+        let at = Program::parse(&nested(10)).expect("the fixture parses");
+        assert_eq!(
+            at.advance(glyph_named(&at, "A"))
+                .expect("ten levels evaluate"),
+            Some(500.0)
+        );
+        let past = Program::parse(&nested(11)).expect("the fixture parses");
+        assert!(past.advance(glyph_named(&past, "A")).is_err());
+    }
+
+    #[test]
+    fn a_charstring_states_its_width_with_hsbw() {
+        // `0004-637X_751_2_90`'s CMR10 states glyph widths as fractions, which a charstring can
+        // only write with `div` (Adobe Type 1 Font Format section 6.6): 77689 100 div is 776.89,
+        // a width ISO 19005-2 section 6.2.11.5 tells apart from a dictionary's 778.
+        let mut fractional = number(0);
+        fractional.extend(number(77689));
+        fractional.extend(number(100));
+        fractional.extend([12, 12, HSBW, ENDCHAR]);
+        let data = program(&plain_glyph(250), &fractional, &[]);
+        let program = Program::parse(&data).expect("the fixture parses");
+        let width = program
+            .advance(glyph_named(&program, "A"))
+            .expect("the charstring evaluates")
+            .expect("and states a width");
+        assert!((width - 776.89).abs() < 1e-3, "{width}");
+    }
 
     /// The shape a Type 1 program writes an encoding assignment in.
     ///

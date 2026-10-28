@@ -50,12 +50,22 @@ impl Encoder<'_> {
         // adjustment applied where the composed transform is known (ADR 0085) — so
         // one scene states one stroke and is true at every magnification.
         let device_width = raster::resolve_width(stroke, to_device);
+        // §10.7.5's fit, which moves a thin rule's vertices to pixel centres at this placement
+        // and strokes it one pixel wide (`raster::grid_fit`): its points are this placement's,
+        // so it is expanded here rather than once under the linear part, and its reach grows by
+        // the half pixel a vertex may move.
+        let fitted = raster::grid_fit(&stored.segments, stroke, to_device);
+        let (device_width, moved) = if fitted.is_some() {
+            (1.0, 0.5)
+        } else {
+            (device_width, 0.0)
+        };
         // Visibility before the blend wrap, so a stroke outside the target costs
         // neither its expansion nor the implicit group §11.3.5 would put it in. The
         // outline's hull grows by the stroke's own reach: a miter join may carry a
         // corner half the width times the limit away from it (§8.4.3.5), and a cap
         // extends half the width — which a limit of at least 1 already covers.
-        let reach = device_width * 0.5 * stroke.miter_limit;
+        let reach = device_width * 0.5 * stroke.miter_limit + moved;
         if let Some((x0, y0, x1, y1)) = self.hulls.bounds(outline, &stored.segments, &to_device)
             && self.culled((x0 - reach, y0 - reach, x1 + reach, y1 + reach), &resolved)
         {
@@ -78,6 +88,13 @@ impl Encoder<'_> {
             })?;
             self.push_op(Op::Child(ChildOp::implicit_blend_group(child, blend, mask)))?;
             return Ok(());
+        }
+        if let Some(fitted) = fitted {
+            self.segments = self.segments.saturating_add(stored.segments.len() as u64);
+            let span = self.clock.start();
+            let stroked = raster::stroke_pieces(&fitted, stroke, device_width).pieces;
+            self.clock.geometry(span);
+            return self.push_stroked(&stroked, paint, &resolved, device_width, mask);
         }
         self.distinct_outlines.insert(outline.0);
         let shared = self.expansions.slot(
@@ -122,6 +139,18 @@ impl Encoder<'_> {
             to_device,
         );
         self.clock.geometry(span);
+        self.push_stroked(&stroked, paint, &resolved, device_width, mask)
+    }
+
+    /// A stroke's expanded pieces as coverage under `paint`.
+    fn push_stroked(
+        &mut self,
+        stroked: &[raster::Polyline],
+        paint: Paint,
+        resolved: &super::ResolvedClip,
+        device_width: f32,
+        mask: Option<u32>,
+    ) -> Result<(), RenderError> {
         match paint {
             Paint::Solid(color) => {
                 // The width goes with the expansion, and it is the whole reason a stroke
@@ -129,10 +158,10 @@ impl Encoder<'_> {
                 // device box far wider than the mark, and its own width is the only bound
                 // on how thin it is (ADR 0070).
                 self.push_coverage(
-                    &stroked,
+                    stroked,
                     Rule::NonZero,
                     color,
-                    &resolved,
+                    resolved,
                     Some(device_width),
                     mask,
                 )
@@ -144,7 +173,7 @@ impl Encoder<'_> {
                     return Ok(());
                 };
                 let style = self.style;
-                self.push_rare_coverage(rare, &stroked, Rule::NonZero, &resolved, style, mask)
+                self.push_rare_coverage(rare, stroked, Rule::NonZero, resolved, style, mask)
             }
         }
     }

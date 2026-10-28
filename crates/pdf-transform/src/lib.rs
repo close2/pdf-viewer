@@ -1528,7 +1528,7 @@ fn run_plan(
         Plan::Pages(plan) => pages::run(plan, 0, &opened, sinks, protect, &mut report)?,
         Plan::Optimize(plan) => optimize::run(plan, 0, &opened, sinks, protect, &mut report)?,
         Plan::Redact(plan) => redact::run(plan, 0, &opened, sinks, protect, &mut report)?,
-        Plan::Archive(plan) => archive::run(plan, 0, &opened, sinks, &mut report)?,
+        Plan::Archive(plan) => archive::run(plan, 0, &opened, sinks, &mut report, budget)?,
         Plan::Update(plan) => update::run(plan, &wanted, &opened, sinks, &mut report)?,
     }
     Ok(report)

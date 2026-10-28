@@ -69,20 +69,24 @@ mod bystanders;
 mod composite;
 mod described;
 mod empty;
+mod notdef_glyph;
 mod notices;
 mod pack;
 mod photographed;
 mod rekeyed;
 mod truetype_cmap;
+mod untagged;
 
 pub use pack::{CjkPack, Collection, PackFiles, PackGap};
 
 pub use described::Described;
 pub use photographed::{DOTS_PER_INCH, MAX_PHOTOGRAPHED_PAGES, MAX_TEXT_CHARS, PhotographedPage};
-pub(super) use photographed::{Gate, elided};
+pub(super) use photographed::{Gate, elided, leaves_named};
 pub(super) use truetype_cmap::ANSWERED as TRUETYPE_CMAP_ROWS;
+pub(super) use truetype_cmap::NOTDEF_ROWS as TRUETYPE_NOTDEF_ROWS;
 pub(super) use truetype_cmap::STANDARD_ROUTE_ROWS as TRUETYPE_ENCODING_ROWS;
 pub(super) use truetype_cmap::{CmapRestated, restated as truetype_cmaps_restated};
+pub(super) use truetype_cmap::{NOTDEF_NOT_GIVEN, notdef_fonts_are_truetype};
 
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
@@ -374,15 +378,17 @@ impl Substitutes {
             .iter()
             .flat_map(|font| font.losses.iter())
             .fold(Losses::default(), Losses::with);
-        if self.photographed.is_empty() {
-            losses
-        } else if self.photographed.iter().any(|page| page.anywhere) {
-            losses
-                .with(super::decision::Loss::TextAsImage)
-                .with(super::decision::Loss::PageAsImage)
-        } else {
-            losses.with(super::decision::Loss::TextAsImage)
-        }
+        self.photograph_losses().iter().fold(losses, Losses::with)
+    }
+
+    /// Every loss the photographed pages incur: `text-as-image` for any, `page-as-image` where the
+    /// wider gate admitted one, and `tagging-of-photographed-pages` where one lost a leaf of the
+    /// document's structure tree (`doc/questions/A707`).
+    pub(super) fn photograph_losses(&self) -> Losses {
+        self.photographed
+            .iter()
+            .flat_map(PhotographedPage::losses)
+            .fold(Losses::default(), Losses::with)
     }
 
     /// What the file's `xmpMM:History` states the embedding and the photographs did.
@@ -513,6 +519,9 @@ pub(super) fn restate_metrics(
             continue;
         }
         let Some((font, embedded)) = own_program(document, used) else {
+            if wants.widths && type1_program_disagrees(document, used)? {
+                return Err(Because::NotBuiltYet(PROGRAM_NOT_RESTATABLE));
+            }
             continue;
         };
         // **Only the glyphs that actually disagree**, which is `doc/adr/0947`'s first rule read
@@ -687,8 +696,14 @@ fn shown_widths(
 }
 
 /// Whether two statements of one advance are further apart than ISO 19005 allows.
+///
+/// ISO 19005-2 section 6.2.11.5 admits a difference of exactly one unit at the usual
+/// `0.001` matrix, and `f32` stores 0.544 and 0.543 0.00100005 apart; the margin is the
+/// operands' own rounding, four `f32` epsilons of each magnitude, as the validator allows it.
 fn disagrees(stated: f32, program: f32) -> bool {
-    (stated - program).abs() > CONSISTENT
+    let margin =
+        4.0 * f64::from(f32::EPSILON) * (f64::from(stated.abs()) + f64::from(program.abs()));
+    (f64::from(stated) - f64::from(program)).abs() > f64::from(CONSISTENT) + margin
 }
 
 // ----------------------------------------------------------------------------------------------
@@ -1182,6 +1197,13 @@ fn single_byte(code: Code) -> Option<u8> {
 /// program has nothing to restate, and a font whose program this tree could not read is one
 /// whose bytes it must not rewrite.
 fn own_program(document: &Document, used: &SelectedFont) -> Option<(LoadedFont, Embedded)> {
+    let embedded = embedded_program(document, descriptor_of(document, used)?)?;
+    let font = LoadedFont::load(document, &used.dict, &used.name).ok()?;
+    (!font.is_substituted()).then_some((font, embedded))
+}
+
+/// The descriptor of a rendered font that is not Type 3, read through a `Type0`'s descendant.
+fn descriptor_of(document: &Document, used: &SelectedFont) -> Option<ObjectId> {
     let subtype = name_of(document, &used.dict, "Subtype")?;
     if subtype == "Type3" {
         return None;
@@ -1191,12 +1213,32 @@ fn own_program(document: &Document, used: &SelectedFont) -> Option<(LoadedFont, 
     } else {
         used.dict.clone()
     };
-    let descriptor = holder
-        .get("FontDescriptor")
-        .and_then(Object::as_reference)?;
-    let embedded = embedded_program(document, descriptor)?;
-    let font = LoadedFont::load(document, &used.dict, &used.name).ok()?;
-    (!font.is_substituted()).then_some((font, embedded))
+    holder.get("FontDescriptor").and_then(Object::as_reference)
+}
+
+/// Whether a rendered font whose program is §9.9's `/FontFile` states a width its program
+/// contradicts.
+///
+/// [`embedded_program`] offers no `/FontFile`, because [`pdf_font::restate`] does not rewrite a
+/// Type 1 program's encrypted charstrings; a font it passes over is still one ISO 19005-2
+/// 6.2.11.5 fails when its `/Widths` disagree with the `hsbw` widths, so the conversion is
+/// refused by that name rather than reported as having nothing to restate (ADR 2540).
+fn type1_program_disagrees(document: &Document, used: &SelectedFont) -> Result<bool, Because> {
+    let holds_type1 = descriptor_of(document, used)
+        .and_then(|descriptor| document.get(descriptor).as_dict().cloned())
+        .is_some_and(|descriptor| descriptor.get("FontFile").is_some());
+    if !holds_type1 {
+        return Ok(false);
+    }
+    let Ok(font) = LoadedFont::load(document, &used.dict, &used.name) else {
+        return Ok(false);
+    };
+    if font.is_substituted() {
+        return Ok(false);
+    }
+    Ok(shown_widths(&font, used)?
+        .values()
+        .any(|(stated, program)| program.is_some_and(|own| disagrees(*stated, own))))
 }
 
 /// The `/FontFile` entry a descriptor states, and which reader its bytes belong to.

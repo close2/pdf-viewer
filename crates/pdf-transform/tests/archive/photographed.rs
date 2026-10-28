@@ -760,3 +760,145 @@ fn fonts_photographed_around_are_bounded_and_the_next_keeps_its_refusal() {
         Decision::Refused(_)
     ));
 }
+
+// ---------------------------------------------------------------------------------------------
+// A tagged document (A707, ADR 2516): the photographed page's leaves leave the structure tree
+// ---------------------------------------------------------------------------------------------
+//
+// Expected values: ISO 32000-2 §14.7.5.2 (an integer in a structure element's `/K` is a
+// marked-content identifier on the page the element's `/Pg` names, and a marked-content reference
+// names the page its own `/Pg` names), §14.7.5.4 (a page's `/StructParents`), and A707 (under
+// `as-if-printed`, at 2b and every part 4 flavour, the leaves that name a photographed page go and
+// the rest of the tree stays, under `tagging-of-photographed-pages`, per page in the report and
+// in the history; Level A keeps the refusal).
+
+/// Two tagged pages: the first shows `Hello` and then an operator the base standard does not
+/// define, the second `Kept`. One paragraph element names each page's first marked-content
+/// sequence, and the second's also names the first page's second sequence through a
+/// marked-content reference.
+fn a_tagged_document_with_a_fault_on_its_first_page(target: Target) -> Vec<u8> {
+    let kept = "/P <</MCID 0>> BDC BT /F1 12 Tf 10 100 Td (Kept) Tj ET EMC";
+    let header = Conforming::part_two().header;
+    Conforming {
+        target,
+        header: if matches!(target, Target::Two(_)) {
+            header
+        } else {
+            None
+        },
+        catalog: "/MarkInfo << /Marked true >> /StructTreeRoot 9 0 R".to_owned(),
+        page: "/StructParents 0".to_owned(),
+        resources: "/Font << /F1 6 0 R >>".to_owned(),
+        contents: Some((
+            String::new(),
+            b"/P <</MCID 0>> BDC BT /F1 12 Tf 10 100 Td (Hello) Tj ET EMC \
+              /P <</MCID 1>> BDC 1 2 Frobnicate EMC"
+                .to_vec(),
+        )),
+        objects: vec![
+            HELVETICA.to_owned(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /Font << /F1 6 \
+             0 R >> >> /Contents 8 0 R /StructParents 1 >>"
+                .to_owned(),
+            format!("<< /Length {} >>\nstream\n{kept}\nendstream", kept.len()),
+            "<< /Type /StructTreeRoot /K 10 0 R /ParentTree 13 0 R /ParentTreeNextKey 2 >>"
+                .to_owned(),
+            "<< /Type /StructElem /S /Document /P 9 0 R /K [11 0 R 12 0 R] >>".to_owned(),
+            "<< /Type /StructElem /S /P /P 10 0 R /Pg 3 0 R /K 0 >>".to_owned(),
+            "<< /Type /StructElem /S /P /P 10 0 R /Pg 7 0 R /K [0 << /Type /MCR /Pg 3 0 R \
+             /MCID 1 >>] >>"
+                .to_owned(),
+            "<< /Nums [0 [11 0 R 12 0 R] 1 [12 0 R]] >>".to_owned(),
+        ],
+        more_pages: vec![7],
+        ..Conforming::default()
+    }
+    .build()
+}
+
+#[test]
+fn a_photographed_page_of_a_tagged_document_leaves_the_structure_tree_and_the_rest_stays() {
+    for target in [
+        Target::Two(Level::B),
+        Target::Four(pdf_archive::Flavour::Plain),
+    ] {
+        let source = a_tagged_document_with_a_fault_on_its_first_page(target);
+        let (report, output) = convert_with_plan(&source, &printing("as-if-printed", target));
+        let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+        assert_eq!(
+            holds(&output, target).verdict(),
+            Verdict::Conforms,
+            "{target:?}"
+        );
+        if let Some(directory) = std::env::var_os("TAGGED_PHOTOGRAPH_ARTIFACTS") {
+            let path = std::path::Path::new(&directory).join(format!("tagged-{target:?}.pdf"));
+            std::fs::write(path, &output).expect("the artifact is written");
+        }
+        let Decision::Authorised { losses, .. } = decision(&report, OPERATORS) else {
+            panic!("{:?}", decision(&report, OPERATORS));
+        };
+        assert!(
+            losses.iter().eq([
+                Loss::TextAsImage,
+                Loss::PageAsImage,
+                Loss::TaggingOfPhotographedPages
+            ]),
+            "{}",
+            losses.words()
+        );
+        // The first page's two leaves went: the integer of its own paragraph and the second
+        // paragraph's marked-content reference.
+        let pages = &conversion(&report).photographed;
+        assert_eq!(pages.len(), 1, "{pages:?}");
+        assert_eq!((pages[0].page, pages[0].structure_leaves), (1, 2));
+        let json = conversion(&report).to_json().render();
+        assert!(json.contains("\"structure_leaves\": 2"), "{json}");
+        assert!(json.contains("tagging-of-photographed-pages"), "{json}");
+        let packet = String::from_utf8(super::document_packet(&output)).expect("UTF-8");
+        assert!(
+            packet.contains("tagging-of-photographed-pages")
+                && packet.contains("2 leaves of the structure tree"),
+            "{packet}"
+        );
+        // The tree is kept, and only the second page's leaf is in it; the photographed page no
+        // longer states the parent-tree key of content it does not hold.
+        let held = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+        let catalog = held.catalog().expect("a catalog");
+        let root = held.resolve(&held.get_key(&catalog, "StructTreeRoot"));
+        let root = root.as_dict().expect("the structure tree is kept");
+        let document_element = held.resolve(&held.get_key(root, "K"));
+        let document_element = document_element.as_dict().expect("an element");
+        let Object::Array(paragraphs) = held.get_key(document_element, "K") else {
+            panic!("two paragraphs");
+        };
+        assert_eq!(paragraphs.len(), 2, "both elements are kept");
+        let first = held.resolve(&paragraphs[0]);
+        assert!(first.as_dict().expect("an element").get("K").is_none());
+        let second = held.resolve(&paragraphs[1]);
+        assert_eq!(
+            held.get_key(second.as_dict().expect("an element"), "K"),
+            Object::Array(vec![Object::Integer(0)])
+        );
+        let every = Pages::new(&held).every();
+        let page = |index: usize| every[index].as_ref().expect("a page").dict.clone();
+        assert!(page(0).get("StructParents").is_none());
+        assert_eq!(page(1).get("StructParents"), Some(&Object::Integer(1)));
+    }
+}
+
+#[test]
+fn a_tagged_document_keeps_the_refusal_where_the_tagging_loss_was_not_authorised() {
+    let target = Target::Two(Level::B);
+    let source = a_tagged_document_with_a_fault_on_its_first_page(target);
+    let mut plan = printing("as-if-printed", target);
+    plan.authorised.tagging_of_photographed_pages = false;
+    let (report, output) = convert_with_plan(&source, &plan);
+    assert!(output.is_none(), "no file is written");
+    assert!(conversion(&report).photographed.is_empty());
+    // Level A exists to keep the tagging, and is offered no photograph at all.
+    let level_a = Target::Two(Level::A);
+    let source = a_tagged_document_with_a_fault_on_its_first_page(level_a);
+    let (report, output) = convert_with_plan(&source, &printing("as-if-printed", level_a));
+    assert!(output.is_none(), "no file is written at Level A");
+    assert!(conversion(&report).photographed.is_empty());
+}

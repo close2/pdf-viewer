@@ -379,7 +379,13 @@ impl Rewriter<'_> {
             count(applied, Rewrite::StandardRouteNames);
             changed = true;
         }
-        if self.wants(Rewrite::TrueTypeCmapRestated)
+        // One set of objects carries both rewrites: a font given a `.notdef` glyph is a font
+        // whose `cmap` is restated, and either decision writes it (`doc/adr/2543`).
+        let given = self.wants(Rewrite::NotdefGlyphGiven)
+            && self
+                .cmap_restated
+                .is_some_and(|restated| restated.notdef_given.contains(&id));
+        if (self.wants(Rewrite::TrueTypeCmapRestated) || given)
             && let Some(descriptor) = self
                 .cmap_restated
                 .and_then(|restated| restated.descriptors.get(&id))
@@ -389,7 +395,12 @@ impl Rewriter<'_> {
                 Name::new(&b"FontDescriptor"[..]),
                 Object::Reference(*descriptor),
             );
-            count(applied, Rewrite::TrueTypeCmapRestated);
+            if self.wants(Rewrite::TrueTypeCmapRestated) {
+                count(applied, Rewrite::TrueTypeCmapRestated);
+            }
+            if given {
+                count(applied, Rewrite::NotdefGlyphGiven);
+            }
             changed = true;
         }
         if self.wants(Rewrite::Type3NotdefRenamed)

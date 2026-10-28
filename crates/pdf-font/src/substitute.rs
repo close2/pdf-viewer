@@ -1406,21 +1406,19 @@ fn family_members(family: &str, style: Style) -> Vec<&'static Path> {
 /// `skip` passes over that many of the answers, so a caller judging faces by their *contents* can
 /// walk the list rather than being handed one candidate — which is what [`installed_wider`] needs,
 /// because §9.6.5.4's code table is built from the face's own program and cannot cross a wire. It
-/// is meaningful only where `wanted` is empty: a covering search is a search for *the* face that
-/// draws a script best (§9.10.2 gives a composite font's substitute characters and nothing else),
-/// and there is no second answer to it — a `skip` past zero with characters asked for is `None`.
+/// walks the covering faces too, best first, where `wanted` is not empty: a page's composite font
+/// is drawn from the first, which is *the* face that draws a script best (§9.10.2 gives a
+/// substitute characters and nothing else), and [`installed_covering_embeddable`] reads on past
+/// one this program may not write (ADR 2548).
 #[must_use]
 pub fn machine_face(request: Request, style: Style, wanted: &[char], skip: u32) -> Option<PathBuf> {
+    let index = usize::try_from(skip).ok()?;
     if wanted.is_empty() {
-        let index = usize::try_from(skip).ok()?;
         return preferred_paths(request, style)
             .nth(index)
             .map(Path::to_path_buf);
     }
-    if skip != 0 {
-        return None;
-    }
-    covering_path(request, style, wanted)
+    covering_paths(request, style, wanted).nth(index)
 }
 
 /// The best face this machine offers that can draw `wanted`, in the style its request's two
@@ -1428,6 +1426,61 @@ pub fn machine_face(request: Request, style: Style, wanted: &[char], skip: u32) 
 #[must_use]
 pub fn installed_covering(request: Request, wanted: &[char]) -> Option<Arc<[u8]>> {
     installed_covering_styled(request, Style::of(request), wanted)
+}
+
+/// How many of the faces covering one set of characters [`installed_covering_embeddable`] reads,
+/// best first, before it answers that this machine offers none this program may write.
+///
+/// Each candidate is a font file read whole and kept — a CJK face is tens of megabytes — so the
+/// walk is bounded before it starts, whatever the catalogue holds. A machine whose best faces for
+/// a script all forbid embedding, this many deep, is answered as one with no face for it.
+pub const EMBEDDABLE_CANDIDATES: usize = 8;
+
+/// The best face this machine offers that can draw `wanted` **and that this program may write into
+/// a file** — [`installed_covering`]'s ranking, read on past each face
+/// [`crate::embed::may_be_embedded`] refuses, at most [`EMBEDDABLE_CANDIDATES`] deep.
+///
+/// The chooser for text a person sets, and for every value this program lays out to be written
+/// (ADR 2548): a face whose `OS/2` `fsType` forbids embedding draws on this screen and cannot go
+/// into the file, so a value set in one would draw one thing here and save without its appearance
+/// — the case ADR 1425 named and the project owner's decision of 2026-10-28 removes by never
+/// offering such a face. A page's own composite font is not this chooser's: drawing it is all
+/// that is asked, and [`installed_covering`] answers it.
+#[must_use]
+pub fn installed_covering_embeddable(request: Request, wanted: &[char]) -> Option<Arc<[u8]>> {
+    if wanted.is_empty() {
+        return installed_covering(request, wanted)
+            .filter(|bytes| crate::embed::may_be_embedded(bytes));
+    }
+    let style = Style::of(request);
+    let candidates = (0u32..).map_while(|skip| covering_candidate(request, style, wanted, skip));
+    first_embeddable(candidates)
+}
+
+/// The first of `candidates` this program may write into a file, reading at most
+/// [`EMBEDDABLE_CANDIDATES`] of them.
+fn first_embeddable(candidates: impl Iterator<Item = Arc<[u8]>>) -> Option<Arc<[u8]>> {
+    candidates
+        .take(EMBEDDABLE_CANDIDATES)
+        .find(|bytes| crate::embed::may_be_embedded(bytes))
+}
+
+/// The covering face [`covering_paths`] ranks `skip`th, read — through the resource port where
+/// this process may not read a font file, whose broker walks the same list ([`machine_face`]).
+fn covering_candidate(
+    request: Request,
+    style: Style,
+    wanted: &[char],
+    skip: u32,
+) -> Option<Arc<[u8]>> {
+    if !machine_fonts() {
+        let (bytes, _name) = crate::provider::offered(request, style, wanted, skip)?;
+        return covers(&bytes, wanted).then_some(bytes);
+    }
+    let index = usize::try_from(skip).ok()?;
+    covering_paths(request, style, wanted)
+        .nth(index)
+        .and_then(|path| read_cached(&path))
 }
 
 /// The best face this machine offers that can draw `wanted`, or `None` — the one covering search,
@@ -1513,31 +1566,59 @@ fn covers(bytes: &Arc<[u8]>, wanted: &[char]) -> bool {
 /// Split out because [`machine_face`] answers a broker with a path to open, and a broker that
 /// searched differently would be a second matcher.
 fn covering_path(request: Request, style: Style, wanted: &[char]) -> Option<PathBuf> {
-    for path in preferred_paths(request, style) {
-        if let Some(bytes) = read_cached(path)
-            && covers(&bytes, wanted)
-        {
-            return Some(path.to_path_buf());
-        }
-    }
-    best_covering(&qualifying(wanted), request, style).map(Path::to_path_buf)
+    covering_paths(request, style, wanted).next()
 }
 
-/// The catalogue face [`installed_covering_styled`] takes among those stating every character:
-/// the widest repertoire, and among the widest the nearest style, then the request's generic
+/// Every face covering `wanted`, best first: the family's preference list in `style`'s order, each
+/// kept only if it covers, then the catalogue's qualifying faces in [`ranked_covering`]'s order,
+/// each path once.
+///
+/// Lazy, so the first answer costs what [`covering_path`] always did — the catalogue is walked
+/// only once no preferred face covers — and a caller reading on past it pays for each face it
+/// reads ([`installed_covering_embeddable`] bounds that).
+fn covering_paths(
+    request: Request,
+    style: Style,
+    wanted: &[char],
+) -> impl Iterator<Item = PathBuf> + '_ {
+    let preferred = preferred_paths(request, style)
+        .filter(move |path| read_cached(path).is_some_and(|bytes| covers(&bytes, wanted)))
+        .map(Path::to_path_buf);
+    let ranked = std::iter::once(()).flat_map(move |()| {
+        let faces = qualifying(wanted);
+        ranked_covering(&faces, request, style)
+            .into_iter()
+            .map(Path::to_path_buf)
+            .collect::<Vec<_>>()
+    });
+    let mut seen: Vec<PathBuf> = Vec::new();
+    preferred.chain(ranked).filter(move |path| {
+        if seen.contains(path) {
+            return false;
+        }
+        seen.push(path.clone());
+        true
+    })
+}
+
+/// The catalogue faces stating every character, in the order [`installed_covering_styled`] takes
+/// them: the widest repertoire, and among the widest the nearest style, then the request's generic
 /// family. The first in the catalogue's path order wins a tie, so one machine answers alike on
 /// every run.
-fn best_covering(faces: &[Qualifying], request: Request, style: Style) -> Option<&Path> {
-    faces
-        .iter()
-        .min_by_key(|(_, mappings, face)| {
-            (
-                std::cmp::Reverse(*mappings),
-                face.distance(style),
-                face.other_family(request.family),
-            )
-        })
+fn ranked_covering(faces: &[Qualifying], request: Request, style: Style) -> Vec<&Path> {
+    let mut ranked: Vec<&Qualifying> = faces.iter().collect();
+    // Stable, which is what keeps a tie in path order.
+    ranked.sort_by_key(|(_, mappings, face)| {
+        (
+            std::cmp::Reverse(*mappings),
+            face.distance(style),
+            face.other_family(request.family),
+        )
+    });
+    ranked
+        .into_iter()
         .map(|(path, _, _)| path.as_path())
+        .collect()
 }
 
 /// One face that states every character of a set: its file, its `cmap`'s size, and its style.
@@ -1617,8 +1698,9 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        FaceStyle, Family, Language, Request, Style, best_covering, catalogue, language,
-        names_a_style, strip_subset_prefix, weight_from_stem,
+        EMBEDDABLE_CANDIDATES, FaceStyle, Family, Language, Request, Style, catalogue,
+        first_embeddable, language, names_a_style, ranked_covering, strip_subset_prefix,
+        weight_from_stem,
     };
 
     /// A font dictionary carrying the entries a case needs and nothing else.
@@ -1991,7 +2073,7 @@ mod tests {
             (PathBuf::from("wide-regular"), 30_000, face(400, false)),
         ];
         assert_eq!(
-            best_covering(&faces, request, bold),
+            ranked_covering(&faces, request, bold).first().copied(),
             Some(PathBuf::from("wide-regular").as_path())
         );
         let family = vec![
@@ -2002,7 +2084,7 @@ mod tests {
             (PathBuf::from("black"), 1250, face(900, false)),
         ];
         assert_eq!(
-            best_covering(&family, request, bold),
+            ranked_covering(&family, request, bold).first().copied(),
             Some(PathBuf::from("bold").as_path())
         );
         let regular = Style::of(Request {
@@ -2010,8 +2092,65 @@ mod tests {
             ..request
         });
         assert_eq!(
-            best_covering(&family, request, regular),
+            ranked_covering(&family, request, regular).first().copied(),
             Some(PathBuf::from("regular").as_path())
+        );
+    }
+    /// The table directory of a face carrying `glyf` outlines and an `OS/2` whose `fsType` is
+    /// `fs_type`, and nothing a chooser does not read.
+    fn face_licensed(fs_type: u16) -> std::sync::Arc<[u8]> {
+        let mut program = Vec::new();
+        program.extend_from_slice(&0x0001_0000_u32.to_be_bytes());
+        program.extend_from_slice(&2u16.to_be_bytes());
+        program.extend_from_slice(&[0; 6]);
+        for (tag, offset, length) in [(b"OS/2", 44u32, 10u32), (b"glyf", 54, 0)] {
+            program.extend_from_slice(tag);
+            program.extend_from_slice(&[0; 4]);
+            program.extend_from_slice(&offset.to_be_bytes());
+            program.extend_from_slice(&length.to_be_bytes());
+        }
+        program.extend_from_slice(&[0; 8]);
+        program.extend_from_slice(&fs_type.to_be_bytes());
+        program.into()
+    }
+
+    /// A face whose `fsType` is 2, restricted-licence embedding, is offered first and passed over
+    /// for the next face, which the licence lets this program write (ADR 2548).
+    #[test]
+    fn a_face_whose_licence_forbids_embedding_is_passed_over_for_the_next() {
+        let restricted = face_licensed(0x0002);
+        let installable = face_licensed(0x0000);
+        let chosen =
+            first_embeddable([restricted, std::sync::Arc::clone(&installable)].into_iter());
+        assert_eq!(chosen.as_deref(), Some(&*installable));
+        assert_eq!(first_embeddable([face_licensed(0x0002)].into_iter()), None);
+    }
+
+    /// The walk is bounded before it reads: a ninth candidate is never read, so a catalogue whose
+    /// best faces all forbid embedding costs at most eight font files.
+    #[test]
+    fn the_embeddable_walk_reads_no_more_than_its_bound() {
+        let read = std::cell::Cell::new(0usize);
+        let candidates = (0..).map(|index| {
+            read.set(read.get() + 1);
+            face_licensed(if index < EMBEDDABLE_CANDIDATES {
+                0x0002
+            } else {
+                0x0000
+            })
+        });
+        assert_eq!(first_embeddable(candidates), None);
+        assert_eq!(read.get(), EMBEDDABLE_CANDIDATES);
+        let last = (0..).map(|index| {
+            face_licensed(if index + 1 < EMBEDDABLE_CANDIDATES {
+                0x0002
+            } else {
+                0x0004
+            })
+        });
+        assert!(
+            first_embeddable(last).is_some(),
+            "the eighth candidate is still read"
         );
     }
 }

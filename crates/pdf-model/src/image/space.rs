@@ -36,15 +36,6 @@ pub(super) enum ColourSpace {
 }
 
 impl ColourSpace {
-    /// A reduced source still knows whether §11.7.5.3's `DeviceRGB` conversion bypassed the
-    /// stated pair. Fast RGB can only arise where the target needs no such conversion.
-    pub(super) fn bypasses_black_generation(&self, into: &Conversion) -> bool {
-        match self {
-            Self::Resolved(space) => into.bypasses_black_generation(space),
-            _ => false,
-        }
-    }
-
     /// Reduces a resolved space to the arm the unpacker can take fastest.
     ///
     /// The three device families are eight-bit channels and nothing else, so they get an arm

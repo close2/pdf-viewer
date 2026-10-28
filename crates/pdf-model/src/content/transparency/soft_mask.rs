@@ -117,9 +117,8 @@ impl Interpreter<'_> {
             return on_device(
                 self,
                 "a soft mask's group states a four-component ICCBased /CS, and a group inside \
-                 it names a blending space of its own — so its luminosity is taken as §11.5.3's \
-                 device branch on device RGB rather than as the Y of the four composited \
-                 components"
+                 it names a blending space of its own — so it is composited on device RGB \
+                 rather than in its own four components and its luminosity is taken there"
                     .to_owned(),
             );
         }
@@ -160,7 +159,7 @@ impl Interpreter<'_> {
         on_device(
             self,
             "a soft mask's group states a four-component ICCBased /CS and its two \
-             interpretations drew different structures, so §11.5.3's Y of the four \
+             interpretations drew different structures, so the luminosity of the four \
              composited components cannot be read off the pair (§11.3.4, §11.4.7)"
                 .to_owned(),
         )

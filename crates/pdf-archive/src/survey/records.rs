@@ -196,6 +196,17 @@ impl Walk<'_> {
     /// [`Walk::look_up`] is this plus the two facts ISO 19005 section 6.2.2 reads — that the
     /// stream referenced a name, and that the name reached nothing — and the `Tf` record above
     /// wants the entry without either.
+    ///
+    /// An entry whose value is null, written so or as a reference to an object the file does
+    /// not define, defines nothing. ISO 32000-2 §7.3.9:
+    ///
+    /// > An indirect object reference (see 7.3.10, "Indirect objects") to a nonexistent object
+    /// > shall be treated the same as a null object. Specifying the null object as the value of
+    /// > a dictionary entry (7.3.7, "Dictionary objects") shall be equivalent to omitting the
+    /// > entry entirely.
+    ///
+    /// So the value is resolved before it counts as found, and the entry is returned as the
+    /// file wrote it, the reference kept, for the caller that follows it (`doc/adr/2550`).
     pub(super) fn peek(
         &self,
         category: &'static str,
@@ -206,14 +217,16 @@ impl Walk<'_> {
         // A category table written directly is read where it stands. `get_key` hands back an
         // owned copy of it, and a copy of a table of n names for each of n lookups makes a walk
         // quadratic in the table (`doc/adr/2500`).
-        if let Some(Object::Dictionary(table)) = context.resources.get(category) {
-            return table.get_by_name(&name).cloned();
-        }
-        let table = self.document.get_key(context.resources, category);
-        table
-            .as_dict()
-            .and_then(|table| table.get_by_name(&name))
-            .cloned()
+        let entry = if let Some(Object::Dictionary(table)) = context.resources.get(category) {
+            table.get_by_name(&name).cloned()
+        } else {
+            let table = self.document.get_key(context.resources, category);
+            table
+                .as_dict()
+                .and_then(|table| table.get_by_name(&name))
+                .cloned()
+        }?;
+        (!self.document.resolve(&entry).is_null()).then_some(entry)
     }
 
     /// Tells the ledger what a lookup found, where [`super::Survey::ledgered`] asked.

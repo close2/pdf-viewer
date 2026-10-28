@@ -253,23 +253,22 @@ fn luminosity(
         (Some(space), None) => GreyRoute::of(space).map(Arc::new),
         _ => None,
     };
-    // A three-component CIE-based space, whose `Y` §11.5.3 asks for and
-    // `RgbRoute::luminance` states: three curves summed for a `CalRGB` or a matrix
-    // profile, a sampled grid for a table profile. Asked of the interpretation's
+    // A three-component CIE-based space, composited in its own three components and weighed by
+    // §11.5.3's device branch under A23 (ADR 2552). The route is asked of the interpretation's
     // cache rather than built here, for the reason [`entry`] gives.
     let mut refused = None;
     let additive = match (&space, scale, &route) {
         (Some(space), None, None) => retain_refusal(presses.rgb_route(space), &mut refused)
-            .and_then(|route| route.luminance().map(|luminance| (route, luminance))),
+            .map(|route| (route, pdf_render::Luminance::device_rgb())),
         _ => None,
     };
     // And a space of **four** components, which §11.3.4 lists as a blending space and
-    // §8.6.5.1 makes CIE-based, so §11.5.3 asks the same `Y` of it. The group is
-    // painted in the press's own components — §11.4.7's pair, one scope over — and
-    // the `Y` is the press's own grid over the four (`Press::luminance`, ADR 0857).
-    // `None` where the interpretation may name no further press (§11.7.2's budget) or
-    // the press is not a profile's, both of which `luminosity_departure` then names; a
-    // poisoned table of presses is kept to be said as itself (ADR 2170).
+    // §8.6.5.1 makes CIE-based. The group is painted in the press's own components —
+    // §11.4.7's pair, one scope over — and weighed by EXAMPLE 2's formula for four inks,
+    // the device branch A23 chose (ADR 2552). `None` where the interpretation may name no
+    // further press (§11.7.2's budget) or the press is not a profile's, both of which
+    // `luminosity_departure` then names; a poisoned table of presses is kept to be said as
+    // itself (ADR 2170).
     let ink = match (&space, scale, &route, &additive) {
         (Some(ColourSpace::Icc { profile }), None, None, None) if profile.channels() == 4 => {
             // §11.7.5.3's second bullet names the parameters at a group's `Do`, and a
@@ -284,7 +283,10 @@ fn luminosity(
                     .map(Some),
                 &mut refused,
             )
-            .and_then(|press| press.luminance().map(|luminance| (press, luminance)))
+            // A press with no conversion in by its profile is not §11.3.4's bi-directional
+            // space, so the group cannot be composited in it.
+            .filter(|press| press.converts_in_by_profile())
+            .map(|press| (press, pdf_render::Luminance::device_ink()))
         }
         _ => blended_ink,
     };
@@ -346,21 +348,22 @@ fn luminosity(
         }
         (None, None, None, None) => Compositing::Device,
     };
-    // Asked of the compositing that was chosen rather than of the space alone, which
-    // is what makes the condition §11.5.3's own: the clause branches on whether the
-    // space is CIE-based, so the departure is a CIE-based space this tree did *not*
-    // send down the colorimetric branch, whatever the reason.
-    let colorimetric = matches!(
+    // Asked of the compositing that was chosen rather than of the space alone: §11.6.5.1
+    // makes the `/CS` "the colour space in which the compositing computation is to be
+    // performed", so the departure is a CIE-based space this tree did *not* composite in its
+    // own components, whatever the reason.
+    let own_components = matches!(
         compositing,
         Compositing::Calibrated(_) | Compositing::Additive(_) | Compositing::Subtractive(..)
     );
-    let departures = mask_departures(space.as_ref(), colorimetric, refused);
-    let transfer = match (scale, &route, &space) {
-        (Some(scale), _, _) => derivation(scale, transfer),
-        (None, Some(_), Some(space)) => Some(luminance_derivation(space, transfer)),
-        // A three- or four-component group's `Y` is read off the space's own grid or
-        // curves *before* this table, so the table is Table 142's `/TR` alone.
-        _ => transfer.cloned(),
+    let departures = mask_departures(space.as_ref(), own_components, refused);
+    let transfer = match scale {
+        Some(scale) => derivation(scale, transfer),
+        // A one-component CIE-based group's channel holds its component, which the device
+        // branch takes as the grey itself; a three- or four-component group's luminosity is
+        // read off its components *before* this table. Either way the table is Table 142's
+        // `/TR` alone.
+        None => transfer.cloned(),
     };
     let luminance = match (additive, ink) {
         (Some((_, luminance)), _) | (None, Some((_, luminance))) => Some(luminance),
@@ -439,44 +442,6 @@ fn derivation(scale: InkScale, transfer: Option<&Transfer>) -> Option<Transfer> 
     Some(Transfer::from_samples(table))
 }
 
-/// Everything left between a composited *component* and the value §11.5.3 derives from it,
-/// for a mask group whose `/CS` is `CalGray` or a one-component `ICCBased` space.
-///
-/// Such a group is painted in the space's own component (`Compositing::Calibrated`, ADR
-/// 0792's route for a page or an isolated group, and since ADR 0796 a mask's), so what the
-/// backend composites is §11.6.6's "resulting colour at each point … interpreted in the group
-/// colour space", and what §11.5.3 asks of it is the colorimetric branch:
-///
-/// > For CIE-based spaces, convert to the CIE 1931 XYZ space and use the Y component as the
-/// > luminosity. This produces a colorimetrically correct luminosity.
-///
-/// That `Y` is a function of one component — §8.6.5.2's gamma, or a profile's tone curve —
-/// so it is sampled onto the same 256-entry table [`derivation`] uses, with Table 142's `/TR`
-/// composed after it, for the same reason: a backend that computes the mask natively takes a
-/// backdrop and a table and nothing else, and both backends are handed the same bytes.
-///
-/// **This is exact where the device branch's `InkScale::Double` is a rounding**: the channel
-/// holds the component itself, so nothing is halved to fit.
-fn luminance_derivation(space: &ColourSpace, transfer: Option<&Transfer>) -> Transfer {
-    let mut table = [0_u8; 256];
-    for (index, entry) in table.iter_mut().enumerate() {
-        #[expect(
-            clippy::cast_precision_loss,
-            reason = "index of a 256-entry table is exactly representable"
-        )]
-        let component = index as f32 / 255.0;
-        let luminance = space.cie_luminance(&[component]).unwrap_or(component);
-        #[expect(
-            clippy::cast_possible_truncation,
-            clippy::cast_sign_loss,
-            reason = "clamped to 0..=255 before the cast, and NaN clamps to the low bound"
-        )]
-        let derived = (luminance * 255.0).clamp(0.0, 255.0).round() as u8;
-        *entry = transfer.map_or(derived, |transfer| transfer.apply(derived));
-    }
-    Transfer::from_samples(table)
-}
-
 /// How much ink a group blending in this space can weigh, or `None` if §11.5.3 sends it to
 /// `DeviceGray` through RGB rather than through §10.4.2.3.
 ///
@@ -488,10 +453,10 @@ fn luminance_derivation(space: &ColourSpace, transfer: Option<&Transfer>) -> Tra
 ///
 /// - **`DeviceRGB`** is the space §10.4.2.2's `gray = 0.3 R + 0.59 G + 0.11 B` is written
 ///   for, so compositing there and converting afterwards is the clause. `None`.
-/// - **A CIE-based space** — `CalRGB`, `CalGray`, `Lab`, `ICCBased` — asks for §11.5.3's
-///   *colorimetric* branch, the `Y` of the colour in CIE 1931 XYZ, which is no ink at all:
-///   `None`, and [`read`] answers it with the space's own route where there is one — a
-///   component for one, three components and three curves for three — as
+/// - **A CIE-based space** — `CalRGB`, `CalGray`, `Lab`, `ICCBased` — is composited in its
+///   own components, which are no ink at all: `None`, and [`read`] answers it with the
+///   space's own route where there is one — a component for one, three for three, a press
+///   for four — weighed afterwards by §11.5.3's device branch under A23 (ADR 2552), as
 ///   [`luminosity_departure`] records.
 /// - **A subtractive space** — `DeviceCMYK`, `DeviceGray`, and a `Separation`, `DeviceN` or
 ///   `Indexed` space resting on one — is the case this answers with a scale. §10.4.2.3
@@ -601,36 +566,38 @@ fn backdrop(
 /// poisoned table of presses said as itself rather than as a budget the page spent (ADR 2170).
 fn mask_departures(
     space: Option<&ColourSpace>,
-    colorimetric: bool,
+    own_components: bool,
     refused: Option<NoPress>,
 ) -> Vec<String> {
     if refused == Some(NoPress::Poisoned) {
         return vec![format!(
-            "a soft mask's group states a CIE-based /CS and {}, so its luminosity \
-             is taken as §11.5.3's device branch on device RGB",
+            "a soft mask's group states a CIE-based /CS and {}, so it is composited on \
+             device RGB rather than in its own components and its luminosity is taken there",
             NoPress::Poisoned.why()
         )];
     }
     space
-        .and_then(|space| luminosity_departure(space, colorimetric))
+        .and_then(|space| luminosity_departure(space, own_components))
         .into_iter()
         .collect()
 }
 
-/// Names a mask group's `/CS` where §11.5.3's colorimetric branch was not taken for it.
+/// Names a mask group's `/CS` where the group was not composited in its own components.
 ///
 /// §11.5.3 converts a mask group's composited colour to luminosity "in one of the following
 /// ways, depending on the group's colour space", and there are two ways, chosen by whether the
-/// space is CIE-based. This tree carries out the device branch exactly and the colorimetric
-/// branch for every CIE-based space it has a route into; what is left over is this, and the
-/// condition is `colorimetric` rather than a list of space names for the reason trap 11 gives
-/// — the clause's own branch is the discriminator, so a space that stops having a route stops
-/// being silent by construction.
+/// space is CIE-based. **This tree takes the device branch for every space**, CIE-based or
+/// not: the colorimetric branch — "\[f]or CIE-based spaces, convert to the CIE 1931 XYZ space
+/// and use the Y component as the luminosity" — is what the clause asks, every other reader
+/// weighs a CIE-based group's components as it would a device space's, and the owner chose
+/// the readers' convention (A23, ADR 2552). The device branch reads:
 ///
-/// **The device branch** — "For device colour spaces, convert the colour to `DeviceGray` by
-/// implementation-defined means and use the resulting gray value as the luminosity, with no
-/// compensation for gamma or other colour calibration" — is carried out exactly, in the space
-/// the group names rather than in the device's (ADR 0217):
+/// > For device colour spaces, convert the colour to DeviceGray by implementation-defined
+/// > means and use the resulting gray value as the luminosity, with no compensation for gamma
+/// > or other colour calibration.
+///
+/// and it is carried out exactly, in the space the group names rather than in the device's
+/// (ADR 0217):
 ///
 /// - **`DeviceRGB`** is the space EXAMPLE 2's `Y = 0.30 R + 0.59 G + 0.11 B` is written for,
 ///   and `pdf_render::SoftMask::value` computes it on the rendered pixel.
@@ -639,36 +606,35 @@ fn mask_departures(
 ///   of in colour — [`ink_scale`], and `crate::colour`'s `Compositing::Luminosity`. That
 ///   reaches an image's samples and a shading's ramp as well as an operator's colour, and the
 ///   `min` waits for the compositing the way §11.5.3 states (ADR 0220).
+/// - **A CIE-based space** is composited in its own components, as §11.6.5.1 makes the `/CS`
+///   "the colour space in which the compositing computation is to be performed", and those
+///   components are then weighed as the device family of the same count would be: one
+///   component is the grey itself (`Compositing::Calibrated`, ADR 0796's route), three take
+///   EXAMPLE 2's `DeviceRGB` weights (`Compositing::Additive`,
+///   `pdf_render::Luminance::device_rgb`), and four its `DeviceCMYK` formula
+///   (`Compositing::Subtractive`, §11.4.7's pair of rasters read by
+///   `pdf_render::Luminance::device_ink`, ADR 0857's route).
 ///
-/// **The colorimetric branch** — "For CIE-based spaces, convert to the CIE 1931 XYZ space and
-/// use the Y component as the luminosity" — is taken for a space of **one** component since
-/// ADR 0796 (`Compositing::Calibrated`, with [`luminance_derivation`] composing the clause's
-/// `Y` of the composited component into the mask's table), for **three** since ADRs 0797 and
-/// 0851 (`Compositing::Additive`, with `RgbRoute::luminance` read per pixel), and for **four**
-/// since ADR 0857 (`Compositing::Subtractive`, §11.4.7's pair of rasters with
-/// `Press::luminance` read off the pair).
+/// What is left, and named here, is three shapes the group could not be composited in its own
+/// components for, and the condition is the compositing chosen rather than a list of space
+/// names for the reason trap 11 gives — a space that gains a route stops being reported by
+/// construction:
 ///
-/// What is left, and named here, is three shapes:
-///
-/// - **A `Lab` group.** §11.3.4 rules the space out of a blending space outright, and neither
-///   route is the clause's: compositing `L*a*b*` on the device's RGB is a different arithmetic
-///   *and* `0.3 R + 0.59 G + 0.11 B` of the sRGB is not the `Y` of the XYZ the clause asks for.
-/// - **A four-component CIE-based group this interpretation has no press for.** The space
-///   itself is drawn since ADR 0857 — §11.4.7's pair of rasters inside the mask, with the
-///   `Y` read off the press's own grid over the four components — so what is left here is a
-///   file whose page has already spent the memory it may keep for presses on other spaces, or a
-///   profile that yields no grid at all. Both are the budget or the file rather than the
-///   clause, and both are named.
+/// - **A `Lab` group.** §11.3.4 rules the space out of a blending space outright, so there is
+///   no compositing in it to carry out.
+/// - **A four-component CIE-based group this interpretation has no press for**: a file whose
+///   page has already spent the memory it may keep for presses on other spaces, or a profile
+///   that yields no press at all. Both are the budget or the file rather than the clause, and
+///   both are named.
 /// - **A CIE-based group this tree has no route into**: a profile that states no "from CIE"
 ///   half, which §11.3.4 requires of a blending space — "the ICC profile shall be capable of
 ///   both device to PCS and PCS to device transformations" — or a one-component curve with no
-///   inverse. §11.6.5.1 makes the `/CS` "the colour space in which the compositing computation
-///   is to be performed", and without a conversion in there is nothing to composite in it.
+///   inverse. Without a conversion in there is nothing to composite in the space.
 ///
-/// Each is drawn on the device's three components with EXAMPLE 2's weights, which is the
-/// picture that was there before the report and is stated rather than left to be discovered.
-fn luminosity_departure(space: &ColourSpace, colorimetric: bool) -> Option<String> {
-    if colorimetric {
+/// Each is composited on the device's three components and weighed there with EXAMPLE 2's
+/// `DeviceRGB` weights, and the report says so rather than leaving it to be discovered.
+fn luminosity_departure(space: &ColourSpace, own_components: bool) -> Option<String> {
+    if own_components {
         return None;
     }
     match space {
@@ -682,16 +648,16 @@ fn luminosity_departure(space: &ColourSpace, colorimetric: bool) -> Option<Strin
             "a soft mask's group states a four-component ICCBased /CS this reader has no \
              press for — §11.3.4 requires a blending space's profile to be \"capable of both \
              device to PCS and PCS to device transformations\", and a page may name only so \
-             many distinct presses — so its luminosity is taken as §11.5.3's device branch on \
-             device RGB rather than as the Y of the CIE 1931 XYZ"
+             many distinct presses — so it is composited on device RGB rather than in its own \
+             four components and its luminosity is taken there"
                 .to_owned(),
         ),
         ColourSpace::CalGray { .. } | ColourSpace::CalRgb { .. } | ColourSpace::Icc { .. } => Some(
             "a soft mask's group states a CIE-based /CS this reader has no route into — \
                  §11.3.4 requires a blending space's profile to be \"capable of both device to \
                  PCS and PCS to device transformations\", and a curve with no inverse is not — \
-                 so its luminosity is taken as §11.5.3's device branch on device RGB rather \
-                 than as the Y of the CIE 1931 XYZ"
+                 so it is composited on device RGB rather than in its own components and its \
+                 luminosity is taken there"
                 .to_owned(),
         ),
         _ => None,
@@ -1068,10 +1034,11 @@ mod tests {
     /// in for the group's `/DeviceCMYK`: "the colour space's initial value, representing black".
     ///
     /// §8.6.8 starts `DeviceCMYK` at `[0.0 0.0 0.0 1.0]`; the intent's profile, as a space of its
-    /// own, starts at no ink. [`cmyk::two_way_cmyk_profile`]'s press darkens by `0.9 k`, so the
-    /// family's black has a `Y` of 0.1 and the mask lets a tenth of the black through — about 230
-    /// on the white page — where the profile's zeros are the paper's `Y` of 1 and let all of it
-    /// through, 0. The default must draw what `/BC [0 0 0 1]` draws (ADR 1764).
+    /// own, starts at no ink. The group's four components are weighed by EXAMPLE 2's formula for
+    /// four inks, §11.5.3's device branch (A23, ADR 2552), so the family's black is
+    /// `1 − min(1, 1)`, zero, and the mask lets none of the black through — the white page's 255
+    /// — where the profile's zeros are the paper's 1 and let all of it through, 0. The default
+    /// must draw what `/BC [0 0 0 1]` draws (ADR 1764).
     #[test]
     fn a_cmyk_mask_groups_default_backdrop_is_the_familys_black_under_an_intent() {
         let level = |raster: &[u8]| raster[(10 * 20 + 10) * 4];
@@ -1082,9 +1049,9 @@ mod tests {
             defaulted, stated_black,
             "the default backdrop is the family's initial colour"
         );
-        assert!(
-            (225..=235).contains(&defaulted),
-            "a tenth of the black comes through the family's black backdrop, not {defaulted}"
+        assert_eq!(
+            defaulted, 255,
+            "none of the black comes through the family's black backdrop"
         );
         assert!(
             stated_paper.abs_diff(defaulted) > 1,

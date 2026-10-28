@@ -162,18 +162,19 @@ the last rendering one, §10.7.4's mark for a stroke its matrix collapses, was b
   submit's null, datatype and format tests, ADRs 2450, 2474, 2475), and its FormCalc calculations and
   `change` and `initialize` events activate in page 379's order and cascade under limits
   (`Resource::activate`, ADRs 2506, 2507) and a window that lets scripts run activates them when the
-  form is shown and at a commit, in the confined script worker (ADRs 2524, 2525), while its
-  JavaScript and its other events are not there, and every window says so. RFC 0011 section 5's
-  step 5 is what remains (ADR 2430), and so is a call site in `quorra-gtk` and `quorra-qt`: they
-  send `Command::Report` and `Command::Presented` for the first document only
-  (`viewer-host`'s `report::Due` is one per window), so a document opened beside is never given
-  its merge, its open sequence or its signature report (ADR 2525).
+  form is shown and at a commit, in the confined script worker (ADRs 2524, 2525), its JavaScript
+  ones as well, in a realm of their own in the same worker whose object model is the form's
+  containers as the host answers for them (ADR 2545), and a document opened beside is given its
+  merge, its open sequence and its signature report when its own frame is shown (ADR 2544). What
+  remains of RFC 0011 section 5's step 5 (ADR 2430) is the events other than `change` and
+  `initialize`, validations that are scripts, and page 642's dismissal of a `warning`.
  *One raster carries the product of shape and opacity where the clause wants the pair* is not
 among them: §11.4.6 is the one reader of the pair the standard has, every knockout element states its
 shape, and §11.3.7.3's NOTE 2 licenses the product everywhere else (§11.4.3's row, ADR 1340).
 
-**Beside this bucket and not in it**: §11.5.3, §11.6.6 and §11.7.2 are `implemented`: every distinct
-four-component profile a page names gets its press, charged to the page's memory bound with its
+**Beside this bucket and not in it**: §11.6.6 and §11.7.2 are `implemented`, and §11.5.3 is `departed`
+from its colorimetric branch alone by the owner's answer A23, every mask group weighed by the device
+branch (ADR 2552), its rest implemented: every distinct four-component profile a page names gets its press, charged to the page's memory bound with its
 display list, and a page whose presses do not fit is refused the one that crosses it, so its elements
 are painted in the parent's and `PagePress::Beyond` names why (ADR 2532; ADR 1254 reads what one
 profile is worth, Table 69's four intents against §8.6.5.9's `/UseBlackPtComp` less the pair that
@@ -192,12 +193,14 @@ point paints the pixel under it and a subpath on a line across the axes the band
 a clip and a matrix of rank zero (ADR 2330, which also moved §8.5.3.3.1 to `implemented`); a fill or
 a stroke its matrix carries onto a line is that line (ADRs 1348, 1360); a path whose subpaths overlap
 is measured as the set its rule declares inside (ADRs 1341, 1347). No contradicted verdict the oracle
-holds rests on any departure (ADR 1622); §10.7 is `implemented` with it.
+holds rests on any departure (ADR 1622); §10.7 is `implemented` with it. §10.7.5 is `implemented`:
+both of its requirements are drawn under `/SA` in every backend, the grid fit by default as the owner
+chose (`doc/questions/A714`, ADRs 2530 and 2553).
 
-**Beside this bucket and not in it**: §8.7.4.5.7 and §8.7.4.5.8 are `departed`. The patch travels
-to the backend and the fineness is derived there in device pixels (ADR 1217); the one branch left
-is a patch whose colours §8.7.4.4 requires be converted between its corners, which no corpus
-document takes; the folding stroke's chords at a twentieth reach no patch (ADR 2331).
+**Beside this bucket and not in it**: §8.7.4.5.7 and §8.7.4.5.8 are `implemented`. Every patch
+travels to the backend and the fineness is derived there in device pixels (ADR 1217); a patch whose
+colours §8.7.4.4 requires be converted between its corners carries them at a lattice of its unit
+square, converted in `pdf-colour` to §10.7.3's tolerance (ADR 2546).
 
 ### 4. Feature depth — a built feature with cases still owed
 
@@ -273,11 +276,6 @@ row is in this bucket when its note names none of those three.
 
 No row is in this bucket at present.
 
-
-§11.7.5.3 was here, and is `departed`: every solid family and uncoloured pattern tint converts
-at the paint, §11.7.2's redefinition of `DeviceCMYK` included (ADR 2276), and the one sentence not
-carried out is the first black-generation bullet for a `DeviceCMYK` group whose press is its output
-intent's bi-directional profile, converted in through the profile's `B2A` (ADRs 1242, 1622, 2170).
 
 §7.4.9's buildable part is built: e-sRGB and e-sYCC are drawn from the held PIMA 7667 (A348),
 with extended-range and non-neutral fixtures (ADRs 2292, 2293). Its CIEJab part remains in the

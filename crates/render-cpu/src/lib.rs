@@ -150,7 +150,7 @@ impl CpuRasterizer {
         Self {
             medium: Medium::PAGE_ONLY,
             anti_alias: true,
-            stroke_adjustment: false,
+            stroke_adjustment: true,
             strips: None,
             cuts: None,
             interrupt: None,
@@ -301,14 +301,14 @@ impl CpuRasterizer {
     }
 
     /// Enables or disables the grid fit of ISO 32000-2 §10.7.5's first requirement for the
-    /// strokes whose graphics state enables stroke adjustment; off by default.
+    /// strokes whose graphics state enables stroke adjustment; on by default.
     ///
-    /// Off, such a stroke is drawn at its own coordinates and its coverage-weighted width
-    /// (ADR 0848); the clause's second requirement, a stroke under half a pixel drawn one pixel
-    /// wide, holds either way, because it is `Stroke::device_width`'s. Off is the default because
-    /// the oracle and every lane of raster draw the same strokes until raster fits them too, and
-    /// whether the fit is drawn at all is the owner's choice the measurement put to them
-    /// (ADRs 2530 and 2531).
+    /// On, such a stroke under 1.5 device pixels along the device axes is drawn one whole pixel
+    /// wide through pixel centres (`pdf_render::grid_fit`, ADR 2530), which every lane of raster
+    /// draws alike at its own encode, as the owner chose (A714, ADR 2553). Off
+    /// draws such a stroke at its own coordinates and its coverage-weighted width (ADR 0848), for
+    /// the measurements that compare the two; the clause's second requirement, a stroke under half
+    /// a pixel drawn one pixel wide, holds either way, because it is `Stroke::device_width`'s.
     #[must_use]
     pub fn with_stroke_adjustment(mut self, stroke_adjustment: bool) -> Self {
         self.stroke_adjustment = stroke_adjustment;

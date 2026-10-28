@@ -731,6 +731,15 @@ pub enum Rewrite {
     /// before. The outlines and every other table of the program are the producer's bytes
     /// (`doc/adr/2520`).
     TrueTypeCmapRestated,
+    /// A TrueType program gains a glyph whose outline and advance are its own glyph 0's, and each
+    /// code that reached glyph 0 reaches the new glyph through the restated `cmap`.
+    ///
+    /// ISO 19005-2 section 6.2.11.8 and ISO 19005-4 section 6.2.10.9 forbid a text-showing
+    /// operator to reference `.notdef`, which in a TrueType program is glyph 0 by position. The
+    /// content stream is untouched and the page draws the producer's own `.notdef` outline where
+    /// it drew it before (`doc/questions/A694` item 3); `super::fonts` proves the copy and the
+    /// route (`doc/adr/2543`). Carried by [`Self::TrueTypeCmapRestated`]'s objects.
+    NotdefGlyphGiven,
     /// A Type 3 font's glyph named `.notdef` is given another name, in its encoding's
     /// `/Differences` and its `/CharProcs` alike.
     ///
@@ -1461,6 +1470,12 @@ impl Rewrite {
                  goes and its descriptor states the Symbolic flag, so every code reaches that \
                  glyph by the subclause's own route"
             }
+            Self::NotdefGlyphGiven => {
+                "a TrueType font's program gains one glyph whose outline and advance are its own \
+                 .notdef glyph's, and each code that reached .notdef reaches that glyph through \
+                 the program's restated cmap, so the page draws the same marks and no \
+                 text-showing operator references .notdef"
+            }
             Self::Type3NotdefRenamed => {
                 "a Type 3 font's glyph procedure named .notdef is given another name in its \
                  encoding and its CharProcs alike, so the codes that drew it draw the same \
@@ -1738,6 +1753,7 @@ impl Rewrite {
             Self::StandardTrueTypeEncoding => "standard-truetype-encoding",
             Self::StandardRouteNames => "standard-route-names",
             Self::TrueTypeCmapRestated => "truetype-cmap-restated",
+            Self::NotdefGlyphGiven => "notdef-glyph-given",
             Self::Type3NotdefRenamed => "type3-notdef-renamed",
             Self::SharedDestinationProfile => "shared-destination-profile",
             Self::SpotColorantEntry => "spot-colorant-entry",
@@ -3031,8 +3047,7 @@ impl Rewriter<'_> {
             count(applied, Rewrite::PresentationSteps);
             changed = true;
         }
-        changed |= self.remove_the_annotations(id, &mut out, applied);
-        changed |= self.relocate_onto_page(id, &mut out, applied);
+        changed |= self.annotation_edits(id, &mut out, applied);
         changed |= self.write_entries_in_place(id, &mut out, applied);
         if self.wants(Rewrite::AppearanceDictionary)
             && let Some(stream) = self
@@ -3090,6 +3105,7 @@ impl Rewriter<'_> {
             changed = true;
         }
         changed |= self.write_defaults(id, &mut out, applied);
+        changed |= self.state_a_derived_relationship(id, &mut out);
         changed |= self.complete_file_specification(&mut out, applied);
         changed |= self.owed_rewrites(id, &mut out, applied);
         changed |= self.unsign(id, &mut out, applied);
@@ -3161,6 +3177,11 @@ impl Rewriter<'_> {
             Object::Dictionary(photograph.resources.clone()),
         );
         out.remove("Group");
+        // The marked content its `/StructParents` named is gone with the content, and the
+        // structure tree's leaves that named it with it (`super::fonts::untagged`, A707).
+        if photograph.untagged {
+            out.remove("StructParents");
+        }
         count(applied, Rewrite::SubstituteFontProgram);
         true
     }
@@ -3327,6 +3348,7 @@ impl Rewriter<'_> {
             || self.wants(Rewrite::InformationMovedIntoThePacket)
             || self.wants(Rewrite::InterpolationOff)
             || self.wants(Rewrite::TrueTypeCmapRestated)
+            || self.wants(Rewrite::NotdefGlyphGiven)
             // A face embedded for a font the file never carried, and a photographed page
             // (`doc/adr/2394` item 5), are stated in the file's own history (ISO 19005-2 section
             // 6.6.6, NOTE 1), and a packet that needs no other edit would otherwise cross

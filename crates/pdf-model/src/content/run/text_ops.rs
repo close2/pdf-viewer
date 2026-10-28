@@ -98,7 +98,7 @@ impl Interpreter<'_> {
         match operator {
             Operator::Font => {
                 if let Some(name) = name_at(operands, 0) {
-                    state.text.font = self.font(resources, &name);
+                    (state.text.font, state.text.owed_font_report) = self.font(resources, &name);
                     // The trace's label rather than the lookup's key: §7.3.5's "the bytes
                     // making up the name are never treated as text" binds the second, and
                     // `font` above has them.

@@ -18,7 +18,7 @@ use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 
 use pdf_model::view::{ScriptEvent, ScriptResult, ScriptRunner};
-use pdf_model::xfa::{Form, Ran, Scalar};
+use pdf_model::xfa::{Form, FormLanguage, Ran, Scalar};
 use viewer_core::{
     AlertButton, AlertButtons, AlertIcon, Answer, Command, DocumentId, Edit, Entered, Event, Query,
     ScriptAnswer, ScriptAsks, ScriptQuestion, ScriptRunners, Scripting, Viewer,
@@ -29,6 +29,12 @@ const DOCUMENT: DocumentId = DocumentId(1);
 /// A hybrid form of one subform `form1` holding a field `Total` whose calculation is `6` with the
 /// `override` the attribute text states, and an input `Units`.
 fn form(attributes: &str) -> Vec<u8> {
+    form_in(attributes, "")
+}
+
+/// [`form`], its script element carrying `script_attributes`: a `contentType` names its language
+/// (XFA 3.3 page 106).
+fn form_in(attributes: &str, script_attributes: &str) -> Vec<u8> {
     let stream = |text: &str| {
         format!(
             "<< /Length {} >>\nstream\n{text}\nendstream",
@@ -39,7 +45,8 @@ fn form(attributes: &str) -> Vec<u8> {
         "<template xmlns=\"http://www.xfa.org/schema/xfa-template/3.3/\"><subform name=\"form1\">\
          <field name=\"Units\"><ui><textEdit/></ui><value><text/></value></field>\
          <field name=\"Total\"><ui><textEdit/></ui><value><text/></value>\
-         <calculate {attributes}><script>6</script></calculate></field></subform></template>"
+         <calculate {attributes}><script {script_attributes}>6</script></calculate></field>\
+         </subform></template>"
     );
     let datasets = "<xfa:datasets xmlns:xfa=\"http://www.xfa.org/schema/xfa-data/1.0/\">\
                     <xfa:data><form1><Units>1</Units><Total/></form1></xfa:data></xfa:datasets>";
@@ -100,6 +107,7 @@ impl ScriptRunner for Calculator {
         &self,
         form: &mut Form<'_>,
         node: usize,
+        _language: FormLanguage,
         script: &str,
         _steps_left: u64,
     ) -> Ran {
@@ -155,12 +163,16 @@ impl ScriptRunners for Calculators {
 }
 
 fn opened(scripting: Scripting, attributes: &str) -> Viewer {
+    opened_on(scripting, form(attributes))
+}
+
+fn opened_on(scripting: Scripting, bytes: Vec<u8>) -> Viewer {
     let mut viewer = Viewer::new(800, 1000, 1.0);
     viewer.handle(Command::Scripts(scripting)).for_each(drop);
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: form(attributes).into(),
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -232,6 +244,29 @@ fn off_calculates_nothing_and_ask_waits_for_the_person() {
     let (script, first_line) = asked.expect("the question is put");
     assert!(script.contains("FormCalc"), "{script}");
     assert_eq!(first_line, "6");
+    viewer
+        .handle(Command::AnswerScripts {
+            document: DOCUMENT,
+            proceed: true,
+        })
+        .for_each(drop);
+    assert_eq!(value(&viewer, "Total"), "6");
+}
+
+/// A calculation in JavaScript reaches the runner as one (page 106's `contentType`): *ask* puts the
+/// question naming its language, and once allowed the runner is handed it as `FormCalc`'s is.
+#[test]
+fn a_javascript_calculation_is_asked_about_and_run_as_javascript() {
+    let bytes = form_in("", "contentType=\"application/x-javascript\"");
+    let mut viewer = opened_on(Scripting::Ask(Arc::new(Calculators::default())), bytes);
+    let events: Vec<Event> = viewer.handle(Command::Presented).collect();
+    assert_eq!(value(&viewer, "Total"), "");
+    let asked = events.iter().find_map(|event| match event {
+        Event::AskingToRunScripts { script, .. } => Some(script.clone()),
+        _ => None,
+    });
+    let script = asked.expect("the question is put");
+    assert!(script.contains("a JavaScript calculation"), "{script}");
     viewer
         .handle(Command::AnswerScripts {
             document: DOCUMENT,

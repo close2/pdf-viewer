@@ -30,7 +30,8 @@
 //!   further away, so the fit never carries a line out of the pixel its centre was in.
 //!
 //! ADR 2530 is the construction and its measurement over the pdf.js documents that enable the
-//! parameter; ADR 2531 the decision those figures give.
+//! parameter; ADR 2553 draws it by default in this backend and every lane of `raster` at once,
+//! as the owner chose (`doc/questions/A714`).
 
 use crate::geom::{Path, PathCommand, Point, Transform};
 use crate::paint::{Stroke, thinnest_line};

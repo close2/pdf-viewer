@@ -1,6 +1,6 @@
 # 2531 — The grid fit stays off by default, and §10.7.5 stays `departed`, until the owner chooses
 
-Status: accepted. Session 1848, batch one hundred and twenty-five; the reading of ADR 2530's figures,
+Status: accepted; its default is reversed by ADR 2553 on the owner's answer A714 (option 1), and its argument stands as the reason the owner was asked. Session 1848, batch one hundred and twenty-five; the reading of ADR 2530's figures,
 amending ADR 0848's measurement. I worked in `scratchpad/r1848/`. Question: `doc/questions/Q714`.
 
 ## What the owner asked

@@ -1342,7 +1342,8 @@ pub fn radial_cone() -> DisplayList {
 /// The left patch is a Coons patch — twelve boundary points, its interior implied — and the
 /// right one a tensor patch whose four interior points are pulled off the surface the same
 /// twelve would imply, which is the only thing §8.7.4.5.8 adds and the thing a backend reading
-/// the net in the wrong order would lose.
+/// the net in the wrong order would lose. The third carries its colours at a lattice, so a
+/// backend mixing a lattice cell from anything but its own four corners shows it.
 #[must_use]
 pub fn patch_mesh() -> DisplayList {
     let mut list = DisplayList::new(Size::new(200.0, 200.0));
@@ -1379,7 +1380,7 @@ pub fn patch_mesh() -> DisplayList {
         ],
         corners: pdf_render::PatchCorners::Colours([RED, GREEN, BLUE, Color::WHITE]),
     };
-    let mut tensor = coons;
+    let mut tensor = coons.clone();
     for row in &mut tensor.net {
         for point in row {
             point.x += 100.0;
@@ -1393,6 +1394,33 @@ pub fn patch_mesh() -> DisplayList {
     tensor.net[2][1] = at(190.0, 120.0);
     tensor.net[2][2] = at(120.0, 120.0);
 
+    // The Coons net again, across the top right, with its colours converted at a lattice — the
+    // patch a space whose conversion bends across it travels as (ADR 2546): white down the middle
+    // of `u` and the extremes at its ends, which four corners alone could not carry.
+    let mut lattice = coons.clone();
+    for row in &mut lattice.net {
+        for point in row {
+            point.x += 100.0;
+        }
+    }
+    lattice.corners = pdf_render::PatchGrid::new(
+        (2, 2),
+        Arc::from(vec![
+            RED,
+            GREEN,
+            BLUE,
+            Color::WHITE,
+            Color::WHITE,
+            Color::WHITE,
+            BLUE,
+            GREEN,
+            RED,
+        ]),
+    )
+    .map_or(pdf_render::PatchCorners::Colours([RED; 4]), |grid| {
+        pdf_render::PatchCorners::Grid(grid)
+    });
+
     list.push(Command::Fill {
         path: Arc::new(rect(0.0, 0.0, 200.0, 200.0)),
         transform: Transform::IDENTITY,
@@ -1402,7 +1430,7 @@ pub fn patch_mesh() -> DisplayList {
             kind: Arc::new(pdf_render::ShadingKind::Mesh {
                 triangles: Arc::from(Vec::new()),
                 patches: Some(pdf_render::PatchMesh {
-                    patches: Arc::from(vec![coons, tensor]),
+                    patches: Arc::from(vec![coons, tensor, lattice]),
                     // §10.7.3's default: the tolerance a graphics state that states no `/SM`
                     // leaves in force, as `Ramp::resolution_for` reads it.
                     smoothness: 1.0 / 256.0,

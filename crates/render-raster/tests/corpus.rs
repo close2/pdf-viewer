@@ -269,8 +269,8 @@ const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
 /// **It is empty, and what emptied it is ADR 1471.** The four pages it held were
 /// `doc/QUORRA_FEEDBACK.md` section 43's: an isolated group compositing in a blending colour space
 /// of its own (§11.6.6, §11.7.2) — four components in `bug1721218_reduced.pdf`, three CIE-based
-/// ones in `issue16742.pdf` and `issue5044.pdf` — and a luminosity mask whose `Y` is an sRGB
-/// profile's own (§11.5.3) in `issue21346.pdf`. Each ends in a function of the *composited*
+/// ones in `issue16742.pdf` and `issue5044.pdf` — and a luminosity mask composited in an sRGB
+/// profile's own components (§11.6.5.1) in `issue21346.pdf`. Each ends in a function of the *composited*
 /// pixel that no scene construct states, and each is isolated, so §11.4.5 makes its result a
 /// function of its own elements alone: `render-raster`'s `own_space` draws the elements as a frame
 /// of their own, resolves it with the arithmetic the CPU backend runs, and places the result back

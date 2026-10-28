@@ -104,7 +104,7 @@ fn the_margin_for(width: f32, height: f32) -> f32 {
 /// attacker-supplied. Sixty-four pages is far past any packet a producer writes — the corpus's
 /// largest is under two — and a document that needs more is refused by name rather than turned
 /// into a thousand-page archive nobody wanted.
-const MOST_PAGES: usize = 64;
+pub(super) const MOST_PAGES: usize = 64;
 
 /// The most lines one appended page is set with, whatever its own height allows.
 ///
@@ -224,6 +224,16 @@ pub(super) struct Composed {
     /// §14.8.2.2 divides content into real content and artifacts only for a tagged file, so an
     /// untagged document's appended page owes §14.7 nothing at all. `doc/adr/1163`.
     pub(super) structure: Option<Described>,
+    /// What became of each embedded file a `preserve` by page was asked to lay out, one entry per
+    /// file: its pages, or the reason no page carries it (`doc/adr/2536`).
+    pub(super) attachments: Vec<super::report::AttachmentOutcome>,
+    /// Each file attachment annotation that named one of those files, and the appended page it
+    /// now links to — `None` where its file was removed rather than laid out (`doc/adr/2537`).
+    pub(super) linked_annotations: BTreeMap<ObjectId, Option<ObjectId>>,
+    /// The page `append-statement` appended, where a row's loss was stated (`doc/rfc/0014`
+    /// section 4). Its pages are among [`Self::pages`] and it has no row in [`Self::carried`],
+    /// because what it carries is not the document's content.
+    pub(super) statement: Option<super::report::StatementPage>,
 }
 
 /// The two entries a relocation writes onto the producer's own page.
@@ -336,6 +346,9 @@ pub(super) fn compose(
         carried: Vec::new(),
         relocations: BTreeMap::new(),
         structure: None,
+        attachments: Vec::new(),
+        linked_annotations: BTreeMap::new(),
+        statement: None,
     };
     let first = tree.len();
     let face = sets_text

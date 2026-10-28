@@ -5,7 +5,9 @@
 
 use pdf_formcalc::parse::Separator;
 use pdf_formcalc::{Budget, Host, Occurrence, Segment, Stop, Value, run, run_counted};
-use pdf_model::xfa::{Calculation, Form, Occurrence as Wanted, Ran, Runner, Scalar, Step};
+use pdf_model::xfa::{
+    Calculation, Form, FormLanguage, Occurrence as Wanted, Ran, Runner, Scalar, Step,
+};
 
 /// A form and the container whose script runs.
 struct Hosted<'f, 'a> {
@@ -85,7 +87,23 @@ pub(crate) fn calculate(form: &mut Form<'_>, calculation: &Calculation) -> Resul
 pub(crate) struct FormCalcRunner;
 
 impl Runner for FormCalcRunner {
-    fn run(&mut self, form: &mut Form<'_>, node: usize, script: &str, steps_left: u64) -> Ran {
+    fn run(
+        &mut self,
+        form: &mut Form<'_>,
+        node: usize,
+        language: FormLanguage,
+        script: &str,
+        steps_left: u64,
+    ) -> Ran {
+        if language != FormLanguage::FormCalc {
+            return Ran {
+                steps: 0,
+                outcome: Err(format!(
+                    "its script is {}, which this runner does not run",
+                    language.name()
+                )),
+            };
+        }
         let mut host = Hosted { form, here: node };
         let budget = Budget {
             steps: Budget::CALCULATION.steps.min(steps_left),

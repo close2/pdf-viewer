@@ -387,9 +387,9 @@ fn program_widths(
 ///
 /// `None` where this crate's reader for the format states no advance: a `TrueType` glyph
 /// outside `hmtx`, a Type 2 charstring that omits the leading width operand where the Private
-/// DICT supplies no `defaultWidthX`, or a bare Type 1 program, whose `hsbw` width this crate
-/// does not read (`read_fonts::ps::type1` gives it no accessor and [`crate::type1`] adds
-/// none). An absence here is a fact about this reader, never about the file.
+/// DICT supplies no `defaultWidthX`, or a bare Type 1 program, whose `hsbw` width
+/// [`crate::type1::Program::advance`] reads from the parse a loaded font keeps, which bytes alone
+/// do not carry. An absence here is a fact about this reader, never about the file.
 pub(crate) fn program_advance(program: Program, data: &[u8], glyph: u16) -> Option<f32> {
     match program {
         Program::Sfnt => {

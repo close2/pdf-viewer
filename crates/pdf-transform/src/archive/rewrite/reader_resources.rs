@@ -2,6 +2,7 @@
 //! into the objects that hold them (`super::super::reader_resources` decides which, `doc/adr/2500`).
 use std::collections::BTreeMap;
 
+use pdf_syntax::Document;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
 
 use super::super::reader_resources::{Addition, Edit, FormCopy, Place};
@@ -98,7 +99,10 @@ impl Rewriter<'_> {
     /// A name no dictionary defined is defined as an empty resource of its category.
     ///
     /// **Never over an entry that is there**, so a shared dictionary reached by two edits is
-    /// written once.
+    /// written once. An entry whose value resolves to null is not there: ISO 32000-2 §7.3.9 makes
+    /// it equivalent to omitting the entry, and a reference to an object the file does not define
+    /// the same as null, so the reader drew nothing for the name and the survey reports it
+    /// undefined (`doc/adr/2550`).
     pub(super) fn define_empty_resources(
         &self,
         id: ObjectId,
@@ -120,7 +124,7 @@ impl Rewriter<'_> {
                     out.insert(Name::new(&b"Resources"[..]), value.clone());
                     changed = true;
                 }
-                Edit::Define(place, addition) if define(place, addition, out) => {
+                Edit::Define(place, addition) if define(self.document, place, addition, out) => {
                     count(applied, Rewrite::EmptyResourceDefined);
                     changed = true;
                 }
@@ -152,11 +156,11 @@ fn retarget(resources: &mut Dictionary, name: &[u8], from: ObjectId, to: ObjectI
 /// The tables are taken out of their holder and put back rather than copied, because a stream that
 /// names tens of thousands of missing resources reaches this once for each, and a copy of the
 /// table per name would make the rewrite quadratic.
-fn define(place: &Place, addition: &Addition, out: &mut Dictionary) -> bool {
+fn define(document: &Document, place: &Place, addition: &Addition, out: &mut Dictionary) -> bool {
     match place {
         Place::OwnResources => match out.remove("Resources") {
             Some(Object::Dictionary(mut resources)) => {
-                let written = define_in(&mut resources, addition);
+                let written = define_in(document, &mut resources, addition);
                 out.insert(Name::new(&b"Resources"[..]), Object::Dictionary(resources));
                 written
             }
@@ -166,8 +170,8 @@ fn define(place: &Place, addition: &Addition, out: &mut Dictionary) -> bool {
             }
             None => false,
         },
-        Place::Itself => define_in(out, addition),
-        Place::Table => insert_name(out, addition),
+        Place::Itself => define_in(document, out, addition),
+        Place::Table => insert_name(document, out, addition),
     }
 }
 
@@ -175,17 +179,17 @@ fn define(place: &Place, addition: &Addition, out: &mut Dictionary) -> bool {
 ///
 /// A table that is not a direct dictionary was planned as a [`Place::Table`] edit on its own
 /// object, so any other value here is left as it is.
-fn define_in(resources: &mut Dictionary, addition: &Addition) -> bool {
+fn define_in(document: &Document, resources: &mut Dictionary, addition: &Addition) -> bool {
     let key = Name::new(addition.category.as_bytes());
     match resources.remove(addition.category) {
         Some(Object::Dictionary(mut table)) => {
-            let written = insert_name(&mut table, addition);
+            let written = insert_name(document, &mut table, addition);
             resources.insert(key, Object::Dictionary(table));
             written
         }
         None => {
             let mut table = Dictionary::new();
-            insert_name(&mut table, addition);
+            insert_name(document, &mut table, addition);
             resources.insert(key, Object::Dictionary(table));
             true
         }
@@ -196,10 +200,16 @@ fn define_in(resources: &mut Dictionary, addition: &Addition) -> bool {
     }
 }
 
-/// Adds the name to a table that does not hold it.
-fn insert_name(table: &mut Dictionary, addition: &Addition) -> bool {
+/// Adds the name to a table that does not hold it, or holds it with a value that resolves to null.
+///
+/// The value this conversion writes is a reference to an object of its own, which the source does
+/// not define either, so an entry already holding it is the one a second edit of a shared table
+/// finds, and is left as it is.
+fn insert_name(document: &Document, table: &mut Dictionary, addition: &Addition) -> bool {
     let name = Name::new(addition.name.clone());
-    if table.get_by_name(&name).is_some() {
+    if let Some(entry) = table.get_by_name(&name)
+        && (*entry == addition.value || !document.resolve(entry).is_null())
+    {
         return false;
     }
     table.insert(name, addition.value.clone());

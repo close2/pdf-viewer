@@ -106,6 +106,7 @@ use crate::finding::{Findings, Where};
 use crate::requirement::{Applies, Check, Clauses, Requirement};
 use crate::survey::{
     DefaultSpace, DeviceColour, DeviceFamily, IccProfile, IccSelection, Route, SpaceKind,
+    ThroughDefault,
 };
 use crate::table::{name_of, states, states_name};
 use crate::target::{Flavour, Part};
@@ -3699,17 +3700,39 @@ fn content_streams_carry_their_own_resources(exam: &Examination<'_>, findings: &
 /// **A024's own pertaining line numbers this section 6.2.4.3 in both parts, and the sentence
 /// stands at section 6.2.4.2 in the copy this project holds.** The rule is identified by its
 /// sentence rather than by a note's clause number, so the citation above follows the standard.
+///
+/// # A `DeviceCMYK` mark a `/DefaultCMYK` remaps is an `ICCBased` one
+///
+/// ISO 32000-2 §8.6.5.6 uses the default "as the colour space for the operation currently being
+/// performed", so a mark the content made in `DeviceCMYK` under an `ICCBased` CMYK default is
+/// painted in that `ICCBased` space, and the sentence binds it
+/// ([`crate::survey::IccCmykPaint::through_default`], `doc/adr/2541`). A default only an inherited
+/// dictionary states is read per part, as every default is here ([`crate::survey::DefaultSpace`]):
+/// part 4 reads it, and under `TechNote 0010` A028 parts 2 and 3 do not.
 fn no_overprint_mode_one_under_icc_cmyk(exam: &Examination<'_>, findings: &mut Findings) {
+    let part = exam.target.part();
     for paint in exam.survey().icc_cmyk_paints() {
         if !paint.overprinting || paint.mode != 1 {
             continue;
         }
+        let read_as_icc = match paint.through_default {
+            None | Some(ThroughDefault::ExplicitlyAssociated) => true,
+            Some(ThroughDefault::Inherited) => part == Part::Four,
+        };
+        if !read_as_icc {
+            continue;
+        }
         let side = if paint.stroking { "stroke" } else { "fill" };
+        let how = if paint.through_default.is_some() {
+            "in DeviceCMYK, which a DefaultCMYK makes an ICCBased CMYK colour space,"
+        } else {
+            "in an ICCBased CMYK colour space"
+        };
         findings.record(
             paint.place.clone().named("OPM"),
             format!(
-                "{} paints a {side} in an ICCBased CMYK colour space with overprinting on for \
-                 that operation and the overprint mode set to 1",
+                "{} paints a {side} {how} with overprinting on for that operation and the \
+                 overprint mode set to 1",
                 paint.what,
             ),
         );
@@ -6335,6 +6358,54 @@ mod tests {
         assert_eq!(
             found(&mode_zero, super::no_overprint_mode_one_under_icc_cmyk),
             0
+        );
+    }
+
+    /// ISO 32000-2 §8.6.5.6 uses an `ICCBased` CMYK `/DefaultCMYK` "as the colour space for the
+    /// operation currently being performed", so a `0 0 0 1 k` fill under it is an `ICCBased`
+    /// CMYK mark, which section 6.2.4.2 forbids overprint mode 1 for. A default only an inherited
+    /// dictionary states is part 4's reading and not part 2's (`TechNote 0010` A028).
+    #[test]
+    fn a_device_cmyk_mark_an_icc_based_default_remaps_is_an_icc_based_one() {
+        const STATE: &str = "/ExtGState << /GS0 << /op true /OPM 1 >> >>";
+        const DEFAULT: &str = "/ColorSpace << /DefaultCMYK [/ICCBased 6 0 R] >>";
+        const MARK: &str = "/GS0 gs 0 0 0 1 k 0 0 1 1 re f";
+        /// The mark in a form `XObject` the page draws, with `form` as the form's own entries.
+        fn page(page_resources: &str, form: &str) -> Document {
+            let call = "/Fm0 Do";
+            let bodies = [
+                "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+                "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+                format!(
+                    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Contents 4 0 R \
+                     /Resources << {page_resources} /XObject << /Fm0 5 0 R >> >> >>"
+                ),
+                format!("<< /Length {} >> stream\n{call}\nendstream", call.len()),
+                format!(
+                    "<< /Type /XObject /Subtype /Form /BBox [0 0 10 10] {form} /Length {} >> \
+                     stream\n{MARK}\nendstream",
+                    MARK.len()
+                ),
+                "<< /N 4 /Length 4 >> stream\nabcd\nendstream".to_owned(),
+            ];
+            let borrowed: Vec<&str> = bodies.iter().map(String::as_str).collect();
+            document_of(&borrowed)
+        }
+        let rule = super::no_overprint_mode_one_under_icc_cmyk;
+        let own = page("", &format!("/Resources << {DEFAULT} {STATE} >>"));
+        for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+            assert_eq!(found_for(&own, target, rule), 1, "{target:?}");
+        }
+        let none = page("", &format!("/Resources << {STATE} >>"));
+        for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+            assert_eq!(found_for(&none, target, rule), 0, "no default: {target:?}");
+        }
+        let inherited = page(&format!("{DEFAULT} {STATE}"), "");
+        assert_eq!(found_for(&inherited, Target::Four(Flavour::Plain), rule), 1);
+        assert_eq!(
+            found_for(&inherited, Target::Two(Level::B), rule),
+            0,
+            "A028 reads only the form's own resources at part 2, and it has none"
         );
     }
 

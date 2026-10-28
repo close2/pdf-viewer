@@ -127,7 +127,11 @@ impl Interpreter<'_> {
             values,
             state.rendering(),
             (&self.compositing, &self.spots_beside),
-            state.black_generation(),
+            // §11.7.5.3 names a `DeviceCMYK` group, and an `ICCBased` one is not (ADR 2170):
+            // the same condition `Conversion::black_generation_in_force` states.
+            state
+                .black_generation()
+                .filter(|_| self.cmyk_group.is_none()),
         )
     }
 
@@ -183,55 +187,6 @@ impl Interpreter<'_> {
             spots: &self.spots_beside,
         };
         self.solid_colours.paint(context, source, fill)
-    }
-
-    /// Records §11.7.5.3's bypass for a solid fill, stroke or stencil about to be painted under
-    /// `state`, against the same source and parameters as the paint itself (ADR 2187).
-    ///
-    /// Asked once per mark and per glyph, so it asks nothing once the flag is set — the flag is
-    /// monotone within its scope, and a checkpoint's rollback restores the value this reads — and
-    /// asks it of a borrowed context rather than an owned [`Conversion`]. Building and dropping
-    /// that conversion cost 136 instructions a mark on page 101 of ISO 32000-2, 1.7 % of its
-    /// interpretation; the borrow costs 5 (ADR 2258, `examples/callgrind_interpret`).
-    pub(super) fn report_solid_black_generation(&mut self, state: &GraphicsState, fill: bool) {
-        if !self.black_generation_painted && self.solid_bypasses_black_generation(state, fill) {
-            self.black_generation_painted = true;
-        }
-    }
-
-    /// Whether the solid paint [`Interpreter::report_solid_black_generation`] reports bypasses
-    /// the stated pair.
-    fn solid_bypasses_black_generation(&self, state: &GraphicsState, fill: bool) -> bool {
-        if let Some(tint) = &state.pattern_tint {
-            tint.bypasses_black_generation(self)
-        } else {
-            self.paint_context(state.rendering(), state.black_generation.as_ref())
-                .bypasses_black_generation(if fill {
-                    &state.fill_space
-                } else {
-                    &state.stroke_space
-                })
-        }
-    }
-
-    /// The borrowed context a solid paint converts under, for a question asked of it.
-    ///
-    /// [`Interpreter::solid_paint`] spells the same fields out itself, because it hands them to
-    /// the memo it borrows mutably beside them.
-    pub(super) fn paint_context<'a>(
-        &'a self,
-        rendering: Rendering,
-        generation: Option<&'a std::sync::Arc<BlackGeneration>>,
-    ) -> ConversionContext<'a> {
-        ConversionContext {
-            into: &self.compositing,
-            rendering,
-            output_intent: profile_of(self.output_intent.as_ref()),
-            cmyk_group: profile_of(self.cmyk_group.as_ref()),
-            black_generation: generation,
-            separations: self.separations(),
-            spots: &self.spots_beside,
-        }
     }
 
     /// How an object painted under `state` converts its colours.

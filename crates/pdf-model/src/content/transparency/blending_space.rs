@@ -565,13 +565,6 @@ impl Interpreter<'_> {
     /// is the document's — the press budget is the interpretation's own, never the process's —
     /// so the order is the plain one, the space itself first and then what a group inside did to
     /// it, and either of them is the same answer on every run.
-    ///
-    /// **§11.7.5.3's black generation is not a condition either, since it is not a second colour
-    /// space** (ADR 1069). Table 57's `/BG` and `/UCR` are §10.4.2.4's parameters, and §10.4.2.1
-    /// puts §10.4.2's whole branch below §10.3's, where this tree's conversion into a press is — so
-    /// the functions have no step of it to act on, and falling back to the device did not evaluate
-    /// them either. It only cost the page the space §11.4.7 requires.
-    /// [`Interpreter::note_black_generation_departure`] is the departure that is left.
     pub(in crate::content) fn blending_undrawable(&self) -> Option<BeyondPress> {
         if let Some(beyond) = self.blending_beyond {
             return Some(beyond);
@@ -583,55 +576,5 @@ impl Interpreter<'_> {
             ));
         }
         self.blending_beyond
-    }
-
-    /// Says where a stated black generation reached a conversion that did not use it.
-    ///
-    /// ISO 32000-2 §11.7.5.3 states the pair's three moments and this tree carries out the
-    /// first two. The first: a `DeviceRGB` colour painted into a group whose colour space is
-    /// `DeviceCMYK` is separated by §10.4.2.4 with the file's own functions
-    /// (`ColourSpace::to_cmyk_under`, ADR 1207). The second: a group this tree composites on
-    /// the device's three components painted into a four-component parent converts through
-    /// [`parent_channels`], which takes the pair in effect at the `Do` (ADR 1242).
-    ///
-    /// One departure is left, and the condition names it rather than the statement alone: **a
-    /// `DeviceCMYK` page group whose output intent's profile states the conversion in.**
-    /// §8.6.5.5 requires a blending space's profile to carry "from CIE" information and this tree
-    /// uses it (ADR 0796), so the black generation there is the document's own measured
-    /// transform rather than the device default §10.4.2.4's last paragraph asks for — which is
-    /// what a stated pair substitutes for. Replacing a `B2A` table with §10.4.2.4's arithmetic
-    /// would convert into a profile's space by a formula that never reads the profile. A group
-    /// whose own colour space is `ICCBased` is not that case: the pair "shall be applied only
-    /// during conversion from DeviceRGB to DeviceCMYK colour spaces", and converting into an
-    /// `ICCBased` space is not one, so its `B2A` route departs from nothing (ADR 2170).
-    ///
-    /// The third bullet is neither: it conditions on "the native colour space of the output
-    /// device" being `DeviceCMYK`, and this device's is sRGB (ADR 0009).
-    ///
-    /// Raised once per interpretation from actual paints. Selecting a colour or a function
-    /// does not paint; q/Q and a later /Default can retire the pair before any conversion.
-    /// ISO 32000-2 §11.7.5.3, first black-generation bullet:
-    ///
-    /// > When painting an elementary object with a DeviceRGB colour directly into a transparency
-    /// > group whose colour space is DeviceCMYK , the functions used shall be the current
-    /// > black-generation and undercolour-removal functions in effect in the graphics state at the
-    /// > time of the painting operation.
-    #[expect(
-        clippy::doc_markdown,
-        reason = "the paragraph quotes §11.7.5.3 verbatim, and a quotation is not marked up"
-    )]
-    pub(in crate::content) fn note_black_generation_departure(&mut self) {
-        if !self.black_generation_painted {
-            return;
-        }
-        self.note(Unsupported::BlackGeneration {
-            detail: "a DeviceRGB object is painted while Table 57's /BG, /BG2, /UCR or /UCR2 is a \
-                     function of its own, into a DeviceCMYK group composited in a press \
-                     sampled from its output intent's profile (§14.11.5), whose B2A table is the \
-                     conversion in (§8.6.5.5), so the stated pair reaches no step of it \
-                     (§11.7.5.3). Conversion into an unprofiled DeviceCMYK group and conversion \
-                     of a DeviceRGB group into a DeviceCMYK parent use the stated pair"
-                .to_owned(),
-        });
     }
 }

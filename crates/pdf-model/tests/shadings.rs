@@ -1211,6 +1211,182 @@ fn a_patch_in_a_separation_space_converts_its_grid_after_interpolating() {
     );
 }
 
+/// The `t²` tint transform of the patch fixtures above, as a `Separation` space a patch mesh
+/// states: red is the square of the tint, which bends across any patch whose tints differ.
+const SQUARED_TINT: &str = "[/Separation /Spot /DeviceRGB \
+                            << /FunctionType 2 /Domain [0 1] /C0 [0 0 0] /C1 [1 0 0] /N 2 >>]";
+
+/// A type 6 mesh in `space` with eight-bit coordinates and one eight-bit tint per corner.
+fn tinted_patch_mesh(space: &str, data: &str) -> String {
+    format!(
+        "<< /ShadingType 6 /ColorSpace {space} \
+         /BitsPerCoordinate 8 /BitsPerComponent 8 /BitsPerFlag 8 /Decode [0 100 0 100 0 1] \
+         /Filter /ASCIIHexDecode /Length {} >>\nstream\n{data}\nendstream",
+        data.len()
+    )
+}
+
+/// The one patch mesh a page paints.
+fn the_patch_mesh(interpretation: &pdf_model::content::Interpretation) -> pdf_render::PatchMesh {
+    let shading = one_shading(interpretation);
+    let (triangles, patches) = match shading.kind.as_ref() {
+        ShadingKind::Mesh {
+            triangles, patches, ..
+        } => Some((triangles, patches)),
+        _ => None,
+    }
+    .expect("a type 6 shading is a mesh");
+    assert!(triangles.is_empty(), "a patch mesh states no triangles");
+    patches.clone().expect("a type 6 shading carries patches")
+}
+
+/// A patch whose conversion bends travels as a patch, its colours converted at a lattice
+/// (ISO 32000-2 §8.7.4.4, §8.7.4.5.7; ADR 2546).
+///
+/// §8.7.4.4 requires the interpolation be performed in the `Separation` space and converted
+/// afterwards, and the `t²` transform is not linear across tints 0, 1, 0, 1, so four converted
+/// corners cannot carry the patch. What travels is the control net and a lattice of converted
+/// colours, every cell of which is linear to §10.7.3's tolerance — checked here at each cell's
+/// centre against the conversion of the interpolated tint, which is the clause's own colour.
+#[test]
+fn a_patch_whose_conversion_bends_travels_with_a_lattice() {
+    let data = "00 0A0A 1E0A 320A 460A 461E 4632 4646 3246 1E46 0A46 0A32 0A1E 00 FF 00 FF >";
+    let bytes = pdf_with(&tinted_patch_mesh(SQUARED_TINT, data), "/Sh0 sh");
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let interpretation = pdf_model::interpret(&document, &page);
+    assert!(
+        interpretation.is_complete(),
+        "a smooth transform reaches the tolerance inside the bounds: {:?}",
+        interpretation.unsupported
+    );
+    let mesh = the_patch_mesh(&interpretation);
+    let pdf_render::PatchCorners::Grid(lattice) = &mesh.patches[0].corners else {
+        panic!(
+            "a bending conversion carries a lattice: {:?}",
+            mesh.patches[0].corners
+        );
+    };
+    let (across, down) = lattice.cells();
+    assert!(across > 1 && down > 1, "both axes bend: {across} by {down}");
+    // Corners (0,0), (0,1), (1,1), (1,0) carry tints 0, 1, 0, 1, so the tint is u + v − 2uv.
+    let mut worst = 0.0_f32;
+    for i in 0..across {
+        for j in 0..down {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "test code: small lattice indices"
+            )]
+            let (u, v) = (
+                (i as f32 + 0.5) / across as f32,
+                (j as f32 + 0.5) / down as f32,
+            );
+            let tint = u + v - 2.0 * u * v;
+            worst = worst.max((lattice.colour_at(u, v).r - tint * tint).abs());
+        }
+    }
+    assert!(
+        worst <= mesh.smoothness,
+        "every cell's centre is within §10.7.3's {} of t²: {worst}",
+        mesh.smoothness
+    );
+}
+
+/// The silhouette of a patch converted at a lattice is drawn at the device's fineness, not at a
+/// fixed one (§10.7.2, §8.7.4.5.7; ADRs 1217, 2546).
+///
+/// The patch's first boundary curve is the cubic from (20, 100) through (60, 0) and (140, 0) to
+/// (180, 100), in raw coordinates a `/Decode` of 0..100 scales by 100/255. Evaluated at ten
+/// uniform steps, the chord from its parameter 0.4 to 0.5 passes 0.75 raw units — 2.4 device
+/// pixels at eight pixels a unit — inside the curve at parameter 0.45, at raw (91.0, 25.75). The
+/// pixel sampled lies between the two: inside the patch §8.7.4.5.7 defines, and outside the
+/// polygon of ten steps, so a fixed fineness leaves it unpainted.
+#[test]
+fn a_lattice_patchs_silhouette_follows_the_device() {
+    // Table 84, f = 0: p00 p01 p02 p03 p13 p23 p33 p32 p31 p30 p20 p10, then four tints.
+    let data = "00 1464 3C00 8C00 B464 B48C B4B4 B4DC 8CDC 3CDC 14DC 14B4 148C 00 FF 00 FF >";
+    let raster = render_at(
+        pdf_with(&tinted_patch_mesh(SQUARED_TINT, data), "/Sh0 sh"),
+        8.0,
+    );
+    // Device (285, 717) is page (35.69, 10.31): the curve is at page y 10.10 there and the
+    // ten-step chord at 10.39.
+    let (_, _, _, alpha) = pixel(&raster, 285, 717);
+    assert_eq!(
+        alpha, 255,
+        "a pixel inside the curved boundary is painted; a ten-step polygon leaves it bare"
+    );
+    // And one the curve itself leaves outside stays bare, so the assertion above is about the
+    // boundary and not about a patch that covers everything.
+    let (_, _, _, outside) = pixel(&raster, 285, 726);
+    assert_eq!(outside, 0, "page y 9.19 is below the curve");
+}
+
+/// A conversion that steps defeats every lattice, and the bounds stop it before the work
+/// (§10.7.3: "[e]ach output device may have internal limits"; ADR 2546).
+///
+/// Red is 0 up to a tint of one half and 1 above it, and tints 0, 1, 0, 1 put that step across
+/// both of the patch's middle lines, so a cell straddling it bends at every fineness. Each patch
+/// refines to the cell bound and stops there, and the conversions the lattices may cost run out
+/// part-way down the mesh: every patch is still drawn, the later ones from their four corners,
+/// and the mesh says it is coarser than the tolerance by `max_mesh_refinement`.
+#[test]
+fn a_mesh_whose_lattices_cannot_converge_is_bounded_and_reported() {
+    let patch = "00 0A0A 1E0A 320A 460A 461E 4632 4646 3246 1E46 0A46 0A32 0A1E 00 FF 00 FF ";
+    let data = format!("{}>", patch.repeat(40));
+    let step = "{ 0.5 gt { 1 } { 0 } ifelse 0 0 }";
+    let transform = format!(
+        "7 0 obj\n<< /FunctionType 4 /Domain [0 1] /Range [0 1 0 1 0 1] /Length {} >>\n\
+         stream\n{step}\nendstream\nendobj\n",
+        step.len()
+    );
+    let bytes = pdf_with_extra(
+        &tinted_patch_mesh("[/Separation /Spot /DeviceRGB 7 0 R]", &data),
+        "/Sh0 sh",
+        &transform,
+    );
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let interpretation = pdf_model::interpret(&document, &page);
+    let reported = format!("{:?}", interpretation.unsupported);
+    assert!(
+        reported.contains("max_mesh_refinement"),
+        "a lattice the bounds stopped outside the tolerance is reported: {reported}"
+    );
+    let mesh = the_patch_mesh(&interpretation);
+    assert_eq!(mesh.patches.len(), 40, "every patch is drawn");
+    let most = pdf_render::MAX_PATCH_GRID_CELLS;
+    match &mesh.patches[0].corners {
+        pdf_render::PatchCorners::Grid(lattice) => {
+            assert_eq!(
+                lattice.cells(),
+                (most, most),
+                "the first refines to the cell bound"
+            );
+        }
+        other => panic!("the first patch carries a lattice: {other:?}"),
+    }
+    assert!(
+        matches!(
+            mesh.patches[39].corners,
+            pdf_render::PatchCorners::Colours(_)
+        ),
+        "the conversions ran out before the last patch, which keeps its four corners"
+    );
+    let held: usize = mesh
+        .patches
+        .iter()
+        .map(|patch| match &patch.corners {
+            pdf_render::PatchCorners::Grid(lattice) => lattice.colours().len(),
+            _ => 0,
+        })
+        .sum();
+    assert!(
+        held <= pdf_model::mesh::MAX_TRIANGLES,
+        "the lattices hold {held} colours, no more than the conversions they were charged"
+    );
+}
+
 /// A tint transform that *steps* defeats the subdivision, and the mesh says so.
 ///
 /// §10.7.3's NOTE 1 concedes the case — a conversion "sampled at too low a frequency, in which

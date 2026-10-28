@@ -228,8 +228,6 @@ static MAC_ROMAN: [&str; 256] = [
     "cedilla",        "hungarumlaut",   "ogonek",         "caron", // 252
 ];
 
-/// Returns the Mac OS Roman code a glyph name occupies, if it occupies one.
-///
 /// The glyph name a `/Differences` array would use for a character.
 ///
 /// §9.6.5.1 makes an encoding dictionary's `/Differences` an array of "glyph names", and Annex D's
@@ -304,6 +302,48 @@ pub fn text_for(name: &str) -> Option<String> {
     (!out.is_empty()).then_some(out)
 }
 
+/// Whether a glyph name is a row of the Adobe Glyph List itself, the list's 2002 table.
+///
+/// Narrower than [`text_for`], on purpose, and for a reader that asks a different question:
+/// `text_for` answers what text a name *stands for*, by the Adobe Glyph List Specification's
+/// algorithm, which also derives a value for a `uniXXXX` or `uXXXX` name, for a `_` ligature and
+/// for a name with a `.suffix`. ISO 19005-2 section 6.2.11.6 and section 6.2.11.7.2, and ISO
+/// 19005-4 section 6.2.10.6, ask instead whether a name is *listed* in the Adobe Glyph List, a
+/// document both parts reference normatively by its date, 20 September 2002 (table version 2.0).
+/// Every row of that table is a name of letters and digits alone, and none has the `uni` or `u`
+/// shape the algorithm derives from — so a name of any other shape is not a row, and the derived
+/// shapes are set aside before the table is asked.
+///
+/// The table is the one `read-fonts` compiles in, and it is that list: its single-character
+/// rows answer `name_to_char` and its 81 rows of several characters answer `name_to_chars`, and
+/// the two together hold the 4 281 rows of the 2002 table and no other name (`doc/adr/2540`
+/// records the comparison). Nothing is vendored for this.
+#[must_use]
+pub fn is_listed(name: &str) -> bool {
+    if name.is_empty() || !name.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
+        return false;
+    }
+    if derived_by_the_algorithm(name) {
+        return false;
+    }
+    read_fonts::ps::agl::name_to_chars(name).next().is_some()
+}
+
+/// Whether a name has one of the two shapes the Adobe Glyph List Specification derives a value
+/// from rather than lists: `uni` and groups of four hexadecimal digits, or `u` and four to six.
+fn derived_by_the_algorithm(name: &str) -> bool {
+    let hex = |digits: &str| digits.bytes().all(|byte| byte.is_ascii_hexdigit());
+    let grouped = name
+        .strip_prefix("uni")
+        .is_some_and(|digits| !digits.is_empty() && digits.len() % 4 == 0 && hex(digits));
+    grouped
+        || name
+            .strip_prefix('u')
+            .is_some_and(|digits| (4..=6).contains(&digits.len()) && hex(digits))
+}
+
+/// Returns the Mac OS Roman code a glyph name occupies, if it occupies one.
+///
 /// This is the reverse of the encoding §9.6.5.4 calls "the standard Roman encoding that is
 /// used on Mac OS", which it needs in exactly one place: a `TrueType` font with a (1, 0)
 /// `cmap` subtable is addressed by *code*, so a glyph name has to be turned back into one.
@@ -726,6 +766,38 @@ mod tests {
         ZAPF_DINGBATS_CHARACTERS,
     };
     use skrifa::raw::ps::string::STANDARD_STRINGS;
+
+    #[test]
+    fn a_name_is_listed_only_where_the_2002_table_has_its_row() {
+        // Rows of the table: a letter, `u` itself and a word that begins `uni` (`union` is U+222A), and
+        // one of the 81 rows that stand for several characters, which a one-character lookup
+        // alone would have called unlisted.
+        for name in ["A", "u", "union", "dalethatafpatah", "afii57664"] {
+            assert!(super::is_listed(name), "{name} is a row of the list");
+        }
+        // Names the specification's algorithm derives a value for, and the list does not hold:
+        // `issue6961`'s `uni0042` among them, then a ligature and a variant. `text_for` derives one
+        // character per component and so declines the two-character `uni` form, which the list
+        // does not hold either.
+        for name in [
+            "uni0042",
+            "uni00420043",
+            "u1F600",
+            "f_f_i",
+            "A.sc",
+            "",
+            "uni",
+            "notaname",
+        ] {
+            assert!(!super::is_listed(name), "{name} is not a row of the list");
+            let derivable = super::text_for(name).is_some();
+            assert_eq!(
+                derivable,
+                !["", "uni", "notaname", "uni00420043"].contains(&name),
+                "and text_for, the wider reading, derives {name} or not as expected"
+            );
+        }
+    }
 
     /// Every glyph name in these tables must be one the CFF specification also knows.
     ///

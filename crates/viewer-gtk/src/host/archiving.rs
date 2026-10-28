@@ -127,7 +127,7 @@ fn profiles_of(choosing: &Choosing) -> gtk4::ListBox {
         let name = gtk4::Label::new(None);
         name.set_markup(&format!(
             "<b>{}</b>",
-            glib::markup_escape_text(offered.name)
+            glib::markup_escape_text(&offered.name)
         ));
         name.set_xalign(0.0);
         let sentence = gtk4::Label::new(Some(&offered.sentence));

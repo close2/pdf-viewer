@@ -8,7 +8,7 @@ use pdf_render::{ClipId, Transform};
 
 use crate::content::font::Font;
 use crate::content::overprint::FirstBullet;
-use crate::content::report::Placed;
+use crate::content::report::{Placed, Unsupported};
 use crate::content::{GraphicsState, Interpreter};
 
 impl Interpreter<'_> {
@@ -72,9 +72,13 @@ impl Interpreter<'_> {
     ) {
         let Some(font) = state.text.font.clone() else {
             // Text we cannot draw is counted so the page says it is incomplete — unless the
-            // layer it belongs to is off, in which case not drawing it is correct.
+            // layer it belongs to is off, in which case not drawing it is correct. A font name
+            // that reached no dictionary is said here, by the mark it cost (`doc/adr/2550`).
             if !self.is_hidden() {
                 self.text_operations = self.text_operations.saturating_add(1);
+                if let Some(detail) = state.text.owed_font_report.clone() {
+                    self.note(Unsupported::Font { detail });
+                }
             }
             return;
         };

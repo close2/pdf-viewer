@@ -121,6 +121,11 @@ enum Failure {
     /// The caller got the arguments wrong; usage is printed.
     #[error("{0}")]
     Usage(String),
+    /// A configuration the command line names does not read. The status is a usage error's, and
+    /// the usage text is not printed: the arguments were right and the file was not, so the
+    /// sentence naming the file, the line and the target is the whole of what helps.
+    #[error("{0}")]
+    Configuration(String),
     /// A path could not be read.
     #[error("{0}: cannot be read ({1})")]
     Unreadable(PathBuf, std::io::Error),
@@ -139,7 +144,7 @@ impl Failure {
     /// The exit status.
     fn exit(&self) -> Exit {
         match self {
-            Self::Usage(_) => Exit::Usage,
+            Self::Usage(_) | Self::Configuration(_) => Exit::Usage,
             Self::Unreadable(..) | Self::Password(..) | Self::Answer(_) => Exit::Error,
             Self::Refused(refusal) => refusal.exit(),
         }
@@ -436,7 +441,7 @@ pub(crate) fn program(io: &mut dyn World, given: Vec<String>) -> u8 {
         Err(failure) => {
             // Usage above the message wherever the status is 1 — the seam's own usage refusals
             // (a pattern that cannot name the outputs) included.
-            if failure.exit() == Exit::Usage {
+            if failure.exit() == Exit::Usage && !matches!(failure, Failure::Configuration(_)) {
                 err!(io, "{USAGE}");
             }
             errln!(io, "error: {failure}");
@@ -1295,9 +1300,10 @@ fn read_config(
             resolutions: Vec::new(),
         });
     };
+    every_target(&label, &text)?;
     // Read by the library, which a window's archive command reads it through too (ADR 1954).
     let config = Contribution::read(&text, target)
-        .map_err(|error| Failure::Usage(format!("{label}: {error}")))?;
+        .map_err(|error| Failure::Configuration(format!("{label}: {error}")))?;
     // The report's per-site lines say "this configuration answered it"; this is the line that
     // says which configuration that was, once, where a person reading the run meets it.
     if announce && let Some(name) = &config.name {
@@ -1359,19 +1365,42 @@ fn read_config(
 /// `doc/rfc/0007` section 3.1: the list is generated from the same table the converter decides
 /// from, so a site cannot exist undocumented and a configuration naming one that does not exist is
 /// an error rather than a silently ignored line.
+///
+/// **With a configuration and no `--to`, the six listings in [`pdf_archive::Target::ALL`]'s
+/// order**, the configuration read at each, and the first target it does not read at ends the
+/// run with that target named and a non-zero exit — the operator's way of checking a file once,
+/// without a document (`doc/rfc/0014` section 6, `doc/questions/A706` item 5).
 fn print_remedy_sites(io: &mut dyn World, arguments: &Arguments) -> Result<(), Failure> {
     let Some(word) = arguments.value(&["--to"]) else {
-        return Err(Failure::Usage(
-            "--remedy-sites needs --to <target>: a site's remedies depend on the target, so the \
-             list is the target's — doc/rfc/0007 section 4.6"
-                .to_owned(),
-        ));
+        if arguments.value(&["--config"]).is_none() && arguments.value(&["--profile"]).is_none() {
+            return Err(Failure::Usage(
+                "--remedy-sites needs --to <target>, or a configuration to read at all six: a \
+                 site's remedies depend on the target, so the list is the target's — \
+                 doc/rfc/0007 section 4.6"
+                    .to_owned(),
+            ));
+        }
+        for target in pdf_archive::Target::ALL {
+            outln!(io, "== {target} ==");
+            print_remedy_sites_at(io, arguments, target)?;
+            outln!(io);
+        }
+        return Ok(());
     };
     let target = pdf_archive::Target::parse(word).ok_or_else(|| {
         Failure::Usage(format!(
             "--to {word:?}: the targets are 2b, 2u, 2a, 4, 4f, 4e"
         ))
     })?;
+    print_remedy_sites_at(io, arguments, target)
+}
+
+/// One target's listing: every site it binds, and what the configuration given answers there.
+fn print_remedy_sites_at(
+    io: &mut dyn World,
+    arguments: &Arguments,
+    target: pdf_archive::Target,
+) -> Result<(), Failure> {
     let sites = sites(target);
     outln!(
         io,
@@ -1563,10 +1592,23 @@ fn print_unbuilt_answers(
     bound: usize,
 ) -> Result<(), Failure> {
     let config = Configuration::read(text, target)
-        .map_err(|error| Failure::Usage(format!("{label}: {error}")))?;
+        .map_err(|error| Failure::Usage(format!("{label} does not read at {target}: {error}")))?;
     let named = config.name.clone().unwrap_or_else(|| label.to_owned());
     let unbuilt = config.unbuilt(target);
     outln!(io);
+    // `doc/rfc/0014` section 6: each answered site says which file it was read from, so an
+    // operator whose file names a base sees which answers are theirs and which the base's.
+    for (site, remedy, read_from) in config.answered() {
+        let from = match read_from {
+            pdf_transform::archive::ReadFrom::ThisFile => "this file".to_owned(),
+            pdf_transform::archive::ReadFrom::Base(base) => format!("from {base}"),
+        };
+        outln!(
+            io,
+            "  {site:?} is answered with `{}` ({from})",
+            remedy.word()
+        );
+    }
     for answer in &unbuilt {
         outln!(
             io,
@@ -1581,6 +1623,22 @@ fn print_unbuilt_answers(
         unbuilt.len()
     );
     Ok(())
+}
+
+/// The configuration read at all six targets, before the run reads any document.
+///
+/// `doc/rfc/0014` section 6 and `doc/questions/A706` item 5: a file whose answer one target does
+/// not admit is refused here, naming that target, rather than at whichever document first reaches
+/// the site — so a batch of documents never stops part-way over the operator's own file, and a
+/// file written for one target is known to be one before it is copied to another run.
+fn every_target(label: &str, text: &str) -> Result<(), Failure> {
+    pdf_transform::profiles::read_at_every_target(text).map_err(|(target, error)| {
+        Failure::Configuration(format!(
+            "{label} does not read at {target}: {error} — a configuration is read at all six \
+             targets before any document is (doc/rfc/0014 section 6); \
+             `--remedy-sites {label}` reads it at each without a document"
+        ))
+    })
 }
 
 /// `--config <file>` or `--profile <name>`: where the configuration came from, and its text.
@@ -2654,13 +2712,17 @@ archive:
                            yet'; add --config <file> and it also names every answer that profile
                            gives which this version does not carry out, with a second total. That
                            second question needs no document: what a profile asks for and what
-                           has code behind it are both properties of the profile and the target
+                           has code behind it are both properties of the profile and the target.
+                           With --config <file> and no --to it prints all six targets' listings
+                           and exits non-zero at the first the file does not read at
   --profile <name>         one of the remedy configurations this program ships, by name, in place
                            of --config: as-if-printed (lose only what a printed copy would have
                            lost, as if printed and scanned back in: a lower bound on what may be
                            lost, never an instruction to imitate printing), as-shown (lose only what this viewer's window would not have
                            shown of a page), refuse-any-loss, only-metadata-loss, keep-everything
-                           and derive-attachments. Each is a lower bound on what may be lost,
+                           derive-attachments, no-data-loss (no information lost: kept, else
+                           stop; a presentation loss discarded and stated) and state-every-loss
+                           (every loss taken stated). Each is a lower bound on what may be lost,
                            never an instruction to lose it (doc/profiles/)
   --config <file>          a remedy configuration: a refusal answered in advance, per site, so a
                            queue does not stop for a person (doc/rfc/0007). A site absent from
@@ -2668,7 +2730,9 @@ archive:
                            pipeline until it names a site. The remedy words are stop (the default
                            everywhere), discard, preserve, derive and supply; --remedy-sites says
                            which of them each site admits, and a site whose remedy this version
-                           cannot carry out is named on stderr and stays refused.
+                           cannot carry out is named on stderr and stays refused. The file is
+                           read at all six targets before any document is, and one that does not
+                           read at a target is refused naming it (doc/rfc/0014 section 6).
                            A `derive` site names a program in a [tool.<name>] block and is
                            refused unless it names the site AND the tool. THE PROGRAM IS YOUR
                            CHOICE AND THE DOCUMENT IS NOT: this runs a program you chose, on a
@@ -2681,7 +2745,7 @@ archive:
                            same is written into the file's own xmpMM:History.
                            A `supply` site states a fact the document does not — an attachment's
                            media type — which is recorded as the operator's in both places too.
-                           doc/profiles/ ships six configurations; derive-attachments.toml is the
+                           doc/profiles/ ships eight configurations; derive-attachments.toml is the
                            worked example of a tool
   --depart-from-the-standard
                            required before a configuration's departure is carried out: a departure

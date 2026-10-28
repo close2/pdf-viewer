@@ -35,7 +35,7 @@ default = "stop"
 
 [site."embedded-files/embedded-file-is-itself-pdfa"]
 remedy = "derive"
-tool = "office-to-pdf"
+tool = "to-pdf"
 # A57: on-failure names ONE alternative, never a chain. `stop` is the only one this version
 # carries out — dropping an attachment is a rewrite of the embedded-file name tree that nobody has
 # written, and offering it here would be selling a permanent hole in an archive to save an
@@ -44,7 +44,7 @@ on-failure = "stop"
 
 [site."embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile"]
 remedy = "derive"
-tool = "office-to-pdf"
+tool = "to-pdf"
 on-failure = "stop"
 
 # ---------------------------------------------------------------------------------------------
@@ -93,7 +93,7 @@ unlisted = "stop"
 # A tool that means "not this one" rather than "I failed" exits 69.
 # ---------------------------------------------------------------------------------------------
 
-[tool.office-to-pdf]
+[tool.to-pdf]
 program = "/usr/bin/soffice"
 args = ["--headless", "--convert-to", "pdf", "--outdir", "{out}", "{in}"]
 expects = "application/pdf"

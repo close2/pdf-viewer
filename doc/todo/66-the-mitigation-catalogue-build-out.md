@@ -138,8 +138,9 @@ Grouped by the code one build unlocks, not by clause; every site's own entry in
 - **Embedded files** (four): the media-type `supply` and the `derive` were already built, and the
   `discard` is **built** (ADR 1258) — every reference to the file specification goes, the name tree
   and the `/AF` arrays with it, and the report names each file that left. What is left is appending
-  the attachment's pages, whose blocker is now only the page composition, and the 4f `preserve`
-  (catalogue section 1.2) for anything a byte string can hold.
+  the attachment's pages — **built** for a text, PDF, PNG or JPEG file (ADR 2536) — and the 4f
+  `preserve` (catalogue section 1.2) for anything a byte string can hold; a Screen or Movie clip is
+  kept at 4f and 4e by `keep-media` (ADR 2536).
 - **Fonts, content-stream marks**: the catalogue's *none* — leave them, and say so; ADR 0816's
   fence is the reason, and ADR 1124's content-stream splice is the precedent to cite if a later
   round argues the fence should move. Two have a narrower reading than the family's:

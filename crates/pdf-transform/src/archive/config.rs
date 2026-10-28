@@ -81,8 +81,13 @@ use pdf_syntax::object::ObjectId;
 
 use crate::tool::{Bounds, PLACEHOLDERS, Tool};
 
+use super::base::{Inherited, ReadFrom};
 use super::decision::{self, Answer, Loss, Losses, REMEDIES};
 use super::toml::{self, Value};
+
+mod steps;
+
+pub use steps::{Skipped, Statement};
 
 /// `doc/rfc/0007` section 2's remedy vocabulary, closed and small so a configuration is legible.
 ///
@@ -172,7 +177,7 @@ pub enum ConfigError {
     /// A `remedy` names a word outside the closed vocabulary.
     #[error(
         "line {line}: the site {site:?} states the remedy {remedy:?}, which is none of \
-         stop, discard, preserve, derive or supply"
+         stop, discard, append-statement, preserve, derive or supply"
     )]
     UnknownRemedy {
         /// The 1-based line.
@@ -196,16 +201,75 @@ pub enum ConfigError {
         /// What was there.
         found: &'static str,
     },
-    /// `on-failure` was a list, which `A57` rules out.
+    /// `on-failure` was a list: an ordered answer is written as `try`.
     #[error(
-        "line {line}: on-failure in {site:?} takes one remedy and not a chain — the owner's \
-         answer A57 — so it is a string, not a list"
+        "line {line}: on-failure in {site:?} takes one remedy and not a chain, so it is a \
+         string, not a list; an ordered answer is written try = [...] (doc/rfc/0014 section 3, \
+         the owner's answer A706)"
     )]
     FallbackChain {
         /// The 1-based line.
         line: usize,
         /// The site.
         site: String,
+    },
+    /// A site states `try` beside `remedy` or `on-failure`.
+    #[error(
+        "line {line}: {site:?} states both try and {other}; remedy with on-failure is the \
+         two-step list try = [remedy, on-failure], so a site states one form or the other \
+         (doc/rfc/0014 section 3)"
+    )]
+    TryBesideRemedy {
+        /// The 1-based line.
+        line: usize,
+        /// The site.
+        site: String,
+        /// The other key it states.
+        other: &'static str,
+    },
+    /// A step of `try` is no word of the closed grammar.
+    #[error(
+        "line {line}: the site {site:?} lists the step {step:?}, which is none of stop, \
+         discard, append-statement, preserve, preserve:attach, preserve:append, derive, \
+         derive:<tool>:attach, derive:<tool>:append, supply or depart:<name>"
+    )]
+    UnknownStep {
+        /// The 1-based line.
+        line: usize,
+        /// The site.
+        site: String,
+        /// The word it listed.
+        step: String,
+    },
+    /// No step of a site's `try` is one the target admits, so the answer could never act.
+    #[error(
+        "line {line}: no step of try in {site:?} is one the target {target} admits, so the \
+         answer could never act — {skipped}"
+    )]
+    NoStepAdmitted {
+        /// The 1-based line.
+        line: usize,
+        /// The site.
+        site: String,
+        /// The target the file was read for.
+        target: String,
+        /// Each step and why it was passed over.
+        skipped: String,
+    },
+    /// A step of `try` follows one that never hands an object on, so it is never taken.
+    #[error(
+        "line {line}: the step {step:?} in {site:?} follows {after:?}, which never hands an \
+         object on to a later step, so it would never be taken"
+    )]
+    StepNeverReached {
+        /// The 1-based line.
+        line: usize,
+        /// The site.
+        site: String,
+        /// The step that is never reached.
+        step: String,
+        /// The step before it that always holds or always refuses.
+        after: String,
     },
     /// A target qualifier names something that is not a target.
     #[error(
@@ -348,6 +412,28 @@ pub enum ConfigError {
         /// What is built instead.
         why: &'static str,
     },
+    /// `[profile] base` names no profile this program ships.
+    #[error("line {line}: base = {base:?} names no profile this program ships; they are {offered}")]
+    UnknownBase {
+        /// The 1-based line of the `[profile]` header.
+        line: usize,
+        /// The name the file gave.
+        base: String,
+        /// The shipped profiles' names.
+        offered: String,
+    },
+    /// `[profile] base` names a profile that states a base of its own.
+    #[error(
+        "line {line}: base = {base:?} names a profile that states a base of its own, and a base \
+         is one level deep so that what a site does is found in at most two files \
+         (doc/rfc/0014 section 6)"
+    )]
+    BaseOfABase {
+        /// The 1-based line of the `[profile]` header.
+        line: usize,
+        /// The name the file gave.
+        base: String,
+    },
 }
 
 /// A departure from one requirement, narrowed by a declarative predicate.
@@ -449,8 +535,12 @@ pub struct Derivation {
     pub site: String,
     /// The program, as the `[tool.…]` block declares it.
     pub tool: Tool,
-    /// What is done where the tool declines or fails — `A57`: one alternative, never a chain.
+    /// What is done where the tool declines or fails: the row's second step.
     pub on_failure: Kind,
+    /// Where the derived PDF goes once this converter has converted it: kept an attachment
+    /// (`derive:<tool>:attach`, the default) or laid out as pages after the document's own
+    /// (`derive:<tool>:append`) — `doc/rfc/0014` section 5's third stage.
+    pub placement: Placement,
 }
 
 /// One `preserve` remedy this conversion carries out by fetching what a stream points at.
@@ -466,7 +556,7 @@ pub struct Resolution {
     pub site: String,
     /// The program, as the `[tool.…]` block declares it.
     pub tool: Tool,
-    /// What is done where the tool declines or fails — `A57`: one alternative, never a chain.
+    /// What is done where the tool declines or fails: the row's second step.
     pub on_failure: Kind,
 }
 
@@ -802,6 +892,12 @@ pub(super) const UNMAPPED_NEEDS_A_NAMESPACE: &str = "ISO 19005-2 section 6.6.2.3
 /// the page labels, the structure entries, the `xmpMM:History` record — is inside the same
 /// permission. `super::preserve` is where each is discharged or refused by name.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each flag is a different row's statement about a different mechanism — a page, an \
+              attachment, a property dropped, a file drawn — and they combine freely, so an enum \
+              would have to name every combination"
+)]
 pub struct Preservation {
     /// The requirement identifier it answers.
     pub site: String,
@@ -826,6 +922,24 @@ pub struct Preservation {
     /// operator chooses between dropping the property so that the rest can be described and
     /// stopping the run, and `stop` is what a row states by saying nothing.
     pub discard_undeterminable: bool,
+    /// `on-failure` at an embedded-file site answered by appended pages.
+    ///
+    /// The outcome is per object (`doc/adr/2536`): each attachment the requirement failed at is
+    /// laid out as pages where this reader can lay it out, and one it cannot is removed where
+    /// this is [`Kind::Discard`] and stops the conversion where it is [`Kind::Stop`], which is
+    /// what a row saying nothing states. [`Kind::Stop`] at every other site.
+    pub no_page_carries: Kind,
+    /// Whether an embedded file that is a PDF, or an image this reader decodes, is drawn on the
+    /// appended pages beside the text files it sets (`doc/adr/2536`'s drawn attachments).
+    ///
+    /// `true` at every row a configuration states, and `false` in the plan a drawn PDF is itself
+    /// converted under: a PDF embedded in the PDF being drawn is that conversion's to answer
+    /// without drawing it, which is what makes the drawing one level deep by the plan's shape
+    /// rather than by a counter.
+    pub draws_documents: bool,
+    /// Whether a Screen or Movie annotation this row's removal takes keeps its clip, filed in the
+    /// `/EmbeddedFiles` tree (`keep-media = "attach"`, `MEDIA_SITES`).
+    pub keeps_media: bool,
     /// `unmapped` at the two ISO 19005-4 section 6.1.3 sites.
     ///
     /// What becomes of a `/Info` key §14.3.3's Table 349 names no XMP counterpart for. The
@@ -839,11 +953,18 @@ pub struct Preservation {
     /// [`Kind::Discard`] drops it and the report names the key; every other word is `stop`,
     /// which is also what a row saying nothing states (`doc/adr/2358`).
     pub unreadable: Kind,
+    /// Where the row's loss is `append-statement`'s: what the page stating it says was tried.
+    ///
+    /// `Some` at an embedded-file row whose `discard` step is `append-statement`, whether it is the
+    /// row's first step — and the row is then listed here by neither mechanism, because the page
+    /// that states the loss is composed where every appended page is — or the step after
+    /// `preserve:append` (`doc/rfc/0014` section 4, `A706`).
+    pub statement: Option<Statement>,
 }
 
 /// The requirements a built `preserve` may answer by appending pages.
 ///
-/// Four, and they are the sites whose authorised loss takes content out of the document that the
+/// Seven, and they are the sites whose authorised loss takes content out of the document that the
 /// document still holds somewhere a page could carry:
 ///
 /// - ISO 19005-2 section 6.6.2.3.1's, whose only other answer is
@@ -856,13 +977,19 @@ pub struct Preservation {
 ///   one removal (`doc/adr/2051` section 4), and its `FileAttachment` row, whose file the removal
 ///   keeps in the name tree (`doc/adr/2067` section 4). The appearance is a form `XObject` the producer
 ///   wrote, so the page this composes carries the producer's own marks at the producer's own
-///   coordinates (`doc/adr/1099`).
-const PRESERVABLE_BY_PAGE: [&str; 5] = [
+///   coordinates (`doc/adr/1099`);
+/// - the two embedded-file rows', ISO 19005-2 section 6.8 and ISO 19005-4 section 6.9, whose
+///   authorised loss takes a file out of the document: an attachment this reader can lay out is
+///   appended as pages instead, under `doc/adr/1014`'s permission, and the outcome is per
+///   attachment (`doc/adr/2536`).
+const PRESERVABLE_BY_PAGE: [&str; 7] = [
     "metadata/properties-use-known-schemas",
     "annotations/subtype-defined-in-iso-32000-1",
     "annotations/subtype-defined-in-iso-32000-2",
     "annotations/three-dimensional-only-in-engineering-files",
     KEPT_ATTACHMENT_SITE,
+    "embedded-files/embedded-file-is-itself-pdfa",
+    "embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile",
 ];
 
 /// The requirements a built `preserve` answers by replacing the packet and keeping the original.
@@ -1189,6 +1316,8 @@ pub struct Configuration {
     /// declines: the refusal comes from the source's structure, before any site is asked
     /// (`doc/adr/2502`). Anything but `discard` leaves the refusal in place.
     recovered_structure: bool,
+    /// `[profile] base`, and the sites read from it (`doc/rfc/0014` section 6).
+    inherited: Option<Inherited>,
 }
 
 /// The two bounded Table 167 flag shapes, answered independently within one document.
@@ -1221,6 +1350,12 @@ impl AnnotationFlagAnswers {
 /// `doc/rfc/0007` section 3 makes them a property of the site: a reader that split them would have
 /// to put them back together to answer any question about one row.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each is one key or one step word of the file — fresh-packet, construct, source, \
+              append-statement — and they vary independently, so folding them into one state \
+              would invent a structure the format does not have"
+)]
 struct Row {
     /// The requirement identifier.
     site: String,
@@ -1228,8 +1363,17 @@ struct Row {
     remedy: Kind,
     /// The `[tool.…]` block this row references, where it references one.
     tool: Option<String>,
-    /// `on-failure` — `A57`: one alternative, never a chain. `stop` where the row states none.
+    /// The second step: `on-failure`, or `try`'s second admitted step. `stop` where there is none.
     on_failure: Kind,
+    /// Whether the row's `discard` step is `append-statement`: the loss taken as `discard` takes
+    /// it, then stated on a page appended to the document (`doc/rfc/0014` section 4, `A706`).
+    states_the_loss: bool,
+    /// `try`'s steps as the file wrote them, until `steps::resolved` makes them the fields
+    /// above; empty for a row stating `remedy`.
+    steps: Vec<String>,
+    /// The steps of `try` this target does not admit, each with the sentence it was passed over
+    /// for.
+    skipped: Vec<(String, &'static str)>,
     /// `placement` — which of `preserve`'s two mechanisms, where the row is a `preserve`.
     placement: Option<Placement>,
     /// `original` — what becomes of the packet a fresh one replaces, at the three packet sites.
@@ -1248,6 +1392,9 @@ struct Row {
     unreadable: Kind,
     /// `keep-xfa` — whether the `/XFA` resource stays in the archive as an embedded file.
     keep_xfa: Option<Placement>,
+    /// `keep-media` — whether a removed Screen or Movie annotation's clip stays as an embedded
+    /// file.
+    keep_media: Option<Placement>,
     /// `winner` — which of a colourant's disagreeing definitions the archive keeps.
     winner: Option<Winner>,
     /// `write-mode` — which of an embedded `CMap`'s two write-mode statements stands.
@@ -1331,6 +1478,9 @@ impl Configuration {
     /// outside the vocabulary, and an `on-failure` chain are all stated rather than ignored.
     pub fn read(text: &str, target: Target) -> Result<Self, ConfigError> {
         let tables = toml::parse(text).map_err(|error| ConfigError::Toml(error.to_string()))?;
+        // `doc/rfc/0014` section 6: the base's tables are folded in before anything is checked,
+        // so the merged file is held to the target by exactly the reader a single file is.
+        let (tables, inherited) = super::base::inherit(tables)?;
         let requirements: BTreeSet<&'static str> = table::requirements()
             .map(|requirement| requirement.id)
             .collect();
@@ -1370,11 +1520,10 @@ impl Configuration {
                 }
                 Some("site") => {
                     let site = site_identifier(tbl, &requirements)?;
-                    let remedy = site_remedy(tbl, &site)?;
                     check_fallback(tbl, &site)?;
                     check_qualifier(tbl, &site)?;
                     check_key_shapes(tbl, &site)?;
-                    let row = row(tbl, site, remedy)?;
+                    let row = steps::site_row(tbl, site)?;
                     // The target qualifier decides *whether this row applies* to the conversion:
                     // an unqualified row is the default, a qualified one wins for its target. A
                     // row for another target is read (and validated) but does not answer here.
@@ -1414,6 +1563,9 @@ impl Configuration {
                 }
             }
         }
+        // `try` is resolved once every `[tool.…]` block has been read, for `check_rows`'s own
+        // reason: whether a step is admitted cannot depend on where in the file a tool is declared.
+        steps::resolve_all(&mut sites, &tools, target)?;
         check_rows(&sites, &tools, target)?;
         let annotation_flags = (!flag_shapes.is_empty()).then(|| {
             let fallback = sites
@@ -1441,7 +1593,52 @@ impl Configuration {
             departures,
             annotation_flags,
             recovered_structure,
+            inherited,
         })
+    }
+
+    /// The shipped profile `[profile] base` names, where the file names one.
+    #[must_use]
+    pub fn base(&self) -> Option<&str> {
+        self.inherited
+            .as_ref()
+            .map(|inherited| inherited.base.as_str())
+    }
+
+    /// Every site that answers this target, with its remedy and the file it was read from.
+    ///
+    /// `doc/rfc/0014` section 6's listing: a site is *this file*'s or *from `<base>`*, so an
+    /// operator reading `--remedy-sites` sees which answers are theirs.
+    #[must_use]
+    pub fn answered(&self) -> Vec<(String, Kind, ReadFrom)> {
+        self.sites
+            .iter()
+            .map(|row| {
+                let origin = match &self.inherited {
+                    Some(inherited) if inherited.sites.contains(&row.site) => {
+                        ReadFrom::Base(inherited.base.clone())
+                    }
+                    _ => ReadFrom::ThisFile,
+                };
+                (row.site.clone(), row.remedy, origin)
+            })
+            .collect()
+    }
+
+    /// Every step of a `try` list this target does not admit, with the sentence it was passed
+    /// over for — `doc/rfc/0014` section 3's *the listing says so*.
+    #[must_use]
+    pub fn skipped(&self) -> Vec<Skipped> {
+        self.sites
+            .iter()
+            .flat_map(|row| {
+                row.skipped.iter().map(|(step, why)| Skipped {
+                    site: row.site.clone(),
+                    step: step.clone(),
+                    why,
+                })
+            })
+            .collect()
     }
 
     /// The command-line authorisations the built `discard` remedies stand for.
@@ -1457,10 +1654,12 @@ impl Configuration {
         for row in &self.sites {
             if row.remedy == Kind::Discard
                 && let Some(answered) = losses.get(row.site.as_str())
-                && requirement_binds(&row.site, target)
             {
+                let binds = requirement_binds(&row.site, target);
                 for loss in answered.iter() {
-                    authorised.authorise(loss);
+                    if binds || ASKED_AT_EVERY_TARGET.contains(&loss) {
+                        authorised.authorise(loss);
+                    }
                 }
             }
             // **One loss of a site, apart from the others**, because A570 asks both shipped
@@ -1653,6 +1852,13 @@ impl Configuration {
             site: row.site.clone(),
             tool: tool.clone(),
             on_failure: row.on_failure,
+            // A `preserve` by attachment is a derivation kept an attachment; a `derive` row
+            // states its placement, and one that states none keeps the attachment one.
+            placement: if row.remedy == Kind::Derive {
+                row.placement.unwrap_or(Placement::Attach)
+            } else {
+                Placement::Attach
+            },
         })
     }
 
@@ -1684,25 +1890,40 @@ impl Configuration {
                     || (row.remedy == Kind::Preserve
                         && PRESERVABLE_XFA.contains(&row.site.as_str())
                         && row.keep_xfa == Some(Placement::Attach))
+                    || (row.remedy == Kind::Discard
+                        && row.states_the_loss
+                        && DERIVABLE.contains(&row.site.as_str()))
             })
             .map(|row| Preservation {
                 site: row.site.clone(),
-                by_page: match row.original {
-                    // The packet sites say which mechanism in `original`; every other built
-                    // `preserve` has one mechanism and says nothing about it here.
-                    Some(original) => original.pages_it(),
-                    None => {
-                        !DESCRIBABLE.contains(&row.site.as_str())
-                            && !PRESERVABLE_IN_PLACE.contains(&row.site.as_str())
-                            && row.site != EMBEDDABLE_CMAP
-                            && !PRESERVABLE_INFORMATION.contains(&row.site.as_str())
-                            && !PRESERVABLE_XFA.contains(&row.site.as_str())
-                    }
-                },
+                by_page: row.remedy == Kind::Preserve
+                    && match row.original {
+                        // The packet sites say which mechanism in `original`; every other built
+                        // `preserve` has one mechanism and says nothing about it here.
+                        Some(original) => original.pages_it(),
+                        None => {
+                            !DESCRIBABLE.contains(&row.site.as_str())
+                                && !PRESERVABLE_IN_PLACE.contains(&row.site.as_str())
+                                && row.site != EMBEDDABLE_CMAP
+                                && !PRESERVABLE_INFORMATION.contains(&row.site.as_str())
+                                && !PRESERVABLE_XFA.contains(&row.site.as_str())
+                        }
+                    },
                 by_attachment: row.original.is_some_and(Original::attaches_it)
                     || (PRESERVABLE_XFA.contains(&row.site.as_str())
                         && row.keep_xfa == Some(Placement::Attach)),
                 discard_undeterminable: row.undeterminable == Kind::Discard,
+                no_page_carries: if DERIVABLE.contains(&row.site.as_str())
+                    && row.placement == Some(Placement::Append)
+                    && row.on_failure == Kind::Discard
+                {
+                    Kind::Discard
+                } else {
+                    Kind::Stop
+                },
+                draws_documents: true,
+                keeps_media: row.keep_media == Some(Placement::Attach),
+                statement: steps::statement(row),
                 unmapped: row.unmapped,
                 unreadable: row.unreadable,
             })
@@ -1834,6 +2055,7 @@ fn check_rows(
                 why: ATTACHING_NEEDS_A_CONFORMING_FILE,
             });
         }
+        check_media_row(row, target)?;
         // **`doc/rfc/0007` section 4.6's error naming both, at the two sites whose attachment is
         // the producer's own bytes rather than a derived PDF.** A target that requires every
         // embedded file to conform has nowhere to put an XMP packet or an XFA resource, so the
@@ -1861,10 +2083,15 @@ fn check_rows(
                 why: ONLY_STOP_ON_FAILURE,
             });
         }
+        // **The embedded-file rows take `discard` as well**, because their outcome is per object
+        // (`doc/adr/2536`): the alternative is taken for the one attachment no page can carry and
+        // named for it, never for the site, so what the operator chose to keep is kept wherever
+        // it can be.
         if row.remedy == Kind::Preserve
             && row.placement == Some(Placement::Append)
             && PRESERVABLE_BY_PAGE.contains(&row.site.as_str())
             && row.on_failure != Kind::Stop
+            && !(row.on_failure == Kind::Discard && DERIVABLE.contains(&row.site.as_str()))
         {
             return Err(ConfigError::NotBuiltThatWay {
                 line: row.line,
@@ -1898,6 +2125,17 @@ fn check_rows(
 /// placement asked for something this converter would not do; and `source = "shipped-cmaps"` at
 /// the chain site cannot be carried out at all, for [`A_CHAIN_STAYS_A_CHAIN`]'s reason.
 fn check_what_moves_nothing(row: &Row) -> Result<(), ConfigError> {
+    // **`doc/rfc/0014` section 4, built where the loss is reported per object**: the page lists
+    // each object the step removed, so it is built at the two embedded-file rows whose outcome is
+    // already one per file (`doc/adr/2536`) and refused by name at every other.
+    if row.states_the_loss && !DERIVABLE.contains(&row.site.as_str()) {
+        return Err(ConfigError::NotBuiltThatWay {
+            line: row.line,
+            site: row.site.clone(),
+            asked: format!("the step {:?}", steps::APPEND_STATEMENT),
+            why: steps::STATED_ONLY_PER_OBJECT,
+        });
+    }
     if row.shipped_cmaps && row.site == UNEMBEDDABLE_CHAIN {
         return Err(ConfigError::NotBuiltThatWay {
             line: row.line,
@@ -1936,10 +2174,13 @@ fn site_identifier(
 }
 
 /// Reads a site's `remedy`, or the error naming the unknown word.
-fn site_remedy(tbl: &toml::Table, site: &str) -> Result<Kind, ConfigError> {
+///
+/// The second half is whether the word was `append-statement`, which is `discard` with its loss
+/// stated on an appended page (`doc/rfc/0014` section 4).
+fn site_remedy(tbl: &toml::Table, site: &str) -> Result<(Kind, bool), ConfigError> {
     let Some(value) = tbl.get("remedy") else {
         // A site table stating no remedy at all defaults to `stop`, like an absent site.
-        return Ok(Kind::Stop);
+        return Ok((Kind::Stop, false));
     };
     let Some(word) = value.as_text() else {
         return Err(ConfigError::WrongValue {
@@ -1950,11 +2191,34 @@ fn site_remedy(tbl: &toml::Table, site: &str) -> Result<Kind, ConfigError> {
             found: value.kind(),
         });
     };
-    Kind::parse(word).ok_or_else(|| ConfigError::UnknownRemedy {
+    remedy_word(word).ok_or_else(|| ConfigError::UnknownRemedy {
         line: tbl.line,
         site: site.to_owned(),
         remedy: word.to_owned(),
     })
+}
+
+/// Reads `on-failure`: its kind, and whether it is `append-statement`.
+///
+/// An unknown word is the error naming it rather than `stop`: a configuration that silently did
+/// less than it said is the failure this format exists to remove.
+fn on_failure_key(tbl: &toml::Table, site: &str) -> Result<(Kind, bool), ConfigError> {
+    match tbl.get("on-failure").and_then(Value::as_text) {
+        Some(word) => remedy_word(word).ok_or_else(|| ConfigError::UnknownRemedy {
+            line: tbl.line,
+            site: site.to_owned(),
+            remedy: word.to_owned(),
+        }),
+        None => Ok((Kind::Stop, false)),
+    }
+}
+
+/// The kind a `remedy` or `on-failure` word names, and whether it states its loss.
+fn remedy_word(word: &str) -> Option<(Kind, bool)> {
+    if word == steps::APPEND_STATEMENT {
+        return Some((Kind::Discard, true));
+    }
+    Kind::parse(word).map(|kind| (kind, false))
 }
 
 /// One `[site."…"]` table read into a [`Row`], with `A55`'s guardrail applied.
@@ -1970,11 +2234,7 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
             site,
         });
     }
-    let on_failure = tbl
-        .get("on-failure")
-        .and_then(Value::as_text)
-        .and_then(Kind::parse)
-        .unwrap_or(Kind::Stop);
+    let (on_failure, states_the_loss) = on_failure_key(tbl, &site)?;
     let placement = match tbl.get("placement").and_then(Value::as_text) {
         Some(word) => Some(
             Placement::parse(word).ok_or_else(|| ConfigError::WrongValue {
@@ -2013,6 +2273,7 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
     let unreadable = kind_or_stop(tbl, "unreadable");
     let unlisted = kind_or_stop(tbl, "unlisted");
     let keep_xfa = keeps_the_xfa(tbl, &site)?;
+    let keep_media = keeps_the_media(tbl, &site)?;
     let write_mode = write_mode_key(tbl, &site)?;
     let name_template = name_template_key(tbl, &site)?;
     let profile_text = (
@@ -2038,6 +2299,9 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         remedy,
         tool,
         on_failure,
+        states_the_loss,
+        steps: Vec::new(),
+        skipped: Vec::new(),
         placement,
         original,
         construct,
@@ -2050,6 +2314,7 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         unmapped,
         unreadable,
         keep_xfa,
+        keep_media,
         winner,
         shipped_cmaps,
         write_mode,
@@ -2233,6 +2498,71 @@ fn keeps_the_xfa(tbl: &toml::Table, site: &str) -> Result<Option<Placement>, Con
         }),
     }
 }
+
+/// `keep-media`, whose one word is `attach`.
+///
+/// A clip is the producer's bytes in whatever format it was recorded, so only a target that holds
+/// a file of any type keeps it; laying it out on a page is not this key's answer, because playing
+/// it is `CLAUDE.md`'s clause 13 exclusion and its poster is already `placement`'s.
+fn keeps_the_media(tbl: &toml::Table, site: &str) -> Result<Option<Placement>, ConfigError> {
+    match tbl.get("keep-media").and_then(Value::as_text) {
+        None => Ok(None),
+        Some("attach") => Ok(Some(Placement::Attach)),
+        Some(_) => Err(ConfigError::WrongValue {
+            line: tbl.line,
+            site: site.to_owned(),
+            key: "keep-media".to_owned(),
+            wanted: "the string \"attach\"",
+            found: "another word",
+        }),
+    }
+}
+
+/// The section 6.3.1 rows whose removal takes a Screen or a Movie annotation.
+///
+/// ISO 19005-4 section 6.3.1: "the Sound, Screen and Movie types shall not be permitted". The
+/// part 2 row is listed because a configuration is read once for every target it may meet, and
+/// at part 2 the key is then refused by [`check_media_row`]'s target test rather than ignored.
+pub(super) const MEDIA_SITES: [&str; 2] = [
+    "annotations/subtype-defined-in-iso-32000-1",
+    "annotations/subtype-defined-in-iso-32000-2",
+];
+
+/// What a `keep-media` row owes, checked once.
+///
+/// The key keeps the clip beside the poster `preserve` keeps, so it is read on a `preserve` row
+/// at a `MEDIA_SITES` row and nowhere else; and the clip is not itself PDF/A, so ISO 19005-4
+/// section 6.9's first item admits it only where Annex A.2 or B.4 relaxes it to "any type" —
+/// PDF/A-4f and PDF/A-4e. A key it cannot honour is an error naming the row, never a key read and
+/// then not carried out.
+fn check_media_row(row: &Row, target: Target) -> Result<(), ConfigError> {
+    if row.keep_media.is_none() {
+        return Ok(());
+    }
+    if row.remedy != Kind::Preserve || !MEDIA_SITES.contains(&row.site.as_str()) {
+        return Err(ConfigError::NotBuiltThatWay {
+            line: row.line,
+            site: row.site.clone(),
+            asked: "keep-media = \"attach\"".to_owned(),
+            why: MEDIA_KEPT_ONLY_BESIDE_ITS_POSTER,
+        });
+    }
+    if requirement_binds(&row.site, target) && !holds_a_file_unchanged(target) {
+        return Err(ConfigError::NotBuiltThatWay {
+            line: row.line,
+            site: row.site.clone(),
+            asked: format!("keeping a media clip as a file at the target {target}"),
+            why: ATTACHING_NEEDS_A_FLAVOUR,
+        });
+    }
+    Ok(())
+}
+
+/// Why `keep-media` is refused away from a `preserve` row at a section 6.3.1 subtype row.
+const MEDIA_KEPT_ONLY_BESIDE_ITS_POSTER: &str = "keep-media keeps a removed Screen or Movie \
+     annotation's clip as an embedded file beside the poster a preserve row keeps, so it is read \
+     on a remedy = \"preserve\" row at annotations/subtype-defined-in-iso-32000-1 or \
+     annotations/subtype-defined-in-iso-32000-2 and nowhere else";
 
 /// `write-mode`, whose two words are [`WriteModeSource`]'s.
 fn write_mode_key(tbl: &toml::Table, site: &str) -> Result<Option<WriteModeSource>, ConfigError> {
@@ -2493,7 +2823,7 @@ fn size(value: &str) -> Option<u64> {
     None
 }
 
-/// `A57`: `on-failure` picks one alternative, not a chain.
+/// `on-failure` is one step; an ordered answer is `try` (`A706`, `doc/rfc/0014` section 3).
 fn check_fallback(tbl: &toml::Table, site: &str) -> Result<(), ConfigError> {
     match tbl.get("on-failure") {
         None | Some(Value::Text(_)) => Ok(()),
@@ -2711,6 +3041,17 @@ fn string_list(tbl: &toml::Table, key: &str) -> Vec<String> {
         .map(|items| items.into_iter().map(str::to_owned).collect())
         .unwrap_or_default()
 }
+
+/// The losses the conversion asks about itself, at every target, whichever requirement binds.
+///
+/// A rewrite invalidates every signature in the source whatever requirement asked for it, so
+/// `super::signature_decision` puts [`Loss::SignatureAssertion`]'s question to every signed
+/// source at every target — and ISO 19005-4 has no requirement a part 4 profile could answer it
+/// at. The loss is the same at both parts (`doc/pdfa-remedies.md` section 5 keys it by loss: the
+/// output carries no signature), so a `discard` at a row whose answer is that loss authorises it
+/// wherever the conversion asks, and a profile that wants a part 4 signature kept says so with a
+/// target-qualified `stop` at the same row (`doc/adr/2542`).
+const ASKED_AT_EVERY_TARGET: [Loss; 1] = [Loss::SignatureAssertion];
 
 /// The requirement identifier → [`Losses`] map, read off the decision table.
 ///
@@ -3028,11 +3369,11 @@ remedy = \"discard\"
     #[test]
     fn a_discard_at_an_unbuilt_site_authorises_nothing_and_is_named() {
         // A site whose catalogued mitigation is *none* rather than one nobody has written yet: an
-        // embedded program that does not define a glyph the page shows can only be answered by
-        // taking the code off the page or drawing a glyph for it, and `doc/adr/0816`'s fence puts
-        // both on the far side. So the example cannot go stale the way a not-built-yet one does.
+        // operator the base standard does not define sits inside the producer's content stream,
+        // and taking it out edits the marks the producer wrote, which the fence puts on the far
+        // side. So the example cannot go stale the way a not-built-yet one does.
         let text = "\
-[site.\"fonts/embedded-programs-define-every-glyph-shown\"]
+[site.\"graphics/only-operators-the-base-standard-defines\"]
 remedy = \"discard\"
 ";
         let config = Configuration::read(text, TWO_B).expect("it reads");
@@ -3041,7 +3382,7 @@ remedy = \"discard\"
         assert_eq!(unbuilt.len(), 1);
         assert_eq!(
             unbuilt[0].site,
-            "fonts/embedded-programs-define-every-glyph-shown"
+            "graphics/only-operators-the-base-standard-defines"
         );
     }
 
@@ -3100,13 +3441,23 @@ on-failure = [\"preserve\", \"stop\"]
         let qualified = format!(
             "{plain}\n[site.{site:?}.target.\"4\"]\nremedy = \"preserve\"\nplacement = \"append\"\n"
         );
-        // The unqualified row is a `discard` this version carries out; the qualified one asks for
-        // the attachment's pages appended, which it does not. So which of the two `unbuilt` names
-        // is the whole of what the qualifier decided.
-        let four = Configuration::read(&plain, Target::Four(Flavour::Plain)).expect("reads");
-        assert!(four.unbuilt(Target::Four(Flavour::Plain)).is_empty());
-        let four = Configuration::read(&qualified, Target::Four(Flavour::Plain)).expect("reads");
-        assert_eq!(four.unbuilt(Target::Four(Flavour::Plain)).len(), 1);
+        // The unqualified row is a `discard` and the qualified one asks for the attachment's
+        // pages appended, and both are carried out (`doc/adr/2536`). So whether a preservation by
+        // page is planned is the whole of what the qualifier decided.
+        let target = Target::Four(Flavour::Plain);
+        let by_page = |config: &Configuration| {
+            config
+                .preservations(target)
+                .iter()
+                .filter(|row| row.site == site && row.by_page)
+                .count()
+        };
+        let four = Configuration::read(&plain, target).expect("reads");
+        assert!(four.unbuilt(target).is_empty());
+        assert_eq!(by_page(&four), 0);
+        let four = Configuration::read(&qualified, target).expect("reads");
+        assert!(four.unbuilt(target).is_empty());
+        assert_eq!(by_page(&four), 1);
     }
 
     /// A target-qualified row wins its site however far down the file it was written.
@@ -3278,7 +3629,7 @@ remedy = \"derive\"
         let text = "\
 [site.\"embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile\"]
 remedy = \"derive\"
-tool = \"office-to-pdf\"
+tool = \"to-pdf\"
 ";
         let error = Configuration::read(text, Target::Four(Flavour::Plain))
             .expect_err("an undeclared tool");
@@ -3293,9 +3644,9 @@ tool = \"office-to-pdf\"
         let text = "\
 [site.\"embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile\"]
 remedy = \"derive\"
-tool = \"office-to-pdf\"
+tool = \"to-pdf\"
 
-[tool.office-to-pdf]
+[tool.to-pdf]
 program = \"/usr/bin/soffice\"
 args = [\"--headless\", \"--convert-to\", \"pdf\", \"--outdir\", \"{out}\", \"{in}\"]
 expects = \"application/pdf\"

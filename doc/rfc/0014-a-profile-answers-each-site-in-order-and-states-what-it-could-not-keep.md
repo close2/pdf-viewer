@@ -1,7 +1,9 @@
 # RFC 0014 — A profile answers each site in order, and states what it could not keep
 
-Status: **proposed** — ready for the owner. Nothing in this document changes a profile, a ledger
-status, a gate or a line of code that ships.
+Status: **accepted** (A706, all five items of section 9) and **built in part**. ADR 2536 builds the
+outcome per object at the embedded-file rows, a text attachment appended as pages under R15, section
+3's `try` as two steps per object, and section 4's `append-statement` at the two embedded-file rows;
+sections 5 and 6 are ADRs 2538 and 2539's.
 Round: 1840, the design slot of batch 125, at the owner's words of 2026-10-27.
 Builds on: RFC 0007 (a refusal is a question; its section 3 format, section 4's external-tool API,
 section 4.6's per-target remedies, section 5a's profiles), `doc/pdf-a-mitigations.md` sections 14
@@ -73,7 +75,7 @@ Four things the format as built cannot say, each already found by the catalogue:
 
 ```toml
 [site."embedded-files/embedded-file-is-itself-pdfa"]
-try = ["preserve:attach", "derive:office-to-pdf:attach", "derive:office-to-pdf:append", "append-statement"]
+try = ["preserve:attach", "derive:to-pdf:attach", "derive:to-pdf:append", "append-statement"]
 ```
 
 - **A step is one word of a closed grammar**: `stop`; `discard`; `append-statement` (section 4);

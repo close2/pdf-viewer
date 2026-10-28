@@ -7,9 +7,12 @@
 //! points. A Coons patch is exactly a tensor patch whose interior points are implied by its
 //! boundary, so both are converted to the tensor form and evaluated once.
 //!
-//! Everything leaves here as triangles, which is the one representation a rasteriser can
-//! actually draw — carrying a colour at each corner, or, where the shading states a
-//! `/Function`, the parametric value at each corner beside the sampled function.
+//! A triangle mesh leaves here as triangles, carrying a colour at each corner, or, where the
+//! shading states a `/Function`, the parametric value at each corner beside the sampled
+//! function. A patch mesh leaves as patches — [`pdf_render::SurfacePatch`], the control net and
+//! what its corners carry — because how finely a patch's silhouette must be drawn is a question
+//! in device pixels that only the device can answer (ADR 1217); a patch whose colours this crate
+//! has to convert between its corners carries them at a lattice of its unit square (ADR 2546).
 //!
 //! # Where the interpolation happens is a `shall` about a space
 //!
@@ -50,36 +53,6 @@ use crate::colour::ColourSpace;
 use crate::function::{BitReader, Function};
 use crate::shading::Colouring;
 
-/// How finely a Bézier patch is evaluated along each axis.
-///
-/// The geometry's accuracy is set here, because a backend that subdivides these triangles
-/// further does so linearly and cannot recover curvature. Ten steps is two hundred triangles
-/// per patch.
-///
-/// **A claim that the error is "well under a pixel" would have no scale in it**: the surface is
-/// evaluated in the shading's own space and the triangles are transformed afterwards, so
-/// whatever the chord error is in page units, a device sees it multiplied by the magnification.
-/// What the fineness is worth is what a measurement says — every corpus page holding a mesh
-/// rendered at this fineness and at 60, with
-/// [`MAX_TRIANGLES`] lifted so that only the fineness moved. At the page's own scale the worst
-/// page is `coons-allflags-withfunction.pdf` at a mean 0.0511 of 255 and a worst 32×32 tile of
-/// 0.92; at four times the mean is unchanged and the worst tile rises to 10.18
-/// (`issue18816.pdf`), because the departure is a seam at each patch's boundary whose *width*
-/// does not shrink as the pixels arrive. So ten steps is adequate for a page and visibly not a
-/// derivation. It is therefore the fineness of one kind of patch only — one whose colours are
-/// interpolated in a space no backend holds and whose conversion is not linear across it; every
-/// other patch travels to the backend and is subdivided there from the device transform (ADR
-/// 1217) — and §8.7.4.5.7's and §8.7.4.5.8's ledger rows are `departed` on exactly that kind.
-///
-/// **And raising it is not free**, though it no longer decides how many patches a document may
-/// state — [`MAX_PATCHES`] does, a bound of its own (ADR 1217). A mesh tessellated here spends
-/// `2 · PATCH_STEPS²` of [`MAX_TRIANGLES`] on each patch, so at this fineness the triangle bound
-/// stops such a mesh after `MAX_TRIANGLES / 200` patches, about 1300, well inside the 16 384
-/// [`MAX_PATCHES`] admits. A fineness derived from §10.7.3's smoothness tolerance therefore has to
-/// be priced against [`MAX_TRIANGLES`] for this one kind of mesh, and against nothing for a patch
-/// that travels.
-const PATCH_STEPS: usize = 10;
-
 /// How many times one triangle may be halved along each edge before §8.7.4.4's subdivision
 /// stops and the triangle is emitted as it stands.
 ///
@@ -92,6 +65,23 @@ const PATCH_STEPS: usize = 10;
 /// a frequency, in which case the accuracy defined by the smoothness tolerance cannot be
 /// guaranteed" — and it is emitted and said, not pursued: [`Mesh::coarse`].
 const MAX_REFINEMENT_DEPTH: usize = 6;
+
+/// How many colour conversions one patch mesh's lattices may cost, past the nine every patch is
+/// asked with — [`MeshReader::patch_colours`].
+///
+/// A patch whose conversion bends is converted at a lattice of its unit square, refined by
+/// doubling along the axis that still bends until every cell is linear to §10.7.3's tolerance or
+/// a cell count reaches [`pdf_render::MAX_PATCH_GRID_CELLS`]. Each level's conversions are charged
+/// here *before* they are made, so a mesh of [`MAX_PATCHES`] patches each bending past every
+/// lattice spends this many conversions and holds at most this many colours — four mebibytes —
+/// and every patch after the bound travels with its four converted corners, the mesh reported as
+/// [`Mesh::coarse`]. The same figure as [`MAX_TRIANGLES`], which is what the triangles this
+/// replaced were allowed to cost: a mesh tessellated here spent two hundred triangles and 121
+/// conversions on every patch, and the bound stopped it after some thirteen hundred patches. The
+/// first question, nine conversions a patch, is not charged: it is the cost of reading a patch at
+/// all, which [`MAX_PATCHES`] bounds, and a patch it answers travels as four colours as before.
+/// §10.7.3 licenses the bound — "\[e]ach output device may have internal limits". ADR 2546.
+const LATTICE_CONVERSIONS: usize = MAX_TRIANGLES;
 
 /// How many triangles a mesh may hold before §8.7.4.4's subdivision stops adding to it.
 ///
@@ -111,12 +101,10 @@ const REFINED_TRIANGLES: usize = MAX_TRIANGLES / 2;
 /// where a bound of this kind is licensed — "\[e]ach output device may have internal limits" —
 /// the same sentence [`crate::shading`]'s `MAX_FUNCTION_CELLS` rests on.
 ///
-/// **It is counted in this program's triangles rather than in the document's patches**, which
-/// is why it is public: a free-form or lattice mesh's triangles are the document's own, and a
-/// type 6 or 7 mesh tessellated here — the one kind of patch mesh that does not travel to the
-/// backend (ADR 1217) — becomes `PATCH_STEPS`² quadrilaterals per patch, so raising that
-/// fineness lowers how many of its patches this bound admits. How many patches a document may
-/// state is [`MAX_PATCHES`]'s. `examples/mesh_triangle_census` keeps the relation measured
+/// **It is counted in this program's triangles**, which is why it is public: a free-form or
+/// lattice mesh's triangles are the document's own, with the ones §8.7.4.4's subdivision adds. A
+/// patch mesh travels to the backend as patches (ADRs 1217, 2546), so how many patches a
+/// document may state is [`MAX_PATCHES`]'s. `examples/mesh_triangle_census` keeps the relation measured
 /// rather than assumed: over `doc/pdf.js/test/pdfs`, the four `doc/corpora/` submodules and
 /// `corpus-cache/openpreserve` — 1516 files, 40 mesh paints — the largest is 23.3% of this bound
 /// and no page reports it.
@@ -255,16 +243,15 @@ pub(crate) fn read(
 /// without saying so is exactly the silent drop `pdf_model::content` forbids. Every bound in this
 /// crate is reported as `pdf_model::Unsupported::LimitReached`, this one included.
 pub(crate) struct Mesh {
-    /// The triangles, in the order §8.7.4.5.7's overlap rule needs them painted.
+    /// The triangles of a type 4 or type 5 mesh, in the order they are to be painted.
     ///
     /// Empty exactly where [`Mesh::patches`] is `Some`.
     pub(crate) triangles: Vec<Triangle>,
     /// Types 6 and 7, where the fineness of the tessellation is the device's to choose.
     ///
-    /// `None` for the triangle meshes, which have no surface to approximate, and for a patch
-    /// mesh some patch of which §8.7.4.4 requires be converted after the interpolation — that
-    /// one is tessellated and converted here, and [`Mesh::triangles`] is the answer.
-    /// `pdf_render::SurfacePatch` has why the rest do not need to be.
+    /// `None` for the triangle meshes, which have no surface to approximate.
+    /// `pdf_render::SurfacePatch` has why a patch travels, and `pdf_render::PatchCorners::Grid`
+    /// how one whose colours §8.7.4.4 requires be converted after the interpolation does.
     pub(crate) patches: Option<PatchMesh>,
     /// The ramp a parametric mesh needs, `Some` exactly where the shading states a `/Function`.
     pub(crate) ramp: Option<Ramp>,
@@ -288,6 +275,23 @@ pub(crate) struct Mesh {
 struct Refinement {
     /// A bound stopped a subdivision short of the tolerance; see [`Mesh::coarse`].
     coarse: bool,
+    /// Conversions [`MeshReader::patch_colours`] has spent on this mesh past each patch's first
+    /// question, against [`LATTICE_CONVERSIONS`].
+    lattice_conversions: usize,
+}
+
+impl Refinement {
+    /// Charges `conversions` to [`LATTICE_CONVERSIONS`] before they are made, or says the bound
+    /// stops them and marks the mesh [`Mesh::coarse`].
+    fn charge_lattice(&mut self, conversions: usize) -> bool {
+        let after = self.lattice_conversions.saturating_add(conversions);
+        if after > LATTICE_CONVERSIONS {
+            self.coarse = true;
+            return false;
+        }
+        self.lattice_conversions = after;
+        true
+    }
 }
 
 /// Reads a bit width, checking it against the values the specification permits.
@@ -381,67 +385,21 @@ trait Corner: Clone {
         refinement: &mut Refinement,
     );
 
-    /// This patch's four corners as a device can carry them, or `None` where they cannot be
-    /// carried and the patch has to be tessellated here.
+    /// This patch's colour as a device can carry it.
     ///
     /// §8.7.4.5.7 makes a patch's interior a bilinear mix of its four corners, so a device
     /// given the four draws the clause's own answer — *provided* the quantity mixed is one the
     /// device holds. A colour and §8.7.4.5.5's parameter both are. [`Components`] are not: the
     /// mix §8.7.4.4 asks for is in a colour space, and converting a space is what no backend
-    /// does (ADR 0028), so that impl answers `Some` only where it has checked that the
-    /// conversion is linear across this patch to §10.7.3's tolerance — in which case the mix of
-    /// the converted corners *is* the conversion of the mix, and the four colours say it all.
-    /// ADR 1217.
-    fn deferred(reader: &MeshReader<'_>, corners: &[Self; 4]) -> Option<PatchCorners>;
-
-    /// Appends the triangles of one tessellated patch: `points` and `corners` are the
-    /// [`PATCH_STEPS`]` + 1` square grid [`tessellate`] evaluated, `u`-major.
-    ///
-    /// Two triangles per cell through [`Self::emit`], which is the whole of it for a colour or
-    /// a parameter. [`Components`] overrides it, because a patch is where §8.7.4.4's
-    /// conversion-after-interpolation has a cost worth measuring — 121 conversions a patch where
-    /// the file's own route needed four — and a patch is also where one question, asked once,
-    /// answers for two hundred triangles.
-    fn emit_patch(
+    /// does (ADR 0028), so that impl converts the mix here, at as many points of the unit square
+    /// as §10.7.3's tolerance needs — four where the conversion is linear across the patch, a
+    /// lattice where it is not — and the device draws the silhouette at its own fineness either
+    /// way (ADRs 1217, 2546). `refinement` is where a bound on that lattice says it stopped.
+    fn deferred(
         reader: &MeshReader<'_>,
-        points: &[Point],
-        corners: &[Self],
-        out: &mut Vec<Triangle>,
+        corners: &[Self; 4],
         refinement: &mut Refinement,
-    ) {
-        for (_, _, a, b, c, d) in patch_cells() {
-            let corner = |index: usize| Vertex {
-                point: points.get(index).copied().unwrap_or(Point::new(0.0, 0.0)),
-                corner: corners
-                    .get(index)
-                    .cloned()
-                    .unwrap_or_else(Self::placeholder),
-            };
-            Self::emit(reader, [corner(a), corner(b), corner(c)], out, refinement);
-            Self::emit(reader, [corner(b), corner(d), corner(c)], out, refinement);
-        }
-    }
-}
-
-/// The cells of a tessellated patch as `(u, v)` and the grid indices of their four corners —
-/// `(u, v)`, `(u, v+1)`, `(u+1, v)`, `(u+1, v+1)` — in the order [`tessellate`] documents: `v`
-/// outer, so that the last cell written over any point is the one with the largest `v`
-/// (ADR 0778).
-fn patch_cells() -> impl Iterator<Item = (usize, usize, usize, usize, usize, usize)> {
-    let stride = PATCH_STEPS.saturating_add(1);
-    let at = move |u: usize, v: usize| u.saturating_mul(stride).saturating_add(v);
-    (0..PATCH_STEPS).flat_map(move |v_step| {
-        (0..PATCH_STEPS).map(move |u_step| {
-            (
-                u_step,
-                v_step,
-                at(u_step, v_step),
-                at(u_step, v_step.saturating_add(1)),
-                at(u_step.saturating_add(1), v_step),
-                at(u_step.saturating_add(1), v_step.saturating_add(1)),
-            )
-        })
-    })
+    ) -> PatchCorners;
 }
 
 impl Corner for Color {
@@ -475,10 +433,10 @@ impl Corner for Color {
         });
     }
 
-    fn deferred(_: &MeshReader<'_>, corners: &[Self; 4]) -> Option<PatchCorners> {
+    fn deferred(_: &MeshReader<'_>, corners: &[Self; 4], _: &mut Refinement) -> PatchCorners {
         // A patch carried whole is mixed by the *device*, so the four colours a device mixes
         // are the four the file states.
-        Some(PatchCorners::Colours(*corners))
+        PatchCorners::Colours(*corners)
     }
 }
 
@@ -554,202 +512,16 @@ impl Corner for Components {
         reader.refine(vertices, colours, 0, out, refinement);
     }
 
-    /// A patch, asked once whether its conversion is linear across it.
-    ///
-    /// **Measured before it was written** (`examples/open_one`, `personwithdog.pdf`, two
-    /// `DeviceN` tensor meshes of some three hundred patches): converting every grid vertex and
-    /// every triangle's midpoints through a type 4 tint transform took the page from 92 ms to
-    /// 2.6 s and moved no pixel, because the transform is linear and the subdivision never
-    /// fired. So the question is asked of the *patch* first, at nine of its grid vertices — the
-    /// four corners, whose colours the file's own route would have converted anyway, the four
-    /// edge midpoints and the centre. Where the five converted colours agree with the bilinear
-    /// mix of the four corner colours to §10.7.3's tolerance, the conversion is linear across
-    /// this patch to that tolerance and the grid's colours *are* that mix: nine conversions a
-    /// patch against four, and the same triangles as before. Where they do not, every grid
-    /// vertex is converted — which is the clause's requirement paid in full — and each cell is
-    /// asked in turn, from the converted grid alone, whether a rasteriser's plane through its
-    /// corners is within tolerance of the conversion: [`cell_error`] is the estimate, and a cell
-    /// it cannot clear goes to [`MeshReader::refine`], which measures rather than estimates.
-    fn emit_patch(
+    /// The patch's colour converted at the corners, or at a lattice of the unit square where
+    /// the conversion is not linear across the patch to §10.7.3's tolerance:
+    /// [`MeshReader::patch_colours`].
+    fn deferred(
         reader: &MeshReader<'_>,
-        points: &[Point],
-        corners: &[Self],
-        out: &mut Vec<Triangle>,
+        corners: &[Self; 4],
         refinement: &mut Refinement,
-    ) {
-        let stride = PATCH_STEPS.saturating_add(1);
-        let at = |u: usize, v: usize| u.saturating_mul(stride).saturating_add(v);
-        let convert = |index: usize| {
-            corners
-                .get(index)
-                .map_or(Color::BLACK, |components| reader.colour_of(components))
-        };
-        // The four corners in `bilinear`'s order: (0,0), (0,1), (1,1), (1,0).
-        let last = PATCH_STEPS;
-        let corner_colours = [
-            convert(at(0, 0)),
-            convert(at(0, last)),
-            convert(at(last, last)),
-            convert(at(last, 0)),
-        ];
-        let mixed = |u_step: usize, v_step: usize| {
-            #[expect(
-                clippy::cast_precision_loss,
-                reason = "PATCH_STEPS is a small constant"
-            )]
-            let (u, v) = (
-                u_step as f32 / PATCH_STEPS as f32,
-                v_step as f32 / PATCH_STEPS as f32,
-            );
-            let top = mix_colour(corner_colours[0], corner_colours[1], v);
-            let bottom = mix_colour(corner_colours[3], corner_colours[2], v);
-            mix_colour(top, bottom, u)
-        };
-        let tolerance = reader.tolerance();
-        let mid = PATCH_STEPS / 2;
-        let linear = [(mid, 0), (mid, last), (0, mid), (last, mid), (mid, mid)]
-            .into_iter()
-            .all(|(u, v)| within(convert(at(u, v)), mixed(u, v), tolerance));
-
-        let colours: Vec<Color> = if linear {
-            (0..stride)
-                .flat_map(|u| (0..stride).map(move |v| (u, v)))
-                .map(|(u, v)| mixed(u, v))
-                .collect()
-        } else {
-            (0..corners.len()).map(convert).collect()
-        };
-
-        for (u_step, v_step, a, b, c, d) in patch_cells() {
-            let colour = |index: usize| colours.get(index).copied().unwrap_or(Color::BLACK);
-            let (ca, cb, cc, cd) = (colour(a), colour(b), colour(c), colour(d));
-            if linear || cell_error(&colours, u_step, v_step) <= tolerance {
-                let point =
-                    |index: usize| points.get(index).copied().unwrap_or(Point::new(0.0, 0.0));
-                out.push(Triangle {
-                    points: [point(a), point(b), point(c)],
-                    corners: Corners::Colours([ca, cb, cc]),
-                });
-                out.push(Triangle {
-                    points: [point(b), point(d), point(c)],
-                    corners: Corners::Colours([cb, cd, cc]),
-                });
-                continue;
-            }
-            let vertex = |index: usize| Vertex {
-                point: points.get(index).copied().unwrap_or(Point::new(0.0, 0.0)),
-                corner: corners
-                    .get(index)
-                    .cloned()
-                    .unwrap_or_else(Self::placeholder),
-            };
-            reader.refine(
-                [vertex(a), vertex(b), vertex(c)],
-                [ca, cb, cc],
-                0,
-                out,
-                refinement,
-            );
-            reader.refine(
-                [vertex(b), vertex(d), vertex(c)],
-                [cb, cd, cc],
-                0,
-                out,
-                refinement,
-            );
-        }
+    ) -> PatchCorners {
+        reader.patch_colours(corners, refinement)
     }
-
-    /// The nine-point question of [`Self::emit_patch`], asked of the patch's own four corners
-    /// rather than of a grid evaluated from them — which is the same question, because a grid
-    /// vertex's components *are* the bilinear mix of these four.
-    ///
-    /// Where the answer is yes, the conversion is linear across this patch to §10.7.3's
-    /// tolerance and the four converted corners carry the whole patch's colour; the device
-    /// mixes them, and no colour space travels with it. Where it is no, the conversion has to
-    /// happen between the corners, which only this crate can do.
-    fn deferred(reader: &MeshReader<'_>, corners: &[Self; 4]) -> Option<PatchCorners> {
-        let converted = corners.each_ref().map(|corner| reader.colour_of(corner));
-        let mixed = |u: f32, v: f32| {
-            let top = mix_colour(converted[0], converted[1], v);
-            let bottom = mix_colour(converted[3], converted[2], v);
-            mix_colour(top, bottom, u)
-        };
-        let tolerance = reader.tolerance();
-        let linear = [(0.5, 0.0), (0.5, 1.0), (0.0, 0.5), (1.0, 0.5), (0.5, 0.5)]
-            .into_iter()
-            .all(|(u, v)| {
-                let components = bilinear(corners, u, v);
-                within(reader.colour_of(&components), mixed(u, v), tolerance)
-            });
-        linear.then_some(PatchCorners::Colours(converted))
-    }
-}
-
-/// An estimate of how far a rasteriser's linear interpolation across the cell at `(u, v)` of a
-/// converted patch grid can stray from the conversion, from the grid alone.
-///
-/// Linear interpolation of a twice-differentiable function over a step `h` errs by at most
-/// `h²·|f″|/8`, and `h²·f″` is what a central second difference of the grid measures — so along
-/// each axis the bound is an eighth of the largest second difference at the cell's corners,
-/// taken one cell in from the grid's edge where a corner has no neighbour on one side. The plane
-/// through three corners also misses the bilinear term of a quadrilateral cell, which the mixed
-/// difference `f(u+1,v+1) − f(u+1,v) − f(u,v+1) + f(u,v)` measures and which reaches a quarter of
-/// itself at the cell's centre. Summed, and taken over every channel, because §10.7.3 asks for
-/// "the maximum independent error". What the estimate cannot see is a conversion that turns
-/// between two grid vertices and back, which is the sampled-function case §10.7.3's NOTE 1
-/// concedes; what it costs is nothing, since every value in it was converted already.
-fn cell_error(colours: &[Color], u: usize, v: usize) -> f32 {
-    let stride = PATCH_STEPS.saturating_add(1);
-    let colour = |u: usize, v: usize| {
-        colours
-            .get(u.saturating_mul(stride).saturating_add(v))
-            .copied()
-            .unwrap_or(Color::BLACK)
-    };
-    let channels = |colour: Color| [colour.r, colour.g, colour.b, colour.a];
-    let second = |back: Color, centre: Color, forward: Color| {
-        let (back, centre, forward) = (channels(back), channels(centre), channels(forward));
-        (0..4)
-            .map(|channel| (back[channel] - 2.0 * centre[channel] + forward[channel]).abs())
-            .fold(0.0_f32, f32::max)
-    };
-    // A second difference centred on the cell's first corner reaches one step back and one
-    // centred on its second reaches one step forward; at the grid's edge, where there is no such
-    // neighbour, the difference one cell in is the nearest measurement there is.
-    let (u_next, v_next) = (u.saturating_add(1), v.saturating_add(1));
-    let along_u = second(
-        colour(u.saturating_sub(1), v),
-        colour(u, v),
-        colour(u_next, v),
-    )
-    .max(second(
-        colour(u, v),
-        colour(u_next, v),
-        colour(u_next.saturating_add(1).min(PATCH_STEPS), v),
-    ));
-    let along_v = second(
-        colour(u, v.saturating_sub(1)),
-        colour(u, v),
-        colour(u, v_next),
-    )
-    .max(second(
-        colour(u, v),
-        colour(u, v_next),
-        colour(u, v_next.saturating_add(1).min(PATCH_STEPS)),
-    ));
-    let mixed = {
-        let (pa, pb, pc, pd) = (
-            channels(colour(u, v)),
-            channels(colour(u, v_next)),
-            channels(colour(u_next, v)),
-            channels(colour(u_next, v_next)),
-        );
-        (0..4)
-            .map(|channel| (pd[channel] - pc[channel] - pb[channel] + pa[channel]).abs())
-            .fold(0.0_f32, f32::max)
-    };
-    (along_u + along_v) / 8.0 + mixed / 4.0
 }
 
 impl Corner for f32 {
@@ -779,12 +551,12 @@ impl Corner for f32 {
         });
     }
 
-    fn deferred(_: &MeshReader<'_>, corners: &[Self; 4]) -> Option<PatchCorners> {
+    fn deferred(_: &MeshReader<'_>, corners: &[Self; 4], _: &mut Refinement) -> PatchCorners {
         // §8.7.4.5.7: "[a]ll linear interpolation within the mesh shall be done using the t
         // values. After interpolation, the results shall be passed to the function(s) specified
         // in the Function entry" — so the parameter is what travels, and the ramp beside it is
         // what the device reads afterwards (ADR 0292).
-        Some(PatchCorners::Parameters(*corners))
+        PatchCorners::Parameters(*corners)
     }
 }
 
@@ -849,6 +621,159 @@ impl MeshReader<'_> {
     /// conversion.
     fn colour_of(&self, components: &Components) -> Color {
         self.colouring.into.paint(self.interpolation, &components.0)
+    }
+
+    /// A patch's colour, converted at its four corners where the conversion is linear across it to
+    /// §10.7.3's tolerance and at a lattice of its unit square where it is not.
+    ///
+    /// §8.7.4.4 requires the bilinear interpolation §8.7.4.5.7 fills a patch by be performed in
+    /// the shading's space and converted afterwards; a device mixes converted colours, and the
+    /// two agree only where the conversion is linear. So the question is asked of each cell of a
+    /// lattice, starting from the whole patch as one cell: at the cell's four edge midpoints and
+    /// its centre, is the conversion of the interpolated components within the tolerance of the
+    /// bilinear mix of the cell's four converted corners? A midpoint of an edge along `u` that
+    /// fails says the conversion bends along `u`, one along `v` says `v`, and the centre alone
+    /// says both; each axis that bends somewhere has its cell count doubled, and the lattice is
+    /// converted again. The answer is the first lattice every cell of which clears the question —
+    /// four corners, for every patch whose conversion is linear across it, which is what
+    /// ADR 1058's nine-point question already answered and costs what it cost. What five points
+    /// cannot see is a conversion that turns between them and back, which §10.7.3's NOTE 1
+    /// concedes of a sampled function.
+    ///
+    /// **Bounded before the work.** A cell count stops at [`pdf_render::MAX_PATCH_GRID_CELLS`],
+    /// and every level's conversions are charged to [`LATTICE_CONVERSIONS`] before they are
+    /// made; either bound stopping the search leaves the lattice it has, and the mesh is
+    /// [`Mesh::coarse`] — drawn, and said to be coarser than the tolerance asked.
+    fn patch_colours(
+        &self,
+        corners: &[Components; 4],
+        refinement: &mut Refinement,
+    ) -> PatchCorners {
+        let tolerance = self.tolerance();
+        let converted = corners.each_ref().map(|corner| self.colour_of(corner));
+        let mut cells = (1_u32, 1_u32);
+        // `u`-major, as `pdf_render::PatchGrid` holds it: (0,0), (0,1), (1,0), (1,1).
+        let mut colours = vec![converted[0], converted[1], converted[3], converted[2]];
+        let mut first = true;
+        loop {
+            let test_cost = 5_usize
+                .saturating_mul(cells.0 as usize)
+                .saturating_mul(cells.1 as usize);
+            if !first && !refinement.charge_lattice(test_cost) {
+                break;
+            }
+            first = false;
+            let (along_u, along_v) = self.bends(corners, cells, &colours, tolerance);
+            if !along_u && !along_v {
+                break;
+            }
+            let double = |count: u32, bends: bool| count.saturating_mul(if bends { 2 } else { 1 });
+            let next = (double(cells.0, along_u), double(cells.1, along_v));
+            if next.0.max(next.1) > pdf_render::MAX_PATCH_GRID_CELLS {
+                refinement.coarse = true;
+                break;
+            }
+            let build_cost = (next.0 as usize)
+                .saturating_add(1)
+                .saturating_mul((next.1 as usize).saturating_add(1));
+            if !refinement.charge_lattice(build_cost) {
+                break;
+            }
+            cells = next;
+            colours = self.lattice_colours(corners, cells);
+        }
+        if cells == (1, 1) {
+            return PatchCorners::Colours(converted);
+        }
+        // `None` is unreachable as built — both counts are inside the bound and
+        // `lattice_colours` converts one colour per lattice point — and said rather than assumed.
+        if let Some(lattice) = pdf_render::PatchGrid::new(cells, colours.into()) {
+            PatchCorners::Grid(lattice)
+        } else {
+            refinement.coarse = true;
+            PatchCorners::Colours(converted)
+        }
+    }
+
+    /// The conversion of the bilinear mix of `corners` at every point of a lattice of `cells`,
+    /// `u`-major.
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "lattice indices bounded by MAX_PATCH_GRID_CELLS, exact in an f32"
+    )]
+    fn lattice_colours(&self, corners: &[Components; 4], cells: (u32, u32)) -> Vec<Color> {
+        let mut colours = Vec::with_capacity(
+            (cells.0 as usize)
+                .saturating_add(1)
+                .saturating_mul((cells.1 as usize).saturating_add(1)),
+        );
+        for i in 0..=cells.0 {
+            for j in 0..=cells.1 {
+                let (u, v) = (i as f32 / cells.0 as f32, j as f32 / cells.1 as f32);
+                colours.push(self.colour_of(&bilinear(corners, u, v)));
+            }
+        }
+        colours
+    }
+
+    /// Whether some cell of the lattice `colours` of `cells` bends past `tolerance` along `u`,
+    /// and whether some cell bends along `v` — [`Self::patch_colours`]'s five-point question.
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "lattice indices bounded by MAX_PATCH_GRID_CELLS, exact in an f32"
+    )]
+    fn bends(
+        &self,
+        corners: &[Components; 4],
+        cells: (u32, u32),
+        colours: &[Color],
+        tolerance: f32,
+    ) -> (bool, bool) {
+        let stride = (cells.1 as usize).saturating_add(1);
+        let at = |i: u32, j: u32| {
+            colours
+                .get(
+                    (i as usize)
+                        .saturating_mul(stride)
+                        .saturating_add(j as usize),
+                )
+                .copied()
+                .unwrap_or(Color::BLACK)
+        };
+        let (mut along_u, mut along_v) = (false, false);
+        for i in 0..cells.0 {
+            for j in 0..cells.1 {
+                let (i1, j1) = (i.saturating_add(1), j.saturating_add(1));
+                // `bilinear`'s order: (0,0), (0,1), (1,1), (1,0).
+                let cell = [at(i, j), at(i, j1), at(i1, j1), at(i1, j)];
+                let off = |s: f32, t: f32| {
+                    let (u, v) = (
+                        (i as f32 + s) / cells.0 as f32,
+                        (j as f32 + t) / cells.1 as f32,
+                    );
+                    let top = mix_colour(cell[0], cell[1], t);
+                    let bottom = mix_colour(cell[3], cell[2], t);
+                    !within(
+                        self.colour_of(&bilinear(corners, u, v)),
+                        mix_colour(top, bottom, s),
+                        tolerance,
+                    )
+                };
+                if !along_u && (off(0.5, 0.0) || off(0.5, 1.0)) {
+                    along_u = true;
+                }
+                if !along_v && (off(0.0, 0.5) || off(1.0, 0.5)) {
+                    along_v = true;
+                }
+                if !along_u && !along_v && off(0.5, 0.5) {
+                    (along_u, along_v) = (true, true);
+                }
+                if along_u && along_v {
+                    return (true, true);
+                }
+            }
+        }
+        (along_u, along_v)
     }
 
     /// Emits `vertices` as one triangle where a rasteriser's linear interpolation between
@@ -1162,16 +1087,16 @@ impl MeshReader<'_> {
         (triangles, truncated)
     }
 
-    /// Types 6 and 7: Bézier patches, evaluated into triangles.
+    /// Types 6 and 7: Bézier patches, as the patches a device draws.
     ///
-    /// Each patch's triangles are appended in the order the stream states its patches, which
-    /// is what ISO 32000-2 §8.7.4.5.7's other overlap rule asks for — "\[i]f one patch overlaps
-    /// another, the patch that appears later in the data stream shall paint over the earlier
-    /// one" — given that a mesh is painted triangle by triangle in this order.
-    /// [`tessellate`] owns the rule for an overlap *within* one patch.
+    /// The patches are kept in the order the stream states them, which is what ISO 32000-2
+    /// §8.7.4.5.7's other overlap rule asks for — "\[i]f one patch overlaps another, the patch
+    /// that appears later in the data stream shall paint over the earlier one" — given that a
+    /// mesh is painted in this order. `pdf_render::SurfacePatch::tessellate` owns the rule for an
+    /// overlap *within* one patch.
     ///
-    /// The second half of the answer is [`MAX_TRIANGLES`] having stopped the reading with a
-    /// patch still to come — see [`read`] for what is done with it.
+    /// The third member of the answer is [`MAX_PATCHES`] having stopped the reading with a patch
+    /// still to come — see [`read`] for what is done with it.
     fn patches<C: Corner>(
         &self,
         bits: &mut BitReader<'_>,
@@ -1181,7 +1106,6 @@ impl MeshReader<'_> {
         let boundary = 12usize;
         let total = if tensor { 16 } else { boundary };
 
-        let mut read: Vec<([[Point; 4]; 4], [C; 4])> = Vec::new();
         let mut deferred: Vec<SurfacePatch> = Vec::new();
         let mut truncated = None;
         let mut previous: Option<([Point; 16], [C; 4])> = None;
@@ -1189,7 +1113,7 @@ impl MeshReader<'_> {
         while let Some(flag) = bits.read(self.flag_bits) {
             // Tested with a patch's flag in hand, for [`free_form`]'s reason: the flag then
             // says a patch was dropped rather than that a count was reached.
-            if read.len() >= MAX_PATCHES {
+            if deferred.len() >= MAX_PATCHES {
                 truncated = Some("max_mesh_patches");
                 break;
             }
@@ -1258,42 +1182,20 @@ impl MeshReader<'_> {
             // bytes, so each patch's own total is a whole number of bytes either way. A file
             // with `/BitsPerFlag 2` would be the witness that decides it.
 
-            let net = control_grid(&points, tensor);
-            if deferred.len() == read.len()
-                && let Some(carried) = C::deferred(self, &corners)
-            {
-                deferred.push(SurfacePatch {
-                    net,
-                    corners: carried,
-                });
-            }
-            read.push((net, corners.clone()));
+            deferred.push(SurfacePatch {
+                net: control_grid(&points, tensor),
+                corners: C::deferred(self, &corners, refinement),
+            });
             previous = Some((points, corners));
         }
 
-        // All or none: a mesh drawn half from patches and half from triangles would have two
-        // producers deciding one paint order, and §8.7.4.5.7 makes that order the precedence
-        // between patches that overlap. One patch §8.7.4.4 will not let travel therefore keeps
-        // the whole mesh here, which is a mesh no corpus on this disk holds (ADR 1217).
-        if deferred.len() == read.len() && !read.is_empty() {
-            return (
-                Vec::new(),
-                Some(PatchMesh {
-                    patches: deferred.into(),
-                    smoothness: self.tolerance(),
-                }),
-                truncated,
-            );
-        }
-        let mut triangles = Vec::new();
-        for (net, corners) in &read {
-            if triangles.len() >= MAX_TRIANGLES {
-                truncated = Some("max_mesh_triangles");
-                break;
-            }
-            tessellate(self, net, corners, &mut triangles, refinement);
-        }
-        (triangles, None, truncated)
+        // Every patch travels, so one sequence decides the paint order §8.7.4.5.7 makes the
+        // precedence between patches that overlap (ADRs 1217, 2546).
+        let patches = (!deferred.is_empty()).then(|| PatchMesh {
+            patches: deferred.into(),
+            smoothness: self.tolerance(),
+        });
+        (Vec::new(), patches, truncated)
     }
 }
 
@@ -1406,59 +1308,6 @@ fn control_grid(points: &[Point; 16], tensor: bool) -> [[Point; 4]; 4] {
     grid
 }
 
-/// Evaluates a bicubic Bézier surface into triangles.
-///
-/// # The order the triangles come out in is the clause's, not the loop's
-///
-/// A patch may fold over itself, and ISO 32000-2 §8.7.4.5.7 says which of the parameter
-/// points landing on one device point wins:
-///
-/// > If more than one point ( u, v ) in parameter space is mapped to the same point in device
-/// > space, the point selected shall be the one with the largest value of v . If multiple
-/// > points have the same v , the one with the largest value of u shall be selected.
-///
-/// Every rasteriser here paints a mesh's triangles in the order this function returns them,
-/// each overwriting what is under it, so *later in this vector* is *what the reader sees* —
-/// which makes the emission order the whole of how that sentence is obeyed. The precedence
-/// is therefore lexicographic in `(v, u)`, so `v` is the outer loop: the last cell written
-/// over any point is the one with the largest `v`, and among equal `v` the largest `u`.
-/// Nesting them the other way round answers with the largest `u` instead, which is the
-/// clause's *tie-breaker* promoted over its rule (ADR 0778).
-fn tessellate<C: Corner>(
-    reader: &MeshReader<'_>,
-    grid: &[[Point; 4]; 4],
-    patch: &[C; 4],
-    out: &mut Vec<Triangle>,
-    refinement: &mut Refinement,
-) {
-    let mut points = Vec::with_capacity(
-        PATCH_STEPS
-            .saturating_add(1)
-            .saturating_mul(PATCH_STEPS.saturating_add(1)),
-    );
-    let mut corners = Vec::with_capacity(points.capacity());
-
-    for u_step in 0..=PATCH_STEPS {
-        for v_step in 0..=PATCH_STEPS {
-            #[expect(
-                clippy::cast_precision_loss,
-                reason = "PATCH_STEPS is a small constant"
-            )]
-            let (u, v) = (
-                u_step as f32 / PATCH_STEPS as f32,
-                v_step as f32 / PATCH_STEPS as f32,
-            );
-            points.push(surface(grid, u, v));
-            // The corners are `c1` at (0,0), `c2` at (0,1), `c3` at (1,1), `c4` at (1,0),
-            // matching the order the control points visit them.
-            corners.push(bilinear(patch, u, v));
-        }
-    }
-
-    out.reserve(PATCH_STEPS.saturating_mul(PATCH_STEPS).saturating_mul(2));
-    C::emit_patch(reader, &points, &corners, out, refinement);
-}
-
 /// Whether `actual` and `interpolated` agree to §10.7.3's `tolerance` in every channel — "the
 /// maximum independent error shall be used".
 fn within(actual: Color, interpolated: Color, tolerance: f32) -> bool {
@@ -1466,27 +1315,6 @@ fn within(actual: Color, interpolated: Color, tolerance: f32) -> bool {
         && (actual.g - interpolated.g).abs() <= tolerance
         && (actual.b - interpolated.b).abs() <= tolerance
         && (actual.a - interpolated.a).abs() <= tolerance
-}
-
-/// A point on the bicubic Bézier surface the control grid defines.
-fn surface(grid: &[[Point; 4]; 4], u: f32, v: f32) -> Point {
-    let bu = bernstein(u);
-    let bv = bernstein(v);
-    let mut x = 0.0;
-    let mut y = 0.0;
-    for (row, weights) in grid.iter().zip(bu.iter()) {
-        for (point, weight) in row.iter().zip(bv.iter()) {
-            x += point.x * weights * weight;
-            y += point.y * weights * weight;
-        }
-    }
-    Point::new(x, y)
-}
-
-/// The four cubic Bernstein basis values at `t`.
-fn bernstein(t: f32) -> [f32; 4] {
-    let s = 1.0 - t;
-    [s * s * s, 3.0 * s * s * t, 3.0 * s * t * t, t * t * t]
 }
 
 /// What a patch's interior carries, interpolated between its four corners.

@@ -114,19 +114,14 @@ pub(crate) fn describe(item: &Unsupported) -> String {
         Unsupported::MissingResource { category, detail } => {
             format!("the document names a /{category} resource it does not define: {detail}")
         }
+        Unsupported::UnreadableBlackGeneration { detail } => format!(
+            "the document states a black generation or undercolour removal that is not a \
+             function, and the one in force was kept: {detail}"
+        ),
         Unsupported::DamagedContentStream { stream } => damaged_content_stream(stream),
         Unsupported::OptionalContent { detail } => {
             format!(
                 "optional content was drawn because its visibility could not be decided: {detail}"
-            )
-        }
-        // Drawn too, and every mark is the colour this processor's own conversion makes it: the
-        // file states §10.4.2.4's black generation and this conversion is §10.3's, which has no
-        // step it names (§11.7.5.3, ADR 1069).
-        Unsupported::BlackGeneration { detail } => {
-            format!(
-                "this page states a black generation this processor's colour conversion does \
-                 not use: {detail}"
             )
         }
         // Drawn too, and every mark is where the producer put it: what is short is §11.7.4's

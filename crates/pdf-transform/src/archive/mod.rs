@@ -134,6 +134,7 @@
 
 mod actions;
 mod attach;
+mod base;
 mod boundaries;
 mod census;
 mod cmaps;
@@ -141,7 +142,9 @@ mod component_counts;
 mod config;
 mod decision;
 mod default_rgb;
+mod derived;
 mod destination;
+mod drawn;
 mod duplicate_profiles;
 mod extension_container;
 mod external;
@@ -171,6 +174,7 @@ mod settle;
 mod signatures;
 mod sites;
 mod smoothing;
+mod statement;
 mod supplied_cmyk;
 mod tagged;
 mod to_unicode;
@@ -191,13 +195,15 @@ use crate::tool::ToolOutputs;
 use crate::{Declined, Origin, Output, Refusal, Report, Sinks};
 
 pub use actions::RemovedAction;
+pub use base::ReadFrom;
 pub use boundaries::RemovedBoundary;
 pub use census::{Kind, Standing, census, standing, unconsidered};
 pub use cmaps::EmbeddedCMap;
 pub use config::{
     AnnotationFlagAnswers, ConfigError, Configuration, Coverage, Departure, Derivation,
-    Kind as RemedyKind, Original, Placement, Preservation, Resolution, Site, SiteShape, Supplied,
-    Supply, UNTRUSTED_INPUT_WARNING, Unbuilt, Unmapped, Winner, WriteModeSource, sites,
+    Kind as RemedyKind, Original, Placement, Preservation, Resolution, Site, SiteShape, Skipped,
+    Statement, Supplied, Supply, UNTRUSTED_INPUT_WARNING, Unbuilt, Unmapped, Winner,
+    WriteModeSource, sites,
 };
 pub use decision::{
     Authorisations, Because, Conditional, Decision, Loss, Losses, answered, conditional,
@@ -213,10 +219,11 @@ pub use in_place::{ProxiedReference, ShownAnnotation};
 pub use languages::RestatedLanguage;
 pub use prepare::{DestinationProfile, ProfileSource, RemovedAnnotation, WrittenAppearance};
 pub use protection::{PERMISSIONS_NO_LONGER_ASSERTED, SourceProtection};
-pub use recovered::{RecoveredCatalog, RecoveredStructure};
+pub use recovered::{PartlyRead, RecoveredCatalog, RecoveredStructure};
 pub use report::{
-    Achieved, Conversion, Decided, Departed, DepartureOutcome, Derived, DerivedOutcome, NotChecked,
-    Preserved, Resolved, SetIn, SignatureDecision, SuppliedFact,
+    Achieved, AttachmentAnswer, AttachmentOutcome, Conversion, ConvertedTo, Decided, Departed,
+    DepartureOutcome, Derived, DerivedOutcome, NotChecked, Preserved, Resolved, SetIn,
+    SignatureDecision, StatementPage, SuppliedFact,
 };
 pub use rewrite::Rewrite;
 pub use signatures::{Reached, SourceSignature};
@@ -454,8 +461,9 @@ pub(crate) fn run(
     documents: &[Document],
     sinks: &dyn Sinks,
     report: &mut Report,
+    budget: &crate::Budget,
 ) -> Result<(), Refusal> {
-    run_pass(plan, at, documents, sinks, report, true)
+    run_pass(plan, at, documents, sinks, report, true, budget)
 }
 
 /// [`run`], with whether its output may be converted once more where it would otherwise be refused
@@ -474,6 +482,7 @@ fn run_pass(
     sinks: &dyn Sinks,
     report: &mut Report,
     settling: bool,
+    budget: &crate::Budget,
 ) -> Result<(), Refusal> {
     let document = documents.get(at).ok_or(Refusal::NoSuchSource {
         at: plan.source,
@@ -502,15 +511,7 @@ fn run_pass(
     // here as **data**. Nothing below starts a process; a request with no recorded result goes back
     // to the caller in `report.requested`, and the requirement it answers stays refused for this
     // pass with `Because::AwaitingTool`.
-    let remedies = Remedies::of(
-        document,
-        &input,
-        plan.target,
-        &plan.derivations,
-        &plan.supplies,
-        &plan.resolutions,
-        &plan.tool_outputs,
-    );
+    let remedies = Remedies::of(document, &input, plan, budget);
     report.requested.clone_from(&remedies.pending);
     let derived_history = remedies::derived_history(&remedies.derived_report);
     let supplied_history = remedies::supplied_history(&remedies.supplied_report);
@@ -624,7 +625,7 @@ fn run_pass(
         &departed_ids,
         omit_identification,
         sinks,
-        settling,
+        settling.then_some(budget),
     );
     let written = match outcome {
         Ok(written) => written,
@@ -718,6 +719,7 @@ fn conversion_before_deciding(
         appearances: Vec::new(),
         unconstructed: Vec::new(),
         removed_files: Vec::new(),
+        attachments: Vec::new(),
         removed_annotations: Vec::new(),
         removed_actions: Vec::new(),
         removed_boundaries: Vec::new(),
@@ -739,6 +741,7 @@ fn conversion_before_deciding(
         supplied: remedies.supplied_report.clone(),
         resolved: remedies.resolved_report.clone(),
         preserved: Vec::new(),
+        statement: None,
         protection: SourceProtection::of(source),
     }
 }
@@ -793,7 +796,10 @@ fn decide_every_failure(
         // **The operator's own answer comes first**, because it is an answer to a requirement the
         // table refuses: a configured remedy that reached this document is what the conversion
         // does about the requirement, and `decide` would only restate the refusal it replaces.
-        let mut decision = configured(plan, remedies, judgement.id, &prepared)
+        // A site `derive:<tool>:append` answered is asked first: no other configured answer
+        // reaches the embedded-file rows a derivation answers.
+        let mut decision = appended_pages(remedies, judgement.id, &prepared)
+            .or_else(|| configured(plan, remedies, judgement.id, &prepared))
             .unwrap_or_else(|| decide(input, judgement, plan.authorised, &prepared));
         if decision.rewrite() == Some(Rewrite::FileHeader) {
             match version_for(document, plan.target) {
@@ -816,6 +822,7 @@ fn decide_every_failure(
     // was appended, carrying this, from there, placed so*.
     if let Ok(composed) = &prepared.preserved {
         conversion.preserved.clone_from(&composed.carried);
+        conversion.statement.clone_from(&composed.statement);
     }
     // The same, for the other mechanism: what was attached is read off the one attachment rather
     // than recomputed, and `rewrites_wanted` reads it back to decide whether the catalog is
@@ -939,6 +946,46 @@ fn met_by_the_replacement(decided: &mut [Decided], prepared: &Prepared) {
     }
 }
 
+/// The sentence a person is owed where an embedded-file row answered each file on its own.
+///
+/// Not [`PRESERVED_AS_A_PAGE`]'s, because a file the row's `on-failure = "discard"` removed is
+/// lost rather than kept, and the report's list per file says which each was (`doc/adr/2536`).
+const EACH_FILE_ANSWERED: &str = "each embedded file this target does not admit is laid out on \
+     pages appended to the document where this reader can lay it out, and is otherwise removed \
+     as the configuration's on-failure says; the report names each file with its own answer";
+
+/// The decision at a site `derive:<tool>:append` answered, where it answered one.
+///
+/// `doc/rfc/0014` section 5: the attachment is removed — the table's rewrite for the site — and the
+/// derived file's pages are what keep it, so the decision is the removal's and `rewrites_wanted`
+/// adds the pages beside it, as for a `preserve` by page (`doc/adr/2539`).
+fn appended_pages(remedies: &Remedies, id: &str, prepared: &Prepared) -> Option<Decision> {
+    if !remedies.derive_sites.contains(id)
+        || !remedies.appended.values().any(|file| file.site == id)
+    {
+        return None;
+    }
+    if !prepared.recorded_provenance {
+        return Some(Decision::Refused(Because::NotBuiltYet(NOT_RECORDED)));
+    }
+    Some(match &prepared.preserved {
+        Ok(composed)
+            if composed
+                .attachments
+                .iter()
+                .any(|outcome| outcome.site == id) =>
+        {
+            Decision::Configured {
+                kind: RemedyKind::Derive,
+                rewrite: Rewrite::EmbeddedFileRemoved,
+                warns: DERIVED_NOT_ORIGINAL,
+            }
+        }
+        Ok(_) => Decision::Refused(Because::NotBuiltYet(NOTHING_TO_PRESERVE)),
+        Err(because) => Decision::Refused(*because),
+    })
+}
+
 /// The decision a configured remedy takes about one requirement, where one reached it.
 ///
 /// Three answers, in the order they are reached:
@@ -1016,7 +1063,15 @@ fn configured(
             // what keep what it takes away, and `rewrites_wanted` adds `PreservedAsPage` beside
             // it. A site the table answers with no single rewrite cannot be preserved, and says
             // so rather than writing pages beside a requirement still failing.
-            Ok(composed) if composed.carried.iter().any(|row| row.site == id) => {
+            // An embedded-file row is answered per file (`doc/adr/2536`), and a row whose every
+            // file took `on-failure = "discard"` has answered the site with no page at all.
+            Ok(composed)
+                if composed.carried.iter().any(|row| row.site == id)
+                    || composed
+                        .attachments
+                        .iter()
+                        .any(|outcome| outcome.site == id) =>
+            {
                 match decision::rewrite_for(id) {
                     Some(rewrite) => Decision::Configured {
                         kind: RemedyKind::Preserve,
@@ -1027,6 +1082,8 @@ fn configured(
                         // would think nothing had gone.
                         warns: if rewrite == Rewrite::ForbiddenAnnotationRemoved {
                             PRESERVED_MARKS_AS_A_PAGE
+                        } else if rewrite == Rewrite::EmbeddedFileRemoved {
+                            EACH_FILE_ANSWERED
                         } else {
                             PRESERVED_AS_A_PAGE
                         },
@@ -1104,6 +1161,39 @@ fn supply_not_carried_out(
         return None;
     }
     prepared.obstacle(rewrite).map(Decision::Refused)
+}
+
+/// **`append-statement` takes its loss only with its page** (`doc/rfc/0014` section 4).
+///
+/// Where the statement is the row's first step the site is answered by the table's own removal,
+/// as `discard` answers it, and the page is what the step adds. A page that could not be composed
+/// refuses the site with the composition's own sentence rather than letting the removal go ahead
+/// unstated, which would be a different step from the one the operator named. The step after
+/// `preserve:append` is the preservation's, and [`configured`]'s page branch answers it.
+fn statement_not_composed(
+    plan: &ArchivePlan,
+    id: &'static str,
+    prepared: &Prepared,
+) -> Option<Decision> {
+    if !plan.preservations.iter().any(|preservation| {
+        preservation.site == id && preservation.statement.is_some() && !preservation.by_page
+    }) {
+        return None;
+    }
+    match &prepared.preserved {
+        Ok(composed)
+            if composed
+                .statement
+                .as_ref()
+                .is_some_and(|page| page.site == id) =>
+        {
+            None
+        }
+        Ok(_) => Some(Decision::Refused(Because::NotBuiltYet(
+            statement::NOTHING_STATED,
+        ))),
+        Err(because) => Some(Decision::Refused(*because)),
+    }
 }
 
 /// The decision a `preserve` that moves nothing takes, where one answers this requirement.
@@ -1245,7 +1335,7 @@ fn apply_the_decisions(
     departed_ids: &BTreeSet<&'static str>,
     omit_identification: bool,
     sinks: &dyn Sinks,
-    settling: bool,
+    settle_under: Option<&crate::Budget>,
 ) -> Result<Written, Refusal> {
     // Asked here for a document whose header already conformed, which is every document that
     // reaches this line without a `FileHeader` decision.
@@ -1273,6 +1363,10 @@ fn apply_the_decisions(
             .as_ref()
             .is_ok_and(|alternates| !alternates.families.is_empty())
     {
+        wanted.insert(Rewrite::OutputIntent);
+    }
+    // And the device colour a derived file's appended pages bring, the same way (`doc/adr/2539`).
+    if wanted.contains(&Rewrite::PreservedAsPage) && prepared.derived_pages_need_an_intent {
         wanted.insert(Rewrite::OutputIntent);
     }
     let wanted = wanted;
@@ -1376,6 +1470,7 @@ fn apply_the_decisions(
     {
         conversion.removed_files.clone_from(&removed.names);
     }
+    conversion.attachments.clone_from(&prepared.attachments);
     // What went off the page, beside what was put on it: `doc/pdf-a-conversion-limits.md` section
     // 3.2 asks for the page each removed annotation was on, and whether it drew anything, because
     // an annotation that is gone leaves nothing in the output to notice.
@@ -1543,10 +1638,10 @@ fn apply_the_decisions(
     // constructed appearances, because those are the content no earlier pass saw (`settle`). The
     // requirements it fails need not be ones the source met: a face the source never embedded
     // and a face the appearance names are two sites of the one requirement.
-    if settling
+    if let Some(budget) = settle_under
         && !conversion.appearances.is_empty()
         && !stands_as_departed(&achieved, departed_ids, omit_identification)
-        && let Some(second) = settle::second_conversion(plan, &bytes, input)
+        && let Some(second) = settle::second_conversion(plan, &bytes, input, budget)
         && stands_as_departed(&second.achieved, departed_ids, omit_identification)
     {
         settle::fold(conversion, second.conversion);
@@ -1641,7 +1736,8 @@ fn rewrites_wanted(
         .iter()
         .any(|row| row.outcome == DerivedOutcome::Attached)
         || !conversion.supplied.is_empty()
-        || !conversion.preserved.is_empty();
+        || !conversion.preserved.is_empty()
+        || conversion.statement.is_some();
     // A transfer function other than the identity is written into `xmpMM:History` before it
     // goes, and that record is a condition of the removal, so the packet is written whenever the
     // removal is (`doc/adr/1964`).
@@ -1653,7 +1749,7 @@ fn rewrites_wanted(
     // remedy answered — that one is answered by taking the properties out of the packet — so the
     // decision names the removal and this names the pages. Both happen or neither does:
     // `Prepared` composes nothing it cannot record and removes nothing it cannot cut.
-    if !conversion.preserved.is_empty() {
+    if !conversion.preserved.is_empty() || conversion.statement.is_some() {
         wanted.insert(Rewrite::PreservedAsPage);
     }
     // And the attachment the same way: the file is a rewrite of the catalog rather than of the
@@ -1943,11 +2039,14 @@ fn configured_prepared(
     id: &'static str,
     prepared: &Prepared,
 ) -> Option<Decision> {
+    if let Some(refused) = statement_not_composed(plan, id, prepared) {
+        return Some(refused);
+    }
     if id == FOUR_F_EMBEDDED_FILES
         && prepared
             .attached
             .as_ref()
-            .is_ok_and(|attached| !attached.rows.is_empty())
+            .is_ok_and(|attached| !attached.rows.is_empty() || !attached.kept.is_empty())
     {
         return Some(Decision::Configured {
             kind: RemedyKind::Preserve,

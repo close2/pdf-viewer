@@ -44,8 +44,9 @@ is **cited and paraphrased, never quoted**, exactly as sections 5.5.2 and 5.6.2 
 - §12.7.8.3.4's row loses its one departure; it is `departed` this round for that reason alone.
 - §12.7.6.2's Table 240 bit 6 submission already writes XFDF *fields*; the round that wrote it
   left annotations out on the same evidence, so the two halves close together.
-- `doc/questions/A23` already departs from principle 5 deliberately for one XFDF question; this
-  is the purchase that makes that departure unnecessary rather than permanent.
+- `doc/questions/A23`, a deliberate departure of the owner's from principle 5, is §11.5.3's
+  mask-group luminosity (ADR 2552) and not an XFDF question, so this purchase removes no departure
+  of the owner's; it removes the evidence gap the two rows above stand on.
 
 ## Recommendation
 

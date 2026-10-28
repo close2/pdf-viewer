@@ -784,3 +784,33 @@ Round 1848 (ADR 2531) had two corpus walks queued behind the heavy-walk lock whe
 default; granted as queued, both would have measured the binary built before the change and reported the
 old default's figures as the new one's. A walk that waited in the queue is preceded by a rebuild and a
 check of what the binary now does whenever its source moved while it waited.
+
+## A converter defect is run at HEAD before it is traced into a layer
+
+Round 1858 (ADR 2550) was briefed with a document whose output had a bad stream `/Length` and an
+unbalanced metadata packet — a writer defect, said the row. Run at HEAD, the converter wrote no output for
+that document at all: it refused on a resource row, and the defect was in the survey, not the writer. The
+first command on a converter defect is the converter at HEAD on the source, and its refusal or report is
+read before any layer is opened.
+
+## A tolerance the standard words as "no more than" is tested at its bound in single precision
+
+ISO 19005-2 section 6.2.11.5 allows a width to differ from the program's by no more than a thousandth of a
+unit (cited, never quoted). Round 1853 (ADR 2540) found six documents refused where veraPDF passed them:
+543 against 544 subtracted in `f32` gives 0.00100005, past the bound by five parts in a hundred million.
+A test of such a tolerance uses the operands the file supplies at the bound itself and a comparison in
+`f64` with a stated margin, and asserts both the passing bound and the first failing step past it.
+
+## High-water memory is read from getrusage where /usr/bin/time is absent
+
+This machine has no `/usr/bin/time`, and five rounds of batch 126 each found that out when the brief's
+probe instruction failed. A memory probe is a short Python wrapper that runs the command as a child and
+prints `resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss` in kibibytes beside the wall time, for this
+tree and HEAD's binary alike, under `tools/bounded.sh` so the load is beside the figure.
+
+## A docs round reads the subsystem at HEAD and runs the teaching gate in both trees
+
+Round 1860 (ADR 2554) described the PDF/A converter while four rounds were editing it. It read every file
+with `git show HEAD:<path>` from a snapshot, said in the document's opening which commit it describes, and
+ran the teaching gate in the shared tree and in a HEAD export: the gate resolves `path::name` against the
+working tree, so a sibling's rename turns it red or green whichever commit the walk describes.

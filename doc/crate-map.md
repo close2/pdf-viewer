@@ -18,9 +18,10 @@ needs the argument. `grep -c 'New in the' doc/crate-map.md` is how much of that 
 
 The crates in the order a page passes through them, with a diagram per stage, are
 `doc/teaching/how-a-page-lands-on-the-screen.md`, the order a form field's value takes from a key
-press to a saved file is `doc/teaching/how-a-form-field-is-filled.md`, and the order a word takes
-from its `Tj` to a clipboard is `doc/teaching/how-text-is-selected-and-copied.md`; this table is the
-one to open for a single crate.
+press to a saved file is `doc/teaching/how-a-form-field-is-filled.md`, the order a word takes
+from its `Tj` to a clipboard is `doc/teaching/how-text-is-selected-and-copied.md`, and the order a
+document takes from a profile to a PDF/A file and its report is
+`doc/teaching/how-a-document-becomes-pdfa.md`; this table is the one to open for a single crate.
 
 | Crate | Does | Notes |
 |---|---|---|

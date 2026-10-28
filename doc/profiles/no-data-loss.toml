@@ -1,0 +1,311 @@
+# no-data-loss — no information is lost; a presentation loss is discarded and stated.
+#
+# doc/rfc/0014 section 7's profile, shipped on the owner's answer A706 (items 3 and 4). It reads
+# doc/pdfa-remedies.md section 5's table by its class column: at a site whose loss is
+# *information* — metadata, an attachment, an annotation's or a form's content, a page's text — it
+# answers as keep-everything does (keep it in place, else keep it on an appended page, else stop),
+# and at a site whose loss is *presentation or behaviour* — a hint, a press statement, an
+# interactive behaviour — it answers append-statement: the loss is taken as discard takes it and
+# stated on a page appended to the document, in the report and in xmpMM:History.
+#
+# It declares no program: an attachment nothing here can keep stops the conversion, and an
+# operator who has a converter writes their own profile with base = "no-data-loss" and a
+# derive:<tool>:attach row (doc/rfc/0014 section 6).
+#
+# At a presentation site the answer is try = ["append-statement", "discard"]. This version sets
+# append-statement's page at the two embedded-file rows only (config/steps.rs), so at every other
+# site the first step is passed over with its sentence and the loss is taken as discard takes it,
+# named in the report and in xmpMM:History, until the page is built there. The three
+# transfer-function sites keep keep-everything's answer, because a transfer function decides what
+# a screen shows and no shipped profile authorises its removal (doc/adr/1964).
+
+[profile]
+name = "no-data-loss"
+sentence = "No information is lost: it is kept, moved or written out on an appended page; a presentation loss is discarded and stated."
+catalogue = "doc/pdfa-remedies.md"
+default = "stop"
+
+[site."embedded-files/embedded-file-is-itself-pdfa"]
+remedy = "preserve"
+placement = "append"
+on-failure = "stop"
+
+[site."embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile"]
+remedy = "preserve"
+placement = "append"
+on-failure = "stop"
+
+[site."embedded-files/associated-file-media-type"]
+remedy = "supply"
+media-types = { ".xml" = "application/xml", ".csv" = "text/csv", ".pdf" = "application/pdf" }
+unlisted = "stop"
+
+[site."annotations/subtype-defined-in-iso-32000-1"]
+remedy = "preserve"
+placement = "append"
+on-failure = "stop"
+
+[site."annotations/subtype-defined-in-iso-32000-2"]
+remedy = "preserve"
+placement = "append"
+on-failure = "stop"
+
+[site."annotations/three-dimensional-only-in-engineering-files"]
+remedy = "preserve"
+placement = "append"
+on-failure = "stop"
+
+[site."annotations/three-dimensional-stream-format"]
+remedy = "stop"
+
+[site."annotations/file-attachment-only-in-embedded-file-files"]
+remedy = "preserve"
+placement = "append"
+on-failure = "stop"
+keep-attachment = true
+
+[site."annotations/flags-entry-present"]
+try = ["append-statement", "discard"]
+
+[site."annotations/printable-and-visible"]
+try = ["append-statement", "discard"]
+
+[site."annotations/appearance-dictionary-holds-only-normal"]
+try = ["append-statement", "discard"]
+
+[site."forms/no-action-on-widget-or-field"]
+remedy = "stop"
+
+[site."forms/no-action-on-widget-or-field".target."4f"]
+remedy = "preserve"
+as = "xfdf"
+on-failure = "stop"
+
+[site."forms/no-xfa-key"]
+try = ["append-statement", "discard"]
+
+[site."forms/no-needs-rendering"]
+remedy = "discard"
+
+[site."file-structure/no-encryption"]
+try = ["append-statement", "discard"]
+
+[site."file-structure/permissions-dictionary-keys"]
+remedy = "preserve"
+record = ["report", "history", "page"]
+attach-source = true
+
+[site."file-structure/document-signature-states-no-digest"]
+remedy = "preserve"
+record = ["report", "history", "page"]
+
+[site."graphics/destination-profile-class-and-colour-space"]
+remedy = "preserve"
+replacement = "supplied"
+keep-rejected = "attach"
+
+[site."graphics/destination-profile-carries-the-tags-its-class-requires"]
+remedy = "preserve"
+replacement = "supplied"
+keep-rejected = "attach"
+
+[site."graphics/destination-profile-states-a-correct-profile-id"]
+remedy = "preserve"
+replacement = "supplied"
+keep-rejected = "attach"
+
+[site."graphics/icc-profiles-claim-a-permitted-edition"]
+remedy = "preserve"
+via = "alternate"
+keep-rejected = "attach"
+
+[site."graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires"]
+remedy = "supply"
+description = "This profile stated no description; this text was supplied when it was archived."
+copyright = "This profile stated no copyright information; this text was supplied when it was archived."
+
+[site."graphics/icc-profiles-carry-the-tags-their-version-requires"]
+remedy = "supply"
+description = "This profile stated no description; this text was supplied when it was archived."
+copyright = "This profile stated no copyright information; this text was supplied when it was archived."
+
+[site."graphics/icc-profiles-conform-to-the-base-standard"]
+remedy = "preserve"
+via = "alternate"
+keep-rejected = "attach"
+
+[site."graphics/no-transfer-function-in-a-graphics-state"]
+remedy = "stop"
+
+[site."graphics/no-transfer-function-in-a-graphics-state".target."4f"]
+remedy = "preserve"
+keep = "attach"
+evidence = "always"
+on-failure = "stop"
+
+[site."graphics/no-transfer-function-in-a-graphics-state".target."4e"]
+remedy = "preserve"
+keep = "attach"
+evidence = "always"
+on-failure = "stop"
+
+[site."graphics/second-transfer-function-is-default"]
+remedy = "stop"
+
+[site."graphics/second-transfer-function-is-default".target."4f"]
+remedy = "preserve"
+keep = "attach"
+evidence = "always"
+on-failure = "stop"
+
+[site."graphics/second-transfer-function-is-default".target."4e"]
+remedy = "preserve"
+keep = "attach"
+evidence = "always"
+on-failure = "stop"
+
+[site."graphics/halftone-transfer-function-only-where-required"]
+remedy = "stop"
+
+[site."graphics/halftone-transfer-function-only-where-required".target."4f"]
+remedy = "preserve"
+keep = "attach"
+on-failure = "stop"
+
+[site."graphics/halftone-transfer-function-only-where-required".target."4e"]
+remedy = "preserve"
+keep = "attach"
+on-failure = "stop"
+
+[site."graphics/halftone-type-is-one-or-five"]
+try = ["append-statement", "discard"]
+
+[site."graphics/no-halftone-name"]
+try = ["append-statement", "discard"]
+
+[site."graphics/no-halftone-origin-in-a-graphics-state"]
+try = ["append-statement", "discard"]
+
+[site."file-structure/no-external-stream-data"]
+remedy = "stop"
+
+[site."graphics/no-destination-profile-reference"]
+remedy = "stop"
+
+[site."graphics/no-destination-profile-reference-in-a-pdfx-output-intent"]
+remedy = "stop"
+
+[site."graphics/no-reference-xobjects"]
+remedy = "preserve"
+
+
+[site."graphics/jpeg2000-uses-the-baseline-feature-set"]
+remedy = "preserve"
+
+
+
+[site."graphics/jpeg2000-bit-depth"]
+remedy = "preserve"
+
+
+
+[site."graphics/jpeg2000-channel-count"]
+remedy = "preserve"
+
+
+[site."graphics/jpeg2000-no-ciejab-colour-space"]
+remedy = "preserve"
+
+
+[site."metadata/xmp-packets-well-formed"]
+remedy = "preserve"
+fresh-packet = true
+original = "page"
+
+[site."metadata/xmp-packets-well-formed".target."4f"]
+remedy = "preserve"
+fresh-packet = true
+original = "attach"
+
+[site."metadata/xmp-packets-well-formed".target."4e"]
+remedy = "preserve"
+fresh-packet = true
+original = "attach"
+
+[site."metadata/xmp-packets-state-one-rdf-element"]
+remedy = "preserve"
+fresh-packet = true
+original = "page"
+
+[site."metadata/xmp-packets-state-one-rdf-element".target."4f"]
+remedy = "preserve"
+fresh-packet = true
+original = "attach"
+
+[site."metadata/xmp-packets-state-one-rdf-element".target."4e"]
+remedy = "preserve"
+fresh-packet = true
+original = "attach"
+
+[site."metadata/xmp-packets-meet-the-xmp-data-model"]
+remedy = "preserve"
+fresh-packet = true
+original = "page"
+
+[site."metadata/xmp-packets-meet-the-xmp-data-model".target."4f"]
+remedy = "preserve"
+fresh-packet = true
+original = "attach"
+
+[site."metadata/xmp-packets-meet-the-xmp-data-model".target."4e"]
+remedy = "preserve"
+fresh-packet = true
+original = "attach"
+
+[site."metadata/properties-use-known-schemas"]
+remedy = "preserve"
+placement = "append"
+
+[site."metadata/extension-schemas-embedded"]
+remedy = "preserve"
+undeterminable = "stop"
+
+[site."logical-structure/role-map-terminates-at-a-standard-type"]
+remedy = "supply"
+role-map = { }
+unlisted = "stop"
+
+[site."logical-structure/catalog-language-identifier"]
+remedy = "supply"
+language = ""
+
+
+[site."logical-structure/element-and-property-list-language-identifiers"]
+remedy = "supply"
+language = ""
+
+[site."graphics/separations-of-one-name-agree"]
+remedy = "supply"
+winner = "first"
+
+[site."fonts/embedded-cmap-states-its-own-write-mode"]
+remedy = "supply"
+write-mode = "program"
+
+[site."optional-content/configuration-names"]
+remedy = "supply"
+name-template = "Configuration {n}"
+
+[site."fonts/cmap-embedded-or-predefined"]
+remedy = "preserve"
+source = "shipped-cmaps"
+
+on-missing = "stop"
+
+[site."fonts/cmap-uses-only-predefined-cmaps"]
+remedy = "stop"
+
+[site."metadata/extension-schema-container-fields"]
+remedy = "supply"
+schemas = { }
+unlisted = "stop"

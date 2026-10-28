@@ -143,7 +143,6 @@ pub(super) fn decode_jpx(
     let carried = matte_alpha_on(painting.matte, (width, height), grid);
     let on_grid = (painting.matte.zip(carried.as_deref())).map(|(m, alpha)| m.carried(alpha));
     Ok(SamplesOnGrid {
-        black_generation_bypassed: painting.into.bypasses_black_generation(&space),
         rgba: jpx_samples_to_rgba(
             &raster,
             &space,
@@ -600,7 +599,6 @@ fn jpx_stencil(
     });
     let packed = pack_bits(&samples, raster.width, raster.height);
     Ok(SamplesOnGrid {
-        black_generation_bypassed: false,
         rgba: unpack(
             &packed,
             raster.width,

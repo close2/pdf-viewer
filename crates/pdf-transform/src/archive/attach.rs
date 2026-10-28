@@ -145,6 +145,8 @@ pub(super) struct Filing {
     pub(super) site: &'static str,
     /// The annotation that named it, for the report.
     pub(super) annotation: ObjectId,
+    /// That annotation's §12.5.6.1 subtype, for the report.
+    pub(super) subtype: &'static str,
     /// The file's own name, §7.11.3's `/UF` or `/F` as the specification states it.
     pub(super) name: String,
     /// The annotation's `/FS` value: a reference to the specification, or the dictionary itself.
@@ -363,8 +365,8 @@ pub(super) fn attach(
             site: filed.site,
             name,
             annotation: format!(
-                "the FileAttachment annotation in object {} {}",
-                filed.annotation.number, filed.annotation.generation
+                "the {} annotation in object {} {}",
+                filed.subtype, filed.annotation.number, filed.annotation.generation
             ),
         });
     }

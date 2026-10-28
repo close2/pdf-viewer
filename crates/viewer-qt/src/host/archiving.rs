@@ -56,7 +56,7 @@ impl Host {
                 choosing
                     .profiles()
                     .iter()
-                    .map(|offered| offered.name.to_owned())
+                    .map(|offered| offered.name.clone())
                     .collect()
             })
             .unwrap_or_default()

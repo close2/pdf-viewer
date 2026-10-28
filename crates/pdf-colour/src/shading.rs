@@ -182,6 +182,8 @@ pub struct Cache {
     /// Every `/Function` group stated by reference, parsed once for the cache's life; see
     /// [`Parsed`].
     functions: Parsed,
+    /// What the meshes this cache has built hold, in bytes — [`Self::mesh_bytes_held`].
+    mesh_bytes: usize,
 }
 
 /// The `/Function` groups a [`Cache`] has parsed, keyed by the objects that state them.
@@ -299,14 +301,39 @@ impl Parsed {
     }
 }
 
+/// What a mesh shading holds in bytes, and zero for every other kind — [`Cache::mesh_bytes_held`].
+fn mesh_bytes(kind: &ShadingKind) -> usize {
+    let ShadingKind::Mesh {
+        triangles, patches, ..
+    } = kind
+    else {
+        return 0;
+    };
+    let triangles = triangles
+        .len()
+        .saturating_mul(size_of::<pdf_render::Triangle>());
+    let patches = patches.as_ref().map_or(0, |mesh| {
+        mesh.patches.iter().fold(0_usize, |total, patch| {
+            let lattice = match &patch.corners {
+                pdf_render::PatchCorners::Grid(lattice) => {
+                    lattice.colours().len().saturating_mul(size_of::<Color>())
+                }
+                _ => 0,
+            };
+            total
+                .saturating_add(size_of::<pdf_render::SurfacePatch>())
+                .saturating_add(lattice)
+        })
+    });
+    triangles.saturating_add(patches)
+}
+
 /// The half of a shading [`Cache`] can remember: everything but the caller's transform.
 ///
 /// A struct rather than the tuple this used to be, because the third member arrived and three
 /// anonymous fields in a map value is a type nobody can read at the call site.
 #[derive(Debug, Clone)]
 struct Built {
-    /// The source colour's §11.7.5.3 conversion bypassed a stated pair; reported at paint.
-    black_generation_bypassed: bool,
     /// The geometry and the colours.
     kind: Arc<ShadingKind>,
     /// The shading's own matrix: `/Matrix` for a type 1 and the identity for every other type.
@@ -339,9 +366,6 @@ struct Built {
 /// bound in this family stop a mesh in silence.
 #[derive(Debug, Clone)]
 pub struct Shaded {
-    /// A `DeviceRGB` source converted through an output intent instead of a stated
-    /// §11.7.5.3 pair. The caller reports this only when the shading paints.
-    pub black_generation_bypassed: bool,
     /// The shading to paint.
     pub shading: Shading,
     /// The bound that stopped this shading's mesh stream part-way, by name, so the geometry is
@@ -392,7 +416,6 @@ impl Cache {
                     .get(&(id, resolution, colouring.into.clone(), colour_spaces))
         {
             return Ok(Shaded {
-                black_generation_bypassed: built.black_generation_bypassed,
                 shading: Shading {
                     kind: Arc::clone(&built.kind),
                     transform: built.own.then(transform),
@@ -412,6 +435,7 @@ impl Cache {
             colouring,
             &mut self.functions,
         )?;
+        self.mesh_bytes = self.mesh_bytes.saturating_add(mesh_bytes(&built.kind));
         if let Some(id) = key {
             self.built.insert(
                 (id, resolution, colouring.into.clone(), colour_spaces),
@@ -419,7 +443,6 @@ impl Cache {
             );
         }
         Ok(Shaded {
-            black_generation_bypassed: built.black_generation_bypassed,
             shading: Shading {
                 kind: built.kind,
                 transform: built.own.then(transform),
@@ -428,6 +451,20 @@ impl Cache {
             truncated: built.truncated,
             coarse: built.coarse,
         })
+    }
+
+    /// The bytes the meshes this cache has built hold: their triangles, their patches and the
+    /// lattices ADR 2546 converts a bending patch's colours at.
+    ///
+    /// A mesh is bounded on its own — [`crate::mesh::MAX_TRIANGLES`], [`crate::mesh::MAX_PATCHES`]
+    /// and the lattice's conversions — and a page can paint many of them, each its own object.
+    /// So what they hold together is one more thing a page can exhaust, and the interpreter
+    /// charges this figure to the page's memory bound beside its list, as it charges the presses
+    /// (ADR 2532). Every build adds to it and nothing is taken back, because a built mesh is kept
+    /// by this cache, or by the display list that paints it, until the interpretation ends.
+    #[must_use]
+    pub const fn mesh_bytes_held(&self) -> usize {
+        self.mesh_bytes
     }
 
     /// This shading's colour space, parsed once where the shading states it by reference.
@@ -534,7 +571,6 @@ pub fn build(
         &mut Parsed::default(),
     )?;
     Ok(Shaded {
-        black_generation_bypassed: built.black_generation_bypassed,
         shading: Shading {
             kind: built.kind,
             transform: built.own.then(transform),
@@ -626,7 +662,6 @@ fn kind_of(
     };
 
     Ok(Built {
-        black_generation_bypassed: colouring.into.bypasses_black_generation(&space),
         kind: Arc::new(kind),
         own,
         background: background_of(document, &dict, &space, colouring),

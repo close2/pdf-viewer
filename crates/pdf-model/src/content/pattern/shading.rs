@@ -175,7 +175,6 @@ impl Interpreter<'_> {
             colouring,
         ) {
             Ok(built) => {
-                self.black_generation_painted |= built.black_generation_bypassed;
                 // §10.7.3 permits the bound and `crate::content`'s module documentation forbids
                 // drawing less than the document states in silence, so a mesh the bound cut
                 // short is said out loud before its remaining triangles are painted.

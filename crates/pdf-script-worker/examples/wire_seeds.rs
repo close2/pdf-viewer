@@ -21,7 +21,7 @@ use pdf_model::view::{
     ScriptEdit, ScriptEvent, ScriptSite, TextFlag, ViewChange, WidgetState, WindowView, ZoomType,
 };
 use pdf_model::viewer_preferences::PageLayout;
-use pdf_model::xfa::{Occurrence, Scalar, Step};
+use pdf_model::xfa::{FormLanguage, Occurrence, Scalar, Step};
 use pdf_script::{Ending, Exceeded, Outcome, Refusal, RefusalKind, Request};
 use pdf_script_worker::form_wire::{
     Done, FormAnswer, FormQuestion, FormRun, encode_answer, encode_form_run, encode_question,
@@ -347,7 +347,7 @@ fn replies() -> Vec<(String, Vec<u8>)> {
     seeds
 }
 
-/// A form's `FormCalc` run, and each question and answer of its conversation: the first byte of a
+/// A form's run in each language, and each question and answer of its conversation: the first byte of a
 /// question or an answer is the kind it is framed under, as the target reads it.
 fn forms() -> Vec<(String, Vec<u8>)> {
     let step = |name: &str, occurrence| Step {
@@ -364,9 +364,26 @@ fn forms() -> Vec<(String, Vec<u8>)> {
             "form-run".to_owned(),
             encode_form_run(&FormRun {
                 node: 3,
+                language: FormLanguage::FormCalc,
                 steps_left: 100_000,
                 script: "Total = Units * Price".to_owned(),
             }),
+        ),
+        (
+            "form-run-javascript".to_owned(),
+            encode_form_run(&FormRun {
+                node: 3,
+                language: FormLanguage::JavaScript,
+                steps_left: 100_000,
+                script: "Units.rawValue * Price.rawValue".to_owned(),
+            }),
+        ),
+        (
+            "form-question-resolve-from".to_owned(),
+            framed(encode_question(&FormQuestion::ResolveFrom(
+                7,
+                vec![step("Cell", Occurrence::Every)],
+            ))),
         ),
         (
             "form-question-resolve".to_owned(),

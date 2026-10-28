@@ -1125,14 +1125,17 @@ pub struct Written {
     /// Table 231 bit 14's NOTE, quoted in full on [`ViewState::save`]. Empty for every document
     /// with no password field in it, which is every document in this project's corpus.
     pub withheld: Vec<String>,
-    /// Every free text annotation written with `/Contents` and **no** appearance stream.
+    /// Every annotation written with **no** appearance stream, which §12.5.2 has a writer include.
     ///
-    /// The other thing a save drops on purpose, and it drops less than it looks: the annotation
-    /// carries what the person typed and Table 177 makes `/DA` Required, so the next reader has
-    /// everything §12.5.6.6 needs to generate an appearance — this one could not, and says which
-    /// annotations. Empty unless a retyped annotation's `/DA` names a font its document does not
-    /// define, or a retyped or added annotation's text is set in a face from this machine whose
-    /// licence forbids embedding it (ADR 1425). See [`ViewState::save`].
+    /// The other thing a save drops on purpose, and for a free text annotation it drops less than
+    /// it looks: the annotation carries what the person typed and Table 177 makes `/DA` Required,
+    /// so the next reader has everything §12.5.6.6 needs to generate an appearance — this one
+    /// could not, and says which annotations. Empty unless a retyped or added annotation's text
+    /// could not be laid out — its `/DA` names no font this program can use, or no compiled-in
+    /// face and no face of this machine's that this program may embed covers it — or an added
+    /// annotation is of a kind whose appearance this program does not construct. A face whose
+    /// licence forbids embedding is never offered to the layout (ADR 2548), so a licence is not
+    /// among the causes. See [`ViewState::save`].
     pub unappeared: Vec<ObjectId>,
     /// §12.7.4.2's qualified name of every field whose widget was written without a complete
     /// appearance stream, which is what Table 224's `/NeedAppearances` in the written file is for.

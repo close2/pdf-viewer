@@ -774,9 +774,11 @@ impl ViewState {
     /// indirect reference to the page object with which this annotation is associated", which is
     /// a statement about the *file* and so belongs to the writing rather than to the log.
     ///
-    /// Returns every added annotation written with no appearance, which is only one whose text is
-    /// set in a face from this machine whose licence forbids embedding it (ADR 1425) — the same
-    /// shortfall [`Written::unappeared`] already names for a retyped note.
+    /// Returns every added annotation written with no appearance, which is only one whose text
+    /// could not be laid out — no compiled-in face and no face of this machine's that this program
+    /// may write covers it — the same shortfall [`Written::unappeared`] already names for a retyped
+    /// note. A face whose licence forbids embedding it is never the one a person's text is set in
+    /// (ADR 2548), so a licence is not among the causes.
     fn write_additions(&self, document: &Document, update: &mut Update) -> Vec<ObjectId> {
         let mut unappeared = Vec::new();
         for added in &self.added {
@@ -1430,9 +1432,9 @@ fn withdrawn_usage_rights(document: &Document, update: &Update) -> Option<(Objec
 /// requirement into the entry's own column ("Required except for conditions listed below (PDF
 /// 2.0)"). A markup this function is called for is none of the exceptions, which is why writing the
 /// appearance is obligatory here rather than a courtesy. The one construction that is not written
-/// is a value set in a face from this machine whose licence forbids embedding it (ADR 1425), and
-/// `false` says so, for [`Written::unappeared`] to name; [`ViewState::write_retypings`] is where
-/// the same rule is departed from for a layout that declined.
+/// is one whose text could not be laid out, and `false` says so, for [`Written::unappeared`] to
+/// name, as [`ViewState::write_retypings`] does for a retyped note; a face whose licence forbids
+/// embedding is never offered to the layout (ADR 2548), so that is not a cause.
 fn write_added_appearance(document: &Document, update: &mut Update, dict: &mut Dictionary) -> bool {
     // An annotation that arrived with an appearance of its own keeps it. §12.7.8.3.4's
     // annotations are the one kind that does — they carry the producer's `/AP`, copied whole —
@@ -1461,13 +1463,16 @@ fn write_added_appearance(document: &Document, update: &mut Update, dict: &mut D
         rect,
         &crate::variable_text::LayoutFonts::new(document),
     );
-    // A value set in a face from this machine is written with the face subset and embedded, and
-    // not written at all where the face's licence forbids it (ADR 1425).
+    // A value set in a face from this machine is written with the face subset and embedded
+    // (ADR 1425); the layout offers no face whose licence forbids that (ADR 2548), so a refusal
+    // here is a face whose program could not be read back.
     let Ok(resources) = crate::variable_text::for_a_file(&built.resources) else {
         return false;
     };
+    // No content and a report is a layout that declined — text no face this program may write
+    // covers — and is the shortfall `false` names; no content and no report is nothing to draw.
     let Some(content) = built.content else {
-        return true;
+        return built.report.is_none();
     };
     let resources = promote_resource_streams(update, resources);
     let id = update.allocate();
@@ -1580,9 +1585,10 @@ fn write_retyped_appearance(
         rect,
         &crate::variable_text::LayoutFonts::new(document),
     );
-    // A value set in a face from this machine is written with the face subset and embedded; where
-    // the face's licence forbids that, the annotation is written as one owing its appearance, as
-    // a layout that declined would be (ADR 1425).
+    // A value set in a face from this machine is written with the face subset and embedded (ADR
+    // 1425), and the layout offers no face whose licence forbids that (ADR 2548); a face whose
+    // program could not be read back leaves the annotation owing its appearance, as a layout that
+    // declined does.
     let resources = crate::variable_text::for_a_file(&built.resources).ok();
     let unwritten = resources.is_none();
     let (Some(content), Some(resources)) = (built.content, resources) else {

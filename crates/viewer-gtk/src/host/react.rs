@@ -237,6 +237,9 @@ impl Host {
                 // does not need happens before page one (`CLAUDE.md` section 2).
                 self.later_open_the_next();
             }
+            if held > 0 && self.state.showing.report_due.is_owed() {
+                self.later_ask_what_it_owes();
+            }
         }
         let fields = match self.state.viewer.query(Query::Fields) {
             Answer::Fields(fields) => fields,

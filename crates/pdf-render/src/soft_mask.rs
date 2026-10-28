@@ -175,6 +175,11 @@ impl Transfer {
 /// backend one of these and the luminosity of a composited pixel is read off it, clamped to
 /// the unit a mask value holds.
 ///
+/// **What `pdf_model` hands it is the device branch's weights in these shapes**, because the
+/// owner chose that branch for every mask group (A23, ADR 2552): [`Luminance::device_rgb`]
+/// for three components, linear curves, and [`Luminance::device_ink`] for four. The sampled
+/// shapes carry the clause's `Y` for whoever asks for it.
+///
 /// The curves are sampled at 256 points per component so that a channel at full alpha lands
 /// on a sample exactly, and interpolated between them where the backdrop's composite leaves a
 /// channel between two.
@@ -254,6 +259,27 @@ impl Luminance {
         Self {
             shape: Shape::DeviceInk,
         }
+    }
+
+    /// The luminosity of a three-component CIE-based group composited in its own components,
+    /// read by ISO 32000-2 §11.5.3's device branch with EXAMPLE 2's conversion for `DeviceRGB`,
+    /// `Y = 0.30 × R + 0.59 × G + 0.11 × B`, on the components as they stand.
+    ///
+    /// The clause sends a CIE-based space to its colorimetric branch, the `Y` of the colour in
+    /// CIE 1931 XYZ, and every other reader takes the device branch for it instead; the owner
+    /// chose the readers' convention (A23), so a group in `CalRGB` or a three-component
+    /// `ICCBased` space is weighed here "with no compensation for gamma or other colour
+    /// calibration" (ADR 2552). The weights are linear, so the curves' samples are the formula
+    /// itself at every one of the 256 points and the interpolation between them adds nothing.
+    #[must_use]
+    pub fn device_rgb() -> Self {
+        const WEIGHTS: [f32; 3] = [0.30, 0.59, 0.11];
+        let curves: [[f32; 3]; 256] = std::array::from_fn(|index| {
+            #[expect(clippy::cast_precision_loss, reason = "an index below 256")]
+            let component = index as f32 / 255.0;
+            WEIGHTS.map(|weight| weight * component)
+        });
+        Self::curves(std::sync::Arc::new(curves))
     }
 
     /// Whether this is [`Luminance::device_ink`]'s shape, which carries no samples.

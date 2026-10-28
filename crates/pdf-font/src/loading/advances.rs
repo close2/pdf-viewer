@@ -31,8 +31,8 @@ impl LoadedFont {
     ///
     /// — and [`Self::advance`] is the *document's* half: it resolves `/Widths` or `/W`, because
     /// that is what a page is laid out by and what a renderer must obey. This is the other
-    /// half, read out of the program's `hmtx` record or its charstring's leading width operand,
-    /// so that a caller comparing the two is comparing two statements rather than one with
+    /// half, read out of the program's `hmtx` record, a Type 2 charstring's leading width
+    /// operand or a Type 1 charstring's `hsbw` or `sbw`, so that a caller comparing the two is comparing two statements rather than one with
     /// itself.
     ///
     /// It exists for the callers that have to make exactly that comparison: ISO 19005-2 section
@@ -52,7 +52,9 @@ impl LoadedFont {
     ///   DICTs that could not be read were replaced by empty ones, and a Type 2 charstring's
     ///   advance is decided by its Private DICT's `defaultWidthX` and `nominalWidthX` — so the
     ///   number that came back would be this crate's rather than the program's.
-    /// - **A bare Type 1 program**, whose `hsbw` width this crate does not read.
+    /// - **A Type 1 charstring that states no width, or that the evaluator refuses.** The error
+    ///   is a fact about this reader's evaluation of one glyph, so it declines that glyph rather
+    ///   than naming the file; the font's drawing meets the same charstring and says so there.
     /// - **A code that reaches no glyph, or reaches `.notdef`.** §9.7.6.3's CID-0 fallback and
     ///   §9.6.5.2's `.notdef` substitution are what happens when the font is *drawn*; here they
     ///   are not applied, and a code the tables send to glyph 0 outright is declined for the
@@ -67,7 +69,12 @@ impl LoadedFont {
     #[must_use]
     pub fn program_advance(&self, code: Code) -> Option<f32> {
         let glyph = self.program_glyph(code)?;
-        let advance = metrics::program_advance(self.program, &self.data, glyph)?;
+        // The kept parse rather than a second one per code: `type1::Program` says why a Type 1
+        // program is parsed once, and `metrics` has only the bytes.
+        let advance = match &self.type1 {
+            Some(program) => program.advance(glyph).ok().flatten()?,
+            None => metrics::program_advance(self.program, &self.data, glyph)?,
+        };
         self.in_ems(advance)
     }
 

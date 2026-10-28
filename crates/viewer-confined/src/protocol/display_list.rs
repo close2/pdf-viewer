@@ -70,8 +70,8 @@ use std::sync::Arc;
 use pdf_render::{
     BlackHalf, BlendMode, BlendingSpace, Clip, ClipId, Color, ColourCube, Command, Corners,
     DisplayList, FillRule, GreyCurve, GroupBlending, Image, ImageSource, LineCap, LineJoin,
-    Luminance, MAX_GROUP_DEPTH, Paint, PatchCorners, PatchMesh, Path, PathCommand, Point, Ramp,
-    Rect, SampleAlpha, Shading, ShadingKind, Size, SoftMask, SoftMaskId, SoftMaskKind,
+    Luminance, MAX_GROUP_DEPTH, Paint, PatchCorners, PatchGrid, PatchMesh, Path, PathCommand,
+    Point, Ramp, Rect, SampleAlpha, Shading, ShadingKind, Size, SoftMask, SoftMaskId, SoftMaskKind,
     SpotColourant, SpotSeparation, Stop, Stroke, SurfacePatch, Transfer, Transform, Triangle,
 };
 
@@ -1736,17 +1736,27 @@ fn write_patches(writer: &mut Writer, patches: Option<&PatchMesh>) {
                 write_point(writer, *point);
             }
         }
-        match patch.corners {
+        match &patch.corners {
             PatchCorners::Colours(colours) => {
                 writer.u8(1);
                 for colour in colours {
-                    write_colour(writer, colour);
+                    write_colour(writer, *colour);
                 }
             }
             PatchCorners::Parameters(parameters) => {
                 writer.u8(2);
                 for parameter in parameters {
-                    writer.f32(parameter);
+                    writer.f32(*parameter);
+                }
+            }
+            PatchCorners::Grid(lattice) => {
+                writer.u8(3);
+                let (across, down) = lattice.cells();
+                writer.u32(across);
+                writer.u32(down);
+                writer.usize(lattice.colours().len());
+                for colour in lattice.colours() {
+                    write_colour(writer, *colour);
                 }
             }
         }
@@ -1780,6 +1790,21 @@ fn read_patches(reader: &mut Reader<'_>) -> Result<Option<PatchMesh>, ProtocolEr
                     *parameter = reader.f32("a mesh patch corner's parameter")?;
                 }
                 PatchCorners::Parameters(parameters)
+            }
+            3 => {
+                let cells = (
+                    reader.u32("a mesh patch's lattice")?,
+                    reader.u32("a mesh patch's lattice")?,
+                );
+                let colours = table(reader, "a mesh patch's lattice colours", 16, |reader| {
+                    read_colour(reader, "a mesh patch lattice colour")
+                })?;
+                PatchCorners::Grid(PatchGrid::new(cells, Arc::from(colours)).ok_or(
+                    ProtocolError::Unbuildable {
+                        what: "a mesh patch's lattice",
+                        why: "its cell counts and its colours disagree, or pass the bound",
+                    },
+                )?)
             }
             value => {
                 return Err(ProtocolError::Unrecognised {
@@ -2411,8 +2436,8 @@ mod tests {
             background: None,
         });
         // §8.7.4.5.7's patches, which cross as patches rather than as a tessellation this side
-        // chose (ADR 1217): both corner kinds, because the tag between them is a branch of the
-        // codec and a fixture that leaves one at its default tests half of it (trap 12b).
+        // chose (ADR 1217): all three corner kinds, because the tag between them is a branch of
+        // the codec and a fixture that leaves one at its default tests half of it (trap 12b).
         let patch_mesh = Arc::new(Shading {
             kind: Arc::new(ShadingKind::Mesh {
                 triangles: Arc::from(Vec::new()),
@@ -2438,6 +2463,23 @@ mod tests {
                         SurfacePatch {
                             net: [[Point::new(2.0, 3.0); 4]; 4],
                             corners: PatchCorners::Parameters([0.0, 0.25, 0.5, 1.0]),
+                        },
+                        SurfacePatch {
+                            net: [[Point::new(4.0, 1.0); 4]; 4],
+                            corners: PatchCorners::Grid(
+                                PatchGrid::new(
+                                    (2, 1),
+                                    Arc::from(vec![
+                                        Color::BLACK,
+                                        Color::WHITE,
+                                        Color::rgb(0.0, 1.0, 0.0),
+                                        Color::rgb(0.0, 0.0, 1.0),
+                                        Color::TRANSPARENT,
+                                        Color::rgb(0.5, 0.5, 0.5),
+                                    ]),
+                                )
+                                .expect("two cells by one hold six lattice points"),
+                            ),
                         },
                     ]),
                     smoothness: 1.0 / 256.0,

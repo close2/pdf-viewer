@@ -51,7 +51,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use confined_transport::{Canceller, Host, TransportError};
 use pdf_model::view::{FieldState, Resumed, ScriptEvent, ScriptResult, ScriptRunner, ScriptSite};
-use pdf_model::xfa::{Form, Ran, Scalar};
+use pdf_model::xfa::{Form, FormLanguage, Occurrence, Ran, Scalar, Step};
 use pdf_script::wire::encode_answer;
 use pdf_script::{Answer, Ending, Outcome, Question, Request};
 
@@ -538,12 +538,19 @@ impl ScriptWorker {
     /// JavaScript one; a run that reached the deadline reports itself past `steps_left`, so that
     /// the activation it belongs to ends there (XFA 3.3 page 380 recommends a means of ending a
     /// seemingly infinite loop, and a script that spends the wall clock is one).
-    fn run_form(&self, form: &mut Form<'_>, node: usize, script: &str, steps_left: u64) -> Ran {
+    fn run_form(
+        &self,
+        form: &mut Form<'_>,
+        node: usize,
+        language: FormLanguage,
+        script: &str,
+        steps_left: u64,
+    ) -> Ran {
         let refused = |sentence: String| Ran {
             steps: 0,
             outcome: Err(sentence),
         };
-        let subject = format!("a FormCalc script of container {node}");
+        let subject = format!("a {} script of container {node}", language.name());
         let mut state = self.state();
         if let Some(why) = self.form_run_refusal(&mut state, &subject, script) {
             return refused(why);
@@ -566,6 +573,7 @@ impl ScriptWorker {
         let site = ScriptSite::Field(pdf_model::aform::Trigger::Calculate);
         let run = FormRun {
             node: here,
+            language,
             steps_left,
             script: script.to_owned(),
         };
@@ -1114,21 +1122,25 @@ fn answer_form(
         FormQuestion::Resolve(path) => FormAnswer::Nodes(if exhausted {
             Err(too_many())
         } else {
-            form.resolve(here, path).and_then(|nodes| {
-                if nodes.len() > MAX_NODES {
-                    return Err(format!(
-                        "the reference names {} objects, past the {MAX_NODES} a script is told",
-                        nodes.len()
-                    ));
-                }
-                nodes
-                    .into_iter()
-                    .map(|node| {
-                        u32::try_from(node)
-                            .map_err(|_| "a container's number is past u32".to_owned())
-                    })
-                    .collect()
+            told(form, here, path)
+        }),
+        // A path from a container the worker names is that container's children (XFA 3.3 page
+        // 107's `resolveNode` of a node), so it is the path qualified by `$` from there; the
+        // number is the worker's claim, and one the form does not hold names nothing.
+        FormQuestion::ResolveFrom(from, path) => FormAnswer::Nodes(if exhausted {
+            Err(too_many())
+        } else {
+            let qualified: Vec<Step> = std::iter::once(Step {
+                name: "$".to_owned(),
+                occurrence: Occurrence::Same,
             })
+            .chain(path.iter().cloned())
+            .collect();
+            told(
+                form,
+                usize::try_from(*from).unwrap_or(usize::MAX),
+                &qualified,
+            )
         }),
         FormQuestion::Read(node) => FormAnswer::Value(if exhausted {
             Err(too_many())
@@ -1149,6 +1161,22 @@ fn answer_form(
         // The caller returns on `Done` before it asks.
         FormQuestion::Done(_) => FormAnswer::Ack(Err("a run's end is not a question".to_owned())),
     }
+}
+
+/// The containers `path` names from `from`, as the numbers a worker is told, held to
+/// [`MAX_NODES`].
+fn told(form: &Form<'_>, from: usize, path: &[Step]) -> Result<Vec<u32>, String> {
+    let nodes = form.resolve(from, path)?;
+    if nodes.len() > MAX_NODES {
+        return Err(format!(
+            "the reference names {} objects, past the {MAX_NODES} a script is told",
+            nodes.len()
+        ));
+    }
+    nodes
+        .into_iter()
+        .map(|node| u32::try_from(node).map_err(|_| "a container's number is past u32".to_owned()))
+        .collect()
 }
 
 /// A clock that stands still until its holder moves it: what a test hands a runner through
@@ -1282,10 +1310,11 @@ impl ScriptRunner for ScriptWorker {
         &self,
         form: &mut Form<'_>,
         node: usize,
+        language: FormLanguage,
         script: &str,
         steps_left: u64,
     ) -> Ran {
-        self.run_form(form, node, script, steps_left)
+        self.run_form(form, node, language, script, steps_left)
     }
 
     fn waiting(&self) -> bool {

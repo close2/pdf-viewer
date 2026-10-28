@@ -865,22 +865,24 @@ fn truetype_encoding(
     ))
 }
 
-/// Whether every name an encoding dictionary's `/Differences` states is one the Adobe Glyph List
-/// answers for.
+/// Whether every name an encoding dictionary's `/Differences` states is a row of the Adobe Glyph
+/// List.
 ///
 /// ISO 19005-2 section 6.2.11.6 and ISO 19005-4 section 6.2.10.6 let a non-symbolic TrueType font
 /// state a `/Differences` array only where every glyph name in it is in the Adobe Glyph List — and
 /// `.notdef`, which producers write over the codes they leave unused, is not. A `Type1` font may
 /// state one freely, so the restatement as `TrueType` is where the rule first binds it, and an
 /// encoding that fails it is restated rather than carried ([`restated_encoding`] names no code
-/// `.notdef`). The reading is the validator's own, [`pdf_font::encoding::text_for`], and a name
-/// that is not text is not one the list holds (`doc/adr/2278`).
+/// `.notdef`). The reading is the validator's own, [`pdf_font::encoding::is_listed`]: a name that
+/// is not text is not one the list holds (`doc/adr/2278`), and nor is a name only the Adobe Glyph
+/// List Specification's algorithm derives text for (`doc/adr/2540`).
 fn differences_are_listed_names(document: &Document, encoding: &Dictionary) -> bool {
     let differences = document.get_key(encoding, "Differences");
     differences.as_array().is_none_or(|items| {
         items.iter().all(|item| match document.resolve(item) {
-            Object::Name(name) => std::str::from_utf8(name.as_bytes())
-                .is_ok_and(|name| pdf_font::encoding::text_for(name).is_some()),
+            Object::Name(name) => {
+                std::str::from_utf8(name.as_bytes()).is_ok_and(pdf_font::encoding::is_listed)
+            }
             _ => true,
         })
     })

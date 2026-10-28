@@ -165,9 +165,21 @@ impl Host {
             .unwrap_or_default()
     }
 
-    /// The C++ side's answer to [`Host::arrival_due`]: the next document may start now.
+    /// The C++ side's answer to [`Host::arrival_due`]: what the document in front owes once a
+    /// frame of it is on the screen, and then the next document, whichever is due.
     pub(crate) fn arrive(&mut self) {
-        self.open_the_next();
+        // A tab whose page was drawn while it was behind reaches its first frame in `painted`
+        // and not through the viewer's answer for a page, so what it owes is asked here, from
+        // Qt's loop, if it is still the one in front (ADR 2544).
+        if let Some(document) = self.owes_its_report.take()
+            && self.state.documents.focused() == document
+            && self.state.showing.report_due.after_a_frame()
+        {
+            self.pump(viewer_host::report::owed().into());
+        }
+        if std::mem::take(&mut self.next_due) {
+            self.open_the_next();
+        }
     }
 
     /// [`Self::open_the_next`], from Qt's loop rather than from inside the event being answered.
@@ -178,6 +190,7 @@ impl Host {
     /// `update.password`'s shape. Not a field of `QtUpdate`, because the first frame's `painted`
     /// raises it from inside the update that has already been taken.
     pub(super) fn later_open_the_next(&mut self) {
+        self.next_due = true;
         self.arrival_due = true;
     }
 

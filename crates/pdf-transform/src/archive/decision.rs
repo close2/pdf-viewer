@@ -470,11 +470,23 @@ pub enum Loss {
     /// `doc/adr/2516`). The text each such page held is named in the report and in the file's
     /// history.
     PageAsImage,
+    /// ISO 32000-2 section 14.7.5's content items: where a photographed page belongs to a document
+    /// that states a structure tree, the tree's leaves that name the page — the marked-content
+    /// sequences of its old content (section 14.7.5.2) and the objects only that content drew
+    /// (section 14.7.5.3) — are taken out of the tree, and the rest of the tree is kept.
+    ///
+    /// A loss of its own, because what it takes is the tagging rather than the page: a reader
+    /// that reads the document by its structure no longer finds the photographed page's text in
+    /// it, while every other page reads as it did. The leaves go only where the photograph has
+    /// already turned what they named into pixels, and Level A, which exists to keep the tagging,
+    /// is offered no photograph at all (`doc/questions/A707`, `doc/adr/2516`). The number of
+    /// leaves each page lost is named in the report and in the file's history.
+    TaggingOfPhotographedPages,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 30] = [
+    pub const ALL: [Self; 31] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::MetadataPacket,
@@ -505,6 +517,7 @@ impl Loss {
         Self::RecoveredStructure,
         Self::TextAsImage,
         Self::PageAsImage,
+        Self::TaggingOfPhotographedPages,
     ];
 
     /// The word a caller authorises it by.
@@ -541,6 +554,7 @@ impl Loss {
             Self::RecoveredStructure => "recovered-structure",
             Self::TextAsImage => "text-as-image",
             Self::PageAsImage => "page-as-image",
+            Self::TaggingOfPhotographedPages => "tagging-of-photographed-pages",
         }
     }
 
@@ -783,6 +797,12 @@ impl Loss {
                  longer be selected or searched. The text of each such page is named in the \
                  report, and the other pages keep theirs"
             }
+            Self::TaggingOfPhotographedPages => {
+                "the structure tree's leaves that name a photographed page are taken out of the \
+                 tree, so a reader that reads the document by its tags no longer finds that \
+                 page's text in them; every other page keeps its tags, and the number of leaves \
+                 each photographed page lost is named in the report"
+            }
         }
     }
 
@@ -932,6 +952,8 @@ pub struct Authorisations {
     pub text_as_image: bool,
     /// Whether [`Loss::PageAsImage`] was authorised.
     pub page_as_image: bool,
+    /// Whether [`Loss::TaggingOfPhotographedPages`] was authorised.
+    pub tagging_of_photographed_pages: bool,
 }
 
 impl Authorisations {
@@ -969,6 +991,7 @@ impl Authorisations {
             Loss::RecoveredStructure => self.recovered_structure,
             Loss::TextAsImage => self.text_as_image,
             Loss::PageAsImage => self.page_as_image,
+            Loss::TaggingOfPhotographedPages => self.tagging_of_photographed_pages,
         }
     }
 
@@ -1011,6 +1034,7 @@ impl Authorisations {
             Loss::RecoveredStructure => self.recovered_structure = true,
             Loss::TextAsImage => self.text_as_image = true,
             Loss::PageAsImage => self.page_as_image = true,
+            Loss::TaggingOfPhotographedPages => self.tagging_of_photographed_pages = true,
         }
     }
 }
@@ -1266,16 +1290,18 @@ pub(super) enum Answer {
     /// would need an order this table does not have, and [`decide_as_underlying`] passes over
     /// one rather than following it.
     AsUnderlying(&'static [&'static str]),
-    /// The inner answer where this document can take it, and the restated `cmap`
-    /// ([`Rewrite::TrueTypeCmapRestated`]) where it cannot and the restatement's own proof holds.
+    /// The inner answer where this document can take it, and the stated rewrite, with its
+    /// sentence, where it cannot and that rewrite's own proof holds.
     ///
     /// For the three rows that hold a rendered TrueType font's encoding to ISO 32000-2 §9.6.5.4's
-    /// route: each has a narrow rewrite of the dictionary's `/Encoding` that proves itself only
-    /// for the codes the pages showed, and the symbolic route states every code's glyph in the
-    /// program without a name, so a font the narrow rewrite refuses meets the same row through
-    /// it (`doc/adr/2520`). The inner answer is tried first because it changes less: a name in
-    /// the dictionary rather than a program and a descriptor.
-    OrCmapRestated(&'static Answer),
+    /// route, the second is the restated `cmap` ([`Rewrite::TrueTypeCmapRestated`]): each row has
+    /// a narrow rewrite of the dictionary's `/Encoding` that proves itself only for the codes the
+    /// pages showed, and the symbolic route states every code's glyph in the program without a
+    /// name, so a font the narrow rewrite refuses meets the same row through it (`doc/adr/2520`).
+    /// For the `.notdef` row it is the glyph given ([`Rewrite::NotdefGlyphGiven`]), where the
+    /// inner answer is a Type 3 font's rename (`doc/adr/2543`). The inner answer is tried first
+    /// because it changes less: a name in the dictionary rather than a program and a descriptor.
+    OrStated(&'static Answer, Rewrite, &'static str),
 }
 
 impl Answer {
@@ -1314,9 +1340,9 @@ impl Answer {
             // same table, so a preparation asking "did any failed requirement want this rewrite"
             // has already been answered by them.
             Self::AsUnderlying(_) => [None, None, None],
-            Self::OrCmapRestated(inner) => {
+            Self::OrStated(inner, rewrite, _) => {
                 let [first, ..] = inner.rewrites();
-                [first, Some(Rewrite::TrueTypeCmapRestated), None]
+                [first, Some(rewrite), None]
             }
         }
     }
@@ -1445,6 +1471,12 @@ const STANDARD_ROUTE_REINTERPRETS: &str = "a TrueType font's encoding now names 
 /// that the file now states the route to it, and with the route the font's kind: a font whose
 /// descriptor said Nonsymbolic and whose encoding named its glyphs is a symbolic font whose
 /// program maps the codes themselves.
+/// What a `.notdef` code given a glyph of its own changes, for a reader other than this one.
+const NOTDEF_GLYPH_REINTERPRETS: &str = "a code a TrueType font sent to its program's .notdef \
+     glyph now reaches a glyph of its own whose outline and advance are copied from .notdef's, \
+     by the restated cmap. The page draws the same marks for this renderer, and a reader that \
+     drew nothing for .notdef, or a box of its own, draws the program's .notdef outline now";
+
 const TRUETYPE_CMAP_REINTERPRETS: &str = "a rendered TrueType font is now the symbolic font ISO \
      32000-2 \u{a7}9.6.5.4 describes: its program's cmap maps each code to the glyph this \
      renderer drew for it and its dictionary states no Encoding, where the file left some codes \
@@ -2501,21 +2533,43 @@ pub(super) const REMEDIES: &[Remedy] = &[
     // by that preparation where it is not.
     Remedy {
         requirement: "fonts/symbolic-truetype-states-no-encoding",
-        answer: Answer::OrCmapRestated(&Answer::Mechanical(
-            Rewrite::SymbolicTrueTypeEncodingRemoved,
-        )),
+        answer: Answer::OrStated(
+            &Answer::Mechanical(Rewrite::SymbolicTrueTypeEncodingRemoved),
+            Rewrite::TrueTypeCmapRestated,
+            TRUETYPE_CMAP_REINTERPRETS,
+        ),
     },
     Remedy {
         requirement: "fonts/non-symbolic-truetype-uses-a-standard-encoding",
-        answer: Answer::OrCmapRestated(&Answer::Mechanical(Rewrite::StandardTrueTypeEncoding)),
+        answer: Answer::OrStated(
+            &Answer::Mechanical(Rewrite::StandardTrueTypeEncoding),
+            Rewrite::TrueTypeCmapRestated,
+            TRUETYPE_CMAP_REINTERPRETS,
+        ),
     },
     // ISO 19005-2 section 6.2.11.8, ISO 19005-4 section 6.2.10.9, for a Type 3 font: the glyph is
     // the producer's own procedure under the name `.notdef`, and renaming it moves nothing
     // (`doc/adr/1942`). A font with a program keeps ADR 0816's fence, which `super::sites` returns
     // where any font the requirement names is not a Type 3 one.
+    //
+    // A font with a TrueType program takes the second answer: the program gains a glyph whose
+    // outline and advance are its own glyph 0's, and each code that reached `.notdef` reaches it
+    // through the restated `cmap`, so the page draws what this reader drew and no text-showing
+    // operator references `.notdef` (`doc/questions/A694` item 3, `doc/adr/2543`). Stated, as the
+    // restated `cmap` is; refused by `super::fonts` for every other program.
     Remedy {
         requirement: "fonts/no-notdef-glyph-shown",
-        answer: Answer::Mechanical(Rewrite::Type3NotdefRenamed),
+        answer: Answer::OrStated(
+            &Answer::Mechanical(Rewrite::Type3NotdefRenamed),
+            Rewrite::NotdefGlyphGiven,
+            NOTDEF_GLYPH_REINTERPRETS,
+        ),
+    },
+    // ISO 19005-2 section 6.2.11.4.1's last requirement for the same codes, in the embedded
+    // program's half `pdf_archive` asks it of, by the same glyph (`doc/adr/2543`).
+    Remedy {
+        requirement: "fonts/embedded-programs-define-every-glyph-shown",
+        answer: Answer::Stated(None, Rewrite::NotdefGlyphGiven, NOTDEF_GLYPH_REINTERPRETS),
     },
     // The same subclause's last paragraph: every code reaches its glyph by §9.6.5.4's own route.
     // Stated rather than mechanical, because the glyph is this reader's choice made the file's
@@ -2523,11 +2577,15 @@ pub(super) const REMEDIES: &[Remedy] = &[
     // the code is, or the names cannot be proved to leave every shown code on its glyph.
     Remedy {
         requirement: "fonts/truetype-codes-reach-glyphs-by-the-standard-route",
-        answer: Answer::OrCmapRestated(&Answer::Stated(
-            None,
-            Rewrite::StandardRouteNames,
-            STANDARD_ROUTE_REINTERPRETS,
-        )),
+        answer: Answer::OrStated(
+            &Answer::Stated(
+                None,
+                Rewrite::StandardRouteNames,
+                STANDARD_ROUTE_REINTERPRETS,
+            ),
+            Rewrite::TrueTypeCmapRestated,
+            TRUETYPE_CMAP_REINTERPRETS,
+        ),
     },
     // ISO 19005-2 section 6.2.11.6, ISO 19005-4 section 6.2.10.6, the four paragraphs that hold a
     // rendered TrueType font's program and its encoding to each other: the font becomes the
@@ -2705,7 +2763,8 @@ pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[
                 .with(Loss::GlyphsFromToUnicode)
                 .with(Loss::LayoutFromThisViewer)
                 .with(Loss::TextAsImage)
-                .with(Loss::PageAsImage),
+                .with(Loss::PageAsImage)
+                .with(Loss::TaggingOfPhotographedPages),
         ),
     ),
 ];
@@ -2747,7 +2806,7 @@ pub(super) fn answered_without_authorisation(requirement: &str) -> bool {
                 remedy.answer,
                 Answer::Mechanical(_)
                     | Answer::Stated(..)
-                    | Answer::OrCmapRestated(_)
+                    | Answer::OrStated(..)
                     | Answer::CmykUnderPartTwo
                     | Answer::CmykUnderPartFour
                     | Answer::RgbUnderPartTwoOrFour(_)
@@ -3128,16 +3187,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "fonts/actual-text-covers-private-use-characters",
         Because::TheFence(ACTUAL_TEXT_IS_ON_THE_PAGE),
     ),
-    // ISO 19005-2 section 6.2.11.4.1's last requirement and both parts' `.notdef` clause
-    // (section 6.2.11.8, section 6.2.10.9). `doc/pdf-a-conversion-limits.md` section 2.2 splits
-    // this by where the missing glyph is, and **this predicate's population is the embedded
-    // half**: `pdf_archive` asks the question only of a font whose own program the file carries
-    // and this tree reads. A font the file does *not* embed reaches neither row, because
-    // section 4.9's substitution builds the program and chooses what each code maps to.
-    (
-        "fonts/embedded-programs-define-every-glyph-shown",
-        Because::TheFence(THE_GLYPH_IS_NOT_IN_THE_PROGRAM),
-    ),
     // ISO 19005-2 section 6.2.11.2 and ISO 19005-4 section 6.2.10.2 through §9.7.6.1's Table 119:
     // a font a text-showing operator runs with that has no `CIDFont` states nothing a rewrite
     // could restate, and building one is a substitution nothing here performs (ADR 2433).
@@ -3381,21 +3430,23 @@ const NO_CIDFONT_TO_DESCEND_TO: &str = "a Type 0 font here has no CIDFont as its
 
 /// Why a page that draws a glyph its own embedded program has not got is refused.
 ///
-/// `doc/pdf-a-conversion-limits.md` section 2.2 calls this a true refusal and says why in one
-/// line: the mapping is fixed by a program the file carries, so the only ways out are editing the
-/// content stream to stop showing the code or editing the font program to give it a glyph — the
-/// first takes a mark off the page and the second invents one. ADR 0816's fence is where both
-/// stop, and `CLAUDE.md`'s "authoring content from nothing" is what the second would be.
+/// The mapping is fixed by a program the file carries, so the ways out are editing the content
+/// stream to stop showing the code, which takes a mark off the page, or giving the program a glyph
+/// for it. A copy of the program's own `.notdef` outline draws what this reader drew and invents
+/// nothing, and `fonts::notdef_glyph` writes one into a simple TrueType program
+/// (`doc/adr/2543`); this is the sentence for every program it does not reach.
 pub(super) const THE_GLYPH_IS_NOT_IN_THE_PROGRAM: &str = "this file shows a character code whose glyph its \
      own embedded font program does not define, so the code reaches the .notdef glyph — which \
      ISO 19005-2 section 6.2.11.8 and ISO 19005-4 section 6.2.10.9 forbid a text-showing \
      operator to reference in any rendering mode. The file carries the program, so the mapping \
-     is the producer's and fixed: the only remedies are taking the code off the page or drawing \
-     a glyph for it, and this converter does neither — a mark removed is content lost and a \
-     glyph drawn is content invented. Where the font is *not* embedded this is not a refusal at \
-     all, because doc/pdf-a-conversion-limits.md section 4.9 then builds the program and chooses \
-     what each code maps to; supplying the intended font with --font moves this document into \
-     that case";
+     is the producer's and fixed. For a simple TrueType program this conversion gives such a \
+     code a glyph of its own copied from the program's .notdef glyph, so the page draws what it \
+     drew; the program here is another kind — a CIDFontType2 program, reached through its \
+     CIDToGIDMap, or a CFF or Type 1 program, whose charstrings this version does not write — or \
+     a TrueType program this conversion could not extend and prove. Where the font is *not* \
+     embedded this is not a refusal at all, because doc/pdf-a-conversion-limits.md section 4.9 \
+     then builds the program and chooses what each code maps to; supplying the intended font \
+     with --font moves this document into that case";
 
 /// Why a page tree node with no `/Kids` array is not rewritten (`doc/adr/2444`).
 const A_NODE_WITH_NO_CHILDREN: &str = "a page tree node here states no Kids array, so the tree \
@@ -3855,7 +3906,7 @@ pub(super) fn rewrite_for(id: &str) -> Option<Rewrite> {
         | Answer::CmykUnderPartFour
         | Answer::RgbUnderPartTwoOrFour(_)
         | Answer::AsUnderlying(_) => None,
-        Answer::OrCmapRestated(inner) => match inner {
+        Answer::OrStated(inner, ..) => match inner {
             Answer::Mechanical(rewrite) | Answer::Stated(_, rewrite, _) => Some(*rewrite),
             _ => None,
         },
@@ -3877,17 +3928,16 @@ pub(super) fn decide(
     prepared: &Prepared,
 ) -> Decision {
     // **A page photographed answers a fault of its content stream** where the profile authorised
-    // `page-as-image` and every page the row fails on was photographed (A694 item 1, ADR 2516).
+    // `page-as-image` and every page the row fails on was photographed (A694 item 1, ADR 2516),
+    // with the tagging of those pages where the document states a structure tree (A707).
     // The row keeps its refusal below otherwise: `as-shown` and a caller who authorised nothing
     // are refused by the fence's sentence.
     if authorised.grants(Loss::PageAsImage)
-        && prepared
-            .substitutes
-            .as_ref()
-            .is_ok_and(|substitutes| substitutes.fenced.contains(judgement.id))
+        && let Ok(substitutes) = prepared.substitutes.as_ref()
+        && substitutes.fenced.contains(judgement.id)
     {
         return losing(
-            Losses::one(Loss::TextAsImage).with(Loss::PageAsImage),
+            substitutes.photograph_losses(),
             Rewrite::SubstituteFontProgram,
             authorised,
         );
@@ -4305,19 +4355,19 @@ fn answer_of(answer: Answer, authorised: Authorisations, prepared: &Prepared) ->
         // rather than two. A row reaching here is one `decide_as_underlying` passed over.
         Answer::AsUnderlying(_) => Decision::Refused(Because::NotBuiltYet(NOT_BUILT_YET)),
         // The narrower rewrite is the answer where the document can take it; otherwise the
-        // restated `cmap` is, and the refusal that stands is the narrower rewrite's own where
-        // the restatement cannot be proved either.
-        Answer::OrCmapRestated(inner) => match answer_of(*inner, authorised, prepared) {
-            refused @ Decision::Refused(_) => {
-                prepared.obstacle(Rewrite::TrueTypeCmapRestated).map_or(
+        // stated one is, and the refusal that stands is the narrower rewrite's own where the
+        // stated one cannot be proved either.
+        Answer::OrStated(inner, rewrite, reinterprets) => {
+            match answer_of(*inner, authorised, prepared) {
+                refused @ Decision::Refused(_) => prepared.obstacle(rewrite).map_or(
                     Decision::Stated {
-                        rewrite: Rewrite::TrueTypeCmapRestated,
-                        reinterprets: TRUETYPE_CMAP_REINTERPRETS,
+                        rewrite,
+                        reinterprets,
                     },
                     |_| refused,
-                )
+                ),
+                taken => taken,
             }
-            taken => taken,
-        },
+        }
     }
 }

@@ -2052,3 +2052,38 @@ the very row it had answered. Round 1843 met the same edge at its font list and 
 that iterates the checker's places asks first whether the list is a prefix; where it is, every object of
 the kind is a site, or the document is refused with the cut-short list named in the sentence, never
 written half-remedied as conforming.
+
+### 291. A queued walk freezes the export it was queued in
+
+Round 1851 (ADR 2536) queued a census in its export and went on editing that export while the census
+waited for the heavy-walk lock. `bounded.sh` builds when the lock is granted, not when the command is
+queued, so the census measured a tree with half of the next item in it, and its figures described no
+state anybody could name. An export with a queued walk is not edited until the walk has ended; the next
+item is built in a fresh export (`tools/batch.sh export <n> --as <name>`) with the previous files copied in;
+and a walk whose source did move before its turn is stopped and re-queued, never read.
+
+### 292. After a three-way merge the merged file is the next base
+
+Round 1851 (ADR 2536) landed its export's files in the shared worktree by `git merge-file` against
+HEAD's copies, then edited further and merged again against the same HEAD copies. The base now described
+neither side, so every hunk the first merge had landed came back as a conflict between the round's own
+old and new versions. Each landing snapshots the merged file (`scratchpad/r<n>/snap/`) and the next
+three-way merge takes that snapshot as its base; HEAD's copy is the base once, at the first landing only.
+
+### 293. A fuzz target built under the bound takes its own target and no sanitizer
+
+Round 1858 (ADR 2550) ran `cargo fuzz run` from its export under `bounded.sh`. `cargo fuzz` builds with
+AddressSanitizer by default and shares the fuzz crate's target, and the sanitizer's shadow memory
+reservation is larger than the bound's RLIMIT_DATA, so the run died after one second with a shadow-memory
+error that named no target. Traps 111 and 112 each held half of this; together: a fuzz run under the
+bound is built with `CARGO_TARGET_DIR=<own> cargo fuzz build -s none` and the binary is run by path with
+the corpus and the time limit as arguments.
+
+### 294. A font witness's program format is read before its reader is built
+
+Round 1853 (ADR 2540) was briefed with `0004-637X_751_2_90` as the witness of a Type 1 width the checker
+did not read. The document's font carries `/FontFile3 /Type1C`: a CFF program, whose width the font
+library rounded to a whole unit — a different blind spot in a different reader. The Type 1 reader built
+first was right and owed, but it was not what the witness exercised. A round given a font witness reads
+its descriptor's `/FontFile`, `/FontFile2` or `/FontFile3` key and its subtype before reading any reader's
+code, and names the format in its first report line.

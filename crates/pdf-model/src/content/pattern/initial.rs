@@ -144,9 +144,15 @@ impl PatternInitial {
     //   out of a halftone dictionary (ADR 0505): it is skipped for the transfer function's reason
     //   rather than the screen's.
     //   See `PatternInitial`.
-    pub(super) fn augmented(self, document: &pdf_syntax::Document, dict: &Dictionary) -> Self {
+    /// Returns the state, and beside it each black-generation entry the dictionary stated that is not a function
+    /// ([`BlackGeneration::read`]), for the caller to report.
+    pub(super) fn augmented(
+        self,
+        document: &pdf_syntax::Document,
+        dict: &Dictionary,
+    ) -> (Self, Vec<String>) {
         let Some(state) = document.get_key(dict, "ExtGState").as_dict().cloned() else {
-            return self;
+            return (self, Vec::new());
         };
         let mut augmented = self;
         if let Object::Name(value) = document.get_key(&state, "UseBlackPtComp") {
@@ -162,9 +168,9 @@ impl PatternInitial {
         if let Some(tolerance) = document.get_key(&state, "SM").as_number() {
             augmented.smoothness = Some(narrow(tolerance));
         }
-        augmented.black_generation =
-            BlackGeneration::read(document, &state, augmented.black_generation.as_deref());
-        augmented
+        let read = BlackGeneration::read(document, &state, augmented.black_generation.as_deref());
+        augmented.black_generation = read.pair;
+        (augmented, read.unreadable)
     }
 
     /// Whether §8.6.5.9's black point compensation applies to the colours built under this.

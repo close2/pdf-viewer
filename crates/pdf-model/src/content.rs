@@ -222,8 +222,7 @@ struct GraphicsState {
     /// page", which is this device's own conversion (ADR 1207).
     ///
     /// Saved and restored by `q`/`Q` like every other parameter here, which is why it is a field
-    /// of this state rather than of the interpreter: `Interpreter::black_generation_painted` is
-    /// monotone for the page because it feeds a *report*, and a parameter is not.
+    /// of this state rather than of the interpreter, and a parameter is not monotone for the page.
     black_generation: Option<Arc<BlackGeneration>>,
     /// The rendering intent parameter, set by `ri` and by `/RI` (§8.6.5.8).
     ///
@@ -314,6 +313,11 @@ struct TextState {
     font: Option<Font>,
     /// The `/Font` resource name `Tf` last selected, for a report that has to name it.
     font_name: String,
+    /// The report a show owes where the font last selected reaches no font dictionary.
+    ///
+    /// Set beside [`Self::font`] by `Tf` and by Table 57's `/Font`, and said by the first show that
+    /// draws nothing for it, since selecting a font marks nothing (`doc/adr/2550`).
+    owed_font_report: Option<String>,
     /// Font size, in unscaled text-space units.
     size: f32,
     /// Character spacing, added to every glyph's advance.
@@ -344,6 +348,7 @@ impl Default for TextState {
         Self {
             font: None,
             font_name: String::new(),
+            owed_font_report: None,
             size: 0.0,
             char_spacing: 0.0,
             word_spacing: 0.0,
@@ -1551,7 +1556,6 @@ impl<'a> Interpreter<'a> {
             compositing,
             blending: page_blending_space(document, page),
             blending_changed: false,
-            black_generation_painted: false,
             // Nothing encloses the page's own content stream, so §11.7.5.2's fifth and sixth
             // conditions hold vacuously until a `Do` or a pattern fill narrows them.
             opaque_ancestry: true,
@@ -1673,7 +1677,6 @@ impl<'a> Interpreter<'a> {
             readings,
             compositing,
             blending_changed,
-            black_generation_painted,
             opaque_ancestry,
             transfers,
             transfer_maps,
@@ -1727,7 +1730,6 @@ impl<'a> Interpreter<'a> {
             readings: *readings,
             compositing: compositing.clone(),
             blending_changed: *blending_changed,
-            black_generation_painted: *black_generation_painted,
             opaque_ancestry: *opaque_ancestry,
             transfers: transfers.clone(),
             transfer_maps: transfer_maps.clone(),
@@ -1778,7 +1780,6 @@ impl<'a> Interpreter<'a> {
             readings,
             compositing,
             blending_changed,
-            black_generation_painted,
             opaque_ancestry,
             transfers,
             transfer_maps,
@@ -1821,7 +1822,6 @@ impl<'a> Interpreter<'a> {
         self.readings = readings;
         self.compositing = compositing;
         self.blending_changed = blending_changed;
-        self.black_generation_painted = black_generation_painted;
         self.opaque_ancestry = opaque_ancestry;
         self.transfers = transfers;
         self.transfer_maps = transfer_maps;
@@ -1936,8 +1936,6 @@ struct Checkpoint {
     compositing: Compositing,
     /// See [`Interpreter::blending_changed`].
     blending_changed: bool,
-    /// See [`Interpreter::black_generation_painted`].
-    black_generation_painted: bool,
     /// See [`Interpreter::opaque_ancestry`].
     opaque_ancestry: bool,
     /// See [`Interpreter::transfers`].
@@ -2234,10 +2232,6 @@ fn complete(
         };
         interpreter.note(Unsupported::Font { detail });
     }
-
-    // §11.7.5.3's black generation, said once for paints which actually bypassed the pair.
-    // The flag records the source, target and current functions at the paint (ADR 2187).
-    interpreter.note_black_generation_departure();
 
     // Whether the page may keep the run it was drawn in. A four-component pair answers to
     // every reason `blending_undrawable` names; a grey run answers to one — a group inside
@@ -3084,10 +3078,6 @@ struct Interpreter<'a> {
     /// [`Interpreter::build_soft_mask`] scopes this flag the way it already scoped
     /// [`Interpreter::blending`]. ADR 0276.
     blending_changed: bool,
-    /// Whether an actual `DeviceRGB` paint bypassed a stated pair in a profiled `DeviceCMYK`
-    /// target (§11.7.5.3, ADR 2187). Set at painting, not colour or parameter selection;
-    /// monotone within the current content scope so checkpoints retain the report.
-    black_generation_painted: bool,
     /// Whether §11.7.5.2's opacity conditions held wherever the content being run was invoked.
     ///
     /// The clause's fifth and sixth conditions are about *ancestry* rather than about the mark:

@@ -848,6 +848,7 @@ fn image_interpolation_is_a_loss_and_needs_authorising() {
         recovered_structure: false,
         text_as_image: false,
         page_as_image: false,
+        tagging_of_photographed_pages: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
@@ -1009,6 +1010,7 @@ fn an_annotation_stating_no_flags_is_made_printable_only_with_authorisation() {
         recovered_structure: false,
         text_as_image: false,
         page_as_image: false,
+        tagging_of_photographed_pages: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -1097,6 +1099,7 @@ fn a_property_its_own_schema_does_not_define_is_removed_only_with_authorisation(
         recovered_structure: false,
         text_as_image: false,
         page_as_image: false,
+        tagging_of_photographed_pages: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -4207,6 +4210,7 @@ fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_st
         recovered_structure: false,
         text_as_image: false,
         page_as_image: false,
+        tagging_of_photographed_pages: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
@@ -5377,6 +5381,7 @@ fn a_colour_specification_the_part_ignores_is_removed_only_with_authorisation() 
         recovered_structure: false,
         text_as_image: false,
         page_as_image: false,
+        tagging_of_photographed_pages: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -5438,6 +5443,7 @@ fn a_file_marking_no_specification_best_keeps_the_one_a_jp2_reader_uses() {
         recovered_structure: false,
         text_as_image: false,
         page_as_image: false,
+        tagging_of_photographed_pages: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -5497,6 +5503,7 @@ fn two_specifications_marked_best_stay_refused() {
         recovered_structure: false,
         text_as_image: false,
         page_as_image: false,
+        tagging_of_photographed_pages: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
@@ -5549,6 +5556,7 @@ fn one_specification_with_a_method_the_part_forbids_stays_refused() {
         recovered_structure: false,
         text_as_image: false,
         page_as_image: false,
+        tagging_of_photographed_pages: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
@@ -8965,6 +8973,7 @@ fn an_annotation_of_a_forbidden_subtype_goes_only_with_authorisation() {
         recovered_structure: false,
         text_as_image: false,
         page_as_image: false,
+        tagging_of_photographed_pages: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -9294,6 +9303,7 @@ fn an_annotation_that_drew_nothing_refuses_a_preserve_by_name() {
         recovered_structure: false,
         text_as_image: false,
         page_as_image: false,
+        tagging_of_photographed_pages: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -9339,6 +9349,7 @@ fn every_loss() -> Authorisations {
         recovered_structure: false,
         text_as_image: false,
         page_as_image: false,
+        tagging_of_photographed_pages: false,
         layout_from_this_viewer: false,
     }
 }
@@ -14557,6 +14568,79 @@ fn a_supplied_press_profile_beside_the_files_own_rgb_intent_becomes_its_default_
 }
 
 #[test]
+fn a_supplied_press_is_written_where_the_mode_its_marks_keep_is_set_to_zero_for_the_icc_ones() {
+    // ISO 32000-2 §8.6.5.6 makes the DeviceCMYK mark an ICCBased one under the written default,
+    // and ISO 19005-4 section 6.2.4.2 forbids mode 1 for it; the one graphics state that sets
+    // the mode also governs the file's own ICCBased mark, which the overprint row asks
+    // `overprint::zeroing` to set to 0, so the default is written behind that rewrite rather
+    // than refused (`doc/adr/2541`).
+    let mut srgb = String::new();
+    for byte in SRGB {
+        let _ = write!(srgb, "{byte:02X}");
+    }
+    srgb.push('>');
+    let mut press = String::new();
+    for byte in PRESS {
+        let _ = write!(press, "{byte:02X}");
+    }
+    press.push('>');
+    let source = Conforming {
+        catalog: "/OutputIntents [7 0 R]".to_owned(),
+        resources: "/ExtGState << /G0 8 0 R >> /ColorSpace << /C0 [/ICCBased 9 0 R] >>".to_owned(),
+        objects: vec![
+            format!(
+                "<< /N 3 /Filter /ASCIIHexDecode /Length {} >> stream\n{srgb}\nendstream",
+                srgb.len()
+            ),
+            "<< /Type /OutputIntent /S /GTS_PDFA1 /OutputConditionIdentifier (sRGB) \
+             /DestOutputProfile 6 0 R >>"
+                .to_owned(),
+            "<< /Type /ExtGState /OP true /OPM 1 >>".to_owned(),
+            format!(
+                "<< /N 4 /Alternate /DeviceCMYK /Filter /ASCIIHexDecode /Length {} >> stream\n\
+                 {press}\nendstream",
+                press.len()
+            ),
+        ],
+        contents: Some((
+            String::new(),
+            b"/G0 gs /C0 cs 0 0 0 1 scn 10 10 50 50 re f 0 0 0 1 k 20 20 5 5 re f".to_vec(),
+        )),
+        ..Conforming::default()
+    }
+    .build();
+    let target = Target::Four(Flavour::Plain);
+    let mut plan = plan_from("", target);
+    plan.profile = Some(PRESS.into());
+    plan.authorised.authorise(Loss::OverprintMode);
+    let (report, output) = convert_with_plan(&source, &plan);
+    assert!(matches!(
+        decision(
+            &report,
+            "graphics/device-cmyk-needs-a-default-a-blending-space-or-a-cmyk-output-intent"
+        ),
+        Decision::Stated {
+            rewrite: Rewrite::SuppliedDefaultCmyk,
+            ..
+        }
+    ));
+    assert!(matches!(
+        decision(&report, "graphics/no-overprint-mode-one-under-icc-cmyk"),
+        Decision::Authorised {
+            rewrite: Rewrite::OverprintModeZeroed,
+            ..
+        }
+    ));
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&output, target);
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let text = String::from_utf8_lossy(&output);
+    assert!(text.contains("/OPM 0") && !text.contains("/OPM 1"));
+    let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    assert_eq!(default_cmyk(&document).len(), 2, "an ICCBased DefaultCMYK");
+}
+
+#[test]
 fn a_group_blending_in_device_cmyk_beside_an_rgb_intent_takes_the_supplied_press() {
     // ISO 19005-2 section 6.2.10 holds a group's CS to section 6.2.4, §11.6.6's Table 145 remaps a
     // group's device space through the current resource dictionary's defaults and excludes a
@@ -15473,6 +15557,36 @@ fn fonts_sharing_a_descriptor_keep_their_own_prepared_programs() {
     }
 }
 
+#[test]
+fn two_fonts_asking_for_one_face_are_told_apart_in_the_files_own_history() {
+    // ISO 19005-2 section 6.6.6's NOTE 1 names font substitution as an action `xmpMM:History`
+    // records, and two unembedded fonts that both ask for `/BaseFont /Helvetica` are two
+    // substitutions: the entry names each by the resource the content selected it by, as the
+    // run's report does, or the history holds two sentences no later reader can tell apart.
+    let source = Conforming {
+        resources: "/Font << /F1 6 0 R /Helv 7 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint [0.9505 1.0 1.089] >>] >>".to_owned(),
+        contents: Some((String::new(), b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (A) Tj /Helv 12 Tf (A) Tj ET".to_vec())),
+        objects: vec![
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /FirstChar 65 /LastChar 65 /Widths [667] /Encoding /WinAnsiEncoding >>".to_owned(),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /FirstChar 65 /LastChar 65 /Widths [667] /Encoding /WinAnsiEncoding >>".to_owned(),
+        ],
+        ..Conforming::part_two()
+    }
+    .build();
+    let (report, output) = convert(&source, Target::Two(Level::B), the_face_losses_authorised());
+    written(&report, output);
+    let recorded = conversion(&report)
+        .recorded
+        .clone()
+        .expect("the substitution is recorded");
+    for resource in ["F1", "Helv"] {
+        assert!(
+            recorded.contains(&format!("Helvetica (resource {resource}) was not embedded")),
+            "each substitution names its resource: {recorded}"
+        );
+    }
+}
+
 /// A shared `CIDFont` descriptor cannot receive two differently restated supplied programs.
 #[test]
 fn composite_fonts_sharing_a_descriptor_refuse_incompatible_programs() {
@@ -15514,16 +15628,22 @@ mod linked_popups;
 #[path = "archive/default_rgb_page_intent.rs"]
 mod default_rgb_page_intent;
 
+#[path = "archive/attachments_as_pages.rs"]
+mod attachments_as_pages;
 #[path = "archive/cjk_pack.rs"]
 mod cjk_pack;
 #[path = "archive/deep_jpx.rs"]
 mod deep_jpx;
+#[path = "archive/drawn_attachments.rs"]
+mod drawn_attachments;
 #[path = "archive/empty_glyphs.rs"]
 mod empty_glyphs;
 #[path = "archive/image_smoothing.rs"]
 mod image_smoothing;
 #[path = "archive/layout_from_this_viewer.rs"]
 mod layout_from_this_viewer;
+#[path = "archive/media_clips.rs"]
+mod media_clips;
 #[path = "archive/or_else_to.rs"]
 mod or_else_to;
 #[path = "archive/photographed.rs"]
@@ -15536,6 +15656,8 @@ mod recovered;
 mod rekeyed;
 #[path = "archive/replaced_schemas.rs"]
 mod replaced_schemas;
+#[path = "archive/statement.rs"]
+mod statement;
 
 #[path = "archive/press_assumed.rs"]
 mod press_assumed;
@@ -15819,3 +15941,7 @@ fn a_font_with_a_descriptor_and_no_widths_is_given_the_widths_the_viewer_draws_i
             .collect::<Vec<_>>())
     );
 }
+#[path = "archive/derived_converted.rs"]
+mod derived_converted;
+#[path = "archive/notdef_glyph.rs"]
+mod notdef_glyph;

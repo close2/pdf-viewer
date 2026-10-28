@@ -57,14 +57,35 @@ pub struct BlackGeneration {
     undercolour: Option<Arc<Function>>,
 }
 
+/// What one graphics state parameter dictionary leaves Table 57's pair as.
+///
+/// The pair, and beside it each entry in force whose value is not one Table 57 gives it. Such an
+/// entry leaves the parameter as it was, which is what a value that sets nothing can mean, and the
+/// reader is told: the page draws its `DeviceRGB` paints into a `DeviceCMYK` group with functions
+/// the file did not state, and nothing about the picture says which (principle 1, trap 5).
+#[derive(Debug)]
+#[must_use]
+pub struct Read {
+    /// The pair in force after the dictionary, or `None` where neither half is a stated function
+    /// — the state a page begins in and the state `/Default` restores.
+    pub pair: Option<Arc<BlackGeneration>>,
+    /// One sentence for each entry in force that Table 57 does not admit: the key, and what it
+    /// held instead of a function.
+    pub unreadable: Vec<String>,
+}
+
 /// What one of Table 57's two pairs says about the parameter it sets.
 ///
 /// Three answers, for [`crate::transfer::Stated`]'s reason: a dictionary that says nothing leaves
 /// the function in force, and one that says `/Default` puts the *device's* back. Folding the two
-/// together would carry a function on past the `q … gs … Q` written to stop it.
+/// together would carry a function on past the `q … gs … Q` written to stop it. The fourth is a
+/// value the entry does not admit, which sets nothing and is reported.
 enum Said {
-    /// Neither key, or a value this reader cannot make sense of.
+    /// Neither key.
     Unsaid,
+    /// A value Table 57 does not give the entry in force, or a function dictionary that does not
+    /// describe a function: the parameter stays as it was, and the sentence says why.
+    Unreadable(String),
     /// `/BG2` or `/UCR2` naming `Default`: the function in effect at the start of the page.
     Initial,
     /// A function dictionary or stream.
@@ -74,8 +95,8 @@ enum Said {
 impl BlackGeneration {
     /// Table 57's four entries, applied to the pair `current` already holds.
     ///
-    /// Returns the pair in force after this dictionary, or `None` where neither half is a stated
-    /// function — which is the state a page begins in and the state `/Default` restores.
+    /// Returns the pair in force after this dictionary, and what in it was not a value Table 57
+    /// admits ([`Read`]).
     ///
     /// Each pair has its own precedence and §8.4.5's Table 57 states it twice in the same words:
     ///
@@ -86,16 +107,16 @@ impl BlackGeneration {
     /// parameter dictionary, UCR2 shall take precedence". So `/BG2` is read first and a `/BG`
     /// beside it is not read at all — including where the `/BG2` is a value this reader rejects,
     /// because precedence decides which entry is *in force* rather than which one parses.
-    #[must_use]
-    pub fn read(
-        document: &Document,
-        state: &Dictionary,
-        current: Option<&Self>,
-    ) -> Option<Arc<Self>> {
+    pub fn read(document: &Document, state: &Dictionary, current: Option<&Self>) -> Read {
         let held =
             |half: fn(&Self) -> &Option<Arc<Function>>| current.and_then(|pair| half(pair).clone());
-        let take = |said: Said, held: Option<Arc<Function>>| match said {
+        let mut unreadable = Vec::new();
+        let mut take = |said: Said, held: Option<Arc<Function>>| match said {
             Said::Unsaid => held,
+            Said::Unreadable(sentence) => {
+                unreadable.push(sentence);
+                held
+            }
             Said::Initial => None,
             Said::Set(function) => Some(function),
         };
@@ -107,7 +128,9 @@ impl BlackGeneration {
             Self::said(document, state, "UCR2", "UCR"),
             held(|pair| &pair.undercolour),
         );
-        (black.is_some() || undercolour.is_some()).then(|| Arc::new(Self { black, undercolour }))
+        let pair = (black.is_some() || undercolour.is_some())
+            .then(|| Arc::new(Self { black, undercolour }));
+        Read { pair, unreadable }
     }
 
     /// One of Table 57's pairs, `second` — the `2` variant — in preference to `first`.
@@ -118,7 +141,8 @@ impl BlackGeneration {
     /// , denoting the black-generation function that was in effect at the start of the page" —
     /// and at the start of a page no dictionary has run, so what it denotes is this device's own.
     /// A name on the plain entry is a value Table 57 does not give that entry, and a name nobody
-    /// defined leaves the state alone rather than clearing it.
+    /// defined leaves the state alone rather than clearing it; both, and a function dictionary
+    /// §7.10 cannot build, are [`Said::Unreadable`].
     fn said(document: &Document, state: &Dictionary, second: &str, first: &str) -> Said {
         let Some((key, entry)) = [second, first]
             .into_iter()
@@ -128,11 +152,19 @@ impl BlackGeneration {
             return Said::Unsaid;
         };
         match &entry {
-            Object::Dictionary(_) | Object::Stream(_) => Function::parse(document, &entry)
-                .ok()
-                .map_or(Said::Unsaid, |function| Said::Set(Arc::new(function))),
+            Object::Dictionary(_) | Object::Stream(_) => match Function::parse(document, &entry) {
+                Ok(function) => Said::Set(Arc::new(function)),
+                Err(error) => Said::Unreadable(format!("/{key} is not a function: {error}")),
+            },
             Object::Name(name) if key == second && name.as_bytes() == b"Default" => Said::Initial,
-            _ => Said::Unsaid,
+            Object::Name(name) => Said::Unreadable(format!(
+                "/{key} is the name /{}, which Table 57 does not give it",
+                String::from_utf8_lossy(name.as_bytes())
+            )),
+            other => Said::Unreadable(format!(
+                "/{key} is a value of type {}, not a function",
+                other.type_name()
+            )),
         }
     }
 
@@ -261,7 +293,11 @@ mod tests {
     fn borrowed_conversion_keeps_function_identity_equal_to_the_owned_key() {
         use crate::colour::Conversion;
         let document = with("/BG 5 0 R /UCR 6 0 R");
-        let make = || BlackGeneration::read(&document, &state(&document), None).expect("pair");
+        let make = || {
+            BlackGeneration::read(&document, &state(&document), None)
+                .pair
+                .expect("pair")
+        };
         let first = make();
         let second = make();
         let conversions = [
@@ -293,6 +329,7 @@ mod tests {
         // nominal `UCR(k) = k = 0.3` removes 0.3 from each of the other three.
         let document = with("/BG 5 0 R");
         let pair = BlackGeneration::read(&document, &state(&document), None)
+            .pair
             .expect("a /BG function is a stated black generation");
         let [cyan, magenta, yellow, black] = pair.separate(0.2, 0.7, 0.4);
         assert!((cyan - 0.5).abs() < 1e-5, "{cyan}");
@@ -303,6 +340,7 @@ mod tests {
         // `/UCR 6 0 R` is `UCR(k) = k ÷ 2 = 0.15`, and the nominal `BG(k) = k = 0.3`.
         let document = with("/UCR 6 0 R");
         let pair = BlackGeneration::read(&document, &state(&document), None)
+            .pair
             .expect("a /UCR function is a stated undercolour removal");
         let [cyan, magenta, yellow, black] = pair.separate(0.2, 0.7, 0.4);
         assert!((cyan - 0.65).abs() < 1e-5, "{cyan}");
@@ -313,6 +351,7 @@ mod tests {
         // Both stated: `BG(0.3) = 0.7` and `UCR(0.3) = 0.15`.
         let document = with("/BG 5 0 R /UCR 6 0 R");
         let pair = BlackGeneration::read(&document, &state(&document), None)
+            .pair
             .expect("both entries are stated");
         let [cyan, magenta, yellow, black] = pair.separate(0.2, 0.7, 0.4);
         assert!((cyan - 0.65).abs() < 1e-5, "{cyan}");
@@ -340,7 +379,9 @@ mod tests {
         // "[i]f both BG and BG2 are present in the same graphics state parameter dictionary, BG2
         // shall take precedence" — object 6 rather than object 5, so `BG(0.3) = 0.15`.
         let document = with("/BG 5 0 R /BG2 6 0 R");
-        let pair = BlackGeneration::read(&document, &state(&document), None).expect("a pair");
+        let pair = BlackGeneration::read(&document, &state(&document), None)
+            .pair
+            .expect("a pair");
         let [_, _, _, black] = pair.separate(0.2, 0.7, 0.4);
         assert!((black - 0.15).abs() < 1e-5, "{black}");
 
@@ -348,20 +389,31 @@ mod tests {
         // of the page", which is this device's own — so it puts the pair back to nothing rather
         // than to a function, and a `/BG` beside it is outranked.
         let document = with("/BG 5 0 R /BG2 /Default");
-        assert!(BlackGeneration::read(&document, &state(&document), None).is_none());
+        assert!(
+            BlackGeneration::read(&document, &state(&document), None)
+                .pair
+                .is_none()
+        );
 
         // And it clears a function an earlier state set, which is the whole reason `/Default` is
         // not folded into "says nothing".
         let held = {
             let document = with("/BG 5 0 R");
-            BlackGeneration::read(&document, &state(&document), None).expect("a pair")
+            BlackGeneration::read(&document, &state(&document), None)
+                .pair
+                .expect("a pair")
         };
         let document = with("/BG2 /Default");
-        assert!(BlackGeneration::read(&document, &state(&document), Some(&held)).is_none());
+        assert!(
+            BlackGeneration::read(&document, &state(&document), Some(&held))
+                .pair
+                .is_none()
+        );
 
         // Saying nothing leaves the pair in force.
         let document = with("/ca 0.5");
         let carried = BlackGeneration::read(&document, &state(&document), Some(&held))
+            .pair
             .expect("an unrelated entry leaves the pair alone");
         let [_, _, _, black] = carried.separate(0.2, 0.7, 0.4);
         assert!((black - 0.7).abs() < 1e-5, "{black}");
@@ -369,9 +421,59 @@ mod tests {
         // §10.4.2.4 makes a stated function "defined as PDF function dictionaries (see 7.10,
         // "Functions")", so a name on the plain entry is not one — Table 57 gives `/BG` no name
         // value at all — and neither is a name nobody defined on the `2` variant.
-        let document = with("/BG /Default");
-        assert!(BlackGeneration::read(&document, &state(&document), None).is_none());
-        let document = with("/BG2 /NoSuchThing");
-        assert!(BlackGeneration::read(&document, &state(&document), None).is_none());
+        // Each sets nothing and each is said: principle 1's "no silent error swallowing".
+        for (entries, key) in [("/BG /Default", "/BG "), ("/BG2 /NoSuchThing", "/BG2 ")] {
+            let document = with(entries);
+            let read = BlackGeneration::read(&document, &state(&document), None);
+            assert!(read.pair.is_none(), "{entries}");
+            assert_eq!(read.unreadable.len(), 1, "{entries}: {:?}", read.unreadable);
+            assert!(
+                read.unreadable.iter().all(|line| line.starts_with(key)),
+                "{entries}"
+            );
+        }
+        let document = with("/BG 5 0 R /UCR2 6 0 R");
+        let read = BlackGeneration::read(&document, &state(&document), None);
+        assert!(read.unreadable.is_empty(), "{:?}", read.unreadable);
+    }
+
+    /// A `/BG` or `/UCR` that is a function dictionary §7.10 cannot build is the document's fault,
+    /// and it is reported rather than read as an entry the dictionary does not have.
+    ///
+    /// Table 57 states each as "[t]he black-generation function" and "[t]he undercolour-removal
+    /// function", and §10.4.2.4 requires that they "shall be defined as PDF function dictionaries
+    /// (see 7.10, "Functions")". `/FunctionType 7` is none of §7.10.1's four types and a type 0
+    /// function written as a dictionary is not the stream §7.10.2 makes it, so neither sets anything:
+    /// the pair already in force stays, and the reader is told which key held what.
+    #[test]
+    fn a_function_that_does_not_parse_leaves_the_pair_and_is_reported() {
+        let held = {
+            let document = with("/BG 5 0 R");
+            BlackGeneration::read(&document, &state(&document), None)
+                .pair
+                .expect("a pair")
+        };
+        let document = with(
+            "/BG << /FunctionType 7 /Domain [0 1] >> \
+             /UCR << /FunctionType 0 /Domain [0 1] /Range [0 1] /Size [2] /BitsPerSample 8 >>",
+        );
+        let read = BlackGeneration::read(&document, &state(&document), Some(&held));
+        let pair = read.pair.expect("the held pair stays in force");
+        let [_, _, _, black] = pair.separate(0.2, 0.7, 0.4);
+        assert!(
+            (black - 0.7).abs() < 1e-5,
+            "object 5's BG(0.3) = 0.7 still in force: {black}"
+        );
+        assert_eq!(read.unreadable.len(), 2, "{:?}", read.unreadable);
+        assert!(
+            read.unreadable[0].starts_with("/BG is not a function"),
+            "{:?}",
+            read.unreadable
+        );
+        assert!(
+            read.unreadable[1].starts_with("/UCR is not a function"),
+            "{:?}",
+            read.unreadable
+        );
     }
 }

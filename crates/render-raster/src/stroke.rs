@@ -57,6 +57,10 @@ pub(crate) fn encode(
     if thin_line(enc, builder, path, transform, s, paint, (clip, mask, blend))? {
         return Ok(());
     }
+    let fitted = fitted_for_dashing(enc, path, transform, s);
+    let fitted_path = fitted.as_ref().map(|fit| Arc::new(fit.path.clone()));
+    let path = fitted_path.as_ref().unwrap_or(path);
+    let s = fitted.as_ref().map_or(s, |fit| &fit.stroke);
     let mask = enc.mask_id(builder, mask)?;
     let Some(raster_paint) = raster_paint(enc, paint)? else {
         return Ok(()); // nothing visible to paint with
@@ -200,6 +204,28 @@ pub(crate) fn encode(
         faint(raster_paint, coverage),
         (clip, mask, blend),
     )
+}
+
+/// ISO 32000-2 §10.7.5's fit of a stroke whose dash pattern is to be cut, or `None` for a solid
+/// stroke and for one the fit does not take.
+///
+/// `render-cpu` fits the command's path at its stroker's entry and dashes the fitted path, so
+/// every dash — and every zero-length dash §8.5.3.2 makes a mark of — lies where the fitted rule
+/// runs. raster fits a stroke at its own encode, per placement (ADR 2553), but the dashes are cut
+/// here in path space, so a dashed stroke the fit takes is fitted here as the oracle fits it, and
+/// the scene that holds it is this view's.
+fn fitted_for_dashing(
+    enc: &mut Encoder<'_>,
+    path: &Path,
+    transform: Transform,
+    s: &Stroke,
+) -> Option<pdf_render::GridFit> {
+    if s.dash_array.is_empty() {
+        return None;
+    }
+    let fitted = pdf_render::grid_fit(path, s, transform.then(enc.target().transform))?;
+    enc.consume_view();
+    Some(fitted)
 }
 
 /// A stroke of one straight segment, drawn as one [`raster_scene::Command::Line`] — its exact area

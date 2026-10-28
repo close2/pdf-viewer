@@ -57,18 +57,21 @@ impl Viewer {
                         )],
                     });
                 }
-                // The same rule one clause over, and the same channel. §12.5.6.6's annotation is
-                // its text, so an annotation written without an appearance is one whose note this
-                // program could not draw — Table 177 makes `/DA` Required, so the next reader has
-                // what it needs and this one says which annotations it left to them.
+                // The same rule one clause over, and the same channel. §12.5.2 has a writer
+                // include an appearance dictionary, and an annotation written without one is one
+                // whose appearance this program could not construct — for §12.5.6.6's, whose
+                // appearance is its text, text no face it may write covers; Table 177 makes `/DA`
+                // Required, so the next reader has what it needs and this one says which
+                // annotations it left to them.
                 for annotation in written.unappeared {
                     events.push(Event::Reported {
                         document: id,
                         page: None,
                         notes: vec![format!(
-                            "the free text annotation {} {} was written with what was typed into \
-                             it and no appearance stream, because this program could not lay that \
-                             text out (ISO 32000-2 §12.5.6.6)",
+                            "the annotation {} {} was written with no appearance stream, because \
+                             this program could not construct one — for a free text annotation, \
+                             no face it may embed covers the text (ISO 32000-2 §12.5.2, \
+                             §12.5.6.6)",
                             annotation.number, annotation.generation
                         )],
                     });

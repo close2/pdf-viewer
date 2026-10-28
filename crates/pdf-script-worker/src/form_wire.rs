@@ -1,11 +1,12 @@
-//! What a `FormCalc` script run crosses as: the script out, the form's questions back, the answer
-//! to each, and the run's end (ADR 2524).
+//! What a script of an XFA form's crosses as, in either language: the script out, the form's
+//! questions back, the answer to each, and the run's end (ADRs 2524, 2545).
 //!
-//! A JavaScript run is a request and an outcome ([`crate::wire`]); a `FormCalc` run is a
+//! A document's JavaScript run is a request and an outcome ([`crate::wire`]); a form's run is a
 //! conversation, because the form it reads and writes is the host's and the worker holds none of
-//! it. The host sends [`FormRun`] and then answers each [`FormQuestion`] the interpreter puts — a path
-//! to resolve (XFA 3.3 pages 94 and 114), a value to read, a value to assign — until the worker
-//! says [`FormQuestion::Done`]. A container crosses as the number the host's `Form` gave it, which the
+//! it. The host sends [`FormRun`], naming the script's language, and then answers each
+//! [`FormQuestion`] the interpreter puts — a path to resolve from the script's container (XFA 3.3
+//! pages 94 and 114) or from a container it was told of (page 107), a value to read, a value to
+//! assign — until the worker says [`FormQuestion::Done`]. A container crosses as the number the host's `Form` gave it, which the
 //! worker can neither forge into a container nor use for anything but a question back to the host,
 //! so the worker learns of the form no more than the script reads.
 //!
@@ -13,7 +14,7 @@
 //! constant before anything is allocated from it, as [`crate::wire`] does, because the worker's
 //! side of the pipe is the one a hostile document's script runs on.
 
-use pdf_model::xfa::{Occurrence, Scalar, Step};
+use pdf_model::xfa::{FormLanguage, Occurrence, Scalar, Step};
 
 use crate::wire::{MAX_SCRIPT_BYTES, Reader, WireError, put_len, put_str};
 
@@ -33,6 +34,8 @@ pub const FRAME_FORM_NODES: u8 = 11;
 pub const FRAME_FORM_VALUE: u8 = 12;
 /// The kind of the answer to an assignment: host to worker.
 pub const FRAME_FORM_ACK: u8 = 13;
+/// The kind of a path to resolve from a container the worker was told of: worker to host.
+pub const FRAME_FORM_RESOLVE_FROM: u8 = 14;
 
 /// Most names one path carries, which is far past a reference any form writes: the parser holds a
 /// script to 64 levels of nesting (ADR 2482) and a SOM expression is a chain of names.
@@ -63,6 +66,8 @@ pub const MAX_QUESTIONS: usize = 10_000;
 pub struct FormRun {
     /// The container the script belongs to, as the host's `Form` numbers it.
     pub node: u32,
+    /// The language the script is in.
+    pub language: FormLanguage,
     /// How many steps the script may take (page 380's means of ending a seemingly infinite loop).
     pub steps_left: u64,
     /// The script.
@@ -74,6 +79,9 @@ pub struct FormRun {
 pub enum FormQuestion {
     /// The containers a path names, relative to the run's own container.
     Resolve(Vec<Step>),
+    /// The containers a path names below a container the host named: a JavaScript container
+    /// object's `resolveNode` and its children (XFA 3.3 pages 90 and 107).
+    ResolveFrom(u32, Vec<Step>),
     /// The value a container holds.
     Read(u32),
     /// Sets the value a container holds.
@@ -107,6 +115,10 @@ pub enum FormAnswer {
 pub fn encode_form_run(run: &FormRun) -> Vec<u8> {
     let mut out = vec![crate::wire::VERSION];
     out.extend_from_slice(&run.node.to_le_bytes());
+    out.push(match run.language {
+        FormLanguage::FormCalc => 0,
+        FormLanguage::JavaScript => 1,
+    });
     out.extend_from_slice(&run.steps_left.to_le_bytes());
     put_str(&mut out, &run.script);
     out
@@ -116,8 +128,8 @@ pub fn encode_form_run(run: &FormRun) -> Vec<u8> {
 ///
 /// # Errors
 ///
-/// [`WireError`] for bytes that are not exactly one form run of this version, or a script past
-/// [`MAX_SCRIPT_BYTES`].
+/// [`WireError`] for bytes that are not exactly one form run of this version, a language byte
+/// that names neither language, or a script past [`MAX_SCRIPT_BYTES`].
 pub fn decode_form_run(bytes: &[u8]) -> Result<FormRun, WireError> {
     let mut reader = Reader { rest: bytes };
     match reader.u8()? {
@@ -125,6 +137,11 @@ pub fn decode_form_run(bytes: &[u8]) -> Result<FormRun, WireError> {
         other => return Err(WireError::Version(other)),
     }
     let node = reader.u32()?;
+    let language = match reader.u8()? {
+        0 => FormLanguage::FormCalc,
+        1 => FormLanguage::JavaScript,
+        _ => return Err(WireError::Invalid("language")),
+    };
     let steps_left = reader.u64()?;
     let script = reader.string()?;
     if script.len() > MAX_SCRIPT_BYTES {
@@ -133,6 +150,7 @@ pub fn decode_form_run(bytes: &[u8]) -> Result<FormRun, WireError> {
     reader.end()?;
     Ok(FormRun {
         node,
+        language,
         steps_left,
         script,
     })
@@ -144,12 +162,13 @@ pub fn encode_question(question: &FormQuestion) -> (u8, Vec<u8>) {
     let mut out = Vec::new();
     match question {
         FormQuestion::Resolve(path) => {
-            put_len(&mut out, path.len());
-            for step in path {
-                put_str(&mut out, &step.name);
-                put_occurrence(&mut out, step.occurrence);
-            }
+            put_path(&mut out, path);
             (FRAME_FORM_RESOLVE, out)
+        }
+        FormQuestion::ResolveFrom(from, path) => {
+            out.extend_from_slice(&from.to_le_bytes());
+            put_path(&mut out, path);
+            (FRAME_FORM_RESOLVE_FROM, out)
         }
         FormQuestion::Read(node) => {
             out.extend_from_slice(&node.to_le_bytes());
@@ -177,23 +196,10 @@ pub fn encode_question(question: &FormQuestion) -> (u8, Vec<u8>) {
 pub fn decode_question(kind: u8, bytes: &[u8]) -> Result<FormQuestion, WireError> {
     let mut reader = Reader { rest: bytes };
     let question = match kind {
-        FRAME_FORM_RESOLVE => {
-            let count = reader.length()?;
-            if count > MAX_PATH_STEPS {
-                return Err(WireError::Invalid("path length"));
-            }
-            let mut path = Vec::with_capacity(count);
-            for _ in 0..count {
-                let name = reader.string()?;
-                if name.len() > MAX_NAME_BYTES {
-                    return Err(WireError::Invalid("name length"));
-                }
-                path.push(Step {
-                    name,
-                    occurrence: read_occurrence(&mut reader)?,
-                });
-            }
-            FormQuestion::Resolve(path)
+        FRAME_FORM_RESOLVE => FormQuestion::Resolve(read_path(&mut reader)?),
+        FRAME_FORM_RESOLVE_FROM => {
+            let from = reader.u32()?;
+            FormQuestion::ResolveFrom(from, read_path(&mut reader)?)
         }
         FRAME_FORM_READ => FormQuestion::Read(reader.u32()?),
         FRAME_FORM_WRITE => {
@@ -266,6 +272,36 @@ pub fn decode_answer(kind: u8, bytes: &[u8]) -> Result<FormAnswer, WireError> {
     };
     reader.end()?;
     Ok(answer)
+}
+
+/// Writes a path as its count and each step's name and occurrence.
+fn put_path(out: &mut Vec<u8>, path: &[Step]) {
+    put_len(out, path.len());
+    for step in path {
+        put_str(out, &step.name);
+        put_occurrence(out, step.occurrence);
+    }
+}
+
+/// Reads what [`put_path`] wrote, the count held to [`MAX_PATH_STEPS`] before anything is reserved
+/// and each name to [`MAX_NAME_BYTES`].
+fn read_path(reader: &mut Reader<'_>) -> Result<Vec<Step>, WireError> {
+    let count = reader.length()?;
+    if count > MAX_PATH_STEPS {
+        return Err(WireError::Invalid("path length"));
+    }
+    let mut path = Vec::with_capacity(count);
+    for _ in 0..count {
+        let name = reader.string()?;
+        if name.len() > MAX_NAME_BYTES {
+            return Err(WireError::Invalid("name length"));
+        }
+        path.push(Step {
+            name,
+            occurrence: read_occurrence(reader)?,
+        });
+    }
+    Ok(path)
 }
 
 /// Writes `Ok` as a zero byte and its payload, `Err` as a one and a sentence cut to the longest a
@@ -373,8 +409,18 @@ mod tests {
     fn run() -> FormRun {
         FormRun {
             node: 7,
+            language: FormLanguage::FormCalc,
             steps_left: 99,
             script: "$ = 1 + 2".to_owned(),
+        }
+    }
+
+    fn javascript_run() -> FormRun {
+        FormRun {
+            node: 8,
+            language: FormLanguage::JavaScript,
+            steps_left: 1,
+            script: "Units.rawValue * Price.rawValue".to_owned(),
         }
     }
 
@@ -398,6 +444,14 @@ mod tests {
                     occurrence: Occurrence::Relative(2),
                 },
             ]),
+            FormQuestion::ResolveFrom(
+                9,
+                vec![Step {
+                    name: "Cell".to_owned(),
+                    occurrence: Occurrence::Every,
+                }],
+            ),
+            FormQuestion::ResolveFrom(u32::MAX, Vec::new()),
             FormQuestion::Read(4),
             FormQuestion::Write(4, Scalar::Text("x".to_owned())),
             FormQuestion::Write(5, Scalar::Number(f64::NEG_INFINITY)),
@@ -428,6 +482,10 @@ mod tests {
     #[test]
     fn a_run_a_question_and_an_answer_come_back_as_they_went() {
         assert_eq!(decode_form_run(&encode_form_run(&run())), Ok(run()));
+        assert_eq!(
+            decode_form_run(&encode_form_run(&javascript_run())),
+            Ok(javascript_run())
+        );
         for question in questions() {
             let (kind, bytes) = encode_question(&question);
             assert_eq!(decode_question(kind, &bytes), Ok(question));
@@ -440,7 +498,10 @@ mod tests {
 
     #[test]
     fn every_cut_of_a_message_is_refused_and_nothing_may_follow_one() {
-        let mut messages = vec![(0, encode_form_run(&run()))];
+        let mut messages = vec![
+            (0, encode_form_run(&run())),
+            (0, encode_form_run(&javascript_run())),
+        ];
         messages.extend(questions().iter().map(encode_question));
         messages.extend(answers().iter().map(encode_answer));
         for (kind, bytes) in messages {
@@ -448,9 +509,9 @@ mod tests {
                 let prefix = bytes.get(..end).expect("a prefix");
                 let refused = match kind {
                     0 => decode_form_run(prefix).is_err(),
-                    FRAME_FORM_RESOLVE..=FRAME_FORM_WRITE | FRAME_FORM_DONE => {
-                        decode_question(kind, prefix).is_err()
-                    }
+                    FRAME_FORM_RESOLVE..=FRAME_FORM_WRITE
+                    | FRAME_FORM_DONE
+                    | FRAME_FORM_RESOLVE_FROM => decode_question(kind, prefix).is_err(),
                     _ => decode_answer(kind, prefix).is_err(),
                 };
                 assert!(refused, "kind {kind} cut at {end}");
@@ -459,9 +520,9 @@ mod tests {
             longer.push(0);
             let refused = match kind {
                 0 => decode_form_run(&longer).is_err(),
-                FRAME_FORM_RESOLVE..=FRAME_FORM_WRITE | FRAME_FORM_DONE => {
-                    decode_question(kind, &longer).is_err()
-                }
+                FRAME_FORM_RESOLVE..=FRAME_FORM_WRITE
+                | FRAME_FORM_DONE
+                | FRAME_FORM_RESOLVE_FROM => decode_question(kind, &longer).is_err(),
                 _ => decode_answer(kind, &longer).is_err(),
             };
             assert!(refused, "kind {kind} with a byte after it");
@@ -484,6 +545,22 @@ mod tests {
             decode_question(kind, &bytes),
             Err(WireError::Invalid("path length"))
         );
+        let from =
+            |count: usize| FormQuestion::ResolveFrom(3, (0..count).map(|_| step("a")).collect());
+        let (kind, bytes) = encode_question(&from(MAX_PATH_STEPS));
+        assert!(decode_question(kind, &bytes).is_ok());
+        let (kind, bytes) = encode_question(&from(MAX_PATH_STEPS + 1));
+        assert_eq!(
+            decode_question(kind, &bytes),
+            Err(WireError::Invalid("path length"))
+        );
+
+        // A language byte that names neither language is refused.
+        let mut bytes = encode_form_run(&run());
+        if let Some(language) = bytes.get_mut(5) {
+            *language = 2;
+        }
+        assert_eq!(decode_form_run(&bytes), Err(WireError::Invalid("language")));
 
         let name = |bytes: usize| FormQuestion::Resolve(vec![step(&"n".repeat(bytes))]);
         let (kind, ok) = encode_question(&name(MAX_NAME_BYTES));

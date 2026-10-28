@@ -47,7 +47,9 @@
 //! not part of [`ListBudget::charged`], which stays the list's and the readback's; `list_past`
 //! adds what [`crate::colour::Presses::bytes_held`] answers to it, so a page whose list and
 //! presses together pass [`MAX_LIST_BYTES`] is refused by the same [`Unsupported::ListBytes`],
-//! whose `charged` then counts both. The presses are also refused one by one at admission, by
+//! whose `charged` then counts both. The meshes the page's shadings hold — triangles, patches and the lattices a
+//! bending patch's colours are converted at — are charged the same way, from
+//! `shading::Cache::mesh_bytes_held` (ADR 2546). The presses are also refused one by one at admission, by
 //! `Presses::within`, so that a press which would not fit is never sampled.
 //!
 //! Image samples are not charged here: they are shared through an `Arc` by every copy, and
@@ -377,7 +379,13 @@ impl Interpreter<'_> {
         // bound (ADR 2532). A table the presses poisoned is read as holding nothing: the poison
         // is reported by the colour paths that meet it, and a figure that cannot be read must
         // not stop a page on its account.
-        let presses = self.presses.bytes_held().unwrap_or(0);
+        // The meshes its shadings hold are charged beside them, for the same reason: each is
+        // bounded alone and a page can paint many (ADR 2546).
+        let presses = self
+            .presses
+            .bytes_held()
+            .unwrap_or(0)
+            .saturating_add(self.shadings.mesh_bytes_held());
         if !budget.passes(presses, more) {
             return false;
         }

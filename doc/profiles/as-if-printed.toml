@@ -59,11 +59,18 @@ remedy = "discard"
 # stopped, not about throwing things away.
 # ---------------------------------------------------------------------------------------------
 
+# An attachment the target does not admit (R15, doc/adr/2490): a company prints the attachment and files it behind the letter.
+# Each file is its own answer (doc/adr/2536): one this reader can set as text is laid out on
+# appended pages (attachment-as-pages), and one it cannot is removed and named (embedded-file).
 [site."embedded-files/embedded-file-is-itself-pdfa"]
-remedy = "discard"
+remedy = "preserve"
+placement = "append"
+on-failure = "discard"
 
 [site."embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile"]
-remedy = "discard"
+remedy = "preserve"
+placement = "append"
+on-failure = "discard"
 
 [site."embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile".target."4f"]
 remedy = "preserve"
@@ -312,7 +319,9 @@ remedy = "stop"
 # Adobe-Identity font no reader can name (A570, doc/adr/2394) and `page-as-image` for any page that
 # shows a font no route can carry or holds a fault of its content stream the target refuses,
 # whatever text it also shows - what a company does when it prints a letter and scans the print
-# (A694 item 1, doc/adr/2516). The page's text is named in the report and in the history.
+# (A694 item 1, doc/adr/2516). The page's text is named in the report and in the history. In a
+# document that states a structure tree it also carries `tagging-of-photographed-pages`: the
+# tree's leaves that name a photographed page are taken out of it and the rest is kept (A707).
 # ---------------------------------------------------------------------------------------------
 
 [site."fonts/font-programs-embedded"]

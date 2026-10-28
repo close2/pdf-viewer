@@ -1,10 +1,11 @@
-//! A hybrid form's `FormCalc` calculations run in the confined worker, through the view state a
-//! host supplied a runner to, and answer the form's questions from the host's side of the pipe
-//! (XFA 3.3 pages 379–380 and 641–642; ADR 2524).
+//! A hybrid form's calculations, `FormCalc` and JavaScript, run in the confined worker, through the
+//! view state a host supplied a runner to, and answer the form's questions from the host's side of
+//! the pipe (XFA 3.3 pages 379–380 and 641–642; ADRs 2524, 2545).
 //!
 //! The form is a real hybrid file; the path is the real one — the view state activates, the
 //! runner starts `pdf-script-worker` at the first script, the worker confines itself and evaluates
-//! with `pdf_formcalc`, and every path, value and assignment crosses the pipe as a question.
+//! with `pdf_formcalc` or in its form's JavaScript realm, and every path, value and assignment
+//! crosses the pipe as a question.
 
 #![cfg(feature = "engine")]
 #![expect(
@@ -34,6 +35,15 @@ fn field(name: &str, inside: &str) -> String {
 /// A `calculate` element running `script`, with the `override` the attribute text states.
 fn calculate(script: &str, attributes: &str) -> String {
     format!("<calculate {attributes}><script>{script}</script></calculate>")
+}
+
+/// A `calculate` element running `script` as JavaScript (page 106's `contentType`), with the
+/// `override` the attribute text states.
+fn javascript(script: &str, attributes: &str) -> String {
+    format!(
+        "<calculate {attributes}><script contentType=\"application/x-javascript\">{script}\
+         </script></calculate>"
+    )
 }
 
 /// A hybrid form: one subform `form1` of `template`, a widget and a data value for every field
@@ -144,6 +154,118 @@ fn a_merge_runs_the_calculations_in_the_confined_worker() {
     view.commit_field(&document, &name("Units"));
     assert_eq!(shown(&view, &document, "Total").as_deref(), Some("20"));
     assert_eq!(worker.spawns(), 1);
+}
+
+/// A JavaScript calculation runs in the same confined worker, reads its inputs by their naked
+/// names and `rawValue` (pages 106 and 413), and is run again at a person's entry (page 379).
+#[test]
+fn a_javascript_calculation_runs_in_the_confined_worker() {
+    let template = [
+        field("Units", ""),
+        field("Price", ""),
+        field("Total", &javascript("Units.rawValue * Price.rawValue", "")),
+    ]
+    .concat();
+    let document = document(&template, &[("Units", "3"), ("Price", "4"), ("Total", "")]);
+    let worker = Arc::new(ScriptWorker::with_program(WORKER).with_deadline(OUT_OF_THE_WAY));
+    let mut view = view_with(&document, &worker);
+
+    assert!(
+        view.activate_form_on_merge(&document),
+        "{:?}",
+        view.script_reports()
+    );
+    assert_eq!(shown(&view, &document, "Total").as_deref(), Some("12"));
+    let confinement = worker.confinement().expect("a worker is running");
+    assert!(confinement.is_enforced(), "{confinement:?}");
+
+    assert!(view.set_field(&document, &name("Units"), &Entered::Text("5".to_owned())) > 0);
+    view.commit_field(&document, &name("Units"));
+    assert_eq!(shown(&view, &document, "Total").as_deref(), Some("20"));
+    assert_eq!(worker.spawns(), 1, "one worker serves both languages' runs");
+}
+
+/// A container object's child is a path from that container, which the worker asks the host for
+/// as one (page 107's `resolveNode` of a node, the basic references of page 90), and an assignment
+/// to a container's `rawValue` is an assignment the host's form makes.
+#[test]
+fn a_child_of_a_container_object_is_resolved_from_it_by_the_host() {
+    let script = "var form = xfa.resolveNode(\"form1\");\n\
+                  form.Price.rawValue = 7;\n\
+                  form.Units.rawValue * form.Price.rawValue";
+    let template = [
+        field("Units", ""),
+        field("Price", ""),
+        field("Total", &javascript(script, "")),
+    ]
+    .concat();
+    let document = document(&template, &[("Units", "3"), ("Price", "4"), ("Total", "")]);
+    let worker = Arc::new(ScriptWorker::with_program(WORKER).with_deadline(OUT_OF_THE_WAY));
+    let mut view = view_with(&document, &worker);
+    assert!(
+        view.activate_form_on_merge(&document),
+        "{:?}",
+        view.script_reports()
+    );
+    assert_eq!(shown(&view, &document, "Price").as_deref(), Some("7"));
+    assert_eq!(shown(&view, &document, "Total").as_deref(), Some("21"));
+}
+
+/// The plant of ADR 2545's carrying: a JavaScript calculation that never ends, run at a person's
+/// entry, is stopped in the worker by the budget of a field's event (page 380's means of ending a
+/// seemingly infinite loop), the activation's calculated values are dropped, the person's entry is
+/// kept, and the report names the limit the stopped run spent past. The worker is not lost: the realm stopped
+/// the script, and the next run is served by the same process.
+#[test]
+fn a_javascript_calculation_that_never_ends_is_stopped_and_the_entry_is_kept() {
+    for script in [
+        "for (;;) {}",
+        "var n = 0; while (true) { for (var i = 0; i &lt; 1000000; i++) { n += i; } }",
+        "function f() { return f() + 1; } f()",
+        "for (var i = 0; i &lt; 90000; i++) { for (var j = 0; j &lt; 90000; j++) {} }",
+    ] {
+        let template = [
+            field("Units", ""),
+            field("Double", &javascript("Units.rawValue * 2", "")),
+            field("Total", &javascript(script, "")),
+        ]
+        .concat();
+        let document = document(&template, &[("Units", "3"), ("Double", ""), ("Total", "")]);
+        let worker = Arc::new(ScriptWorker::with_program(WORKER).with_deadline(OUT_OF_THE_WAY));
+        let mut view = view_with(&document, &worker);
+        let started = std::time::Instant::now();
+        view.activate_form_on_merge(&document);
+        assert!(view.set_field(&document, &name("Units"), &Entered::Text("5".to_owned())) > 0);
+        view.commit_field(&document, &name("Units"));
+        let took = started.elapsed();
+        assert!(took < Duration::from_secs(5), "{script}: {took:?}");
+        assert_eq!(
+            shown(&view, &document, "Units").as_deref(),
+            Some("5"),
+            "{script}: the person's entry is kept"
+        );
+        assert_eq!(
+            shown(&view, &document, "Total").as_deref(),
+            Some(""),
+            "{script}"
+        );
+        assert_eq!(
+            shown(&view, &document, "Double").as_deref(),
+            Some(""),
+            "{script}: what the stopped activation calculated is dropped"
+        );
+        let said = view.script_reports().join("\n");
+        assert!(
+            said.contains("ended on its steps limit"),
+            "{script}: {said}"
+        );
+        assert!(
+            worker.deaths().is_empty(),
+            "{script}: {:?}",
+            worker.deaths()
+        );
+        assert_eq!(worker.spawns(), 1, "{script}");
+    }
 }
 
 /// With no runner supplied, which is the level `off`, no worker starts and nothing is calculated.
@@ -288,11 +410,13 @@ impl ScriptRunner for Slow {
         &self,
         form: &mut pdf_model::xfa::Form<'_>,
         node: usize,
+        language: pdf_model::xfa::FormLanguage,
         script: &str,
         steps_left: u64,
     ) -> pdf_model::xfa::Ran {
         std::thread::sleep(self.each);
-        self.inner.run_form_script(form, node, script, steps_left)
+        self.inner
+            .run_form_script(form, node, language, script, steps_left)
     }
 }
 
@@ -301,8 +425,15 @@ impl ScriptRunner for Slow {
 /// (ADR 2525).
 #[test]
 fn many_runs_each_under_the_deadline_are_held_to_the_sequence_budget() {
+    for language in [calculate, javascript] {
+        held_to_the_sequence_budget(language);
+    }
+}
+
+/// The sequence budget's test for the calculations `language` writes.
+fn held_to_the_sequence_budget(language: fn(&str, &str) -> String) {
     let template: String = (0..20)
-        .map(|i| field(&format!("C{i}"), &calculate("1", "")))
+        .map(|i| field(&format!("C{i}"), &language("1", "")))
         .collect();
     let names: Vec<String> = (0..20).map(|i| format!("C{i}")).collect();
     let values: Vec<(&str, &str)> = names.iter().map(|n| (n.as_str(), "")).collect();

@@ -87,12 +87,66 @@ pub struct Findings {
     seen: usize,
     /// How many of those named an object, past the bound as well as inside it.
     objects: usize,
+    /// Every distinct object those named, past `MAX_KEPT` as well as inside it.
+    named: Named,
     /// Objects ISO 19005 section 6.2.2's exemption puts outside this requirement's population.
     exempt: Option<Arc<BTreeSet<ObjectId>>>,
 }
 
 /// How many places one requirement reports before it starts counting instead.
 const MAX_KEPT: usize = 32;
+
+/// How many distinct objects one requirement's [`Named`] holds before it says it was cut short.
+///
+/// A remedy rewrites every object a failed requirement names (trap 289: a remedy that walked the
+/// thirty-two places a report keeps restated thirty-two of a hundred and fourteen and wrote a
+/// file failing the row it answered), so the set is kept past `MAX_KEPT`. It is bounded
+/// because a hostile file can fail one requirement at every object it has: 4096 identifiers of
+/// eight bytes each, in a tree, is a few hundred kilobytes for one requirement, and past it the
+/// remedy is told the list is incomplete rather than handed a prefix.
+pub const MAX_NAMED: usize = 4096;
+
+/// Every distinct object one requirement's findings named, and whether any place named none.
+///
+/// What a remedy iterates where [`Findings::kept`] would hand it a prefix. The set stops growing
+/// at [`MAX_NAMED`] objects and then says so through [`Self::cut_short`]; a caller reading a
+/// set that was cut short has a prefix again and refuses by name rather than half-remedy.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Named {
+    objects: BTreeSet<ObjectId>,
+    cut_short: bool,
+    elsewhere: bool,
+}
+
+impl Named {
+    /// The objects named, in identifier order.
+    #[must_use]
+    pub const fn objects(&self) -> &BTreeSet<ObjectId> {
+        &self.objects
+    }
+
+    /// Whether an object past [`MAX_NAMED`] distinct ones was named and is not in the set.
+    #[must_use]
+    pub const fn cut_short(&self) -> bool {
+        self.cut_short
+    }
+
+    /// Whether a place named no object: a page, a content stream's operator or the file.
+    #[must_use]
+    pub const fn elsewhere(&self) -> bool {
+        self.elsewhere
+    }
+
+    fn record(&mut self, object: Option<ObjectId>) {
+        match object {
+            Some(id) if self.objects.len() < MAX_NAMED || self.objects.contains(&id) => {
+                self.objects.insert(id);
+            }
+            Some(_) => self.cut_short = true,
+            None => self.elsewhere = true,
+        }
+    }
+}
 
 impl Findings {
     /// The same, for a requirement section 6.2.2's exemption narrows.
@@ -114,6 +168,7 @@ impl Findings {
             kept: Vec::new(),
             seen: 0,
             objects: 0,
+            named: Named::default(),
             exempt: Some(exempt),
         }
     }
@@ -129,6 +184,7 @@ impl Findings {
         if place.object.is_some() {
             self.objects = self.objects.saturating_add(1);
         }
+        self.named.record(place.object);
         if self.kept.len() < MAX_KEPT {
             self.kept.push(Finding {
                 place,
@@ -141,6 +197,12 @@ impl Findings {
     #[must_use]
     pub fn kept(&self) -> &[Finding] {
         &self.kept
+    }
+
+    /// Every distinct object the places named, past the bound on places as well as inside it.
+    #[must_use]
+    pub const fn named(&self) -> &Named {
+        &self.named
     }
 
     /// How many places the requirement was not met, including those past the bound.
@@ -182,7 +244,57 @@ impl Findings {
 
 #[cfg(test)]
 mod tests {
-    use super::{Findings, Where};
+    use super::{Findings, MAX_NAMED, Where};
+    use pdf_syntax::ObjectId;
+
+    fn id(number: usize) -> ObjectId {
+        ObjectId::new(u32::try_from(number).expect("a small object number"), 0)
+    }
+
+    #[test]
+    fn every_object_named_is_kept_past_the_places_and_up_to_its_own_bound() {
+        // Trap 289: a remedy over the kept places restated 32 of 114 objects. The set holds
+        // all 114, and at MAX_NAMED distinct objects it is still whole.
+        let mut findings = Findings::default();
+        for number in 1..=114 {
+            findings.record(Where::object(id(number)), "wrong");
+        }
+        assert_eq!(findings.kept().len(), 32);
+        assert_eq!(findings.named().objects().len(), 114);
+        assert!(!findings.named().cut_short() && !findings.named().elsewhere());
+
+        let mut at_the_bound = Findings::default();
+        for number in 1..=MAX_NAMED {
+            at_the_bound.record(Where::object(id(number)), "wrong");
+        }
+        // An object already held is named again past the bound without cutting the set short.
+        at_the_bound.record(Where::object(id(1)), "wrong again");
+        assert_eq!(at_the_bound.named().objects().len(), MAX_NAMED);
+        assert!(!at_the_bound.named().cut_short());
+
+        at_the_bound.record(Where::object(id(MAX_NAMED + 1)), "one more");
+        assert_eq!(at_the_bound.named().objects().len(), MAX_NAMED);
+        assert!(
+            at_the_bound.named().cut_short(),
+            "the set says it is a prefix"
+        );
+    }
+
+    #[test]
+    fn a_place_past_the_kept_ones_that_names_no_object_is_still_seen() {
+        let mut findings = Findings::default();
+        for number in 1..=40 {
+            findings.record(Where::object(id(number)), "wrong");
+        }
+        findings.record(Where::page(0), "in a content stream");
+        assert!(
+            findings
+                .kept()
+                .iter()
+                .all(|kept| kept.place.object.is_some())
+        );
+        assert!(findings.named().elsewhere());
+    }
 
     #[test]
     fn a_requirement_nothing_reported_is_met() {

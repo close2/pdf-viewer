@@ -17,7 +17,7 @@
 use std::sync::Arc;
 
 use super::{BTreeMap, Document, Instant, MAX_SEQUENCE_TIME, ObjectId, ScriptRunner, ViewState};
-use crate::xfa::{Change, Form, Limits, Overridden, Ran, Resource, Runner, Stimulus};
+use crate::xfa::{Change, Form, FormLanguage, Limits, Overridden, Ran, Resource, Runner, Stimulus};
 
 /// Most field names kept as entered by a person: a document's fields are its own, and a name past
 /// this many is not remembered for the merge (principle 3).
@@ -101,7 +101,14 @@ impl<'r> ThroughRunner<'r> {
 }
 
 impl Runner for ThroughRunner<'_> {
-    fn run(&mut self, form: &mut Form<'_>, node: usize, script: &str, steps_left: u64) -> Ran {
+    fn run(
+        &mut self,
+        form: &mut Form<'_>,
+        node: usize,
+        language: FormLanguage,
+        script: &str,
+        steps_left: u64,
+    ) -> Ran {
         if self.timed_out || self.started.elapsed() > MAX_SEQUENCE_TIME {
             self.timed_out = true;
             return Ran {
@@ -109,7 +116,9 @@ impl Runner for ThroughRunner<'_> {
                 outcome: Err("the activation ran past its time budget".to_owned()),
             };
         }
-        let ran = self.runner.run_form_script(form, node, script, steps_left);
+        let ran = self
+            .runner
+            .run_form_script(form, node, language, script, steps_left);
         if ran.outcome.is_ok() {
             self.ran = self.ran.saturating_add(1);
         }

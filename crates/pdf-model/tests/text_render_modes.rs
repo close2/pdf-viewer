@@ -629,3 +629,42 @@ fn a_forms_font_resource_is_not_the_pages() {
         "only the page's own glyph may be drawn"
     );
 }
+
+/// A `Tf` naming a font the resources do not define, with no text shown under it, is drawn as
+/// written and reports nothing; a show under the same name says it.
+///
+/// ISO 32000-2 §9.3.1's Table 103 makes `Tf` set the font a later show draws with — "they shall
+/// be specified explicitly by using Tf before any text is shown" — so the lookup costs a mark
+/// only where text is shown. `SafeDocs` document `2145704` writes `BT/ -1 Tf ET`, §7.3.5's empty name and
+/// nothing shown, and was the survey's one document reported for it (`doc/adr/2550`).
+#[test]
+fn a_font_nothing_defines_is_reported_by_the_show_under_it_and_not_by_tf() {
+    for selected in [
+        "BT / -1 Tf ET",
+        "BT /F9 12 Tf 10 10 Td ET",
+        "BT /F9 12 Tf ET BT /F1 24 Tf 10 10 Td (A) Tj ET",
+    ] {
+        let drawn = page(selected);
+        assert!(
+            drawn.unsupported.is_empty(),
+            "{selected}: nothing was shown under the undefined name: {:?}",
+            drawn.unsupported
+        );
+    }
+    for (shown, name) in [
+        (
+            "BT / -1 Tf 10 10 Td (A) Tj ET",
+            "/ (the empty name, §7.3.5)",
+        ),
+        ("BT /F9 12 Tf 10 10 Td (A) Tj (B) Tj ET", "/F9"),
+        ("BT /F9 12 Tf [(A) 10 (B)] TJ ET", "/F9"),
+    ] {
+        let drawn = page(shown);
+        let reports = format!("{:?}", drawn.unsupported);
+        assert!(
+            reports.contains(&format!("\"no /Font resource named {name}\"")),
+            "{shown}: the show draws nothing for {name} and must say so: {reports}"
+        );
+        assert!(kinds(&drawn).is_empty(), "{shown}: nothing is drawn");
+    }
+}

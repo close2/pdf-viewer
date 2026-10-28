@@ -23,7 +23,7 @@ use pdf_script::{Outcome, Question, Request};
 ///
 /// Different from every other worker's, so that a host started on the wrong program refuses it at
 /// its first nine bytes.
-pub const MAGIC: &[u8; 8] = b"PDFSCW02";
+pub const MAGIC: &[u8; 8] = b"PDFSCW03";
 
 /// The kind of a run: host to worker.
 pub const FRAME_RUN: u8 = 1;

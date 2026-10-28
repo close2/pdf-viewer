@@ -848,3 +848,61 @@ fn the_print_path_answers_a_dialogue_without_one_being_on_the_screen() {
         "and no job to open a dialogue on"
     );
 }
+
+/// A document opened behind the first is asked for what it says about itself and for its open
+/// sequence once its own frame is on the screen, and the first is not asked again (ADR 2544).
+///
+/// The second document's page is drawn while its tab is behind, so the frame it shows when it is
+/// brought to the front is one the viewer already holds and the viewer's answer for a page never
+/// arrives for it: `painted` is the moment, and `arrive` asks.
+#[test]
+fn a_document_opened_behind_is_asked_for_its_report_once_its_frame_is_shown() {
+    use viewer_host::native_window::NativeWindow as _;
+    let directory = std::env::temp_dir().join(format!("quorra-qt-report-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).expect("a temporary directory");
+    let (first, second) = (directory.join("first.pdf"), directory.join("second.pdf"));
+    std::fs::write(&first, untitled()).expect("the first document is written");
+    std::fs::write(&second, untitled()).expect("the second document is written");
+    let mut host = opened(&first);
+    host.painted(0, 0);
+    assert!(
+        !host.state.showing.report_due.is_owed(),
+        "the first document was asked when its page was answered"
+    );
+    host.state
+        .arrivals
+        .wait(viewer_host::Named::file(second), true);
+    host.open_the_next();
+    drawn(&mut host);
+    assert_eq!(host.documents().len(), 2, "the second document has its tab");
+    assert_eq!(
+        host.focused_document(),
+        0,
+        "and the first has the front back"
+    );
+    host.choose_document(1);
+    drawn(&mut host);
+    host.painted(0, 0);
+    let owed_before = host.state.showing.report_due.is_owed();
+    assert!(
+        host.arrival_due(),
+        "C++ is asked to call back once the frame is shown"
+    );
+    host.arrive();
+    std::fs::remove_dir_all(&directory).expect("the temporary directory is removed");
+    assert!(
+        owed_before,
+        "the frame the second document showed was one the viewer held, so `painted` found it owing"
+    );
+    assert!(
+        !host.state.showing.report_due.is_owed(),
+        "the second document has been asked"
+    );
+    host.choose_document(0);
+    drawn(&mut host);
+    host.painted(0, 0);
+    assert!(
+        host.owes_its_report.is_none() && !host.state.showing.report_due.is_owed(),
+        "the first document is not asked twice"
+    );
+}

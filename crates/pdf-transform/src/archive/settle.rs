@@ -38,8 +38,9 @@ pub(super) fn second_conversion(
     plan: &ArchivePlan,
     first: &[u8],
     input: &pdf_archive::Report,
+    budget: &crate::Budget,
 ) -> Option<Second> {
-    let document = Document::open(first.to_vec()).ok()?;
+    let document = Document::open_with_limits(first.to_vec(), budget.limits).ok()?;
     let sinks = crate::MemorySinks::new();
     let mut report = Report::default();
     let ran: Result<(), Refusal> = run_pass(
@@ -49,6 +50,7 @@ pub(super) fn second_conversion(
         &sinks as &dyn Sinks,
         &mut report,
         false,
+        budget,
     );
     ran.ok()?;
     let conversion = report.archive?;
@@ -65,22 +67,16 @@ pub(super) fn second_conversion(
 /// Folds what the second conversion did into the first one's report.
 ///
 /// The requirements it decided that the first did not are added to `decided`, so the report names
-/// each clause that changed something under it; the faces it embedded and the metrics it restated
+/// each clause that changed something under it, and one both decided counts both passes' places; the faces it embedded and the metrics it restated
 /// are the report's `substituted` and `restated`; and the id of every requirement it decided is
 /// kept in [`Conversion::settled`], a row the first pass also held included, so a reader can tell
 /// that a second pass ran and what it answered.
 pub(super) fn fold(conversion: &mut Conversion, second: Conversion) {
-    for decided in second.decided {
-        conversion.settled.push(decided.requirement);
-        if conversion
-            .decided
-            .iter()
-            .any(|held| held.requirement == decided.requirement)
-        {
-            continue;
-        }
-        conversion.decided.push(decided);
-    }
+    fold_decided(
+        &mut conversion.decided,
+        &mut conversion.settled,
+        second.decided,
+    );
     conversion.substituted.extend(second.substituted);
     conversion.photographed.extend(second.photographed);
     conversion.restated.extend(second.restated);
@@ -92,4 +88,54 @@ pub(super) fn fold(conversion: &mut Conversion, second: Conversion) {
         (Some(first), Some(second)) => Some(format!("{first}; {second}")),
         (first, second) => first.or(second),
     };
+}
+
+/// The second pass's decisions joined to the first's, each requirement once.
+///
+/// A requirement both passes decided was met at the first pass's places and at the second's, which
+/// are places in the first output the source did not have, so its one row counts both.
+fn fold_decided(
+    decided: &mut Vec<super::Decided>,
+    settled: &mut Vec<&'static str>,
+    second: Vec<super::Decided>,
+) {
+    for row in second {
+        settled.push(row.requirement);
+        if let Some(held) = decided
+            .iter_mut()
+            .find(|held| held.requirement == row.requirement)
+        {
+            held.places = held.places.saturating_add(row.places);
+            held.changed = held.changed.saturating_add(row.changed);
+            continue;
+        }
+        decided.push(row);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::Decided;
+    use super::*;
+
+    fn decided(places: usize, changed: usize) -> Decided {
+        Decided {
+            requirement: "fonts/font-programs-embedded",
+            citation: String::new(),
+            asks: "",
+            places,
+            decision: super::super::Decision::Refused(super::super::Because::NotBuiltYet("")),
+            changed,
+        }
+    }
+
+    #[test]
+    fn a_requirement_both_passes_decided_counts_both_passes_places() {
+        let mut first = vec![decided(1, 1)];
+        let mut settled = Vec::new();
+        fold_decided(&mut first, &mut settled, vec![decided(2, 2)]);
+        assert_eq!(first.len(), 1, "one row for the requirement");
+        assert_eq!((first[0].places, first[0].changed), (3, 3));
+        assert_eq!(settled, vec!["fonts/font-programs-embedded"]);
+    }
 }

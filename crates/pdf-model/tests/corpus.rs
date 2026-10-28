@@ -347,7 +347,7 @@ const FOUND_BY_SCANNING: [&str; 5] = [
 /// fifty-nine, none is this reader's — `freetext_no_appearance.pdf`, the last, draws since ADRs
 /// 1413 and 1414 set its Arabic joined and right to left in a face from the machine; four are no
 /// route the standard states; fifty-five are the file's (ADR 1401, ADR 1411).
-const INCOMPLETE: [&str; 59] = [
+const INCOMPLETE: [&str; 60] = [
     // ── The file's: §9.7.5.2, "[t]he Identity-H and Identity-V CMaps shall not be used with a
     // non-embedded font". Every one is a `CIDFontType2` naming a system face (Arial, Calibri,
     // Times New Roman …) whose CIDs are that face's glyph indices, which §9.7.4.2 says are "not
@@ -404,6 +404,9 @@ const INCOMPLETE: [&str; 59] = [
     // `BT` then `Q` and the stream ends: a special graphics state operator inside a text object,
     // which §9.4.1 does not admit, and no `ET`.
     "issue14165.pdf",
+    // `/GS0` states `/BG /Identity` and `/UCR /Identity`: Table 57 types both entries as a
+    // function and gives neither a name, so neither sets anything (§10.4.2.4, ADR 2549).
+    "endchar.pdf",
     // ── The file's: Table 31's required, inheritable `/MediaBox` is nowhere in the ancestry, or
     // encloses no area (§7.7.3.4, §7.9.5).
     "issue15590.pdf",
@@ -628,6 +631,10 @@ impl Whose {
 /// [`Unsupported::Annotation`]. Everywhere else the variant *is* the mechanism, because each
 /// one's own doc comment states one condition and one clause. [`Unsupported::Content`] needs no
 /// marker at all: its payload is [`ContentIssue`], which is already typed.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one arm per report variant, exhaustive by design: the table is read as one table"
+)]
 fn whose_defect(report: &Unsupported) -> Option<(Whose, &'static str)> {
     Some(match report {
         // **A consequence rather than a mechanism**, and classed for the case where it stands
@@ -700,7 +707,6 @@ fn whose_defect(report: &Unsupported) -> Option<(Whose, &'static str)> {
         | Unsupported::CompositedInParts { .. }
         | Unsupported::TransparencyGroup { .. }
         | Unsupported::SoftMask { .. }
-        | Unsupported::BlackGeneration { .. }
         | Unsupported::Overprint { .. } => (
             Whose::NeitherOne,
             "a transparency model this tree departs from where the two can differ",
@@ -708,6 +714,10 @@ fn whose_defect(report: &Unsupported) -> Option<(Whose, &'static str)> {
         Unsupported::MissingResource { .. } => (
             Whose::TheFile,
             "a name §7.8.3's resource dictionary does not define",
+        ),
+        Unsupported::UnreadableBlackGeneration { .. } => (
+            Whose::TheFile,
+            "a /BG or /UCR entry Table 57 does not admit, the pair in force kept (§10.4.2.4)",
         ),
         Unsupported::DamagedContentStream { .. } => (
             Whose::TheFile,

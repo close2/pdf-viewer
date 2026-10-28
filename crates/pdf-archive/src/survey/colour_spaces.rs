@@ -6,8 +6,8 @@ use pdf_syntax::Name;
 use pdf_syntax::Object;
 
 use super::{
-    Cmyk, Context, DeviceFamily, Route, Selected, SpaceKind, State, Walk, classify, icc_profile,
-    is_pattern, names_a_family, reaches_process_cmyk, resolve_space,
+    Cmyk, Context, DeviceFamily, Route, Selected, SpaceKind, State, ThroughDefault, Walk, classify,
+    icc_profile, is_pattern, names_a_family, reaches_process_cmyk, resolve_space,
 };
 
 impl Walk<'_> {
@@ -27,7 +27,7 @@ impl Walk<'_> {
             state.blending.kind,
         );
         let cmyk = if family == DeviceFamily::Cmyk {
-            Cmyk::Process
+            process_or_remapped(context)
         } else {
             Cmyk::Neither
         };
@@ -73,7 +73,7 @@ impl Walk<'_> {
         {
             Cmyk::Icc
         } else if reaches_process_cmyk(self.document, &resolved, 0) {
-            Cmyk::Process
+            process_or_remapped(context)
         } else {
             Cmyk::Neither
         };
@@ -105,5 +105,26 @@ impl Walk<'_> {
         let stated = table.as_dict()?.get(family.default_key())?.clone();
         let stated = self.document.resolve(&stated);
         Some(classify(self.document, &stated, resources, 0))
+    }
+}
+
+/// A selection that reaches `DeviceCMYK`, as ISO 32000-2 §8.6.5.6 makes it in the resources in force.
+///
+/// "When a device colour space is selected", the clause checks the current resource dictionary's
+/// `/ColorSpace` for `/DefaultCMYK` and uses its value "as the colour space for the operation
+/// currently being performed", and the same holds for `DeviceCMYK` as a `Pattern`'s underlying
+/// space, an `Indexed` base or a selected alternate — the routes [`reaches_process_cmyk`]
+/// follows. A default that is an `ICCBased` CMYK space therefore makes the mark an `ICCBased` one;
+/// any other default (a `DeviceN` one) leaves it what it was for the overprint mode's purposes.
+fn process_or_remapped(context: &Context<'_>) -> Cmyk {
+    let default = context.defaults[DeviceFamily::Cmyk.index()];
+    let icc =
+        |kind: Option<SpaceKind>| kind == Some(SpaceKind::Independent(Some(DeviceFamily::Cmyk)));
+    if icc(default.explicit) {
+        Cmyk::Remapped(ThroughDefault::ExplicitlyAssociated)
+    } else if icc(default.in_force) {
+        Cmyk::Remapped(ThroughDefault::Inherited)
+    } else {
+        Cmyk::Process
     }
 }
