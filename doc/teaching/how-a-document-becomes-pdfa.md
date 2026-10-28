@@ -27,7 +27,7 @@ made stale.
 **One rule about quotation runs through all of it.** ISO 19005-2 and ISO 19005-4 are licensed to a
 single reader, so nothing in this tree quotes them — not the code, not the profiles, not this walk.
 A requirement is named by the identifier `pdf-archive` gives it (`fonts/font-programs-embedded`)
-and cited by section; `doc/pdfa/` is where a reader opens the text. ISO 32000-2 is cited the usual
+and cited by section; the owner's copies of the text are kept outside the tree, where a reader opens them. ISO 32000-2 is cited the usual
 way, with a `§`.
 
 ## The running example
