@@ -177,6 +177,8 @@ impl ViewState {
             Site::Absent => {}
         }
 
+        // XFA 3.3 page 379: a person's entry activates the calculations that depend on it.
+        let _ = self.activate_form_on_entry(document, name);
         self.recalculate_scripts(document, &table, name);
         self.scripting.committing = Some((name.to_owned(), key));
         self.refresh_formatted(document, &table);

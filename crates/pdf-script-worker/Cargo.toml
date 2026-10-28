@@ -20,6 +20,9 @@ pdf-sandbox.workspace = true
 # The request, the outcome and their bytes; and the engine, behind `engine` below.
 pdf-script.workspace = true
 thiserror.workspace = true
+# `FormCalc`, which the worker runs beside the ECMAScript engine (ADR 2524); a crate with no
+# dependencies of its own, behind `engine` because only the worker program evaluates.
+pdf-formcalc = { workspace = true, optional = true }
 
 # `pdf-script-worker`'s first statement closes the descriptors it inherited, by number, which only
 # `libc::close_range` can say (ADR 1945).
@@ -37,7 +40,7 @@ rayon.workspace = true
 # host's half — the wire and the client that spawns a worker — and links no engine. The worker
 # program needs the engine, so it is built only with it.
 default = []
-engine = ["pdf-script/engine"]
+engine = ["pdf-script/engine", "dep:pdf-formcalc"]
 
 [[bin]]
 name = "pdf-script-worker"

@@ -656,7 +656,7 @@ fn mask_departures(
 /// - **A four-component CIE-based group this interpretation has no press for.** The space
 ///   itself is drawn since ADR 0857 — §11.4.7's pair of rasters inside the mask, with the
 ///   `Y` read off the press's own grid over the four components — so what is left here is a
-///   file whose page has already spent `crate::colour::MAX_PRESSES` on other spaces, or a
+///   file whose page has already spent the memory it may keep for presses on other spaces, or a
 ///   profile that yields no grid at all. Both are the budget or the file rather than the
 ///   clause, and both are named.
 /// - **A CIE-based group this tree has no route into**: a profile that states no "from CIE"
@@ -957,7 +957,7 @@ mod tests {
         let intent = ColourSpace::Icc {
             profile: Arc::new(profile),
         };
-        let presses = Presses::default();
+        let presses = Presses::within(usize::MAX);
 
         let SoftMaskEntry::Mask(under_intent) = entry_with_output_intent(
             &document,

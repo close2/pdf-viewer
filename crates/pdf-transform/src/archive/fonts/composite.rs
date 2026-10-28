@@ -86,7 +86,7 @@ fn unnamed(
     } else {
         return Err(Because::NotBuiltYet(super::COMPOSITE_NOT_SUBSTITUTED));
     };
-    super::photographed::defer(document, used, refusal, substitutes);
+    super::photographed::defer(document, used, refusal, false, substitutes);
     Ok(())
 }
 

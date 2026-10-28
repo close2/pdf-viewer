@@ -89,6 +89,10 @@ struct Conforming {
     resources: String,
     /// Objects 6 and up, each written as its body.
     objects: Vec<String>,
+    /// The numbers of further page objects among [`Self::objects`], listed after the first page.
+    ///
+    /// Every page the fixture holds draws the one content stream, object 4.
+    more_pages: Vec<usize>,
     /// Objects after those, each written as its body, for one that is not text.
     ///
     /// An embedded font program is bytes rather than a string, and splicing it into the built
@@ -133,6 +137,7 @@ impl Default for Conforming {
             page: String::new(),
             resources: String::new(),
             objects: Vec::new(),
+            more_pages: Vec::new(),
             binary_objects: Vec::new(),
             contents: None,
             header: None,
@@ -211,7 +216,18 @@ impl Conforming {
                 self.catalog
             )
             .into_bytes(),
-            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+            format!(
+                "<< /Type /Pages /Kids [3 0 R{}] /Count {} >>",
+                self.more_pages
+                    .iter()
+                    .fold(String::new(), |mut kids, page| {
+                        // Writing into a `String` cannot fail.
+                        let _ = write!(kids, " {page} 0 R");
+                        kids
+                    }),
+                self.more_pages.len().saturating_add(1)
+            )
+            .into_bytes(),
             format!(
                 "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << {} >> \
                  /Contents 4 0 R {} >>",
@@ -828,8 +844,10 @@ fn image_interpolation_is_a_loss_and_needs_authorising() {
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        press_assumed: false,
         recovered_structure: false,
         text_as_image: false,
+        page_as_image: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
@@ -987,8 +1005,10 @@ fn an_annotation_stating_no_flags_is_made_printable_only_with_authorisation() {
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        press_assumed: false,
         recovered_structure: false,
         text_as_image: false,
+        page_as_image: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -1073,8 +1093,10 @@ fn a_property_its_own_schema_does_not_define_is_removed_only_with_authorisation(
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        press_assumed: false,
         recovered_structure: false,
         text_as_image: false,
+        page_as_image: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -2631,6 +2653,7 @@ fn the_face_losses_authorised() -> Authorisations {
         machine_face: true,
         substitute_stretch: true,
         glyphs_from_to_unicode: true,
+        press_assumed: false,
         recovered_structure: false,
         text_as_image: true,
         ..Authorisations::default()
@@ -4180,8 +4203,10 @@ fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_st
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        press_assumed: false,
         recovered_structure: false,
         text_as_image: false,
+        page_as_image: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
@@ -4387,26 +4412,6 @@ fn a_non_symbolic_truetype_font_is_given_a_name_the_part_admits() {
 }
 
 #[test]
-fn a_non_symbolic_truetype_font_whose_shown_code_would_move_is_refused() {
-    // The proof is what makes the row above mechanical, so it has to bite. Code 0xE9 is `eacute`
-    // under `WinAnsiEncoding` and `Odieresis` under `StandardEncoding`, and Liberation Sans has
-    // both glyphs — so writing either admitted name over this file's encoding would change what
-    // the page draws, and `doc/adr/0947`'s first rule makes that a refusal rather than a plan.
-    let source = a_truetype_font("32", "/Encoding /StandardEncoding", Some("\\351"));
-    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
-    let decided = decision(
-        &report,
-        "fonts/non-symbolic-truetype-uses-a-standard-encoding",
-    );
-    assert!(
-        matches!(decided, Decision::Refused(Because::NotBuiltYet(_))),
-        "a rewrite that would move a mark is refused with the preparation's own sentence: \
-         {decided:?}"
-    );
-    assert!(output.is_none(), "and no file claims a conformance");
-}
-
-#[test]
 fn a_preserve_at_the_absent_flags_site_keeps_the_annotation_and_gives_it_print() {
     // ISO 19005-2 section 6.3.2's first sentence leaves an annotation stating no /F two futures,
     // being given Print or leaving the page. `preserve` is the word for the one that takes nothing
@@ -4591,23 +4596,6 @@ fn a_truetype_code_reached_by_the_readers_choice_is_named_in_the_encoding() {
             .map(|name| name.as_bytes().to_vec()),
         Some(b"A".to_vec())
     );
-}
-
-#[test]
-fn a_truetype_code_the_file_names_no_character_for_stays_refused() {
-    // The control for the row above: with no `/ToUnicode` the file does not say which character
-    // code 0 is, so whatever this reader drew it with is its own choice and nothing is written.
-    let source = a_truetype_code_no_step_reaches(false);
-    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
-    let decided = decision(
-        &report,
-        "fonts/truetype-codes-reach-glyphs-by-the-standard-route",
-    );
-    assert!(
-        matches!(decided, Decision::Refused(Because::NotBuiltYet(_))),
-        "{decided:?}"
-    );
-    assert!(output.is_none(), "and no file claims a conformance");
 }
 
 // --------------------------------------------------------------------------------------------
@@ -5385,8 +5373,10 @@ fn a_colour_specification_the_part_ignores_is_removed_only_with_authorisation() 
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        press_assumed: false,
         recovered_structure: false,
         text_as_image: false,
+        page_as_image: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -5444,8 +5434,10 @@ fn a_file_marking_no_specification_best_keeps_the_one_a_jp2_reader_uses() {
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        press_assumed: false,
         recovered_structure: false,
         text_as_image: false,
+        page_as_image: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -5501,8 +5493,10 @@ fn two_specifications_marked_best_stay_refused() {
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        press_assumed: false,
         recovered_structure: false,
         text_as_image: false,
+        page_as_image: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
@@ -5551,8 +5545,10 @@ fn one_specification_with_a_method_the_part_forbids_stays_refused() {
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        press_assumed: false,
         recovered_structure: false,
         text_as_image: false,
+        page_as_image: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
@@ -8965,8 +8961,10 @@ fn an_annotation_of_a_forbidden_subtype_goes_only_with_authorisation() {
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        press_assumed: false,
         recovered_structure: false,
         text_as_image: false,
+        page_as_image: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -9292,8 +9290,10 @@ fn an_annotation_that_drew_nothing_refuses_a_preserve_by_name() {
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        press_assumed: false,
         recovered_structure: false,
         text_as_image: false,
+        page_as_image: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -9335,8 +9335,10 @@ fn every_loss() -> Authorisations {
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        press_assumed: false,
         recovered_structure: false,
         text_as_image: false,
+        page_as_image: false,
         layout_from_this_viewer: false,
     }
 }
@@ -15100,6 +15102,7 @@ fn a_shipped_face_fitted_horizontally_is_the_loss_substitute_stretch() {
     let authorised = Authorisations {
         substitute_stretch: true,
         glyphs_from_to_unicode: true,
+        press_assumed: false,
         recovered_structure: false,
         text_as_image: true,
         ..Authorisations::default()
@@ -15165,6 +15168,7 @@ fn one_embedding_decision_names_every_loss_it_incurs() {
             machine_face,
             substitute_stretch,
             glyphs_from_to_unicode: false,
+            press_assumed: false,
             recovered_structure: false,
             text_as_image: false,
             ..Authorisations::default()
@@ -15186,6 +15190,7 @@ fn one_embedding_decision_names_every_loss_it_incurs() {
         machine_face: true,
         substitute_stretch: true,
         glyphs_from_to_unicode: true,
+        press_assumed: false,
         recovered_structure: false,
         text_as_image: true,
         ..Authorisations::default()
@@ -15305,6 +15310,7 @@ fn the_fitting_authorised() -> Authorisations {
     Authorisations {
         substitute_stretch: true,
         glyphs_from_to_unicode: true,
+        press_assumed: false,
         recovered_structure: false,
         text_as_image: true,
         ..Authorisations::default()
@@ -15530,3 +15536,286 @@ mod recovered;
 mod rekeyed;
 #[path = "archive/replaced_schemas.rs"]
 mod replaced_schemas;
+
+#[path = "archive/press_assumed.rs"]
+mod press_assumed;
+#[path = "archive/truetype_cmap.rs"]
+mod truetype_cmap;
+
+// --------------------------------------------------------------------------------------------
+// The converter's own defects: a rewrite that did not reach what the validator then found, and
+// content the conversion wrote that no earlier pass saw (`doc/adr/2534`, `doc/adr/2535`).
+// --------------------------------------------------------------------------------------------
+
+#[test]
+fn an_annotation_written_directly_in_the_annots_array_is_given_the_flags_the_clause_requires() {
+    // ISO 19005-2 section 6.3.2: every annotation but a popup states an `/F` entry. An annotation
+    // dictionary written inside the array has no object number, so the flags are written through
+    // the page that holds the array.
+    let source = Conforming {
+        page: "/Annots [<< /Type /Annot /Subtype /Link /Rect [0 0 10 10] >>]".to_owned(),
+        ..Conforming::part_two()
+    }
+    .build();
+    let authorised = Authorisations {
+        annotation_printing: true,
+        ..Authorisations::default()
+    };
+    let (_, output) = convert(&source, Target::Two(Level::B), authorised);
+    let output = output.expect("the flags are authorised, so the file is written");
+    let held = holds(&output, Target::Two(Level::B));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    assert!(String::from_utf8_lossy(&output).contains("/F 4"));
+}
+
+#[test]
+fn a_rendering_intent_past_the_validators_kept_places_is_restated_with_the_first() {
+    // The validator keeps 32 places a requirement and counts the rest; 40 image dictionaries each
+    // stating an intent no part defines are 40 places, so a rewrite gated on the kept prefix would
+    // leave eight of them failing and the second verdict would refuse the file.
+    let images = 40_usize;
+    let names: String = (0..images)
+        .map(|index| {
+            [
+                "/Im",
+                &index.to_string(),
+                " ",
+                &(6 + index).to_string(),
+                " 0 R ",
+            ]
+            .concat()
+        })
+        .collect();
+    let source = Conforming {
+        resources: format!("/XObject << {names}>>"),
+        contents: Some((
+            String::new(),
+            (0..images)
+                .map(|index| ["/Im", &index.to_string(), " Do\n"].concat())
+                .collect::<String>()
+                .into_bytes(),
+        )),
+        objects: (0..images)
+            .map(|_| {
+                "<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceRGB \
+                 /BitsPerComponent 8 /Intent /Cheerful /Length 3 >>\nstream\nabc\nendstream"
+                    .to_owned()
+            })
+            .collect(),
+        ..Conforming::part_two()
+    }
+    .build();
+    let (report, output) = to_part_two(&source);
+    let places = report.archive.as_ref().and_then(|conversion| {
+        conversion
+            .decided
+            .iter()
+            .find(|decided| {
+                decided.requirement == "graphics/rendering-intent-entries-name-one-of-four"
+            })
+            .map(|decided| (decided.places, decided.changed))
+    });
+    assert_eq!(places, Some((images, images)), "every place is restated");
+    let output = output.expect("nothing is lost, so nothing is authorised");
+    let held = holds(&output, Target::Two(Level::B));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    assert!(!String::from_utf8_lossy(&output).contains("Cheerful"));
+}
+
+#[test]
+fn a_push_buttons_rollover_icon_beside_more_intents_than_the_validator_keeps_is_left_as_written() {
+    // ISO 32000-2 Table 192 gives a push button's `/MK` an `/RI` entry, a form XObject: it is the
+    // rollover icon, not a rendering intent. Forty graphics states stating an intent no part
+    // defines are more places than the validator keeps, so every object that can hold a graphics
+    // state is a site; the widget is not one, and its `/RI` stays the producer's.
+    let states = 40_usize;
+    let names: String = (0..states)
+        .map(|index| {
+            [
+                "/G",
+                &index.to_string(),
+                " ",
+                &(6 + index).to_string(),
+                " 0 R ",
+            ]
+            .concat()
+        })
+        .collect();
+    let icon = 6 + states;
+    let widget = icon + 1;
+    let mut objects: Vec<String> = (0..states)
+        .map(|_| "<< /Type /ExtGState /RI /Cheerful >>".to_owned())
+        .collect();
+    objects.push(
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 10 10] /Length 3 >>\nstream\nq Q\nendstream"
+            .to_owned(),
+    );
+    objects.push(format!(
+        "<< /Type /Annot /Subtype /Widget /FT /Btn /Ff 65536 /T (b) /Rect [10 10 50 30] /F 4 \
+         /MK << /RI {icon} 0 R >> /AP << /N {icon} 0 R >> >>"
+    ));
+    let source = Conforming {
+        resources: format!("/ExtGState << {names}>>"),
+        contents: Some((
+            String::new(),
+            (0..states)
+                .map(|index| ["/G", &index.to_string(), " gs\n"].concat())
+                .collect::<String>()
+                .into_bytes(),
+        )),
+        page: format!("/Annots [{widget} 0 R]"),
+        objects,
+        ..Conforming::part_two()
+    }
+    .build();
+    let (report, output) = to_part_two(&source);
+    let places = report.archive.as_ref().and_then(|conversion| {
+        conversion
+            .decided
+            .iter()
+            .find(|decided| {
+                decided.requirement == "graphics/rendering-intent-entries-name-one-of-four"
+            })
+            .map(|decided| (decided.places, decided.changed))
+    });
+    assert_eq!(
+        places,
+        Some((states, states)),
+        "only the graphics states are restated"
+    );
+    let output = String::from_utf8_lossy(&output.expect("nothing is lost")).into_owned();
+    // The writer numbers the objects it writes afresh, so the icon is found by its shape.
+    assert!(output.contains("/MK << /RI "), "{output}");
+    assert_eq!(output.matches("/RelativeColorimetric").count(), states);
+    assert!(!output.contains("Cheerful"));
+}
+
+#[test]
+fn a_constructed_appearance_is_converted_as_the_content_it_is() {
+    // A free text annotation with no appearance is given one (ISO 19005-2 section 6.3.3), and
+    // that appearance names the annotation's `/Helv` and selects `DeviceGray`: a font nothing
+    // embeds and a colour no default licenses, neither of which the source ever showed. The output
+    // is therefore converted once more, and the report names what that second conversion decided.
+    let source = Conforming {
+        page: "/Annots [6 0 R]".to_owned(),
+        objects: vec![
+            "<< /Type /Annot /Subtype /FreeText /Rect [10 10 200 40] /F 4 /Contents (Hello) \
+             /DA (/Helv 10 Tf 0 g) >>"
+                .to_owned(),
+        ],
+        ..Conforming::part_two()
+    }
+    .build();
+    let (report, output) = to_part_two(&source);
+    let output = output.expect("the second conversion embeds what the construction brought");
+    let held = holds(&output, Target::Two(Level::B));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let conversion = report.archive.expect("a conversion was reported");
+    assert!(
+        !conversion.settled.is_empty(),
+        "the requirements the second conversion answered are named"
+    );
+    // ISO 19005-2 section 6.6.6, NOTE 1: the face the second conversion embedded is in the file's
+    // own history, as the report says.
+    let packet = String::from_utf8(document_packet(&output)).expect("the packet is UTF-8");
+    assert!(packet.contains("xmpMM:History"), "{packet}");
+    assert!(packet.contains("converted"), "{packet}");
+}
+
+#[test]
+fn a_constructed_appearance_is_converted_beside_a_page_font_the_source_never_embedded() {
+    // A text field with no appearance, whose `/DA` names an unembedded Helvetica, on a page that
+    // also draws text in an unembedded Times-Roman. The output fails the font requirement the
+    // source failed too, so the requirement is not one the source met, and the output is
+    // converted once more all the same.
+    let source = Conforming {
+        catalog: "/AcroForm << /Fields [6 0 R] /DR << /Font << /Helv 8 0 R >> >> \
+                  /DA (/Helv 0 Tf 0 g) >>"
+            .to_owned(),
+        resources: "/Font << /F1 7 0 R >>".to_owned(),
+        contents: Some((String::new(), b"BT /F1 12 Tf 10 100 Td (Hi) Tj ET".to_vec())),
+        page: "/Annots [6 0 R]".to_owned(),
+        objects: vec![
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /V (Hello World) \
+             /DA (/Helv 12 Tf 0 g) /Rect [50 20 150 50] /F 4 /P 3 0 R >>"
+                .to_owned(),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Times-Roman /Encoding /WinAnsiEncoding >>"
+                .to_owned(),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"
+                .to_owned(),
+        ],
+        ..Conforming::part_two()
+    }
+    .build();
+    let (report, output) = to_part_two(&source);
+    let report_text = format!("{:?}", report.refused);
+    let output =
+        output.unwrap_or_else(|| panic!("the second conversion embeds both: {report_text}"));
+    let held = holds(&output, Target::Two(Level::B));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let conversion = report.archive.expect("a conversion was reported");
+    assert!(!conversion.settled.is_empty());
+}
+
+#[test]
+fn a_face_embedded_for_a_font_the_file_never_carried_is_stated_in_a_packet_that_already_conformed()
+{
+    // ISO 19005-2 section 6.6.6, NOTE 1 names the act. The fixture's packet conforms, so nothing
+    // else asks for it to be rewritten; the history entry is what does.
+    let source = Conforming {
+        resources: "/Font << /F1 6 0 R >>".to_owned(),
+        contents: Some((String::new(), b"BT /F1 12 Tf 10 10 Td (Hi) Tj ET".to_vec())),
+        objects: vec![
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"
+                .to_owned(),
+        ],
+        ..Conforming::part_two()
+    }
+    .build();
+    let (report, output) = to_part_two(&source);
+    let output = output.expect("a metric-compatible face is shipped for the fourteen");
+    let recorded = report
+        .archive
+        .as_ref()
+        .and_then(|conversion| conversion.recorded.clone())
+        .expect("the report names what was written into the history");
+    let packet = String::from_utf8(document_packet(&output)).expect("the packet is UTF-8");
+    assert!(packet.contains("xmpMM:History"), "{recorded}\n{packet}");
+    assert!(packet.contains("converted"), "{recorded}\n{packet}");
+}
+
+#[test]
+fn a_font_with_a_descriptor_and_no_widths_is_given_the_widths_the_viewer_draws_it_with() {
+    // ISO 32000-2 §9.6.2.1's Table 109 makes `/FirstChar`, `/LastChar`, `/Widths` and
+    // `/FontDescriptor` of the standard fourteen all present or all absent. This one states a
+    // descriptor only, so the face embedded for it would be held to widths the dictionary makes
+    // zero (ISO 19005-2 section 6.2.11.5); the output states the numbers the page was drawn by.
+    let source = Conforming {
+        resources: "/Font << /F1 6 0 R >>".to_owned(),
+        contents: Some((String::new(), b"BT /F1 12 Tf 10 10 Td (Hi) Tj ET".to_vec())),
+        objects: vec![
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Times-Roman /Encoding /WinAnsiEncoding \
+             /FontDescriptor 7 0 R >>"
+                .to_owned(),
+            "<< /Type /FontDescriptor /FontName /Times-Roman /Flags 32 \
+             /FontBBox [-168 -218 1000 898] /ItalicAngle 0 /Ascent 683 /Descent -217 \
+             /CapHeight 662 /StemV 84 >>"
+                .to_owned(),
+        ],
+        ..Conforming::part_two()
+    }
+    .build();
+    let (report, output) = to_part_two(&source);
+    let output = output.expect("a metric-compatible face is shipped for the fourteen");
+    let held = holds(&output, Target::Two(Level::B));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    assert!(
+        String::from_utf8_lossy(&output).contains("/Widths"),
+        "{:?}",
+        report.archive.map(|conversion| conversion
+            .decided
+            .iter()
+            .map(|decided| decided.requirement)
+            .collect::<Vec<_>>())
+    );
+}

@@ -701,6 +701,15 @@ ISO 19005-2 6.2.4.3, ISO 19005-4 6.2.4.3 · all six · today **built**: the outp
   and alternate rows included, reported and recorded in `xmpMM:History` as the operator's
   statement (ADR 2130, `crates/pdf-transform/src/archive/supplied_cmyk.rs`). With nothing
   supplied the row is refused with the sentence that says so.
+- **The assumed press, the loss `press-assumed`** (A694 item 2, ADR 2518) — at part 4, with
+  nothing supplied and the loss authorised, the CMYK profile this program ships (GRACoL 2006) is
+  written as that `/DefaultCMYK`, named in the report and in `xmpMM:History`; an operator's profile
+  outranks it and costs nothing. `as-if-printed` answers the row `discard`, `as-shown` leaves it at
+  `stop`. **`as-if-printed` means "as if printed and scanned"** (the owner's words, A694): a lower
+  bound on what may be lost if a company printed the document and scanned the print, never an
+  instruction to imitate printing — the profile assumes a press and does not simulate one. Part 2 is
+  not offered it: its `DeviceN` default states no press. **Owed**: `as-shown`'s own route, this
+  reader's assumed inks written as an ICC table, needs a writer that does not exist (ADR 2519).
 
 #### `graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires` (PDF/A-2)
 ISO 19005-2 6.2.4.2 · today **built**: `supply` for a missing text tag, `Stated` for an unreadable
@@ -1071,11 +1080,13 @@ refused by name
   (ADR 1412). **A component deeper than sixteen bits has no Flate field** (Table 87 stops at 16),
   so such an image is written as a JP2 file of `pdf_jpx_write` under `JPXDecode` — one tile, the
   reversible 5-3 filter, one depth for every colour channel with `Decode` widened where they
-  differed, the opacity channel inside the file and `SMaskInData` as it stood (ADR 2484). Refused
-  by name there: four colour channels (a JPX file's CMYK, which a JP2 file cannot name), a grey
+  differed, the opacity channel inside the file and `SMaskInData` as it stood (ADR 2484). A grey
   image beside an opacity channel and an opacity channel of another depth than the colour
-  channels (veraPDF fails the two channel counts and the `bpcc` box, ADR 2485). Refused by name
-  within the shape: code 2 over an `Indexed` space, `SMask` beside a non-zero `SMaskInData`, an
+  channels are written too: the clauses count and equate the colour channels, and veraPDF 1.30.3
+  fails both shapes by treating every channel as colour, which is reported upstream
+  (`doc/questions/A691`, ADR 2521, `doc/pdfa-blocking-issues/verapdf-jpeg2000-issue.md`). Refused
+  by name there: four colour channels (a JPX file's CMYK, which a JP2 file cannot name). Refused by
+  name within the shape: code 2 over an `Indexed` space, `SMask` beside a non-zero `SMaskInData`, an
   image mask whose data carries opacity, a decode that is not whole at the ordinary budget, a
   channel count the space does not have — and
   the decode's own failures one sentence each: not whole at the budget or a feature the decoder
@@ -1181,9 +1192,12 @@ ISO 19005-2 6.2.10, ISO 19005-4 6.2.9 · all six / part 4 · **array half built 
 ### 4.7 Content streams and resources
 
 #### `graphics/only-operators-the-base-standard-defines`
-ISO 19005-2 6.2.2, ISO 19005-4 6.2.2 · all six · today `the-fence`
+ISO 19005-2 6.2.2, ISO 19005-4 6.2.2 · all six · today `the-fence`; under `as-if-printed` at 2b
+and every part 4 flavour, the page is photographed (the loss `page-as-image`, ADR 2516)
 
-- **Mitigation** — **none.** Removing an operator edits the producer's page. `A50`'s one exception —
+- **Mitigation** — **none on the page** — under `as-if-printed` the page itself is photographed,
+  and the content stream that carried the operator is no longer in the output. Removing an operator
+  edits the producer's page. `A50`'s one exception —
   a closed list of spellings the standard documents as equivalent — does not reach an operator the
   standard does not define at all.
 - **By target** — none.
@@ -1326,6 +1340,19 @@ widths are the viewer's, **built** (`doc/questions/A47`, `A566`, `A687`, ADRs 12
   offered at 2b and at part 4, never at 2u or 2a. A font only an annotation shows keeps its refusal.
   A font substituted beside it that only the photographed content reached leaves the report and the
   history with the content; one the output still holds stays named (ADR 2454).
+- **The same photograph under `as-if-printed`, whatever text the page also shows** (A694 item 1,
+  ADR 2516): a company that cannot archive a letter prints it and scans the print, and the print
+  carried the glyphs the window drew and no text layer. The profile's `discard` at this site also
+  authorises the loss `page-as-image`, which lifts the first of the gate's conditions and admits two
+  populations: a page showing a font that any route above refused to embed a face into (R08 —
+  except a font whose widths the file states twice or whose descriptor is written inside the font
+  dictionary, which are font refiling and keep their refusals), and a page holding a fault of its
+  content stream the target refuses (R03: an operator the base standard does not define, an inline
+  image's interpolation, a hexadecimal string with a byte that is no digit, a bound name that is not
+  UTF-8, a Type 3 width and an `/ActualText` that the report places on a page). The page's text is
+  named in the JSON report and in the file's `xmpMM:History`, as far as 1 000 characters; at most 32
+  pages are photographed. `as-shown`, Level U and Level A, a structure tree and optional content
+  keep the refusal.
 - **A code the font's own encoding sends to `.notdef`** — named nothing, or `.notdef` in
   `/Differences` — which this reader draws nothing for, in one of the standard 14 stated by name
   alone whose face is a CFF one: an empty glyph of the stated width, named outside the Adobe Glyph
@@ -1684,18 +1711,40 @@ ISO 19005-2 6.2.11.6, ISO 19005-4 6.2.10.6 · all six · **built in session 962*
 #### `fonts/non-symbolic-truetype-differences-are-listed-names`
 #### `fonts/non-symbolic-truetype-differences-need-the-unicode-cmap`
 #### `fonts/symbolic-truetype-program-has-a-usable-cmap`
-ISO 19005-2 6.2.11.6, ISO 19005-4 6.2.10.6 · all six · today `the-fence`
+ISO 19005-2 6.2.11.6, ISO 19005-4 6.2.10.6 · all six · **built** as `Stated` (ADR 2520, answering
+`doc/questions/A694` item 3 under A48)
 
-- **Mitigation** — **none.** Adding a `cmap` subtable invents outlines' addressing the producer
-  never shipped; rewriting the `/Differences` array moves the marks on the page. Where the file
-  embeds no program at all, section 4.9 of the limits document builds one instead and `--font`
-  supplies the real face (built, ADR 1209) — again an escape rather than a remedy.
+- **What was built.** The font becomes the symbolic font ISO 32000-2 §9.6.5.4 describes: its
+  descriptor states Symbolic and not Nonsymbolic, its dictionary states no `/Encoding`, and its
+  program's `cmap` is replaced by two subtables, Macintosh Roman (1, 0) mapping each code to the
+  glyph this reader drew and Microsoft Symbol (3, 0) mapping 0xF000 plus the code to the same glyph.
+  The glyph outlines, the metrics and every other table are the producer's bytes (§9.6.5.4's NOTE 1:
+  "a TrueType/OpenType font program to be used in a PDF file could need modification to conform to
+  these guidelines"). A new descriptor and a new program are added and the font names them; the
+  old two are referenced by nothing and the rewritten file does not carry them. The font is reloaded from the objects as they will be
+  written and every one of its 256 codes has to reach the glyph it reached, by the subclause's own
+  steps and through none of the mappings it leaves to a processor; a code that reached glyph 0 is
+  left out of the table and held to reaching no other glyph. Where the checker named only a prefix
+  of the fonts that fail, or a font is not an embedded TrueType program under a descriptor of its
+  own, the refusal stays with the sentence that says so.
+- **Cost, stated in the report** (`TRUETYPE_CMAP_REINTERPRETS`): the file now asserts the route this
+  reader took; a reader that chose another mapping drew another glyph before and draws this one now,
+  and the encoding's glyph names no longer say which character a code is, so extracted text comes
+  from `/ToUnicode` where the font has one.
 - **By target** — none.
-- **From a configuration** — nothing.
+- **From a configuration** — nothing to choose: the row is `Stated`, and the rewrite is carried out
+  whenever the proof passes.
 - **Departure** — **B** for the three narrower rules (a glyph is still reached, by another route),
   and the same computed predicate as above makes them safe. The fourth,
   `symbolic-truetype-program-has-a-usable-cmap`, is the one where the lookup may reach nothing at
   all, and that is **C**.
+- **The three neighbouring rows** (`truetype-codes-reach-glyphs-by-the-standard-route`,
+  `symbolic-truetype-states-no-encoding`, `non-symbolic-truetype-uses-a-standard-encoding`) keep
+  their own narrower rewrites and proofs, and a font that fails one of them is restated by this
+  rewrite as the row's second answer (`Answer::OrCmapRestated`, ADR 2520). The restatement
+  is written into the file's `xmpMM:History` naming the clause (`doc/questions/A48`), is bounded by
+  32 MiB of copied program a conversion, and is not prepared for a file another requirement
+  refuses by name.
 
 #### `fonts/truetype-codes-reach-glyphs-by-the-standard-route`
 ISO 19005-2 6.2.11.6, ISO 19005-4 6.2.10.6 · all six · **built** as `Stated` for a non-symbolic
@@ -1705,8 +1754,9 @@ font (ADR 1942)
   program's (3, 1) subtable maps it to the glyph this reader drew (ADR 1943), the encoding's
   `/Differences` names that character's Adobe Glyph List name, so the base standard's route
   reaches the same glyph; the font is reloaded and every shown code proved. The program is not
-  touched, which is why the fence above does not stand in the way. A symbolic font, a code the
-  `/ToUnicode` does not state, or a failed proof keeps the refusal.
+  touched, and the `cmap` restatement above is the other route to the same glyphs, taken by
+  the four rows that name the program. A symbolic font, a code the `/ToUnicode` does not state,
+  or a failed proof keeps the refusal.
 - **Mitigation** — beyond that, **none**, for the reasons above.
 - **By target** — none.
 - **From a configuration** — nothing.

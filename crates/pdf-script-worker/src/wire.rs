@@ -23,7 +23,7 @@ use pdf_script::{Outcome, Question, Request};
 ///
 /// Different from every other worker's, so that a host started on the wrong program refuses it at
 /// its first nine bytes.
-pub const MAGIC: &[u8; 8] = b"PDFSCW01";
+pub const MAGIC: &[u8; 8] = b"PDFSCW02";
 
 /// The kind of a run: host to worker.
 pub const FRAME_RUN: u8 = 1;
@@ -221,26 +221,26 @@ fn cut(text: &str, bytes: usize) -> &str {
 }
 
 /// Writes a count, which no run this crate builds takes past `u32`.
-fn put_len(out: &mut Vec<u8>, length: usize) {
+pub(crate) fn put_len(out: &mut Vec<u8>, length: usize) {
     out.extend_from_slice(&u32::try_from(length).unwrap_or(u32::MAX).to_le_bytes());
 }
 
 /// Writes a string, cut at a character boundary rather than written with a length that lies.
-fn put_str(out: &mut Vec<u8>, text: &str) {
+pub(crate) fn put_str(out: &mut Vec<u8>, text: &str) {
     let kept = cut(text, u32::MAX as usize);
     put_len(out, kept.len());
     out.extend_from_slice(kept.as_bytes());
 }
 
 /// Reads a run from the front.
-struct Reader<'a> {
+pub(crate) struct Reader<'a> {
     /// What has not been read.
-    rest: &'a [u8],
+    pub(crate) rest: &'a [u8],
 }
 
 impl<'a> Reader<'a> {
     /// The next `count` bytes.
-    fn take(&mut self, count: usize) -> Result<&'a [u8], WireError> {
+    pub(crate) fn take(&mut self, count: usize) -> Result<&'a [u8], WireError> {
         if self.rest.len() < count {
             return Err(WireError::Truncated);
         }
@@ -250,23 +250,44 @@ impl<'a> Reader<'a> {
     }
 
     /// One byte.
-    fn u8(&mut self) -> Result<u8, WireError> {
+    pub(crate) fn u8(&mut self) -> Result<u8, WireError> {
         self.take(1)?.first().copied().ok_or(WireError::Truncated)
     }
 
     /// A `u32`.
-    fn u32(&mut self) -> Result<u32, WireError> {
+    pub(crate) fn u32(&mut self) -> Result<u32, WireError> {
         let bytes: [u8; 4] = self.take(4)?.try_into().map_err(|_| WireError::Truncated)?;
         Ok(u32::from_le_bytes(bytes))
     }
 
+    /// A `u64`.
+    pub(crate) fn u64(&mut self) -> Result<u64, WireError> {
+        let bytes: [u8; 8] = self.take(8)?.try_into().map_err(|_| WireError::Truncated)?;
+        Ok(u64::from_le_bytes(bytes))
+    }
+
+    /// An `i64`.
+    pub(crate) fn i64(&mut self) -> Result<i64, WireError> {
+        let bytes: [u8; 8] = self.take(8)?.try_into().map_err(|_| WireError::Truncated)?;
+        Ok(i64::from_le_bytes(bytes))
+    }
+
+    /// Nothing left: bytes after a message are a message that is not this one.
+    pub(crate) fn end(&self) -> Result<(), WireError> {
+        if self.rest.is_empty() {
+            Ok(())
+        } else {
+            Err(WireError::Trailing(self.rest.len()))
+        }
+    }
+
     /// A length, as a count of bytes that must still be there.
-    fn length(&mut self) -> Result<usize, WireError> {
+    pub(crate) fn length(&mut self) -> Result<usize, WireError> {
         usize::try_from(self.u32()?).map_err(|_| WireError::Truncated)
     }
 
     /// A string.
-    fn string(&mut self) -> Result<String, WireError> {
+    pub(crate) fn string(&mut self) -> Result<String, WireError> {
         let length = self.length()?;
         let bytes = self.take(length)?;
         String::from_utf8(bytes.to_vec()).map_err(|_| WireError::Utf8)

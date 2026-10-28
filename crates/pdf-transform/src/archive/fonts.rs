@@ -73,11 +73,16 @@ mod notices;
 mod pack;
 mod photographed;
 mod rekeyed;
+mod truetype_cmap;
 
 pub use pack::{CjkPack, Collection, PackFiles, PackGap};
 
 pub use described::Described;
-pub use photographed::{DOTS_PER_INCH, PhotographedPage};
+pub use photographed::{DOTS_PER_INCH, MAX_PHOTOGRAPHED_PAGES, MAX_TEXT_CHARS, PhotographedPage};
+pub(super) use photographed::{Gate, elided};
+pub(super) use truetype_cmap::ANSWERED as TRUETYPE_CMAP_ROWS;
+pub(super) use truetype_cmap::STANDARD_ROUTE_ROWS as TRUETYPE_ENCODING_ROWS;
+pub(super) use truetype_cmap::{CmapRestated, restated as truetype_cmaps_restated};
 
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
@@ -308,9 +313,15 @@ pub struct RestatedFont {
     pub heights: usize,
 }
 
+/// The requirement the embedding answers.
+pub(super) const EMBEDDED_PROGRAMS: &str = "fonts/font-programs-embedded";
+
 /// The font programs to embed, and the fonts they belong to.
 #[derive(Debug, Default)]
 pub(super) struct Substitutes {
+    /// The font objects this conversion itself added, which `gains` writes whole into `written`
+    /// where it would otherwise restate an object of the source (`doc/adr/2522`).
+    added_fonts: BTreeSet<ObjectId>,
     /// The `/FontFile` entry each descriptor object gains.
     pub(super) at: BTreeMap<ObjectId, Embedding>,
     /// The stream objects this conversion adds, in the source's numbering.
@@ -349,6 +360,9 @@ pub(super) struct Substitutes {
     pub(super) photographs: BTreeMap<ObjectId, photographed::Photograph>,
     /// Every page photographed, for the report and the file's history.
     pub(super) photographed: Vec<PhotographedPage>,
+    /// The content-stream requirements whose every page this conversion photographed, which the
+    /// decision of each reads to know the page it fails on is no longer in the output.
+    pub(super) fenced: BTreeSet<&'static str>,
 }
 
 impl Substitutes {
@@ -362,6 +376,10 @@ impl Substitutes {
             .fold(Losses::default(), Losses::with);
         if self.photographed.is_empty() {
             losses
+        } else if self.photographed.iter().any(|page| page.anywhere) {
+            losses
+                .with(super::decision::Loss::TextAsImage)
+                .with(super::decision::Loss::PageAsImage)
         } else {
             losses.with(super::decision::Loss::TextAsImage)
         }
@@ -696,26 +714,122 @@ fn disagrees(stated: f32, program: f32) -> bool {
 /// - **A code the face has no glyph for**, which is `doc/questions/A47`'s "refuse rather than
 ///   guess" and is what keeps both parts' `.notdef` clause satisfied without anything being
 ///   invented.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one ordered preparation: select, prove, allocate, attach and report each font"
-)]
+///
+/// # Photographing around a font (A694 item 1)
+///
+/// Where the gate is `anywhere`, a font that any of the routes below refuses — except one whose
+/// refusal is about the font's own widths — is held for the photographed page instead, and the
+/// pass is made again without it: a route that failed part-way has written objects for the font
+/// that nothing should now point at, and a pass that never began the font writes none. At most
+/// [`MAX_FONTS_PHOTOGRAPHED_AROUND`] fonts are held that way, so a document of hostile fonts costs
+/// that many passes and no more.
 pub(super) fn embed_faces(
     document: &Document,
     survey: &Survey,
     spare: &mut Spare,
-    supplied: &BTreeMap<String, std::sync::Arc<[u8]>>,
-    pack: Option<&CjkPack>,
-    target: pdf_archive::Target,
+    routes: &Routes<'_>,
 ) -> Result<Substitutes, Because> {
+    let gate = routes.gate;
+    let mut around: BTreeMap<Outcome, Because> = BTreeMap::new();
+    loop {
+        let mut failing = None;
+        let pass = embed_pass(document, survey, spare, routes, &around, &mut failing);
+        let Err(refusal) = pass else {
+            return pass;
+        };
+        let held = gate.offered
+            && gate.anywhere
+            && around.len() < MAX_FONTS_PHOTOGRAPHED_AROUND
+            && photographable(refusal);
+        let font = failing.and_then(|index| survey.fonts().nth(index));
+        match font {
+            Some(used) if held => {
+                around.insert(selected(used), refusal);
+            }
+            _ => return Err(refusal),
+        }
+    }
+}
+
+/// What the routes of [`embed_pass`] are given besides the document.
+#[derive(Clone, Copy)]
+pub(super) struct Routes<'a> {
+    /// The programs the operator named.
+    pub(super) supplied: &'a BTreeMap<String, std::sync::Arc<[u8]>>,
+    /// The CJK pack, where one was found.
+    pub(super) pack: Option<&'a CjkPack>,
+    /// The target the conversion is for.
+    pub(super) target: pdf_archive::Target,
+    /// What decides whether pages are photographed.
+    pub(super) gate: Gate<'a>,
+    /// The standard-fourteen definitions the conversion itself added, by name.
+    pub(super) defined: &'a BTreeMap<Vec<u8>, ObjectId>,
+}
+
+/// How many fonts one conversion photographs around ([`embed_faces`]).
+const MAX_FONTS_PHOTOGRAPHED_AROUND: usize = 16;
+
+/// Whether a refusal of one font is one a photograph of the pages showing it answers.
+///
+/// Not a font whose widths the file states twice (`TWO_WIDTHS_FOR_ONE_GLYPH`), nor one whose
+/// descriptor is written inside the font dictionary: those are the font refiling of the list's
+/// R10, a different remedy that photographing would hide rather than answer, and `A694` item 1
+/// names R08 and R03 alone.
+fn photographable(refusal: Because) -> bool {
+    !matches!(refusal, Because::TheFence(TWO_WIDTHS_FOR_ONE_GLYPH))
+        && !matches!(refusal, Because::NotBuiltYet(DESCRIPTOR_NOT_AN_OBJECT))
+}
+
+/// One pass over the rendered fonts, leaving in `failing` the position in the survey's order of the
+/// font a refusal came from, and `None` for a refusal that is no font's.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one ordered preparation: select, prove, allocate, attach and report each font"
+)]
+fn embed_pass(
+    document: &Document,
+    survey: &Survey,
+    spare: &mut Spare,
+    routes: &Routes<'_>,
+    around: &BTreeMap<Outcome, Because>,
+    failing: &mut Option<usize>,
+) -> Result<Substitutes, Because> {
+    let Routes {
+        supplied,
+        pack,
+        target,
+        gate,
+        defined,
+    } = *routes;
     let mut substitutes = Substitutes::default();
-    for used in survey.fonts() {
+    // **The standard fourteen this conversion itself defined**, each an object of its own that
+    // every definition of its name references: the face is embedded once for the name, from the
+    // text drawn under it in every stream (`doc/adr/2522`).
+    for drawn in survey.undefined_standard_fonts() {
+        let Some(id) = defined.get(drawn.name.as_bytes()) else {
+            continue;
+        };
+        let used = SelectedFont {
+            id: Some(*id),
+            ..drawn.clone()
+        };
+        substitutes.added_fonts.insert(*id);
+        described::describe(document, &used, spare, &mut substitutes, target)?;
+    }
+    for (index, used) in survey.fonts().enumerate() {
         if !used.rendered || !needs_a_program(document, &used.dict) {
             continue;
         }
         if substitutes.wrote_out(used) {
             continue;
         }
+        if !around.is_empty()
+            && let Some(refusal) = around.get(&selected(used))
+        {
+            photographed::defer(document, used, *refusal, true, &mut substitutes);
+            continue;
+        }
+        *failing = Some(index);
         let subtype = name_of(document, &used.dict, "Subtype").unwrap_or_default();
         if subtype == "Type3" {
             continue;
@@ -813,6 +927,12 @@ pub(super) fn embed_faces(
             .as_ref()
             .map_or_else(Dictionary::new, |restatement| restatement.entries.clone());
         entries.insert(Name::new(&b"FontDescriptor"[..]), Object::Reference(own));
+        // Table 109 makes a font's `/FirstChar`, `/LastChar`, `/Widths` and `/FontDescriptor` all
+        // present or all absent for the fourteen, and a font that states a descriptor and no widths
+        // has its glyphs positioned by the viewer's own: the output states those numbers.
+        if document.get_key(&used.dict, "Widths").is_null() {
+            described::state_laid_out_widths(&mut entries, &font);
+        }
         // Which face the viewer drew the font from decides what embedding the shipped one loses:
         // the restatement's proof has already held the font to it (`doc/adr/2162`). The unrestated
         // route, whose own comparison is of advances, reads the same answer off the font as
@@ -844,18 +964,16 @@ pub(super) fn embed_faces(
             gains(document, used, entries, spare, &mut substitutes)?;
         }
     }
+    *failing = None;
     // Once every font is in, the descriptors the routes renamed are known, and so are the fonts
     // that name one without being part of the decision (`doc/adr/2476`).
     bystanders::keep_their_own_descriptors(document, spare, &mut substitutes)?;
     // Last: a page is photographed whole, so whether it may be is a question about everything it
     // shows rather than about one font (`doc/adr/2394`).
-    photographed::photograph(
-        document,
-        photographed::offered(target),
-        spare,
-        &mut substitutes,
-    )?;
+    photographed::photograph(document, gate, spare, &mut substitutes)?;
+    substitutes.fenced = gate.fenced.pages.values().flatten().copied().collect();
     if substitutes.at.is_empty()
+        && substitutes.added_fonts.is_empty()
         && substitutes.described.is_empty()
         && substitutes.direct.is_empty()
         && substitutes.photographs.is_empty()
@@ -914,7 +1032,17 @@ pub(super) fn gains(
     substitutes: &mut Substitutes,
 ) -> Result<(), Because> {
     if let Some(font) = used.id {
-        substitutes.described.insert(font, entries);
+        if substitutes.added_fonts.contains(&font) {
+            let mut written = used.dict.clone();
+            for (key, value) in entries.iter() {
+                written.insert(key.clone(), value.clone());
+            }
+            substitutes
+                .written
+                .insert(font, Object::Dictionary(written));
+        } else {
+            substitutes.described.insert(font, entries);
+        }
         return Ok(());
     }
     let at = spare

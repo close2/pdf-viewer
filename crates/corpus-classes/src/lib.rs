@@ -248,7 +248,7 @@ pub fn classify(path: &Path, password: &str) -> Vec<Class> {
     if document.is_encrypted() {
         classes.push(Class::Encrypted);
     }
-    if document.was_recovered() {
+    if document.was_recovered() || document.cross_reference_chain_was_cut() {
         classes.push(Class::Damaged);
     }
     let pages = pdf_model::Pages::new(&document).len();

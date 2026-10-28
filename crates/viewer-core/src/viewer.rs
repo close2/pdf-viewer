@@ -473,10 +473,14 @@ impl Viewer {
             // waiting on it, and what the script did with it is ink, so the page is drawn again
             // (ADR 1628).
             Command::AnswerScript { document, answer } => {
-                if let Some(open) = self.documents.get_mut(&document)
-                    && let Some(asks) = open.consent.asks.clone()
-                {
-                    asks.answer(answer);
+                if let Some(open) = self.documents.get_mut(&document) {
+                    if open.consent.form_alert_open {
+                        // A notice has one button and nothing to carry out (ADR 2525).
+                        open.consent.form_alert_open = false;
+                    } else if let Some(asks) = open.consent.asks.clone() {
+                        open.consent.runner_question_open = false;
+                        asks.answer(answer);
+                    }
                 }
             }
             Command::AnswerScripts { document, proceed } => {

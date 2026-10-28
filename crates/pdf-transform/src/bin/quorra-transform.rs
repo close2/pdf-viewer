@@ -2601,6 +2601,10 @@ archive:
                            knows. Where the file already states an output intent of another
                            colour family, a CMYK profile supplied here becomes the DefaultCMYK
                            its DeviceCMYK is read through instead, recorded as your statement.
+                           Supplied none, a part 4 file in that position is refused unless the
+                           loss press-assumed is authorised (as-if-printed does), which writes
+                           the GRACoL 2006 profile as that DefaultCMYK and names it in the report
+                           and in the file's own xmpMM:History
                            The profile's own copyright tag is printed either way, because
                            embedding somebody's profile means shipping their terms with it
   --no-substitute          a font the file renders and does not embed is refused by name instead
@@ -2653,7 +2657,8 @@ archive:
                            has code behind it are both properties of the profile and the target
   --profile <name>         one of the remedy configurations this program ships, by name, in place
                            of --config: as-if-printed (lose only what a printed copy would have
-                           lost), as-shown (lose only what this viewer's window would not have
+                           lost, as if printed and scanned back in: a lower bound on what may be
+                           lost, never an instruction to imitate printing), as-shown (lose only what this viewer's window would not have
                            shown of a page), refuse-any-loss, only-metadata-loss, keep-everything
                            and derive-attachments. Each is a lower bound on what may be lost,
                            never an instruction to lose it (doc/profiles/)

@@ -3,6 +3,7 @@
 use pdf_model::content::ledger::Route as Via;
 use pdf_syntax::Dictionary;
 use pdf_syntax::Object;
+use pdf_syntax::object::Name;
 use std::collections::BTreeMap;
 
 use super::{Context, FontKey, Mark, Operands, Replacement, SelectedFont, State, Walk, widen};
@@ -22,6 +23,9 @@ impl Walk<'_> {
         // Mode 3 alone is exempt: mode 7 adds the glyphs to the clipping path, which is a mark
         // on the page by way of everything drawn afterwards.
         let font = self.select(&name, context, state.mode != 3, operands.strings);
+        if font.is_none() {
+            self.select_undefined(&name, context, state.mode != 3, operands.strings);
+        }
         // Whether an empty font would have done more than the reader did without one, which drew
         // nothing and moved nothing (ISO 32000-2 §9.4.4's glyph displacement `tx` is the width
         // plus the character and word spacing, and a `TJ` adjustment moves the position by its
@@ -62,14 +66,6 @@ impl Walk<'_> {
             || FontKey::Direct(context.page, name.to_vec()),
             FontKey::Indirect,
         );
-        // Read before the entry is borrowed, and once rather than per string: every string a
-        // single text-showing operator draws stands inside the same sequences. The stack is
-        // lent to `widen` rather than collected into a list, because collecting one would be a
-        // heap allocation per text-showing operator on a tagged page — which is most of them.
-        let settled = self.marks.iter().any(|mark| mark.settles);
-        let bare = !settled && !self.marks.iter().any(|mark| mark.mcid.is_some());
-        let enclosing: &[Mark] = if settled { &[] } else { &self.marks };
-        let page = context.page;
         let entry = self
             .survey
             .fonts
@@ -83,23 +79,59 @@ impl Walk<'_> {
                 shown: BTreeMap::new(),
                 shown_complete: true,
             });
-        entry.rendered |= rendered;
-        for text in strings {
-            if let Some(replacement) = entry.shown.get_mut(text) {
-                widen(replacement, bare, enclosing, page);
-                continue;
-            }
-            if text.len() > self.shown_budget {
-                // The font is not reported on a prefix of its text; see `SHOWN_BUDGET`.
-                entry.shown_complete = false;
-                continue;
-            }
-            self.shown_budget = self.shown_budget.saturating_sub(text.len());
-            let mut replacement = Replacement::default();
-            widen(&mut replacement, bare, enclosing, page);
-            entry.shown.insert(text.clone(), replacement);
-        }
+        note_shown(
+            entry,
+            rendered,
+            strings,
+            &self.marks,
+            context.page,
+            &mut self.shown_budget,
+        );
         Some(dict)
+    }
+
+    /// Records the text shown under a font name nothing defines, where the name is one of
+    /// §9.6.2.2's fourteen, which this reader draws from its own faces (`doc/adr/2500`).
+    ///
+    /// Kept apart from [`super::Survey::fonts`], which holds the fonts a file defines: the entry's
+    /// dictionary is [`standard_font_definition`], the one a conversion would write for the name,
+    /// so that the codes drawn are known before it is written. One entry for each distinct name,
+    /// whichever page or stream made the miss, because every miss of a name is defined as the same
+    /// font.
+    pub(super) fn select_undefined(
+        &mut self,
+        name: &[u8],
+        context: &Context<'_>,
+        rendered: bool,
+        strings: &[Vec<u8>],
+    ) {
+        if self.peek("Font", name, context).is_some() {
+            return;
+        }
+        let Some(dict) = standard_font_definition(name) else {
+            return;
+        };
+        let entry = self
+            .survey
+            .undefined_fonts
+            .entry(name.to_vec())
+            .or_insert_with(|| SelectedFont {
+                dict,
+                id: None,
+                page: context.page,
+                name: String::from_utf8_lossy(name).into_owned(),
+                rendered: false,
+                shown: BTreeMap::new(),
+                shown_complete: true,
+            });
+        note_shown(
+            entry,
+            rendered,
+            strings,
+            &self.marks,
+            context.page,
+            &mut self.shown_budget,
+        );
     }
 
     /// ISO 32000-2 §9.6.4: a Type 3 font's glyphs are content streams of their own.
@@ -153,7 +185,73 @@ impl Walk<'_> {
                 "a Type 3 glyph procedure",
                 stated,
                 Via::Type3Glyph,
+                false,
             );
         }
+    }
+}
+
+/// The font dictionary a conversion writes for a resource name that is one of §9.6.2.2's fourteen
+/// and that no resource dictionary defines: a plain `Type1` font of that `BaseFont`.
+///
+/// ISO 32000-2 §9.6.2.1's Table 109 lets such a font leave out `FirstChar`, `LastChar`, `Widths`
+/// and `FontDescriptor`, and the reader draws the name unaided from its own faces, so this is the
+/// font the page already shows. The leave-out holds for PDF 1.0 to 1.7 only: at part 4 those entries
+/// are required, so this definition is never what a part 4 output keeps, and the embedding route
+/// (`doc/adr/2522`) replaces it with a font that states its widths and its descriptor. `None` for
+/// any other name.
+#[must_use]
+pub fn standard_font_definition(name: &[u8]) -> Option<Dictionary> {
+    let base = std::str::from_utf8(name)
+        .ok()
+        .filter(|name| pdf_font::standard::is_standard_name(name))?;
+    let mut dict = Dictionary::new();
+    dict.insert(
+        Name::new(&b"Type"[..]),
+        Object::Name(Name::new(&b"Font"[..])),
+    );
+    dict.insert(
+        Name::new(&b"Subtype"[..]),
+        Object::Name(Name::new(&b"Type1"[..])),
+    );
+    dict.insert(
+        Name::new(&b"BaseFont"[..]),
+        Object::Name(Name::new(base.as_bytes().to_vec())),
+    );
+    Some(dict)
+}
+
+/// Adds one text-showing operator's strings to a font's record of what it drew.
+///
+/// Read before the entry is borrowed, and once rather than per string: every string a single
+/// text-showing operator draws stands inside the same sequences. The stack is lent to `widen`
+/// rather than collected into a list, because collecting one would be a heap allocation per
+/// text-showing operator on a tagged page — which is most of them.
+fn note_shown(
+    entry: &mut SelectedFont,
+    rendered: bool,
+    strings: &[Vec<u8>],
+    marks: &[Mark],
+    page: usize,
+    budget: &mut usize,
+) {
+    let settled = marks.iter().any(|mark| mark.settles);
+    let bare = !settled && !marks.iter().any(|mark| mark.mcid.is_some());
+    let enclosing: &[Mark] = if settled { &[] } else { marks };
+    entry.rendered |= rendered;
+    for text in strings {
+        if let Some(replacement) = entry.shown.get_mut(text) {
+            widen(replacement, bare, enclosing, page);
+            continue;
+        }
+        if text.len() > *budget {
+            // The font is not reported on a prefix of its text; see `SHOWN_BUDGET`.
+            entry.shown_complete = false;
+            continue;
+        }
+        *budget = budget.saturating_sub(text.len());
+        let mut replacement = Replacement::default();
+        widen(&mut replacement, bare, enclosing, page);
+        entry.shown.insert(text.clone(), replacement);
     }
 }

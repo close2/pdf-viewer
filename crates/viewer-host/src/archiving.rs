@@ -726,7 +726,8 @@ mod tests {
         assert_eq!(names, shipped);
         assert_eq!(
             choosing.profiles()[1].sentence,
-            "Discard what printing would not have carried; touch nothing it would."
+            "Discard what printing would not have carried; touch nothing it would. A print scanned \
+             back in, not an imitation of printing."
         );
         assert_eq!(choosing.chosen().profile, "refuse-any-loss");
         assert!(!choosing.move_profile(-1), "held at the top, never wrapped");

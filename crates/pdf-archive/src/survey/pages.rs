@@ -30,7 +30,14 @@ impl Walk<'_> {
             blending: blending.clone(),
             ..State::default()
         };
-        let origin = self.open_record(index, None, Where::page(index), "the page content", own);
+        let origin = self.open_record(
+            index,
+            None,
+            Where::page(index),
+            "the page content",
+            own,
+            false,
+        );
         self.page_resources = page.resources.clone();
         let mut reader = ContentReader::for_page(self.document, page);
         if let Some(ledger) = &mut self.ledger {
@@ -51,6 +58,7 @@ impl Walk<'_> {
         place: Where,
         what: &'static str,
         own_resources: bool,
+        through_page_table: bool,
     ) -> Origin {
         let record = (self.survey.streams.len() < MAX_OBSERVATIONS).then(|| {
             self.survey.streams.push(OpenedStream {
@@ -60,6 +68,7 @@ impl Walk<'_> {
                 what,
                 referenced: false,
                 own_resources,
+                through_page_table,
             });
             self.survey.streams.len().saturating_sub(1)
         });
@@ -174,13 +183,13 @@ impl Walk<'_> {
         let id = entry.as_reference();
         match self.document.resolve(entry) {
             Object::Stream(stream) => {
-                self.form(&stream, id, index, 0, state, Via::Appearance);
+                self.form(&stream, id, index, 0, state, Via::Appearance, false);
             }
             Object::Dictionary(states) => {
                 for (_, one) in states.iter() {
                     let id = one.as_reference();
                     if let Object::Stream(stream) = self.document.resolve(one) {
-                        self.form(&stream, id, index, 0, state, Via::Appearance);
+                        self.form(&stream, id, index, 0, state, Via::Appearance, false);
                     }
                 }
             }

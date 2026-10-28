@@ -103,7 +103,10 @@ pub(super) fn removal(document: &Document, input: &pdf_archive::Report) -> Resul
             at.insert(id);
         }
     }
-    Ok(Sites { at })
+    Ok(Sites {
+        at,
+        ..Sites::default()
+    })
 }
 
 /// The requirement [`defaults`] answers.
@@ -185,7 +188,10 @@ pub(super) fn defaults(document: &Document, input: &pdf_archive::Report) -> Resu
             }
         }
     }
-    Ok(Sites { at: states })
+    Ok(Sites {
+        at: states,
+        ..Sites::default()
+    })
 }
 
 /// Every graphics state stating `HTP`, whose entry goes (`doc/adr/2035`).
@@ -218,7 +224,10 @@ fn states_stating(
         }
         at.insert(id);
     }
-    Ok(Sites { at })
+    Ok(Sites {
+        at,
+        ..Sites::default()
+    })
 }
 
 /// The objects one requirement's findings name, or nothing where the list was shortened or a

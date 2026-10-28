@@ -45,7 +45,7 @@ impl Document {
             return Some(Arc::clone(cached));
         }
 
-        let Location::Offset(offset) = self.xref.location(number)? else {
+        let Location::Offset(offset) = self.object_stream_location(number)? else {
             // An object stream inside another object stream is not permitted, and
             // following it would be a route to unbounded recursion.
             return None;
@@ -127,6 +127,22 @@ impl Document {
         Some(expanded)
     }
 
+    /// Where object stream `number` begins: the table's entry, or, for a number the table's
+    /// unreadable sections declared and no section described, the object's own header (§7.3.10).
+    ///
+    /// The second is [`crate::XrefTable::declared_and_unread`]'s answer for an ordinary object,
+    /// and an object stream is one: §7.5.7 forbids it inside another object stream, so it stands
+    /// at the outermost level with a header of its own.
+    fn object_stream_location(&self, number: u32) -> Option<Location> {
+        self.xref.location(number).or_else(|| {
+            if self.xref.declared_and_unread(number) {
+                self.object_headers().location(number)
+            } else {
+                None
+            }
+        })
+    }
+
     /// The object numbers one object stream's header names, without parsing any of them.
     ///
     /// What a cross-reference entry needs is the *number*; the object itself is what
@@ -141,7 +157,7 @@ impl Document {
             return Some((cached.keys().copied().collect(), 0));
         }
 
-        let Location::Offset(offset) = self.xref.location(number)? else {
+        let Location::Offset(offset) = self.object_stream_location(number)? else {
             // As in `expand_object_stream`: an object stream inside another one is not
             // permitted, and following it would be a route to unbounded recursion.
             return None;
@@ -219,10 +235,23 @@ impl Document {
     /// would for a whole table: the entry says where the object lives, the expansion says whether
     /// the bytes are there.
     pub(super) fn recover_compressed_objects(&mut self) {
-        if !self.xref.recovered_by_scan() {
+        // A table the file's sections produced is whole, and a scanned one carries its object
+        // streams. A table whose `/Prev` chain was cut ([`crate::XrefTable::chain_cut`]) is
+        // neither: the sections it read describe what they describe, and the older sections'
+        // compressed objects are named only by the object streams' own headers, which one scan of
+        // the file finds. The scan is the one `load_by_header` makes for the older sections'
+        // ordinary objects, so the file is scanned once for both.
+        let scanned = if self.xref.recovered_by_scan() {
+            None
+        } else if self.xref.chain_cut() {
+            Some(self.object_headers())
+        } else {
             return;
-        }
-        let streams = self.xref.object_streams().to_vec();
+        };
+        let streams = scanned.as_ref().map_or_else(
+            || self.xref.object_streams().to_vec(),
+            |headers| headers.object_streams().to_vec(),
+        );
         let mut report = CompressedRecovery {
             streams: streams.len(),
             ..CompressedRecovery::default()
@@ -231,6 +260,7 @@ impl Document {
         // before anything is entered — the rule `scan_for_objects` applies to two headers bearing
         // one number, and §7.5.6's "most recent copy" behind it.
         let mut members: BTreeMap<u32, Location> = BTreeMap::new();
+        let mut written_at_top_level: BTreeSet<u32> = BTreeSet::new();
         let mut spent = 0_usize;
         for stream in streams {
             if spent >= RECOVERY_DECODE_BUDGET {
@@ -248,6 +278,21 @@ impl Document {
             }
             report.read = report.read.saturating_add(1);
             for (index, number) in named.iter().enumerate() {
+                if let Some(headers) = &scanned {
+                    // §7.5.7: a number also written as an ordinary object is the ordinary
+                    // object's, which a cut chain's header lookup finds without an entry. It is
+                    // counted with the numbers the scan declined.
+                    if headers.location(*number).is_some() {
+                        written_at_top_level.insert(*number);
+                        continue;
+                    }
+                    // A cut chain leaves the numbers below `/Size` that no section read to their
+                    // own headers (ADR 2526 section 3); a number outside that range, or one a
+                    // section that was read describes, is not the older sections' to give.
+                    if !self.xref.declared_and_unread(*number) {
+                        continue;
+                    }
+                }
                 members.insert(
                     *number,
                     Location::InStream {
@@ -260,7 +305,9 @@ impl Document {
 
         let offered = members.len();
         report.objects = self.xref.enter_compressed(members);
-        report.already_at_top_level = offered.saturating_sub(report.objects);
+        report.already_at_top_level = offered
+            .saturating_sub(report.objects)
+            .saturating_add(written_at_top_level.len());
         self.recovered_compressed = report;
     }
 }

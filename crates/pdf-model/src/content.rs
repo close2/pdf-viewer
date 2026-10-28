@@ -731,8 +731,9 @@ pub struct Replacement {
     /// The interpreter's own accumulated state at the seam.
     checkpoint: Checkpoint,
     /// §11.4.7's press table, shared with the run that made this so that a press this page named
-    /// is sampled once and counted once against [`crate::colour::MAX_PRESSES`] however many times
-    /// the annotations are re-placed. ADR 0417 is why that budget is per interpretation.
+    /// is sampled once and charged once to the page's memory ([`crate::colour::PRESS_BYTES`])
+    /// however many times the annotations are re-placed. ADR 0417 is why that budget is per
+    /// interpretation.
     presses: Arc<crate::colour::Presses>,
 }
 
@@ -755,8 +756,9 @@ fn interpreted(
     // rasters back together where the clause puts the conversion. ADR 0262.
     // One table for the whole interpretation, so that the two runs of the pair below name the
     // same press once between them and §11.7.2's refusal is a fact about this page rather than
-    // about what the process opened before it. ADR 0417.
-    let presses = Arc::new(crate::colour::Presses::default());
+    // about what the process opened before it. ADR 0417. Its presses are charged to the page's
+    // memory bound, `MAX_LIST_BYTES`, which `list_past` also holds the list to (ADR 2532).
+    let presses = Arc::new(crate::colour::Presses::within(MAX_LIST_BYTES));
     // **§11.4.7's pair is interpreted whole, every time, and that is the documented fallback.**
     // A page drawn in its own subtractive space is two interpretations of one content stream
     // merged by geometry digest, so the seam below is two seams and the merge is a third thing to
@@ -1099,12 +1101,12 @@ fn process_planes(
 ) -> Result<ProcessPlanes, NotSeparated> {
     let no_press = |refused: crate::colour::NoPress| {
         NotSeparated::GivenUp(match refused {
-            crate::colour::NoPress::Poisoned => format!(
+            crate::colour::NoPress::Poisoned | crate::colour::NoPress::Spent => format!(
                 "the page's output intent names a press and {}, so step a)'s simulated device has \
                  no process colourants",
                 refused.why()
             ),
-            crate::colour::NoPress::Spent | crate::colour::NoPress::Unsampled => {
+            crate::colour::NoPress::Unsampled => {
                 "the page's output intent is a four-component profile this reader cannot sample \
                  into a press, so step a)'s simulated device has no process colourants"
                     .to_owned()
@@ -2257,6 +2259,10 @@ fn complete(
 /// is held to a hundred lines.
 fn finished(document: &Document, mut interpreter: Interpreter<'_>) -> Interpretation {
     interpreter.settle_list_charge();
+    // The bound is asked every `CHECK_EVERY` operators and the presses join it at admission only,
+    // so a page can end past it by what a few dozen operators added; the last asking is made here,
+    // with everything charged, and a page that ends past the bound says so (ADR 2532).
+    interpreter.list_past(0);
     // Each font's word gaps, read off every step the page showed (ADR 1515) — before anything
     // below reads a range of the text.
     interpreter.settle_word_gaps();
@@ -3188,7 +3194,7 @@ struct Interpreter<'a> {
     ///
     /// [`PagePress::Beyond`]'s reason, carried into the report. A press a *document* names is drawn
     /// rather than reported (ADR 0272), so what is left here is a four-component space that is not
-    /// an ICC profile, and a page naming more distinct presses than [`crate::colour::MAX_PRESSES`].
+    /// an ICC profile, and a page whose presses have spent the memory it may keep.
     blending_beyond: Option<transparency::BeyondPress>,
     /// The distinct presses this interpretation has named, and the budget it spends on them.
     ///

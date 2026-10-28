@@ -33,9 +33,12 @@
 //! any two of its values outside the region determine; so it is zeroed only where every parameter
 //! it serves is the region's alone. A §7.10.4 **stitching** function is taken piece by piece
 //! through its `/Encode`. A §7.10.5 **calculator** function is a program: its text is not divided
-//! by the parameters it serves, no finite re-expression of it holds its values exactly, and a
-//! program rewritten to omit the region's values is a program this build would author — so where
-//! any value it serves is the region's alone the page is refused by name.
+//! by the parameters it serves and is not rewritten, so a one-input program is served by a
+//! stitching function written over it (ADR 2528) — the producer's program, as the producer's own
+//! object, for every parameter outside the spans the region alone carries, and the constant a
+//! sampled function's samples are cleared to for those inside. A function-based shading's
+//! two-input program has no stitching to divide it, and the page is refused by name where the
+//! region meets its domain.
 //!
 //! # How the destroyed data are written
 //!
@@ -46,6 +49,7 @@
 //! wrote; two placements on one page naming the same entry take the union of what each destroys,
 //! as two placements of one image do (ADR 1277).
 
+use std::cell::Cell;
 use std::collections::HashMap;
 
 use pdf_render::Transform;
@@ -159,27 +163,6 @@ impl Intervals {
     /// Each interval carried by an increasing or decreasing affine map.
     fn mapped(&self, map: impl Fn(f64) -> f64) -> Self {
         Self::of(self.0.iter().map(|(a, b)| (map(*a), map(*b))))
-    }
-
-    /// Whether some interval of `self` has a part of positive length no interval of `other`
-    /// covers.
-    fn escapes(&self, other: &Self) -> bool {
-        self.0.iter().any(|(low, high)| {
-            let mut from = *low;
-            for (a, b) in &other.0 {
-                if *b < from {
-                    continue;
-                }
-                if *a > from {
-                    return true;
-                }
-                from = from.max(*b);
-                if from >= *high {
-                    return false;
-                }
-            }
-            from < *high
-        })
     }
 
     /// `self` less `other`, as closed intervals: each piece keeps the boundary it shares with
@@ -379,7 +362,7 @@ impl Walk<'_> {
         let Some(function) = dict.get("Function") else {
             return Ok(None);
         };
-        let Some(built) = self.build_function(function, &used, &kept)? else {
+        let Some(built) = self.build_function_tree(function, &used, &kept)? else {
             return Ok(None);
         };
         Ok(Some(wrap(entry, rebuilt(dict, "Function", built))))
@@ -473,7 +456,7 @@ impl Walk<'_> {
                     })
                 });
                 if meets {
-                    return Err(calculator_refusal());
+                    return Err(two_input_calculator_refusal());
                 }
                 Ok(None)
             }
@@ -485,6 +468,56 @@ impl Walk<'_> {
         }
     }
 
+    /// A shading's `/Function`, whole: [`Self::build_function`] under the room the viewer's own
+    /// function reader leaves the rewritten tree (ADR 2528).
+    ///
+    /// The reader builds at most [`pdf_model::function::MAX_FUNCTIONS`] functions for one root and
+    /// counts a function once for every time a reference to it is followed, so a calculator
+    /// function that an outer stitching function names in k pieces is k nodes, each of which can be
+    /// stitched on its own. Past the budget the written tree would not draw anywhere, outside the
+    /// region too; `room` is what the producer's own tree leaves, spent by every stitching function
+    /// written over a calculator.
+    fn build_function_tree(
+        &self,
+        function: &Object,
+        used: &Intervals,
+        kept: &Intervals,
+    ) -> Result<Option<Built>, String> {
+        let mut nodes = 0;
+        self.count_function_nodes(function, 0, &mut nodes);
+        let room = Cell::new(pdf_model::function::MAX_FUNCTIONS.saturating_sub(nodes));
+        self.build_function(function, used, kept, &room)
+    }
+
+    /// The functions the reader would build for `entry`: one for each dictionary or stream, each
+    /// time it is named, with a stitching function's pieces beneath it. The count stops once it
+    /// passes the reader's budget, and at the depth the reader refuses.
+    fn count_function_nodes(&self, entry: &Object, depth: usize, nodes: &mut usize) {
+        if *nodes > pdf_model::function::MAX_FUNCTIONS || depth > MAX_FUNCTION_DEPTH {
+            return;
+        }
+        let object = self.document.resolve(entry);
+        if let Object::Array(items) = &object {
+            for item in items {
+                self.count_function_nodes(item, depth, nodes);
+            }
+            return;
+        }
+        let dict = match &object {
+            Object::Stream(stream) => &stream.dict,
+            Object::Dictionary(dict) => dict,
+            _ => return,
+        };
+        *nodes = nodes.saturating_add(1);
+        if self.document.get_key(dict, "FunctionType").as_integer() == Some(3)
+            && let Some(pieces) = self.document.get_key(dict, "Functions").as_array()
+        {
+            for piece in pieces {
+                self.count_function_nodes(piece, depth.saturating_add(1), nodes);
+            }
+        }
+    }
+
     /// A 1-in function's values that `kept` does not reach, destroyed where every parameter a
     /// piece of the function serves is one of them; `used` is what the shading passes it.
     fn build_function(
@@ -492,13 +525,14 @@ impl Walk<'_> {
         entry: &Object,
         used: &Intervals,
         kept: &Intervals,
+        room: &Cell<usize>,
     ) -> Result<Option<Built>, String> {
         let object = self.document.resolve(entry);
         if let Object::Array(items) = &object {
             let mut any = false;
             let mut out = Vec::with_capacity(items.len());
             for item in items {
-                let one = self.build_function(item, used, kept)?;
+                let one = self.build_function(item, used, kept, room)?;
                 any |= one.is_some();
                 out.push(one.unwrap_or_else(|| Built::Source(item.clone())));
             }
@@ -551,19 +585,116 @@ impl Walk<'_> {
                 entries.push((Name::new(&b"C1"[..]), zeros("C1", 1)));
                 Ok(Some(wrap(entry, Built::Dict(entries))))
             }
-            Some(3) => self.build_stitching(entry, &dict, domain, (&used, kept)),
-            Some(4) => {
-                if used.escapes(kept) {
-                    return Err(calculator_refusal());
-                }
-                Ok(None)
-            }
+            Some(3) => self.build_stitching(entry, &dict, domain, (&used, kept), room),
+            Some(4) => self.build_calculator(entry, &dict, (&used, kept), room),
             kind => Err(format!(
                 "§7.10: a shading meeting the region names a function of /FunctionType {}; the \
                  page is refused",
                 kind.map_or_else(|| "absent".to_owned(), |kind| kind.to_string())
             )),
         }
+    }
+
+    /// §7.10.5: a calculator function serving parameters the region alone carries, stitched.
+    ///
+    /// The producer's program is not divided and not rewritten: a §7.10.4 stitching function whose
+    /// `/Bounds` cut the region-only parameter spans out serves the program, unchanged, to every
+    /// parameter outside them and a constant (ADR 1124's) to those inside (ADR 2528).
+    fn build_calculator(
+        &self,
+        entry: &Object,
+        dict: &Dictionary,
+        (used, kept): (&Intervals, &Intervals),
+        room: &Cell<usize>,
+    ) -> Result<Option<Built>, String> {
+        let region_only = Intervals(
+            used.less(kept)
+                .0
+                .into_iter()
+                .filter(|(low, high)| high > low)
+                .collect(),
+        );
+        if region_only.is_empty() {
+            return Ok(None);
+        }
+        let domain = match pair(self.document, dict, "Domain") {
+            Some((low, high)) if low < high => (low, high),
+            _ => {
+                return Err(calculator_unstitchable(
+                    "does not state two increasing /Domain numbers",
+                ));
+            }
+        };
+        let outputs =
+            super::numbers(self.document, dict, "Range").map_or(0, |range| range.len() / 2);
+        if outputs == 0 || outputs > MAX_CALCULATOR_OUTPUTS {
+            return Err(calculator_unstitchable(
+                "states no /Range of between one and sixty-four outputs",
+            ));
+        }
+        let pieces = stitch_plan(domain, &region_only)?;
+        // The stitching function and its pieces replace the one node the program was.
+        let added = pieces.len();
+        let left = room.get().checked_sub(added).ok_or_else(|| {
+            calculator_unstitchable(
+                "would grow the function tree past the budget the viewer's function reader builds",
+            )
+        })?;
+        room.set(left);
+        let range = dict.get("Range").cloned().unwrap_or(Object::Null);
+        let reals = |values: &[f64]| {
+            Built::Array(
+                values
+                    .iter()
+                    .map(|value| Built::Source(Object::Real(*value)))
+                    .collect(),
+            )
+        };
+        let constant = || {
+            let zeros = || Built::Array(vec![Built::Source(Object::Integer(0)); outputs]);
+            Built::Dict(vec![
+                (key("FunctionType"), Built::Source(Object::Integer(2))),
+                (key("Domain"), reals(&[0.0, 1.0])),
+                (key("C0"), zeros()),
+                (key("C1"), zeros()),
+                (key("N"), Built::Source(Object::Integer(1))),
+                (key("Range"), Built::Source(range.clone())),
+            ])
+        };
+        let mut encode = Vec::with_capacity(pieces.len().saturating_mul(2));
+        for (index, piece) in pieces.iter().enumerate() {
+            if piece.cleared {
+                encode.extend([0.0, 1.0]);
+            } else {
+                // The piece's own span, so the program is handed the input it was handed before.
+                let end = pieces
+                    .get(index.saturating_add(1))
+                    .map_or(domain.1, |next| next.start);
+                encode.extend([piece.start, end]);
+            }
+        }
+        let bounds: Vec<f64> = pieces.iter().skip(1).map(|piece| piece.start).collect();
+        let functions = pieces
+            .iter()
+            .map(|piece| {
+                if piece.cleared {
+                    constant()
+                } else {
+                    Built::Source(entry.clone())
+                }
+            })
+            .collect();
+        Ok(Some(wrap(
+            entry,
+            Built::Dict(vec![
+                (key("FunctionType"), Built::Source(Object::Integer(3))),
+                (key("Domain"), reals(&[domain.0, domain.1])),
+                (key("Functions"), Built::Array(functions)),
+                (key("Bounds"), reals(&bounds)),
+                (key("Encode"), reals(&encode)),
+                (key("Range"), Built::Source(range)),
+            ]),
+        )))
     }
 
     /// §7.10.4: each piece of a stitching function, taken through its `/Encode`.
@@ -573,6 +704,7 @@ impl Walk<'_> {
         dict: &Dictionary,
         domain: (f64, f64),
         (used, kept): (&Intervals, &Intervals),
+        room: &Cell<usize>,
     ) -> Result<Option<Built>, String> {
         let functions = self.document.get_key(dict, "Functions");
         let Some(functions) = functions.as_array() else {
@@ -611,7 +743,7 @@ impl Walk<'_> {
             let one = if sub_used.is_empty() {
                 None
             } else {
-                self.build_function(function, &sub_used, &sub_kept)?
+                self.build_function(function, &sub_used, &sub_kept, room)?
             };
             any |= one.is_some();
             out.push(one.unwrap_or_else(|| Built::Source(function.clone())));
@@ -676,7 +808,7 @@ impl Walk<'_> {
             .collect();
         if let Some(function) = stream.dict.get("Function") {
             let kept = Intervals::of(read.parameter_spans());
-            if let Some(built) = self.build_function(function, &used, &kept)? {
+            if let Some(built) = self.build_function_tree(function, &used, &kept)? {
                 entries.retain(|(key, _)| key.as_bytes() != b"Function");
                 entries.push((Name::new(&b"Function"[..]), built));
             }
@@ -936,11 +1068,134 @@ impl Sampled {
     }
 }
 
-/// The refusal for a calculator function serving a value the region alone carries.
-fn calculator_refusal() -> String {
-    "§7.10.5: a calculator function serves colours only the region carries, and a program is not \
-     divided by the values it serves — no finite re-expression holds its values exactly, and a \
-     program rewritten to omit them would be one this build authored; the page is refused"
+/// The most pieces a stitching function written over a calculator function may have: each
+/// cleared piece carries a constant of its own, so the figure bounds what a page of many
+/// `/Redact` annotations over one shading makes the rewrite hold.
+const MAX_CALCULATOR_PIECES: usize = 1024;
+
+/// How deep a stitching function nests before the viewer's function reader refuses it
+/// (`pdf-colour`'s `MAX_STITCH_DEPTH`): the count of a tree stops there.
+const MAX_FUNCTION_DEPTH: usize = 8;
+
+/// The most outputs a calculator function's `/Range` may state for its constant to be written:
+/// the viewer's function reader reads no function of more, so a tree written for more could not be
+/// drawn, and a `/Range` of a million entries would otherwise be copied into every cleared piece.
+const MAX_CALCULATOR_OUTPUTS: usize = pdf_model::function::MAX_VALUES;
+
+/// One piece of the stitching function written over a calculator function.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct StitchPiece {
+    /// Where the piece begins: the `/Domain`'s start for the first, a `/Bounds` entry for the rest.
+    start: f64,
+    /// Whether the piece serves the constant rather than the producer's program.
+    cleared: bool,
+}
+
+/// The pieces of the §7.10.4 stitching function that clears `cleared` from `domain` and leaves
+/// the rest to the producer's program.
+///
+/// §7.10.4 gives `/Bounds` as increasing numbers and each piece as "closed on the left and open
+/// on the right", so a cleared span's left end is cleared too, and its right end is the next
+/// piece's: of a span's two ends, which are parameters the kept span beside it also carries, the
+/// left end is destroyed with the span and no parameter the region alone carries is left. The
+/// bounds are numbers a reader narrows to `f32`; a program piece that narrowing makes empty is
+/// merged into the cleared span beside it, and a cleared span it makes empty is refused rather
+/// than left standing. Table 41 gives the last piece one exception, which this plan does not use:
+/// "the last interval, shall always be closed on the right", so the domain's end is served by the
+/// last piece whichever kind it is.
+fn stitch_plan(domain: (f64, f64), cleared: &Intervals) -> Result<Vec<StitchPiece>, String> {
+    let mut wanted = Vec::with_capacity(cleared.0.len().saturating_mul(2).saturating_add(1));
+    let mut cursor = domain.0;
+    for (low, high) in &cleared.0 {
+        if *low > cursor {
+            wanted.push(StitchPiece {
+                start: cursor,
+                cleared: false,
+            });
+        }
+        wanted.push(StitchPiece {
+            start: *low,
+            cleared: true,
+        });
+        cursor = *high;
+    }
+    if cursor < domain.1 {
+        wanted.push(StitchPiece {
+            start: cursor,
+            cleared: false,
+        });
+    }
+    let sliver =
+        || calculator_unstitchable("has a region-only span narrower than a number is read to");
+    let mut pieces: Vec<StitchPiece> = Vec::with_capacity(wanted.len());
+    for piece in wanted {
+        while let Some(last) = pieces.last() {
+            if narrow(piece.start) > narrow(last.start) {
+                break;
+            }
+            if last.cleared {
+                return Err(sliver());
+            }
+            pieces.pop();
+        }
+        if pieces
+            .last()
+            .is_some_and(|last| last.cleared == piece.cleared)
+        {
+            continue;
+        }
+        let start = if pieces.is_empty() {
+            domain.0
+        } else {
+            piece.start
+        };
+        pieces.push(StitchPiece {
+            start,
+            cleared: piece.cleared,
+        });
+    }
+    if pieces.len() > 1
+        && pieces
+            .last()
+            .is_some_and(|last| narrow(last.start) >= narrow(domain.1))
+    {
+        if pieces.last().is_some_and(|last| last.cleared) {
+            return Err(sliver());
+        }
+        pieces.pop();
+    }
+    if !pieces.iter().any(|piece| piece.cleared) {
+        return Err(sliver());
+    }
+    if pieces.len() > MAX_CALCULATOR_PIECES {
+        return Err(calculator_unstitchable(
+            "has more region-only spans than the stitching function written for them may hold",
+        ));
+    }
+    Ok(pieces)
+}
+
+/// A dictionary key.
+fn key(name: &str) -> Name {
+    Name::new(name.as_bytes())
+}
+
+/// The refusal for a calculator function whose region-only values cannot be stitched out.
+fn calculator_unstitchable(why: &str) -> String {
+    format!(
+        "§7.10.5: a calculator function serves parameters the region alone carries, and one that \
+         {why} cannot have them cut out by a stitching function (§7.10.4); the page is refused"
+    )
+}
+
+/// The refusal for a two-input calculator function under a region.
+///
+/// A §7.10.4 stitching function has one input, so no stitching divides a function of two; the
+/// program is the producer's text and a rewrite of it would be one this build authored.
+fn two_input_calculator_refusal() -> String {
+    "§7.10.5: a function-based shading's two-input calculator function serves a domain the region \
+     meets, and a stitching function (§7.10.4) divides one input only — a program rewritten to \
+     omit the region's values would be one this build authored; the page is refused"
         .to_owned()
 }
 
@@ -1022,4 +1277,64 @@ fn box_of(points: &[Point; 4]) -> [f64; 4] {
 )]
 fn narrow(value: f64) -> f32 {
     value as f32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Intervals, MAX_CALCULATOR_PIECES, StitchPiece, stitch_plan};
+
+    fn piece(start: f64, cleared: bool) -> StitchPiece {
+        StitchPiece { start, cleared }
+    }
+
+    /// §7.10.4's Table 41: the pieces are in order, each begins at a `/Bounds` entry, and the first
+    /// at the `/Domain`'s start — a span at either end of the domain leaves no program piece
+    /// there, and one that is the whole domain is a single piece.
+    #[test]
+    fn the_pieces_follow_the_spans_cleared() {
+        let plan =
+            |spans: &[(f64, f64)]| stitch_plan((0.0, 1.0), &Intervals::of(spans.iter().copied()));
+        assert_eq!(
+            plan(&[(0.25, 0.5)]).expect("a plan"),
+            [piece(0.0, false), piece(0.25, true), piece(0.5, false)]
+        );
+        assert_eq!(
+            plan(&[(0.0, 0.25)]).expect("a plan"),
+            [piece(0.0, true), piece(0.25, false)]
+        );
+        assert_eq!(
+            plan(&[(0.5, 1.0)]).expect("a plan"),
+            [piece(0.0, false), piece(0.5, true)]
+        );
+        assert_eq!(plan(&[(0.0, 1.0)]).expect("a plan"), [piece(0.0, true)]);
+    }
+
+    /// A reader narrows each number to `f32`: a program piece it makes empty between two spans is
+    /// folded into them, and a span it makes empty is refused rather than left standing.
+    #[test]
+    fn a_piece_narrower_than_a_number_is_read_to_is_folded_or_refused() {
+        let folded = stitch_plan((0.0, 1.0), &Intervals::of([(0.1, 0.3), (0.3 + 1e-12, 0.6)]))
+            .expect("a plan");
+        assert_eq!(
+            folded,
+            [piece(0.0, false), piece(0.1, true), piece(0.6, false)]
+        );
+        let sliver = stitch_plan((0.0, 1.0), &Intervals::of([(0.5, 0.5 + 1e-12)]));
+        assert!(sliver.is_err(), "{sliver:?}");
+    }
+
+    /// The bound on the pieces: a plan of exactly the bound is made and one more is refused.
+    #[test]
+    fn the_pieces_have_a_bound() {
+        let spans = |count: usize| {
+            Intervals::of((0..count).map(|k| {
+                let low = f64::from(u32::try_from(2 * k).expect("small")) * 1e-3;
+                (low, low + 1e-3)
+            }))
+        };
+        let at_the_bound = stitch_plan((0.0, 2.0), &spans(MAX_CALCULATOR_PIECES / 2));
+        assert_eq!(at_the_bound.expect("a plan").len(), MAX_CALCULATOR_PIECES);
+        let past = stitch_plan((0.0, 2.0), &spans(MAX_CALCULATOR_PIECES / 2 + 1));
+        assert!(past.is_err(), "{past:?}");
+    }
 }

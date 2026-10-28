@@ -25,9 +25,12 @@ use pdf_sandbox::lockdown::{self, Profile};
 use pdf_script::wire::{decode_answer, encode_question};
 use pdf_script::{Answer, Asker, Budget, Question, Realm};
 
+use crate::form_wire::FRAME_FORM_RUN;
 use crate::wire::{
     FRAME_ANSWER, FRAME_QUESTION, FRAME_RUN, MAGIC, MAX_RUN_BYTES, Reply, decode_run, encode_reply,
 };
+
+mod form;
 
 /// Most scripts one worker holds.
 ///
@@ -77,6 +80,15 @@ pub fn serve() -> Result<(), std::io::Error> {
             break;
         };
         let reply = match incoming {
+            // A form's script is a conversation with the host rather than a request and an
+            // outcome, and it writes its own end (ADR 2524).
+            Incoming::Frame {
+                kind: FRAME_FORM_RUN,
+                payload,
+            } => {
+                form::serve_run(&pipes, &payload)?;
+                continue;
+            }
             Incoming::Frame { kind, payload } => {
                 answer(&mut held, &mut realm, &asker, kind, &payload)
             }

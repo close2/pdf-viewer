@@ -392,7 +392,51 @@ enum Curve {
     },
 }
 
+/// The heap bytes of a list of curves.
+fn curves_bytes(curves: &[Curve]) -> usize {
+    curves.iter().fold(0_usize, |total, curve| {
+        total.saturating_add(curve.owned_bytes())
+    })
+}
+
+impl Lut {
+    /// The heap bytes of the table, its grid and its curves: [`Profile::owned_bytes`].
+    fn owned_bytes(&self) -> usize {
+        self.samples
+            .len()
+            .saturating_mul(size_of::<f32>())
+            .saturating_add(self.grid.len().saturating_mul(size_of::<usize>()))
+            .saturating_add(curves_bytes(&self.input))
+            .saturating_add(curves_bytes(&self.mid))
+            .saturating_add(curves_bytes(&self.output))
+    }
+}
+
+/// What one `f32` sample of a parsed table costs against the byte of a tag it was read from, at
+/// most: a tag holds a sample in one byte (`mft1`) or more and a parsed table holds it in four.
+const PARSED_BYTES_PER_TAG_BYTE: usize = size_of::<f32>();
+
+/// The bytes a kept tag costs, and the most the table parsed from it can cost.
+fn tag_and_parse_bytes(tag: &[u8]) -> usize {
+    tag.len().saturating_mul(1 + PARSED_BYTES_PER_TAG_BYTE)
+}
+
+impl Alternate {
+    /// The tag's bytes and what it can parse into: [`Profile::owned_bytes`].
+    fn owned_bytes(&self) -> usize {
+        self.tag.as_ref().map_or(0, |tag| tag_and_parse_bytes(tag))
+    }
+}
+
 impl Curve {
+    /// The heap bytes of a sampled curve; the other forms hold none.
+    fn owned_bytes(&self) -> usize {
+        match self {
+            Self::Sampled(points) => points.len().saturating_mul(size_of::<f32>()),
+            Self::None | Self::Gamma(_) | Self::Parametric { .. } => 0,
+        }
+    }
+
     fn apply(&self, x: f32) -> f32 {
         // Only the forms that index a table need their input clamped. `None` must be a
         // true identity: clamping there quietly destroyed connection-space values, which
@@ -1356,6 +1400,39 @@ impl Profile {
     #[must_use]
     pub fn identity(&self) -> u128 {
         self.identity
+    }
+
+    /// The heap bytes this profile can hold, under any intent: the samples and curves of its
+    /// colorimetric transform and of its "from CIE" table, and for each of the perceptual and
+    /// saturation tables the tag's own copy of the bytes and the largest table those bytes can
+    /// parse into.
+    ///
+    /// What a [`crate::colour::Presses`] charges beside a press's grids for the profile the press
+    /// keeps to convert *in* (ISO 32000-2 §8.6.5.5). A clone of a profile deep-copies the tables
+    /// it has parsed and shares the tags' bytes only with the profile it was cloned from, which a
+    /// press outlives, so all of it is the press's. The alternate tables are parsed on first use,
+    /// and the charge is made before that: a tag's byte holds one sample at most, a sample parses
+    /// into one `f32`, so the parsed table is at most `PARSED_BYTES_PER_TAG_BYTE` times the tag
+    /// and the tag's bytes stay. A function of the profile alone, so that the refusal does not
+    /// depend on which intent drew first; an estimate of the allocation, not the allocator's
+    /// figure.
+    #[must_use]
+    pub fn owned_bytes(&self) -> usize {
+        let transform = match &self.colorimetric.transform {
+            Transform::Lut(lut) => lut.owned_bytes(),
+            Transform::Matrix { curves, .. } => curves_bytes(curves),
+            Transform::Grey(curve) => curve.owned_bytes(),
+        };
+        let inverse = self.inverse.as_ref().map_or(0, |lut| lut.owned_bytes());
+        let own_inverse = match &self.perceptual_inverse {
+            PerceptualInverse::Inverse => 0,
+            PerceptualInverse::Own { tag, .. } => tag_and_parse_bytes(tag),
+        };
+        transform
+            .saturating_add(inverse)
+            .saturating_add(own_inverse)
+            .saturating_add(self.perceptual.owned_bytes())
+            .saturating_add(self.saturation.owned_bytes())
     }
 
     /// Converts a colour in this profile's space to sRGB, with black point compensation.
@@ -2375,17 +2452,28 @@ pub(crate) mod fixtures {
     ///
     /// Sizes, matrix, input curves, CLUT, output curves, in that order. `clut` holds the
     /// corners with the *last* input varying fastest, which is ICC's own order.
+    pub(crate) fn mft2_tag(inputs: usize, outputs: usize, clut: &[u16]) -> Vec<u8> {
+        mft2_grid_tag(inputs, outputs, 2, clut)
+    }
+
+    /// An `mft2` tag like [`mft2_tag`] with `grid` points per axis, for a table whose size is
+    /// the point of the test: `clut` holds `grid` to the `inputs` entries of `outputs` samples.
     #[expect(
         clippy::cast_possible_truncation,
         reason = "the fixture's constants are written as the fixed-point values it encodes"
     )]
-    pub(crate) fn mft2_tag(inputs: usize, outputs: usize, clut: &[u16]) -> Vec<u8> {
+    pub(crate) fn mft2_grid_tag(
+        inputs: usize,
+        outputs: usize,
+        grid: usize,
+        clut: &[u16],
+    ) -> Vec<u8> {
         let mut tag = Vec::new();
         tag.extend_from_slice(b"mft2");
         tag.extend_from_slice(&[0; 4]);
         tag.push(u8::try_from(inputs).expect("small"));
         tag.push(u8::try_from(outputs).expect("small"));
-        tag.push(2);
+        tag.push(u8::try_from(grid).expect("small"));
         tag.push(0);
         for value in [1.0f32, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0] {
             tag.extend_from_slice(&((value * 65536.0) as i32).to_be_bytes());
@@ -2399,8 +2487,8 @@ pub(crate) mod fixtures {
         }
         assert_eq!(
             clut.len(),
-            (1 << inputs) * outputs,
-            "a corner per grid point"
+            grid.pow(u32::try_from(inputs).expect("small")) * outputs,
+            "a sample per grid point and output"
         );
         for value in clut {
             tag.extend_from_slice(&value.to_be_bytes());
@@ -2569,10 +2657,10 @@ pub(crate) mod fixtures {
 #[cfg(test)]
 mod tests {
     use super::fixtures::{
-        black_only_clut, complement_clut, ink_limited_cmyk_profile, mba_tag, mft2_tag,
-        one_way_cmyk_profile, profile_of, two_way_cmyk_profile, xyz_tag,
+        black_only_clut, complement_clut, ink_limited_cmyk_profile, mba_tag, mft2_grid_tag,
+        mft2_tag, one_way_cmyk_profile, profile_of, two_way_cmyk_profile, xyz_tag,
     };
-    use super::{A2b, Encoding, Identification, Profile, Rendering, WHITE};
+    use super::{A2b, Encoding, Identification, Profile, Rendering, Transform, WHITE};
 
     /// The profile this program ships for `doc/questions/A18`'s output intent, read out of the
     /// file rather than off the page that offers it — which is what `data/icc/PROVENANCE.md`
@@ -3320,6 +3408,65 @@ mod tests {
         assert!(
             (mixed[1] - plain[1]).abs() > 0.02,
             "the stretch moves a mid grey: {mixed:?} against {plain:?}"
+        );
+    }
+
+    /// A press keeps a clone of the profile it converts in, and that clone holds the alternate
+    /// tables an intent has parsed: what a press is charged for it covers them, whichever intent
+    /// has drawn (ISO 32000-2 §8.6.5.5; ADR 2532).
+    ///
+    /// The profile states `A2B1`, `A2B0` and `B2A1` of nine grid points a side; `A2B0` is parsed
+    /// by drawing in it, and the charge is at least every table the profile then holds.
+    #[test]
+    fn a_two_way_profile_is_charged_at_least_what_the_perceptual_table_adds_to_its_clone() {
+        let side = 9usize;
+        let samples = vec![0x4000u16; side.pow(4) * 3];
+        let profile = Profile::parse(&profile_of(
+            *b"CMYK",
+            *b"XYZ ",
+            2,
+            &[
+                (*b"A2B1", mft2_grid_tag(4, 3, side, &samples)),
+                (*b"A2B0", mft2_grid_tag(4, 3, side, &samples)),
+                (*b"B2A1", mft2_tag(3, 4, &complement_clut())),
+            ],
+        ))
+        .expect("parses");
+        assert!(profile.is_bidirectional());
+        let before = profile.owned_bytes();
+        let _ = profile.to_rgb_with(
+            &[0.1, 0.2, 0.3, 0.4],
+            Rendering::new(A2b::Perceptual, false),
+        );
+        assert_eq!(
+            profile.owned_bytes(),
+            before,
+            "the charge is a function of the profile, not of what has drawn in it"
+        );
+        let parsed = profile
+            .perceptual
+            .route
+            .get()
+            .and_then(Option::as_ref)
+            .expect("drawing in the perceptual intent parsed `A2B0`");
+        let Transform::Lut(perceptual) = &parsed.transform else {
+            panic!("a table profile parses to a table");
+        };
+        let colorimetric_table = match &profile.colorimetric.transform {
+            Transform::Lut(lut) => lut.owned_bytes(),
+            _ => panic!("a table profile"),
+        };
+        let held = colorimetric_table
+            + perceptual.owned_bytes()
+            + profile.inverse.as_ref().map_or(0, |lut| lut.owned_bytes())
+            + profile.perceptual.tag.as_ref().map_or(0, |tag| tag.len());
+        assert!(
+            before >= held,
+            "{before} charged against {held} held by the clone"
+        );
+        assert!(
+            before >= 2 * side.pow(4) * 3 * size_of::<f32>(),
+            "two grids of {side} points a side are charged whole"
         );
     }
 

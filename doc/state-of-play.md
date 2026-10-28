@@ -491,7 +491,11 @@ error cancels the submit is the host's policy to say (ADR 2475).
 person's entry runs the field's `change` events, the calculations that read it and the validations,
 a merge's completion the calculations, the validations and the `initialize` events; the calculations
 cascade by the names their scripts resolved, honour `override` and end under limits that drop an
-unfinished cascade's edits and say so (ADRs 2506, 2507). No window calls it yet.
+unfinished cascade's edits and say so (ADRs 2506, 2507). **A window that lets scripts run calls
+it**: the view state activates a hybrid form when it is shown and at a commit, through the runner the
+reader's `Scripts` level supplied, and `pdf-script-worker` runs `pdf-formcalc` in the confined script
+worker as a conversation with the host that holds the form; `override`'s `error` and `warning` reach
+the window as a notice (ADRs 2524, 2525).
 
 **Table 22's bit 12 is a second operation beside bit 3, at four levels of its own**, because the
 cell states two consequences: bit 3 clear withholds printing, and bit 12 clear limits a print that
@@ -658,9 +662,10 @@ compensation is performed rather than reported**, on the `ON` case the clause st
 ISO 18619's procedure, whose source black is read from an output-capable profile's own perceptual
 `B2A` where it carries one and taken as the display's `L*` 0 where it does not, so a press's deepest
 ink converts to the destination's black point (ADR 1253). `/UseBlackPtComp` joins
-Table 69's four intents in selecting the conversion, which is why `colour::MAX_PRESSES` is stated
-against the standard's own floor of seven pairs per profile rather than against a round number
-(ADR 1254). A press table a panicked thread poisoned is `NoPress::Poisoned`, carried to the caller as the
+Table 69's four intents in selecting the conversion, so one profile is up to seven presses (ADR 1254).
+Every distinct four-component profile a page names gets its press, charged `colour::PRESS_BYTES` and, for a
+profile that converts in, everything that profile can hold (`Profile::owned_bytes`) to the page's memory bound, `MAX_LIST_BYTES`, beside the display list, and a press that
+does not fit is refused by name before it is sampled (ADR 2532). A press table a panicked thread poisoned is `NoPress::Poisoned`, carried to the caller as the
 program's fault, never a route that cannot be built or a count of zero (ADR 2186).
 
 **A page paints under §11.7.4's overprinting, and it is not a seventeenth blend mode.** Table 57's
@@ -748,7 +753,11 @@ before its end of line, which §7.3.8.1 does not allow, is read with the spaces 
 can be read**: `/Prev` is walked forwards, each section laid over the one before it, so the version
 a chain reached is the version its last update states and any earlier revision can be opened by
 substituting its table — carrying the file encryption key, which does not change between them
-(ADR 1171). **The confined viewer opens the same
+(ADR 1171). **A `/Prev` that names bytes which are no section** ends the walk with the sections read,
+and the numbers below the newest trailer's `/Size` that none of them describes are found by their own
+headers, the older sections' object streams by theirs, and the document, the viewer's notes and the
+corpus classes say the chain was cut (ADR 2526) — a linearized file whose main table's offset is
+wrong draws all its pages. **The confined viewer opens the same
 way**: the file crosses to its worker as an open descriptor beside `Command::Open`, read behind the
 filter through `pread64` and nothing else, so the host holds no byte of it and the six-gigabyte
 document opens through the confinement too (ADR 0812). A signature's `/ByteRange` is digested
@@ -1138,7 +1147,7 @@ not hold restated on `WinAnsiEncoding` (ADR 2278) — a font program filed under
 CIDFont's absent `/CIDToGIDMap` written `Identity` where the edition the source is labelled with
 gives that default (ADR 2246), a composite font of an
 Adobe character collection given a subset of the CJK pack's program for that collection, a second
-download beside the converter that CI builds by digest and the snapshot publishes, under the loss `machine-face` (ADRs 2302, 2303, 2386, `doc/cjk-pack.md`), its descendant given a descriptor of its own where it states none or shares one at other widths (ADR 2461), an `Adobe-Identity` font re-keyed from its `/ToUnicode` values (ADR 2378) or, where no face can be keyed and the page reads back no character, its page photographed as the window draws it under the loss `text-as-image` both shipped profiles carry (ADR 2394) — an extension schema described from what the packet
+download beside the converter that CI builds by digest and the snapshot publishes, under the loss `machine-face` (ADRs 2302, 2303, 2386, `doc/cjk-pack.md`), its descendant given a descriptor of its own where it states none or shares one at other widths (ADR 2461), an `Adobe-Identity` font re-keyed from its `/ToUnicode` values (ADR 2378) or, where no face can be keyed and the page reads back no character, its page photographed as the window draws it under the loss `text-as-image` both shipped profiles carry (ADR 2394), and under `as-if-printed` alone a page holding a font no route carries or a fault of its content stream the target refuses photographed whatever text it shows, behind `page-as-image` with the page's text named in the report and the file's history (ADR 2516) — an extension schema described from what the packet
 states and an amendment identifier cut by span (ADRs 1245, 1246), a form's appearances constructed so
 that `/NeedAppearances` can go (ADR 1257), a push button's single appearance stream made the one
 entry of a subdictionary a new `/AS` selects (ADR 2319), an embedded file no part admits taken out with every
@@ -1209,7 +1218,8 @@ survivor is still a curve, and a stroke cut as the outline it marks and painted 
 colour (ADR 1324); a form entered under its `/Matrix`, an object another page also draws copied
 rather than replaced, a clipping boundary kept without its marks, and Type 3, composite and vertical
 codes, `sh`, soft-mask groups and shadings each cut by their own clause's geometry (ADRs 1351, 1352,
-1363). It refuses rather than cuts wrong — a calculator function serving the region's own colours, a
+1363). A calculator function serving the region's own colours is served by a stitching function written
+over the producer's program (ADR 2528). It refuses rather than cuts wrong — a two-input calculator function under the region, a
 JPX image beyond the operator's budget or with a component deeper than the decoder reads exactly — a
 component of seventeen to twenty-four bits, or one that states a sign, goes back as JPEG 2000 through
 the tree's own lossless writer, as a JPX file with its reader requirements box where the colour

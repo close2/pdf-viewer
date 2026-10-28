@@ -318,8 +318,12 @@ fn a_stream_naming_tens_of_thousands_of_missing_resources_is_defined_whole() {
 fn a_standard_font_name_nothing_defines_is_the_font_the_reader_drew_not_an_empty_one() {
     // The reader draws the fourteen names of §9.6.2.2 from its own faces without a resource,
     // so the text is on the page; an empty Type 3 font would erase it.
-    for name in ["Helvetica", "Times-Roman"] {
-        let target = Target::Two(Level::B);
+    for (name, target) in [
+        ("Helvetica", Target::Two(Level::B)),
+        ("Times-Roman", Target::Two(Level::B)),
+        ("Helvetica", Target::Four(Flavour::Plain)),
+        ("Times-Roman", Target::Four(Flavour::Plain)),
+    ] {
         let source = page_of(
             target,
             "",
@@ -332,26 +336,114 @@ fn a_standard_font_name_nothing_defines_is_the_font_the_reader_drew_not_an_empty
                 decision(&report, NAMED),
                 Decision::Mechanical(Rewrite::EmptyResourceDefined)
             ),
+            "{name} {target}"
+        );
+        // The definition is embedded through the standard fourteen's own route, so the file
+        // stands and the font carries the shipped face (`doc/adr/2522`).
+        let output =
+            output.unwrap_or_else(|| panic!("{name}: {}", super::conversion(&report).render()));
+        assert_eq!(
+            holds(&output, target).verdict(),
+            Verdict::Conforms,
             "{name}"
         );
-        // Whether the file is written depends on the unembedded face, which is another
-        // requirement's; where it is, the font is the standard one.
-        if let Some(output) = output {
-            let (document, page) = first_page(&output);
-            let resources = document.get_key(&page, "Resources");
-            let fonts = document.get_key(resources.as_dict().expect("resources"), "Font");
-            let font = document.get_key(fonts.as_dict().expect("table"), name);
-            let font = font.as_dict().expect("a font dictionary");
-            assert_eq!(
-                document
-                    .get_key(font, "Subtype")
-                    .as_name()
-                    .map(|n| n.as_bytes().to_vec()),
-                Some(b"Type1".to_vec()),
-                "{name}"
-            );
-        }
+        let (document, page) = first_page(&output);
+        let resources = document.get_key(&page, "Resources");
+        let fonts = document.get_key(resources.as_dict().expect("resources"), "Font");
+        let font = document.get_key(fonts.as_dict().expect("table"), name);
+        let font = font.as_dict().expect("a font dictionary");
+        assert_eq!(
+            document
+                .get_key(font, "Subtype")
+                .as_name()
+                .map(|n| n.as_bytes().to_vec()),
+            // Liberation Sans, the Helvetica face, is a `glyf` program that goes under a
+            // TrueType dictionary (§9.9, Table 124); the others are bare CFF under Type1.
+            Some(if name == "Helvetica" {
+                b"TrueType".to_vec()
+            } else {
+                b"Type1".to_vec()
+            }),
+            "{name}"
+        );
+        let descriptor = document.get_key(font, "FontDescriptor");
+        let descriptor = descriptor.as_dict().expect("a descriptor");
+        assert!(
+            ["FontFile", "FontFile2", "FontFile3"]
+                .iter()
+                .any(|key| !document.get_key(descriptor, key).is_null()),
+            "{name}: a program is embedded"
+        );
     }
+}
+
+#[test]
+fn a_standard_font_defined_for_a_name_is_one_object_whatever_number_of_streams_name_it() {
+    // Sixty forms and the page all show `/Helvetica`, which no resource dictionary defines: each
+    // definition names the one font object, and its face is embedded once.
+    let target = Target::Two(Level::B);
+    let forms = 60_usize;
+    let mut xobjects = String::new();
+    let mut invoked = String::from("BT /Helvetica 12 Tf 10 10 Td (Hello) Tj ET\n");
+    let binary_objects: Vec<Vec<u8>> = (0..forms)
+        .map(|index| {
+            let _ = write!(xobjects, "/F{index} {} 0 R ", 6 + index);
+            let _ = writeln!(invoked, "/F{index} Do");
+            stream(
+                "/Type /XObject /Subtype /Form /BBox [0 0 100 100] /Resources << >>",
+                b"BT /Helvetica 12 Tf 10 20 Td (World) Tj ET",
+            )
+        })
+        .collect();
+    let source = Conforming {
+        binary_objects,
+        ..page_of(target, &format!("/XObject << {xobjects} >>"), &invoked)
+    }
+    .build();
+    let (report, output) = convert(&source, target, Authorisations::default());
+    let output = output.unwrap_or_else(|| panic!("{}", super::conversion(&report).render()));
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let (document, page) = first_page(&output);
+    let mut fonts = std::collections::BTreeSet::new();
+    let page_fonts = document.get_key(
+        document
+            .get_key(&page, "Resources")
+            .as_dict()
+            .expect("resources"),
+        "Font",
+    );
+    fonts.insert(
+        page_fonts
+            .as_dict()
+            .and_then(|table| table.get("Helvetica"))
+            .and_then(Object::as_reference)
+            .expect("the page's font is an object"),
+    );
+    let xobjects = document.get_key(
+        document
+            .get_key(&page, "Resources")
+            .as_dict()
+            .expect("resources"),
+        "XObject",
+    );
+    for index in 0..forms {
+        let form = document.get_key(xobjects.as_dict().expect("table"), &format!("F{index}"));
+        let own = document.get_key(&form.as_stream().expect("form").dict, "Resources");
+        let table = document.get_key(own.as_dict().expect("resources"), "Font");
+        fonts.insert(
+            table
+                .as_dict()
+                .and_then(|table| table.get("Helvetica"))
+                .and_then(Object::as_reference)
+                .expect("the form's font is an object"),
+        );
+    }
+    assert_eq!(fonts.len(), 1, "one font object serves every definition");
+    assert!(
+        output.len() < 400_000,
+        "{} bytes: the face was embedded more than once",
+        output.len()
+    );
 }
 
 #[test]
@@ -439,4 +531,171 @@ fn forms_stating_no_resources_under_a_direct_page_dictionary_share_one_object() 
         "{} bytes for {forms} forms: the dictionary was copied per form",
         output.len()
     );
+}
+
+/// A document of `copies + 1` pages that all draw `/F1`, one form stating no `/Resources`.
+///
+/// The first page states its resources directly; each of the others names an object of its own,
+/// whose graphics state `/G1` is an object of its own too, so that the pages resolve the form's
+/// one name to different things (ISO 32000-2 §7.8.3).
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "object numbers of a generated fixture, at most 3 * 257 + 10"
+)]
+fn pages_sharing_a_form(target: Target, copies: usize, form: Vec<u8>) -> Vec<u8> {
+    let form_number = 7 + 3 * copies;
+    let mut objects = vec!["<< /Type /ExtGState /LW 1 >>".to_owned()];
+    let mut more_pages = Vec::new();
+    for index in 0..copies {
+        let first = 7 + 3 * index;
+        objects.push(format!("<< /Type /ExtGState /LW {} >>", index + 2));
+        objects.push(format!(
+            "<< /ExtGState << /G1 {first} 0 R >> /XObject << /F1 {form_number} 0 R >> >>"
+        ));
+        objects.push(format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources {} 0 R \
+             /Contents 4 0 R >>",
+            first + 1
+        ));
+        more_pages.push(first + 2);
+    }
+    Conforming {
+        objects,
+        more_pages,
+        binary_objects: vec![form],
+        ..page_of(
+            target,
+            &format!("/ExtGState << /G1 6 0 R >> /XObject << /F1 {form_number} 0 R >>"),
+            "/F1 Do",
+        )
+    }
+    .build()
+}
+
+/// The form page `index` draws as `/F1`, and the graphics state it resolves `/G1` to through the
+/// form's own resources and through the page's.
+fn form_and_states(document: &Document, index: usize) -> (Object, Object, Object) {
+    let page = pdf_model::Pages::new(document)
+        .get(index)
+        .expect("page")
+        .dict;
+    let resources = document.get_key(&page, "Resources");
+    let resources = resources.as_dict().expect("the page's resources");
+    let table = document.get_key(resources, "XObject");
+    let form = document.get_key(table.as_dict().expect("table"), "F1");
+    let own = document.get_key(&form.as_stream().expect("form").dict, "Resources");
+    let through_form = document.get_key(
+        document
+            .get_key(own.as_dict().expect("the form's resources"), "ExtGState")
+            .as_dict()
+            .expect("states"),
+        "G1",
+    );
+    let through_page = document.get_key(
+        document
+            .get_key(resources, "ExtGState")
+            .as_dict()
+            .expect("states"),
+        "G1",
+    );
+    (form, through_form, through_page)
+}
+
+#[test]
+fn a_form_reached_from_pages_with_different_resources_is_copied_for_each_dictionary() {
+    for target in TARGETS {
+        let source = pages_sharing_a_form(target, 2, form_naming_g1());
+        let (report, output) = convert(&source, target, Authorisations::default());
+        assert!(matches!(
+            decision(&report, EXPLICIT),
+            Decision::Mechanical(Rewrite::PageResources)
+        ));
+        let output = output.unwrap_or_else(|| panic!("{}", super::conversion(&report).render()));
+        assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+        let document = Document::open_with_limits(output.clone(), Limits::DEFAULT).expect("output");
+        let mut seen = Vec::new();
+        for index in 0..3 {
+            let (form, through_form, through_page) = form_and_states(&document, index);
+            assert_eq!(
+                through_form, through_page,
+                "page {index}: the form resolves /G1 to what the page's own resources say"
+            );
+            assert_eq!(content_of(&document, &form), b"/G1 gs 0 0 5 5 re f");
+            seen.push(through_page);
+        }
+        assert!(
+            seen[0] != seen[1] && seen[1] != seen[2] && seen[0] != seen[2],
+            "the three pages resolve /G1 to three different states"
+        );
+    }
+}
+
+#[test]
+fn a_form_also_named_by_a_form_with_resources_of_its_own_is_not_copied() {
+    // `/F2` states resources of its own and draws `/F1` through them: the original form is named
+    // by a table that is not the page's, so a copy for the page's table would leave that route
+    // reading the wrong resources, and the conversion refuses instead.
+    let target = Target::Two(Level::B);
+    let outer = stream(
+        "/Type /XObject /Subtype /Form /BBox [0 0 10 10] /Resources << /XObject << /F1 10 0 R >> >>",
+        b"/F1 Do",
+    );
+    let source = Conforming {
+        objects: vec![
+            "<< /Type /ExtGState /LW 1 >>".to_owned(),
+            "<< /Type /ExtGState /LW 2 >>".to_owned(),
+            "<< /ExtGState << /G1 7 0 R >> /XObject << /F1 10 0 R /F2 11 0 R >> >>".to_owned(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources 8 0 R \
+             /Contents 4 0 R >>"
+                .to_owned(),
+        ],
+        more_pages: vec![9],
+        binary_objects: vec![form_naming_g1(), outer],
+        ..page_of(
+            target,
+            "/ExtGState << /G1 6 0 R >> /XObject << /F1 10 0 R /F2 11 0 R >>",
+            "/F1 Do /F2 Do",
+        )
+    }
+    .build();
+    let (report, output) = convert(&source, target, Authorisations::default());
+    assert!(matches!(
+        decision(&report, EXPLICIT),
+        Decision::Refused(Because::NotBuiltYet(text)) if text.contains("differ")
+    ));
+    assert!(output.is_none());
+}
+
+#[test]
+fn copies_of_a_form_stop_at_their_count_and_at_their_bytes() {
+    let target = Target::Two(Level::B);
+    // 256 is `MAX_FORM_COPIES`: the copies for 256 pages are written, one more is refused.
+    let at = pages_sharing_a_form(target, 256, form_naming_g1());
+    let (report, output) = convert(&at, target, Authorisations::default());
+    assert!(output.is_some(), "{}", super::conversion(&report).render());
+    let over = pages_sharing_a_form(target, 257, form_naming_g1());
+    let (report, output) = convert(&over, target, Authorisations::default());
+    assert!(matches!(
+        decision(&report, EXPLICIT),
+        Decision::Refused(Because::NotBuiltYet(text)) if text.contains("more copies")
+    ));
+    assert!(output.is_none());
+    // 32 MiB is `MAX_COPIED_BYTES`: a form of one MiB is copied for 32 pages and not 33.
+    let big = |copies: usize| {
+        let mut data = b"/G1 gs 0 0 5 5 re f\n".repeat((1 << 20) / 20);
+        data.resize(1 << 20, b' ');
+        pages_sharing_a_form(
+            target,
+            copies,
+            stream("/Type /XObject /Subtype /Form /BBox [0 0 10 10]", &data),
+        )
+    };
+    let (report, output) = convert(&big(32), target, Authorisations::default());
+    assert!(output.is_some(), "{}", super::conversion(&report).render());
+    let (report, output) = convert(&big(33), target, Authorisations::default());
+    assert!(matches!(
+        decision(&report, EXPLICIT),
+        Decision::Refused(Because::NotBuiltYet(text)) if text.contains("more copies")
+    ));
+    assert!(output.is_none());
 }

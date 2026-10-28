@@ -339,50 +339,62 @@ fn a_grey_component_of_seventeen_bits_is_written_back_with_its_own_decode() {
     assert_eq!(drawn(&after), drawn(&before));
 }
 
-/// An opacity channel of another depth than the colour channels would need a `bpcc` box, which
-/// the reference validator fails at section 6.2.8.3 although that clause names the colour
-/// channels alone: the image keeps its refusal, and says why.
+/// An opacity channel of another depth than the colour channels is written in a `bpcc` box
+/// (ISO/IEC 15444-1 I.5.3.2). ISO 19005-2 section 6.2.8.3 and ISO 19005-4 section 6.2.7.3 hold
+/// the colour channels to one depth and say nothing of an opacity channel's, so the copy is
+/// written with each channel at its own depth and reads back to the same integers.
 #[test]
-fn a_deep_opacity_channel_of_another_depth_keeps_the_refusal_and_names_it() {
+fn a_deep_opacity_channel_of_another_depth_is_written_with_its_own_depth() {
     pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
     let data = a_deep_jpx_off_the_baseline(&[20, 20, 20], Some(18));
     let source = a_page_with_the_image(&data, "/DeviceRGB", "/SMaskInData 1");
-    let plan = plan_from(&keep_everything(), Target::Two(Level::B));
-    let (report, output) = convert_with_plan(&source, &plan);
-    assert!(output.is_none());
-    let Decision::Refused(because) = decision(&report, ROW) else {
-        panic!("the refusal stands: {:?}", decision(&report, ROW));
-    };
-    assert!(
-        because
-            .sentence()
-            .contains("opacity channel of another depth"),
-        "{}",
-        because.sentence()
+    let (report, output) = converted(&source);
+    assert_eq!(
+        holds(&output, Target::Two(Level::B)).verdict(),
+        Verdict::Conforms
     );
+    let rows = &conversion(&report).transcoded_images;
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert!(rows[0].soft_mask.is_none());
+    let before = Document::open_with_limits(source, Limits::DEFAULT).expect("it opens");
+    let after = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let (was, is) = (samples_of(&before), samples_of(&after));
+    assert!(
+        was.opacity.is_some(),
+        "the fixture carries an opacity channel"
+    );
+    assert_eq!(is.opacity, was.opacity, "the opacity channel's integers");
+    assert_eq!(is.opacity_depth, 18, "at its own depth");
+    assert_eq!(is.depths, vec![20, 20, 20], "the colour channels at theirs");
+    assert_eq!(is.colour, was.colour);
 }
 
-/// One grey channel and an opacity channel are two channels in the file, which the reference
-/// validator fails against section 6.2.8.3's one, three or four: the image keeps its refusal,
-/// and says why.
+/// One grey channel and an opacity channel are two channels in the file. ISO 19005-2 section
+/// 6.2.8.3 and ISO 19005-4 section 6.2.7.3 count the colour channels, of which there is one, so
+/// the copy is written and reads back to the same integers.
 #[test]
-fn a_deep_grey_image_with_opacity_keeps_the_refusal_and_names_it() {
+fn a_deep_grey_image_with_opacity_is_written_back() {
     pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
     let data = a_deep_jpx_off_the_baseline(&[22], Some(22));
     let source = a_page_with_the_image(&data, "/DeviceGray", "/SMaskInData 1");
-    let plan = plan_from(&keep_everything(), Target::Two(Level::B));
-    let (report, output) = convert_with_plan(&source, &plan);
-    assert!(output.is_none());
-    let Decision::Refused(because) = decision(&report, ROW) else {
-        panic!("the refusal stands: {:?}", decision(&report, ROW));
-    };
-    assert!(
-        because
-            .sentence()
-            .contains("one colour channel and an opacity channel"),
-        "{}",
-        because.sentence()
+    let (report, output) = converted(&source);
+    assert_eq!(
+        holds(&output, Target::Two(Level::B)).verdict(),
+        Verdict::Conforms
     );
+    let rows = &conversion(&report).transcoded_images;
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    let before = Document::open_with_limits(source, Limits::DEFAULT).expect("it opens");
+    let after = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let (was, is) = (samples_of(&before), samples_of(&after));
+    assert_eq!(is.components, 1);
+    assert!(
+        was.opacity.is_some(),
+        "the fixture carries an opacity channel"
+    );
+    assert_eq!(is.opacity, was.opacity, "the opacity channel's integers");
+    assert_eq!(is.colour, was.colour);
+    assert_eq!(drawn(&after), drawn(&before));
 }
 
 /// Four colour channels need a JPX file, which a JP2 file cannot name: the image keeps its

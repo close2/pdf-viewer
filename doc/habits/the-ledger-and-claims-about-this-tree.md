@@ -597,3 +597,9 @@ and ordered the static half's behaviours on that; round 1824 (ADR 2482) walked t
 cache holds and found 11 hybrids with a `calculate` — 24 live FormCalc scripts and 36 live JavaScript ones —
 which put FormCalc before the JavaScript step the RFC had placed first. A population figure that orders work
 is taken over the largest corpus the machine holds, and the RFC's figure is read as the sample it was.
+
+## A test rename is followed by the conformance test at once
+
+A ledger row's `test` list names tests by path and name, and a rename breaks the name silently; round 1847
+(ADR 2528) renamed one and found the row red only in its last conformance run. `cargo test -p conformance
+--test conformance` runs right after any rename of a test a row names, not at the end of the round.

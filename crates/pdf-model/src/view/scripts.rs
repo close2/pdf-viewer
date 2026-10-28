@@ -35,6 +35,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crate::xfa::{Form, Ran};
 use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 
 use super::script_model::{
@@ -172,6 +173,35 @@ pub trait ScriptRunner: std::fmt::Debug + Send + Sync {
     /// Runs one event's script and says what it did.
     fn run(&self, event: &ScriptEvent<'_>) -> ScriptResult;
 
+    /// Runs one script of an XFA form's, in the language of chapter 25, against `form` as the script
+    /// of the container `node`, within `steps_left` steps (ADR 2524).
+    ///
+    /// The form is the caller's and a runner that runs the script elsewhere asks the caller for
+    /// what the script reads and tells it what the script assigns, through [`Form::resolve`],
+    /// [`Form::value`] and [`Form::set`]. **The default runs nothing**, and says so: a runner that
+    /// has no `FormCalc` is not an error, and the activation reports the sentence for the field
+    /// that carries the script (XFA 3.3 page 412 names the language a script is in).
+    fn run_form_script(
+        &self,
+        form: &mut Form<'_>,
+        node: usize,
+        script: &str,
+        steps_left: u64,
+    ) -> Ran {
+        let _ = (form, node, script, steps_left);
+        Ran {
+            steps: 0,
+            outcome: Err("not run: this reader's script runner runs no FormCalc".to_owned()),
+        }
+    }
+
+    /// What this runner says, once, about an activation in which at least one form script ran:
+    /// the level `warn` says that scripts ran, and so says it of a form's (ADR 2524). The default
+    /// says nothing.
+    fn form_runs_note(&self) -> Option<String> {
+        None
+    }
+
     /// Whether the run this runner last answered left its script waiting on a person's answer to a
     /// question it put — `app.alert`, `app.response` — rather than finished (ADR 1627).
     ///
@@ -299,6 +329,12 @@ pub(super) struct Scripting {
     pub(super) opened: bool,
     /// What the host's keyboard held, as a host last told ([`ViewState::set_keys`], ADR 1762).
     keys: Keys,
+    /// The form's XFA resource, once a stimulus has asked for it.
+    form: form::FormResource,
+    /// The fields whose `override` asks a host to present a message, until a host takes them.
+    form_overrides: Vec<FormOverride>,
+    /// The fields a person committed a value to, which a merge run afterwards leaves as they are.
+    form_entered: BTreeSet<String>,
     /// The requests scripts made of the host's console, in order, until a host takes them; at
     /// most [`MAX_CONSOLE_REQUESTS`] (ADR 1762).
     console: Vec<ConsoleRequest>,
@@ -476,9 +512,12 @@ mod calculation;
 mod commit;
 mod edits;
 mod events;
+mod form;
 mod keystroke;
 mod queries;
 mod state;
+
+pub use form::{FormOverride, FormOverrideMode};
 
 /// Whether a script's text spells `getPageNumWords` or `getPageNthWord`, the two members that read
 /// the pages' words (ADR 1762).

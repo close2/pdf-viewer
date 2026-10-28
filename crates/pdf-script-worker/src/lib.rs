@@ -29,6 +29,7 @@
 #![forbid(unsafe_code)]
 
 mod client;
+pub mod form_wire;
 pub mod wire;
 
 #[cfg(feature = "engine")]

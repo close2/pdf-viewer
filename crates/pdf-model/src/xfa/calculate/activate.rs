@@ -114,6 +114,16 @@ pub enum Ended {
     Budget(&'static str),
 }
 
+/// A field a person entered a value into whose calculation says the entry is the host's to
+/// present (XFA 3.3 pages 641–642): the `error` message, or the `warning`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Overridden {
+    /// The field, by its PDF field name.
+    pub field: String,
+    /// What the calculation's `override` says: [`Override::Error`] or [`Override::Warning`].
+    pub mode: Override,
+}
+
 /// What an activation did: the edits the scripts made, beside a person's, and what it refused.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Activation {
@@ -131,6 +141,11 @@ pub struct Activation {
     /// settled and, on a merge, before the `initialize` events: one `Vec` per message the person
     /// is shown ([`Resource::before_save`]).
     pub validations: Vec<Vec<String>>,
+    /// The fields of a person's entry whose calculation has `override` `error` or `warning`, in
+    /// the order entered: the host presents the message page 642 asks for, an error for the first
+    /// and a warning for the second. Empty where [`Self::ended`] is a budget, which keeps neither
+    /// the calculated values nor the replacement of the entry.
+    pub overridden: Vec<Overridden>,
 }
 
 impl Activation {
@@ -259,6 +274,8 @@ struct Session<'f, 'a, 'r> {
     reported: BTreeSet<String>,
     unreported: usize,
     ended: Option<&'static str>,
+    /// The entries whose `override` the host presents.
+    overridden: Vec<Overridden>,
 }
 
 impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
@@ -295,6 +312,7 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             reported: BTreeSet::new(),
             unreported: 0,
             ended: None,
+            overridden: Vec::new(),
         }
     }
 
@@ -581,7 +599,8 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
     /// What the `override` of each calculation of a field a person entered into does (pages
     /// 641–642): `error` and `ignore` put the calculation back on the work list, so the calculated
     /// value replaces the person's; `warning` leaves the person's value standing. The messages the
-    /// page asks to be presented are the host's, and the report says they are owed.
+    /// page asks to be presented are the host's: [`Activation::overridden`] names the fields they
+    /// are owed for, and the report says so in words.
     fn entered_overrides(&mut self, typed: &[usize], wanted: &mut BTreeSet<usize>) {
         for &node in typed {
             let Some(index) = self.index_of(node) else {
@@ -589,6 +608,11 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             };
             let mode = self.calculations.get(index).map(|c| c.override_mode);
             let label = self.label(node);
+            if let (Some(mode @ (Override::Error | Override::Warning)), Some(field)) =
+                (mode, self.form.names.get(node).cloned().flatten())
+            {
+                self.overridden.push(Overridden { field, mode });
+            }
             match mode {
                 Some(Override::Error) => {
                     wanted.insert(index);
@@ -788,6 +812,11 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             activations: self.run,
             validations: if self.ended.is_none() {
                 validations
+            } else {
+                Vec::new()
+            },
+            overridden: if self.ended.is_none() {
+                self.overridden
             } else {
                 Vec::new()
             },

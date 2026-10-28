@@ -27,6 +27,7 @@ impl Viewer {
         if open.presented {
             let page = open.page_index;
             open.view.run_open_scripts(&open.document, page);
+            open.view.activate_form_on_merge(&open.document);
         }
         open.view.recalculate_with_runner(&open.document);
         open.stale();
@@ -321,14 +322,36 @@ impl Viewer {
     /// A withdrawal is asked first, so that the card of a question whose wait ran out is dropped
     /// before the card of one a queued script asked since is put (ADR 1643).
     pub(super) fn put_script_questions(&mut self, events: &mut Vec<Event>) {
-        for (id, open) in &self.documents {
-            let Some(asks) = open.consent.asks.as_ref() else {
-                continue;
-            };
-            if asks.withdrawn() {
-                events.push(Event::ScriptQuestionWithdrawn { document: *id });
+        for (id, open) in &mut self.documents {
+            for over in open.view.take_form_overrides() {
+                if open.consent.form_alerts.len() < crate::scripting::MAX_FORM_ALERTS {
+                    open.consent
+                        .form_alerts
+                        .push_back(crate::scripting::override_notice(&over));
+                }
             }
-            if let Some(question) = asks.take_question() {
+            if let Some(asks) = open.consent.asks.clone() {
+                if asks.withdrawn() {
+                    open.consent.runner_question_open = false;
+                    events.push(Event::ScriptQuestionWithdrawn { document: *id });
+                }
+                // A notice waits on an answer the runner could mistake for its own, so a question
+                // the runner's script puts is left in the runner until the notice is answered.
+                if !open.consent.form_alert_open
+                    && let Some(question) = asks.take_question()
+                {
+                    open.consent.runner_question_open = true;
+                    events.push(Event::ScriptAsking {
+                        document: *id,
+                        question,
+                    });
+                }
+            }
+            if !open.consent.runner_question_open
+                && !open.consent.form_alert_open
+                && let Some(question) = open.consent.form_alerts.pop_front()
+            {
+                open.consent.form_alert_open = true;
                 events.push(Event::ScriptAsking {
                     document: *id,
                     question,
@@ -365,7 +388,12 @@ pub(super) fn open_sequence(open: &mut Open) {
         return;
     }
     let page = open.page_index;
-    if open.view.run_open_scripts(&open.document, page) > 0 {
+    // XFA 3.3 page 379: the completion of the merge activates a hybrid form's calculations, and it
+    // is complete when the form is shown. A reader that asks first reaches its question through
+    // the withheld runner here, as it does at the first of a field's scripts.
+    let ran = open.view.run_open_scripts(&open.document, page) > 0;
+    let calculated = open.view.activate_form_on_merge(&open.document);
+    if ran || calculated {
         open.stale();
     }
 }

@@ -56,7 +56,7 @@ pub use extended_srgb::{ExtendedEncoding, ExtendedSrgb};
 pub use grey_route::{GreyIdentity, GreyRoute};
 pub(crate) use ink_search::solve_three;
 pub use press::{
-    MAX_PRESSES, NoPress, Press, PressIdentity, Presses, assumed_press, device_cmyk_blending_space,
+    NoPress, PRESS_BYTES, Press, PressIdentity, Presses, assumed_press, device_cmyk_blending_space,
     device_ink_press, press_for_profile, presses_cached, presses_sampled,
 };
 pub use rgb_route::{RgbIdentity, RgbRoute};

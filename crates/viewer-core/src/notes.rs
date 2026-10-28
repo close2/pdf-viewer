@@ -31,6 +31,38 @@ pub(crate) struct About {
     pub(crate) published: Vec<pdf_signature::policy::PublishedPolicy>,
 }
 
+/// What to say of a file whose `/Prev` named bytes that are no section.
+///
+/// Table 15's `/Prev` names the previous cross-reference section, and where the bytes it names
+/// are no section the objects that section described are found by their own headers (§7.3.10)
+/// instead. The pages are the file's; that the file's own table could not say where they are is
+/// worth saying, as it is for a table that was rebuilt. The same all-or-nothing care applies:
+/// object streams found by their own headers may not all read, and what a stream that did not
+/// read holds is missing.
+fn cut_chain_note(document: &Document) -> Option<String> {
+    if !document.cross_reference_chain_was_cut() {
+        return None;
+    }
+    let recovered = document.compressed_objects_recovered();
+    let unread_streams = recovered
+        .unreadable
+        .saturating_add(recovered.beyond_the_budget);
+    let compressed = if unread_streams == 0 {
+        String::new()
+    } else {
+        format!(
+            "; {unread_streams} of its {} object streams (§7.5.7) could not be read, so what \
+             they hold is missing from what you see",
+            recovered.streams
+        )
+    };
+    Some(format!(
+        "this file's cross-reference sections could not all be read (a /Prev names bytes that \
+         are no section, §7.5.5), so the objects they describe were found by scanning for their \
+         own headers{compressed}"
+    ))
+}
+
 /// Everything worth saying about a document the moment it opens.
 pub(crate) fn about(document: &Document, trust: &crate::TrustPolicy) -> About {
     let mut notes = Vec::new();
@@ -69,6 +101,8 @@ pub(crate) fn about(document: &Document, trust: &crate::TrustPolicy) -> About {
             "this file's cross-reference table was broken and was rebuilt by scanning{compressed}"
         ));
     }
+
+    notes.extend(cut_chain_note(document));
 
     // §7.7.3.1's page tree "defines the ordering of pages in the document", and where it yields
     // no page `pdf_model::Pages` finds them by Table 31's `/Type /Page` instead, in ascending
@@ -295,8 +329,10 @@ pub(crate) fn what_a_print_does_not_do(document: &Document) -> Vec<String> {
 /// names each field it cannot keep where it saves (ADRs 2396, 2414); it writes the data through
 /// the form's own pictures and runs its format tests and, where the form asks for its validations
 /// before a save, its null and datatype tests (ADRs 2434, 2450, 2474); a submit runs those and the
-/// format test, naming each failure on the submission (ADR 2475). So what is not carried out is
-/// its calculations, its scripts and its events.
+/// format test, naming each failure on the submission (ADR 2475). A reader whose level lets scripts
+/// run also carries out the form's `FormCalc` calculations, when it is shown and at a commit (ADRs
+/// 2524, 2525). So what is not carried out is its JavaScript and its other events, and its
+/// calculations where scripts do not run.
 fn xfa_form(document: &Document, notes: &mut Vec<String>) {
     let Some(stated) = pdf_model::xfa::stated(document) else {
         return;
@@ -310,8 +346,9 @@ fn xfa_form(document: &Document, notes: &mut Vec<String>) {
                           was filled, in the form's own data formats, naming any field it \
                           cannot and any field the form's validations find empty or of the wrong \
                           type, and submitting it names the same — what only the XFA resource \
-                          states beyond that, such as its own calculations and scripts, is not \
-                          carried out"
+                          states beyond that is not carried out, its FormCalc calculations \
+                          excepted where this reader lets scripts run, and its JavaScript and \
+                          its other events are not"
             .to_owned(),
         (true, true) => format!(
             "this document is an XFA form that asks to be regenerated when it is opened \

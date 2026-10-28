@@ -426,12 +426,22 @@ fn restated_entries(
     // `/Widths` keeps them; one that relied on the permission is given the numbers the viewer laid
     // it out with, which is the one `/Widths` that moves nothing (`doc/adr/2146`).
     if document.get_key(&used.dict, "Widths").is_null() {
-        let (first, last, widths) = laid_out_widths(source);
-        entries.insert(Name::new(&b"FirstChar"[..]), Object::Integer(first.into()));
-        entries.insert(Name::new(&b"LastChar"[..]), Object::Integer(last.into()));
-        entries.insert(Name::new(&b"Widths"[..]), Object::Array(widths));
+        state_laid_out_widths(&mut entries, source);
     }
     entries
+}
+
+/// Writes `/FirstChar`, `/LastChar` and `/Widths` into `entries` from the advances `source` is laid
+/// out by.
+///
+/// For a font that has a descriptor and no `/Widths`, which Table 109 forbids of the standard
+/// fourteen in the sentence quoted above and which §9.6.2.1 leaves nobody else: the numbers stated
+/// are the ones the viewer already draws with, so no glyph moves (`doc/adr/2535`).
+pub(super) fn state_laid_out_widths(entries: &mut Dictionary, source: &LoadedFont) {
+    let (first, last, widths) = laid_out_widths(source);
+    entries.insert(Name::new(&b"FirstChar"[..]), Object::Integer(first.into()));
+    entries.insert(Name::new(&b"LastChar"[..]), Object::Integer(last.into()));
+    entries.insert(Name::new(&b"Widths"[..]), Object::Array(widths));
 }
 
 /// One font's descriptor, program and widths, prepared and proved.

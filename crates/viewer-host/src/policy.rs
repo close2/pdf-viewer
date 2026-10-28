@@ -2291,6 +2291,23 @@ impl pdf_model::view::ScriptRunner for Warning {
         result
     }
 
+    fn run_form_script(
+        &self,
+        form: &mut pdf_model::xfa::Form<'_>,
+        node: usize,
+        script: &str,
+        steps_left: u64,
+    ) -> pdf_model::xfa::Ran {
+        self.worker.run_form_script(form, node, script, steps_left)
+    }
+
+    fn form_runs_note(&self) -> Option<String> {
+        Some(format!(
+            "its FormCalc calculations ran, because this reader is set to {} ({RUNNING_SCRIPTS})",
+            Scripts::Warn.as_str()
+        ))
+    }
+
     fn waiting(&self) -> bool {
         self.worker.waiting()
     }

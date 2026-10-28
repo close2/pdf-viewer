@@ -458,12 +458,12 @@ cargo run --release -p pdf-model --example press_census -- <dir>/*.pdf    # one 
   # a process-wide budget (ADR 0416). `--sample` measures what a grid of a given side departs from
   # evaluating the profile, which is what `PRESS_SIDE` is answerable to (ADR 0272)
 cargo run --release -p pdf-model --example press_depth -- [--pages N] <dir>/*.pdf
-  # how many *distinct* presses one interpretation names, which is the number
-  # `colour::MAX_PRESSES` is compared against. `press_census` counts the presses a whole
+  # how many *distinct* presses one interpretation names, which the page's memory is charged
+  # for (`colour::PRESS_BYTES` each, ADR 2532). `press_census` counts the presses a whole
   # population names and so cannot answer this: the budget is per interpretation (ADR 0417), so
   # the question is about a page. It interprets pages and reads `Interpretation::presses_named`,
-  # prints the distribution and names every page within one of the bound. This is the half of
-  # trap 38's question no clause can answer, and ADR 1254 is what it measured
+  # prints the distribution and names every page naming more than `--over N` (default 14). This
+  # is the half of trap 38's question no clause can answer, and ADR 1254 is what it measured
 cargo run --release -p pdf-model --example press_cost -- [file.pdf]…
   # what *sampling* a press costs, as the difference between a cold interpretation and a warm one
   # in the same process. It is the benchmark under `colour`'s `SAMPLED`: sampling a press costs

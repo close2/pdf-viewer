@@ -60,10 +60,17 @@ Without the pack, pdf.js `as-if-printed` is 793/2/160/11 at 2b and 796/0/159/11 
 documents the pack frees, which is why the pack is taken as installed below. `as-shown` is the same
 either way (its `machine-face` stop holds the pack's documents).
 
+Two deep JPEG 2000 shapes that A691 wrote (a deep grey image with opacity; a colour image with an
+opacity channel of another depth) fail veraPDF at ISO 19005-2 6.2.8.3 and -4 6.2.7.3 on veraPDF's
+reading of the codestream header, not the standard's; the draft of the upstream issue, its two
+reproducers and the clauses it cites (cited, not quoted) are indexed here:
+[`pdfa-blocking-issues/verapdf-jpeg2000-issue.md`](pdfa-blocking-issues/verapdf-jpeg2000-issue.md),
+files under `pdfa-blocking-issues/verapdf-jpeg2000/`.
+
 **Under `as-if-printed`, 289 documents are refused or declined at 2b and 292 at part 4; 262 at
 both parts, 319 at one at least. Under `as-shown`, 351 at both, 397 at one at least.** Of the
-`as-if-printed` population, everything but 24 documents falls under a remedy below; the 24 are
-four exceptions (sections 7.1, 7.2) and fifteen to seventeen documents the converter itself fails
+`as-if-printed` population, everything but a few documents falls under a remedy below; those are
+four exceptions (sections 7.1, 7.2) and five documents the converter itself fails
 (section 8).
 
 ## 2. The ranking, for batch 124's brief
@@ -136,15 +143,28 @@ shown is `.notdef`. Said plainly, this meets the section's letter; the archive i
 than the source. If the owner prefers the section's purpose, R03's photograph carries the same pages
 with the larger loss; Q694 asks which. Mitigations `fonts/no-notdef-glyph-shown`; limits 2.2.
 
-**R11 — a TrueType code that reaches its glyph by a route ISO 19005 does not admit** (30 documents
-at 2b, 28 at 4; four sentences: §9.6.5.4's processor-chosen mapping 7, an encoding ISO 19005 does
-not admit 8, and the three fence rows that hold a program's `cmap` to the dictionary's encoding, 9, 6
-and 4). **Remedy**: rewrite the embedded program's `cmap` (and the encoding entry) so the route ISO
-19005 admits reaches the glyph this reader drew; the content stream is untouched and the page draws
-the same. The question is A48's line: the route this reader took is the one §9.6.5.4 leaves to the
-processor, so stating it in the file states this reader's choice. Under `as-shown` that is the
-yardstick itself; under `as-if-printed` it is what the print showed. Q694 asks. Mitigations
-`fonts/truetype-codes-reach-glyphs-by-the-standard-route` and the four TrueType rows; ADR 1942.
+**R11 — a TrueType code that reaches its glyph by a route ISO 19005 does not admit** (built; 13
+documents left of the 30 at 2b and 28 at 4, alone in 3 under `as-if-printed` and 1 under
+`as-shown`). **Remedy, as built** (ADR 2520, `Rewrite::TrueTypeCmapRestated`): the font becomes
+symbolic, its `/Encoding` is removed, and a new descriptor with a new `FontFile2` carries a `cmap` of
+a (1, 0) format 6 and a (3, 0) format 4 subtable at 0xF000 plus the code, built from the code-to-glyph
+map this reader drew with (§9.6.5.4 leaves that choice to the processor, so the file now states it);
+the content stream is untouched, and the proof reloads the font from the in-memory objects and finds
+all 256 codes on the same glyph. The file's `xmpMM:History` names the clause and the fonts (A48's
+condition). A code on glyph 0 is left out and held only to "still no other glyph" (R03a's `.notdef`
+row is untouched). Four rows answer by it: `non-symbolic-truetype-differences-are-listed-names`,
+`-differences-need-the-unicode-cmap`, `-program-maps-every-code` and
+`symbolic-truetype-program-has-a-usable-cmap`; the three others (`truetype-codes-reach-glyphs-by-the-standard-route`,
+`symbolic-truetype-states-no-encoding`, `non-symbolic-truetype-uses-a-standard-encoding`) take it as
+their second answer where their own narrower rewrite refuses (`Answer::OrCmapRestated`). **Left**: 5,
+5 and 3 documents of those three, where the restatement could not be proved either. A conversion
+copies at most 32 MiB of font program and copies none for a file another requirement refuses by
+name. Probe of the 32 named documents: exit 0 rose from 2 to 14 under each of the four arms, veraPDF
+at the arm's own target passing 13 and failing `pdf.js:issue6961` (a checker defect, section 8).
+Census, the pack present, failing documents converted (pdf.js then corpora): `as-if-printed` 2b 838 to
+848 and 386 to 388, part 4 841 to 849 and 385 to 387; `as-shown` 2b 797 to 807 and 333 to 335, part 4
+801 to 809 and 331 to 333; `issue6961` is among them and does not conform. Mitigations
+`fonts/truetype-codes-reach-glyphs-by-the-standard-route` and the four TrueType rows; ADRs 1942, 2520.
 
 **R10 — a font the converter could re-file** (15 documents; alone in 9): a `glyf` program under a
 `CIDFontType0` dictionary (3), two codes reaching one glyph at two widths (3 — duplicate the glyph
@@ -221,7 +241,7 @@ dictionary the resources the reader used — a copy of the form per page where t
 for a name nothing defines, an empty resource of its category (an empty form, an empty graphics
 state), which draws the nothing the reader drew. No byte of a content stream changes and no mark is
 added. A font name nothing defines is answered only where the reader advanced nothing for it, and is
-otherwise R03. ADR 2490; mitigations `graphics/named-resources-are-defined`.
+otherwise R03. ADR 2490; mitigations `graphics/named-resources-are-defined`. **Built** by ADR 2500; the standard-fourteen name's embedding is ADR 2522's, and the copy of the form per differing page, bounded at 256 copies and 32 MiB, is ADR 2523's. No census document is refused for the differing-pages shape, so that item moves tests and no count. Still refused by name: a Type 3 glyph procedure's resources, and a font that moved.
 
 ## 6. Files, structure, annotations and attachments
 
@@ -241,7 +261,7 @@ and record the source's header bytes in `xmpMM:History`. ADR 2490.
 and print it. **Remedy**: write the structure the reader recovered — the catalog and page tree it
 walked — loss `recovered-structure` (new), the report naming what was rebuilt; the photograph is the
 fallback where the recovered objects do not convert. ADR 2490 reopens the declining sentence ("would
-state a structure no producer wrote"): the output states the structure this reader drew from. **Built** by ADR 2502, its outcome in ADR 2503.
+state a structure no producer wrote"): the output states the structure this reader drew from. **Built** by ADR 2502, its outcome in ADR 2503; the encrypted and the signed source (the claim and the signatures are the source's) and the direct page, parented or not, are ADR 2523's, which removed `refuse_what_is_not_rebuilt`; the stated-count refusal of ADR 2502 decision 7 stands. Of the six ADR 2503 left, `poppler-742-0-fuzzed` (a page's dictionary does not parse whole) still stops here; `027613` states `/N 429` and the reader now reaches all 429 pages (ADR 2526), so its refusal is an ordinary requirement's and not this row's; `issue19484_1`, `issue19484_2` and `poppler-395-0-fuzzed` get past the rebuild and are refused by other rows, and `issue9105_other` by the file-header row.
 
 **R07 — a filter no reader decodes** (the seven `UnknownFilter-*` files; never alone — each also
 needs R06b or a font route). **Remedy**: the stream is what the reader treated it as, absent — an
@@ -304,17 +324,37 @@ answered at 4f.
 
 ## 8. What the converter itself gets wrong
 
-Fifteen documents at 2b and seventeen at 4 are refused by the converter's second verdict — every
-decision carried out and the output still failing, kind `output-fails` in `rank.py`'s section 2,
-over sixteen requirements, the font and device-colour rows first — or, for four at part 4
-(`bug854315`, `issue16553`, `issue17069`, `signed_verified`), with no decision at all, a refusal
-without a sentence (trap 5). These are defects for batch 124 to diagnose, not remedies to choose.
+Documents refused by the converter's second verdict — every decision carried out and the output still failing, kind
+`output-fails` in `rank.py`'s section 2 — are the converter's own defects, and so are five signed sources at part 4
+(`bug854315`, `issue16553`, `issue17069`, `Montenegro2021`, `signed_verified`) that the census harness printed as
+`no-decision`. The five are not refused without a sentence: a signed source is refused by the signature decision
+(`--authorise signature-assertion` allows it), which is not a row of `decided`; the harness reads it, and the five count
+under `R16` as `unauthorised signatures/signature-assertion`. Five documents remain `output-fails`, and the `D-defect`
+row is 4 per profile and target (ADRs 2534 and 2535). The families, by cause:
+
+| cause | documents | state |
+|---|---|---|
+| An appearance the conversion constructed (a free-text or widget stream built from the field's variable text) is content no pass saw: it names an unembedded Helvetica, selects a device colour no default licenses, or sets a blend mode | `annotation-tx`, `bug1538111`, `bug1865341`, `bug1871353`, `freetext_no_appearance`, `issue12750`, `issue16021` | fixed: a second conversion over the first output, only where the first would be refused (ADR 2534) |
+| The validator keeps 32 places of a requirement and counts the rest; the rendering-intent rewrite was gated on the kept prefix | `AIAA-2002-4016-606` (114 places) | fixed for `graphics/rendering-intent-entries-name-one-of-four` (ADR 2535); the other users of `sites::objects_named` have the same latent prefix |
+| An annotation dictionary written directly in a page's `/Annots` array has no object number and was never given `/F` | `CLLASS Report for ER&L 2020`, `Wiki SI 563 2021` | fixed (ADR 2535) |
+| A font with a descriptor and no `/Widths` (Table 109 makes the fourteen all-or-none) was embedded as a face whose dictionary states none, so shown codes were 0 wide | `NeilJairath_3`, `issue2099-1`, `issue5470` | fixed: the widths the viewer draws it with are stated (ADR 2535); `NeilJairath_3` at part 4 is now R05's press refusal |
+| The signature decision is not in `decided` | the five above | counted; at part 4 no `file-structure/document-signature-states-no-digest` row exists, so a profile's `discard` there authorises nothing (`config.rs` `authorisations`), while §5 above keys the loss `signature-assertion` by loss and lists both shipped profiles as `discard/stop` |
+| The source's object headers disagree with its cross-reference table; the output copies stream `/Length` 8700 over 5958 bytes, an unbalanced packet, no `/ID` | `veraPDFHiResWrongObjectID` | open: not traced to the writer |
+| The output's page 1 has a `/Font` dictionary without the `/F3` its content names, which the source met | `AIAA-2005-6173-712` | open: not traced |
+| A symbolic TrueType program whose `cmap` has (0,3), (1,0) and (3,1) | `bug864847` (2b) | open: rule `fonts/symbolic-truetype-program-has-a-usable-cmap` |
+| A transparency group in `DeviceCMYK` with no CMYK intent and no `/DefaultCMYK`; the decision says the output intent licensed it | `issue14200` | open |
+| `pdf-archive`'s `non_symbolic_truetype_differences_are_listed_names` (`crates/pdf-archive/src/table/fonts.rs`) accepts `Differences` names `uniXXXX`, with `_` ligatures and `.suffix`, through `encoding::text_for`, the Adobe Glyph List Specification's *algorithm*; ISO 19005-2 6.2.11.6 asks that the names be ones the list itself lists (the 2002 `glyphlist.txt`), where `uni0042` is no row, and veraPDF follows the text | `issue6961` (converted, fails veraPDF at 6.2.11.4.1, 6.2.11.6 and 6.2.11.5), four more fonts with `uni` names in it | open: a checker defect for a `pdf-archive` round (ADR 2520 section 8); the census counts it converted until then |
+| A crypt filter and an embedded file that is not itself PDF/A, both still failing after their decisions | `auth-event-ef-open` (part 4) | open |
+
+One document passes this tree's checker and fails veraPDF's ISO 19005-2 6.2.11.5: `0004-637X_751_2_90` (a CMR10 subset,
+glyph 61, program width 776.89 against `/Widths` 778). `pdf-font`'s `program_advance` reads no width of a bare Type 1 program (`hsbw`),
+so `fonts/widths-agree-with-the-program` cannot fail it: a blind spot of the checker's width source, not a defect of the rewrite.
 
 ## 9. The documents behind each remedy
 
 `rank.py`'s section 4, with the pack, verbatim:
 
-- D-defect (20): corpora:AIAA-2002-4016-606.pdf, corpora:AIAA-2005-6173-712.pdf, corpora:NeilJairath_3.pdf, corpora:veraPDFHiResWrongObjectID.pdf, pdf.js:annotation-tx.pdf, pdf.js:auth-event-ef-open.pdf, pdf.js:bug1538111.pdf, pdf.js:bug1865341.pdf, pdf.js:bug1871353.pdf, pdf.js:bug854315.pdf, pdf.js:bug864847.pdf, pdf.js:freetext_no_appearance.pdf, pdf.js:issue12750.pdf, pdf.js:issue14200.pdf, pdf.js:issue16021.pdf, pdf.js:issue16553.pdf, pdf.js:issue17069.pdf, pdf.js:issue2099-1.pdf, pdf.js:issue5470.pdf, pdf.js:signed_verified.pdf
+- D-defect (5): corpora:AIAA-2005-6173-712.pdf, corpora:veraPDFHiResWrongObjectID.pdf, pdf.js:auth-event-ef-open.pdf, pdf.js:bug864847.pdf, pdf.js:issue14200.pdf
 - R01-recovered-structure (18): corpora:027613.pdf, corpora:T02-01_001_document-catalog-No-document-catalog.pdf, corpora:T02-01_002_document-catalog-wrong-object-number.pdf, corpora:T02-01_003_document-catalog-indirecte-pages-reference-missing.pdf, corpora:T02-01_004_document-catalog-incorrect-pages-reference.pdf, corpora:T02-01_005_document-catalog-type-key-missing.pdf, corpora:T02-02_001_no-page-tree-node.pdf, corpora:T02-02_005_page-tree-no-kids.pdf, corpora:T04_012_trailer-root-no-indirect-reference.pdf, corpora:T04_013_trailer-root-invalid-indirect-reference.pdf, corpora:T04_014_trailer-root-indirect-reference-to-wrong-object.pdf, corpora:UnknownFilter-xrefstm.pdf, pdf.js:issue19484_1.pdf, pdf.js:issue19484_2.pdf, pdf.js:issue9105_other.pdf, pdf.js:issue9418.pdf, pdf.js:poppler-395-0-fuzzed.pdf, pdf.js:poppler-742-0-fuzzed.pdf
 - R02-image-smoothing (43): corpora:103199.pdf, corpora:10531_2004_Article_5096977.pdf, corpora:140611493383864950079938377607360675655.pdf, corpora:1742-6596_375_00_001001.pdf, corpora:363_Risk-Based Management of Groundwater Contamination _Paper.pdf, corpora:475121.pdf, corpora:6.2017-0960.pdf, corpora:CLLASS Report for ER&L 2020.pdf, corpora:EngHonorsCapstoneReport-Final.pdf, corpora:Godfrey Lubuulwa-Thesis-2023.pdf, corpora:ModRob_An_Inexpensive_and_Modular_Robotic_Arm_for_Hobbyists_Poster_-_Albert_Anwar.pdf, corpora:Montenegro2021.pdf, corpora:Wiki SI 563 2021.pdf, corpora:coleprintingislam.pdf, corpora:dweigel_1.pdf, corpora:kateking_presentation_WN23.pdf, corpora:lorem-ipsum-plus-image-updated.pdf, corpora:lorem-ipsum-plus-image.pdf, corpora:sakula.pdf, corpora:selederm.pdf, pdf.js:bigboundingbox.pdf, pdf.js:bug1771477.pdf, pdf.js:bug1868759.pdf, pdf.js:bug1992868.pdf, pdf.js:comments.pdf, pdf.js:compressed.tracemonkey-pldi-09.pdf, pdf.js:highlights.pdf, pdf.js:image-rotated-black-white-ratio.pdf, pdf.js:images.pdf, pdf.js:issue12337.pdf, pdf.js:issue18911.pdf, pdf.js:issue18956.pdf, pdf.js:issue19239.pdf, pdf.js:issue9713.pdf, pdf.js:issue9972-1.pdf, pdf.js:issue9972-2.pdf, pdf.js:issue9972-3.pdf, pdf.js:pr12564.pdf, pdf.js:tracemonkey.pdf, pdf.js:tracemonkey_annotation_on_page_8.pdf, pdf.js:tracemonkey_freetext.pdf, pdf.js:tracemonkey_with_annotations.pdf, pdf.js:tracemonkey_with_editable_annotations.pdf
 - R03-photograph (56): corpora:020747.pdf, corpora:020806.pdf, corpora:033689.pdf, corpora:040669.pdf, corpora:050734.pdf, corpora:064034.pdf, corpora:073439.pdf, corpora:150277.pdf, corpora:178360.pdf, corpora:189478.pdf, corpora:210260.pdf, corpora:219789.pdf, corpora:226387.pdf, corpora:268346.pdf, corpora:303226.pdf, corpora:367594.pdf, corpora:379049.pdf, corpora:392154.pdf, corpora:427669.pdf, corpora:435321.pdf, corpora:455746.pdf, corpora:477139.pdf, corpora:492484.pdf, corpora:498264.pdf, corpora:504076.pdf, corpora:507618.pdf, corpora:507676.pdf, corpora:509284.pdf, corpora:T02-05-01_006_font-size-operator-missing.pdf, corpora:T02-05-01_009_Missing_open_paranthesis.pdf, corpora:T02-05-01_011_paranthesis-substituted-with-brackets.pdf, corpora:T02-05-01_014_endstream-keyword-missing.pdf, corpora:hesr13613-sup-0001-Authormatrix.pdf, corpora:sakula.pdf, pdf.js:SimFang-variant.pdf, pdf.js:TAMReview.pdf, pdf.js:XiaoBiaoSong.pdf, pdf.js:boundingBox_invalid.pdf, pdf.js:bug1065245.pdf, pdf.js:bug1953099.pdf, pdf.js:issue17554.pdf, pdf.js:issue19517.pdf, pdf.js:issue19634.pdf, pdf.js:issue19971.pdf, pdf.js:issue20489.pdf, pdf.js:issue2128r.pdf, pdf.js:issue2391-1.pdf, pdf.js:issue3521.pdf, pdf.js:issue5010.pdf, pdf.js:issue5039.pdf, pdf.js:issue6342.pdf, pdf.js:issue6931_reduced.pdf, pdf.js:issue9252.pdf, pdf.js:poppler-90-0-fuzzed.pdf, pdf.js:sci-notation.pdf, pdf.js:smaskdim.pdf
@@ -332,7 +372,7 @@ without a sentence (trap 5). These are defects for batch 124 to diagnose, not re
 - R13-jpx-transcode (3): pdf.js:bug_jpx.pdf, pdf.js:issue5567.pdf, pdf.js:red_stamp.pdf
 - R14-appended-page-composition (6): corpora:241573_ftp.pdf, corpora:JPXTestGrey.pdf, corpora:balloon_a1b_jp2k.pdf, corpora:breast+cancer+immunotherapy.pdf, pdf.js:PDFBOX-3148-2-fuzzed.pdf, pdf.js:issue20453.pdf
 - R15-embedded-files (5): corpora:PDF-Sample-Document-Fully-Featured-Layout_Redacted.pdf, corpora:fileAttachment_fileAttachmentAnnotation.pdf, pdf.js:annotation-fileattachment.pdf, pdf.js:issue17056.pdf, pdf.js:issue18030.pdf
-- R16-annotations-and-forms (17): corpora:MOZILLA-1671648-0.pdf, corpora:PDF-Sample-Document-Fully-Featured-Layout_Redacted.pdf, corpora:PDFBOX-6018-099267-p9-OrphanPopups.pdf, corpora:embedded_video_avi.pdf, corpora:embedded_video_quicktime.pdf, corpora:fileAttachment_fileAttachmentAnnotation.pdf, corpora:sakula.pdf, pdf.js:160F-2019.pdf, pdf.js:annotation-fileattachment.pdf, pdf.js:annotation_hidden_noview.pdf, pdf.js:annotation_hidden_print.pdf, pdf.js:checkbox_no_appearance.pdf, pdf.js:issue7446.pdf, pdf.js:multimedia_annotations.pdf, pdf.js:pr7352.pdf, pdf.js:widget_hidden_print.pdf, pdf.js:xfa_filled_imm1344e.pdf
+- R16-annotations-and-forms (22): corpora:MOZILLA-1671648-0.pdf, corpora:Montenegro2021.pdf, corpora:PDF-Sample-Document-Fully-Featured-Layout_Redacted.pdf, corpora:PDFBOX-6018-099267-p9-OrphanPopups.pdf, corpora:embedded_video_avi.pdf, corpora:embedded_video_quicktime.pdf, corpora:fileAttachment_fileAttachmentAnnotation.pdf, corpora:sakula.pdf, pdf.js:160F-2019.pdf, pdf.js:annotation-fileattachment.pdf, pdf.js:annotation_hidden_noview.pdf, pdf.js:annotation_hidden_print.pdf, pdf.js:bug854315.pdf, pdf.js:checkbox_no_appearance.pdf, pdf.js:issue16553.pdf, pdf.js:issue17069.pdf, pdf.js:issue7446.pdf, pdf.js:multimedia_annotations.pdf, pdf.js:pr7352.pdf, pdf.js:signed_verified.pdf, pdf.js:widget_hidden_print.pdf, pdf.js:xfa_filled_imm1344e.pdf
 - R17-press-statements (4): corpora:102952.pdf, corpora:ESUjulyaugust2002.pdf, corpora:reserve3.pdf, pdf.js:endchar.pdf
 - R18-piece-info (3): corpora:20789_ftp.pdf, corpora:225188.pdf, corpora:UMTRI-2008-80.pdf
 - X1-dynamic-xfa (4): corpora:MOZILLA-1671648-0.pdf, pdf.js:issue14130.pdf, pdf.js:xfa_filled_imm1344e.pdf, pdf.js:xfa_issue14315.pdf

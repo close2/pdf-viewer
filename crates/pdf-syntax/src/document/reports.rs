@@ -190,6 +190,16 @@ impl Document {
         self.xref.entries_lost()
     }
 
+    /// Whether a `/Prev` of this file's cross-reference sections named bytes that are no section.
+    ///
+    /// [`crate::XrefTable::chain_cut`] for this document's table. The objects the unread older
+    /// sections described are then found by their own headers, so the document may read whole;
+    /// this is what says the file's own statement of where they are was wrong.
+    #[must_use]
+    pub fn cross_reference_chain_was_cut(&self) -> bool {
+        self.xref.chain_cut()
+    }
+
     /// The entries of `id`'s dictionary that this file states readably, where [`Self::get`]
     /// answers nothing because the object as a whole will not parse.
     ///

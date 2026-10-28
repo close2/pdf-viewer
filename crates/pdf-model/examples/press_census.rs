@@ -34,9 +34,9 @@
 //!
 //! **And it is the reading `tools/safedocs survey` cannot give** (ADR 0416): this census shares
 //! nothing between documents, so its answer is a function of the files and two runs agree, where a
-//! survey shared `colour::MAX_PRESSES` between the documents it was judging and reported a
-//! different set of them every run. **The survey agrees between runs since ADR 0417 made that
-//! budget the interpretation's**, and this census keeps its own reason for existing: it reads a
+//! survey shared a count of presses between the documents it was judging and reported a
+//! different set of them every run. **The survey agrees between runs because the budget is the
+//! interpretation's** (ADR 0417), and this census keeps its own reason for existing: it reads a
 //! **page** group and a survey reads whatever the page draws, so the two answer different questions
 //! about the same population rather than one checking the other.
 
@@ -241,9 +241,8 @@ fn main() {
     let mut classes: BTreeMap<String, usize> = BTreeMap::new();
     let mut lines: Vec<String> = Vec::new();
     // The identities `pdf_model::colour`'s press table is keyed by, so that this census answers
-    // the question the table's bound raises: how many *distinct* presses does this population
-    // name, against the `MAX_PRESSES` one process holds — without it a survey of 287
-    // press-naming crawled documents reports a different set of them on every run. ADR 0416.
+    // the question a press cache's size raises: how many *distinct* presses does this population
+    // name, against the `MAX_CACHED_PRESSES` one process keeps warm. ADR 0416.
     let mut presses: BTreeSet<u128> = BTreeSet::new();
     let mut gaps: Vec<(String, f32, f32, f32)> = Vec::new();
     let sampling = std::env::args().any(|argument| argument == "--sample");
@@ -391,22 +390,17 @@ fn main() {
         .sum();
     println!(
         "  {stated} document(s) state §11.4.7's condition — a page group whose blending colour \
-         space is not the device's — naming {} distinct press(es); one process samples {}",
+         space is not the device's — naming {} distinct press(es); one page's memory bound admits \
+         {} presses of {} bytes before the profiles' tables",
         presses.len(),
-        pdf_model::colour::MAX_PRESSES
+        pdf_model::MAX_LIST_BYTES / pdf_model::colour::PRESS_BYTES,
+        pdf_model::colour::PRESS_BYTES
     );
     // One line apiece, because this census is run one process per archive the way the surveys
     // are (`doc/todo/03` §1), and the union over those processes is what the population's
     // answer is: `grep -h '^  press ' | sort -u | wc -l`.
     for press in &presses {
         println!("  press {press:032x}");
-    }
-    if presses.len() > pdf_model::colour::MAX_PRESSES {
-        println!(
-            "  more presses than a process holds, so a *survey* of this population reports a \
-             different set of documents on each run and this census is the reading to take \
-             (ADR 0416)"
-        );
     }
     println!("  profile data colour spaces: {spaces:?}");
     println!("  profile device classes: {classes:?}");

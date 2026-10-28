@@ -53,6 +53,7 @@ impl Walk<'_> {
             context.depth,
             &State::default(),
             Via::SoftMask,
+            false,
         );
     }
 

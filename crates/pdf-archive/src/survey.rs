@@ -162,6 +162,7 @@ use crate::finding::Where;
 
 mod colour_spaces;
 mod fonts;
+pub use fonts::standard_font_definition;
 mod graphics_state;
 mod literals;
 mod marked_content;
@@ -553,6 +554,13 @@ pub struct OpenedStream {
     pub referenced: bool,
     /// Whether the resource dictionary it was read against was its own rather than inherited.
     pub own_resources: bool,
+    /// Whether every `Do` that reached it on this page looked its name up in the page's own
+    /// `XObject` table, and nothing else did: a form's own table, an annotation's appearance, a
+    /// soft mask and a pattern are other ways to a stream, and any of them clears this.
+    ///
+    /// It is what lets a rewrite give one page its own copy of the stream by changing that
+    /// table's entry, because then no other route to the stream is left naming the original.
+    pub through_page_table: bool,
 }
 
 /// The profile stream of an `ICCBased` colour space: ISO 32000-2 §8.6.5.5, Table 66.
@@ -799,6 +807,9 @@ pub enum FontKey {
 pub struct Survey {
     /// The fonts the content selected, keyed so that a shared font is one entry.
     fonts: BTreeMap<FontKey, SelectedFont>,
+    /// The text shown under a resource name nothing defines and that is one of §9.6.2.2's
+    /// fourteen, by name.
+    undefined_fonts: BTreeMap<Vec<u8>, SelectedFont>,
     /// Every device colour space selection the walk reached.
     colours: Vec<DeviceColour>,
     /// Every transparency group `CS` entry the walk reached.
@@ -871,7 +882,7 @@ impl Survey {
     fn walked(document: &Document, ledger: Option<Ledger>) -> (Self, Option<Ledger>) {
         let mut walk = Walk {
             document,
-            visited: BTreeSet::new(),
+            visited: BTreeMap::new(),
             opened: 0,
             budget: TOKEN_BUDGET,
             shown_budget: SHOWN_BUDGET,
@@ -897,6 +908,12 @@ impl Survey {
     /// The fonts the content streams selected.
     pub fn fonts(&self) -> impl Iterator<Item = &SelectedFont> {
         self.fonts.values()
+    }
+
+    /// The fonts a conversion would define for the resource names that are one of §9.6.2.2's
+    /// fourteen and that no resource dictionary defines, with the text shown under each.
+    pub fn undefined_standard_fonts(&self) -> impl Iterator<Item = &SelectedFont> {
+        self.undefined_fonts.values()
     }
 
     /// Every device colour space selection, in the order the walk reached them.
@@ -1485,7 +1502,7 @@ struct Walk<'a> {
     /// Keyed by page as well as by object, because a form placed on two pages puts its
     /// transparency and its colours on *both* of them, and a set keyed by object alone would
     /// report the second page as if the form were not there.
-    visited: BTreeSet<(usize, ObjectId)>,
+    visited: BTreeMap<(usize, ObjectId), Option<usize>>,
     /// How many nested streams have been opened.
     opened: usize,
     /// How many more tokens may be read.

@@ -1,15 +1,15 @@
 //! How many *distinct* presses one interpretation names, over a population.
 //!
-//! `pdf_model::colour::MAX_PRESSES` is a budget on one interpretation (ADR 0417): a page that
-//! names more four-component blending spaces than it allows paints the rest in its parent's
-//! space and `PagePress::Beyond` says so. Trap 38 asks what such a bound owes the standard, and
-//! the half of the answer no clause can give is what documents actually do — which is a
-//! question about a *page*, not about a process, so `examples/press_census`'s count of the
-//! distinct presses a whole population names cannot answer it.
+//! A page's presses are charged to its memory bound, `pdf_model::MAX_LIST_BYTES`, at
+//! `pdf_model::colour::PRESS_BYTES` each and their profiles' tables (ADRs 0417, 2532): a page whose
+//! presses do not fit paints the rest in its parent's space and `PagePress::Beyond` says so. What
+//! documents actually do is a question about a *page*, not about a process, so
+//! `examples/press_census`'s count of the distinct presses a whole population names cannot
+//! answer it.
 //!
-//! This interprets pages and reads `Interpretation::presses_named`, which is the number the
-//! budget is compared against. It prints the deepest page in the population, the distribution,
-//! and every document that came within one of the bound.
+//! This interprets pages and reads `Interpretation::presses_named`, the number the charge is
+//! made on. It prints the deepest page in the population, the distribution, and every document
+//! naming more than `--over N` presses (default 14, a count only a hostile page reaches).
 //!
 //! ```sh
 //! cargo run --release -p pdf-model --example press_depth -- doc/pdf.js/test/pdfs/*.pdf
@@ -36,14 +36,26 @@ use pdf_syntax::Document;
 /// population small enough to walk whole.
 const DEFAULT_PAGES: usize = 10;
 
+/// Which pages are listed unless `--over` says otherwise: those naming more presses than this.
+const DEFAULT_OVER: usize = 14;
+
 fn main() -> Result<(), String> {
     let mut paths: Vec<String> = Vec::new();
     let mut pages_per_document = DEFAULT_PAGES;
+    let mut over = DEFAULT_OVER;
     let mut arguments = std::env::args().skip(1);
     while let Some(argument) = arguments.next() {
-        if argument == "--pages" {
-            if let Some(count) = arguments.next().and_then(|value| value.parse().ok()) {
+        if argument == "--pages" || argument == "--over" {
+            let value = arguments
+                .next()
+                .ok_or_else(|| format!("{argument} wants a number"))?;
+            let count: usize = value
+                .parse()
+                .map_err(|_| format!("{argument} wants a number, not {value:?}"))?;
+            if argument == "--pages" {
                 pages_per_document = count;
+            } else {
+                over = count;
             }
         } else if let Some(list) = argument.strip_prefix('@') {
             if let Ok(text) = std::fs::read_to_string(list) {
@@ -84,9 +96,8 @@ fn main() -> Result<(), String> {
             })?;
             let counter = distribution.entry(named).or_default();
             *counter = counter.saturating_add(1);
-            // Within one of the bound is the population worth naming: a page there is one
-            // group away from a refusal, and a page at the bound has already had one.
-            if named.saturating_add(1) >= pdf_model::colour::MAX_PRESSES {
+            // The pages past `--over` are the population worth naming.
+            if named > over {
                 deepest.push((named, name.clone(), index.saturating_add(1)));
             }
         }
@@ -98,12 +109,14 @@ fn main() -> Result<(), String> {
     }
     let most = distribution.keys().next_back().copied().unwrap_or(0);
     println!(
-        "  deepest page names {most} press(es); the budget is {}",
-        pdf_model::colour::MAX_PRESSES
+        "  deepest page names {most} press(es); the page's memory bound admits at most {} \
+         presses of {} bytes",
+        pdf_model::MAX_LIST_BYTES / pdf_model::colour::PRESS_BYTES,
+        pdf_model::colour::PRESS_BYTES
     );
     deepest.sort_unstable();
     for (named, name, page) in deepest.iter().rev() {
-        println!("  within one of the bound: {name} page {page} names {named}");
+        println!("  over {over}: {name} page {page} names {named}");
     }
     Ok(())
 }

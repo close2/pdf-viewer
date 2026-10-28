@@ -44,9 +44,10 @@
 //! 19005-4 section 6.2.7.3 then bind the new data and admit it: one or three colour channels, a
 //! depth from 1 to 38, and one depth for every colour channel — so the integers of components of
 //! different depths keep their values at the widest's depth, and `/Decode` is widened as for a
-//! Flate field. An opacity channel of another depth than that waits (ADR 2485): the file would
-//! need a `bpcc` box, which the reference validator fails, and so does a grey image beside an
-//! opacity channel, whose two channels it counts against section 6.2.8.3's one, three or four.
+//! Flate field. An opacity channel is not a colour channel, so the two clauses do not bind its
+//! depth or count it: one of another depth than the colour channels is written at its own depth,
+//! which the file states in a `bpcc` box (ISO/IEC 15444-1 I.5.3.2), and a grey image beside an
+//! opacity channel is one colour channel in a file of two (`doc/questions/A691`, ADR 2521).
 //! The dictionary's `/SMaskInData` stays, because the opacity channel travels inside the file.
 //! Four colour channels wait for a JPX file, which states a four-channel space (ADR 2484).
 
@@ -162,22 +163,6 @@ const DEEP_WITHOUT_A_JP2_SPACE: &str = "a JPEG 2000 image outside the JPX baseli
      than one or three. The tree's JP2 writer names a greyscale or an sRGB space, and a \
      four-channel space is one a JPX file states, as the CMYK that JPX enumerates and JPX \
      baseline does not, or by an ICC profile";
-
-/// Why a deep image whose opacity channel has another depth than its colour channels is not
-/// written back (ADR 2485).
-const DEEP_OPACITY_AT_ANOTHER_DEPTH: &str = "a JPEG 2000 image outside the JPX baseline has a \
-     component deeper than sixteen bits and an opacity channel of another depth than its colour \
-     channels. A JP2 file whose channels differ in depth states each in a bpcc box (ISO/IEC \
-     15444-1 I.5.3.2), and veraPDF 1.30.3 fails any file with one at ISO 19005-2 section \
-     6.2.8.3, although that clause requires one depth for the colour channels alone, so the \
-     copy is not written rather than written to fail the reference validator";
-
-/// Why a deep grey image with an opacity channel is not written back (ADR 2485).
-const DEEP_GREY_WITH_OPACITY: &str = "a JPEG 2000 image outside the JPX baseline has a component \
-     deeper than sixteen bits, one colour channel and an opacity channel. veraPDF 1.30.3 counts \
-     every channel of the file against ISO 19005-2 section 6.2.8.3's one, three or four, which \
-     that clause states of the colour channels, and fails a file of two, so the copy is not \
-     written rather than written to fail the reference validator";
 
 /// Why the lossless writer refused the samples of a deep image.
 const NOT_WRITTEN_AS_JPEG_2000: &str = "a JPEG 2000 image outside the JPX baseline has a component \
@@ -496,12 +481,6 @@ fn written_as_jpeg_2000(
         _ => return Err(Because::NotBuiltYet(DEEP_WITHOUT_A_JP2_SPACE)),
     };
     let depth = samples.depths.iter().copied().max().unwrap_or(1);
-    if samples.components == 1 && samples.opacity.is_some() {
-        return Err(Because::NotBuiltYet(DEEP_GREY_WITH_OPACITY));
-    }
-    if samples.opacity.is_some() && samples.opacity_depth != depth {
-        return Err(Because::NotBuiltYet(DEEP_OPACITY_AT_ANOTHER_DEPTH));
-    }
     let field = pdf_sandbox::Raster::field_bytes(samples.precision);
     let planes: Vec<Vec<u32>> = (0..samples.components)
         .map(|index| channel(&samples.colour, index, samples.components, field))

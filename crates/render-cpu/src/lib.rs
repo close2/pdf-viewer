@@ -110,6 +110,9 @@ const HIGH_PRECISION_PIPELINE: bool = true;
 pub struct CpuRasterizer {
     medium: Medium,
     anti_alias: bool,
+    /// Whether a stroke whose `/SA` enables ISO 32000-2 §10.7.5's adjustment is fitted to the
+    /// device grid — [`Self::with_stroke_adjustment`].
+    stroke_adjustment: bool,
     strips: Option<u32>,
     /// The rows a caller stated the target is cut at, in place of the planner's — [`Self::with_cuts`].
     cuts: Option<Arc<[u32]>>,
@@ -147,6 +150,7 @@ impl CpuRasterizer {
         Self {
             medium: Medium::PAGE_ONLY,
             anti_alias: true,
+            stroke_adjustment: false,
             strips: None,
             cuts: None,
             interrupt: None,
@@ -293,6 +297,21 @@ impl CpuRasterizer {
     #[must_use]
     pub fn with_anti_alias(mut self, anti_alias: bool) -> Self {
         self.anti_alias = anti_alias;
+        self
+    }
+
+    /// Enables or disables the grid fit of ISO 32000-2 §10.7.5's first requirement for the
+    /// strokes whose graphics state enables stroke adjustment; off by default.
+    ///
+    /// Off, such a stroke is drawn at its own coordinates and its coverage-weighted width
+    /// (ADR 0848); the clause's second requirement, a stroke under half a pixel drawn one pixel
+    /// wide, holds either way, because it is `Stroke::device_width`'s. Off is the default because
+    /// the oracle and every lane of raster draw the same strokes until raster fits them too, and
+    /// whether the fit is drawn at all is the owner's choice the measurement put to them
+    /// (ADRs 2530 and 2531).
+    #[must_use]
+    pub fn with_stroke_adjustment(mut self, stroke_adjustment: bool) -> Self {
+        self.stroke_adjustment = stroke_adjustment;
         self
     }
 

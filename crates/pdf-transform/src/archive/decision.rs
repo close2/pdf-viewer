@@ -423,6 +423,18 @@ pub enum Loss {
     /// have laid the same name out by the face it names (`doc/questions/A687`,
     /// `doc/adr/2504`).
     LayoutFromThisViewer,
+    /// ISO 19005-4 section 6.2.4.3: a `DeviceCMYK` beside an RGB destination profile is licensed by
+    /// a `DefaultCMYK` over the CMYK profile this program ships, a press nothing in the file names.
+    ///
+    /// Section 6.2.3 lets a file state one destination profile, so the licence left is a device
+    /// independent `DefaultCMYK`, and an ICC CMYK profile states a press. ISO 32000-2 §8.6.4.1
+    /// gives the device spaces no colorimetric meaning, so which press the four numbers were
+    /// separated for is not in the file; the conversion states one, and what is lost is the
+    /// certainty that it is the producer's. `as-if-printed` is "as if printed and scanned": a
+    /// lower bound on what may be lost, never an instruction to imitate a press
+    /// (`doc/questions/A694`, `doc/adr/2518`). An operator's own press profile, supplied with
+    /// `--output-intent-profile`, outranks it and costs nothing (`doc/adr/2130`).
+    PressAssumed,
     /// ISO 32000-2 §7.5.5 Table 15, §7.7.2 Table 29, §7.7.3.2 Table 30: a document whose trailer,
     /// catalog or page tree node does not state the page tree is written out as the structure this
     /// viewer recovered.
@@ -445,11 +457,24 @@ pub enum Loss {
     /// owner's gate admits only a page whose readback names no character (`doc/questions/A570`,
     /// `doc/adr/2394`). A print never had a text layer either, so both shipped profiles carry it.
     TextAsImage,
+    /// ISO 19005-2 section 6.2.11.4.1, ISO 19005-4 section 6.2.10.4.1 and the content-stream rows
+    /// the fence stops at: a page is replaced by a photograph of itself as this viewer's window
+    /// draws it **whatever text it also shows**, where it shows an unembedded font no route of this
+    /// program can carry or holds a fault of its content stream the target refuses.
+    ///
+    /// The wider gate of [`Self::TextAsImage`], and a loss of its own because what it takes is
+    /// different in kind: the narrow gate admits only a page with nothing a reader could extract,
+    /// and this one turns a page's extractable text into pixels. It is what a company does when it
+    /// prints a letter and scans the print; `as-if-printed` means exactly that lower bound on what
+    /// may be lost, and never an instruction to imitate a press (`doc/questions/A694`,
+    /// `doc/adr/2516`). The text each such page held is named in the report and in the file's
+    /// history.
+    PageAsImage,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 28] = [
+    pub const ALL: [Self; 30] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::MetadataPacket,
@@ -476,8 +501,10 @@ impl Loss {
         Self::SubstituteStretch,
         Self::GlyphsFromToUnicode,
         Self::LayoutFromThisViewer,
+        Self::PressAssumed,
         Self::RecoveredStructure,
         Self::TextAsImage,
+        Self::PageAsImage,
     ];
 
     /// The word a caller authorises it by.
@@ -510,8 +537,10 @@ impl Loss {
             Self::SubstituteStretch => "substitute-stretch",
             Self::GlyphsFromToUnicode => "glyphs-from-to-unicode",
             Self::LayoutFromThisViewer => "layout-from-this-viewer",
+            Self::PressAssumed => "press-assumed",
             Self::RecoveredStructure => "recovered-structure",
             Self::TextAsImage => "text-as-image",
+            Self::PageAsImage => "page-as-image",
         }
     }
 
@@ -715,6 +744,17 @@ impl Loss {
                  denotes. Every mark sits where this viewer's window put it. A font that \
                  names no BaseFont is given one equal to the descriptor's FontName"
             }
+            Self::PressAssumed => {
+                "a file that draws in DeviceCMYK beside an RGB destination profile is given a \
+                 DefaultCMYK over the CMYK profile this program ships (named in the report and \
+                 in the file's own xmpMM:History), because ISO 19005-4 licenses DeviceCMYK there \
+                 only through a device independent DefaultCMYK and nothing in the file names the \
+                 press its four numbers were made for. Every DeviceCMYK colour is now read as \
+                 that press prints it, which may not be the press the producer used. This is the \
+                 lower bound of a print scanned back in, not an attempt to imitate printing; \
+                 supply the producer's own press profile with --output-intent-profile to state \
+                 it instead"
+            }
             Self::RecoveredStructure => {
                 "a document whose trailer, catalog or page tree node does not state the page tree \
                  is written out as the structure this viewer recovered: a catalog (the producer's dictionary \
@@ -733,6 +773,15 @@ impl Loss {
                  content. Only a page whose text no reader can extract is photographed, so no \
                  extractable text is lost. Name the producer's program with --font to keep the \
                  page as content instead"
+            }
+            Self::PageAsImage => {
+                "a page showing a font the file does not embed and no route of this program can \
+                 carry, or holding a fault of its content stream that the target refuses, is \
+                 replaced by a photograph of itself as this viewer's window draws it, whatever \
+                 text it also shows: the graphics, the images and every mark the window draws \
+                 survive as pixels rather than as content, and the text the page held can no \
+                 longer be selected or searched. The text of each such page is named in the \
+                 report, and the other pages keep theirs"
             }
         }
     }
@@ -875,10 +924,14 @@ pub struct Authorisations {
     pub glyphs_from_to_unicode: bool,
     /// Whether [`Loss::LayoutFromThisViewer`] was authorised.
     pub layout_from_this_viewer: bool,
+    /// Whether [`Loss::PressAssumed`] was authorised.
+    pub press_assumed: bool,
     /// Whether [`Loss::RecoveredStructure`] was authorised.
     pub recovered_structure: bool,
     /// Whether [`Loss::TextAsImage`] was authorised.
     pub text_as_image: bool,
+    /// Whether [`Loss::PageAsImage`] was authorised.
+    pub page_as_image: bool,
 }
 
 impl Authorisations {
@@ -912,8 +965,10 @@ impl Authorisations {
             Loss::SubstituteStretch => self.substitute_stretch,
             Loss::GlyphsFromToUnicode => self.glyphs_from_to_unicode,
             Loss::LayoutFromThisViewer => self.layout_from_this_viewer,
+            Loss::PressAssumed => self.press_assumed,
             Loss::RecoveredStructure => self.recovered_structure,
             Loss::TextAsImage => self.text_as_image,
+            Loss::PageAsImage => self.page_as_image,
         }
     }
 
@@ -952,8 +1007,10 @@ impl Authorisations {
             Loss::SubstituteStretch => self.substitute_stretch = true,
             Loss::GlyphsFromToUnicode => self.glyphs_from_to_unicode = true,
             Loss::LayoutFromThisViewer => self.layout_from_this_viewer = true,
+            Loss::PressAssumed => self.press_assumed = true,
             Loss::RecoveredStructure => self.recovered_structure = true,
             Loss::TextAsImage => self.text_as_image = true,
+            Loss::PageAsImage => self.page_as_image = true,
         }
     }
 }
@@ -1179,9 +1236,11 @@ pub(super) enum Answer {
     /// a device independent `/DefaultCMYK` and states no `DeviceN` half.
     ///
     /// [`decide`] takes the output intent where the profile in hand is a CMYK one, and otherwise
-    /// the `/DefaultCMYK` over the press profile the operator supplied, where they supplied one;
-    /// with neither, the requirement is refused with the sentence that says what the operator
-    /// can do (`doc/adr/2130`).
+    /// the `/DefaultCMYK` over the press profile the operator supplied, where they supplied one
+    /// (`doc/adr/2130`). With none supplied it writes the profile this program ships as an
+    /// authorised [`Loss::PressAssumed`] where the caller grants that loss, and otherwise the
+    /// requirement is refused with the sentence that says what the operator can do
+    /// (`doc/adr/2518`).
     CmykUnderPartFour,
     /// ISO 19005 section 6.2.4.3's `DeviceRGB` sentence, and every row that sends a space to it,
     /// which admits a device independent `/DefaultRGB` beside an RGB output intent (`doc/adr/2114`).
@@ -1207,6 +1266,16 @@ pub(super) enum Answer {
     /// would need an order this table does not have, and [`decide_as_underlying`] passes over
     /// one rather than following it.
     AsUnderlying(&'static [&'static str]),
+    /// The inner answer where this document can take it, and the restated `cmap`
+    /// ([`Rewrite::TrueTypeCmapRestated`]) where it cannot and the restatement's own proof holds.
+    ///
+    /// For the three rows that hold a rendered TrueType font's encoding to ISO 32000-2 §9.6.5.4's
+    /// route: each has a narrow rewrite of the dictionary's `/Encoding` that proves itself only
+    /// for the codes the pages showed, and the symbolic route states every code's glyph in the
+    /// program without a name, so a font the narrow rewrite refuses meets the same row through
+    /// it (`doc/adr/2520`). The inner answer is tried first because it changes less: a name in
+    /// the dictionary rather than a program and a descriptor.
+    OrCmapRestated(&'static Answer),
 }
 
 impl Answer {
@@ -1245,6 +1314,10 @@ impl Answer {
             // same table, so a preparation asking "did any failed requirement want this rewrite"
             // has already been answered by them.
             Self::AsUnderlying(_) => [None, None, None],
+            Self::OrCmapRestated(inner) => {
+                let [first, ..] = inner.rewrites();
+                [first, Some(Rewrite::TrueTypeCmapRestated), None]
+            }
         }
     }
 }
@@ -1365,6 +1438,21 @@ const STANDARD_ROUTE_REINTERPRETS: &str = "a TrueType font's encoding now names 
      reader that chose another mapping drew another glyph before and draws this one now; no \
      glyph changes for this renderer, the program is untouched, and the code's text is what \
      the ToUnicode already said";
+
+/// What restating a TrueType font's `cmap` asserts (`doc/adr/2520`).
+///
+/// Every code draws the glyph this reader drew, which the preparation proves; what changes is
+/// that the file now states the route to it, and with the route the font's kind: a font whose
+/// descriptor said Nonsymbolic and whose encoding named its glyphs is a symbolic font whose
+/// program maps the codes themselves.
+const TRUETYPE_CMAP_REINTERPRETS: &str = "a rendered TrueType font is now the symbolic font ISO \
+     32000-2 \u{a7}9.6.5.4 describes: its program's cmap maps each code to the glyph this \
+     renderer drew for it and its dictionary states no Encoding, where the file left some codes \
+     to a mapping each reader chooses for itself or named glyphs outside the Adobe Glyph List. \
+     No glyph changes for this renderer; a reader that chose another mapping drew another glyph \
+     before and draws this one now, and the encoding's glyph names no longer say which \
+     character a code is, so the text a reader extracts comes from the font's ToUnicode where \
+     it has one";
 
 /// What restating a rendering intent asserts, which is `doc/adr/0948`'s condition on it.
 ///
@@ -2413,11 +2501,13 @@ pub(super) const REMEDIES: &[Remedy] = &[
     // by that preparation where it is not.
     Remedy {
         requirement: "fonts/symbolic-truetype-states-no-encoding",
-        answer: Answer::Mechanical(Rewrite::SymbolicTrueTypeEncodingRemoved),
+        answer: Answer::OrCmapRestated(&Answer::Mechanical(
+            Rewrite::SymbolicTrueTypeEncodingRemoved,
+        )),
     },
     Remedy {
         requirement: "fonts/non-symbolic-truetype-uses-a-standard-encoding",
-        answer: Answer::Mechanical(Rewrite::StandardTrueTypeEncoding),
+        answer: Answer::OrCmapRestated(&Answer::Mechanical(Rewrite::StandardTrueTypeEncoding)),
     },
     // ISO 19005-2 section 6.2.11.8, ISO 19005-4 section 6.2.10.9, for a Type 3 font: the glyph is
     // the producer's own procedure under the name `.notdef`, and renaming it moves nothing
@@ -2433,10 +2523,48 @@ pub(super) const REMEDIES: &[Remedy] = &[
     // the code is, or the names cannot be proved to leave every shown code on its glyph.
     Remedy {
         requirement: "fonts/truetype-codes-reach-glyphs-by-the-standard-route",
-        answer: Answer::Stated(
+        answer: Answer::OrCmapRestated(&Answer::Stated(
             None,
             Rewrite::StandardRouteNames,
             STANDARD_ROUTE_REINTERPRETS,
+        )),
+    },
+    // ISO 19005-2 section 6.2.11.6, ISO 19005-4 section 6.2.10.6, the four paragraphs that hold a
+    // rendered TrueType font's program and its encoding to each other: the font becomes the
+    // symbolic font §9.6.5.4 describes, its program's cmap stating the glyph this reader drew for
+    // each code. Stated, because the route was the reader's choice and is now the file's
+    // (`doc/questions/A694` item 3, `doc/adr/2520`); refused by `super::fonts` wherever it cannot
+    // prove the font loads again with every code on the glyph it reached before.
+    Remedy {
+        requirement: "fonts/non-symbolic-truetype-differences-are-listed-names",
+        answer: Answer::Stated(
+            None,
+            Rewrite::TrueTypeCmapRestated,
+            TRUETYPE_CMAP_REINTERPRETS,
+        ),
+    },
+    Remedy {
+        requirement: "fonts/non-symbolic-truetype-differences-need-the-unicode-cmap",
+        answer: Answer::Stated(
+            None,
+            Rewrite::TrueTypeCmapRestated,
+            TRUETYPE_CMAP_REINTERPRETS,
+        ),
+    },
+    Remedy {
+        requirement: "fonts/non-symbolic-truetype-program-maps-every-code",
+        answer: Answer::Stated(
+            None,
+            Rewrite::TrueTypeCmapRestated,
+            TRUETYPE_CMAP_REINTERPRETS,
+        ),
+    },
+    Remedy {
+        requirement: "fonts/symbolic-truetype-program-has-a-usable-cmap",
+        answer: Answer::Stated(
+            None,
+            Rewrite::TrueTypeCmapRestated,
+            TRUETYPE_CMAP_REINTERPRETS,
         ),
     },
     // ISO 19005-2 section 6.1.13's last limit: every page boundary between 3 and 14 400 units.
@@ -2563,6 +2691,12 @@ pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[
         "metadata/extension-schema-container-fields",
         Conditional::PerDocument(Losses::one(Loss::MetadataProperty)),
     ),
+    // ISO 19005-4 section 6.2.4.3's `DeviceCMYK` row: a conversion states the press the operator
+    // supplied at no cost, and the one this program ships as the loss `press-assumed`.
+    (
+        CMYK_UNDER_PART_FOUR,
+        Conditional::PerDocument(Losses::one(Loss::PressAssumed)),
+    ),
     (
         "fonts/font-programs-embedded",
         Conditional::PerDocument(
@@ -2570,7 +2704,8 @@ pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[
                 .with(Loss::SubstituteStretch)
                 .with(Loss::GlyphsFromToUnicode)
                 .with(Loss::LayoutFromThisViewer)
-                .with(Loss::TextAsImage),
+                .with(Loss::TextAsImage)
+                .with(Loss::PageAsImage),
         ),
     ),
 ];
@@ -2612,6 +2747,7 @@ pub(super) fn answered_without_authorisation(requirement: &str) -> bool {
                 remedy.answer,
                 Answer::Mechanical(_)
                     | Answer::Stated(..)
+                    | Answer::OrCmapRestated(_)
                     | Answer::CmykUnderPartTwo
                     | Answer::CmykUnderPartFour
                     | Answer::RgbUnderPartTwoOrFour(_)
@@ -3113,23 +3249,8 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         Because::TheFence(ACTUAL_TEXT_STATES_THE_PRODUCERS_WORDS),
     ),
     // ISO 19005-2 section 6.2.11.6, ISO 19005-4 section 6.2.10.6: the embedded program and the
-    // encoding held to each other, where changing either moves what a code draws.
-    (
-        "fonts/non-symbolic-truetype-differences-are-listed-names",
-        Because::TheFence(THE_FONT_PROGRAM_IS_THE_PRODUCERS),
-    ),
-    (
-        "fonts/non-symbolic-truetype-differences-need-the-unicode-cmap",
-        Because::TheFence(THE_FONT_PROGRAM_IS_THE_PRODUCERS),
-    ),
-    (
-        "fonts/non-symbolic-truetype-program-maps-every-code",
-        Because::TheFence(THE_FONT_PROGRAM_IS_THE_PRODUCERS),
-    ),
-    (
-        "fonts/symbolic-truetype-program-has-a-usable-cmap",
-        Because::TheFence(THE_FONT_PROGRAM_IS_THE_PRODUCERS),
-    ),
+    // encoding held to each other, which `REMEDIES` answers by stating the route this reader took
+    // in the program itself (`doc/adr/2520`).
     // ISO 19005-2 section 6.2.11.3.3, ISO 19005-4 section 6.2.10.3.3.
     (
         "fonts/cmap-embedded-or-predefined",
@@ -3379,15 +3500,6 @@ const ACTUAL_TEXT_STATES_THE_PRODUCERS_WORDS: &str = "ISO 19005-4 section 6.2.10
      its value means deciding what the producer meant that span to say, which doc/questions/A48 \
      forbids; removing it takes away the only statement the file makes about what those glyphs \
      spell, which at Level A is the evidence the level exists to require";
-
-/// Why a TrueType font's program and encoding are not made to agree.
-const THE_FONT_PROGRAM_IS_THE_PRODUCERS: &str = "this rule holds an embedded font program and \
-     the font dictionary's encoding to each other, and meeting it means changing which glyph a \
-     character code selects: adding a cmap subtable to the program, or rewriting the Differences \
-     array that names the glyphs. The first invents outlines the producer never shipped and the \
-     second moves the marks on the page, so ADR 0816's fence closes both. Where the file embeds \
-     no program at all this is a different case: doc/pdf-a-conversion-limits.md section 4.9 \
-     builds one, and --font supplies the real face";
 
 /// Why a `CMap` this file neither embeds nor names from the predefined set is not written.
 const A_CMAP_IS_THE_ENCODING: &str = "a CMap is what maps a composite font's character codes to \
@@ -3743,7 +3855,19 @@ pub(super) fn rewrite_for(id: &str) -> Option<Rewrite> {
         | Answer::CmykUnderPartFour
         | Answer::RgbUnderPartTwoOrFour(_)
         | Answer::AsUnderlying(_) => None,
+        Answer::OrCmapRestated(inner) => match inner {
+            Answer::Mechanical(rewrite) | Answer::Stated(_, rewrite, _) => Some(*rewrite),
+            _ => None,
+        },
     }
+}
+
+/// Whether the table gives a requirement no answer at all, so that [`decide`] refuses it by name.
+///
+/// Asked by a preparation that is costly to make and could only matter to a document nothing
+/// else refuses (`doc/adr/2520`).
+pub(super) fn answers_nothing(id: &str) -> bool {
+    !WRITER_EMITS.contains(&id) && !REMEDIES.iter().any(|remedy| remedy.requirement == id)
 }
 
 pub(super) fn decide(
@@ -3752,6 +3876,22 @@ pub(super) fn decide(
     authorised: Authorisations,
     prepared: &Prepared,
 ) -> Decision {
+    // **A page photographed answers a fault of its content stream** where the profile authorised
+    // `page-as-image` and every page the row fails on was photographed (A694 item 1, ADR 2516).
+    // The row keeps its refusal below otherwise: `as-shown` and a caller who authorised nothing
+    // are refused by the fence's sentence.
+    if authorised.grants(Loss::PageAsImage)
+        && prepared
+            .substitutes
+            .as_ref()
+            .is_ok_and(|substitutes| substitutes.fenced.contains(judgement.id))
+    {
+        return losing(
+            Losses::one(Loss::TextAsImage).with(Loss::PageAsImage),
+            Rewrite::SubstituteFontProgram,
+            authorised,
+        );
+    }
     if WRITER_EMITS.contains(&judgement.id) {
         // **Not unconditionally.** Some of these rules reach inside a content stream — ISO
         // 19005's hexadecimal string rule is stated of the file's syntax and a content stream
@@ -3970,10 +4110,14 @@ fn rgb_answer(
         // a supply the row takes the intent's answer and the output's own verdict settles it:
         // which of the document's spaces failed the row is the finding's, not the survey's, and
         // a sentence about `DeviceCMYK` would be wrong for a row an RGB alternate failed.
-        (Err(_), Ok(_)) if family.is_none() => Decision::Stated {
-            rewrite: Rewrite::SuppliedDefaultCmyk,
-            reinterprets: super::supplied_cmyk::REINTERPRETS,
-        },
+        (Err(_), Ok(supplied))
+            if family.is_none() && supplied.press == super::supplied_cmyk::Press::Supplied =>
+        {
+            Decision::Stated {
+                rewrite: Rewrite::SuppliedDefaultCmyk,
+                reinterprets: super::supplied_cmyk::REINTERPRETS,
+            }
+        }
         _ => answer_of(
             Answer::Stated(family, Rewrite::OutputIntent, OUTPUT_INTENT_REINTERPRETS),
             authorised,
@@ -4007,12 +4151,22 @@ fn cmyk_answer_under_part_two(prepared: &Prepared) -> Decision {
 /// ISO 19005-4 section 6.2.4.3's, which has no `DeviceN` half: the intent where it is a CMYK one,
 /// the operator's press profile as the default otherwise, and the reason that could not be built —
 /// which says what the operator can do — where neither is in hand (`doc/adr/2130`).
-fn cmyk_answer_under_part_four(prepared: &Prepared) -> Decision {
+///
+/// **The press this program ships is a loss and not a statement** (`doc/adr/2518`): where the
+/// operator supplied none and the caller authorised [`Loss::PressAssumed`], the default over the
+/// shipped profile is an authorised loss, and without that authorisation the preparation built
+/// nothing and the refusal above stands.
+fn cmyk_answer_under_part_four(prepared: &Prepared, authorised: Authorisations) -> Decision {
     match (&prepared.intent, &prepared.supplied_cmyk) {
         (Ok(intent), _) if intent.family == DeviceFamily::Cmyk => Decision::Stated {
             rewrite: Rewrite::OutputIntent,
             reinterprets: OUTPUT_INTENT_REINTERPRETS,
         },
+        (Ok(_), Ok(supplied)) if supplied.press == super::supplied_cmyk::Press::Assumed => losing(
+            Losses::one(Loss::PressAssumed),
+            Rewrite::SuppliedDefaultCmyk,
+            authorised,
+        ),
         (Ok(_), Ok(_)) => Decision::Stated {
             rewrite: Rewrite::SuppliedDefaultCmyk,
             reinterprets: super::supplied_cmyk::REINTERPRETS,
@@ -4055,7 +4209,7 @@ fn answer_of(answer: Answer, authorised: Authorisations, prepared: &Prepared) ->
             .obstacle(rewrite)
             .map_or(Decision::Mechanical(rewrite), Decision::Refused),
         Answer::CmykUnderPartTwo => cmyk_answer_under_part_two(prepared),
-        Answer::CmykUnderPartFour => cmyk_answer_under_part_four(prepared),
+        Answer::CmykUnderPartFour => cmyk_answer_under_part_four(prepared, authorised),
         Answer::RgbUnderPartTwoOrFour(family) => rgb_answer(family, authorised, prepared),
         Answer::Stated(family, Rewrite::OutputIntent, reinterprets) => match &prepared.intent {
             Err(because) => Decision::Refused(*because),
@@ -4150,5 +4304,20 @@ fn answer_of(answer: Answer, authorised: Authorisations, prepared: &Prepared) ->
         // Resolved by `decide` before this function is reached, so that the routing is one place
         // rather than two. A row reaching here is one `decide_as_underlying` passed over.
         Answer::AsUnderlying(_) => Decision::Refused(Because::NotBuiltYet(NOT_BUILT_YET)),
+        // The narrower rewrite is the answer where the document can take it; otherwise the
+        // restated `cmap` is, and the refusal that stands is the narrower rewrite's own where
+        // the restatement cannot be proved either.
+        Answer::OrCmapRestated(inner) => match answer_of(*inner, authorised, prepared) {
+            refused @ Decision::Refused(_) => {
+                prepared.obstacle(Rewrite::TrueTypeCmapRestated).map_or(
+                    Decision::Stated {
+                        rewrite: Rewrite::TrueTypeCmapRestated,
+                        reinterprets: TRUETYPE_CMAP_REINTERPRETS,
+                    },
+                    |_| refused,
+                )
+            }
+            taken => taken,
+        },
     }
 }

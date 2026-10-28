@@ -6066,23 +6066,413 @@ fn an_extended_radial_shading_keeps_the_value_its_extension_carries_outside() {
     held_outside_and_blank_inside(&bytes, &out, region, &[]);
 }
 
-/// A calculator function (§7.10.5) serving values only the region's circles carry is refused by
-/// name: a program is not divided by the values it serves.
+/// The function the output page's `/Sh0` names, parsed as the viewer parses it.
+fn output_function(bytes: &[u8]) -> (Document, pdf_model::function::Function) {
+    let document = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let shadings = document.get_key(&page.resources, "Shading");
+    let shading = document.resolve(
+        shadings
+            .as_dict()
+            .and_then(|dict| dict.get("Sh0"))
+            .expect("the page names /Sh0"),
+    );
+    let function = shading
+        .as_dict()
+        .and_then(|dict| dict.get("Function"))
+        .expect("the shading names a function")
+        .clone();
+    let parsed = pdf_model::function::Function::parse(&document, &function).expect("it parses");
+    (document, parsed)
+}
+
+/// The one-input value of a parsed function at `t`.
+fn at(function: &pdf_model::function::Function, t: f32) -> Vec<f32> {
+    function.eval(&[t])
+}
+
+/// A radial shading of concentric circles about (100, 100), radius 0 to 80, whose colours a
+/// calculator function states; `program` is its text and `domain` its `/Domain`.
+fn calculator_radial(program: &str, domain: &str) -> Vec<Vec<u8>> {
+    vec![
+        b"<< /ShadingType 3 /ColorSpace /DeviceGray /Coords [100 100 0 100 100 80] \
+          /Function 7 0 R >>"
+            .to_vec(),
+        stream_object(
+            &format!("/FunctionType 4 /Domain [{domain}] /Range [0 1]"),
+            program.as_bytes(),
+        ),
+    ]
+}
+
+/// §7.10.5 and §7.10.4, ADR 2528: a calculator function serving parameters only the region's
+/// circles carry is served by a stitching function — the constant for the region's parameters
+/// (ADR 1124), the producer's program, byte for byte, for every other. The region reaches radius
+/// 20 of 80, so parameters 0 up to a quarter are the region's alone. The pixels outside the region
+/// are within a level of the original's: §7.10.4's interpolation of the input is the reader's, in
+/// single precision, and hands the program an input one rounding from the one it was handed.
 #[test]
-fn a_calculator_function_serving_the_region_s_values_refuses_the_page() {
-    let shading = b"<< /ShadingType 3 /ColorSpace /DeviceGray /Coords [100 100 0 100 100 80] \
-        /Function 7 0 R >>"
-        .to_vec();
-    let function = stream_object("/FunctionType 4 /Domain [0 1] /Range [0 1]", b"{ }");
+fn a_calculator_function_is_stitched_around_the_values_only_the_region_carries() {
+    let region = [80.0, 80.0, 120.0, 120.0];
+    let program = "{ 1 exch sub }";
     let bytes = page_with(
         "<< /Shading << /Sh0 6 0 R >> >>",
         "/Sh0 sh",
-        [80.0, 80.0, 120.0, 120.0],
+        region,
+        &calculator_radial(program, "0 1"),
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let (document, function) = output_function(&out);
+    for t in [0.0, 0.1, 0.2, 0.249] {
+        assert_eq!(
+            at(&function, t),
+            [0.0],
+            "the region's parameter {t} is destroyed"
+        );
+    }
+    for t in [0.25, 0.3, 0.5, 0.9, 1.0] {
+        let want = 1.0 - t;
+        let got = at(&function, t)[0];
+        assert!(
+            (got - want).abs() < 1e-6,
+            "the producer's program serves {t}: {got} against {want}"
+        );
+    }
+    // The program is the producer's object, not a rewrite of it.
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let shadings = document.get_key(&page.resources, "Shading");
+    let shading = document.resolve(shadings.as_dict().and_then(|d| d.get("Sh0")).expect("Sh0"));
+    let stitching = document.get_key(shading.as_dict().expect("a dictionary"), "Function");
+    let pieces = document.get_key(
+        stitching.as_dict().expect("a stitching dictionary"),
+        "Functions",
+    );
+    let program_stream = document.resolve(&pieces.as_array().expect("an array")[1]);
+    let stream = program_stream.as_stream().expect("the program is a stream");
+    assert_eq!(
+        &*document.decoded_stream_data(stream).expect("it decodes"),
+        program.as_bytes()
+    );
+    assert!(
+        contains(&out, b"/FunctionType 4"),
+        "the producer's dictionary stays"
+    );
+    held_outside_within(&bytes, &out, region, 1);
+}
+
+/// A calculator function that is one piece of a stitching function with a reversed `/Encode`
+/// is cut in its own parameter: the outer parameters 0 to a quarter reach the program as 1 down
+/// to a half, and every other outer parameter is the producer's.
+#[test]
+fn a_calculator_function_under_a_reversed_encode_is_cut_in_its_own_parameter() {
+    let region = [80.0, 80.0, 120.0, 120.0];
+    let shading = b"<< /ShadingType 3 /ColorSpace /DeviceGray /Coords [100 100 0 100 100 80] \
+        /Function 7 0 R >>"
+        .to_vec();
+    let outer = b"<< /FunctionType 3 /Domain [0 1] /Functions [8 0 R 9 0 R] /Bounds [0.5] \
+        /Encode [1 0 0 1] >>"
+        .to_vec();
+    let program = stream_object("/FunctionType 4 /Domain [0 1] /Range [0 1]", b"{ dup mul }");
+    let line = b"<< /FunctionType 2 /Domain [0 1] /C0 [0.2] /C1 [0.8] /N 1 >>".to_vec();
+    let extras = [shading, outer, program, line];
+    let bytes = page_with(
+        "<< /Shading << /Sh0 6 0 R >> >>",
+        "/Sh0 sh",
+        region,
+        &extras,
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let (_, after) = output_function(&out);
+    let (_, before) = output_function(&bytes);
+    for t in [0.0, 0.05, 0.2, 0.24] {
+        assert_eq!(
+            at(&after, t),
+            [0.0],
+            "the region's parameter {t} is destroyed"
+        );
+    }
+    for t in [0.26, 0.3, 0.45, 0.5, 0.7, 1.0] {
+        assert_eq!(
+            at(&after, t),
+            at(&before, t),
+            "parameter {t} is the producer's"
+        );
+    }
+    held_outside_within(&bytes, &out, region, 1);
+}
+
+/// Two regions over a radial shading of one moving circle whose radius shrinks: the parameters
+/// each region alone carries are both cleared, and the span between them stays the producer's.
+#[test]
+fn a_calculator_function_is_cut_at_each_span_the_regions_carry_alone() {
+    let annotation = "<< /Type /Annot /Subtype /Redact /Rect [10 85 190 115] \
+        /QuadPoints [10 115 50 115 10 85 50 85 150 115 190 115 150 85 190 85] >>";
+    let shading = b"<< /ShadingType 3 /ColorSpace /DeviceGray /Coords [30 100 15 170 100 0] \
+        /Function 7 0 R >>"
+        .to_vec();
+    let program = stream_object(
+        "/FunctionType 4 /Domain [0 1] /Range [0 1]",
+        b"{ 1 exch sub }",
+    );
+    let bytes = page_with_annotation(
+        "<< /Shading << /Sh0 6 0 R >> >>",
+        "/Sh0 sh",
+        annotation,
+        &[shading, program],
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let (_, after) = output_function(&out);
+    for t in [0.0, 0.02, 0.03, 0.9, 0.95, 1.0] {
+        assert_eq!(
+            at(&after, t),
+            [0.0],
+            "the first or last span's parameter {t} is destroyed"
+        );
+    }
+    for t in [0.06, 0.2, 0.5, 0.8, 0.86] {
+        let got = at(&after, t)[0];
+        assert!(
+            (got - (1.0 - t)).abs() < 1e-6,
+            "parameter {t} between the spans is the producer's"
+        );
+    }
+}
+
+/// An axial shading's parameters each lie along a line past the region (§8.7.4.5.3), so no value
+/// is the region's alone and the calculator function is not touched.
+#[test]
+fn a_calculator_function_under_an_axial_shading_is_left_alone() {
+    let region = [80.0, 80.0, 120.0, 120.0];
+    let shading = b"<< /ShadingType 2 /ColorSpace /DeviceGray /Coords [20 0 180 0] \
+        /Function 7 0 R >>"
+        .to_vec();
+    let program = stream_object("/FunctionType 4 /Domain [0 1] /Range [0 1]", b"{ }");
+    let bytes = page_with(
+        "<< /Shading << /Sh0 6 0 R >> >>",
+        "/Sh0 sh",
+        region,
+        &[shading, program],
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let (_, function) = output_function(&out);
+    assert!(
+        at(&function, 0.1)[0] > 0.0,
+        "the producer's program serves 0.1"
+    );
+}
+
+/// A calculator function of two inputs under a function-based shading the region meets keeps a
+/// refusal of its own: §7.10.4's stitching function has one input.
+#[test]
+fn a_two_input_calculator_function_under_the_region_is_refused_by_name() {
+    let shading = b"<< /ShadingType 1 /ColorSpace /DeviceGray /Domain [0 1 0 1] \
+        /Matrix [160 0 0 160 20 20] /Function 7 0 R >>"
+        .to_vec();
+    let function = stream_object(
+        "/FunctionType 4 /Domain [0 1 0 1] /Range [0 1]",
+        b"{ add 2 div }",
+    );
+    let bytes = page_with(
+        "<< /Shading << /Sh0 6 0 R >> >>",
+        "/Sh0 sh",
+        [75.0, 75.0, 125.0, 125.0],
         &[shading, function],
     );
     let (report, _) = redact(&bytes);
     let refused = report.refused.first().expect("the page is refused");
-    assert!(refused.detail.contains("§7.10.5"), "{}", refused.detail);
+    assert!(
+        refused.detail.contains("two-input calculator"),
+        "{}",
+        refused.detail
+    );
+}
+
+/// A calculator function that states no `/Range` (Table 38 requires it for Type 4 functions), or
+/// more outputs than the viewer's function reader builds (`MAX_VALUES`, sixty-four), or no two
+/// increasing `/Domain` numbers, has no constant to be written for its cleared span: refused by
+/// name.
+#[test]
+fn a_calculator_function_with_no_usable_range_is_refused_by_name() {
+    let region = [80.0, 80.0, 120.0, 120.0];
+    let too_many = (0..65).map(|_| "0 1").collect::<Vec<_>>().join(" ");
+    for dictionary in [
+        "/FunctionType 4 /Domain [0 1]".to_owned(),
+        format!("/FunctionType 4 /Domain [0 1] /Range [{too_many}]"),
+        "/FunctionType 4 /Domain [1 0] /Range [0 1]".to_owned(),
+    ] {
+        let shading = b"<< /ShadingType 3 /ColorSpace /DeviceGray \
+            /Coords [100 100 0 100 100 80] /Function 7 0 R >>"
+            .to_vec();
+        let bytes = page_with(
+            "<< /Shading << /Sh0 6 0 R >> >>",
+            "/Sh0 sh",
+            region,
+            &[shading, stream_object(&dictionary, b"{ }")],
+        );
+        let (report, _) = redact(&bytes);
+        let refused = report.refused.first().expect("the page is refused");
+        assert!(
+            refused.detail.contains("stitching function"),
+            "{dictionary}: {}",
+            refused.detail
+        );
+    }
+}
+
+/// Sixty-four outputs is the most a calculator's constant is written for.
+#[test]
+fn a_calculator_function_of_sixty_four_outputs_is_stitched() {
+    let region = [80.0, 80.0, 120.0, 120.0];
+    let range = (0..64).map(|_| "0 1").collect::<Vec<_>>().join(" ");
+    let program = format!("{{ {} }}", "dup ".repeat(63));
+    let shading = b"<< /ShadingType 3 /ColorSpace /DeviceGray \
+        /Coords [100 100 0 100 100 80] /Function 7 0 R >>"
+        .to_vec();
+    let bytes = page_with(
+        "<< /Shading << /Sh0 6 0 R >> >>",
+        "/Sh0 sh",
+        region,
+        &[
+            shading,
+            stream_object(
+                &format!("/FunctionType 4 /Domain [0 1] /Range [{range}]"),
+                program.as_bytes(),
+            ),
+        ],
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let (_, function) = output_function(&out);
+    assert_eq!(at(&function, 0.1), vec![0.0; 64]);
+    assert_eq!(at(&function, 0.5), vec![0.5; 64]);
+}
+
+/// A page that places one shading many times makes one cleared span a placement: the stitching
+/// function written holds at most 1024 pieces, and a page that would need more is refused by name
+/// rather than rewritten at a size a hostile page chooses. The most outputs a constant is written
+/// for make the largest rewrite.
+#[test]
+fn the_stitching_function_written_for_a_calculator_has_a_bound_on_its_pieces() {
+    // A circle of radius 0.05 moves from x = 10 to x = 190 over the parameter; placement i moves
+    // the shading 0.15 further left, so the one quad about x = 100 holds the circle wholly at
+    // parameter 0.5 + i / 1200 and at no other placement's.
+    let shading = b"<< /ShadingType 3 /ColorSpace /DeviceGray /Coords [10 100 0.05 190 100 0.05] \
+        /Function 7 0 R >>"
+        .to_vec();
+    let range = (0..64).map(|_| "0 1").collect::<Vec<_>>().join(" ");
+    let program = stream_object(
+        &format!("/FunctionType 4 /Domain [0 1] /Range [{range}]"),
+        format!("{{ {} }}", "dup ".repeat(63)).as_bytes(),
+    );
+    // N cleared spans, none at either end of the domain, make 2N + 1 pieces.
+    for (placements, accepted) in [(511, true), (512, false)] {
+        let mut content = String::new();
+        for i in 0..placements {
+            let _ = write!(
+                content,
+                "q 1 0 0 1 -{} 0 cm /Sh0 sh Q ",
+                0.15 * f64::from(i)
+            );
+        }
+        let bytes = page_with(
+            "<< /Shading << /Sh0 6 0 R >> >>",
+            &content,
+            [99.9, 99.9, 100.1, 100.1],
+            &[shading.clone(), program.clone()],
+        );
+        let (report, out) = redact(&bytes);
+        if accepted {
+            assert!(
+                report.refused.is_empty(),
+                "{placements}: {:?}",
+                report.refused
+            );
+            let (_, function) = output_function(&out);
+            assert!(
+                at(&function, 0.4)
+                    .iter()
+                    .all(|value| (value - 0.4).abs() < 1e-6),
+                "the producer's program serves the parameters before the first span"
+            );
+            assert_eq!(
+                at(&function, 0.5),
+                vec![0.0; 64],
+                "the first span is destroyed"
+            );
+        } else {
+            let refused = report.refused.first().expect("the page is refused");
+            assert!(
+                refused.detail.contains("stitching function"),
+                "{}",
+                refused.detail
+            );
+        }
+    }
+}
+
+/// An outer stitching function (§7.10.4) of `pieces` pieces that all name one calculator function,
+/// under a radial shading the region holds whole: each piece is a function of its own to the
+/// viewer's reader, and each is stitched on its own, so the written tree is `1 + 2 * pieces`
+/// functions against the reader's budget of `MAX_FUNCTIONS` (ADR 2528).
+fn outer_stitching_of_one_calculator(pieces: usize) -> (Vec<u8>, [f32; 4]) {
+    let outputs = 64;
+    let range = (0..outputs).map(|_| "0 1").collect::<Vec<_>>().join(" ");
+    let bounds: Vec<String> = (1..pieces)
+        .map(|i| format!("{}", i as f64 / pieces as f64))
+        .collect();
+    let outer = format!(
+        "<< /FunctionType 3 /Domain [0 1] /Functions [{}] /Bounds [{}] /Encode [{}] >>",
+        vec!["8 0 R"; pieces].join(" "),
+        bounds.join(" "),
+        vec!["0 1"; pieces].join(" ")
+    )
+    .into_bytes();
+    let shading = b"<< /ShadingType 3 /ColorSpace /DeviceGray /Coords [100 100 0 100 100 80] \
+        /Function 7 0 R >>"
+        .to_vec();
+    let program = stream_object(
+        &format!("/FunctionType 4 /Domain [0 1] /Range [{range}]"),
+        format!("{{ {} }}", "dup ".repeat(outputs - 1)).as_bytes(),
+    );
+    let region = [10.0, 10.0, 190.0, 190.0];
+    let bytes = page_with(
+        "<< /Shading << /Sh0 6 0 R >> >>",
+        "/Sh0 sh",
+        region,
+        &[shading, outer, program],
+    );
+    (bytes, region)
+}
+
+/// The tree written over a calculator is counted against the budget of the viewer's own function
+/// reader, repeated references included: 2047 pieces make 4095 functions and are read back whole
+/// by that reader, destroyed inside the region; 2048 would make 4097, which the reader refuses
+/// for the whole shading, so the page is refused by name instead of reported as redacted and left
+/// undrawable outside the region as well.
+#[test]
+fn the_function_tree_written_over_calculators_is_held_to_the_readers_budget() {
+    let (bytes, _) = outer_stitching_of_one_calculator(2047);
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let (_, function) = output_function(&out);
+    assert_eq!(
+        at(&function, 0.3),
+        vec![0.0; 64],
+        "the region's parameters are destroyed"
+    );
+
+    let (bytes, _) = outer_stitching_of_one_calculator(2048);
+    let (report, _) = redact(&bytes);
+    let refused = report.refused.first().expect("the page is refused");
+    assert!(
+        refused.detail.contains("function reader"),
+        "{}",
+        refused.detail
+    );
 }
 
 /// §8.7.4.5.4's EXAMPLE 1, the leaf's radial shading — concentric circles, a stitching of two

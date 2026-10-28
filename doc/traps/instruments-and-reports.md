@@ -2011,3 +2011,44 @@ read a few coordinates. The precision applies to every float in the structure, e
 of every command, and the one print wrote a 10 GB log before the round noticed and deleted it. A display
 list is read by count and extent, or by printing the one command the question is about; a debug print of a
 whole list goes to a file with a size cap, never to a log the round will read.
+
+### 286. A zero-context diff is never applied to the shared worktree
+
+Round 1844 (ADR 2523) built its change in an export, diffed it with `-U0` and applied the patch to the
+shared worktree with `patch -p1`. Siblings had shifted `prepare.rs`, `fonts.rs` and `mod.rs` by then, and
+a patch with no context lands each hunk by line number alone: every hunk went in at the wrong place, the
+reverse patch misplaced them again, and the tree compiled nothing until the three files were repaired by
+hand. A change carried from an export to a tree other rounds edit lands by a three-way merge —
+`git merge-file` against the base snapshot, or `git apply --3way` — which puts a hunk where its context
+is and refuses where it cannot; and the first command after landing is `cargo check --tests`.
+
+### 287. A re-take's HEAD export builds every confined worker the gate starts
+
+Judging batch 124's red `t2-launch_path` by ADR 2242, the orchestrator exported HEAD and built
+`-p pdf-sandbox --bins` and the gate's test binary, as the turn-path re-take needs. The launch gate times a
+third confined process, the script worker, and that binary is `pdf-script-worker`'s own crate: HEAD's run
+printed "no script ran at the open, so no worker was started" and the one figure the re-take was for had
+nothing to compare against, so a second hold had to be taken. An export meant to stand in for HEAD under a
+gate builds every worker that gate starts — `pdf-sandbox`, `pdf-script-worker`, `viewer-confined` (the view
+worker), `pdf-vfs` and `pdf-transform` with `--bins` — before the hold, and the build's log is read for the
+binaries it made; two of them are bins of a crate with another name, so `-p <binary name>` builds nothing.
+
+### 288. A kill by pattern checks that the shell issuing it does not match
+
+Stopping a re-take hold, the orchestrator ran `ps -eo pid,args | grep -E '[b]ash /home/AI/retake2.sh'` and
+killed each match's process group, in a command that went on to write a new script with a heredoc that
+contained the words `bash /home/AI/retake2.sh`. The `[b]ash` form hides the pattern from the `grep` line,
+not from the `bash -c` that carries the whole command text, so the shell issuing the kill was among the
+matches and died with exit 144 before the heredoc or the relaunch ran. A kill by pattern prints its
+candidates and their arguments first and excludes `$$`'s group, or the process to stop writes a pid file
+at start and the kill reads that.
+
+### 289. A checker's place list is a prefix, and a remedy over it says so
+
+`pdf_archive` reports where a requirement fails, and stops naming places at thirty-two per requirement.
+Round 1850 (ADR 2535) found `AIAA-2002-4016-606` still failing after conversion: the rendering-intent
+rewrite walked the reported places, restated thirty-two of a hundred and fourteen, and the output failed
+the very row it had answered. Round 1843 met the same edge at its font list and refused by name. A remedy
+that iterates the checker's places asks first whether the list is a prefix; where it is, every object of
+the kind is a site, or the document is refused with the cut-short list named in the sentence, never
+written half-remedied as conforming.

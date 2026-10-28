@@ -31,7 +31,7 @@ mod cubic_spline;
 ///
 /// **It is not a bound on §7.10.4's k**, and applying it to one cost this tree four shadings
 /// in a real document; [`MAX_FUNCTIONS`] is that bound and says why the two are different.
-const MAX_VALUES: usize = 64;
+pub const MAX_VALUES: usize = 64;
 
 /// How many functions one call into the parser may build, and therefore §7.10.4's largest k.
 ///
@@ -50,7 +50,7 @@ const MAX_VALUES: usize = 64;
 /// leaves `breadth ^ depth` reachable. 4096 is sixteen times the largest k seen in a real
 /// file, and a `Function` is 120 bytes on this target, so the ceiling is 480 KiB of
 /// functions for one shading — checked by `tests/hostile_functions.rs` rather than recalled.
-const MAX_FUNCTIONS: usize = 4096;
+pub const MAX_FUNCTIONS: usize = 4096;
 
 /// How deep §7.10.4's stitching functions nest, on the way in and on the way out.
 ///

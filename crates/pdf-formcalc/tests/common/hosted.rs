@@ -22,9 +22,9 @@ impl Host for Hosted<'_, '_> {
             match segment.separator {
                 Separator::First | Separator::Dot => {}
                 Separator::DotDot => {
-                    return Err("the descendant separator `..` (page 94)".to_owned());
+                    return Err("the descendant separator `..` (page 104)".to_owned());
                 }
-                Separator::DotHash => return Err("the class separator `.#` (page 94)".to_owned()),
+                Separator::DotHash => return Err("the class separator `.#` (page 96)".to_owned()),
             }
             steps.push(Step {
                 name: segment.name.clone(),

@@ -30,7 +30,23 @@ impl Walk<'_> {
         let subtype = subtype.as_name().map(|name| name.as_bytes().to_vec());
         match subtype.as_deref() {
             Some(b"Form") => {
-                self.form(&stream, id, context.page, context.depth, state, Via::Form);
+                // The page's own table is the one searched when the invoking stream is the page's
+                // content or states no `/Resources` (§7.8.3), which is when the walk's resources
+                // are the page's.
+                let page_table = context.record.is_some_and(|record| {
+                    self.survey.streams.get(record).is_some_and(|invoking| {
+                        invoking.what == "the page content" || !invoking.own_resources
+                    })
+                });
+                self.form(
+                    &stream,
+                    id,
+                    context.page,
+                    context.depth,
+                    state,
+                    Via::Form,
+                    page_table,
+                );
             }
             Some(b"Image") => self.image(&stream, id, context),
             _ => {}
@@ -49,6 +65,11 @@ impl Walk<'_> {
     /// — and not against the stream that invoked it, whatever route that was. The two are one
     /// dictionary until a form is nested inside a form with `/Resources` of its own, and there
     /// `pdf_model`'s interpreter reads the page's too (ADR 1059).
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the walk's whole context travels together, as it does into `nested`, and naming \
+                  a struct for the four call sites would hide which argument a caller changed"
+    )]
     pub(super) fn form(
         &mut self,
         stream: &Stream,
@@ -57,6 +78,7 @@ impl Walk<'_> {
         depth: u32,
         state: &State,
         route: Via,
+        through_page_table: bool,
     ) {
         let mut state = state.clone();
         let own = self.document.get_key(&stream.dict, "Resources");
@@ -86,6 +108,7 @@ impl Walk<'_> {
             "a form XObject",
             stated_resources,
             route,
+            through_page_table,
         );
     }
 
@@ -106,6 +129,7 @@ impl Walk<'_> {
         description: &'static str,
         own_resources: bool,
         route: Via,
+        through_page_table: bool,
     ) {
         if depth >= MAX_FORM_DEPTH || self.opened >= MAX_STREAMS {
             self.survey.stopped_short = true;
@@ -113,17 +137,35 @@ impl Walk<'_> {
         }
         // A stream reached twice on one page draws the same marks twice, and following it once
         // is what stops a `/Resources` cycle from becoming an unbounded walk.
-        if let Some(id) = id
-            && !self.visited.insert((page, id))
-        {
-            return;
+        if let Some(id) = id {
+            if let Some(earlier) = self.visited.get(&(page, id)) {
+                // The second route to the stream is not followed again, but it is remembered:
+                // a stream also reached some other way has another name for it to be changed at.
+                if !through_page_table
+                    && let Some(record) = earlier.and_then(|at| self.survey.streams.get_mut(at))
+                {
+                    record.through_page_table = false;
+                }
+                return;
+            }
+            self.visited.insert((page, id), None);
         }
         let Ok(content) = NestedContent::of(self.document, stream, description.to_owned()) else {
             return;
         };
         self.opened = self.opened.saturating_add(1);
         let place = id.map_or_else(|| Where::page(page), Where::object);
-        let origin = self.open_record(page, id, place, description, own_resources);
+        let origin = self.open_record(
+            page,
+            id,
+            place,
+            description,
+            own_resources,
+            through_page_table,
+        );
+        if let Some(id) = id {
+            self.visited.insert((page, id), origin.record);
+        }
         let mut reader = content.reader();
         if let Some(ledger) = &mut self.ledger {
             // The interpreter's frame for a soft mask's group names no object — it holds the

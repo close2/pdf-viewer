@@ -37,6 +37,7 @@ impl Walk<'_> {
                     "a tiling pattern",
                     stated,
                     Via::TilingPattern,
+                    false,
                 );
             }
             Object::Dictionary(dict) => self.shading(&dict, state, context),

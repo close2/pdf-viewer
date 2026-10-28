@@ -21,7 +21,11 @@ use pdf_model::view::{
     ScriptEdit, ScriptEvent, ScriptSite, TextFlag, ViewChange, WidgetState, WindowView, ZoomType,
 };
 use pdf_model::viewer_preferences::PageLayout;
+use pdf_model::xfa::{Occurrence, Scalar, Step};
 use pdf_script::{Ending, Exceeded, Outcome, Refusal, RefusalKind, Request};
+use pdf_script_worker::form_wire::{
+    Done, FormAnswer, FormQuestion, FormRun, encode_answer, encode_form_run, encode_question,
+};
 use pdf_script_worker::wire::{MAX_SCRIPT_BYTES, Reply, Run, encode_reply, encode_run};
 
 /// A field as a realm is told of one.
@@ -343,6 +347,76 @@ fn replies() -> Vec<(String, Vec<u8>)> {
     seeds
 }
 
+/// A form's `FormCalc` run, and each question and answer of its conversation: the first byte of a
+/// question or an answer is the kind it is framed under, as the target reads it.
+fn forms() -> Vec<(String, Vec<u8>)> {
+    let step = |name: &str, occurrence| Step {
+        name: name.to_owned(),
+        occurrence,
+    };
+    let framed = |(kind, bytes): (u8, Vec<u8>)| {
+        let mut out = vec![kind];
+        out.extend_from_slice(&bytes);
+        out
+    };
+    vec![
+        (
+            "form-run".to_owned(),
+            encode_form_run(&FormRun {
+                node: 3,
+                steps_left: 100_000,
+                script: "Total = Units * Price".to_owned(),
+            }),
+        ),
+        (
+            "form-question-resolve".to_owned(),
+            framed(encode_question(&FormQuestion::Resolve(vec![
+                step("$", Occurrence::Same),
+                step("Row", Occurrence::Every),
+                step("Cell", Occurrence::At(-2)),
+                step("Next", Occurrence::Relative(1)),
+            ]))),
+        ),
+        (
+            "form-question-read".to_owned(),
+            framed(encode_question(&FormQuestion::Read(5))),
+        ),
+        (
+            "form-question-write".to_owned(),
+            framed(encode_question(&FormQuestion::Write(
+                5,
+                Scalar::Text("12".to_owned()),
+            ))),
+        ),
+        (
+            "form-question-done".to_owned(),
+            framed(encode_question(&FormQuestion::Done(Done {
+                steps: 9,
+                outcome: Ok(Scalar::Number(12.0)),
+            }))),
+        ),
+        (
+            "form-question-done-refused".to_owned(),
+            framed(encode_question(&FormQuestion::Done(Done {
+                steps: 0,
+                outcome: Err("refused".to_owned()),
+            }))),
+        ),
+        (
+            "form-answer-nodes".to_owned(),
+            framed(encode_answer(&FormAnswer::Nodes(Ok(vec![1, 2, 3])))),
+        ),
+        (
+            "form-answer-value".to_owned(),
+            framed(encode_answer(&FormAnswer::Value(Ok(Scalar::Number(4.5))))),
+        ),
+        (
+            "form-answer-ack-refused".to_owned(),
+            framed(encode_answer(&FormAnswer::Ack(Err("no value".to_owned())))),
+        ),
+    ]
+}
+
 fn main() {
     let Some(directory) = std::env::args_os().nth(1) else {
         eprintln!("usage: wire_seeds <directory>");
@@ -354,7 +428,7 @@ fn main() {
         std::process::exit(1);
     }
     let mut written = 0usize;
-    for (name, bytes) in runs().iter().chain(&replies()) {
+    for (name, bytes) in runs().iter().chain(&replies()).chain(&forms()) {
         match std::fs::write(directory.join(name), bytes) {
             Ok(()) => written = written.saturating_add(1),
             Err(error) => eprintln!("wire_seeds: {name}: {error}"),

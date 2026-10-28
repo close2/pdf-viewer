@@ -161,13 +161,17 @@ pub enum NotComparable {
     /// The prefix did not open as a document.
     #[error("the signed revision did not open as a document: {0}")]
     PrefixNotADocument(#[source] SyntaxError),
-    /// One of the two states' cross-reference tables was rebuilt by scanning for objects.
+    /// One of the two states' cross-reference tables was rebuilt by scanning for objects, or
+    /// read past a `/Prev` that named no section.
     ///
     /// A scanned table is this reader's synthesis and not the file's statement, so an object it
-    /// places is placed on the evidence of a header rather than of a cross-reference section.
-    /// Comparing two tables where either was recovered would compare one file's word with
-    /// another's guess.
-    #[error("the {which} document's cross-reference table was recovered by scanning")]
+    /// places is placed on the evidence of a header rather than of a cross-reference section; a
+    /// table whose chain was cut places the older sections' numbers the same way, and a number
+    /// freed only by an unread section comes back. Comparing two tables where either was
+    /// recovered would compare one file's word with another's guess (ADR 2526 section 6).
+    #[error(
+        "the {which} document's cross-reference table was recovered, by scanning or past a cut chain"
+    )]
     RecoveredByScan {
         /// Which of the two — `"signed"` or `"current"`.
         which: &'static str,
@@ -929,7 +933,7 @@ impl Comparison {
                 return Err(NotComparable::NotARevisionBoundary(other));
             }
         }
-        if current.was_recovered() {
+        if current.was_recovered() || current.cross_reference_chain_was_cut() {
             return Err(NotComparable::RecoveredByScan { which: "current" });
         }
         let Some(&(start, size)) = signature.byte_range.last() else {
@@ -944,7 +948,7 @@ impl Comparison {
             .map_err(NotComparable::PrefixNotHeld)?;
         let signed = Document::open_with_limits(prefix, current.limits())
             .map_err(NotComparable::PrefixNotADocument)?;
-        if signed.was_recovered() {
+        if signed.was_recovered() || signed.cross_reference_chain_was_cut() {
             return Err(NotComparable::RecoveredByScan { which: "signed" });
         }
         let tables: BTreeSet<usize> = xref::sections(file, current.limits())

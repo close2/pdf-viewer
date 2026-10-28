@@ -21,6 +21,11 @@
 //!   losses — it becomes the [`Authorisations`] entry a caller would otherwise type on the command
 //!   line, so a configuration authorising `image-smoothing` and `--authorise image-smoothing`
 //!   convert the same document identically.
+//!   **A `discard` at the part 4 `DeviceCMYK` row is the loss `press-assumed`**: the CMYK profile
+//!   this program ships is written as the file's `/DefaultCMYK` where the operator named no
+//!   press. The shipped `as-if-printed` carries it, and that profile's name means "as if printed
+//!   and scanned" — a lower bound on what may be lost, never an instruction to imitate printing
+//!   (`doc/questions/A694`, `doc/adr/2518`).
 //! - **`derive`** at [`DERIVABLE`]'s two sites: an embedded file the target refuses becomes what a
 //!   program the configuration declares made from it. `A55` is the permission and its four terms;
 //!   [`super::remedies`] carries them out and `A54`'s request-and-executor shape is why nothing

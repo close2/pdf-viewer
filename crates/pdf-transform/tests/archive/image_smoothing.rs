@@ -4,7 +4,8 @@
 //! ISO 32000-2 §8.9.5.3 calls the entry "only a hint", which a processor may ignore; ISO 19005-2
 //! section 6.2.8.1 and ISO 19005-4 section 6.2.7.1 require it false where an image states it. An
 //! inline image's `/I` sits in a content stream, which this converter carries byte for byte
-//! (`doc/adr/0816`), so that site keeps its refusal.
+//! (`doc/adr/0816`): `as-shown` keeps that refusal, and `as-if-printed` photographs the page, so
+//! that the output holds no inline image to state the key (`doc/adr/2516`).
 
 use super::*;
 use pdf_transform::profiles::{Contribution, named};
@@ -102,23 +103,42 @@ fn a_smoothed_image_converts_under_each_profile_with_the_loss_named() {
     }
 }
 
+const INLINE: &str = "graphics/inline-image-interpolation-is-off";
+
 #[test]
-fn an_inline_images_interpolation_stays_refused_under_the_profiles() {
-    for profile in ["as-if-printed", "as-shown"] {
-        for target in TARGETS {
-            let source = an_inline_smoothed_image(target);
-            let (report, output) = convert(&source, target, authorised_by(profile, target));
-            assert!(
-                output.is_none(),
-                "{profile} at {target}: nothing is written"
-            );
-            assert!(
-                matches!(
-                    decision(&report, "graphics/inline-image-interpolation-is-off"),
-                    Decision::Refused(_)
-                ),
-                "{profile} at {target}"
-            );
-        }
+fn an_inline_images_interpolation_stays_refused_under_as_shown() {
+    for target in TARGETS {
+        let source = an_inline_smoothed_image(target);
+        let (report, output) = convert(&source, target, authorised_by("as-shown", target));
+        assert!(output.is_none(), "as-shown at {target}: nothing is written");
+        assert!(
+            matches!(decision(&report, INLINE), Decision::Refused(_)),
+            "as-shown at {target}"
+        );
+    }
+}
+
+/// ISO 19005-2 section 6.2.8.1 and ISO 19005-4 section 6.2.7.1 bind the key where an image states
+/// it; the photograph of the page the window draws holds one image whose dictionary states no
+/// `/Interpolate`, so the page conforms and the inline image's own bytes are in no output stream.
+#[test]
+fn an_inline_images_interpolation_is_photographed_under_as_if_printed() {
+    for target in TARGETS {
+        let source = an_inline_smoothed_image(target);
+        let (report, output) = convert(&source, target, authorised_by("as-if-printed", target));
+        let Decision::Authorised { losses, .. } = decision(&report, INLINE) else {
+            panic!("as-if-printed at {target}: {:?}", decision(&report, INLINE));
+        };
+        assert!(
+            losses.iter().eq([Loss::TextAsImage, Loss::PageAsImage]),
+            "{}",
+            losses.words()
+        );
+        let output = output.expect("a file is written");
+        assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+        let pages = &conversion(&report).photographed;
+        assert_eq!(pages.len(), 1, "{pages:?}");
+        assert!(pages[0].anywhere);
+        assert!(pages[0].text.is_empty(), "a page showing no text");
     }
 }

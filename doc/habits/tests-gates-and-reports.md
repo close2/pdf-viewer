@@ -762,3 +762,25 @@ found a sibling's new field had put a full literal past clippy's hundred-line li
 every round that touched the file that batch; the shortened literal cannot grow again. A literal that names
 every field is also the one that breaks for every round adding one, which is what the shared tree's
 `-U0` rule (trap 193) exists to prevent.
+
+## A census a sibling's build can break is re-run until every output carries its footer
+
+Round 1840 (ADR 2514) censused forty-two profile-by-target listings with `cargo run` while siblings edited
+the crate; seven listings failed on a sibling's compile error of the moment and would have joined the table
+as empty rows. A census taken in a shared worktree is read for its footer line in every output before any
+figure is joined, and a run that lacks one is re-run; a census that must not move with the tree is taken
+in an export.
+
+## In the shared worktree only your own files are formatted, with rustfmt
+
+Rounds 1842 and 1845 ran `cargo fmt -p <crate>` in the shared worktree and reformatted siblings'
+half-edited files, which the siblings then found changed under them (round 1845's proposed trap). Formatting
+in a tree other rounds edit is `rustfmt --edition 2024 <your files>`; `cargo fmt --all` runs once, at the
+merge, by the orchestrator.
+
+## A queued walk whose source changed before the lock was granted is rebuilt first
+
+Round 1848 (ADR 2531) had two corpus walks queued behind the heavy-walk lock when it changed the fit's
+default; granted as queued, both would have measured the binary built before the change and reported the
+old default's figures as the new one's. A walk that waited in the queue is preceded by a rebuild and a
+check of what the binary now does whenever its source moved while it waited.

@@ -202,9 +202,12 @@ groups, in the order a slot should take them:
    so the rewriter skipped it, and it is now the type rule's. A PostScript XObject the page invokes
    was the other: ADR 2115 writes it as a form that draws nothing.)
 3. **The colour family the profile in hand cannot answer.** `DeviceCMYK`, or a group blending in
-   it, beside an RGB intent at part 4, and such a group at part 2: no profile ships a press, so
-   these stay refused under both profiles — part 4's `DeviceCMYK` row with the sentence naming the
-   flag, the group, base and alternate rows by the output's verdict; the operator's
+   it, beside an RGB intent at part 4, and such a group at part 2. **Part 4's `DeviceCMYK` row is
+   answered under `as-if-printed`** by the loss `press-assumed`: the CMYK profile this program ships
+   is written as the `/DefaultCMYK` and named in the report and in `xmpMM:History` (A694 item 2,
+   ADR 2518); `as-shown` stops there, and a group at part 2 keeps its refusal, since part 2's other
+   licence states no press. The rows below it are refused as before — the group, base
+   and alternate rows by the output's verdict; the operator's
    `--output-intent-profile` with the press's CMYK profile answers every one, as an `ICCBased`
    `/DefaultCMYK` beside the file's own intent (ADR 2130). `a_supplied_press_profile_answers_the_
    colour_family_refusals` is the census with one supplied. `DeviceRGB` inside a group blending in
@@ -369,3 +372,21 @@ each page the producer's, the loss named in the report and in one `xmpMM:History
 encrypted source, a signed one, a direct page and a page that does not parse whole keep their
 refusal, each by name, with the elegant remedy written down in the ADR; `optimize` and `redact` keep
 the decline.
+
+**`as-if-printed` is "as if printed and scanned"** (the owner, A694 item 2): the profile is a lower
+bound on what may be lost if a company printed the document and scanned the print. It never tells the
+converter to imitate printing, and its one assumed press (`press-assumed`) is a loss the report
+and the file's history name (ADR 2518 section 2), not a simulation. `as-shown`'s route to the same row, this reader's
+assumed inks written as an ICC table, is owed to a writer that does not exist (ADR 2519).
+
+**The output check cannot see a `DeviceCMYK` mark a `/DefaultCMYK` makes `ICCBased`** (ADR 2518
+section 5). ISO 32000-2 §8.6.5.6 reads such a mark in the default's space, and ISO 19005-4 section
+6.2.4.2 forbids overprint mode 1 for it, but `no_overprint_mode_one_under_icc_cmyk` in
+`pdf-archive`'s `table/graphics.rs` examines only the paints `survey.icc_cmyk_paints()` recorded, so
+the survey needs to resolve the default per resource scope. Witness, to plant on veraPDF at part 4:
+an sRGB output intent, a page resource `/DefaultCMYK` over any CMYK ICC profile, the state
+`/ExtGState << /G0 << /OP true /op true /OPM 1 >> >>` and the content `/G0 gs 0 0 0 1 k 0 0 10 10 re
+f`; veraPDF fails test 2 of the clause while this tree's check says the file conforms. The same file
+without the default, converted by the assumed route, is refused by the guard in `supplied_cmyk.rs`
+(`overprint_mode_one_behind_the_default_keeps_the_refusal` builds it). Taking the gap lets that
+guard go.

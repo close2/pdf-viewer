@@ -99,6 +99,17 @@ impl CpuRasterizer {
             return Ok(());
         };
         let at = to_device.of(transform);
+        // §10.7.5's first requirement, where `/SA` asks for it and the caller turned the fit on
+        // (it is off by default, ADR 2531): a thin stroke along the device axes is drawn one
+        // whole pixel wide across pixel centres, and everything below strokes the fitted path as
+        // though the document had stated it (ADR 2530).
+        let fitted = self
+            .stroke_adjustment
+            .then(|| pdf_render::grid_fit(path, stroke, at))
+            .flatten();
+        let (path, stroke) = fitted
+            .as_ref()
+            .map_or((path, stroke), |f| (&f.path, &f.stroke));
         // A straight stroke whose ink lies in two by two pixels — §8.5.3.2's round dot among them,
         // the same set at length zero, so it never reaches `split_degenerate` below — is painted
         // from its closed-form area before any outline, edge or pipeline is built for it. The

@@ -720,6 +720,17 @@ pub enum Rewrite {
     /// the way, and `super::sites::standard_route_names` proves the names first: every code
     /// shown has to reach the glyph it reached before, by the route (ADR 1942).
     StandardRouteNames,
+    /// A rendered TrueType font becomes the symbolic font ISO 32000-2 §9.6.5.4 describes, its
+    /// program's `cmap` rewritten so each code reaches the glyph this reader drew.
+    ///
+    /// ISO 19005-2 section 6.2.11.6 and ISO 19005-4 section 6.2.10.6 hold a rendered font's
+    /// program and encoding to §9.6.5.4's rules. The dictionary's `/Encoding` goes, the
+    /// descriptor states the Symbolic flag and not the Nonsymbolic one, and the program carries
+    /// the Macintosh Roman (1, 0) and Microsoft Symbol (3, 0) subtables of the glyphs the reader
+    /// drew; `super::fonts` proves the font loads again with every code on the glyph it reached
+    /// before. The outlines and every other table of the program are the producer's bytes
+    /// (`doc/adr/2520`).
+    TrueTypeCmapRestated,
     /// A Type 3 font's glyph named `.notdef` is given another name, in its encoding's
     /// `/Differences` and its `/CharProcs` alike.
     ///
@@ -1240,8 +1251,10 @@ impl Rewrite {
             }
             Self::SuppliedDefaultCmyk => {
                 "every resource dictionary explicitly associated with a content stream states a \
-                 DefaultCMYK: an ICCBased space over the CMYK press profile the operator \
-                 supplied, beside a destination profile of another colour family"
+                 DefaultCMYK: an ICCBased space over a CMYK press profile - the operator's \
+                 where one was supplied, and otherwise, under an authorised press-assumed, the \
+                 one this program ships - beside a destination profile of another colour \
+                 family"
             }
             Self::MarkInfo => {
                 "the catalog states MarkInfo with Marked true, which the structure tree this \
@@ -1440,6 +1453,13 @@ impl Rewrite {
                  it shows was drawn with where only a mapping of the reader's choosing reached \
                  it, by the Adobe Glyph List name of the character its ToUnicode states, so the \
                  route ISO 32000-2 \u{a7}9.6.5.4 sets out reaches the same glyph"
+            }
+            Self::TrueTypeCmapRestated => {
+                "a rendered TrueType font becomes the symbolic font ISO 32000-2 \u{a7}9.6.5.4 \
+                 describes: its program's cmap gains the Macintosh Roman and Microsoft Symbol \
+                 subtables mapping each code to the glyph this reader drew, its Encoding entry \
+                 goes and its descriptor states the Symbolic flag, so every code reaches that \
+                 glyph by the subclause's own route"
             }
             Self::Type3NotdefRenamed => {
                 "a Type 3 font's glyph procedure named .notdef is given another name in its \
@@ -1717,6 +1737,7 @@ impl Rewrite {
             Self::SymbolicTrueTypeEncodingRemoved => "symbolic-truetype-encoding-removed",
             Self::StandardTrueTypeEncoding => "standard-truetype-encoding",
             Self::StandardRouteNames => "standard-route-names",
+            Self::TrueTypeCmapRestated => "truetype-cmap-restated",
             Self::Type3NotdefRenamed => "type3-notdef-renamed",
             Self::SharedDestinationProfile => "shared-destination-profile",
             Self::SpotColorantEntry => "spot-colorant-entry",
@@ -1927,6 +1948,7 @@ impl<'a> Rewriter<'a> {
             symbolic_encodings: prepared.owed.symbolic_encodings.as_ref().ok(),
             standard_encodings: prepared.owed.standard_encodings.as_ref().ok(),
             standard_route: prepared.owed.standard_route.as_ref().ok(),
+            cmap_restated: prepared.owed.cmap_restated.as_ref().ok(),
             type3_notdef: prepared.owed.type3_notdef.as_ref().ok(),
             shared_profile: prepared.owed.shared_profile.as_ref().ok(),
             colorants: prepared.owed.colorants.as_ref().ok(),
@@ -2285,6 +2307,9 @@ struct Sites {
 
     /// Every annotation object a page's `/Annots` names, except a `Popup`.
     annotations: BTreeSet<ObjectId>,
+    /// The objects whose `/Annots` array holds annotation dictionaries written directly in it that
+    /// state no flags: the array's own object where it is one, and the page otherwise.
+    direct_annotations: BTreeSet<ObjectId>,
     /// Where a `/DefaultCMYK` or a `/DefaultRGB` has to be written, where one is being written.
     defaults: DefaultSites,
 }
@@ -2312,10 +2337,10 @@ impl Sites {
             // first rule applied to a *reading* rather than to a rewrite.
             DefaultSites::default()
         };
-        let annotations = if wanted.contains(&Rewrite::AnnotationFlags) {
+        let (annotations, direct_annotations) = if wanted.contains(&Rewrite::AnnotationFlags) {
             annotation_objects(document, &tree)
         } else {
-            BTreeSet::new()
+            (BTreeSet::new(), BTreeSet::new())
         };
         // A page appended to the document is added to the node §7.7.3.2 makes the catalog's
         // `/Pages`, whose `/Kids` "may be a combination of page tree nodes and page objects" — so
@@ -2335,21 +2360,28 @@ impl Sites {
             pages,
             root_of_the_pages,
             annotations,
+            direct_annotations,
             defaults,
         }
     }
 }
 
-/// Every annotation §12.5.2's page `/Annots` array names, except the subtype ISO 19005 exempts.
+/// Every annotation §12.5.2's page `/Annots` array names, except the subtype ISO 19005 exempts,
+/// and the objects holding annotation dictionaries written directly in that array.
 ///
 /// **A structural walk rather than the validator's list**, for [`DefaultSites`]'s reason: a findings
 /// list is capped, and a document with more annotations than the cap is one this rewrite would
-/// otherwise half-finish. An annotation written directly into the array rather than as an object
-/// of its own is not reached — this walk rewrites objects — and the requirement then stays failed,
-/// which `doc/adr/0947`'s third stage refuses the file for.
-fn annotation_objects(document: &Document, tree: &Pages<'_>) -> BTreeSet<ObjectId> {
+/// otherwise half-finish. An annotation written directly into the array has no object of its own,
+/// so its flags are written through the object that holds the array — the array when it is an
+/// object, the page when it is not — and the second set names those holders.
+fn annotation_objects(
+    document: &Document,
+    tree: &Pages<'_>,
+) -> (BTreeSet<ObjectId>, BTreeSet<ObjectId>) {
     let mut out = BTreeSet::new();
+    let mut holders = BTreeSet::new();
     for page in tree.every().into_iter().flatten() {
+        let held = page.dict.get("Annots").and_then(Object::as_reference);
         let Some(annotations) = document
             .get_key(&page.dict, "Annots")
             .as_array()
@@ -2359,6 +2391,12 @@ fn annotation_objects(document: &Document, tree: &Pages<'_>) -> BTreeSet<ObjectI
         };
         for entry in &annotations {
             let Some(id) = entry.as_reference() else {
+                if let Some(dict) = entry.as_dict()
+                    && needs_flags(document, dict)
+                    && let Some(holder) = held.or(page.id)
+                {
+                    holders.insert(holder);
+                }
                 continue;
             };
             let resolved = document.get(id);
@@ -2367,17 +2405,26 @@ fn annotation_objects(document: &Document, tree: &Pages<'_>) -> BTreeSet<ObjectI
             };
             // §12.5.6.14's popup is the window belonging to some other annotation, and both
             // parts' section 6.3.2 name it as the one subtype the entry is not required of.
-            if document
-                .get_key(dict, "Subtype")
-                .as_name()
-                .is_some_and(|name| name.as_bytes() == b"Popup")
-            {
+            if is_popup(document, dict) {
                 continue;
             }
             out.insert(id);
         }
     }
-    out
+    (out, holders)
+}
+
+/// Whether a subtype ISO 19005 section 6.3.2 requires `/F` of states none.
+fn needs_flags(document: &Document, dict: &Dictionary) -> bool {
+    !is_popup(document, dict) && document.get_key(dict, "F").as_integer().is_none()
+}
+
+/// Whether the annotation is §12.5.6.14's popup.
+fn is_popup(document: &Document, dict: &Dictionary) -> bool {
+    document
+        .get_key(dict, "Subtype")
+        .as_name()
+        .is_some_and(|name| name.as_bytes() == b"Popup")
 }
 
 /// §12.5.3's Table 167 `Print` bit, at bit position 3 counted from the low-order bit.
@@ -2837,6 +2884,8 @@ struct Rewriter<'a> {
     standard_encodings: Option<&'a StandardEncodings>,
     /// The `/Encoding` each TrueType font whose codes are named for §9.6.5.4's route is to state.
     standard_route: Option<&'a StandardRouteNames>,
+    /// The descriptor each TrueType font whose program's `cmap` is restated now names.
+    cmap_restated: Option<&'a super::fonts::CmapRestated>,
     /// The `/Encoding` and `/CharProcs` each Type 3 font with a renamed `.notdef` is to state.
     type3_notdef: Option<&'a Type3Renames>,
     /// The one destination profile every output intent is to name, where they are being shared.
@@ -2938,6 +2987,12 @@ impl Rewriter<'_> {
                 count(applied, Rewrite::DuplicateProfileWrittenDeviceCmyk);
             }
             changed |= written > 0;
+        }
+        if self.wants(Rewrite::AnnotationFlags)
+            && self.sites.direct_annotations.contains(&id)
+            && let Object::Array(items) = &mut out
+        {
+            changed |= self.flag_direct_annotations(items, applied);
         }
         if changed {
             Rewritten::Changed(out)
@@ -3271,6 +3326,15 @@ impl Rewriter<'_> {
             || self.wants(Rewrite::ExtensionFieldDescribed)
             || self.wants(Rewrite::InformationMovedIntoThePacket)
             || self.wants(Rewrite::InterpolationOff)
+            || self.wants(Rewrite::TrueTypeCmapRestated)
+            // A face embedded for a font the file never carried, and a photographed page
+            // (`doc/adr/2394` item 5), are stated in the file's own history (ISO 19005-2 section
+            // 6.6.6, NOTE 1), and a packet that needs no other edit would otherwise cross
+            // unchanged while the report said the history holds the entry.
+            || (self.wants(Rewrite::SubstituteFontProgram)
+                && self
+                    .substitutes
+                    .is_some_and(|substitutes| !substitutes.recorded().is_empty()))
     }
 }
 

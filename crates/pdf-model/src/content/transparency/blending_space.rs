@@ -561,13 +561,10 @@ impl Interpreter<'_> {
     /// its chromatic bullet is what [`crate::colour::Plane::Chromatic`] holds, and the rule it
     /// gives the black component is what its own four functions return on the neutral colour
     /// [`crate::colour::Plane::Black`] holds. `render-cpu`'s `blend` module has the derivation.
-    /// **The order among them is not a reading rule any more, and ADR 0417 is why.** ADR 0416
-    /// had to put a file-stated reason in front of the one [`crate::colour::MAX_PRESSES`]
-    /// supplied, because that one was a fact about the process and reporting it in place of
-    /// what the page says about itself made a verdict that moved between runs. Every reason
-    /// here is the document's now, so the order is back to the plain one — the space itself
-    /// first, then what a group inside did to it — and either of them is the same answer on
-    /// every run.
+    /// **The order among them is not a reading rule, and ADR 0417 is why.** Every reason here
+    /// is the document's — the press budget is the interpretation's own, never the process's —
+    /// so the order is the plain one, the space itself first and then what a group inside did to
+    /// it, and either of them is the same answer on every run.
     ///
     /// **§11.7.5.3's black generation is not a condition either, since it is not a second colour
     /// space** (ADR 1069). Table 57's `/BG` and `/UCR` are §10.4.2.4's parameters, and §10.4.2.1

@@ -427,7 +427,7 @@ pub fn report(found: &Found) -> String {
 /// Derived from the manifests rather than from the imports, because a comment may name a type of
 /// a crate this file does not itself import while the crate's manifest still admits it. The
 /// direction matters: `pdf-model` depends on `pdf-colour`, so a comment in `pdf-model` naming
-/// `colour::MAX_PRESSES` is about `pdf-colour`'s constant; `render-raster` does not depend on
+/// `colour::PRESS_BYTES` is about `pdf-colour`'s constant; `render-raster` does not depend on
 /// `viewer-ui`, so a `Surface` written there cannot be `viewer-ui`'s.
 fn reachable(
     root: &Path,

@@ -171,7 +171,7 @@ pub fn standing(requirement: &Requirement) -> Standing {
         }
         return Standing::Remedy(match remedy.answer {
             Answer::Mechanical(_) => Kind::Mechanical,
-            Answer::Stated(..) => Kind::Stated,
+            Answer::Stated(..) | Answer::OrCmapRestated(_) => Kind::Stated,
             Answer::Loses(..) => Kind::Loses,
             Answer::CmykUnderPartTwo
             | Answer::CmykUnderPartFour

@@ -118,6 +118,26 @@ impl Rewriter<'_> {
         )
     }
 
+    /// Gives each annotation dictionary written directly in an `/Annots` array the flags ISO 19005
+    /// section 6.3.2 requires, where it states none, and says whether any was given.
+    pub(super) fn flag_direct_annotations(
+        &self,
+        items: &mut [Object],
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let mut changed = false;
+        for item in items {
+            if let Object::Dictionary(dict) = item
+                && super::needs_flags(self.document, dict)
+            {
+                dict.insert(Name::new(&b"F"[..]), Object::Integer(PRINT));
+                count(applied, Rewrite::AnnotationFlags);
+                changed = true;
+            }
+        }
+        changed
+    }
+
     /// The rewrites that write one entry of a dictionary and move nothing.
     ///
     /// The annotation `/F` an absent entry is given, and the `preserve` and `supply` answers
@@ -142,6 +162,17 @@ impl Rewriter<'_> {
             out.insert(Name::new(&b"F"[..]), Object::Integer(PRINT));
             count(applied, Rewrite::AnnotationFlags);
             changed = true;
+        }
+        // The same entry for annotations written directly in a page's own `/Annots` array.
+        if self.wants(Rewrite::AnnotationFlags)
+            && self.sites.direct_annotations.contains(&id)
+            && let Some(Object::Array(items)) = out.get("Annots").cloned()
+        {
+            let mut items = items;
+            if self.flag_direct_annotations(&mut items, applied) {
+                out.insert(Name::new(&b"Annots"[..]), Object::Array(items));
+                changed = true;
+            }
         }
         // `doc/adr/1285`: the annotation the removal would have taken stays, with the flags ISO
         // 19005-2 section 6.3.2 asks for and every other bit its producer's. The population is the

@@ -33,6 +33,17 @@
 //!   at marked content no longer on the page, **or optional content** (§8.11), whose other
 //!   configurations a photograph of one would discard.
 //!
+//! # The wider gate (A694 item 1)
+//!
+//! Where the profile authorises [`crate::archive::Loss::PageAsImage`] (`as-if-printed`: what a company does when it
+//! prints a letter and scans the print), the first condition is lifted and two populations join
+//! the pages photographed: a page showing a font that any route of this program refused to embed
+//! a face into, and a page holding a fault of its content stream the target refuses
+//! (`super::super::fenced`). The page's text is then named — in the report and in the file's
+//! history — because it is what the photograph turns into pixels. The other two conditions stay:
+//! a structure tree would be left pointing at marked content that is gone, and the other
+//! configurations of optional content would be discarded, which is no part of what a print loses.
+//!
 //! # Where it is offered
 //!
 //! At Level B of ISO 19005-2 and at every flavour of ISO 19005-4, which ask no Unicode of a page;
@@ -87,6 +98,9 @@ pub(super) struct Deferred {
     /// Such a font's map names characters for some codes as a rule, and where those make the
     /// page's text extractable the re-keying route's own sentence says more than the gate's.
     mapped: bool,
+    /// Whether the font is held by the wider gate: some route refused it, and it is photographed
+    /// around only where the profile authorised [`crate::archive::Loss::PageAsImage`].
+    anywhere: bool,
 }
 
 /// One page this conversion photographed: what the report and the file's history name.
@@ -102,6 +116,16 @@ pub struct PhotographedPage {
     pub width: u32,
     /// Its height in pixels.
     pub height: u32,
+    /// The text the page showed, with its white space collapsed, as far as [`MAX_TEXT_CHARS`] and
+    /// no further: what the photograph turned into pixels. Empty for a page that showed none.
+    pub text: String,
+    /// How many characters of the page's text [`Self::text`] does not repeat.
+    pub text_elided: usize,
+    /// The requirements whose failure on this page the photograph answers, besides the fonts.
+    pub requirements: Vec<String>,
+    /// Whether the wider gate admitted the page, which the narrow one would have refused; the
+    /// loss [`crate::archive::Loss::PageAsImage`] is incurred then, beside [`crate::archive::Loss::TextAsImage`].
+    pub anywhere: bool,
 }
 
 /// What a photographed page's dictionary is given in place of its content.
@@ -119,6 +143,55 @@ pub(super) const fn offered(target: Target) -> bool {
     matches!(target, Target::Two(Level::B) | Target::Four(_))
 }
 
+/// How many characters of a photographed page's text the report and the history name; the rest is
+/// counted, so that a page of a book does not become a megabyte of report.
+pub const MAX_TEXT_CHARS: usize = 1_000;
+
+/// How many pages the wider gate photographs in one conversion. Each is a raster at
+/// [`DOTS_PER_INCH`] held until the file is written, so a document that fails on every page of a
+/// long book is refused by name rather than held in memory. The pages the narrow gate admits are
+/// not counted.
+pub const MAX_PHOTOGRAPHED_PAGES: usize = 32;
+
+/// How many pixels the pages the wider gate photographs hold together: what one page may be drawn
+/// to (`Budget::max_pixels`), so that a document of hostile pages costs what one hostile page did.
+/// About thirty-one letter-size pages at [`DOTS_PER_INCH`].
+const MAX_PHOTOGRAPHED_PIXELS: u64 = 1 << 28;
+
+/// What decides whether pages are photographed beyond the narrow gate.
+#[derive(Debug, Clone, Copy)]
+pub(in super::super) struct Gate<'a> {
+    /// Whether the target admits a page with no text layer ([`offered`]).
+    pub(in super::super) offered: bool,
+    /// Whether the profile authorised [`crate::archive::Loss::PageAsImage`], so that a page is photographed
+    /// whatever text it shows and the fonts the other routes refused are photographed around.
+    pub(in super::super) anywhere: bool,
+    /// The pages (zero-based) that hold a fault of their content stream, with the requirements,
+    /// where `anywhere` (`super::super::fenced::pages`).
+    pub(in super::super) fenced: &'a super::super::fenced::Fenced,
+}
+
+impl<'a> Gate<'a> {
+    /// The gate for `target`: the wider gate only where the target offers a photographed page at
+    /// all, and nothing fenced is photographed where it does not.
+    pub(in super::super) fn new(
+        target: Target,
+        anywhere: bool,
+        fenced: &'a super::super::fenced::Fenced,
+    ) -> Self {
+        Self {
+            offered: offered(target),
+            anywhere: anywhere && offered(target),
+            fenced,
+        }
+    }
+
+    /// Whether `target` offers a photographed page with no text layer.
+    pub(in super::super) const fn admits(target: Target) -> bool {
+        offered(target)
+    }
+}
+
 /// Holds a font whose glyphs no face can be keyed to until its pages are known.
 ///
 /// Nothing is refused here: the decision is [`photograph`]'s, once every font is in.
@@ -126,6 +199,7 @@ pub(super) fn defer(
     document: &Document,
     used: &SelectedFont,
     refusal: Because,
+    anywhere: bool,
     substitutes: &mut Substitutes,
 ) {
     substitutes.deferred.push(Deferred {
@@ -133,12 +207,14 @@ pub(super) fn defer(
         requested: super::base_font(document, &used.dict),
         refusal,
         mapped: matches!(document.get_key(&used.dict, "ToUnicode"), Object::Stream(_)),
+        anywhere,
     });
 }
 
-/// Photographs every page that shows a deferred font, or refuses the first that may not be.
+/// Photographs every page that shows a deferred font or holds a fenced fault, or refuses the first
+/// that may not be.
 ///
-/// `offered` is whether the target admits a page with no text at all (the module comment's
+/// `gate.offered` is whether the target admits a page with no text at all (the module comment's
 /// *Where it is offered*); where it does not, the first deferred font's own refusal stands.
 ///
 /// # Errors
@@ -147,15 +223,18 @@ pub(super) fn defer(
 /// shows it, and a sentence for a page that cannot be drawn within the budget.
 pub(super) fn photograph(
     document: &Document,
-    offered: bool,
+    gate: Gate<'_>,
     spare: &mut Spare,
     substitutes: &mut Substitutes,
 ) -> Result<(), Because> {
-    let Some(first) = substitutes.deferred.first() else {
+    if substitutes.deferred.is_empty() && gate.fenced.pages.is_empty() {
         return Ok(());
-    };
-    if !offered {
-        return Err(first.refusal);
+    }
+    if !gate.offered {
+        return match substitutes.deferred.first() {
+            Some(first) => Err(first.refusal),
+            None => Err(Because::NotBuiltYet(NOT_OFFERED)),
+        };
     }
     let catalog = document.catalog().unwrap_or_default();
     if catalog.get("StructTreeRoot").is_some() {
@@ -164,9 +243,13 @@ pub(super) fn photograph(
     if catalog.get("OCProperties").is_some() {
         return Err(Because::NotBuiltYet(LAYERED));
     }
+    let every = Pages::new(document).every();
+    if gate.anywhere {
+        refuse_fenced_pages_past_the_bounds(&every, gate)?;
+    }
     let mut reached = vec![false; substitutes.deferred.len()];
     let mut profile = None;
-    for (index, page) in Pages::new(document).every().into_iter().enumerate() {
+    for (index, page) in every.into_iter().enumerate() {
         let Some(page) = page else {
             continue;
         };
@@ -176,12 +259,27 @@ pub(super) fn photograph(
             return Err(Because::NotBuiltYet(LEDGER_TRUNCATED));
         }
         let shown = shown_here(&ledger, &substitutes.deferred);
-        if shown.is_empty() {
+        let fenced = gate.fenced.pages.get(&index);
+        if shown.is_empty() && fenced.is_none() {
             continue;
         }
-        admitted(&interpretation, &shown, &substitutes.deferred)?;
+        // The bounds belong to the wider gate: a page the narrow gate admits is not counted.
+        let wide = fenced.is_some()
+            || interpretation.text.chars().any(|c| !c.is_whitespace())
+            || shown
+                .iter()
+                .any(|&font| substitutes.deferred.get(font).is_some_and(|d| d.anywhere));
+        let held = || substitutes.photographed.iter().filter(|p| p.anywhere);
+        if wide && held().count() >= MAX_PHOTOGRAPHED_PAGES {
+            return Err(Because::NotBuiltYet(TOO_MANY_PAGES));
+        }
+        admitted(&interpretation, &shown, &substitutes.deferred, gate)?;
         let id = page.id.ok_or(Because::NotBuiltYet(PAGE_NOT_AN_OBJECT))?;
-        let raster = taken(&interpretation.display_list)?;
+        let pixels_left = pixels_left(held());
+        let raster = taken(
+            &interpretation.display_list,
+            if wide { pixels_left } else { u64::MAX },
+        )?;
         let placed = placement(
             &content,
             interpretation.display_list.page_size.height,
@@ -206,17 +304,13 @@ pub(super) fn photograph(
                 *seen = true;
             }
         }
-        substitutes.photographed.push(PhotographedPage {
-            page: index.saturating_add(1),
-            fonts: shown
-                .iter()
-                .filter_map(|&font| substitutes.deferred.get(font))
-                .map(|font| font.requested.clone())
-                .collect(),
-            dots_per_inch: DOTS_PER_INCH,
-            width: raster.width,
-            height: raster.height,
-        });
+        substitutes.photographed.push(photographed_page(
+            index,
+            &interpretation.text,
+            (&shown, fenced),
+            &raster,
+            &substitutes.deferred,
+        ));
     }
     // A font no page's content showed was reached some other way — an annotation's appearance is
     // the one the content-only interpretation leaves out — and a photograph of a page cannot take
@@ -236,6 +330,39 @@ pub(super) fn photograph(
         substitutes.done.retain(|font| held.contains(&font.font));
     }
     Ok(())
+}
+
+/// What the report and the history name of one page just photographed.
+fn photographed_page(
+    index: usize,
+    text: &str,
+    (shown, fenced): (&[usize], Option<&BTreeSet<&'static str>>),
+    raster: &pdf_render::Raster,
+    deferred: &[Deferred],
+) -> PhotographedPage {
+    let (text, text_elided) = named_text(text);
+    let requirements: Vec<String> = fenced
+        .into_iter()
+        .flatten()
+        .map(|row| (*row).to_owned())
+        .collect();
+    let fonts: Vec<&Deferred> = shown
+        .iter()
+        .filter_map(|&font| deferred.get(font))
+        .collect();
+    let anywhere =
+        !requirements.is_empty() || !text.is_empty() || fonts.iter().any(|font| font.anywhere);
+    PhotographedPage {
+        page: index.saturating_add(1),
+        fonts: fonts.iter().map(|font| font.requested.clone()).collect(),
+        dots_per_inch: DOTS_PER_INCH,
+        width: raster.width,
+        height: raster.height,
+        text,
+        text_elided,
+        requirements,
+        anywhere,
+    }
 }
 
 /// The keys a photographed page's dictionary loses, whose values the output therefore does not
@@ -310,14 +437,16 @@ fn still_held(
     held
 }
 
-/// The owner's gate over one page's content-only interpretation: nothing a reader can extract,
-/// and nothing the window left undrawn but the fonts it could not draw.
+/// The owner's gate over one page's content-only interpretation: nothing a reader can extract
+/// (unless `anywhere`, the wider gate), and nothing the window left undrawn but the fonts it could
+/// not draw.
 fn admitted(
     interpretation: &pdf_model::content::Interpretation,
     shown: &[usize],
     deferred: &[Deferred],
+    gate: Gate<'_>,
 ) -> Result<(), Because> {
-    if interpretation.text.chars().any(|c| !c.is_whitespace()) {
+    if !gate.anywhere && interpretation.text.chars().any(|c| !c.is_whitespace()) {
         let keyed = shown
             .iter()
             .filter_map(|&font| deferred.get(font))
@@ -327,17 +456,135 @@ fn admitted(
     if interpretation
         .unsupported
         .iter()
-        .any(|report| !matches!(report, Unsupported::Font { .. } | Unsupported::Text { .. }))
+        .any(|report| leaves_the_page_undrawn(report, gate))
     {
         return Err(Because::NotBuiltYet(NOT_DRAWN_WHOLE));
     }
     Ok(())
 }
 
-/// The page's display list drawn by the oracle backend at [`DOTS_PER_INCH`].
-fn taken(list: &pdf_render::DisplayList) -> Result<pdf_render::Raster, Because> {
-    let target = TargetSpec::for_page(list, scale(), crate::Budget::default().max_pixels)
-        .map_err(|_| Because::NotBuiltYet(PAGE_TOO_LARGE))?;
+/// Whether a report leaves the page one the gate does not photograph: anything but the fonts the
+/// window could not draw, and under the wide gate the operators the fence names and the faults of
+/// the document's own stream ([`is_a_fault_of_the_documents_own_stream`]).
+fn leaves_the_page_undrawn(report: &Unsupported, gate: Gate<'_>) -> bool {
+    match report {
+        Unsupported::Font { .. } | Unsupported::Text { .. } => false,
+        // An operator no standard defines is the fault the photograph answers, and no reader
+        // draws anything for it (`super::super::fenced`).
+        Unsupported::Operator { operator } => {
+            !(gate.anywhere && gate.fenced.operators.contains(operator))
+        }
+        other => !(gate.anywhere && is_a_fault_of_the_documents_own_stream(other)),
+    }
+}
+
+/// Whether a report states a fault in the page's own content stream, which the wide gate bakes in
+/// as the window shows it (A694 item 3: "we will just bake something into the pdf representing the
+/// state we currently show the pdf").
+///
+/// The faults are an operator short of its operands (§7.8.2), a name no resource dictionary defines
+/// (§7.8.3), a stream damaged part-way (§7.8.2), a path painted with no current point (§8.5), a
+/// matrix that cannot be inverted, and a soft mask dictionary §11.6.5.1 does not describe: the
+/// document asked for nothing the window could draw there.
+///
+/// Everything else stays refused, because the window's picture is then missing or approximating
+/// something a well-formed document asked for, and the photograph would record this reader's gap
+/// as the document's own loss: an image or a shading it cannot build, a stream it cannot decode, an
+/// annotation, optional content, a page box or dictionary it does not read, a drawing stopped at a
+/// bound, and the constructions §9.3.8, §11.4, §11.6.2 and §11.7.4 define that this reader composites
+/// otherwise (`TextKnockout`, `TransparencyGroup`, `CompositedInParts`, `Overprint`). ADR 2516.
+fn is_a_fault_of_the_documents_own_stream(report: &Unsupported) -> bool {
+    matches!(
+        report,
+        Unsupported::SoftMask { .. }
+            | Unsupported::UndefinedCurrentPoint { .. }
+            | Unsupported::OperandShortfall { .. }
+            | Unsupported::NoninvertibleMatrix { .. }
+            | Unsupported::MissingResource { .. }
+            | Unsupported::DamagedContentStream { .. }
+    )
+}
+
+/// A page's text as the report names it: white space collapsed to single spaces, cut at
+/// [`MAX_TEXT_CHARS`] characters, and the count of those left out.
+fn named_text(text: &str) -> (String, usize) {
+    let mut words = text.split_whitespace();
+    let mut named = String::new();
+    let mut kept = 0_usize;
+    let mut total = 0_usize;
+    for word in words.by_ref() {
+        let separator = usize::from(!named.is_empty());
+        let length = word.chars().count();
+        total = total.saturating_add(separator).saturating_add(length);
+        if kept.saturating_add(separator).saturating_add(length) <= MAX_TEXT_CHARS {
+            if separator == 1 {
+                named.push(' ');
+            }
+            named.push_str(word);
+            kept = kept.saturating_add(separator).saturating_add(length);
+        }
+    }
+    (named, total.saturating_sub(kept))
+}
+
+/// The wider gate's refusal by count and by size, before any page is drawn: the pages the fenced
+/// rows name are known from the survey, and their boxes at [`DOTS_PER_INCH`] are a floor on the
+/// pixels the photographs will hold, so a document past either bound costs one survey rather than
+/// the drawing of the pages up to it. [`taken`] still holds each page to what is left.
+fn refuse_fenced_pages_past_the_bounds(
+    every: &[Option<pdf_model::Page>],
+    gate: Gate<'_>,
+) -> Result<(), Because> {
+    let pixels = gate
+        .fenced
+        .pages
+        .keys()
+        .filter_map(|&index| every.get(index)?.as_ref())
+        .map(pixels_of_the_box)
+        .fold(0_u64, u64::saturating_add);
+    past_the_bounds(gate.fenced.pages.len(), pixels)
+}
+
+/// Whether `pages` photographs holding `pixels` between them are more than one conversion holds.
+fn past_the_bounds(pages: usize, pixels: u64) -> Result<(), Because> {
+    if pages > MAX_PHOTOGRAPHED_PAGES {
+        return Err(Because::NotBuiltYet(TOO_MANY_PAGES));
+    }
+    if pixels > MAX_PHOTOGRAPHED_PIXELS {
+        return Err(Because::NotBuiltYet(PAGE_TOO_LARGE));
+    }
+    Ok(())
+}
+
+/// The pixels a page's display box takes at [`DOTS_PER_INCH`], rounded up to whole pixels a side.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "a float cast saturates: NaN or a negative side is 0 and a huge one u64::MAX, which the bound reads"
+)]
+fn pixels_of_the_box(page: &pdf_model::Page) -> u64 {
+    let [x0, y0, x1, y1] = page.display_box;
+    let side = |low: f32, high: f32| ((high - low).abs() * scale()).ceil() as u64;
+    side(x0, x1).saturating_mul(side(y0, y1))
+}
+
+/// What [`MAX_PHOTOGRAPHED_PIXELS`] leaves after the pages already photographed.
+fn pixels_left<'a>(held: impl Iterator<Item = &'a PhotographedPage>) -> u64 {
+    MAX_PHOTOGRAPHED_PIXELS.saturating_sub(
+        held.map(|page| u64::from(page.width).saturating_mul(u64::from(page.height)))
+            .fold(0_u64, u64::saturating_add),
+    )
+}
+
+/// The page's display list drawn by the oracle backend at [`DOTS_PER_INCH`], to no more than
+/// `pixels_left` pixels.
+fn taken(list: &pdf_render::DisplayList, pixels_left: u64) -> Result<pdf_render::Raster, Because> {
+    let target = TargetSpec::for_page(
+        list,
+        scale(),
+        crate::Budget::default().max_pixels.min(pixels_left),
+    )
+    .map_err(|_| Because::NotBuiltYet(PAGE_TOO_LARGE))?;
     CpuRasterizer::new()
         .rasterize(list, target)
         .map_err(|_| Because::NotBuiltYet(PAGE_NOT_DRAWN))
@@ -505,17 +752,64 @@ pub(super) fn recorded(pages: &[PhotographedPage]) -> String {
     pages
         .iter()
         .map(|page| {
+            if !page.anywhere {
+                return format!(
+                    "page {} was replaced by a photograph of itself at {} dpi, the text of {} \
+                     that no reader can name left blank as this viewer drew it, losing \
+                     text-as-image",
+                    page.page,
+                    page.dots_per_inch,
+                    page.fonts.join(", ")
+                );
+            }
+            let mut reasons = Vec::new();
+            if !page.fonts.is_empty() {
+                reasons.push(format!("for the font {}", page.fonts.join(", ")));
+            }
+            if !page.requirements.is_empty() {
+                reasons.push(format!(
+                    "for the content stream's {}",
+                    page.requirements.join(", ")
+                ));
+            }
+            reasons.push(if page.text.is_empty() {
+                "the page showing no text".to_owned()
+            } else {
+                format!(
+                    "and with it the page's text, which was \"{}\"{}",
+                    page.text,
+                    elided(page.text_elided),
+                )
+            });
             format!(
-                "page {} was replaced by a photograph of itself at {} dpi, the text of {} that no \
-                 reader can name left blank as this viewer drew it, losing text-as-image",
+                "page {} was replaced by a photograph of itself at {} dpi, losing text-as-image \
+                 and page-as-image, {}",
                 page.page,
                 page.dots_per_inch,
-                page.fonts.join(", ")
+                reasons.join(", "),
             )
         })
         .collect::<Vec<_>>()
         .join("; ")
 }
+
+/// What follows a page's named text when characters of it are not repeated.
+pub(in super::super) fn elided(left_out: usize) -> String {
+    if left_out == 0 {
+        String::new()
+    } else {
+        format!(" and {left_out} more characters")
+    }
+}
+
+/// The wider gate was not authorised and no deferred font is held.
+const NOT_OFFERED: &str = "a page of this document holds a fault of its content stream that the \
+     target refuses, and the target is one at which a page photographed with no text layer is not \
+     offered";
+
+/// More pages than a conversion photographs.
+const TOO_MANY_PAGES: &str = "more pages of this document would be photographed than one \
+     conversion photographs, each a raster held until the file is written";
 
 /// The gate: a page whose text a reader can already extract.
 const TEXT_IS_READABLE: &str = "this document renders an Adobe-Identity composite font it does not \
@@ -524,41 +818,38 @@ const TEXT_IS_READABLE: &str = "this document renders an Adobe-Identity composit
      photographed. Name the producer's font program with --font to keep the page as text";
 
 /// The gate: a page the window does not draw whole.
-const NOT_DRAWN_WHOLE: &str = "this document renders an Adobe-Identity composite font it does not \
-     embed, whose codes no ToUnicode CMap names, on a page whose content this reader does not draw \
-     whole; a photograph would fix what the window could not draw into the file, so the page is not \
-     photographed. Name the producer's font program with --font";
+const NOT_DRAWN_WHOLE: &str = "a page that would be photographed has content this reader does not \
+     draw whole; a photograph would fix what the window could not draw into the file, so the page \
+     is not photographed";
 
 /// The gate: a structure tree a photograph would leave pointing at nothing.
-const STRUCTURED: &str = "this document renders an Adobe-Identity composite font it does not \
-     embed, whose codes no ToUnicode CMap names, and states a structure tree (ISO 32000-2 \
-     section 14.7) whose content items a photographed page would leave pointing at marked content \
-     no longer on it. Name the producer's font program with --font";
+const STRUCTURED: &str = "this document has a page that would be photographed, and states a \
+     structure tree (ISO 32000-2 section 14.7) whose content items a photographed page would \
+     leave pointing at marked content no longer on it";
 
 /// The gate: optional content a photograph of one configuration would discard.
-const LAYERED: &str = "this document renders an Adobe-Identity composite font it does not embed, \
-     whose codes no ToUnicode CMap names, and states optional content (ISO 32000-2 section 8.11), \
-     whose other configurations a photograph of the one this viewer shows would discard. Name the \
-     producer's font program with --font";
+const LAYERED: &str = "this document has a page that would be photographed, and states optional \
+     content (ISO 32000-2 section 8.11), whose other configurations a photograph of the one this \
+     viewer shows would discard";
 
 /// The ledger stopped before the page's lookups were all kept.
 const LEDGER_TRUNCATED: &str = "a page of this document names so many resources that the record of \
-     which fonts it shows stopped short, so whether it shows the Adobe-Identity composite font no \
-     reader can name is not known and no page is photographed";
+     which fonts it shows stopped short, so whether it shows a font that is to be photographed \
+     around is not known and no page is photographed";
 
 /// The page has no object to give new content to.
-const PAGE_NOT_AN_OBJECT: &str = "a page showing an Adobe-Identity composite font no reader can \
-     name is one this reader recovered rather than one the page tree states as an object, so there \
-     is no page object to give the photograph to";
+const PAGE_NOT_AN_OBJECT: &str = "a page that would be photographed is one this reader recovered \
+     rather than one the page tree states as an object, so there is no page object to give the \
+     photograph to";
 
 /// The picture would pass the pixel budget.
-const PAGE_TOO_LARGE: &str = "a page showing an Adobe-Identity composite font no reader can name \
-     is too large to be photographed at the resolution a page is photographed at within the pixel \
-     budget a rendered page is held to";
+const PAGE_TOO_LARGE: &str = "a page that would be photographed is too large to be photographed at \
+     the resolution a page is photographed at within the pixel budget a rendered page is held to, \
+     or the pages photographed together would pass the pixels one conversion holds";
 
 /// The backend refused the page, or its transform has no inverse.
-const PAGE_NOT_DRAWN: &str = "a page showing an Adobe-Identity composite font no reader can name \
-     could not be drawn to be photographed: the oracle backend refused it, or the page's own \
+const PAGE_NOT_DRAWN: &str = "a page that would be photographed could not be drawn to be \
+     photographed: the oracle backend refused it, or the page's own \
      transform from user space has no inverse";
 
 /// No object number was free.
@@ -567,7 +858,7 @@ const NO_SPARE_OBJECT: &str = "no unused object number could be found for the ph
 
 #[cfg(test)]
 mod tests {
-    use super::number;
+    use super::*;
 
     #[test]
     fn an_operand_is_written_without_its_trailing_zeros() {
@@ -575,5 +866,83 @@ mod tests {
         assert_eq!(number(0.25), "0.25");
         assert_eq!(number(-0.000_01), "0");
         assert_eq!(number(-1.5), "-1.5");
+    }
+
+    fn page_of(width: u32, height: u32) -> PhotographedPage {
+        PhotographedPage {
+            page: 1,
+            fonts: Vec::new(),
+            dots_per_inch: DOTS_PER_INCH,
+            width,
+            height,
+            text: String::new(),
+            text_elided: 0,
+            requirements: Vec::new(),
+            anywhere: true,
+        }
+    }
+
+    #[test]
+    fn the_pages_held_take_their_pixels_from_the_budget_and_it_never_goes_below_nothing() {
+        let held = [page_of(16_384, 8_192), page_of(10, 10)];
+        assert_eq!(
+            pixels_left(held.iter()),
+            MAX_PHOTOGRAPHED_PIXELS - 16_384 * 8_192 - 100
+        );
+        let past = [page_of(u32::MAX, u32::MAX), page_of(u32::MAX, u32::MAX)];
+        assert_eq!(pixels_left(past.iter()), 0);
+    }
+
+    #[test]
+    fn a_construction_this_reader_composites_otherwise_leaves_the_page_refused() {
+        let fenced = super::super::super::fenced::Fenced::default();
+        let wide = Gate::new(Target::Two(Level::B), true, &fenced);
+        // §9.3.8, §11.4, §11.6.2 and §11.7.4 define these; a photograph would record this reader's
+        // shortfall as the document's loss.
+        for gap in [
+            Unsupported::TextKnockout { glyphs: 2 },
+            Unsupported::TransparencyGroup {
+                detail: String::new(),
+            },
+            Unsupported::CompositedInParts { detail: "a path" },
+            Unsupported::Overprint {
+                detail: String::new(),
+            },
+        ] {
+            assert!(leaves_the_page_undrawn(&gap, wide), "{gap:?}");
+        }
+        // A fault of the document's own stream is baked in under the wide gate and only there.
+        let fault = Unsupported::OperandShortfall {
+            operator: String::from("re"),
+            given: 1,
+            takes: 4,
+        };
+        assert!(!leaves_the_page_undrawn(&fault, wide));
+        let narrow = Gate::new(Target::Two(Level::B), false, &fenced);
+        assert!(leaves_the_page_undrawn(&fault, narrow));
+    }
+
+    #[test]
+    fn fenced_pages_past_either_bound_are_refused_before_any_is_drawn() {
+        assert!(past_the_bounds(MAX_PHOTOGRAPHED_PAGES, MAX_PHOTOGRAPHED_PIXELS).is_ok());
+        assert!(matches!(
+            past_the_bounds(MAX_PHOTOGRAPHED_PAGES + 1, 0),
+            Err(Because::NotBuiltYet(TOO_MANY_PAGES))
+        ));
+        assert!(matches!(
+            past_the_bounds(1, MAX_PHOTOGRAPHED_PIXELS + 1),
+            Err(Because::NotBuiltYet(PAGE_TOO_LARGE))
+        ));
+    }
+
+    #[test]
+    fn a_page_larger_than_the_pixels_left_is_not_drawn() {
+        let list = pdf_render::DisplayList::new(pdf_render::Size::new(200.0, 200.0));
+        let fits = 834_u64 * 834;
+        assert!(taken(&list, fits).is_ok());
+        assert!(matches!(
+            taken(&list, fits - 1),
+            Err(Because::NotBuiltYet(PAGE_TOO_LARGE))
+        ));
     }
 }

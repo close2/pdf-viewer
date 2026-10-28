@@ -17,6 +17,7 @@ use pdf_syntax::object::Object;
 use pdf_syntax::{Document, Limits};
 use pdf_transform::archive::{Authorisations, Loss};
 use pdf_transform::render::{Drawing, Sizing};
+use std::fmt::Write as _;
 
 /// The fixture's page: a grey block in `CalGray`, then a string in `Identity-H` over an
 /// `Adobe-Identity` `CIDFontType2` named `Arial` with no program and no `/ToUnicode`, then
@@ -335,4 +336,427 @@ fn a_font_an_annotation_on_the_photographed_page_still_shows_is_reported_embedde
                 || descriptor.get("FontFile3").is_some()),
         "and the face reported is the face written: {descriptor:?}"
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// The wider gate (A694 item 1, ADR 2516): `as-if-printed` photographs a page whatever text it shows
+// ---------------------------------------------------------------------------------------------
+//
+// Expected values: §9.10.2 (a Type 1 font under `WinAnsiEncoding` names its characters, so the
+// fixture's string reads back as `Hello`), ISO 32000-2 Annex A (the operator summary the base
+// standard defines, which `Frobnicate` is not on) and A694 (the loss is `text-as-image` per page,
+// the page's text is named in the report, `as-shown`, Level U and Level A keep the refusal).
+
+/// A page showing `Hello` in Helvetica and then an operator the base standard does not define.
+fn a_page_with_text_and_an_undefined_operator() -> Vec<u8> {
+    Conforming {
+        resources: "/Font << /F1 6 0 R >>".to_owned(),
+        contents: Some((
+            String::new(),
+            b"BT /F1 12 Tf 10 100 Td (Hello) Tj ET 1 2 Frobnicate".to_vec(),
+        )),
+        objects: vec![HELVETICA.to_owned()],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+/// The authorisations a shipped profile states for `target`.
+fn authorised_by(profile: &str, target: Target) -> Authorisations {
+    let profile = pdf_transform::profiles::named(profile).expect("a shipped profile");
+    pdf_transform::archive::Configuration::read(profile.text, target)
+        .expect("the shipped profile reads")
+        .authorisations(target)
+}
+
+/// A plan converting to `target` under what `profile` authorises.
+fn printing(profile: &str, target: Target) -> pdf_transform::archive::ArchivePlan {
+    let mut plan = a_supplied_font(target, "NotThisFont", &[]);
+    plan.authorised = authorised_by(profile, target);
+    plan
+}
+
+const OPERATORS: &str = "graphics/only-operators-the-base-standard-defines";
+
+#[test]
+fn a_page_with_a_fault_of_its_content_stream_is_photographed_under_as_if_printed() {
+    let source = a_page_with_text_and_an_undefined_operator();
+    let target = Target::Two(Level::B);
+    let (report, output) = convert_with_plan(&source, &printing("as-if-printed", target));
+    let Decision::Authorised { losses, .. } = decision(&report, OPERATORS) else {
+        panic!("{:?}", decision(&report, OPERATORS));
+    };
+    assert!(
+        losses.iter().eq([Loss::TextAsImage, Loss::PageAsImage]),
+        "{}",
+        losses.words()
+    );
+    let output = output.expect("a file is written");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let pages = &conversion(&report).photographed;
+    assert_eq!(pages.len(), 1, "{pages:?}");
+    assert_eq!(pages[0].page, 1);
+    assert_eq!(pages[0].text, "Hello");
+    assert_eq!(pages[0].requirements, [OPERATORS]);
+    assert!(pages[0].anywhere);
+    // The text the photograph turned into pixels is named in the file's own history and in the
+    // JSON report, and the operator is in no content stream of the output.
+    let recorded = conversion(&report)
+        .recorded
+        .as_ref()
+        .expect("a history entry");
+    assert!(recorded.contains("\"Hello\""), "{recorded}");
+    let packet = String::from_utf8(super::document_packet(&output)).expect("the packet is UTF-8");
+    assert!(
+        packet.contains("Hello"),
+        "the file's own history names the text:\n{packet}"
+    );
+    let json = conversion(&report).to_json().render();
+    assert!(json.contains("\"text\": \"Hello\""), "{json}");
+    assert!(json.contains("page-as-image"), "{json}");
+    // The photograph is the window's drawing of the source at 300 dpi.
+    let difference = largest_difference(&drawn(&source), &drawn(&output));
+    assert!(
+        difference <= 1,
+        "the photograph moved a level by {difference}"
+    );
+}
+
+/// A page whose text and undefined operator share a content stream with `extra`.
+fn a_page_with_a_fault_and(extra: &[u8], objects: Vec<String>, resources: &str) -> Vec<u8> {
+    let mut content = b"BT /F1 12 Tf 10 100 Td (Hello) Tj ET 1 2 Frobnicate ".to_vec();
+    content.extend_from_slice(extra);
+    let mut all = vec![HELVETICA.to_owned()];
+    all.extend(objects);
+    Conforming {
+        resources: format!("/Font << /F1 6 0 R >> {resources}"),
+        contents: Some((String::new(), content)),
+        objects: all,
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+#[test]
+fn a_fault_of_the_page_s_own_content_is_photographed_as_the_window_draws_it() {
+    // `re` wants four operands; the window skips it and draws the rest (ISO 32000-2 section 7.8.2).
+    let source = a_page_with_a_fault_and(b"10 re f", Vec::new(), "");
+    let target = Target::Two(Level::B);
+    let (report, output) = convert_with_plan(&source, &printing("as-if-printed", target));
+    let output = output.unwrap_or_else(|| panic!("{:?}", decision(&report, OPERATORS)));
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    assert_eq!(conversion(&report).photographed.len(), 1);
+}
+
+#[test]
+fn a_page_the_window_could_not_draw_whole_is_not_photographed() {
+    // An image whose samples are missing: the window draws a page without the picture, and
+    // a photograph would record that gap of this reader as the document's loss.
+    let image = String::from_utf8_lossy(&super::stream(
+        "/Type /XObject /Subtype /Image /Width 4 /Height 4 /ColorSpace /DeviceGray \
+         /BitsPerComponent 8 /Length 1",
+        b"\x00",
+    ))
+    .into_owned();
+    let source = a_page_with_a_fault_and(
+        b"q 10 0 0 10 0 0 cm /Im0 Do Q",
+        vec![image],
+        "/XObject << /Im0 7 0 R >>",
+    );
+    let (report, output) =
+        convert_with_plan(&source, &printing("as-if-printed", Target::Two(Level::B)));
+    assert!(output.is_none(), "no file is written");
+    assert!(conversion(&report).photographed.is_empty());
+    assert!(matches!(
+        decision(&report, OPERATORS),
+        Decision::Refused(pdf_transform::archive::Because::TheFence(_))
+    ));
+}
+
+#[test]
+fn as_shown_keeps_the_refusal_of_a_fault_of_the_content_stream() {
+    let source = a_page_with_text_and_an_undefined_operator();
+    let (report, output) = convert_with_plan(&source, &printing("as-shown", Target::Two(Level::B)));
+    assert!(output.is_none(), "no file is written");
+    assert!(matches!(
+        decision(&report, OPERATORS),
+        Decision::Refused(pdf_transform::archive::Because::TheFence(_))
+    ));
+}
+
+#[test]
+fn nothing_is_photographed_where_the_loss_was_not_authorised() {
+    let source = a_page_with_text_and_an_undefined_operator();
+    let mut plan = printing("as-if-printed", Target::Two(Level::B));
+    plan.authorised.page_as_image = false;
+    let (report, output) = convert_with_plan(&source, &plan);
+    assert!(output.is_none(), "no file is written");
+    assert!(matches!(
+        decision(&report, OPERATORS),
+        Decision::Refused(pdf_transform::archive::Because::TheFence(_))
+    ));
+}
+
+#[test]
+fn levels_u_and_a_keep_the_refusal_of_a_fault_of_the_content_stream() {
+    let source = a_page_with_text_and_an_undefined_operator();
+    for level in [Level::U, Level::A] {
+        let (report, output) =
+            convert_with_plan(&source, &printing("as-if-printed", Target::Two(level)));
+        assert!(output.is_none(), "no file is written at {level:?}");
+        assert!(
+            matches!(
+                decision(&report, OPERATORS),
+                Decision::Refused(pdf_transform::archive::Because::TheFence(_))
+            ),
+            "{level:?}"
+        );
+        assert!(conversion(&report).photographed.is_empty());
+    }
+}
+
+#[test]
+fn every_part_four_flavour_photographs_a_page_under_as_if_printed() {
+    let source = Conforming {
+        target: Target::Four(pdf_archive::Flavour::Plain),
+        resources: "/Font << /F1 6 0 R >>".to_owned(),
+        contents: Some((
+            String::new(),
+            b"BT /F1 12 Tf 10 100 Td (Hello) Tj ET 1 2 Frobnicate".to_vec(),
+        )),
+        objects: vec![HELVETICA.to_owned()],
+        ..Conforming::default()
+    }
+    .build();
+    let target = Target::Four(pdf_archive::Flavour::Plain);
+    let (report, output) = convert_with_plan(&source, &printing("as-if-printed", target));
+    let output = output.expect("a file is written");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    assert_eq!(conversion(&report).photographed.len(), 1);
+}
+
+#[test]
+fn the_text_a_report_names_is_cut_where_a_page_holds_more_than_the_bound() {
+    let text = "word ".repeat(pdf_transform::archive::MAX_TEXT_CHARS);
+    let shown = format!(
+        "BT /F1 12 Tf 10 100 Td ({}) Tj ET 1 2 Frobnicate",
+        text.trim_end()
+    );
+    let source = Conforming {
+        resources: "/Font << /F1 6 0 R >>".to_owned(),
+        contents: Some((String::new(), shown.into_bytes())),
+        objects: vec![HELVETICA.to_owned()],
+        ..Conforming::part_two()
+    }
+    .build();
+    let (report, _) = convert_with_plan(&source, &printing("as-if-printed", Target::Two(Level::B)));
+    let pages = &conversion(&report).photographed;
+    assert_eq!(pages.len(), 1, "{pages:?}");
+    assert!(pages[0].text.chars().count() <= pdf_transform::archive::MAX_TEXT_CHARS);
+    assert!(pages[0].text_elided > 0, "{}", pages[0].text_elided);
+}
+
+#[test]
+fn a_photograph_is_in_the_files_own_history_at_level_b_whatever_else_the_packet_needs() {
+    // The fixture's packet already states Level B's identification, so nothing else asks for the
+    // packet to be edited and the loss is recorded for its own sake (ADR 2394 item 5).
+    let source = a_page_no_reader_can_read("", b"", "", &[]);
+    let output = photographed_and_drawn_alike(&source, Target::Two(Level::B));
+    let packet = String::from_utf8(super::document_packet(&output)).expect("the packet is UTF-8");
+    assert!(packet.contains("xmpMM:History"), "{packet}");
+    assert!(packet.contains("losing text-as-image"), "{packet}");
+}
+
+/// `bytes` with `faulty` more pages that share the first page's content and `clean` more that show
+/// one word, added by an incremental update (§7.5.6) of the page tree.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "a fixture builder: object numbers and counts a few dozen at most, no input is hostile"
+)]
+fn with_more_pages(mut bytes: Vec<u8>, faulty: usize, clean: usize) -> Vec<u8> {
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    let previous = text
+        .rsplit_once("startxref\n")
+        .expect("xref")
+        .1
+        .lines()
+        .next()
+        .expect("offset")
+        .to_owned();
+    let first_new = 11_usize;
+    let pages = faulty + clean;
+    let content = first_new + pages;
+    let kids = (0..pages).fold(String::new(), |mut kids, index| {
+        let _ = write!(kids, " {} 0 R", first_new + index);
+        kids
+    });
+    let mut offsets = Vec::new();
+    let tree = bytes.len();
+    bytes.extend_from_slice(
+        format!(
+            "2 0 obj\n<< /Type /Pages /Kids [3 0 R{kids}] /Count {} >>\nendobj\n",
+            pages + 1
+        )
+        .as_bytes(),
+    );
+    for index in 0..pages {
+        offsets.push(bytes.len());
+        let contents = if index < faulty { 4 } else { content };
+        bytes.extend_from_slice(
+            format!(
+                "{} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << \
+                 /Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                 [0.9505 1.0 1.089] >>] >> >> /Contents {contents} 0 R >>\nendobj\n",
+                first_new + index
+            )
+            .as_bytes(),
+        );
+    }
+    let shown = "BT /F1 12 Tf 10 100 Td (Clean) Tj ET";
+    offsets.push(bytes.len());
+    bytes.extend_from_slice(
+        format!(
+            "{content} 0 obj\n<< /Length {} >>\nstream\n{shown}\nendstream\nendobj\n",
+            shown.len()
+        )
+        .as_bytes(),
+    );
+    let xref = bytes.len();
+    let mut table = format!(
+        "xref\n2 1\n{tree:010} 00000 n \n{first_new} {}\n",
+        pages + 1
+    );
+    for offset in offsets {
+        let _ = writeln!(table, "{offset:010} 00000 n ");
+    }
+    bytes.extend_from_slice(
+        format!(
+            "{table}trailer\n<< /Size {} /Root 1 0 R /Prev {previous} /ID \
+             [<12345678901234567890123456789012> <12345678901234567890123456789012>] >>\n\
+             startxref\n{xref}\n%%EOF\n",
+            content + 1
+        )
+        .as_bytes(),
+    );
+    bytes
+}
+
+#[test]
+fn only_the_page_holding_the_fault_is_photographed_and_the_others_keep_their_text() {
+    let source = with_more_pages(a_page_with_text_and_an_undefined_operator(), 0, 1);
+    let target = Target::Two(Level::B);
+    let (report, output) = convert_with_plan(&source, &printing("as-if-printed", target));
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let pages = &conversion(&report).photographed;
+    assert_eq!(pages.len(), 1, "{pages:?}");
+    assert_eq!(pages[0].page, 1);
+    let held = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let second = Pages::new(&held).get(1).expect("a second page");
+    let resources = held.get_key(&second.dict, "Resources");
+    assert!(
+        held.resolve(&resources)
+            .as_dict()
+            .is_some_and(|resources| resources.get("Font").is_some()),
+        "the second page keeps its fonts"
+    );
+}
+
+#[test]
+fn more_faulty_pages_than_the_bound_are_refused_by_name() {
+    use pdf_transform::archive::MAX_PHOTOGRAPHED_PAGES;
+    let target = Target::Two(Level::B);
+    // The first page is faulty too, so `MAX_PHOTOGRAPHED_PAGES` more make one past the bound.
+    let at_the_bound = with_more_pages(
+        a_page_with_text_and_an_undefined_operator(),
+        MAX_PHOTOGRAPHED_PAGES - 1,
+        0,
+    );
+    let (report, output) = convert_with_plan(&at_the_bound, &printing("as-if-printed", target));
+    assert!(output.is_some(), "{}", conversion(&report).render());
+    assert_eq!(
+        conversion(&report).photographed.len(),
+        MAX_PHOTOGRAPHED_PAGES
+    );
+    let past = with_more_pages(
+        a_page_with_text_and_an_undefined_operator(),
+        MAX_PHOTOGRAPHED_PAGES,
+        0,
+    );
+    let (report, output) = convert_with_plan(&past, &printing("as-if-printed", target));
+    assert!(output.is_none(), "no file is written");
+    let Decision::Refused(because) = decision(&report, "fonts/font-programs-embedded") else {
+        panic!("{:?}", decision(&report, "fonts/font-programs-embedded"));
+    };
+    assert!(
+        because.sentence().contains("conversion photographs"),
+        "{}",
+        because.sentence()
+    );
+}
+
+#[test]
+fn the_narrow_gate_photographs_more_pages_than_the_wider_gate_bound() {
+    use pdf_transform::archive::MAX_PHOTOGRAPHED_PAGES;
+    let target = Target::Two(Level::B);
+    let source = with_more_pages(
+        a_page_no_reader_can_read("", b"", "", &[]),
+        MAX_PHOTOGRAPHED_PAGES,
+        0,
+    );
+    let (report, output) = convert_with_plan(&source, &photographing(target));
+    assert!(output.is_some(), "{}", conversion(&report).render());
+    let pages = &conversion(&report).photographed;
+    assert_eq!(pages.len(), MAX_PHOTOGRAPHED_PAGES + 1);
+    assert!(pages.iter().all(|page| !page.anywhere), "{pages:?}");
+}
+
+/// A page showing `count` composite fonts, each of a character collection no route knows, which
+/// every route refuses by name (§9.7.5.2: an identity `CMap` over a font the file does not embed).
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "a fixture builder: object numbers a few dozen at most, no input is hostile"
+)]
+fn a_page_of_unknown_collections(count: usize) -> Vec<u8> {
+    let mut fonts = String::new();
+    let mut shown = Vec::new();
+    let mut objects = Vec::new();
+    for index in 0..count {
+        let type0 = 9 + 2 * index;
+        let _ = write!(fonts, "/G{index} {type0} 0 R ");
+        shown.extend_from_slice(format!("BT /G{index} 12 Tf 10 100 Td <0024> Tj ET ").as_bytes());
+        objects.push(format!(
+            "<< /Type /Font /Subtype /Type0 /BaseFont /Unknown{index} /Encoding /Identity-H \
+             /DescendantFonts [{} 0 R] >>",
+            type0 + 1
+        ));
+        objects.push(
+            "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /Unknown /CIDSystemInfo \
+             << /Registry (Custom) /Ordering (Collection) /Supplement 0 >> /FontDescriptor 8 0 R \
+             /DW 1000 >>"
+                .to_owned(),
+        );
+    }
+    let objects: Vec<&str> = objects.iter().map(String::as_str).collect();
+    a_page_no_reader_can_read(&fonts, &shown, "", &objects)
+}
+
+#[test]
+fn fonts_photographed_around_are_bounded_and_the_next_keeps_its_refusal() {
+    let target = Target::Two(Level::B);
+    let (report, output) = convert_with_plan(
+        &a_page_of_unknown_collections(16),
+        &printing("as-if-printed", target),
+    );
+    assert!(output.is_some(), "{}", conversion(&report).render());
+    assert_eq!(conversion(&report).photographed.len(), 1);
+    let (report, output) = convert_with_plan(
+        &a_page_of_unknown_collections(17),
+        &printing("as-if-printed", target),
+    );
+    assert!(output.is_none(), "no file is written");
+    assert!(matches!(
+        decision(&report, "fonts/font-programs-embedded"),
+        Decision::Refused(_)
+    ));
 }

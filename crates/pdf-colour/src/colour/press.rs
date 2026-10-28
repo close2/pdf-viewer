@@ -1,5 +1,6 @@
 //! §11.4.7 and §11.7.2: the four-component press a page or group composites in, and the table of presses one interpretation names.
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use super::ColourSpace;
@@ -35,60 +36,25 @@ pub enum PressIdentity {
     DeviceInk,
 }
 
-/// How many distinct conversions out of a group the standard defines for **one** profile.
+/// What one admitted press is charged: every byte a press can come to hold, whether or not this
+/// page ever asks for it.
 ///
-/// Trap 38's question, answered: the standard does state a number this budget has to clear.
-/// §11.7.5.3's second bullet makes the conversion out of a group a function of the graphics
-/// state at the `Do`:
-///
-/// > the rendering intent used shall be the current rendering intent in effect at the time the
-/// > Do operator is applied to the group
-///
-/// Two entries of that state select it. Table 69 names four rendering intents, §8.6.5.9's
-/// `/UseBlackPtComp` is a second parameter of the same conversion, and that clause pins one of
-/// the eight pairs:
-///
-/// > If the current render intent of an object is AbsColorimetric then the value of
-/// > UseBlackPtComp shall be treated as OFF .
-///
-/// Four intents times two settings less the pair the clause removes is **seven**, and
-/// [`PressIdentity::Profile`] is keyed on exactly that pair.
-///
-/// So a page that embeds one profile and paints it under every intent the standard defines
-/// names seven presses, and a budget below seven would refuse a conformant page that named a
-/// single profile. Nothing in the standard bounds how many *profiles* a page may name —
-/// Annex C is informative and states no number for this at all.
-const RENDERINGS_OF_ONE_PROFILE: usize = 7;
-
-/// How many *distinct* presses one interpretation may name.
-///
-/// A press costs its grid — `PRESS_SIDE⁴` device colours — plus, if a page converts a colour
-/// *into* it, `INK_TABLE_SIDE`³ separations. At the sizes below that is 1.0 MB and 78 KB
-/// apiece.
-///
-/// **The number is the standard's floor with a profile's worth of room above it**, which is
-/// what trap 38 asks a bound to say by name. `RENDERINGS_OF_ONE_PROFILE` is what one profile
-/// can be, so no conformant page naming one profile can meet this refusal; the second multiple
-/// is margin over everything measured. What was measured is
-/// `pdf-model --example press_depth`: over the 974-document corpus **no page names a press at
-/// all**, and over a 5 977-document even sample of the crawl — 13 188 pages — the deepest page
-/// names **one**. So the budget is two orders of magnitude above the population and one
-/// profile above the clause, and an interpretation that spent the whole of it would hold
-/// 15 MB of press. ADR 1254.
-///
-/// **It is a budget on the interpretation rather than on the process, and that is the thing
-/// about it worth saying out loud** (ADR 0417). A `static` table filled from the front and never
-/// evicted would refuse the ninth distinct press a *process* met, and which document that fell
-/// on would be decided by the order the scheduler ran the eight before it in. Every other
-/// budget in this tree — `MAX_LIST_BYTES`, `MAX_FORM_DEPTH`, `MAX_STATE_DEPTH` — is spent by the
-/// document that reaches it, and this one is too: a page naming more than this many presses
-/// is refused the next one on every run and on every machine, and a page naming one is never
-/// refused whatever else the process has open. ADR 0416 is the diagnosis and `doc/todo/49`'s
-/// third-bound section the three roads.
-///
-/// What is *not* per interpretation is the sampling, which is `SAMPLED`: a cache changes how
-/// fast an answer is reached and never what it is, so it may be shared where a budget may not.
-pub const MAX_PRESSES: usize = RENDERINGS_OF_ONE_PROFILE * 2;
+/// A press is the grid `sample_press` builds — `PRESS_SIDE⁴` device colours, 1.0 MB at the side
+/// below — and, built on first use, §11.5.3's `Y` over the same four components
+/// ([`Press::luminance`], 0.33 MB) and the `INK_TABLE_SIDE`³ separations a colour converted *into*
+/// the press is searched in (`Press::table`, 79 KB). The two lazy parts are charged at
+/// admission rather than when they are built, so that a page's refusal is decided before any
+/// sampling is paid for and is a function of the file alone (ADR 1254's "a refusal that costs the
+/// work it refused is not one"). The profile the press keeps to convert in is charged beside
+/// this, at [`crate::icc::Profile::owned_bytes`].
+pub const PRESS_BYTES: usize = PRESS_SIDE
+    .pow(4)
+    .saturating_mul(size_of::<[f32; 3]>() + size_of::<f32>())
+    .saturating_add(
+        super::ink_search::INK_TABLE_SIDE
+            .pow(3)
+            .saturating_mul(size_of::<[f32; 4]>()),
+    );
 
 /// How many sampled presses this process keeps, so that a second page need not sample again.
 ///
@@ -96,12 +62,12 @@ pub const MAX_PRESSES: usize = RENDERINGS_OF_ONE_PROFILE * 2;
 /// this the least recently used press is dropped and a document naming it again pays for the
 /// sampling a second time, which is slower and is the same picture. So it may be sized against
 /// what the population measures — the web names 28 distinct presses over 65 703 documents
-/// (`examples/press_census`) — where [`MAX_PRESSES`] may not.
+/// (`examples/press_census`) — where a page's budget ([`Presses::within`]) may not.
 ///
 /// Eight is what this process has always spent on presses, so a run holding more is holding
-/// them in the interpretations that named them. It is deliberately **not** tied to
-/// [`MAX_PRESSES`]: one is what a page may name and the other what a process keeps warm, and
-/// the web names 28 distinct presses over 65 703 documents either way.
+/// them in the interpretations that named them. It is deliberately **not** tied to the page's
+/// budget: one is what a page may name, which is its need, and the other what a process keeps
+/// warm.
 const MAX_CACHED_PRESSES: usize = 8;
 
 /// The presses this process has sampled, most recently used first.
@@ -138,7 +104,7 @@ pub fn presses_cached() -> Result<usize, NoPress> {
 
 /// [`PressIdentity::Assumed`]'s press, built on first use like any other.
 ///
-/// Outside [`SAMPLED`] and outside [`MAX_PRESSES`], because it is a pure function of
+/// Outside [`SAMPLED`] and outside every page's budget, because it is a pure function of
 /// [`CMYK_CORNERS`] — a compile-time constant — rather than anything a document names. No
 /// budget applies to a press no file asked for.
 static ASSUMED: OnceLock<Arc<Press>> = OnceLock::new();
@@ -375,10 +341,8 @@ impl Press {
 /// be used as both the destination for objects being painted within the group and the source
 /// for the group's results." §10.3.1 hands a CIE-to-CIE conversion to the ICC specification
 /// and §10.4.2.1 ranks that route above §10.4.2.4's classic one for an ICC-enabled processor,
-/// so the profile's own table is the standard's answer and not a choice. **This paragraph used
-/// to argue the opposite** — that a `B2A` was not read "even where §8.6.5.5 requires the file
-/// to carry one", because two separately-built maps on one page would be two colour models.
-/// They are two maps, and the clause makes them the file's two: what an opaque mark loses on
+/// so the profile's own table is the standard's answer and not a choice. Two maps are built on
+/// one page, and the clause makes them the file's two: what an opaque mark loses on
 /// the round trip through them is the profile's own residue, which is the picture the producer
 /// specified rather than one this tree tuned to come back exactly. A profile *without* one
 /// keeps the right inverse of its grid — the construction ADR 0263 built for the assumed inks,
@@ -472,7 +436,8 @@ fn cached(identity: PressIdentity) -> Result<Option<Arc<Press>>, NoPress> {
 /// would tell a reader their file named too many presses when it named one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NoPress {
-    /// This interpretation has already named [`MAX_PRESSES`] distinct presses.
+    /// The press does not fit in what is left of the memory the page may keep (ISO 32000-2
+    /// §11.7.2): [`Presses::within`]'s bound, charged at [`PRESS_BYTES`] and the profile's.
     Spent,
     /// The profile is not four components a press's grid can be sampled from.
     Unsampled,
@@ -486,7 +451,9 @@ impl NoPress {
     #[must_use]
     pub const fn why(self) -> &'static str {
         match self {
-            Self::Spent => "this page has spent its distinct-press budget (§11.7.2)",
+            Self::Spent => {
+                "the presses this page names have spent the memory it may keep (§11.7.2)"
+            }
             Self::Unsampled => {
                 "its profile is not four components a press's grid can be sampled from"
             }
@@ -504,26 +471,59 @@ fn guard<T>(lock: &Mutex<T>) -> Result<MutexGuard<'_, T>, NoPress> {
     lock.lock().map_err(|_| NoPress::Poisoned)
 }
 
-/// The distinct presses one interpretation has named, and the budget it spends on them.
+/// The distinct presses one interpretation has named, and the memory it has spent on them.
 ///
 /// # Why this is a table and not a counter
 ///
 /// §11.4.7 gives the page one press and §11.7.2 lets a transparency group inside it name
 /// another, so an interpretation can name several — and the same one twice, which must cost
 /// the budget once. Holding what was named answers both questions with one structure, and it
-/// makes the refusal a function of the file: a page naming more than [`MAX_PRESSES`] distinct
-/// presses is refused the next one on every run, independently of other pages and scheduling
+/// makes the refusal a function of the file: a page whose presses do not fit in the bytes it may
+/// keep is refused the next one on every run, independently of other pages and scheduling
 /// (ADR 0417).
 ///
-/// The lock is taken once per press a page names — a handful of times at most — and never
-/// while a colour is being converted, because [`super::compositing::Compositing`] carries the press itself rather
-/// than a handle into here.
-#[derive(Debug, Default)]
+/// # Why the budget is bytes, and is the page's
+///
+/// Every distinct four-component profile a page names gets its press. What a page can exhaust
+/// by naming profiles is memory — a press is [`PRESS_BYTES`] and the profile it keeps, at [`crate::icc::Profile::owned_bytes`] — so the
+/// bound is in that unit, and it is the page's own memory bound handed in by the caller
+/// ([`Presses::within`]) rather than a count chosen here: a count of presses says nothing about
+/// what they hold, and the standard states none (Annex C is informative and names no number
+/// for this). ADR 2532.
+///
+/// The lock is taken once per press a page names and never while a colour is being converted,
+/// because [`super::compositing::Compositing`] carries the press itself rather than a handle
+/// into here.
+#[derive(Debug)]
 pub struct Presses {
-    /// The presses named so far, in the order they were named.
-    named: Mutex<Vec<Arc<Press>>>,
+    /// The presses named so far, in the order they were named, and what they are charged.
+    named: Mutex<Named>,
     /// The three-component routes built so far, in the order they were built.
     routes: Mutex<Vec<Arc<RgbRoute>>>,
+    /// The most bytes the named presses may be charged.
+    bound: usize,
+}
+
+/// The presses an interpretation has named and the bytes they are charged.
+#[derive(Debug, Default)]
+struct Named {
+    /// By identity, because a page can name as many presses as its memory admits and every group
+    /// it paints asks which one it is: a lookup that walked them would be a quadratic page.
+    presses: HashMap<PressIdentity, Arc<Press>>,
+    /// The sum of what each was charged at admission: [`press_charge`].
+    bytes: usize,
+}
+
+/// What admitting a press sampled from `profile` is charged: the press's own grids and the
+/// tables of the profile it keeps to convert *in* (§8.6.5.5; [`Press::profile`] is `Some` only
+/// for a profile that is bidirectional).
+fn press_charge(profile: &crate::icc::Profile) -> usize {
+    let kept = if profile.is_bidirectional() {
+        profile.owned_bytes()
+    } else {
+        0
+    };
+    PRESS_BYTES.saturating_add(kept)
 }
 
 /// How many [`RgbRoute`]s an interpretation keeps.
@@ -531,11 +531,39 @@ pub struct Presses {
 /// A route into a table profile is 36 000 profile evaluations — the same shape of cost as
 /// sampling a press, which `examples/press_cost` puts at 17 to 46 ms against a 14 to 18 ms
 /// interpretation of the page (ADR 0417) — and a group names its space at every `Do`, so
-/// a page of such groups would sample the same profile once per group. The cap is the
-/// press's; a route beyond it is built and not kept, which is slower and not wrong.
-const MAX_RGB_ROUTES: usize = MAX_PRESSES;
+/// a page of such groups would sample the same profile once per group. A route beyond the cap
+/// is built and not kept, which is slower and not wrong: this is a cache's bound, not a
+/// budget, and no refusal rests on it.
+///
+/// Fourteen because a route holds about half a megabyte (36 000 samples of three `f32`
+/// components) and fourteen is then about six megabytes, a small share of the page's bound
+/// beside a press's. The value is not derived from a measurement of what pages name.
+const MAX_RGB_ROUTES: usize = 14;
 
 impl Presses {
+    /// A table whose presses may be charged `bound` bytes between them.
+    ///
+    /// `bound` is the memory the page may keep for presses; a caller passes the page's own bound
+    /// so that the presses and the page's other charges are one budget (ADR 2532).
+    #[must_use]
+    pub fn within(bound: usize) -> Self {
+        Self {
+            named: Mutex::new(Named::default()),
+            routes: Mutex::new(Vec::new()),
+            bound,
+        }
+    }
+
+    /// The bytes the presses named so far are charged: what a caller adds to the page's other
+    /// charges to ask whether the page as a whole has passed its bound.
+    ///
+    /// # Errors
+    ///
+    /// [`NoPress::Poisoned`] leaves the charge unknown, never zero.
+    pub fn bytes_held(&self) -> Result<usize, NoPress> {
+        Ok(guard(&self.named)?.bytes)
+    }
+
     /// The route into and out of `space`, built once per interpretation for each space.
     ///
     /// `None` where `space` is not one [`RgbRoute::of`] answers for. Keyed on
@@ -579,44 +607,46 @@ impl Presses {
     ///
     /// # Errors
     ///
-    /// [`NoPress::Spent`] is [`MAX_PRESSES`] distinct presses already named, which
-    /// `pdf_model::content::transparency` turns into §11.7.2's report. A profile of other than four
-    /// components is not a press at all and answers [`NoPress::Unsampled`]; the caller asks that
-    /// question first. [`NoPress::Poisoned`] is this table or the process's cache poisoned, which is
-    /// said as itself (ADR 2170).
+    /// [`NoPress::Spent`] is the press not fitting in the bytes [`Presses::within`] allows for
+    /// the presses already named, which `pdf_model::content::transparency` turns into §11.7.2's
+    /// report. A profile of other than four components is not a press at all and answers
+    /// [`NoPress::Unsampled`]; the caller asks that question first. [`NoPress::Poisoned`] is this
+    /// table or the process's cache poisoned, which is said as itself (ADR 2170).
     pub fn press_for_profile(
         &self,
         profile: &crate::icc::Profile,
         rendering: Rendering,
     ) -> Result<Arc<Press>, NoPress> {
+        if profile.channels() != 4 {
+            return Err(NoPress::Unsampled);
+        }
         let identity = PressIdentity::Profile(profile.identity(), rendering);
-        {
+        let charge = {
             let named = guard(&self.named)?;
-            if let Some(found) = named.iter().find(|press| press.identity == identity) {
+            if let Some(found) = named.presses.get(&identity) {
                 return Ok(Arc::clone(found));
             }
-            // Asked before the sampling rather than after it, so that a page naming a hundred
+            let charge = press_charge(profile);
+            // Asked before the sampling rather than after it, so that a page naming a thousand
             // presses pays only for the admitted presses: the budget is a refusal and a
             // refusal that costs the work it refused is not one.
-            if named.len() >= MAX_PRESSES {
+            if named.bytes.saturating_add(charge) > self.bound {
                 return Err(NoPress::Spent);
             }
-        }
+            charge
+        };
         // Sampled with no lock of this table held, for ADR 0269's reason: `sample_press` is
         // 83 521 profile evaluations and a lock held across work is a lock rayon can deadlock.
         let sampled = press_for_profile(profile, rendering)?;
         let mut named = guard(&self.named)?;
-        if let Some(found) = named
-            .iter()
-            .find(|press| press.identity == identity)
-            .map(Arc::clone)
-        {
-            return Ok(found);
+        if let Some(found) = named.presses.get(&identity) {
+            return Ok(Arc::clone(found));
         }
-        if named.len() >= MAX_PRESSES {
+        if named.bytes.saturating_add(charge) > self.bound {
             return Err(NoPress::Spent);
         }
-        named.push(Arc::clone(&sampled));
+        named.bytes = named.bytes.saturating_add(charge);
+        named.presses.insert(identity, Arc::clone(&sampled));
         Ok(sampled)
     }
 
@@ -626,7 +656,7 @@ impl Presses {
     ///
     /// [`NoPress::Poisoned`] leaves the count unknown, never zero.
     pub fn named(&self) -> Result<usize, NoPress> {
-        Ok(guard(&self.named)?.len())
+        Ok(guard(&self.named)?.presses.len())
     }
 }
 
@@ -715,17 +745,221 @@ pub fn device_cmyk_blending_space() -> pdf_render::BlendingSpace {
 
 #[cfg(test)]
 mod tests {
-    use super::{NoPress, Presses};
-    use crate::icc::Rendering;
+    use super::{NoPress, PRESS_BYTES, Presses, press_charge};
+    use crate::icc::{A2b, Profile, Rendering};
+
+    /// How many distinct conversions out of a group the standard defines for **one** profile.
+    ///
+    /// §11.7.5.3's second bullet makes the conversion out of a group a function of the graphics
+    /// state at the `Do`:
+    ///
+    /// > the rendering intent used shall be the current rendering intent in effect at the time the
+    /// > Do operator is applied to the group
+    ///
+    /// Table 69 names four rendering intents, §8.6.5.9's `/UseBlackPtComp` is a second parameter
+    /// of the same conversion, and that clause pins one of the eight pairs:
+    ///
+    /// > If the current render intent of an object is AbsColorimetric then the value of
+    /// > UseBlackPtComp shall be treated as OFF .
+    ///
+    /// Four intents times two settings less that pair is seven, and
+    /// [`super::PressIdentity::Profile`] is keyed on exactly that pair.
+    const RENDERINGS_OF_ONE_PROFILE: usize = 7;
+
+    /// The seven renderings of one profile, each a distinct press.
+    fn renderings() -> Vec<Rendering> {
+        let mut all = Vec::new();
+        for transform in [
+            A2b::Perceptual,
+            A2b::Colorimetric,
+            A2b::Absolute,
+            A2b::Saturation,
+        ] {
+            for black_point in [false, true] {
+                let rendering = Rendering::new(transform, black_point);
+                if !all.contains(&rendering) {
+                    all.push(rendering);
+                }
+            }
+        }
+        all
+    }
+
+    /// Three profiles whose bytes, and so whose identities, differ.
+    fn three_profiles() -> Vec<Profile> {
+        [
+            crate::icc::fixtures::two_way_cmyk_profile(),
+            crate::icc::fixtures::ink_limited_cmyk_profile(),
+            crate::icc::fixtures::one_way_cmyk_profile(),
+        ]
+        .iter()
+        .map(|bytes| Profile::parse(bytes).expect("the fixture parses"))
+        .collect()
+    }
+
+    /// The clause's seven renderings of one profile are seven presses, and the fixtures make
+    /// twenty-one.
+    #[test]
+    fn the_renderings_of_a_profile_are_the_standards_seven() {
+        assert_eq!(renderings().len(), RENDERINGS_OF_ONE_PROFILE);
+        assert_eq!(three_profiles().len() * renderings().len(), 21);
+    }
+
+    /// A page that names twenty-one presses is given every one of them, and is charged for each.
+    #[test]
+    fn a_page_naming_twenty_one_presses_gets_every_one() {
+        let profiles = three_profiles();
+        let wanted: usize = profiles
+            .iter()
+            .map(|profile| press_charge(profile) * renderings().len())
+            .sum();
+        let presses = Presses::within(wanted);
+        for profile in &profiles {
+            for rendering in renderings() {
+                assert!(presses.press_for_profile(profile, rendering).is_ok());
+            }
+        }
+        assert_eq!(presses.named(), Ok(21));
+        assert_eq!(presses.bytes_held(), Ok(wanted));
+        assert!(wanted > 21 * PRESS_BYTES - 1);
+    }
+
+    /// What the process holds resident, in bytes, from `/proc/self/statm`.
+    fn resident_bytes() -> usize {
+        let statm = std::fs::read_to_string("/proc/self/statm").expect("Linux");
+        let pages: usize = statm
+            .split_whitespace()
+            .nth(1)
+            .and_then(|field| field.parse().ok())
+            .expect("statm's second field is the resident set in pages");
+        pages.saturating_mul(4096)
+    }
+
+    /// A two-way profile with `A2B0`, `A2B1` and `B2A1` of 33 grid points a side, which the
+    /// variant keeps from being another profile's bytes.
+    fn large_two_way_profile(variant: u16) -> Profile {
+        use crate::icc::fixtures::{complement_clut, mft2_grid_tag, mft2_tag, profile_of};
+        let side = 33_usize;
+        let mut samples = vec![0x4000u16; side.pow(4).saturating_mul(3)];
+        samples[0] = variant;
+        Profile::parse(&profile_of(
+            *b"CMYK",
+            *b"XYZ ",
+            2,
+            &[
+                (*b"A2B1", mft2_grid_tag(4, 3, side, &samples)),
+                (*b"A2B0", mft2_grid_tag(4, 3, side, &samples)),
+                (*b"B2A1", mft2_tag(3, 4, &complement_clut())),
+            ],
+        ))
+        .expect("the fixture parses")
+    }
+
+    /// What a press charges is at least what it holds resident, for the profile with the most to
+    /// hold: two 33-point `A2B` tables and a `B2A`, drawn under the perceptual intent that parses
+    /// the second (ISO 32000-2 §8.6.5.5; ADR 2532).
+    ///
+    /// Each profile is dropped once its press is built, so the growth is the press's own clone.
+    /// Run alone, in release, so that no other test's allocations are in the figure:
+    /// `cargo test --release -p pdf-colour --lib -- --ignored --test-threads 1 large_two_way`.
+    #[test]
+    // not a gate: a probe of resident memory, which a process shared with the other tests cannot
+    // state; it holds the arithmetic `a_two_way_profile_is_charged_at_least_what_the_perceptual_table_adds_to_its_clone`
+    // holds in the gate against a table's own sizes (ADR 2532)
+    #[ignore = "a probe of resident memory: run alone, in release, by hand"]
+    #[expect(
+        clippy::print_stdout,
+        reason = "a probe whose entire output is a measurement"
+    )]
+    fn large_two_way_profiles_are_charged_at_least_their_resident_size() {
+        const NAMED: u16 = 24;
+        let presses = Presses::within(usize::MAX);
+        let rendering = Rendering::new(A2b::Perceptual, false);
+        let before = resident_bytes();
+        let mut kept = Vec::new();
+        for variant in 0..NAMED {
+            let profile = large_two_way_profile(variant);
+            kept.push(
+                presses
+                    .press_for_profile(&profile, rendering)
+                    .expect("admitted"),
+            );
+        }
+        let grown = resident_bytes().saturating_sub(before);
+        let charged = presses.bytes_held().expect("not poisoned");
+        println!(
+            "{NAMED} presses: {charged} bytes charged, {grown} bytes resident growth \
+             ({} charged per press)",
+            charged / usize::from(NAMED)
+        );
+        assert!(
+            charged >= grown,
+            "{charged} bytes charged against {grown} bytes resident"
+        );
+        drop(kept);
+    }
+
+    /// At the budget the press that fits is admitted and the next is refused by name, and a
+    /// press already named stays reachable for no further charge.
+    #[test]
+    fn the_press_that_does_not_fit_is_refused_by_name_and_the_named_stay_reachable() {
+        let profiles = three_profiles();
+        let first = profiles.first().expect("a profile");
+        let second = profiles.get(1).expect("a second profile");
+        let exactly = press_charge(first) + press_charge(second);
+        let presses = Presses::within(exactly);
+        let rendering = Rendering::compensating();
+        assert!(presses.press_for_profile(first, rendering).is_ok());
+        assert!(presses.press_for_profile(second, rendering).is_ok());
+        assert_eq!(presses.bytes_held(), Ok(exactly));
+        let refused = presses.press_for_profile(first, Rendering::without_black_point());
+        assert_eq!(refused.err(), Some(NoPress::Spent));
+        assert!(presses.press_for_profile(first, rendering).is_ok());
+        assert_eq!(presses.named(), Ok(2));
+        assert_eq!(presses.bytes_held(), Ok(exactly));
+    }
+
+    /// One byte under the two presses' charge admits the first and refuses the second.
+    #[test]
+    fn a_bound_one_byte_short_refuses_the_press_that_would_cross_it() {
+        let profiles = three_profiles();
+        let first = profiles.first().expect("a profile");
+        let second = profiles.get(1).expect("a second profile");
+        let presses = Presses::within(press_charge(first) + press_charge(second) - 1);
+        let rendering = Rendering::compensating();
+        assert!(presses.press_for_profile(first, rendering).is_ok());
+        assert_eq!(
+            presses.press_for_profile(second, rendering).err(),
+            Some(NoPress::Spent)
+        );
+        assert_eq!(presses.named(), Ok(1));
+    }
+
+    /// A bound of nothing admits no press at all, and says so as the budget.
+    #[test]
+    fn an_empty_budget_admits_nothing() {
+        let profiles = three_profiles();
+        let presses = Presses::within(0);
+        assert_eq!(
+            presses
+                .press_for_profile(
+                    profiles.first().expect("a profile"),
+                    Rendering::compensating()
+                )
+                .err(),
+            Some(NoPress::Spent)
+        );
+        assert_eq!(presses.bytes_held(), Ok(0));
+    }
 
     /// A table of presses a panicking thread poisoned answers [`NoPress::Poisoned`], and never
     /// [`NoPress::Spent`]: the budget is §11.7.2's and a fact about the file, the poison a fact
     /// about this process (ADR 2170). Fails with `guard`'s error mapped to `Spent`.
     #[test]
     fn a_poisoned_table_of_presses_is_said_as_poisoned_and_not_as_a_spent_budget() {
-        let profile = crate::icc::Profile::parse(&crate::icc::fixtures::two_way_cmyk_profile())
+        let profile = Profile::parse(&crate::icc::fixtures::two_way_cmyk_profile())
             .expect("the fixture parses");
-        let presses = Presses::default();
+        let presses = Presses::within(usize::MAX);
         let panicked = std::thread::scope(|scope| {
             scope
                 .spawn(|| {
@@ -748,7 +982,7 @@ mod tests {
     /// A poisoned count is unknown, not an empty interpretation.
     #[test]
     fn a_poisoned_named_counter_is_not_zero() {
-        let presses = Presses::default();
+        let presses = Presses::within(usize::MAX);
         assert!(
             std::thread::scope(|scope| scope
                 .spawn(|| {
@@ -764,7 +998,7 @@ mod tests {
     /// The same valid RGB space has a route before poisoning and an explicit fault after it.
     #[test]
     fn a_poisoned_rgb_route_is_not_an_absent_route() {
-        let presses = Presses::default();
+        let presses = Presses::within(usize::MAX);
         let space = crate::colour::ColourSpace::CalRgb {
             white: [0.9505, 1.0, 1.0890],
             black: [0.0; 3],
@@ -817,9 +1051,9 @@ mod tests {
     /// The unpoisoned table answers a press, so the test above is about the poison alone.
     #[test]
     fn the_same_profile_on_a_whole_table_is_a_press() {
-        let profile = crate::icc::Profile::parse(&crate::icc::fixtures::two_way_cmyk_profile())
+        let profile = Profile::parse(&crate::icc::fixtures::two_way_cmyk_profile())
             .expect("the fixture parses");
-        let presses = Presses::default();
+        let presses = Presses::within(usize::MAX);
         assert!(
             presses
                 .press_for_profile(&profile, Rendering::compensating())

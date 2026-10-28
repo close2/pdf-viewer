@@ -25,7 +25,7 @@ use crate::json::Value;
 // writers cannot name an entry's XMP counterpart two ways.
 use crate::update::TABLE_349;
 
-use super::decision::{Because, REMEDIES};
+use super::decision::{Because, Loss, REMEDIES};
 use super::destination::RestatedDestination;
 use super::fonts::{self, Directions, Metrics, Substitutes};
 use super::jpeg2000::{self, Specifications};
@@ -58,7 +58,7 @@ pub(super) const SRGB: &[u8] = include_bytes!("../../../../data/icc/sRGB2014.icc
 /// whose profile is CMYK, and the RGB one cannot answer that row whatever else it does.
 /// `data/icc/PROVENANCE.md` carries the edition argument for a `prtr` class, the licence read
 /// out of the file's own `cprt` tag, and the alternatives declined. Also `static`.
-const CMYK: &[u8] = include_bytes!("../../../../data/icc/GRACoL2006_Coated1v2.icc");
+pub(super) const CMYK: &[u8] = include_bytes!("../../../../data/icc/GRACoL2006_Coated1v2.icc");
 
 /// The action this conversion records in `xmpMM:History` when it writes the `/DefaultCMYK`.
 ///
@@ -237,6 +237,24 @@ pub(super) const TRANSFER_REMOVED_ACTION: &str = "converted";
 /// `doc/adr/2498`: the loss `image-smoothing` is named in the file as well as in the report. The
 /// word is `converted`, like every other recorded action here.
 pub(super) const SMOOTHING_OFF_ACTION: &str = "converted";
+
+/// The action this conversion records in `xmpMM:History` when it restates a TrueType font's `cmap`.
+///
+/// `doc/adr/2520`: the route this reader took is the file's statement from now on, and
+/// `doc/questions/A48` makes the entry naming the clause the condition of that. The word is
+/// `converted`, like every other recorded action here.
+pub(super) const CMAP_RESTATED_ACTION: &str = "converted";
+
+/// Why no TrueType program was copied for a file another requirement refuses by name.
+const CMAP_NOT_PREPARED: &str = "another requirement this file fails is refused by name, so \
+     the file is refused whatever its TrueType fonts say, and no program was copied to find out \
+     whether their cmap could be restated (doc/adr/2520)";
+
+/// Why a font's `cmap` was not restated even though the conversion could prove it.
+const NO_PLACE_TO_RECORD_CMAP: &str = "restating a TrueType font's cmap writes the fonts it \
+     reached into this file's own xmpMM:History naming the clause, and this document's XMP \
+     packet will not take that entry \u{2014} so the fonts stay as they are and no file is \
+     written (doc/adr/2520)";
 
 /// Why a transfer function was not removed even though the removal was authorised.
 const NO_PLACE_TO_RECORD_A_TRANSFER: &str = "removing a transfer function other than the \
@@ -669,6 +687,10 @@ pub(super) struct Metadata {
 /// does not have its packet read, which is what keeps `doc/adr/0947`'s first rule true of this
 /// slice as well.
 pub(super) struct Prepared {
+    /// The requirements this preparation found failing in the file it will write although the
+    /// source met them, each with the places: `fonts/font-programs-embedded` where a name was
+    /// defined as one of §9.6.2.2's fourteen (`doc/adr/2522`).
+    pub(super) raised: Vec<(&'static str, usize)>,
     /// The destination profile written over one this reader does not draw through, or why none
     /// is (`doc/adr/2007`).
     ///
@@ -924,6 +946,7 @@ impl Prepared {
     pub(super) fn of(
         plan: &ArchivePlan,
         document: &Document,
+        source: &Document,
         input: &pdf_archive::Report,
         omit_identification: bool,
         provenance: Provenance<'_>,
@@ -1006,9 +1029,15 @@ impl Prepared {
         // The `/DefaultCMYK` over the operator's press profile asks the survey only where a
         // profile was supplied beside a file whose own intent is of another family, so a
         // conversion nobody supplied a press for walks nothing more than it did (`doc/adr/2130`).
+        // The shipped press stands in for a supply only where the caller authorised the loss
+        // `press-assumed` and the target is part 4, whose second licence states no press at all
+        // (`doc/adr/2518`).
+        let assumed_press = (plan.target.part() == pdf_archive::Part::Four
+            && plan.authorised.grants(Loss::PressAssumed))
+        .then_some(CMYK);
         let cmyk_by_supply = wanted(Rewrite::SuppliedDefaultCmyk)
             && !by_intent
-            && plan.profile.is_some()
+            && (plan.profile.is_some() || assumed_press.is_some())
             && intent.is_ok();
         // **One survey, for every preparation that asks what the pages actually drew** — the two
         // that read a font's advances and the two that prove a change of encoding moves no mark —
@@ -1028,11 +1057,56 @@ impl Prepared {
                 .as_ref()
                 .is_ok_and(|intent| intent.family != DeviceFamily::Rgb)
             || matches!(&rgb_page_contexts, Ok(Some(_)));
+        // The pages that hold a fault of their content stream are found in the survey, so a
+        // profile that photographs them asks for it as a font rewrite does (A694 item 1).
+        let photographs_fenced = plan.authorised.grants(Loss::PageAsImage)
+            && fonts::Gate::admits(plan.target)
+            && input
+                .failures()
+                .any(|judgement| super::fenced::ROWS.contains(&judgement.id));
         let survey = (SURVEYED.iter().any(|rewrite| wanted(*rewrite))
             || odd_digits
             || rgb_by_default
-            || cmyk_by_supply)
+            || cmyk_by_supply
+            || photographs_fenced)
             .then(|| Survey::of(document));
+        // **The definitions are worked out before the fonts**, because a name this reader draws
+        // from its own faces is defined as a font the embedding route then has to embed
+        // (`doc/adr/2522`). `fonts/font-programs-embedded` did not fail in the source, which
+        // defined no such font; it fails in the file this conversion writes, so it is raised here
+        // as a failed requirement of the source would have been, and the output is held to it
+        // afterwards like any other (the same rule as the device rows above, `doc/adr/1990`).
+        let form_resources = asked(wanted(Rewrite::PageResources), || {
+            let survey = survey.as_ref().ok_or(Because::NotBuiltYet(NOT_ASKED_FOR))?;
+            reader_resources::assign(document, survey, &mut spare)
+        });
+        let defined_resources = asked(wanted(Rewrite::EmptyResourceDefined), || {
+            let survey = survey.as_ref().ok_or(Because::NotBuiltYet(NOT_ASKED_FOR))?;
+            reader_resources::supply(document, survey, &mut spare, form_resources.as_ref().ok())
+        });
+        let standard_fonts: BTreeMap<Vec<u8>, ObjectId> = defined_resources
+            .as_ref()
+            .ok()
+            .zip(survey.as_ref())
+            .map(|(defined, survey)| defined.rendered_standard_fonts(survey))
+            .unwrap_or_default();
+        let raised: Vec<(&'static str, usize)> = if standard_fonts.is_empty()
+            || failed.contains(fonts::EMBEDDED_PROGRAMS)
+            || !input.judgements.iter().any(|judgement| {
+                judgement.id == fonts::EMBEDDED_PROGRAMS && judgement.outcome == Outcome::Met
+            }) {
+            Vec::new()
+        } else {
+            vec![(fonts::EMBEDDED_PROGRAMS, standard_fonts.len())]
+        };
+        let failed = if raised.is_empty() {
+            failed
+        } else {
+            let mut raising = failed;
+            raising.extend(raised.iter().map(|(id, _)| *id));
+            raising
+        };
+        let wanted = |rewrite: Rewrite| wanted_by(&failed, rewrite);
         let hexadecimal = asked(odd_digits, || {
             super::hexadecimal::complete(document, survey.as_ref())
         });
@@ -1041,6 +1115,7 @@ impl Prepared {
                 document,
                 intent,
                 plan.profile.as_deref(),
+                assumed_press,
                 survey.as_ref(),
                 &mut spare,
             ),
@@ -1290,7 +1365,8 @@ impl Prepared {
             &mut spare,
             wanted(Rewrite::SubstituteFontProgram),
             metric_directions(&failed),
-            survey.as_ref(),
+            (survey.as_ref(), input),
+            &standard_fonts,
         );
         let edited = Edited {
             fresh: fresh.as_ref().ok(),
@@ -1346,6 +1422,73 @@ impl Prepared {
         let smoothing_history = wanted(Rewrite::InterpolationOff)
             .then(|| super::smoothing::history(input))
             .flatten();
+        // The TrueType routes are prepared before the packet too, because a restated `cmap` is
+        // written into the file's own history (`doc/questions/A48`, `doc/adr/2520`).
+        let truetype = {
+            let survey = survey.as_ref();
+            let symbolic_encodings =
+                asked(wanted(Rewrite::SymbolicTrueTypeEncodingRemoved), || {
+                    let survey = survey.ok_or(Because::NotBuiltYet(NOT_ASKED_FOR))?;
+                    sites::symbolic_truetype_encodings(document, input, survey)
+                });
+            let standard_encodings = asked(wanted(Rewrite::StandardTrueTypeEncoding), || {
+                let survey = survey.ok_or(Because::NotBuiltYet(NOT_ASKED_FOR))?;
+                sites::standard_truetype_encodings(document, input, survey)
+            });
+            let standard_route = asked(wanted(Rewrite::StandardRouteNames), || {
+                let survey = survey.ok_or(Because::NotBuiltYet(NOT_ASKED_FOR))?;
+                sites::standard_route_names(document, input, survey)
+            });
+            // The restatement answers a font the three rows' own preparations refuse, so it is
+            // made for them only where one of those rows failed and its preparation refused.
+            // And not at all where the table refuses another failed requirement by name: the
+            // document is refused whatever the fonts say, and a copy of each program is the most
+            // this conversion spends on a font. A photographed page can still answer such a row
+            // (`Loss::PageAsImage`).
+            let rows = fonts::TRUETYPE_ENCODING_ROWS;
+            let encoding_row_refused = [
+                (rows[0], standard_route.is_err()),
+                (rows[1], symbolic_encodings.is_err()),
+                (rows[2], standard_encodings.is_err()),
+            ]
+            .iter()
+            .any(|(row, refused)| *refused && failed.contains(row));
+            let restated_programs = metrics
+                .as_ref()
+                .map(|metrics| metrics.at.clone())
+                .unwrap_or_default();
+            let asks = wanted(Rewrite::TrueTypeCmapRestated)
+                && (fonts::TRUETYPE_CMAP_ROWS
+                    .iter()
+                    .any(|row| failed.contains(row))
+                    || encoding_row_refused);
+            let refused_anyway = !plan.authorised.grants(Loss::PageAsImage)
+                && failed.iter().any(|id| super::decision::answers_nothing(id));
+            let cmap_restated = if asks && refused_anyway {
+                Err(Because::NotBuiltYet(CMAP_NOT_PREPARED))
+            } else {
+                asked(asks, || {
+                    fonts::truetype_cmaps_restated(
+                        document,
+                        input,
+                        &mut spare,
+                        &restated_programs,
+                        encoding_row_refused,
+                    )
+                })
+            };
+            TrueTypeRoutes {
+                symbolic_encodings,
+                standard_encodings,
+                standard_route,
+                cmap_restated,
+            }
+        };
+        let cmap_history = truetype
+            .cmap_restated
+            .as_ref()
+            .ok()
+            .and_then(fonts::CmapRestated::history);
         let now = xmp::instant(plan.clock.now());
         let metadata = the_packet(
             plan.target,
@@ -1377,10 +1520,16 @@ impl Prepared {
                 attached: attached_history.as_deref(),
                 transfers: transfer_history.as_deref(),
                 smoothing: smoothing_history.as_deref(),
+                cmap: cmap_history.as_deref(),
                 when: now.as_deref(),
                 // At most one of the two constructions is prepared, so one entry says which.
-                default_cmyk: if supplied_cmyk.is_ok() {
-                    Some(super::supplied_cmyk::PARAMETERS)
+                default_cmyk: if let Ok(supplied) = &supplied_cmyk {
+                    Some(match supplied.press {
+                        super::supplied_cmyk::Press::Supplied => super::supplied_cmyk::PARAMETERS,
+                        super::supplied_cmyk::Press::Assumed => {
+                            super::supplied_cmyk::ASSUMED_PARAMETERS
+                        }
+                    })
                 } else {
                     default_cmyk.is_ok().then_some(DEFAULT_CMYK_PARAMETERS)
                 },
@@ -1397,11 +1546,13 @@ impl Prepared {
             .as_ref()
             .is_ok_and(|cleaned| cleaned.removed.is_empty());
         let default_cmyk = unless_recorded(default_cmyk, recorded_it, NO_PLACE_TO_RECORD);
-        let supplied_cmyk = unless_recorded(
-            supplied_cmyk,
-            recorded_it,
-            super::supplied_cmyk::NO_PLACE_TO_RECORD,
-        );
+        let cmyk_not_recorded = match &supplied_cmyk {
+            Ok(supplied) if supplied.press == super::supplied_cmyk::Press::Assumed => {
+                super::supplied_cmyk::ASSUMED_NO_PLACE_TO_RECORD
+            }
+            _ => super::supplied_cmyk::NO_PLACE_TO_RECORD,
+        };
+        let supplied_cmyk = unless_recorded(supplied_cmyk, recorded_it, cmyk_not_recorded);
         let substitutes =
             unless_recorded(substitutes, recorded_it, NO_PLACE_TO_RECORD_A_SUBSTITUTION);
         let properties = unless_recorded(
@@ -1433,6 +1584,13 @@ impl Prepared {
         // And for the images set to `/Interpolate false`: the entry is how the file itself says
         // that smoothing was turned off, so a packet that will not take it withdraws the rewrite
         // (`doc/adr/2498`).
+        // And for the restated `cmap`: the file's own history is where A48 requires the clause to
+        // be named, so a packet that will not take the entry withdraws the restatement
+        // (`doc/adr/2520`).
+        let mut truetype = truetype;
+        if cmap_history.is_some() && !recorded_it {
+            truetype.cmap_restated = Err(Because::NotBuiltYet(NO_PLACE_TO_RECORD_CMAP));
+        }
         let smoothing_recorded = match smoothing_history {
             Some(_) if !recorded_it => Err(Because::NotBuiltYet(NO_PLACE_TO_RECORD_SMOOTHING)),
             _ => Ok(()),
@@ -1521,8 +1679,12 @@ impl Prepared {
             packet_headers: headers,
             survey: survey.as_ref(),
             transfers,
+            form_resources,
+            defined_resources,
+            truetype,
         };
         Self {
+            raised,
             replaced_destination,
             restated_destination,
             intent,
@@ -1542,7 +1704,7 @@ impl Prepared {
             substitutes,
             metrics,
             structure,
-            signatures: signatures_if_rewritten(document, input),
+            signatures: signatures_if_rewritten(document, source, input),
             owed: Owed::of(plan, document, input, &mut spare, &failed, already),
             smoothing_recorded,
             hexadecimal,
@@ -1663,6 +1825,7 @@ impl Prepared {
                 self.owed.standard_encodings.as_ref().err().copied()
             }
             Rewrite::StandardRouteNames => self.owed.standard_route.as_ref().err().copied(),
+            Rewrite::TrueTypeCmapRestated => self.owed.cmap_restated.as_ref().err().copied(),
             Rewrite::Type3NotdefRenamed => self.owed.type3_notdef.as_ref().err().copied(),
             Rewrite::SharedDestinationProfile => self.owed.shared_profile.as_ref().err().copied(),
             Rewrite::SpotColorantEntry => self.owed.colorants.as_ref().err().copied(),
@@ -1767,6 +1930,16 @@ impl Prepared {
                 out.insert(*id, object.clone());
             }
         }
+        // Before the substitutes: a standard font defined here is written plain, and the font the
+        // embedding route made of it is written over it at the same number.
+        for resources in [&self.owed.form_resources, &self.owed.defined_resources]
+            .into_iter()
+            .flatten()
+        {
+            for (id, object) in &resources.written {
+                out.insert(*id, object.clone());
+            }
+        }
         if let Ok(substitutes) = &self.substitutes {
             for (id, object) in &substitutes.written {
                 out.insert(*id, object.clone());
@@ -1774,14 +1947,6 @@ impl Prepared {
         }
         if let Ok(metrics) = &self.metrics {
             for (id, object) in &metrics.written {
-                out.insert(*id, object.clone());
-            }
-        }
-        for resources in [&self.owed.form_resources, &self.owed.defined_resources]
-            .into_iter()
-            .flatten()
-        {
-            for (id, object) in &resources.written {
                 out.insert(*id, object.clone());
             }
         }
@@ -1812,6 +1977,11 @@ impl Prepared {
         }
         if let Ok(refiled) = &self.owed.font_files {
             for (id, object) in refiled.written() {
+                out.insert(*id, object.clone());
+            }
+        }
+        if let Ok(restated) = &self.owed.cmap_restated {
+            for (id, object) in restated.written() {
                 out.insert(*id, object.clone());
             }
         }
@@ -1865,6 +2035,8 @@ pub(super) struct Owed {
     /// The TrueType fonts whose shown codes are named so §9.6.5.4's own route reaches their
     /// glyphs, or why none are.
     pub(super) standard_route: Result<StandardRouteNames, Because>,
+    /// The TrueType fonts whose program's `cmap` is restated, with the objects that hold them.
+    pub(super) cmap_restated: Result<fonts::CmapRestated, Because>,
     /// The Type 3 fonts whose `.notdef` glyph is renamed, or why none are.
     pub(super) type3_notdef: Result<Type3Renames, Because>,
     /// The output intents pointed at one shared destination profile, or why none are.
@@ -1921,17 +2093,22 @@ impl Owed {
             packet_headers,
             survey,
             transfers,
+            form_resources,
+            defined_resources,
+            truetype,
         } = already;
-        let form_resources = asked(wanted(Rewrite::PageResources), || {
-            let survey = survey.ok_or(Because::NotBuiltYet(NOT_ASKED_FOR))?;
-            reader_resources::assign(document, survey, spare)
-        });
+        let TrueTypeRoutes {
+            symbolic_encodings,
+            standard_encodings,
+            standard_route,
+            cmap_restated,
+        } = truetype;
         Self {
             font_widths: asked(wanted(Rewrite::FontWidthArrayRestated), || {
                 super::font_widths::restated(document, input)
             }),
             rendering_intents: asked(wanted(Rewrite::RenderingIntent), || {
-                sites::rendering_intents(input)
+                sites::rendering_intents(document, input)
             }),
             blend_modes: asked(wanted(Rewrite::BlendModeNormal), || {
                 sites::blend_modes(document, input)
@@ -1945,10 +2122,7 @@ impl Owed {
             page_resources: asked(wanted(Rewrite::PageResources), || {
                 Ok(sites::page_resources(document, input))
             }),
-            defined_resources: asked(wanted(Rewrite::EmptyResourceDefined), || {
-                let survey = survey.ok_or(Because::NotBuiltYet(NOT_ASKED_FOR))?;
-                reader_resources::supply(document, survey, spare, form_resources.as_ref().ok())
-            }),
+            defined_resources,
             form_resources,
             page_counts: asked(wanted(Rewrite::PageCountRestated), || {
                 super::page_tree::restated(document)
@@ -1996,21 +2170,13 @@ impl Owed {
             }),
             transfers,
             packet_headers,
-            symbolic_encodings: asked(wanted(Rewrite::SymbolicTrueTypeEncodingRemoved), || {
-                let survey = survey.ok_or(Because::NotBuiltYet(NOT_ASKED_FOR))?;
-                sites::symbolic_truetype_encodings(document, input, survey)
-            }),
-            standard_encodings: asked(wanted(Rewrite::StandardTrueTypeEncoding), || {
-                let survey = survey.ok_or(Because::NotBuiltYet(NOT_ASKED_FOR))?;
-                sites::standard_truetype_encodings(document, input, survey)
-            }),
+            symbolic_encodings,
+            standard_encodings,
             type3_notdef: asked(wanted(Rewrite::Type3NotdefRenamed), || {
                 sites::type3_notdef_renames(document, input)
             }),
-            standard_route: asked(wanted(Rewrite::StandardRouteNames), || {
-                let survey = survey.ok_or(Because::NotBuiltYet(NOT_ASKED_FOR))?;
-                sites::standard_route_names(document, input, survey)
-            }),
+            cmap_restated,
+            standard_route,
             shared_profile: asked(wanted(Rewrite::SharedDestinationProfile), || {
                 let catalog = document
                     .catalog()
@@ -2035,8 +2201,18 @@ impl Owed {
 /// A conforming source is copied byte for byte and keeps every signature it has, so nothing is
 /// walked or hashed for it; a failing one is rewritten, and a rewrite invalidates every
 /// signature whatever requirement asked for it — `doc/pdf-a-conversion-limits.md` section 3.6.
-fn signatures_if_rewritten(document: &Document, input: &pdf_archive::Report) -> Signatures {
-    if input.verdict() == Verdict::Fails {
+///
+/// Where `document` is the structure this reader recovered from `source`, it is always rewritten
+/// and the signatures are read against `source`, the only bytes they were ever made over
+/// (`doc/adr/2523`).
+fn signatures_if_rewritten(
+    document: &Document,
+    source: &Document,
+    input: &pdf_archive::Report,
+) -> Signatures {
+    if !std::ptr::eq(document, source) {
+        signatures::find_over(document, source)
+    } else if input.verdict() == Verdict::Fails {
         signatures::find(document)
     } else {
         Signatures::default()
@@ -2074,6 +2250,29 @@ pub(super) struct Already<'a> {
     survey: Option<&'a Survey>,
     /// The transfer functions removed, prepared before the packet that records them.
     transfers: Result<super::transfer::TransferFunctions, Because>,
+    /// The resources given to the forms that state none, prepared before the fonts they define.
+    form_resources: Result<ReaderResources, Because>,
+    /// The names defined as empty resources, prepared before the fonts they define.
+    defined_resources: Result<ReaderResources, Because>,
+    /// The four TrueType preparations, made before the packet because the restated `cmap` is
+    /// recorded in it.
+    truetype: TrueTypeRoutes,
+}
+
+/// The preparations that put a rendered TrueType font's codes on §9.6.5.4's route.
+///
+/// Together because the restated `cmap` answers each of the three encoding rows where that
+/// row's own preparation refuses (`Answer::OrCmapRestated`), so the four are decided as one
+/// (`doc/adr/2520`).
+struct TrueTypeRoutes {
+    /// The symbolic fonts whose `/Encoding` is removed, or why none are.
+    symbolic_encodings: Result<Sites, Because>,
+    /// The non-symbolic fonts given one of the two admitted names, or why none are.
+    standard_encodings: Result<StandardEncodings, Because>,
+    /// The fonts whose shown codes are named so the route reaches their glyphs, or why none are.
+    standard_route: Result<StandardRouteNames, Because>,
+    /// The fonts whose program's `cmap` is restated, or why none are.
+    cmap_restated: Result<fonts::CmapRestated, Because>,
 }
 
 /// The rewrites whose preparation reads what the pages drew.
@@ -5076,17 +5275,30 @@ fn prepare_fonts(
     spare: &mut Spare,
     wants_substitutes: bool,
     wants_metrics: Directions,
-    survey: Option<&Survey>,
+    (survey, input): (Option<&Survey>, &pdf_archive::Report),
+    defined: &BTreeMap<Vec<u8>, ObjectId>,
 ) -> PreparedFonts {
-    let substitutes = match (wants_substitutes, survey) {
+    // **The wider photograph gate, where the profile authorised it** (A694 item 1): the pages that
+    // hold a fault of their content stream are photographed too, which asks for the same
+    // preparation a font asks for even when no font failed.
+    let anywhere = plan.authorised.grants(Loss::PageAsImage) && fonts::Gate::admits(plan.target);
+    let fenced = match survey {
+        Some(survey) if anywhere => super::fenced::pages(input, survey),
+        _ => super::fenced::Fenced::default(),
+    };
+    let substitutes = match (wants_substitutes || !fenced.pages.is_empty(), survey) {
         (true, _) if !plan.substitute_fonts => Err(Because::Declined(SUBSTITUTION_DECLINED)),
         (true, Some(survey)) => fonts::embed_faces(
             document,
             survey,
             spare,
-            &plan.supplied_fonts,
-            plan.cjk_pack.as_ref(),
-            plan.target,
+            &fonts::Routes {
+                supplied: &plan.supplied_fonts,
+                pack: plan.cjk_pack.as_ref(),
+                target: plan.target,
+                gate: fonts::Gate::new(plan.target, anywhere, &fenced),
+                defined,
+            },
         ),
         _ => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
     };
@@ -5138,10 +5350,7 @@ pub(super) fn substituted_fonts_recorded(fonts: &[fonts::SubstitutedFont]) -> St
                 .unwrap_or_default();
             // The widths of a font the file described by nothing are this viewer's layout of
             // the name, which the file's own history says in as many words (`doc/adr/2504`).
-            let layout = if font
-                .losses
-                .contains(super::decision::Loss::LayoutFromThisViewer)
-            {
+            let layout = if font.losses.contains(Loss::LayoutFromThisViewer) {
                 " (the file states no widths for this font; the widths written are the layout \
                  this viewer drew it with)"
             } else {
@@ -5211,6 +5420,8 @@ struct Recording<'a> {
     transfers: Option<&'a str>,
     /// Which images had `/Interpolate` written false, where any did (`doc/adr/2498`).
     smoothing: Option<&'a str>,
+    /// Which TrueType fonts had their program's `cmap` restated, where any did (`doc/adr/2520`).
+    cmap: Option<&'a str>,
     /// Whether the identification schema's properties are deliberately omitted (`A59`).
     ///
     /// A departed conversion that does not claim conformance still writes the packet, so the
@@ -5328,7 +5539,7 @@ fn recorded_events<'a>(recording: &Recording<'a>) -> Vec<xmp::Event<'a>> {
         return Vec::new();
     };
     let non_empty = |text: &'a str| (!text.is_empty()).then_some(text);
-    let actions: [(&'a str, Option<&'a str>); 14] = [
+    let actions: [(&'a str, Option<&'a str>); 15] = [
         (DEFAULT_CMYK_ACTION, recording.default_cmyk),
         (REMOVED_PROPERTIES_ACTION, non_empty(recording.removals)),
         (REMOVED_PROPERTIES_ACTION, non_empty(recording.discards)),
@@ -5343,6 +5554,7 @@ fn recorded_events<'a>(recording: &Recording<'a>) -> Vec<xmp::Event<'a>> {
         (PRESERVED_ACTION, recording.preserved),
         (TRANSFER_REMOVED_ACTION, recording.transfers),
         (SMOOTHING_OFF_ACTION, recording.smoothing),
+        (CMAP_RESTATED_ACTION, recording.cmap),
     ];
     actions
         .into_iter()

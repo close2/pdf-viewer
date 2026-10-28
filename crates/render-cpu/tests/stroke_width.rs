@@ -131,10 +131,18 @@ fn ink(raster: &Raster) -> f64 {
     sum / 255.0
 }
 
-/// Renders `list` at `scale` and returns the ink it deposited.
+/// Renders `list` at `scale` with the grid fit off, the rasterizer's default, and returns the
+/// ink it deposited.
 fn ink_at(list: &DisplayList, scale: f32) -> f64 {
+    ink_with(list, scale, false)
+}
+
+/// Renders `list` at `scale`, with §10.7.5's grid fit on or off, and returns the ink it
+/// deposited.
+fn ink_with(list: &DisplayList, scale: f32, fitted: bool) -> f64 {
     let target = TargetSpec::for_page(list, scale, GENEROUS).expect("a valid target");
     let raster = CpuRasterizer::new()
+        .with_stroke_adjustment(fitted)
         .rasterize(list, target)
         .expect("a stroke is supported");
     ink(&raster)
@@ -166,8 +174,10 @@ fn a_zero_width_stroke_is_one_device_pixel_at_every_scale() {
 /// §10.7.5's rule in pixels. A width of 0.2 units is a fifth of a pixel at scale 1.0 and
 /// deposits a fifth of the ink without adjustment; with adjustment it deposits a whole
 /// pixel's worth. At scale 4.0 the same stroke is 0.8 of a pixel — over the clause's half —
-/// and adjustment must leave it exactly where it was, which is the half of this rule that a
-/// test firing on the key alone would not check.
+/// and the second requirement must leave it exactly where it was, which is the half of this
+/// rule that a test firing on the key alone would not check. That half is asked with the grid
+/// fit off, because the fit is the *first* requirement's and makes the 0.8-pixel rule one whole
+/// pixel by its own rule (ADR 2530).
 #[test]
 fn stroke_adjustment_promotes_only_a_sub_half_pixel_line() {
     let plain = line(Stroke {
@@ -199,12 +209,20 @@ fn stroke_adjustment_promotes_only_a_sub_half_pixel_line() {
         );
     }
 
-    // 0.2 * 4.0 = 0.8 of a device pixel, which is over half: nothing to adjust.
+    // 0.2 * 4.0 = 0.8 of a device pixel, which is over half: nothing for the second
+    // requirement to adjust.
     assert!(
-        (ink_at(&adjusted, 4.0) - ink_at(&plain, 4.0)).abs() < 1.0,
+        (ink_with(&adjusted, 4.0, false) - ink_at(&plain, 4.0)).abs() < 1.0,
         "at scale 4.0 the two should agree: {} against {}",
-        ink_at(&adjusted, 4.0),
+        ink_with(&adjusted, 4.0, false),
         ink_at(&plain, 4.0)
+    );
+    // The first requirement's fit makes the same rule one whole device pixel wide.
+    let whole = f64::from(LENGTH * 4.0);
+    assert!(
+        (ink_with(&adjusted, 4.0, true) - whole).abs() < 3.0,
+        "at scale 4.0 the fitted 0.8-pixel rule should deposit about {whole}, got {}",
+        ink_with(&adjusted, 4.0, true)
     );
 }
 
@@ -258,69 +276,91 @@ fn the_substituted_width_matches_the_rasterisers_hairline() {
 /// Eight placements an eighth of a device pixel apart is a whole period of the only variable
 /// the requirement is about. Two scales, for the reason the module comment gives.
 ///
-/// The tight bound is what makes this discriminating rather than vacuous, and it is a ratchet:
-/// the test prints the worst deviation this ladder produces and `MEASURED` is that worst
-/// doubled, for the slack the turned rung's comment states. The reference that grid-fits
-/// instead — `poppler`, which snaps both edges to whole pixels and so draws a 0.6-pixel rule as
-/// one whole one — reads 0.4 here and would fail it while staying inside the clause's own
-/// bound. ADR 0848 has the ladder for all five renderers, ADR 1189 the re-measurement this
-/// number is taken from.
+/// Two arms, because the clause's bound has two constructions on this device (ADR 2530). With the
+/// grid fit off, a rule keeps its coordinates and its coverage-weighted width, and the tight
+/// bound is a ratchet on that: `MEASURED` is the worst this ladder produced, doubled, for the
+/// slack the turned rung's comment states (ADRs 0848, 1189). With the fit on, which
+/// `CpuRasterizer::with_stroke_adjustment` turns on for a stroke under `/SA`, a rule under one
+/// and a half device pixels is one whole pixel at every placement — `poppler`'s construction,
+/// 0.4 from a requested 0.6 — so the test holds it to the clause's bound and to the same
+/// thickness at all eight placements, which is the uniformity the clause's first sentence names;
+/// a wider rule is not fitted and keeps the ratchet.
 #[test]
 fn stroke_adjustment_holds_the_thickness_within_half_a_pixel_at_every_placement() {
     /// The clause's own bound, in device pixels of thickness.
     const CLAUSE: f64 = 0.5;
-    /// What this backend holds on axis-aligned rules: the worst this ladder measures, doubled.
+    /// What this backend holds on axis-aligned rules it does not fit: the worst this ladder
+    /// measures, doubled.
     const MEASURED: f64 = 0.016;
+    /// How far apart a fitted rule's thicknesses at the eight placements may be: its two ends
+    /// are where the document put them, so the end pixels' coverage is the only difference.
+    const UNIFORM: f64 = 0.02;
 
     let mut population = 0_u32;
     let mut worst = 0.0_f64;
     let mut worst_rung = String::new();
-    for scale in [1.0_f32, 2.0] {
-        for width in [0.6_f32, 1.0, 2.5] {
-            let mut thicknesses = Vec::new();
-            for eighth in 0_u8..8 {
-                // An eighth of a *device* pixel, so the offset is a reciprocal of the scale —
-                // trap 2's argument, which is why the module runs everything at two scales.
-                let y = 50.0 + f32::from(eighth) / (8.0 * scale);
-                let list = line_at(
-                    y,
-                    Stroke {
-                        width,
-                        adjust: true,
-                        ..Stroke::default()
-                    },
-                );
-                thicknesses.push(ink_at(&list, scale) / f64::from(LENGTH * scale));
-            }
-            // The rule is stated in *device* pixels and the width in the path's own space, so
-            // the quantity the clause bounds is the width times the scale — the reciprocal the
-            // module comment warns about, met from the other side.
-            let requested = f64::from(width * scale);
-            for (eighth, got) in thicknesses.iter().enumerate() {
-                population += 1;
-                let off = (got - requested).abs();
-                assert!(
-                    off <= CLAUSE,
-                    "scale {scale}, width {width}, placement {eighth}/8: thickness {got} is more \
-                     than half a device pixel from the requested {requested}"
-                );
-                assert!(
-                    off <= MEASURED,
-                    "scale {scale}, width {width}, placement {eighth}/8: thickness {got} against \
-                     the requested {requested} is {off} out, past the {MEASURED} this backend \
-                     held when ADR 1189 measured it"
-                );
-                if off > worst {
-                    worst = off;
-                    worst_rung = format!("scale {scale}, width {width}, {eighth}/8");
+    for fitted in [false, true] {
+        for scale in [1.0_f32, 2.0] {
+            for width in [0.6_f32, 1.0, 2.5] {
+                let mut thicknesses = Vec::new();
+                for eighth in 0_u8..8 {
+                    // An eighth of a *device* pixel, so the offset is a reciprocal of the scale —
+                    // trap 2's argument, which is why the module runs everything at two scales.
+                    let y = 50.0 + f32::from(eighth) / (8.0 * scale);
+                    let list = line_at(
+                        y,
+                        Stroke {
+                            width,
+                            adjust: true,
+                            ..Stroke::default()
+                        },
+                    );
+                    thicknesses.push(ink_with(&list, scale, fitted) / f64::from(LENGTH * scale));
+                }
+                // The rule is stated in *device* pixels and the width in the path's own space,
+                // so the quantity the clause bounds is the width times the scale — the
+                // reciprocal the module comment warns about, met from the other side.
+                let requested = f64::from(width * scale);
+                let fit_applies = fitted && requested < f64::from(pdf_render::FIT_BELOW);
+                let (least, most) = thicknesses
+                    .iter()
+                    .fold((f64::MAX, f64::MIN), |(l, m), &t| (l.min(t), m.max(t)));
+                if fit_applies {
+                    assert!(
+                        most - least <= UNIFORM && (most - 1.0).abs() <= UNIFORM,
+                        "scale {scale}, width {width}: the fitted rule's thickness runs from \
+                         {least} to {most} over the eight placements, not one whole pixel at each"
+                    );
+                }
+                for (eighth, got) in thicknesses.iter().enumerate() {
+                    population += 1;
+                    let off = (got - requested).abs();
+                    assert!(
+                        off <= CLAUSE,
+                        "scale {scale}, width {width}, placement {eighth}/8: thickness {got} is \
+                         more than half a device pixel from the requested {requested}"
+                    );
+                    if fit_applies {
+                        continue;
+                    }
+                    assert!(
+                        off <= MEASURED,
+                        "scale {scale}, width {width}, placement {eighth}/8, fit {fitted}: \
+                         thickness {got} against the requested {requested} is {off} out, past \
+                         the {MEASURED} this backend held when ADR 1189 measured it"
+                    );
+                    if off > worst {
+                        worst = off;
+                        worst_rung = format!("scale {scale}, width {width}, {eighth}/8");
+                    }
                 }
             }
         }
     }
     println!(
-        "axis-aligned rungs: {population} measured (2 scales x 3 widths x 8 placements), worst \
-         {worst:.4} device px of thickness at {worst_rung}, against {MEASURED} held and {CLAUSE} \
-         allowed by ISO 32000-2 10.7.5"
+        "axis-aligned rungs: {population} measured (2 arms x 2 scales x 3 widths x 8 \
+         placements), worst unfitted {worst:.4} device px of thickness at {worst_rung}, against \
+         {MEASURED} held and {CLAUSE} allowed by ISO 32000-2 10.7.5"
     );
 }
 

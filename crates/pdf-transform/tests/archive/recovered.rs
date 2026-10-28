@@ -289,17 +289,177 @@ fn refused_by_name(path: &str) -> Option<String> {
     }
 }
 
-#[test]
-fn an_encrypted_source_is_refused_by_name() {
-    if let Some(sentence) = refused_by_name("doc/pdf.js/test/pdfs/issue19484_1.pdf") {
-        assert!(sentence.contains("encrypted"), "{sentence}");
+/// A source whose catalog names no page tree, with one page.
+const DANGLING: [&str; 3] = [
+    "<< /Type /Catalog /Pages 9 0 R >>",
+    "<< /Type /Pages /Count 1 >>",
+    PAGE,
+];
+
+/// `bytes` written again with ISO 32000-2 §7.6's standard handler, the user password empty.
+///
+/// The objects keep their numbers and entries, so a catalog that named no page tree still names
+/// none; only the strings and streams are ciphertext.
+fn encrypted(bytes: &[u8]) -> Vec<u8> {
+    use pdf_syntax::serialize::{Assembly, Form, Options};
+    let source = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let mut assembly = Assembly::new(vec![&source]);
+    for number in 1..=64 {
+        let id = ObjectId::new(number, 0);
+        if matches!(source.get(id), pdf_syntax::Object::Null) {
+            break;
+        }
+        assembly.copy(0, id).expect("the assembly takes it");
     }
+    assembly.set_root(ObjectId::new(1, 0));
+    let mut out = Vec::new();
+    pdf_syntax::serialize_encrypted(
+        &assembly,
+        pdf_syntax::Version { major: 1, minor: 7 },
+        Options::new(Form::of(&source)),
+        &pdf_syntax::Protection::owner_only("owner"),
+        &mut pdf_syntax::SystemEntropy,
+        &mut out,
+    )
+    .expect("the fixture is encrypted");
+    out
+}
+
+/// The loss of the structure and `more`, authorised.
+fn authorised_with(more: &[Loss]) -> Authorisations {
+    let mut authorised = authorised();
+    for loss in more {
+        authorised.authorise(*loss);
+    }
+    authorised
 }
 
 #[test]
-fn a_signed_source_is_refused_by_name() {
-    if let Some(sentence) = refused_by_name("doc/pdf.js/test/pdfs/poppler-395-0-fuzzed.pdf") {
-        assert!(sentence.contains("signature"), "{sentence}");
+fn an_encrypted_source_is_rebuilt_behind_the_encryption_loss_and_the_claim_is_the_source_s() {
+    // ISO 32000-2 §7.6.4.2's Table 22 flags are the source's; the rebuilt file is unencrypted and
+    // meets ISO 19005's no-encryption rule, so the loss is raised from the source
+    // (`doc/adr/1187`, `doc/adr/2523`).
+    let source = encrypted(&file(&DANGLING, "/Root 1 0 R"));
+    assert!(
+        Document::open_with_limits(source.clone(), Limits::DEFAULT)
+            .expect("opens")
+            .is_encrypted()
+    );
+    // Part 4 alone: the only handler this tree writes is §7.6.4.4's, a PDF 2.0 construct, and at
+    // part 2 the file-header row refuses a 2.0 header, which is a different requirement's answer.
+    let target = Target::Four(Flavour::Plain);
+    let (report, output) =
+        attempt(&source, target, authorised_with(&[Loss::Encryption])).expect("applies");
+    let output = written(&report, output);
+    assert_eq!(
+        holds(&output, target).verdict(),
+        Verdict::Conforms,
+        "{target}"
+    );
+    let written = Document::open_with_limits(output, Limits::DEFAULT).expect("opens");
+    assert!(
+        !written.is_encrypted(),
+        "{target}: the output states no /Encrypt"
+    );
+    let converted = conversion(&report);
+    assert!(converted.recovered_structure.is_some(), "{target}");
+    assert!(
+        matches!(
+            decision(&report, "file-structure/no-encryption"),
+            Decision::Authorised {
+                rewrite: Rewrite::EncryptionRemoved,
+                ..
+            }
+        ),
+        "{target}"
+    );
+    assert!(
+        !converted
+            .conformed
+            .contains(&"file-structure/no-encryption"),
+        "{target}: the source did not meet it"
+    );
+    assert!(
+        converted.protection.is_some(),
+        "{target}: the claim the source's encryption made is reported"
+    );
+    // The loss withheld, it stops the conversion as it does for a file that is not rebuilt.
+    let (report, output) = attempt(&source, target, authorised()).expect("applies");
+    assert!(output.is_none(), "{target}");
+    assert!(matches!(
+        decision(&report, "file-structure/no-encryption"),
+        Decision::Unauthorised { .. }
+    ));
+}
+
+/// The widget, appearance and signature value of a signed field, as objects 4, 5 and 6, beside a
+/// page that lists the widget (the layout of `a_signed_form`, without the lock and permissions).
+const SIGNED: [&str; 6] = [
+    "<< /Type /Catalog /Pages 9 0 R /AcroForm << /Fields [4 0 R] /SigFlags 3 >> >>",
+    "<< /Type /Pages /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 300] /Annots [4 0 R] >>",
+    "<< /Type /Annot /Subtype /Widget /FT /Sig /T (Approval) /F 4 /Rect [10 10 90 90] \
+     /AP << /N 5 0 R >> /V 6 0 R >>",
+    "<< /Type /XObject /Subtype /Form /BBox [0 0 80 80] /Length 0 >>\nstream\n\nendstream",
+    "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached \
+     /ByteRange [0 100 200 100] /Contents <0102> /Name (Test Signer) /M (D:20260912120000Z) >>",
+];
+
+#[test]
+fn a_signed_source_is_rebuilt_and_each_signature_is_reported_against_the_source() {
+    // §12.8.1: a signature is a statement about the bytes it covered, which are the source's. The
+    // rebuilt file's are others, so the report is read from the source and the value is removed
+    // from what is written (`doc/adr/2523`).
+    let source = file(&SIGNED, "/Root 1 0 R");
+    for target in TARGETS {
+        let (report, output) = attempt(
+            &source,
+            target,
+            authorised_with(&[Loss::SignatureAssertion]),
+        )
+        .expect("applies");
+        let output = written(&report, output);
+        assert_eq!(
+            holds(&output, target).verdict(),
+            Verdict::Conforms,
+            "{target}"
+        );
+        let converted = conversion(&report);
+        assert!(converted.recovered_structure.is_some(), "{target}");
+        let signed = converted
+            .signatures
+            .as_ref()
+            .expect("the signature is reported");
+        assert!(
+            matches!(signed.decision, Decision::Authorised { .. }),
+            "{target}: {:?}",
+            signed.decision
+        );
+        assert_eq!(signed.each.len(), 1, "{target}");
+        assert_eq!(
+            signed.each[0].name.as_deref(),
+            Some("Test Signer"),
+            "{target}"
+        );
+        assert!(
+            signed.changed >= 1,
+            "{target}: the value was removed from the file written"
+        );
+        assert!(
+            !output.windows(11).any(|window| window == b"Test Signer"),
+            "{target}: no signature value is left in the output"
+        );
+        // The loss withheld, the signature's question stops the conversion.
+        let (report, output) = attempt(&source, target, authorised()).expect("applies");
+        assert!(output.is_none(), "{target}");
+        assert!(matches!(
+            conversion(&report)
+                .signatures
+                .as_ref()
+                .expect("reported")
+                .decision,
+            Decision::Unauthorised { .. }
+        ));
     }
 }
 
@@ -311,9 +471,78 @@ fn a_page_whose_dictionary_does_not_parse_whole_is_refused_by_name() {
 }
 
 #[test]
-fn a_direct_page_is_refused_by_name() {
-    if let Some(sentence) = refused_by_name("doc/pdf.js/test/pdfs/issue9105_other.pdf") {
-        assert!(sentence.contains("not an indirect object"), "{sentence}");
+fn a_page_written_directly_in_its_kids_is_given_an_object_and_inherits_from_its_parent() {
+    // Table 30 makes /Kids "[a]n array of indirect references", so a page written inside it is
+    // the producer's departure; the rebuild gives it the object the table asks for and reads
+    // §7.7.3.4's inheritable entries from the node its /Parent names.
+    let source = file(
+        &[
+            "<< /Kids [<< /Type /Page /Parent 1 0 R /Contents 2 0 R >>] \
+             /MediaBox [0 0 200 300] /Resources << >> >>",
+            "<< /Length 12 >>\nstream\n0 0 10 10 re f\nendstream",
+        ],
+        "/Root << /Pages 1 0 R >>",
+    );
+    for target in TARGETS {
+        let (report, document, _) = recovered(&source, target);
+        assert!(
+            conversion(&report).recovered_structure.is_some(),
+            "{target}"
+        );
+        let page = first_page(&document);
+        let media = document.get_key(&page, "MediaBox");
+        assert!(
+            media.as_array().is_some_and(|boxes| boxes.len() == 4),
+            "{target}: the page states the /MediaBox it inherited"
+        );
+        let pages = pdf_model::Pages::new(&document);
+        assert_eq!(pages.len(), 1, "{target}");
+        assert!(
+            pages.get(0).and_then(|page| page.id).is_some(),
+            "{target}: the page is an object of its own"
+        );
+    }
+}
+
+#[test]
+fn a_direct_page_naming_no_parent_states_the_values_the_reader_resolved_for_it() {
+    // The nodes above the page are not named by the page, but the `/Kids` that holds it is the way
+    // the reader reached it, and §7.7.3.4's inheritable entries it applied (`/MediaBox`, `/Rotate`)
+    // are stated on the page the rebuild writes.
+    let source = file(
+        &[
+            "<< /Kids [<< /Type /Page /Contents 2 0 R >>] /MediaBox [0 0 200 300] /Rotate 90 \
+             /Resources << >> >>",
+            "<< /Length 12 >>\nstream\n0 0 10 10 re f\nendstream",
+        ],
+        "/Root << /Pages 1 0 R >>",
+    );
+    for target in TARGETS {
+        let (report, document, _) = recovered(&source, target);
+        assert!(
+            conversion(&report).recovered_structure.is_some(),
+            "{target}"
+        );
+        let page = first_page(&document);
+        let media = document.get_key(&page, "MediaBox");
+        assert_eq!(
+            media.as_array().map(<[_]>::len),
+            Some(4),
+            "{target}: the page states the /MediaBox the reader applied"
+        );
+        assert_eq!(
+            document.get_key(&page, "Rotate").as_integer(),
+            Some(90),
+            "{target}"
+        );
+        let pages = pdf_model::Pages::new(&document);
+        let drawn = pages.get(0).expect("the page");
+        assert!(
+            (drawn.media_box[2] - 200.0).abs() < f32::EPSILON
+                && (drawn.media_box[3] - 300.0).abs() < f32::EPSILON,
+            "{target}: {:?}",
+            drawn.media_box
+        );
     }
 }
 

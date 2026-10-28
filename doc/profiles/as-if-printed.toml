@@ -21,13 +21,19 @@
 # below leaves the output conforming to the target asked for, and because nothing here removes
 # anything a document was not already being refused over.
 #
+# **"As if printed" is "as if printed and scanned"** (doc/questions/A694): this profile is a lower bound
+# on what may be lost if a company printed the document and scanned the print, and it is never an
+# instruction to imitate printing. The press is assumed, not simulated: it does not try to print
+# correctly, it does not reproduce a halftone, and the one place it names a press at all is below
+# (`press-assumed`).
+#
 # What is deliberately NOT here, and is a known, declined refinement: a narrowing predicate in
 # doc/rfc/0007 section 4.7.2's sense — "discard only the annotations whose Print flag is clear".
 # That is per-document behaviour. It belongs after the mechanism exists and somebody has asked.
 
 [profile]
 name = "as-if-printed"
-sentence = "Discard what printing would not have carried; touch nothing it would."
+sentence = "Discard what printing would not have carried; touch nothing it would. A print scanned back in, not an imitation of printing."
 catalogue = "doc/pdf-a-mitigations.md"
 default = "stop"
 # A document whose trailer, catalog or page tree node states no page tree is written out as the
@@ -36,6 +42,16 @@ default = "stop"
 # loss by name and not a repair, and both profiles carry it because both draw the pages the
 # viewer found (ADR 2490, ADR 2502). It is no site's key: the refusal it lifts is the source's.
 recovered-structure = "discard"
+
+# A part 4 file that draws in DeviceCMYK beside an RGB destination profile has one licence left,
+# ISO 19005-4 section 6.2.4.3's device independent DefaultCMYK, and an ICC CMYK profile states a
+# press that nothing in the file names. A print was made on some press; this profile assumes the
+# CMYK profile this program ships and says so: the loss `press-assumed`, with the profile named in
+# the report and in xmpMM:History. A press the operator supplies outranks it (ADR 2130). The
+# presentation loss is bounded by what a print scanned back in would have shown (A694 item 2,
+# doc/adr/2518). It binds part 4 alone: part 2's other licence, the DeviceN default, states no press.
+[site."graphics/device-cmyk-needs-a-default-a-blending-space-or-a-cmyk-output-intent"]
+remedy = "discard"
 
 # ---------------------------------------------------------------------------------------------
 # Attachments. Paper carries none. Note that the answer is still `preserve` wherever preserving is
@@ -292,6 +308,11 @@ remedy = "stop"
 # `layout-from-this-viewer` (doc/questions/A687, doc/adr/2504). One decision carries every loss the
 # embedding incurs, so this one `discard` authorises them all, and the report and the file's own
 # xmpMM:History name each font with what it lost and the scale it was drawn at (doc/adr/2262).
+# The same `discard` carries the photographed page: `text-as-image` for the page of an
+# Adobe-Identity font no reader can name (A570, doc/adr/2394) and `page-as-image` for any page that
+# shows a font no route can carry or holds a fault of its content stream the target refuses,
+# whatever text it also shows - what a company does when it prints a letter and scans the print
+# (A694 item 1, doc/adr/2516). The page's text is named in the report and in the history.
 # ---------------------------------------------------------------------------------------------
 
 [site."fonts/font-programs-embedded"]

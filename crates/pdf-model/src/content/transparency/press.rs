@@ -28,11 +28,9 @@ pub(in crate::content) enum PagePress {
 
 /// Why four components were not sampled into a press.
 ///
-/// **Every reason here is the document's**, which it was not until ADR 0417: one of them used
-/// to be [`crate::colour::MAX_PRESSES`] being spent by other files, so the same page carried a
-/// different verdict depending on what the process had opened first, and ADR 0416 had to give
-/// a caller a way to tell the two apart. The budget is the interpretation's now, so the
-/// distinction has nothing left to separate and the sentence is a fact about the file again.
+/// **Every reason here is a function of the document**, and the sentence the report carries says
+/// so: the press budget is the interpretation's own (ADR 0417) and never the process's, so the
+/// same page carries the same verdict whatever else the process has opened.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::content) struct BeyondPress {
     /// The sentence the report carries.
@@ -71,7 +69,7 @@ impl BeyondPress {
 /// Where none of the three names one, the four components are the assumed inks of ADR 0263 and
 /// this is [`crate::colour::assumed_press`], which no budget applies to because no file asked
 /// for it. Where one names a space this tree cannot sample — four components that are not an ICC
-/// profile, or a press past this *page's* [`crate::colour::MAX_PRESSES`] —
+/// profile, or a press that does not fit in the memory this *page* may keep for presses —
 /// [`PagePress::Beyond`] carries the reason into the report.
 pub(in crate::content) fn page_press(
     document: &Document,
@@ -303,11 +301,11 @@ fn named_press(
 
 /// A profile sampled into a press, or the reason this page is not drawn in it.
 ///
-/// The refusal is [`crate::colour::MAX_PRESSES`], and since ADR 0417 it is this page's own: a
-/// page naming a ninth distinct press is refused the ninth on every run and on every machine,
-/// where before the ninth press of the *process* was refused and which page that fell on
-/// depended on the order the scheduler ran the others in. A poisoned table is said as the
-/// process's fault and never as that budget (ADR 2170).
+/// The refusal is the press not fitting in the bytes this page may keep for presses
+/// ([`crate::colour::PRESS_BYTES`] each, ADR 2532), and it is this page's own (ADR 0417): a page
+/// is refused the press that crosses its bound on every run and on every machine, whatever the
+/// scheduler ran before it. A poisoned table is said as the process's fault and never as that
+/// budget (ADR 2170).
 fn press_or_beyond(
     profile: &crate::icc::Profile,
     presses: &Presses,
@@ -316,7 +314,7 @@ fn press_or_beyond(
     match presses.press_for_profile(profile, rendering) {
         Ok(press) => PagePress::In(press),
         Err(NoPress::Spent) => PagePress::Beyond(BeyondPress::stated(
-            "it is the ninth distinct press this page names and eight is the budget \
+            "the presses this page names have spent the memory it may keep for them \
              (§11.7.2), so its four components are not converted out",
         )),
         Err(NoPress::Unsampled) => PagePress::Beyond(BeyondPress::stated(

@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use pdf_model::view::{ScriptEvent, ScriptResult, ScriptRunner, ScriptSite};
 
-use crate::{ScriptAnswer, ScriptQuestion};
+use crate::{AlertButtons, AlertIcon, ScriptAnswer, ScriptQuestion};
 
 /// What makes one runner per document: the host's half of RFC 0008 section 6.3's hook.
 ///
@@ -110,7 +110,18 @@ pub(crate) struct Consent {
     pub(crate) withheld: Option<Arc<Withheld>>,
     /// Where the document's runner leaves its scripts' questions to the person, where it has one.
     pub(crate) asks: Option<Arc<dyn ScriptAsks>>,
+    /// The notices a person's entry into a calculated field raised and no window has been shown
+    /// yet, oldest first, at most [`MAX_FORM_ALERTS`] (XFA 3.3 pages 641–642; ADR 2525).
+    pub(crate) form_alerts: std::collections::VecDeque<ScriptQuestion>,
+    /// Whether a notice from [`Self::form_alerts`] has gone out and is not yet answered.
+    pub(crate) form_alert_open: bool,
+    /// Whether a question the runner's script put has gone out and is not yet answered, so that
+    /// the answer a window sends is known to be the runner's and not a notice's.
+    pub(crate) runner_question_open: bool,
 }
+
+/// Most notices a document holds for a window that has not yet shown the ones before them.
+pub(crate) const MAX_FORM_ALERTS: usize = 64;
 
 /// What a [`Withheld`] runner has seen.
 #[derive(Debug, Default)]
@@ -164,6 +175,33 @@ impl Withheld {
 }
 
 impl ScriptRunner for Withheld {
+    fn run_form_script(
+        &self,
+        _form: &mut pdf_model::xfa::Form<'_>,
+        _node: usize,
+        script: &str,
+        _steps_left: u64,
+    ) -> pdf_model::xfa::Ran {
+        let mut seen = self.seen.lock().unwrap_or_else(PoisonError::into_inner);
+        let sentence = if seen.declined {
+            "not run: you declined to run this document's scripts, and the answer holds until it \
+             closes"
+        } else {
+            if seen.first.is_none() {
+                seen.first = Some((
+                    "a FormCalc calculation of the document's form".to_owned(),
+                    first_line(script),
+                ));
+            }
+            "not run: this reader asks before it runs a document's scripts, and the question is \
+             waiting on your answer (RFC 0008 section 6.3)"
+        };
+        pdf_model::xfa::Ran {
+            steps: 0,
+            outcome: Err(sentence.to_owned()),
+        }
+    }
+
     fn run(&self, event: &ScriptEvent<'_>) -> ScriptResult {
         let mut seen = self.seen.lock().unwrap_or_else(PoisonError::into_inner);
         let sentence = if seen.declined {
@@ -307,6 +345,41 @@ pub(crate) fn runs(scripting: &Scripting, consent: &Consent) -> bool {
     }
 }
 
+/// The notice XFA 3.3 page 642 asks a host to present when a person enters a value into a
+/// calculated field whose `override` is `error` or `warning`.
+///
+/// The words are this program's: the page describes the dialogue and states none. An `error` says
+/// the calculated value replaced the entry; a `warning` says the entry replaces the calculated
+/// value, which is what it does here — the choice the page describes, to dismiss the warning and
+/// keep the calculated value, is not offered, and the notice does not pretend to ask it (ADR 2525).
+pub(crate) fn override_notice(over: &pdf_model::view::FormOverride) -> ScriptQuestion {
+    use pdf_model::view::FormOverrideMode;
+    let (message, icon) = match over.mode {
+        FormOverrideMode::Error => (
+            format!(
+                "{} is a calculated field. The value you entered was replaced by the calculated \
+                 value.",
+                over.field
+            ),
+            AlertIcon::Error,
+        ),
+        FormOverrideMode::Warning => (
+            format!(
+                "{} is a calculated field. The value you entered stands in place of the \
+                 calculated value.",
+                over.field
+            ),
+            AlertIcon::Warning,
+        ),
+    };
+    ScriptQuestion::Alert {
+        message,
+        icon,
+        buttons: AlertButtons::Ok,
+        title: Some("Calculated field".to_owned()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{FIRST_LINE, Withheld, first_line};
@@ -354,6 +427,35 @@ mod tests {
         ));
         assert!(result.report[0].contains("you declined"));
         assert_eq!(declined.question(), None);
+    }
+
+    /// An `error` says the entry was replaced, a `warning` that it stands; both name the field and
+    /// carry one button, because neither has anything for a window to carry out.
+    #[test]
+    fn an_override_notice_names_the_field_and_says_what_became_of_the_entry() {
+        use super::override_notice;
+        use crate::{AlertButtons, AlertIcon, ScriptQuestion};
+        use pdf_model::view::{FormOverride, FormOverrideMode};
+        for (mode, icon, words) in [
+            (FormOverrideMode::Error, AlertIcon::Error, "was replaced"),
+            (FormOverrideMode::Warning, AlertIcon::Warning, "stands"),
+        ] {
+            let notice = override_notice(&FormOverride {
+                field: "form1[0].Total[0]".to_owned(),
+                mode,
+            });
+            let ScriptQuestion::Alert {
+                message,
+                icon: shown,
+                buttons,
+                ..
+            } = notice
+            else {
+                panic!("a notice is an alert");
+            };
+            assert!(message.contains("form1[0].Total[0]") && message.contains(words));
+            assert_eq!((shown, buttons), (icon, AlertButtons::Ok));
+        }
     }
 
     /// A minified library is one line, and a card shows the start of it.

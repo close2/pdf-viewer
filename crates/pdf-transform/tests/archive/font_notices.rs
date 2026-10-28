@@ -161,6 +161,7 @@ fn both_metric_restatement_routes_attach_foxit_notice_and_preserve_other_object_
     let authorised = Authorisations {
         substitute_stretch: true,
         glyphs_from_to_unicode: true,
+        press_assumed: false,
         recovered_structure: false,
         text_as_image: true,
         ..Authorisations::default()

@@ -1610,3 +1610,348 @@ fn a_rebuilt_table_keeps_the_numbers_its_sections_stated() {
     assert_eq!(document.xref().highest_stated_number(), Some(9));
     assert_eq!(document.xref().next_object_number(), 10);
 }
+
+/// A body of four objects whose main section is written first, then a newer section for object 4.
+///
+/// The newer section's `/Prev` is the main section's offset plus `displacement`, and its
+/// `/Size` is the text given, so a test can state a `/Prev` the bytes disprove (Annex F's
+/// first-page trailer is the case: its `/Prev` is "the main cross-reference table", §F.3.11) and
+/// a `/Size` the file does or does not state. The newer section holds the catalogue and object 4, so that the
+/// section a reader *does* reach leads to a catalogue and has an entry of its own to find.
+fn main_section_then_newer(displacement: i64, size: &str, newer: &[(usize, char)]) -> Vec<u8> {
+    let mut chunks: Vec<&str> = SKELETON.to_vec();
+    chunks.push(SPARE);
+    let (mut out, offsets) = body(&chunks);
+    let main_at = out.len();
+    out.push_str("xref\n");
+    let mut main = vec![(0, 'f')];
+    main.extend(offsets.iter().take(3).map(|offset| (*offset, 'n')));
+    subsection(&mut out, 0, &main);
+    out.push_str("trailer\n<< /Size 4 >>\n");
+    let newer_at = out.len();
+    out.push_str("xref\n");
+    let entries: Vec<(usize, char)> = newer
+        .iter()
+        .map(|&(field, kind)| (if kind == 'n' { offsets[3] } else { field }, kind))
+        .collect();
+    subsection(&mut out, 1, &[(offsets[0], 'n')]);
+    subsection(&mut out, 4, &entries);
+    let previous = i64::try_from(main_at).expect("a fixture offset") + displacement;
+    let _ = write!(
+        out,
+        "trailer\n<< {size}/Root 1 0 R /Prev {previous} >>\nstartxref\n{newer_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// ISO 32000-2 Table 15 and §F.3.4: a `/Prev` the bytes disprove leaves `/Size`'s range unread.
+///
+/// > The Size value shall be the combined number of entries in both the first-page
+/// > cross-reference table and the main cross-reference table.
+///
+/// The file below is the shape Annex F gives a linearized file — a newer section holding some
+/// objects, a main section holding the rest, the newer trailer's `/Prev` naming the main one —
+/// with a `/Prev` a few bytes into the main section, where no section begins. The catalogue
+/// is in the newer section, and the page tree and the page below it are in the section
+/// that was not reached: a reader that stops at the unreadable `/Prev` has a catalogue with no
+/// page tree. Against it is the same file with the right offset.
+#[test]
+fn a_previous_section_that_does_not_read_leaves_the_numbers_below_size_to_their_own_headers() {
+    let right = main_section_then_newer(0, "/Size 5 ", &[(0, 'n')]);
+    let wrong = main_section_then_newer(3, "/Size 5 ", &[(0, 'n')]);
+
+    for (name, bytes, cut) in [
+        ("the right offset", right, false),
+        ("a wrong offset", wrong, true),
+    ] {
+        let document = Document::open(bytes).expect("the fixture's objects are all intact");
+        assert!(!document.was_recovered(), "{name}: the table was read");
+        assert_eq!(
+            document.cross_reference_chain_was_cut(),
+            cut,
+            "{name}: the report says whether the file's own /Prev led to a section"
+        );
+        let catalog = document
+            .catalog()
+            .expect("the catalogue is in the newest section");
+        let pages = document.get_key(&catalog, "Pages");
+        assert!(
+            pages.as_dict().is_some(),
+            "{name}: the page tree is reached"
+        );
+        assert!(
+            object(&document, 3).as_dict().is_some(),
+            "{name}: so is the page"
+        );
+        assert_eq!(
+            object(&document, 4).as_string().map(<[u8]>::to_vec),
+            Some(b"the original".to_vec()),
+            "{name}: and the newer section's own entry"
+        );
+    }
+}
+
+/// A linearized file in Annex F's layout: the parameter dictionary, the first-page section
+/// after it, the first page's objects, then the rest of the document and the main section near the
+/// end. The first-page trailer's `/Prev` is the main section's offset plus `displacement`.
+///
+/// Object 4 is the parameter dictionary, 5 the catalogue and 6 the first page, all in the
+/// first-page section; objects 1 (the page tree) and 2 (the second page) are in the main section,
+/// which is why a reader that cannot follow `/Prev` has a catalogue with no page tree.
+fn linearized_with_a_previous_off_by(displacement: i64) -> Vec<u8> {
+    let mut out = String::from("%PDF-1.7\n");
+    let dictionary_at = out.len();
+    out.push_str("4 0 obj\n<< /Linearized 1 /L 0 /N 2 /O 6 /E 0 /T 0 /H [0 0] >>\nendobj\n");
+    let first_at = out.len();
+    // The section's own text is written once with a placeholder `/Prev` of the width the real
+    // one takes, so that the objects after it stand at the offsets the section states.
+    let section_len = |previous: i64| {
+        let mut probe = String::new();
+        subsection(&mut probe, 4, &[(0, 'n'), (0, 'n'), (0, 'n')]);
+        let _ = write!(
+            probe,
+            "trailer\n<< /Size 7 /Root 5 0 R /Prev {previous:010} >>\nstartxref\n0\n%%EOF\n"
+        );
+        "xref\n".len() + probe.len()
+    };
+    let objects_at = first_at + section_len(0);
+    let chunks = [
+        "5 0 obj\n<< /Type /Catalog /Pages 1 0 R >>\nendobj\n",
+        "6 0 obj\n<< /Type /Page /Parent 1 0 R /MediaBox [0 0 10 10] >>\nendobj\n",
+        "1 0 obj\n<< /Type /Pages /Count 2 /Kids [6 0 R 2 0 R] >>\nendobj\n",
+        "2 0 obj\n<< /Type /Page /Parent 1 0 R /MediaBox [0 0 20 20] >>\nendobj\n",
+    ];
+    let mut at = objects_at;
+    let mut offsets = Vec::new();
+    for chunk in chunks {
+        offsets.push(at);
+        at += chunk.len();
+    }
+    let main_at = at;
+    let previous = i64::try_from(main_at).expect("a fixture offset") + displacement;
+    out.push_str("xref\n");
+    subsection(
+        &mut out,
+        4,
+        &[(dictionary_at, 'n'), (offsets[0], 'n'), (offsets[1], 'n')],
+    );
+    let _ = write!(
+        out,
+        "trailer\n<< /Size 7 /Root 5 0 R /Prev {previous:010} >>\nstartxref\n0\n%%EOF\n"
+    );
+    assert_eq!(out.len(), objects_at, "the first-page section's width");
+    for chunk in chunks {
+        out.push_str(chunk);
+    }
+    assert_eq!(out.len(), main_at);
+    out.push_str("xref\n");
+    subsection(
+        &mut out,
+        0,
+        &[(0, 'f'), (offsets[2], 'n'), (offsets[3], 'n')],
+    );
+    out.push_str("trailer\n<< /Size 3 >>\n");
+    let _ = write!(out, "startxref\n{first_at}\n%%EOF\n");
+    out.into_bytes()
+}
+
+/// ISO 32000-2 §F.3.3 and §F.3.4: the pages of a linearized file are reached through the main
+/// section even when the first-page trailer's `/Prev` is off by some bytes.
+///
+/// > The Size value shall be the combined number of entries in both the first-page
+/// > cross-reference table and the main cross-reference table.
+///
+/// The first-page section holds the catalogue and the first page; the page tree and the second
+/// page stand only in the main section, which the wrong `/Prev` does not reach. The page count
+/// the reader walks to must be the one the linearization dictionary's `/N` states.
+#[test]
+fn the_pages_of_a_linearized_file_are_reached_through_a_main_section_its_previous_misses() {
+    for (name, displacement, cut) in [
+        ("the right offset", 0, false),
+        ("a /Prev 7 bytes into the main table", 7, true),
+        ("a /Prev 12 bytes before it", -12, true),
+    ] {
+        let document = Document::open(linearized_with_a_previous_off_by(displacement))
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert!(!document.was_recovered(), "{name}: the table was read");
+        assert_eq!(document.cross_reference_chain_was_cut(), cut, "{name}");
+        let catalog = document.catalog().expect("the first-page section holds it");
+        let tree = document.get_key(&catalog, "Pages");
+        let tree = tree
+            .as_dict()
+            .unwrap_or_else(|| panic!("{name}: no page tree"));
+        let kids = document.get_key(tree, "Kids");
+        assert_eq!(
+            kids.as_array().map(<[Object]>::len),
+            Some(2),
+            "{name}: the two pages the linearization dictionary's /N states"
+        );
+        assert!(
+            object(&document, 2).as_dict().is_some(),
+            "{name}: the second page stands only in the main section"
+        );
+    }
+}
+
+/// §7.5.6: what the section that was read deletes stays deleted behind an unreadable `/Prev`.
+///
+/// > Deleted objects shall be left unchanged in the PDF file, but shall be marked as deleted by
+/// > means of their cross-reference entries.
+///
+/// The rule used is that a number a section read describes — a free entry is a description —
+/// is never asked for by its header. Object 4 is freed by the section
+/// that is read, its body is still in the file, and it must stay absent.
+#[test]
+fn an_object_the_reached_section_frees_is_not_resurrected_behind_an_unreadable_previous() {
+    let bytes = main_section_then_newer(3, "/Size 5 ", &[(0, 'f')]);
+    let document = Document::open(bytes).expect("the fixture's objects are all intact");
+    assert!(
+        object(&document, 4).is_null(),
+        "a deletion is the newest statement"
+    );
+    assert!(
+        object(&document, 2).as_dict().is_some(),
+        "an unmentioned number is read by header"
+    );
+}
+
+/// A `/Size` the trailer does not state makes no range, so nothing is invented for it.
+#[test]
+fn a_previous_section_that_does_not_read_and_no_size_declares_nothing() {
+    let bytes = main_section_then_newer(3, "", &[(0, 'n')]);
+    let document = Document::open(bytes).expect("the catalogue is in the newest section");
+    assert!(
+        object(&document, 2).is_null(),
+        "no range was stated, so none is read"
+    );
+}
+
+/// A `/Size` of the largest integer states a range and allocates nothing for it.
+#[test]
+fn an_enormous_size_behind_an_unreadable_previous_is_one_range_not_one_entry_each() {
+    let bytes = main_section_then_newer(3, "/Size 4294967295 ", &[(0, 'n')]);
+    let document = Document::open(bytes).expect("the fixture's objects are all intact");
+    assert!(object(&document, 2).as_dict().is_some());
+    assert!(
+        object(&document, 4_000_000_000).is_null(),
+        "no header names it"
+    );
+    assert_eq!(document.xref().highest_stated_number(), Some(u32::MAX - 1));
+}
+
+/// A `/Prev` that is not an offset names a section no reader can find, and counts as unreached.
+#[test]
+fn a_previous_that_is_not_an_offset_is_an_unreachable_section_too() {
+    let mut chunks: Vec<&str> = SKELETON.to_vec();
+    chunks.push(SPARE);
+    let (mut out, offsets) = body(&chunks);
+    let at = out.len();
+    out.push_str("xref\n");
+    subsection(&mut out, 1, &[(offsets[0], 'n')]);
+    let _ = write!(
+        out,
+        "trailer\n<< /Size 5 /Root 1 0 R /Prev (not an offset) >>\nstartxref\n{at}\n%%EOF\n"
+    );
+    let document = Document::open(out.into_bytes()).expect("the fixture's objects are intact");
+    assert!(object(&document, 2).as_dict().is_some());
+}
+
+/// The file of [`a_previous_section_that_does_not_read_finds_a_compressed_object_by_its_stream`]:
+/// the newest section holds the catalogue, the main section the object stream, and the object
+/// stream holds the page tree (object 3) and the page (object 4).
+///
+/// `reuse_four` writes object 4 a second time at the outermost level, which §7.5.7 makes the live
+/// copy of the number whatever an object stream also claims. `second_member` is the number the
+/// object stream's header gives its second object, 4 unless a test states a number the trailer's
+/// `/Size` of 5 does not reach.
+fn compressed_behind_an_unreadable_previous(reuse_four: bool, second_member: u32) -> Vec<u8> {
+    let pages = "<< /Type /Pages /Count 1 /Kids [4 0 R] >>";
+    let page = "<< /Type /Page /Parent 3 0 R /MediaBox [0 0 10 10] >>";
+    let header = format!("3 0 {second_member} {} ", pages.len() + 1);
+    let data = format!("{header}{pages} {page}");
+    let (mut out, offsets) = body(&[
+        "1 0 obj\n<< /Type /Catalog /Pages 3 0 R >>\nendobj\n",
+        &format!(
+            "2 0 obj\n<< /Type /ObjStm /N 2 /First {} /Length {} >>\nstream\n{data}\n\
+             endstream\nendobj\n",
+            header.len(),
+            data.len()
+        ),
+    ]);
+    if reuse_four {
+        out.push_str("4 0 obj\n(the reused number)\nendobj\n");
+    }
+    let main_at = out.len();
+    out.push_str("xref\n");
+    subsection(
+        &mut out,
+        0,
+        &[(0, 'f'), (offsets[0], 'n'), (offsets[1], 'n')],
+    );
+    out.push_str("trailer\n<< /Size 5 >>\n");
+    let newer_at = out.len();
+    out.push_str("xref\n");
+    subsection(&mut out, 1, &[(offsets[0], 'n')]);
+    let _ = write!(
+        out,
+        "trailer\n<< /Size 5 /Root 1 0 R /Prev {} >>\nstartxref\n{newer_at}\n%%EOF\n",
+        main_at + 3
+    );
+    out.into_bytes()
+}
+
+/// §7.5.7: behind a `/Prev` that reads no section, an object stream is found by its own header
+/// and the objects that header names are entered, unless the file also writes the number at the
+/// outermost level.
+///
+/// > If either an object stream or a compressed object is deleted and the object number is
+/// > freed, that object number shall be reused only for an ordinary (uncompressed) object
+/// > other than an object stream.
+#[test]
+fn a_previous_section_that_does_not_read_finds_a_compressed_object_by_its_stream() {
+    let document = Document::open(compressed_behind_an_unreadable_previous(false, 4))
+        .expect("the fixture's objects are all intact");
+    assert!(document.cross_reference_chain_was_cut());
+    assert!(
+        object(&document, 3).as_dict().is_some(),
+        "the page tree is a member of object stream 2"
+    );
+    assert!(
+        object(&document, 4).as_dict().is_some(),
+        "and so is the page"
+    );
+    assert!(document.compressed_objects_recovered().objects >= 2);
+
+    let reused = Document::open(compressed_behind_an_unreadable_previous(true, 4))
+        .expect("the fixture's objects are all intact");
+    assert_eq!(
+        object(&reused, 4).as_string().map(<[u8]>::to_vec),
+        Some(b"the reused number".to_vec()),
+        "an ordinary object outranks an object stream's claim on its number"
+    );
+    assert_eq!(
+        reused.compressed_objects_recovered().already_at_top_level,
+        1,
+        "and the number it declined is counted"
+    );
+}
+
+/// §7.5.7 and Table 15: a number the trailer's `/Size` does not reach is not the older sections'
+/// to give, so an object stream's member beyond it is not entered.
+///
+/// The header below names object 9 as the second member while `/Size` is 5. Object 3, the
+/// first member, is inside the range and is entered as before.
+#[test]
+fn a_member_of_an_older_object_stream_beyond_size_is_not_entered() {
+    let document = Document::open(compressed_behind_an_unreadable_previous(false, 9))
+        .expect("the fixture's objects are all intact");
+    assert!(document.cross_reference_chain_was_cut());
+    assert!(
+        object(&document, 3).as_dict().is_some(),
+        "the member inside /Size is entered"
+    );
+    assert!(
+        object(&document, 9).as_dict().is_none(),
+        "the member beyond /Size is not: no section describes a number the trailer does not state"
+    );
+}

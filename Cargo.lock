@@ -3823,6 +3823,7 @@ version = "0.1.0"
 dependencies = [
  "confined-transport",
  "libc",
+ "pdf-formcalc",
  "pdf-model",
  "pdf-sandbox",
  "pdf-script",

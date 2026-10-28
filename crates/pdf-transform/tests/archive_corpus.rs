@@ -40,10 +40,11 @@
               properties must fail loudly when a corpus document breaks one"
 )]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use pdf_archive::{Flavour, Level, Target, Verdict};
+use pdf_model::Pages;
 use pdf_syntax::{Document, Limits, Object};
 use pdf_transform::archive::{
     ArchivePlan, Authorisations, CjkPack, Collection, Decision, Described, ExternalData,
@@ -244,9 +245,15 @@ struct Tally {
 /// **Only a dictionary whose `/Type` is `Font` or `FontDescriptor` is looked at**, because `/W`
 /// is not only a `CIDFont`'s: §7.5.8.2 gives a cross-reference stream one too, and the
 /// serializer writes a cross-reference stream where a source wrote a table.
-fn every_stated_width(document: &Document) -> Vec<String> {
+///
+/// `only` limits the list to the objects it names, for a source some of whose fonts a photographed
+/// page took out of the file with it (`reached_after_photographing`).
+fn every_stated_width(document: &Document, only: Option<&BTreeSet<u32>>) -> Vec<String> {
     let mut stated = Vec::new();
     for number in document.xref().object_numbers().collect::<Vec<_>>() {
+        if only.is_some_and(|only| !only.contains(&number)) {
+            continue;
+        }
         let object = document.get(pdf_syntax::ObjectId::new(number, 0));
         let Some(dict) = object.as_dict() else {
             continue;
@@ -300,18 +307,72 @@ fn no_width_is_rewritten(
             .filter(|font| font.described.is_some_and(Described::wrote_widths))
             .count()
     });
-    let added = added_statements(&every_stated_width(&source), &every_stated_width(&held))
-        .unwrap_or_else(|| {
-            panic!(
-                "{}: a width the file states was rewritten, which moves the text",
-                path.display()
-            )
-        });
+    let photographed: Vec<usize> = report.archive.as_ref().map_or_else(Vec::new, |conversion| {
+        conversion
+            .photographed
+            .iter()
+            .map(|page| page.page.saturating_sub(1))
+            .collect()
+    });
+    // A page photographed as the window draws it (`doc/adr/2516`) keeps neither its content nor its
+    // resources, so a font that only such pages showed leaves the file; every other width binds.
+    let reached =
+        (!photographed.is_empty()).then(|| reached_after_photographing(&source, &photographed));
+    let added = added_statements(
+        &every_stated_width(&source, reached.as_ref()),
+        &every_stated_width(&held, None),
+    )
+    .unwrap_or_else(|| {
+        panic!(
+            "{}: a width the file states was rewritten, which moves the text",
+            path.display()
+        )
+    });
     assert!(
         added.iter().all(|it| it.starts_with("Widths=")) && added.len() <= described,
         "{}: widths were added beyond the {described} described font(s): {added:?}",
         path.display()
     );
+}
+
+/// The object numbers the source's catalog and information dictionary lead to once the pages at
+/// `photographed` (from zero) have lost the keys the converter takes from a photographed page.
+///
+/// An explicit stack, each object read once, because the graph is the file's to shape.
+fn reached_after_photographing(source: &Document, photographed: &[usize]) -> BTreeSet<u32> {
+    let pages = Pages::new(source);
+    let taken: BTreeSet<pdf_syntax::ObjectId> = photographed
+        .iter()
+        .filter_map(|&index| pages.get(index)?.id)
+        .collect();
+    let mut pending: Vec<Object> = ["Root", "Info"]
+        .into_iter()
+        .filter_map(|key| source.trailer().get(key).cloned())
+        .collect();
+    let mut seen = BTreeSet::new();
+    while let Some(object) = pending.pop() {
+        match object {
+            Object::Reference(id) => {
+                if !seen.insert(id) {
+                    continue;
+                }
+                let mut value = source.get(id);
+                if taken.contains(&id)
+                    && let Object::Dictionary(page) = &mut value
+                {
+                    for key in ["Contents", "Resources", "Group"] {
+                        page.remove(key);
+                    }
+                }
+                pending.push(value);
+            }
+            Object::Dictionary(dict) => pending.extend(dict.iter().map(|(_, value)| value.clone())),
+            Object::Array(items) => pending.extend(items),
+            Object::Stream(stream) => pending.push(Object::Dictionary(stream.dict.clone())),
+            _ => {}
+        }
+    }
+    seen.into_iter().map(|id| id.number).collect()
 }
 
 /// What `after` states beyond `before`, or `None` where `after` lost one of `before`'s statements.
@@ -702,6 +763,15 @@ fn convert_under(
             kind_of_no(&decided.decision).map(|(kind, why)| (decided.requirement, kind, why))
         })
         .collect();
+    // A signed source is refused by the signature decision, which is not a row of `decided`: the
+    // verb gives it a sentence of its own (`--authorise signature-assertion` allows it), and the
+    // census counts that sentence rather than a refusal with none (trap 5).
+    if at.is_empty()
+        && let Some(signed) = &conversion.signatures
+        && let Some((kind, why)) = kind_of_no(&signed.decision)
+    {
+        at.push(("signatures/signature-assertion", kind, why));
+    }
     // A conversion whose every decision was carried out and whose output the validator still
     // fails is refused by the second verdict (`doc/adr/0947`), which names the requirement.
     if at.is_empty()
@@ -1044,7 +1114,7 @@ fn the_shipped_profiles_list_what_real_producers_files_refuse_on() {
 /// (`doc/adr/2498`): the documents written at 2b, those written at 4 only because 2b refused
 /// them, and those both refuse.
 fn print_either_part(label: &str, two_b: &UnderProfile, four: &UnderProfile) {
-    let refused_at_four: std::collections::BTreeSet<&str> = four
+    let refused_at_four: BTreeSet<&str> = four
         .stopped
         .iter()
         .map(|stopped| stopped.document.as_str())

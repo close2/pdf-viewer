@@ -63,7 +63,8 @@ pub use script_model::{
 pub use script_sites::ScriptsRan;
 pub use script_timers::{MAX_TIMERS, MIN_PERIOD};
 pub use scripts::{
-    Committed, Displayed, FocusRequest, Resumed, ScriptEvent, ScriptResult, ScriptRunner,
+    Committed, Displayed, FocusRequest, FormOverride, FormOverrideMode, Resumed, ScriptEvent,
+    ScriptResult, ScriptRunner,
 };
 
 /// The document state a viewer holds and §12.6.4's actions change.

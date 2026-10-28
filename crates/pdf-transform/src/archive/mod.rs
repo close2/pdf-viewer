@@ -146,6 +146,7 @@ mod duplicate_profiles;
 mod extension_container;
 mod external;
 mod fallback;
+mod fenced;
 mod font_files;
 mod font_widths;
 mod fonts;
@@ -166,6 +167,7 @@ mod remedies;
 mod report;
 mod rewrite;
 mod roles;
+mod settle;
 mod signatures;
 mod sites;
 mod smoothing;
@@ -203,8 +205,9 @@ pub use decision::{
 };
 pub use fallback::Fallback;
 pub use fonts::{
-    CjkPack, Collection, DOTS_PER_INCH, Described, FaceAuthority, MetricRoute, PackFiles, PackGap,
-    PhotographedPage, RestatedFont, SubstitutedFont,
+    CjkPack, Collection, DOTS_PER_INCH, Described, FaceAuthority, MAX_PHOTOGRAPHED_PAGES,
+    MAX_TEXT_CHARS, MetricRoute, PackFiles, PackGap, PhotographedPage, RestatedFont,
+    SubstitutedFont,
 };
 pub use in_place::{ProxiedReference, ShownAnnotation};
 pub use languages::RestatedLanguage;
@@ -445,12 +448,6 @@ impl Clock {
 /// [`Refusal::Sink`] where the output cannot be written. A document that cannot be
 /// *converted* is not an error: it is [`Report::refused`] beside the conversion's own report,
 /// which is where a caller reads which requirement stopped it.
-#[expect(
-    clippy::too_many_lines,
-    reason = "the three stages in order, with the configured remedies worked out between the \
-              first and the second. Splitting it would hide the order behind a call rather than \
-              show it, which is the same argument `Prepared::of` carries one file over"
-)]
 pub(crate) fn run(
     plan: &ArchivePlan,
     at: usize,
@@ -458,12 +455,33 @@ pub(crate) fn run(
     sinks: &dyn Sinks,
     report: &mut Report,
 ) -> Result<(), Refusal> {
+    run_pass(plan, at, documents, sinks, report, true)
+}
+
+/// [`run`], with whether its output may be converted once more where it would otherwise be refused
+/// (`settle`, `doc/adr/2534`). The nested conversion is run with `false`, so there is one extra pass
+/// and no more.
+#[expect(
+    clippy::too_many_lines,
+    reason = "the three stages in order, with the configured remedies worked out between the \
+              first and the second. Splitting it would hide the order behind a call rather than \
+              show it, which is the same argument `Prepared::of` carries one file over"
+)]
+fn run_pass(
+    plan: &ArchivePlan,
+    at: usize,
+    documents: &[Document],
+    sinks: &dyn Sinks,
+    report: &mut Report,
+    settling: bool,
+) -> Result<(), Refusal> {
     let document = documents.get(at).ok_or(Refusal::NoSuchSource {
         at: plan.source,
         count: documents.len(),
     })?;
     // A source this program declines for its structure is rebuilt where the caller authorised the
     // loss, and the conversion goes on over the rebuilt file (`doc/adr/2502`).
+    let source = document;
     let recovered = rebuild_a_declined_structure(plan, document)?;
     let recovered_note = recovered.as_ref().map(|recovered| recovered.note.clone());
     let recovered_history = recovered_note.as_ref().map(RecoveredStructure::sentence);
@@ -500,7 +518,10 @@ pub(crate) fn run(
     // `doc/adr/1187`: what the source's encryption asserted, read before the conversion writes a
     // file that cannot assert it. Read whether or not the requirement is failing, because a
     // document the target does not admit encrypted is the only one whose statement is going.
-    let protection = SourceProtection::of(document);
+    //
+    // Of the source, not of a structure this program rebuilt from it: the rebuilt file is written
+    // unencrypted, and the claim is the source's (`doc/adr/2523`).
+    let protection = SourceProtection::of(source);
     let protection_history = protection.as_ref().map(SourceProtection::history);
     let provenance = Provenance {
         departure: departure_history.as_deref(),
@@ -531,6 +552,7 @@ pub(crate) fn run(
         let (mut conversion, _, _) = decide_every_failure(
             plan,
             document,
+            source,
             &input,
             &departed_ids,
             departures,
@@ -553,6 +575,7 @@ pub(crate) fn run(
     let (mut conversion, version, prepared) = decide_every_failure(
         plan,
         document,
+        source,
         &input,
         &departed_ids,
         departures,
@@ -601,6 +624,7 @@ pub(crate) fn run(
         &departed_ids,
         omit_identification,
         sinks,
+        settling,
     );
     let written = match outcome {
         Ok(written) => written,
@@ -647,24 +671,20 @@ fn rebuild_a_declined_structure(
     }
 }
 
-/// Stage 2: what to do about every requirement the input failed, and the header's version.
+/// The conversion as it stands before any requirement is decided: what the input met, what it
+/// could not check, and what the caller's remedies already reported.
 ///
-/// A pure function of the validator's report, the document's own version and the caller's
-/// authorisations. The version is answered here rather than in the rewrite because the
-/// *feasibility* of the header rewrite depends on the document — [`version_for`] — and a
-/// decision that cannot be carried out is a refusal rather than a plan.
-#[expect(clippy::too_many_arguments)]
-fn decide_every_failure(
+/// Every list the decisions fill starts empty, so a field that stays empty after stage 2 says that
+/// nothing of its kind was done.
+fn conversion_before_deciding(
     plan: &ArchivePlan,
     document: &Document,
+    source: &Document,
     input: &pdf_archive::Report,
-    departed_ids: &BTreeSet<&'static str>,
     departures: Vec<Departed>,
-    omit_identification: bool,
-    provenance: Provenance<'_>,
     remedies: &Remedies,
-) -> (Conversion, Option<Version>, Prepared) {
-    let mut conversion = Conversion {
+) -> Conversion {
+    Conversion {
         source: plan.source,
         target: plan.target,
         // The face that read the configuration names it; the plan does not carry it (ADR 1954).
@@ -673,6 +693,8 @@ fn decide_every_failure(
         fallback: None,
         // Set by `run`, which is what rebuilt the structure (ADR 2502).
         recovered_structure: None,
+        press_assumed: None,
+        settled: Vec::new(),
         conformed: input
             .judgements
             .iter()
@@ -717,18 +739,45 @@ fn decide_every_failure(
         supplied: remedies.supplied_report.clone(),
         resolved: remedies.resolved_report.clone(),
         preserved: Vec::new(),
-        protection: SourceProtection::of(document),
-    };
+        protection: SourceProtection::of(source),
+    }
+}
+
+/// Stage 2: what to do about every requirement the input failed, and the header's version.
+///
+/// A pure function of the validator's report, the document's own version and the caller's
+/// authorisations. The version is answered here rather than in the rewrite because the
+/// *feasibility* of the header rewrite depends on the document — [`version_for`] — and a
+/// decision that cannot be carried out is a refusal rather than a plan.
+#[expect(clippy::too_many_arguments)]
+fn decide_every_failure(
+    plan: &ArchivePlan,
+    document: &Document,
+    source: &Document,
+    input: &pdf_archive::Report,
+    departed_ids: &BTreeSet<&'static str>,
+    departures: Vec<Departed>,
+    omit_identification: bool,
+    provenance: Provenance<'_>,
+    remedies: &Remedies,
+) -> (Conversion, Option<Version>, Prepared) {
+    let mut conversion =
+        conversion_before_deciding(plan, document, source, input, departures, remedies);
     let prepared = Prepared::of(
         plan,
         document,
+        source,
         input,
         omit_identification,
         provenance,
         remedies,
     );
     let mut version = None;
-    for judgement in input.failures() {
+    let (raised_ids, raised) = raised_judgements(&prepared, input, document, source);
+    conversion
+        .conformed
+        .retain(|id| !raised_ids.iter().any(|(raised, _)| raised == id));
+    for judgement in input.failures().chain(raised.iter()) {
         // A requirement the caller departed from does not stop the conversion and is not decided:
         // it is reported as a departure (`conversion.departures`), the output keeps failing it, and
         // stage 3 tolerates that failure by name rather than refusing the file over it.
@@ -782,6 +831,41 @@ fn decide_every_failure(
     }
     conversion.signatures = signature_decision(plan, &prepared);
     (conversion, version, prepared)
+}
+
+/// The requirements the source met and the file to be written would fail, as the failed judgements
+/// they are decided as (`doc/adr/2522`), with the identifiers and the number of places of each.
+///
+/// The rebuilt file of an encrypted source carries no `/Encrypt` and meets
+/// `file-structure/no-encryption`; the source did not, and the answer to it is the loss the
+/// encryption's own decision takes, with the claim read from the source (`doc/adr/2523`).
+fn raised_judgements(
+    prepared: &Prepared,
+    input: &pdf_archive::Report,
+    document: &Document,
+    source: &Document,
+) -> (Vec<(&'static str, usize)>, Vec<pdf_archive::Judgement>) {
+    let mut ids = prepared.raised.clone();
+    if source.is_encrypted() && !std::ptr::eq(source, document) {
+        ids.push(("file-structure/no-encryption", 1));
+    }
+    let judgements = ids
+        .iter()
+        .filter_map(|(id, places)| {
+            input
+                .judgements
+                .iter()
+                .find(|judgement| judgement.id == *id)
+                .map(|met| pdf_archive::Judgement {
+                    outcome: Outcome::Failed {
+                        places: Vec::new(),
+                        total: *places,
+                    },
+                    ..met.clone()
+                })
+        })
+        .collect();
+    (ids, judgements)
 }
 
 /// Why a metadata requirement is refused where the replacement that would meet it was decided
@@ -1161,6 +1245,7 @@ fn apply_the_decisions(
     departed_ids: &BTreeSet<&'static str>,
     omit_identification: bool,
     sinks: &dyn Sinks,
+    settling: bool,
 ) -> Result<Written, Refusal> {
     // Asked here for a document whose header already conformed, which is every document that
     // reaches this line without a `FileHeader` decision.
@@ -1210,10 +1295,15 @@ fn apply_the_decisions(
         recorded.push(format!("{DEFAULT_CMYK_ACTION} — {DEFAULT_CMYK_PARAMETERS}"));
     }
     if wanted.contains(&Rewrite::SuppliedDefaultCmyk) {
-        recorded.push(format!(
-            "{DEFAULT_CMYK_ACTION} — {}",
-            supplied_cmyk::PARAMETERS
-        ));
+        let parameters = match &prepared.supplied_cmyk {
+            Ok(default) if default.press == supplied_cmyk::Press::Assumed => {
+                // The profile is named in the report beside the history's entry (`doc/adr/2518`).
+                conversion.press_assumed = supplied_cmyk::assumed_profile();
+                supplied_cmyk::ASSUMED_PARAMETERS
+            }
+            _ => supplied_cmyk::PARAMETERS,
+        };
+        recorded.push(format!("{DEFAULT_CMYK_ACTION} — {parameters}"));
     }
     // section 4.9's own condition, and ISO 19005-2 section 6.6.6's NOTE 1 names the act: a face
     // embedded for a font the file never carried is recorded in the file itself, not only here.
@@ -1446,7 +1536,24 @@ fn apply_the_decisions(
     }
     count_signature_places(conversion, &converted.applied);
 
-    let (output, achieved) = hold_the_output_to_the_target(&converted.bytes, input, plan.target)?;
+    let (mut output, mut achieved) =
+        hold_the_output_to_the_target(&converted.bytes, input, plan.target)?;
+    let mut bytes = converted.bytes;
+    // **An output that would be refused is converted once more** where this conversion
+    // constructed appearances, because those are the content no earlier pass saw (`settle`). The
+    // requirements it fails need not be ones the source met: a face the source never embedded
+    // and a face the appearance names are two sites of the one requirement.
+    if settling
+        && !conversion.appearances.is_empty()
+        && !stands_as_departed(&achieved, departed_ids, omit_identification)
+        && let Some(second) = settle::second_conversion(plan, &bytes, input)
+        && stands_as_departed(&second.achieved, departed_ids, omit_identification)
+    {
+        settle::fold(conversion, second.conversion);
+        bytes = second.bytes;
+        output = second.output;
+        achieved = second.achieved;
+    }
     // A departed conversion produces a file that does not conform, on purpose. It is written where
     // the *only* requirements it still fails are the ones the caller departed from and — where the
     // identification was deliberately omitted — the identification-schema requirements that omission
@@ -1477,13 +1584,13 @@ fn apply_the_decisions(
         name: expanded.name.clone(),
         error,
     };
-    writer.write_all(&converted.bytes).map_err(sank)?;
+    writer.write_all(&bytes).map_err(sank)?;
     writer.flush().map_err(sank)?;
     drop(writer);
 
     Ok(Written::File(Output {
         name: expanded.name,
-        bytes: u64::try_from(converted.bytes.len()).unwrap_or(u64::MAX),
+        bytes: u64::try_from(bytes.len()).unwrap_or(u64::MAX),
         sanitised: expanded.sanitised,
         origin: Origin::Archived {
             source: plan.source,

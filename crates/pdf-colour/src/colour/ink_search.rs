@@ -78,7 +78,7 @@ const INK_BACKTRACKS: usize = 6;
 /// paper and `#000000` are looked up rather than interpolated. Chosen by measurement: with
 /// [`INK_POLISH`] after it, the worst gap over 800 random colours of the cube's own image is
 /// **0.50 of 255**, which is `INK_EXACT` itself — the table's answer *is* the search's.
-const INK_TABLE_SIDE: usize = 17;
+pub(super) const INK_TABLE_SIDE: usize = 17;
 
 /// How many Gauss–Newton steps may land the table's answer on the exact separation.
 ///

@@ -67,6 +67,9 @@ pub struct XrefTable {
     unread: Vec<(u32, u32)>,
     /// The highest number a table this one replaced had stated. See [`Self::keep_stated`].
     stated_by_replaced: Option<u32>,
+    /// Whether the `/Prev` chain stopped at a section the file names and this reader could not
+    /// read. See [`Self::chain_cut`].
+    chain_cut: bool,
 }
 
 impl XrefTable {
@@ -122,6 +125,19 @@ impl XrefTable {
                 number >= first
                     && u64::from(number) < u64::from(first).saturating_add(u64::from(count))
             })
+    }
+
+    /// Whether a `/Prev` named a section this reader could not read.
+    ///
+    /// ISO 32000-2 Table 15 makes `/Prev` the byte offset from the beginning of the file to the
+    /// beginning of the previous cross-reference section, so a chain that stops at bytes that
+    /// are no section has lost the older sections' entries, and the numbers they described
+    /// are answered by [`Self::declared_and_unread`] where the trailer states a `/Size`. A table
+    /// rebuilt by scanning has no chain and answers `false`; [`Self::recovered_by_scan`] is that
+    /// fact.
+    #[must_use]
+    pub fn chain_cut(&self) -> bool {
+        self.chain_cut
     }
 
     /// Returns the number of known objects.
@@ -659,11 +675,18 @@ fn read_from_startxref(
     // between its own section and the older one it precedes. `XrefTable::fill` turns that order
     // into §7.5.6's precedence in one pass at the end.
     let mut entries: Vec<(u32, Option<Location>)> = Vec::new();
+    // Whether the section `next` names is one the file points at and this reader has not read:
+    // true from the moment a `/Prev` is followed until the section it names is read, so it is
+    // still true where the walk stopped on an unreadable offset, an offset past the file's end or
+    // the section cap. `startxref` itself is no `/Prev`, and a table with nothing read is the
+    // caller's to rebuild, so it starts false. [`declare_unreached`] turns it into a statement.
+    let mut named_and_unread = false;
 
     for _ in 0..MAX_XREF_SECTIONS {
         // A cycle in the `/Prev` chain would otherwise loop until the section cap, doing
-        // real work each time.
+        // real work each time. Every section on a cycle was read, so nothing is unreached.
         if !visited.insert(next) {
+            named_and_unread = false;
             break;
         }
         if next >= file.len() {
@@ -673,6 +696,7 @@ fn read_from_startxref(
         let Some(section) = read_section(file, next, base, limits) else {
             break;
         };
+        named_and_unread = false;
         if let Some(record) = record.as_mut() {
             record.push(SectionRecord {
                 offset: next,
@@ -700,19 +724,61 @@ fn read_from_startxref(
             table.unread.extend(extra.unread);
         }
 
-        match section
-            .trailer
-            .get("Prev")
-            .and_then(Object::as_integer)
+        let Some(stated) = section.trailer.get("Prev") else {
+            break;
+        };
+        named_and_unread = true;
+        // A `/Prev` that is not an offset names a section no reader can find.
+        let Some(previous) = stated
+            .as_integer()
             .and_then(|value| usize::try_from(value).ok())
-        {
-            Some(previous) => next = previous.saturating_add(base),
-            None => break,
-        }
+        else {
+            break;
+        };
+        next = previous.saturating_add(base);
     }
 
+    if named_and_unread {
+        declare_unreached(&mut table);
+    }
     table.fill(entries);
     Some(table)
+}
+
+/// Records that the sections before the one a `/Prev` could not reach held the rest of the table.
+///
+/// ISO 32000-2 Table 15 gives `/Size` as "\[t]he total number of entries in the PDF file's cross
+/// -reference table, as defined by the combination of the original section and all update
+/// sections", so the newest trailer states how many object numbers the whole chain describes.
+/// Annex F says the same of a linearized file, whose first-page trailer is the only newest one
+/// and whose `/Prev` is the only way to the main table (§F.3.4):
+///
+/// > The Size value shall be the combined number of entries in both the first-page
+/// > cross-reference table and the main cross-reference table.
+///
+/// and §F.3.11 puts nearly every object in that main table. When its offset is wrong — the
+/// bytes it names are not a section — the file has stated that entries exist for the numbers
+/// below `/Size` that no section read describes, and nothing else about them. That is the shape
+/// [`XrefTable::declared_and_unread`] answers for a subsection header whose entries did not
+/// read: the object's own header (§7.3.10) is the file's remaining statement, and a number that
+/// a section read *did* describe — a deletion included — is not asked, so §7.5.6 still decides
+/// every number the newer sections mention. The cost is that a number only the unreached section
+/// freed is no longer deleted, which nothing in the bytes can tell apart from an object it never
+/// described. ADR 2526 has the argument.
+///
+/// Nothing is recorded where the trailer states no usable `/Size`: a range the file does not
+/// state is not one this reader may invent.
+fn declare_unreached(table: &mut XrefTable) {
+    table.chain_cut = true;
+    let size = table
+        .trailer
+        .get("Size")
+        .and_then(Object::as_integer)
+        .and_then(|value| u32::try_from(value).ok())
+        .unwrap_or(0);
+    if size > 0 {
+        table.unread.push((0, size));
+    }
 }
 
 /// One cross-reference section's entries and trailer.

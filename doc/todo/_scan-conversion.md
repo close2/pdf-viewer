@@ -329,7 +329,7 @@ departure explains and one it does not:
   describe and it is drawn once (ADR 0213). Both squares are now within 1% to 3% of the geometry
   and within 1% of each other at every scale.
 
-## The one rule this tree does not apply, deliberately
+## The one rule this tree does not apply by default, deliberately
 
 §10.7.5's stroke adjustment has two halves. The half a display can state exactly — a stroke
 under half a pixel becomes one pixel — is implemented and conditioned on `/SA`, which is what
@@ -353,6 +353,13 @@ crawl pages that open** as carrying a stroke a fit could move, against 6 of `doc
 the world. The worst thickness this device produces is **0.1802 of a device pixel**, on a 45° rule
 at or under one pixel where `substitute_width` acts rather than the closed form — this file's own
 departure, inside the clause's bound, and `doc/todo/11`'s to answer.
+
+**The fit is built and is off by default** (ADRs 2530 and 2531): `pdf_render::grid_fit` draws a
+`/SA true` rule under 1.5 device pixels along the device axes one whole pixel wide across pixel
+centres when `CpuRasterizer::with_stroke_adjustment(true)` asks for it. On page one of the pdf.js
+documents it makes 316 of 347 sampled segments one solid row against 4, opens 2 seam pixels and
+closes none, at no measurable draw time; whether it is drawn, with `raster`'s lanes fitted at encode
+beside it, is the owner's choice in `doc/questions/Q714`.
 
 **ADR 0226 answers it by not snapping anything**, which is the cheapest form of that answer: a
 0.1-unit rule draws 0.1 of a row at the fractional position the document put it, and what is

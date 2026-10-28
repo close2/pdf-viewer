@@ -353,8 +353,8 @@ fn survey_documents(documents: &[PathBuf]) {
 /// Says what this run held in the press cache, which qualifies nothing above it.
 ///
 /// **It qualified the incomplete count until ADR 0417, and that is why the line survives the
-/// fix rather than being deleted with it.** `pdf_model::colour::MAX_PRESSES` used to be a
-/// process-wide table that was the budget as well as the store, so a document naming the ninth
+/// fix rather than being deleted with it.** The table of presses used to be
+/// process-wide and was the budget as well as the store, so a document naming the ninth
 /// distinct press this survey met was reported for a reason belonging to eight other files —
 /// three runs of one unchanged tree over one unchanged directory printed 30, 36 and 33 such
 /// reports (ADR 0416). The budget is the interpretation's now, so every verdict above is the

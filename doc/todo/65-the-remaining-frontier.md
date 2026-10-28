@@ -161,19 +161,23 @@ the last rendering one, §10.7.4's mark for a stroke its matrix collapses, was b
   (ADRs 2396, 2414); the template's validations are run (a save's null and datatype tests, a
   submit's null, datatype and format tests, ADRs 2450, 2474, 2475), and its FormCalc calculations and
   `change` and `initialize` events activate in page 379's order and cascade under limits
-  (`Resource::activate`, ADRs 2506, 2507), while its JavaScript, its other events and every window's
-  runner are not there, and every window says so. RFC 0011 section 5's step 5 and the worker's host
-  for step 6 are what remains (ADR 2430).
+  (`Resource::activate`, ADRs 2506, 2507) and a window that lets scripts run activates them when the
+  form is shown and at a commit, in the confined script worker (ADRs 2524, 2525), while its
+  JavaScript and its other events are not there, and every window says so. RFC 0011 section 5's
+  step 5 is what remains (ADR 2430), and so is a call site in `quorra-gtk` and `quorra-qt`: they
+  send `Command::Report` and `Command::Presented` for the first document only
+  (`viewer-host`'s `report::Due` is one per window), so a document opened beside is never given
+  its merge, its open sequence or its signature report (ADR 2525).
  *One raster carries the product of shape and opacity where the clause wants the pair* is not
 among them: §11.4.6 is the one reader of the pair the standard has, every knockout element states its
 shape, and §11.3.7.3's NOTE 2 licenses the product everywhere else (§11.4.3's row, ADR 1340).
 
-**Beside this bucket and not in it**: §11.5.3, §11.6.6 and §11.7.2 are `departed` on one bound,
-`colour::MAX_PRESSES`: a page that has spent it has no press left for its group's space, so its
-elements are painted in the parent's and `PagePress::Beyond` names why. It is twice what the
-standard says one profile can be, Table 69's four intents against §8.6.5.9's `/UseBlackPtComp` less
-the pair that clause forbids, and the deepest page `examples/press_depth` finds names one press (ADR
-1254). §11.5.3's blend mode inside a subtractive group of more than one component is composited in
+**Beside this bucket and not in it**: §11.5.3, §11.6.6 and §11.7.2 are `implemented`: every distinct
+four-component profile a page names gets its press, charged to the page's memory bound with its
+display list, and a page whose presses do not fit is refused the one that crosses it, so its elements
+are painted in the parent's and `PagePress::Beyond` names why (ADR 2532; ADR 1254 reads what one
+profile is worth, Table 69's four intents against §8.6.5.9's `/UseBlackPtComp` less the pair that
+clause forbids). §11.5.3's blend mode inside a subtractive group of more than one component is composited in
 the group's four components (ADR 1342). §11.3.4 is `implemented`, its route into a one-component
 blending space a choice §10.4.2.1's ranking leaves to the processor (ADRs 0790, 1622), which
 `doc/todo/23` still prices; the precision that stood beside it here is closed, the cube into a parent's components being carried as
@@ -208,8 +212,10 @@ its timespan, a section's `/B` and `/E` and a `BE` media duration's `/T` alike, 
 or Table 300 `/S` makes "the rendition" non-viable from either dictionary (ADRs 2447, 2452, 2472, 2473).
 
 - **Beside this bucket and not in it** — §12.5.6.23 is `departed` on two refusals with their cost
-  recorded, a calculator function serving region-only colours (ADR 1363) and a `JPXDecode` component
-  past the twenty-four bits the decoder reads exactly (ADRs 1371, 2470); a component of
+  recorded, a `JPXDecode` component past the twenty-four bits the decoder reads exactly (ADRs 1371,
+  2470) and a two-input calculator function under a function-based shading the region meets (ADR
+  2528), a one-input calculator function serving region-only colours being served by a stitching
+  function written over the producer's program (ADR 2528); a component of
   seventeen to twenty-four bits, or one stating a sign, is written back as JPEG 2000 by `pdf-jpx-write`,
   as a JPX file where the image has other than one or three colour components, refused where a raw codestream of two, five or more states no colour box (ADRs 2480, 2481); every other content class the clause reaches is removed, and
   Table 195's overlay is a choice its own `should` leaves (ADRs 1124, 1622).
@@ -312,7 +318,7 @@ exactly the rows `Ledger::is_aggregate` names and the frontier gate fails on any
 "Aggregate of the rows below" and the reason is the owing row's. They are not independently actionable
 — do not brief a round to *take* one; they flip when the last binding row flips.
 
-§7.4, §7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4, §14.8, §14.8.5, §14.8.5.4, §K.
+§7.4, §7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4, §K.
 
 
 ### Not owed — a documented choice, an exclusion, a deprecation, or a standard-gap
@@ -325,10 +331,6 @@ trusting the word (the DeviceCMYK and transfer-function precedents in `CLAUDE.md
 arrives here is read against its clause and against Errata Collection 3, and its note records the
 reading.
 
-- §14.8.5.4.4 — Table 380's decoration and text position cross to the platform's text interface;
-  `/LineHeight`, `/GlyphOrientationVertical`, `/TextDecorationThickness`, `/RubyAlign` and
-  `/RubyPosition` are a reflowing view's parameters, which `doc/questions/A634` keeps out as a layout
-  engine and no platform text interface carries (ADR 2384).
 
 The bucket was otherwise emptied by re-reading it rather than by building.
 §12.6.4.9's and §12.6.4.10's own opening sentence hands them to 13.2, whose clause 13 entry admits

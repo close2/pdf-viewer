@@ -652,10 +652,13 @@ pub struct Conversion {
     /// producer's and which are this program's.
     pub substituted: Vec<SubstitutedFont>,
     /// Every page this conversion replaced by a photograph of itself, because it showed an
-    /// `Adobe-Identity` font whose codes no reader can name (`doc/questions/A570`, `doc/adr/2394`).
+    /// `Adobe-Identity` font whose codes no reader can name (`doc/questions/A570`, `doc/adr/2394`),
+    /// or, where the profile authorised `page-as-image`, a font no route could carry or a fault
+    /// of its content stream the target refuses (`doc/questions/A694`, `doc/adr/2516`).
     ///
     /// The loss `text-as-image` per page, named where it was incurred: which page, at which
-    /// resolution, and which fonts the window drew blank on it.
+    /// resolution, which fonts the window drew blank on it, and for the wider gate the text the
+    /// page held.
     pub photographed: Vec<super::PhotographedPage>,
     /// Every embedded font program whose stated advances this conversion restated.
     ///
@@ -716,6 +719,21 @@ pub struct Conversion {
     /// sentence that declined the source. `None` for a source whose structure was written as it
     /// stood, which is nearly every document (`doc/adr/2502`).
     pub recovered_structure: Option<crate::archive::RecoveredStructure>,
+    /// The CMYK profile this program ships, where the conversion wrote it as the file's
+    /// `/DefaultCMYK` because the operator named no press: the loss
+    /// [`Loss::PressAssumed`](super::Loss::PressAssumed) in the report's own terms.
+    ///
+    /// `None` for every conversion that wrote no such default, which is nearly every conversion
+    /// (`doc/adr/2518`).
+    pub press_assumed: Option<DestinationProfile>,
+    /// The requirements a second conversion over this one's own output answered.
+    ///
+    /// An appearance this conversion constructs is content no pass over the source saw, so the
+    /// first output can fail a requirement the source met (a font it names that nothing embeds,
+    /// a device colour no default licenses); the output is then converted once more as a source of
+    /// its own, and the requirements that second conversion decided are named here (`doc/adr/2534`).
+    /// Empty for every conversion whose first output stood.
+    pub settled: Vec<&'static str>,
 }
 
 impl Conversion {
@@ -1008,6 +1026,16 @@ impl Conversion {
                 "recovered_structure".to_owned(),
                 recovered_structure_json(self.recovered_structure.as_ref()),
             ),
+            (
+                "press_assumed".to_owned(),
+                self.press_assumed
+                    .as_ref()
+                    .map_or(Value::Null, DestinationProfile::to_json),
+            ),
+            (
+                "settled".to_owned(),
+                Value::Array(self.settled.iter().map(|id| Value::text(*id)).collect()),
+            ),
         ])
     }
 
@@ -1096,6 +1124,27 @@ impl Conversion {
         }
         if let Some(recovered) = &self.recovered_structure {
             let _ = writeln!(out, "  {}", recovered.sentence());
+        }
+        if let Some(press) = &self.press_assumed {
+            let _ = writeln!(
+                out,
+                "  press-assumed: no press was named, so the DefaultCMYK states {}{} over {} - \
+                 the lower bound of a print scanned back in, not an imitation of printing",
+                press.source.describe(),
+                press
+                    .describes
+                    .as_ref()
+                    .map_or_else(String::new, |name| format!(" ({name})")),
+                press.space
+            );
+        }
+        if !self.settled.is_empty() {
+            let _ = writeln!(
+                out,
+                "  settled by a second conversion over this one's own output, because the \
+                 appearances it constructed brought what the source did not have: {}",
+                self.settled.join(", ")
+            );
         }
         if let Some(recorded) = &self.recorded {
             let _ = writeln!(
@@ -1509,22 +1558,36 @@ impl Conversion {
         if !self.photographed.is_empty() {
             let _ = writeln!(
                 out,
-                "  {} page(s) showing an Adobe-Identity font whose codes no reader can name are \
-                 replaced by a photograph of themselves as this viewer draws them, that font's \
-                 marks blank as the window leaves them; no page whose text a reader can extract \
-                 was photographed:",
+                "  {} page(s) are replaced by a photograph of themselves as this viewer draws \
+                 them, a font this program cannot embed a face into being left blank as the \
+                 window leaves it:",
                 self.photographed.len()
             );
             for page in &self.photographed {
+                let mut why = page.fonts.clone();
+                why.extend(page.requirements.iter().cloned());
                 let _ = writeln!(
                     out,
-                    "      page {} at {} dpi, {} by {} pixels, for {}; it loses text-as-image",
+                    "      page {} at {} dpi, {} by {} pixels, for {}; it loses {}",
                     page.page,
                     page.dots_per_inch,
                     page.width,
                     page.height,
-                    page.fonts.join(", ")
+                    why.join(", "),
+                    if page.anywhere {
+                        "text-as-image and page-as-image"
+                    } else {
+                        "text-as-image"
+                    },
                 );
+                if !page.text.is_empty() {
+                    let _ = writeln!(
+                        out,
+                        "          its text was: \"{}\"{}",
+                        page.text,
+                        super::fonts::elided(page.text_elided),
+                    );
+                }
             }
         }
         if !self.restated.is_empty() {
@@ -1678,6 +1741,28 @@ fn photographed_to_json(page: &super::PhotographedPage) -> Value {
         (
             "fonts".to_owned(),
             Value::Array(page.fonts.iter().cloned().map(Value::text).collect()),
+        ),
+        (
+            "requirements".to_owned(),
+            Value::Array(page.requirements.iter().cloned().map(Value::text).collect()),
+        ),
+        ("text".to_owned(), Value::text(page.text.clone())),
+        (
+            "text_characters_left_out".to_owned(),
+            Value::Integer(i64::try_from(page.text_elided).unwrap_or(i64::MAX)),
+        ),
+        (
+            "losses".to_owned(),
+            Value::Array(
+                if page.anywhere {
+                    vec!["text-as-image", "page-as-image"]
+                } else {
+                    vec!["text-as-image"]
+                }
+                .into_iter()
+                .map(Value::text)
+                .collect(),
+            ),
         ),
     ])
 }

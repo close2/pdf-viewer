@@ -40,6 +40,16 @@
 //! A run may therefore pass the bound by what [`CHECK_EVERY`] operators add before it is asked —
 //! one tiling copy at most, since replication asks before every copy.
 //!
+//! **The presses a page names are charged to the same bound** (ADR 2532). A press is a megabyte
+//! and a half of grids ([`crate::colour::PRESS_BYTES`]) and, for a profile that converts in, whatever
+//! that profile can hold, and a page may
+//! name a profile per group, so what they hold is one more thing a page can exhaust. They are
+//! not part of [`ListBudget::charged`], which stays the list's and the readback's; `list_past`
+//! adds what [`crate::colour::Presses::bytes_held`] answers to it, so a page whose list and
+//! presses together pass [`MAX_LIST_BYTES`] is refused by the same [`Unsupported::ListBytes`],
+//! whose `charged` then counts both. The presses are also refused one by one at admission, by
+//! `Presses::within`, so that a press which would not fit is never sampled.
+//!
 //! Image samples are not charged here: they are shared through an `Arc` by every copy, and
 //! `MAX_SAMPLES` already bounds what one image may decode. What is charged is an estimate of the
 //! allocation, not the allocator's own count, and it is a function of the document alone, which
@@ -137,6 +147,16 @@ impl ListBudget {
             held_back: MAX_LIST_BYTES.saturating_sub(share),
             ..Self::default()
         }
+    }
+
+    /// Whether this charge, the share the other pieces hold back, the `presses` the page has
+    /// named and `more` bytes about to be added pass [`MAX_LIST_BYTES`] (ADR 2532).
+    const fn passes(self, presses: usize, more: usize) -> bool {
+        self.charged
+            .saturating_add(self.held_back)
+            .saturating_add(presses)
+            .saturating_add(more)
+            > MAX_LIST_BYTES
     }
 
     /// Whether the bound was reached.
@@ -353,12 +373,12 @@ impl Interpreter<'_> {
     /// before a tiling's next copy, so the copy that would cross the bound is not made.
     pub(super) fn list_past(&mut self, more: usize) -> bool {
         let budget = self.list_budget;
-        if budget
-            .charged
-            .saturating_add(budget.held_back)
-            .saturating_add(more)
-            <= MAX_LIST_BYTES
-        {
+        // The presses this page has named are held beside its list and are charged to the same
+        // bound (ADR 2532). A table the presses poisoned is read as holding nothing: the poison
+        // is reported by the colour paths that meet it, and a figure that cannot be read must
+        // not stop a page on its account.
+        let presses = self.presses.bytes_held().unwrap_or(0);
+        if !budget.passes(presses, more) {
             return false;
         }
         // Spent stays spent: every operator after this one, in this stream and in every stream
@@ -367,7 +387,7 @@ impl Interpreter<'_> {
         if !budget.reported {
             self.list_budget.reported = true;
             self.note(Unsupported::ListBytes {
-                charged: budget.charged.saturating_add(more),
+                charged: budget.charged.saturating_add(presses).saturating_add(more),
                 bound: MAX_LIST_BYTES,
             });
         }
@@ -387,5 +407,43 @@ impl Interpreter<'_> {
             budget.charged = budget.charged.saturating_add(bytes);
             budget.clips_charged = index.saturating_add(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ListBudget, MAX_LIST_BYTES};
+
+    /// The presses a page named count against the bound the list is held to: presses that fill
+    /// it alone pass it with one more byte, and the same bytes in a list do the same.
+    #[test]
+    fn the_presses_a_page_named_are_charged_to_the_same_bound_as_its_list() {
+        let list = ListBudget {
+            charged: MAX_LIST_BYTES / 2,
+            ..ListBudget::default()
+        };
+        assert!(
+            !list.passes(MAX_LIST_BYTES / 2, 0),
+            "exactly the bound is inside it"
+        );
+        assert!(
+            list.passes(MAX_LIST_BYTES / 2, 1),
+            "one byte more is past it"
+        );
+        assert!(
+            list.passes(MAX_LIST_BYTES / 2 + 1, 0),
+            "a press charge alone moves the verdict"
+        );
+        assert!(!ListBudget::default().passes(MAX_LIST_BYTES, 0));
+        assert!(ListBudget::default().passes(MAX_LIST_BYTES, 1));
+    }
+
+    /// A divided read's held-back share is still counted beside the presses.
+    #[test]
+    fn a_pieces_held_back_share_counts_beside_the_presses() {
+        let piece = ListBudget::for_piece(4, 0);
+        let share = MAX_LIST_BYTES / 4;
+        assert!(!piece.passes(share, 0));
+        assert!(piece.passes(share + 1, 0));
     }
 }

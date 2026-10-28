@@ -99,8 +99,9 @@ pub enum Unsupported {
     /// another is a few kilobytes of file and gibibytes of list (ADR 1507). Both numbers are
     /// carried so the sentence a host words can say how far past the bound the page reached.
     ListBytes {
-        /// The bytes charged when the run stopped, with the tiling copy it was refused where that
-        /// is what stopped it — so it is past `bound` either way.
+        /// The bytes charged when the run stopped — the list's and the presses the page named
+        /// (ADR 2532) — with the tiling copy it was refused where that is what stopped it, so it
+        /// is past `bound` either way.
         charged: usize,
         /// The bound, `MAX_LIST_BYTES`.
         bound: usize,
@@ -505,12 +506,12 @@ pub struct Interpretation {
     pub view_dependent: bool,
     /// What could not be drawn. Empty means the page is complete.
     pub unsupported: Vec<Unsupported>,
-    /// How many *distinct* presses this interpretation named, against
-    /// [`crate::colour::MAX_PRESSES`].
+    /// How many *distinct* presses this interpretation named, each charged
+    /// [`crate::colour::PRESS_BYTES`] and what the profile it keeps can hold to the page's memory bound.
     ///
     /// ISO 32000-2 §11.7.2 gives a page's four-component blending space a conversion of its
     /// own, and this counts how many such conversions one page asked for. It is here because
-    /// the budget that refuses the next one is per interpretation (ADR 0417), so the only
+    /// the budget that refuses the next one is per interpretation (ADR 0417, ADR 2532), so the only
     /// instrument that can say whether a population reaches it is one that asks a page rather
     /// than a process — `examples/press_depth` is that instrument, and ADR 1254 is what it
     /// measured. Zero for a page that composites on the device's own components, which is

@@ -125,9 +125,11 @@
 //! - a **Type 3 glyph** whose description the interpreter could not draw in full, where its marks
 //!   are measured rather than declared;
 //! - a **composite font** whose `CMap` does not resolve;
-//! - a **calculator function** (§7.10.5) serving colours only the region carries, since a program
-//!   is not divided by the values it serves, and a **shading** whose data meeting the region do
-//!   not read — a mesh stream or a sample table that does not decode as its clause states;
+//! - a **calculator function** (§7.10.5) of two inputs under a region, which no stitching function
+//!   divides, a one-input one whose `/Domain` or `/Range` states no stitching over it or whose
+//!   region-only spans outnumber the bound on a stitching function's pieces, and a **shading**
+//!   whose data meeting the region do not read — a mesh stream or a sample table that does not
+//!   decode as its clause states;
 //! - a **codec image whose decode is not its own grid** — a `JPXDecode` codestream larger than
 //!   the operator's budget, which is refused rather than decoded at a reduced resolution level
 //!   (§7.4.9 NOTE 3) that would resample the image outside the region too, and a filter that

@@ -216,6 +216,22 @@ pub(super) fn find(document: &Document) -> Signatures {
     found
 }
 
+/// Every signature of `source`, reported against `source`'s bytes, and where the rewrite finds
+/// each in `rebuilt`, the document written from `source`'s objects.
+///
+/// A rebuilt file's bytes are not the ones a signature covered, so what each signature asserted
+/// is read from the source (§12.8.1's integrity and authenticity questions are about the file
+/// that was signed), while the objects whose `/V` goes are those of the file being written.
+pub(super) fn find_over(rebuilt: &Document, source: &Document) -> Signatures {
+    let mut found = find(rebuilt);
+    let said = find(source);
+    found.each = said.each;
+    if found.obstacle.is_none() {
+        found.obstacle = said.obstacle;
+    }
+    found
+}
+
 /// Why a document with more signatures than [`MAX_SIGNATURES`] is refused.
 const TOO_MANY_SIGNATURES: &str = "this document carries more signatures than this converter \
      reports and removes in one conversion; each is verified over the whole source before it \

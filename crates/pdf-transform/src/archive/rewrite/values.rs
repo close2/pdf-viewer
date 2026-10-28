@@ -8,6 +8,26 @@ use super::super::sites;
 use super::super::sites::{RELATIVE_COLORIMETRIC, RENDERING_INTENTS};
 use super::{Entry, Rewrite, Rewriter, count, resources_with_default, with_default};
 
+/// What a dictionary being restated is known to be by where it stands in the object the rewrite
+/// was asked to reach.
+///
+/// `/RI` is a graphics state parameter (ISO 32000-2 §8.4.5, Table 57), but the key is also an
+/// annotation's `/MK` entry in Table 192, the rollover icon of a push button, where a stream
+/// stands in the place of a name. A dictionary is therefore restated for its `/RI` only where
+/// `pdf_archive`'s own rule makes it a graphics state: one entry of an `ExtGState` table, a
+/// dictionary typed `ExtGState`, or the object the rewrite was asked to reach.
+#[derive(Clone, Copy)]
+enum Held {
+    /// The object itself, which is a site because a graphics state or an image is written there.
+    TopLevel,
+    /// An `ExtGState` table, itself or as an object of its own.
+    StateTable,
+    /// One entry of such a table.
+    State,
+    /// Any other dictionary written inside the object.
+    Elsewhere,
+}
+
 impl Rewriter<'_> {
     /// Moves a descriptor's program to `/FontFile3`, the same stream under the key §9.9's Table
     /// 124 files its format under (ADR 2307), writes a `CIDFont` the move retypes as the subtype
@@ -359,6 +379,19 @@ impl Rewriter<'_> {
             count(applied, Rewrite::StandardRouteNames);
             changed = true;
         }
+        if self.wants(Rewrite::TrueTypeCmapRestated)
+            && let Some(descriptor) = self
+                .cmap_restated
+                .and_then(|restated| restated.descriptors.get(&id))
+        {
+            out.remove("Encoding");
+            out.insert(
+                Name::new(&b"FontDescriptor"[..]),
+                Object::Reference(*descriptor),
+            );
+            count(applied, Rewrite::TrueTypeCmapRestated);
+            changed = true;
+        }
         if self.wants(Rewrite::Type3NotdefRenamed)
             && let Some((encoding, procedures)) =
                 self.type3_notdef.and_then(|renames| renames.at.get(&id))
@@ -380,8 +413,9 @@ impl Rewriter<'_> {
     /// number. An edit that looked only at the dictionary the number names would fix nothing
     /// there and leave the requirement failed.
     ///
-    /// The two keys are guarded differently, because only one of them is unambiguous. `/RI` is a
-    /// graphics state parameter and §8.4.5's Table 57 gives it no other home, so any value
+    /// The two keys are guarded differently, because neither is unambiguous. `/RI` is a graphics
+    /// state parameter in §8.4.5's Table 57 and a push button's rollover icon in Table 192, so it
+    /// is restated only in a dictionary that [`Held`] makes a graphics state, and there any value
     /// outside §8.6.5.8's four names is the one this requirement is about. `/Intent` is an image
     /// `XObject`'s in §8.9.5.1's Table 87 **and** an optional content group's in §8.11.2.3,
     /// where its values are `View` and `Design` — so it is restated only where the dictionary
@@ -400,7 +434,15 @@ impl Rewriter<'_> {
             return false;
         }
         let mut places = 0usize;
-        self.restate_inside(out, Entry::RenderingIntent, 0, &mut places);
+        let held = if self
+            .rendering_intents
+            .is_some_and(|sites| sites.tables.contains(&id))
+        {
+            Held::StateTable
+        } else {
+            Held::TopLevel
+        };
+        self.restate_inside(out, Entry::RenderingIntent, 0, &mut places, held);
         for _ in 0..places {
             count(applied, Rewrite::RenderingIntent);
         }
@@ -425,7 +467,7 @@ impl Rewriter<'_> {
             return false;
         }
         let mut places = 0usize;
-        self.restate_inside(out, Entry::BlendMode, 0, &mut places);
+        self.restate_inside(out, Entry::BlendMode, 0, &mut places, Held::TopLevel);
         for _ in 0..places {
             count(applied, Rewrite::BlendModeNormal);
         }
@@ -443,11 +485,12 @@ impl Rewriter<'_> {
         entry: Entry,
         depth: usize,
         places: &mut usize,
+        held: Held,
     ) {
         if depth >= sites::MAX_ENTRY_DEPTH {
             return;
         }
-        if let Some((key, value)) = self.restated_entry(dict, entry) {
+        if let Some((key, value)) = self.restated_entry(dict, entry, held) {
             dict.insert(Name::new(key.as_bytes()), value);
             *places = places.saturating_add(1);
         }
@@ -457,9 +500,14 @@ impl Rewriter<'_> {
             .map(|(key, value)| (key.clone(), value.clone()))
             .collect();
         for (key, value) in inside {
-            let mut held = value;
-            if self.restate_value(&mut held, entry, deeper, places) {
-                dict.insert(key, held);
+            let child = match (held, key.as_bytes()) {
+                (Held::StateTable, _) => Held::State,
+                (_, b"ExtGState") => Held::StateTable,
+                _ => Held::Elsewhere,
+            };
+            let mut value = value;
+            if self.restate_value(&mut value, entry, deeper, places, child) {
+                dict.insert(key, value);
             }
         }
     }
@@ -471,13 +519,20 @@ impl Rewriter<'_> {
         entry: Entry,
         depth: usize,
         places: &mut usize,
+        held: Held,
     ) -> bool {
         let before = *places;
         match value {
-            Object::Dictionary(dict) => self.restate_inside(dict, entry, depth, places),
+            Object::Dictionary(dict) => self.restate_inside(dict, entry, depth, places, held),
             Object::Array(items) => {
                 for item in items {
-                    self.restate_value(item, entry, depth.saturating_add(1), places);
+                    self.restate_value(
+                        item,
+                        entry,
+                        depth.saturating_add(1),
+                        places,
+                        Held::Elsewhere,
+                    );
                 }
             }
             _ => {}
@@ -486,10 +541,18 @@ impl Rewriter<'_> {
     }
 
     /// The entry this dictionary states wrongly, and what it is to state instead.
-    fn restated_entry(&self, dict: &Dictionary, entry: Entry) -> Option<(&'static str, Object)> {
+    fn restated_entry(
+        &self,
+        dict: &Dictionary,
+        entry: Entry,
+        held: Held,
+    ) -> Option<(&'static str, Object)> {
         match entry {
             Entry::RenderingIntent => {
-                let key = if dict.get("RI").is_some() {
+                let key = if dict.get("RI").is_some()
+                    && (matches!(held, Held::TopLevel | Held::State)
+                        || self.subtype_is_named(dict, "Type", b"ExtGState"))
+                {
                     "RI"
                 } else if dict.get("Intent").is_some() && self.subtype_is(dict, b"Image") {
                     "Intent"

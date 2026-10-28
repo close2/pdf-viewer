@@ -17,6 +17,11 @@
 //! - **What decodes re-encodes to what decodes the same.** A run and a reply the host or the worker
 //!   would act on survive the trip their encoder makes. Compared as they print, because a field's
 //!   rectangle and a colour cross as `f64`, and a `NaN` that is the same bits is not `==` itself.
+//!
+//! A form's `FormCalc` run is a conversation on the same pipes (ADR 2524): the input is also decoded as
+//! a form run, and as a question and as an answer by the same first-byte rule, with the same two
+//! properties.
+//!
 
 #![no_main]
 #![expect(
@@ -25,6 +30,10 @@
 )]
 
 use libfuzzer_sys::fuzz_target;
+use pdf_script_worker::form_wire::{
+    decode_answer, decode_form_run, decode_question, encode_answer, encode_form_run,
+    encode_question,
+};
 use pdf_script_worker::wire::{decode_reply, decode_run, encode_reply, encode_run};
 
 fuzz_target!(|data: &[u8]| {
@@ -59,5 +68,35 @@ fuzz_target!(|data: &[u8]| {
             format!("{trip:?}"),
             "a reply changed on its way through the encoder"
         );
+    }
+
+    if let Ok(run) = decode_form_run(data) {
+        let trip = decode_form_run(&encode_form_run(&run)).expect("a decoded form run re-encodes");
+        assert_eq!(
+            format!("{run:?}"),
+            format!("{trip:?}"),
+            "a form run changed on its way through the encoder"
+        );
+    }
+
+    if let Some((&kind, payload)) = data.split_first() {
+        if let Ok(question) = decode_question(kind, payload) {
+            let (kind, bytes) = encode_question(&question);
+            let trip = decode_question(kind, &bytes).expect("a decoded question re-encodes");
+            assert_eq!(
+                format!("{question:?}"),
+                format!("{trip:?}"),
+                "a question changed on its way through the encoder"
+            );
+        }
+        if let Ok(answer) = decode_answer(kind, payload) {
+            let (kind, bytes) = encode_answer(&answer);
+            let trip = decode_answer(kind, &bytes).expect("a decoded answer re-encodes");
+            assert_eq!(
+                format!("{answer:?}"),
+                format!("{trip:?}"),
+                "an answer changed on its way through the encoder"
+            );
+        }
     }
 });

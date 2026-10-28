@@ -453,8 +453,13 @@ half; §K.2 is `partial`, three writer's rules kept and the template's events ow
    calculations and the `change` and `initialize` events in page 379's order for a person's entry
    and for a merge's completion, cascades the calculations by the names their scripts resolved
    (pages 379–380), honours `override` (page 641) and ends under limits that drop an unfinished
-   cascade's edits; a calculated value is an edit beside a person's. No window runs it yet: the
-   worker's host is next, and JavaScript calculations and the other events with step 5.
+   cascade's edits; a calculated value is an edit beside a person's.
+   **Step 6's windows' runner built** (session 1845, ADRs 2524, 2525): the view state activates the
+   calculations when the form is shown and at a person's commit, through the runner the reader's
+   `Scripts` level supplied, and `pdf-script-worker` runs `pdf-formcalc` as a conversation with the
+   host that holds the form; `override`'s `error` and `warning` reach a window as the notice it
+   draws for a script's question. JavaScript calculations and the other events are step 5's, and
+   are owed.
 4. **On Q639's answer**: the dynamic half, whose first round is a measurement — the cost of laying
    out page one of the census's `/NeedsRendering` documents — before a line of layout ships.
 

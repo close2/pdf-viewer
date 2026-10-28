@@ -436,11 +436,18 @@ impl Host for Piece<'_> {
 pub(crate) fn inherited(document: &Document, page: ObjectId, key: &str) -> Option<Object> {
     // The reference itself, not what it resolves to: `Document::get_key_of` resolves, and an
     // ancestor is reached by walking references rather than by holding one node at a time.
-    let mut at = document
+    let parent = document
         .get(page)
         .as_dict()
         .and_then(|dict| dict.get("Parent"))
         .and_then(Object::as_reference)?;
+    inherited_from(document, parent, key)
+}
+
+/// [`inherited`] for a page that is not an object of its own, starting at the node its `/Parent`
+/// names.
+pub(crate) fn inherited_from(document: &Document, parent: ObjectId, key: &str) -> Option<Object> {
+    let mut at = parent;
     let mut seen = BTreeSet::new();
     for _ in 0..MAX_ANCESTORS {
         if !seen.insert(at) {

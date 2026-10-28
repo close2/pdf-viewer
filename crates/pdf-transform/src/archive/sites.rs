@@ -48,6 +48,10 @@ use super::signatures::Site;
 pub(super) struct Sites {
     /// The objects to rewrite, in the source's numbering.
     pub(super) at: BTreeSet<ObjectId>,
+    /// The objects among them that are a resource dictionary's `ExtGState` table written as an
+    /// object of its own, whose entries are therefore graphics states one level down. Filled only
+    /// by [`rendering_intents`].
+    pub(super) tables: BTreeSet<ObjectId>,
 }
 
 /// Every object one requirement's findings name, and whether any place named no object.
@@ -55,7 +59,10 @@ pub(super) struct Sites {
 /// The second half is what separates the two shapes of three of these requirements: a finding
 /// whose place is a page rather than an object is inside a content stream, and this verb carries
 /// those byte for byte.
-fn objects_named(input: &pdf_archive::Report, requirements: &[&str]) -> (BTreeSet<ObjectId>, bool) {
+pub(super) fn objects_named(
+    input: &pdf_archive::Report,
+    requirements: &[&str],
+) -> (BTreeSet<ObjectId>, bool) {
     let mut objects = BTreeSet::new();
     let mut elsewhere = false;
     for judgement in input.failures() {
@@ -101,15 +108,102 @@ const INLINE_IMAGE_INTENT: &str = "a rendering intent this file states is an inl
 ///
 /// ISO 19005-2 section 6.2.6. The population is the validator's, and the one shape it reports
 /// that this rewrite cannot reach is an inline image — whose `/Intent` is content-stream bytes.
-pub(super) fn rendering_intents(input: &pdf_archive::Report) -> Result<Sites, Because> {
-    let (at, in_content) = objects_named(
-        input,
-        &["graphics/rendering-intent-entries-name-one-of-four"],
-    );
+///
+/// **The validator's list is a prefix when the document states more places than it keeps**
+/// (`pdf_archive`'s `Findings`), and a rewrite gated on a prefix restates the first few and leaves
+/// the rest failing. Then the sites are found structurally, by the validator's own rule for what
+/// a graphics state is (§8.4.5's `ExtGState` table, or a dictionary typed `ExtGState`) and for
+/// which dictionary is an image (§8.9.5.1): [`GraphicsStateReach`]. An object that is neither
+/// is not a site, so a `/RI` that is not a graphics state's (a push button's `/MK` states one in
+/// Table 192, as its rollover icon) is left as the producer wrote it (`doc/adr/2535`).
+pub(super) fn rendering_intents(
+    document: &Document,
+    input: &pdf_archive::Report,
+) -> Result<Sites, Because> {
+    const REQUIREMENT: &str = "graphics/rendering-intent-entries-name-one-of-four";
+    let (mut at, in_content) = objects_named(input, &[REQUIREMENT]);
     if in_content {
         return Err(Because::TheFence(INLINE_IMAGE_INTENT));
     }
-    Ok(Sites { at })
+    let mut tables = BTreeSet::new();
+    if reports_a_prefix(input, REQUIREMENT) {
+        let reach = GraphicsStateReach::of(document);
+        at.extend(reach.sites);
+        tables = reach.tables;
+    }
+    Ok(Sites { at, tables })
+}
+
+/// The objects that can state a graphics state's `/RI` or an image's `/Intent`, found by walking
+/// the document the way `pdf_archive` does.
+#[derive(Default)]
+struct GraphicsStateReach {
+    /// Every object that is, or holds directly, a graphics state or an image dictionary.
+    sites: BTreeSet<ObjectId>,
+    /// The `ExtGState` tables that are objects of their own.
+    tables: BTreeSet<ObjectId>,
+}
+
+impl GraphicsStateReach {
+    /// Walks every cross-referenced object once, references not followed.
+    fn of(document: &Document) -> Self {
+        let mut reach = Self::default();
+        for number in document.xref().object_numbers() {
+            let id = ObjectId::new(number, 0);
+            reach.walk(document, id, &document.get(id), 0);
+        }
+        reach
+    }
+
+    /// One object's own structure and the dictionaries written inside it.
+    fn walk(&mut self, document: &Document, id: ObjectId, object: &Object, depth: usize) {
+        if depth >= MAX_ENTRY_DEPTH {
+            return;
+        }
+        let deeper = depth.saturating_add(1);
+        let dict = match object {
+            Object::Array(items) => {
+                for item in items {
+                    self.walk(document, id, item, deeper);
+                }
+                return;
+            }
+            Object::Dictionary(dict) => dict,
+            Object::Stream(stream) => &stream.dict,
+            _ => return,
+        };
+        let named = |key: &str, value: &[u8]| {
+            document
+                .get_key(dict, key)
+                .as_name()
+                .is_some_and(|name| name.as_bytes() == value)
+        };
+        if named("Type", b"ExtGState") || named("Subtype", b"Image") {
+            self.sites.insert(id);
+        }
+        if dict.get("ExtGState").is_some() {
+            self.sites.insert(id);
+            if let Some(table) = dict.get("ExtGState").and_then(Object::as_reference) {
+                self.tables.insert(table);
+                self.sites.insert(table);
+            }
+            if let Object::Dictionary(table) = document.get_key(dict, "ExtGState") {
+                self.sites
+                    .extend(table.iter().filter_map(|(_, entry)| entry.as_reference()));
+            }
+        }
+        for (_, value) in dict.iter() {
+            self.walk(document, id, value, deeper);
+        }
+    }
+}
+
+/// Whether the validator named fewer places for one requirement than the document states.
+fn reports_a_prefix(input: &pdf_archive::Report, requirement: &str) -> bool {
+    input.failures().any(|judgement| {
+        judgement.id == requirement
+            && matches!(&judgement.outcome, Outcome::Failed { places, total } if *total > places.len())
+    })
 }
 
 /// Why a stream naming a filter that is no abbreviation is not rewritten.
@@ -191,7 +285,10 @@ pub(super) fn blend_modes(
         }
         at.insert(id);
     }
-    Ok(Sites { at })
+    Ok(Sites {
+        at,
+        ..Sites::default()
+    })
 }
 
 /// Which shapes of failing `/BM` one object holds.
@@ -1160,7 +1257,10 @@ pub(super) fn packet_headers(input: &pdf_archive::Report) -> Result<Sites, Becau
     if elsewhere {
         return Err(Because::NotBuiltYet(PACKET_HEADER_NOT_CUTTABLE));
     }
-    Ok(Sites { at })
+    Ok(Sites {
+        at,
+        ..Sites::default()
+    })
 }
 
 /// Why a TrueType font's encoding entry is left as its producer wrote it.
@@ -1227,7 +1327,7 @@ fn shown_by(survey: &Survey, font: ObjectId) -> (Vec<Vec<u8>>, bool) {
 /// a font whose face this program chose has no appearance the document determines, so a glyph
 /// comparison over it would be comparing this reader's substitution with itself rather than
 /// proving anything about the file.
-fn loaded_as_stated(document: &Document, dict: &Dictionary) -> Option<LoadedFont> {
+pub(super) fn loaded_as_stated(document: &Document, dict: &Dictionary) -> Option<LoadedFont> {
     let font = LoadedFont::load(document, dict, "").ok()?;
     (!font.is_substituted()).then_some(font)
 }
@@ -1263,7 +1363,10 @@ pub(super) fn symbolic_truetype_encodings(
         }
         at.insert(id);
     }
-    Ok(Sites { at })
+    Ok(Sites {
+        at,
+        ..Sites::default()
+    })
 }
 
 /// The two names ISO 19005 admits as a non-symbolic TrueType font's encoding, in the order they
@@ -1452,8 +1555,9 @@ const STANDARD_ROUTE_NOT_PROVEN: &str = "a TrueType font in this file shows a ch
      then proves it: the font is loaded again with the names written, and every code its \
      content streams showed has to reach the glyph it reached before, by the subclause's own \
      steps. This font did not meet one of those conditions, failed the proof, also states a base \
-     encoding ISO 19005 does not admit, or showed more text than the survey kept. Changing the \
-     font program's cmap instead is ADR 0816's fence";
+     encoding ISO 19005 does not admit, or showed more text than the survey kept. Where this \
+     conversion can also prove it, the same row is met by stating the route in the program's \
+     cmap instead, and it did not do that for this file either";
 
 /// The `/Encoding` value each non-symbolic TrueType font is to state so that every code it shows
 /// reaches its glyph by §9.6.5.4's own steps.
@@ -1474,10 +1578,12 @@ pub(super) struct StandardRouteNames {
 /// (ADR 1943); ISO 32000-2 Annex D.2's note on the duplicate space code is the standard's own
 /// example of a `/Differences` entry doing exactly this.
 ///
-/// **The program is not touched**, which keeps ADR 0816's fence: §9.6.5.1 makes the encoding a
-/// font dictionary entry, and writing a name there changes which glyph a code selects only where
-/// the proof below would fail. The names written are the Adobe Glyph List's, and the program
-/// carries the (3, 1) subtable by construction, which is the subclause's third paragraph met.
+/// **The program is not touched here**: §9.6.5.1 makes the encoding a font dictionary entry, and
+/// writing a name there changes which glyph a code selects only where the proof below would
+/// fail. The names written are the Adobe Glyph List's, and the program carries the (3, 1)
+/// subtable by construction, which is the subclause's third paragraph met. Where this
+/// preparation refuses, the row is met by the restated `cmap` instead
+/// (`super::fonts::truetype_cmaps_restated`, `doc/adr/2520`).
 ///
 /// # The proof
 ///
@@ -1684,7 +1790,10 @@ pub(super) fn profile_references(
             return Err(Because::NotBuiltYet(REFERENCE_HOLDS_AN_EMBEDDED_FILE));
         }
     }
-    Ok(Sites { at })
+    Ok(Sites {
+        at,
+        ..Sites::default()
+    })
 }
 
 /// Why a destination profile whose bytes cannot be read is not shared.

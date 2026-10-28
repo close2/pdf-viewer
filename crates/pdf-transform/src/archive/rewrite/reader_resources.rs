@@ -2,10 +2,10 @@
 //! into the objects that hold them (`super::super::reader_resources` decides which, `doc/adr/2500`).
 use std::collections::BTreeMap;
 
-use pdf_syntax::object::{Dictionary, Name, Object, ObjectId};
+use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
 
-use super::super::reader_resources::{Addition, Edit, Place};
-use super::{Rewrite, Rewriter, count};
+use super::super::reader_resources::{Addition, Edit, FormCopy, Place};
+use super::{Rewrite, Rewriter, Rewritten, count};
 
 impl Rewriter<'_> {
     /// A form, pattern or appearance that states no `/Resources` is given the dictionary the
@@ -28,15 +28,50 @@ impl Rewriter<'_> {
         };
         let mut changed = false;
         for edit in edits {
-            if let Edit::Assign(value) = edit
-                && out.get("Resources").is_none()
-            {
-                out.insert(Name::new(&b"Resources"[..]), value.clone());
-                count(applied, Rewrite::PageResources);
-                changed = true;
+            match edit {
+                Edit::Assign(value) if out.get("Resources").is_none() => {
+                    out.insert(Name::new(&b"Resources"[..]), value.clone());
+                    count(applied, Rewrite::PageResources);
+                    changed = true;
+                }
+                Edit::Retarget { name, from, to } if retarget(out, name, *from, *to) => {
+                    count(applied, Rewrite::PageResources);
+                    changed = true;
+                }
+                Edit::Assign(_) | Edit::Retarget { .. } | Edit::Define(..) => {}
             }
         }
         changed
+    }
+
+    /// A form written again for the pages whose resources it states: the form's own rewrites,
+    /// then the resources of those pages in place of the ones it was assigned.
+    ///
+    /// The copy is built from the source form, not from a rewritten value, because the rewrites
+    /// are decided per object and this object has no number of its own in the source.
+    pub(super) fn form_copy(
+        &self,
+        copy: &FormCopy,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> Object {
+        let source = self.document.get(copy.of);
+        let rewritten = match self.rewrite(copy.of, &source, applied) {
+            Rewritten::Changed(changed) => changed,
+            Rewritten::Carried => source,
+        };
+        let Object::Stream(stream) = rewritten else {
+            return rewritten;
+        };
+        let mut dict = stream.dict.clone();
+        dict.insert(
+            Name::new(&b"Resources"[..]),
+            Object::Reference(copy.resources),
+        );
+        Object::Stream(std::sync::Arc::new(Stream {
+            dict,
+            data: std::sync::Arc::clone(&stream.data),
+            decryption_failed: stream.decryption_failed,
+        }))
     }
 
     /// An object this conversion added is the dictionary `assign` wrote for a page's direct
@@ -50,6 +85,9 @@ impl Rewriter<'_> {
         added: Object,
         applied: &mut BTreeMap<Rewrite, usize>,
     ) -> Object {
+        if let Some(copy) = self.form_resources.and_then(|found| found.copies.get(&id)) {
+            return self.form_copy(copy, applied);
+        }
         let Object::Dictionary(mut dict) = added else {
             return added;
         };
@@ -86,11 +124,27 @@ impl Rewriter<'_> {
                     count(applied, Rewrite::EmptyResourceDefined);
                     changed = true;
                 }
-                Edit::Assign(_) | Edit::Define(..) => {}
+                Edit::Assign(_) | Edit::Define(..) | Edit::Retarget { .. } => {}
             }
         }
         changed
     }
+}
+
+/// Makes the entries of the object's own `XObject` table that are named `name` and name `from`
+/// name `to`, and says whether one was.
+fn retarget(resources: &mut Dictionary, name: &[u8], from: ObjectId, to: ObjectId) -> bool {
+    let Some(Object::Dictionary(table)) = resources.get("XObject") else {
+        return false;
+    };
+    let name = Name::new(name.to_vec());
+    if table.get_by_name(&name).and_then(Object::as_reference) != Some(from) {
+        return false;
+    }
+    let mut table = table.clone();
+    table.insert(name, Object::Reference(to));
+    resources.insert(Name::new(&b"XObject"[..]), Object::Dictionary(table));
+    true
 }
 
 /// Defines one name in the place the plan chose, and says whether anything was written.

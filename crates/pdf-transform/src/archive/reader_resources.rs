@@ -9,10 +9,15 @@
 //! - **A form, a tiling pattern or an annotation appearance that states no `/Resources`.** ISO
 //!   32000-2 §7.8.3 hands such a stream the resources of the page it is drawn on, and this reader
 //!   draws it so (`doc/adr/0255`). [`assign`] writes that dictionary into the stream's own
-//!   dictionary: the reference where the page's is an object, a copy where it is direct.
-//! - **A name no dictionary defines.** The reader draws nothing for it and says so. [`supply`]
-//!   defines the name as an empty resource of its category — a form with no marks, a graphics
-//!   state with no parameters — which draws the nothing the reader drew (`doc/adr/2500`).
+//!   dictionary: the reference where the page's is an object, a copy where it is direct. A form
+//!   reached from pages whose dictionaries differ is written again for each such dictionary, and
+//!   the dictionary's `XObject` table names the copy (`doc/adr/2523`).
+//! - **A name no dictionary defines.** The reader draws nothing for it and says so, except that a
+//!   name of one of §9.6.2.2's fourteen standard fonts is drawn with that font. [`supply`] defines
+//!   the name as an empty resource of its category — a form with no marks, a graphics state with
+//!   no parameters — which draws the nothing the reader drew (`doc/adr/2500`), and a standard
+//!   font name as an object of its own that the embedding route then gives the face it drew
+//!   with (`doc/adr/2522`).
 //!
 //! Both read the content-stream survey's own record of which stream looked up which name, so the
 //! population is the one the validator judged. **A shape neither can carry out is a refusal**
@@ -20,7 +25,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use pdf_archive::survey::{MissingInStream, Survey};
+use pdf_archive::survey::{MissingInStream, OpenedStream, Survey, standard_font_definition};
 use pdf_model::Pages;
 use pdf_syntax::Document;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
@@ -38,11 +43,29 @@ const GLYPH_PROCEDURE: &str = "a Type 3 glyph procedure states no Resources of i
      dictionary that would receive the entry is the font's, which several pages and several \
      glyph procedures share, and this conversion does not yet follow a glyph procedure to its font";
 
-/// Why a form reached from pages with different resources is not given one dictionary.
+/// Why a form reached from pages with different resources is not given a copy for each.
 const PAGES_DIFFER: &str = "a form XObject, tiling pattern or appearance that states no \
      Resources is reached from pages whose resource dictionaries differ, so each page resolves \
-     its names to other objects and no one dictionary answers for all of them; the elegant \
-     remedy is a copy of the form for each page, which is owed";
+     its names to other objects and no one dictionary answers for all of them; the remedy is a \
+     copy of the form for each of those dictionaries, and it needs the form to be named only in \
+     the XObject table written directly in each page's own resources object, which this one is \
+     not";
+
+/// Why the copies of forms stopped: more than the bound, or more bytes than the budget.
+const TOO_MANY_COPIES: &str = "a form XObject that states no Resources is reached from pages \
+     whose resource dictionaries differ, and giving each its own copy would write more copies, or \
+     more bytes of them, than a conversion makes of the producer's forms";
+
+/// How many copies of forms one conversion writes.
+///
+/// A copy is an object of its own in the output, so the count is what a document of many pages
+/// with one dictionary each, all sharing a form, can multiply the output by.
+pub(super) const MAX_FORM_COPIES: usize = 256;
+
+/// How many bytes of form streams one conversion copies, in the stream's stored (encoded) form.
+///
+/// The count alone would let a large form be written [`MAX_FORM_COPIES`] times.
+pub(super) const MAX_COPIED_BYTES: usize = 32 << 20;
 
 /// Why a page whose resources are inherited as a direct dictionary is not edited.
 const INHERITED_DIRECT: &str = "a page names a resource its resources do not define, and the \
@@ -110,6 +133,25 @@ pub(super) enum Edit {
     Assign(Object),
     /// A name defined as an empty resource, in the place [`Place`] says.
     Define(Place, Addition),
+    /// The entry of the object's own `XObject` table that names `from` is made to name `to`, the
+    /// copy of the form that is given this object as its resources.
+    Retarget {
+        /// The name in the table.
+        name: Vec<u8>,
+        /// The form the entry named.
+        from: ObjectId,
+        /// The copy it names after.
+        to: ObjectId,
+    },
+}
+
+/// A form written again, to be read against the resources of the pages it was copied for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct FormCopy {
+    /// The form it is a copy of, whose own rewrites the copy receives.
+    pub(super) of: ObjectId,
+    /// The resources object it states.
+    pub(super) resources: ObjectId,
 }
 
 /// The edits one rewrite makes, per object, and the objects it adds.
@@ -119,6 +161,16 @@ pub(super) struct ReaderResources {
     pub(super) at: BTreeMap<ObjectId, Vec<Edit>>,
     /// The empty form and the empty font, where a name in `XObject` or `Font` is defined.
     pub(super) written: Vec<(ObjectId, Object)>,
+    /// The font object written for each of §9.6.2.2's fourteen that a name defined here stands for,
+    /// by the name: the objects whose faces the embedding route may embed.
+    pub(super) standard_fonts: BTreeMap<Vec<u8>, ObjectId>,
+    /// The forms copied for a page's resources, by the copy's number.
+    pub(super) copies: BTreeMap<ObjectId, FormCopy>,
+    /// The copy made of each form for each resources object, so that pages sharing one object
+    /// share one copy.
+    copied_for: BTreeMap<(ObjectId, ObjectId), ObjectId>,
+    /// The stored bytes of the forms copied so far.
+    copied_bytes: usize,
     /// The objects an [`Edit::Assign`] was filed against, so that one is filed once.
     assigned: BTreeSet<ObjectId>,
     /// The object written for each distinct direct resource dictionary a form is given, by the
@@ -129,6 +181,21 @@ pub(super) struct ReaderResources {
 }
 
 impl ReaderResources {
+    /// The standard-font objects written here whose name text was drawn with, by name.
+    ///
+    /// A font nothing drew with owes no program (ISO 19005-2 section 6.2.11.4.1 binds the fonts a
+    /// page uses), so it stays the plain definition and the embedding route is not asked for it.
+    pub(super) fn rendered_standard_fonts(&self, survey: &Survey) -> BTreeMap<Vec<u8>, ObjectId> {
+        survey
+            .undefined_standard_fonts()
+            .filter(|font| font.rendered)
+            .filter_map(|font| {
+                let name = font.name.as_bytes();
+                self.standard_fonts.get(name).map(|id| (name.to_vec(), *id))
+            })
+            .collect()
+    }
+
     /// Files an edit against an object.
     ///
     /// **No search of the edits already filed**: a hostile stream can name tens of thousands of
@@ -189,6 +256,81 @@ impl ReaderResources {
     }
 }
 
+impl ReaderResources {
+    /// Gives `form` a copy to be read against `resources`, the object a page states for its
+    /// resources, and makes that object's table name the copy.
+    ///
+    /// ISO 32000-2 §7.8.3 hands a form stating no `/Resources` the page's, so two pages with
+    /// different dictionaries resolve one form's names to different objects. The copy states the
+    /// dictionary of the pages it is for, and the `XObject` table of that dictionary is the only
+    /// place the pages name the form (`through_page_table`, which the survey clears for any other
+    /// route to it), so the original keeps serving the pages it was assigned for and no content
+    /// stream changes (`doc/adr/2523`).
+    fn copy_for_page(
+        &mut self,
+        document: &Document,
+        spare: &mut Spare,
+        opened: &OpenedStream,
+        form: ObjectId,
+        resources: ObjectId,
+        stated_by_streams: &BTreeSet<ObjectId>,
+    ) -> Result<(), Because> {
+        // A stream stating the very object as its own resources reads its names against it
+        // whichever page reaches it, so a table changed for a page would change that stream too.
+        if !opened.through_page_table || stated_by_streams.contains(&resources) {
+            return Err(Because::NotBuiltYet(PAGES_DIFFER));
+        }
+        if self.copied_for.contains_key(&(form, resources)) {
+            return Ok(());
+        }
+        let dict = document.get(resources);
+        let Some(Object::Dictionary(table)) = dict.as_dict().and_then(|dict| dict.get("XObject"))
+        else {
+            return Err(Because::NotBuiltYet(PAGES_DIFFER));
+        };
+        let names: Vec<Vec<u8>> = table
+            .iter()
+            .filter(|(_, value)| value.as_reference() == Some(form))
+            .map(|(name, _)| name.as_bytes().to_vec())
+            .collect();
+        let Object::Stream(stream) = document.get(form) else {
+            return Err(Because::NotBuiltYet(PAGES_DIFFER));
+        };
+        let bytes = self.copied_bytes.saturating_add(stream.data.len());
+        if self.copies.len() >= MAX_FORM_COPIES || bytes > MAX_COPIED_BYTES {
+            return Err(Because::NotBuiltYet(TOO_MANY_COPIES));
+        }
+        if names.is_empty() {
+            return Err(Because::NotBuiltYet(PAGES_DIFFER));
+        }
+        let copy = spare
+            .take(document)
+            .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
+        self.copied_bytes = bytes;
+        self.copied_for.insert((form, resources), copy);
+        self.copies.insert(
+            copy,
+            FormCopy {
+                of: form,
+                resources,
+            },
+        );
+        // Added so that the object exists in the numbering; the rewriter builds its value.
+        self.written.push((copy, Object::Null));
+        for name in names {
+            self.file(
+                resources,
+                Edit::Retarget {
+                    name,
+                    from: form,
+                    to: copy,
+                },
+            );
+        }
+        Ok(())
+    }
+}
+
 /// Where page `index`'s resources live, `None` where the page states a value that is not a
 /// dictionary or names an object that is not one.
 fn location_of(document: &Document, pages: &Pages<'_>, index: usize) -> Option<Location> {
@@ -221,6 +363,16 @@ pub(super) fn assign(
     let pages = Pages::new(document);
     let mut found = ReaderResources::default();
     let mut given: BTreeMap<ObjectId, Object> = BTreeMap::new();
+    let stated_by_streams: BTreeSet<ObjectId> = survey
+        .opened_streams()
+        .iter()
+        .filter(|opened| opened.own_resources)
+        .filter_map(|opened| opened.object)
+        .filter_map(|id| match document.get(id) {
+            Object::Stream(stream) => stream.dict.get("Resources").and_then(Object::as_reference),
+            _ => None,
+        })
+        .collect();
     for opened in survey.opened_streams() {
         if !opened.referenced || opened.own_resources {
             continue;
@@ -244,7 +396,22 @@ pub(super) fn assign(
             }
         };
         match given.get(&object) {
-            Some(earlier) if *earlier != value => return Err(Because::NotBuiltYet(PAGES_DIFFER)),
+            Some(earlier) if *earlier != value => {
+                // Only a page that states its resources as an object of its own can be given a
+                // copy by editing that object; a direct dictionary is the page's own entry.
+                let Some(Location::Object(resources)) = location_of(document, &pages, opened.page)
+                else {
+                    return Err(Because::NotBuiltYet(PAGES_DIFFER));
+                };
+                found.copy_for_page(
+                    document,
+                    spare,
+                    opened,
+                    object,
+                    resources,
+                    &stated_by_streams,
+                )?;
+            }
             Some(_) => {}
             None => {
                 given.insert(object, value.clone());
@@ -262,6 +429,9 @@ struct Empties {
     form: Option<ObjectId>,
     /// The font that stands for a name in `Font`.
     font: Option<ObjectId>,
+    /// The font written for each of §9.6.2.2's fourteen a content stream named and nothing defined.
+    /// At most fourteen entries, however many streams name them.
+    standards: BTreeMap<Vec<u8>, ObjectId>,
 }
 
 impl Empties {
@@ -280,6 +450,32 @@ impl Empties {
             .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
         written.push((id, empty_form()));
         self.form = Some(id);
+        Ok(id)
+    }
+
+    /// The font written for a standard name, an object of its own written on first use and
+    /// referenced from every place that names it (ISO 32000-2 §7.3.10: a direct and an indirect
+    /// value are one value).
+    ///
+    /// An object rather than a dictionary written where the name is defined, so that the
+    /// embedding of its face is made once for the name and every definition names the one font.
+    fn standard(
+        &mut self,
+        document: &Document,
+        spare: &mut Spare,
+        name: &[u8],
+        written: &mut Vec<(ObjectId, Object)>,
+    ) -> Result<ObjectId, Because> {
+        if let Some(id) = self.standards.get(name) {
+            return Ok(*id);
+        }
+        let definition =
+            standard_font_definition(name).ok_or(Because::NotBuiltYet(NO_EMPTY_RESOURCE))?;
+        let id = spare
+            .take(document)
+            .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
+        written.push((id, Object::Dictionary(definition)));
+        self.standards.insert(name.to_vec(), id);
         Ok(id)
     }
 
@@ -327,7 +523,9 @@ fn empty_resource(
         "XObject" => Ok(Object::Reference(empties.form(document, spare, written)?)),
         // One of §9.6.2.2's fourteen is drawn by this reader from its own faces without a
         // resource, so what it drew is a font of that name and not an empty one.
-        "Font" if is_standard(name) => Ok(standard_font(name)),
+        "Font" if is_standard(name) => Ok(Object::Reference(
+            empties.standard(document, spare, name, written)?,
+        )),
         "Font" => Ok(Object::Reference(empties.font(document, spare, written)?)),
         _ => Err(Because::NotBuiltYet(NO_EMPTY_RESOURCE)),
     }
@@ -336,24 +534,6 @@ fn empty_resource(
 /// Whether `name` is one of ISO 32000-2 §9.6.2.2's fourteen, which the reader draws unaided.
 fn is_standard(name: &[u8]) -> bool {
     std::str::from_utf8(name).is_ok_and(pdf_font::standard::is_standard_name)
-}
-
-/// A Type 1 font dictionary naming one of the fourteen, as the reader drew it.
-fn standard_font(name: &[u8]) -> Object {
-    let mut dict = Dictionary::new();
-    dict.insert(
-        Name::new(&b"Type"[..]),
-        Object::Name(Name::new(&b"Font"[..])),
-    );
-    dict.insert(
-        Name::new(&b"Subtype"[..]),
-        Object::Name(Name::new(&b"Type1"[..])),
-    );
-    dict.insert(
-        Name::new(&b"BaseFont"[..]),
-        Object::Name(Name::new(name.to_vec())),
-    );
-    Object::Dictionary(dict)
 }
 
 /// The glyph name every code of the empty font selects.
@@ -502,6 +682,7 @@ pub(super) fn supply(
         };
         found.file(holder, Edit::Define(place, addition));
     }
+    found.standard_fonts = empties.standards;
     Ok(found)
 }
 

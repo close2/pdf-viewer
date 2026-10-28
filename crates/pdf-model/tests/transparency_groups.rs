@@ -114,16 +114,16 @@ fn assemble(body: &str) -> Vec<u8> {
 /// different share of each connection-space axis, so a page drawn with the components
 /// transposed is a different picture.
 ///
-/// Variant 0 is the press every test here has always stated, to the bit — `0.80 * 1.0` is
-/// `0.80` — so nothing written before the budget moved states different numbers. Every other
-/// variant weakens the black ink by a hundredth and is a *different* press: a different
-/// profile, a different identity and a different picture on the same content, which is what
-/// makes a test that opens nine of them a test about nine presses rather than about nine
+/// Variant 0 is the press every test here states, to the bit — `0.80 * 1.0` is `0.80`. Every
+/// other variant weakens the black ink by a four-thousandth, so that three thousand of them are
+/// still distinct to the sixteen bits of the profile's table, and is a *different* press: a
+/// different profile, a different identity and a different picture on the same content, which
+/// is what makes a test that opens many of them a test about many presses rather than about
 /// copies of one.
 fn press_xyz_of(variant: usize, inks: [f32; 4]) -> [f32; 3] {
     // D50, which is the connection space's white point.
     let mut xyz = [0.964_2f32, 1.0, 0.824_9];
-    let weaker = 1.0 - variant as f32 / 100.0;
+    let weaker = 1.0 - variant as f32 / 4000.0;
     let absorb = [
         [0.60f32, 0.10, 0.10, 0.80 * weaker],
         [0.10, 0.60, 0.20, 0.80 * weaker],
@@ -2507,8 +2507,8 @@ fn press_variant_fixture(variant: usize, content: &str) -> Vec<u8> {
 ///
 /// One page, one `Do` per group, each group isolated and each stating a four-component
 /// `ICCBased` `/CS` of its own — so the page names `presses` **distinct** presses and
-/// `pdf_model::colour::MAX_PRESSES` is a statement about this file rather than about whatever
-/// else the process has open. Each group composites, which is the condition §11.6.6's report
+/// what the page's press charge is a statement about is this file rather than whatever else the
+/// process has open. Each group composites, which is the condition §11.6.6's report
 /// fires on, so a group drawn in its press says nothing and a group refused one says so.
 ///
 /// `first` is which [`press_xyz_of`] variant the run of presses starts at, so that two of these
@@ -2558,23 +2558,18 @@ fn many_press_fixture(presses: usize, first: usize) -> Vec<u8> {
     assemble(&body)
 }
 
-/// Nine documents in one process, each naming a press of its own, and every one is drawn in it.
+/// Sixteen documents in one process, each naming a press of its own, and every one is drawn in it.
 ///
-/// **This is the defect ADR 0416 diagnosed and ADR 0417 fixed, as a page rather than as a
-/// survey.** `pdf_model::colour::MAX_PRESSES` used to bound a `static` table that was filled
-/// from the front and never evicted, so the ninth *distinct* press a process met was refused —
-/// a viewer left open across a working day would silently stop compositing in the press the
-/// tenth document names, and which document that fell on was decided by the nine before it.
-/// The budget is the interpretation's now, so the ninth document is drawn exactly as the first
-/// is, and nothing about the order they were opened in reaches the answer.
+/// **A viewer left open across a working day opens many documents, and what one page names must
+/// never depend on the pages opened before it** (ADR 0417). The budget is the interpretation's,
+/// so the sixteenth document is drawn exactly as the first is, and nothing about the order they
+/// were opened in reaches the answer.
 ///
-/// A test could not be written at all while the table was a `static`: filling eight slots here
-/// would have spent them for every other test in this binary, which is why ADR 0416 recorded
-/// the rule as unpinned and said what would make it pinnable.
+/// A test could not be written at all while the table of presses was a `static`: filling its slots
+/// here would have spent them for every other test in this binary.
 #[test]
 fn every_document_in_one_process_is_drawn_in_the_press_it_names() {
-    // Two more than the budget, so the run passes the old bound rather than reaching it.
-    for variant in 0..(pdf_model::colour::MAX_PRESSES + 2) {
+    for variant in 0..16 {
         let drawn = interpret(press_variant_fixture(variant, HALF_REGISTRATION));
         let reported = format!("{:?}", drawn.unsupported);
         assert!(
@@ -2588,35 +2583,79 @@ fn every_document_in_one_process_is_drawn_in_the_press_it_names() {
     }
 }
 
-/// The budget is spent by the page that names the presses, and by nothing else.
+/// A page naming twenty distinct presses is drawn in every one, and what it spends is its own.
 ///
-/// Two claims, and the second is the one the `static` made untestable. **A page naming more
-/// distinct presses than `pdf_model::colour::MAX_PRESSES` is refused past the budget**, which
-/// is §11.7.2 reported on the group that introduced the space — the same shape every other
-/// budget in this tree has, and the same answer on every run and on every machine. **And a
-/// page that spends the whole budget takes nothing from the next page**: the eight-press fixture
-/// below is interpreted *after* the nine-press one and is complete, where a process-wide table
-/// would have had nothing left to give it.
+/// ISO 32000-2 §11.7.2 gives each group its own blending colour space and the standard states no
+/// number of distinct profiles a page may name, so the page's need decides: twenty presses are
+/// twenty, charged to the page's memory bound (ADR 2532). **And a page that names many takes
+/// nothing from the next page**: the second fixture names a disjoint set after the first and is
+/// complete, where a process-wide table would have had nothing left to give it.
 #[test]
-fn a_pages_press_budget_is_its_own_and_it_spends_no_other_pages() {
-    let over = interpret(many_press_fixture(pdf_model::colour::MAX_PRESSES + 1, 0));
+fn a_page_naming_many_presses_is_drawn_in_each_and_spends_no_other_page() {
+    const NAMED: usize = 20;
+    for first in [0, NAMED] {
+        let page = interpret(many_press_fixture(NAMED, first));
+        let reported = format!("{:?}", page.unsupported);
+        assert!(
+            !reported.contains("blending colour space"),
+            "a page naming {NAMED} distinct presses is drawn in all of them: {reported}"
+        );
+        assert_eq!(
+            page.presses_named,
+            Ok(NAMED),
+            "each distinct profile of the page is a press of its own"
+        );
+        assert!(
+            page.list_bytes < pdf_model::MAX_LIST_BYTES,
+            "twenty presses are far inside the page's memory bound"
+        );
+    }
+}
+
+/// A hostile page naming profiles to the page's memory bound is drawn in as many presses as the
+/// bound admits and refused the next by name; its memory is the bound's.
+///
+/// `#[ignore]`d because it samples about fifteen hundred presses twice: run it in release as
+/// `cargo test --release -p pdf-model --test transparency_groups -- --ignored a_hostile_page`,
+/// beside a measurement of the child's peak resident set (ADR 2532 prints it beside HEAD's).
+/// `PRESS_PROBE_ONLY_AT_BOUND=1` skips the over-the-bound half, so that a probe measures one page.
+#[test]
+// not a gate: a probe of the memory a hostile page may hold, run by hand when the bound or a
+// press's size moves; it samples about fifteen hundred presses, which no merge's tier can afford,
+// and the twenty-press test beside it holds the same arithmetic in the gate (ADR 2532)
+#[ignore = "samples ~1 500 presses twice; a probe of memory, run by hand in release"]
+fn a_hostile_page_naming_profiles_to_the_bound_is_refused_by_name_past_it() {
+    // The fixture profile is one-way, so a press is charged `PRESS_BYTES` and nothing for a kept
+    // profile (`Presses::press_for_profile`'s `press_charge`). The bound holds the page's list
+    // too, about a mebibyte of it for this many groups: a press fewer than the presses alone could
+    // take leaves the list its room.
+    let most = pdf_model::MAX_LIST_BYTES / pdf_model::colour::PRESS_BYTES;
+    let at_the_bound = most - 1;
+    let drawn = interpret(many_press_fixture(at_the_bound, 0));
+    let reported = format!("{:?}", drawn.unsupported);
+    assert!(
+        !reported.contains("blending colour space") && !reported.contains("ListBytes"),
+        "a page whose presses and list fit the bound is drawn in all of it: {reported}"
+    );
+    assert_eq!(drawn.presses_named, Ok(at_the_bound));
+    if std::env::var_os("PRESS_PROBE_ONLY_AT_BOUND").is_some() {
+        return;
+    }
+    drop(drawn);
+    // One press more than the presses alone could take is refused by name in one of two voices,
+    // whichever the page reaches first: the group painted in its parent's space with the press
+    // named as the reason, or the page's list stopped as `ListBytes`, which counts the presses
+    // held (`ListBudget::passes`). Never neither, and never more presses than the bound admits.
+    let over = interpret(many_press_fixture(most + 1, most + 1));
     let reported = format!("{:?}", over.unsupported);
     assert!(
-        reported.contains("blending colour space"),
-        "a page naming one press more than the budget is refused the last one: {reported}"
+        reported.contains("blending colour space") || reported.contains("ListBytes"),
+        "the page that does not fit is refused by name, never given a fallback silently: {reported}"
     );
-
-    // A disjoint set of presses, so that what the page above spent is what is being asked
-    // about rather than what it happened to sample.
-    let at_the_bound = interpret(many_press_fixture(
-        pdf_model::colour::MAX_PRESSES,
-        pdf_model::colour::MAX_PRESSES + 1,
-    ));
-    let reported = format!("{:?}", at_the_bound.unsupported);
+    let named = over.presses_named.expect("the page's presses are counted");
     assert!(
-        !reported.contains("blending colour space"),
-        "and a page naming exactly the budget is drawn in all of them, however many presses \\
-         the pages before it named: {reported}"
+        named <= most,
+        "a refused press is not held: {named} named, {most} admitted"
     );
 }
 

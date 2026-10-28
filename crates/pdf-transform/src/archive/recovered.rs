@@ -35,13 +35,19 @@
 //!
 //! # Where it stops
 //!
-//! A source this does not rebuild is refused by name, as it is today: an encrypted one and a
-//! signed one (the output's bytes are not the signed bytes, and the conversion must state what the
-//! source asserted of the bytes it was given), one whose header states no version, one whose
-//! recovered pages include a page that is no indirect dictionary this reader can read whole, one
-//! the reader draws no page of, and one that states more pages than the reader reached (a
-//! linearization parameter dictionary's `/N`, or the `/Count` of a page tree root the catalog
-//! still names).
+//! A source this does not rebuild is refused by name: one whose header states no version this
+//! tree reads, one whose recovered pages include a page whose dictionary does not parse whole, one the reader draws no page of, and one that states more
+//! pages than the reader reached (a linearization parameter dictionary's `/N`, or the `/Count` of
+//! a page tree root the catalog still names).
+//!
+//! # Protection and signatures are the source's
+//!
+//! The rebuilt file is unencrypted and carries no byte range a signature covered, and the
+//! conversion that goes on over it reads both from the source (`doc/adr/2523`): the claim the
+//! encryption made is [`super::SourceProtection::of`] over the source, the loss
+//! [`super::Loss::Encryption`] is decided for `file-structure/no-encryption` as for any
+//! encrypted source, and each signature is reported against the source's bytes while its value is
+//! removed from the objects written.
 
 use std::collections::BTreeMap;
 
@@ -136,7 +142,6 @@ pub(super) fn rebuild(document: &Document, declined: &Refusal) -> Result<Recover
 
 /// [`rebuild`], with its refusals worded as the reason alone.
 fn build(document: &Document, because: String) -> Result<Recovered, Refusal> {
-    refuse_what_is_not_rebuilt(document)?;
     let tree = Pages::new(document);
     let scanned = tree.found_by_scanning();
     let pages = pages_to_carry(&tree)?;
@@ -149,13 +154,19 @@ fn build(document: &Document, because: String) -> Result<Recovered, Refusal> {
     let root_at = assembly.reserve().map_err(assembly_error)?;
     // Every page takes its number before any is built, so that a reference from one page's
     // annotation to another page of the document names that page and not null.
-    let mut placed = Vec::with_capacity(pages.len());
-    for id in &pages {
-        placed.push((*id, assembly.replace(0, *id).map_err(assembly_error)?));
+    let page_count = pages.len();
+    let mut placed = Vec::with_capacity(page_count);
+    for page in pages {
+        let slot = match &page {
+            Carried::Object(id) => assembly.replace(0, *id),
+            Carried::Direct(_) => assembly.reserve(),
+        }
+        .map_err(assembly_error)?;
+        placed.push((page, slot));
     }
     let mut handed = Handed::new();
     for (source, slot) in &placed {
-        let page = build_page(&mut assembly, document, *source, root_at, &mut handed)?;
+        let page = build_page(&mut assembly, document, source, root_at, &mut handed)?;
         assembly.place(*slot, page).map_err(assembly_error)?;
     }
     let mut catalog = Dictionary::new();
@@ -218,12 +229,12 @@ fn build(document: &Document, because: String) -> Result<Recovered, Refusal> {
         .map_err(|error| Refusal::Assembly(error.to_string()))?;
     let reopened = Document::open_with_limits(bytes, Limits::DEFAULT)
         .map_err(|error| Refusal::Assembly(format!("the rebuilt file does not open: {error}")))?;
-    check_what_declined_the_source(&reopened, pages.len())?;
+    check_what_declined_the_source(&reopened, page_count)?;
     Ok(Recovered {
         document: reopened,
         note: RecoveredStructure {
             because,
-            pages: pages.len(),
+            pages: page_count,
             scanned,
             catalog: if kept_catalog.is_some() {
                 RecoveredCatalog::Kept
@@ -234,11 +245,21 @@ fn build(document: &Document, because: String) -> Result<Recovered, Refusal> {
     })
 }
 
+/// A page of the source the rebuild carries.
+enum Carried {
+    /// An object of the source.
+    Object(ObjectId),
+    /// A dictionary written directly in its parent's `/Kids`: it names its parent, or states the
+    /// entries the reader resolved for it.
+    Direct(Dictionary),
+}
+
 /// The page objects the new root lists, in the order this reader draws them.
 ///
-/// Every page must be an indirect dictionary this reader parsed whole: Table 30 makes a node's
-/// `/Kids` an array of indirect references, and an object that does not parse cannot be carried.
-fn pages_to_carry(tree: &Pages<'_>) -> Result<Vec<ObjectId>, Refusal> {
+/// Every page must be a dictionary this reader parsed whole: an object that does not parse cannot
+/// be carried. A page written directly in its parent's `/Kids` is carried too, as an object of its
+/// own, because Table 30 makes a node's `/Kids` an array of indirect references.
+fn pages_to_carry(tree: &Pages<'_>) -> Result<Vec<Carried>, Refusal> {
     let mut pages = Vec::new();
     for (index, page) in tree.every().into_iter().enumerate() {
         let number = index.saturating_add(1);
@@ -253,19 +274,60 @@ fn pages_to_carry(tree: &Pages<'_>) -> Result<Vec<ObjectId>, Refusal> {
                 "page {number}'s dictionary does not parse whole, so the object cannot be carried"
             )));
         }
-        let Some(id) = page.id else {
-            return Err(not_rebuilt(&format!(
-                "page {number} is not an indirect object, and a page tree's /Kids is \"An array of \
-                 indirect references to the immediate children of this node\" (ISO 32000-2 \
-                 §7.7.3.2, Table 30)"
-            )));
-        };
-        pages.push(id);
+        // A page written directly in its parent's /Kids is given an object of its own, as Table 30
+        // asks of every child. One that names its parent has its inheritable entries read from the
+        // nodes above it; one that does not has the values the reader's descent resolved for it
+        // stated on the page itself (§7.7.3.4), since the reader reaches it through the `/Kids`
+        // that holds it whether or not it names the node back.
+        let names_parent = page.dict.get("Parent").and_then(Object::as_reference);
+        pages.push(match page.id {
+            Some(id) => Carried::Object(id),
+            None if names_parent.is_some() => Carried::Direct(page.dict),
+            None => Carried::Direct(with_resolved_entries(page)),
+        });
     }
     if pages.is_empty() {
         return Err(not_rebuilt("this reader draws no page of it"));
     }
     Ok(pages)
+}
+
+/// A direct page that names no `/Parent`, with the inheritable entries the reader resolved for it
+/// stated on the page.
+///
+/// ISO 32000-2 §7.7.3.4 makes `/Resources`, `/MediaBox`, `/CropBox` and `/Rotate` inheritable. The
+/// walk that found the page applied them from the `/Kids` arrays it descended through, so the
+/// [`pdf_model::Page`] carries the values in effect; an entry the file states nowhere is not
+/// invented (a media box the reader guessed, a crop box it defaulted, a rotation of 0).
+fn with_resolved_entries(page: pdf_model::Page) -> Dictionary {
+    let mut dict = page.dict;
+    let rectangle = |sides: [f32; 4]| {
+        Object::Array(
+            sides
+                .iter()
+                .map(|side| Object::Real(f64::from(*side)))
+                .collect(),
+        )
+    };
+    if dict.get("Resources").is_none() && page.resources.iter().next().is_some() {
+        dict.insert(
+            Name::new(&b"Resources"[..]),
+            Object::Dictionary(page.resources),
+        );
+    }
+    if dict.get("MediaBox").is_none() && page.substituted_media_box.is_none() {
+        dict.insert(Name::new(&b"MediaBox"[..]), rectangle(page.media_box));
+    }
+    if dict.get("CropBox").is_none() && page.crop_box_defined {
+        dict.insert(Name::new(&b"CropBox"[..]), rectangle(page.crop_box));
+    }
+    if dict.get("Rotate").is_none() && page.rotate != 0 {
+        dict.insert(
+            Name::new(&b"Rotate"[..]),
+            Object::Integer(i64::from(page.rotate)),
+        );
+    }
+    dict
 }
 
 /// Refuses a source that states more pages than this reader reached.
@@ -316,24 +378,6 @@ fn not_rebuilt(why: &str) -> Refusal {
     Refusal::Reconstructed(why.to_owned())
 }
 
-/// What the rebuild cannot carry: protection and signatures state something about the bytes the
-/// source was given, and the rebuilt file's bytes are others.
-fn refuse_what_is_not_rebuilt(document: &Document) -> Result<(), Refusal> {
-    if document.is_encrypted() {
-        return Err(not_rebuilt(
-            "the source is encrypted, and the conversion states what the source's encryption \
-             asserted from the document it is given, which would be the unencrypted rebuild",
-        ));
-    }
-    if !super::signatures::find(document).each.is_empty() {
-        return Err(not_rebuilt(
-            "the source carries a signature, which covers the bytes of the file it was made over \
-             and not the rebuilt file's",
-        ));
-    }
-    Ok(())
-}
-
 /// The rebuilt file must pass the three checks that declined the source, and must draw the pages
 /// the source's reader drew, found by its page tree.
 fn check_what_declined_the_source(rebuilt: &Document, pages: usize) -> Result<(), Refusal> {
@@ -366,15 +410,21 @@ type Handed<'a> = BTreeMap<(ObjectId, &'a str), Option<Object>>;
 fn build_page(
     assembly: &mut Assembly<'_>,
     document: &Document,
-    source: ObjectId,
+    source: &Carried,
     root: ObjectId,
     handed: &mut Handed<'static>,
 ) -> Result<Object, Refusal> {
-    let Object::Dictionary(dict) = document.get(source) else {
-        return Err(not_rebuilt(&format!(
-            "object {} is not a dictionary",
-            source.number
-        )));
+    let dict = match source {
+        Carried::Object(id) => match document.get(*id) {
+            Object::Dictionary(dict) => dict,
+            _ => {
+                return Err(not_rebuilt(&format!(
+                    "object {} is not a dictionary",
+                    id.number
+                )));
+            }
+        },
+        Carried::Direct(dict) => dict.clone(),
     };
     let mut out = Dictionary::new();
     for (key, value) in dict.iter() {
@@ -396,7 +446,11 @@ fn build_page(
         let stated = if let Some(done) = handed.get(&slot) {
             done.clone()
         } else {
-            let stated = match crate::split::inherited(document, source, key) {
+            let found = match source {
+                Carried::Object(id) => crate::split::inherited(document, *id, key),
+                Carried::Direct(_) => crate::split::inherited_from(document, parent, key),
+            };
+            let stated = match found {
                 Some(Object::Reference(id)) => {
                     Some(carry(assembly, document, &Object::Reference(id), 0)?)
                 }

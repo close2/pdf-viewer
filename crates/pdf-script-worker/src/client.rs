@@ -51,9 +51,14 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use confined_transport::{Canceller, Host, TransportError};
 use pdf_model::view::{FieldState, Resumed, ScriptEvent, ScriptResult, ScriptRunner, ScriptSite};
+use pdf_model::xfa::{Form, Ran, Scalar};
 use pdf_script::wire::encode_answer;
 use pdf_script::{Answer, Ending, Outcome, Question, Request};
 
+use crate::form_wire::{
+    Done, FRAME_FORM_RUN, FormAnswer, FormQuestion, FormRun, MAX_NODES, MAX_QUESTIONS,
+    MAX_VALUE_BYTES, decode_question, encode_answer as encode_form_answer, encode_form_run,
+};
 use crate::wire::{
     FRAME_ANSWER, FRAME_RUN, MAGIC, MAX_RUN_BYTES, MAX_SCRIPT_BYTES, Reply, Run, decode_reply,
     encode_run,
@@ -194,6 +199,16 @@ pub struct ScriptWorker {
     state: Mutex<State>,
 }
 
+/// Whether the running worker's realm holds the document-level scripts run so far.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum LibraryState {
+    /// It does, or it is the first worker.
+    #[default]
+    Current,
+    /// It replaced a lost worker for a form run, which carries no library.
+    Owed,
+}
+
 /// What a [`ScriptWorker`] holds between runs.
 #[derive(Debug, Default)]
 struct State {
@@ -210,6 +225,10 @@ struct State {
     fields: BTreeMap<String, FieldState>,
     /// Whether the running worker has been told every field in [`Self::fields`].
     told: bool,
+    /// Whether the running worker replaced a lost one for a form run, which has no document-level
+    /// script to restore it from: the next JavaScript trigger tells it what it holds
+    /// ([`ScriptWorker::restore`]).
+    held_library: LibraryState,
     /// The document-level scripts run so far, label and text, in the order first run.
     library: Vec<(String, String)>,
     /// How many workers have been started.
@@ -408,38 +427,12 @@ impl ScriptWorker {
         }
 
         let mut report = Vec::new();
-        if state.host.is_none() {
-            let program = self.program().map_err(|sentence| {
-                let stopped = format!("scripts stopped running for this document: {sentence}");
-                state.stopped = Some(stopped.clone());
-                vec![stopped]
-            })?;
-            let started = Instant::now();
-            match Host::start(&program, MAGIC, &Canceller::new()) {
-                Ok(host) => {
-                    if let Some(shortfall) = host.confinement().shortfall() {
-                        report.push(format!("the script worker started: {shortfall}"));
-                    }
-                    if state.open_cost.is_none() && state.pending_spawn.is_none() {
-                        state.pending_spawn = Some(started.elapsed());
-                    }
-                    state.host = Some(host);
-                    state.held.clear();
-                    state.held_bytes = 0;
-                    state.told = false;
-                    state.spawns = state.spawns.saturating_add(1);
-                    if state.spawns > 1 {
-                        self.restore(&mut state, event, &mut report);
-                        if state.host.is_none() {
-                            return Err(report);
-                        }
-                    }
-                }
-                Err(error) => {
-                    let stopped = format!("scripts stopped running for this document: {error}");
-                    state.stopped = Some(stopped.clone());
-                    return Err(vec![stopped]);
-                }
+        let replaced = state.host.is_none() && self.start_host(&mut state, &mut report)?;
+        let owed = std::mem::take(&mut state.held_library) == LibraryState::Owed;
+        if owed || replaced {
+            self.restore(&mut state, event, &mut report);
+            if state.host.is_none() {
+                return Err(report);
             }
         }
 
@@ -475,6 +468,158 @@ impl ScriptWorker {
                 Ok(outcome)
             }
             Err(()) => Err(report),
+        }
+    }
+
+    /// Starts the worker, which is not running; answers whether it replaces one that was lost, in
+    /// which case what it needs to know is the caller's to tell it ([`Self::restore`]).
+    ///
+    /// # Errors
+    ///
+    /// The sentences saying why no worker will run, once none can.
+    fn start_host(&self, state: &mut State, report: &mut Vec<String>) -> Result<bool, Vec<String>> {
+        let program = self.program().map_err(|sentence| {
+            let stopped = format!("scripts stopped running for this document: {sentence}");
+            state.stopped = Some(stopped.clone());
+            vec![stopped]
+        })?;
+        let started = Instant::now();
+        match Host::start(&program, MAGIC, &Canceller::new()) {
+            Ok(host) => {
+                if let Some(shortfall) = host.confinement().shortfall() {
+                    report.push(format!("the script worker started: {shortfall}"));
+                }
+                if state.open_cost.is_none() && state.pending_spawn.is_none() {
+                    state.pending_spawn = Some(started.elapsed());
+                }
+                state.host = Some(host);
+                state.held.clear();
+                state.held_bytes = 0;
+                state.told = false;
+                state.spawns = state.spawns.saturating_add(1);
+                Ok(state.spawns > 1)
+            }
+            Err(error) => {
+                let stopped = format!("scripts stopped running for this document: {error}");
+                state.stopped = Some(stopped.clone());
+                Err(vec![stopped])
+            }
+        }
+    }
+
+    /// Why a form script cannot be handed to the worker now, where it cannot.
+    fn form_run_refusal(&self, state: &mut State, subject: &str, script: &str) -> Option<String> {
+        if let Some(stopped) = &state.stopped {
+            return Some(stopped.clone());
+        }
+        if script.len() > MAX_SCRIPT_BYTES {
+            return Some(format!(
+                "{subject} is not run: it is {} bytes, past the {MAX_SCRIPT_BYTES} a script \
+                 worker is handed",
+                script.len()
+            ));
+        }
+        self.expire(state);
+        self.drain(state);
+        (state.waiting.is_some() || !state.queued.is_empty()).then(|| {
+            format!(
+                "{subject} is not run: a script of this document is waiting on a person's \
+                 answer, and the worker is held in it"
+            )
+        })
+    }
+
+    /// Runs one script of an XFA form's in the worker, answering the questions it puts about the
+    /// form from `form`, under the deadline of one run (ADR 2524).
+    ///
+    /// Not run, and said so, when no worker will start, when a script of this document waits on a
+    /// person's answer (the worker is then held in that script), or when the script is past the
+    /// bound a run carries. A worker lost in the run is replaced at the next trigger, as for a
+    /// JavaScript one; a run that reached the deadline reports itself past `steps_left`, so that
+    /// the activation it belongs to ends there (XFA 3.3 page 380 recommends a means of ending a
+    /// seemingly infinite loop, and a script that spends the wall clock is one).
+    fn run_form(&self, form: &mut Form<'_>, node: usize, script: &str, steps_left: u64) -> Ran {
+        let refused = |sentence: String| Ran {
+            steps: 0,
+            outcome: Err(sentence),
+        };
+        let subject = format!("a FormCalc script of container {node}");
+        let mut state = self.state();
+        if let Some(why) = self.form_run_refusal(&mut state, &subject, script) {
+            return refused(why);
+        }
+        let Ok(here) = u32::try_from(node) else {
+            return refused(format!(
+                "{subject} is not run: its container's number is past u32"
+            ));
+        };
+        let mut report = Vec::new();
+        if state.host.is_none() {
+            match self.start_host(&mut state, &mut report) {
+                // The library a lost worker held is the JavaScript path's to tell its successor,
+                // at the next trigger it handles, because it needs a trigger to do it with.
+                Ok(true) => state.held_library = LibraryState::Owed,
+                Ok(false) => {}
+                Err(sentences) => return refused(sentences.join("; ")),
+            }
+        }
+        let site = ScriptSite::Field(pdf_model::aform::Trigger::Calculate);
+        let run = FormRun {
+            node: here,
+            steps_left,
+            script: script.to_owned(),
+        };
+        let Some(host) = state.host.as_mut() else {
+            return refused(format!("{subject} is not run: no script worker is running"));
+        };
+        let canceller = host.canceller();
+        let exchanged = within(self.deadline, &canceller, || converse(host, form, &run));
+        let (conversed, fired) = match exchanged {
+            Ok(result) => result,
+            Err(sentence) => return refused(format!("{subject} is not run: {sentence}")),
+        };
+        let lost = |state: &mut State, cause: Cause, report: &mut Vec<String>| {
+            lose(state, site, &subject, cause, report);
+        };
+        match conversed {
+            Conversed::Done(done) => {
+                if fired {
+                    // The deadline came as the end did: the worker is killed either way.
+                    state.host = None;
+                }
+                Ran {
+                    steps: done.steps,
+                    outcome: done.outcome.map_err(|sentence| {
+                        if report.is_empty() {
+                            sentence
+                        } else {
+                            format!("{}; {sentence}", report.join("; "))
+                        }
+                    }),
+                }
+            }
+            Conversed::Lost(TransportError::Cancelled) if fired => {
+                lost(&mut state, Cause::Deadline(self.deadline), &mut report);
+                Ran {
+                    steps: steps_left.saturating_add(1),
+                    outcome: Err(report.join("; ")),
+                }
+            }
+            Conversed::Lost(error) => {
+                let detail = match error {
+                    TransportError::WorkerDied { detail } => detail,
+                    other => other.to_string(),
+                };
+                lost(&mut state, Cause::Died(detail), &mut report);
+                refused(report.join("; "))
+            }
+            Conversed::Garbled(sentence) => {
+                if let Some(host) = state.host.take() {
+                    host.canceller().cancel();
+                }
+                lost(&mut state, Cause::Garbled(sentence), &mut report);
+                refused(report.join("; "))
+            }
         }
     }
 
@@ -914,6 +1059,98 @@ impl ScriptWorker {
     }
 }
 
+/// How a conversation about a form's script ended.
+enum Conversed {
+    /// The worker said the run was over.
+    Done(Done),
+    /// The pipe or the worker failed.
+    Lost(TransportError),
+    /// The worker said something this side does not read.
+    Garbled(String),
+}
+
+/// Sends the run and answers the worker's questions about `form` until it says the run is over.
+///
+/// **Every number a question carries is the worker's claim**: a container is looked up in the
+/// form and one it does not hold reads as null and refuses an assignment, a list is held to
+/// [`MAX_NODES`], a text to [`MAX_VALUE_BYTES`], and the questions to [`MAX_QUESTIONS`], after
+/// which each is answered with a sentence and the script ends with the error it is.
+fn converse(host: &mut Host, form: &mut Form<'_>, run: &FormRun) -> Conversed {
+    if let Err(error) = host.send(FRAME_FORM_RUN, &encode_form_run(run), None) {
+        return Conversed::Lost(error);
+    }
+    let here = usize::try_from(run.node).unwrap_or(usize::MAX);
+    let mut asked = 0usize;
+    loop {
+        let (kind, payload) = match host.receive() {
+            Ok(frame) => frame,
+            Err(error) => return Conversed::Lost(error),
+        };
+        let question = match decode_question(kind, &payload) {
+            Ok(question) => question,
+            Err(error) => return Conversed::Garbled(error.to_string()),
+        };
+        if let FormQuestion::Done(done) = question {
+            return Conversed::Done(done);
+        }
+        asked = asked.saturating_add(1);
+        let answer = answer_form(form, here, &question, asked > MAX_QUESTIONS);
+        let (kind, bytes) = encode_form_answer(&answer);
+        if let Err(error) = host.send(kind, &bytes, None) {
+            return Conversed::Lost(error);
+        }
+    }
+}
+
+/// The answer to one question about `form`, or a refusal where `exhausted`.
+fn answer_form(
+    form: &mut Form<'_>,
+    here: usize,
+    question: &FormQuestion,
+    exhausted: bool,
+) -> FormAnswer {
+    let too_many = || format!("a run of more than {MAX_QUESTIONS} questions about the form");
+    match question {
+        FormQuestion::Resolve(path) => FormAnswer::Nodes(if exhausted {
+            Err(too_many())
+        } else {
+            form.resolve(here, path).and_then(|nodes| {
+                if nodes.len() > MAX_NODES {
+                    return Err(format!(
+                        "the reference names {} objects, past the {MAX_NODES} a script is told",
+                        nodes.len()
+                    ));
+                }
+                nodes
+                    .into_iter()
+                    .map(|node| {
+                        u32::try_from(node)
+                            .map_err(|_| "a container's number is past u32".to_owned())
+                    })
+                    .collect()
+            })
+        }),
+        FormQuestion::Read(node) => FormAnswer::Value(if exhausted {
+            Err(too_many())
+        } else {
+            match form.value(usize::try_from(*node).unwrap_or(usize::MAX)) {
+                Scalar::Text(text) if text.len() > MAX_VALUE_BYTES => Err(format!(
+                    "the value is {} bytes, past the {MAX_VALUE_BYTES} a script is told",
+                    text.len()
+                )),
+                value => Ok(value),
+            }
+        }),
+        FormQuestion::Write(node, value) => FormAnswer::Ack(if exhausted {
+            Err(too_many())
+        } else {
+            form.set(usize::try_from(*node).unwrap_or(usize::MAX), value.clone())
+        }),
+        // The caller returns on `Done` before it asks.
+        FormQuestion::Done(_) => FormAnswer::Ack(Err("a run's end is not a question".to_owned())),
+    }
+}
+
 /// A clock that stands still until its holder moves it: what a test hands a runner through
 /// [`ScriptWorker::with_clock`], so that a question's wait runs out when the test says and never
 /// while the machine happens to be slow (ADR 1794).
@@ -1039,6 +1276,16 @@ impl ScriptRunner for ScriptWorker {
                 report,
             },
         }
+    }
+
+    fn run_form_script(
+        &self,
+        form: &mut Form<'_>,
+        node: usize,
+        script: &str,
+        steps_left: u64,
+    ) -> Ran {
+        self.run_form(form, node, script, steps_left)
     }
 
     fn waiting(&self) -> bool {
