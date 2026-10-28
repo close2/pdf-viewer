@@ -22,6 +22,7 @@ mod attachments;
 mod catalogue;
 mod configurations;
 mod page_structure;
+mod reader_resources;
 mod streams;
 mod values;
 
@@ -43,6 +44,7 @@ use super::prepare::{
     Prepared, Respelled, SchemasDescribed,
 };
 use super::preserve::Composed;
+use super::reader_resources::ReaderResources;
 use super::signatures::{ForeignHandlers, Signatures, Site};
 use super::sites::{
     self, AppearanceStates, ColorantEntries, CompletedOrders, DescriptorSets, PageResources,
@@ -521,10 +523,16 @@ pub enum Rewrite {
     /// ISO 19005-2 section 6.2.2 and ISO 19005-4 section 6.2.2 require a content stream's
     /// resources to be *explicitly associated* with it, which `TechNote 0010`'s A003 reads as
     /// the `/Resources` entry of the page itself. Copying the inherited value down resolves
-    /// every name to the object it already resolved to. **Only a page**: a form `XObject` or a
-    /// Type 3 glyph procedure with no resources draws with whatever invoked it, and one
-    /// dictionary cannot answer for every invocation.
+    /// every name to the object it already resolved to. A form `XObject`, a tiling pattern or an
+    /// appearance that names resources and states none is given the dictionary of the page it is
+    /// drawn on, which ISO 32000-2 §7.8.3 ends the reader's search at (`doc/adr/2500`).
     PageResources,
+    /// Every name a content stream used that its resources did not define is defined as an empty
+    /// resource of its category: a form with no marks for an `XObject`, a graphics state with no
+    /// parameters for an `ExtGState`, and for a `Font` a Type 3 font that draws nothing at width
+    /// zero, where the text shown under the name moved by no more than its widths. The reader drew
+    /// nothing for the name, and neither does the empty resource (`doc/adr/2500`).
+    EmptyResourceDefined,
     /// Every page tree node whose `/Count` is missing or no integer states the number of leaves
     /// this reader walks beneath it, which ISO 32000-2 §7.7.3.2's Table 30 defines the entry as
     /// (`doc/adr/2456`).
@@ -1364,7 +1372,14 @@ impl Rewrite {
             }
             Self::PageResources => {
                 "a page that names a resource and states no Resources of its own is given the \
-                 dictionary ISO 32000-2 \u{a7}7.7.3.4's inheritance already puts in force for it"
+                 dictionary ISO 32000-2 \u{a7}7.7.3.4's inheritance already puts in force for it, \
+                 and a form, pattern or appearance that does the same is given the dictionary of \
+                 the page it is drawn on"
+            }
+            Self::EmptyResourceDefined => {
+                "a name a content stream used and no resource dictionary defined is defined as \
+                 what this reader drew for it: one of the standard fourteen fonts by its name, and \
+                 any other name as an empty resource of its category, which draws nothing"
             }
             Self::PageCountRestated => {
                 "a page tree node whose Count is missing or is no integer states the number of \
@@ -1689,6 +1704,7 @@ impl Rewrite {
             Self::NormalAppearanceFromState => "normal-appearance-from-state",
             Self::OptionalContentOrder => "optional-content-order",
             Self::PageResources => "page-resources",
+            Self::EmptyResourceDefined => "empty-resource-defined",
             Self::PageCountRestated => "page-count-restated",
             Self::DescriptorSetRemoved => "descriptor-set-removed",
             Self::CidToGidIdentity => "cid-to-gid-identity",
@@ -1896,6 +1912,8 @@ impl<'a> Rewriter<'a> {
             appearance_states: prepared.owed.appearance_states.as_ref().ok(),
             orders: prepared.owed.orders.as_ref().ok(),
             page_resources: prepared.owed.page_resources.as_ref().ok(),
+            form_resources: prepared.owed.form_resources.as_ref().ok(),
+            defined_resources: prepared.owed.defined_resources.as_ref().ok(),
             page_counts: prepared
                 .owed
                 .page_counts
@@ -2136,7 +2154,7 @@ fn enter(
     // [`Spare`] is what keeps its number from colliding with one the source uses.
     if let Some(added) = rewriter.added.get(&id) {
         let placed = assembly.replace(0, id)?;
-        replaced.push((id, added.clone()));
+        replaced.push((id, rewriter.define_in_added(id, added.clone(), applied)));
         queue.push_back(id);
         return Ok(Some(placed));
     }
@@ -2799,6 +2817,10 @@ struct Rewriter<'a> {
     orders: Option<&'a CompletedOrders>,
     /// The `/Resources` each page with none of its own is given.
     page_resources: Option<&'a PageResources>,
+    /// The dictionary each form, pattern or appearance that states none is given.
+    form_resources: Option<&'a ReaderResources>,
+    /// The empty resources that define the names nothing defined.
+    defined_resources: Option<&'a ReaderResources>,
     /// The `/Count` each page tree node whose own is no integer states (`doc/adr/2456`).
     page_counts: Option<&'a BTreeMap<ObjectId, i64>>,
     /// The subset descriptions removed from each font descriptor.
@@ -3177,6 +3199,8 @@ impl Rewriter<'_> {
         // After both, for the same reason: it edits what `out` holds by then.
         changed |= self.name_configurations(id, out, applied);
         changed |= self.attach_page_resources(id, out, applied);
+        changed |= self.give_reader_resources(id, out, applied);
+        changed |= self.define_empty_resources(id, out, applied);
         changed |= self.restate_page_count(id, out, applied);
         changed |= self.remove_descriptor_sets(id, out, applied);
         changed |= self.remove_page_boundaries(id, out, applied);
@@ -3246,6 +3270,7 @@ impl Rewriter<'_> {
             || self.wants(Rewrite::ExtensionSchemaDescribed)
             || self.wants(Rewrite::ExtensionFieldDescribed)
             || self.wants(Rewrite::InformationMovedIntoThePacket)
+            || self.wants(Rewrite::InterpolationOff)
     }
 }
 

@@ -586,5 +586,6 @@ fn window_placed(
         },
         extent,
         retained: false,
+        held: false,
     }
 }

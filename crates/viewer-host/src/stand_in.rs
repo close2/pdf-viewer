@@ -10,6 +10,12 @@
 //! which is the picture `quorra` stands in with until its frame lands (`stale.rs`), made by the
 //! toolkit's own scaled draw rather than by a resample of ours (ADR 1843).
 //!
+//! **It is shown only where the zoomed frame has not landed by the next refresh** ([`Hold`], A657,
+//! ADR 2510): for one period of the display after a zoom command a window keeps painting the
+//! pictures it had, at the geometry they had, and a frame that lands inside that refresh replaces
+//! a sharp picture and not a blurred one. `quorra` waits the same refresh by prediction and
+//! observation (`doc/todo/37`'s rule 5); a toolkit window has neither, so it waits by the clock.
+//!
 //! It is a wrong picture shown on purpose — the old pixels enlarged are blurred, and what the new
 //! frame adds is absent — so it is held to `doc/todo/37`'s rules as far as a toolkit window can
 //! hold them: the frame that lands replaces it (rule 1, `RenderReady` sets the pixels and the
@@ -26,6 +32,8 @@
 //! whole page already, so the picture is a reduction of a frame it was handed and not a draw
 //! (ADR 1866).
 
+use std::time::{Duration, Instant};
+
 use pdf_render::{Raster, RasterFormat};
 use viewer_core::{DocumentId, FrameView, PageGeometry, RenderRequest};
 
@@ -39,6 +47,10 @@ pub struct Placed<'a> {
     /// Whether the pixels are a [`Retained`] page rather than a frame the viewer holds — the
     /// second amount of wrong, which a window says apart from the first (`doc/todo/37`'s rule 3).
     pub retained: bool,
+    /// Whether the pixels are a frame kept where it was for one refresh after a zoom command
+    /// ([`Hold`], A657): the whole old picture at the geometry it had, which is not a stand-in
+    /// and is said apart from one.
+    pub held: bool,
 }
 
 impl Placed<'_> {
@@ -47,6 +59,14 @@ impl Placed<'_> {
     #[must_use]
     pub fn stands_in(&self) -> bool {
         self.extent != (self.frame.raster.width, self.frame.raster.height)
+    }
+
+    /// Whether the pixels are shown while the frame for the page's size is still coming: held
+    /// where they were, or scaled to the extent the page has now. A window says so on its
+    /// `frames` topic (`doc/todo/37`'s rule 3).
+    #[must_use]
+    pub fn waits_for_a_frame(&self) -> bool {
+        self.held || self.stands_in()
     }
 
     /// Where the pixels' top-left corner goes: [`whole_pixel`] of the origin for pixels at their
@@ -79,6 +99,15 @@ pub fn whole_pixel(origin: (f32, f32)) -> (f32, f32) {
 /// it is, and a frame line with no such sentence after a zoom says the frame landed first.
 impl std::fmt::Display for Placed<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.held {
+            return write!(
+                f,
+                "page {} holds its {}x{} frame where it was until the frame for this size lands or a refresh passes",
+                self.frame.page.saturating_add(1),
+                self.frame.raster.width,
+                self.frame.raster.height
+            );
+        }
         if self.retained {
             return write!(
                 f,
@@ -123,18 +152,27 @@ pub fn placed(
     frames
         .into_iter()
         .map(|frame| {
-            let own = (frame.raster.width, frame.raster.height);
-            let extent = geometry(frame.page)
-                .map(|placed| (placed.width, placed.height))
-                .filter(|&now| now == own || same_shape(own, now))
-                .unwrap_or(own);
-            Placed {
-                frame,
-                extent,
-                retained: false,
-            }
+            let now = geometry(frame.page);
+            scaled(frame, now)
         })
         .collect()
+}
+
+/// `frame` with the extent [`placed`] gives it, `now` being what the arrangement says of its
+/// page: the page's extent now where the pixels are the same shape at another size, and their
+/// own size otherwise.
+fn scaled(frame: FrameView<'_>, now: Option<PageGeometry>) -> Placed<'_> {
+    let own = (frame.raster.width, frame.raster.height);
+    let extent = now
+        .map(|placed| (placed.width, placed.height))
+        .filter(|&now| now == own || same_shape(own, now))
+        .unwrap_or(own);
+    Placed {
+        frame,
+        extent,
+        retained: false,
+        held: false,
+    }
 }
 
 /// Whether `now` is `was` scaled by one factor on both axes, to within each side's rounding up.
@@ -150,6 +188,226 @@ fn same_shape(was: (u32, u32), now: (u32, u32)) -> bool {
         .map(u64::from)
         .fold(0_u64, u64::saturating_add);
     crossed.abs_diff(other) <= slack
+}
+
+/// The refresh period of a display that states none: a sixtieth of a second, the slowest rate
+/// the project owner's "at least 60Hz but 120Hz should be the target" admits (ADR 0383), so that
+/// an unknown display is held for no shorter than a known one would be.
+pub const FLOOR: Duration = Duration::from_nanos(1_000_000_000 / 60);
+
+/// Thousandths of a hertz in a hertz: the unit a toolkit reports a refresh rate in.
+const MILLIHERTZ: u64 = 1_000;
+
+/// One page's frame as it was shown when a zoom command was taken: the geometry it had.
+#[derive(Debug, Clone, Copy)]
+struct Before {
+    document: DocumentId,
+    page: usize,
+    /// The pixels' own width and height, which are the extent the page had.
+    size: (u32, u32),
+    /// Where the pixels' top-left corner was in the viewport.
+    origin: (f32, f32),
+}
+
+/// The pictures a window keeps where they were for one refresh after a zoom command, so that a
+/// zoomed frame which lands inside the refresh replaces a sharp picture rather than a blurred one
+/// (A657, ADR 2510).
+///
+/// **The rule**: for one display period after a zoom command, a page whose frame has not landed
+/// is painted as it was — its own pixels, at its own size, at the origin it had when the command
+/// was taken, which is the whole old picture and not old pixels at the new geometry (that is ADR
+/// 1843's defect) — and at the first look after the period it is painted as [`placed`] scales it.
+/// `quorra` stands in only where a frame has missed the refresh (`doc/todo/37`'s rule 5, ADR
+/// 0384); this is the same wait, kept here because a toolkit window has no prediction to make it
+/// with.
+///
+/// **The period runs from the first command a frame has not answered.** A second notch while the
+/// first is unanswered does not restart it: a gesture whose frames never land inside a refresh
+/// stands in after one refresh and stays there, as it does in `quorra`, rather than showing the
+/// picture from before the gesture for as long as it lasts.
+///
+/// **A page holds only the frame it was recorded with.** A frame that landed for an intermediate
+/// magnification has other pixels, and the origin kept is not theirs; that page is scaled.
+#[derive(Debug)]
+pub struct Hold {
+    period: Duration,
+    before: Vec<Before>,
+    /// When the command that started the running wait was taken.
+    since: Option<Instant>,
+    /// Whether the end of the period has not yet been told to the window, which owes a look then.
+    owed: bool,
+}
+
+impl Default for Hold {
+    fn default() -> Self {
+        Self {
+            period: FLOOR,
+            before: Vec::new(),
+            since: None,
+            owed: false,
+        }
+    }
+}
+
+impl Hold {
+    /// The period of a display refreshing at `millihertz`, or [`FLOOR`] where it states none.
+    ///
+    /// A rate of zero is the same answer written differently, as it is for `quorra`'s cadence.
+    pub fn refresh_is(&mut self, millihertz: Option<u32>) {
+        self.period = millihertz
+            .filter(|rate| *rate > 0)
+            .and_then(|rate| {
+                1_000_000_000_u64
+                    .saturating_mul(MILLIHERTZ)
+                    .checked_div(u64::from(rate))
+            })
+            .map(Duration::from_nanos)
+            .filter(|period| !period.is_zero())
+            .unwrap_or(FLOOR);
+    }
+
+    /// One refresh of the display, which is how long a picture is held.
+    #[must_use]
+    pub fn period(&self) -> Duration {
+        self.period
+    }
+
+    /// A zoom command is about to be handled: keeps where each of `document`'s frames is shown,
+    /// for the pages whose frame is the size the page has, and starts the period unless one is
+    /// running for a command no frame has answered yet.
+    ///
+    /// Asked *before* the viewer handles the command, because afterwards the geometry it answers
+    /// is the new one and the old one is gone. A page that was already waiting keeps the record it
+    /// has, so that a second notch holds the first notch's picture and not a blurred one.
+    pub fn zoomed(
+        &mut self,
+        now: Instant,
+        document: DocumentId,
+        frames: &[FrameView<'_>],
+        mut geometry: impl FnMut(usize) -> Option<PageGeometry>,
+    ) {
+        let mut kept = Vec::with_capacity(frames.len());
+        let mut waiting = false;
+        for frame in frames {
+            let size = (frame.raster.width, frame.raster.height);
+            if is_current(geometry(frame.page), size) {
+                kept.push(Before {
+                    document,
+                    page: frame.page,
+                    size,
+                    origin: frame.origin,
+                });
+            } else if let Some(earlier) = self.recorded(document, frame.page, size) {
+                waiting = true;
+                kept.push(earlier);
+            }
+        }
+        if !waiting {
+            self.since = Some(now);
+            self.owed = !kept.is_empty();
+        }
+        kept.sort_unstable_by_key(|before| (before.document, before.page));
+        self.before = kept;
+    }
+
+    /// `frames` placed as [`placed`] places them, except that within the period a page whose frame
+    /// has not landed is held where it was (`Placed::held`).
+    #[must_use]
+    pub fn placed<'a>(
+        &self,
+        now: Instant,
+        document: DocumentId,
+        frames: Vec<FrameView<'a>>,
+        mut geometry: impl FnMut(usize) -> Option<PageGeometry>,
+    ) -> Vec<Placed<'a>> {
+        let running = self.running(now);
+        frames
+            .into_iter()
+            .map(|frame| {
+                let size = (frame.raster.width, frame.raster.height);
+                let now_geometry = geometry(frame.page);
+                if running
+                    && !is_current(now_geometry, size)
+                    && let Some(kept) = self.recorded(document, frame.page, size)
+                {
+                    return Placed {
+                        frame: FrameView {
+                            page: frame.page,
+                            raster: frame.raster,
+                            origin: kept.origin,
+                        },
+                        extent: size,
+                        retained: false,
+                        held: true,
+                    };
+                }
+                scaled(frame, now_geometry)
+            })
+            .collect()
+    }
+
+    /// Whether the period ended since the window was last told, and a frame is still not there:
+    /// true once, at the first look after it, which is when the window repaints to stand in.
+    pub fn lapsed(
+        &mut self,
+        now: Instant,
+        document: DocumentId,
+        frames: &[FrameView<'_>],
+        mut geometry: impl FnMut(usize) -> Option<PageGeometry>,
+    ) -> bool {
+        if !self.owed {
+            return false;
+        }
+        let waiting = frames.iter().any(|frame| {
+            let size = (frame.raster.width, frame.raster.height);
+            !is_current(geometry(frame.page), size)
+                && self.recorded(document, frame.page, size).is_some()
+        });
+        if !waiting {
+            self.owed = false;
+            return false;
+        }
+        if self.running(now) {
+            return false;
+        }
+        self.owed = false;
+        true
+    }
+
+    /// How long until the window must look again for [`Self::lapsed`], while a look is owed.
+    #[must_use]
+    pub fn wait(&self, now: Instant) -> Option<Duration> {
+        let since = self.since.filter(|_| self.owed)?;
+        Some(
+            self.period
+                .saturating_sub(now.saturating_duration_since(since)),
+        )
+    }
+
+    /// Whether the period of the running wait has not ended.
+    fn running(&self, now: Instant) -> bool {
+        self.since
+            .is_some_and(|since| now.saturating_duration_since(since) < self.period)
+    }
+
+    /// The record of `page`'s frame if it is the pixels of that `size`, found by bisection so that
+    /// a paint of a column of thousands of pages stays linear in the pages.
+    fn recorded(&self, document: DocumentId, page: usize, size: (u32, u32)) -> Option<Before> {
+        let at = self
+            .before
+            .binary_search_by_key(&(document, page), |kept| (kept.document, kept.page))
+            .ok()?;
+        self.before
+            .get(at)
+            .copied()
+            .filter(|kept| kept.size == size)
+    }
+}
+
+/// Whether the page's frame is the size the arrangement gives the page now: the zoomed frame has
+/// landed, or the page was never zoomed.
+fn is_current(now: Option<PageGeometry>, size: (u32, u32)) -> bool {
+    now.is_some_and(|now| (now.width, now.height) == size)
 }
 
 /// The longer side of a retained page, in pixels.
@@ -311,6 +569,11 @@ impl Retained {
         focused: DocumentId,
         mut geometry: impl FnMut(usize) -> Option<PageGeometry>,
     ) -> Vec<Placed<'a>> {
+        // A held picture is the whole old arrangement; a retained page at the new geometry
+        // beside it would be two arrangements on one screen (ADR 2510).
+        if placed.iter().any(|shown| shown.held) {
+            return placed;
+        }
         for kept in self.held.iter().filter(|kept| kept.document == focused) {
             if placed.iter().any(|shown| shown.frame.page == kept.page) {
                 continue;
@@ -330,6 +593,7 @@ impl Retained {
                 },
                 extent,
                 retained: true,
+                held: false,
             });
         }
         placed.sort_by_key(|shown| shown.frame.page);
@@ -475,7 +739,9 @@ mod tests {
     use pdf_render::{Raster, RasterFormat, Size};
     use viewer_core::{DocumentId, FrameView, PageGeometry};
 
-    use super::{RETAINED_EDGE, Retained, placed, reduced};
+    use std::time::{Duration, Instant};
+
+    use super::{FLOOR, Hold, RETAINED_EDGE, Retained, placed, reduced};
 
     /// A raster of one colour, every byte of it real.
     fn filled(width: u32, height: u32, pixel: [u8; 4]) -> Raster {
@@ -725,5 +991,213 @@ mod tests {
         }
         assert!(!super::same_shape((612, 792), (792, 612)));
         assert!(!super::same_shape((0, 792), (612, 792)));
+    }
+
+    // ---- Hold (A657, ADR 2510) ----
+
+    const DOCUMENT: DocumentId = DocumentId(1);
+
+    /// The arrangement's answer for a page of `width` × `height` whose corner is at `origin`.
+    fn geometry_at(width: u32, height: u32, origin: (f32, f32)) -> PageGeometry {
+        PageGeometry {
+            origin,
+            ..geometry(width, height)
+        }
+    }
+
+    fn frame_of(pixels: &Raster, page: usize, origin: (f32, f32)) -> FrameView<'_> {
+        FrameView {
+            page,
+            raster: pixels,
+            origin,
+        }
+    }
+
+    /// The vertical offset of page `page` in a column of pages ten pixels tall.
+    fn below(page: usize) -> f32 {
+        f32::from(u16::try_from(page).expect("a test column has fewer than 65 536 pages")) * 10.0
+    }
+
+    /// A hold that took a zoom command at `start` while page 0 was shown at 100 x 100 at (10, 20).
+    fn zoomed_at(start: Instant, pixels: &Raster) -> Hold {
+        let mut hold = Hold::default();
+        hold.zoomed(
+            start,
+            DOCUMENT,
+            &[frame_of(pixels, 0, (10.0, 20.0))],
+            |_| Some(geometry_at(100, 100, (10.0, 20.0))),
+        );
+        hold
+    }
+
+    /// A657: within a refresh of the command the whole old picture is painted where it was, and
+    /// not the old pixels at the new origin (ADR 1843's defect) or scaled.
+    #[test]
+    fn within_a_refresh_the_old_picture_stays_where_it_was() {
+        let start = Instant::now();
+        let old = raster(100, 100);
+        let hold = zoomed_at(start, &old);
+        let shown = hold.placed(
+            start + hold.period() / 2,
+            DOCUMENT,
+            vec![frame_of(&old, 0, (0.0, 0.0))],
+            |_| Some(geometry_at(200, 200, (0.0, 0.0))),
+        );
+        assert!(shown[0].held && !shown[0].stands_in());
+        assert_eq!(shown[0].extent, (100, 100));
+        assert_eq!(shown[0].shown_at(), (10.0, 20.0));
+        assert!(shown[0].waits_for_a_frame());
+    }
+
+    /// At the first look after the refresh the frame has missed it, and the page is scaled.
+    #[test]
+    fn after_a_refresh_the_page_stands_in_scaled() {
+        let start = Instant::now();
+        let old = raster(100, 100);
+        let hold = zoomed_at(start, &old);
+        let shown = hold.placed(
+            start + hold.period(),
+            DOCUMENT,
+            vec![frame_of(&old, 0, (0.0, 0.0))],
+            |_| Some(geometry_at(200, 200, (0.0, 0.0))),
+        );
+        assert!(!shown[0].held && shown[0].stands_in());
+        assert_eq!(shown[0].extent, (200, 200));
+    }
+
+    /// A frame that lands inside the refresh is painted as any frame is, with no sentence.
+    #[test]
+    fn a_frame_that_landed_inside_the_refresh_is_painted_as_it_is() {
+        let start = Instant::now();
+        let old = raster(100, 100);
+        let hold = zoomed_at(start, &old);
+        let landed = raster(200, 200);
+        let shown = hold.placed(
+            start + Duration::from_millis(1),
+            DOCUMENT,
+            vec![frame_of(&landed, 0, (0.0, 0.0))],
+            |_| Some(geometry_at(200, 200, (0.0, 0.0))),
+        );
+        assert!(!shown[0].held && !shown[0].waits_for_a_frame());
+        assert_eq!(shown[0].shown_at(), (0.0, 0.0));
+    }
+
+    /// The window repaints once at the end of the period, and only where a frame is still owed.
+    #[test]
+    fn the_end_of_the_refresh_is_told_once_and_only_to_a_page_still_waiting() {
+        let start = Instant::now();
+        let old = raster(100, 100);
+        let mut hold = zoomed_at(start, &old);
+        let waiting = |size: u32| move |_: usize| Some(geometry_at(size, size, (0.0, 0.0)));
+        let frames = [frame_of(&old, 0, (0.0, 0.0))];
+        assert_eq!(hold.wait(start), Some(hold.period()));
+        assert!(!hold.lapsed(start, DOCUMENT, &frames, waiting(200)));
+        assert!(hold.lapsed(start + hold.period(), DOCUMENT, &frames, waiting(200)));
+        assert!(!hold.lapsed(start + hold.period(), DOCUMENT, &frames, waiting(200)));
+        assert_eq!(hold.wait(start + hold.period()), None);
+        // A frame that landed first has nothing left to tell.
+        let mut landed = zoomed_at(start, &old);
+        assert!(!landed.lapsed(start + landed.period(), DOCUMENT, &frames, waiting(100)));
+        assert_eq!(landed.wait(start), None);
+    }
+
+    /// A second notch while the first is unanswered does not restart the refresh: a gesture
+    /// whose frames never land stands in after one refresh, as `quorra`'s does.
+    #[test]
+    fn a_second_notch_does_not_restart_the_refresh() {
+        let start = Instant::now();
+        let old = raster(100, 100);
+        let mut hold = zoomed_at(start, &old);
+        let second = start + hold.period() / 2;
+        hold.zoomed(second, DOCUMENT, &[frame_of(&old, 0, (0.0, 0.0))], |_| {
+            Some(geometry_at(200, 200, (0.0, 0.0)))
+        });
+        let shown = |at| {
+            hold.placed(at, DOCUMENT, vec![frame_of(&old, 0, (0.0, 0.0))], |_| {
+                Some(geometry_at(300, 300, (0.0, 0.0)))
+            })[0]
+                .held
+        };
+        assert!(
+            shown(second),
+            "the first notch's picture is still the one held"
+        );
+        assert!(!shown(start + hold.period()));
+    }
+
+    /// A frame of another size than the one recorded is other pixels, and the origin kept is not
+    /// theirs: that page is scaled.
+    #[test]
+    fn a_frame_that_is_not_the_recorded_one_is_scaled() {
+        let start = Instant::now();
+        let hold = zoomed_at(start, &raster(100, 100));
+        let between = raster(150, 150);
+        let shown = hold.placed(
+            start,
+            DOCUMENT,
+            vec![frame_of(&between, 0, (0.0, 0.0))],
+            |_| Some(geometry_at(300, 300, (0.0, 0.0))),
+        );
+        assert!(!shown[0].held && shown[0].stands_in());
+    }
+
+    /// No retained page is put beside a held one: the old arrangement is shown whole. The same
+    /// store adds its page beside a frame that is not held.
+    #[test]
+    fn no_retained_page_is_added_beside_a_held_picture() {
+        let start = Instant::now();
+        let old = raster(100, 100);
+        let hold = zoomed_at(start, &old);
+        let mut retained = Retained::default();
+        assert!(retained.keep(DOCUMENT, 1, 0, &filled(100, 100, [9, 9, 9, 255])));
+        let arrangement = |page: usize| Some(geometry_at(200, 200, (0.0, below(page) * 20.0)));
+        let on_hold = hold.placed(
+            start,
+            DOCUMENT,
+            vec![frame_of(&old, 0, (0.0, 0.0))],
+            arrangement,
+        );
+        assert!(on_hold[0].held);
+        assert_eq!(retained.fill(on_hold, DOCUMENT, arrangement).len(), 1);
+        let scaled = placed(vec![frame_of(&old, 0, (0.0, 0.0))], arrangement);
+        assert_eq!(retained.fill(scaled, DOCUMENT, arrangement).len(), 2);
+    }
+
+    /// The period is the display's, and the floor where it states none.
+    #[test]
+    fn the_period_is_the_displays_and_a_sixtieth_where_it_states_none() {
+        let mut hold = Hold::default();
+        assert_eq!(hold.period(), FLOOR);
+        hold.refresh_is(Some(120_000));
+        assert_eq!(hold.period(), Duration::from_nanos(8_333_333));
+        hold.refresh_is(Some(0));
+        assert_eq!(hold.period(), FLOOR);
+        hold.refresh_is(Some(144_000));
+        hold.refresh_is(None);
+        assert_eq!(hold.period(), FLOOR);
+        hold.refresh_is(Some(u32::MAX));
+        assert!(hold.period() > Duration::ZERO);
+    }
+
+    /// The bound: a column of thousands of pages is recorded and painted in one pass each, found
+    /// by bisection, and every page is held.
+    #[test]
+    fn a_column_of_thousands_of_pages_is_held_whole() {
+        let start = Instant::now();
+        let old = raster(10, 10);
+        let pages = 5_000_usize;
+        let frames: Vec<FrameView<'_>> = (0..pages)
+            .rev()
+            .map(|page| frame_of(&old, page, (0.0, below(page))))
+            .collect();
+        let mut hold = Hold::default();
+        hold.zoomed(start, DOCUMENT, &frames, |page| {
+            Some(geometry_at(10, 10, (0.0, below(page))))
+        });
+        let shown = hold.placed(start, DOCUMENT, frames, |_| {
+            Some(geometry_at(20, 20, (0.0, 0.0)))
+        });
+        assert_eq!(shown.len(), pages);
+        assert!(shown.iter().all(|page| page.held));
     }
 }

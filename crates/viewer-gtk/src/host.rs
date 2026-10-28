@@ -559,6 +559,15 @@ impl NativeWindow for Host {
         self.refresh();
     }
 
+    /// `None` while the window has no surface or monitor, which leaves the period the hold has.
+    fn refresh_millihertz(&self) -> Option<u32> {
+        use gtk4::gdk::prelude::{DisplayExt, MonitorExt};
+        use gtk4::prelude::{NativeExt, WidgetExt};
+        let surface = self.ui.window.surface()?;
+        let monitor = self.ui.window.display().monitor_at_surface(&surface)?;
+        u32::try_from(monitor.refresh_rate()).ok()
+    }
+
     fn offer_to_archive(&mut self, choosing: viewer_host::archiving::Choosing) {
         self.offer_the_archive_choice(choosing);
     }

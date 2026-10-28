@@ -39,7 +39,7 @@ impl Walk<'_> {
         // of its array, and `\"` takes one after two numbers. Keeping all of them and letting
         // the operator decide is what makes those three the same case here.
         let mut strings: Vec<Vec<u8>> = Vec::new();
-        let mut integer: Option<i64> = None;
+        let mut numbers = Numbers::default();
         // §14.6.2's property list, where the operator being assembled was given one written
         // into its operands rather than named through the resources.
         let mut property: Option<Dictionary> = None;
@@ -83,9 +83,12 @@ impl Walk<'_> {
                 // The last integer, because `Tr` takes exactly one and it comes last.
                 Step::Integer(value) => {
                     self.note_integer(value, page);
-                    integer = Some(value);
+                    numbers.integer(value);
                 }
-                Step::Real(value) => self.note_real(value, page),
+                Step::Real(value) => {
+                    self.note_real(value, page);
+                    numbers.real(value);
+                }
                 Step::Text(text) => {
                     self.note_length(text.len(), page, Extent::String);
                     // Bounded by the same budget the kept strings are, so a stream of literals
@@ -101,7 +104,7 @@ impl Walk<'_> {
                     self.note_unlisted_operator(&word, page, origin);
                     names.clear();
                     strings.clear();
-                    integer = None;
+                    numbers = Numbers::default();
                     property = None;
                 }
                 Step::Operator(operator) => {
@@ -124,7 +127,8 @@ impl Walk<'_> {
                         &Operands {
                             names: &names,
                             strings: &strings,
-                            integer,
+                            integer: numbers.last_integer,
+                            nonzero: numbers.nonzero,
                             property: property.as_ref(),
                         },
                         &context,
@@ -132,7 +136,7 @@ impl Walk<'_> {
                     );
                     names.clear();
                     strings.clear();
-                    integer = None;
+                    numbers = Numbers::default();
                     property = None;
                 }
             }
@@ -179,7 +183,19 @@ impl Walk<'_> {
                     state.mode = mode;
                 }
             }
-            Operator::Show => self.show(state, operands, context),
+            Operator::SetSpacing { word } => state.set_spacing(word, operands.nonzero),
+            Operator::Show {
+                starts_line,
+                sets_spacing,
+            } => {
+                if sets_spacing {
+                    // `aw ac string "` sets both before it shows; one flag for both operands can
+                    // only over-report a spacing, which keeps the font refused.
+                    state.set_spacing(true, operands.nonzero);
+                    state.set_spacing(false, operands.nonzero);
+                }
+                self.show(state, operands, starts_line, context);
+            }
             Operator::Invoke => {
                 if let Some(name) = operands.first().cloned() {
                     self.invoke(&name, state, context);
@@ -241,5 +257,27 @@ impl Walk<'_> {
             }
             Operator::Other => {}
         }
+    }
+}
+
+/// The numeric operands standing before an operator, as far as the walk reads them.
+#[derive(Default)]
+struct Numbers {
+    /// The last integer, because `Tr` takes exactly one and it comes last.
+    last_integer: Option<i64>,
+    /// Whether any number was other than zero.
+    nonzero: bool,
+}
+
+impl Numbers {
+    /// An integer operand.
+    fn integer(&mut self, value: i64) {
+        self.last_integer = Some(value);
+        self.nonzero |= value != 0;
+    }
+
+    /// A real operand.
+    fn real(&mut self, value: f64) {
+        self.nonzero |= value != 0.0;
     }
 }

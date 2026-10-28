@@ -3,7 +3,10 @@
 
 use std::sync::Arc;
 
-use pdf_render::{Command, SoftMaskId};
+use pdf_render::{
+    BlackHalf, BlendMode, ClipId, Color, Command, FillRule, Paint, Path, PathCommand, Point,
+    SoftMaskId, SoftMaskKind, Transform,
+};
 use pdf_syntax::Dictionary;
 
 use crate::colour::{ColourSpace, Compositing, InkScale};
@@ -94,7 +97,7 @@ impl Interpreter<'_> {
         inner: &GraphicsState,
         mark: usize,
         admitted: usize,
-    ) -> (Vec<Command>, Option<pdf_render::BlackHalf>) {
+    ) -> (Vec<Command>, Option<BlackHalf>) {
         let commands = self.list.split_off_commands(mark);
         let (Some(backdrop), Compositing::Subtractive(_, press, _)) =
             (request.black_backdrop, &request.compositing)
@@ -133,7 +136,7 @@ impl Interpreter<'_> {
         let halves = |commands, black| {
             (
                 commands,
-                Some(pdf_render::BlackHalf {
+                Some(BlackHalf {
                     commands: black,
                     backdrop,
                 }),
@@ -295,7 +298,8 @@ impl Interpreter<'_> {
         // the whole of its extent, and §11.6.5.1 gives the mask a value everywhere outside
         // that box — the transfer function of 0.0, or of the backdrop's luminosity — which
         // an inherited clip would have no way to express.
-        if let Some(bbox) = self.rectangle(&request.group.dict, "BBox") {
+        let group_box = self.rectangle(&request.group.dict, "BBox");
+        if let Some(bbox) = group_box {
             inner.clip = self.rect_clip(bbox, inner.transform, None);
             if inner.clip.is_none() {
                 self.note(Unsupported::LimitReached { limit: "max_clips" });
@@ -440,34 +444,13 @@ impl Interpreter<'_> {
         self.uncoloured = saved_uncoloured;
         self.soft_mask_depth = self.soft_mask_depth.saturating_sub(1);
 
-        // §11.5.3, of the group a mask is derived from: "G may be any kind of group -
-        // isolated or not, knockout or not - producing various effects on the C result in
-        // each case." So Table 145's two flags mean here what they mean anywhere, and the
-        // group is evaluated as the isolated non-knockout one either way — the same
-        // departure, reported on the same conditions, rather than a second reading of the
-        // same table.
-        if let Some(group) = self.transparency_group(&request.group.dict) {
-            // `false`: a mask's group is evaluated into a mask raster by
-            // `pdf_render::SoftMask`, which carries no knockout flag, so a knockout here is
-            // a departure whatever its elements are.
-            // `true` for the second: a mask raster is built on transparency, so a
-            // non-isolated mask group is drawn as §11.4.5's isolated one and reports on the
-            // same condition a painted group used to.
-            // `false` for the third: §11.4.6's NOTE 6 gives its backdrop to the *elements* of
-            // a knockout group, and a soft mask is named by an `/ExtGState` rather than being
-            // an element of anything — so a mask group's non-isolation is a departure however
-            // it was reached.
-            self.note_group_structure(
-                &group,
-                &commands,
-                GroupDrawn {
-                    knockout: false,
-                    isolated: true,
-                    backdrop_transparent: false,
-                    alpha_sources: mask_alpha_sources,
-                },
-            );
-        }
+        self.note_mask_group_structure(
+            request,
+            group_box.map(|corners| (corners, inner.transform, inner.clip)),
+            &mut commands,
+            black.as_mut(),
+            mask_alpha_sources,
+        );
         self.note_blended_luminosity(&request.compositing, &commands);
 
         // A four-axis `Y` reads the pair and nothing else, so the two stand or fall together:
@@ -492,4 +475,125 @@ impl Interpreter<'_> {
         };
         Some(id)
     }
+
+    /// Reports what a mask's group says about its own structure, after the list that stands for
+    /// it is complete, and states its backdrop in that list where one is owed.
+    ///
+    /// `extent` is the group's `/BBox` with the transform and clip it was clipped by.
+    fn note_mask_group_structure(
+        &mut self,
+        request: &crate::soft_mask::SoftMaskRequest,
+        extent: Option<([f32; 4], Transform, Option<ClipId>)>,
+        commands: &mut Vec<Command>,
+        black: Option<&mut BlackHalf>,
+        alpha_sources: super::readings::AlphaSourcesSeen,
+    ) {
+        // §11.5.3, of the group a mask is derived from: "G may be any kind of group -
+        // isolated or not, knockout or not - producing various effects on the C result in
+        // each case." So Table 145's two flags mean here what they mean anywhere, and the
+        // group is evaluated as the isolated non-knockout one either way, except where
+        // `state_mask_backdrop` states the group's backdrop in the list (ADR 2508) — the same
+        // departure, reported on the same conditions, rather than a second reading of the
+        // same table.
+        if let Some(group) = self.transparency_group(&request.group.dict) {
+            let backdrop_stated =
+                state_mask_backdrop(request.kind, &group, extent, commands, black);
+            // `false`: a mask's group is evaluated into a mask raster by
+            // `pdf_render::SoftMask`, which carries no knockout flag, so a knockout here is
+            // a departure whatever its elements are.
+            // For the second, a mask raster is built on transparency, so a non-isolated mask
+            // group is drawn as §11.4.5's isolated one and reports on the condition a painted
+            // group reports on (`note_group_structure`) — except where the backdrop is stated in the list
+            // (`state_mask_backdrop`), or where the derivation ignores colour: §11.6.5.1's
+            // Alpha subtype evaluates "a group alpha only", a blend function moves colour and
+            // never alpha, and there is no pixel for the report to be about.
+            // `false` for the third: §11.4.6's NOTE 6 gives its backdrop to the *elements* of
+            // a knockout group, and a soft mask is named by an `/ExtGState` rather than being
+            // an element of anything — so a mask group's non-isolation is a departure however
+            // it was reached.
+            self.note_group_structure(
+                &group,
+                commands,
+                GroupDrawn {
+                    knockout: false,
+                    isolated: !(backdrop_stated || request.kind == SoftMaskKind::Alpha),
+                    backdrop_transparent: false,
+                    alpha_sources,
+                },
+            );
+        }
+    }
+}
+
+/// Puts §11.5.3's opaque backdrop under a luminosity mask's non-isolated group, so that a blend
+/// mode inside the group sees it; says whether it did.
+///
+/// ISO 32000-2 §11.6.5.1, of a luminosity mask's group G: it "shall be composited with a fully
+/// opaque backdrop whose colour is everywhere defined by the softmask dictionary's BC entry."
+/// Table 145's `/I` says where a group that is not isolated takes its elements' backdrop
+/// from: "if false , they shall be composited against the group's backdrop." Here that backdrop
+/// is the `/BC` colour (§11.4.3), and §11.4.4 composites the
+/// group's result with its backdrop afterwards, so a non-knockout group painted Normal at full
+/// opacity is its elements painted onto the backdrop directly. So the elements are drawn over
+/// the `/BC` colour: a fill of it under them, bounded by the group's own `/BBox` clip, which is
+/// the whole extent the clause gives the group — outside it the mask is the backdrop's
+/// luminosity, and the raster's transparent pixels already say that.
+///
+/// A raster drawn on transparency composites onto `/BC` after the fact
+/// ([`pdf_render::SoftMask::value`]), which is the isolated group's reading, and the two agree
+/// except where an element's blend function reads the backdrop: `Multiply` over a black `/BC` is
+/// black, and over transparency it is the source. Stated only where a command blends, so a mask
+/// whose group paints Normal throughout is left unchanged.
+///
+/// The fill is larger than the box by one unit on every side and takes the box's clip as its
+/// own, so the edge pixels have the clip's coverage once rather than twice. A group without a
+/// `/BBox` has no extent to fill and is left to the report (ADR 2508).
+fn state_mask_backdrop(
+    kind: SoftMaskKind,
+    group: &super::TransparencyGroup,
+    extent: Option<([f32; 4], Transform, Option<ClipId>)>,
+    commands: &mut Vec<Command>,
+    black: Option<&mut BlackHalf>,
+) -> bool {
+    let SoftMaskKind::Luminosity { backdrop } = kind else {
+        return false;
+    };
+    let Some((corners, transform, clip)) = extent else {
+        return false;
+    };
+    if group.isolated
+        || group.knockout
+        || !any_command(commands, &|command| command_blends(command))
+    {
+        return false;
+    }
+    let under = |colour: Color| {
+        let [x0, y0, x1, y1] = corners;
+        let (x0, y0, x1, y1) = (
+            x0.min(x1) - 1.0,
+            y0.min(y1) - 1.0,
+            x0.max(x1) + 1.0,
+            y0.max(y1) + 1.0,
+        );
+        let mut path = Path::new();
+        path.push(PathCommand::MoveTo(Point::new(x0, y0)));
+        path.push(PathCommand::LineTo(Point::new(x1, y0)));
+        path.push(PathCommand::LineTo(Point::new(x1, y1)));
+        path.push(PathCommand::LineTo(Point::new(x0, y1)));
+        path.push(PathCommand::Close);
+        Command::Fill {
+            path: Arc::new(path),
+            transform,
+            fill_rule: FillRule::NonZero,
+            paint: Paint::Solid(colour),
+            clip,
+            mask: None,
+            blend: BlendMode::Normal,
+        }
+    };
+    commands.insert(0, under(backdrop));
+    if let Some(half) = black {
+        half.commands.insert(0, under(half.backdrop));
+    }
+    true
 }

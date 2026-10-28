@@ -2003,3 +2003,11 @@ Closed by ADR 2467: `tools/batch.sh export --seed <build directory>` copies the 
 stamps every regular file it extracted with a time later than anything the seed holds, so the
 export's first build compiles every workspace crate from the export's own sources;
 `tools/conformance/tests/batch.rs` holds it with a seed whose artefacts are dated ahead of the clock.
+
+### 285. A display list is never printed whole with a float precision
+
+Round 1837 (ADR 2508), chasing a luminosity mask's report, printed a page's display list with `{:.3?}` to
+read a few coordinates. The precision applies to every float in the structure, every point of every path
+of every command, and the one print wrote a 10 GB log before the round noticed and deleted it. A display
+list is read by count and extent, or by printing the one command the question is about; a debug print of a
+whole list goes to a file with a size cap, never to a log the round will read.

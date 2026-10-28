@@ -1,6 +1,7 @@
 # 2477 — The largest refusal a remedy could carry fills in widths the file never stated, and waits for the owner
 
-Status: deferred. Session 1821, the archive slot of batch one hundred and twenty-two. Context: ADR
+Status: superseded by ADR 2504, which builds option (b) of Q687 as the owner answered it in
+A687. Session 1821, the archive slot of batch one hundred and twenty-two. Context: ADR
 2442 (the ranking), ADR 2458 (the empty glyph, the last remedy built from it), ADR 2460 (the census
 names the pack), ADR 2146 (the standard 14 by name alone), `doc/questions/A48`, `doc/questions/Q687`.
 

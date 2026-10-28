@@ -87,11 +87,13 @@ mod template;
 mod validate;
 mod xml;
 
-pub use calculate::{Calculation, Form, Occurrence, Scalar, Step};
+pub use calculate::{
+    Activation, Calculation, Ended, Form, Limits, Occurrence, Ran, Runner, Scalar, Step, Stimulus,
+};
 pub use config::Config;
 pub use datasets::{Change, Datasets, Kept};
 pub use locale::LocaleSet;
-pub use template::{Language, Template};
+pub use template::{Language, Override, Template};
 pub use xml::XmlError;
 
 /// The largest XFA packet this module decodes.

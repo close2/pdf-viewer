@@ -3574,12 +3574,23 @@ PY
 # landed, and the red block must fill the same box on both, to within the scale's blurred edge.
 # Before the stand-in the photograph held the block at the old size at the new corner (round 1503).
 # `quorra` stands in by its own reprojection (`stale.rs`, ADR 1832) and is not offered.
+#
+# **The window holds the picture it had for one refresh first** (A657, ADR 2510): the notch's first
+# paint says `holds its` — the page's old frame, at the place it was — and `stands in at` follows
+# at the first look after the display's period, so the step requires the first sentence before the
+# second. And a second document, `zoom_stand_in_lands`, whose frame lands inside the refresh: the
+# sentence must not appear there.
 zoom_stand_in() {
-    local step=82-zoom-stand-in file="$FIXTURES/drive-zoom-slow.pdf" traced=$LAUNCH_TRACE mark mid settled
     if [ "$WINDOW" = quorra ] || [ "$WINDOW" = quorra-confined ]; then
-        verdict "$step" "not offered" "this window stands in by its own reprojection, not viewer_host::stand_in"
+        verdict 82-zoom-stand-in "not offered" "this window stands in by its own reprojection, not viewer_host::stand_in"
         return
     fi
+    zoom_stand_in_misses
+    zoom_stand_in_lands
+}
+# zoom_stand_in_misses: the drive's slow page, whose frame misses the refresh.
+zoom_stand_in_misses() {
+    local step=82-zoom-stand-in file="$FIXTURES/drive-zoom-slow.pdf" traced=$LAUNCH_TRACE mark mid settled
     [ -s "$file" ] || python3 - "$file" <<'PY2'
 import sys, zlib, pikepdf
 from pikepdf import Name, Dictionary
@@ -3611,6 +3622,15 @@ PY2
         kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
         return
     fi
+    # The old picture was held first: `holds its` is said before `stands in at`.
+    local held_at stood_at
+    held_at=$(tail -n "+$((mark + 1))" "$LOG" | grep -n -m1 "holds its" | cut -d: -f1)
+    stood_at=$(tail -n "+$((mark + 1))" "$LOG" | grep -n -m1 "stands in at" | cut -d: -f1)
+    if [ -z "$held_at" ] || [ "$held_at" -ge "$stood_at" ]; then
+        verdict "$step" wrong "the old picture was not held before the stand-in: holds its at line ${held_at:-none}, stands in at line $stood_at"
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+        return
+    fi
     wait_for 30 said_since "$mark" "rasterised"
     sleep 0.7
     xdotool key shift; sleep 0.5
@@ -3623,9 +3643,56 @@ boxes = [tuple(map(int, re.match(r"(\d+)x(\d+)\+(\d+)\+(\d+)$", b).groups())) if
 sys.exit(0 if None not in boxes and all(abs(a - b) <= 3 for a, b in zip(*boxes)) else 1)
 PY2
     then
-        verdict "$step" works "the stand-in's red block $mid, the landed frame's $settled"
+        verdict "$step" works "the stand-in's red block $mid, the landed frame's $settled, held first (line $held_at before $stood_at)"
     else
         verdict "$step" wrong "the stand-in's red block $mid against the landed frame's $settled"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+# zoom_stand_in_lands: a page whose frame lands inside the refresh — a red block and a blue one and
+# nothing else to draw — zoomed by Control and the wheel about the window's middle. The window holds
+# the old picture for one refresh and the zoomed frame replaces it, so `stands in at` must not be
+# said after the notch (A657, ADR 2510). A frame that did miss the refresh on a loaded machine is
+# the rule working and says the sentence, so a notch is tried again, in and out, up to five times;
+# five misses in a row are `wrong`, the log beside them.
+zoom_stand_in_lands() {
+    local step=82-zoom-held file="$FIXTURES/drive-zoom-fast.pdf" traced=$LAUNCH_TRACE mark landed="" tries=0 button
+    [ -s "$file" ] || python3 - "$file" <<'PY2'
+import sys, zlib, pikepdf
+from pikepdf import Name, Dictionary
+pdf = pikepdf.new()
+body = b"1 0 0 rg 72 500 200 200 re f\n0 0 1 rg 340 92 200 200 re f\n"
+content = pikepdf.Stream(pdf, zlib.compress(body, 9))
+content.Filter = Name.FlateDecode
+pdf.pages.append(pikepdf.Page(Dictionary(Type=Name.Page, MediaBox=[0, 0, 612, 792],
+                                         Contents=pdf.make_indirect(content))))
+pdf.save(sys.argv[1], compress_streams=False)
+PY2
+    LAUNCH_TRACE=events,launch,frames
+    launch "$file"
+    LAUNCH_TRACE=$traced
+    local X Y WIDTH HEIGHT
+    eval "$(xdotool getwindowgeometry --shell "$(main_window)" | grep -E '^(X|Y|WIDTH|HEIGHT)=')"
+    xdotool mousemove $((X + WIDTH / 2)) $((Y + HEIGHT / 2)); sleep 0.3
+    while [ -z "$landed" ] && [ "$tries" -lt 5 ]; do
+        button=$((4 + tries % 2))
+        tries=$((tries + 1))
+        mark=$(lines)
+        xdotool keydown ctrl click "$button" keyup ctrl
+        if ! wait_for 10 said_since "$mark" "RenderReady"; then
+            verdict "$step" wrong "the zoomed frame never landed: $(tail -n "+$((mark + 1))" "$LOG" | grep -m1 -E 'rasterised|stands in|holds its')"
+            kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+            return
+        fi
+        sleep 0.3
+        said_since "$mark" "stands in at" || landed=yes
+    done
+    if [ -z "$landed" ]; then
+        verdict "$step" wrong "a stand-in was said at all $tries notches: $(tail -n "+$((mark + 1))" "$LOG" | grep -m1 'stands in at')"
+    else
+        local held=no
+        said_since "$mark" "holds its" && held=yes
+        verdict "$step" works "no stand-in was said on notch $tries; the old picture was held first: $held"
     fi
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }

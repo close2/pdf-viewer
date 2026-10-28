@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdint>
 #include <cstdlib>
@@ -2175,6 +2176,9 @@ void MainWindow::reportPlacement()
         return at;
     };
     host_->window_placed(place(outer), place(inner));
+    // The display's own refresh, which is how long a zoom command's old picture is held (ADR 2510).
+    const QScreen* display = screen();
+    host_->display_refreshed(display != nullptr ? static_cast<std::int32_t>(std::lround(display->refreshRate() * 1000.0)) : 0);
     reportPageArea();
     applyUpdates();
 }

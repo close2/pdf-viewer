@@ -602,8 +602,15 @@ pub enum Refusal {
     /// is not an indirect object, a serializer refusal.
     #[error("{0}")]
     Assembly(String),
-    /// The source states its structure only through §C.4's recovery, so this program declines
-    /// to write a file restating it.
+    /// The source states its structure only through this reader's recovery of a missing catalog
+    /// or page tree, so this program declines to write a file restating it.
+    ///
+    /// The standard defines no such recovery: its Annex C.4 advises rebuilding a damaged
+    /// cross-reference table, which is the table's reconstruction and not the tree's. **The
+    /// archive verb reopens this refusal** where the caller authorised the loss
+    /// `recovered-structure`, and writes the structure it recovered (ADR 2502); `optimize` and
+    /// `redact` keep it, because they carry the producer's objects as they stand and rewrite
+    /// none of them, where the archive verb already rewrites the catalog and the pages.
     ///
     /// Told apart from [`Refusal::Assembly`] because the two mean opposite things to a caller,
     /// and RFC 0002 section 4.4 draws the line: 2 is "the *file* defeated us" and 4 is "*we*

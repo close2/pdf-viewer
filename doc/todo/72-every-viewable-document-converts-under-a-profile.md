@@ -46,9 +46,14 @@ Each line: the site, and what its remedy would be. `the-fence` rows are refused 
    turns to a negative without it (ADR 1964). `/TR2` other than `Default` — **built** (ADR 1978
    section 6): written `Default`, the same statement or the same loss; veraPDF's
    `6-2-5-t02-fail-a.pdf` is its witness. Left: a function past the record's bound, refused.
-5. `graphics/named-resources-are-defined` (fence) — a resource name the page uses and the file
-   does not define. Read what ISO 32000-2 has a processor do with one before arguing a remedy;
-   the catalogue's "none" rests on supplying an object being invention.
+5. `graphics/named-resources-are-defined` — **built** (ADR 2500): a name nothing defines gets an
+   empty resource of its category (a graphics state with no parameters, a form with no area, a
+   Type 3 font that paints nothing at width zero where the shows moved nothing but widths), and a
+   form, pattern or appearance that states no resources is given its page's. Left: a colour
+   space, a pattern or a shading (no empty value), a font whose text moved more than its widths, a
+   Type 3 glyph procedure's names, and a form reached from pages whose resources differ (a copy per
+   page, owed); where the viewer draws such a page, the loss can be stated on an appended page
+   under the profile.
 6. `file-structure/stream-filters-are-standard` — **built for Table 92's abbreviations** (ADR
    1952: the name written in full, the bytes kept). Left: `XXXDecode`, `BrotliDecode`, `DCTecode`,
    names this tree does not decode.
@@ -328,11 +333,9 @@ pack, of the thirteen pdf.js documents refused for its absence nine convert unde
 two stop on an independent fence row, and the last two convert once a descendant stating no
 descriptor, or sharing one at other widths, is given a descriptor of its own (ADR 2461).
 
-With the pack named, the largest reason a remedy could carry is a font that names a face other
-than the standard 14 and states neither a descriptor nor `/Widths` (ten documents, eight of which
-convert with the refusal lifted): the widths would be this viewer's guess at a layout the file
-never stated, which `doc/questions/A48` forbids filling in, so it waits on `doc/questions/Q687`
-(ADR 2477). A font that names a descriptor this conversion renamed, and that the conversion left its
+A font that names a face other than the standard 14 and states neither a descriptor nor `/Widths`
+converts behind the loss `layout-from-this-viewer`, with a `/BaseFont` supplied where the font states
+none (`doc/questions/A687`, ADR 2504, ADR 2505). A font that names a descriptor this conversion renamed, and that the conversion left its
 own `/BaseFont`, keeps a copy of the producer's descriptor, so Table 120's `/FontName` still matches
 (ADR 2476), whether it is an object or written directly inside another dictionary (ADR 2487), and
 two shown descendants over one re-keyed descriptor all state the name its widened program ends
@@ -346,9 +349,23 @@ not invented into conformance. Fonts sharing a descriptor now retain their own p
 programs through separate descriptor copies rather than overwriting each other's metrics
 (ADR 2179).
 
+Both shipped profiles discard `image-smoothing` (ADR 2498): an image dictionary's `/Interpolate`
+is written false at the site `graphics/image-interpolation-is-off`, the loss named in the report and
+in one `xmpMM:History` entry, and the inline form (`/I` inside a content stream) keeps its refusal.
+`archive --to 2b --or-else-to 4` is one request that writes part 4 only where 2b refuses, with the
+output's `pdfaid:part` and the report saying which; the census of both is ADR 2499.
+
 Owner answer A550 is implemented by ADRs 2194–2195: the archive font emitters attach
 `LICENSE_FOXIT` as exact default-language XMP UsageTerms on bundled Foxit program
 streams. Modified Liberation programs replace reserved active identities with
 QuorraText while preserving legal records and all glyph tables. Unmodified copies
 remain unchanged. Existing different usage terms or unreadable name storage refuse
 rather than discarding information.
+
+Both shipped profiles discard `recovered-structure` (ADR 2502, as `[profile] recovered-structure`,
+no site's key): a document the verb declined as a source because its trailer, catalog or page tree node states no
+page tree is written out as a catalog and one flat `/Pages` node over the pages this reader draws,
+each page the producer's, the loss named in the report and in one `xmpMM:History` entry. An
+encrypted source, a signed one, a direct page and a page that does not parse whole keep their
+refusal, each by name, with the elegant remedy written down in the ADR; `optimize` and `redact` keep
+the decline.

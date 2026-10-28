@@ -459,6 +459,13 @@ pub struct Conversion {
     /// person chose (ADR 1954). The rendered report leaves it to that face, which says it once
     /// above the per-site lines; the JSON report carries it so that a pipeline can read it.
     pub configuration: Option<String>,
+    /// The first target of the request, where this conversion is the one a refusal sent the
+    /// document on to (ADR 2498).
+    ///
+    /// `None` for a request that named one target or whose first target wrote the file. **Set by
+    /// the face that ran both conversions**, as [`Conversion::configuration`] is: a plan names one
+    /// target, so `apply` cannot know a conversion before this one refused.
+    pub fallback: Option<super::Fallback>,
     /// Every requirement the input already met, by identifier.
     pub conformed: Vec<&'static str>,
     /// Every requirement the input failed, with the decision taken about it.
@@ -701,6 +708,14 @@ pub struct Conversion {
     /// extraction and modification would otherwise leave the archive without a trace. `None` for a
     /// source that carried no `/Encrypt`, which is nearly every document.
     pub protection: Option<crate::archive::SourceProtection>,
+    /// The page tree this viewer recovered and the output now states, where the source stated
+    /// none this program writes.
+    ///
+    /// The loss [`Loss::RecoveredStructure`](super::Loss::RecoveredStructure) in the report's
+    /// own terms: how many pages, how the viewer found them, how the catalog was written, and the
+    /// sentence that declined the source. `None` for a source whose structure was written as it
+    /// stood, which is nearly every document (`doc/adr/2502`).
+    pub recovered_structure: Option<crate::archive::RecoveredStructure>,
 }
 
 impl Conversion {
@@ -731,6 +746,12 @@ impl Conversion {
                 self.configuration
                     .as_ref()
                     .map_or(Value::Null, |name| Value::text(name.clone())),
+            ),
+            (
+                "refused_first".to_owned(),
+                self.fallback
+                    .as_ref()
+                    .map_or(Value::Null, super::Fallback::to_json),
             ),
             (
                 "conformed".to_owned(),
@@ -983,6 +1004,10 @@ impl Conversion {
                 "protection".to_owned(),
                 protection_json(self.protection.as_ref()),
             ),
+            (
+                "recovered_structure".to_owned(),
+                recovered_structure_json(self.recovered_structure.as_ref()),
+            ),
         ])
     }
 
@@ -1005,6 +1030,9 @@ impl Conversion {
     pub fn render(&self) -> String {
         use std::fmt::Write as _;
         let mut out = String::new();
+        if let Some(fallback) = &self.fallback {
+            out.push_str(&fallback.render(self.target));
+        }
         let _ = writeln!(
             out,
             "{}: {} of the requirements this file was held to were already met",
@@ -1065,6 +1093,9 @@ impl Conversion {
                 crate::archive::PERMISSIONS_NO_LONGER_ASSERTED,
                 protection.sentence()
             );
+        }
+        if let Some(recovered) = &self.recovered_structure {
+            let _ = writeln!(out, "  {}", recovered.sentence());
         }
         if let Some(recorded) = &self.recorded {
             let _ = writeln!(
@@ -1135,6 +1166,38 @@ fn protection_json(protection: Option<&crate::archive::SourceProtection>) -> Val
                 Value::Array(protection.withheld().into_iter().map(Value::text).collect()),
             ),
             ("says".to_owned(), Value::text(protection.sentence())),
+        ])
+    })
+}
+
+/// What this viewer recovered of a page tree, as `doc/rfc/0002` section 4.5's JSON.
+///
+/// `null` where the source's structure was written as it stood (`doc/adr/2502`).
+fn recovered_structure_json(recovered: Option<&crate::archive::RecoveredStructure>) -> Value {
+    recovered.map_or(Value::Null, |recovered| {
+        Value::Object(vec![
+            (
+                "pages".to_owned(),
+                Value::Integer(i64::try_from(recovered.pages).unwrap_or(i64::MAX)),
+            ),
+            (
+                "found_by_scanning".to_owned(),
+                recovered.scanned.map_or(Value::Null, |count| {
+                    Value::Integer(i64::try_from(count).unwrap_or(i64::MAX))
+                }),
+            ),
+            (
+                "catalog".to_owned(),
+                Value::text(match recovered.catalog {
+                    crate::archive::RecoveredCatalog::Kept => "kept",
+                    crate::archive::RecoveredCatalog::Written => "written",
+                }),
+            ),
+            (
+                "declined_because".to_owned(),
+                Value::text(&recovered.because),
+            ),
+            ("says".to_owned(), Value::text(recovered.sentence())),
         ])
     })
 }
@@ -1405,13 +1468,21 @@ impl Conversion {
                 self.substituted.len()
             );
             for font in &self.substituted {
+                // A font that stated no widths has none for the face's advances to agree with:
+                // the widths written are this viewer's layout (`doc/adr/2504`).
+                let route = if font
+                    .losses
+                    .contains(super::decision::Loss::LayoutFromThisViewer)
+                {
+                    "the file states no widths for it, so the face's own advances are written as \
+                     its widths"
+                } else {
+                    font.route.describe()
+                };
                 let _ = write!(
                     out,
-                    "      {} (resource {}) is drawn from {} — {}",
-                    font.requested,
-                    font.resource,
-                    font.face,
-                    font.route.describe()
+                    "      {} (resource {}) is drawn from {} — {route}",
+                    font.requested, font.resource, font.face
                 );
                 if let Some(described) = font.described {
                     let _ = write!(out, "; {}", described.describe());

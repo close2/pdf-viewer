@@ -828,7 +828,9 @@ fn image_interpolation_is_a_loss_and_needs_authorising() {
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        recovered_structure: false,
         text_as_image: false,
+        layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -985,7 +987,9 @@ fn an_annotation_stating_no_flags_is_made_printable_only_with_authorisation() {
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        recovered_structure: false,
         text_as_image: false,
+        layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -1069,7 +1073,9 @@ fn a_property_its_own_schema_does_not_define_is_removed_only_with_authorisation(
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        recovered_structure: false,
         text_as_image: false,
+        layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -2625,6 +2631,7 @@ fn the_face_losses_authorised() -> Authorisations {
         machine_face: true,
         substitute_stretch: true,
         glyphs_from_to_unicode: true,
+        recovered_structure: false,
         text_as_image: true,
         ..Authorisations::default()
     }
@@ -4173,7 +4180,9 @@ fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_st
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        recovered_structure: false,
         text_as_image: false,
+        layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -5376,7 +5385,9 @@ fn a_colour_specification_the_part_ignores_is_removed_only_with_authorisation() 
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        recovered_structure: false,
         text_as_image: false,
+        layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -5433,7 +5444,9 @@ fn a_file_marking_no_specification_best_keeps_the_one_a_jp2_reader_uses() {
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        recovered_structure: false,
         text_as_image: false,
+        layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -5488,7 +5501,9 @@ fn two_specifications_marked_best_stay_refused() {
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        recovered_structure: false,
         text_as_image: false,
+        layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -5536,7 +5551,9 @@ fn one_specification_with_a_method_the_part_forbids_stays_refused() {
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        recovered_structure: false,
         text_as_image: false,
+        layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -7515,32 +7532,8 @@ fn a_metadata_property_this_target_rejects_is_kept_on_a_page_appended_to_the_doc
     // What happens today, and why the remedy exists: the sentence is removed and the archive
     // holds nothing that says what it was.
     let authorised = Authorisations {
-        image_smoothing: false,
         metadata_property: true,
-        annotation_printing: false,
-        jpeg2000_colour_fallback: false,
-        signature_assertion: false,
-        forbidden_annotation: false,
-        interactive_behaviour: false,
-        encryption: false,
-        page_boundary: false,
-        hidden_annotation: false,
-        appearance_states: false,
-        automatic_states: false,
-        metadata_packet: false,
-        amendment_identifier: false,
-        field_appearances: false,
-        xfa_form: false,
-        embedded_file: false,
-        transfer_function: false,
-        halftone_name: false,
-        halftone: false,
-        overprint_mode: false,
-        language_identifier: false,
-        machine_face: false,
-        substitute_stretch: false,
-        glyphs_from_to_unicode: false,
-        text_as_image: false,
+        ..Authorisations::default()
     };
     let (lost, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -8972,7 +8965,9 @@ fn an_annotation_of_a_forbidden_subtype_goes_only_with_authorisation() {
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        recovered_structure: false,
         text_as_image: false,
+        layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -9297,7 +9292,9 @@ fn an_annotation_that_drew_nothing_refuses_a_preserve_by_name() {
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        recovered_structure: false,
         text_as_image: false,
+        layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -9338,7 +9335,9 @@ fn every_loss() -> Authorisations {
         machine_face: false,
         substitute_stretch: false,
         glyphs_from_to_unicode: false,
+        recovered_structure: false,
         text_as_image: false,
+        layout_from_this_viewer: false,
     }
 }
 
@@ -14930,25 +14929,6 @@ fn helvetica_on_the_standard_encoding_has_its_names_restated_on_win_ansi() {
 }
 
 #[test]
-fn a_font_by_name_alone_that_is_not_one_of_the_fourteen_is_refused_by_name() {
-    // Table 109's permission is the standard 14's alone; `Arial` is a producer's name for a face
-    // the standard says nothing about, so there is no table that says what it is laid out by.
-    let source = a_standard_font_by_name("Arial", "/Encoding /WinAnsiEncoding");
-    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
-    assert!(output.is_none(), "nothing is written");
-    let Decision::Refused(because) = decision(&report, "fonts/font-programs-embedded") else {
-        panic!("the font requirement is refused");
-    };
-    assert!(
-        because
-            .sentence()
-            .contains("not a Type1 font naming one of the fourteen"),
-        "{}",
-        because.sentence()
-    );
-}
-
-#[test]
 fn zapf_dingbats_by_name_alone_keeps_the_glyphs_its_own_encoding_names() {
     // ZapfDingbats has its own character set (Annex D.6) and §9.6.5.1 makes a symbolic font's
     // built-in encoding its base. The page shows `4`, which that encoding names `a20`, the check
@@ -15120,6 +15100,7 @@ fn a_shipped_face_fitted_horizontally_is_the_loss_substitute_stretch() {
     let authorised = Authorisations {
         substitute_stretch: true,
         glyphs_from_to_unicode: true,
+        recovered_structure: false,
         text_as_image: true,
         ..Authorisations::default()
     };
@@ -15184,6 +15165,7 @@ fn one_embedding_decision_names_every_loss_it_incurs() {
             machine_face,
             substitute_stretch,
             glyphs_from_to_unicode: false,
+            recovered_structure: false,
             text_as_image: false,
             ..Authorisations::default()
         };
@@ -15204,6 +15186,7 @@ fn one_embedding_decision_names_every_loss_it_incurs() {
         machine_face: true,
         substitute_stretch: true,
         glyphs_from_to_unicode: true,
+        recovered_structure: false,
         text_as_image: true,
         ..Authorisations::default()
     };
@@ -15322,6 +15305,7 @@ fn the_fitting_authorised() -> Authorisations {
     Authorisations {
         substitute_stretch: true,
         glyphs_from_to_unicode: true,
+        recovered_structure: false,
         text_as_image: true,
         ..Authorisations::default()
     }
@@ -15530,8 +15514,18 @@ mod cjk_pack;
 mod deep_jpx;
 #[path = "archive/empty_glyphs.rs"]
 mod empty_glyphs;
+#[path = "archive/image_smoothing.rs"]
+mod image_smoothing;
+#[path = "archive/layout_from_this_viewer.rs"]
+mod layout_from_this_viewer;
+#[path = "archive/or_else_to.rs"]
+mod or_else_to;
 #[path = "archive/photographed.rs"]
 mod photographed;
+#[path = "archive/reader_resources.rs"]
+mod reader_resources;
+#[path = "archive/recovered.rs"]
+mod recovered;
 #[path = "archive/rekeyed.rs"]
 mod rekeyed;
 #[path = "archive/replaced_schemas.rs"]

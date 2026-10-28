@@ -196,6 +196,8 @@ public sealed partial class MainWindow : Window
             (int)Math.Round(Area.ActualWidth), (int)Math.Round(Area.ActualHeight));
         probe?.Told();
         window.Resize(width, height, (float)now);
+        // The display's own refresh is how long a zoom command's old picture is held (ADR 2510).
+        window.Refresh(DisplayRefresh.Millihertz());
         resizing = false;
         if (!sized)
         {

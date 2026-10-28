@@ -241,6 +241,9 @@ pub struct WindowState {
     /// A small picture of each page drawn lately, shown where a page arrives on the screen with
     /// no frame until its own lands (ADR 1866).
     pub retained: crate::stand_in::Retained,
+    /// The pictures kept where they were for one refresh after a zoom command, until the zoomed
+    /// frame lands or the refresh passes (A657, ADR 2510).
+    pub hold: crate::stand_in::Hold,
     /// The pages zoomed past their window, drawn as it shows them (ADRs 1892, 1930).
     pub oversized: crate::oversize::Oversized,
     /// Which page this window has told the person is taking a long time to draw.
@@ -436,6 +439,7 @@ impl WindowState {
             drawing: crate::Drawing::new(),
             lane: None,
             retained: crate::stand_in::Retained::default(),
+            hold: crate::stand_in::Hold::default(),
             oversized: crate::oversize::Oversized::default(),
             warned: None,
             trace,
@@ -494,12 +498,13 @@ impl WindowState {
     /// When the window should look at its pages again: the drawing thread's interval or the
     /// lane's beside it, the sooner, and `None` while neither has anything out (ADR 2070) — and
     /// [`crate::drawing::POLL`] while a turn's read is out, which the same look takes in (ADR
-    /// 2344).
+    /// 2344), and the time left of a held picture's refresh (ADR 2510).
     #[must_use]
     pub fn drawing_interval(&self) -> Option<std::time::Duration> {
         let lane = self.lane.as_ref().and_then(|lane| lane.interval());
         let turning = self.turning.as_ref().map(|_| crate::drawing::POLL);
-        [self.drawing.interval(), lane, turning]
+        let holding = self.hold.wait(std::time::Instant::now());
+        [self.drawing.interval(), lane, turning, holding]
             .into_iter()
             .flatten()
             .min()
@@ -1126,6 +1131,64 @@ pub trait NativeWindow {
         }
         self.take_the_windows(queue);
         self.mind_a_long_draw();
+        self.mind_the_hold();
+    }
+
+    /// The refresh rate of the display the window is on, in millihertz, where the toolkit is
+    /// asked for it at the moment of a zoom command; `None` where the window is told it instead
+    /// (`WindowState::hold`) or the toolkit states none.
+    fn refresh_millihertz(&self) -> Option<u32> {
+        None
+    }
+
+    /// A zoom command is about to be handled: the pictures on the screen are kept where they are,
+    /// for [`crate::stand_in::Hold`] to paint for one refresh (A657, ADR 2510).
+    ///
+    /// Asked before the viewer handles the command, because afterwards the viewer answers the
+    /// geometry the zoom gave and the one the pictures were shown at is gone.
+    fn hold_the_pictures(&mut self) {
+        if let Some(rate) = self.refresh_millihertz() {
+            self.state_mut().hold.refresh_is(Some(rate));
+        }
+        let document = self.state().documents.focused();
+        let state = self.state_mut();
+        let viewer = &state.viewer;
+        let Answer::Frame(frames) = viewer.query(Query::Frame) else {
+            return;
+        };
+        let geometry = |page| match viewer.query(Query::PageGeometry(page)) {
+            Answer::Geometry(geometry) => Some(geometry),
+            _ => None,
+        };
+        state
+            .hold
+            .zoomed(std::time::Instant::now(), document, &frames, geometry);
+    }
+
+    /// Asks for the page area to be drawn again once, at the first look after a held picture's
+    /// refresh has passed with its zoomed frame still not there, so that it stands in (ADR 2510).
+    fn mind_the_hold(&mut self) {
+        // The poll runs every millisecond; the viewer is asked only while a look is owed.
+        if self.state().hold.wait(std::time::Instant::now()).is_none() {
+            return;
+        }
+        let document = self.state().documents.focused();
+        let state = self.state_mut();
+        let viewer = &state.viewer;
+        let Answer::Frame(frames) = viewer.query(Query::Frame) else {
+            return;
+        };
+        let geometry = |page| match viewer.query(Query::PageGeometry(page)) {
+            Answer::Geometry(geometry) => Some(geometry),
+            _ => None,
+        };
+        let lapsed = state
+            .hold
+            .lapsed(std::time::Instant::now(), document, &frames, geometry);
+        drop(frames);
+        if lapsed {
+            self.repaint();
+        }
     }
 
     /// What a draw of `request`'s page declined, handed to the viewer, which says each condition
@@ -1717,6 +1780,9 @@ pub trait NativeWindow {
             );
             self.state_mut().behind_the_turn.push_back(command);
             return None;
+        }
+        if matches!(command, Command::Zoom { .. }) {
+            self.hold_the_pictures();
         }
         Some(if turn {
             self.turn(command)

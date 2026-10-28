@@ -448,9 +448,13 @@ half; §K.2 is `partial`, three writer's rules kept and the template's events ow
    comes first for calculations. `pdf-formcalc` lexes and parses chapter 25 whole and evaluates it,
    carrying `Sum`, `Concat`, `Replace` and `HasValue` and refusing every other built-in by name;
    `pdf_model::xfa::Form` is the hook (page 114's scope search, page 115's inferred index), and
-   all 24 evaluate against their own forms. No window runs them yet: the worker's host, the
-   activation order of page 379 and the result's route into the save are next, and JavaScript
-   calculations and the events with step 5.
+   all 24 evaluate against their own forms.
+   **Step 6's activation built** (session 1836, ADRs 2506, 2507): `Resource::activate` runs the
+   calculations and the `change` and `initialize` events in page 379's order for a person's entry
+   and for a merge's completion, cascades the calculations by the names their scripts resolved
+   (pages 379–380), honours `override` (page 641) and ends under limits that drop an unfinished
+   cascade's edits; a calculated value is an edit beside a person's. No window runs it yet: the
+   worker's host is next, and JavaScript calculations and the other events with step 5.
 4. **On Q639's answer**: the dynamic half, whose first round is a measurement — the cost of laying
    out page one of the census's `/NeedsRendering` documents — before a line of layout ships.
 

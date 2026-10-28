@@ -69,7 +69,9 @@ impl Host {
         // zoomed past its window shown over it from what that drew (ADRs 1892, 1930).
         self.state.oversized.place(
             self.state.retained.fill(
-                viewer_host::stand_in::placed(
+                self.state.hold.placed(
+                    std::time::Instant::now(),
+                    focused,
                     viewer_host::drawing::over_frames(
                         frames,
                         self.state.drawing.partial(),

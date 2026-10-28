@@ -790,6 +790,109 @@ fn a_blend_mode_in_a_four_component_mask_group_is_composited_there_and_not_repor
     );
 }
 
+/// A fixture whose mask group paints one `/Multiply` rectangle over its whole box.
+///
+/// The group is non-isolated, which is Table 145's default for an absent `/I`, and `subtype` and
+/// `backdrop` are the mask dictionary's `/S` and `/BC`. The group paints the grey `source`
+/// through `/GB`, an `/ExtGState` with `/BM /Multiply`, and the page paints black through the
+/// mask over white, so the red channel at a point is `255 × (1 − mask)` (see [`level`]).
+fn multiply_mask_page(subtype: &str, backdrop: &str, source: &str) -> Vec<u8> {
+    page_with_group_resources(
+        "/DeviceGray",
+        &format!("/SMask << /Type /Mask /S /{subtype} /G 6 0 R /BC [{backdrop}] >>"),
+        "q /GS gs 0 g 0 0 40 40 re f Q",
+        "<< /ExtGState << /GB 7 0 R >> >>",
+        &format!("/GB gs {source} g 0 0 20 40 re f"),
+        &[b"7 0 obj\n<< /Type /ExtGState /BM /Multiply >>\nendobj\n".to_vec()],
+    )
+}
+
+/// A non-isolated luminosity mask group multiplies onto its `/BC` backdrop.
+///
+/// ISO 32000-2 §11.6.5.1, of a luminosity mask's group G: it "shall be composited with a fully
+/// opaque backdrop whose colour is everywhere defined by the softmask dictionary's BC entry."
+/// Table 145 makes an absent `/I` false, and "if false , they
+/// shall be composited against the group's backdrop." So a `/Multiply` element of the grey 0.5
+/// is blended with that backdrop (§11.3.5.2, `B(cb, cs) = cb × cs`): over a black `/BC` the
+/// result is black and the mask is 0, over a white one it is the grey and the mask is 0.5. Read
+/// as an isolated group's, the element would blend with nothing and the mask would be 0.5 over
+/// both, which is what the page below tells apart; and the page is reported complete, because
+/// the backdrop is stated in the mask's list and no element blends with one it excludes.
+#[test]
+fn a_non_isolated_luminosity_mask_group_blends_with_its_backdrop_and_is_not_reported() {
+    let over_black = multiply_mask_page("Luminosity", "0", "0.5");
+    assert!(
+        reports(over_black.clone()).is_empty(),
+        "the backdrop is drawn, so nothing is left to report"
+    );
+    near(
+        level(&render(over_black), 10, 20),
+        255,
+        "Multiply over a black /BC is black, so the mask is 0 and the page keeps its white",
+    );
+
+    near(
+        level(
+            &render(multiply_mask_page("Luminosity", "1", "0.5")),
+            10,
+            20,
+        ),
+        128,
+        "Multiply over a white /BC is the source, so the mask is 0.5",
+    );
+    near(
+        level(
+            &render(multiply_mask_page("Luminosity", "0", "0.5")),
+            30,
+            20,
+        ),
+        255,
+        "outside the group's /BBox the mask is the backdrop's luminosity, 0 for a black /BC",
+    );
+}
+
+/// An alpha mask group has no colour for a backdrop to change, and nothing is reported.
+///
+/// ISO 32000-2 §11.6.5.1, of an alpha mask's group G: it "shall be evaluated to compute a group
+/// alpha only." A blend function moves a colour and never an
+/// alpha (§11.3.5), so the `/Multiply` rectangle's alpha is 1.0 over its box whatever sits
+/// under it, and the mask is 1.0 there: the black rectangle is painted in full.
+#[test]
+fn a_non_isolated_alpha_mask_group_with_a_blend_is_not_reported_and_keeps_its_alpha() {
+    let page = multiply_mask_page("Alpha", "0", "0.5");
+    assert!(
+        reports(page.clone()).is_empty(),
+        "an alpha mask is computed without colour, so no blend can disagree with it"
+    );
+    near(
+        level(&render(page), 10, 20),
+        0,
+        "the group's alpha is 1.0 inside its box, so the mask paints the object",
+    );
+}
+
+/// A mask group with no `/BBox` has no extent to put a backdrop in, and keeps its report.
+///
+/// §11.6.5.1 gives the backdrop to the group; a `/BBox` bounds the group (Table 93) and the
+/// fill that states the backdrop is bounded by it. Without one the list cannot say it, so the
+/// departure is reported: the mask is evaluated on transparency and the `/Multiply`
+/// element has no backdrop to blend with.
+#[test]
+fn a_mask_group_without_a_bbox_is_still_reported_as_a_non_isolated_blend() {
+    // `/Bbox` is `/BBox` spelled so that the key is absent and every byte offset stays put.
+    let bytes = String::from_utf8(multiply_mask_page("Luminosity", "0", "0.5"))
+        .expect("the fixture is ASCII")
+        .replace("/BBox [0 0 20 40]", "/Bbox [0 0 20 40]")
+        .into_bytes();
+    let reported = reports(bytes);
+    assert!(
+        reported
+            .iter()
+            .any(|detail| detail.contains("non-isolated, and an element blends")),
+        "got {reported:?}"
+    );
+}
+
 /// A `B` in a `DeviceCMYK` mask group whose portions differ only in black keeps the mask's pair.
 ///
 /// A mask group naming four components is run once per plane and §11.5.3's `Y` read off the

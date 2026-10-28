@@ -9,13 +9,32 @@ use super::{Context, FontKey, Mark, Operands, Replacement, SelectedFont, State, 
 
 impl Walk<'_> {
     /// A text-showing operator: the font it ran with, and the marks it made.
-    pub(super) fn show(&mut self, state: &State, operands: &Operands<'_>, context: &Context<'_>) {
+    pub(super) fn show(
+        &mut self,
+        state: &State,
+        operands: &Operands<'_>,
+        starts_line: bool,
+        context: &Context<'_>,
+    ) {
         let Some(name) = state.font.clone() else {
             return;
         };
         // Mode 3 alone is exempt: mode 7 adds the glyphs to the clipping path, which is a mark
         // on the page by way of everything drawn afterwards.
         let font = self.select(&name, context, state.mode != 3, operands.strings);
+        // Whether an empty font would have done more than the reader did without one, which drew
+        // nothing and moved nothing (ISO 32000-2 §9.4.4's glyph displacement `tx` is the width
+        // plus the character and word spacing, and a `TJ` adjustment moves the position by its
+        // own amount): see [`MovingShow`]. A clipping mode adds the glyphs to the clip, and an
+        // empty set of glyphs is not the clip the reader kept.
+        let moves = starts_line
+            || operands.nonzero
+            || state.char_spaced
+            || state.word_spaced
+            || !(0..=3).contains(&state.mode);
+        if font.is_none() && moves {
+            self.note_moving_show(&name, context);
+        }
         // ISO 32000-2 §9.3.6: modes 0, 2, 4 and 6 fill and modes 1, 2, 5 and 6 stroke, so the
         // colour space in force is used exactly as a path-painting operator would use it.
         let fills = matches!(state.mode, 0 | 2 | 4 | 6);

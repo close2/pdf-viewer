@@ -39,6 +39,8 @@ mod chrome;
 mod chrome_tests;
 #[cfg(test)]
 mod held_tests;
+#[cfg(test)]
+mod hold_tests;
 mod owed;
 mod placement;
 mod repainted;
@@ -274,6 +276,12 @@ impl Window {
             self.repaint();
         }
         self.settle();
+    }
+
+    /// The refresh rate of the display the window is on, in millihertz, `0` where the platform
+    /// states none: one refresh is how long a zoom command's old picture is kept (ADR 2510).
+    pub fn refresh_is(&mut self, millihertz: u32) {
+        self.state.hold.refresh_is(Some(millihertz));
     }
 
     /// The window was hidden or shown again: the presentation parks while nobody can see it, and
@@ -717,6 +725,7 @@ impl Window {
                 },
                 extent: (raster.width, raster.height),
                 retained: false,
+                held: false,
             }];
         }
         let geometry = |page| match self.state.viewer.query(Query::PageGeometry(page)) {
@@ -738,7 +747,9 @@ impl Window {
         }
         self.state.oversized.place(
             self.state.retained.fill(
-                viewer_host::stand_in::placed(
+                self.state.hold.placed(
+                    std::time::Instant::now(),
+                    focused,
                     viewer_host::drawing::over_frames(
                         frames,
                         self.state.drawing.partial(),

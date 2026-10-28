@@ -152,7 +152,7 @@ const MAX_ANCESTORS: usize = 64;
 /// Written out rather than derived, because the table is the only place the standard says which
 /// entries are inheritable and §7.7.3.3 makes that list closed: "\[a]ttributes that are not
 /// explicitly identified in the table as inheritable shall not be inherited."
-const INHERITABLE: [&str; 4] = ["Resources", "MediaBox", "CropBox", "Rotate"];
+pub(crate) const INHERITABLE: [&str; 4] = ["Resources", "MediaBox", "CropBox", "Rotate"];
 
 /// The catalog entries a piece carries, because a page drawn without them draws differently.
 ///
@@ -433,7 +433,7 @@ impl Host for Piece<'_> {
 ///
 /// Unresolved because sharing is worth keeping: a hundred pages under one `/Pages` node with one
 /// indirect `/Resources` become a hundred pages naming one object, not a hundred copies.
-fn inherited(document: &Document, page: ObjectId, key: &str) -> Option<Object> {
+pub(crate) fn inherited(document: &Document, page: ObjectId, key: &str) -> Option<Object> {
     // The reference itself, not what it resolves to: `Document::get_key_of` resolves, and an
     // ancestor is reached by walking references rather than by holding one node at a time.
     let mut at = document

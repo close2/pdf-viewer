@@ -337,6 +337,7 @@ impl Look {
             },
             extent: (self.raster.width, self.raster.height),
             retained: false,
+            held: false,
         }
     }
 }

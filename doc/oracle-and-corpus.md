@@ -37,7 +37,8 @@ against *the world*. Three more arrived as submodules under `doc/corpora/` and a
 fetcher, and none of them is in `doc/todo/02` §2's default sequence — deliberately, because that
 sequence is 268 s and a new corpus earns a place rather than taking one. The instrument is
 `tools/safedocs survey --dir <path>`, which asks the same five questions `tests/corpus.rs` asks
-and *ratchets none of them*.
+and *ratchets none of them*. A survey log's residue is ranked by documents with
+`python3 -I -B tools/survey-residue.py <survey log>` (ADR 2508).
 
 **The first run is the baseline, and this is it** (ADR 0258):
 

@@ -467,16 +467,6 @@ pub(super) fn appearance_states(
     Ok(found)
 }
 
-/// Why a form `XObject` with no resources dictionary is not given one.
-const RESOURCES_ARE_THE_INVOCATION_S: &str = "a content stream here names resources of its own \
-     and carries no Resources entry, and it is not a page. For a page the entry is the one \
-     §7.7.3.4's inheritance already put in force, so copying it down resolves every name to the \
-     object it already resolved to — that is written. For a form XObject, a tiling pattern or a \
-     Type 3 glyph procedure the names resolve through whatever stream invoked it, and one \
-     dictionary cannot answer for every invocation: a stream invoked from two pages whose \
-     resources define the same name differently has no single correct answer, and writing one \
-     would decide what it draws";
-
 /// The `/Resources` each page with none of its own is to be given.
 #[derive(Debug, Default)]
 pub(super) struct PageResources {
@@ -488,10 +478,7 @@ pub(super) struct PageResources {
 ///
 /// ISO 19005-2 section 6.2.2, ISO 19005-4 section 6.2.2, as `TechNote 0010`'s A003 reads the
 /// phrase *explicitly associated*.
-pub(super) fn page_resources(
-    document: &Document,
-    input: &pdf_archive::Report,
-) -> Result<PageResources, Because> {
+pub(super) fn page_resources(document: &Document, input: &pdf_archive::Report) -> PageResources {
     let mut pages: BTreeSet<usize> = BTreeSet::new();
     for judgement in input.failures() {
         if judgement.id != "graphics/content-streams-have-an-explicit-resources-dictionary" {
@@ -501,13 +488,14 @@ pub(super) fn page_resources(
             continue;
         };
         for finding in places {
-            // An object is a form `XObject`, a tiling pattern or a Type 3 glyph procedure; only
-            // a page's own `/Contents` is reported at a page with no object beside it.
+            // An object is a form `XObject`, a tiling pattern or a Type 3 glyph procedure, which
+            // `super::reader_resources::assign` answers; only a page's own `/Contents` is
+            // reported at a page with no object beside it.
             if finding.place.object.is_some() {
-                return Err(Because::TheFence(RESOURCES_ARE_THE_INVOCATION_S));
+                continue;
             }
             let Some(page) = finding.place.page else {
-                return Err(Because::TheFence(RESOURCES_ARE_THE_INVOCATION_S));
+                continue;
             };
             pages.insert(page);
         }
@@ -528,7 +516,7 @@ pub(super) fn page_resources(
             .at
             .insert(id, inherited_resources(document, &page.dict));
     }
-    Ok(found)
+    found
 }
 
 /// How far up §7.7.3.2's page tree a `/Resources` entry is looked for.

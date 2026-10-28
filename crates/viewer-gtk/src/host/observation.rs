@@ -232,6 +232,7 @@ mod tests {
             },
             extent: (8, 8),
             retained: false,
+            held: false,
         }
     }
 

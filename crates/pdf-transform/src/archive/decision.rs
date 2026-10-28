@@ -411,6 +411,29 @@ pub enum Loss {
     /// §9.10's extraction aid, and a producer may have written it for searching rather than for
     /// drawing (`doc/questions/A570`, `doc/adr/2378`).
     GlyphsFromToUnicode,
+    /// ISO 32000-2 §9.6.2.1's Table 109, ISO 19005-2 section 6.2.11.4.1, ISO 19005-4 section
+    /// 6.2.10.4.1: a simple font outside the standard 14 that states neither a descriptor nor
+    /// `/Widths` is embedded with a shipped face and the widths this viewer lays it out by.
+    ///
+    /// Table 109 makes both required of every simple font but the fourteen, and Annex D publishes
+    /// those fourteen's metrics; for any other name the standard states no layout. The viewer
+    /// draws such a font from the face whose metrics its name resembles
+    /// (`pdf_font::standard_metrics`), and the conversion writes that layout down as the font's
+    /// `/Widths`, so the output states one reader's choice as the producer's. Another reader may
+    /// have laid the same name out by the face it names (`doc/questions/A687`,
+    /// `doc/adr/2504`).
+    LayoutFromThisViewer,
+    /// ISO 32000-2 §7.5.5 Table 15, §7.7.2 Table 29, §7.7.3.2 Table 30: a document whose trailer,
+    /// catalog or page tree node does not state the page tree is written out as the structure this
+    /// viewer recovered.
+    ///
+    /// The standard makes `/Root` and `/Pages` required and defines no recovery when either fails;
+    /// the viewer finds the pages by their own `/Type /Page` declarations all the same, and the
+    /// conversion writes a catalog and a single page tree node listing them, each page the
+    /// producer's with only the entries it owes its tree restated. What is lost is the
+    /// producer's tree, which is not there to keep: another reader may find fewer pages, more
+    /// pages or the same pages in another order (`doc/adr/2502`).
+    RecoveredStructure,
     /// ISO 19005-2 section 6.2.11.4.1, ISO 19005-4 section 6.2.10.4.1: a page showing an
     /// `Adobe-Identity` composite font the file does not embed, whose codes no `/ToUnicode` names,
     /// is replaced by a photograph of itself as this viewer's window draws it.
@@ -426,7 +449,7 @@ pub enum Loss {
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 26] = [
+    pub const ALL: [Self; 28] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::MetadataPacket,
@@ -452,6 +475,8 @@ impl Loss {
         Self::MachineFace,
         Self::SubstituteStretch,
         Self::GlyphsFromToUnicode,
+        Self::LayoutFromThisViewer,
+        Self::RecoveredStructure,
         Self::TextAsImage,
     ];
 
@@ -484,6 +509,8 @@ impl Loss {
             Self::MachineFace => "machine-face",
             Self::SubstituteStretch => "substitute-stretch",
             Self::GlyphsFromToUnicode => "glyphs-from-to-unicode",
+            Self::LayoutFromThisViewer => "layout-from-this-viewer",
+            Self::RecoveredStructure => "recovered-structure",
             Self::TextAsImage => "text-as-image",
         }
     }
@@ -679,6 +706,25 @@ impl Loss {
                  glyphs, the page shows what the map says rather than what was drawn. Name the \
                  producer's program with --font to keep its own glyphs instead"
             }
+            Self::LayoutFromThisViewer => {
+                "a simple font the file names, outside the fourteen standard fonts, that states \
+                 neither a FontDescriptor nor Widths is embedded with the shipped face this \
+                 viewer draws it from, and the widths this viewer lays it out by are written as \
+                 the font's own: the standard states no layout for such a name, so another \
+                 reader may have set the same text at the advances of the face the name \
+                 denotes. Every mark sits where this viewer's window put it. A font that \
+                 names no BaseFont is given one equal to the descriptor's FontName"
+            }
+            Self::RecoveredStructure => {
+                "a document whose trailer, catalog or page tree node does not state the page tree \
+                 is written out as the structure this viewer recovered: a catalog (the producer's dictionary \
+                 where it has one) and a single page tree node listing the pages this viewer \
+                 found, in the order it draws them. Every page, content stream and resource is the \
+                 producer's; a page's /Parent is restated and the inheritable entries it stated \
+                 no value for are copied from its old ancestors. The standard defines no \
+                 recovery of a missing page tree, so another reader may find other pages or the \
+                 same pages in another order"
+            }
             Self::TextAsImage => {
                 "a page showing an Adobe-Identity composite font the file does not embed, whose \
                  codes no ToUnicode CMap names, is replaced by a photograph of itself as this \
@@ -827,6 +873,10 @@ pub struct Authorisations {
     pub substitute_stretch: bool,
     /// Whether [`Loss::GlyphsFromToUnicode`] was authorised.
     pub glyphs_from_to_unicode: bool,
+    /// Whether [`Loss::LayoutFromThisViewer`] was authorised.
+    pub layout_from_this_viewer: bool,
+    /// Whether [`Loss::RecoveredStructure`] was authorised.
+    pub recovered_structure: bool,
     /// Whether [`Loss::TextAsImage`] was authorised.
     pub text_as_image: bool,
 }
@@ -861,6 +911,8 @@ impl Authorisations {
             Loss::MachineFace => self.machine_face,
             Loss::SubstituteStretch => self.substitute_stretch,
             Loss::GlyphsFromToUnicode => self.glyphs_from_to_unicode,
+            Loss::LayoutFromThisViewer => self.layout_from_this_viewer,
+            Loss::RecoveredStructure => self.recovered_structure,
             Loss::TextAsImage => self.text_as_image,
         }
     }
@@ -899,6 +951,8 @@ impl Authorisations {
             Loss::MachineFace => self.machine_face = true,
             Loss::SubstituteStretch => self.substitute_stretch = true,
             Loss::GlyphsFromToUnicode => self.glyphs_from_to_unicode = true,
+            Loss::LayoutFromThisViewer => self.layout_from_this_viewer = true,
+            Loss::RecoveredStructure => self.recovered_structure = true,
             Loss::TextAsImage => self.text_as_image = true,
         }
     }
@@ -2284,6 +2338,12 @@ pub(super) const REMEDIES: &[Remedy] = &[
         requirement: "graphics/content-streams-have-an-explicit-resources-dictionary",
         answer: Answer::Mechanical(Rewrite::PageResources),
     },
+    // ISO 19005-2 section 6.2.2, ISO 19005-4 section 6.2.2 — the second sentence, which
+    // `TechNote 0010` A002 reads into part 2 (`doc/adr/2500`).
+    Remedy {
+        requirement: "graphics/named-resources-are-defined",
+        answer: Answer::Mechanical(Rewrite::EmptyResourceDefined),
+    },
     // ISO 19005-2 section 6.2.11.4.2, which part 4 does not state.
     Remedy {
         requirement: "fonts/charset-lists-every-glyph-in-the-program",
@@ -2509,6 +2569,7 @@ pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[
             Losses::one(Loss::MachineFace)
                 .with(Loss::SubstituteStretch)
                 .with(Loss::GlyphsFromToUnicode)
+                .with(Loss::LayoutFromThisViewer)
                 .with(Loss::TextAsImage),
         ),
     ),
@@ -2656,8 +2717,8 @@ pub(super) struct Shape {
 /// here is one whose `REMEDIES` entry — or whose absence from it — is true of one half only:
 /// `graphics/content-streams-have-an-explicit-resources-dictionary` has a `Mechanical` answer for a
 /// page's inherited dictionary (§7.7.3.4 resolves it already, so copying it down changes nothing a
-/// reader sees) and none for a form `XObject`'s, whose names are resolved by whatever invoked
-/// it.
+/// reader sees) and for a form `XObject`'s, which §7.8.3 ends at the page's resources
+/// (`doc/adr/2500`).
 ///
 /// `/CIDToGIDMap` is the finding's seventh distinction and is deliberately absent: it differs by
 /// *base edition*, which is a property of the target, so `doc/rfc/0007` section 4.6's target
@@ -2719,7 +2780,7 @@ pub(super) const SHAPES: &[(&str, &[Shape])] = &[
             },
             Shape {
                 name: "form-xobject",
-                answered: false,
+                answered: true,
             },
         ],
     ),
@@ -3042,10 +3103,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "graphics/rendering-intent-operator-names-one-of-four",
         Because::TheFence(RENDERING_INTENT_OPERAND),
     ),
-    (
-        "graphics/named-resources-are-defined",
-        Because::TheFence(NAMED_RESOURCE_IS_NOT_IN_THE_FILE),
-    ),
     // ISO 19005-4 section 6.2.10.5 and section 6.2.10.8: both are the producer's page.
     (
         "fonts/type3-glyph-procedures-state-their-width",
@@ -3306,13 +3363,6 @@ const RENDERING_INTENT_OPERAND: &str = "the rendering intent operator's operand 
      state's RI entry or an image dictionary's Intent entry is not refused for this reason: that \
      is an object, and doc/pdf-a-conversion-limits.md's own answer for it is a rewrite nobody \
      has built";
-
-/// Why a name a resources dictionary does not define is not supplied.
-const NAMED_RESOURCE_IS_NOT_IN_THE_FILE: &str = "a content stream names a resource its resources \
-     dictionary does not define, and the two ways out are opposite fences: supplying the \
-     resource invents an object the producer never wrote, and taking the reference off the page \
-     edits the producer's content stream. §7.8.3 makes the resources dictionary what a name is \
-     resolved through, so nothing in the file says what the missing one was meant to be";
 
 /// Why a Type 3 glyph procedure's width is not reconciled with the font dictionary's.
 const TYPE3_WIDTH_IS_IN_THE_PROCEDURE: &str = "a Type 3 glyph procedure's d0 or d1 operands \

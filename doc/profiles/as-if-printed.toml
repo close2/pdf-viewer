@@ -30,6 +30,12 @@ name = "as-if-printed"
 sentence = "Discard what printing would not have carried; touch nothing it would."
 catalogue = "doc/pdf-a-mitigations.md"
 default = "stop"
+# A document whose trailer, catalog or page tree node states no page tree is written out as the
+# structure this viewer recovered, the loss `recovered-structure`: a catalog and one page tree node listing the
+# pages it found, each page the producer's. The standard defines no such recovery, so this is a
+# loss by name and not a repair, and both profiles carry it because both draw the pages the
+# viewer found (ADR 2490, ADR 2502). It is no site's key: the refusal it lifts is the source's.
+recovered-structure = "discard"
 
 # ---------------------------------------------------------------------------------------------
 # Attachments. Paper carries none. Note that the answer is still `preserve` wherever preserving is
@@ -138,6 +144,14 @@ remedy = "discard"
 on-missing-password = "stop"
 
 [site."file-structure/crypt-filter-is-identity"]
+remedy = "discard"
+
+# An image's /Interpolate true. ISO 32000-2 8.9.5.3 says "this is only a hint, and a PDF processor
+# may ignore it", and a printed page was made by a device that sampled every image as it came, so
+# writing the entry false changes nothing a print carried. The loss is named all the same: the
+# report and xmpMM:History say that smoothing was turned off (ADR 2490, ADR 2498). An inline
+# image's /I is inside a content stream, which this converter does not edit, and stays refused.
+[site."graphics/image-interpolation-is-off"]
 remedy = "discard"
 
 # One ink defined two ways. On the device this profile is named for the choice is immaterial:
@@ -273,9 +287,11 @@ remedy = "stop"
 # And a font this viewer draws from the face this program ships, narrowed to the file's widths
 # (ADR 0358): embedding the face unmodified keeps every position and every glyph and draws each at
 # the face's own width — the loss `substitute-stretch`, which the owner allowed this profile in
-# doc/questions/A566. One decision carries every loss the embedding incurs, so this one `discard`
-# authorises both, and the report and the file's own xmpMM:History name each font with what it
-# lost and the scale it was drawn at (doc/adr/2262).
+# doc/questions/A566. A simple font outside the standard 14 that states neither a descriptor nor
+# `/Widths` is embedded with the widths this viewer lays it out by, the loss
+# `layout-from-this-viewer` (doc/questions/A687, doc/adr/2504). One decision carries every loss the
+# embedding incurs, so this one `discard` authorises them all, and the report and the file's own
+# xmpMM:History name each font with what it lost and the scale it was drawn at (doc/adr/2262).
 # ---------------------------------------------------------------------------------------------
 
 [site."fonts/font-programs-embedded"]

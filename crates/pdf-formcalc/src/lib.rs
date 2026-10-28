@@ -14,5 +14,5 @@ pub mod lex;
 pub mod parse;
 pub mod value;
 
-pub use eval::{Budget, Host, Occurrence, Segment, Stop, run};
+pub use eval::{Budget, Host, Occurrence, Segment, Stop, run, run_counted};
 pub use value::Value;

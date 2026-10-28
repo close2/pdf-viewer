@@ -178,3 +178,36 @@ fn a_construct_outside_the_subset_is_refused_and_assigns_nothing() {
     );
     assert!(edits.is_empty());
 }
+
+#[test]
+fn the_activation_of_a_merge_agrees_with_running_each_script_alone() {
+    // ADR 2506: the activation runs the scripts of ADR 2482's hook in an order of its own, and a
+    // form whose calculations do not read one another gets the values each gives run alone.
+    use common::hosted::FormCalcRunner;
+    use pdf_model::xfa::{Limits, Stimulus};
+    let template = "<subform name=\"form1\">\
+         <field name=\"Units\"><value><integer/></value></field>\
+         <field name=\"Price\"><value><decimal/></value></field>\
+         <field name=\"Total\"><value><decimal/></value>\
+         <calculate><script>Units * Price</script></calculate></field>\
+         </subform>";
+    let values = [
+        ("form1[0].Units[0]", "4"),
+        ("form1[0].Price[0]", "2.5"),
+        ("form1[0].Total[0]", ""),
+    ];
+    let (alone, _) = run_all(template, &values);
+    let document = document(template);
+    let resource = Resource::read(&document).unwrap().unwrap();
+    let fields: Vec<(String, Change)> = values
+        .iter()
+        .map(|(name, value)| ((*name).to_owned(), Change::Text((*value).to_owned())))
+        .collect();
+    let activation = resource.activate(
+        &fields,
+        Stimulus::Merge,
+        &mut FormCalcRunner,
+        Limits::DEFAULT,
+    );
+    assert_eq!(activation.edits, alone);
+}

@@ -44,7 +44,7 @@ use std::path::{Path, PathBuf};
 
 use pdf_formcalc::Stop;
 use pdf_formcalc::lex::{self, Kind};
-use pdf_model::xfa::{Change, Language, Resource};
+use pdf_model::xfa::{Change, Ended, Language, Limits, Resource, Stimulus};
 use pdf_syntax::{Document, Object};
 use rayon::prelude::*;
 
@@ -356,6 +356,22 @@ fn evaluate(document: &Document, resource: &Resource, counts: &mut Counts) {
         };
         *counts.outcomes.entry(outcome).or_default() += 1;
     }
+    // The same calculations as ADR 2506's merge activation runs them: in the activation's order,
+    // re-run as the values they read change, under its limits.
+    let activation = resource.activate(
+        &fields,
+        Stimulus::Merge,
+        &mut hosted::FormCalcRunner,
+        Limits::DEFAULT,
+    );
+    let outcome = match activation.ended {
+        Ended::Settled => format!(
+            "merge activation settled, {} refusals reported",
+            activation.report.len()
+        ),
+        Ended::Budget(limit) => format!("merge activation ended on its {limit} limit"),
+    };
+    *counts.outcomes.entry(outcome).or_default() += 1;
 }
 
 fn measure(path: &Path) -> Counts {

@@ -198,7 +198,24 @@ const UNDOCUMENTED: [&str; 13] = [
 ///
 /// [`Stop`], whose variants are the reasons; the host saw every assignment made before it.
 pub fn run<H: Host>(source: &str, host: &mut H, budget: Budget) -> Result<Value, Stop> {
-    let script = parse::parse(source).map_err(Stop::Parse)?;
+    run_counted(source, host, budget).0
+}
+
+/// [`run`], and how many steps the evaluation took, whether it ended in a value or a stop.
+///
+/// A host that runs several scripts under one ceiling charges each against what is left of it:
+/// XFA 3.3 page 380 recommends a means of ending a seemingly infinite loop, and a cascade of
+/// calculations (page 379) is one such loop that no single script's [`Budget`] sees (ADR 2506).
+/// A script that does not parse took no steps.
+pub fn run_counted<H: Host>(
+    source: &str,
+    host: &mut H,
+    budget: Budget,
+) -> (Result<Value, Stop>, u64) {
+    let script = match parse::parse(source) {
+        Ok(script) => script,
+        Err(error) => return (Err(Stop::Parse(error)), 0),
+    };
     let mut evaluator = Evaluator {
         host,
         budget,
@@ -206,13 +223,14 @@ pub fn run<H: Host>(source: &str, host: &mut H, budget: Budget) -> Result<Value,
         calls: 0,
         scopes: vec![Scope::default()],
     };
-    match evaluator.list(&script) {
+    let result = match evaluator.list(&script) {
         Ok(value) => Ok(value),
         Err(Signal::Stop(stop)) => Err(stop),
         Err(Signal::Break | Signal::Continue) => Err(Stop::Exception(
             "break or continue outside a loop".to_owned(),
         )),
-    }
+    };
+    (result, evaluator.steps)
 }
 
 /// What unwinds an evaluation: the end of a loop iteration, or a stop.

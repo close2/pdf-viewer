@@ -259,7 +259,7 @@ pub struct RedactPlan {
 /// # Errors
 ///
 /// [`Refusal::NoSuchSource`], [`Refusal::Reconstructed`] where the document's structure is only
-/// §C.4's recovery, [`Refusal::Assembly`] where the document is encrypted or cannot be
+/// this reader's recovery, [`Refusal::Assembly`] where the document is encrypted or cannot be
 /// rewritten, and [`Refusal::Sink`] where the output cannot be written.
 pub(crate) fn run(
     plan: &RedactPlan,

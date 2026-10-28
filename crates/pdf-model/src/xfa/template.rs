@@ -5,8 +5,9 @@
 //! containers — `subform`, `subformSet`, `field`, `exclGroup`, `area`, `pageSet`, `pageArea` —
 //! with each one's name, its `scope`, its `bind`, its `ui`, its `items`, its `occur`, its
 //! `value`'s type, its `locale`, the pictures of its `ui`, `bind` and `validate` and its
-//! `validate`'s tests and messages, and nothing of its layout or its scripts: those are RFC 0011
-//! section 5's later steps (ADRs 2396, 2414, 2450).
+//! `validate`'s tests and messages, the script and `override` of its `calculate` and its `event`
+//! elements' activity and script, and nothing of its layout: that is RFC 0011 section 5's later
+//! step (ADRs 2396, 2414, 2450, 2506).
 //!
 //! Two questions are answered from it. **Which container an `AcroForm` field is**: XFA 3.3 chapter
 //! 2, *Field Names* (pages 72–73), makes an XFAF form's PDF field name a SOM expression pointing
@@ -200,6 +201,47 @@ pub(crate) struct Script {
     pub(crate) text: String,
 }
 
+/// What a `calculate` element's `override` lets a person do to the calculated value (XFA 3.3
+/// pages 641–642).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Override {
+    /// The calculation is switched off, whatever anyone does.
+    Disabled,
+    /// The calculation is on and a person's attempt to set the value is an error, so the
+    /// calculated value stands. The default where a `calculate` element states none.
+    Error,
+    /// The calculated value is mandatory and a person's attempt to set it is ignored.
+    Ignore,
+    /// The calculated value is recommended: a person may override it after a warning.
+    Warning,
+}
+
+impl Override {
+    /// The value an `override` attribute states; an absent one or one outside the four takes
+    /// page 641's default for a `calculate` element that is written, `error`.
+    fn of(attribute: Option<&str>) -> Self {
+        match attribute.map(str::trim) {
+            Some("disabled") => Self::Disabled,
+            Some("ignore") => Self::Ignore,
+            Some("warning") => Self::Warning,
+            _ => Self::Error,
+        }
+    }
+}
+
+/// The `script` of one of a container's `event` elements (XFA 3.3 pages 390–391, 1539).
+#[derive(Debug, Clone)]
+pub(crate) struct Event {
+    /// The `activity` it fires on.
+    pub(crate) activity: String,
+    /// Whether its `ref` is the container itself: page 1539 gives the default as `$`, and an event
+    /// bound to another object is the inverted notation of page 404 that this reader does not
+    /// follow.
+    pub(crate) own: bool,
+    /// The script.
+    pub(crate) script: Script,
+}
+
 /// One container of the template.
 #[derive(Debug, Clone)]
 pub(crate) struct Container {
@@ -231,6 +273,10 @@ pub(crate) struct Container {
     pub(crate) occurs_variably: bool,
     /// Its `calculate`'s script, where it holds a non-blank one (page 379).
     pub(crate) calculation: Option<Script>,
+    /// Its `calculate`'s `override` (page 641).
+    pub(crate) calc_override: Override,
+    /// Its `event` elements that hold a non-blank script, in document order.
+    pub(crate) events: Vec<Event>,
     /// The container it is in; `None` for a top-level subform.
     pub(crate) parent: Option<usize>,
     /// Its own containers, in document order.
@@ -337,6 +383,8 @@ impl Template {
                 pictures: Pictures::default(),
                 occurs_variably: false,
                 calculation: None,
+                calc_override: Override::Error,
+                events: Vec::new(),
                 parent,
                 children: Vec::new(),
             };
@@ -692,16 +740,8 @@ fn read_properties(container: &mut Container, tree: &Tree, element: &Element) {
                     })
                     .unwrap_or_default();
             }
-            "calculate" => {
-                container.calculation = tree
-                    .child(child, "script")
-                    .and_then(|script| tree.get(script))
-                    .filter(|script| !script.text.trim().is_empty())
-                    .map(|script| Script {
-                        language: Language::of(script.attribute("contentType")),
-                        text: script.text.clone(),
-                    });
-            }
+            "event" => read_event(container, tree, child, property),
+            "calculate" => read_calculate(container, tree, child, property),
             "occur" => {
                 let bound = |name: &str, default: i64| {
                     property
@@ -715,6 +755,41 @@ fn read_properties(container: &mut Container, tree: &Tree, element: &Element) {
             _ => {}
         }
     }
+}
+
+/// The `script` of an `event` element, where it holds a non-blank one (XFA 3.3 pages 390–391).
+fn read_event(container: &mut Container, tree: &Tree, child: usize, event: &Element) {
+    let Some(script) = tree
+        .child(child, "script")
+        .and_then(|script| tree.get(script))
+        .filter(|script| !script.text.trim().is_empty())
+    else {
+        return;
+    };
+    container.events.push(Event {
+        activity: event.attribute("activity").unwrap_or_default().to_owned(),
+        own: event
+            .attribute("ref")
+            .is_none_or(|reference| reference.trim() == "$"),
+        script: Script {
+            language: Language::of(script.attribute("contentType")),
+            text: script.text.clone(),
+        },
+    });
+}
+
+/// A `calculate` element's `override` and its `script`, where it holds a non-blank one (XFA 3.3
+/// pages 379 and 641).
+fn read_calculate(container: &mut Container, tree: &Tree, child: usize, calculate: &Element) {
+    container.calc_override = Override::of(calculate.attribute("override"));
+    container.calculation = tree
+        .child(child, "script")
+        .and_then(|script| tree.get(script))
+        .filter(|script| !script.text.trim().is_empty())
+        .map(|script| Script {
+            language: Language::of(script.attribute("contentType")),
+            text: script.text.clone(),
+        });
 }
 
 /// The text of the `picture` element under `property`, where it states a non-empty one.

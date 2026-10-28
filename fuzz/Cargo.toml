@@ -321,3 +321,10 @@ path = "fuzz_targets/formcalc.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "formcalc_cascade"
+path = "fuzz_targets/formcalc_cascade.rs"
+test = false
+doc = false
+bench = false

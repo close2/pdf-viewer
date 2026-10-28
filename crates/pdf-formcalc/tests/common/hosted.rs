@@ -4,8 +4,8 @@
 //! include this file, so that what the census counts is what the test proves.
 
 use pdf_formcalc::parse::Separator;
-use pdf_formcalc::{Budget, Host, Occurrence, Segment, Stop, Value, run};
-use pdf_model::xfa::{Calculation, Form, Occurrence as Wanted, Scalar, Step};
+use pdf_formcalc::{Budget, Host, Occurrence, Segment, Stop, Value, run, run_counted};
+use pdf_model::xfa::{Calculation, Form, Occurrence as Wanted, Ran, Runner, Scalar, Step};
 
 /// A form and the container whose script runs.
 struct Hosted<'f, 'a> {
@@ -78,4 +78,29 @@ pub(crate) fn calculate(form: &mut Form<'_>, calculation: &Calculation) -> Resul
             .map_err(Stop::Exception)?;
     }
     Ok(value)
+}
+
+/// Runs a form's scripts for an activation (ADR 2506): each under the budget of one calculation,
+/// or what the activation has left of its steps if that is less.
+pub(crate) struct FormCalcRunner;
+
+impl Runner for FormCalcRunner {
+    fn run(&mut self, form: &mut Form<'_>, node: usize, script: &str, steps_left: u64) -> Ran {
+        let mut host = Hosted { form, here: node };
+        let budget = Budget {
+            steps: Budget::CALCULATION.steps.min(steps_left),
+            ..Budget::CALCULATION
+        };
+        let (outcome, steps) = run_counted(script, &mut host, budget);
+        Ran {
+            steps,
+            outcome: outcome
+                .map(|value| match value {
+                    Value::Null => Scalar::Null,
+                    Value::Number(n) => Scalar::Number(n),
+                    Value::String(text) => Scalar::Text(text),
+                })
+                .map_err(|stop| stop.to_string()),
+        }
+    }
 }

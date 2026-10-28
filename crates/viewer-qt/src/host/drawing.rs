@@ -61,7 +61,11 @@ impl Host {
             );
         }
         if self.playing.is_none() {
-            for placed in self.frames().iter().filter(|placed| placed.stands_in()) {
+            for placed in self
+                .frames()
+                .iter()
+                .filter(|placed| placed.waits_for_a_frame())
+            {
                 self.state
                     .trace
                     .say(Topic::Frames, format_args!("{placed}"));

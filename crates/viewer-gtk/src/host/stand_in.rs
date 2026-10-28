@@ -66,7 +66,9 @@ impl Host {
             // 1930).
             _ => self.state.oversized.place(
                 self.state.retained.fill(
-                    viewer_host::stand_in::placed(
+                    self.state.hold.placed(
+                        std::time::Instant::now(),
+                        focused,
                         viewer_host::drawing::over_frames(frames, partial, focused, geometry),
                         geometry,
                     ),
@@ -86,7 +88,7 @@ impl Host {
                     .any(|placed| std::ptr::eq(placed.frame.raster, partial.raster()))
             })
             .map(|partial| (partial.page(), partial.fraction()));
-        for placed in frames.iter().filter(|placed| placed.stands_in()) {
+        for placed in frames.iter().filter(|placed| placed.waits_for_a_frame()) {
             self.state
                 .trace
                 .say(Topic::Frames, format_args!("{placed}"));

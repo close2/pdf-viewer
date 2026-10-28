@@ -11,10 +11,20 @@
 //!
 //! Values are typed as chapter 4 types them, by the element the container's `value` holds: the
 //! numeric ones are numbers, the rest text, an empty value null.
+//!
+//! The order scripts run in, and the cascade that re-runs a calculation when a value it reads
+//! changes, are [`activate`]'s (XFA 3.3 pages 379–380 and 404–407; ADR 2506).
+
+use std::cell::RefCell;
+use std::collections::BTreeSet;
 
 use super::Resource;
 use super::datasets::Change;
-use super::template::{Class, Container, Language, Template};
+use super::template::{Class, Container, Language, Override, Template};
+
+pub use activate::{Activation, Ended, Limits, Ran, Runner, Stimulus};
+
+mod activate;
 
 /// A value a script reads from a container or assigns to one.
 #[derive(Debug, Clone, PartialEq)]
@@ -63,6 +73,8 @@ pub struct Calculation {
     /// Whether the result replaces the container's value: a field's and an exclusion group's does,
     /// a subform's is only the script's effect (page 379).
     pub sets_value: bool,
+    /// What the `calculate` element's `override` lets a person do to the value (page 641).
+    pub override_mode: Override,
 }
 
 /// The template's containers with the values the form holds in them, and what scripts assigned.
@@ -72,6 +84,17 @@ pub struct Form<'a> {
     values: Vec<Scalar>,
     names: Vec<Option<String>>,
     assigned: Vec<bool>,
+    /// The containers a path has resolved to since [`Self::take_resolved`], which is what a
+    /// script reads and so what its calculation depends on (page 380).
+    resolved: RefCell<BTreeSet<usize>>,
+    /// The containers whose value an assignment changed since [`Self::take_changed`].
+    changed: BTreeSet<usize>,
+    /// How many more bytes of text assignments may store: every assignment is charged its text's
+    /// length whether or not it overwrites one, so the form never holds more than it was given
+    /// (principle 3). Unlimited until [`Self::limit_text`].
+    text_room: u64,
+    /// Whether an assignment was refused for want of [`Self::text_room`].
+    text_exhausted: bool,
 }
 
 impl Resource {
@@ -91,6 +114,10 @@ impl<'a> Form<'a> {
             values: vec![Scalar::Null; size],
             names: vec![None; size],
             assigned: vec![false; size],
+            resolved: RefCell::new(BTreeSet::new()),
+            changed: BTreeSet::new(),
+            text_room: u64::MAX,
+            text_exhausted: false,
         };
         for (name, change) in fields {
             let Some(at) = template.resolve(name) else {
@@ -122,6 +149,7 @@ impl<'a> Form<'a> {
                     language: script.language.clone(),
                     script: script.text.clone(),
                     sets_value: matches!(container.class, Class::Field | Class::ExclGroup),
+                    override_mode: container.calc_override,
                 })
             })
             .collect()
@@ -139,6 +167,13 @@ impl<'a> Form<'a> {
     /// A sentence naming the part of SOM this form does not follow: a qualified reference other
     /// than `$`, or the `parent` property.
     pub fn resolve(&self, here: usize, path: &[Step]) -> Result<Vec<usize>, String> {
+        let found = self.resolve_path(here, path)?;
+        self.resolved.borrow_mut().extend(found.iter().copied());
+        Ok(found)
+    }
+
+    /// The containers `resolve` records and returns.
+    fn resolve_path(&self, here: usize, path: &[Step]) -> Result<Vec<usize>, String> {
         let Some((first, rest)) = path.split_first() else {
             return Ok(Vec::new());
         };
@@ -225,11 +260,58 @@ impl<'a> Form<'a> {
         if !matches!(class, Class::Field | Class::ExclGroup) {
             return Err(format!("a {} holds no value (page 379)", class.name()));
         }
+        if let Scalar::Text(text) = &value {
+            let cost = u64::try_from(text.len()).unwrap_or(u64::MAX);
+            if cost > self.text_room {
+                self.text_exhausted = true;
+                return Err("the activation ran out of room for text".to_owned());
+            }
+            self.text_room = self.text_room.saturating_sub(cost);
+        }
         if let (Some(slot), Some(flag)) = (self.values.get_mut(node), self.assigned.get_mut(node)) {
+            if *slot != value {
+                self.changed.insert(node);
+            }
             *slot = value;
             *flag = true;
         }
         Ok(())
+    }
+
+    /// Limits the text assignments store from here on to `bytes` in all; an assignment past it is
+    /// refused with an error the script sees, and [`Self::take_text_exhausted`] says so.
+    pub fn limit_text(&mut self, bytes: u64) {
+        self.text_room = bytes;
+    }
+
+    /// How many bytes of text assignments may still be stored.
+    #[must_use]
+    pub fn text_room(&self) -> u64 {
+        self.text_room
+    }
+
+    /// Whether an assignment was refused for want of room since the last call.
+    pub fn take_text_exhausted(&mut self) -> bool {
+        std::mem::take(&mut self.text_exhausted)
+    }
+
+    /// The containers [`Self::resolve`] has returned since the last call, which are the ones a
+    /// script named and so the ones its result depends on.
+    pub fn take_resolved(&self) -> BTreeSet<usize> {
+        std::mem::take(&mut *self.resolved.borrow_mut())
+    }
+
+    /// The containers whose value a [`Self::set`] changed since the last call.
+    pub fn take_changed(&mut self) -> BTreeSet<usize> {
+        std::mem::take(&mut self.changed)
+    }
+
+    /// The container the PDF field `name` is, where the field list the form was made from named it.
+    #[must_use]
+    pub fn named(&self, name: &str) -> Option<usize> {
+        self.names
+            .iter()
+            .position(|named| named.as_deref() == Some(name))
     }
 
     /// What scripts assigned: the PDF name of each container that has one, with its value, in

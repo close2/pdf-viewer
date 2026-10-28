@@ -466,6 +466,47 @@ pub struct MissingResource {
     pub what: &'static str,
 }
 
+/// A resource one content stream named that the resources it was read against did not define.
+///
+/// [`MissingResource`] is one record per name per page, which is what a finding about the page
+/// needs; this is one per name per stream, which is what a rewrite that adds the entry needs,
+/// because it has to know whose dictionary to add it to (`doc/adr/2500`).
+#[derive(Debug, Clone)]
+pub struct MissingInStream {
+    /// The zero-based index of the page whose rendering reached the stream.
+    pub page: usize,
+    /// The subdictionary of the resources it should have been in.
+    pub category: &'static str,
+    /// The name the content stream used.
+    pub name: Vec<u8>,
+    /// What kind of stream named it, as [`OpenedStream::what`] states.
+    pub what: &'static str,
+    /// The stream object whose content named it; `None` for a page's own `/Contents` and for a
+    /// soft mask's group, which the walk holds resolved rather than by reference.
+    pub object: Option<ObjectId>,
+    /// Whether the dictionary it was looked up in was the stream's own, rather than the page's
+    /// that ISO 32000-2 §7.8.3 hands a form stating none.
+    pub own_resources: bool,
+}
+
+/// A text-showing operator that ran under a font name nothing defined and was more than its glyphs.
+///
+/// This reader draws no glyph for such a name (`doc/adr/0255`). A font that draws no glyph and has
+/// every width zero reproduces that for a plain show; it does not where the operator moves the
+/// position by more than the widths (a nonzero character or word spacing, a `TJ` adjustment, the
+/// line a `'` or `"` starts) or adds the glyphs to the clipping path. The reader moves the position
+/// for a `TJ` adjustment and for the line of a `'` with no font in force, which the empty font
+/// would not reproduce at width zero, so each is recorded and none is lifted (`doc/adr/2500`).
+#[derive(Debug, Clone)]
+pub struct MovingShow {
+    /// The zero-based index of the page whose rendering reached the stream.
+    pub page: usize,
+    /// The font name the content stream used.
+    pub name: Vec<u8>,
+    /// The stream object whose content ran it, as [`MissingInStream::object`] states.
+    pub object: Option<ObjectId>,
+}
+
 /// One `/Lang` a marked-content property list stated, with the page that stated it.
 ///
 /// ISO 19005-2 section 6.7.4 binds a `/Lang` in three places — the catalog, a structure element
@@ -766,6 +807,11 @@ pub struct Survey {
     transparent: BTreeSet<usize>,
     /// Every named resource a content stream referenced and its resources did not define.
     missing: Vec<MissingResource>,
+    /// The same misses once per stream that made them, for the rewrite that supplies them.
+    missing_in: Vec<MissingInStream>,
+    /// The text-showing operators that ran under a font name nothing defined and moved more than
+    /// the glyphs' widths.
+    moving_shows: Vec<MovingShow>,
     /// Every inline image the walk read, with the page that draws it.
     inline_images: Vec<(usize, Dictionary)>,
     /// Every operand the rendering intent operator was given, with the page it ran on.
@@ -869,6 +915,20 @@ impl Survey {
     #[must_use]
     pub fn missing_resources(&self) -> &[MissingResource] {
         &self.missing
+    }
+
+    /// Every named resource a content stream referenced that its resources did not define, once
+    /// for each stream that did.
+    #[must_use]
+    pub fn missing_in_streams(&self) -> &[MissingInStream] {
+        &self.missing_in
+    }
+
+    /// The text-showing operators that ran under a font name nothing defined and did more than
+    /// show glyphs, once for each stream and name.
+    #[must_use]
+    pub fn moving_shows(&self) -> &[MovingShow] {
+        &self.moving_shows
     }
 
     /// Every inline image the walk read, as the image dictionary an `XObject` would have had.
@@ -1051,6 +1111,10 @@ struct State {
     font: Option<Vec<u8>>,
     /// ISO 32000-2 §9.3.6's text rendering mode, from `Tr`.
     mode: i64,
+    /// Whether `Tc` set a character spacing other than zero (§9.3.2).
+    char_spaced: bool,
+    /// Whether `Tw` set a word spacing other than zero (§9.3.3).
+    word_spaced: bool,
     /// What the fill colour space is, as far as this walk tells them apart.
     fill: Selected,
     /// The same for the stroke colour space.
@@ -1064,6 +1128,17 @@ struct State {
     overprint: Overprint,
     /// ISO 32000-2 §11.3.4's current blending colour space, where a group established one.
     blending: Blending,
+}
+
+impl State {
+    /// Records whether `Tw` (`word`) or `Tc` was set to a value other than zero.
+    fn set_spacing(&mut self, word: bool, nonzero: bool) {
+        if word {
+            self.word_spaced = nonzero;
+        } else {
+            self.char_spaced = nonzero;
+        }
+    }
 }
 
 /// Which kind of CMYK space a side's colour space is, for ISO 32000-2 §8.6.7's overprint mode.
@@ -1145,7 +1220,19 @@ enum Operator {
     /// `Tr`
     SetRenderMode,
     /// `Tj`, `TJ`, `'` or `"`.
-    Show,
+    Show {
+        /// Whether the operator moves the text position by more than the string's own advance:
+        /// `'` and `"` start a line first.
+        starts_line: bool,
+        /// Whether the operator sets the word and character spacing from its operands, which
+        /// `"` does (ISO 32000-2 §9.4.3, Table 107).
+        sets_spacing: bool,
+    },
+    /// `Tc` or `Tw`, with which of the two.
+    SetSpacing {
+        /// Whether it is `Tw`, the word spacing.
+        word: bool,
+    },
     /// `Do`
     Invoke,
     /// `gs`
@@ -1199,7 +1286,7 @@ impl Operator {
             Self::Restore => "Q",
             Self::SetFont => "Tf",
             Self::SetRenderMode => "Tr",
-            Self::Show => "a text-showing operator",
+            Self::Show { .. } => "a text-showing operator",
             Self::Invoke => "Do",
             Self::SetGraphicsState => "gs",
             Self::SetSpace { stroking: true } => "CS",
@@ -1214,7 +1301,9 @@ impl Operator {
             Self::BeginMarked => "BMC or BDC",
             Self::EndMarked => "EMC",
             Self::MarkedPoint => "DP",
-            Self::Other => "an operator this walk ignores",
+            // `Tc` and `Tw` share the word the ledger's twin spells for the operators a walk does
+            // not select a resource through.
+            Self::SetSpacing { .. } | Self::Other => "an operator this walk ignores",
         }
     }
 }
@@ -1301,7 +1390,20 @@ fn keyword(word: &[u8]) -> Option<Operator> {
         b"Q" => Operator::Restore,
         b"Tf" => Operator::SetFont,
         b"Tr" => Operator::SetRenderMode,
-        b"Tj" | b"TJ" | b"'" | b"\"" => Operator::Show,
+        b"Tj" | b"TJ" => Operator::Show {
+            starts_line: false,
+            sets_spacing: false,
+        },
+        b"'" => Operator::Show {
+            starts_line: true,
+            sets_spacing: false,
+        },
+        b"\"" => Operator::Show {
+            starts_line: true,
+            sets_spacing: true,
+        },
+        b"Tc" => Operator::SetSpacing { word: false },
+        b"Tw" => Operator::SetSpacing { word: true },
         b"Do" => Operator::Invoke,
         b"gs" => Operator::SetGraphicsState,
         b"cs" => Operator::SetSpace { stroking: false },
@@ -1336,8 +1438,9 @@ fn keyword(word: &[u8]) -> Option<Operator> {
         // state this walk carries; they are listed so that the fall-through means what it says.
         b"BT" | b"BX" | b"c" | b"cm" | b"d" | b"d0" | b"d1" | b"EI" | b"ET" | b"EX" | b"h"
         | b"i" | b"ID" | b"j" | b"J" | b"l" | b"m" | b"M" | b"MP" | b"n" | b"re" | b"T*"
-        | b"Tc" | b"Td" | b"TD" | b"TL" | b"Tm" | b"Ts" | b"Tw" | b"Tz" | b"v" | b"w" | b"W"
-        | b"W*" | b"y" => Operator::Other,
+        | b"Td" | b"TD" | b"TL" | b"Tm" | b"Ts" | b"Tz" | b"v" | b"w" | b"W" | b"W*" | b"y" => {
+            Operator::Other
+        }
         _ => return None,
     };
     Some(operator)
@@ -1443,6 +1546,11 @@ enum Observation {
     Group(usize, SpaceKind, DefaultSpace),
     /// A named resource the resources in force did not define.
     Missing(usize, &'static str, String),
+    /// The same, for one content stream: the page, the category, the name and the stream object.
+    MissingIn(usize, &'static str, Vec<u8>, Option<ObjectId>),
+    /// A text-showing operator under a missing font that moved more than the widths: the page,
+    /// the font name and the stream object.
+    MovingShow(usize, Vec<u8>, Option<ObjectId>),
     /// A rendering intent operator's operand.
     Intent(usize, Vec<u8>),
     /// An `ICCBased` colour space selection, by the route, the profile and the blending profile.
@@ -1517,6 +1625,9 @@ struct Operands<'a> {
     strings: &'a [Vec<u8>],
     /// The last integer.
     integer: Option<i64>,
+    /// Whether any numeric operand was other than zero: what `Tc` and `Tw` set, and what a `TJ`
+    /// array's adjustments move the text position by.
+    nonzero: bool,
     /// §14.6.2's property list, where one was written into the operands rather than named.
     property: Option<&'a Dictionary>,
 }

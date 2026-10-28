@@ -134,6 +134,12 @@ impl Host {
         self.tell_the_adapter_where_the_window_is();
     }
 
+    /// The refresh rate of the display the window is on, as Qt has just reported it, which is how
+    /// long a zoom command's old picture is held (`viewer_host::stand_in::Hold`, ADR 2510).
+    pub(crate) fn display_refreshed(&mut self, millihertz: i32) {
+        self.state.hold.refresh_is(u32::try_from(millihertz).ok());
+    }
+
     /// Where the page area now sits in the window's contents, in device pixels, as Qt has just
     /// reported it (ADR 1528).
     ///

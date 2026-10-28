@@ -1014,6 +1014,11 @@ cd fuzz && cargo +nightly fuzz run formcalc     -- -max_total_time=600 -rss_limi
   # XFA 3.3 chapter 25's `FormCalc` lexed, parsed and evaluated over a small form under a budget
   # (ADR 2482): the budgets hold, a run is a function of its input, and a script that does not
   # parse assigns nothing. Seeded by `fuzz/seed_formcalc.py` from the chapter's example shapes.
+cd fuzz && cargo +nightly fuzz run formcalc_cascade -- -max_total_time=600 -rss_limit_mb=2048 -timeout=20 -max_len=4096
+  # A hybrid form's `FormCalc` calculations activated in XFA 3.3 page 379's order and cascaded by
+  # dependency under the activation's limits (ADR 2506): it ends, a limit drops the edits, the
+  # count of scripts and the report hold their bounds, and an activation is a function of its form.
+  # Seeded by `fuzz/seed_formcalc_cascade.py` with chains, cycles, fan-outs and refusals.
 # **A campaign runs the targets without the sanitiser, under the lock and `tools/bounded.sh`.** The
 # crates a fuzz target reaches forbid `unsafe`, so what AddressSanitizer adds over Rust's own checks
 # is a dependency's unsafe code, and what it costs is the shadow memory that `tools/bounded.sh`'s

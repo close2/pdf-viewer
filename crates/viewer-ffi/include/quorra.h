@@ -1938,6 +1938,7 @@ int32_t quorra_collection_folder_of(const char *key, uint32_t *id, char *out, si
  *                      quorra_window_zoom_wheel(window, travel, QUORRA_WHEEL_*, x, y, &steps);
  *   on the timer:      quorra_window_tick(window);
  *   on hiding, showing: quorra_window_shown(window, shown);
+ *   on a resize and a move to another display: quorra_window_refresh(window, millihertz);
  *   after each of those: quorra_window_take_owed(window, &owed), act on each record,
  *                      quorra_owed_free(owed), and arm the timer at quorra_window_interval(window)
  *                      milliseconds, or stop it at -1;
@@ -2091,6 +2092,10 @@ void quorra_window_free(quorra_window *window);
 /* The viewport in device pixels, at `scale` device pixels per logical pixel.
  * QUORRA_NUMBER_OUT_OF_RANGE for an empty viewport or a scale that is not finite and positive. */
 int32_t quorra_window_resize(quorra_window *window, uint32_t width, uint32_t height, float scale);
+/* The refresh rate of the display the window is on, in millihertz, 0 where the platform states none
+ * (a sixtieth of a second is assumed). It is how long a zoom command's old picture is kept before the
+ * scaled stand-in takes its place: one refresh of the display. */
+int32_t quorra_window_refresh(quorra_window *window, uint32_t millihertz);
 /* One look at what runs beside the window, when quorra_window_interval said. */
 int32_t quorra_window_tick(quorra_window *window);
 /* Milliseconds until the window wants quorra_window_tick, or -1 while nothing runs beside it. */

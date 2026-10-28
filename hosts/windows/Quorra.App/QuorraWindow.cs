@@ -186,6 +186,10 @@ internal sealed unsafe partial class QuorraWindow : IDisposable
     internal void Resize(uint width, uint height, float scale) =>
         Library.Check("quorra_window_resize", Native.quorra_window_resize(handle, width, height, scale));
 
+    /// <summary>The refresh of the display the window is on, in millihertz, or 0 where it states none (ADR 2510).</summary>
+    internal void Refresh(uint millihertz) =>
+        Library.Check("quorra_window_refresh", Native.quorra_window_refresh(handle, millihertz));
+
     /// <summary>Effective chrome after document preferences and presentation mode are resolved.</summary>
     internal WindowChrome Chrome
     {

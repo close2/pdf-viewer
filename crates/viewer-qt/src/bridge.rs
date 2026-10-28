@@ -1069,6 +1069,10 @@ pub mod ffi {
         /// being asked for per page: `viewer-ui` measured the same two questions at 1.8 to 3.2 ms
         /// of synchronous X11 round trips when it asked them on every page turn (ADR 0228).
         fn window_placed(self: &mut Host, outer: QtPlace, inner: QtPlace);
+        /// The display the window is on refreshes at this rate, in millihertz, or `0` where Qt
+        /// states none: `QScreen::refreshRate`, told with the placement it goes with, because a
+        /// window changes display by moving (ADR 2510).
+        fn display_refreshed(self: &mut Host, millihertz: i32);
         /// The window gained or lost the keyboard: `QEvent::ActivationChange`, with
         /// `QWidget::isActiveWindow` after it.
         ///

@@ -28,6 +28,12 @@ name = "as-shown"
 sentence = "Discard what this viewer's window would not have shown of a page; touch nothing it would."
 catalogue = "doc/pdf-a-mitigations.md"
 default = "stop"
+# A document whose trailer, catalog or page tree node states no page tree is written out as the
+# structure this viewer recovered, the loss `recovered-structure`: a catalog and one page tree node listing the
+# pages it found, each page the producer's. The standard defines no such recovery, so this is a
+# loss by name and not a repair, and both profiles carry it because both draw the pages the
+# viewer found (ADR 2490, ADR 2502). It is no site's key: the refusal it lifts is the source's.
+recovered-structure = "discard"
 
 # ---------------------------------------------------------------------------------------------
 # Attachments. Paper carries none. Note that the answer is still `preserve` wherever preserving is
@@ -151,6 +157,15 @@ remedy = "discard"
 on-missing-password = "stop"
 
 [site."file-structure/crypt-filter-is-identity"]
+remedy = "discard"
+
+# An image's /Interpolate true. ISO 32000-2 8.9.5.3 says "this is only a hint, and a PDF processor
+# may ignore it", but this viewer honours the hint: a low-resolution image magnified in its window
+# is drawn smoothed, and in the output, with the entry false, it is drawn from the nearest sample.
+# The loss is real under this profile and is named in the report and in xmpMM:History (ADR 2490,
+# ADR 2498). An inline image's /I is inside a content stream, which this converter does not edit,
+# and stays refused.
+[site."graphics/image-interpolation-is-off"]
 remedy = "discard"
 
 # One ink defined two ways. On the device this profile is named for the choice is immaterial:
@@ -326,6 +341,9 @@ remedy = "discard"
 #                                  where it drew the shipped face narrowed to the file's widths,
 #                                  embedding the face unmodified draws each glyph wider than the
 #                                  window did, the loss substitute-stretch (A566, doc/adr/2262);
+#                                  where it set a font the file describes by nothing at the metrics
+#                                  its name resembles, the widths written are the viewer's, the loss
+#                                  layout-from-this-viewer (A687, doc/adr/2504);
 #                                  a page photographed for text no reader can name is answered
 #                                  above, by text-as-image alone (doc/adr/2394)
 #   fonts/*                        the window drew glyphs; every font refusal stays. A TrueType

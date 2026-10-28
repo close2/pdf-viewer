@@ -437,6 +437,7 @@ fn a_window_drawn_ahead_of_its_page_is_its_only_picture_until_the_page_lands() {
             },
             extent: (request.target.width, request.target.height),
             retained: false,
+            held: false,
         }]
     };
     held.ahead(&request, window, red_of(window));

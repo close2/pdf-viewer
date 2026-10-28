@@ -428,6 +428,24 @@ ISO 19005-2 5.1, ISO 19005-4 5.1 · all six · today `the-fence` (ADR 2444)
 - **From a configuration** — nothing.
 - **Departure** — **C**: the output would state a page tree no reader can walk.
 
+### A document declined as a source: the loss `recovered-structure`
+Not a requirement of ISO 19005: the verb's own refusal of a trailer, catalog or page tree node that states no page
+tree (ISO 32000-2 §7.5.5's Table 15, §7.7.2's Table 29) · **built** (ADR 2502)
+
+- **What was built.** The standard defines no recovery of a missing catalog or page tree (its Annex
+  C.4 is advice on rebuilding a damaged cross-reference table), so the recovery is this reader's
+  own choice, and a conversion that writes it says so. Where the loss is authorised the verb writes
+  a catalog (the producer's dictionary where `/Root` resolves to one) and one `/Pages` node listing
+  the pages this reader draws, each page carried as the source states it with `/Parent` restated
+  and the §7.7.3.4 inheritable entries copied down from its old ancestors. The loss is named per
+  document, in the report and in `xmpMM:History`.
+- **By target** — none.
+- **From a configuration** — `[profile] recovered-structure = "discard"`, a key of the profile and
+  not of a site; both shipped profiles carry it. Any other value leaves the refusal.
+- **Still refused, by name** — an encrypted or signed source, one that states more pages than the reader reached, a page that is no indirect dictionary
+  parsed whole, a source this reader draws no page of. `optimize` and `redact` keep the decline.
+- **Departure** — not needed.
+
 ---
 
 ## 3. Implementation limits — ten requirements with one argument and one exception
@@ -1087,6 +1105,20 @@ ISO 19005-2 6.2.8.3, ISO 19005-4 6.2.7.3 · all six · **delegated** to the sect
 - **Mitigation** — theirs: an output intent, or a default colour space, as section 4.1 and the
   section 6.2.4.3 rows answer them.
 
+#### `graphics/image-interpolation-is-off`
+ISO 19005-2 6.2.8.1, ISO 19005-4 6.2.7.1 · all six · **built** (ADR 2498)
+
+- **Mitigation** — the image dictionary's `/Interpolate` is written false; the loss `image-smoothing`
+  is named in the report and in one `xmpMM:History` entry that counts the images and names the
+  first twenty.
+- **By target** — none; both parts state the rule.
+- **From a configuration** — `remedy = "discard"` at the site; both shipped profiles carry it. Under
+  `as-shown` the loss is real, because this viewer honours the hint (section 4.7 of
+  `doc/pdf-a-conversion-limits.md`); under `as-if-printed` a print carried none of it. The loss can
+  be authorised on the command line as `--authorise image-smoothing`.
+- **Departure** — **B**, and close to free; the inline form below is the one this converter cannot
+  reach.
+
 #### `graphics/inline-image-interpolation-is-off`
 ISO 19005-2 6.2.8.1, ISO 19005-4 6.2.7.1 · all six · today `the-fence`
 
@@ -1172,36 +1204,44 @@ ISO 19005-2 6.2.2, ISO 19005-4 6.2.2 · all six · today `the-fence`
   cheaply, and it separates a safe departure from an unsafe one along the standard's own line.
 
 #### `graphics/content-streams-have-an-explicit-resources-dictionary`
-ISO 19005-2 6.2.2, ISO 19005-4 6.2.2 · all six · **page half built in session 957**
-(`Mechanical`); the form `XObject` half is now `the-fence`
+ISO 19005-2 6.2.2, ISO 19005-4 6.2.2 · all six · **built** (`Mechanical`): the page in session 957, a
+form `XObject`, a tiling pattern and an annotation appearance in ADR 2500; a Type 3 glyph procedure
+and a form reached from pages whose resources differ are `NotBuiltYet`
 
-- **Mitigation** — two cases. For a **page**, the dictionary is usually inherited through the page
-  tree (§7.7.3.4) and copying it down changes nothing a reader resolves: mechanical, **owed, not
-  optional**. For a **form XObject or a Type 3 glyph procedure** with none, what it draws with
-  depends on the stream that invoked it, and one dictionary cannot answer for every invocation —
-  **no mitigation**, unless every invocation happens to resolve the same names to the same objects,
-  which is a computed predicate a rewrite could check.
+- **Mitigation** — three cases. For a **page**, the dictionary is usually inherited through the page
+  tree (§7.7.3.4) and copying it down changes nothing a reader resolves. For a **form XObject, a
+  tiling pattern or an annotation appearance** with none, §7.8.3's last bullet ends the search at
+  the resource dictionary of the page it is used on, so that dictionary written into the stream's
+  own dictionary (the reference where the page's is an object, a copy where it is direct) changes no
+  name's resolution. For a **Type 3 glyph procedure** the search ends at the font dictionary's, a
+  dictionary several glyph procedures and pages share, and a stream reached from pages whose
+  dictionaries differ needs a copy of the stream for each page: both are owed and refused by name.
 - **By target** — none.
-- **From a configuration** — nothing for the page case. For the second case an operator could
-  authorise *"synthesise from the union of the invoking streams' resources where they agree"*, which
-  is a rewrite with a proof rather than a policy — so it belongs in code with a report line, not in
-  a configuration.
-- **Departure** — **B** for the inherited-page case, which is a bookkeeping rule; **C** for the form
-  XObject case, because a stream whose names nothing resolves does not determine its own appearance.
+- **From a configuration** — nothing.
+- **Departure** — none for the built cases, which meet the requirement; **C** for the two refused
+  cases until the copy exists.
 
 #### `graphics/named-resources-are-defined`
-ISO 19005-2 6.2.2, ISO 19005-4 6.2.2 · all six · today `the-fence`
+ISO 19005-2 6.2.2, ISO 19005-4 6.2.2 · all six · **built** (`Mechanical`, ADR 2500) for the
+categories that have an empty value
 
-- **Mitigation** — **none, and this is one of the clearest.** Supplying the resource invents an
-  object the producer never wrote; taking the reference off the page edits the content stream.
-  §7.8.3 makes the resources dictionary what a name is resolved through, so nothing in the file says
-  what the missing one was.
-- **By target** — none.
-- **From a configuration** — nothing. `supply` does not reach it either: an operator naming a
-  replacement font or colour space for a name the producer left dangling is guessing exactly as this
-  program would be, with less information.
-- **Departure** — **C**. This is the format's central promise — the file determines its own
-  appearance — failing in the smallest possible way.
+- **Mitigation** — the reader draws nothing for a name nothing defines, and a resource of the
+  category that draws nothing reproduces that without editing a content stream. An `ExtGState`
+  gets an empty graphics state parameter dictionary (§8.4.5, Table 57 lists every entry optional);
+  an `XObject` gets one shared form whose `/BBox` has no area (§8.10.2, Table 93: the form is
+  clipped to it); a `Font` gets one shared Type 3 font whose single glyph procedure paints nothing
+  at width zero (§9.6.4, Tables 110 and 111), **only where every show under the name moved the
+  text by no more than its widths** — a nonzero character or word spacing, a `TJ` adjustment, a
+  `'` or `"`, or a clipping render mode refuses the font by name, because the font would move what
+  the reader did not. One of the fourteen standard names (§9.6.2.2), which the reader draws from its own faces, gets a plain `Type1` font of that name instead. A `ColorSpace`, a `Pattern` or a `Shading` has no empty value in the
+  standard (a pattern that paints nothing and a shading that covers nothing are inventions of what
+  the producer meant) and stays refused by name, as does a name looked up by a Type 3 glyph
+  procedure or a soft mask's group.
+- **By target** — none; a Type 3 font carries no `/ToUnicode`, so the output is held to `2u` and
+  `2a` by the output check and is refused there where the text it stands for needs one.
+- **From a configuration** — nothing.
+- **Departure** — none for the built categories, which meet the requirement; **C** for the refused
+  ones, where the file does not determine the appearance the reader drew.
 
 ---
 
@@ -1214,9 +1254,10 @@ it looks, and two of them have mitigations nobody had written down.
 
 #### `fonts/font-programs-embedded`
 ISO 19005-2 6.2.11.4.1, ISO 19005-4 6.2.10.4.1 · all six · `Stated`, the loss `machine-face`
-where a font is drawn from this machine's face, and the loss `substitute-stretch` where the shipped
-face is drawn narrowed to the file's widths, **built** (`doc/questions/A47`, `A566`, ADRs 1209,
-2146, 2147, 2162, 2262, 2278, 2279)
+where a font is drawn from this machine's face, the loss `substitute-stretch` where the shipped
+face is drawn narrowed to the file's widths, and the loss `layout-from-this-viewer` where the
+widths are the viewer's, **built** (`doc/questions/A47`, `A566`, `A687`, ADRs 1209,
+2146, 2147, 2162, 2262, 2278, 2279, 2504)
 
 - **A font the file names and does not carry** gets one of the faces this program ships, embedded
   and reported, with the face's own advances or the program restated to the file's widths
@@ -1228,6 +1269,15 @@ face is drawn narrowed to the file's widths, **built** (`doc/questions/A47`, `A5
   `WinAnsiEncoding` where section 6.2.11.6 asks — including an admitted base whose `Differences`
   names a glyph the Adobe Glyph List does not hold, `.notdef` above all (ADR 2278). The font is read
   back and held to the source code by code before anything is written (ADR 2146).
+- **A simple font outside the standard 14 that states neither a descriptor nor `/Widths`** (`/Arial`,
+  `/Tahoma`, `/Monaco`; subtype `Type1`, `MMType1` or `TrueType`) is given the face the viewer draws
+  it from, a descriptor and the widths the viewer lays it out by, on the same proof as the 14. The
+  standard states no layout for such a name, so the widths are this viewer's and the loss is
+  `layout-from-this-viewer`: `as-if-printed` answers `discard`, `as-shown` leaves it at `stop`
+  (`doc/questions/A687`, ADR 2504). A font naming no `/BaseFont` is given one equal to the
+  descriptor's `/FontName` (Table 120), the PostScript name the embedded program states (ADR 2505); one that states `/Widths`
+  without a descriptor, a subtype of another kind or a `/BaseFont` that is no name stays refused,
+  each by its own sentence.
 - **A dictionary of the other kind from its face** (a `TrueType` Times New Roman given Foxit's CFF
   serif) is restated as the face's kind, on the same proof (ADR 2147). A `Type1` dictionary restated
   as `TrueType` has its descriptor copy flagged Nonsymbolic and not Symbolic, since its encoding is
@@ -2656,8 +2706,6 @@ four shapes, and the shapes are more useful than the list:
   `fonts/actual-text-covers-private-use-characters`, and nine of the ten implementation limits.
 - **The file states two things and nothing says which the producer meant**:
   `fonts/cid-system-info-agrees-with-the-cmap`, `file-structure/bound-names-are-valid-utf8`,
-  `graphics/named-resources-are-defined`,
-  `graphics/content-streams-have-an-explicit-resources-dictionary` in its form XObject half,
   `annotations/normal-appearance-shape` where no `/AS` is stated.
 - **The remedy would be a wrong glyph, and a wrong glyph is not a remedy**:
   `fonts/embedded-programs-define-every-glyph-shown`, `fonts/no-notdef-glyph-shown`, the four
@@ -2690,9 +2738,11 @@ and are struck from the list here as they were struck from `decision.rs`'s `REFU
   `graphics/annotation-blend-modes-are-defined` — `Stated`, **the array half only**; a bare name
   the standard does not define keeps its refusal, with a sentence that now says which half is
   which.
-- `graphics/content-streams-have-an-explicit-resources-dictionary` — `Mechanical`, **the page half
-  only**; the form `XObject` half is refused by the fence, because one dictionary cannot answer for
-  every invocation.
+- `graphics/content-streams-have-an-explicit-resources-dictionary` — `Mechanical`, for a page and
+  (ADR 2500) for a form `XObject`, a tiling pattern and an annotation appearance; a Type 3 glyph
+  procedure and a form reached from pages whose resources differ are refused as not built yet.
+- `graphics/named-resources-are-defined` — `Mechanical` (ADR 2500) for an `ExtGState`, an `XObject`
+  and a `Font` whose shows moved nothing but widths; refused by name for the rest.
 - `annotations/normal-appearance-shape` — `Stated`, **where the annotation states an `/AS`**.
 - `optional-content/order-lists-every-group` — `Mechanical`. Its neighbour
   `optional-content/configuration-names` is answered by a `supply` since ADR 1952, and refused

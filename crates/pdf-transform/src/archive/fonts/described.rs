@@ -368,6 +368,72 @@ fn shipped_glyph(face: &ShippedFace, code: Code) -> Option<u16> {
         .and_then(|byte| face.glyph(byte))
 }
 
+/// What a font dictionary is told once its descriptor exists.
+struct Restated<'a> {
+    /// The descriptor the dictionary now refers to.
+    descriptor_at: ObjectId,
+    /// The subtype the shipped face's program goes under.
+    subtype: &'static str,
+    /// The subtype the file stated.
+    stated_subtype: &'a str,
+    /// The name the descriptor was written with.
+    font_name: &'a [u8],
+    /// Whether the file named the font itself or left the name to this viewer.
+    layout: &'a Layout,
+}
+
+/// The entries a font dictionary gains or restates for its new descriptor.
+fn restated_entries(
+    document: &Document,
+    used: &SelectedFont,
+    restated: &Restated<'_>,
+    encoding: Option<Dictionary>,
+    source: &LoadedFont,
+) -> Dictionary {
+    let Restated {
+        descriptor_at,
+        subtype,
+        stated_subtype,
+        font_name,
+        layout,
+    } = restated;
+    let mut entries = Dictionary::new();
+    entries.insert(
+        Name::new(&b"FontDescriptor"[..]),
+        Object::Reference(*descriptor_at),
+    );
+    if subtype != stated_subtype {
+        entries.insert(
+            Name::new(&b"Subtype"[..]),
+            Object::Name(Name::new(subtype.as_bytes())),
+        );
+    }
+    // Table 120's `/FontName` row: the descriptor's name "shall be the same as the value of
+    // BaseFont in the font or CIDFont dictionary that refers to this font descriptor". A font that
+    // stated no `/BaseFont` is given the name its descriptor was written with (`doc/adr/2504`).
+    if layout.supplies_base_font() {
+        entries.insert(
+            Name::new(&b"BaseFont"[..]),
+            Object::Name(Name::new(*font_name)),
+        );
+    }
+    if let Some(restated) = encoding {
+        entries.insert(Name::new(&b"Encoding"[..]), Object::Dictionary(restated));
+    }
+    // **The widths the page is laid out by, stated, because the descriptor obliges them.** Table
+    // 109's `/FontDescriptor` row: "For the standard 14 fonts, the entries FirstChar, LastChar,
+    // Widths , and FontDescriptor shall either all be present or all be absent." A file that wrote
+    // `/Widths` keeps them; one that relied on the permission is given the numbers the viewer laid
+    // it out with, which is the one `/Widths` that moves nothing (`doc/adr/2146`).
+    if document.get_key(&used.dict, "Widths").is_null() {
+        let (first, last, widths) = laid_out_widths(source);
+        entries.insert(Name::new(&b"FirstChar"[..]), Object::Integer(first.into()));
+        entries.insert(Name::new(&b"LastChar"[..]), Object::Integer(last.into()));
+        entries.insert(Name::new(&b"Widths"[..]), Object::Array(widths));
+    }
+    entries
+}
+
 /// One font's descriptor, program and widths, prepared and proved.
 ///
 /// The program stream is shared by every font of one document that embeds the same face, which
@@ -380,11 +446,8 @@ pub(super) fn describe(
     target: pdf_archive::Target,
 ) -> Result<(), Because> {
     let requested = base_font(document, &used.dict);
-    if name_of(document, &used.dict, "Subtype").as_deref() != Some("Type1")
-        || !pdf_font::standard::is_standard_name(&requested)
-    {
-        return Err(Because::NotBuiltYet(NOT_ONE_OF_THE_FOURTEEN));
-    }
+    let stated_subtype = name_of(document, &used.dict, "Subtype").unwrap_or_default();
+    let layout = layout_of(document, used, &stated_subtype, &requested)?;
     let face = pdf_font::standard::shipped_face(document, &used.dict, &used.name)
         .map_err(|_| Because::NotBuiltYet(super::NO_SHIPPED_FACE_COVERS_IT))?;
     let source = LoadedFont::load(document, &used.dict, &used.name)
@@ -392,10 +455,16 @@ pub(super) fn describe(
     let drawn = drawn_from(&source, used, &face)?;
     let (program, empty) = with_empty_glyphs(&face, &source, used, target)?;
     let symbolic = matches!(face.request.family, Family::Symbol | Family::ZapfDingbats);
+    // A dictionary that is not the `Type1` one a Compact Font Format program goes under, given such
+    // a face with no encoding of its own, would lose the names its source drew by, because a
+    // `Type1` font without one takes the program's built-in table (ISO 32000-2 §9.6.5.1).
+    let loses_names =
+        stated_subtype != "Type1" && document.get_key(&used.dict, "Encoding").is_null();
     let (subtype, encoding) = match face.format {
         Format::BareCff => (
             "Type1",
-            (symbolic || !empty.is_empty()).then(|| restated_encoding(&source, None, &empty)),
+            (symbolic || loses_names || !empty.is_empty())
+                .then(|| restated_encoding(&source, None, &empty)),
         ),
         Format::Sfnt => ("TrueType", truetype_encoding(document, &used.dict, &source)),
         // `Format` is non-exhaustive; a reader added to it is not a program Table 124 has been
@@ -414,34 +483,23 @@ pub(super) fn describe(
     let descriptor_at = spare
         .take(document)
         .ok_or(Because::NotBuiltYet(super::NO_SPARE_OBJECT))?;
-    let descriptor = measured.descriptor(&requested, &face, row, program_at);
+    let font_name = layout.font_name(&requested, &face);
+    let descriptor = measured.descriptor(&font_name, &face, row, program_at);
 
-    let mut entries = Dictionary::new();
-    entries.insert(
-        Name::new(&b"FontDescriptor"[..]),
-        Object::Reference(descriptor_at),
-    );
-    if subtype != "Type1" {
-        entries.insert(
-            Name::new(&b"Subtype"[..]),
-            Object::Name(Name::new(subtype.as_bytes())),
-        );
-    }
     let restated_encoding = encoding.is_some();
-    if let Some(restated) = encoding {
-        entries.insert(Name::new(&b"Encoding"[..]), Object::Dictionary(restated));
-    }
-    // **The widths the page is laid out by, stated, because the descriptor obliges them.** Table
-    // 109's `/FontDescriptor` row: "For the standard 14 fonts, the entries FirstChar, LastChar,
-    // Widths , and FontDescriptor shall either all be present or all be absent." A file that wrote
-    // `/Widths` keeps them; one that relied on the permission is given the numbers the viewer laid
-    // it out with, which is the one `/Widths` that moves nothing (`doc/adr/2146`).
-    if document.get_key(&used.dict, "Widths").is_null() {
-        let (first, last, widths) = laid_out_widths(&source);
-        entries.insert(Name::new(&b"FirstChar"[..]), Object::Integer(first.into()));
-        entries.insert(Name::new(&b"LastChar"[..]), Object::Integer(last.into()));
-        entries.insert(Name::new(&b"Widths"[..]), Object::Array(widths));
-    }
+    let entries = restated_entries(
+        document,
+        used,
+        &Restated {
+            descriptor_at,
+            subtype,
+            stated_subtype: &stated_subtype,
+            font_name: &font_name,
+            layout: &layout,
+        },
+        encoding,
+        &source,
+    );
     advances_are_the_faces(used, drawn, &source, &face)?;
     proved(
         document,
@@ -461,7 +519,10 @@ pub(super) fn describe(
         .written
         .insert(descriptor_at, Object::Dictionary(descriptor));
     super::gains(document, used, entries, spare, substitutes)?;
-    let (losses, fitting) = losses_of(drawn, &source);
+    let (mut losses, fitting) = losses_of(drawn, &source);
+    if layout.is_this_viewers() {
+        losses = losses.with(Loss::LayoutFromThisViewer);
+    }
     substitutes.done.push(SubstitutedFont {
         resource: used.name.clone(),
         requested,
@@ -480,6 +541,124 @@ pub(super) fn describe(
         font: super::selected(used),
     });
     Ok(())
+}
+
+/// Who states the layout a font that stated no descriptor is laid out by.
+///
+/// ISO 32000-2 §9.6.2.1's Table 109 lets only the fourteen of §9.6.2.2 leave out `/Widths` and
+/// `/FontDescriptor`, and Annex D publishes their metrics. Any other simple font that leaves both
+/// out has had its layout stated by nothing in the file or the standard, and the viewer's choice
+/// of the metrics its name resembles is the only layout the page was shown with
+/// (`doc/questions/A687`, `doc/adr/2504`).
+enum Layout {
+    /// One of the fourteen, whose metrics the standard publishes.
+    Standard,
+    /// Any other simple font, laid out by this viewer.
+    ThisViewers {
+        /// The bytes of the `/BaseFont` the file states, or `None` where it states none.
+        base_font: Option<Vec<u8>>,
+    },
+}
+
+impl Layout {
+    /// Whether the layout is this viewer's rather than the standard's.
+    const fn is_this_viewers(&self) -> bool {
+        matches!(self, Self::ThisViewers { .. })
+    }
+
+    /// Whether the font dictionary is given the `/BaseFont` its descriptor is named by.
+    const fn supplies_base_font(&self) -> bool {
+        matches!(self, Self::ThisViewers { base_font: None })
+    }
+
+    /// The `/FontName` of the descriptor, which Table 120 makes the dictionary's `/BaseFont`.
+    ///
+    /// The bytes the file's own `/BaseFont` holds, so that the two names are equal whatever bytes
+    /// they are. A font that states none is given the PostScript name of the program the
+    /// descriptor carries (`doc/adr/2505`), which the standard defines for both kinds.
+    /// ISO 32000-2 §9.6.2.1, Table 109's `BaseFont` row, for a `Type1` font:
+    ///
+    /// > For Type 1 fonts, this is always the value of the FontName entry in the font program
+    ///
+    /// ISO 32000-2 §9.6.3, for a `TrueType` one:
+    ///
+    /// > If the TrueType or OpenType font program's "name" table contains a PostScript language name, it should be used.
+    ///
+    /// Only a program that states no usable name is given a name of this converter's choosing: the
+    /// shipped face's description with its spaces hyphenated, because a PostScript name has no
+    /// space.
+    fn font_name(&self, requested: &str, face: &ShippedFace) -> Vec<u8> {
+        match self {
+            Self::Standard => requested.as_bytes().to_vec(),
+            Self::ThisViewers {
+                base_font: Some(stated),
+            } => stated.clone(),
+            Self::ThisViewers { base_font: None } => postscript_name(face).unwrap_or_else(|| {
+                face.describe()
+                    .bytes()
+                    .map(|byte| if byte == b' ' { b'-' } else { byte })
+                    .collect()
+            }),
+        }
+    }
+}
+
+/// The PostScript name a shipped face's own program states: the `name` table's name ID 6 of an
+/// sfnt program (ISO 32000-2 §9.6.3), the font name of a bare Compact Font Format program
+/// (Table 109's `BaseFont` row). `None` where the program states none that a PDF name can carry
+/// without a space or a control byte.
+pub(super) fn postscript_name(face: &ShippedFace) -> Option<Vec<u8>> {
+    let stated: Vec<u8> = match face.format {
+        Format::Sfnt => {
+            let font = skrifa::FontRef::new(face.program).ok()?;
+            let name = font
+                .localized_strings(skrifa::string::StringId::POSTSCRIPT_NAME)
+                .english_or_first()?;
+            name.chars().collect::<String>().into_bytes()
+        }
+        Format::BareCff => CffFontRef::new_cff(face.program, 0, None)
+            .ok()?
+            .metadata()?
+            .name()?
+            .as_bytes()
+            .to_vec(),
+        _ => return None,
+    };
+    (!stated.is_empty() && stated.iter().all(u8::is_ascii_graphic)).then_some(stated)
+}
+
+/// Which layout a font stating no descriptor is given, or why it is refused.
+///
+/// A `Type1` font naming one of the fourteen keeps the standard's layout. A `Type1`, `MMType1` or
+/// `TrueType` font naming anything else, with no `/Widths` either, is the viewer's layout under
+/// the loss `layout-from-this-viewer`. One that states `/Widths` but no descriptor, a `/BaseFont`
+/// that is not a name, or a subtype of another kind, is refused: its layout is the file's, or its
+/// name is no name, and neither is this route's to rewrite.
+fn layout_of(
+    document: &Document,
+    used: &SelectedFont,
+    subtype: &str,
+    requested: &str,
+) -> Result<Layout, Because> {
+    if subtype == "Type1" && pdf_font::standard::is_standard_name(requested) {
+        return Ok(Layout::Standard);
+    }
+    if !matches!(subtype, "Type1" | "MMType1" | "TrueType") {
+        return Err(Because::NotBuiltYet(NOT_A_SIMPLE_FONT));
+    }
+    if !document.get_key(&used.dict, "Widths").is_null() {
+        return Err(Because::NotBuiltYet(WIDTHS_WITHOUT_A_DESCRIPTOR));
+    }
+    let base_font = document.get_key(&used.dict, "BaseFont");
+    if base_font.is_null() {
+        return Ok(Layout::ThisViewers { base_font: None });
+    }
+    base_font
+        .as_name()
+        .map(|name| Layout::ThisViewers {
+            base_font: Some(name.as_bytes().to_vec()),
+        })
+        .ok_or(Because::NotBuiltYet(BASE_FONT_NOT_A_NAME))
 }
 
 /// What embedding the shipped face loses for a font the viewer draws `drawn`, and the horizontal
@@ -1156,7 +1335,7 @@ impl Measured {
     /// face set with a Latin encoding, the reading ADR 1099's appended-page font already takes.
     fn descriptor(
         &self,
-        font_name: &str,
+        font_name: &[u8],
         face: &ShippedFace,
         row: Table124,
         program: ObjectId,
@@ -1189,7 +1368,7 @@ impl Measured {
         );
         dict.insert(
             Name::new(&b"FontName"[..]),
-            Object::Name(Name::new(font_name.as_bytes())),
+            Object::Name(Name::new(font_name)),
         );
         dict.insert(Name::new(&b"Flags"[..]), Object::Integer(flags));
         dict.insert(
@@ -1299,12 +1478,22 @@ impl OutlinePen for Bounds {
 // The refusals, each naming what stopped it.
 // ----------------------------------------------------------------------------------------------
 
-/// Why a font that is not one of the fourteen is not given a descriptor.
-const NOT_ONE_OF_THE_FOURTEEN: &str = "this rendered font states no FontDescriptor and is not a \
-     Type1 font naming one of the fourteen ISO 32000-2 \u{a7}9.6.2.2 lists, so no table of the \
-     standard's says what it is laid out by and no face this program ships is the one it names. \
-     Table 109 lets only the standard 14 leave the descriptor out, so a file that names another \
-     font without one has given no description to embed a program against";
+/// Why a font whose subtype is not a simple font's is not given a descriptor.
+const NOT_A_SIMPLE_FONT: &str = "this rendered font states no FontDescriptor and its Subtype is \
+     none of Type1, MMType1 and TrueType, the three kinds of simple font ISO 32000-2 \u{a7}9.6 \
+     describes a program for, so the standard says nothing of what it is drawn or laid out by and \
+     there is no description to embed a program against";
+
+/// Why a font that states `/Widths` but no descriptor, outside the fourteen, is not described.
+const WIDTHS_WITHOUT_A_DESCRIPTOR: &str = "this rendered font states /Widths and no \
+     FontDescriptor and is not a Type1 font naming one of the fourteen ISO 32000-2 \u{a7}9.6.2.2 \
+     lists, so its layout is the file's own and the face this program would embed is not the one \
+     the widths were stated for; Table 109 lets only the standard 14 leave the descriptor out";
+
+/// Why a font whose `/BaseFont` is present but is no name is not described.
+const BASE_FONT_NOT_A_NAME: &str = "this rendered font states no FontDescriptor and a BaseFont \
+     that is not a name, so there is no name for the descriptor's FontName to equal, and \
+     replacing the entry is not an interpretation the standard defines";
 
 /// Why a font the viewer draws from another face is not given this one.
 const ANOTHER_FACE_IS_DRAWN: &str = "this rendered font names one of the standard 14 and does \

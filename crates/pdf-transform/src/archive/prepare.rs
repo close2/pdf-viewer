@@ -30,6 +30,7 @@ use super::destination::RestatedDestination;
 use super::fonts::{self, Directions, Metrics, Substitutes};
 use super::jpeg2000::{self, Specifications};
 use super::preserve::{self, Composed};
+use super::reader_resources::{self, ReaderResources};
 use super::report::{Preserved, SetIn};
 use super::rewrite::Rewrite;
 use super::signatures::{self, ForeignHandlers, Signatures, Site};
@@ -209,6 +210,13 @@ pub(super) const ATTACHED_ACTION: &str = "converted";
 /// `converted`, like every other recorded action here.
 pub(super) const DECRYPTED_ACTION: &str = "converted";
 
+/// The action this conversion records in `xmpMM:History` when it writes the structure it recovered.
+///
+/// `doc/adr/2502`: the source stated no page tree this program writes, the output states one, and
+/// the file's own provenance says so rather than leaving the report the only place it is said.
+/// The word is `converted`, like every other recorded action here.
+pub(super) const RECOVERED_ACTION: &str = "converted";
+
 /// The action this conversion records in `xmpMM:History` when it embeds a substitute face.
 ///
 /// ISO 19005-2 section 6.6.6's NOTE 1 and ISO 19005-4 section 6.7.5's NOTE both give font
@@ -224,11 +232,22 @@ pub(super) const SUBSTITUTED_FONTS_ACTION: &str = "converted";
 /// action here.
 pub(super) const TRANSFER_REMOVED_ACTION: &str = "converted";
 
+/// The action this conversion records in `xmpMM:History` when it writes `/Interpolate` false.
+///
+/// `doc/adr/2498`: the loss `image-smoothing` is named in the file as well as in the report. The
+/// word is `converted`, like every other recorded action here.
+pub(super) const SMOOTHING_OFF_ACTION: &str = "converted";
+
 /// Why a transfer function was not removed even though the removal was authorised.
 const NO_PLACE_TO_RECORD_A_TRANSFER: &str = "removing a transfer function other than the \
      identity writes what it said into this file's own xmpMM:History first, and this document's \
      XMP packet will not take that entry — so the function stays and no file is written \
      (doc/adr/1964)";
+
+/// Why `/Interpolate` was not written false even though the loss was authorised.
+const NO_PLACE_TO_RECORD_SMOOTHING: &str = "turning an image's smoothing off writes the images \
+     it reached into this file's own xmpMM:History, and this document's XMP packet will not take \
+     that entry — so the images stay as they are and no file is written (doc/adr/2498)";
 
 /// How many substituted fonts the `xmpMM:History` entry names before it stops listing them.
 const MOST_FONTS_NAMED: usize = 8;
@@ -763,6 +782,9 @@ pub(super) struct Prepared {
     /// because a reader of this struct should be able to see which of its parts are the two
     /// constructions this verb was built around and which are the lossless rewrites it grew.
     pub(super) owed: Owed,
+    /// Whether the file's history can say that images were set to `/Interpolate false`
+    /// (`doc/adr/2498`).
+    pub(super) smoothing_recorded: Result<(), Because>,
     /// The streams whose data is brought inside the file, or why none can be.
     ///
     /// ISO 19005-2 section 6.1.7.1 and ISO 19005-4 section 6.1.6.1, answered out of the bytes
@@ -887,6 +909,8 @@ pub(super) struct Provenance<'a> {
     pub(super) protection: Option<&'a str>,
     /// The streams an operator's tool fetched from outside the document (`doc/adr/1209`).
     pub(super) resolved: Option<&'a str>,
+    /// The structure this viewer recovered and the file now states (`doc/adr/2502`).
+    pub(super) recovered: Option<&'a str>,
 }
 
 impl Prepared {
@@ -1316,6 +1340,12 @@ impl Prepared {
             .as_ref()
             .ok()
             .and_then(super::transfer::TransferFunctions::history);
+        // The images set to `/Interpolate false` are named in the same history, and the entry is a
+        // condition of the rewrite, withdrawn below where the packet will not take it (ADRs 2498,
+        // 1964).
+        let smoothing_history = wanted(Rewrite::InterpolationOff)
+            .then(|| super::smoothing::history(input))
+            .flatten();
         let now = xmp::instant(plan.clock.now());
         let metadata = the_packet(
             plan.target,
@@ -1342,9 +1372,11 @@ impl Prepared {
                 supplied: provenance.supplied,
                 resolved: provenance.resolved,
                 protection: provenance.protection,
+                recovered: provenance.recovered,
                 preserved: preserved_history.as_deref(),
                 attached: attached_history.as_deref(),
                 transfers: transfer_history.as_deref(),
+                smoothing: smoothing_history.as_deref(),
                 when: now.as_deref(),
                 // At most one of the two constructions is prepared, so one entry says which.
                 default_cmyk: if supplied_cmyk.is_ok() {
@@ -1397,6 +1429,13 @@ impl Prepared {
                 Err(Because::NotBuiltYet(NO_PLACE_TO_RECORD_A_TRANSFER))
             }
             transfers => transfers,
+        };
+        // And for the images set to `/Interpolate false`: the entry is how the file itself says
+        // that smoothing was turned off, so a packet that will not take it withdraws the rewrite
+        // (`doc/adr/2498`).
+        let smoothing_recorded = match smoothing_history {
+            Some(_) if !recorded_it => Err(Because::NotBuiltYet(NO_PLACE_TO_RECORD_SMOOTHING)),
+            _ => Ok(()),
         };
         // The fonts are the validator's own findings rather than a walk of this converter's:
         // the clause has four exemptions and reading them belongs to `pdf_archive`, so the set of
@@ -1505,6 +1544,7 @@ impl Prepared {
             structure,
             signatures: signatures_if_rewritten(document, input),
             owed: Owed::of(plan, document, input, &mut spare, &failed, already),
+            smoothing_recorded,
             hexadecimal,
             languages,
             external_data,
@@ -1545,6 +1585,7 @@ impl Prepared {
     pub(super) fn obstacle(&self, rewrite: Rewrite) -> Option<Because> {
         match rewrite {
             Rewrite::IdentificationSchema => self.metadata.as_ref().err().copied(),
+            Rewrite::InterpolationOff => self.smoothing_recorded.as_ref().err().copied(),
             Rewrite::DestinationProfileReplaced => {
                 self.replaced_destination.as_ref().err().copied()
             }
@@ -1575,7 +1616,14 @@ impl Prepared {
                 self.owed.appearance_states.as_ref().err().copied()
             }
             Rewrite::OptionalContentOrder => self.owed.orders.as_ref().err().copied(),
-            Rewrite::PageResources => self.owed.page_resources.as_ref().err().copied(),
+            Rewrite::PageResources => self
+                .owed
+                .page_resources
+                .as_ref()
+                .err()
+                .or_else(|| self.owed.form_resources.as_ref().err())
+                .copied(),
+            Rewrite::EmptyResourceDefined => self.owed.defined_resources.as_ref().err().copied(),
             Rewrite::PageCountRestated => self.owed.page_counts.as_ref().err().copied(),
             Rewrite::DescriptorSetRemoved => self.owed.descriptor_sets.as_ref().err().copied(),
             Rewrite::CidToGidIdentity => self.owed.cid_to_gid.as_ref().err().copied(),
@@ -1729,6 +1777,14 @@ impl Prepared {
                 out.insert(*id, object.clone());
             }
         }
+        for resources in [&self.owed.form_resources, &self.owed.defined_resources]
+            .into_iter()
+            .flatten()
+        {
+            for (id, object) in &resources.written {
+                out.insert(*id, object.clone());
+            }
+        }
         if let Ok(states) = &self.owed.appearance_states {
             for (id, object) in &states.written {
                 out.insert(*id, object.clone());
@@ -1783,6 +1839,11 @@ pub(super) struct Owed {
     pub(super) orders: Result<CompletedOrders, Because>,
     /// The pages given the resources dictionary they inherit, or why none are.
     pub(super) page_resources: Result<PageResources, Because>,
+    /// The forms, patterns and appearances given the dictionary of their page, or why none are
+    /// (`doc/adr/2500`).
+    pub(super) form_resources: Result<ReaderResources, Because>,
+    /// The empty resources that define the names nothing defined, or why none do (`doc/adr/2500`).
+    pub(super) defined_resources: Result<ReaderResources, Because>,
     /// The page tree nodes whose `/Count` is restated, or why none are (`doc/adr/2456`).
     pub(super) page_counts: Result<super::page_tree::RestatedCounts, Because>,
     /// The font descriptors whose incomplete subset description goes, or why none do.
@@ -1861,6 +1922,10 @@ impl Owed {
             survey,
             transfers,
         } = already;
+        let form_resources = asked(wanted(Rewrite::PageResources), || {
+            let survey = survey.ok_or(Because::NotBuiltYet(NOT_ASKED_FOR))?;
+            reader_resources::assign(document, survey, spare)
+        });
         Self {
             font_widths: asked(wanted(Rewrite::FontWidthArrayRestated), || {
                 super::font_widths::restated(document, input)
@@ -1878,8 +1943,13 @@ impl Owed {
                 sites::completed_orders(document)
             }),
             page_resources: asked(wanted(Rewrite::PageResources), || {
-                sites::page_resources(document, input)
+                Ok(sites::page_resources(document, input))
             }),
+            defined_resources: asked(wanted(Rewrite::EmptyResourceDefined), || {
+                let survey = survey.ok_or(Because::NotBuiltYet(NOT_ASKED_FOR))?;
+                reader_resources::supply(document, survey, spare, form_resources.as_ref().ok())
+            }),
+            form_resources,
             page_counts: asked(wanted(Rewrite::PageCountRestated), || {
                 super::page_tree::restated(document)
             }),
@@ -2010,7 +2080,9 @@ pub(super) struct Already<'a> {
 ///
 /// Every one of them needs `pdf_archive::survey::Survey`, which walks each page's content
 /// streams — so the walk is made once where any of them is wanted and not at all where none is.
-const SURVEYED: [Rewrite; 9] = [
+const SURVEYED: [Rewrite; 11] = [
+    Rewrite::PageResources,
+    Rewrite::EmptyResourceDefined,
     Rewrite::MarkedLanguagesRestated,
     Rewrite::DuplicateProfileWrittenDeviceCmyk,
     Rewrite::OverprintModeRestated,
@@ -5064,6 +5136,17 @@ pub(super) fn substituted_fonts_recorded(fonts: &[fonts::SubstitutedFont]) -> St
                     format!(" (the face had been drawn at the horizontal scale {fitting})")
                 })
                 .unwrap_or_default();
+            // The widths of a font the file described by nothing are this viewer's layout of
+            // the name, which the file's own history says in as many words (`doc/adr/2504`).
+            let layout = if font
+                .losses
+                .contains(super::decision::Loss::LayoutFromThisViewer)
+            {
+                " (the file states no widths for this font; the widths written are the layout \
+                 this viewer drew it with)"
+            } else {
+                ""
+            };
             // `doc/questions/A48`'s condition: each empty glyph is in the file's own history,
             // naming the clause it answers (`doc/adr/2458`).
             let empty = if font.empty_glyphs.is_empty() {
@@ -5073,7 +5156,7 @@ pub(super) fn substituted_fonts_recorded(fonts: &[fonts::SubstitutedFont]) -> St
             };
             format!(
                 "{} was not embedded and {} was embedded in its place, {}, taking the {} \
-                 route{described}{lost}{fitting}{empty}",
+                 route{described}{lost}{fitting}{layout}{empty}",
                 font.requested,
                 font.face,
                 font.authority.describe(),
@@ -5118,12 +5201,16 @@ struct Recording<'a> {
     resolved: Option<&'a str>,
     /// What the removed encryption asserted about the reader (`doc/adr/1187`).
     protection: Option<&'a str>,
+    /// What this viewer recovered of the page tree and the file now states (`doc/adr/2502`).
+    recovered: Option<&'a str>,
     /// What an appended page preserved, where one was appended (`doc/adr/1014` section 5).
     preserved: Option<&'a str>,
     /// What an attachment preserved, where anything was attached (`doc/adr/1270`).
     attached: Option<&'a str>,
     /// What every removed transfer function other than the identity said (`doc/adr/1964`).
     transfers: Option<&'a str>,
+    /// Which images had `/Interpolate` written false, where any did (`doc/adr/2498`).
+    smoothing: Option<&'a str>,
     /// Whether the identification schema's properties are deliberately omitted (`A59`).
     ///
     /// A departed conversion that does not claim conformance still writes the packet, so the
@@ -5233,96 +5320,40 @@ fn document_packet(
 }
 
 /// The actions a conversion records in `xmpMM:History`, one per kind of thing it did that the
-/// file's own provenance has to carry, all at the one instant `recording.when` states.
+/// file's own provenance has to carry, all at the one instant `recording.when` states. The table
+/// pairs each action with the parameters its remedy recorded, and an action whose remedy recorded
+/// nothing is left out; a remedy that gains a history entry adds one row here and nothing else.
 fn recorded_events<'a>(recording: &Recording<'a>) -> Vec<xmp::Event<'a>> {
-    let mut events: Vec<xmp::Event<'a>> = Vec::new();
-    if let Some(when) = recording.when {
-        if let Some(parameters) = recording.default_cmyk {
-            events.push(xmp::Event {
-                action: DEFAULT_CMYK_ACTION,
+    let Some(when) = recording.when else {
+        return Vec::new();
+    };
+    let non_empty = |text: &'a str| (!text.is_empty()).then_some(text);
+    let actions: [(&'a str, Option<&'a str>); 14] = [
+        (DEFAULT_CMYK_ACTION, recording.default_cmyk),
+        (REMOVED_PROPERTIES_ACTION, non_empty(recording.removals)),
+        (REMOVED_PROPERTIES_ACTION, non_empty(recording.discards)),
+        (SUBSTITUTED_FONTS_ACTION, non_empty(recording.substituted)),
+        (DEPARTED_ACTION, recording.departure),
+        (DERIVED_ACTION, recording.derived),
+        (SUPPLIED_ACTION, recording.supplied),
+        (RESOLVED_ACTION, recording.resolved),
+        (DECRYPTED_ACTION, recording.protection),
+        (RECOVERED_ACTION, recording.recovered),
+        (ATTACHED_ACTION, recording.attached),
+        (PRESERVED_ACTION, recording.preserved),
+        (TRANSFER_REMOVED_ACTION, recording.transfers),
+        (SMOOTHING_OFF_ACTION, recording.smoothing),
+    ];
+    actions
+        .into_iter()
+        .filter_map(|(action, parameters)| {
+            parameters.map(|parameters| xmp::Event {
+                action,
                 parameters,
                 when,
-            });
-        }
-        if !recording.removals.is_empty() {
-            events.push(xmp::Event {
-                action: REMOVED_PROPERTIES_ACTION,
-                parameters: recording.removals,
-                when,
-            });
-        }
-        if !recording.discards.is_empty() {
-            events.push(xmp::Event {
-                action: REMOVED_PROPERTIES_ACTION,
-                parameters: recording.discards,
-                when,
-            });
-        }
-        if !recording.substituted.is_empty() {
-            events.push(xmp::Event {
-                action: SUBSTITUTED_FONTS_ACTION,
-                parameters: recording.substituted,
-                when,
-            });
-        }
-        if let Some(departure) = recording.departure {
-            events.push(xmp::Event {
-                action: DEPARTED_ACTION,
-                parameters: departure,
-                when,
-            });
-        }
-        if let Some(derived) = recording.derived {
-            events.push(xmp::Event {
-                action: DERIVED_ACTION,
-                parameters: derived,
-                when,
-            });
-        }
-        if let Some(supplied) = recording.supplied {
-            events.push(xmp::Event {
-                action: SUPPLIED_ACTION,
-                parameters: supplied,
-                when,
-            });
-        }
-        if let Some(resolved) = recording.resolved {
-            events.push(xmp::Event {
-                action: RESOLVED_ACTION,
-                parameters: resolved,
-                when,
-            });
-        }
-        if let Some(protection) = recording.protection {
-            events.push(xmp::Event {
-                action: DECRYPTED_ACTION,
-                parameters: protection,
-                when,
-            });
-        }
-        if let Some(attached) = recording.attached {
-            events.push(xmp::Event {
-                action: ATTACHED_ACTION,
-                parameters: attached,
-                when,
-            });
-        }
-        if let Some(preserved) = recording.preserved {
-            events.push(xmp::Event {
-                action: PRESERVED_ACTION,
-                parameters: preserved,
-                when,
-            });
-        }
-        if let Some(transfers) = recording.transfers {
-            events.push(xmp::Event {
-                action: TRANSFER_REMOVED_ACTION,
-                parameters: transfers,
-                when,
-            });
-        }
-    }
-    events
+            })
+        })
+        .collect()
 }
 
 /// The metadata stream this conversion writes, with every action it has to record in it.

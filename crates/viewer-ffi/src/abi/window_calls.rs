@@ -372,6 +372,22 @@ pub unsafe extern "C" fn quorra_window_resize(
     }
 }
 
+/// The display the window is on refreshes at `millihertz`, or at no rate the platform states
+/// (`0`): the time a zoom command's old picture is kept before the scaled stand-in replaces it
+/// (`viewer_host::stand_in::Hold`, ADR 2510).
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_refresh(window: *mut Window, millihertz: u32) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    window.refresh_is(millihertz);
+    Status::Ok.code()
+}
+
 /// One look at what runs beside the window: the document still opening, a server's answer, the
 /// outline read beside page one, the pages drawn. Called when [`quorra_window_interval`] says.
 ///

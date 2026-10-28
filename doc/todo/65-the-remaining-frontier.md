@@ -159,9 +159,11 @@ the last rendering one, §10.7.4's mark for a stroke its matrix collapses, was b
 - §K.2 — XFA's static half, at one round a batch (`doc/questions/A633`): the resource is read and a
   save keeps the `datasets` packet consistent with every `/V` it writes, naming each field it cannot
   (ADRs 2396, 2414); the template's validations are run (a save's null and datatype tests, a
-  submit's null, datatype and format tests, ADRs 2450, 2474, 2475), while its calculations and events
-  are not, and every window says so. RFC 0011 section 5's step 5, a FormCalc engine, and step 6 are
-  what remains (ADR 2430).
+  submit's null, datatype and format tests, ADRs 2450, 2474, 2475), and its FormCalc calculations and
+  `change` and `initialize` events activate in page 379's order and cascade under limits
+  (`Resource::activate`, ADRs 2506, 2507), while its JavaScript, its other events and every window's
+  runner are not there, and every window says so. RFC 0011 section 5's step 5 and the worker's host
+  for step 6 are what remains (ADR 2430).
  *One raster carries the product of shape and opacity where the clause wants the pair* is not
 among them: §11.4.6 is the one reader of the pair the standard has, every knockout element states its
 shape, and §11.3.7.3's NOTE 2 licenses the product everywhere else (§11.4.3's row, ADR 1340).

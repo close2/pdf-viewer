@@ -145,6 +145,7 @@ mod destination;
 mod duplicate_profiles;
 mod extension_container;
 mod external;
+mod fallback;
 mod font_files;
 mod font_widths;
 mod fonts;
@@ -159,12 +160,15 @@ pub(crate) mod page_tree;
 mod prepare;
 mod preserve;
 mod protection;
+mod reader_resources;
+mod recovered;
 mod remedies;
 mod report;
 mod rewrite;
 mod roles;
 mod signatures;
 mod sites;
+mod smoothing;
 mod supplied_cmyk;
 mod tagged;
 mod to_unicode;
@@ -197,6 +201,7 @@ pub use decision::{
     Authorisations, Because, Conditional, Decision, Loss, Losses, answered, conditional,
     refused_by_name,
 };
+pub use fallback::Fallback;
 pub use fonts::{
     CjkPack, Collection, DOTS_PER_INCH, Described, FaceAuthority, MetricRoute, PackFiles, PackGap,
     PhotographedPage, RestatedFont, SubstitutedFont,
@@ -205,6 +210,7 @@ pub use in_place::{ProxiedReference, ShownAnnotation};
 pub use languages::RestatedLanguage;
 pub use prepare::{DestinationProfile, ProfileSource, RemovedAnnotation, WrittenAppearance};
 pub use protection::{PERMISSIONS_NO_LONGER_ASSERTED, SourceProtection};
+pub use recovered::{RecoveredCatalog, RecoveredStructure};
 pub use report::{
     Achieved, Conversion, Decided, Departed, DepartureOutcome, Derived, DerivedOutcome, NotChecked,
     Preserved, Resolved, SetIn, SignatureDecision, SuppliedFact,
@@ -432,8 +438,10 @@ impl Clock {
 /// # Errors
 ///
 /// [`Refusal::NoSuchSource`], [`Refusal::Reconstructed`] where the source states its structure
-/// only through §C.4's recovery or states a page tree node §7.7.3.2's Table 30 makes unwalkable
-/// (ADR 2444), [`Refusal::Assembly`] where the document cannot be rewritten at all, and
+/// only through this reader's recovery of a missing catalog or page tree, or states a page tree
+/// node §7.7.3.2's Table 30 makes unwalkable (ADR 2444), and the caller has not authorised
+/// [`Loss::RecoveredStructure`] or the source is one the rebuild refuses by name (ADR 2502),
+/// [`Refusal::Assembly`] where the document cannot be rewritten at all, and
 /// [`Refusal::Sink`] where the output cannot be written. A document that cannot be
 /// *converted* is not an error: it is [`Report::refused`] beside the conversion's own report,
 /// which is where a caller reads which requirement stopped it.
@@ -454,9 +462,14 @@ pub(crate) fn run(
         at: plan.source,
         count: documents.len(),
     })?;
-    let root = crate::optimize::catalog_of(document)?;
-    crate::optimize::refuse_a_document_only_recovery_reads(document, root)?;
-    page_tree::refuse_a_page_tree_node_with_no_children(document, root)?;
+    // A source this program declines for its structure is rebuilt where the caller authorised the
+    // loss, and the conversion goes on over the rebuilt file (`doc/adr/2502`).
+    let recovered = rebuild_a_declined_structure(plan, document)?;
+    let recovered_note = recovered.as_ref().map(|recovered| recovered.note.clone());
+    let recovered_history = recovered_note.as_ref().map(RecoveredStructure::sentence);
+    let document = recovered
+        .as_ref()
+        .map_or(document, |recovered| &recovered.document);
 
     // Stage 1: the validator is the reading. Nothing below re-reads ISO 19005.
     let input = pdf_archive::check(document, plan.target);
@@ -495,6 +508,7 @@ pub(crate) fn run(
         supplied: supplied_history.as_deref(),
         protection: protection_history.as_deref(),
         resolved: resolved_history.as_deref(),
+        recovered: recovered_history.as_deref(),
     };
     // `A59`: a departed conversion omits the PDF/A identification by default, so the output does not
     // claim what it has not earned. `--claim-conformance` is the second, separate switch that keeps
@@ -511,7 +525,9 @@ pub(crate) fn run(
     // the report says the document conformed already. A *non*-conforming signed source takes
     // `doc/pdf-a-conversion-limits.md` section 3.6's route instead — [`signatures`] — and its
     // report says what each signature asserted before the value went.
-    if input.verdict() == Verdict::Conforms {
+    // A rebuilt file is not copied as it stands: the output must say that its structure was written
+    // here, and the identity conversion records nothing in the file's history.
+    if input.verdict() == Verdict::Conforms && recovered_note.is_none() {
         let (mut conversion, _, _) = decide_every_failure(
             plan,
             document,
@@ -544,6 +560,7 @@ pub(crate) fn run(
         provenance,
         &remedies,
     );
+    conversion.recovered_structure = recovered_note;
     if !conversion.proceeds() {
         for decided in &conversion.decided {
             if decided.decision.proceeds() {
@@ -600,6 +617,36 @@ pub(crate) fn run(
     Ok(())
 }
 
+/// The declining checks of a source's structure, and the rebuild that answers them where the caller
+/// authorised [`Loss::RecoveredStructure`].
+///
+/// `None` for a source the checks pass. A source they decline is refused as it was before the loss
+/// existed unless the loss is authorised, so a caller that does not ask never sees a file with
+/// structure this program wrote (`doc/adr/2502`; `optimize` and `redact` keep the decline, since
+/// they carry the producer's objects as they stand).
+///
+/// # Errors
+///
+/// The refusal of the checks, or the rebuild's own where it declines the source.
+fn rebuild_a_declined_structure(
+    plan: &ArchivePlan,
+    document: &Document,
+) -> Result<Option<recovered::Recovered>, Refusal> {
+    let declined = crate::optimize::catalog_of(document).and_then(|root| {
+        crate::optimize::refuse_a_document_only_recovery_reads(document, root)?;
+        page_tree::refuse_a_page_tree_node_with_no_children(document, root)
+    });
+    match declined {
+        Ok(()) => Ok(None),
+        Err(refusal @ Refusal::Reconstructed(_))
+            if plan.authorised.grants(Loss::RecoveredStructure) =>
+        {
+            recovered::rebuild(document, &refusal).map(Some)
+        }
+        Err(refusal) => Err(refusal),
+    }
+}
+
 /// Stage 2: what to do about every requirement the input failed, and the header's version.
 ///
 /// A pure function of the validator's report, the document's own version and the caller's
@@ -622,6 +669,10 @@ fn decide_every_failure(
         target: plan.target,
         // The face that read the configuration names it; the plan does not carry it (ADR 1954).
         configuration: None,
+        // Set by the face that ran a second conversion after this one refused (ADR 2498).
+        fallback: None,
+        // Set by `run`, which is what rebuilt the structure (ADR 2502).
+        recovered_structure: None,
         conformed: input
             .judgements
             .iter()

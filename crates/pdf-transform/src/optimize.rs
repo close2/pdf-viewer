@@ -118,7 +118,7 @@ use crate::{Origin, Output, Protect, Refusal, Report, Sinks, Warning};
 /// One more than `pdf_syntax::Limits::DEFAULT`'s `max_depth`, so that every object the parser
 /// admitted has its references reached; the serializer's own rewrite depth is the same number
 /// for the same reason.
-const MAX_WALK_DEPTH: usize = 257;
+pub(crate) const MAX_WALK_DEPTH: usize = 257;
 
 /// One document rewritten smaller.
 #[derive(Debug, Clone, PartialEq)]
@@ -233,7 +233,7 @@ impl Savings {
 /// # Errors
 ///
 /// [`Refusal::NoSuchSource`], [`Refusal::Reconstructed`] where the source states its structure
-/// only through §C.4's recovery, [`Refusal::Assembly`] where the document cannot be rewritten at
+/// only through this reader's recovery, [`Refusal::Assembly`] where the document cannot be rewritten at
 /// all, and [`Refusal::Sink`] where the output cannot be written.
 pub(crate) fn run(
     plan: &OptimizePlan,
@@ -492,7 +492,7 @@ pub(crate) fn catalog_of(document: &Document) -> Result<ObjectId, Refusal> {
 }
 
 /// What a verb carrying the producer's objects as they stand refuses before it writes: a
-/// structure only §C.4's recovery reads, and a page tree §7.7.3.2's Table 30 makes unwalkable or
+/// structure only this reader's recovery reads, and a page tree §7.7.3.2's Table 30 makes unwalkable or
 /// uncountable, which this verb's closure copy would carry into a file that does not open
 /// (`doc/adr/2457`). `redact` asks the same.
 ///
@@ -507,11 +507,11 @@ pub(crate) fn refuse_a_source_a_copy_would_carry_broken(
     crate::archive::page_tree::refuse_a_page_tree_no_reader_can_walk(document, root)
 }
 
-/// Refuses a document whose structure this program reaches only by §C.4's recovery.
+/// Refuses a document whose structure this program reaches only by this reader's recovery.
 ///
-/// **The one refusal `optimize` has, and the corpus walk is why it exists**; `archive` asks it
-/// for the same reason, because a converted file has to be a file a producer could have
-/// written. Four documents
+/// **The one refusal `optimize` has, and the corpus walk is why it exists**; `archive` asks it to
+/// decide whether to rebuild the structure under the loss `recovered-structure` (ADR 2502), where
+/// `optimize` only declines. Four documents
 /// rewrote into files with no page at all, and every one of them was a file this tree opens by
 /// *recovering* what its own trailer misstates: `poppler-742-0-fuzzed.pdf`, whose `/Root` names
 /// an object that is not there; `issue9418.pdf`, whose every object is misfiled so that `/Root`
@@ -519,17 +519,19 @@ pub(crate) fn refuse_a_source_a_copy_would_carry_broken(
 /// catalog's `/Pages` names nothing. `pdf_model::Pages` finds their pages anyway, by looking for
 /// what §7.7.3.3's Table 31 describes, and that is right for a *reader*.
 ///
-/// **That §C.4 sits in Annex C matters: the annex is informative.** ISO 32000-2 titles it
-/// "Advice on maximising portability", so what it offers a reader is advice rather than a
-/// requirement — and reading a document by that advice, then declining to *write* one, is this
-/// program's own choice, made here, not a rule the standard imposes.
+/// **The standard defines no such recovery.** Its Annex C.4 (informative, "File Limits") advises
+/// rebuilding a damaged cross-reference table by scanning, which is the table's reconstruction and
+/// not the tree's; finding pages by their own declarations, and then declining to *write* a file
+/// restating them, are this program's own choices, made here, not rules the standard imposes.
 ///
 /// It is not right for a writer, and the two clauses say why. §7.5.5's Table 15: `/Root` is
 /// "( Required; shall be an indirect reference ) The catalog dictionary for the PDF file".
 /// §7.7.2's Table 29: `/Pages` is "( Required; shall be an indirect reference ) The page tree
 /// node that shall be the root of the document's page tree". Where either is false, the document
 /// this program displays is one it *reconstructed*, and a rewrite of it would be a file stating
-/// a structure no producer wrote — which is the far side of `CLAUDE.md`'s line, not the near one.
+/// a structure no producer wrote. `optimize` carries the producer's objects as they stand and
+/// declines; the archive verb rewrites the catalog and the pages already and writes the structure
+/// it recovered under a named loss (ADR 2502).
 ///
 /// So it is refused by name (trap 5: unsupported input stays loud) rather than rewritten into a
 /// document with nothing in it. A caller who wants such a file repaired is asking for a
@@ -549,7 +551,7 @@ pub(crate) fn refuse_a_document_only_recovery_reads(
         return Err(Refusal::Reconstructed(format!(
             "§7.5.5's Table 15 makes /Root \"( Required; shall be an indirect reference ) The \
              catalog dictionary for the PDF file\", and object {} is not a dictionary; this \
-             document is one only §C.4's recovery reads, and rewriting it would state a \
+             document is one only this reader's recovery reads, and rewriting it would state a \
              structure no producer wrote",
             root.number
         )));
@@ -561,7 +563,7 @@ pub(crate) fn refuse_a_document_only_recovery_reads(
         return Err(Refusal::Reconstructed(
             "§7.7.2's Table 29 makes /Pages \"( Required; shall be an indirect reference ) The \
              page tree node that shall be the root of the document's page tree\", and this \
-             catalog's does not resolve to one; this document is one only §C.4's recovery pages, \
+             catalog's does not resolve to one; this document is one only this reader's recovery reads, \
              and rewriting it would state a structure no producer wrote"
                 .to_owned(),
         ));

@@ -602,7 +602,9 @@ struct UnderProfile {
     /// Property 2's population, collected rather than raised at the first, so that a sweep over
     /// files nobody here chose names every one: the veraPDF census asserts it empty; the census of
     /// the other corpora prints it, a `crate::Refusal` as the verb declining the source — a file
-    /// only §C.4's recovery reads, which no profile answers — and a panic as a defect (trap 5).
+    /// only this reader's recovery reads, which a profile answers by authorising
+    /// `recovered-structure` where the rebuild accepts it (ADR 2502) — and a panic as a defect
+    /// (trap 5).
     failed: Vec<(String, String)>,
 }
 
@@ -1020,12 +1022,46 @@ fn the_shipped_profiles_list_what_real_producers_files_refuse_on() {
     }
     for name in ["as-if-printed", "as-shown"] {
         let shipped = pdf_transform::profiles::named(name).expect("a shipped profile");
+        let mut by_part: Vec<Vec<UnderProfile>> = Vec::new();
         for target in REAL_TARGETS {
+            let mut censuses = Vec::new();
             for (corpus, paths) in &corpora {
                 let census = sweep_under(paths, target, shipped, None);
                 print_refusals(&format!("{corpus} profile {name} {target}"), &census);
+                censuses.push(census);
+            }
+            by_part.push(censuses);
+        }
+        if let [two_b, four] = by_part.as_slice() {
+            for (((corpus, _), two_b), four) in corpora.iter().zip(two_b).zip(four) {
+                print_either_part(&format!("{corpus} profile {name}"), two_b, four);
             }
         }
+    }
+}
+
+/// Prints what `--to 2b --or-else-to 4` would write for one corpus under one profile
+/// (`doc/adr/2498`): the documents written at 2b, those written at 4 only because 2b refused
+/// them, and those both refuse.
+fn print_either_part(label: &str, two_b: &UnderProfile, four: &UnderProfile) {
+    let refused_at_four: std::collections::BTreeSet<&str> = four
+        .stopped
+        .iter()
+        .map(|stopped| stopped.document.as_str())
+        .collect();
+    let (refused_at_both, written_at_four): (Vec<_>, Vec<_>) = two_b
+        .stopped
+        .iter()
+        .map(|stopped| stopped.document.as_str())
+        .partition(|document| refused_at_four.contains(document));
+    println!(
+        "{label} either part: {} written at 2b, {} written at 4 after 2b refused, {} refused at both",
+        two_b.converted.saturating_add(two_b.conforming),
+        written_at_four.len(),
+        refused_at_both.len()
+    );
+    if !written_at_four.is_empty() {
+        println!("         at 4 only: {}", written_at_four.join(", "));
     }
 }
 

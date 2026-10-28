@@ -27,6 +27,7 @@
 //! pdf-transform optimize    in.pdf --images quality=80 -o out.pdf
 //! pdf-transform archive     in.pdf --to 4 -o out.pdf
 //! pdf-transform archive     in.pdf --to 2b --authorise image-smoothing -o out.pdf
+//! pdf-transform archive     in.pdf --to 2b --or-else-to 4 -o out.pdf
 //! pdf-transform archive     in.pdf --to 4 --output-intent-profile press.icc -o out.pdf
 //! ```
 
@@ -255,6 +256,7 @@ const VALUED: &[&str] = &[
     "--images",
     "--quality",
     "--to",
+    "--or-else-to",
     "--authorise",
     "--output-intent-profile",
     "--config",
@@ -314,6 +316,7 @@ const KNOWN: &[&str] = &[
     "--images",
     "--quality",
     "--to",
+    "--or-else-to",
     "--authorise",
     "--output-intent-profile",
     "--config",
@@ -473,6 +476,7 @@ fn run(io: &mut dyn World, given: Vec<String>) -> Result<Exit, Failure> {
         ));
     }
     let mut plan = plan(io, &arguments, output)?;
+    let or_else = or_else_target(&arguments, &plan)?;
     let sources = open_inputs(io, &arguments, &plan)?;
 
     let mut policy = policy(&arguments)?;
@@ -484,54 +488,22 @@ fn run(io: &mut dyn World, given: Vec<String>) -> Result<Exit, Failure> {
 
     let protect = protection(io, &arguments, &plan)?;
     let borrowed: Vec<&Source> = sources.iter().collect();
-
-    let mut passes = 0_usize;
-    let mut report = loop {
-        let sinks = io.sinks(to_stdout);
-        let report = apply_protected(
-            &plan,
-            &borrowed,
-            &*sinks,
-            &policy,
-            &budget,
-            protect.as_ref(),
-        )?;
-        // One pass's outputs, closed — every file — before anything below asks the world for
-        // anything else.
-        drop(sinks);
-        // **`doc/questions/A54`, in one command.** The owner's doubt about the recommendation was
-        // that "a normal user would expect it just to happen", and this loop is what makes that
-        // true while `apply` itself starts nothing: a pass that needs an external program returns
-        // the invocations as data, this program runs them through the one shared executor, puts
-        // the results in the plan and applies again. The caller *is* our own converter program.
-        if report.requested.is_empty() {
-            // **The same two-pass shape, for the one other thing `apply` will not do itself.**
-            // A conversion whose source keeps a stream's data outside the file needs those bytes
-            // handed to it, and `apply` opens no path (`doc/questions/A54`, RFC 0002 section 9).
-            // So a pass names the streams, this program resolves what its own rule permits, and
-            // the next pass is a pure function of what came back (`doc/adr/1199`).
-            if resolve_the_external_data(io, &arguments, &report, &mut plan) {
-                passes = passes.saturating_add(1);
-                if passes > MOST_TOOL_PASSES {
-                    break report;
-                }
-                continue;
-            }
-            break report;
-        }
-        passes = passes.saturating_add(1);
-        if passes > MOST_TOOL_PASSES {
-            return Err(Failure::Usage(format!(
-                "this configuration still asks for a tool after {MOST_TOOL_PASSES} passes, which \
-                 means a request is being asked for and never answered. That is a defect rather \
-                 than a configuration mistake; the bound is here so it stops rather than runs \
-                 forever (CLAUDE.md principle 3)"
-            )));
-        }
-        if !carry_out_the_requests(io, &report, &mut plan)? {
-            break report;
-        }
+    let attempt = Attempt {
+        arguments: &arguments,
+        sources: &borrowed,
+        policy: &policy,
+        budget: &budget,
+        protect: protect.as_ref(),
+        to_stdout,
     };
+
+    let mut report = convert(io, &attempt, &mut plan)?;
+    if let Some(second) = or_else
+        && report.outputs.is_empty()
+        && report.archive.is_some()
+    {
+        report = fall_back(io, &attempt, &plan, report, second)?;
+    }
 
     name_the_profile(io, &arguments, &mut report)?;
     for warning in &report.warnings {
@@ -557,6 +529,134 @@ fn run(io: &mut dyn World, given: Vec<String>) -> Result<Exit, Failure> {
         arguments.switch("--strict"),
         arguments.switch("--quiet-warnings"),
     ))
+}
+
+/// What one conversion needs besides its plan: the command line, the opened inputs and the limits
+/// every attempt of one run shares.
+struct Attempt<'a> {
+    /// The command line.
+    arguments: &'a Arguments,
+    /// The inputs, opened once for every attempt.
+    sources: &'a [&'a Source],
+    /// What the document's own restrictions are held to.
+    policy: &'a Policy,
+    /// The resource bounds.
+    budget: &'a Budget,
+    /// The output protection, where the person asked for one.
+    protect: Option<&'a Protect>,
+    /// Whether the one output goes to standard output.
+    to_stdout: bool,
+}
+
+/// Applies `plan` until nothing it asked for is outstanding, and answers the last pass's report.
+fn convert(io: &mut dyn World, attempt: &Attempt<'_>, plan: &mut Plan) -> Result<Report, Failure> {
+    let mut passes = 0_usize;
+    loop {
+        let sinks = io.sinks(attempt.to_stdout);
+        let report = apply_protected(
+            &*plan,
+            attempt.sources,
+            &*sinks,
+            attempt.policy,
+            attempt.budget,
+            attempt.protect,
+        )?;
+        // One pass's outputs, closed — every file — before anything below asks the world for
+        // anything else.
+        drop(sinks);
+        // **`doc/questions/A54`, in one command.** The owner's doubt about the recommendation was
+        // that "a normal user would expect it just to happen", and this loop is what makes that
+        // true while `apply` itself starts nothing: a pass that needs an external program returns
+        // the invocations as data, this program runs them through the one shared executor, puts
+        // the results in the plan and applies again. The caller *is* our own converter program.
+        if report.requested.is_empty() {
+            // **The same two-pass shape, for the one other thing `apply` will not do itself.**
+            // A conversion whose source keeps a stream's data outside the file needs those bytes
+            // handed to it, and `apply` opens no path (`doc/questions/A54`, RFC 0002 section 9).
+            // So a pass names the streams, this program resolves what its own rule permits, and
+            // the next pass is a pure function of what came back (`doc/adr/1199`).
+            if resolve_the_external_data(io, attempt.arguments, &report, plan) {
+                passes = passes.saturating_add(1);
+                if passes > MOST_TOOL_PASSES {
+                    return Ok(report);
+                }
+                continue;
+            }
+            return Ok(report);
+        }
+        passes = passes.saturating_add(1);
+        if passes > MOST_TOOL_PASSES {
+            return Err(Failure::Usage(format!(
+                "this configuration still asks for a tool after {MOST_TOOL_PASSES} passes, which \
+                 means a request is being asked for and never answered. That is a defect rather \
+                 than a configuration mistake; the bound is here so it stops rather than runs \
+                 forever (CLAUDE.md principle 3)"
+            )));
+        }
+        if !carry_out_the_requests(io, &report, plan)? {
+            return Ok(report);
+        }
+    }
+}
+
+/// The second conversion of `--to <first> --or-else-to <second>`, run because the first wrote no
+/// file, and the report the person reads (ADR 2498).
+///
+/// **The first conversion's refusals are kept, not forgotten.** Where the second target wrote the
+/// file, they move into the report's `fallback` record, so the exit status is the second's and the
+/// report still says why the first target was not the answer; where the second refused too, both targets'
+/// refusals are listed, each led by its target, because a person with two refusals needs to see
+/// which target said which. The second conversion reads the same inputs under the same policy and
+/// budget, and the configuration is read again for the second target, since a profile's answers can
+/// differ by target.
+fn fall_back(
+    io: &mut dyn World,
+    attempt: &Attempt<'_>,
+    first_plan: &Plan,
+    mut first: Report,
+    second: pdf_archive::Target,
+) -> Result<Report, Failure> {
+    let Plan::Archive(archive) = first_plan else {
+        return Ok(first);
+    };
+    let refused_first = std::mem::take(&mut first.refused);
+    errln!(
+        io,
+        "note: {} refused ({} reason(s)); --or-else-to asks for {second} where it does",
+        archive.target,
+        refused_first.len()
+    );
+    let second_plan = archive_plan(io, attempt.arguments, archive.names.clone(), second, false)?;
+    refuse_a_tool_across_targets(&second_plan)?;
+    let mut second_plan = Plan::Archive(second_plan);
+    let mut second_report = convert(io, attempt, &mut second_plan)?;
+    let written = !second_report.outputs.is_empty();
+    if !written {
+        let led = |target: pdf_archive::Target, declined: pdf_transform::Declined| {
+            pdf_transform::Declined {
+                subject: format!("at {target}: {}", declined.subject),
+                ..declined
+            }
+        };
+        let mut both: Vec<_> = refused_first
+            .iter()
+            .cloned()
+            .map(|declined| led(archive.target, declined))
+            .collect();
+        both.extend(
+            std::mem::take(&mut second_report.refused)
+                .into_iter()
+                .map(|declined| led(second, declined)),
+        );
+        second_report.refused = both;
+    }
+    if let Some(conversion) = second_report.archive.as_mut() {
+        conversion.fallback = Some(pdf_transform::archive::Fallback {
+            requested: archive.target,
+            refused: refused_first,
+        });
+    }
+    Ok(second_report)
 }
 
 /// `--restrictions`: how much of what the document asserts over its reader this run obeys, `off`
@@ -885,7 +985,10 @@ fn plan(io: &mut dyn World, arguments: &Arguments, output: Option<&str>) -> Resu
                 other => other,
             },
         })),
-        "archive" => archive_plan(io, arguments, names("archive")?).map(Plan::Archive),
+        "archive" => {
+            let target = archive_target(arguments)?;
+            archive_plan(io, arguments, names("archive")?, target, true).map(Plan::Archive)
+        }
         "attachments" => Ok(Plan::Attachments(AttachmentsPlan {
             source: 0,
             action: attachments_action(io, arguments, output)?,
@@ -907,21 +1010,9 @@ fn archive_plan(
     io: &mut dyn World,
     arguments: &Arguments,
     names: Pattern,
+    target: pdf_archive::Target,
+    announce: bool,
 ) -> Result<ArchivePlan, Failure> {
-    let Some(word) = arguments.value(&["--to"]) else {
-        return Err(Failure::Usage(
-            "archive needs --to <target>: 2b, 2u, 2a, 4, 4f or 4e. There is no default, because \
-             which part and level a document has to reach is the one thing this program cannot \
-             work out for you"
-                .to_owned(),
-        ));
-    };
-    let target = pdf_archive::Target::parse(word).ok_or_else(|| {
-        Failure::Usage(format!(
-            "--to {word:?}: the targets are 2b, 2u, 2a, 4, 4f and 4e. Parts 1 and 3 are not \
-             targets and will not become ones — doc/questions/A17"
-        ))
-    })?;
     let mut authorised = Authorisations::default();
     for (flag, value) in &arguments.flags {
         if flag != "--authorise" {
@@ -946,7 +1037,7 @@ fn archive_plan(
     // stays the pure function RFC 0002 section 5 tests. What it contributes is the losses its
     // `discard` remedies stand for — folded into the same `Authorisations` the flags build — and
     // the departures it names.
-    let read = read_config(io, arguments, target, &mut authorised)?;
+    let read = read_config(io, arguments, target, &mut authorised, announce)?;
     Ok(ArchivePlan {
         source: 0,
         names,
@@ -970,6 +1061,75 @@ fn archive_plan(
         external_data: BTreeMap::new(),
         clock: pdf_transform::archive::Clock::System,
     })
+}
+
+/// The target `archive --to` names.
+fn archive_target(arguments: &Arguments) -> Result<pdf_archive::Target, Failure> {
+    let Some(word) = arguments.value(&["--to"]) else {
+        return Err(Failure::Usage(
+            "archive needs --to <target>: 2b, 2u, 2a, 4, 4f or 4e. There is no default, because \
+             which part and level a document has to reach is the one thing this program cannot \
+             work out for you"
+                .to_owned(),
+        ));
+    };
+    pdf_archive::Target::parse(word).ok_or_else(|| {
+        Failure::Usage(format!(
+            "--to {word:?}: the targets are 2b, 2u, 2a, 4, 4f and 4e. Parts 1 and 3 are not \
+             targets and will not become ones — doc/questions/A17"
+        ))
+    })
+}
+
+/// The second target of `archive --to <first> --or-else-to <second>`, where the request names one.
+///
+/// **One request, two targets, tried in the order given** (ADR 2498): the second is converted to
+/// only where the first wrote no file, so a document that can be the part the person prefers is
+/// never made the other. It is read before any conversion so a misspelt target is a usage error
+/// whatever the first conversion would have done.
+fn or_else_target(
+    arguments: &Arguments,
+    plan: &Plan,
+) -> Result<Option<pdf_archive::Target>, Failure> {
+    let Some(word) = arguments.value(&["--or-else-to"]) else {
+        return Ok(None);
+    };
+    let Plan::Archive(archive) = plan else {
+        return Err(Failure::Usage(
+            "--or-else-to belongs to archive: it names the target to try where --to refuses"
+                .to_owned(),
+        ));
+    };
+    let first = archive.target;
+    refuse_a_tool_across_targets(archive)?;
+    let second = pdf_archive::Target::parse(word).ok_or_else(|| {
+        Failure::Usage(format!(
+            "--or-else-to {word:?}: the targets are 2b, 2u, 2a, 4, 4f and 4e"
+        ))
+    })?;
+    if second == first {
+        return Err(Failure::Usage(format!(
+            "--or-else-to {word:?} is the target --to names; a second try at the same target \
+             would refuse the same way"
+        )));
+    }
+    Ok(Some(second))
+}
+
+/// A usage error where the configuration declares a program for `plan`'s target.
+///
+/// The confined broker fills a tool's `{target}` with one target, the first one the request names,
+/// so a program declared under either target of an `--or-else-to` request would be handed the
+/// wrong target in the other (ADR 2498).
+fn refuse_a_tool_across_targets(plan: &ArchivePlan) -> Result<(), Failure> {
+    if plan.derivations.is_empty() && plan.resolutions.is_empty() {
+        return Ok(());
+    }
+    Err(Failure::Usage(
+        "--or-else-to does not combine with a configuration that declares a tool: the tool's \
+         {target} names one target, and this request has two"
+            .to_owned(),
+    ))
 }
 
 /// What `--config` contributed to the plan, beyond the authorisations it folded in.
@@ -1120,6 +1280,7 @@ fn read_config(
     arguments: &Arguments,
     target: pdf_archive::Target,
     authorised: &mut Authorisations,
+    announce: bool,
 ) -> Result<FromConfig, Failure> {
     let claim = arguments.switch("--claim-conformance");
     let Some((label, text)) = configuration_text(io, arguments)? else {
@@ -1139,7 +1300,7 @@ fn read_config(
         .map_err(|error| Failure::Usage(format!("{label}: {error}")))?;
     // The report's per-site lines say "this configuration answered it"; this is the line that
     // says which configuration that was, once, where a person reading the run meets it.
-    if let Some(name) = &config.name {
+    if announce && let Some(name) = &config.name {
         errln!(
             io,
             "note: the sites below marked as answered by this configuration were answered by \
@@ -1159,7 +1320,7 @@ fn read_config(
             authorised.authorise(loss);
         }
     }
-    for unbuilt in &config.unbuilt {
+    for unbuilt in config.unbuilt.iter().filter(|_| announce) {
         errln!(
             io,
             "note: the configuration answers {:?} with `{}`, which this version does not carry out \
@@ -1172,7 +1333,7 @@ fn read_config(
     // configuration site rather than in a security document nobody opens, and the two places an
     // operator meets a tool are the `[tool.…]` block they wrote and this line: a run that is about
     // to start somebody else's program over an untrusted document says so before it does.
-    for tool in &config.tools {
+    for tool in config.tools.iter().filter(|_| announce) {
         errln!(
             io,
             "note: {label} declares the tool {:?} as {} — {}",
@@ -2383,6 +2544,11 @@ archive:
                            cannot work out for you. Parts 1 and 3 are not targets and will not
                            become ones, because their text is not held and a requirement may not
                            be implemented from somebody else's reading of it
+  --or-else-to <target>    the target to try where --to refuses the document, written only then:
+                           `--to 2b --or-else-to 4` is one request, and the report and the
+                           file's pdfaid:part say which part was written. Both refusing lists
+                           each part's reasons and exits 4. Not with a configuration that
+                           declares a tool, whose {target} is the first part's alone
   --authorise <what>       may repeat. What the conversion may throw away: image-smoothing turns
                            /Interpolate off, so a low-resolution image looks blockier;
                            metadata-property removes an XMP property whose own predefined schema

@@ -753,3 +753,12 @@ opacity at another depth than the colour channels (a `bpcc` box) and grey plus o
 as named refusals rather than ship outputs the reference validator rejects. The clause decides what is
 conforming (trap 282 on glyph claims); the validator decides what a reader using it will accept, and a new
 shape is read by both before it ships.
+
+## An all-fields test literal spells only the fields it asserts
+
+A test that builds a struct every round may widen — `Authorisations` in the archive tests, with one field per
+loss — spells only the fields it asserts and closes with `..Authorisations::default()`. Round 1835 (ADR 2504)
+found a sibling's new field had put a full literal past clippy's hundred-line limit in `tests/archive.rs`, red for
+every round that touched the file that batch; the shortened literal cannot grow again. A literal that names
+every field is also the one that breaks for every round adding one, which is what the shared tree's
+`-U0` rule (trap 193) exists to prevent.

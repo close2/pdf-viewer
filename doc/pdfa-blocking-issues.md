@@ -236,12 +236,12 @@ verb takes "2b, or 4 where 2b refuses" as one request and says which part it wro
 the file written (§7.5.2), as every converted output's does. **Remedy**: write the target's header
 and record the source's header bytes in `xmpMM:History`. ADR 2490.
 
-**R01 — a document only §C.4's recovery reads** (23 declined as a source; the reader draws a page of
+**R01 — a document only this reader's recovery reads** (the standard defines none: its Annex C.4 advises on a damaged cross-reference table only, ADR 2502; 23 declined as a source; the reader draws a page of
 18 of them, 4 of those blank; five draw no page, section 7.2). *A company* would open it, see it,
 and print it. **Remedy**: write the structure the reader recovered — the catalog and page tree it
 walked — loss `recovered-structure` (new), the report naming what was rebuilt; the photograph is the
 fallback where the recovered objects do not convert. ADR 2490 reopens the declining sentence ("would
-state a structure no producer wrote"): the output states the structure this reader drew from.
+state a structure no producer wrote"): the output states the structure this reader drew from. **Built** by ADR 2502, its outcome in ADR 2503.
 
 **R07 — a filter no reader decodes** (the seven `UnknownFilter-*` files; never alone — each also
 needs R06b or a font route). **Remedy**: the stream is what the reader treated it as, absent — an

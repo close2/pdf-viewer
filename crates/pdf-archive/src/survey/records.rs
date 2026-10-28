@@ -6,7 +6,8 @@ use pdf_syntax::Object;
 
 use super::{
     Context, DeviceColour, DeviceFamily, IccProfile, IccSelection, MAX_OBSERVATIONS,
-    MissingResource, Observation, Route, SpaceKind, Walk, device_uses, icc_uses,
+    MissingInStream, MissingResource, MovingShow, Observation, Route, SpaceKind, Walk, device_uses,
+    icc_uses,
 };
 
 impl Walk<'_> {
@@ -120,14 +121,31 @@ impl Walk<'_> {
     ) -> Option<Object> {
         // The name was referenced whether or not the resources define it, which is the fact
         // ISO 19005 section 6.2.2's second requirement turns on.
+        let mut holder = (None, false);
         if let Some(record) = context.record
             && let Some(opened) = self.survey.streams.get_mut(record)
         {
             opened.referenced = true;
+            holder = (opened.object, opened.own_resources);
         }
         let found = self.peek(category, name, context);
         self.note_selection(category, name, found.as_ref());
         if found.is_none() {
+            if self.first_time(Observation::MissingIn(
+                context.page,
+                category,
+                name.to_vec(),
+                holder.0,
+            )) {
+                self.survey.missing_in.push(MissingInStream {
+                    page: context.page,
+                    category,
+                    name: name.to_vec(),
+                    what,
+                    object: holder.0,
+                    own_resources: holder.1,
+                });
+            }
             let printed = String::from_utf8_lossy(name).into_owned();
             if self.first_time(Observation::Missing(
                 context.page,
@@ -143,6 +161,25 @@ impl Walk<'_> {
             }
         }
         found
+    }
+
+    /// Records that a text-showing operator ran under a font name nothing defines, and did more
+    /// than show glyphs (`doc/adr/2500`).
+    pub(super) fn note_moving_show(&mut self, name: &[u8], context: &Context<'_>) {
+        if self.peek("Font", name, context).is_some() {
+            return;
+        }
+        let object = context
+            .record
+            .and_then(|record| self.survey.streams.get(record))
+            .and_then(|opened| opened.object);
+        if self.first_time(Observation::MovingShow(context.page, name.to_vec(), object)) {
+            self.survey.moving_shows.push(MovingShow {
+                page: context.page,
+                name: name.to_vec(),
+                object,
+            });
+        }
     }
 
     /// Whether an observation is new, and worth the entry it would cost.
@@ -165,10 +202,17 @@ impl Walk<'_> {
         name: &[u8],
         context: &Context<'_>,
     ) -> Option<Object> {
+        let name = Name::new(name.to_vec());
+        // A category table written directly is read where it stands. `get_key` hands back an
+        // owned copy of it, and a copy of a table of n names for each of n lookups makes a walk
+        // quadratic in the table (`doc/adr/2500`).
+        if let Some(Object::Dictionary(table)) = context.resources.get(category) {
+            return table.get_by_name(&name).cloned();
+        }
         let table = self.document.get_key(context.resources, category);
         table
             .as_dict()
-            .and_then(|table| table.get_by_name(&Name::new(name.to_vec())))
+            .and_then(|table| table.get_by_name(&name))
             .cloned()
     }
 

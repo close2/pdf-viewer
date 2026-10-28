@@ -487,6 +487,11 @@ and reports each field that fails in the form's own message, saving it all the s
 page 1340 has it (ADRs 2450, 2474). **A submit runs them, and the format test, by default**: page
 1340's `preSubmit` is the default, each failure is named on the submission's `owed`, and whether an
 error cancels the submit is the host's policy to say (ADR 2475).
+**A hybrid form's FormCalc calculations activate in page 379's order** (`Resource::activate`): a
+person's entry runs the field's `change` events, the calculations that read it and the validations,
+a merge's completion the calculations, the validations and the `initialize` events; the calculations
+cascade by the names their scripts resolved, honour `override` and end under limits that drop an
+unfinished cascade's edits and say so (ADRs 2506, 2507). No window calls it yet.
 
 **Table 22's bit 12 is a second operation beside bit 3, at four levels of its own**, because the
 cell states two consequences: bit 3 clear withholds printing, and bit 12 clear limits a print that
@@ -839,7 +844,10 @@ the close act at once, and every other key is held and done in order once the wo
 half a second the drawing thread is asked for the page so far four times a second, in painting
 order, and the bar carries how much is drawn until the page lands (ADR 1825); **between a zoom and
 its frame they show the page's last frame scaled to the extent it has now**, by the toolkit's own
-scaled draw, until the part-way picture or the frame replaces it (ADR 1843); a page they hold no
+scaled draw, until the part-way picture or the frame replaces it (ADR 1843), **after holding
+the picture they had, at the geometry it had, for one refresh of the display after a zoom
+command** (`viewer_host::stand_in::Hold`; the period is each toolkit's own report of the refresh,
+a sixtieth of a second where it states none; ADRs 2510, 2511); a page they hold no
 frame for — turned back to, scrolled back into a column — is shown from a reduction of its last
 frame, `viewer_host::stand_in`'s `RETAINED_EDGE` on a side and `RETAINED_PAGES` kept, `--proxy-pages`
 the extent as in `quorra` (ADR 1866); a
@@ -1184,6 +1192,9 @@ sentence and is kept for the window's life (ADR 1966), and Ctrl+Shift+A puts it 
 file, the window converts it on a thread of its own through the same profiles and executor — under
 the password a protected document opened with (ADR 1967) — says the report per site and writes the
 file beside the document; `quorra_archive` in the C ABI (ADR 1954).
+Both profiles discard `image-smoothing`, writing an image's `/Interpolate` false and naming the loss in
+the report and the file's history, and the verb's `--to 2b --or-else-to 4` is one request that writes
+part 4 only where 2b refuses and says which part it wrote (ADRs 2498, 2499).
 
 ### Redaction
 

@@ -1178,6 +1178,12 @@ pub struct Configuration {
     pub departures: Vec<Departure>,
     /// Per-annotation flag answers; absent unless this site has explicit shape rows.
     pub annotation_flags: Option<AnnotationFlagAnswers>,
+    /// `[profile] recovered-structure` — whether a document the verb declines as a source for
+    /// stating no page tree is written out as the structure this viewer recovered, under the loss
+    /// [`Loss::RecoveredStructure`]. It is no site's key because no requirement of the table
+    /// declines: the refusal comes from the source's structure, before any site is asked
+    /// (`doc/adr/2502`). Anything but `discard` leaves the refusal in place.
+    recovered_structure: bool,
 }
 
 /// The two bounded Table 167 flag shapes, answered independently within one document.
@@ -1325,6 +1331,7 @@ impl Configuration {
             .collect();
         let mut name = None;
         let mut sentence = None;
+        let mut recovered_structure = false;
         let mut sites: Vec<Row> = Vec::new();
         let mut applicable: Vec<(bool, Row)> = Vec::new();
         let mut flag_shapes = Vec::new();
@@ -1339,6 +1346,7 @@ impl Configuration {
                         .get("sentence")
                         .and_then(Value::as_text)
                         .map(str::to_owned);
+                    recovered_structure = kind_or_stop(tbl, "recovered-structure") == Kind::Discard;
                     // `doc/pdf-a-mitigations.md` section 14's ninth finding: a `default` may only be
                     // `stop` — today's behaviour, stated deliberately so `refuse-any-loss` is not
                     // the empty file. A default of anything else would authorise a loss for every
@@ -1427,6 +1435,7 @@ impl Configuration {
             tools,
             departures,
             annotation_flags,
+            recovered_structure,
         })
     }
 
@@ -1459,6 +1468,11 @@ impl Configuration {
             {
                 authorised.authorise(Loss::TextAsImage);
             }
+        }
+        // The one loss that belongs to no site: the refusal it lifts is the source's, not a row's
+        // (`doc/adr/2502`).
+        if self.recovered_structure {
+            authorised.authorise(Loss::RecoveredStructure);
         }
         authorised
     }
