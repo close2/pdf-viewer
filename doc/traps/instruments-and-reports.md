@@ -2087,3 +2087,42 @@ library rounded to a whole unit — a different blind spot in a different reader
 first was right and owed, but it was not what the witness exercised. A round given a font witness reads
 its descriptor's `/FontFile`, `/FontFile2` or `/FontFile3` key and its subtype before reading any reader's
 code, and names the format in its first report line.
+
+### 295. A freed archive output is counted only after the reference validator has seen it
+
+Round 1861 (ADRs 2556, 2557) gave a CID on the .notdef glyph a copy of it and counted `4387ba48` freed
+because the tree's own checker passed the output. veraPDF failed it on ISO 19005-2 6.2.11.8 at CID 0:
+§9.7.4.2 makes CID 0 the CIDFont's `.notdef` whatever glyph the map sends it to, a reading the converter
+and the checker shared and so neither could catch. A document is reported freed only after veraPDF has
+passed the output at the target, and a reading the checker and the converter share is named as one.
+
+### 296. `rustfmt` on a module root formats its children
+
+Round 1862 ran `rustfmt --edition 2024 crates/pdf-transform/src/archive/mod.rs` and found a sibling's new
+`fonts/cid_notdef_glyph.rs` reformatted: `rustfmt` follows `mod` declarations and `#[path]` attributes
+into every child module of the file it is given. A round formats the leaf files it changed, by their own
+paths, and never a `mod.rs` or a test root that other rounds are writing under.
+
+### 297. An export of one crate's diff is neither the round's work nor a buildable tree
+
+Round 1864 exported HEAD plus `git diff --name-only -- crates/pdf-transform` for its census. The list
+missed its own untracked modules and took every sibling's hunk in the crate, one of which needed round
+1869's `pdf-font` change outside it, so the export did not build. An export carries either the round's own
+hunks (`git diff -- <its files>` as `--patch` files, new files as paths) on HEAD, or a snapshot of the whole
+worktree, in which case every census line that moves is attributed to the round whose report explains it.
+
+### 298. A dependency's newest release is read before its gap is filled in-tree
+
+Round 1869's brief said `read-fonts` evaluated charstrings under no operation budget. That described the
+pinned 0.42.1; 0.44.0, already in the registry, counts every operand and operator and stops past a million
+(ADR 2572), and taking it saved a second Type 2 interpreter. A claim in a brief about a dependency is
+checked against the newest release's source before any workaround is designed, and a bump that answers the
+gap is a stack decision with its own ADR and the fuzz workspace's pins moved with it.
+
+### 299. A walk may name only what the committed tree holds
+
+The fourth teaching walk (round 1860) said `doc/pdfa/` is where a reader opens the PDF/A text. That
+directory is the owner's, ignored by git, present in every checkout here and absent from the tree CI
+checks out, so the teaching gate passed locally and failed on main until 2d54febf reworded the sentence.
+A path a walk names is checked with `git ls-files --error-unmatch <path>` in the worktree, and a resource
+kept outside the tree is described by where it is kept, not by a path.

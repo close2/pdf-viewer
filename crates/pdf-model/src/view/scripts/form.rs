@@ -3,7 +3,9 @@
 //! XFA 3.3 page 379 names the moments a form's calculations are activated: the completion of the
 //! merge, and a person's entry into a field. [`ViewState::activate_form_on_merge`] and
 //! [`ViewState::activate_form_on_entry`] raise those two over the XFA resource §K.2 lets an
-//! interactive form carry, as [`crate::xfa::Resource::activate`] orders them (ADR 2506). **The
+//! interactive form carry, as [`crate::xfa::Resource::activate`] orders them (ADR 2506), and
+//! [`ViewState::activate_form_on_exit`] and [`ViewState::activate_form_on_enter`] raise the events
+//! pages 390–391 fire when the keyboard focus moves (ADR 2566). **The
 //! scripts run in the runner**, never here: this crate reads no script language and does not depend
 //! on one (ADR 2482), so [`ScriptRunner::run_form_script`] is the one call that carries a script
 //! out, and a runner that has none refuses it by name. What the scripts computed lands in the edit
@@ -74,6 +76,26 @@ pub enum FormOverrideMode {
     Warning,
 }
 
+/// What raised an activation: page 379's two stimuli, and a move of the keyboard focus (pages
+/// 390–391), each half of which is [`Stimulus`]'s own.
+#[derive(Debug, Clone, Copy)]
+enum Raised<'a> {
+    /// The completion of the merge.
+    Merge,
+    /// A person's entry into the field of this PDF name.
+    Entry(&'a str),
+    /// The focus left `left` for `reaching`.
+    Exit {
+        left: &'a str,
+        reaching: Option<&'a str>,
+    },
+    /// The focus reached `reached` from `leaving`.
+    Enter {
+        reached: &'a str,
+        leaving: Option<&'a str>,
+    },
+}
+
 /// A runner seen as the [`Runner`] an activation runs its scripts through, counting the scripts
 /// that ran to an end and holding the whole activation to [`MAX_SEQUENCE_TIME`].
 ///
@@ -142,7 +164,7 @@ impl ViewState {
     /// `warning` or a disabled calculation keeps it (ADR 2525 item 2). The cost is a second
     /// activation, and the notices arrive with the merge instead of with the keystroke.
     pub fn activate_form_on_merge(&mut self, document: &Document) -> bool {
-        self.activate_form(document, None, Instant::now())
+        self.activate_form(document, Raised::Merge, Instant::now())
     }
 
     /// Activates the calculations that depend on the field `name`, which a person just committed a
@@ -151,7 +173,39 @@ impl ViewState {
         if self.scripting.form_entered.len() < MAX_ENTERED_FIELDS {
             self.scripting.form_entered.insert(name.to_owned());
         }
-        self.activate_form(document, Some(name), Instant::now())
+        self.activate_form(document, Raised::Entry(name), Instant::now())
+    }
+
+    /// Runs the `exit` events of the keyboard focus leaving the field `left` for the field
+    /// `reaching`, or for no field (XFA 3.3 pages 390–391): the field's, and those of each
+    /// subform and exclusion group around it that the focus goes out of, followed by the
+    /// calculations that depend on what the events changed (page 379). Answers whether a value
+    /// changed, which is ink to draw again.
+    ///
+    /// A host calls it after the commit a loss of focus makes, so that an `exit` script reads the
+    /// person's entry. The events are one activation under the sequence budget of one second, and
+    /// one that is stopped drops what its scripts changed and leaves the entry as the person made
+    /// it.
+    pub fn activate_form_on_exit(
+        &mut self,
+        document: &Document,
+        left: &str,
+        reaching: Option<&str>,
+    ) -> bool {
+        self.activate_form(document, Raised::Exit { left, reaching }, Instant::now())
+    }
+
+    /// Runs the `enter` events of the keyboard focus reaching the field `reached` from the field
+    /// `leaving`, or from no field (XFA 3.3 pages 390–391): those of each subform and exclusion
+    /// group around it that the focus comes into, and the field's, followed by the calculations
+    /// that depend on what the events changed (page 379). Answers whether a value changed.
+    pub fn activate_form_on_enter(
+        &mut self,
+        document: &Document,
+        reached: &str,
+        leaving: Option<&str>,
+    ) -> bool {
+        self.activate_form(document, Raised::Enter { reached, leaving }, Instant::now())
     }
 
     /// The fields whose `override` asks a host to present a message since a host last took them, in
@@ -190,19 +244,14 @@ impl ViewState {
 
     /// `started` is when the sequence began: a merge and the entries it re-raises are one sequence
     /// and share one budget.
-    fn activate_form(
-        &mut self,
-        document: &Document,
-        typed: Option<&str>,
-        started: Instant,
-    ) -> bool {
+    fn activate_form(&mut self, document: &Document, raised: Raised<'_>, started: Instant) -> bool {
         let Some(runner) = self.runner.0.clone() else {
             return false;
         };
         let resource = match self.held_form(document).clone() {
             Held::Resource(resource) => resource,
             Held::Refused(why) => {
-                if typed.is_none() {
+                if matches!(raised, Raised::Merge) {
                     self.report(format!("the XFA form's calculations are not run: {why}"));
                 }
                 return false;
@@ -211,24 +260,26 @@ impl ViewState {
         };
         let table = crate::view::field_table(document, crate::view::Omitted::Calculation);
         let fields = self.form_fields(document, &table);
-        let entered = match typed {
-            Some(name) => vec![name.to_owned()],
-            None => Vec::new(),
+        let entered = match raised {
+            Raised::Entry(name) => vec![name.to_owned()],
+            _ => Vec::new(),
         };
-        let stimulus = match typed {
-            Some(_) => Stimulus::Entry(&entered),
-            None => Stimulus::Merge,
+        let stimulus = match raised {
+            Raised::Merge => Stimulus::Merge,
+            Raised::Entry(_) => Stimulus::Entry(&entered),
+            Raised::Exit { left, reaching } => Stimulus::Exit { left, reaching },
+            Raised::Enter { reached, leaving } => Stimulus::Enter { reached, leaving },
         };
         // What a person entered before this merge stands under it (the merge's own comment).
-        let before_the_merge: Vec<String> = match typed {
-            Some(_) => Vec::new(),
-            None => self
+        let before_the_merge: Vec<String> = match raised {
+            Raised::Merge => self
                 .scripting
                 .form_entered
                 .iter()
                 .filter(|name| table.contains_key(*name))
                 .cloned()
                 .collect(),
+            _ => Vec::new(),
         };
         let mut through = ThroughRunner::new(runner.as_ref(), started);
         let activation = resource.activate(&fields, stimulus, &mut through, Limits::DEFAULT);
@@ -242,7 +293,7 @@ impl ViewState {
         }
         if through.timed_out {
             self.report(format!(
-                "the XFA form's calculations were stopped: they ran longer than their budget of \
+                "the XFA form's scripts were stopped: they ran longer than their budget of \
                  {} ms, and the values they had calculated were dropped (ADR 2525)",
                 MAX_SEQUENCE_TIME.as_millis()
             ));
@@ -272,7 +323,7 @@ impl ViewState {
                 ));
                 break;
             }
-            changed |= self.activate_form(document, Some(name), started);
+            changed |= self.activate_form(document, Raised::Entry(name), started);
         }
         changed
     }

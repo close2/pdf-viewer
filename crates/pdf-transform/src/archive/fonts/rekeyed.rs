@@ -526,7 +526,6 @@ fn face_name(program: &[u8], format: Format) -> String {
             .and_then(|cff| {
                 cff.names()
                     .get(0)
-                    .ok()
                     .map(|name| String::from_utf8_lossy(name).into_owned())
             })
             .unwrap_or_default(),

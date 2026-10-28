@@ -1405,7 +1405,7 @@ impl Measured {
 /// A Compact Font Format program's Private DICT `StdVW`, where it states one.
 fn std_vw(program: &[u8]) -> Option<f32> {
     let cff = skrifa::raw::tables::cff::Cff::read(skrifa::raw::FontData::new(program)).ok()?;
-    let top = cff.top_dicts().get(0).ok()?;
+    let top = cff.top_dicts().get(0)?;
     let private = entries(top, None).find_map(|entry| match entry {
         Ok(Entry::PrivateDictRange(range)) => Some(range),
         _ => None,

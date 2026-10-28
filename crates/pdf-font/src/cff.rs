@@ -175,7 +175,9 @@ impl CodeToGlyph {
 pub fn units_per_em(data: &[u8]) -> Result<f32, CffError> {
     open(data)?;
     let cff = Cff::read(data.into()).map_err(|error| malformed(&error.into()))?;
-    let top = cff.top_dicts().get(0).map_err(|error| malformed(&error))?;
+    let top = cff.top_dicts().get(0).ok_or_else(|| CffError::Malformed {
+        detail: "the Top DICT INDEX is empty".to_owned(),
+    })?;
     let mut upem = 1000.0;
     for entry in dict::entries(top, None) {
         if let dict::Entry::FontMatrix(matrix) = entry.map_err(|error| malformed(&error))? {
@@ -350,6 +352,10 @@ fn malformed(error: &skrifa::raw::ps::error::Error) -> CffError {
 #[path = "cff_scale_tests.rs"]
 mod scale_tests;
 
+#[cfg(test)]
+#[path = "cff_budget_tests.rs"]
+mod budget_tests;
+
 /// A CID-keyed program some of whose Font DICTs could not be read, with those replaced.
 ///
 /// # What was wrong, and what this is
@@ -463,7 +469,9 @@ pub fn readable_font_dicts(data: &[u8]) -> Result<Option<FontDictRepair>, CffErr
                 && font
                     .charstrings()
                     .get(usize::from(*glyph))
-                    .is_ok_and(|charstring| calls_local_subr(charstring, &font, 0))
+                    .is_some_and(|charstring| {
+                        calls_local_subr(charstring, &font, 0, &mut { CHARSTRING_OPERATIONS })
+                    })
         })
         .collect();
     let replaced = font_dicts.iter().filter(|dict| dict.is_none()).count();
@@ -999,8 +1007,15 @@ fn dict_two_ints(operands: &[u8]) -> Option<(i64, i64)> {
 /// The operand stack is followed far enough to know which global subroutine a `callgsubr`
 /// names; a call whose operand cannot be told is counted as reaching one, which errs on the
 /// side of reporting. The stem count is kept for `hintmask`'s data bytes, which would
-/// otherwise be read as operators.
-fn calls_local_subr(charstring: &[u8], font: &CffFontRef<'_>, depth: u8) -> bool {
+/// otherwise be read as operators. `operations` is what is left of the glyph's
+/// [`CHARSTRING_OPERATIONS`], shared across the calls; a walk that spends it is counted as
+/// reaching one too, on the same side.
+fn calls_local_subr(
+    charstring: &[u8],
+    font: &CffFontRef<'_>,
+    depth: u8,
+    operations: &mut u32,
+) -> bool {
     const CALLSUBR: u8 = 10;
     const RETURN: u8 = 11;
     const CALLGSUBR: u8 = 29;
@@ -1025,6 +1040,10 @@ fn calls_local_subr(charstring: &[u8], font: &CffFontRef<'_>, depth: u8) -> bool
     let mut stems = 0usize;
     let mut i = 0usize;
     while let Some(&b0) = charstring.get(i) {
+        let Some(left) = operations.checked_sub(1) else {
+            return true;
+        };
+        *operations = left;
         match b0 {
             32..=254 => {
                 let b1 = charstring.get(i.saturating_add(1)).copied().unwrap_or(0);
@@ -1056,9 +1075,9 @@ fn calls_local_subr(charstring: &[u8], font: &CffFontRef<'_>, depth: u8) -> bool
                 };
                 let index = usize::try_from(operand.saturating_add(bias)).unwrap_or(usize::MAX);
                 if depth < MAX_DEPTH
-                    && gsubrs
-                        .get(index)
-                        .is_ok_and(|subr| calls_local_subr(subr, font, depth.saturating_add(1)))
+                    && gsubrs.get(index).is_some_and(|subr| {
+                        calls_local_subr(subr, font, depth.saturating_add(1), operations)
+                    })
                 {
                     return true;
                 }
@@ -1205,6 +1224,17 @@ const ESCAPE_BYTE: u8 = 12;
 /// every program this has been run against; the bound is what keeps a program whose subroutines
 /// call each other in a ring from being followed for ever.
 const MAX_INLINE_DEPTH: usize = 8;
+
+/// How many operands and operators one walk of a glyph's charstring may read, every one inside
+/// the subroutines it calls counted.
+///
+/// Nesting alone does not bound the work: Adobe Technical Note #5177's Appendix B allows ten
+/// levels, so a subroutine that calls the next one *k* times is entered about *k*⁹ times, and a
+/// charstring has room for thousands of calls. `read-fonts`' evaluator, which draws every glyph
+/// and reads every width, stops a glyph at this many (its own `MAX_OPERATIONS`); this crate's
+/// own walks of a charstring stop at the same count, so a program that one refuses is a program
+/// the other gives up on as well (ADR 2572).
+pub(crate) const CHARSTRING_OPERATIONS: u32 = 1_000_000;
 
 /// The subroutine bias, which Adobe Technical Note #5177 section 4.7 makes a function of how
 /// many subroutines the INDEX holds.

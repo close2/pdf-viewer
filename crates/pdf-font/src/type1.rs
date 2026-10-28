@@ -455,11 +455,62 @@ pub(crate) mod tests {
         program(&plain_glyph(250), &a, &subrs)
     }
 
+    /// `levels` subroutines, each calling the next `k` times, under a glyph that calls the first.
+    fn fan_out(k: usize, levels: i32) -> Vec<u8> {
+        let subrs: Vec<Vec<u8>> = (0..levels)
+            .map(|level| {
+                let mut body = Vec::new();
+                if level.saturating_add(1) < levels {
+                    for _ in 0..k {
+                        body.extend(number(level.saturating_add(1)));
+                        body.push(CALLSUBR);
+                    }
+                }
+                body.push(RETURN);
+                body
+            })
+            .collect();
+        let mut a = number(0);
+        a.extend(number(500));
+        a.push(HSBW);
+        a.extend(number(0));
+        a.push(CALLSUBR);
+        a.push(ENDCHAR);
+        program(&plain_glyph(250), &a, &subrs)
+    }
+
+    #[test]
+    fn a_fan_out_of_five_at_ten_levels_is_refused_and_one_of_three_is_read() {
+        /// Keeps nothing: the question is whether the glyph evaluates.
+        struct Nothing;
+        impl skrifa::outline::OutlinePen for Nothing {
+            fn move_to(&mut self, _: f32, _: f32) {}
+            fn line_to(&mut self, _: f32, _: f32) {}
+            fn quad_to(&mut self, _: f32, _: f32, _: f32, _: f32) {}
+            fn curve_to(&mut self, _: f32, _: f32, _: f32, _: f32, _: f32, _: f32) {}
+            fn close(&mut self) {}
+        }
+        // Ten levels of five calls each enter the last subroutine about 5^9 times, past the
+        // evaluator's operation budget (ADR 2572); three a level is about 3^9 and is read.
+        let hostile = Program::parse(&fan_out(5, 10)).expect("the fixture parses");
+        let glyph = glyph_named(&hostile, "A");
+        assert!(hostile.advance(glyph).is_err());
+        assert!(hostile.draw(glyph, &mut Nothing).is_err());
+        let modest = Program::parse(&fan_out(3, 10)).expect("the fixture parses");
+        assert_eq!(
+            modest
+                .advance(glyph_named(&modest, "A"))
+                .expect("three calls a level evaluate"),
+            Some(500.0)
+        );
+    }
+
     #[test]
     fn a_width_is_read_through_subroutines_up_to_the_evaluators_depth_and_refused_past_it() {
         // `read_fonts::ps::cs` refuses a call nested deeper than its limit of ten before it
-        // evaluates it, which is the only bound on the recursion an input reaches here: a chain
-        // at the limit states its width, one past it is an error and no width.
+        // evaluates it, and stops a glyph whose calls read more than its operation budget
+        // (ADR 2572): a chain at the depth limit states its width, one past it is an error and
+        // no width.
         let at = Program::parse(&nested(10)).expect("the fixture parses");
         assert_eq!(
             at.advance(glyph_named(&at, "A"))

@@ -805,3 +805,113 @@ fn a_source_stating_more_pages_than_the_reader_reaches_is_refused_by_name() {
         assert!(sentence.contains(whose), "{sentence}");
     }
 }
+
+#[test]
+fn a_root_naming_a_parent_or_a_child_that_is_no_dictionary_is_written_as_a_well_formed_tree() {
+    // §7.7.3.2's Table 30 does not permit /Parent in the root node, and makes /Kids the node's
+    // children; PDFBOX-6040-nodeloop's root names itself and lists a reference to an object the file
+    // does not hold, which is §7.3.10's null. Carried as it stands, that is a tree a conforming
+    // reader cannot open, so the source is declined and, behind the loss, rebuilt (ADR 2558).
+    let catalog = "<< /Type /Catalog /Pages 2 0 R >>";
+    for (root, says) in [
+        (
+            "<< /Type /Pages /Parent 2 0 R /Kids [3 0 R] /Count 1 >>",
+            "does not permit /Parent in the root node",
+        ),
+        (
+            "<< /Type /Pages /Kids [9 0 R 3 0 R] /Count 1 >>",
+            "names no dictionary",
+        ),
+    ] {
+        let source = file(&[catalog, root, PAGE], "/Root 1 0 R");
+        let refused = attempt(
+            &source,
+            Target::Four(Flavour::Plain),
+            Authorisations::default(),
+        );
+        let declined = match refused {
+            Err(refusal) => refusal.to_string(),
+            Ok((report, output)) => {
+                assert!(output.is_none(), "{root}: nothing is written unauthorised");
+                format!("{:?}", report.refused)
+            }
+        };
+        assert!(declined.contains(says), "{root}: {declined}");
+        for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+            let (_, document, _) = recovered(&source, target);
+            let catalog = document.catalog().expect("a catalog");
+            let tree = document.get_key(&catalog, "Pages");
+            let tree = tree.as_dict().expect("the root is a dictionary");
+            assert!(
+                tree.get("Parent").is_none(),
+                "{target}: the root names no parent"
+            );
+            let kids = document.get_key(tree, "Kids");
+            let kids = kids.as_array().expect("a /Kids array");
+            assert_eq!(kids.len(), 1, "{target}: the one page drawn");
+            for kid in kids {
+                assert!(
+                    kid.as_reference().is_some(),
+                    "{target}: an indirect reference"
+                );
+                let page = document.resolve(kid);
+                let page = page.as_dict().expect("each kid is a dictionary");
+                assert_eq!(
+                    document
+                        .get_key(page, "Type")
+                        .as_name()
+                        .map(|name| name.as_bytes().to_vec()),
+                    Some(b"Page".to_vec()),
+                    "{target}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_page_the_reader_reaches_at_two_indices_is_carried_once_and_the_count_it_falls_short_of_refuses()
+ {
+    // Table 30 makes a node's /Count the number of leaves beneath it. Node 3 states two and holds
+    // one page, its other kid a reference to an object the file does not hold (§7.3.10's null), so
+    // the reader skips node 3 by the two it states and lands on node 5's page again: one object at
+    // two indices. The kid naming no dictionary declines the source (ADR 2558); the rebuild then
+    // carries page 6 once rather than reserving its object twice, and the root's /Count of three
+    // against the two pages the file holds is refused by name, as a page lost is (ADR 2502).
+    let source = file(
+        &[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 3 >>",
+            "<< /Type /Pages /Parent 2 0 R /Kids [9 0 R 4 0 R] /Count 2 >>",
+            "<< /Type /Page /Parent 3 0 R /MediaBox [0 0 200 300] >>",
+            "<< /Type /Pages /Parent 2 0 R /Kids [6 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 200 300] >>",
+        ],
+        "/Root 1 0 R",
+    );
+    let reader = Document::open_with_limits(source.clone(), Limits::DEFAULT).expect("it opens");
+    let drawn: Vec<Option<ObjectId>> = pdf_model::Pages::new(&reader)
+        .every()
+        .into_iter()
+        .map(|page| page.and_then(|page| page.id))
+        .collect();
+    let six = Some(ObjectId::new(6, 0));
+    assert_eq!(
+        drawn,
+        [Some(ObjectId::new(4, 0)), six, six],
+        "the shape under test: the reader answers two indices with object 6"
+    );
+    for target in TARGETS {
+        let refusal = attempt(&source, target, authorised())
+            .expect_err("a page the file does not hold is not written as another page");
+        let pdf_transform::Refusal::Reconstructed(sentence) = refusal else {
+            panic!(
+                "{target}: another variant, where the rebuild placed an object twice: {refusal}"
+            );
+        };
+        assert!(
+            sentence.contains("page tree root's /Count states 3 pages where this reader reaches 2"),
+            "{target}: {sentence}"
+        );
+    }
+}

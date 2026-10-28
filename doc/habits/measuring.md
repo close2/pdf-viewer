@@ -1866,3 +1866,10 @@ their media clip data inline (`/R << /C << /CT (video/mpeg) … >> >>`), and the
 direct dictionaries found 28 — nearly double, with every `video/mpeg` clip among the ones the first walk
 missed. A count that decides a slot's premise (which formats the corpus holds) is taken by the recursive
 walk, and its total is checked against a text search for the key before it is written down.
+
+## A census names its population's size before it ranks
+
+Round 1866 was briefed to rank XFA events over the test trees and found six readable hybrid forms there,
+too few to order anything. It said so and ranked from the crawl cache's 151 templates instead. A census
+of what documents contain states the size of the population it read in its first line, and when the
+trees the tests read are too thin to rank, it says so and names the larger population it used.

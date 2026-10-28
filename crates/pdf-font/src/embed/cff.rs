@@ -183,7 +183,7 @@ fn whole(program: &[u8], used: &BTreeSet<u16>) -> Result<Embedded, Refusal> {
 fn system_info(cff: &[u8]) -> Option<SystemInfo> {
     use skrifa::raw::ps::cff::dict::{Entry, entries};
     let font = skrifa::raw::tables::cff::Cff::read(skrifa::raw::FontData::new(cff)).ok()?;
-    let top = font.top_dicts().get(0).ok()?;
+    let top = font.top_dicts().get(0)?;
     entries(top, None).find_map(|entry| match entry {
         Ok(Entry::Ros {
             registry,

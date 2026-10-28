@@ -35,6 +35,19 @@ fn form(attributes: &str) -> Vec<u8> {
 /// [`form`], its script element carrying `script_attributes`: a `contentType` names its language
 /// (XFA 3.3 page 106).
 fn form_in(attributes: &str, script_attributes: &str) -> Vec<u8> {
+    hybrid(
+        &format!(
+            "<field name=\"Units\"><ui><textEdit/></ui><value><text/></value></field>\
+             <field name=\"Total\"><ui><textEdit/></ui><value><text/></value>\
+             <calculate {attributes}><script {script_attributes}>6</script></calculate></field>"
+        ),
+        "<Units>1</Units><Total/>",
+    )
+}
+
+/// A hybrid form of one subform `form1` holding `fields`, two of which are `Units` and `Total`,
+/// each with a widget in that order, and the data `data` under `form1`.
+fn hybrid(fields: &str, data: &str) -> Vec<u8> {
     let stream = |text: &str| {
         format!(
             "<< /Length {} >>\nstream\n{text}\nendstream",
@@ -43,13 +56,12 @@ fn form_in(attributes: &str, script_attributes: &str) -> Vec<u8> {
     };
     let template = format!(
         "<template xmlns=\"http://www.xfa.org/schema/xfa-template/3.3/\"><subform name=\"form1\">\
-         <field name=\"Units\"><ui><textEdit/></ui><value><text/></value></field>\
-         <field name=\"Total\"><ui><textEdit/></ui><value><text/></value>\
-         <calculate {attributes}><script {script_attributes}>6</script></calculate></field>\
-         </subform></template>"
+         {fields}</subform></template>"
     );
-    let datasets = "<xfa:datasets xmlns:xfa=\"http://www.xfa.org/schema/xfa-data/1.0/\">\
-                    <xfa:data><form1><Units>1</Units><Total/></form1></xfa:data></xfa:datasets>";
+    let datasets = format!(
+        "<xfa:datasets xmlns:xfa=\"http://www.xfa.org/schema/xfa-data/1.0/\">\
+         <xfa:data><form1>{data}</form1></xfa:data></xfa:datasets>"
+    );
     let widget = |name: &str, y: u32| {
         format!(
             "<< /Type /Annot /Subtype /Widget /FT /Tx /Parent 4 0 R /T ({name}[0]) /P 3 0 R \
@@ -65,7 +77,7 @@ fn form_in(attributes: &str, script_attributes: &str) -> Vec<u8> {
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Annots [7 0 R 8 0 R] >>".to_owned(),
         "<< /T (form1[0]) /Kids [7 0 R 8 0 R] >>".to_owned(),
         stream(&template),
-        stream(datasets),
+        stream(&datasets),
         widget("Units", 300),
         widget("Total", 260),
     ];
@@ -373,5 +385,36 @@ fn an_entry_made_while_the_scripts_were_withheld_survives_their_allowing() {
             })
             .for_each(drop);
         assert_eq!(value(&viewer, "Total"), shown_after, "{attributes}");
+    }
+}
+
+/// XFA 3.3 pages 390–391: a tab that moves the keyboard focus runs the `exit` event of the field
+/// it leaves and the `enter` event of the field it reaches, through the runner the reader's level
+/// supplied (ADR 2566). The test's runner assigns a script's number to the script's own field.
+#[test]
+fn a_tab_runs_the_exit_event_of_the_field_left_and_the_enter_event_of_the_field_reached() {
+    let fields = "<field name=\"Units\"><ui><textEdit/></ui><value><text/></value>\
+                  <event activity=\"enter\"><script>4</script></event></field>\
+                  <field name=\"Total\"><ui><textEdit/></ui><value><text/></value>\
+                  <event activity=\"exit\"><script>9</script></event></field>";
+    let data = "<Units>1</Units><Total/>";
+    for (scripting, units, total) in [
+        (Scripting::Run(Arc::new(Calculators::default())), "4", "9"),
+        (Scripting::Off, "", ""),
+    ] {
+        let mut viewer = opened_on(scripting, hybrid(fields, data));
+        viewer.handle(Command::Presented).for_each(drop);
+        let tab = |viewer: &mut Viewer| {
+            viewer
+                .handle(Command::Focused(viewer_core::FocusMove::Next))
+                .for_each(drop);
+        };
+        tab(&mut viewer);
+        assert_eq!(value(&viewer, "Units"), units, "the focus reached Units");
+        assert_eq!(value(&viewer, "Total"), "");
+        tab(&mut viewer);
+        assert_eq!(value(&viewer, "Total"), "", "Total is entered, not left");
+        tab(&mut viewer);
+        assert_eq!(value(&viewer, "Total"), total, "the focus left Total");
     }
 }

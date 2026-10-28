@@ -1678,16 +1678,82 @@ fn signature_policy(
         }
         notes.push(said);
     }
-    // The block, named per file rather than as one missing document. Silent where the signer named
-    // no specification: clause 5.2.9.1 leaves it to the context there, and a reader outside that
-    // context has nothing to name.
-    if let Some(specification) = policy.specification() {
-        notes.push(format!(
-            "§12.8.3.4.4 also requires a signature handler to enforce that policy's constraints, \
-             and this program does not: the constraints are written in {}, a specification it does \
-             not hold. Everything the signature itself states about the policy is above",
-            named(specification)
-        ));
+    policy_constraints(&policy, cms, notes);
+}
+
+/// §12.8.3.4.4's "shall enforce signature policy constraints", said one constraint at a time.
+///
+/// A stored document bound to the signature and written in ETSI TR 102 272's ASN.1 syntax is
+/// enforced, each constraint a sentence with its verdict (ADR 2560). Anything else is said as the
+/// reason nothing was enforced; where the file carries no document, the sentence names the
+/// specification the signer named and is silent where it named none, since clause 5.2.9.1 leaves
+/// the syntax to the context there and a reader outside that context has nothing to name.
+fn policy_constraints(
+    policy: &pdf_signature::policy::SignaturePolicy<'_>,
+    cms: &pdf_signature::cms::SignedData<'_>,
+    notes: &mut Vec<String>,
+) {
+    use pdf_signature::policy_rules::{Enforcement, NotEnforced, SignerFacts, Verdict, enforce};
+
+    let facts = SignerFacts::of(cms);
+    let why = match enforce(policy, cms, &facts) {
+        Enforcement::Enforced(findings) => {
+            let broken = findings
+                .iter()
+                .filter(|finding| finding.verdict == Verdict::Broken)
+                .count();
+            notes.push(format!(
+                "§12.8.3.4.4 requires a signature handler to enforce that policy's constraints, and \
+                 the copy this file carries states them in ETSI TR 102 272's ASN.1 syntax: {} \
+                 constraint(s), {broken} of them broken",
+                findings.len()
+            ));
+            notes.extend(findings.iter().map(ToString::to_string));
+            return;
+        }
+        Enforcement::NotEnforced(NotEnforced::NoStoredDocument) => {
+            let Some(specification) = policy.specification() else {
+                return;
+            };
+            format!(
+                "the constraints are written in {}, and this file carries no copy of them",
+                named(specification)
+            )
+        }
+        Enforcement::NotEnforced(NotEnforced::NotBound(_)) => "the copy this file carries is not \
+             bound to the signature, so its rules are nobody's agreement"
+            .to_owned(),
+        Enforcement::NotEnforced(NotEnforced::Unreadable(refusal)) => refusal.to_string(),
+        Enforcement::NotEnforced(NotEnforced::IdentifierDiffers { document }) => format!(
+            "the copy this file carries is the document of policy {document}, not of the one the \
+             signer named"
+        ),
+    };
+    notes.push(format!(
+        "§12.8.3.4.4 also requires a signature handler to enforce that policy's constraints, and \
+         this program did not: {why}. Everything the signature itself states about the policy is \
+         above"
+    ));
+}
+
+/// The findings of the bound policy a signature was made under, or none where nothing was enforced.
+///
+/// What [`policy_constraints`] says as sentences, handed to the verdict as well, since
+/// §12.8.3.4.4's enforcement is a validator's and a broken constraint withholds the word (ADR 2560).
+fn policy_findings(
+    signature: &pdf_signature::signature::Signature,
+) -> Vec<pdf_signature::policy_rules::Finding> {
+    use pdf_signature::policy_rules::{Enforcement, SignerFacts, enforce};
+
+    let Ok(cms) = signature.signed_data() else {
+        return Vec::new();
+    };
+    let Ok(Some(policy)) = signature.signature_policy(&cms) else {
+        return Vec::new();
+    };
+    match enforce(&policy, &cms, &SignerFacts::of(&cms)) {
+        Enforcement::Enforced(findings) => findings,
+        Enforcement::NotEnforced(_) => Vec::new(),
     }
 }
 
@@ -2109,6 +2175,7 @@ fn verdicts(
         asked.timestamps,
         asked.when,
     );
+    let verdict = verdict.under_policy(&policy_findings(signature));
     // **Which instant the path was asked about, and on whose word** — said whichever answer it is,
     // because "valid" without it reads as *valid now* and that is the one thing this program never
     // establishes. §12.8.4.2's own reason for a document security store is that a signature

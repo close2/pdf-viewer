@@ -154,6 +154,7 @@ mod font_files;
 mod font_widths;
 mod fonts;
 mod halftones;
+mod header;
 mod hexadecimal;
 mod icc;
 mod in_place;
@@ -235,7 +236,8 @@ pub use external::{ExternalData, ExternalStream, external_stream_data};
 pub use attach::{AttachedFile, KeptAttachment, PRESERVED_AS_AN_ATTACHMENT};
 use decision::decide;
 use prepare::{
-    DEFAULT_CMYK_ACTION, DEFAULT_CMYK_PARAMETERS, Prepared, Provenance, SUBSTITUTED_FONTS_ACTION,
+    DEFAULT_CMYK_ACTION, DEFAULT_CMYK_PARAMETERS, HEADER_ACTION, Prepared, Provenance,
+    SUBSTITUTED_FONTS_ACTION,
 };
 pub use preserve::{
     PLACEMENT_OF_MARKS, PLACEMENT_ON_PAGE, PRESERVED_AS_A_PAGE, PRESERVED_MARKS_AS_A_PAGE,
@@ -666,7 +668,7 @@ fn rebuild_a_declined_structure(
         Err(refusal @ Refusal::Reconstructed(_))
             if plan.authorised.grants(Loss::RecoveredStructure) =>
         {
-            recovered::rebuild(document, &refusal).map(Some)
+            recovered::rebuild(document, &refusal, plan.target).map(Some)
         }
         Err(refusal) => Err(refusal),
     }
@@ -817,6 +819,9 @@ fn decide_every_failure(
         });
     }
     met_by_the_replacement(&mut conversion.decided, &prepared);
+    if let Ok(removals) = &prepared.actions {
+        actions::met_by_the_removal(&mut conversion.decided, input, removals);
+    }
     // What the appended pages carry is the report's to say and the packet's to record, and both
     // are read off the one composition rather than recomputed: `doc/adr/1014` section 5's *a page
     // was appended, carrying this, from there, placed so*.
@@ -1169,26 +1174,30 @@ fn supply_not_carried_out(
 /// as `discard` answers it, and the page is what the step adds. A page that could not be composed
 /// refuses the site with the composition's own sentence rather than letting the removal go ahead
 /// unstated, which would be a different step from the one the operator named. The step after
-/// `preserve:append` is the preservation's, and [`configured`]'s page branch answers it.
+/// `preserve:append` is the preservation's, and [`configured`]'s page branch answers it. At a
+/// halftone row whose list goes on to `discard` (`doc/adr/2562`), the objects a page that could
+/// not be composed would have listed are handed to it, `doc/rfc/0014` section 3's rule for a step
+/// that fails, and the removal goes ahead with the report naming no statement for the site.
 fn statement_not_composed(
     plan: &ArchivePlan,
     id: &'static str,
     prepared: &Prepared,
 ) -> Option<Decision> {
-    if !plan.preservations.iter().any(|preservation| {
+    let preservation = plan.preservations.iter().find(|preservation| {
         preservation.site == id && preservation.statement.is_some() && !preservation.by_page
-    }) {
-        return None;
-    }
+    })?;
+    let handed_on = config::STATED_GRAPHICS.contains(&id)
+        && preservation.no_page_carries == RemedyKind::Discard;
     match &prepared.preserved {
         Ok(composed)
             if composed
                 .statement
                 .as_ref()
-                .is_some_and(|page| page.site == id) =>
+                .is_some_and(|page| page.sites.contains(&id)) =>
         {
             None
         }
+        _ if handed_on => None,
         Ok(_) => Some(Decision::Refused(Because::NotBuiltYet(
             statement::NOTHING_STATED,
         ))),
@@ -1354,6 +1363,21 @@ fn apply_the_decisions(
         .as_ref()
         .is_ok_and(|composed| !composed.relocations.is_empty());
     let mut wanted = rewrites_wanted(conversion, omit_identification, has_relocations);
+    // The target's header over one that named no version is written only with its record, so the
+    // packet is written whenever the record is, and a packet that will not take it writes no file
+    // (`doc/adr/2558`). Asked here and not only of the `FileHeader` decision, because a structure
+    // this program rebuilt states the target's version already and fails no header requirement.
+    let header_recorded = prepared.header_recorded.as_ref().map_err(|because| {
+        Refusal::Assembly(format!(
+            "the header's version cannot be stated for {}: {}",
+            plan.target,
+            because.sentence()
+        ))
+    })?;
+    let header_recorded = header_recorded.as_deref();
+    if header_recorded.is_some() {
+        wanted.insert(Rewrite::IdentificationSchema);
+    }
     // The device colour an unreadable profile's alternate brings into the output is licensed by
     // the output intent its preparation asked for (`doc/adr/1990`).
     if wanted.contains(&Rewrite::ProfileAlternateWritten)
@@ -1385,6 +1409,9 @@ fn apply_the_decisions(
     // because a reader asking "what did this conversion write into my file's provenance" is
     // asking one question: an entry each, joined, in the order the packet holds them.
     let mut recorded: Vec<String> = Vec::new();
+    if let Some(header) = header_recorded {
+        recorded.push(format!("{HEADER_ACTION} — {header}"));
+    }
     if wanted.contains(&Rewrite::DefaultCmyk) {
         recorded.push(format!("{DEFAULT_CMYK_ACTION} — {DEFAULT_CMYK_PARAMETERS}"));
     }
@@ -2003,8 +2030,11 @@ fn hold_the_output_to_the_target(
 ///   `doc/pdf-a-conversion-limits.md` states the cost — every PDF 2.0-only construct is
 ///   translated or refused — and this converter translates none of them, so a `%PDF-1.7` header
 ///   over 2.0 constructs would be a file whose own header disowned its contents.
-/// - A source whose header states no version this tree can read: refused, because choosing one
-///   would be inventing what the producer wrote.
+/// - A source whose header and catalogs state no version this tree can read: the target's own
+///   ([`header::target_version`]). The output is a file this program writes, and ISO 32000-2
+///   §7.5.2 has a writer state the version of the file it wrote; what the producer put where its
+///   header belonged is kept in the output's `xmpMM:History` and the report rather than restated
+///   as a version it never named (`doc/adr/2558`).
 fn version_for(document: &Document, target: Target) -> Result<Version, Because> {
     // ISO 19005-2 section 6.1.2 admits 1.0 to 1.7; ISO 19005-4 section 6.1.2 admits 2.0 to 2.9.
     let (major, top) = match target.part() {
@@ -2012,10 +2042,7 @@ fn version_for(document: &Document, target: Target) -> Result<Version, Because> 
         pdf_archive::Part::Four => (2, 9),
     };
     let Some(stated) = document.version() else {
-        return Err(Because::NotBuiltYet(
-            "this document's header states no version this tree reads, and choosing one for it \
-             would be inventing what its producer wrote",
-        ));
+        return Ok(header::target_version(target));
     };
     if stated.major == major {
         return Ok(Version {

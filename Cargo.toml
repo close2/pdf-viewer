@@ -275,7 +275,7 @@ cxx-qt-build = "0.9.1"
 
 # Fonts. Memory-safe replacement for FreeType; covers OpenType/TrueType/CFF.
 # Type1 and Type3 are handled in `pdf-font` because skrifa does not cover them.
-skrifa = "0.45.1"
+skrifa = "0.47.0"
 
 # skrifa's parsing layer, named directly only to turn on `agl`, which skrifa itself does
 # not enable. The Adobe Glyph List maps a glyph name to the character it draws, and both
@@ -285,7 +285,7 @@ skrifa = "0.45.1"
 #
 # The version is pinned to the one skrifa depends on so cargo unifies them into a single
 # build rather than compiling two copies. Keep them in step when upgrading skrifa.
-read-fonts = { version = "0.42.1", features = ["agl"] }
+read-fonts = { version = "0.44.0", features = ["agl"] }
 
 # ISO 32000-2 §14.7's logical structure, handed to a platform accessibility API. `CLAUDE.md`
 # names AccessKit as this project's accessibility layer and this is it: the vocabulary crate

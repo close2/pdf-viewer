@@ -575,10 +575,14 @@ fn dash(
     if s.dash_array.is_empty() || s.dash_array.iter().sum::<f32>() <= 0.0 {
         return None;
     }
-    let source = bez(geometry);
     let phase = f64::from(s.dash_phase);
     if let Some(showing) = pdf_render::dashes_showing_direction(&s.dash_array, s.cap) {
         let pattern: Vec<f64> = showing.iter().copied().map(f64::from).collect();
+        // A zero-length dash the pattern places exactly at an open subpath's end is dispensed on
+        // the extension `pdf-render` adds, decided there for all three backends (trap 2).
+        let extended =
+            pdf_render::extended_to_a_zero_dash_at_the_end(geometry, &s.dash_array, s.dash_phase);
+        let source = bez(extended.as_ref().unwrap_or(geometry));
         let cut = from_bez(kurbo::dash(
             source.elements().iter().copied(),
             phase,
@@ -589,6 +593,7 @@ fn dash(
         *coverage = marks.coverage;
         Some(marks.stroked)
     } else {
+        let source = bez(geometry);
         let pattern: Vec<f64> = s.dash_array.iter().copied().map(f64::from).collect();
         Some(from_bez(kurbo::dash(
             source.elements().iter().copied(),

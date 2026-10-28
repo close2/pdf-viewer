@@ -66,6 +66,7 @@
 //! glyph look like* being unable to answer *which character is this code*.
 
 mod bystanders;
+mod cid_notdef_glyph;
 mod composite;
 mod described;
 mod empty;
@@ -86,7 +87,7 @@ pub(super) use truetype_cmap::ANSWERED as TRUETYPE_CMAP_ROWS;
 pub(super) use truetype_cmap::NOTDEF_ROWS as TRUETYPE_NOTDEF_ROWS;
 pub(super) use truetype_cmap::STANDARD_ROUTE_ROWS as TRUETYPE_ENCODING_ROWS;
 pub(super) use truetype_cmap::{CmapRestated, restated as truetype_cmaps_restated};
-pub(super) use truetype_cmap::{NOTDEF_NOT_GIVEN, notdef_fonts_are_truetype};
+pub(super) use truetype_cmap::{NOTDEF_NOT_GIVEN, notdef_fonts_have_truetype_programs};
 
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};

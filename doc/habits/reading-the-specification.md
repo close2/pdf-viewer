@@ -320,3 +320,10 @@ whose broken Type 0 font is named only in the form's `/DR` and shown by no conte
 pass veraPDF at both targets. The archive parts bind fonts that are used, in any rendering mode, so the row
 reads `Survey::fonts` rather than `for_each_font`. A new row under a clause whose subject is what is used takes
 its population from the use, and is censused before it is called narrow.
+
+## A family's syntaxes are listed by their top-level type before one is built
+
+Round 1863 (ADR 2560) was briefed to enforce "the ASN.1 syntax" of a signature policy. ETSI publishes two:
+TR 102 272's (RFC 3125's) and TS 119 172-3's, with different constraints under the same name. Before a
+parser for "the X syntax" of a family of standards is built, the family's documents are listed by the
+top-level type each defines, and the parser names which it reads and refuses the other by name.

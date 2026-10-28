@@ -55,7 +55,7 @@ pub(super) fn composed(cff: &[u8], parts: &Parts<'_>, accented: &Accented) -> Op
         if sid.to_u16() == 0 {
             return None;
         }
-        charset.glyph_id(sid).ok()
+        charset.glyph_id(sid)
     };
     let base = glyph(accented.bchar)?;
     let accent = glyph(accented.achar)?;

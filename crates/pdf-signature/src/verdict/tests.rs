@@ -84,6 +84,43 @@ fn a_signature_whose_path_reaches_a_supplied_anchor_is_valid() {
     assert_eq!(valid.timestamps(), Timestamps::None);
 }
 
+/// **A broken policy constraint withholds the word; a met one does not grant anything.**
+///
+/// §12.8.3.4.4: a handler "shall enforce signature policy constraints" during validation, so the
+/// fixture's valid signature, under a policy whose mandated signed attribute it lacks, is not valid.
+#[test]
+fn a_broken_policy_constraint_withholds_the_word() {
+    use crate::policy_rules::{Constraint, Finding, Verdict as Held};
+    let verdict = verdict_under(&[fixtures::ROOT], Acceptance::UnknownRevocationAccepted);
+    assert!(
+        verdict.valid().is_some(),
+        "the fixture's signature is valid: {verdict:?}"
+    );
+    let finding = |verdict| Finding {
+        verdict,
+        constraint: Constraint::SignedAttribute("1.2.840.113549.1.9.5".to_owned()),
+    };
+    assert!(
+        verdict
+            .clone()
+            .under_policy(&[finding(Held::Met)])
+            .valid()
+            .is_some()
+    );
+    assert!(
+        verdict
+            .clone()
+            .under_policy(&[finding(Held::NotEvaluated)])
+            .valid()
+            .is_some()
+    );
+    let withheld = verdict.under_policy(&[finding(Held::Met), finding(Held::Broken)]);
+    let Some(Reservation::PolicyConstraintBroken { constraint }) = withheld.reservation() else {
+        panic!("a broken constraint should be the reservation, not {withheld:?}");
+    };
+    assert!(constraint.contains("1.2.840.113549.1.9.5") && constraint.contains("broken"));
+}
+
 /// **A different root, and the same signature is not valid.**
 ///
 /// The one input changed. `crate::trust::tests`' hierarchy is a real root this project issued and

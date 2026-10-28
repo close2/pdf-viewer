@@ -158,8 +158,49 @@ fn walk(
             }
         )));
     }
+    if held == Held::KidsOnly {
+        refuse_what_no_conforming_reader_opens(document, node, dict, kids, depth)?;
+    }
     for kid in kids.iter().filter_map(Object::as_reference) {
         walk(document, kid, depth.saturating_add(1), visited, held)?;
+    }
+    Ok(())
+}
+
+/// The conversion's two further refusals over one node, both Table 30's: a root that names a
+/// parent, and a child that is no dictionary.
+///
+/// Table 30 makes `/Parent` "not permitted in the root node", and `/Kids` an array of indirect
+/// references to the node's children; a reference to an object the file does not hold is §7.3.10's
+/// null. This reader steps over both and draws the pages it reaches, but a file that carried
+/// either into an archive would state a tree a conforming reader cannot open (ADR 2558), so the
+/// source is declined here, and the structure this reader recovered is written where the caller
+/// grants that loss, its root new and its children the pages drawn.
+fn refuse_what_no_conforming_reader_opens(
+    document: &Document,
+    node: ObjectId,
+    dict: &pdf_syntax::object::Dictionary,
+    kids: &[Object],
+    depth: usize,
+) -> Result<(), Refusal> {
+    if depth == 0 && dict.get("Parent").is_some() {
+        return Err(Refusal::Reconstructed(format!(
+            "§7.7.3.2's Table 30 does not permit /Parent in the root node of the page tree, and \
+             object {}, the root, states one; carried as it stands, the page tree would be one no \
+             conforming reader can open",
+            node.number
+        )));
+    }
+    if let Some(at) = kids
+        .iter()
+        .position(|kid| document.resolve(kid).as_dict().is_none())
+    {
+        return Err(Refusal::Reconstructed(format!(
+            "§7.7.3.2's Table 30 makes /Kids an array of the node's children, and entry {at} of \
+             object {}'s names no dictionary; carried as it stands, the page tree would list a \
+             child no conforming reader can open",
+            node.number
+        )));
     }
     Ok(())
 }

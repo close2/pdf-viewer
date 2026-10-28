@@ -337,7 +337,7 @@ pub fn renumbered(
             use skrifa::raw::FontRead as _;
             let name = skrifa::raw::tables::cff::Cff::read(skrifa::raw::FontData::new(program))
                 .ok()
-                .and_then(|cff| cff.names().get(0).ok().map(<[u8]>::to_vec))
+                .and_then(|cff| cff.names().get(0).map(<[u8]>::to_vec))
                 .ok_or(Refusal::Malformed("CFF "))?;
             cff::renumbered(program, by_cid, &String::from_utf8_lossy(&name))
         }

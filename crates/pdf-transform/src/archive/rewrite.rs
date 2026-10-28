@@ -1471,10 +1471,11 @@ impl Rewrite {
                  glyph by the subclause's own route"
             }
             Self::NotdefGlyphGiven => {
-                "a TrueType font's program gains one glyph whose outline and advance are its own \
-                 .notdef glyph's, and each code that reached .notdef reaches that glyph through \
-                 the program's restated cmap, so the page draws the same marks and no \
-                 text-showing operator references .notdef"
+                "a TrueType font's program gains one glyph for each width whose outline and \
+                 advance are its own .notdef glyph's, and each code that reached .notdef reaches \
+                 the one for its width through the program's restated cmap, or for a \
+                 CIDFontType2 through the CIDToGIDMap restated as a stream, so the page draws \
+                 the same marks and no text-showing operator references .notdef"
             }
             Self::Type3NotdefRenamed => {
                 "a Type 3 font's glyph procedure named .notdef is given another name in its \

@@ -142,8 +142,14 @@ the embedded program a glyph for that code whose outline is the program's own `.
 shown is `.notdef`. A694 item 3 adopts it. **Built for a simple TrueType program** (ADR 2543,
 `Rewrite::NotdefGlyphGiven`): one copy of glyph 0 for each distinct width among the codes on it, the
 restated `cmap` mapping each code to its copy; the ten documents of this row whose fonts are simple
-TrueType convert in six at 2b and five at part 4. A `CIDFontType2` (its `CIDToGIDMap`) and a CFF or
-Type 1 program (a charstring writer) are owed. Mitigations `fonts/no-notdef-glyph-shown`; limits 2.2.
+TrueType convert in six at 2b and five at part 4. **Built for a `CIDFontType2`** (ADR 2556): the same
+copy by CID, one per `/W` width, the `CIDToGIDMap` restated as a stream; `issue10519_reduced.pdf`
+converts at both targets under both profiles and passes veraPDF at both. Never for a shown CID 0, which
+ISO 32000-2 §9.7.4.2 makes the CIDFont's own `.notdef` whatever glyph it is sent to (ADR 2557; veraPDF
+agrees): `4387ba48….pdf` and `emi15514-sup-0002-SupinfoS2.pdf` show one, and an embedded CMap sending
+the code to a fresh CID is what they would take. Refused as well where the checker's list of places
+is cut short (more than 32 places on glyph 0), since the fonts are named from it. A CFF or Type 1
+program (a charstring writer, ADR 2556 section 2) is owed. Mitigations `fonts/no-notdef-glyph-shown`; limits 2.2.
 
 **R11 — a TrueType code that reaches its glyph by a route ISO 19005 does not admit** (built; 13
 documents left of the 30 at 2b and 28 at 4, alone in 3 under `as-if-printed` and 1 under
@@ -256,7 +262,12 @@ verb takes "2b, or 4 where 2b refuses" as one request and says which part it wro
 **R06a — a header that states no version this tree reads** (7 documents, each alone; five are
 `T01_*` test files). The output is a new file this program writes; its header states the version of
 the file written (§7.5.2), as every converted output's does. **Remedy**: write the target's header
-and record the source's header bytes in `xmpMM:History`. ADR 2490.
+and record the source's header bytes in `xmpMM:History`. ADR 2490. **Built** by ADR 2558: the
+header is the target's (1.7 for part 2, 2.0 for part 4), the source's first line goes escaped into
+`xmpMM:History` and the report, and a rebuilt structure states the target's version and `/Type /Page`.
+A page tree root that states `/Parent`, or a kid that names no dictionary, declines the source to
+`recovered-structure`. Five `T01_*` files and `bug1606566` convert, and `issue9105_other` and
+`PDFBOX-6040-nodeloop` under `recovered-structure`; all pass veraPDF at both targets.
 
 **R01 — a document only this reader's recovery reads** (the standard defines none: its Annex C.4 advises on a damaged cross-reference table only, ADR 2502; 23 declined as a source; the reader draws a page of
 18 of them, 4 of those blank; five draw no page, section 7.2). *A company* would open it, see it,

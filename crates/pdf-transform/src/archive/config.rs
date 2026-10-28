@@ -87,6 +87,7 @@ use super::toml::{self, Value};
 
 mod steps;
 
+pub(in crate::archive) use steps::STATED_GRAPHICS;
 pub use steps::{Skipped, Statement};
 
 /// `doc/rfc/0007` section 2's remedy vocabulary, closed and small so a configuration is legible.
@@ -927,7 +928,10 @@ pub struct Preservation {
     /// The outcome is per object (`doc/adr/2536`): each attachment the requirement failed at is
     /// laid out as pages where this reader can lay it out, and one it cannot is removed where
     /// this is [`Kind::Discard`] and stops the conversion where it is [`Kind::Stop`], which is
-    /// what a row saying nothing states. [`Kind::Stop`] at every other site.
+    /// what a row saying nothing states. At a halftone row whose loss is stated
+    /// (`steps::STATED_GRAPHICS`, `doc/adr/2562`) it is the step after `append-statement`, which
+    /// the objects take where the statement's page cannot be composed. [`Kind::Stop`] at every
+    /// other site.
     pub no_page_carries: Kind,
     /// Whether an embedded file that is a PDF, or an image this reader decodes, is drawn on the
     /// appended pages beside the text files it sets (`doc/adr/2536`'s drawn attachments).
@@ -1892,7 +1896,8 @@ impl Configuration {
                         && row.keep_xfa == Some(Placement::Attach))
                     || (row.remedy == Kind::Discard
                         && row.states_the_loss
-                        && DERIVABLE.contains(&row.site.as_str()))
+                        && (DERIVABLE.contains(&row.site.as_str())
+                            || STATED_GRAPHICS.contains(&row.site.as_str())))
             })
             .map(|row| Preservation {
                 site: row.site.clone(),
@@ -1913,9 +1918,12 @@ impl Configuration {
                     || (PRESERVABLE_XFA.contains(&row.site.as_str())
                         && row.keep_xfa == Some(Placement::Attach)),
                 discard_undeterminable: row.undeterminable == Kind::Discard,
-                no_page_carries: if DERIVABLE.contains(&row.site.as_str())
+                no_page_carries: if (DERIVABLE.contains(&row.site.as_str())
                     && row.placement == Some(Placement::Append)
-                    && row.on_failure == Kind::Discard
+                    && row.on_failure == Kind::Discard)
+                    || (STATED_GRAPHICS.contains(&row.site.as_str())
+                        && row.states_the_loss
+                        && row.on_failure == Kind::Discard)
                 {
                     Kind::Discard
                 } else {
@@ -2127,8 +2135,12 @@ fn check_rows(
 fn check_what_moves_nothing(row: &Row) -> Result<(), ConfigError> {
     // **`doc/rfc/0014` section 4, built where the loss is reported per object**: the page lists
     // each object the step removed, so it is built at the two embedded-file rows whose outcome is
-    // already one per file (`doc/adr/2536`) and refused by name at every other.
-    if row.states_the_loss && !DERIVABLE.contains(&row.site.as_str()) {
+    // already one per file (`doc/adr/2536`) and at the three halftone rows, whose removal takes
+    // one entry from each object it names (`doc/adr/2562`), and refused by name at every other.
+    if row.states_the_loss
+        && !DERIVABLE.contains(&row.site.as_str())
+        && !STATED_GRAPHICS.contains(&row.site.as_str())
+    {
         return Err(ConfigError::NotBuiltThatWay {
             line: row.line,
             site: row.site.clone(),

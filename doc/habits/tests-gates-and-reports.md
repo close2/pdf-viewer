@@ -814,3 +814,39 @@ Round 1860 (ADR 2554) described the PDF/A converter while four rounds were editi
 with `git show HEAD:<path>` from a snapshot, said in the document's opening which commit it describes, and
 ran the teaching gate in the shared tree and in a HEAD export: the gate resolves `path::name` against the
 working tree, so a sibling's rename turns it red or green whichever commit the walk describes.
+
+## A plant stands a margin past a tolerance's edge
+
+Round 1861 planted two CIDs at widths 500 and 501 to prove two copies are made, and the test could not
+fail: ISO 19005-2 6.2.11.5 calls widths within one thousandth consistent, so both were one width. A plant
+that must fall outside a tolerance is placed a margin past its edge (the round used 500 and 502), and a
+fixture whose values sit exactly on the edge is a question about the tolerance, not a plant.
+
+## A remedy that takes another row's decision is judged by the census line by line
+
+Round 1867's first draft copied a removal's refusing decision onto every action row it reached. No count
+moved, so the summary was unchanged, and only the per-document lines showed a second refusal reason under
+three documents. A change that moves a decision between rows is diffed against HEAD's census line by line,
+never by its totals alone.
+
+## A dasher's end condition is checked from both ends with a dividing period
+
+Round 1868 (ADR 2570) found one dasher stopping at `<` and another at `<=` against the path length, a
+difference that shows only where the pattern's period divides the length exactly: a 100-unit rule under a
+2-unit dotted pattern has 51 dots or 50. A stroke dasher is tested with such a length, drawn from both
+ends, on every backend at once.
+
+## A docs round's example binary is built in dev on the second lane
+
+Round 1870's running example needed `quorra` under the display. A fat-LTO release build queued behind a
+sibling's hold on lane 1 for twenty-four minutes before it was withdrawn; the `dev` build in the round's
+own export on lane 2 ran in minutes and the `note:` lines were the same. A walk's example is run from a
+`dev` build unless the sentences it quotes depend on the release profile.
+
+## A conformance run in an export gets its own target directory
+
+Round 1864 ran the conformance tests from an export against the worktree's target directory and eight of
+them read zero files: cargo's metadata hash is relative to the workspace, so the export and the worktree
+shared one test binary, whose built-in `CARGO_MANIFEST_DIR` named a tree with no `.git` and no `doc/md`.
+A conformance run in an export sets `CARGO_TARGET_DIR` to a directory of its own, deleted when the round
+closes.

@@ -1474,7 +1474,8 @@ const STANDARD_ROUTE_REINTERPRETS: &str = "a TrueType font's encoding now names 
 /// What a `.notdef` code given a glyph of its own changes, for a reader other than this one.
 const NOTDEF_GLYPH_REINTERPRETS: &str = "a code a TrueType font sent to its program's .notdef \
      glyph now reaches a glyph of its own whose outline and advance are copied from .notdef's, \
-     by the restated cmap. The page draws the same marks for this renderer, and a reader that \
+     by the restated cmap, or for a CIDFontType2 by the CIDToGIDMap restated as a stream. The \
+     page draws the same marks for this renderer, and a reader that \
      drew nothing for .notdef, or a box of its own, draws the program's .notdef outline now";
 
 const TRUETYPE_CMAP_REINTERPRETS: &str = "a rendered TrueType font is now the symbolic font ISO \
@@ -3433,17 +3434,19 @@ const NO_CIDFONT_TO_DESCEND_TO: &str = "a Type 0 font here has no CIDFont as its
 /// The mapping is fixed by a program the file carries, so the ways out are editing the content
 /// stream to stop showing the code, which takes a mark off the page, or giving the program a glyph
 /// for it. A copy of the program's own `.notdef` outline draws what this reader drew and invents
-/// nothing, and `fonts::notdef_glyph` writes one into a simple TrueType program
-/// (`doc/adr/2543`); this is the sentence for every program it does not reach.
+/// nothing, and `fonts::notdef_glyph` writes one into a TrueType program, simple (`doc/adr/2543`)
+/// or under a `CIDFontType2` (`doc/adr/2556`); this is the sentence for every program it does not
+/// reach.
 pub(super) const THE_GLYPH_IS_NOT_IN_THE_PROGRAM: &str = "this file shows a character code whose glyph its \
      own embedded font program does not define, so the code reaches the .notdef glyph — which \
      ISO 19005-2 section 6.2.11.8 and ISO 19005-4 section 6.2.10.9 forbid a text-showing \
      operator to reference in any rendering mode. The file carries the program, so the mapping \
-     is the producer's and fixed. For a simple TrueType program this conversion gives such a \
-     code a glyph of its own copied from the program's .notdef glyph, so the page draws what it \
-     drew; the program here is another kind — a CIDFontType2 program, reached through its \
-     CIDToGIDMap, or a CFF or Type 1 program, whose charstrings this version does not write — or \
-     a TrueType program this conversion could not extend and prove. Where the font is *not* \
+     is the producer's and fixed. For a TrueType program this conversion gives such a code a \
+     glyph of its own copied from the program's .notdef glyph, so the page draws what it drew — \
+     through a restated cmap for a simple font, and through a CIDToGIDMap restated as a stream \
+     for a CIDFontType2; the program here is another kind — a CFF or Type 1 program, whose \
+     charstrings this version does not write — or a TrueType program this conversion could not \
+     extend and prove. Where the font is *not* \
      embedded this is not a refusal at all, because doc/pdf-a-conversion-limits.md section 4.9 \
      then builds the program and chooses what each code maps to; supplying the intended font \
      with --font moves this document into that case";

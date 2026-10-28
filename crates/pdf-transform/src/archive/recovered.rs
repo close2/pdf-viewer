@@ -35,9 +35,8 @@
 //!
 //! # Where it stops
 //!
-//! A source this does not rebuild is refused by name: one whose header states no version this
-//! tree reads, one the reader draws no page of, and one that states more
-//! pages than the reader reached (a linearization parameter dictionary's `/N`, or the `/Count` of
+//! A source this does not rebuild is refused by name: one the reader draws no page of, and one
+//! that states more pages than the reader reached (a linearization parameter dictionary's `/N`, or the `/Count` of
 //! a page tree root the catalog still names).
 //!
 //! # Protection and signatures are the source's
@@ -49,9 +48,10 @@
 //! encrypted source, and each signature is reported against the source's bytes while its value is
 //! removed from the objects written.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
+use pdf_archive::Target;
 use pdf_model::Pages;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId};
 use pdf_syntax::serialize::{Assembly, Form, ObjectStreams, Options, Streams, serialize};
@@ -161,16 +161,23 @@ pub(super) struct Recovered {
 
 /// Rebuilds the structure of a document this program declined as a source.
 ///
-/// `declined` is the refusal that declined it; its sentence is carried into the note.
+/// `declined` is the refusal that declined it; its sentence is carried into the note. The rebuilt
+/// file states the source's version, or `target`'s where the source states none
+/// ([`super::header::target_version`], `doc/adr/2558`): it is the file the conversion goes on to
+/// write, and the source's header line is recorded from the source.
 ///
 /// # Errors
 ///
 /// [`Refusal::Reconstructed`] naming why the source is not rebuilt (the module's last section, or
 /// a rebuilt file that still fails the checks that declined the source), and
 /// [`Refusal::Assembly`] where the numbering is spent or the rebuilt file cannot be opened.
-pub(super) fn rebuild(document: &Document, declined: &Refusal) -> Result<Recovered, Refusal> {
+pub(super) fn rebuild(
+    document: &Document,
+    declined: &Refusal,
+    target: Target,
+) -> Result<Recovered, Refusal> {
     let because = declined.to_string();
-    build(document, because.clone()).map_err(|refusal| match refusal {
+    build(document, because.clone(), target).map_err(|refusal| match refusal {
         Refusal::Reconstructed(why) => Refusal::Reconstructed(format!(
             "{because}; it is not written out as the structure this reader recovered, because \
              {why} (ADR 2502)"
@@ -180,7 +187,7 @@ pub(super) fn rebuild(document: &Document, declined: &Refusal) -> Result<Recover
 }
 
 /// [`rebuild`], with its refusals worded as the reason alone.
-fn build(document: &Document, because: String) -> Result<Recovered, Refusal> {
+fn build(document: &Document, because: String, target: Target) -> Result<Recovered, Refusal> {
     let tree = Pages::new(document);
     let scanned = tree.found_by_scanning();
     let (pages, read_in_part) = pages_to_carry(&tree)?;
@@ -257,7 +264,7 @@ fn build(document: &Document, because: String) -> Result<Recovered, Refusal> {
 
     let version = document
         .version()
-        .ok_or_else(|| not_rebuilt("its header states no version this tree reads"))?;
+        .unwrap_or_else(|| super::header::target_version(target));
     let options = Options {
         form: Form::of(document),
         object_streams: ObjectStreams::Disable,
@@ -301,8 +308,15 @@ enum Carried {
 /// inheritable entries in force stated on it, and is named in the second list ([`PartlyRead`]). A
 /// page written directly in its parent's `/Kids` is carried too, as an object of its own, because
 /// Table 30 makes a node's `/Kids` an array of indirect references.
+///
+/// A page object is carried once, at the first index the reader draws it at. A tree whose `/Count`
+/// states more pages than its `/Kids` hold has the reader skip a subtree by the count it states and
+/// land on the next subtree's first page again, so one object answers two indices; the second is
+/// the reader's reach past what the file holds and no page of the producer's, and the stated count
+/// is then answered by [`refuse_a_count_the_reader_fell_short_of`] against the pages carried.
 fn pages_to_carry(tree: &Pages<'_>) -> Result<(Vec<Carried>, Vec<PartlyRead>), Refusal> {
     let mut pages = Vec::new();
+    let mut carried_objects = BTreeSet::new();
     let mut read_in_part = Vec::new();
     for (index, page) in tree.every().into_iter().enumerate() {
         let number = index.saturating_add(1);
@@ -312,6 +326,9 @@ fn pages_to_carry(tree: &Pages<'_>) -> Result<(Vec<Carried>, Vec<PartlyRead>), R
                 tree.len()
             )));
         };
+        if page.id.is_some_and(|id| !carried_objects.insert(id)) {
+            continue;
+        }
         if let Some(damage) = &page.damaged_dictionary {
             read_in_part.push(PartlyRead {
                 page: number,
@@ -522,6 +539,16 @@ fn build_page(
         }
     }
     out.insert(Name::new(&b"Parent"[..]), Object::Reference(root));
+    // ISO 32000-2 §7.7.3.3's Table 31 makes a page object's `/Type` required, and `Page` for a page
+    // object (a template, the other value, is never a leaf of the tree). Every page this lists is
+    // a leaf of the tree it writes, so one whose dictionary stated no type is stated a page, the
+    // structure the reader drew it as (`doc/adr/2558`).
+    if out.get("Type").is_none() {
+        out.insert(
+            Name::new(&b"Type"[..]),
+            Object::Name(Name::new(&b"Page"[..])),
+        );
+    }
     Ok(Object::Dictionary(out))
 }
 

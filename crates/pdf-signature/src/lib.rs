@@ -33,7 +33,8 @@
 //! ranked against Table 257's `/P`. [`timestamp`] establishes §12.8.5's document timestamps, so
 //! that a verdict has an instant to be asserted as of. [`policy`] reads §12.8.3.4.4's signature
 //! policy identifier and whether the document the file carries is the one the signer committed
-//! to, as far as the texts this tree holds reach.
+//! to, as far as the texts this tree holds reach, and [`policy_rules`] enforces the constraints of
+//! a bound policy document written in ETSI TR 102 272's ASN.1 syntax.
 //!
 //! # Why this is not part of the document model
 //!
@@ -88,6 +89,7 @@ pub mod eddsa;
 pub mod ess;
 pub mod pkcs1;
 pub mod policy;
+pub mod policy_rules;
 pub mod pss;
 pub mod revision;
 pub mod revocation;

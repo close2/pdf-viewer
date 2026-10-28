@@ -11,12 +11,11 @@ use super::*;
 const KEEP_THE_CLIP: &str = "[site.\"annotations/subtype-defined-in-iso-32000-2\"]\n\
      remedy = \"preserve\"\nplacement = \"append\"\nkeep-media = \"attach\"\n";
 
-/// [`KEEP_THE_CLIP`]'s plan, with the loss of the rendition action the Screen annotation carried
-/// authorised: section 6.6.1 does not admit the action either, and it goes with the annotation.
+/// [`KEEP_THE_CLIP`]'s plan and nothing else: section 6.6.1 does not admit the rendition action the
+/// Screen annotation carries either, and the removal that row answers carries the action with the
+/// annotation, under the row's own decision (ADR 2568).
 fn keeping_the_clip(target: Target) -> ArchivePlan {
-    let mut plan = plan_from(KEEP_THE_CLIP, target);
-    plan.authorised.interactive_behaviour = true;
-    plan
+    plan_from(KEEP_THE_CLIP, target)
 }
 
 /// A part 4 page with a Screen annotation playing an embedded clip through §13.2.3.2's media

@@ -117,6 +117,22 @@ impl LoadedFont {
         self.glyph_for(code)
     }
 
+    /// The CID a composite font's `CMap` gives a code (ISO 32000-2 §9.7.6.2), before §9.7.6.3's
+    /// notdef fallbacks are taken.
+    ///
+    /// `None` for a simple or substituted font, and for a code the `CMap` maps to no CID: such a
+    /// code reaches whatever glyph the fallbacks give it, and no entry keyed by its own CID — a
+    /// `/W` width or a `/CIDToGIDMap` index — is what decided its glyph.
+    #[must_use]
+    pub fn cid(&self, code: Code) -> Option<u32> {
+        match &self.mapping {
+            CodeMapping::Composite { cmap, .. } => cmap.cid(code),
+            CodeMapping::Named(_)
+            | CodeMapping::Substituted { .. }
+            | CodeMapping::MetricsOnly { .. } => None,
+        }
+    }
+
     /// The glyph a *character selector* reaches, skipping the code that selected it.
     ///
     /// A simple font's `/Widths` is indexed by character code and a composite font's `/W` by

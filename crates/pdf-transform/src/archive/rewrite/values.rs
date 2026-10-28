@@ -403,6 +403,22 @@ impl Rewriter<'_> {
             }
             changed = true;
         }
+        // A `CIDFontType2` descendant names the program given the glyphs through its new
+        // descriptor, and the CIDs reach them through its restated map (`doc/adr/2556`). Written
+        // after `write_cid_to_gid_map`, which runs before this, so the stream is what stands.
+        if self.wants(Rewrite::NotdefGlyphGiven)
+            && let Some((descriptor, map)) = self
+                .cmap_restated
+                .and_then(|restated| restated.descendants.get(&id))
+        {
+            out.insert(
+                Name::new(&b"FontDescriptor"[..]),
+                Object::Reference(*descriptor),
+            );
+            out.insert(Name::new(&b"CIDToGIDMap"[..]), Object::Reference(*map));
+            count(applied, Rewrite::NotdefGlyphGiven);
+            changed = true;
+        }
         if self.wants(Rewrite::Type3NotdefRenamed)
             && let Some((encoding, procedures)) =
                 self.type3_notdef.and_then(|renames| renames.at.get(&id))

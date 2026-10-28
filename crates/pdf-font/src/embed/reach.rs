@@ -19,7 +19,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::cff::{bias, small_operand};
+use crate::cff::{CHARSTRING_OPERATIONS, bias, small_operand};
 
 /// How deep subroutine calls nest before the walk stops following: Adobe Technical Note #5177's
 /// Appendix B limit.
@@ -30,7 +30,8 @@ const MAX_DEPTH: usize = 10;
 pub(super) enum Walk {
     /// Every subroutine the charstring reaches was noted.
     Followed,
-    /// The charstring does something whose subroutine numbers the walk cannot know.
+    /// The charstring does something whose subroutine numbers the walk cannot know, or reads
+    /// more than [`CHARSTRING_OPERATIONS`] operands and operators through its calls.
     Unfollowable,
     /// The charstring ends in the accented-character form of `endchar`.
     Seac(Accented),
@@ -88,6 +89,8 @@ struct Machine {
     width: Option<f64>,
     /// Whether a path construction operator has run.
     drew: bool,
+    /// What is left of [`CHARSTRING_OPERATIONS`] for this charstring and every call it makes.
+    operations: u32,
 }
 
 impl Machine {
@@ -147,6 +150,7 @@ impl Reached<'_> {
             cleared: false,
             width: None,
             drew: false,
+            operations: CHARSTRING_OPERATIONS,
         };
         match self.run(&mut machine, charstring, 0) {
             Ok(_) => Walk::Followed,
@@ -158,6 +162,10 @@ impl Reached<'_> {
     fn run(&mut self, machine: &mut Machine, code: &[u8], depth: usize) -> Result<Flow, Walk> {
         let mut at = 0usize;
         while let Some(&b0) = code.get(at) {
+            machine.operations = machine
+                .operations
+                .checked_sub(1)
+                .ok_or(Walk::Unfollowable)?;
             at = at.saturating_add(1);
             match b0 {
                 // Operands (Adobe Technical Note #5177, section 3.2).
@@ -265,5 +273,50 @@ impl Reached<'_> {
         )]
         let operand = operand as i64;
         usize::try_from(operand.checked_add(bias(count))?).ok()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CHARSTRING_OPERATIONS, Reached, Walk};
+    use std::collections::BTreeSet;
+
+    /// Ten global subroutines, each calling the next `k` times by its biased number.
+    fn fan_out(k: usize) -> Vec<Vec<u8>> {
+        (0u8..10)
+            .map(|level| {
+                let mut subr = Vec::new();
+                if level < 9 {
+                    for _ in 0..k {
+                        // Subroutine `i` under section 4.7's bias of 107 is the one-byte `i + 32`.
+                        subr.extend([level.saturating_add(33), 29]);
+                    }
+                }
+                subr.push(11);
+                subr
+            })
+            .collect()
+    }
+
+    fn walk(global: &[Vec<u8>]) -> Walk {
+        let global: Vec<&[u8]> = global.iter().map(Vec::as_slice).collect();
+        Reached {
+            global: &global,
+            local: &[],
+            global_entered: BTreeSet::new(),
+            local_entered: BTreeSet::new(),
+        }
+        .walk(&[32, 29, 14])
+    }
+
+    #[test]
+    fn a_fan_out_past_the_operation_budget_keeps_every_subroutine() {
+        // Five calls a level enter the last subroutine about 5^9 times, each call two operations:
+        // past `CHARSTRING_OPERATIONS`, so the walk gives up and the writer keeps everything.
+        assert!(
+            5usize.pow(9).saturating_mul(2) > usize::try_from(CHARSTRING_OPERATIONS).unwrap_or(0)
+        );
+        assert_eq!(walk(&fan_out(5)), Walk::Unfollowable);
+        assert_eq!(walk(&fan_out(3)), Walk::Followed);
     }
 }

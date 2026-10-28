@@ -337,6 +337,16 @@ impl Viewer {
         events: &mut Vec<Event>,
     ) {
         let runner = !matches!(self.scripting, crate::Scripting::Off);
+        // A hybrid form's `exit` and `enter` events name where the focus went and where it came
+        // from (XFA 3.3 page 390), which are the other half of the same move.
+        let left = raised
+            .iter()
+            .find(|(_, event)| *event == Trigger::Blur)
+            .map(|(widget, _)| *widget);
+        let reached = raised
+            .iter()
+            .find(|(_, event)| *event == Trigger::Focus)
+            .map(|(widget, _)| *widget);
         for (annotation, event) in raised {
             let Some(open) = self.focused_mut() else {
                 return;
@@ -349,6 +359,9 @@ impl Viewer {
                 && let Some(field) = field_of_widget(&open.document, annotation)
             {
                 commit_typed(id, open, &field, events);
+            }
+            if runner && matches!(event, Trigger::Blur | Trigger::Focus) {
+                form_focus(open, event, left, reached);
             }
             let scripted = match event {
                 Trigger::Enter
@@ -387,6 +400,29 @@ impl Viewer {
         };
         let outcome = interact::activate_object(open, object);
         self.apply(id, outcome, events);
+    }
+}
+
+/// A hybrid form's `exit` events where the focus left `left`, and its `enter` events where it
+/// reached `reached` (XFA 3.3 pages 390–391; ADR 2566): at the `/Bl` after the commit, so that an
+/// `exit` script reads the person's entry, and at the `/Fo`, each before the widget's own
+/// scripts. A document with no XFA form, and a view state with no runner, run nothing.
+fn form_focus(open: &mut Open, event: Trigger, left: Option<ObjectId>, reached: Option<ObjectId>) {
+    let name = |widget: Option<ObjectId>| widget.and_then(|w| field_of_widget(&open.document, w));
+    let (left, reached) = (name(left), name(reached));
+    let changed = match (event, &left, &reached) {
+        (Trigger::Blur, Some(left), reaching) => {
+            open.view
+                .activate_form_on_exit(&open.document, left, reaching.as_deref())
+        }
+        (Trigger::Focus, leaving, Some(reached)) => {
+            open.view
+                .activate_form_on_enter(&open.document, reached, leaving.as_deref())
+        }
+        _ => false,
+    };
+    if changed {
+        open.stale();
     }
 }
 

@@ -495,8 +495,9 @@ pub struct AttachmentOutcome {
 /// loss the step took; each such object's [`AttachmentOutcome::stated_on`] points at it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StatementPage {
-    /// The requirement whose row's step appended it.
-    pub site: &'static str,
+    /// The requirements whose rows' steps it states, in the order it lists their objects: an
+    /// embedded-file row first, then the halftone rows (`doc/adr/2562`).
+    pub sites: Vec<&'static str>,
     /// The zero-based pages of the output it sits on.
     pub pages: Vec<usize>,
     /// How many objects it lists.
@@ -519,7 +520,7 @@ impl StatementPage {
                 .collect::<Vec<_>>()
                 .join(", "),
             self.objects,
-            self.site,
+            self.sites.join(", "),
             match &self.face {
                 SetIn::NoText => String::new(),
                 SetIn::TheDocumentsOwnFace => ", in a face this document itself embeds".to_owned(),
@@ -533,7 +534,10 @@ impl StatementPage {
     pub(super) fn to_json(&self) -> Value {
         Value::Object(
             [
-                ("site".to_owned(), Value::text(self.site)),
+                (
+                    "sites".to_owned(),
+                    Value::Array(self.sites.iter().map(|site| Value::text(*site)).collect()),
+                ),
                 (
                     "pages".to_owned(),
                     Value::Array(

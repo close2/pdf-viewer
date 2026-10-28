@@ -51,7 +51,8 @@ use pdf_syntax::object::{Dictionary, Name, Object, ObjectId};
 
 use pdf_archive::Target;
 
-use super::decision::Because;
+use super::decision::{Because, Decision};
+use super::report::Decided;
 use super::rewrite::Rewrite;
 use crate::json::Value;
 
@@ -176,12 +177,29 @@ pub(super) struct Removals {
     pub(super) edits: BTreeMap<ObjectId, Vec<Edit>>,
     /// Every action and every entry that went, for the report.
     pub(super) removed: Vec<RemovedAction>,
+    /// What only the annotations a subtype row removes perform: those holders, and the action
+    /// objects their trees reach that no kept holder's tree reaches too.
+    gone: BTreeSet<ObjectId>,
 }
 
 impl Removals {
     /// How many places one of the three rewrites took something out of.
     pub(super) fn places(&self, rewrite: Rewrite) -> usize {
         self.removed.iter().filter(|row| row.by == rewrite).count()
+    }
+
+    /// Whether every place a requirement failed at goes with an annotation a subtype row removes.
+    ///
+    /// The validator names each failed action by its own object and an entry written into its
+    /// holder by the holder's, and its walk visits a shared action once, under whichever holder
+    /// came first — so a place is the removal's only where no kept holder's tree reaches it. A
+    /// set cut short, a place naming no object, or nothing named at all is the action rows'
+    /// own case, answered as before.
+    pub(super) fn answered_by_removal(&self, named: &pdf_archive::Named) -> bool {
+        !named.cut_short()
+            && !named.elsewhere()
+            && !named.objects().is_empty()
+            && named.objects().is_subset(&self.gone)
     }
 }
 
@@ -241,11 +259,76 @@ impl InForce {
     }
 }
 
+/// The rows whose answer is an `/AA` entry or a widget's `/A` taken out.
+const ENTRY_ROWS: [&str; 3] = [
+    "actions/no-additional-actions-dictionary",
+    "actions/additional-actions-outside-widgets-hold-only-annotation-triggers",
+    "forms/no-action-on-widget-or-field",
+];
+
+/// The rows whose answer is the removal [`prepare`] reads first: ISO 19005-2 and ISO 19005-4
+/// section 6.3.1's subtype rows, and ISO 19005-4's two flavour rows the same removal answers.
+const SUBTYPE_ROWS: [&str; 4] = [
+    "annotations/subtype-defined-in-iso-32000-1",
+    "annotations/subtype-defined-in-iso-32000-2",
+    "annotations/three-dimensional-only-in-engineering-files",
+    "annotations/file-attachment-only-in-embedded-file-files",
+];
+
+/// **An action row met by the annotation removal** (ADR 2568).
+///
+/// Where every place an action row failed at goes with an annotation a subtype row removes, the
+/// output holds no tree for a reader to perform, so the row is met by the removal and its
+/// decision is the one the subtype rows took: the same rewrite, the same loss under the same
+/// authorisation or `preserve`, and nothing lost twice — ADR 1105's reading of the appearance row
+/// taken to the action rows. **Only a removal that happens meets anything**: where a subtype row
+/// stops the conversion, or none was decided, the action row keeps its own decision, and the
+/// refusal is reported once, at the row it belongs to.
+pub(super) fn met_by_the_removal(
+    decided: &mut [Decided],
+    input: &pdf_archive::Report,
+    removals: &Removals,
+) {
+    let met: Vec<&'static str> = input
+        .failures()
+        .filter(|judgement| {
+            (TYPE_ROWS.contains(&judgement.id) || ENTRY_ROWS.contains(&judgement.id))
+                && removals.answered_by_removal(&judgement.named)
+        })
+        .map(|judgement| judgement.id)
+        .collect();
+    if met.is_empty() {
+        return;
+    }
+    let removal: Vec<Decision> = decided
+        .iter()
+        .filter(|row| SUBTYPE_ROWS.contains(&row.requirement))
+        .map(|row| row.decision)
+        .collect();
+    let Some(&first) = removal.first() else {
+        return;
+    };
+    if !removal.iter().all(|decision| decision.proceeds()) {
+        return;
+    }
+    for row in decided
+        .iter_mut()
+        .filter(|row| met.contains(&row.requirement))
+    {
+        row.decision = first;
+    }
+}
+
 /// What the action clauses ask of this document, read off the sites the validator walks.
+///
+/// `removed` is the annotations the section 6.3.1 subtype rows take off their pages. Their
+/// holders are not walked: an action tree the output does not hold performs nothing, so nothing
+/// is taken out of it and its loss is the annotation's (ADR 2568).
 pub(super) fn prepare(
     document: &Document,
     target: Target,
     failed: &BTreeSet<&'static str>,
+    removed: &BTreeSet<ObjectId>,
 ) -> Result<Removals, Because> {
     let force = InForce::of(failed);
     if !force.any() {
@@ -258,10 +341,88 @@ pub(super) fn prepare(
         out: Removals::default(),
         tails: BTreeMap::new(),
     };
+    let mut kept = Reach::default();
+    let mut gone = Reach::default();
     for site in action_sites(document, target) {
+        if site.holder == ActionHolder::Annotation
+            && site.at.is_some_and(|at| removed.contains(&at))
+        {
+            gone.site(document, &site);
+            continue;
+        }
+        kept.site(document, &site);
         walk.site(&site)?;
     }
-    Ok(walk.out)
+    let mut out = walk.out;
+    // A chain cut at the bound may reach past it from one holder and not from the other, so
+    // neither set is then the whole of what it names.
+    if !kept.overlong && !gone.overlong {
+        out.gone = gone.objects.difference(&kept.objects).copied().collect();
+    }
+    Ok(out)
+}
+
+/// Every object a set of holders performs actions from or through.
+///
+/// The roots are the validator's (`pdf_archive::action_sites`' holders, each with its `/A`, the
+/// entries of its `/AA`, and the catalog's `/OpenAction` and §7.7.4's `/JavaScript` tree), and
+/// each object is entered once, so the walk is bounded by the file's objects and by
+/// [`MAX_DEPTH`] links of §12.6.2's `/Next` below a root.
+#[derive(Default)]
+struct Reach {
+    /// The holders and the action objects reached.
+    objects: BTreeSet<ObjectId>,
+    /// Whether a chain was cut at [`MAX_DEPTH`].
+    overlong: bool,
+}
+
+impl Reach {
+    /// One holder's roots, walked.
+    fn site(&mut self, document: &Document, site: &pdf_archive::ActionSite) {
+        if let Some(at) = site.at {
+            self.objects.insert(at);
+        }
+        let mut roots: Vec<Object> = site.dict.get("A").into_iter().cloned().collect();
+        if let Some(additional) = document.get_key(&site.dict, "AA").as_dict() {
+            roots.extend(additional.iter().map(|(_, entry)| entry.clone()));
+        }
+        if site.holder == ActionHolder::Catalog {
+            roots.extend(site.dict.get("OpenAction").cloned());
+            let names = document.get_key(&site.dict, "Names");
+            if let Some(scripts) = names
+                .as_dict()
+                .and_then(|names| document.get_key(names, "JavaScript").as_dict().cloned())
+            {
+                let resolve = |object: &Object| document.resolve(object);
+                roots.extend(
+                    pdf_syntax::tree::name_entries(&scripts, &resolve)
+                        .into_iter()
+                        .map(|(_, entry)| entry),
+                );
+            }
+        }
+        let mut stack: Vec<(Object, usize)> = roots.into_iter().map(|root| (root, 0)).collect();
+        while let Some((entry, depth)) = stack.pop() {
+            if depth >= MAX_DEPTH {
+                self.overlong = true;
+                continue;
+            }
+            if let Some(id) = entry.as_reference()
+                && !self.objects.insert(id)
+            {
+                continue;
+            }
+            let resolved = document.resolve(&entry);
+            let Some(action) = resolved.as_dict() else {
+                continue;
+            };
+            stack.extend(
+                flatten(document, action.get("Next"))
+                    .into_iter()
+                    .map(|next| (next, depth.saturating_add(1))),
+            );
+        }
+    }
 }
 
 /// The removal, in progress over one document.

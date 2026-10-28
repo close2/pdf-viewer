@@ -33,6 +33,7 @@
 //! [`MOST_STATEMENT_BYTES`] before the text is laid out, and [`MOST_STATEMENT_PAGES`] on the
 //! pages the layout took.
 
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
 use pdf_archive::{Target, table};
@@ -83,17 +84,23 @@ const EMBEDDED_FILE_LOSS: &str = "the embedded file is no longer in this documen
 /// The subject the report and `xmpMM:History` name the page by.
 pub(super) const SUBJECT: &str = "the statement of what this conversion removed";
 
+/// The files one row's step removed, with what the row says was tried before it.
+pub(super) type Files<'a> = (&'a [&'a AttachmentOutcome], &'a Statement);
+
 /// The statement's text, or the bound it would pass.
 ///
-/// `removed` is every outcome the step took the loss for; `asked` is what the row says was tried
-/// before it and what the target passed over.
+/// `files` is every embedded file an embedded-file row's step took the loss for, with what that
+/// row says was tried before it and what the target passed over; `entries` is every entry a
+/// halftone row's step took, each with its own row's [`Statement`]. The files are listed first and
+/// the entries after them, each in the order given.
 pub(super) fn text(
     document: &Document,
     target: Target,
-    removed: &[&AttachmentOutcome],
-    asked: &Statement,
+    files: Option<Files<'_>>,
+    entries: &[GraphicsEntry<'_>],
 ) -> Result<String, &'static str> {
-    if removed.len() > MOST_STATED_OBJECTS {
+    let (removed, asked) = files.unwrap_or((&[], &NOTHING_TRIED));
+    if removed.len().saturating_add(entries.len()) > MOST_STATED_OBJECTS {
         return Err(TOO_MANY_STATED);
     }
     let mut out = format!("{TITLE} {target}\n");
@@ -103,11 +110,34 @@ pub(super) fn text(
         }
         entry(&mut out, document, target, index, outcome, asked);
     }
+    let pages = pages_naming(
+        document,
+        &entries.iter().map(|entry| entry.object).collect::<Vec<_>>(),
+    )?;
+    for (offset, (stated, on)) in entries.iter().zip(&pages).enumerate() {
+        if out.len() > MOST_STATEMENT_BYTES {
+            return Err(STATEMENT_TOO_LONG);
+        }
+        graphics_entry(
+            &mut out,
+            document,
+            target,
+            removed.len().saturating_add(offset),
+            stated,
+            on,
+        )?;
+    }
     if out.len() > MOST_STATEMENT_BYTES {
         return Err(STATEMENT_TOO_LONG);
     }
     Ok(out)
 }
+
+/// What a row whose statement is its first step says was tried: nothing.
+static NOTHING_TRIED: Statement = Statement {
+    before: None,
+    skipped: Vec::new(),
+};
 
 /// One object's lines.
 fn entry(
@@ -167,6 +197,292 @@ fn entry(
     }
 }
 
+/// One entry a halftone row's step took from one object, to be stated (`doc/adr/2562`).
+pub(super) struct GraphicsEntry<'a> {
+    /// The requirement, one of [`super::config::STATED_GRAPHICS`].
+    pub(super) site: &'static str,
+    /// The graphics state or halftone the entry is taken from, in the source's numbering.
+    pub(super) object: ObjectId,
+    /// What the row says was tried before the loss.
+    pub(super) asked: &'a Statement,
+}
+
+/// What the page says of one halftone row's entry: the object the entry is in, the key, what is
+/// written in its place, the loss word and its one line — all fixed here, so the page states
+/// nothing a reader could not check against the source and this table.
+struct Taken {
+    site: &'static str,
+    holder: &'static str,
+    key: &'static str,
+    written: Option<&'static str>,
+    loss: &'static str,
+    line: &'static str,
+}
+
+/// The three halftone rows' entries, in [`super::config::STATED_GRAPHICS`]'s order.
+///
+/// `super::halftones` is what each population is: a halftone stating `HalftoneName` (ISO 32000-2
+/// §10.6.5.1's pointer into a device's own halftones), a graphics state whose Table 57 `HT` names
+/// a halftone of a type other than 1 or 5 and is written `Default`, and a graphics state stating
+/// Table 57's `HTO`. The loss words are [`super::Loss::HalftoneName`]'s and
+/// [`super::Loss::Halftone`]'s.
+const TAKEN: [Taken; 3] = [
+    Taken {
+        site: "graphics/no-halftone-name",
+        holder: "halftone",
+        key: "HalftoneName",
+        written: None,
+        loss: "halftone-name",
+        line: "the halftone's name is no longer in this document, so a press holding a halftone of \
+               that name screens with the entries this halftone states instead",
+    },
+    Taken {
+        site: "graphics/halftone-type-is-one-or-five",
+        holder: "graphics state",
+        key: "HT",
+        written: Some("Default"),
+        loss: "halftone",
+        line: "the graphics state names the halftone in effect at the start of the page, and the \
+               halftone it named left the file with every object only it reached",
+    },
+    Taken {
+        site: "graphics/no-halftone-origin-in-a-graphics-state",
+        holder: "graphics state",
+        key: "HTO",
+        written: None,
+        loss: "halftone",
+        line: "the graphics state's halftone origin is no longer in this document, so a press \
+               places its screen at its own origin",
+    },
+];
+
+/// Why an entry whose row the table above does not hold is not stated.
+const NOT_A_STATED_ROW: &str = "the statement of what this conversion removed was asked to list \
+     an entry of a row whose loss it does not state, so the loss is not taken";
+
+/// Why an entry the source does not state is not listed.
+const NOT_IN_THE_SOURCE: &str = "the statement of what this conversion removed was asked to list \
+     an entry the source's object does not state, so the loss is not taken";
+
+/// One halftone row's lines, every value read from the source here rather than handed in.
+fn graphics_entry(
+    out: &mut String,
+    document: &Document,
+    target: Target,
+    index: usize,
+    stated: &GraphicsEntry<'_>,
+    pages: &[usize],
+) -> Result<(), &'static str> {
+    let taken = TAKEN
+        .iter()
+        .find(|taken| taken.site == stated.site)
+        .ok_or(NOT_A_STATED_ROW)?;
+    let object = document.get(stated.object);
+    let dict = match &object {
+        Object::Dictionary(dict) => dict,
+        Object::Stream(stream) => &stream.dict,
+        _ => return Err(NOT_IN_THE_SOURCE),
+    };
+    let value = dict.get(taken.key).ok_or(NOT_IN_THE_SOURCE)?;
+    // The value is the source's own object, already held whole, so writing it costs what the
+    // file already cost; the bound is checked before it joins the text.
+    let mut written = Vec::new();
+    pdf_syntax::write::object(value, &mut written);
+    if written.len() > MOST_STATEMENT_BYTES {
+        return Err(STATEMENT_TOO_LONG);
+    }
+    let requirement = table::requirements().find(|requirement| requirement.id == taken.site);
+    let citation = requirement
+        .and_then(|requirement| requirement.clauses.citation(target))
+        .unwrap_or_default();
+    let asks = requirement.map_or("", |requirement| requirement.asks);
+    let _ = write!(
+        out,
+        "\n{}. Requirement: {} ({citation})\n   Asks: {asks}\n   Loss: {}, {}\n   Object: {} {} {}\n",
+        index.saturating_add(1),
+        taken.site,
+        taken.loss,
+        taken.line,
+        taken.holder,
+        stated.object.number,
+        stated.object.generation,
+    );
+    match taken.written {
+        Some(now) => {
+            let _ = writeln!(out, "   Entry written {now}: {}", taken.key);
+        }
+        None => {
+            let _ = writeln!(out, "   Entry removed: {}", taken.key);
+        }
+    }
+    // `pdf_syntax::write::object` writes a string in hexadecimal and a name with its `#xx`
+    // escapes, so the value is printable ASCII as written; `escaped` holds that if it changes.
+    let _ = writeln!(
+        out,
+        "   Value in the source: {}",
+        escaped(&String::from_utf8_lossy(&written))
+    );
+    if pages.is_empty() {
+        out.push_str("   In the resources of: no page\n");
+    } else {
+        let _ = writeln!(
+            out,
+            "   In the resources of page(s): {}",
+            pages
+                .iter()
+                .map(|page| page.saturating_add(1).to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+    out.push_str("   Tried before: ");
+    match &stated.asked.before {
+        Some(step) => {
+            let _ = writeln!(out, "{step}");
+        }
+        None => out.push_str("no step\n"),
+    }
+    for (step, why) in &stated.asked.skipped {
+        let _ = writeln!(out, "   Not admitted at this target: {step}, because {why}");
+    }
+    Ok(())
+}
+
+/// The most objects [`pages_naming`] visits over every page of the document, each page and each
+/// value inside a dictionary or array counted as one.
+///
+/// `CLAUDE.md` principle 3's explicit budget: the walk is per page, so a document whose pages
+/// share one resource graph pays for it once a page, and a page count the tree only claims costs
+/// a visit per page asked for. A walk past it refuses the loss by name rather than stating pages
+/// it did not finish looking at.
+pub(super) const MOST_VISITS: usize = 1 << 20;
+
+/// Why the pages using an entry were not worked out.
+pub(super) const PAGES_NOT_WALKED: &str = "the statement of what this conversion removed would \
+     visit more than the 1 048 576 objects and values (MOST_VISITS) it may visit to name the pages \
+     whose resources reach each object it lists, so the loss is not taken";
+
+/// The zero-based pages whose resources reach each of `objects`, one list per object.
+///
+/// A page reaches an object where it is reachable from §7.8.3's resource dictionary in force for
+/// the page (Table 31's `Resources`, inherited where the page states none) or from the appearance
+/// dictionary of one of the page's annotations (§12.5.5), through any chain of references — a
+/// graphics state named by a form `XObject`'s own resources, or a halftone named by a graphics
+/// state, among them. Nothing else on a page is followed, so a page naming another page's
+/// annotation or destination does not reach that page's resources.
+fn pages_naming(
+    document: &Document,
+    objects: &[ObjectId],
+) -> Result<Vec<Vec<usize>>, &'static str> {
+    pages_naming_within(document, objects, MOST_VISITS)
+}
+
+/// [`pages_naming`] under a budget of `most` visits, so that a test can stand at the bound.
+fn pages_naming_within(
+    document: &Document,
+    objects: &[ObjectId],
+    most: usize,
+) -> Result<Vec<Vec<usize>>, &'static str> {
+    let mut out = vec![Vec::new(); objects.len()];
+    if objects.is_empty() {
+        return Ok(out);
+    }
+    let mut visits = Visits { done: 0, most };
+    // One walk of the tree for every page: `Pages::get` per index reads a flat `/Kids` array from
+    // its start each time, n²/2 node reads for a root holding n leaves (ADR 1953), and those reads
+    // are not visits this budget counts.
+    for (index, page) in pdf_model::Pages::new(document)
+        .every()
+        .into_iter()
+        .enumerate()
+    {
+        visit(&mut visits)?;
+        let Some(page) = page else {
+            continue;
+        };
+        let mut pending = Vec::new();
+        for (_, value) in page.resources.iter() {
+            references_in(value, &mut pending, &mut visits, 0)?;
+        }
+        if let Object::Array(annotations) = document.get_key(&page.dict, "Annots") {
+            for annotation in &annotations {
+                let annotation = match annotation {
+                    Object::Reference(id) => document.get(*id),
+                    direct => direct.clone(),
+                };
+                if let Some(appearance) = annotation.as_dict().and_then(|dict| dict.get("AP")) {
+                    references_in(appearance, &mut pending, &mut visits, 0)?;
+                }
+            }
+        }
+        let mut seen = BTreeSet::new();
+        while let Some(id) = pending.pop() {
+            if !seen.insert(id) {
+                continue;
+            }
+            if let Some(at) = objects.iter().position(|object| *object == id) {
+                out[at].push(index);
+            }
+            references_in(&document.get(id), &mut pending, &mut visits, 0)?;
+        }
+    }
+    Ok(out)
+}
+
+/// The deepest a direct value is followed into, `pdf_syntax::Limits::DEFAULT`'s `max_depth`: the
+/// parser admitted nothing deeper, so a value past it is not one this document holds.
+const MOST_DEPTH: usize = 256;
+
+/// The visits [`pages_naming_within`] has made, and the most it may.
+struct Visits {
+    done: usize,
+    most: usize,
+}
+
+/// One more visit, or [`PAGES_NOT_WALKED`] past the budget.
+fn visit(visits: &mut Visits) -> Result<(), &'static str> {
+    visits.done = visits.done.saturating_add(1);
+    if visits.done > visits.most {
+        return Err(PAGES_NOT_WALKED);
+    }
+    Ok(())
+}
+
+/// Every reference inside one value, its direct dictionaries, arrays and stream dictionary
+/// included, each value counted as a visit.
+fn references_in(
+    value: &Object,
+    into: &mut Vec<ObjectId>,
+    visits: &mut Visits,
+    depth: usize,
+) -> Result<(), &'static str> {
+    visit(visits)?;
+    if depth > MOST_DEPTH {
+        return Err(PAGES_NOT_WALKED);
+    }
+    let below = depth.saturating_add(1);
+    match value {
+        Object::Reference(id) => into.push(*id),
+        Object::Dictionary(dict) => {
+            for (_, value) in dict.iter() {
+                references_in(value, into, visits, below)?;
+            }
+        }
+        Object::Stream(stream) => {
+            for (_, value) in stream.dict.iter() {
+                references_in(value, into, visits, below)?;
+            }
+        }
+        Object::Array(items) => {
+            for item in items {
+                references_in(item, into, visits, below)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 /// §7.11.4's embedded file stream a specification names, `/UF` before `/F`: its `/Subtype` and
 /// its decoded bytes, decoded under the document's own limits.
 fn embedded(
@@ -222,7 +538,10 @@ mod tests {
 
     use super::super::config::Statement;
     use super::super::report::{AttachmentAnswer, AttachmentOutcome};
-    use super::{MOST_STATED_OBJECTS, STATEMENT_TOO_LONG, TOO_MANY_STATED, escaped, text};
+    use super::{
+        MOST_STATED_OBJECTS, MOST_VISITS, PAGES_NOT_WALKED, STATEMENT_TOO_LONG, TOO_MANY_STATED,
+        escaped, pages_naming_within, text,
+    };
 
     fn a_document() -> Document {
         Document::open(
@@ -257,15 +576,20 @@ mod tests {
             .collect();
         let listed: Vec<&AttachmentOutcome> = outcomes.iter().collect();
         assert_eq!(
-            text(&document, Target::Two(Level::B), &listed, &NOTHING_TRIED),
+            text(
+                &document,
+                Target::Two(Level::B),
+                Some((&listed, &NOTHING_TRIED)),
+                &[]
+            ),
             Err(TOO_MANY_STATED)
         );
         assert!(
             text(
                 &document,
                 Target::Two(Level::B),
-                &listed[..MOST_STATED_OBJECTS],
-                &NOTHING_TRIED
+                Some((&listed[..MOST_STATED_OBJECTS], &NOTHING_TRIED)),
+                &[]
             )
             .is_ok(),
             "the bound itself is stated"
@@ -277,8 +601,51 @@ mod tests {
         let document = a_document();
         let long = removed(9, "n".repeat(64 * 1024 + 1));
         assert_eq!(
-            text(&document, Target::Two(Level::B), &[&long], &NOTHING_TRIED),
+            text(
+                &document,
+                Target::Two(Level::B),
+                Some((&[&long], &NOTHING_TRIED)),
+                &[]
+            ),
             Err(STATEMENT_TOO_LONG)
+        );
+    }
+
+    /// One page whose graphics state is named through a form `XObject`'s own resources, and whose
+    /// resources reach a cycle back to themselves.
+    fn a_page_reaching_a_graphics_state() -> Document {
+        Document::open(
+            b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type \
+              /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R \
+              /MediaBox [0 0 10 10] /Resources 4 0 R >>\nendobj\n4 0 obj\n<< /XObject << /X0 \
+              5 0 R >> /Again 4 0 R >>\nendobj\n5 0 obj\n<< /Type /XObject /Subtype /Form \
+              /BBox [0 0 1 1] /Resources << /ExtGState << /G0 6 0 R >> >> /Length 0 >>\nstream\n\
+              \nendstream\nendobj\n6 0 obj\n<< /Type /ExtGState /HTO [0 0] >>\nendobj\n\
+              7 0 obj\n<< /Type /ExtGState /HTO [1 1] >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n\
+              %%EOF\n"
+                .to_vec(),
+        )
+        .expect("the fixture opens")
+    }
+
+    #[test]
+    fn the_pages_naming_an_object_are_walked_under_the_budget_and_refused_past_it() {
+        let document = a_page_reaching_a_graphics_state();
+        let objects = [ObjectId::new(6, 0), ObjectId::new(7, 0)];
+        let named = pages_naming_within(&document, &objects, MOST_VISITS);
+        assert_eq!(
+            named,
+            Ok(vec![vec![0], Vec::new()]),
+            "6 through the form, 7 by nothing"
+        );
+        // The smallest budget the walk fits in, found from below: one fewer is refused by name.
+        let fits = (1..MOST_VISITS)
+            .find(|most| pages_naming_within(&document, &objects, *most).is_ok())
+            .expect("the walk fits in the budget");
+        assert_eq!(pages_naming_within(&document, &objects, fits), named);
+        assert_eq!(
+            pages_naming_within(&document, &objects, fits - 1),
+            Err(PAGES_NOT_WALKED)
         );
     }
 

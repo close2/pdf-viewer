@@ -739,6 +739,66 @@ fn a_header_stating_the_wrong_part_is_rewritten() {
 }
 
 #[test]
+fn a_header_stating_no_version_is_written_as_the_targets_and_kept_in_the_history() {
+    // ISO 32000-2 §7.5.2 makes the header `%PDF-` and one digit either side of a point; this
+    // source's has one byte above 7Fh where the `D` belongs (PDFBOX-6040-nodeloop's shape), and no
+    // catalog states a `/Version`, so the file names no version at all. The output is a file this
+    // program writes, so its header is the target's, and the bytes the producer put there are kept
+    // in the output's own `xmpMM:History` and in the report, escaped so they read back byte for
+    // byte (`doc/adr/2558`).
+    for (target, header) in [
+        (Target::Two(Level::B), "%PDF-1.7"),
+        (Target::Four(Flavour::Plain), "%PDF-2.0"),
+    ] {
+        let mut source = Conforming {
+            target,
+            ..Conforming::default()
+        }
+        .build();
+        let stray: &[u8] = b"%P\xB5F-1.4";
+        assert!(source.starts_with(b"%PDF-") && source.get(8) == Some(&b'\n'));
+        source.splice(..8, stray.iter().copied());
+        assert_eq!(
+            Document::open(source.clone())
+                .expect("the source opens")
+                .version(),
+            None,
+            "the fixture states no version"
+        );
+        let (report, output) = convert(&source, target, Authorisations::default());
+        assert_eq!(
+            decision(&report, "file-structure/file-header"),
+            Decision::Mechanical(Rewrite::FileHeader)
+        );
+        let output = output.unwrap_or_else(|| panic!("the document converts to {target}"));
+        assert!(output.starts_with(header.as_bytes()), "{target}");
+        assert_eq!(
+            holds(&output, target).verdict(),
+            Verdict::Conforms,
+            "{target}"
+        );
+        let recorded = format!(
+            "the header {header} written for {target}, because the source's header states no \
+             version ISO 32000-2 \u{a7}7.5.2 defines; the source's first line was \"%P\\xB5F-1.4\""
+        );
+        let held = Document::open(output).expect("the output opens");
+        assert!(
+            the_packet_of(&held).contains(&recorded),
+            "{}",
+            the_packet_of(&held)
+        );
+        assert!(
+            conversion(&report)
+                .recorded
+                .as_deref()
+                .is_some_and(|said| said.contains(&recorded)),
+            "{:?}",
+            conversion(&report).recorded
+        );
+    }
+}
+
+#[test]
 fn a_pdf_two_source_cannot_be_lowered_to_part_two() {
     // ISO 19005-2 section 6.1.2 requires a %PDF-1.n header, so a PDF 2.0 source would have every
     // construct PDF 2.0 added translated or refused one at a time
@@ -15661,6 +15721,8 @@ mod statement;
 
 #[path = "archive/press_assumed.rs"]
 mod press_assumed;
+#[path = "archive/removed_annotation_actions.rs"]
+mod removed_annotation_actions;
 #[path = "archive/truetype_cmap.rs"]
 mod truetype_cmap;
 
@@ -15941,6 +16003,8 @@ fn a_font_with_a_descriptor_and_no_widths_is_given_the_widths_the_viewer_draws_i
             .collect::<Vec<_>>())
     );
 }
+#[path = "archive/cid_notdef_glyph.rs"]
+mod cid_notdef_glyph;
 #[path = "archive/derived_converted.rs"]
 mod derived_converted;
 #[path = "archive/notdef_glyph.rs"]

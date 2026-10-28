@@ -551,3 +551,81 @@ fn a_late_merge_and_its_entries_share_one_sequence_budget() {
         );
     }
 }
+
+/// An `event` element of `activity` running `script` as JavaScript (page 106's `contentType`).
+fn javascript_event(activity: &str, script: &str) -> String {
+    format!(
+        "<event activity=\"{activity}\"><script contentType=\"application/x-javascript\">\
+         {script}</script></event>"
+    )
+}
+
+/// XFA 3.3 pages 390–391: the focus reaching a field runs its `enter` event in the confined
+/// worker, and a value the event sets wakes the calculation that reads it (page 379).
+#[test]
+fn an_enter_event_runs_in_the_confined_worker_and_wakes_a_calculation() {
+    let template = [
+        field("Units", &javascript_event("enter", "this.rawValue = 4;")),
+        field("Double", &javascript("Units.rawValue * 2", "")),
+    ]
+    .concat();
+    let document = document(&template, &[("Units", "1"), ("Double", "")]);
+    let worker = Arc::new(ScriptWorker::with_program(WORKER).with_deadline(OUT_OF_THE_WAY));
+    let mut view = view_with(&document, &worker);
+    view.activate_form_on_merge(&document);
+    assert_eq!(shown(&view, &document, "Double").as_deref(), Some("2"));
+    assert!(view.activate_form_on_enter(&document, &name("Units"), None));
+    assert_eq!(shown(&view, &document, "Units").as_deref(), Some("4"));
+    assert_eq!(shown(&view, &document, "Double").as_deref(), Some("8"));
+    assert!(worker.deaths().is_empty(), "{:?}", worker.deaths());
+}
+
+/// The plant: an `exit` event that never ends, raised after the commit a loss of focus makes, as
+/// `viewer-core` raises it. The worker stops it within the activation's budget, the person's entry
+/// stands, and what the stopped activation set is dropped.
+#[test]
+fn an_exit_event_that_never_ends_is_stopped_and_the_entry_is_kept() {
+    for script in [
+        "Other.rawValue = 9; for (;;) {}",
+        "Other.rawValue = 9; function f() { return f() + 1; } f()",
+        "Other.rawValue = 9; for (var i = 0; i &lt; 90000; i++) { for (var j = 0; j &lt; 90000; j++) {} }",
+    ] {
+        let template = [
+            field("Units", &javascript_event("exit", script)),
+            field("Other", ""),
+        ]
+        .concat();
+        let document = document(&template, &[("Units", "3"), ("Other", "")]);
+        let worker = Arc::new(ScriptWorker::with_program(WORKER).with_deadline(OUT_OF_THE_WAY));
+        let mut view = view_with(&document, &worker);
+        view.activate_form_on_merge(&document);
+        let started = std::time::Instant::now();
+        assert!(view.set_field(&document, &name("Units"), &Entered::Text("5".to_owned())) > 0);
+        view.commit_field(&document, &name("Units"));
+        let changed = view.activate_form_on_exit(&document, &name("Units"), Some(&name("Other")));
+        let took = started.elapsed();
+        assert!(took < Duration::from_secs(5), "{script}: {took:?}");
+        assert!(!changed, "{script}");
+        assert_eq!(
+            shown(&view, &document, "Units").as_deref(),
+            Some("5"),
+            "{script}: the person's entry is kept"
+        );
+        assert_eq!(
+            shown(&view, &document, "Other").as_deref(),
+            Some(""),
+            "{script}: what the stopped event set is dropped"
+        );
+        let said = view.script_reports().join("\n");
+        assert!(said.contains("its exit event"), "{script}: {said}");
+        assert!(
+            said.contains("nothing it calculated is kept"),
+            "{script}: {said}"
+        );
+        assert!(
+            worker.deaths().is_empty(),
+            "{script}: {:?}",
+            worker.deaths()
+        );
+    }
+}

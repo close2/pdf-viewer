@@ -106,7 +106,7 @@ pub fn opened_where_a_dash_ends_at_the_close(
 /// An odd-length array alternates on and off across its own end — `[3]` is three on, three off —
 /// so it states a pattern of twice its sum. `pdf_model`'s `apply_dash` already doubles such an
 /// array before it reaches a display list; this says the same thing for a caller that did not.
-fn period(dash_array: &[f32]) -> Option<f32> {
+pub(crate) fn period(dash_array: &[f32]) -> Option<f32> {
     let total: f32 = dash_array.iter().sum();
     if dash_array.is_empty() || !total.is_finite() || total <= 0.0 {
         return None;

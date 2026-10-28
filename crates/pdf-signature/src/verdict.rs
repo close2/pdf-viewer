@@ -298,6 +298,17 @@ pub enum Reservation {
     /// The document carries §12.8.5 timestamps and this program established no instant from them.
     #[error("this document's §12.8.5 timestamp chain establishes no instant")]
     TimestampNotEstablished,
+    /// A constraint of the signature policy the signature is bound to is broken.
+    ///
+    /// ISO 32000-2 §12.8.3.4.4 makes enforcing those constraints a validator's duty, so a broken one
+    /// withholds the word whatever the other answers were (ADR 2560).
+    #[error(
+        "the signature breaks a constraint of the signature policy it was made under: {constraint}"
+    )]
+    PolicyConstraintBroken {
+        /// The broken constraint, as its finding says it.
+        constraint: String,
+    },
     /// The path validation answered something this build has no sentence for.
     ///
     /// Unreachable today and here for the reason [`Verdict::of`]'s last arm states: [`Trust`] is
@@ -490,6 +501,24 @@ impl Verdict {
             when,
             timestamps,
         })
+    }
+
+    /// The verdict once §12.8.3.4.4's policy constraints are enforced: a [`Valid`] becomes
+    /// [`Reservation::PolicyConstraintBroken`] naming the first broken one, and nothing else
+    /// changes — a policy can withhold the word and never grant it.
+    #[must_use]
+    pub fn under_policy(self, findings: &[crate::policy_rules::Finding]) -> Self {
+        let broken = findings
+            .iter()
+            .find(|finding| finding.verdict == crate::policy_rules::Verdict::Broken);
+        match (self, broken) {
+            (Self::Valid(_), Some(finding)) => {
+                Self::Reserved(Reservation::PolicyConstraintBroken {
+                    constraint: finding.to_string(),
+                })
+            }
+            (verdict, _) => verdict,
+        }
     }
 
     /// The [`Valid`] where there is one.

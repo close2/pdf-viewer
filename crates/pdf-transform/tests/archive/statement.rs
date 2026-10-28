@@ -9,6 +9,7 @@
 
 use super::attachments_as_pages::{BLOB, NOTE, a_document_holding, pages_of};
 use super::*;
+use pdf_syntax::object::Object;
 use pdf_transform::archive::{AttachmentAnswer, Configuration, StatementPage};
 use sha2::{Digest as _, Sha256};
 
@@ -280,4 +281,201 @@ fn a_level_a_target_describes_the_statement_page_in_the_structure_tree() {
         );
     }
     assert_states(&stated(&output, statement), 9, BLOB);
+}
+
+/// The profile `append-statement` is named for at the presentation sites, as it ships.
+const STATE_EVERY_LOSS: &str = include_str!("../../../../doc/profiles/state-every-loss.toml");
+
+/// A page whose two graphics states hold all three halftone entries ISO 19005 section 6.2.5
+/// forbids: `G0` a threshold halftone and a halftone origin, `G1` a halftone naming itself.
+fn three_halftone_entries(target: Target) -> Vec<u8> {
+    let base = match target {
+        Target::Two(_) => Conforming::part_two(),
+        Target::Four(_) => Conforming::default(),
+    };
+    Conforming {
+        resources: "/ExtGState << /G0 6 0 R /G1 8 0 R >>".to_owned(),
+        objects: vec![
+            "<< /Type /ExtGState /HT 7 0 R /HTO [0 0] >>".to_owned(),
+            "<< /Type /Halftone /HalftoneType 6 /Width 2 /Height 2 /Length 4 >>\nstream\n@P`p\nendstream"
+                .to_owned(),
+            "<< /Type /ExtGState /HT 9 0 R >>".to_owned(),
+            "<< /Type /Halftone /HalftoneType 1 /HalftoneName (Default) /Frequency 60 /Angle 45 \
+             /SpotFunction /Round >>"
+                .to_owned(),
+        ],
+        contents: Some((
+            String::new(),
+            b"/G0 gs 0 0 1 rg 10 10 50 50 re f /G1 gs 60 60 20 20 re f".to_vec(),
+        )),
+        ..base
+    }
+    .build()
+}
+
+/// Every entry the statement lists, read back against the source: the object it names states
+/// the key, and the value the page gives is that key's value as the source writes it.
+///
+/// `doc/adr/1014` section 3's check on an appended page, done from the page's text alone, so a
+/// statement naming a key or a value the source does not hold fails here. Returns how many
+/// entries it read.
+fn read_back_against(source: &[u8], page: &str) -> usize {
+    let document = Document::open_with_limits(source.to_vec(), Limits::DEFAULT).expect("it opens");
+    let mut read: usize = 0;
+    let lines: Vec<&str> = page.lines().map(str::trim).collect();
+    for (index, line) in lines.iter().enumerate() {
+        let Some(object) = line
+            .strip_prefix("Object: graphics state ")
+            .or_else(|| line.strip_prefix("Object: halftone "))
+        else {
+            continue;
+        };
+        let number: u32 = object
+            .split(' ')
+            .next()
+            .and_then(|number| number.parse().ok())
+            .expect("an object number");
+        let line_after = |by: usize| {
+            lines
+                .get(index.saturating_add(by))
+                .copied()
+                .unwrap_or_default()
+        };
+        let key = line_after(1)
+            .strip_prefix("Entry removed: ")
+            .or_else(|| line_after(1).strip_prefix("Entry written Default: "))
+            .unwrap_or_else(|| panic!("the entry follows the object: {page}"));
+        let value = line_after(2)
+            .strip_prefix("Value in the source: ")
+            .unwrap_or_else(|| panic!("the value follows the entry: {page}"));
+        let held = document.get(ObjectId::new(number, 0));
+        let dict = match &held {
+            Object::Dictionary(dict) => dict,
+            Object::Stream(stream) => &stream.dict,
+            other => panic!("object {number} is {other:?}"),
+        };
+        let stated = dict
+            .get(key)
+            .unwrap_or_else(|| panic!("the source's object {number} states no {key}: {page}"));
+        let mut written = Vec::new();
+        pdf_syntax::write::object(stated, &mut written);
+        assert_eq!(
+            value,
+            String::from_utf8_lossy(&written),
+            "object {number}'s {key}"
+        );
+        read = read.saturating_add(1);
+    }
+    read
+}
+
+/// The statement's text with its lines kept, for [`read_back_against`].
+///
+/// A line the layout broke at the measure is joined back to the field it continues, which is
+/// every line that opens with no field label of the statement's own.
+fn stated_lines(output: &[u8], statement: &StatementPage) -> String {
+    let labels = [
+        "Requirement:",
+        "Asks:",
+        "Loss:",
+        "Object:",
+        "Entry ",
+        "Value in the source:",
+        "In the ",
+        "Tried before:",
+        "Not admitted",
+        "Removed in",
+    ];
+    let mut out = String::new();
+    for line in statement
+        .pages
+        .iter()
+        .map(|index| text_of_page(output, *index))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        let line = line
+            .trim_start_matches(|c: char| c.is_ascii_digit() || c == '.')
+            .trim();
+        if labels.iter().any(|label| line.starts_with(label)) {
+            out.push('\n');
+        }
+        out.push_str(line);
+    }
+    out
+}
+
+#[test]
+fn each_halftone_entry_the_profile_takes_is_stated_and_reads_back_against_the_source() {
+    // ISO 19005-4 section 6.2.5 forbids all three entries; state-every-loss answers each site with
+    // try = ["append-statement", "discard"], so the output loses them and says so on one page.
+    let target = Target::Four(Flavour::Plain);
+    let source = three_halftone_entries(target);
+    let plan = planned(STATE_EVERY_LOSS, target);
+    let (report, output) = convert_with_plan(&source, &plan);
+    let conversion = conversion(&report);
+    let output = output.unwrap_or_else(|| panic!("{}", conversion.render()));
+    let held = holds(&output, target);
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let statement = conversion.statement.as_ref().expect("the page is reported");
+    assert_eq!(
+        statement.sites,
+        [
+            "graphics/no-halftone-name",
+            "graphics/halftone-type-is-one-or-five",
+            "graphics/no-halftone-origin-in-a-graphics-state",
+        ]
+    );
+    // The source's one page, then the statement.
+    assert_eq!(pages_of(&source), 1);
+    assert_eq!(statement.pages.first(), Some(&1));
+    assert_eq!(pages_of(&output), 1 + statement.pages.len());
+    assert_eq!(statement.objects, 3);
+    let page = stated_lines(&output, statement);
+    assert_eq!(read_back_against(&source, &page), 3, "{page}");
+    let unbroken: String = page.split_whitespace().collect();
+    for fact in [
+        "Object: halftone 9 0",
+        "Entry removed: HalftoneName",
+        "Object: graphics state 6 0",
+        "Entry written Default: HT",
+        "Value in the source: 7 0 R",
+        "Entry removed: HTO",
+        "Value in the source: [0 0]",
+        "In the resources of page(s): 1",
+        "Loss: halftone-name,",
+    ] {
+        assert!(
+            holds_fact(&unbroken, fact),
+            "the page states {fact:?}:\n{page}"
+        );
+    }
+    let written = String::from_utf8_lossy(&output);
+    assert!(!written.contains("HalftoneName") && !written.contains("/HTO"));
+}
+
+#[test]
+fn a_halftone_name_is_stated_at_part_two() {
+    // ISO 19005-2 section 6.2.5 forbids HalftoneName and a threshold halftone; HTO is part 4's
+    // alone, so at part 2 that entry stays and is not listed.
+    let target = Target::Two(Level::B);
+    let source = three_halftone_entries(target);
+    let plan = planned(STATE_EVERY_LOSS, target);
+    let (report, output) = convert_with_plan(&source, &plan);
+    let conversion = conversion(&report);
+    let output = output.unwrap_or_else(|| panic!("{}", conversion.render()));
+    let held = holds(&output, target);
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let statement = conversion.statement.as_ref().expect("the page is reported");
+    assert_eq!(statement.objects, 2);
+    let page = stated_lines(&output, statement);
+    assert_eq!(read_back_against(&source, &page), 2, "{page}");
+    let unbroken: String = page.split_whitespace().collect();
+    assert!(
+        holds_fact(&unbroken, "(ISO 19005-2 section 6.2.5)"),
+        "{page}"
+    );
 }

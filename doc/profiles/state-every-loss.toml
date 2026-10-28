@@ -10,9 +10,10 @@
 # keeps, else stops, until the executor carries the second step there.
 #
 # At a presentation site the answer is try = ["append-statement", "discard"]. This version sets
-# append-statement's page at the two embedded-file rows only (config/steps.rs), so at every other
-# site the first step is passed over with its sentence and the loss is taken as discard takes it,
-# named in the report and in xmpMM:History, until the page is built there. The three
+# append-statement's page at the two embedded-file rows and the three halftone rows
+# (config/steps.rs, doc/adr/2562), where a page that cannot be composed hands its objects to
+# discard; at every other site the first step is passed over with its sentence and the loss is
+# taken as discard takes it, named in the report and in xmpMM:History, until the page is built there. The three
 # transfer-function sites keep keep-everything's answer, because a transfer function decides what
 # a screen shows and no shipped profile authorises its removal (doc/adr/1964).
 

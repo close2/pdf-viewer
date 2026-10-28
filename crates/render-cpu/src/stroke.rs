@@ -47,7 +47,14 @@ impl CpuRasterizer {
         dots: &mut Path,
     ) -> Option<(Path, f32)> {
         let pattern = pdf_render::dashes_showing_direction(&stroke.dash_array, stroke.cap)?;
-        let source = convert::path(geometry)?;
+        // `tiny-skia` dispenses only while it is short of a contour's end, so a zero-length dash
+        // the pattern places exactly there is dispensed only on the extension `pdf-render` adds.
+        let extended = pdf_render::extended_to_a_zero_dash_at_the_end(
+            geometry,
+            &stroke.dash_array,
+            stroke.dash_phase,
+        );
+        let source = convert::path(extended.as_ref().unwrap_or(geometry))?;
         let dash = tiny_skia::StrokeDash::new(pattern, stroke.dash_phase)?;
         // The resolution scale bounds how finely a curve is measured for arc length.
         // `tiny-skia` derives it from the transform for stroking; one is what it uses for a

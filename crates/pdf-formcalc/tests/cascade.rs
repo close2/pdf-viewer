@@ -625,3 +625,232 @@ fn one_calculation_gives_the_same_value_alone_and_in_an_activation() {
     let activation = resource.activate(&all, Stimulus::Merge, &mut FormCalcRunner, Limits::DEFAULT);
     assert_eq!(activation.edits, form.edits());
 }
+
+/// A container whose `enter` and `exit` events each append `tag` and a sign to `Log`.
+fn logged(tag: &str) -> String {
+    format!(
+        "<event activity=\"enter\"><script>Log = Concat(Log, \"{tag}+\")</script></event>\
+         <event activity=\"exit\"><script>Log = Concat(Log, \"{tag}-\")</script></event>"
+    )
+}
+
+/// Two subforms of two fields and one, every container logging its focus events, and the log.
+fn focus_form() -> (String, Vec<(&'static str, &'static str)>) {
+    let template = [
+        format!(
+            "<subform name=\"A\">{}{}{}</subform>",
+            logged("A"),
+            field("a1", &logged("a1")),
+            field("a2", &logged("a2"))
+        ),
+        format!(
+            "<subform name=\"B\">{}{}</subform>",
+            logged("B"),
+            field("b1", &logged("b1"))
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    let values = vec![("A.a1", ""), ("A.a2", ""), ("B.b1", ""), ("Log", "")];
+    (template, values)
+}
+
+/// The text `Log` holds after the activation, where a script set it.
+fn log(activation: &Activation) -> Option<String> {
+    activation
+        .edits
+        .iter()
+        .find(|(field, _)| *field == name("Log"))
+        .map(|(_, value)| match value {
+            Scalar::Text(text) => text.clone(),
+            other => format!("{other:?}"),
+        })
+}
+
+/// Pages 390–391: focus going from `a1` to `b1` leaves the field and its subform `A` and comes into
+/// the subform `B` and the field. The fields' events are page 391's; the subforms' page 390's,
+/// which fire only for focus that crosses the subform's edge. The order within each half is the
+/// choice ADR 2566 writes down: an `exit` innermost first, an `enter` outermost first.
+#[test]
+fn focus_crossing_two_subforms_exits_the_field_then_its_subform_and_enters_the_other_way() {
+    let (template, values) = focus_form();
+    let (left, reached) = (name("A.a1"), name("B.b1"));
+    let exit = activate(
+        &template,
+        &values,
+        Stimulus::Exit {
+            left: &left,
+            reaching: Some(&reached),
+        },
+        Limits::DEFAULT,
+    );
+    assert_eq!(exit.ended, Ended::Settled, "{:?}", exit.report);
+    assert_eq!(log(&exit).as_deref(), Some("a1-A-"));
+    let enter = activate(
+        &template,
+        &values,
+        Stimulus::Enter {
+            reached: &reached,
+            leaving: Some(&left),
+        },
+        Limits::DEFAULT,
+    );
+    assert_eq!(log(&enter).as_deref(), Some("B+b1+"));
+}
+
+/// Page 390: focus moving to another field within the same subform fires neither the subform's
+/// `exit` nor its `enter`, only the two fields' own (page 391).
+#[test]
+fn focus_within_one_subform_fires_only_the_fields_events() {
+    let (template, values) = focus_form();
+    let (left, reached) = (name("A.a1"), name("A.a2"));
+    let exit = activate(
+        &template,
+        &values,
+        Stimulus::Exit {
+            left: &left,
+            reaching: Some(&reached),
+        },
+        Limits::DEFAULT,
+    );
+    assert_eq!(log(&exit).as_deref(), Some("a1-"));
+    let enter = activate(
+        &template,
+        &values,
+        Stimulus::Enter {
+            reached: &reached,
+            leaving: Some(&left),
+        },
+        Limits::DEFAULT,
+    );
+    assert_eq!(log(&enter).as_deref(), Some("a2+"));
+}
+
+/// Focus that leaves the form for nothing it holds goes out of every container around the field.
+#[test]
+fn focus_leaving_the_form_exits_every_container_around_the_field() {
+    let (template, values) = focus_form();
+    let left = name("B.b1");
+    let exit = activate(
+        &template,
+        &values,
+        Stimulus::Exit {
+            left: &left,
+            reaching: None,
+        },
+        Limits::DEFAULT,
+    );
+    assert_eq!(log(&exit).as_deref(), Some("b1-B-"));
+}
+
+/// Page 379: a value an `enter` script sets is a change like any other, and the calculations
+/// that read it run after the event.
+#[test]
+fn a_value_an_enter_event_sets_wakes_the_calculations_that_read_it() {
+    let template = [
+        field(
+            "Units",
+            "<event activity=\"enter\"><script>Units = 3</script></event>",
+        ),
+        field("Total", &calculate("Units * 2", "")),
+    ]
+    .concat();
+    let units = name("Units");
+    let activation = activate(
+        &template,
+        &[("Units", ""), ("Total", "")],
+        Stimulus::Enter {
+            reached: &units,
+            leaving: None,
+        },
+        Limits::DEFAULT,
+    );
+    assert_eq!(
+        activation.edits,
+        vec![
+            edit("Units", Scalar::Number(3.0)),
+            edit("Total", Scalar::Number(6.0))
+        ]
+    );
+}
+
+/// A field the form's field list does not name crosses nothing, and the report says so.
+#[test]
+fn focus_on_a_field_the_form_does_not_name_runs_nothing_and_says_so() {
+    let (template, values) = focus_form();
+    let activation = activate(
+        &template,
+        &values,
+        Stimulus::Enter {
+            reached: "elsewhere[0]",
+            leaving: None,
+        },
+        Limits::DEFAULT,
+    );
+    assert!(activation.edits.is_empty());
+    assert!(
+        activation
+            .report
+            .iter()
+            .any(|sentence| sentence.contains("elsewhere[0]")),
+        "{:?}",
+        activation.report
+    );
+}
+
+/// The walk out of a field is as long as the template nests, which the XML reader bounds (256
+/// elements deep): a field inside a hundred subforms, each with an `exit` event, runs all hundred
+/// and the field's, innermost first.
+#[test]
+fn focus_leaving_a_deeply_nested_field_exits_every_level_once() {
+    const LEVELS: usize = 100;
+    let exit = |tag: &str| {
+        format!("<event activity=\"exit\"><script>Log = Concat(Log, \"{tag},\")</script></event>")
+    };
+    let mut template = field("f", &exit("f"));
+    for level in (0..LEVELS).rev() {
+        template = format!(
+            "<subform name=\"S\">{}{template}</subform>",
+            exit(&level.to_string())
+        );
+    }
+    template.push_str(&field("Log", ""));
+    let short = format!("{}f", "S.".repeat(LEVELS));
+    let left = name(&short);
+    let activation = activate(
+        &template,
+        &[(short.as_str(), ""), ("Log", "")],
+        Stimulus::Exit {
+            left: &left,
+            reaching: None,
+        },
+        Limits::DEFAULT,
+    );
+    let mut expected = String::from("f,");
+    for level in (0..LEVELS).rev() {
+        expected.push_str(&level.to_string());
+        expected.push(',');
+    }
+    assert_eq!(log(&activation).as_deref(), Some(expected.as_str()));
+}
+
+/// A field carrying more `exit` events than an activation may run ends on the activation limit
+/// (page 380's means of ending a seemingly infinite loop) and keeps nothing its scripts set.
+#[test]
+fn more_exit_events_than_an_activation_runs_end_on_its_limit_and_keep_nothing() {
+    let events = "<event activity=\"exit\"><script>Log = 1</script></event>"
+        .repeat(Limits::DEFAULT.activations.saturating_add(1));
+    let template = [field("f", &events), field("Log", "")].concat();
+    let left = name("f");
+    let activation = activate(
+        &template,
+        &[("f", ""), ("Log", "")],
+        Stimulus::Exit {
+            left: &left,
+            reaching: None,
+        },
+        Limits::DEFAULT,
+    );
+    assert_eq!(activation.ended, Ended::Budget("activations"));
+    assert!(activation.edits.is_empty(), "{:?}", activation.edits);
+}

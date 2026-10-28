@@ -1760,11 +1760,14 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
         // whose only annotation is such a note answers where it answered nothing. 892 → 893 when
         // `doc/pima7667-2001.pdf`, an untagged document, joined the population (ADR 1942's round).
         // 893 → 894 when `doc/XFA-3_3.pdf`, the untagged XFA 3.3 specification, joined it (A633;
-        // with the file set aside the census reads 893 again).
+        // with the file set aside the census reads 893 again). 894 → 900 when the six ETSI texts
+        // A713 placed in `doc/` joined it — TR 102 272, TS 119 172-1 to -4 and TS 119 172-4 v1.2.1,
+        // each untagged; they are licensed and kept outside the tree like the other specifications
+        // here, so a clone without them reads 894 and this floor is skipped by name.
         gate_ratchet::floor(
             "untagged pages answering honestly, whole population",
             census.untagged_honest,
-            894,
+            900,
         );
         // ADR 1369's two counts, new with it, over the whole population.
         gate_ratchet::floor(

@@ -16,6 +16,13 @@
 //!   then the `initialize` events. Page 379's general order puts events first; page 407's third
 //!   rule is the specific one for this stimulus and puts the `initialize` events last, so the
 //!   specific rule is the one followed (ADR 2506).
+//! - A move of the keyboard focus ([`Stimulus::Exit`], [`Stimulus::Enter`]): the `exit` events of
+//!   the field the focus left and of each subform and exclusion group it goes out of, innermost
+//!   first, and then the `enter` events of each it comes into, outermost first, and of the field
+//!   it reached (pages 390–391); after each, the calculations that depend on what the events
+//!   changed. The pages do not order a container's `enter` against the field's; outermost first
+//!   is the order page 387 reports Adobe's processor dispatching a propagating event in, an `exit`
+//!   innermost first is its mirror, and both are choices (ADR 2566).
 //! - Value calculations come before property calculations, and among the property calculations
 //!   the inner subform before the outer one (page 405, rule 1, items 4 and 5). Among value
 //!   calculations the order is the template's own, except that a calculation comes after the
@@ -42,7 +49,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::{Calculation, Form, Scalar};
 use crate::xfa::datasets::Change;
-use crate::xfa::template::{Language, Override};
+use crate::xfa::template::{Class, Language, Override};
 use crate::xfa::{Resource, Template};
 
 /// What a [`Runner`] says of one script.
@@ -141,6 +148,24 @@ pub enum Stimulus<'a> {
     Merge,
     /// A person entered values into these fields, named by their PDF field names.
     Entry(&'a [String]),
+    /// The keyboard focus left the field `left` for the field `reaching`, or for nothing a form
+    /// holds (pages 390–391): the `exit` events of the field and of each subform and exclusion
+    /// group around it that the focus goes out of.
+    Exit {
+        /// The field the focus left, by its PDF field name.
+        left: &'a str,
+        /// The field it went to, where it went to one.
+        reaching: Option<&'a str>,
+    },
+    /// The keyboard focus reached the field `reached` from the field `leaving`, or from nothing a
+    /// form holds (pages 390–391): the `enter` events of each subform and exclusion group around
+    /// the field that the focus comes into, and of the field.
+    Enter {
+        /// The field the focus reached, by its PDF field name.
+        reached: &'a str,
+        /// The field it came from, where it came from one.
+        leaving: Option<&'a str>,
+    },
 }
 
 /// How an activation ended.
@@ -240,8 +265,9 @@ impl Resource {
     /// they changed. `fields` are every field of the form by its PDF name with the value its
     /// `/V` carries, a person's entry included.
     ///
-    /// Only `FormCalc` runs; a script in another language is refused by name (RFC 0011 section 5's
-    /// step 5). The validations of the settled form are in the result, run as a save runs them.
+    /// `FormCalc` and JavaScript run, the two languages page 412 names (ADR 2545); a script in
+    /// another language is refused by name. The validations of the settled form are in the result,
+    /// run as a save runs them.
     #[must_use]
     pub fn activate(
         &self,
@@ -261,6 +287,17 @@ impl Resource {
                 session.settle(Seeds::Entered(&typed));
             }
             Stimulus::Merge => session.settle(Seeds::All),
+            Stimulus::Exit { left, reaching } => {
+                let crossed = session.crossed(left, reaching);
+                session.fire("exit", Some(&crossed));
+                session.settle(Seeds::Changed);
+            }
+            Stimulus::Enter { reached, leaving } => {
+                let mut crossed = session.crossed(reached, leaving);
+                crossed.reverse();
+                session.fire("enter", Some(&crossed));
+                session.settle(Seeds::Changed);
+            }
         }
         let mut validations = Vec::new();
         if session.ended.is_none() {
@@ -365,6 +402,46 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             }
         }
         typed
+    }
+
+    /// The containers the focus crosses at `field` on its way to or from `other`, innermost first:
+    /// the field, then each subform and exclusion group around it that does not also hold
+    /// `other`, since page 390 fires a container's `enter` and `exit` only for focus that comes in
+    /// from outside it or goes out of it. A field the form's field list does not name crosses
+    /// nothing and says so.
+    ///
+    /// Each step goes to a container's parent, so the walk is at most as long as the template has
+    /// containers, whatever a hostile template nests.
+    fn crossed(&mut self, field: &str, other: Option<&str>) -> Vec<usize> {
+        let Some(node) = self.form.named(field) else {
+            self.say(format!("{field}: the form's field list does not name it"));
+            return Vec::new();
+        };
+        let bound = self.template.container_count();
+        let around = |start: Option<usize>| {
+            let mut chain = Vec::new();
+            let mut at = start;
+            while let Some(here) = at {
+                if chain.len() >= bound {
+                    break;
+                }
+                chain.push(here);
+                at = self.template.get(here).and_then(|c| c.parent);
+            }
+            chain
+        };
+        let theirs: BTreeSet<usize> = around(other.and_then(|name| self.form.named(name)))
+            .into_iter()
+            .collect();
+        around(Some(node))
+            .into_iter()
+            .filter(|here| !theirs.contains(here))
+            .filter(|&here| {
+                self.template.get(here).is_some_and(|c| {
+                    matches!(c.class, Class::Field | Class::Subform | Class::ExclGroup)
+                })
+            })
+            .collect()
     }
 
     /// Records a sentence once.

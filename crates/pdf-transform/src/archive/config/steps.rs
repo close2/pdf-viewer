@@ -41,11 +41,34 @@ use super::{ConfigError, DERIVABLE, Kind, Placement, Row, check_rows};
 /// The step that takes a site's loss and states it on an appended page (`doc/rfc/0014` section 4).
 pub(in crate::archive) const APPEND_STATEMENT: &str = "append-statement";
 
-/// Why `append-statement` is built only at the two embedded-file rows.
+/// Why `append-statement` is built only at the embedded-file rows and the halftone rows.
 pub(in crate::archive) const STATED_ONLY_PER_OBJECT: &str = "the page append-statement appends \
      lists each object the loss took, so it is built where the loss is reported one object at a \
-     time: the two embedded-file rows (ISO 19005-2 section 6.8, ISO 19005-4 section 6.9). At \
-     every other site the step is not built yet, and `discard` takes the loss without the page";
+     time: the two embedded-file rows (ISO 19005-2 section 6.8, ISO 19005-4 section 6.9) and the \
+     three halftone rows (ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5). At every other \
+     site the step is not built yet, and `discard` takes the loss without the page";
+
+/// The graphics family's sites whose loss `append-statement` states, one graphics state or
+/// halftone at a time (`doc/adr/2562`).
+///
+/// Each removal is a `super::super::halftones` population: every object in it loses one entry,
+/// so the page states the object, the entry and the value the source gave it. A page that cannot
+/// be composed hands the objects to the step after it, `doc/rfc/0014` section 3's rule for a step
+/// that fails, so `try = ["append-statement", "discard"]` takes the loss unstated rather than
+/// refusing, and says so in the report.
+pub(in crate::archive) const STATED_GRAPHICS: [&str; 3] = [
+    "graphics/no-halftone-name",
+    "graphics/halftone-type-is-one-or-five",
+    "graphics/no-halftone-origin-in-a-graphics-state",
+];
+
+/// Whether a step hands an object it could not answer to the next one, at this site.
+///
+/// [`Step::hands_on`], and `append-statement` at [`STATED_GRAPHICS`], whose page is one per
+/// document and whose failure leaves every object it would have listed to the next step.
+fn hands_on_at(step: Step<'_>, site: &str) -> bool {
+    step.hands_on() || (step == Step::AppendStatement && STATED_GRAPHICS.contains(&site))
+}
 
 /// Why `derive:<tool>:append` is passed over in this version.
 const DERIVED_PAGES_UNBUILT: &str = "a derived file appended as pages is doc/rfc/0014 section \
@@ -60,8 +83,9 @@ const DEPARTURE_IS_ITS_OWN_TABLE: &str = "a departure is stated in its own [depa
 /// Why a second step is refused where the executor carries none out.
 const SECOND_STEP_UNBUILT: &str = "this version carries out a second step only after \
      preserve:append at the two embedded-file rows, whose outcome is one per file \
-     (doc/adr/2536), and only where that step is stop, discard or append-statement; anywhere \
-     else the list holds one step and the implicit stop";
+     (doc/adr/2536), and only where that step is stop, discard or append-statement, and after \
+     append-statement at the three halftone rows (doc/adr/2562); anywhere else the list holds \
+     one step and the implicit stop";
 
 /// One step of a site's list this target does not admit.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -267,7 +291,7 @@ fn resolved(row: &Row, tools: &BTreeMap<String, Tool>, target: Target) -> Result
         });
     };
     if let Some((second_word, second, _)) = admitted.get(1) {
-        if !first.hands_on() {
+        if !hands_on_at(first, &row.site) {
             return Err(ConfigError::StepNeverReached {
                 line: row.line,
                 site: row.site.clone(),
@@ -275,9 +299,10 @@ fn resolved(row: &Row, tools: &BTreeMap<String, Tool>, target: Target) -> Result
                 after: first_word.to_owned(),
             });
         }
-        let carried = DERIVABLE.contains(&row.site.as_str())
+        let carried = (DERIVABLE.contains(&row.site.as_str())
             && resolved.remedy == Kind::Preserve
-            && resolved.placement == Some(Placement::Append);
+            && resolved.placement == Some(Placement::Append))
+            || (first == Step::AppendStatement && STATED_GRAPHICS.contains(&row.site.as_str()));
         if second.hands_on() || (!carried && *second != Step::Stop) {
             return Err(ConfigError::NotBuiltThatWay {
                 line: row.line,
@@ -290,7 +315,7 @@ fn resolved(row: &Row, tools: &BTreeMap<String, Tool>, target: Target) -> Result
             Step::Discard | Step::AppendStatement => Kind::Discard,
             _ => Kind::Stop,
         };
-        resolved.states_the_loss = *second == Step::AppendStatement;
+        resolved.states_the_loss |= *second == Step::AppendStatement;
         if let Some((third_word, _, _)) = admitted.get(2) {
             return Err(ConfigError::StepNeverReached {
                 line: row.line,

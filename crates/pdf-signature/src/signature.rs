@@ -2534,7 +2534,7 @@ pub(crate) fn authenticity_of(cms: &SignedData<'_>, detached: Detached<'_>) -> A
 /// `SignerInfo` may use instead. A signature naming neither, or naming one no certificate answers
 /// to, yields `None` — deliberately rather than falling back to "the only certificate present",
 /// which would verify against a key the signature never claimed.
-fn signer_certificate<'a>(cms: &SignedData<'a>) -> Option<der::Value<'a>> {
+pub(crate) fn signer_certificate<'a>(cms: &SignedData<'a>) -> Option<der::Value<'a>> {
     if let Some((issuer, serial)) = cms.signer_issuer_and_serial {
         return cms.certificates.iter().copied().find(|entry| {
             x509::read(*entry).is_ok_and(|certificate| certificate.is_named_by(issuer, serial))

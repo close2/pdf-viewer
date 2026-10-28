@@ -2,7 +2,8 @@
 //!
 //! Each document is a walk a student follows — [`WALKS`] lists them: a content stream's bytes to a
 //! pixel, a form field from its `/AcroForm` entry to the update a save appends, a word from its
-//! `Tj` to a clipboard, and a document from its profile to a PDF/A file and its report — and every
+//! `Tj` to a clipboard, a document from its profile to a PDF/A file and its report, and a signature
+//! from its field's bytes to the sentences a window prints — and every
 //! stage of one names the crate, the module and the decision that stands there. A walk that names a
 //! file the tree no longer has teaches the wrong tree, and nothing else would notice: the prose is
 //! read by people and by no compiler. This gate is the floor under it — it holds *names* true. It
@@ -30,13 +31,15 @@ use std::path::{Path, PathBuf};
 /// The walks under test, relative to the repository root, each with the diagrams it owes: one for
 /// the whole walk and one for each stage — seven stages from bytes to pixel (ADR 2002), six from a
 /// field's declaration to its save (ADR 2062), five from a word's `Tj` to a clipboard (ADR 2078),
-/// five from a profile to a PDF/A file's report (ADR 2554). A walk with fewer has dropped a stage's
+/// five from a profile to a PDF/A file's report (ADR 2554), five from a signature's field to the
+/// window's sentences (ADR 2574). A walk with fewer has dropped a stage's
 /// diagram or merged two stages.
-const WALKS: [(&str, usize); 4] = [
+const WALKS: [(&str, usize); 5] = [
     ("doc/teaching/how-a-page-lands-on-the-screen.md", 8),
     ("doc/teaching/how-a-form-field-is-filled.md", 7),
     ("doc/teaching/how-text-is-selected-and-copied.md", 6),
     ("doc/teaching/how-a-document-becomes-pdfa.md", 6),
+    ("doc/teaching/how-a-signature-is-verified.md", 6),
 ];
 
 /// The prefixes that make a word a path from the repository root.

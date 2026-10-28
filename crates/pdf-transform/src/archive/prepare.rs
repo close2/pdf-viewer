@@ -218,6 +218,10 @@ pub(super) const DECRYPTED_ACTION: &str = "converted";
 /// The word is `converted`, like every other recorded action here.
 pub(super) const RECOVERED_ACTION: &str = "converted";
 
+/// The action this conversion records in `xmpMM:History` when it writes the target's header over a
+/// source whose header stated no version (`doc/adr/2558`).
+pub(super) const HEADER_ACTION: &str = "converted";
+
 /// The action this conversion records in `xmpMM:History` when it embeds a substitute face.
 ///
 /// ISO 19005-2 section 6.6.6's NOTE 1 and ISO 19005-4 section 6.7.5's NOTE both give font
@@ -267,6 +271,12 @@ const NO_PLACE_TO_RECORD_A_TRANSFER: &str = "removing a transfer function other 
 const NO_PLACE_TO_RECORD_SMOOTHING: &str = "turning an image's smoothing off writes the images \
      it reached into this file's own xmpMM:History, and this document's XMP packet will not take \
      that entry — so the images stay as they are and no file is written (doc/adr/2498)";
+
+/// Why the target's header was not written over a header that stated no version.
+const NO_PLACE_TO_RECORD_HEADER: &str = "this document's header states no version this tree \
+     reads, so the output's header states the target's and the source's header line is written \
+     into this file's own xmpMM:History, and this document's XMP packet will not take that entry \
+     — so no file is written (doc/adr/2558)";
 
 /// How many substituted fonts the `xmpMM:History` entry names before it stops listing them.
 const MOST_FONTS_NAMED: usize = 8;
@@ -808,6 +818,10 @@ pub(super) struct Prepared {
     /// Whether the file's history can say that images were set to `/Interpolate false`
     /// (`doc/adr/2498`).
     pub(super) smoothing_recorded: Result<(), Because>,
+    /// What the file's history says the source's header was, where the source's header stated no
+    /// version and the output's states the target's (`doc/adr/2558`): `Ok(None)` where nothing is
+    /// recorded, an error where the packet will not take the entry.
+    pub(super) header_recorded: Result<Option<String>, Because>,
     /// The streams whose data is brought inside the file, or why none can be.
     ///
     /// ISO 19005-2 section 6.1.7.1 and ISO 19005-4 section 6.1.6.1, answered out of the bytes
@@ -1388,6 +1402,7 @@ impl Prepared {
         let preserved = the_preserved_pages(
             plan,
             document,
+            input,
             &failed,
             properties.as_ref(),
             fresh.as_ref(),
@@ -1500,6 +1515,10 @@ impl Prepared {
         let smoothing_history = wanted(Rewrite::InterpolationOff)
             .then(|| super::smoothing::history(input))
             .flatten();
+        // The source's header, where it named no version: the output's header states the target's,
+        // and the record of what the producer wrote there is a condition of writing it
+        // (`doc/adr/2558`). Read off the source, not a structure this program rebuilt from it.
+        let header_history = super::header::history(source, plan.target);
         // The TrueType routes are prepared before the packet too, because a restated `cmap` is
         // written into the file's own history (`doc/questions/A48`, `doc/adr/2520`).
         let truetype = {
@@ -1543,7 +1562,7 @@ impl Prepared {
                 && fonts::TRUETYPE_NOTDEF_ROWS
                     .iter()
                     .any(|row| failed.contains(row))
-                && fonts::notdef_fonts_are_truetype(document, input);
+                && fonts::notdef_fonts_have_truetype_programs(document, input);
             let asks = (wanted(Rewrite::TrueTypeCmapRestated)
                 && (fonts::TRUETYPE_CMAP_ROWS
                     .iter()
@@ -1562,6 +1581,7 @@ impl Prepared {
                         &mut spare,
                         &restated_programs,
                         (encoding_row_refused, notdef_too),
+                        survey,
                     )
                 })
             };
@@ -1609,6 +1629,7 @@ impl Prepared {
                 attached: attached_history.as_deref(),
                 transfers: transfer_history.as_deref(),
                 smoothing: smoothing_history.as_deref(),
+                header: header_history.as_deref(),
                 cmap: cmap_history.as_deref(),
                 when: now.as_deref(),
                 // At most one of the two constructions is prepared, so one entry says which.
@@ -1684,6 +1705,10 @@ impl Prepared {
             Some(_) if !recorded_it => Err(Because::NotBuiltYet(NO_PLACE_TO_RECORD_SMOOTHING)),
             _ => Ok(()),
         };
+        let header_recorded = match header_history {
+            Some(_) if !recorded_it => Err(Because::NotBuiltYet(NO_PLACE_TO_RECORD_HEADER)),
+            history => Ok(history),
+        };
         // The fonts are the validator's own findings rather than a walk of this converter's:
         // the clause has four exemptions and reading them belongs to `pdf_archive`, so the set of
         // fonts that need a CMap is the set it named. A findings list is capped, and a document
@@ -1732,7 +1757,15 @@ impl Prepared {
             ]
             .into_iter()
             .any(wanted),
-            || super::actions::prepare(document, plan.target, &failed),
+            || {
+                // The annotations the subtype rows remove take their action trees with them
+                // (ADR 2568), so the walk reads that removal first.
+                let removed = forbidden_annotations
+                    .as_ref()
+                    .map(|forbidden| forbidden.at.clone())
+                    .unwrap_or_default();
+                super::actions::prepare(document, plan.target, &failed, &removed)
+            },
         );
         // The streams whose data the source keeps outside the file, answered out of what the
         // caller resolved and, for a stream stating the filter keys without a `/F`, out of the
@@ -1793,6 +1826,7 @@ impl Prepared {
             signatures: signatures_if_rewritten(document, source, input),
             owed: Owed::of(plan, document, input, &mut spare, &failed, already),
             smoothing_recorded,
+            header_recorded,
             hexadecimal,
             languages,
             external_data,
@@ -1836,6 +1870,7 @@ impl Prepared {
         match rewrite {
             Rewrite::IdentificationSchema => self.metadata.as_ref().err().copied(),
             Rewrite::InterpolationOff => self.smoothing_recorded.as_ref().err().copied(),
+            Rewrite::FileHeader => self.header_recorded.as_ref().err().copied(),
             Rewrite::DestinationProfileReplaced => {
                 self.replaced_destination.as_ref().err().copied()
             }
@@ -1914,7 +1949,12 @@ impl Prepared {
             }
             Rewrite::StandardRouteNames => self.owed.standard_route.as_ref().err().copied(),
             Rewrite::TrueTypeCmapRestated => self.owed.cmap_restated.as_ref().err().copied(),
+            // The restatement goes unasked for a failed `.notdef` row only where a font the row
+            // names has no TrueType program the copy reaches, so that is the reason it states.
             Rewrite::NotdefGlyphGiven => match &self.owed.cmap_restated {
+                Err(Because::NotBuiltYet(NOT_ASKED_FOR)) => {
+                    Some(Because::NotBuiltYet(fonts::NOTDEF_NOT_GIVEN))
+                }
                 Err(because) => Some(*because),
                 Ok(restated) if restated.notdef_answered => None,
                 Ok(_) => Some(Because::NotBuiltYet(fonts::NOTDEF_NOT_GIVEN)),
@@ -2372,7 +2412,7 @@ struct TrueTypeRoutes {
 ///
 /// Every one of them needs `pdf_archive::survey::Survey`, which walks each page's content
 /// streams — so the walk is made once where any of them is wanted and not at all where none is.
-const SURVEYED: [Rewrite; 11] = [
+const SURVEYED: [Rewrite; 12] = [
     Rewrite::PageResources,
     Rewrite::EmptyResourceDefined,
     Rewrite::MarkedLanguagesRestated,
@@ -2384,6 +2424,7 @@ const SURVEYED: [Rewrite; 11] = [
     Rewrite::SymbolicTrueTypeEncodingRemoved,
     Rewrite::StandardTrueTypeEncoding,
     Rewrite::StandardRouteNames,
+    Rewrite::NotdefGlyphGiven,
 ];
 
 /// Which of the two metric restatements a document's failures ask for.
@@ -4597,6 +4638,7 @@ fn prepare_respellings(
 fn the_preserved_pages(
     plan: &ArchivePlan,
     document: &Document,
+    input: &pdf_archive::Report,
     failed: &BTreeSet<&'static str>,
     properties: Result<&Cleaned, &Because>,
     fresh: Result<&Fresh, &Because>,
@@ -4747,18 +4789,13 @@ fn the_preserved_pages(
                     }),
             );
     }
-    let statement_text = match stated {
-        Some((_, asked)) if !attachments.removed.is_empty() => Some(
-            statement::text(
-                document,
-                plan.target,
-                &attachments.removed.iter().collect::<Vec<_>>(),
-                asked,
-            )
-            .map_err(Because::NotBuiltYet)?,
-        ),
-        _ => None,
-    };
+    let graphics = stated_graphics(plan, document, input, failed);
+    let statement_text = statement_of(
+        document,
+        plan.target,
+        stated.map(|(_, asked)| (attachments.removed.as_slice(), asked)),
+        &graphics,
+    )?;
     if packets.is_empty()
         && replaced.is_empty()
         && annotation_site.is_none()
@@ -4938,7 +4975,9 @@ fn the_preserved_pages(
         (plan.relocations, plan.written, plan.rows)
     });
     // Last, so that its row is the last `compose` writes and the pages it takes are the last.
-    let statement_site = stated.map(|(site, _)| site);
+    let statement_site = stated
+        .map(|(site, _)| site)
+        .or_else(|| graphics.first().map(|entry| entry.site));
     if let (Some(site), Some(text)) = (statement_site, statement_text.as_ref()) {
         keeps.push(statement_keep(site, text));
     }
@@ -4994,18 +5033,12 @@ fn the_preserved_pages(
             }
             // The statement is written again over every file now removed, the ones the failed
             // composition took with them included.
-            let restated = match stated {
-                Some((_, asked)) => Some(
-                    statement::text(
-                        document,
-                        plan.target,
-                        &attachments.removed.iter().collect::<Vec<_>>(),
-                        asked,
-                    )
-                    .map_err(Because::NotBuiltYet)?,
-                ),
-                None => None,
-            };
+            let restated = statement_of(
+                document,
+                plan.target,
+                stated.map(|(_, asked)| (attachments.removed.as_slice(), asked)),
+                &graphics,
+            )?;
             if let (Some(site), Some(text)) = (statement_site, restated.as_ref()) {
                 others.push(statement_keep(site, text));
             }
@@ -5031,10 +5064,28 @@ fn the_preserved_pages(
         }
         Err(because) => return Err(because),
     };
-    if let Some(site) = statement_site.filter(|_| statement_text.is_some()) {
-        let page = the_statement_page(&mut composed, site, attachments.removed.len())?;
-        for outcome in &mut attachments.removed {
-            outcome.stated_on = Some(page);
+    if statement_site.is_some() && statement_text.is_some() {
+        let files_stated = stated.is_some() && !attachments.removed.is_empty();
+        let mut sites: Vec<&'static str> = stated
+            .filter(|_| files_stated)
+            .map(|(site, _)| site)
+            .into_iter()
+            .collect();
+        for entry in &graphics {
+            if !sites.contains(&entry.site) {
+                sites.push(entry.site);
+            }
+        }
+        let files = if files_stated {
+            attachments.removed.len()
+        } else {
+            0
+        };
+        let page = the_statement_page(&mut composed, sites, files.saturating_add(graphics.len()))?;
+        if files_stated {
+            for outcome in &mut attachments.removed {
+                outcome.stated_on = Some(page);
+            }
         }
     }
     // Each laid-out file's pages, read off the keep that carried it: `compose` writes one
@@ -5206,6 +5257,84 @@ fn attachment_outcomes(
         .collect()
 }
 
+/// The statement's text over the files an embedded-file row removed and the entries the halftone
+/// rows took, or `None` where neither lists anything.
+fn statement_of(
+    document: &Document,
+    target: Target,
+    files: Option<(
+        &[super::report::AttachmentOutcome],
+        &super::config::Statement,
+    )>,
+    graphics: &[statement::GraphicsEntry<'_>],
+) -> Result<Option<String>, Because> {
+    let files = files.filter(|(removed, _)| !removed.is_empty());
+    if files.is_none() && graphics.is_empty() {
+        return Ok(None);
+    }
+    let listed: Vec<&super::report::AttachmentOutcome> = files
+        .map(|(removed, _)| removed.iter().collect())
+        .unwrap_or_default();
+    statement::text(
+        document,
+        target,
+        files.map(|(_, asked)| (listed.as_slice(), asked)),
+        graphics,
+    )
+    .map(Some)
+    .map_err(Because::NotBuiltYet)
+}
+
+/// Every entry a halftone row whose loss is stated takes, in `STATED_GRAPHICS`'s order and each
+/// population's own (`doc/adr/2562`).
+///
+/// Read from the same `super::halftones` population the rewrite acts on, so the page lists
+/// exactly the objects the output changes. A population that refuses is the rewrite's refusal at
+/// its own site, and nothing is stated for it here.
+fn stated_graphics<'a>(
+    plan: &'a ArchivePlan,
+    document: &Document,
+    input: &pdf_archive::Report,
+    failed: &BTreeSet<&'static str>,
+) -> Vec<statement::GraphicsEntry<'a>> {
+    let mut out = Vec::new();
+    for site in super::config::STATED_GRAPHICS {
+        if !failed.contains(site) {
+            continue;
+        }
+        let Some(asked) = plan
+            .preservations
+            .iter()
+            .find(|preservation| preservation.site == site)
+            .and_then(|preservation| preservation.statement.as_ref())
+        else {
+            continue;
+        };
+        let population = match site {
+            "graphics/no-halftone-name" => super::halftones::removal(document, input),
+            "graphics/halftone-type-is-one-or-five" => super::halftones::defaults(document, input),
+            "graphics/no-halftone-origin-in-a-graphics-state" => {
+                super::halftones::origins(document, input)
+            }
+            _ => continue,
+        };
+        let Ok(population) = population else {
+            continue;
+        };
+        out.extend(
+            population
+                .at
+                .into_iter()
+                .map(|object| statement::GraphicsEntry {
+                    site,
+                    object,
+                    asked,
+                }),
+        );
+    }
+    out
+}
+
 /// The keep that lays out a statement's text on ADR 1014's appended page.
 fn statement_keep<'a>(site: &'static str, text: &'a str) -> preserve::Keep<'a> {
     preserve::Keep {
@@ -5222,7 +5351,7 @@ fn statement_keep<'a>(site: &'static str, text: &'a str) -> preserve::Keep<'a> {
 /// are bounded by [`statement::MOST_STATEMENT_PAGES`]. Returns the first of them.
 fn the_statement_page(
     composed: &mut Composed,
-    site: &'static str,
+    sites: Vec<&'static str>,
     objects: usize,
 ) -> Result<usize, Because> {
     let row = composed
@@ -5239,7 +5368,7 @@ fn the_statement_page(
         .copied()
         .ok_or(Because::NotBuiltYet(statement::NOTHING_STATED))?;
     composed.statement = Some(super::report::StatementPage {
-        site,
+        sites,
         pages: row.pages,
         objects,
         face: row.face,
@@ -6340,6 +6469,8 @@ struct Recording<'a> {
     transfers: Option<&'a str>,
     /// Which images had `/Interpolate` written false, where any did (`doc/adr/2498`).
     smoothing: Option<&'a str>,
+    /// What the source's header was, where it stated no version (`doc/adr/2558`).
+    header: Option<&'a str>,
     /// Which TrueType fonts had their program's `cmap` restated, where any did (`doc/adr/2520`).
     cmap: Option<&'a str>,
     /// Whether the identification schema's properties are deliberately omitted (`A59`).
@@ -6459,7 +6590,7 @@ fn recorded_events<'a>(recording: &Recording<'a>) -> Vec<xmp::Event<'a>> {
         return Vec::new();
     };
     let non_empty = |text: &'a str| (!text.is_empty()).then_some(text);
-    let actions: [(&'a str, Option<&'a str>); 16] = [
+    let actions: [(&'a str, Option<&'a str>); 17] = [
         (DEFAULT_CMYK_ACTION, recording.default_cmyk),
         (REMOVED_PROPERTIES_ACTION, non_empty(recording.removals)),
         (REMOVED_PROPERTIES_ACTION, non_empty(recording.discards)),
@@ -6475,6 +6606,7 @@ fn recorded_events<'a>(recording: &Recording<'a>) -> Vec<xmp::Event<'a>> {
         (PRESERVED_ACTION, recording.attachments),
         (TRANSFER_REMOVED_ACTION, recording.transfers),
         (SMOOTHING_OFF_ACTION, recording.smoothing),
+        (HEADER_ACTION, recording.header),
         (CMAP_RESTATED_ACTION, recording.cmap),
     ];
     actions

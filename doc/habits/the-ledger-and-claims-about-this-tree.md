@@ -611,3 +611,10 @@ check still refused every tagged document first. With that check lifted (A707), 
 documents turned out to be held by optional content and a new question had to be asked (Q717, round 1851).
 A count offered in a question is taken with every gate that runs before the condition lifted or
 excluded, and the question says which gates were lifted to take it.
+
+## An `Owes: none` header is not the whole answer
+
+Round 1865 (ADR 2564) read all 121 answered questions against the tree and found five whose header said
+`Owes: none` while the body commanded work (A26, A27, A28, A31, A39), and others that said "recommendation
+approved" and so owed whatever the Q recommended. An audit of an answer reads its body, and the Q's
+recommendation where the answer approves it, before it records what the tree owes.

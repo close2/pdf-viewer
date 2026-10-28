@@ -325,14 +325,20 @@ fn stroke(s: &Stroke, to_device: Transform) -> kurbo::Stroke {
 /// same `kurbo::dash` Vello uses internally, the marks go into `dots`, and what comes back is
 /// the remaining dashes, to be stroked solid.
 fn zero_length_dashes(
-    shape: &kurbo::BezPath,
+    (shape, geometry): (&kurbo::BezPath, &Path),
     s: &Stroke,
     (width, substitute): (f32, Option<Transform>),
     dots: &mut Path,
 ) -> Option<(kurbo::BezPath, f32)> {
     let pattern = pdf_render::dashes_showing_direction(&s.dash_array, s.cap)?;
     let pattern: Vec<f64> = pattern.iter().copied().map(f64::from).collect();
-    let dashed = kurbo::dash(shape.iter(), f64::from(s.dash_phase), &pattern);
+    // A zero-length dash the pattern places exactly at an open subpath's end is dispensed on the
+    // extension `pdf-render` adds, decided there for all three backends (trap 2).
+    let extended =
+        pdf_render::extended_to_a_zero_dash_at_the_end(geometry, &s.dash_array, s.dash_phase)
+            .map(|extended| bez_path(&extended));
+    let source = extended.as_ref().unwrap_or(shape);
+    let dashed = kurbo::dash(source.iter(), f64::from(s.dash_phase), &pattern);
     let split = pdf_render::split_dash_marks(&from_bez_path(dashed), s.cap, width, substitute);
     dots.extend(split.dots.commands());
     Some((bez_path(&split.stroked), split.coverage))
@@ -423,17 +429,18 @@ fn encode_stroke(
     let mut coverage = split.as_ref().map_or(1.0, |d| d.coverage);
     let shape = bez_path(geometry);
     let style = stroke(s, to_path);
-    let (shape, style) = match zero_length_dashes(&shape, s, (width, substitute), &mut dots) {
-        // The dashes have already been dispensed, so what is left is stroked solid. The
-        // width is the resolved one either way.
-        Some((remainder, dashed_coverage)) => {
-            coverage = dashed_coverage;
-            let mut solid = style;
-            solid.dash_pattern = kurbo::Dashes::new();
-            (remainder, solid)
-        }
-        None => (shape, style),
-    };
+    let (shape, style) =
+        match zero_length_dashes((&shape, geometry), s, (width, substitute), &mut dots) {
+            // The dashes have already been dispensed, so what is left is stroked solid. The
+            // width is the resolved one either way.
+            Some((remainder, dashed_coverage)) => {
+                coverage = dashed_coverage;
+                let mut solid = style;
+                solid.dash_pattern = kurbo::Dashes::new();
+                (remainder, solid)
+            }
+            None => (shape, style),
+        };
     let dots = bez_path(&dots);
     let dot_brush = brush.clone().multiply_alpha(coverage);
 
