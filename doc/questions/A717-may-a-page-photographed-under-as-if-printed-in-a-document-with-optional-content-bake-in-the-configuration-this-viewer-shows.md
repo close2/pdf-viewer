@@ -1,0 +1,7 @@
+Status: complete
+Given: 2026-10-28, in conversation — transcribed by the round
+Owes: under `as-if-printed` (and `state-every-loss`) at 2b and every part 4 flavour (Level A and Level U keep the refusal), allow photographing a page in a document that states optional content (§8.11) by baking in the configuration this viewer displays on screen (never switching to §8.11.4.4's `/Print` state, per `A694` item 2 that we never imitate printing), under the named loss `optional-content-of-photographed-pages` recorded per page in the report and in `xmpMM:History` while keeping optional content on all non-photographed pages (an archive round)
+
+> Q717: agreed — allow photographing the page under `optional-content-of-photographed-pages` (at 2b and part 4 flavours under `as-if-printed` / `state-every-loss`), baking in the configuration the viewer displays on screen (never switching to `/Print` optional-content state).
+
+Reading: adopts the recommendation to photograph only the affected pages under `optional-content-of-photographed-pages` (recording the optional content groups whose other states the photograph discarded in the report and `xmpMM:History`, with the rest of the document keeping its optional content, and Level A and Level U keeping the refusal), and specifies that the photographed page is drawn in **the configuration this viewer shows on screen** (not a `/Print` usage configuration, consistent with `A694` item 2 and item 3 that documents are assumed displayed only and we never imitate physical printing).
