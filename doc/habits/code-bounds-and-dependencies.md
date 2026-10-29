@@ -513,3 +513,10 @@ has no report field — and found that Table 227 bit 2's Required field is alrea
 `Submission::owed` (ADR 1198), with the cancelling left to the host's policy. The validations went out the
 same way. A new `Submission` field would have widened the confined-process protocol's serialisation and
 the C ABI for a sentence a precedent already carried.
+
+## Anything shared across pages is keyed by the reference that names it
+
+`Document::get` hands out a copy of the object it resolves, so a share keyed on the resolved value is a
+share of nothing: round 1877 (ADR 2588) found every page holding its own copy of a dictionary two thousand
+pages named by one reference, and the interpreter copying it again per page. A value shared across pages
+is keyed by the reference the file states for it, never by what the reference resolved to.

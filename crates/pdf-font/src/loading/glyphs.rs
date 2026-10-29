@@ -2,7 +2,8 @@
 //! belongs to, and the lookup by selector or by character.
 
 use super::{CharacterGlyph, CodeMapping, Face, LoadedFont, NOTDEF_GLYPH, Placed};
-use crate::cmap::Code;
+use crate::cmap::{CMap, Code};
+use crate::composite::CidToGlyph;
 use crate::vertical::Form;
 use skrifa::prelude::{LocationRef, Size};
 use skrifa::{FontRef, MetadataProvider};
@@ -55,20 +56,8 @@ impl LoadedFont {
         };
         match &self.mapping {
             CodeMapping::Composite { cmap, glyphs } => {
-                // §9.7.6.3's two fallbacks, in its order. "If a code maps to a CID for which
-                // no such glyph exists in the descendant CIDFont, the notdef mappings in the
-                // CMap shall be consulted … If no glyph exists for that CID, the glyph for
-                // CID 0 (which shall be present) shall be substituted." The second is also
-                // the sentence about a `/CIDToGIDMap` stream too short for a CID: "if a
-                // (character) code does not have a corresponding GID in the CIDtoGIDMap
-                // stream, the glyph for CID 0 shall be substituted".
-                if let Some(glyph) = cmap.cid(code).and_then(|cid| glyphs.glyph(cid)) {
-                    return own(glyph);
-                }
-                if let Some(glyph) = cmap.notdef_cid(code).and_then(|cid| glyphs.glyph(cid)) {
-                    return own(glyph);
-                }
-                glyphs.glyph(0).and_then(own)
+                // §9.7.6.3's two fallbacks, in its order (`composite_selection`).
+                composite_selection(cmap, glyphs, code).and_then(|(_, glyph)| own(glyph))
             }
             // The substitute has no notion of this document's CIDs, so the code is taken
             // to the character it stands for and that character is looked up.
@@ -127,6 +116,26 @@ impl LoadedFont {
     pub fn cid(&self, code: Code) -> Option<u32> {
         match &self.mapping {
             CodeMapping::Composite { cmap, .. } => cmap.cid(code),
+            CodeMapping::Named(_)
+            | CodeMapping::Substituted { .. }
+            | CodeMapping::MetricsOnly { .. } => None,
+        }
+    }
+
+    /// The CID whose glyph a composite font draws for a code, once ISO 32000-2 §9.7.6.3's
+    /// fallbacks are taken in the order [`Self::glyph_index`] takes them.
+    ///
+    /// Where [`Self::cid`] is the `CMap`'s answer, this is the font's: a CID the descendant has
+    /// no glyph for gives way to the notdef mapping's, and that to CID 0, so a code that ends on
+    /// CID 0 by either route draws the glyph §9.7.4.2 makes the `CIDFont`'s `.notdef` whatever
+    /// glyph index a `/CIDToGIDMap` sends it to. `None` for a simple or substituted font, and
+    /// where not even CID 0 has a glyph.
+    #[must_use]
+    pub fn drawn_cid(&self, code: Code) -> Option<u32> {
+        match &self.mapping {
+            CodeMapping::Composite { cmap, glyphs } => {
+                composite_selection(cmap, glyphs, code).map(|(cid, _)| cid)
+            }
             CodeMapping::Named(_)
             | CodeMapping::Substituted { .. }
             | CodeMapping::MetricsOnly { .. } => None,
@@ -223,4 +232,23 @@ impl LoadedFont {
     pub fn glyph_needed_a_reader_chosen_mapping(&self, code: Code) -> bool {
         self.reader_chosen.contains(code.value())
     }
+}
+
+/// A composite font's selection for one code: the CID that decided the glyph, and the glyph.
+///
+/// One function, so that the glyph drawn and the CID a check reads for it cannot take two
+/// readings of ISO 32000-2 §9.7.6.3.
+//
+// §9.7.6.3's two fallbacks, in its order. "If a code maps to a CID for which no such glyph
+// exists in the descendant CIDFont, the notdef mappings in the CMap shall be consulted … If no
+// glyph exists for that CID, the glyph for CID 0 (which shall be present) shall be substituted."
+// The second is also the sentence about a `/CIDToGIDMap` stream too short for a CID: "if a
+// (character) code does not have a corresponding GID in the CIDtoGIDMap stream, the glyph for
+// CID 0 shall be substituted".
+fn composite_selection(cmap: &CMap, glyphs: &CidToGlyph, code: Code) -> Option<(u32, u16)> {
+    let with_glyph = |cid: u32| glyphs.glyph(cid).map(|glyph| (cid, glyph));
+    cmap.cid(code)
+        .and_then(with_glyph)
+        .or_else(|| cmap.notdef_cid(code).and_then(with_glyph))
+        .or_else(|| with_glyph(0))
 }

@@ -178,6 +178,23 @@ impl Document {
     /// absent one is [`Object::Null`].
     #[must_use]
     pub fn get_key_of(&self, id: ObjectId, key: &str) -> Option<Object> {
+        self.stated_key_of(id, key)
+            .map(|stated| self.resolve(&stated))
+    }
+
+    /// One entry inside an indirect object as the file states it, a reference left unfollowed.
+    ///
+    /// [`Self::get_key_of`]'s answer before §7.3.10's chain is followed: `None` where the object
+    /// is not a dictionary, [`Object::Null`] where the entry is absent, and otherwise the entry
+    /// itself. It exists for a caller that shares what an entry names among everything naming
+    /// the same object, which ISO 32000-2 §7.8.3 describes for a page's resources:
+    ///
+    /// > If the content streams of multiple pages require exactly the same set of resources, a
+    /// > single Resources dictionary may be shared between them by using indirect references.
+    ///
+    /// Only the reference says that the pages name one object rather than equal ones (ADR 2588).
+    #[must_use]
+    pub fn stated_key_of(&self, id: ObjectId, key: &str) -> Option<Object> {
         // The guard is dropped before anything is resolved, because resolving can load another
         // object and that takes this same lock to write.
         let held = {
@@ -190,7 +207,7 @@ impl Document {
             }
         };
         match held {
-            Held::Entry(value) => Some(self.resolve(&value)),
+            Held::Entry(value) => Some(value),
             Held::NotADictionary => None,
             // Either nothing has parsed this object yet, or it is itself a reference and
             // §7.3.10's chain is `resolve`'s to follow. Both are the ordinary path, and the
@@ -198,7 +215,7 @@ impl Document {
             Held::Unread => self
                 .resolve(&Object::Reference(id))
                 .as_dict()
-                .map(|dict| self.get_key(dict, key)),
+                .map(|dict| dict.get(key).cloned().unwrap_or(Object::Null)),
         }
     }
 

@@ -327,3 +327,10 @@ Round 1863 (ADR 2560) was briefed to enforce "the ASN.1 syntax" of a signature p
 TR 102 272's (RFC 3125's) and TS 119 172-3's, with different constraints under the same name. Before a
 parser for "the X syntax" of a family of standards is built, the family's documents are listed by the
 top-level type each defines, and the parser names which it reads and refuses the other by name.
+
+## A syntax's own encoding clause is read before a sibling's pre-pass is inherited
+
+Round 1873 (ADR 2580) was to parse TS 119 172-3's policy syntax under round 1863's budgets, DER pre-pass
+included. TS 119 172-3 clause 4.1.3.2 admits BER, so the pre-pass would have refused documents the
+standard itself writes; nesting is held as each value opens instead. Before a parser for a second syntax
+of a family inherits a sibling's encoding check, the second syntax's own encoding clause is read.

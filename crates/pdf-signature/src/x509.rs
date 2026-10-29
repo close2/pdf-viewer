@@ -1,4 +1,5 @@
-//! The signer's certificate, read for the one thing a verifier needs from it: the public key.
+//! An X.509 certificate, read for what verifying a signature and validating a certification path
+//! need from it.
 //!
 //! ISO 32000-2 §12.8.3.3.1 puts the requirement on the file and says what the certificate is for:
 //!
@@ -9,18 +10,24 @@
 //! it — over [`crate::der`], under this crate's `#![forbid(unsafe_code)]`, allocating nothing that
 //! a length in the file sizes.
 //!
-//! # What is read and what is deliberately not
+//! # What is read, for which question, and what is deliberately not
 //!
-//! Read: the serial number and the issuer, because RFC 5652's `SignerInfo` names its certificate
-//! by that pair; the subject key identifier extension, because it names one the other way; and
-//! `subjectPublicKeyInfo`, which is the key. That is the whole of what verifying needs.
+//! **For the second question**: the serial number and the issuer, because RFC 5652's `SignerInfo`
+//! names its certificate by that pair; the subject key identifier extension, because it names one
+//! the other way; and `subjectPublicKeyInfo`, which is the key.
 //!
-//! **Not read: every field that is a *trust* decision.** The validity dates, the basic constraints,
-//! the key usage, the issuer's own signature over this certificate, the chain above it. Those are
-//! a signature's *third* question — "is the signer anyone to believe" — and this program answers
-//! none of it, has no certificate store and makes no network request. Reading a `notAfter` and
-//! saying nothing about who issued the certificate would be the worst of both: an air of validation
-//! over a certificate that could have been made up five minutes ago by whoever wrote the file.
+//! **For the third** — "is the signer anyone to believe" — the fields a certification path turns
+//! on: the version, the validity dates, the basic constraints, the key usage, the extended key
+//! usage, the authority key identifier, and `tbsCertificate` with the issuer's signature over it.
+//! Nothing here weighs them. [`crate::trust`] does, and only on a path that ends at an anchor a
+//! host supplied, because a `notAfter` acted on without one would be the worst of both: an air of
+//! validation over a certificate that could have been made up five minutes ago by whoever wrote
+//! the file.
+//!
+//! **Not read**: the extensions behind the steps a reduced path validation omits — name
+//! constraints and the policy tree — which RFC 5280 requires a conforming CA to mark critical, so
+//! a certificate carrying one is refused through [`Extensions::unrecognised_critical`] rather than
+//! read.
 //!
 //! # A name is compared, never decoded
 //!
@@ -278,14 +285,17 @@ pub struct Extensions<'a> {
     pub key_usage: Option<KeyUsage>,
     /// `extKeyUsage`'s encoded `ExtKeyUsageSyntax`, where the certificate states it.
     ///
-    /// Carried as its encoding rather than as a decoded list because there is one consumer and it
-    /// asks one question: RFC 6960 section 4.2.2.2 makes `id-kp-OCSPSigning` here the whole of
-    /// what designates an authorised responder, and [`crate::revocation`] is where that is read.
+    /// Carried as its encoding rather than as a decoded list because each consumer asks it one
+    /// question, [`indicates_purpose`]: RFC 6960 section 4.2.2.2 makes `id-kp-OCSPSigning` here
+    /// the whole of what designates an authorised responder, which [`crate::revocation`] reads,
+    /// and RFC 3161 section 2.3 requires `id-kp-timeStamping` of a timestamp authority, which
+    /// [`crate::trust`] reads for [`crate::trust::Purpose`].
     ///
     /// **Reading it does not make it recognised.** A critical `extKeyUsage` still lands in
-    /// [`Self::unrecognised_critical`] and still refuses a path, because RFC 5280 section 4.2.1.12
-    /// says what a critical one means — "the certificate SHALL only be used for one of the
-    /// purposes indicated" — and this reader does not check a purpose against a use.
+    /// [`Self::unrecognised_critical`], because RFC 5280 section 4.2.1.12 says what a critical one
+    /// means — "the certificate SHALL only be used for one of the purposes indicated" — and only a
+    /// caller with a use can check a purpose against it: [`crate::trust`] lifts the refusal where
+    /// the caller stated a [`crate::trust::Purpose`] and keeps it where the caller did not.
     pub extended_key_usage: Option<&'a [u8]>,
     /// The first critical extension this reader does not recognise, as its encoded identifier.
     pub unrecognised_critical: Option<&'a [u8]>,

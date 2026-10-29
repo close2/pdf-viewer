@@ -6336,6 +6336,8 @@ fn prepare_fonts(
                     (
                         anywhere,
                         plan.authorised.grants(Loss::TaggingOfPhotographedPages),
+                        plan.authorised
+                            .grants(Loss::OptionalContentOfPhotographedPages),
                     ),
                     &fenced,
                 ),

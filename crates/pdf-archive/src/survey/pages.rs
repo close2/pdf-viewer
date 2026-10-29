@@ -38,7 +38,7 @@ impl Walk<'_> {
             own,
             false,
         );
-        self.page_resources = page.resources.clone();
+        self.page_resources = std::sync::Arc::clone(&page.resources);
         let mut reader = ContentReader::for_page(self.document, page);
         if let Some(ledger) = &mut self.ledger {
             ledger.enter(Via::Page, page.id);

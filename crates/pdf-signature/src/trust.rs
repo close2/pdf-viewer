@@ -462,8 +462,10 @@ pub enum PathRefusal {
 /// What this program can say about whose certificate signed a document.
 ///
 /// **No variant says *valid* and none says *trusted***, which is the same discipline
-/// [`crate::signature::Authenticity`] keeps for question 2 and for the same reason: revocation is
-/// a step of path validation and it is not taken, so the strongest true sentence is the one
+/// [`crate::signature::Authenticity`] keeps for question 2 and for the same reason: a path that
+/// reached an anchor is a statement about the path and about what the file's own revocation
+/// material says of it, and whether that earns the word is [`crate::verdict`]'s decision under the
+/// host's [`crate::verdict::Acceptance`] (ADR 1076). So the strongest true sentence here is the one
 /// [`Self::Anchored`] spells out.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -809,7 +811,8 @@ fn basic_processing(
     if !verify_certificate(certificate, working_public_key)? {
         return Err(PathRefusal::SignatureNotUnderIssuersKey);
     }
-    // (a)(3) is revocation and is not taken; `Revocation::NotChecked` is where that is said.
+    // (a)(3), revocation, is asked by the caller as soon as this returns, because its answer is a
+    // `Revocation` carried with the path rather than a refusal of it.
     Ok(())
 }
 

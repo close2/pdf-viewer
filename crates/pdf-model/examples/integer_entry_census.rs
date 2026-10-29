@@ -5,9 +5,9 @@
 //! > A real number shall not be present when an integer is expected.
 //!
 //! ADR 0371 answered that sentence once, for §7.10.5's calculator, and ADR 0904 answered it
-//! again for Table 87's `/Width` and `/Height`. Whether the answer travels to every other
-//! integer-typed entry is `doc/questions/Q31`, and a policy about the whole tree needs a
-//! population rather than a witness. This is the instrument that measures it.
+//! again for Table 87's `/Width` and `/Height`. That the answer travels to every other
+//! integer-typed entry is the owner's answer `doc/questions/A31`, and a tolerance applied across
+//! the tree needs a population rather than a witness. This is the instrument that measures it.
 //!
 //! # The population is the standard's typing, not a list somebody wrote
 //!

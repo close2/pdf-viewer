@@ -86,7 +86,7 @@ impl Walk<'_> {
         let resources = own
             .as_dict()
             .cloned()
-            .unwrap_or_else(|| self.page_resources.clone());
+            .unwrap_or_else(|| (*self.page_resources).clone());
         let group = self.document.get_key(&stream.dict, "Group");
         if let Some(group) = group.as_dict()
             && self.is_transparency_group(group)

@@ -92,9 +92,9 @@ permanent) or an owner decision to acquire a specification.
   constraints were not enforced (ADR 1728); every window is handed the policy's URL and fetches it at
   the reader's submissions level (ADR 1738), and a C caller that fetched the copy itself has it bound
   (ADR 1753). A stored policy in ETSI TR 102 272's ASN.1 syntax, bound to its signature, is
-  enforced constraint by constraint, what it cannot evaluate named (ADR 2560, on A713); what is left is
-  ETSI TS 119 172-3's ASN.1 rules, TS 119 172-2's XML, human-readable policies, and enforcement over a
-  fetched copy.
+  enforced constraint by constraint, what it cannot evaluate named (ADR 2560, on A713), and one in ETSI
+  TS 119 172-3's ASN.1 syntax is read by a second parser and enforced the same way (ADR 2580); what is
+  left is TS 119 172-2's XML, human-readable policies, and enforcement over a fetched copy.
 
 ISO/TS 32002's brainpoolP512r1 and Ed448 are not in this bucket: they are the tree's own under the
 owner's answer A170 (ADRs 1385 and 1386), so an upstream release is their *swap* condition rather
@@ -163,14 +163,14 @@ the last rendering one, §10.7.4's mark for a stroke its matrix collapses, was b
   save keeps the `datasets` packet consistent with every `/V` it writes, naming each field it cannot
   (ADRs 2396, 2414); the template's validations are run (a save's null and datatype tests, a
   submit's null, datatype and format tests, ADRs 2450, 2474, 2475), and its FormCalc calculations and
-  `change`, `initialize`, `enter` and `exit` events (ADR 2566) activate in page 379's order and cascade under limits
+  `change`, `initialize`, `enter`, `exit` and `click` events (ADRs 2566, 2584) activate in page 379's order and cascade under limits
   (`Resource::activate`, ADRs 2506, 2507) and a window that lets scripts run activates them when the
   form is shown and at a commit, in the confined script worker (ADRs 2524, 2525), its JavaScript
   ones as well, in a realm of their own in the same worker whose object model is the form's
   containers as the host answers for them (ADR 2545), and a document opened beside is given its
   merge, its open sequence and its signature report when its own frame is shown (ADR 2544). What
-  remains of RFC 0011 section 5's step 5 (ADR 2430) is the events other than `change` and
-  `initialize`, validations that are scripts, and page 642's dismissal of a `warning`.
+  remains of RFC 0011 section 5's step 5 (ADR 2430) is the events other than `change`,
+  `initialize`, `enter`, `exit` and `click`, validations that are scripts, and page 642's dismissal of a `warning`.
  *One raster carries the product of shape and opacity where the clause wants the pair* is not
 among them: §11.4.6 is the one reader of the pair the standard has, every knockout element states its
 shape, and §11.3.7.3's NOTE 2 licenses the product everywhere else (§11.4.3's row, ADR 1340).

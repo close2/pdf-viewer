@@ -23,13 +23,18 @@
 //!    six and one of ISO/TS 32002 Table 4's two are named by their own identifier and computed by
 //!    nothing,
 //!    for the reason ADR 0532 records.
-//! 3. **Is the signer trusted, and had the certificate been revoked?** A trust store and a
-//!    network (§12.8.3.4.6's CRLs and OCSP). **Not answered**, and reported.
+//! 3. **Is the signer trusted, and had the certificate been revoked?** [`Signature::trust`]
+//!    **answers this under anchors a host supplies**: RFC 5280 section 6.1's certification path
+//!    to one of them ([`crate::trust`]), with revocation read from the CRLs and OCSP responses the
+//!    document itself carries ([`crate::revocation`]) and no network request for either. Where no
+//!    host names an anchor — every host's default — the answer is
+//!    [`crate::trust::Trust::NoAnchorSupplied`], and it is reported as that.
 //!
 //! ADR 0215 separated the three and answered the first; ADR 0229 answered the second for RSA, ADR
 //! 0314 for DSA, ADR 0322 for the RSA family's other padding and ADR 0532 for the two
-//! elliptic-curve families. The separation is the point of all of them: the whole clause used to
-//! be refused on question 3's infrastructure, which questions 1 and 2 do not need.
+//! elliptic-curve families; ADR 1039 made the third question's anchors a host's input and ADR
+//! 1067 its revocation material the document's own. The separation is the point of all of them:
+//! questions 1 and 2 need no trust store, so neither waits on the infrastructure question 3 does.
 //!
 //! # What each answer proves, which is not the same thing
 //!
@@ -499,7 +504,7 @@ impl Signed {
 /// the signature was made by whoever holds the private key matching a certificate the file
 /// itself supplied — self-consistency, and a real fact: it is what a forger who edits the
 /// document cannot produce. What it is *not* is a statement that the signer is anybody. That is
-/// question 3, needs a certificate store and a network, and this program answers none of it.
+/// question 3, answered by [`Signature::trust`] only under anchors a host supplies.
 ///
 /// No variant is called `Valid`, for the same reason no variant of [`Integrity`] is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1440,7 +1445,8 @@ impl Signature {
     /// (b) — and `CLAUDE.md` principle 3 puts a policy where a host can supply it rather than
     /// inside a crate no host can reach. So this method holds no certificate list, reads no file,
     /// opens no socket and asks no clock, and [`crate::trust::TrustAnchors::none`] — which is
-    /// what every caller in this tree passes today — yields [`Trust::NoAnchorSupplied`]. ADR 1039.
+    /// what a host that names no anchor passes, and every host's default — yields
+    /// [`Trust::NoAnchorSupplied`]. ADR 1039.
     ///
     /// **`material` is §12.8.4's, and is the one input that does not come from outside.** RFC 5280
     /// section 6.1.3 (a)(3) — revocation — is answered from the CRLs and OCSP responses the
@@ -1449,7 +1455,8 @@ impl Signature {
     ///
     /// **Nothing this returns means *valid*.** A [`crate::revocation::Revocation::Good`] says the
     /// material in this file does not revoke the certificate, and says nothing about whether the
-    /// signer is anybody — which is still [`Trust::NoAnchorSupplied`]'s answer in this tree.
+    /// signer is anybody: that is the path's answer, and where no anchor was supplied it is
+    /// [`Trust::NoAnchorSupplied`].
     #[must_use]
     pub fn trust(
         &self,
@@ -2074,8 +2081,8 @@ fn policy_states_a_digest(value: &der::Value<'_>) -> bool {
 /// §12.8.3.4.5 (a)'s first half, as an answer rather than as a boolean: the step is decisive in one
 /// direction — "\[i]f the hashes do not match, then the signature is considered invalid" — and
 /// silent in the other, since a matching hash says the signer meant this certificate and says
-/// nothing about whether anyone should trust it. That is question 3, and this crate does not answer
-/// it.
+/// nothing about whether anyone should trust it. That is question 3, which [`Signature::trust`]
+/// answers only under anchors a host supplies.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SigningCertificateBinding {
     /// The hash of the signer's certificate is the hash the attribute states.

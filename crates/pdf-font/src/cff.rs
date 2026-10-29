@@ -763,6 +763,14 @@ impl Layout {
             }
             push_operator(&mut out, *op);
         }
+        // A Top DICT that states no charset means the predefined ISOAdobe one (Adobe Technical
+        // Note #5176, section 13), so a fresh charset is reached only by an entry added for it.
+        if let Some(at) = moved.charset_at
+            && !self.entries.iter().any(|(_, op)| *op == OP_CHARSET)
+        {
+            out.extend_from_slice(&int5(at));
+            push_operator(&mut out, OP_CHARSET);
+        }
         out
     }
 }
@@ -1629,17 +1637,90 @@ pub fn with_empty_glyphs(
     data: &[u8],
     advances: &[i64],
 ) -> Result<(Vec<u8>, Vec<AddedGlyph>), CffError> {
+    let glyphs: Vec<GlyphToGive> = advances
+        .iter()
+        .map(|advance| GlyphToGive {
+            draws: GivenOutline::Nothing,
+            name: None,
+            advance: *advance,
+        })
+        .collect();
+    with_glyphs_given(data, &glyphs)
+}
+
+/// What a glyph [`with_glyphs_given`] appends draws.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GivenOutline {
+    /// Nothing: a charstring of one width operand and `endchar` (Adobe Technical Note #5177,
+    /// sections 3.1 and 4.1).
+    Nothing,
+    /// Glyph 0's own outline: `.notdef`'s charstring, every byte of it but the width operand,
+    /// interpreted against the same Private DICT and the same subroutines.
+    NotdefsOwn,
+}
+
+/// One glyph for [`with_glyphs_given`] to append.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GlyphToGive {
+    /// What it draws.
+    pub draws: GivenOutline,
+    /// The name its charset entry states, or `None` for the first of `notdef`, `notdef.1`, … the
+    /// program does not hold. A name the program already holds is refused, since two glyphs of
+    /// one name leave a name-keyed lookup choosing between them.
+    pub name: Option<String>,
+    /// Its advance, in the program's units.
+    pub advance: i64,
+}
+
+/// The most glyphs one call appends: a simple font has 256 codes, so no conversion asks for
+/// more, and the bound is checked before any table is grown.
+pub const MOST_GLYPHS_GIVEN: usize = 256;
+
+/// A name-keyed program with the glyphs asked for appended, each under its own name.
+///
+/// **The construction ISO 19005-2 section 6.2.11.8 and section 6.2.11.4.1 (ISO 19005-4 sections
+/// 6.2.10.9 and 6.2.10.4.1) are answered by** where a code of an embedded program reaches
+/// `.notdef`, or reaches no glyph: the code is given a glyph of its own that draws what this
+/// reader drew for it — [`GivenOutline::NotdefsOwn`] for a code on glyph 0, whose outline this
+/// reader drew, [`GivenOutline::Nothing`] for one that reached no glyph — at the advance the font
+/// dictionary states (`doc/adr/2578`). The `CharStrings` INDEX grows by one entry per glyph, the
+/// charset is restated in format 0 with one SID per new glyph (a standard string's own SID where
+/// the name is one of the 391, Adobe Technical Note #5176 section 10 and Appendix A; a new
+/// String INDEX entry otherwise), and every offset of the Top DICT is restated by
+/// `Layout::with_glyph_tables`. Every glyph the program held keeps its index, its name and its
+/// charstring byte for byte; the program's built-in `Encoding` is not touched, and with it any
+/// code the program encodes keeps its glyph.
+///
+/// # Errors
+///
+/// [`CffError::Malformed`] where the program does not open, is CID-keyed, holds a name asked
+/// for already, is asked for more than [`MOST_GLYPHS_GIVEN`] glyphs, or its INDEX structures do
+/// not read; [`CffError::NoCharset`] where it states no charset; and
+/// [`CffError::AdvanceNotRestatable`] where an advance does not fit a charstring's width operand
+/// or `.notdef`'s charstring states its width where it cannot be restated.
+pub fn with_glyphs_given(
+    data: &[u8],
+    glyphs: &[GlyphToGive],
+) -> Result<(Vec<u8>, Vec<AddedGlyph>), CffError> {
     let malformed = |detail: &str| CffError::Malformed {
         detail: detail.to_owned(),
     };
+    if glyphs.len() > MOST_GLYPHS_GIVEN {
+        return Err(malformed(
+            "more glyphs are asked for than a simple font has codes",
+        ));
+    }
     let font = open(data)?;
     if font.is_cid() {
         return Err(malformed(
             "the program is CID-keyed, and a CID-keyed program names no glyph",
         ));
     }
-    let layout =
-        Layout::read(data).ok_or_else(|| malformed("the Top DICT INDEX could not be located"))?;
+    let layout = Layout::read(data)
+        .filter(offsets_stated_once)
+        .ok_or_else(|| {
+            malformed("the Top DICT could not be located, or states an offset twice or misstated")
+        })?;
     let charstrings_at = layout
         .entries
         .iter()
@@ -1661,11 +1742,20 @@ pub fn with_empty_glyphs(
     // Charset format 0 (Technical Note #5176, section 13): a format byte, then one SID for every
     // glyph after `.notdef`, which has none.
     let mut table = vec![0u8];
+    let mut named: std::collections::BTreeSet<Vec<u8>> = std::collections::BTreeSet::new();
     for (glyph, sid) in charset.iter() {
+        if let Some(name) = font.string(sid) {
+            named.insert(name.to_vec());
+        }
         if glyph.to_u32() != 0 {
             table.extend_from_slice(&sid.to_u16().to_be_bytes());
         }
     }
+    // Every string the program holds, used as a glyph name or not, so that no fresh name spells
+    // one: the String INDEX is the whole of what a lookup by name could confuse it with.
+    named.insert(b".notdef".to_vec());
+    let mut held = named.clone();
+    held.extend(strings.iter().cloned());
     let nominal = nominal_widths(data, &layout, false)
         .first()
         .copied()
@@ -1674,49 +1764,158 @@ pub fn with_empty_glyphs(
         global: &[],
         local: &[],
     };
-    let mut added = Vec::with_capacity(advances.len());
+    let notdef = charstrings
+        .first()
+        .cloned()
+        .ok_or_else(|| malformed("the CharStrings INDEX holds no .notdef glyph"))?;
+    let global = global_subroutines(data);
+    let top = index_item(data, layout.top_index.start, 0).unwrap_or_default();
+    let local = local_subroutines(data, top);
+    let notdefs_subroutines = Subroutines {
+        global: &global,
+        local: &local,
+    };
+    let mut added = Vec::with_capacity(glyphs.len());
     let mut suffix = 0usize;
-    for advance in advances {
-        // The first of `notdef`, `notdef.1`, … that neither the program nor this call has named:
-        // no standard string is spelt either way, so the String INDEX is the whole of the check.
-        let name = loop {
-            let candidate = if suffix == 0 {
-                "notdef".to_owned()
-            } else {
-                format!("notdef.{suffix}")
-            };
-            suffix = suffix.saturating_add(1);
-            if !strings
-                .iter()
-                .any(|held| held.as_slice() == candidate.as_bytes())
-            {
-                break candidate;
-            }
-        };
+    for asked in glyphs {
+        let name = name_for(asked, (&named, &held), &mut suffix)?;
+        named.insert(name.as_bytes().to_vec());
+        held.insert(name.as_bytes().to_vec());
         let glyph = u16::try_from(charstrings.len()).map_err(|_| {
             malformed("the program already holds as many glyphs as an INDEX counts")
         })?;
-        let sid = u16::try_from(STANDARD_STRINGS.saturating_add(strings.len()))
-            .map_err(|_| malformed("the String INDEX holds as many strings as a SID counts"))?;
-        let charstring = charstring_with_advance(
-            &[stack_clearing::ENDCHAR],
-            *advance,
-            nominal,
-            &no_subroutines,
-        )
-        .ok_or(CffError::AdvanceNotRestatable {
-            glyph,
-            detail: "the advance does not fit a charstring's width operand".to_owned(),
-        })?;
+        let sid = string_id(&name, &mut strings)
+            .ok_or_else(|| malformed("the String INDEX holds as many strings as a SID counts"))?;
+        let (source, subroutines): (&[u8], _) = match asked.draws {
+            GivenOutline::Nothing => (&[stack_clearing::ENDCHAR], &no_subroutines),
+            GivenOutline::NotdefsOwn => (&notdef, &notdefs_subroutines),
+        };
+        let charstring = charstring_with_advance(source, asked.advance, nominal, subroutines)
+            .ok_or(CffError::AdvanceNotRestatable {
+                glyph,
+                detail: "the advance does not fit a charstring's width operand, or .notdef's \
+                         charstring states its width inside a subroutine"
+                    .to_owned(),
+            })?;
         charstrings.push(charstring);
-        strings.push(name.as_bytes().to_vec());
         table.extend_from_slice(&sid.to_be_bytes());
         added.push(AddedGlyph { glyph, name });
     }
     let rebuilt = layout
         .with_glyph_tables(data, &strings, &charstrings, &table)
         .ok_or_else(|| malformed("the String INDEX could not be located"))?;
+    read_back(&rebuilt, &charstrings, &added)?;
     Ok((rebuilt, added))
+}
+
+/// Whether every offset the Top DICT states is stated at most once and with the operands
+/// Technical Note #5176's Table 9 gives it: one for `charset`, `Encoding`, `CharStrings`,
+/// `FDSelect` and `FDArray`, two for `Private`.
+///
+/// `Layout::with_glyph_tables` restates each from its first operands, and `read-fonts` resolves a
+/// repeated or over-long entry by its own rule, so a program stating one otherwise would be
+/// written against tables its reader never read.
+fn offsets_stated_once(layout: &Layout) -> bool {
+    let mut seen = std::collections::BTreeSet::new();
+    layout.entries.iter().all(|(operands, op)| {
+        let wanted = match *op {
+            OP_PRIVATE => 2,
+            OP_CHARSET | OP_ENCODING | OP_CHARSTRINGS | OP_FD_SELECT | OP_FD_ARRAY => 1,
+            _ => return true,
+        };
+        seen.insert(*op) && dict_ints(operands).len() == wanted
+    })
+}
+
+/// The name `asked` is given: its own, refused where a glyph already holds it, or the first of
+/// `notdef`, `notdef.1`, … that no string held spells, `suffix` counting the candidates tried.
+fn name_for(
+    asked: &GlyphToGive,
+    (named, held): (
+        &std::collections::BTreeSet<Vec<u8>>,
+        &std::collections::BTreeSet<Vec<u8>>,
+    ),
+    suffix: &mut usize,
+) -> Result<String, CffError> {
+    if let Some(name) = &asked.name {
+        if named.contains(name.as_bytes()) {
+            return Err(CffError::Malformed {
+                detail: "a name asked for is one the program already holds".to_owned(),
+            });
+        }
+        return Ok(name.clone());
+    }
+    // At most one candidate past every name held, so the walk is bounded by them.
+    loop {
+        let candidate = if *suffix == 0 {
+            "notdef".to_owned()
+        } else {
+            format!("notdef.{suffix}")
+        };
+        *suffix = suffix.saturating_add(1);
+        if !held.contains(candidate.as_bytes()) {
+            return Ok(candidate);
+        }
+    }
+}
+
+/// The identifier `name` is charted under: a standard string's own (Adobe Technical Note #5176,
+/// Appendix A), one the String INDEX already holds, or a new entry pushed onto `strings`; `None`
+/// where no 16-bit identifier is left.
+fn string_id(name: &str, strings: &mut Vec<Vec<u8>>) -> Option<u16> {
+    let standard = skrifa::raw::ps::string::STANDARD_STRINGS
+        .iter()
+        .position(|standard| *standard == name);
+    // A name the String INDEX already holds keeps its identifier, so no string is written
+    // twice.
+    let stored = strings
+        .iter()
+        .position(|string| string.as_slice() == name.as_bytes());
+    match (standard, stored) {
+        (Some(sid), _) => u16::try_from(sid).ok(),
+        (None, Some(at)) => u16::try_from(STANDARD_STRINGS.saturating_add(at)).ok(),
+        (None, None) => {
+            let sid = u16::try_from(STANDARD_STRINGS.saturating_add(strings.len())).ok();
+            strings.push(name.as_bytes().to_vec());
+            sid
+        }
+    }
+}
+
+/// Whether `rebuilt` reads, by `read-fonts`, as the program it was written to be: every
+/// charstring byte for byte, and every added glyph under its name.
+///
+/// The caller's proof compares what the glyphs draw, and a charstring cut short by a mis-stated
+/// offset can still draw what it drew — an empty glyph that has lost its `endchar` draws nothing
+/// either way — so the INDEX is read back here before any caller sees the program.
+fn read_back(
+    rebuilt: &[u8],
+    charstrings: &[Vec<u8>],
+    added: &[AddedGlyph],
+) -> Result<(), CffError> {
+    let differs = || CffError::Malformed {
+        detail: "the rebuilt program does not read back as it was written".to_owned(),
+    };
+    let font = open(rebuilt)?;
+    let read = font.charstrings();
+    if read.count() as usize != charstrings.len() {
+        return Err(differs());
+    }
+    for (at, written) in charstrings.iter().enumerate() {
+        if read.get(at) != Some(written.as_slice()) {
+            return Err(differs());
+        }
+    }
+    let charset = font.charset().ok_or(CffError::NoCharset)?;
+    for glyph in added {
+        let sid = charset
+            .string_id(GlyphId::from(glyph.glyph))
+            .ok_or_else(differs)?;
+        if font.string(sid) != Some(glyph.name.as_bytes()) {
+            return Err(differs());
+        }
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2268,5 +2467,152 @@ mod empty_glyphs {
                 assert_eq!(was, is, "glyph {glyph}'s outline");
             }
         }
+    }
+
+    /// `FoxitSerif` with its `.notdef` charstring replaced by glyph 34's, so that a copy of it has
+    /// an outline to be compared: every shipped face's `.notdef` draws nothing.
+    fn drawn_notdef() -> Vec<u8> {
+        let face: &[u8] = include_bytes!("../../../data/standard-fonts/FoxitSerif.pfb");
+        let layout = Layout::read(face).expect("a Top DICT");
+        let at = layout
+            .entries
+            .iter()
+            .find(|(_, op)| *op == OP_CHARSTRINGS)
+            .and_then(|(operands, _)| dict_int(operands))
+            .and_then(|at| usize::try_from(at).ok())
+            .expect("a CharStrings offset");
+        let mut charstrings: Vec<Vec<u8>> = index_items(face, at)
+            .expect("a CharStrings INDEX")
+            .into_iter()
+            .map(<[u8]>::to_vec)
+            .collect();
+        charstrings[0] = charstrings[34].clone();
+        let drawn = layout.with_charstrings(face, &charstrings);
+        let mut points = Points::default();
+        draw(&drawn, 0, &mut points).expect("draws");
+        assert!(!points.0.is_empty(), "the replaced .notdef draws");
+        drawn
+    }
+
+    /// A copy of `.notdef` draws `.notdef`'s outline at its own advance, a glyph given a standard
+    /// name is charted under that name's own identifier, and every glyph held keeps its outline.
+    #[test]
+    fn a_copy_of_notdef_draws_its_outline_under_the_name_asked_for() {
+        let face = &drawn_notdef();
+        let asked = [
+            GlyphToGive {
+                draws: GivenOutline::NotdefsOwn,
+                name: None,
+                advance: 600,
+            },
+            GlyphToGive {
+                draws: GivenOutline::NotdefsOwn,
+                name: Some("uni2423".to_owned()),
+                advance: 250,
+            },
+        ];
+        let (rebuilt, added) = with_glyphs_given(face, &asked).expect("rebuilt");
+        let held = u16::try_from(glyph_count(face).expect("counts")).expect("a glyph count");
+        assert_eq!(
+            added.iter().map(|added| added.glyph).collect::<Vec<_>>(),
+            vec![held, held + 1]
+        );
+        let new = names(&rebuilt);
+        assert_eq!(
+            new.get(usize::from(held)..),
+            Some(&["notdef".to_owned(), "uni2423".to_owned()][..])
+        );
+        assert_eq!(
+            advances(&rebuilt, &[held, held + 1]).expect("advances"),
+            vec![Some(600.0), Some(250.0)]
+        );
+        let mut notdef = Points::default();
+        draw(face, 0, &mut notdef).expect("draws");
+        for glyph in [held, held + 1] {
+            let mut copy = Points::default();
+            draw(&rebuilt, glyph, &mut copy).expect("draws");
+            assert_eq!(copy, notdef, "glyph {glyph} is .notdef's outline");
+        }
+        for glyph in 0..held {
+            let (mut was, mut is) = (Points::default(), Points::default());
+            draw(face, glyph, &mut was).expect("draws");
+            draw(&rebuilt, glyph, &mut is).expect("draws");
+            assert_eq!(was, is, "glyph {glyph}'s outline");
+        }
+    }
+
+    /// A name the program holds is refused rather than given a second glyph, and a request past
+    /// [`MOST_GLYPHS_GIVEN`] is refused before any table is grown; one at the bound is written.
+    #[test]
+    fn a_held_name_and_a_request_past_the_bound_are_refused() {
+        let face: &[u8] = include_bytes!("../../../data/standard-fonts/FoxitSerif.pfb");
+        let held_name = names(face).get(1).cloned().expect("a second glyph");
+        let held = GlyphToGive {
+            draws: GivenOutline::Nothing,
+            name: Some(held_name),
+            advance: 0,
+        };
+        assert!(matches!(
+            with_glyphs_given(face, &[held]),
+            Err(CffError::Malformed { .. })
+        ));
+        let one = GlyphToGive {
+            draws: GivenOutline::Nothing,
+            name: None,
+            advance: 500,
+        };
+        let at_the_bound = vec![one.clone(); MOST_GLYPHS_GIVEN];
+        assert!(with_glyphs_given(face, &at_the_bound).is_ok());
+        let past = vec![one; MOST_GLYPHS_GIVEN + 1];
+        assert!(matches!(
+            with_glyphs_given(face, &past),
+            Err(CffError::Malformed { .. })
+        ));
+    }
+
+    /// A Top DICT whose `CharStrings` entry carries three operands is refused: `read-fonts` reads
+    /// the program as holding no glyph, and the INDEX at the first operand holds one, so a glyph
+    /// written there would be numbered against a program the reader never saw. The program is the
+    /// `cff_write` fuzz target's first finding, minimised; its second, a `Private` entry of five
+    /// operands, is refused by the same check.
+    #[test]
+    fn a_charstrings_entry_of_three_operands_is_refused() {
+        const PRIVATE_OF_FIVE: &[u8] = &[
+            0x01, 0x00, 0x04, 0x01, 0x00, 0x01, 0x01, 0x01, 0x08, 0x48, 0x6f, 0x73, 0x74, 0x69,
+            0x6c, 0x65, 0x00, 0x01, 0x01, 0x01, 0x10, 0xd8, 0x02, 0x8b, 0x00, 0x00, 0x01, 0x01,
+            0x43, 0x43, 0x80, 0x8b, 0xef, 0x12, 0xc7, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a,
+            0x6f, 0x74, 0x64, 0x65, 0x66, 0x2e, 0x30, 0x39, 0x6e, 0x6f, 0x74, 0x64, 0x65, 0x66,
+            0x5b, 0x03, 0x55, 0x01, 0x00, 0x04, 0x01, 0x00, 0x00, 0x01, 0x01, 0x01, 0x4e, 0x43,
+            0xff, 0xff, 0xff, 0x00, 0x0e, 0x0a,
+        ];
+        const PROGRAM: &[u8] = &[
+            0x01, 0x00, 0x04, 0x01, 0x00, 0x01, 0x01, 0x01, 0x08, 0x48, 0x6f, 0x73, 0x74, 0x69,
+            0x6c, 0x65, 0x00, 0x01, 0x01, 0x01, 0x10, 0xf8, 0x1d, 0x02, 0x8b, 0x8b, 0xef, 0xef,
+            0x05, 0xc3, 0x12, 0x0f, 0xc7, 0x8b, 0xef, 0x11, 0x00, 0x03, 0x01, 0x01, 0x03, 0x05,
+            0x0c, 0x67, 0x31, 0x67, 0x32, 0x48, 0x6f, 0x73, 0x74, 0x69, 0x5c, 0x65, 0x00, 0x00,
+            0x01, 0x01, 0x87, 0x01, 0x00, 0x01, 0x01, 0x10, 0x1c, 0x1c, 0xdd, 0xff, 0xff, 0xff,
+            0x1c, 0x0d, 0x1d, 0x02, 0x8b, 0x8b, 0xef, 0xef, 0x05, 0xc3, 0x12, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x0a,
+        ];
+        assert_eq!(
+            glyph_count(PROGRAM).ok(),
+            Some(0),
+            "the reader opens it, and finds no glyph"
+        );
+        let one = GlyphToGive {
+            draws: GivenOutline::NotdefsOwn,
+            name: None,
+            advance: 500,
+        };
+        assert!(matches!(
+            with_glyphs_given(PROGRAM, std::slice::from_ref(&one)),
+            Err(CffError::Malformed { .. })
+        ));
+        assert!(glyph_count(PRIVATE_OF_FIVE).is_ok(), "the reader opens it");
+        assert!(matches!(
+            with_glyphs_given(PRIVATE_OF_FIVE, &[one]),
+            Err(CffError::Malformed { .. })
+        ));
     }
 }

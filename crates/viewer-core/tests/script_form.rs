@@ -20,8 +20,9 @@ use std::sync::{Arc, Mutex};
 use pdf_model::view::{ScriptEvent, ScriptResult, ScriptRunner};
 use pdf_model::xfa::{Form, FormLanguage, Ran, Scalar};
 use viewer_core::{
-    AlertButton, AlertButtons, AlertIcon, Answer, Command, DocumentId, Edit, Entered, Event, Query,
-    ScriptAnswer, ScriptAsks, ScriptQuestion, ScriptRunners, Scripting, Viewer,
+    AlertButton, AlertButtons, AlertIcon, Answer, Command, DocumentId, Edit, Entered, Event,
+    PointerAction, Query, ScriptAnswer, ScriptAsks, ScriptQuestion, ScriptRunners, Scripting,
+    Viewer,
 };
 
 const DOCUMENT: DocumentId = DocumentId(1);
@@ -416,5 +417,67 @@ fn a_tab_runs_the_exit_event_of_the_field_left_and_the_enter_event_of_the_field_
         assert_eq!(value(&viewer, "Total"), "", "Total is entered, not left");
         tab(&mut viewer);
         assert_eq!(value(&viewer, "Total"), total, "the focus left Total");
+    }
+}
+
+/// The point of page one at `(x, y)` in its own space, in the window's pixels.
+fn on_page(viewer: &Viewer, (x, y): (f32, f32)) -> (f32, f32) {
+    /// The height of `hybrid`'s `/MediaBox`.
+    const PAGE_HEIGHT: f32 = 400.0;
+    let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
+        panic!("the page on the screen has a geometry");
+    };
+    (
+        geometry.origin.0 + x * geometry.scale,
+        geometry.origin.1 + (PAGE_HEIGHT - y) * geometry.scale,
+    )
+}
+
+/// A press at `from` and a release at `to`, both in page one's space.
+fn press_and_release(viewer: &mut Viewer, from: (f32, f32), to: (f32, f32)) {
+    let (from, to) = (on_page(viewer, from), on_page(viewer, to));
+    for (at, action) in [
+        (from, PointerAction::Moved),
+        (from, PointerAction::Pressed),
+        (to, PointerAction::Dragged),
+        (to, PointerAction::Released),
+    ] {
+        viewer
+            .handle(Command::Pointer { at, action })
+            .for_each(drop);
+    }
+}
+
+/// XFA 3.3 page 391: a `click` fires "when a mouse click occurs within the region", which a window
+/// reports as a press and a release on the field's widget, Table 197's `/U` (ADR 2584). It runs
+/// through the runner the reader's level supplied, and at `off` it runs nothing. A press outside
+/// every widget, and a press on the widget released outside it, are no click within the field.
+#[test]
+fn a_press_and_release_on_a_widget_runs_the_click_event_of_its_field() {
+    let fields = "<field name=\"Units\"><ui><textEdit/></ui><value><text/></value>\
+                  <event activity=\"click\"><script>4</script></event></field>\
+                  <field name=\"Total\"><ui><textEdit/></ui><value><text/></value></field>";
+    let data = "<Units/><Total/>";
+    // `hybrid` puts `Units` at [20 300 220 320] and `Total` at [20 260 220 280].
+    let (units, total, nowhere) = ((120.0, 310.0), (120.0, 270.0), (320.0, 100.0));
+    for (scripting, clicked) in [
+        (Scripting::Run(Arc::new(Calculators::default())), "4"),
+        (Scripting::Off, ""),
+    ] {
+        let mut viewer = opened_on(scripting, hybrid(fields, data));
+        viewer.handle(Command::Presented).for_each(drop);
+        press_and_release(&mut viewer, nowhere, nowhere);
+        assert_eq!(
+            value(&viewer, "Units"),
+            "",
+            "a press on no widget clicks nothing"
+        );
+        press_and_release(&mut viewer, units, nowhere);
+        assert_eq!(value(&viewer, "Units"), "", "released outside the field");
+        press_and_release(&mut viewer, total, units);
+        assert_eq!(value(&viewer, "Units"), "", "pressed outside the field");
+        press_and_release(&mut viewer, units, units);
+        assert_eq!(value(&viewer, "Units"), clicked, "a click within Units");
+        assert_eq!(value(&viewer, "Total"), "");
     }
 }

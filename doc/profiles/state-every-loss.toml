@@ -286,6 +286,18 @@ language = ""
 remedy = "supply"
 winner = "first"
 
+# A page no font route can carry, photographed as this viewer draws it (A694 item 1, doc/adr/2516),
+# and in a document that states optional content photographed in the configuration this viewer
+# shows, the groups it fixed named with the state drawn (doc/questions/A717, doc/adr/2576). The
+# one `discard` this row resolves to carries every loss the font site's bundle holds, as it does
+# in as-if-printed: `machine-face`, `substitute-stretch`, `glyphs-from-to-unicode`,
+# `layout-from-this-viewer`, `text-as-image`, `page-as-image`, `tagging-of-photographed-pages`
+# and `optional-content-of-photographed-pages` (decision.rs's bundle), each named with its page or font in the report and in xmpMM:History. `append-statement` is
+# first, so the statement page lists them once the step is built at this site; until then it is
+# passed over with its sentence (config/steps.rs) and `discard` takes the loss.
+[site."fonts/font-programs-embedded"]
+try = ["append-statement", "discard"]
+
 [site."fonts/embedded-cmap-states-its-own-write-mode"]
 remedy = "supply"
 write-mode = "program"

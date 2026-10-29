@@ -482,11 +482,23 @@ pub enum Loss {
     /// is offered no photograph at all (`doc/questions/A707`, `doc/adr/2516`). The number of
     /// leaves each page lost is named in the report and in the file's history.
     TaggingOfPhotographedPages,
+    /// ISO 32000-2 section 8.11's optional content: where a photographed page belongs to a
+    /// document that states optional content, the photograph is drawn in the configuration this
+    /// viewer opens the document in — §8.11.4.3's default configuration `/D` as §8.11.4.5 applies
+    /// it, its `View` usage included and §8.11.4.4's `Print` usage never — and each optional content group
+    /// the page's content named is fixed in the state it was drawn in, its other state discarded.
+    ///
+    /// A loss of its own, because what it takes is the layers rather than the text: a reader that
+    /// switches a group no longer changes what the photographed page shows, while every other page
+    /// keeps its optional content and the document's `/OCProperties` stays. Level A and Level U are
+    /// offered no photograph at all (`doc/questions/A717`). The groups each photographed page
+    /// fixed, by `/Name` and by the state drawn, are named in the report and in the file's history.
+    OptionalContentOfPhotographedPages,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 31] = [
+    pub const ALL: [Self; 32] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::MetadataPacket,
@@ -518,6 +530,7 @@ impl Loss {
         Self::TextAsImage,
         Self::PageAsImage,
         Self::TaggingOfPhotographedPages,
+        Self::OptionalContentOfPhotographedPages,
     ];
 
     /// The word a caller authorises it by.
@@ -555,6 +568,7 @@ impl Loss {
             Self::TextAsImage => "text-as-image",
             Self::PageAsImage => "page-as-image",
             Self::TaggingOfPhotographedPages => "tagging-of-photographed-pages",
+            Self::OptionalContentOfPhotographedPages => "optional-content-of-photographed-pages",
         }
     }
 
@@ -803,6 +817,13 @@ impl Loss {
                  page's text in them; every other page keeps its tags, and the number of leaves \
                  each photographed page lost is named in the report"
             }
+            Self::OptionalContentOfPhotographedPages => {
+                "a photographed page of a document that states optional content is drawn in the \
+                 configuration this viewer shows, so each optional content group its content \
+                 named is fixed in the state it was drawn in and switching the group no longer \
+                 changes that page; every other page keeps its optional content, and the groups \
+                 each photographed page fixed are named in the report with the state drawn"
+            }
         }
     }
 
@@ -954,6 +975,8 @@ pub struct Authorisations {
     pub page_as_image: bool,
     /// Whether [`Loss::TaggingOfPhotographedPages`] was authorised.
     pub tagging_of_photographed_pages: bool,
+    /// Whether [`Loss::OptionalContentOfPhotographedPages`] was authorised.
+    pub optional_content_of_photographed_pages: bool,
 }
 
 impl Authorisations {
@@ -992,6 +1015,7 @@ impl Authorisations {
             Loss::TextAsImage => self.text_as_image,
             Loss::PageAsImage => self.page_as_image,
             Loss::TaggingOfPhotographedPages => self.tagging_of_photographed_pages,
+            Loss::OptionalContentOfPhotographedPages => self.optional_content_of_photographed_pages,
         }
     }
 
@@ -1035,6 +1059,9 @@ impl Authorisations {
             Loss::TextAsImage => self.text_as_image = true,
             Loss::PageAsImage => self.page_as_image = true,
             Loss::TaggingOfPhotographedPages => self.tagging_of_photographed_pages = true,
+            Loss::OptionalContentOfPhotographedPages => {
+                self.optional_content_of_photographed_pages = true;
+            }
         }
     }
 }
@@ -2765,7 +2792,8 @@ pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[
                 .with(Loss::LayoutFromThisViewer)
                 .with(Loss::TextAsImage)
                 .with(Loss::PageAsImage)
-                .with(Loss::TaggingOfPhotographedPages),
+                .with(Loss::TaggingOfPhotographedPages)
+                .with(Loss::OptionalContentOfPhotographedPages),
         ),
     ),
 ];
@@ -3181,6 +3209,18 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "file-structure/page-tree-node-kids-is-an-array",
         Because::TheFence(A_NODE_WITH_NO_CHILDREN),
     ),
+    // The same section through Table 30's `/Parent` row and its `/Kids` row's children: the verb
+    // declines such a tree before stage 1 and rebuilds it under `recovered-structure`
+    // (`super::page_tree`, `doc/adr/2558`), so a source reaching this row has the fault at a node
+    // that walk does not follow (`doc/adr/2583`).
+    (
+        "file-structure/page-tree-root-states-no-parent",
+        Because::NotBuiltYet(A_TREE_THE_WALK_DOES_NOT_REACH),
+    ),
+    (
+        "file-structure/page-tree-kids-name-dictionaries",
+        Because::NotBuiltYet(A_TREE_THE_WALK_DOES_NOT_REACH),
+    ),
     // ISO 19005-2 section 6.2.11.7.3's `/ActualText` is a marked-content property list or a
     // structure element's entry over a *span of a content stream*, so supplying one means
     // deciding where the span starts and ends inside the producer's page.
@@ -3450,6 +3490,13 @@ pub(super) const THE_GLYPH_IS_NOT_IN_THE_PROGRAM: &str = "this file shows a char
      embedded this is not a refusal at all, because doc/pdf-a-conversion-limits.md section 4.9 \
      then builds the program and chooses what each code maps to; supplying the intended font \
      with --font moves this document into that case";
+
+/// Why a page tree Table 30 rules out keeps its refusal where the conversion's own walk passed it.
+const A_TREE_THE_WALK_DOES_NOT_REACH: &str = "this page tree has a root that states /Parent or a \
+     Kids entry that names no dictionary, which ISO 32000-2 section 7.7.3.2's Table 30 rules out, \
+     at a node written inside the catalog or inside its parent's Kids; this conversion declines \
+     such a tree, and rebuilds it from the pages this reader draws where recovered-structure is \
+     granted, only at a node written as an object of its own";
 
 /// Why a page tree node with no `/Kids` array is not rewritten (`doc/adr/2444`).
 const A_NODE_WITH_NO_CHILDREN: &str = "a page tree node here states no Kids array, so the tree \
@@ -4357,20 +4404,34 @@ fn answer_of(answer: Answer, authorised: Authorisations, prepared: &Prepared) ->
         // Resolved by `decide` before this function is reached, so that the routing is one place
         // rather than two. A row reaching here is one `decide_as_underlying` passed over.
         Answer::AsUnderlying(_) => Decision::Refused(Because::NotBuiltYet(NOT_BUILT_YET)),
-        // The narrower rewrite is the answer where the document can take it; otherwise the
-        // stated one is, and the refusal that stands is the narrower rewrite's own where the
-        // stated one cannot be proved either.
         Answer::OrStated(inner, rewrite, reinterprets) => {
-            match answer_of(*inner, authorised, prepared) {
-                refused @ Decision::Refused(_) => prepared.obstacle(rewrite).map_or(
-                    Decision::Stated {
-                        rewrite,
-                        reinterprets,
-                    },
-                    |_| refused,
-                ),
-                taken => taken,
-            }
+            narrower_or_stated(*inner, (rewrite, reinterprets), authorised, prepared)
         }
+    }
+}
+
+/// [`Answer::OrStated`]: the narrower rewrite where the document can take it, the stated one
+/// where it cannot and the stated one's proof holds.
+///
+/// Where neither can be proved, the refusal that stands is the narrower rewrite's own, unless that
+/// one is the fence: a narrower rewrite fenced off has said only that it does not reach these
+/// fonts — a Type 3 rename asked of a font with a program — and the stated rewrite is the one that
+/// reached them, so its sentence is the reason (`doc/adr/2590`).
+fn narrower_or_stated(
+    inner: Answer,
+    (rewrite, reinterprets): (Rewrite, &'static str),
+    authorised: Authorisations,
+    prepared: &Prepared,
+) -> Decision {
+    match answer_of(inner, authorised, prepared) {
+        Decision::Refused(narrower) => match prepared.obstacle(rewrite) {
+            None => Decision::Stated {
+                rewrite,
+                reinterprets,
+            },
+            Some(stated) if matches!(narrower, Because::TheFence(_)) => Decision::Refused(stated),
+            Some(_) => Decision::Refused(narrower),
+        },
+        taken => taken,
     }
 }

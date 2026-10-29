@@ -419,6 +419,23 @@ impl Rewriter<'_> {
             count(applied, Rewrite::NotdefGlyphGiven);
             changed = true;
         }
+        // A simple CFF font names the program given the glyphs through its new descriptor, and a
+        // code given a fresh name reaches it through the restated encoding (`doc/adr/2578`).
+        if self.wants(Rewrite::NotdefGlyphGiven)
+            && let Some((descriptor, encoding)) = self
+                .cmap_restated
+                .and_then(|restated| restated.cff.get(&id))
+        {
+            out.insert(
+                Name::new(&b"FontDescriptor"[..]),
+                Object::Reference(*descriptor),
+            );
+            if let Some(encoding) = encoding {
+                out.insert(Name::new(&b"Encoding"[..]), encoding.clone());
+            }
+            count(applied, Rewrite::NotdefGlyphGiven);
+            changed = true;
+        }
         if self.wants(Rewrite::Type3NotdefRenamed)
             && let Some((encoding, procedures)) =
                 self.type3_notdef.and_then(|renames| renames.at.get(&id))

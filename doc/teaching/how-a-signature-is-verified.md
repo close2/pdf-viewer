@@ -10,7 +10,7 @@ for; this says what happens **in order**.
 
 **It describes the signature stack as of commit 2d54febf, with round 1863's
 `crates/pdf-signature/src/policy_rules.rs` (ADR 2560) on it** — the code `pdf-signature` and
-`viewer-core`'s `crates/viewer-core/src/notes.rs` held when this walk was drawn. Two things stay
+`viewer-core`'s `crates/viewer-core/src/notes.rs` held when this walk was drawn, and its `note:` lines are as the window prints them today. Two things stay
 owed and change stage 4 when they land: the rules of the second ASN.1 syntax ETSI TS 119 172-3
 defines, which `policy_rules.rs` tells apart and refuses by name today, and the XML syntax of ETSI
 TS 119 172-2 (see [Keeping this document true](#keeping-this-document-true)).
@@ -56,7 +56,7 @@ from an export of that commit with round 1863's files, under Xvfb — one senten
 note: this document is signed by an unnamed signer, reason: Scopo della firma: Genehmigt, at 2011-01-17T23:52:39+01:00
 note: and that signature verifies under the 2048-bit RSA (PKCS #1 v1.5) key in a certificate the file itself carries, directly over the bytes its /ByteRange names — so those bytes are the ones that were signed and nothing has changed since
 note: that signature carries a timestamp of its own (§12.8.3.3.1's unsigned signature timestamp attribute, RFC 3161 Appendix A), stating genTime 20110117225318.526Z. The imprint inside it is the digest of this signature's own bytes. Whether the authority that issued it is one to believe is the same unanswered question as above
-note: of the three questions a signature asks, this program answers two: whether the document changed since it was signed (§12.8.1's digest, recomputed above) and whether the signature verifies under the public key in the certificate the file itself carries (§12.8.3.3.1). It does not answer the third — it has no certificate store and makes no network request, so it does not know whether that certificate belongs to anyone you have reason to believe. It can now say whether a certificate was revoked, but only from the material the file itself carries and only once somebody names a certification authority to end the chain at, which nothing here does. A signature that verifies here was made by whoever holds the key in a certificate that arrived with the document, which is not the same as a valid signature. Nothing here says valid
+note: of the three questions a signature asks, this program answers two: whether the document changed since it was signed (§12.8.1's digest, recomputed above) and whether the signature verifies under the public key in the certificate the file itself carries (§12.8.3.3.1). It does not answer the third — it has no certificate store and makes no network request, so it does not know whether that certificate belongs to anyone you have reason to believe. It says whether a certificate was revoked only from the material the file itself carries, and only once somebody names a certification authority to end the chain at, which nobody has done for this reading. A signature that verifies here was made by whoever holds the key in a certificate that arrived with the document, which is not the same as a valid signature. Nothing here says valid
 ```
 
 Four lines. The first and the last are stage 5's wording; the second is stage 2's answer, which here

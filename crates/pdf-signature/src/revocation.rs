@@ -322,10 +322,10 @@ pub enum Undetermined {
 /// revoked" — for a whole certification path.
 ///
 /// **No variant says *valid***, which is the discipline [`crate::trust::Trust`] and
-/// [`crate::signature::Authenticity`] already keep. Revocation is one input to a verdict nobody
-/// here can give: ADR 1039 records that no host in this tree supplies a trust anchor, so a
-/// `Good` here means "the material in this file says this certificate was not revoked", and
-/// nothing about whether the signer is anybody.
+/// [`crate::signature::Authenticity`] already keep. Revocation is one input to a verdict, and the
+/// verdict is [`crate::verdict`]'s, reached only on a path to an anchor a host supplied (ADRs
+/// 1039, 1076); so a `Good` here means "the material in this file says this certificate was not
+/// revoked", and nothing about whether the signer is anybody.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Revocation {
@@ -1119,7 +1119,8 @@ pub struct Material<'a> {
 }
 
 impl<'a> Material<'a> {
-    /// Nothing: the state of every caller in this tree before this module existed.
+    /// Nothing: a caller that asks nothing about revocation, which [`Revocation::NotChecked`]
+    /// answers.
     #[must_use]
     pub const fn none() -> Self {
         Self {

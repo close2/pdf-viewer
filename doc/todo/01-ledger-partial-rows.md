@@ -43,9 +43,9 @@ reading in one line per row, and the note is where it is argued. The membership 
   window that resizes and moves itself asks one placement decision; Qt under Wayland and GTK say
   and title a centre they cannot give. The deliberate menu and placement departures remain (ADRs
   1145, 1429).
-- **§12.8.3.4.4** — no signature in reach states a policy whose constraints could be enforced;
-  moves when one does and its named specification is held. The network is not what is missing
-  (ADR 1291).
+- **§12.8.3.4.4** — a stored policy in either ASN.1 syntax, ETSI TR 102 272's or TS 119 172-3's, is
+  enforced once bound (ADRs 2560, 2580); TS 119 172-2's XML syntax, human-readable policies and a
+  copy fetched at the URL are not. The network is not what is missing (ADR 1291).
 
 §12.1 states no requirement and is `implemented` (ADR 1573).
 

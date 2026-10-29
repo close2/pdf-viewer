@@ -809,6 +809,14 @@ fn a_font_refusal(detail: &str) -> Option<(Whose, &'static str)> {
             Whose::TheFile,
             "a CID-keyed CFF whose Font DICTs cannot all be read, drawn against an empty Private DICT (ADR 0808)",
         ),
+        // ADR 2586: a glyph the page shows whose charstring or outline the evaluator stopped on,
+        // named with the evaluator's reason. Whether the file is malformed or the operation budget
+        // of ADR 2572 was reached is the reason's to say, and both are a bound or a reading rather
+        // than a clause this tree leaves undone.
+        _ if has("the evaluator refuses the outline of glyph") => (
+            Whose::NeitherOne,
+            "a glyph whose program the charstring evaluator refuses, malformed or past its operation budget (ADR 2586)",
+        ),
         // **Three rows the row below used to swallow, and the swallowing was measurable.**
         // `FontError::Malformed`'s message says a program "could not be parsed", and four of its
         // raise sites were font *dictionary* faults with no program read at all — so

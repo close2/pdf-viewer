@@ -1759,6 +1759,17 @@ fn truetype_codes_reach_glyphs_by_the_standard_route(
 /// §9.7.6.3 substitutes "the glyph for CID 0 (which shall be present)" where no glyph exists for
 /// a CID — so the two routes agree on where a failed selection ends.
 ///
+/// **In a composite font `.notdef` is also a character, CID 0**, and a code that selects it has
+/// referenced `.notdef` whatever glyph index a `/CIDToGIDMap` sends CID 0 to. ISO 32000-2
+/// §9.7.4.2:
+///
+/// > Every CIDFont shall contain a glyph description for CID 0, which is analogous to the
+/// > .notdef character name in simple fonts (see 9.7.6.3, "Handling undefined characters").
+///
+/// So the CID read is [`pdf_font::LoadedFont::drawn_cid`], the one whose glyph is drawn once
+/// §9.7.6.3's fallbacks are taken, and a code that ends on CID 0 by a fallback is a reference
+/// as surely as one the `CMap` maps there (ADR 2582).
+///
 /// **Every rendering mode, including 3**, which is the clause's own wording and is why this reads
 /// [`SelectedFont::shown`] rather than filtering it by [`SelectedFont::rendered`]. The corpus
 /// carries a file that is a failure for exactly that reason.
@@ -1772,6 +1783,8 @@ fn truetype_codes_reach_glyphs_by_the_standard_route(
 /// selects them, so a code the encoding names `.notdef` references the glyph of that name
 /// whatever its procedure draws (ADR 1942).
 fn no_notdef_glyph_shown(exam: &Examination<'_>, findings: &mut Findings) {
+    /// CID 0, §9.7.4.2's analogue of `.notdef` in a `CIDFont`.
+    const NOTDEF_CID: u32 = 0;
     let document = exam.document;
     for used in exam.survey().fonts() {
         if subtype(document, &used.dict).as_deref() == Some("Type3") {
@@ -1786,14 +1799,20 @@ fn no_notdef_glyph_shown(exam: &Examination<'_>, findings: &mut Findings) {
         let mut reported = BTreeSet::new();
         for text in used.shown.keys() {
             for code in font.decode(text) {
-                if font.glyph_index(code) != Some(NOTDEF_GLYPH) || !reported.insert(code.value()) {
+                let what = if font.drawn_cid(code) == Some(NOTDEF_CID) {
+                    "which selects CID 0, the CIDFont's .notdef character"
+                } else if font.glyph_index(code) == Some(NOTDEF_GLYPH) {
+                    "which its embedded program maps to the .notdef glyph"
+                } else {
+                    continue;
+                };
+                if !reported.insert(code.value()) {
                     continue;
                 }
                 findings.record(
                     font_place(used).named(used.name.clone()),
                     format!(
-                        "a text-showing operator draws code {} in the font {}, which its \
-                         embedded program maps to the .notdef glyph",
+                        "a text-showing operator draws code {} in the font {}, {what}",
                         code.value(),
                         used.name
                     ),
@@ -3832,6 +3851,114 @@ mod tests {
             no_notdef_glyph_shown,
         );
         assert_eq!(found.len(), 1, "code 98 alone: {found:?}");
+    }
+
+    /// A one-page document showing the CIDs `shown` in an `Identity-H` font over a
+    /// `CIDFontType2` whose program is Liberation Sans and whose `/CIDToGIDMap` stream sends CID
+    /// 0 to glyph `cid_zero_glyph`, CID 36 to glyph 36 (`A`), and CIDs 1 to 35 to glyph 0. The
+    /// stream ends at CID 36, so a CID past it has no glyph of its own.
+    fn cid_page(shown: &[u16], cid_zero_glyph: u16) -> Document {
+        const LIBERATION_SANS: &[u8] =
+            include_bytes!("../../../../data/standard-fonts/LiberationSans-Regular.ttf");
+        let codes = shown.iter().fold(String::new(), |mut codes, cid| {
+            let _ = write!(codes, "{cid:04X}");
+            codes
+        });
+        let content = format!("BT /F1 12 Tf 10 100 Td <{codes}> Tj ET");
+        let map: Vec<u8> = (0..=36_u16)
+            .flat_map(|cid| {
+                match cid {
+                    0 => cid_zero_glyph,
+                    36 => 36,
+                    _ => 0,
+                }
+                .to_be_bytes()
+            })
+            .collect();
+        let objects: Vec<Vec<u8>> = vec![
+            b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] \
+              /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>"
+                .to_vec(),
+            [
+                format!("<< /Length {} >>\nstream\n", content.len()).as_bytes(),
+                content.as_bytes(),
+                b"\nendstream",
+            ]
+            .concat(),
+            b"<< /Type /Font /Subtype /Type0 /BaseFont /LiberationSans /Encoding /Identity-H \
+              /DescendantFonts [6 0 R] >>"
+                .to_vec(),
+            b"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /LiberationSans /CIDSystemInfo \
+              << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 8 0 R \
+              /DW 1000 /CIDToGIDMap 7 0 R >>"
+                .to_vec(),
+            [
+                format!("<< /Length {} >>\nstream\n", map.len()).as_bytes(),
+                &map,
+                b"\nendstream",
+            ]
+            .concat(),
+            b"<< /Type /FontDescriptor /FontName /LiberationSans /Flags 4 /FontBBox [-543 -303 \
+              1300 980] /ItalicAngle 0 /Ascent 905 /Descent -212 /CapHeight 716 /StemV 80 \
+              /FontFile2 9 0 R >>"
+                .to_vec(),
+            [
+                format!("<< /Length {} >>\nstream\n", LIBERATION_SANS.len()).as_bytes(),
+                LIBERATION_SANS,
+                b"\nendstream",
+            ]
+            .concat(),
+        ];
+        let mut out = b"%PDF-1.7\n".to_vec();
+        let mut offsets = Vec::new();
+        for (index, object) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            out.extend_from_slice(format!("{} 0 obj\n", index.saturating_add(1)).as_bytes());
+            out.extend_from_slice(object);
+            out.extend_from_slice(b"\nendobj\n");
+        }
+        let xref_at = out.len();
+        let size = offsets.len().saturating_add(1);
+        let mut table = format!("xref\n0 {size}\n0000000000 65535 f \n");
+        for offset in &offsets {
+            let _ = writeln!(table, "{offset:010} 00000 n ");
+        }
+        let _ = write!(
+            table,
+            "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+        );
+        out.extend_from_slice(table.as_bytes());
+        Document::open(out).expect("the fixture is a valid PDF")
+    }
+
+    #[test]
+    fn a_shown_cid_0_is_a_notdef_reference_whatever_glyph_the_map_sends_it_to() {
+        // ISO 32000-2 §9.7.4.2 makes CID 0 the CIDFont's analogue of `.notdef`, so ISO 19005-2
+        // section 6.2.11.8 fails a page that shows it even where the map sends it to glyph 1 —
+        // the shape of a copy of glyph 0 given to CID 0 (ADR 2557, ADR 2582).
+        assert!(
+            findings(&cid_page(&[36], 1), no_notdef_glyph_shown).is_empty(),
+            "the control: CID 36 reaches A"
+        );
+        let found = findings(&cid_page(&[0, 36], 1), no_notdef_glyph_shown);
+        assert_eq!(found.len(), 1, "code 0 alone: {found:?}");
+        assert!(found[0].contains("selects CID 0"), "{found:?}");
+        // On glyph 0 as well, the code is one reference and one finding.
+        assert_eq!(
+            findings(&cid_page(&[0, 36], 0), no_notdef_glyph_shown).len(),
+            1
+        );
+        // A CID on glyph 0 that is not CID 0 is still a reference, by its glyph.
+        let by_glyph = findings(&cid_page(&[1, 36], 1), no_notdef_glyph_shown);
+        assert_eq!(by_glyph.len(), 1, "{by_glyph:?}");
+        assert!(by_glyph[0].contains(".notdef glyph"), "{by_glyph:?}");
+        // §9.7.6.3: CID 40 has no glyph in a map that ends at 36, and Identity-H states no notdef
+        // mapping, so the glyph for CID 0 is substituted: CID 0 is what the code selects.
+        let fallback = findings(&cid_page(&[40], 1), no_notdef_glyph_shown);
+        assert_eq!(fallback.len(), 1, "{fallback:?}");
+        assert!(fallback[0].contains("selects CID 0"), "{fallback:?}");
     }
 
     #[test]

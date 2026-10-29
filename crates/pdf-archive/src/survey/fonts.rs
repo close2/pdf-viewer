@@ -165,7 +165,7 @@ impl Walk<'_> {
         let resources = own
             .as_dict()
             .cloned()
-            .unwrap_or_else(|| self.page_resources.clone());
+            .unwrap_or_else(|| (*self.page_resources).clone());
         let procedures = self.document.get_key(font, "CharProcs");
         let Some(procedures) = procedures.as_dict() else {
             return;

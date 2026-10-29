@@ -49,14 +49,16 @@
 //!
 //! # Which entries this module answers for, and why it is not all of them
 //!
-//! `/Width` and `/Height`, and nothing else. That scope is a *measurement* rather than caution:
+//! `/Width` and `/Height`, and nothing else, which is the scope a measurement found exercised:
 //! `crates/pdf-model/examples/integer_entry_census.rs` derives every key name the Arlington
 //! model types `integer` or `bitmask` and never `number`, and counts what stands at each over
-//! every corpus on the disk. A tolerance no document exercises is untested code rather than
-//! robustness, and how far the tolerance *should* travel is
-//! [`Q31`](../../../doc/questions/Q31-how-far-a-readers-tolerance-of-7-3-3-travels.md), open with
-//! the owner. What is settled meanwhile is the shape: wherever it goes, it goes into one
-//! function for that entry rather than into each call site.
+//! every corpus on the disk. How far the tolerance *should* travel is answered by the owner in
+//! [`A31`](../../../doc/questions/A31-how-far-a-readers-tolerance-of-7-3-3-travels.md): its
+//! question's option 2, one accessor applied wherever a table types an entry as an integer, with
+//! a warning where one is easily given. That accessor is not built — `pdf_syntax::Object` offers
+//! `as_integer` and `as_number` and nothing between them — and ADR 2564 lists it owed, `/Rotate`
+//! with it. What holds meanwhile is the shape: wherever the tolerance goes, it goes into one
+//! function rather than into each call site.
 //!
 //! # The nearest integer, not the truncated one
 //!

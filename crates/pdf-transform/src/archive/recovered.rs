@@ -376,7 +376,7 @@ fn with_resolved_entries(page: pdf_model::Page) -> Dictionary {
     if dict.get("Resources").is_none() && page.resources.iter().next().is_some() {
         dict.insert(
             Name::new(&b"Resources"[..]),
-            Object::Dictionary(page.resources),
+            Object::Dictionary(std::sync::Arc::unwrap_or_clone(page.resources)),
         );
     }
     if dict.get("MediaBox").is_none() && page.substituted_media_box.is_none() {

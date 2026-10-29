@@ -75,7 +75,7 @@ pub(super) fn measured_marks(
             decryption_failed: false,
         })),
     );
-    probe.resources = resources;
+    probe.resources = Arc::new(resources);
 
     let interpretation = interpret(document, &probe);
     if let Some(first) = interpretation.unsupported.first() {

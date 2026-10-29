@@ -650,7 +650,7 @@ impl<'a> Interpreter<'a> {
             ),
             page_resources: std::mem::replace(
                 &mut self.page_resources,
-                std::sync::Arc::new(page.resources.clone()),
+                std::sync::Arc::clone(&page.resources),
             ),
             view: std::mem::replace(&mut self.view, std::borrow::Cow::Owned(view)),
             // §6.3.2.2's delegation is a host naming widgets of the document it opened.

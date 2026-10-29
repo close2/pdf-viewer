@@ -148,8 +148,15 @@ converts at both targets under both profiles and passes veraPDF at both. Never f
 ISO 32000-2 §9.7.4.2 makes the CIDFont's own `.notdef` whatever glyph it is sent to (ADR 2557; veraPDF
 agrees): `4387ba48….pdf` and `emi15514-sup-0002-SupinfoS2.pdf` show one, and an embedded CMap sending
 the code to a fresh CID is what they would take. Refused as well where the checker's list of places
-is cut short (more than 32 places on glyph 0), since the fonts are named from it. A CFF or Type 1
-program (a charstring writer, ADR 2556 section 2) is owed. Mitigations `fonts/no-notdef-glyph-shown`; limits 2.2.
+is cut short (more than 32 places on glyph 0), since the fonts are named from it. **Built for a simple
+font's bare CFF program** (`/FontFile3 /Type1C`, ADR 2578): the program is written, its `CharStrings`
+INDEX grown by a copy of `.notdef`'s charstring per width (or a glyph that draws nothing where the code
+reached no glyph), the charset and String INDEX restated, and the encoding restated to name each copy
+where it named none; the rebuilt program is read back by `read-fonts` before the font is proved.
+`issue5256.pdf`, `issue7439.pdf` and `10531_2004_Article_5096977.pdf` convert at both targets under
+both profiles and pass veraPDF at both; six more lose this row and stay refused on others. A
+CID-keyed CFF and a Type 1 program are owed (ADR 2578 section 4). Mitigations
+`fonts/no-notdef-glyph-shown`; limits 2.2.
 
 **R11 — a TrueType code that reaches its glyph by a route ISO 19005 does not admit** (built; 13
 documents left of the 30 at 2b and 28 at 4, alone in 3 under `as-if-printed` and 1 under
@@ -239,6 +246,11 @@ stops, except where the page's readback names no character (ADR 2394's gate as i
 remedies exist for some: the bound names a content stream never uses can be renamed outright; a
 MediaBox past 14 400 units becomes a smaller box under `/UserUnit` (ADR 1123's bracket around the
 producer's operators); part 4 has none of part 2's limits (R06b). Q694 asks for the widening.
+A page photographed in a document that states optional content is drawn in the configuration this
+viewer shows and carries `optional-content-of-photographed-pages`, the groups it fixed named with
+the state drawn, under `as-if-printed` and `state-every-loss` at 2b and part 4; Level A and Level U
+keep the refusal (A717, ADR 2576). Where that page also holds content this reader does not draw
+whole, the refusal is that one's, and the photograph waits for the fence to name it.
 Mitigations section 4.7; limits 5.2.
 
 **R04 — a resource the content stream names and its dictionary does not hold** (22 documents;

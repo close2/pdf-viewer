@@ -120,6 +120,12 @@ pub(super) struct Coverage {
     /// The repair's own sentence, taken from the font the first time `lost` is raised, so that
     /// the page's report can say what was done to the program and not only what it cost.
     pub(super) shortfall: Option<String>,
+    /// How many of `empty` reached a glyph whose program the evaluator refused — a charstring
+    /// past the operation budget (ADR 2572) or any other error running it — which is a mark the
+    /// file may describe and this page did not draw (ADR 2586).
+    pub(super) refused: u32,
+    /// The first such refusal, with the glyph and the evaluator's reason, for the page's report.
+    pub(super) refusal: Option<pdf_font::OutlineRefused>,
     /// A `glyf` composite one of the empty codes reached that includes itself, which describes no
     /// outline at all: the program's fault, named in the report (ADR 1411).
     pub(super) cycle: Option<u16>,

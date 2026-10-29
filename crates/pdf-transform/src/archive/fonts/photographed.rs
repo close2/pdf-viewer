@@ -32,7 +32,8 @@
 //! - **the document states a structure tree** (§14.7), whose content items would be left pointing
 //!   at marked content no longer on the page, unless the profile authorised
 //!   [`crate::archive::Loss::TaggingOfPhotographedPages`] (below), **or optional content** (§8.11),
-//!   whose other configurations a photograph of one would discard.
+//!   whose other configurations a photograph of one would discard, unless the profile authorised
+//!   [`crate::archive::Loss::OptionalContentOfPhotographedPages`] (below).
 //!
 //! # The wider gate (A694 item 1)
 //!
@@ -41,8 +42,7 @@
 //! the pages photographed: a page showing a font that any route of this program refused to embed
 //! a face into, and a page holding a fault of its content stream the target refuses
 //! (`super::super::fenced`). The page's text is then named — in the report and in the file's
-//! history — because it is what the photograph turns into pixels. Optional content stays refused:
-//! its other configurations would be discarded, which is no part of what a print loses.
+//! history — because it is what the photograph turns into pixels.
 //!
 //! # A tagged document (A707)
 //!
@@ -50,6 +50,19 @@
 //! document that states a structure tree is photographed too, and the tree's leaves that name a
 //! photographed page are taken out of it (`super::untagged`): the loss is then exactly the pages
 //! the photograph already turned into pixels, and every other page keeps its tags.
+//!
+//! # A document with optional content (A717)
+//!
+//! Where the profile also authorises
+//! [`crate::archive::Loss::OptionalContentOfPhotographedPages`], a document that states optional
+//! content is photographed too, and the photograph bakes in the configuration this viewer shows:
+//! the page is interpreted under `pdf_model::view::ViewState::of`, the state the window opens the
+//! document in, which is §8.11.4.3's default configuration as §8.11.4.5 applies it for viewing,
+//! and never under §8.11.4.4's `Print` usage, because a conversion imitates no press (A694
+//! item 2). What the photograph discards is each group's other state on that page, so every group
+//! the page's content names (`pdf_model::optional_content::groups_referenced_by_content`) is
+//! recorded by its `/Name` with the state it was drawn in. The annotations stay annotations with
+//! their own `/OC`, the other pages keep their optional content, and `/OCProperties` stays.
 //!
 //! # Where it is offered
 //!
@@ -74,6 +87,7 @@ use pdf_archive::{Level, Target};
 use pdf_model::Pages;
 use pdf_model::content::Unsupported;
 use pdf_model::content::ledger::{Ledger, Outcome};
+use pdf_model::optional_content::OptionalContent;
 use pdf_render::{Point, Rasterizer as _, TargetSpec, Transform};
 use pdf_syntax::Document;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
@@ -137,6 +151,69 @@ pub struct PhotographedPage {
     /// tree with its content (ISO 32000-2 section 14.7.5): the loss
     /// [`crate::archive::Loss::TaggingOfPhotographedPages`] where it is not zero.
     pub structure_leaves: usize,
+    /// The optional content groups the page's content named, each in the state the photograph
+    /// drew it in, where the document states optional content (ISO 32000-2 section 8.11): the
+    /// loss [`crate::archive::Loss::OptionalContentOfPhotographedPages`] where it is `Some`, even
+    /// with no group listed, since the page was drawn in one configuration all the same.
+    pub optional_content: Option<FixedGroups>,
+}
+
+/// The optional content groups one photographed page's content named, as far as
+/// [`MAX_GROUPS_NAMED`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FixedGroups {
+    /// Each group, in the order of its object number.
+    pub groups: Vec<FixedGroup>,
+    /// How many more groups the content named than [`Self::groups`] lists.
+    pub left_out: usize,
+}
+
+/// One optional content group a photograph fixed in the state it was drawn in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FixedGroup {
+    /// The group's `/Name` (ISO 32000-2 section 8.11.2.1's Table 96), or its object number where
+    /// it states none.
+    pub name: String,
+    /// The state it was drawn in: `Some(true)` on, `Some(false)` off, and `None` for a group the
+    /// configuration's `/Intent` does not consider, which decided nothing (section 8.11.2.3).
+    pub drawn: Option<bool>,
+}
+
+impl FixedGroup {
+    /// The state drawn, as the report and the history name it.
+    #[must_use]
+    pub const fn state_word(&self) -> &'static str {
+        match self.drawn {
+            Some(true) => "on",
+            Some(false) => "off",
+            None => "not considered",
+        }
+    }
+}
+
+impl FixedGroups {
+    /// The groups as a clause for the report and the history: each name in quotation marks with
+    /// its state, or a sentence saying the page's content named none.
+    #[must_use]
+    pub fn named(&self) -> String {
+        if self.groups.is_empty() {
+            return "its content's resources name no optional content group".to_owned();
+        }
+        let listed: Vec<String> = self
+            .groups
+            .iter()
+            .map(|group| format!("\"{}\" {}", group.name, group.state_word()))
+            .collect();
+        let more = if self.left_out == 0 {
+            String::new()
+        } else {
+            format!(" and {} more", self.left_out)
+        };
+        format!(
+            "the optional content groups it was drawn with, fixed as drawn: {}{more}",
+            listed.join(", ")
+        )
+    }
 }
 
 impl PhotographedPage {
@@ -149,6 +226,9 @@ impl PhotographedPage {
         }
         if self.structure_leaves > 0 {
             losses.push(Loss::TaggingOfPhotographedPages);
+        }
+        if self.optional_content.is_some() {
+            losses.push(Loss::OptionalContentOfPhotographedPages);
         }
         losses
     }
@@ -188,6 +268,14 @@ pub(super) const fn offered(target: Target) -> bool {
 /// counted, so that a page of a book does not become a megabyte of report.
 pub const MAX_TEXT_CHARS: usize = 1_000;
 
+/// How many optional content groups the report and the history name for one photographed page;
+/// the rest are counted, so that a page naming a document's thousand layers does not become a
+/// thousand names in every entry.
+pub const MAX_GROUPS_NAMED: usize = 64;
+
+/// How many characters of one group's `/Name` the report and the history repeat.
+pub const MAX_GROUP_NAME_CHARS: usize = 200;
+
 /// How many pages the wider gate photographs in one conversion. Each is a raster at
 /// [`DOTS_PER_INCH`] held until the file is written, so a document that fails on every page of a
 /// long book is refused by name rather than held in memory. The pages the narrow gate admits are
@@ -210,10 +298,22 @@ pub(in super::super) struct Gate<'a> {
     /// The pages (zero-based) that hold a fault of their content stream, with the requirements,
     /// where `anywhere` (`super::super::fenced::pages`).
     pub(in super::super) fenced: &'a super::super::fenced::Fenced,
-    /// Whether the profile authorised [`crate::archive::Loss::TaggingOfPhotographedPages`] at a
-    /// target that offers a photograph, so that a document stating a structure tree is
-    /// photographed and the tree's leaves that name a photographed page are taken out of it.
+    /// What a photograph may take from a document that states more than its pages.
+    pub(in super::super) beyond: Beyond,
+}
+
+/// The losses a photographed page carries in a document that states a structure tree or optional
+/// content, each authorised only at a target that offers a photograph.
+#[derive(Debug, Clone, Copy)]
+pub(in super::super) struct Beyond {
+    /// Whether the profile authorised [`crate::archive::Loss::TaggingOfPhotographedPages`], so
+    /// that a document stating a structure tree is photographed and the tree's leaves that name a
+    /// photographed page are taken out of it.
     pub(in super::super) untags: bool,
+    /// Whether the profile authorised [`crate::archive::Loss::OptionalContentOfPhotographedPages`],
+    /// so that a document stating optional content is photographed in the configuration this
+    /// viewer shows.
+    pub(in super::super) layers: bool,
 }
 
 impl<'a> Gate<'a> {
@@ -221,14 +321,17 @@ impl<'a> Gate<'a> {
     /// all, and nothing fenced is photographed where it does not.
     pub(in super::super) fn new(
         target: Target,
-        (anywhere, untags): (bool, bool),
+        (anywhere, untags, layers): (bool, bool, bool),
         fenced: &'a super::super::fenced::Fenced,
     ) -> Self {
         Self {
             offered: offered(target),
             anywhere: anywhere && offered(target),
             fenced,
-            untags: untags && offered(target),
+            beyond: Beyond {
+                untags: untags && offered(target),
+                layers: layers && offered(target),
+            },
         }
     }
 
@@ -236,6 +339,27 @@ impl<'a> Gate<'a> {
     pub(in super::super) const fn admits(target: Target) -> bool {
         offered(target)
     }
+}
+
+/// The one sRGB profile every photograph of this document names, written at the first.
+fn srgb_profile(
+    document: &Document,
+    spare: &mut Spare,
+    substitutes: &mut Substitutes,
+    profile: &mut Option<ObjectId>,
+) -> Result<ObjectId, Because> {
+    if let Some(icc) = *profile {
+        return Ok(icc);
+    }
+    let at = spare
+        .take(document)
+        .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
+    substitutes.written.insert(
+        at,
+        profile_stream(SRGB, pdf_archive::survey::DeviceFamily::Rgb),
+    );
+    *profile = Some(at);
+    Ok(at)
 }
 
 /// Holds a font whose glyphs no face can be keyed to until its pages are known.
@@ -282,7 +406,11 @@ pub(super) fn photograph(
             None => Err(Because::NotBuiltYet(NOT_OFFERED)),
         };
     }
-    let structured = what_the_document_states(document, gate)?;
+    let Stated {
+        structured,
+        layered,
+        configuration,
+    } = what_the_document_states(document, gate)?;
     let every = Pages::new(document).every();
     if gate.anywhere {
         refuse_fenced_pages_past_the_bounds(&every, gate)?;
@@ -327,18 +455,7 @@ pub(super) fn photograph(
             interpretation.display_list.page_size.height,
             &raster,
         )?;
-        let missing = Because::NotBuiltYet(NO_SPARE_OBJECT);
-        let icc = if let Some(icc) = profile {
-            icc
-        } else {
-            let at = spare.take(document).ok_or(missing)?;
-            substitutes.written.insert(
-                at,
-                profile_stream(SRGB, pdf_archive::survey::DeviceFamily::Rgb),
-            );
-            profile = Some(at);
-            at
-        };
+        let icc = srgb_profile(document, spare, substitutes, &mut profile)?;
         let photograph = written(document, &raster, icc, placed, spare, substitutes)?;
         substitutes.photographs.insert(id, photograph);
         for &font in &shown {
@@ -347,13 +464,17 @@ pub(super) fn photograph(
             }
         }
         taken_here.push((id, substitutes.photographed.len()));
-        substitutes.photographed.push(photographed_page(
+        let mut taken = photographed_page(
             index,
             &interpretation.text,
             (&shown, fenced),
             &raster,
             &substitutes.deferred,
-        ));
+        );
+        if layered {
+            taken.optional_content = Some(fixed_groups(document, &page, configuration.as_ref()));
+        }
+        substitutes.photographed.push(taken);
     }
     // A font no page's content showed was reached some other way — an annotation's appearance is
     // the one the content-only interpretation leaves out — and a photograph of a page cannot take
@@ -378,18 +499,83 @@ pub(super) fn photograph(
     Ok(())
 }
 
-/// The gate's two conditions on the document as a whole, and whether it states a structure tree
-/// whose leaves are then taken out for each page photographed.
-fn what_the_document_states(document: &Document, gate: Gate<'_>) -> Result<bool, Because> {
+/// What the gate's two conditions on the document as a whole found.
+struct Stated {
+    /// Whether it states a structure tree, whose leaves are taken out for each page photographed.
+    structured: bool,
+    /// Whether it states `/OCProperties`, so that each page photographed incurs
+    /// [`crate::archive::Loss::OptionalContentOfPhotographedPages`].
+    layered: bool,
+    /// The configuration the pages are photographed in, `None` where §8.11.4.2's dictionary is not
+    /// one the interpreter reads, so that no group decided anything.
+    configuration: Option<OptionalContent>,
+}
+
+/// [`Stated`], or the gate's sentence for a document it may not photograph.
+fn what_the_document_states(document: &Document, gate: Gate<'_>) -> Result<Stated, Because> {
     let catalog = document.catalog().unwrap_or_default();
     let structured = catalog.get("StructTreeRoot").is_some();
-    if structured && !gate.untags {
+    if structured && !gate.beyond.untags {
         return Err(Because::NotBuiltYet(STRUCTURED));
     }
-    if catalog.get("OCProperties").is_some() {
+    let layered = catalog.get("OCProperties").is_some();
+    if layered && !gate.beyond.layers {
         return Err(Because::NotBuiltYet(LAYERED));
     }
-    Ok(structured)
+    Ok(Stated {
+        structured,
+        layered,
+        // The configuration `interpret_ledgered` draws under, read as `ViewState::of` reads it.
+        configuration: if layered {
+            OptionalContent::read(document)
+        } else {
+            None
+        },
+    })
+}
+
+/// Every optional content group a photographed page's content names, each with the state the
+/// photograph drew it in (`doc/questions/A717`): its other state is what the photograph discards.
+///
+/// The walk is `pdf_model`'s, bounded by its form depth and its visited set; what is kept of it is
+/// bounded by [`MAX_GROUPS_NAMED`] names of at most [`MAX_GROUP_NAME_CHARS`] characters each.
+fn fixed_groups(
+    document: &Document,
+    page: &pdf_model::Page,
+    configuration: Option<&OptionalContent>,
+) -> FixedGroups {
+    let named = pdf_model::optional_content::groups_referenced_by_content(document, page);
+    let left_out = named.len().saturating_sub(MAX_GROUPS_NAMED);
+    let groups = named
+        .into_iter()
+        .take(MAX_GROUPS_NAMED)
+        .map(|group| FixedGroup {
+            name: group_name(document, group),
+            drawn: configuration.and_then(|configuration| configuration.state(group)),
+        })
+        .collect();
+    FixedGroups { groups, left_out }
+}
+
+/// A group's `/Name` as far as [`MAX_GROUP_NAME_CHARS`], or its object number where it states
+/// none.
+fn group_name(document: &Document, group: ObjectId) -> String {
+    let stated =
+        document
+            .get(group)
+            .as_dict()
+            .and_then(|dict| match document.get_key(dict, "Name") {
+                Object::String(bytes) => Some(pdf_syntax::text_string(&bytes)),
+                _ => None,
+            });
+    let Some(stated) = stated else {
+        return format!("object {} {}", group.number, group.generation);
+    };
+    let mut name: String = stated.chars().take(MAX_GROUP_NAME_CHARS).collect();
+    if stated.chars().nth(MAX_GROUP_NAME_CHARS).is_some() {
+        name.push_str(" ...");
+    }
+    name
 }
 
 /// Takes the structure tree's leaves that name a photographed page out of the tree, writing each
@@ -448,6 +634,7 @@ fn photographed_page(
         requirements,
         anywhere,
         structure_leaves: 0,
+        optional_content: None,
     }
 }
 
@@ -839,7 +1026,11 @@ pub(super) fn recorded(pages: &[PhotographedPage]) -> String {
     pages
         .iter()
         .map(|page| {
-            let untagged = leaves_named(page.structure_leaves);
+            let untagged = format!(
+                "{}{}",
+                leaves_named(page.structure_leaves),
+                groups_fixed(page.optional_content.as_ref())
+            );
             if !page.anywhere {
                 return format!(
                     "page {} was replaced by a photograph of itself at {} dpi, the text of {} \
@@ -890,6 +1081,11 @@ pub(in super::super) fn leaves_named(leaves: usize) -> String {
     }
 }
 
+/// What follows a page's history entry and its report line when the page fixed optional content.
+fn groups_fixed(groups: Option<&FixedGroups>) -> String {
+    groups.map_or_else(String::new, |groups| format!(", and {}", groups.named()))
+}
+
 /// What follows a page's named text when characters of it are not repeated.
 pub(in super::super) fn elided(left_out: usize) -> String {
     if left_out == 0 {
@@ -929,7 +1125,8 @@ const STRUCTURED: &str = "this document has a page that would be photographed, a
 /// The gate: optional content a photograph of one configuration would discard.
 const LAYERED: &str = "this document has a page that would be photographed, and states optional \
      content (ISO 32000-2 section 8.11), whose other configurations a photograph of the one this \
-     viewer shows would discard";
+     viewer shows would discard; authorise optional-content-of-photographed-pages to photograph \
+     the page in that configuration and name the groups it fixes";
 
 /// The ledger stopped before the page's lookups were all kept.
 const LEDGER_TRUNCATED: &str = "a page of this document names so many resources that the record of \
@@ -979,6 +1176,7 @@ mod tests {
             requirements: Vec::new(),
             anywhere: true,
             structure_leaves: 0,
+            optional_content: None,
         }
     }
 
@@ -996,7 +1194,7 @@ mod tests {
     #[test]
     fn a_construction_this_reader_composites_otherwise_leaves_the_page_refused() {
         let fenced = super::super::super::fenced::Fenced::default();
-        let wide = Gate::new(Target::Two(Level::B), (true, false), &fenced);
+        let wide = Gate::new(Target::Two(Level::B), (true, false, false), &fenced);
         // §9.3.8, §11.4, §11.6.2 and §11.7.4 define these; a photograph would record this reader's
         // shortfall as the document's loss.
         for gap in [
@@ -1018,7 +1216,7 @@ mod tests {
             takes: 4,
         };
         assert!(!leaves_the_page_undrawn(&fault, wide));
-        let narrow = Gate::new(Target::Two(Level::B), (false, false), &fenced);
+        let narrow = Gate::new(Target::Two(Level::B), (false, false, false), &fenced);
         assert!(leaves_the_page_undrawn(&fault, narrow));
     }
 

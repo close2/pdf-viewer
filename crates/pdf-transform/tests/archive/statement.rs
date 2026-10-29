@@ -479,3 +479,78 @@ fn a_halftone_name_is_stated_at_part_two() {
         "{page}"
     );
 }
+
+#[test]
+fn a_halftone_statement_that_cannot_be_composed_says_why_beside_the_discard() {
+    // `doc/rfc/0014` section 3: a page that cannot be composed hands each object to the next
+    // step, and the report names each object's step. Seventeen graphics states with a halftone
+    // origin, each naming a halftone with a name, are thirty-four entries at two rows, two more
+    // than a statement lists, so no page is composed, `discard` takes the entries, and the report
+    // says why no page lists them (`doc/adr/2591`).
+    let target = Target::Four(Flavour::Plain);
+    let states: usize = 17;
+    let source = Conforming {
+        resources: format!(
+            "/ExtGState << {} >>",
+            (0..states)
+                .map(|n| format!("/G{n} {} 0 R", 6 + 2 * n))
+                .collect::<Vec<_>>()
+                .join(" ")
+        ),
+        objects: (0..states)
+            .flat_map(|n| {
+                [
+                    format!("<< /Type /ExtGState /HTO [0 0] /HT {} 0 R >>", 7 + 2 * n),
+                    format!(
+                        "<< /Type /Halftone /HalftoneType 1 /HalftoneName (D{n}) /Frequency 60 \
+                         /Angle 45 /SpotFunction /Round >>"
+                    ),
+                ]
+            })
+            .collect(),
+        contents: Some((
+            String::new(),
+            (0..states)
+                .fold(String::new(), |mut out, n| {
+                    let _ = write!(out, "/G{n} gs ");
+                    out
+                })
+                .into_bytes(),
+        )),
+        ..Conforming::default()
+    }
+    .build();
+    let plan = planned(STATE_EVERY_LOSS, target);
+    let (report, output) = convert_with_plan(&source, &plan);
+    let conversion = conversion(&report);
+    let output = output.unwrap_or_else(|| panic!("{}", conversion.render()));
+    let held = holds(&output, target);
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    assert!(conversion.statement.is_none(), "no page is composed");
+    assert_eq!(pages_of(&output), pages_of(&source));
+    let sites: Vec<&str> = conversion.unstated.iter().map(|row| row.site).collect();
+    assert_eq!(
+        sites,
+        [
+            "graphics/no-halftone-origin-in-a-graphics-state",
+            "graphics/no-halftone-name",
+        ],
+        "in the validator's order: {:?}",
+        conversion.unstated
+    );
+    let rendered = conversion.render();
+    for unstated in &conversion.unstated {
+        assert_eq!(unstated.then, pdf_transform::archive::RemedyKind::Discard);
+        assert!(
+            unstated.because.contains("thirty-two objects"),
+            "the composition's own sentence: {}",
+            unstated.because
+        );
+        assert!(
+            rendered.contains(&format!("not stated: {}", unstated.site)),
+            "{rendered}"
+        );
+    }
+    let json = conversion.to_json().render();
+    assert!(json.contains("thirty-two objects"), "{json}");
+}

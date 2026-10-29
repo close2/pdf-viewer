@@ -7,12 +7,14 @@
 //! rules, and the store clause beside them, are what this module reads. ETSI's texts are cited by
 //! clause and never quoted: their notice permits no reproduction (ADR 1085).
 //!
-//! # The three questions this module answers, and the one it does not
+//! # The questions this module answers, and the one it hands on
 //!
 //! §12.8.3.4.4 states one obligation on a validator about the policy — that a conforming signature
 //! handler "shall enforce signature policy constraints" — and enforcing a constraint means reading
-//! the policy document, which is written in a syntax the signature itself names and this project
-//! does not hold. What is *not* in that gap, and is done here:
+//! the policy document in the syntax it is written in. Both of the ASN.1 syntaxes are held, ETSI TR
+//! 102 272's and ETSI TS 119 172-3's, and [`crate::policy_rules`] reads and enforces each (ADR
+//! 2560); a document in any other syntax is said to be one and nothing in it is enforced. What
+//! comes before that enforcement, and is done here:
 //!
 //! - **Which policy.** [`SignaturePolicy::identifier`] is the object identifier the signer signed,
 //!   as dotted decimal.

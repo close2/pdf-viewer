@@ -23,6 +23,11 @@
 //!   changed. The pages do not order a container's `enter` against the field's; outermost first
 //!   is the order page 387 reports Adobe's processor dispatching a propagating event in, an `exit`
 //!   innermost first is its mirror, and both are choices (ADR 2566).
+//! - A mouse click within a field's region ([`Stimulus::Click`]): the field's own `click` events
+//!   (page 391), and then the calculations that depend on what they changed. Page 390 gives a
+//!   subform and an exclusion group no `click`, and an event reaches an enclosing container only
+//!   where the container's event says `listen="refAndDescendents"` (page 387), whose default is
+//!   `refOnly` — so the field's are the only ones a click fires here (ADR 2584).
 //! - Value calculations come before property calculations, and among the property calculations
 //!   the inner subform before the outer one (page 405, rule 1, items 4 and 5). Among value
 //!   calculations the order is the template's own, except that a calculation comes after the
@@ -49,7 +54,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::{Calculation, Form, Scalar};
 use crate::xfa::datasets::Change;
-use crate::xfa::template::{Class, Language, Override};
+use crate::xfa::template::{Class, Language, Override, Performs};
 use crate::xfa::{Resource, Template};
 
 /// What a [`Runner`] says of one script.
@@ -165,6 +170,12 @@ pub enum Stimulus<'a> {
         reached: &'a str,
         /// The field it came from, where it came from one.
         leaving: Option<&'a str>,
+    },
+    /// A mouse click occurred within the region of the field `clicked` (page 391): the field's own
+    /// `click` events.
+    Click {
+        /// The field clicked, by its PDF field name.
+        clicked: &'a str,
     },
 }
 
@@ -296,6 +307,11 @@ impl Resource {
                 let mut crossed = session.crossed(reached, leaving);
                 crossed.reverse();
                 session.fire("enter", Some(&crossed));
+                session.settle(Seeds::Changed);
+            }
+            Stimulus::Click { clicked } => {
+                let field = session.clicked(clicked);
+                session.fire("click", Some(&field));
                 session.settle(Seeds::Changed);
             }
         }
@@ -444,6 +460,33 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             .collect()
     }
 
+    /// The container a click on the field `field` fires the `click` events of: the field alone
+    /// (pages 387 and 390–391). A name the form's field list does not hold, and a name that reaches
+    /// an exclusion group — whose PDF field is one for all its buttons, so the name does not say
+    /// which of its fields the click was within — fire nothing and say so.
+    fn clicked(&mut self, field: &str) -> Vec<usize> {
+        let Some(node) = self.form.named(field) else {
+            self.say(format!("{field}: the form's field list does not name it"));
+            return Vec::new();
+        };
+        match self.template.get(node).map(|container| container.class) {
+            Some(Class::Field) => vec![node],
+            Some(Class::ExclGroup) => {
+                self.say(format!(
+                    "{field}: its click events are not run: it is an exclusion group, and a                      click on one of its buttons does not name which of its fields it was within"
+                ));
+                Vec::new()
+            }
+            _ => {
+                self.say(format!(
+                    "{field}: its click events are not run: the template container it names is \
+                     not a field"
+                ));
+                Vec::new()
+            }
+        }
+    }
+
     /// Records a sentence once.
     fn say(&mut self, mut sentence: String) {
         if self.report.len() >= MAX_REPORT {
@@ -524,16 +567,27 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             let Some(container) = self.template.get(node) else {
                 continue;
             };
-            let scripts: Vec<_> = container
+            let performed: Vec<_> = container
                 .events
                 .iter()
                 .filter(|event| event.own && event.activity == activity)
-                .map(|event| event.script.clone())
+                .map(|event| event.performs.clone())
                 .collect();
-            for script in scripts {
+            for performs in performed {
                 if self.ended.is_some() {
                     return;
                 }
+                let script = match performs {
+                    Performs::Script(script) => script,
+                    Performs::Unperformed(property) => {
+                        let label = self.label(node);
+                        self.say(format!(
+                            "{label}: its {activity} event's {property} is not performed (XFA \
+                             3.3 page 703)"
+                        ));
+                        continue;
+                    }
+                };
                 if let Err(why) = self.execute(None, node, &script.language, &script.text) {
                     let label = self.label(node);
                     self.say(format!("{label}: its {activity} event: {why}"));

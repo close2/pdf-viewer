@@ -345,7 +345,7 @@ pub fn page_as_form(
     }
     form.insert(
         pdf_syntax::Name::new(&b"Resources"[..]),
-        Object::Dictionary(page.resources.clone()),
+        Object::Dictionary((*page.resources).clone()),
     );
     if let Some(group) = dict.get("Group") {
         form.insert(pdf_syntax::Name::new(&b"Group"[..]), group.clone());

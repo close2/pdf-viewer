@@ -337,7 +337,7 @@ pub(crate) fn run(
                     page_id,
                     placed: page_id,
                     content: edit.content,
-                    resources: page.resources.clone(),
+                    resources: (*page.resources).clone(),
                     images,
                     forms: edit.forms,
                     states: edit.states,
@@ -1737,7 +1737,7 @@ impl<'a> Walk<'a> {
         Self {
             document,
             page,
-            resources: page.resources.clone(),
+            resources: (*page.resources).clone(),
             quads: interpretation
                 .text_layer
                 .iter()

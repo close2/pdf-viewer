@@ -70,11 +70,6 @@ fn hands_on_at(step: Step<'_>, site: &str) -> bool {
     step.hands_on() || (step == Step::AppendStatement && STATED_GRAPHICS.contains(&site))
 }
 
-/// Why `derive:<tool>:append` is passed over in this version.
-const DERIVED_PAGES_UNBUILT: &str = "a derived file appended as pages is doc/rfc/0014 section \
-     5's third stage, which this version does not build; derive:<tool>:attach attaches the \
-     derived file";
-
 /// Why `depart:<name>` is passed over as a step.
 const DEPARTURE_IS_ITS_OWN_TABLE: &str = "a departure is stated in its own [depart.\"…\"] table, \
      whose predicate decides which objects it covers, and this version reads no departure as a \
@@ -225,13 +220,13 @@ fn alone(row: &Row, step: Step<'_>) -> Result<Result<Row, &'static str>, ConfigE
             alone.remedy = Kind::Preserve;
             alone.placement = placement.or(row.placement);
         }
-        Step::Derive {
-            placement: Some(Placement::Append),
-            ..
-        } => return Ok(Err(DERIVED_PAGES_UNBUILT)),
-        Step::Derive { tool, .. } => {
+        // Both placements are `doc/rfc/0014` section 5's stages: the derived file kept an
+        // attachment, or converted and its pages appended (`doc/adr/2539`), each the row a
+        // `remedy = "derive"` with that `placement` makes.
+        Step::Derive { tool, placement } => {
             alone.remedy = Kind::Derive;
             alone.tool = tool.map(str::to_owned).or_else(|| row.tool.clone());
+            alone.placement = placement.or(row.placement);
             // `A55`'s guardrail, for the step as for the remedy: the site and the tool, both.
             if alone.tool.is_none() {
                 return Err(ConfigError::DeriveWithoutTool {
@@ -341,7 +336,10 @@ pub(super) fn statement(row: &Row) -> Option<Statement> {
 fn step_word(row: &Row) -> String {
     match (row.remedy, row.placement, row.tool.as_deref()) {
         (Kind::Preserve, Some(placement), _) => format!("preserve:{}", placement.word()),
-        (Kind::Derive, _, Some(tool)) => format!("derive:{tool}:attach"),
+        (Kind::Derive, placement, Some(tool)) => format!(
+            "derive:{tool}:{}",
+            placement.unwrap_or(Placement::Attach).word()
+        ),
         (kind, _, _) => kind.word().to_owned(),
     }
 }
@@ -378,7 +376,7 @@ pub(super) fn resolve_all(
 mod tests {
     use pdf_archive::{Flavour, Level, Target};
 
-    use super::super::{ConfigError, Configuration, Kind};
+    use super::super::{ConfigError, Configuration, Kind, Placement};
 
     const TWO_B: Target = Target::Two(Level::B);
     const SITE: &str = "embedded-files/embedded-file-is-itself-pdfa";
@@ -421,6 +419,32 @@ mod tests {
         )
         .expect("the keys read");
         assert_eq!(listed.preservations(TWO_B), keyed.preservations(TWO_B));
+    }
+
+    #[test]
+    fn a_derived_file_appended_as_pages_is_the_row_its_keys_make() {
+        // `doc/rfc/0014` section 5's third stage is built (`doc/adr/2539`), so the step is read
+        // as `remedy = "derive"` with `placement = "append"` and passed over at no target.
+        let tool = "[tool.to-pdf]\nprogram = \"/usr/bin/true\"\nargs = [\"{in}\", \"{out}\"]\n\
+                    expects = \"application/pdf\"\ntimeout = \"60s\"\noutput-limit = \"1MiB\"\n";
+        let listed = Configuration::read(
+            &format!("{}{tool}", listing(r#"try = ["derive:to-pdf:append"]"#)),
+            TWO_B,
+        )
+        .expect("the list reads");
+        let keyed = Configuration::read(
+            &format!(
+                "{}{tool}",
+                listing("remedy = \"derive\"\ntool = \"to-pdf\"\nplacement = \"append\"")
+            ),
+            TWO_B,
+        )
+        .expect("the keys read");
+        assert!(listed.skipped().is_empty(), "{:?}", listed.skipped());
+        let derivations = listed.derivations(TWO_B);
+        assert_eq!(derivations.len(), 1, "{derivations:?}");
+        assert_eq!(derivations[0].placement, Placement::Append);
+        assert_eq!(derivations, keyed.derivations(TWO_B));
     }
 
     #[test]

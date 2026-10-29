@@ -2126,3 +2126,35 @@ directory is the owner's, ignored by git, present in every checkout here and abs
 checks out, so the teaching gate passed locally and failed on main until 2d54febf reworded the sentence.
 A path a walk names is checked with `git ls-files --error-unmatch <path>` in the worktree, and a resource
 kept outside the tree is described by where it is kept, not by a path.
+
+### 300. A sentence naming a budget is checked for what else it covers
+
+Two JPX tests in `pdf-transform`'s archive suite failed under load and passed alone, printing "the ordinary
+decoder's budget". Round 1879 (ADR 2592) found no budget at all: the decode route is process-wide, a
+sibling test switches it to the sandbox worker, and that worker's binary had gone stale — its build identity
+covers `Cargo.lock`, which batch 127 changed, and `cargo test` does not rebuild it. The sentence covered
+every sandbox error. Before a red that names a budget is read as one, the error variants that map to the
+sentence are listed, and a test that decodes states the route it takes itself.
+
+### 301. A program writer reads its own tables back before any outline proof
+
+Round 1872 (ADR 2578) grew a CFF program's CharStrings INDEX and proved the font by reloading it and
+reaching every shown code. A planted offset one byte short passed: an empty glyph that loses its `endchar`
+still draws nothing. A proof that compares only what a rewritten font draws cannot see damage that draws
+the same thing, so a writer parses what it wrote through the font reader, table by table, before any
+outline is compared, and a conversion whose program will not read back writes no file.
+
+### 302. A lifted condition is checked as the last one holding the document
+
+Round 1871 (ADR 2576) built the loss A717 asked for and the three documents its brief named still did
+not convert: they passed the new gate and the next condition in `photographed.rs` refused them. The
+brief's finish line rested on a census line, not on the documents' whole refusal path. Before a slot's
+finish line names a document, the converter at HEAD is run on it and every condition that would refuse it
+after the one being lifted is read and named, so the slot knows whether it frees the document or moves it.
+
+### 303. Clippy on one crate lints its path dependencies too
+
+Round 1875 ran `cargo clippy -p pdf-model` and read a `too_many_lines` in `pdf-font/src/cff.rs` as its
+own red; round 1878 met a `doc_markdown` in a sibling's hunk of a file both edited. Clippy lints every
+workspace path dependency it compiles. A round checks its crate with `--no-deps`, attributes a red in a
+shared file by `git diff` of that file before touching it, and re-runs once the sibling has closed.

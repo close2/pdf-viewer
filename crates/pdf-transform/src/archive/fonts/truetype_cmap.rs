@@ -41,7 +41,7 @@ use pdf_archive::survey::Survey;
 use super::super::decision::Because;
 use super::super::prepare::Spare;
 use super::super::sites::{dictionary_of, loaded_as_stated, objects_named};
-use super::{cid_notdef_glyph, notdef_glyph};
+use super::{cff_notdef_glyph, cid_notdef_glyph, notdef_glyph};
 
 /// The requirements a font's restated `cmap` answers.
 pub(in crate::archive) const ANSWERED: [&str; 4] = [
@@ -100,13 +100,16 @@ pub(in crate::archive) const NOTDEF_NOT_GIVEN: &str = "this file shows a charact
      reaches the .notdef glyph of an embedded TrueType program, and this conversion gives such a \
      code a glyph of its own whose outline and advance are copied from the program's .notdef \
      glyph, reached through a restated cmap, or for a CIDFontType2 through a restated \
-     CIDToGIDMap. It does that only for a TrueType program it can extend and prove, and only \
-     where every font the requirement names has one: a font here is another kind, reaches no \
-     glyph at all for its code, or could not be extended";
+     CIDToGIDMap; in a simple font's CFF program the code is given a copy of the .notdef \
+     charstring, or a glyph that draws nothing where it reached no glyph, under the name its \
+     encoding gives it or a new one the encoding is restated to name. It does that only for a \
+     TrueType or simple CFF program it can extend and prove, and only where every font the \
+     requirement names has one: a font here is another kind, reaches no glyph at all for its \
+     code, or could not be extended";
 
-/// Whether every font the [`NOTDEF_ROWS`] name has a TrueType program the copy reaches — a simple
-/// TrueType font, or a `Type0` font over a `CIDFontType2` ([`cid_notdef_glyph::is_cid_truetype`])
-/// — every place they name is an object and no list of their places was cut short: the condition
+/// Whether every font the [`NOTDEF_ROWS`] name has a program the copy reaches — a simple
+/// TrueType font, a `Type0` font over a `CIDFontType2` ([`cid_notdef_glyph::is_cid_truetype`]),
+/// or a simple font over a bare CFF program ([`cff_notdef_glyph::is_simple_cff`]) — every place they name is an object and no list of their places was cut short: the condition
 /// for the rows to join [`restated`], which refuses whole on a font it cannot carry.
 pub(in crate::archive) fn notdef_fonts_have_truetype_programs(
     document: &Document,
@@ -132,6 +135,7 @@ pub(in crate::archive) fn notdef_fonts_have_truetype_programs(
                     .map(Name::as_bytes)
                     == Some(&b"TrueType"[..])
                     || cid_notdef_glyph::is_cid_truetype(document, dict)
+                    || cff_notdef_glyph::is_simple_cff(document, dict)
             })
         })
 }
@@ -147,6 +151,10 @@ pub(in crate::archive) struct CmapRestated {
     /// The new descriptor and `/CIDToGIDMap` each `CIDFontType2` descendant names, by
     /// descendant, for the `Type0` fonts of [`Self::notdef_given`] (`doc/adr/2556`).
     pub(in crate::archive) descendants: BTreeMap<ObjectId, (ObjectId, ObjectId)>,
+    /// The new descriptor, and the restated `/Encoding` where a code needed a name of its own,
+    /// each simple CFF font of [`Self::notdef_given`] names, by font dictionary
+    /// (`doc/adr/2578`).
+    pub(in crate::archive) cff: BTreeMap<ObjectId, (ObjectId, Option<Object>)>,
     /// Whether every font the [`NOTDEF_ROWS`] name is in [`Self::notdef_given`], which is when
     /// those rows are answered.
     pub(in crate::archive) notdef_answered: bool,
@@ -166,8 +174,30 @@ impl CmapRestated {
     /// condition that the file's own history names the clause it answers, and the entry names
     /// the font objects, up to [`MOST_NAMED`], so a reader of the archive can find them.
     pub(in crate::archive) fn history(&self) -> Option<String> {
-        if self.descriptors.is_empty() && self.descendants.is_empty() {
+        if self.descriptors.is_empty() && self.descendants.is_empty() && self.cff.is_empty() {
             return None;
+        }
+        let cff = if self.cff.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "ISO 19005-2 sections 6.2.11.4.1 and 6.2.11.8 and ISO 19005-4 sections 6.2.10.4.1 \
+                 and 6.2.10.9: the CFF program of {} simple font(s) gained a glyph for each code \
+                 that reached .notdef, whose outline is the program's own .notdef glyph's, and for \
+                 each code that reached no glyph, which draws nothing, each at the width the font \
+                 dictionary states, so no mark moved and no content stream changed: fonts, in the \
+                 source's object numbering, {}",
+                self.cff.len(),
+                self.cff
+                    .keys()
+                    .take(MOST_NAMED)
+                    .map(|id| format!("{} {} R", id.number, id.generation))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
+        if self.descriptors.is_empty() && self.descendants.is_empty() {
+            return Some(cff);
         }
         let composite = if self.descendants.is_empty() {
             String::new()
@@ -187,8 +217,14 @@ impl CmapRestated {
                     .join(", ")
             )
         };
+        // The CFF fonts' sentence follows whatever the TrueType ones said.
+        let cff = if cff.is_empty() {
+            cff
+        } else {
+            format!("; {cff}")
+        };
         if self.descriptors.is_empty() {
-            return Some(composite);
+            return Some(format!("{composite}{cff}"));
         }
         let named: Vec<String> = self
             .descriptors
@@ -205,7 +241,8 @@ impl CmapRestated {
         let simple_given = self
             .notdef_given
             .len()
-            .saturating_sub(self.descendants.len());
+            .saturating_sub(self.descendants.len())
+            .saturating_sub(self.cff.len());
         let given = if simple_given == 0 {
             String::new()
         } else {
@@ -220,7 +257,7 @@ impl CmapRestated {
              rendered TrueType font(s) now carries the Macintosh Roman (1, 0) and Microsoft \
              Symbol (3, 0) cmap subtables mapping each code to the glyph this reader drew, the \
              font is the symbolic font ISO 32000-2 section 9.6.5.4 describes and states no \
-             Encoding{given}, so no mark moved and no content stream changed: fonts, in the source's object numbering, {}{tail}{}{composite}",
+             Encoding{given}, so no mark moved and no content stream changed: fonts, in the source's object numbering, {}{tail}{}{composite}{cff}",
             self.descriptors.len(),
             named.join(", "),
             if composite.is_empty() { "" } else { "; " }
@@ -304,6 +341,9 @@ pub(in crate::archive) fn restated(
             let shown = used
                 .iter()
                 .flat_map(|used| used.shown.keys().map(Vec::as_slice));
+            if cid_notdef_glyph::shows_cid_0(document, dict, shown.clone()) {
+                return Err(Because::NotBuiltYet(cid_notdef_glyph::CID_0_SHOWN));
+            }
             let Some(given) = cid_notdef_glyph::given(
                 document,
                 dict,
@@ -328,6 +368,19 @@ pub(in crate::archive) fn restated(
             found.notdef_given.insert(id);
             continue;
         }
+        // A simple font over a bare CFF program reaches this only by the `.notdef` rows too, and
+        // its codes are given glyphs by writing the program (`doc/adr/2578`).
+        if cff_notdef_glyph::is_simple_cff(document, dict) {
+            let survey = survey.filter(|_| notdef.contains(&id));
+            cff_given(
+                document,
+                (id, dict),
+                survey,
+                (spare, programs, &mut copied),
+                &mut found,
+            )?;
+            continue;
+        }
         if restate_one(
             document,
             (id, notdef.contains(&id)),
@@ -346,6 +399,46 @@ pub(in crate::archive) fn restated(
     }
     found.notdef_answered = notdef_too && notdef.is_subset(&found.notdef_given);
     Ok(found)
+}
+
+/// One simple CFF font named by the `.notdef` rows, given its glyphs from the survey's shown
+/// strings, complete, into `found` (`doc/adr/2578`).
+fn cff_given(
+    document: &Document,
+    (id, dict): (ObjectId, &Dictionary),
+    survey: Option<&Survey>,
+    (spare, programs, copied): (&mut Spare, &BTreeMap<ObjectId, Object>, &mut usize),
+    found: &mut CmapRestated,
+) -> Result<(), Because> {
+    let refused = Because::NotBuiltYet(NOTDEF_NOT_GIVEN);
+    let used: Vec<_> = survey
+        .ok_or(refused)?
+        .fonts()
+        .filter(|used| used.id == Some(id))
+        .collect();
+    if used.is_empty() || used.iter().any(|used| !used.shown_complete) {
+        return Err(refused);
+    }
+    let shown = used
+        .iter()
+        .flat_map(|used| used.shown.keys().map(Vec::as_slice));
+    let Some(given) = cff_notdef_glyph::given(
+        document,
+        dict,
+        shown,
+        (spare, programs, copied),
+        MAX_COPIED_BYTES,
+    ) else {
+        return Err(if *copied > MAX_COPIED_BYTES {
+            Because::NotBuiltYet(OVER_BUDGET)
+        } else {
+            refused
+        });
+    };
+    found.cff.insert(id, (given.descriptor, given.encoding));
+    found.written.extend(given.written);
+    found.notdef_given.insert(id);
+    Ok(())
 }
 
 /// The codes grouped by the advance the font gives them, in the program's units.

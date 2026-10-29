@@ -59,6 +59,37 @@ pub(in crate::archive) const CID_NOT_GIVEN: &str = "this file shows a CID of a C
      program can be extended, and the font loads again with every shown code on the glyph it \
      reached before or on its copy: one of those does not hold here";
 
+/// Why a `CIDFontType2` font that shows CID 0 keeps the refusal, whatever glyph CID 0 is drawn by.
+///
+/// The program holds the glyph, so [`CID_NOT_GIVEN`]'s copy has nothing to give: ISO 32000-2
+/// §9.7.4.2 makes CID 0 the `CIDFont`'s own `.notdef` character, and a code the font draws as CID 0
+/// references `.notdef` whatever glyph a `/CIDToGIDMap` sends CID 0 to (`doc/adr/2557`). The route
+/// left is the `Type0` font's `/Encoding`, an embedded `CMap` sending each such code to a fresh CID,
+/// which ADR 2557 section 3 describes and nothing here builds.
+pub(in crate::archive) const CID_0_SHOWN: &str = "this file shows CID 0 of a CIDFontType2 font, \
+     and ISO 32000-2 section 9.7.4.2 makes CID 0 the CIDFont's own .notdef character whatever \
+     glyph its CIDToGIDMap sends it to, so the code references .notdef although the embedded \
+     program holds the glyph it draws — which ISO 19005-2 section 6.2.11.8 and ISO 19005-4 \
+     section 6.2.10.9 forbid a text-showing operator to do. This conversion gives a glyph of its \
+     own only to a CID that is not CID 0, by restating the map; sending the code to another CID \
+     would restate the font's Encoding as an embedded CMap, which this version does not write";
+
+/// Whether any code in the strings `shown` is drawn as CID 0 by the `Type0` font `dict`, after
+/// ISO 32000-2 §9.7.6.3's fallbacks, which end at CID 0 too ([`LoadedFont::drawn_cid`]).
+pub(in crate::archive) fn shows_cid_0<'a>(
+    document: &Document,
+    dict: &Dictionary,
+    mut shown: impl Iterator<Item = &'a [u8]>,
+) -> bool {
+    loaded_as_stated(document, dict).is_some_and(|font| {
+        shown.any(|text| {
+            font.decode(text)
+                .into_iter()
+                .any(|code| font.drawn_cid(code) == Some(0))
+        })
+    })
+}
+
 /// The objects one `CIDFontType2` font's glyphs are given by: the descendant they are written
 /// into, the new descriptor and map it names, and every new object to add.
 #[derive(Debug)]
@@ -362,7 +393,8 @@ fn cid_set_with<'a>(bits: &[u8], cids: impl Iterator<Item = &'a u16>) -> Vec<u8>
 
 /// Whether every code shown reaches, in the font as written, the glyph it reached before — or
 /// the copy given its CID, with the copy's advance its width — at the width it had before, and by
-/// the program's own glyphs.
+/// the program's own glyphs — and none selects CID 0, which §9.7.4.2 makes the `CIDFont`'s
+/// `.notdef` whatever glyph it reaches, by its own CID or by §9.7.6.3's fallbacks (`doc/adr/2582`).
 fn proved<'a>(
     before: &LoadedFont,
     after: &LoadedFont,
@@ -371,7 +403,9 @@ fn proved<'a>(
 ) -> bool {
     codes.into_iter().all(|code| {
         let code = *code;
-        if (after.advance(code) - before.advance(code)).abs() > super::CONSISTENT {
+        if (after.advance(code) - before.advance(code)).abs() > super::CONSISTENT
+            || after.drawn_cid(code) == Some(0)
+        {
             return false;
         }
         let copy = before

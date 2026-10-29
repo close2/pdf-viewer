@@ -66,6 +66,7 @@
 //! glyph look like* being unable to answer *which character is this code*.
 
 mod bystanders;
+mod cff_notdef_glyph;
 mod cid_notdef_glyph;
 mod composite;
 mod described;
@@ -81,7 +82,10 @@ mod untagged;
 pub use pack::{CjkPack, Collection, PackFiles, PackGap};
 
 pub use described::Described;
-pub use photographed::{DOTS_PER_INCH, MAX_PHOTOGRAPHED_PAGES, MAX_TEXT_CHARS, PhotographedPage};
+pub use photographed::{
+    DOTS_PER_INCH, FixedGroup, FixedGroups, MAX_GROUP_NAME_CHARS, MAX_GROUPS_NAMED,
+    MAX_PHOTOGRAPHED_PAGES, MAX_TEXT_CHARS, PhotographedPage,
+};
 pub(super) use photographed::{Gate, elided, leaves_named};
 pub(super) use truetype_cmap::ANSWERED as TRUETYPE_CMAP_ROWS;
 pub(super) use truetype_cmap::NOTDEF_ROWS as TRUETYPE_NOTDEF_ROWS;

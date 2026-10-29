@@ -328,3 +328,10 @@ path = "fuzz_targets/formcalc_cascade.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "cff_write"
+path = "fuzz_targets/cff_write.rs"
+test = false
+doc = false
+bench = false

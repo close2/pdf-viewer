@@ -852,7 +852,7 @@ impl Walk<'_> {
                         self.found.push(Found {
                             entry,
                             stream: Arc::clone(stream),
-                            resources: page.resources.clone(),
+                            resources: (*page.resources).clone(),
                         });
                     }
                 }

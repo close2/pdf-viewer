@@ -982,6 +982,11 @@ cd fuzz && cargo +nightly fuzz run embed        -- -max_total_time=600 -rss_limi
   # face the machine offers (ADRs 1425, 1438, 1449): a re-embedded subset renumbers nothing, the
   # kept glyphs are dense from `.notdef`, a subset carries the six-letter tag. Seeded by
   # `fuzz/seeds.sh` with the faces under `/usr/share/fonts`, which is the population on this disk.
+cd fuzz && cargo +nightly fuzz run cff_write    -- -max_total_time=600 -rss_limit_mb=3072 -timeout=30
+  # The writer that grows a simple font's bare CFF program by glyphs for its codes on `.notdef`
+  # (ADR 2578): the glyphs follow the program's own in order, the answer is a function of the bytes,
+  # and the program written is one the writer extends again. Seeded by `fuzz/seeds.sh` through
+  # `fuzz/seed_streams.py` with every embedded `/Type1C` program, one of each header and length.
 cd fuzz && cargo +nightly fuzz run jpeg_bands   -- -max_total_time=600 -rss_limit_mb=2048 -timeout=20
   # §7.4.8's frames cut into bands at their restart intervals (ADR 1433) and at an entropy pass's
   # rows (ADR 1481), each against the whole frame's decoder through `pdf_model::image::

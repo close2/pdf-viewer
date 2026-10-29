@@ -229,7 +229,8 @@ impl Override {
     }
 }
 
-/// The `script` of one of a container's `event` elements (XFA 3.3 pages 390–391, 1539).
+/// What one of a container's `event` elements does when it fires (XFA 3.3 pages 390–391, 703,
+/// 1539).
 #[derive(Debug, Clone)]
 pub(crate) struct Event {
     /// The `activity` it fires on.
@@ -238,8 +239,19 @@ pub(crate) struct Event {
     /// bound to another object is the inverted notation of page 404 that this reader does not
     /// follow.
     pub(crate) own: bool,
-    /// The script.
-    pub(crate) script: Script,
+    /// What it does.
+    pub(crate) performs: Performs,
+}
+
+/// Page 703's one-of properties of an `event`: the one it states.
+#[derive(Debug, Clone)]
+pub(crate) enum Performs {
+    /// A non-blank `script`, which a runner runs.
+    Script(Script),
+    /// `encryptData`, `execute`, `signData` or `submit`, by its element name: a property this
+    /// reader does not perform, kept so that an event stating one is reported where it fires
+    /// rather than passing as an event that does nothing.
+    Unperformed(&'static str),
 }
 
 /// One container of the template.
@@ -757,24 +769,35 @@ fn read_properties(container: &mut Container, tree: &Tree, element: &Element) {
     }
 }
 
-/// The `script` of an `event` element, where it holds a non-blank one (XFA 3.3 pages 390–391).
+/// What an `event` element does, where it states a non-blank `script` or one of page 703's
+/// other one-of properties (XFA 3.3 pages 390–391 and 703). An event stating none does nothing
+/// and is not kept.
 fn read_event(container: &mut Container, tree: &Tree, child: usize, event: &Element) {
-    let Some(script) = tree
+    /// Page 703's one-of properties other than `script`.
+    const UNPERFORMED: [&str; 4] = ["encryptData", "execute", "signData", "submit"];
+    let script = tree
         .child(child, "script")
         .and_then(|script| tree.get(script))
-        .filter(|script| !script.text.trim().is_empty())
-    else {
-        return;
+        .filter(|script| !script.text.trim().is_empty());
+    let performs = match script {
+        Some(script) => Performs::Script(Script {
+            language: Language::of(script.attribute("contentType")),
+            text: script.text.clone(),
+        }),
+        None => match UNPERFORMED
+            .into_iter()
+            .find(|name| tree.child(child, name).is_some())
+        {
+            Some(name) => Performs::Unperformed(name),
+            None => return,
+        },
     };
     container.events.push(Event {
         activity: event.attribute("activity").unwrap_or_default().to_owned(),
         own: event
             .attribute("ref")
             .is_none_or(|reference| reference.trim() == "$"),
-        script: Script {
-            language: Language::of(script.attribute("contentType")),
-            text: script.text.clone(),
-        },
+        performs,
     });
 }
 

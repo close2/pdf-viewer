@@ -850,3 +850,54 @@ them read zero files: cargo's metadata hash is relative to the workspace, so the
 shared one test binary, whose built-in `CARGO_MANIFEST_DIR` named a tree with no `.git` and no `doc/md`.
 A conformance run in an export sets `CARGO_TARGET_DIR` to a directory of its own, deleted when the round
 closes.
+
+## A checker reading that changes runs the census
+
+Round 1874's brief said no converter decision moves when the checker gains two predicates; the census
+showed `issue7544.pdf` refused where HEAD converted it, because the converter's own proof uses the same
+reading. A change to what the checker reads is a change to what the converter decides, so the census runs
+whatever the brief expects, and every moved line is named.
+
+## A document the census frees unexpectedly is looked up at HEAD first
+
+Round 1871 freed `issue19484_1` and `issue19484_2`, which its slot never named: HEAD had refused them with
+the fence's sentence, which hid the optional-content refusal behind it. When the census frees a document a
+slot did not expect, its refusal at HEAD is read before the gain is claimed, so the ADR says what the
+change really lifted.
+
+## A reused refusal sentence is read to its last clause
+
+Six composition-failure sentences in `statement.rs` ended "so the loss is not taken". Once a page that
+cannot be composed hands its objects to the next step (round 1864), that clause was false wherever the next
+step took them; round 1878 (ADR 2591) rewrote them to "so no statement page is composed". When a step
+gains a new outcome, every sentence it reuses is read to its last clause for a consequence that no longer
+holds.
+
+## A brief's file path is checked with `ls` before it is quoted back
+
+Round 1876's brief placed `show.rs` under `pdf-font/src/loading/`; it is `pdf-model/src/content/text/show.rs`,
+and the report site was another file again. A round checks every path a brief names with `ls` or `git
+ls-files` before it reads, plans or quotes it, and says in its report where the file actually is.
+
+## A user-facing string is grepped in tests and teaching transcripts before it changes
+
+Round 1880 rewrote a sentence `notes.rs` shows to the reader; a test pinned the old substring and the
+fifth teaching walk quoted it as a terminal transcript. Before a user-facing string changes, `grep` over
+`crates/` and `doc/teaching/` finds every test and transcript that carries it: the test changes with the
+string, and a teaching document is rewritten to what the window prints today (ADR 1023), while a record
+under `doc/history/` is left as it stands.
+
+## A writer reachable from untrusted bytes gets its own fuzz target before its census
+
+Round 1872 (ADR 2578) gave the CFF writer a fuzz target of its own and, in its first ten minutes, found two
+places where the writer read a top-dictionary offset's first operand and the font reader read its last.
+The archive's own proof would only have refused those programs silently. A writer whose input is a
+producer's bytes gets a fuzz target under `fuzz/` and a run of its own before any census counts what it
+frees.
+
+## A refusal's sentence is read against the document it refused
+
+Round 1874 moved `issue7544.pdf` from converted to refused, rightly, and the sentence beside it said the
+glyph was not in the program, which was false: the program held it, and CID 0 is the `.notdef`. When a
+census moves a document into a refusal, the sentence printed beside it is read against that file, and a
+catch-all sentence that describes the wrong fault is replaced before the move is reported.

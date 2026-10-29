@@ -909,6 +909,7 @@ fn image_interpolation_is_a_loss_and_needs_authorising() {
         text_as_image: false,
         page_as_image: false,
         tagging_of_photographed_pages: false,
+        optional_content_of_photographed_pages: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
@@ -1071,6 +1072,7 @@ fn an_annotation_stating_no_flags_is_made_printable_only_with_authorisation() {
         text_as_image: false,
         page_as_image: false,
         tagging_of_photographed_pages: false,
+        optional_content_of_photographed_pages: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -1160,6 +1162,7 @@ fn a_property_its_own_schema_does_not_define_is_removed_only_with_authorisation(
         text_as_image: false,
         page_as_image: false,
         tagging_of_photographed_pages: false,
+        optional_content_of_photographed_pages: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -4271,6 +4274,7 @@ fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_st
         text_as_image: false,
         page_as_image: false,
         tagging_of_photographed_pages: false,
+        optional_content_of_photographed_pages: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
@@ -5442,6 +5446,7 @@ fn a_colour_specification_the_part_ignores_is_removed_only_with_authorisation() 
         text_as_image: false,
         page_as_image: false,
         tagging_of_photographed_pages: false,
+        optional_content_of_photographed_pages: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -5504,6 +5509,7 @@ fn a_file_marking_no_specification_best_keeps_the_one_a_jp2_reader_uses() {
         text_as_image: false,
         page_as_image: false,
         tagging_of_photographed_pages: false,
+        optional_content_of_photographed_pages: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -5564,6 +5570,7 @@ fn two_specifications_marked_best_stay_refused() {
         text_as_image: false,
         page_as_image: false,
         tagging_of_photographed_pages: false,
+        optional_content_of_photographed_pages: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
@@ -5617,6 +5624,7 @@ fn one_specification_with_a_method_the_part_forbids_stays_refused() {
         text_as_image: false,
         page_as_image: false,
         tagging_of_photographed_pages: false,
+        optional_content_of_photographed_pages: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
@@ -9034,6 +9042,7 @@ fn an_annotation_of_a_forbidden_subtype_goes_only_with_authorisation() {
         text_as_image: false,
         page_as_image: false,
         tagging_of_photographed_pages: false,
+        optional_content_of_photographed_pages: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -9364,6 +9373,7 @@ fn an_annotation_that_drew_nothing_refuses_a_preserve_by_name() {
         text_as_image: false,
         page_as_image: false,
         tagging_of_photographed_pages: false,
+        optional_content_of_photographed_pages: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -9410,6 +9420,7 @@ fn every_loss() -> Authorisations {
         text_as_image: false,
         page_as_image: false,
         tagging_of_photographed_pages: false,
+        optional_content_of_photographed_pages: false,
         layout_from_this_viewer: false,
     }
 }
@@ -12617,6 +12628,7 @@ fn keep_everything_transcodes_a_jpx_image_outside_the_baseline_to_flate_and_it_v
     // ISO 19005-2 section 6.2.8.3 restricts JPEG 2000 data to the JPX baseline; §7.4.9 has a
     // stated ColorSpace decide what the samples mean. So a Flate copy in that space keeps them,
     // and no sentence about JPEG 2000 data binds it (ADR 1400).
+    decode_in_this_process();
     let calibrated = "[/CalRGB << /WhitePoint [0.9505 1 1.089] >>]";
     let source = a_page_with_a_jpx_image(Some(calibrated));
     let target = Target::Two(Level::B);
@@ -12770,6 +12782,20 @@ fn a_grey_jpx_with_opacity_off_the_baseline() -> Vec<u8> {
     out
 }
 
+/// Decodes the calling test's images in this process: the route an archive conversion takes inside
+/// the confined transform worker, whose `confine` sets it before any document is read.
+///
+/// The isolation is the process's (`pdf_sandbox::set_isolation`), `deep_jpx`'s tests set it to
+/// in-process, and nothing sets it back. A test of this binary that leaves the default therefore
+/// decodes through the confined image worker or in this process according to which thread ran
+/// first, and the image worker is a program `cargo test` does not rebuild, which refuses a test
+/// binary of another build identity once `Cargo.lock` or `pdf-sandbox` changes. Stated here, the
+/// route is the same in every order and in every build, and the verdict is the transcode's
+/// (ADR 2592).
+fn decode_in_this_process() {
+    pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
+}
+
 /// A part 2 page drawing [`a_grey_jpx_with_opacity_off_the_baseline`] under `/DeviceGray` with
 /// the `/SMaskInData` code given.
 fn a_page_with_a_jpx_image_carrying_opacity(code: i64) -> Vec<u8> {
@@ -12823,6 +12849,7 @@ fn a_jpx_image_whose_data_carries_opacity_is_transcoded_with_a_soft_mask_image()
     // Table 87's SMaskInData 1: "A PDF processor shall create a soft-mask image from the
     // information". The Flate copy has no channel for it, so the transcode creates that image,
     // DeviceGray as Table 143 requires, and the copy names it in SMask (ADR 1412).
+    decode_in_this_process();
     let source = a_page_with_a_jpx_image_carrying_opacity(1);
     let target = Target::Two(Level::B);
     let row = "graphics/jpeg2000-uses-the-baseline-feature-set";
@@ -12917,6 +12944,7 @@ fn a_jpx_image_whose_data_carries_opacity_is_transcoded_with_a_soft_mask_image()
 fn a_premultiplied_jpx_image_is_transcoded_with_a_matte_of_zero() {
     // Table 87's SMaskInData 2 multiplied the colour by the opacity, which §11.6.5.2's
     // pre-blending "c' = m + alpha x (c - m)" states with every component of the matte zero.
+    decode_in_this_process();
     let source = a_page_with_a_jpx_image_carrying_opacity(2);
     let target = Target::Two(Level::B);
     let plan = plan_from(&keep_everything(), target);
@@ -13009,6 +13037,7 @@ fn keep_everything_transcodes_a_jpx_image_with_two_colour_channels() {
     // ISO 19005-2 section 6.2.8.3's channel count binds JPEG 2000 data, and a Flate copy in the
     // colour space the dictionary states is not JPEG 2000 data: the baseline site's transcode
     // answers this row for the same shape (ADR 1412). Two channels, a DeviceN space of two.
+    decode_in_this_process();
     let data = a_two_channel_jpx();
     let source = Conforming {
         resources: "/XObject << /Im 6 0 R >>".to_owned(),
@@ -16003,6 +16032,8 @@ fn a_font_with_a_descriptor_and_no_widths_is_given_the_widths_the_viewer_draws_i
             .collect::<Vec<_>>())
     );
 }
+#[path = "archive/cff_notdef_glyph.rs"]
+mod cff_notdef_glyph;
 #[path = "archive/cid_notdef_glyph.rs"]
 mod cid_notdef_glyph;
 #[path = "archive/derived_converted.rs"]

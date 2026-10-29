@@ -321,7 +321,10 @@ remedy = "stop"
 # whatever text it also shows - what a company does when it prints a letter and scans the print
 # (A694 item 1, doc/adr/2516). The page's text is named in the report and in the history. In a
 # document that states a structure tree it also carries `tagging-of-photographed-pages`: the
-# tree's leaves that name a photographed page are taken out of it and the rest is kept (A707).
+# tree's leaves that name a photographed page are taken out of it and the rest is kept (A707). In
+# a document that states optional content it carries `optional-content-of-photographed-pages`: the
+# page is photographed in the configuration this viewer shows, never the Print usage, and the
+# groups it fixed are named with the state drawn; the other pages keep their layers (A717).
 # ---------------------------------------------------------------------------------------------
 
 [site."fonts/font-programs-embedded"]

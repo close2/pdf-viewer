@@ -58,21 +58,26 @@ pub(super) const MOST_STATEMENT_PAGES: usize = 16;
 /// Why a statement listing more objects than the bound is refused.
 pub(super) const TOO_MANY_STATED: &str = "the statement of what this conversion removed would \
      list more than the thirty-two objects one statement lists (MOST_STATED_OBJECTS), so \
-     the loss is not taken";
+     no statement page is composed";
 
 /// Why a statement longer than the bound is refused.
 pub(super) const STATEMENT_TOO_LONG: &str = "the statement of what this conversion removed would \
      be longer than the 64 KiB of text one statement is laid out from (MOST_STATEMENT_BYTES), so \
-     the loss is not taken";
+     no statement page is composed";
 
 /// Why a statement taking more pages than the bound is refused.
 pub(super) const STATEMENT_TOO_MANY_PAGES: &str = "the statement of what this conversion removed \
-     would take more than the sixteen pages one statement may append (MOST_STATEMENT_PAGES), so the \
-     loss is not taken";
+     would take more than the sixteen pages one statement may append (MOST_STATEMENT_PAGES), so no \
+     statement page is composed";
 
 /// Why a row whose loss is stated is refused where no statement was composed for it.
 pub(super) const NOTHING_STATED: &str = "the row's step is append-statement, and no statement \
      page was composed for the objects its loss took, so the loss is not taken unstated";
+
+/// Why a row that hands its objects on names no statement where the composed page lists none of
+/// them.
+pub(super) const NOTHING_LISTED: &str = "the row's step is append-statement, and the statement \
+     page composed lists none of the objects its loss took";
 
 /// The page's title, before the target.
 const TITLE: &str = "Removed in the conversion to";
@@ -258,11 +263,11 @@ const TAKEN: [Taken; 3] = [
 
 /// Why an entry whose row the table above does not hold is not stated.
 const NOT_A_STATED_ROW: &str = "the statement of what this conversion removed was asked to list \
-     an entry of a row whose loss it does not state, so the loss is not taken";
+     an entry of a row whose loss it does not state, so no statement page is composed";
 
 /// Why an entry the source does not state is not listed.
 const NOT_IN_THE_SOURCE: &str = "the statement of what this conversion removed was asked to list \
-     an entry the source's object does not state, so the loss is not taken";
+     an entry the source's object does not state, so no statement page is composed";
 
 /// One halftone row's lines, every value read from the source here rather than handed in.
 fn graphics_entry(
@@ -360,7 +365,7 @@ pub(super) const MOST_VISITS: usize = 1 << 20;
 /// Why the pages using an entry were not worked out.
 pub(super) const PAGES_NOT_WALKED: &str = "the statement of what this conversion removed would \
      visit more than the 1 048 576 objects and values (MOST_VISITS) it may visit to name the pages \
-     whose resources reach each object it lists, so the loss is not taken";
+     whose resources reach each object it lists, so no statement page is composed";
 
 /// The zero-based pages whose resources reach each of `objects`, one list per object.
 ///

@@ -33,6 +33,12 @@ use std::sync::{Arc, Mutex, OnceLock};
 mod advances;
 mod codes;
 mod drawing;
+
+pub use drawing::OutlineRefused;
+
+/// Each glyph asked for: its outline, `None` for one with nothing to draw, or the evaluator's
+/// refusal of its program ([`LoadedFont::outline_refusal`]).
+type OutlineCache = BTreeMap<Placed, Result<Option<Arc<Path>>, OutlineRefused>>;
 mod findings;
 mod glyphs;
 mod opening;
@@ -476,9 +482,7 @@ fn with_readable_font_dicts(
     }
 }
 
-fn outlines(
-    lock: &Mutex<BTreeMap<Placed, Option<Arc<Path>>>>,
-) -> std::sync::MutexGuard<'_, BTreeMap<Placed, Option<Arc<Path>>>> {
+fn outlines(lock: &Mutex<OutlineCache>) -> std::sync::MutexGuard<'_, OutlineCache> {
     lock.lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
@@ -780,7 +784,7 @@ pub struct LoadedFont {
     symbolic_flags_conflict: bool,
     /// Cached outlines: a page reuses the same few dozen glyphs constantly, and
     /// re-extracting each one would dominate the render.
-    outlines: Mutex<BTreeMap<Placed, Option<Arc<Path>>>>,
+    outlines: Mutex<OutlineCache>,
     /// The inverse of the code-to-character mapping, built on first use by [`Self::code_for`].
     ///
     /// Lazy rather than built at load time because nothing on a page needs it: only a

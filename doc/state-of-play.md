@@ -498,7 +498,9 @@ reader's `Scripts` level supplied, and `pdf-script-worker` runs `pdf-formcalc` i
 worker as a conversation with the host that holds the form; `override`'s `error` and `warning` reach
 the window as a notice (ADRs 2524, 2525). **A move of the keyboard focus runs the form's `exit` and
 `enter` events** — of the field and of each subform and exclusion group the focus crosses (XFA 3.3
-pages 390–391) — wherever a window raises `/Bl` and `/Fo` on a widget (ADR 2566).
+pages 390–391) — wherever a window raises `/Bl` and `/Fo` on a widget (ADR 2566), **and a click
+within a field runs the field's own `click` events** (page 391) wherever a window raises `/U` on its
+widget (ADR 2584).
 
 **Table 22's bit 12 is a second operation beside bit 3, at four levels of its own**, because the
 cell states two consequences: bit 3 clear withholds printing, and bit 12 clear limits a print that

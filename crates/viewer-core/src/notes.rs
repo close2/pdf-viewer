@@ -735,9 +735,9 @@ fn signatures(
          signature verifies under the public key in the certificate the file itself carries \
          (§12.8.3.3.1). It does not answer the third — it has no certificate store and makes no \
          network request, so it does not know whether that certificate belongs to anyone you have \
-         reason to believe. It can now say whether a certificate was revoked, but only from the \
-         material the file itself carries and only once somebody names a certification authority \
-         to end the chain at, which nothing here does. A signature that verifies here was \
+         reason to believe. It says whether a certificate was revoked only from the material the \
+         file itself carries, and only once somebody names a certification authority to end the \
+         chain at, which nobody has done for this reading. A signature that verifies here was \
          made by whoever holds the key in a certificate that arrived with the document, which is \
          not the same as a valid signature. Nothing here says valid"
             .to_owned()
@@ -1683,8 +1683,9 @@ fn signature_policy(
 
 /// §12.8.3.4.4's "shall enforce signature policy constraints", said one constraint at a time.
 ///
-/// A stored document bound to the signature and written in ETSI TR 102 272's ASN.1 syntax is
-/// enforced, each constraint a sentence with its verdict (ADR 2560). Anything else is said as the
+/// A stored document bound to the signature and written in either machine-processable ASN.1
+/// syntax, ETSI TR 102 272's or ETSI TS 119 172-3's, is enforced, each constraint a sentence with
+/// its verdict (ADRs 2560, 2580). Anything else is said as the
 /// reason nothing was enforced; where the file carries no document, the sentence names the
 /// specification the signer named and is silent where it named none, since clause 5.2.9.1 leaves
 /// the syntax to the context there and a reader outside that context has nothing to name.
@@ -1697,15 +1698,15 @@ fn policy_constraints(
 
     let facts = SignerFacts::of(cms);
     let why = match enforce(policy, cms, &facts) {
-        Enforcement::Enforced(findings) => {
+        Enforcement::Enforced { syntax, findings } => {
             let broken = findings
                 .iter()
                 .filter(|finding| finding.verdict == Verdict::Broken)
                 .count();
             notes.push(format!(
                 "§12.8.3.4.4 requires a signature handler to enforce that policy's constraints, and \
-                 the copy this file carries states them in ETSI TR 102 272's ASN.1 syntax: {} \
-                 constraint(s), {broken} of them broken",
+                 the copy this file carries states them in {syntax}: {} constraint(s), {broken} of \
+                 them broken",
                 findings.len()
             ));
             notes.extend(findings.iter().map(ToString::to_string));
@@ -1752,7 +1753,7 @@ fn policy_findings(
         return Vec::new();
     };
     match enforce(&policy, &cms, &SignerFacts::of(&cms)) {
-        Enforcement::Enforced(findings) => findings,
+        Enforcement::Enforced { findings, .. } => findings,
         Enforcement::NotEnforced(_) => Vec::new(),
     }
 }
@@ -2818,7 +2819,7 @@ mod tests {
         assert!(
             said.contains(
                 "only once somebody names a certification authority to end the chain at, which \
-                 nothing here does"
+                 nobody has done for this reading"
             ),
             "{said}"
         );

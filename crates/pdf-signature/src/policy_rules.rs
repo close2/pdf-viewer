@@ -38,12 +38,22 @@
 //! built), and the total number of list entries it may state ([`MAX_ENTRIES`]). Clause 6.1 says
 //! the syntax is encoded under the distinguished rules, so the same pre-pass refuses a document
 //! that is not DER by name.
+//!
+//! # The other syntax
+//!
+//! ETSI TS 119 172-3 writes the same family of constraints in a second ASN.1 syntax, whose top
+//! level opens with a digest of its components where this one opens with an algorithm identifier.
+//! [`Syntax::of`] tells the two apart by that first member, [`enforce`] reads each with its own
+//! parser — [`ts_119_172_3`] for the second — and both speak the one [`Finding`] vocabulary the
+//! verdict takes (ADR 2580).
 
 use crate::cms::{self, Digest, SignedData};
 use crate::der::{self, DerError, NotCanonical, OBJECT_IDENTIFIER, OCTET_STRING, SEQUENCE, Value};
 use crate::policy::{Binding, PolicyHash, SignaturePolicy, Store};
 use crate::signature::name;
 use crate::x509::{self, Instant, PublicKey};
+
+pub mod ts_119_172_3;
 
 /// The longest policy document this module reads, in octets.
 ///
@@ -78,6 +88,44 @@ const ENUMERATED: u8 = 0x0A;
 /// `GeneralizedTime`, primitive and universal.
 const GENERALIZED_TIME: u8 = 0x18;
 
+/// The machine-processable ASN.1 signature policy syntax a document is written in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Syntax {
+    /// ETSI TR 102 272 clause 6's `SignaturePolicy`, the syntax RFC 3125 also publishes.
+    Tr102272,
+    /// ETSI TS 119 172-3 clause 4.2's `SignaturePolicy`.
+    Ts1191723,
+}
+
+impl Syntax {
+    /// The syntax a document's top level is written in, read from its first member's first
+    /// value: TR 102 272's algorithm identifier opens with an object identifier, TS 119 172-3's
+    /// `Digest` with a sequence. `None` where it is neither, which each parser refuses by name.
+    #[must_use]
+    pub fn of(octets: &[u8]) -> Option<Self> {
+        if octets.len() > MAX_POLICY_OCTETS {
+            return None;
+        }
+        let policy = der::Reader::new(octets).ok()?.next_value().ok()??;
+        let first = policy.children().ok()?.next_value().ok()??;
+        let inner = first.children().ok()?.next_value().ok()??;
+        match inner.identifier {
+            OBJECT_IDENTIFIER => Some(Self::Tr102272),
+            SEQUENCE => Some(Self::Ts1191723),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for Syntax {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Tr102272 => "ETSI TR 102 272's ASN.1 syntax",
+            Self::Ts1191723 => "ETSI TS 119 172-3's ASN.1 syntax",
+        })
+    }
+}
+
 /// Why a policy document's constraints were not read.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
@@ -98,20 +146,29 @@ pub enum PolicyDocumentError {
         "the policy document is not in the distinguished encoding its syntax is written in: {0:?}"
     )]
     NotDistinguished(NotCanonical),
-    /// The document is not ETSI TR 102 272's `SignaturePolicy` at its top level.
+    /// The document is not, at its top level, the syntax its parser reads, which is named.
     ///
-    /// ETSI TS 119 172-3's ASN.1 policy, whose top level opens with a digest rather than an
-    /// algorithm identifier, is the other machine-processable ASN.1 syntax, and it is told apart
-    /// here by that first member rather than read as this one.
-    #[error(
-        "the policy document is not written in ETSI TR 102 272's ASN.1 signature policy syntax"
-    )]
-    OtherSyntax,
+    /// The two machine-processable ASN.1 syntaxes are told apart by their first member rather
+    /// than one read as the other (see [`Syntax::of`]).
+    #[error("the policy document is not written in {0}")]
+    OtherSyntax(Syntax),
     /// A member clause 6 requires is missing or of another type; the member is named.
     #[error(
         "the policy document's {0} is missing or is not the type ETSI TR 102 272 clause 6 gives it"
     )]
     Malformed(&'static str),
+    /// A member ETSI TS 119 172-3 clause 4 requires is missing or of another type; the member is
+    /// named.
+    #[error(
+        "the policy document's {0} is missing or is not the type ETSI TS 119 172-3 clause 4 gives it"
+    )]
+    ComponentMalformed(&'static str),
+    /// TS 119 172-3 clause 4.3.2's digest, re-computed over the policy components, is not the
+    /// value the document states.
+    #[error(
+        "the policy document's digest, re-computed over its policy components, is not the value it states"
+    )]
+    DigestDisagrees,
     /// The document states more list entries than [`MAX_ENTRIES`].
     #[error("the policy document states more than {MAX_ENTRIES} list entries")]
     TooManyEntries,
@@ -278,14 +335,14 @@ impl<'a> PolicyDocument<'a> {
         let algorithm = members
             .next_value()?
             .filter(|value| value.identifier == SEQUENCE)
-            .ok_or(PolicyDocumentError::OtherSyntax)?;
+            .ok_or(PolicyDocumentError::OtherSyntax(Syntax::Tr102272))?;
         // An `AlgorithmIdentifier` opens with its object identifier; TS 119 172-3's `Digest`
         // opens with an `AlgorithmIdentifier` instead, which is how the two are told apart.
         let algorithm = algorithm
             .children()?
             .next_value()?
             .and_then(|first| first.object_identifier())
-            .ok_or(PolicyDocumentError::OtherSyntax)?;
+            .ok_or(PolicyDocumentError::OtherSyntax(Syntax::Tr102272))?;
         let info = expect(members.next_value()?, SEQUENCE, "signPolicyInfo")?;
         let own_hash = match members.next_value()? {
             Some(value) if value.identifier == OCTET_STRING => Some((algorithm, value.contents)),
@@ -759,6 +816,8 @@ pub struct SignerFacts {
     pub key_bits: Option<usize>,
     /// Whether the `SignedData` carries the certificate its `SignerInfo` names.
     pub carries_signer_certificate: bool,
+    /// The signature algorithm that certificate's issuer signed it under, where it is carried.
+    pub certificate_signature_algorithm: Option<Vec<u8>>,
 }
 
 impl SignerFacts {
@@ -788,6 +847,8 @@ impl SignerFacts {
             signing_time,
             key_bits,
             carries_signer_certificate: certificate.is_some(),
+            certificate_signature_algorithm: certificate
+                .map(|certificate| certificate.signature_algorithm.to_vec()),
         }
     }
 }
@@ -851,8 +912,10 @@ pub enum Constraint {
     TrustCondition(&'static str),
     /// One of clause 6.10's certificate-issuer constraint lists, named.
     CertificateAlgorithms(&'static str),
-    /// A clause 6.11 extension, by its identifier.
+    /// A clause 6.11 extension, or a TS 119 172-3 `Other`, by its identifier.
     Extension(String),
+    /// A constraint of TS 119 172-3's policy components with no counterpart in clause 6.
+    PolicyComponent(ts_119_172_3::Constraint),
 }
 
 /// One constraint and its verdict.
@@ -884,18 +947,25 @@ pub enum NotEnforced {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Enforcement {
     /// The constraints were read and each became a finding.
-    Enforced(Vec<Finding>),
+    Enforced {
+        /// The syntax the document is written in.
+        syntax: Syntax,
+        /// One finding per constraint.
+        findings: Vec<Finding>,
+    },
     /// They were not, and why.
     NotEnforced(NotEnforced),
 }
 
 /// §12.8.3.4.4's "shall enforce signature policy constraints", for a policy stored in the file
-/// under ETSI TR 102 272's ASN.1 syntax.
+/// under either machine-processable ASN.1 syntax, [`Syntax::of`] deciding which parser reads it.
 ///
 /// The document is enforced only where it is bound to the signature — its octets digest to the
-/// value the signer signed, or (ETSI TR 102 272 Annex B.11's second way of obtaining that value)
-/// the signer signed the policy's own hash, which [`PolicyDocument::parse`] has re-computed — and
-/// only where it names the policy the signer named. A store is unsigned, so a document neither
+/// value the signer signed, or the signer signed the digest the document states over its own
+/// rules: ETSI TR 102 272 Annex B.11 gives that as the second way of obtaining the value, and a
+/// TS 119 172-3 document's `Digest` covers every rule it states, so signing it commits to the same
+/// rules (ADR 2580); each parser has re-computed that digest — and only where it names the policy
+/// the signer named. A store is unsigned, so a document neither
 /// binds is one anybody could have put there, and its rules are nobody's agreement.
 #[must_use]
 pub fn enforce(
@@ -907,6 +977,9 @@ pub fn enforce(
         return Enforcement::NotEnforced(NotEnforced::NoStoredDocument);
     };
     let binding = policy.binding();
+    if Syntax::of(octets) == Some(Syntax::Ts1191723) {
+        return enforce_components(policy, octets, binding, cms, facts);
+    }
     let parsed = PolicyDocument::parse(octets);
     let bound_by_own_hash = match (&policy.hash, &parsed) {
         (PolicyHash::Stated { digest, value }, Ok(document)) => {
@@ -928,7 +1001,77 @@ pub fn enforce(
             document: name(document.identifier),
         });
     }
-    Enforcement::Enforced(findings(&document, cms, facts))
+    Enforcement::Enforced {
+        syntax: Syntax::Tr102272,
+        findings: findings(&document, cms, facts),
+    }
+}
+
+/// [`enforce`] for a document in TS 119 172-3's syntax.
+fn enforce_components(
+    policy: &SignaturePolicy<'_>,
+    octets: &[u8],
+    binding: Binding,
+    cms: &SignedData<'_>,
+    facts: &SignerFacts,
+) -> Enforcement {
+    let parsed = ts_119_172_3::PolicyDocument::parse(octets);
+    let bound_by_its_digest = match (&policy.hash, &parsed) {
+        (PolicyHash::Stated { digest, value }, Ok(document)) => {
+            Digest::from_oid(document.digest.0) == Some(*digest) && document.digest.1 == *value
+        }
+        _ => false,
+    };
+    if !matches!(binding, Binding::Matches { .. }) && !bound_by_its_digest {
+        return Enforcement::NotEnforced(NotEnforced::NotBound(binding));
+    }
+    let document = match parsed {
+        Ok(document) => document,
+        Err(refusal) => return Enforcement::NotEnforced(NotEnforced::Unreadable(refusal)),
+    };
+    if name(document.identifier) != policy.identifier {
+        return Enforcement::NotEnforced(NotEnforced::IdentifierDiffers {
+            document: name(document.identifier),
+        });
+    }
+    Enforcement::Enforced {
+        syntax: Syntax::Ts1191723,
+        findings: ts_119_172_3::findings(&document, cms, facts),
+    }
+}
+
+/// Clause 6.2's signing period, and TS 119 172-2 clause 4.13.1's, against when the signature was
+/// made.
+fn signing_period(facts: &SignerFacts, not_before: &Stated, not_after: Option<&Stated>) -> Finding {
+    let verdict = match &facts.signing_time {
+        None => Verdict::NotEvaluated,
+        Some(at) => {
+            let before = at.instant < not_before.instant;
+            let after = not_after.is_some_and(|end| at.instant > end.instant);
+            if before || after {
+                Verdict::Broken
+            } else {
+                Verdict::Met
+            }
+        }
+    };
+    Finding {
+        verdict,
+        constraint: Constraint::SigningPeriod {
+            at: facts.signing_time.clone(),
+            not_before: not_before.clone(),
+            not_after: not_after.cloned(),
+        },
+    }
+}
+
+/// The commitment type a signature's signed commitment-type-indication attribute states.
+fn stated_commitment_type<'a>(cms: &SignedData<'a>) -> Option<&'a [u8]> {
+    cms.attribute(cms::ID_AA_ETS_COMMITMENT_TYPE)
+        .filter(|attribute| attribute.signed)
+        .and_then(|attribute| attribute.first)
+        .and_then(|value| value.children().ok()?.next_value().ok()?)
+        .and_then(|first| first.object_identifier())
 }
 
 /// Every constraint of a parsed document, judged against one signature.
@@ -938,36 +1081,12 @@ pub fn findings(
     cms: &SignedData<'_>,
     facts: &SignerFacts,
 ) -> Vec<Finding> {
-    let mut out = Vec::new();
-    let period = match &facts.signing_time {
-        None => Verdict::NotEvaluated,
-        Some(at) => {
-            let before = at.instant < document.not_before.instant;
-            let after = document
-                .not_after
-                .as_ref()
-                .is_some_and(|end| at.instant > end.instant);
-            if before || after {
-                Verdict::Broken
-            } else {
-                Verdict::Met
-            }
-        }
-    };
-    out.push(Finding {
-        verdict: period,
-        constraint: Constraint::SigningPeriod {
-            at: facts.signing_time.clone(),
-            not_before: document.not_before.clone(),
-            not_after: document.not_after.clone(),
-        },
-    });
-    let stated = cms
-        .attribute(cms::ID_AA_ETS_COMMITMENT_TYPE)
-        .filter(|attribute| attribute.signed)
-        .and_then(|attribute| attribute.first)
-        .and_then(|value| value.children().ok()?.next_value().ok()?)
-        .and_then(|first| first.object_identifier());
+    let mut out = vec![signing_period(
+        facts,
+        &document.not_before,
+        document.not_after.as_ref(),
+    )];
+    let stated = stated_commitment_type(cms);
     let rule = document.commitment_rule(stated);
     if rule.is_err() || !document.commitment_rules.is_empty() {
         out.push(Finding {
@@ -1186,6 +1305,7 @@ impl std::fmt::Display for Finding {
                 f,
                 "the policy's extension {oid} is {verdict}: its syntax is whatever its identifier names"
             ),
+            Constraint::PolicyComponent(constraint) => constraint.sentence(f, verdict),
         }
     }
 }

@@ -1519,7 +1519,7 @@ impl<'a> Interpreter<'a> {
             // Table 51's and Table 52's initial values.
             pattern_initial: PatternInitial::of(&GraphicsState::initial(base_transform(page))),
             page: size,
-            page_resources: Arc::new(page.resources.clone()),
+            page_resources: Arc::clone(&page.resources),
             shadings: crate::shading::Cache::default(),
             resource_tables: std::cell::RefCell::default(),
             icc_spaces: BTreeMap::new(),
@@ -2194,7 +2194,25 @@ fn complete(
                 ),
             });
         }
-        if coverage.drawn > 0 || coverage.empty == 0 || coverage.lost == coverage.empty {
+        // A glyph the evaluator refused to run, said on the same terms as the repair's: whatever
+        // else the font drew, with the first such glyph named and the evaluator's own reason
+        // (ADR 2586).
+        if coverage.refused > 0
+            && let Some(refusal) = &coverage.refusal
+        {
+            interpreter.note(Unsupported::Font {
+                detail: format!(
+                    "font /{name}: the evaluator refuses the outline of glyph {} ({}), and {} of \
+                     the code(s) the page shows through it reach a refused glyph and are not \
+                     drawn",
+                    refusal.glyph, refusal.reason, coverage.refused
+                ),
+            });
+        }
+        if coverage.drawn > 0
+            || coverage.empty == 0
+            || coverage.lost.saturating_add(coverage.refused) == coverage.empty
+        {
             continue;
         }
         // A program with no outline anywhere draws nothing for any code by §9.7.6.3's own route
@@ -3444,7 +3462,7 @@ mod tests {
         Page {
             id: None,
             dict: pdf_syntax::Dictionary::default(),
-            resources: pdf_syntax::Dictionary::default(),
+            resources: std::sync::Arc::default(),
             media_box: [0.0, 0.0, 400.0, 200.0],
             substituted_media_box: None,
             damaged_dictionary: None,

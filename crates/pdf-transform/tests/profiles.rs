@@ -488,3 +488,45 @@ fn an_operators_directory_offers_the_files_that_read_at_every_target_and_names_t
         "the .txt file is not a profile: {refused:?}"
     );
 }
+
+#[test]
+fn state_every_loss_photographs_a_page_of_a_layered_document_where_as_if_printed_does() {
+    // `doc/questions/A717` names both profiles: a page no font route carries is photographed in
+    // the configuration this viewer shows, under `optional-content-of-photographed-pages`, at 2b
+    // and part 4 (`doc/adr/2576`). The font site's `discard` carries the loss in both; in
+    // `state-every-loss` it is reached through `try = ["append-statement", "discard"]`, whose
+    // first step is passed over by name at this site until its page is built there.
+    let losses = [
+        pdf_transform::archive::Loss::PageAsImage,
+        pdf_transform::archive::Loss::OptionalContentOfPhotographedPages,
+    ];
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        for name in ["as-if-printed", "state-every-loss"] {
+            let config = Configuration::read(&profile(name), target).expect("it loads");
+            for loss in losses {
+                assert!(
+                    config.authorisations(target).grants(loss),
+                    "{name} at {target}: {loss:?}"
+                );
+            }
+        }
+        let config = Configuration::read(&profile("state-every-loss"), target).expect("it loads");
+        let passed_over: Vec<_> = config
+            .skipped()
+            .into_iter()
+            .filter(|skipped| skipped.site == "fonts/font-programs-embedded")
+            .collect();
+        assert_eq!(passed_over.len(), 1, "at {target}: {passed_over:?}");
+        assert_eq!(passed_over[0].step, "append-statement");
+    }
+    for name in ["no-data-loss", "refuse-any-loss"] {
+        let target = Target::Two(Level::B);
+        let config = Configuration::read(&profile(name), target).expect("it loads");
+        assert!(
+            !config
+                .authorisations(target)
+                .grants(pdf_transform::archive::Loss::OptionalContentOfPhotographedPages),
+            "{name} keeps the refusal"
+        );
+    }
+}

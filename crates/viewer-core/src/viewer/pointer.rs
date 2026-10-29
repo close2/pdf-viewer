@@ -363,6 +363,9 @@ impl Viewer {
             if runner && matches!(event, Trigger::Blur | Trigger::Focus) {
                 form_focus(open, event, left, reached);
             }
+            if runner && event == Trigger::Up {
+                form_click(open, annotation);
+            }
             let scripted = match event {
                 Trigger::Enter
                 | Trigger::Exit
@@ -422,6 +425,24 @@ fn form_focus(open: &mut Open, event: Trigger, left: Option<ObjectId>, reached: 
         _ => false,
     };
     if changed {
+        open.stale();
+    }
+}
+
+/// A hybrid form's `click` events, at Table 197's `/U` on a widget (XFA 3.3 page 391; ADR 2584):
+/// page 391 has a `click` fire "when a mouse click occurs within the region", which is a press and
+/// a release both within it, and `/U` is raised only for a release within the annotation a press
+/// went down on (§12.6.3's third constraint). They run before the widget's own scripts, as the
+/// focus events do. A document with no XFA form, a view state with no runner, and an annotation
+/// that is no field's widget run nothing.
+fn form_click(open: &mut Open, widget: ObjectId) {
+    if !is_widget(&open.document, widget) {
+        return;
+    }
+    let Some(clicked) = field_of_widget(&open.document, widget) else {
+        return;
+    };
+    if open.view.activate_form_on_click(&open.document, &clicked) {
         open.stale();
     }
 }

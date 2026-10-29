@@ -689,6 +689,29 @@ chapter 2's *Annotation Elements*, *Annotation Subelements* and *Annotation attr
 mapping tables are present and in order, pages 37 to 99. Appendix A, the `ex_data` element for
 comments on 3D and rich media annotations, is read and refused: its subject is clause 13's.
 
+## Adobe Supplement to the ISO 32000, `BaseVersion` 1.7, `ExtensionLevel` 3 — revision 5's key retrieval
+
+Held as `doc/AdobeSupplement-EL3-2008.pdf`: *Adobe® Supplement to the ISO 32000*, Edition 1.0, June
+2008, part of the Adobe® Acrobat® 9.0 SDK. ISO 32000-2's Table 21 names revision 5 a deprecated
+proprietary Adobe extension and states no key retrieval for it; this is the extension's own text,
+and its Algorithm 3.2a is what `pdf_syntax::crypt`'s revision-5 authentication cites. It was
+fetched from the Internet Archive's snapshot `20100923045157` of Adobe's own free distribution,
+`adobe.com/content/dam/Adobe/en/devnet/pdf/pdfs/adobe_supplement_iso32000.pdf`, the copy ADR 0829
+read when it settled the SASLprep step, and `doc/questions/A288` records the owner's direction to
+hold it as `A97` holds XFDF 3.0. Its `doc/md/AdobeSupplement-EL3-2008.md` (140 pages, by
+`tools/spec-md.py`) is in the page's content order, so the quotations gate can check a citation of
+it like any other held document.
+
+| text | fetched from | SHA-256 of the PDF |
+|---|---|---|
+| **Adobe Supplement to the ISO 32000, BaseVersion 1.7, ExtensionLevel 3**, Edition 1.0, June 2008, 1 373 256 bytes | the Internet Archive, snapshot `20100923045157` of `adobe.com/content/dam/Adobe/en/devnet/pdf/pdfs/adobe_supplement_iso32000.pdf` | `50d0bbc96028dca1a54cf3c671054536d26e9494dc52877061763b4aed08ac48` |
+
+**Its terms are Adobe's copyright with no grant of any kind**: its second page reserves every
+right and forbids reproduction without Adobe's written permission. So it is held the way XFDF 3.0
+is — gitignored with every other specification PDF (`/doc/*.pdf`), its extraction ignored with
+`doc/md`, **cited by section or algorithm number and page, paraphrased and never quoted** — and
+nothing of it is committed beyond the citation. Where it and ISO 32000-2 disagree, ISO 32000-2 wins.
+
 ## XML Forms Architecture (XFA) Specification 3.3 — the rich text §12.7.4.3 hands its formatting to
 
 ISO 32000-2 names one text for every rich text string it defines — Table 228's `/RV` and `/DS`,

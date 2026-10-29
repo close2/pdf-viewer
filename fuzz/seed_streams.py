@@ -20,6 +20,8 @@ the target never looks at:
                    `variable_text.rs` splits its input into
     jpeg_bands     a `DCTDecode` stream's own bytes (§7.4.8) behind the band-height byte
                    `jpeg_bands.rs` reads first, one frame per shape (below)
+    cff_write      an embedded bare CFF program (§9.9, `/Subtype /Type1C`) behind the three bytes
+                   `cff_write.rs` reads its request from: three glyphs, alternating outlines
 
 The `-` reads the list of documents from standard input, one per NUL, for the reason
 `seed_x509.py` gives: one run counts everything, where `xargs` would print a summary per batch.
@@ -59,7 +61,7 @@ from seed_shape import Smallest, bucket, mapped, names_any, text_forms
 
 MAX_SEED = 256 * 1024
 MAX_DICTIONARY = 8 * 1024
-TARGETS = ("xmp", "sfnt", "cmap", "ccitt", "crypt", "variable_text", "jpeg_bands")
+TARGETS = ("xmp", "sfnt", "cmap", "ccitt", "crypt", "variable_text", "jpeg_bands", "cff_write")
 # What a document must state in the clear to hold a seed for each target: the name its stream
 # dictionary, its security dictionary or its field carries. A document naming none is passed over
 # by a search through its map, which is how the 126 GB is read in minutes; one naming it is read
@@ -74,6 +76,7 @@ NEEDLES = {
     "crypt": b"/Standard",
     "variable_text": b"/DA",
     "jpeg_bands": b"/DCT",
+    "cff_write": b"/Type1C",
 }
 # A `DCTDecode` frame past this is skipped for `jpeg_bands`: every execution decodes the frame
 # three times, and a frame of a few hundred lines is cut into bands as surely as a large one.
@@ -558,7 +561,18 @@ SHAPES = {
     "crypt": crypt_shape,
     "variable_text": variable_text_shape,
     "jpeg_bands": lambda seed: frame_shape(seed[1:]),
+    "cff_write": lambda seed: cff_shape(seed[3:]),
 }
+
+
+def cff_shape(program):
+    """A CFF's header and its length's order of magnitude.
+
+    The writer reads the header's size and offset size first, and an INDEX's own offset size
+    grows with its length (Adobe Technical Note #5176, sections 6 and 5), so these are what tell
+    one program's path through it from another's.
+    """
+    return (program[:4], len(program).bit_length())
 
 
 def seeds(target, data):
@@ -583,11 +597,12 @@ def seeds(target, data):
             "xmp": re.search(rb"/Type\s*/Metadata", dictionary),
             "sfnt": b"/Length1" in dictionary and b"/Length2" not in dictionary,
             "cmap": re.search(rb"/Type\s*/CMap", dictionary),
+            "cff_write": re.search(rb"/Subtype\s*/Type1C", dictionary),
         }[target]
         if wanted:
             out = decoded(dictionary, body)
             if out:
-                yield out
+                yield (b"\x00\x03\x55" + out) if target == "cff_write" else out
 
 
 def main(argv):

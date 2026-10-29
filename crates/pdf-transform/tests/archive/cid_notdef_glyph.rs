@@ -27,13 +27,16 @@ enum Map {
     Stream,
     /// `/Identity`; the page shows CIDs 0 and 36.
     Identity,
+    /// A stream of 37 entries sending CIDs 0 and 36 to glyph 36 and every other CID to glyph 0;
+    /// the page shows CIDs 0 and 36, neither on glyph 0.
+    CidZeroDrawn,
 }
 
 /// The CIDs on glyph 0 a fixture's page shows, then the one that reaches `A`.
 fn shown(map: Map) -> [u16; 3] {
     match map {
         Map::Stream => [1, 2, 36],
-        Map::Identity => [0, 0, 36],
+        Map::Identity | Map::CidZeroDrawn => [0, 0, 36],
     }
 }
 
@@ -53,20 +56,27 @@ fn a_page_showing_notdef_under(map: Map, widths: (u16, u16), direct: bool) -> Ve
             format!("{first} [{} {}] 36 [667]", widths.0, widths.1),
             "/CIDToGIDMap 10 0 R",
         ),
-        Map::Identity => (
+        Map::Identity | Map::CidZeroDrawn => (
             format!("<{first:04X}{letter:04X}>"),
             format!("{first} [{}] 36 [667]", widths.0),
-            "/CIDToGIDMap /Identity",
+            if matches!(map, Map::Identity) {
+                "/CIDToGIDMap /Identity"
+            } else {
+                "/CIDToGIDMap 10 0 R"
+            },
         ),
     };
     let entries: Vec<u8> = (0..=36_u16)
-        .flat_map(|cid| if cid == 36 { 36_u16 } else { 0 }.to_be_bytes())
+        .flat_map(|cid| {
+            let drawn = cid == 36 || (cid == 0 && matches!(map, Map::CidZeroDrawn));
+            if drawn { 36_u16 } else { 0 }.to_be_bytes()
+        })
         .collect();
     let mut binary_objects = vec![stream(
         &format!("/Length {}", LIBERATION_SANS.len()),
         LIBERATION_SANS,
     )];
-    if matches!(map, Map::Stream) {
+    if !matches!(map, Map::Identity) {
         binary_objects.push(stream(&format!("/Length {}", entries.len()), &entries));
     }
     let descendant = format!(
@@ -133,13 +143,14 @@ fn two_cids_on_notdef_at_two_widths_reach_two_glyphs_of_their_own() {
 
 #[test]
 fn a_width_no_advance_can_hold_is_refused_and_no_file_is_written() {
-    // 40 em is 81 920 of the program's units, past the 16 bits an advance is stored in.
+    // 40 em is 81 920 of the program's units, past the 16 bits an advance is stored in, so the
+    // copy refuses the font with its own condition (`doc/adr/2590`).
     let source = a_page_showing_notdef(Map::Stream, (500, 40_000));
     let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
     assert!(
         matches!(
             decision(&report, NOTDEF_SHOWN),
-            Decision::Refused(Because::TheFence(why)) if why.contains("CIDToGIDMap")
+            Decision::Refused(Because::NotBuiltYet(why)) if why.contains("one for each width")
         ),
         "{:?}",
         decision(&report, NOTDEF_SHOWN)
@@ -171,6 +182,35 @@ fn cid_zero_under_the_identity_is_refused_and_no_file_is_written() {
         "{program_row:?}"
     );
     assert!(output.is_none(), "and no file is written");
+}
+
+#[test]
+fn a_shown_cid_0_on_a_glyph_of_the_program_is_refused_as_the_cidfont_s_notdef() {
+    // ISO 32000-2 §9.7.4.2: CID 0 is the CIDFont's `.notdef` character whatever glyph the map
+    // sends it to, so this page shows `.notdef` though the program holds the glyph CID 0 draws, and
+    // the refusal says that rather than that a glyph is missing (`doc/adr/2582`).
+    let source = a_page_showing_notdef(Map::CidZeroDrawn, (667, 667));
+    assert_eq!(
+        glyphs_of(&source, Map::CidZeroDrawn),
+        [Some(36); 3],
+        "CID 0 draws the program's `A`"
+    );
+    for target in [
+        Target::Two(Level::B),
+        Target::Four(pdf_archive::Flavour::Plain),
+    ] {
+        let (report, output) = convert(&source, target, Authorisations::default());
+        let row = decision(&report, NOTDEF_SHOWN);
+        assert!(
+            matches!(
+                row,
+                Decision::Refused(Because::NotBuiltYet(why))
+                    if why.contains("program holds the glyph it draws")
+            ),
+            "{row:?}"
+        );
+        assert!(output.is_none(), "and no file is written");
+    }
 }
 
 /// Converts `source` at 2b and part 4 and holds each output to the restatement's properties, the
@@ -229,7 +269,7 @@ fn given_glyphs(source: &[u8], map: Map, shared: bool) {
         assert!(
             text.contains(match map {
                 Map::Stream => "BT /F1 12 Tf 10 100 Td <000100020024> Tj ET",
-                Map::Identity => "BT /F1 12 Tf 10 100 Td <00000024> Tj ET",
+                Map::Identity | Map::CidZeroDrawn => "BT /F1 12 Tf 10 100 Td <00000024> Tj ET",
             }),
             "the content stream is the producer's bytes"
         );
@@ -254,4 +294,32 @@ fn a_descendant_the_copy_does_not_reach_states_the_copy_s_own_reason() {
         "{program_row:?}"
     );
     assert!(output.is_none(), "and no file is written");
+}
+
+#[test]
+fn a_font_both_remedies_refuse_states_the_cid_remedy_s_reason() {
+    // The `.notdef` row tries a Type 3 rename first and the glyph given second (`doc/adr/2543`).
+    // The rename is fenced off from a font with a program, which says only that it does not reach
+    // the font, so the reason the row is refused is the second remedy's own (`doc/adr/2590`).
+    for (source, condition) in [
+        (
+            a_page_showing_notdef(Map::Identity, (750, 750)),
+            "not CID 0",
+        ),
+        (
+            a_page_showing_notdef_under(Map::Stream, (500, 500), true),
+            "a font here is another kind",
+        ),
+    ] {
+        let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+        let row = decision(&report, NOTDEF_SHOWN);
+        assert!(
+            matches!(
+                row,
+                Decision::Refused(Because::NotBuiltYet(why)) if why.contains(condition)
+            ),
+            "{row:?}"
+        );
+        assert!(output.is_none(), "and no file is written");
+    }
 }

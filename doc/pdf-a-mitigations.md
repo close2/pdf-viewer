@@ -1354,8 +1354,13 @@ widths are the viewer's, **built** (`doc/questions/A47`, `A566`, `A687`, ADRs 12
   pages are photographed. In a document stating a structure tree the profile's `discard` also
   authorises `tagging-of-photographed-pages` (A707, ADR 2516 item 7): the tree's leaves that name a
   photographed page are taken out of it, the rest of the tree kept, and each page's count of leaves
-  is named in the report and the history. `as-shown`, Level U and Level A, and optional content
-  keep the refusal.
+  is named in the report and the history. In a document stating optional content it also
+  authorises `optional-content-of-photographed-pages` (A717, ADR 2576): the page is photographed in
+  the configuration this viewer opens the document in — the default configuration as §8.11.4.5
+  applies it for viewing, never §8.11.4.4's `Print` usage — and each group its content names is
+  named in the report and the history with the state it was drawn in, as far as 64 groups; the
+  other pages and `/OCProperties` keep their optional content. `as-shown`, Level U and Level A keep
+  the refusal.
 - **A code the font's own encoding sends to `.notdef`** — named nothing, or `.notdef` in
   `/Differences` — which this reader draws nothing for, in one of the standard 14 stated by name
   alone whose face is a CFF one: an empty glyph of the stated width, named outside the Adobe Glyph

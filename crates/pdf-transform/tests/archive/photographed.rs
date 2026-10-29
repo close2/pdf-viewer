@@ -902,3 +902,226 @@ fn a_tagged_document_keeps_the_refusal_where_the_tagging_loss_was_not_authorised
     assert!(output.is_none(), "no file is written at Level A");
     assert!(conversion(&report).photographed.is_empty());
 }
+
+// ---------------------------------------------------------------------------------------------
+// A document with optional content (A717): the photograph bakes in the configuration shown
+// ---------------------------------------------------------------------------------------------
+//
+// Expected values: ISO 32000-2 §8.11.4.5 (on opening, `/BaseState` applies to every group and the
+// `/OFF` array then adjusts the groups it names: "[t]his state shall be the initial state used by
+// all PDF processors"), §8.11.3.2 (content between `BDC /OC` and `EMC` belongs to the group its
+// property list names, through the page's `/Properties`), Table 96 (a group's `/Name`), and A717
+// (under `as-if-printed`, at 2b and every part 4 flavour, a photographed page of such a document is
+// drawn in the configuration this viewer shows, under `optional-content-of-photographed-pages`, the
+// groups it fixed named per page in the report and in the history; the other pages keep their
+// optional content; Level A and Level U keep the refusal).
+
+/// Two pages and two optional content groups, `Shown` on and `Hidden` off by `/D`'s `/OFF`. The
+/// first page shows `Hello`, a blue square in `Shown`, a red square in `Hidden`, and then an
+/// operator the base standard does not define; the second draws only the blue square in `Shown`.
+fn a_layered_document_with_a_fault_on_its_first_page(target: Target) -> Vec<u8> {
+    let kept = "/OC /L1 BDC 0 0 1 rg 10 10 50 50 re f EMC";
+    let header = Conforming::part_two().header;
+    Conforming {
+        target,
+        header: if matches!(target, Target::Two(_)) {
+            header
+        } else {
+            None
+        },
+        catalog: "/OCProperties << /OCGs [9 0 R 10 0 R] /D << /Name (Default) /Order [9 0 R 10 \
+                  0 R] /OFF [10 0 R] >> >>"
+            .to_owned(),
+        resources: "/Font << /F1 6 0 R >> /Properties << /L1 9 0 R /L2 10 0 R >>".to_owned(),
+        contents: Some((
+            String::new(),
+            b"BT /F1 12 Tf 10 100 Td (Hello) Tj ET \
+              /OC /L1 BDC 0 0 1 rg 10 10 50 50 re f EMC \
+              /OC /L2 BDC 1 0 0 rg 100 10 50 50 re f EMC \
+              1 2 Frobnicate"
+                .to_vec(),
+        )),
+        objects: vec![
+            HELVETICA.to_owned(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /Properties << \
+             /L1 9 0 R >> >> /Contents 8 0 R >>"
+                .to_owned(),
+            format!("<< /Length {} >>\nstream\n{kept}\nendstream", kept.len()),
+            "<< /Type /OCG /Name (Shown) >>".to_owned(),
+            "<< /Type /OCG /Name (Hidden) >>".to_owned(),
+        ],
+        more_pages: vec![7],
+        ..Conforming::default()
+    }
+    .build()
+}
+
+/// How many pixels of a raster are mostly red, and how many mostly blue.
+fn red_and_blue(raster: &pdf_render::Raster) -> (usize, usize) {
+    let mut counted = (0_usize, 0_usize);
+    for pixel in raster.data.chunks_exact(4) {
+        let [red, green, blue, _] = [pixel[0], pixel[1], pixel[2], pixel[3]];
+        if red > 200 && green < 60 && blue < 60 {
+            counted.0 = counted.0.saturating_add(1);
+        }
+        if blue > 200 && red < 60 && green < 60 {
+            counted.1 = counted.1.saturating_add(1);
+        }
+    }
+    counted
+}
+
+#[test]
+fn a_photographed_page_of_a_layered_document_is_drawn_as_shown_and_names_the_groups_it_fixed() {
+    for target in [
+        Target::Two(Level::B),
+        Target::Four(pdf_archive::Flavour::Plain),
+    ] {
+        let source = a_layered_document_with_a_fault_on_its_first_page(target);
+        let (report, output) = convert_with_plan(&source, &printing("as-if-printed", target));
+        let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+        assert_eq!(
+            holds(&output, target).verdict(),
+            Verdict::Conforms,
+            "{target:?}"
+        );
+        if let Some(directory) = std::env::var_os("LAYERED_PHOTOGRAPH_ARTIFACTS") {
+            let path = std::path::Path::new(&directory).join(format!("layered-{target:?}.pdf"));
+            std::fs::write(path, &output).expect("the artifact is written");
+        }
+        let Decision::Authorised { losses, .. } = decision(&report, OPERATORS) else {
+            panic!("{:?}", decision(&report, OPERATORS));
+        };
+        assert!(
+            losses.iter().eq([
+                Loss::TextAsImage,
+                Loss::PageAsImage,
+                Loss::OptionalContentOfPhotographedPages
+            ]),
+            "{}",
+            losses.words()
+        );
+        let pages = &conversion(&report).photographed;
+        assert_eq!(pages.len(), 1, "{pages:?}");
+        let fixed = pages[0].optional_content.as_ref().expect("groups recorded");
+        let named: Vec<(&str, Option<bool>)> = fixed
+            .groups
+            .iter()
+            .map(|group| (group.name.as_str(), group.drawn))
+            .collect();
+        assert_eq!(named, [("Shown", Some(true)), ("Hidden", Some(false))]);
+        let json = conversion(&report).to_json().render();
+        assert!(
+            json.contains("optional-content-of-photographed-pages")
+                && json.contains("\"drawn\": \"off\""),
+            "{json}"
+        );
+        assert!(
+            conversion(&report).render().contains("\"Hidden\" off"),
+            "{}",
+            conversion(&report).render()
+        );
+        let packet = String::from_utf8(super::document_packet(&output)).expect("UTF-8");
+        assert!(
+            packet.contains("optional-content-of-photographed-pages")
+                && (packet.contains("&quot;Hidden&quot; off") || packet.contains("\"Hidden\" off")),
+            "{packet}"
+        );
+        // The photograph is the configuration shown: the hidden square is not in it, the shown
+        // one is, and the page draws as the source's page did.
+        let photographed = drawn(&output);
+        let (red, blue) = red_and_blue(&photographed);
+        assert_eq!(
+            red, 0,
+            "the group /D turns off is not drawn into the photograph"
+        );
+        assert!(blue > 0, "the group /D leaves on is");
+        assert!(largest_difference(&drawn(&source), &photographed) <= 1);
+        // The other page and the document keep their optional content.
+        let held = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+        let catalog = held.catalog().expect("a catalog");
+        assert!(catalog.get("OCProperties").is_some());
+        let every = Pages::new(&held).every();
+        let second = every[1].as_ref().expect("a second page");
+        assert!(
+            held.get_key(&second.resources, "Properties")
+                .as_dict()
+                .is_some()
+        );
+    }
+}
+
+#[test]
+fn a_layered_document_keeps_the_refusal_where_the_optional_content_loss_was_not_authorised() {
+    let target = Target::Two(Level::B);
+    let source = a_layered_document_with_a_fault_on_its_first_page(target);
+    let mut plan = printing("as-if-printed", target);
+    plan.authorised.optional_content_of_photographed_pages = false;
+    let (report, output) = convert_with_plan(&source, &plan);
+    assert!(output.is_none(), "no file is written");
+    assert!(conversion(&report).photographed.is_empty());
+    let rendered = conversion(&report).render();
+    assert!(
+        rendered.contains("states optional content")
+            && rendered.contains("authorise optional-content-of-photographed-pages"),
+        "{rendered}"
+    );
+    // Level A and Level U are offered no photograph at all.
+    for target in [Target::Two(Level::A), Target::Two(Level::U)] {
+        let source = a_layered_document_with_a_fault_on_its_first_page(target);
+        let (report, output) = convert_with_plan(&source, &printing("as-if-printed", target));
+        assert!(output.is_none(), "no file is written at {target:?}");
+        assert!(conversion(&report).photographed.is_empty());
+    }
+}
+
+#[test]
+fn the_groups_a_photographed_page_names_are_listed_to_the_bound_and_the_rest_counted() {
+    use pdf_transform::archive::{MAX_GROUP_NAME_CHARS, MAX_GROUPS_NAMED};
+    let target = Target::Two(Level::B);
+    let count = MAX_GROUPS_NAMED + 2;
+    // Objects 7 onwards are the groups; the first states a name longer than the bound.
+    let numbers: Vec<usize> = (7..7 + count).collect();
+    let references: Vec<String> = numbers.iter().map(|n| format!("{n} 0 R")).collect();
+    let properties: Vec<String> = numbers.iter().map(|n| format!("/G{n} {n} 0 R")).collect();
+    let mut objects = vec![HELVETICA.to_owned()];
+    objects.push(format!(
+        "<< /Type /OCG /Name ({}) >>",
+        "L".repeat(MAX_GROUP_NAME_CHARS + 1)
+    ));
+    objects.extend((1..count).map(|n| format!("<< /Type /OCG /Name (Group {n}) >>")));
+    let source = Conforming {
+        target,
+        header: Conforming::part_two().header,
+        catalog: format!(
+            "/OCProperties << /OCGs [{0}] /D << /Name (Default) /Order [{0}] >> >>",
+            references.join(" ")
+        ),
+        resources: format!(
+            "/Font << /F1 6 0 R >> /Properties << {} >>",
+            properties.join(" ")
+        ),
+        contents: Some((
+            String::new(),
+            b"BT /F1 12 Tf 10 100 Td (Hello) Tj ET /OC /G7 BDC 0 0 1 rg 10 10 50 50 re f EMC \
+              1 2 Frobnicate"
+                .to_vec(),
+        )),
+        objects,
+        ..Conforming::default()
+    }
+    .build();
+    let (report, output) = convert_with_plan(&source, &printing("as-if-printed", target));
+    assert!(output.is_some(), "{}", conversion(&report).render());
+    let pages = &conversion(&report).photographed;
+    let fixed = pages[0].optional_content.as_ref().expect("groups recorded");
+    assert_eq!((fixed.groups.len(), fixed.left_out), (MAX_GROUPS_NAMED, 2));
+    let first = &fixed.groups[0].name;
+    assert_eq!(
+        first.chars().filter(|c| *c == 'L').count(),
+        MAX_GROUP_NAME_CHARS,
+        "{first}"
+    );
+    assert!(first.ends_with(" ..."), "{first}");
+    assert!(fixed.named().ends_with(" and 2 more"), "{}", fixed.named());
+}

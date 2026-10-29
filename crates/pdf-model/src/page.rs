@@ -17,6 +17,7 @@
 //! available memory.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use pdf_syntax::{Damage, Dictionary, Document, Object, ObjectId};
 
@@ -47,6 +48,13 @@ struct Walk {
     visited: usize,
     /// The identities of the nodes above the one being walked, root first.
     path: Vec<ObjectId>,
+    /// Each resource dictionary this walk has resolved through a reference, by the object it is.
+    ///
+    /// §7.8.3 lets many pages name one resource dictionary by reference, and resolving it hands
+    /// back a copy of the whole of it, so a copy kept per page multiplies the dictionary by the
+    /// pages naming it. Every node naming the object shares the one copy instead (ADR 2588). It
+    /// holds at most one entry per node visited, so `MAX_NODES_VISITED` bounds it with the walk.
+    resources: BTreeMap<ObjectId, Option<Arc<Dictionary>>>,
 }
 
 impl Walk {
@@ -55,7 +63,24 @@ impl Walk {
         Self {
             visited: 0,
             path: root.into_iter().collect(),
+            resources: BTreeMap::new(),
         }
+    }
+
+    /// The resource dictionary `node` itself states, shared with every node of this walk that
+    /// names the same object, or `None` where the node states none.
+    ///
+    /// A value that is not a dictionary states none, and the node inherits as though the entry
+    /// were absent.
+    fn stated_resources(&mut self, document: &Document, node: Node<'_>) -> Option<Arc<Dictionary>> {
+        let stated = node.stated_key(document, "Resources")?;
+        let Object::Reference(id) = stated else {
+            return owned_dictionary(stated).map(Arc::new);
+        };
+        self.resources
+            .entry(id)
+            .or_insert_with(|| owned_dictionary(document.resolve(&stated)).map(Arc::new))
+            .clone()
     }
 
     /// Whether `kid`, named in `node`'s `/Kids`, is `node` itself or a node above it.
@@ -74,6 +99,15 @@ impl Walk {
         if node.id().is_some() {
             self.path.pop();
         }
+    }
+}
+
+/// The dictionary an object is, or the dictionary of the stream it is, taken without a copy where
+/// it is a dictionary — the reading [`Object::as_dict`] gives, owned.
+fn owned_dictionary(object: Object) -> Option<Dictionary> {
+    match object {
+        Object::Dictionary(dict) => Some(dict),
+        other => other.as_dict().cloned(),
     }
 }
 
@@ -119,6 +153,15 @@ impl<'a> Node<'a> {
             Object::Dictionary(dict) => Some(Self::Direct(dict, None)),
             Object::Stream(stream) => Some(Self::Direct(&stream.dict, None)),
             _ => None,
+        }
+    }
+
+    /// One entry of this node as the file states it, a reference left unfollowed, or `None` where
+    /// this is not a dictionary at all — [`Self::key`] before §7.3.10's chain is followed.
+    fn stated_key(self, document: &'a Document, key: &str) -> Option<Object> {
+        match self {
+            Self::Indirect(id) => document.stated_key_of(id, key),
+            Self::Direct(dict, _) => Some(dict.get(key).cloned().unwrap_or(Object::Null)),
         }
     }
 
@@ -187,7 +230,8 @@ fn declares_a_node(document: &Document, node: Node<'_>) -> bool {
 /// Attributes a page inherits from its ancestors.
 #[derive(Debug, Clone, Default)]
 struct Inherited {
-    resources: Option<Dictionary>,
+    /// Shared rather than copied, because every page beneath the node that states it reads it.
+    resources: Option<Arc<Dictionary>>,
     media_box: Option<[f32; 4]>,
     /// Why the nearest node that *wrote* `/MediaBox` supplied no usable rectangle.
     ///
@@ -205,7 +249,7 @@ impl Inherited {
     ///
     /// Values found deeper in the tree win, which is what "inherited" means: the nearest
     /// ancestor's value applies, not the root's.
-    fn overlay(&self, document: &Document, node: Node<'_>) -> Self {
+    fn overlay(&self, document: &Document, node: Node<'_>, walk: &mut Walk) -> Self {
         let entry = |key| node.key(document, key).unwrap_or(Object::Null);
         // A node that states the entry and states something unusable does not take the ancestor's
         // rectangle away — the file has still said how big the page is, one level up — so the
@@ -219,9 +263,8 @@ impl Inherited {
             },
         };
         Self {
-            resources: entry("Resources")
-                .as_dict()
-                .cloned()
+            resources: walk
+                .stated_resources(document, node)
                 .or_else(|| self.resources.clone()),
             media_box,
             media_box_fault,
@@ -460,7 +503,13 @@ pub struct Page {
     /// The page dictionary.
     pub dict: Dictionary,
     /// The resource dictionary in effect, after inheritance.
-    pub resources: Dictionary,
+    ///
+    /// Shared with every other page of one [`Pages::every`] that names the same dictionary, by
+    /// reference or by inheriting it, because §7.8.3 lets a producer write one resource
+    /// dictionary for many pages and a copy per page multiplies it by them (ADR 2588). A caller
+    /// that changes it changes its own copy: [`Arc::make_mut`] copies a dictionary another page
+    /// still holds.
+    pub resources: Arc<Dictionary>,
     /// The media box, after inheritance, as `[x0, y0, x1, y1]`.
     pub media_box: [f32; 4],
     /// Set where [`Self::media_box`] is [`Self::DEFAULT_MEDIA_BOX`] because the file states none.
@@ -927,11 +976,12 @@ impl<'a> Pages<'a> {
                 ancestry.push(parent.clone());
                 current = parent;
             }
+            let mut walk = Walk::default();
             let inherited = ancestry
                 .iter()
                 .rev()
                 .fold(Inherited::default(), |so_far, node| {
-                    so_far.overlay(self.document, Node::Direct(node, None))
+                    so_far.overlay(self.document, Node::Direct(node, None), &mut walk)
                 });
             let mut page = build_page(self.document, dict, &inherited, self.boundaries, Some(id));
             page.damaged_dictionary = damage;
@@ -1008,7 +1058,11 @@ impl<'a> Pages<'a> {
         build_page(
             self.document,
             dict,
-            &Inherited::default().overlay(self.document, Node::Direct(dict, None)),
+            &Inherited::default().overlay(
+                self.document,
+                Node::Direct(dict, None),
+                &mut Walk::default(),
+            ),
             self.boundaries,
             None,
         )
@@ -1558,7 +1612,7 @@ fn find_leaf(
         // A leaf. Take it if this is the one asked for.
         if *remaining == 0 {
             let dict = node.dictionary(document)?;
-            let inherited = inherited.overlay(document, node);
+            let inherited = inherited.overlay(document, node, walk);
             return Some(build_page(
                 document,
                 &dict,
@@ -1571,7 +1625,7 @@ fn find_leaf(
         return None;
     };
 
-    let inherited = inherited.overlay(document, node);
+    let inherited = inherited.overlay(document, node, walk);
     for entry in kids {
         // The entry is read before it is resolved, because that is where the child's identity
         // is: §7.7.3.2 makes `/Kids` "an array of indirect references to the immediate
@@ -1680,7 +1734,7 @@ fn every_leaf(
             every.exact = false;
             return 0;
         };
-        let inherited = inherited.overlay(document, node);
+        let inherited = inherited.overlay(document, node, walk);
         every.pages.push(build_page(
             document,
             &dict,
@@ -1691,7 +1745,7 @@ fn every_leaf(
         return 1;
     };
 
-    let inherited = inherited.overlay(document, node);
+    let inherited = inherited.overlay(document, node, walk);
     let mut found = 0usize;
     for entry in kids {
         let Some(kid) = Node::of(entry) else { continue };

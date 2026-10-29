@@ -629,3 +629,77 @@ fn an_exit_event_that_never_ends_is_stopped_and_the_entry_is_kept() {
         );
     }
 }
+
+/// XFA 3.3 page 391: a click within a field runs its `click` event in the confined worker, and a
+/// value the event sets wakes the calculation that reads it (page 379).
+#[test]
+fn a_click_event_runs_in_the_confined_worker_and_wakes_a_calculation() {
+    let template = [
+        field(
+            "Add",
+            &javascript_event("click", "Units.rawValue = Number(Units.rawValue) + 1;"),
+        ),
+        field("Units", ""),
+        field("Double", &javascript("Units.rawValue * 2", "")),
+    ]
+    .concat();
+    let document = document(&template, &[("Add", ""), ("Units", "1"), ("Double", "")]);
+    let worker = Arc::new(ScriptWorker::with_program(WORKER).with_deadline(OUT_OF_THE_WAY));
+    let mut view = view_with(&document, &worker);
+    view.activate_form_on_merge(&document);
+    assert!(view.activate_form_on_click(&document, &name("Add")));
+    assert_eq!(shown(&view, &document, "Units").as_deref(), Some("2"));
+    assert_eq!(shown(&view, &document, "Double").as_deref(), Some("4"));
+    assert!(worker.deaths().is_empty(), "{:?}", worker.deaths());
+}
+
+/// The plant: a `click` event that never ends, raised after a person's entry into another field
+/// was committed. The worker stops it within the activation's budget, the entry stands, and what
+/// the stopped activation set is dropped.
+#[test]
+fn a_click_event_that_never_ends_is_stopped_and_the_entry_is_kept() {
+    for script in [
+        "Other.rawValue = 9; for (;;) {}",
+        "Other.rawValue = 9; function f() { return f() + 1; } f()",
+        "Other.rawValue = 9; for (var i = 0; i &lt; 90000; i++) { for (var j = 0; j &lt; 90000; j++) {} }",
+    ] {
+        let template = [
+            field("Units", ""),
+            field("Button", &javascript_event("click", script)),
+            field("Other", ""),
+        ]
+        .concat();
+        let document = document(&template, &[("Units", "3"), ("Button", ""), ("Other", "")]);
+        let worker = Arc::new(ScriptWorker::with_program(WORKER).with_deadline(OUT_OF_THE_WAY));
+        let mut view = view_with(&document, &worker);
+        view.activate_form_on_merge(&document);
+        let started = std::time::Instant::now();
+        assert!(view.set_field(&document, &name("Units"), &Entered::Text("5".to_owned())) > 0);
+        view.commit_field(&document, &name("Units"));
+        let changed = view.activate_form_on_click(&document, &name("Button"));
+        let took = started.elapsed();
+        assert!(took < Duration::from_secs(5), "{script}: {took:?}");
+        assert!(!changed, "{script}");
+        assert_eq!(
+            shown(&view, &document, "Units").as_deref(),
+            Some("5"),
+            "{script}: the person's entry is kept"
+        );
+        assert_eq!(
+            shown(&view, &document, "Other").as_deref(),
+            Some(""),
+            "{script}: what the stopped event set is dropped"
+        );
+        let said = view.script_reports().join("\n");
+        assert!(said.contains("its click event"), "{script}: {said}");
+        assert!(
+            said.contains("nothing it calculated is kept"),
+            "{script}: {said}"
+        );
+        assert!(
+            worker.deaths().is_empty(),
+            "{script}: {:?}",
+            worker.deaths()
+        );
+    }
+}

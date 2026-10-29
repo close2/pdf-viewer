@@ -418,8 +418,10 @@ type Seen = BTreeSet<(ObjectId, Role)>;
 pub fn spot_colourants(document: &Document, page: &crate::Page) -> SpotColourants {
     let mut found = SpotColourants::default();
     let mut seen = Seen::new();
-    let mut roots: Vec<(Object, Role)> =
-        vec![(Object::Dictionary(page.resources.clone()), Role::Resources)];
+    let mut roots: Vec<(Object, Role)> = vec![(
+        Object::Dictionary((*page.resources).clone()),
+        Role::Resources,
+    )];
     if let Some(annotations) = document.get_key(&page.dict, "Annots").as_array() {
         for annotation in annotations {
             let annotation = document.resolve(annotation);

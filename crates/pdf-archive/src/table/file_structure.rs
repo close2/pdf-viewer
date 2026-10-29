@@ -398,6 +398,29 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Implemented(page_tree_node_kids_is_an_array),
     },
     Requirement {
+        id: "file-structure/page-tree-root-states-no-parent",
+        asks: "The root node of the page tree shall not state Parent.",
+        // Section 5.1 again, through the same table's `/Parent` row: "( Required except in root
+        // node; not permitted in the root node; shall be an indirect reference ) The page tree
+        // node that is the immediate parent of this one." Narrowed to the root, the one node a
+        // reader can name without trusting the tree's own `/Parent` entries (ADR 2583).
+        clauses: Clauses::both("5.1", "5.1"),
+        applies: Applies::Always,
+        check: Check::Implemented(page_tree_root_states_no_parent),
+    },
+    Requirement {
+        id: "file-structure/page-tree-kids-name-dictionaries",
+        asks: "Every entry of a page tree node's Kids shall name a dictionary.",
+        // The `/Kids` row's second sentence, "The children shall only be page objects or other
+        // page tree nodes.", narrowed to what a reader needs to open a child at all: an entry
+        // that resolves to no dictionary — a reference to an object the file does not hold is
+        // §7.3.10's null — is no child of either kind. Which kind a dictionary is, and whether
+        // it is written by reference, are not judged here (ADR 2583).
+        clauses: Clauses::both("5.1", "5.1"),
+        applies: Applies::Always,
+        check: Check::Implemented(page_tree_kids_name_dictionaries),
+    },
+    Requirement {
         id: "file-structure/page-tree-node-count-is-an-integer",
         asks: "Every page tree node shall state Count, and its value shall be an integer.",
         // The same table's `/Count` row, "( Required ) The number of leaf nodes (page objects)
@@ -2281,6 +2304,74 @@ fn page_tree_node_kids_is_an_array(exam: &Examination<'_>, findings: &mut Findin
     });
 }
 
+/// Section 5.1, at ISO 32000-2 §7.7.3.2's Table 30 `/Parent` row, which does not permit the entry
+/// in the root node.
+///
+/// The root is the catalog's `/Pages`, and it is held to the row where it is a node by
+/// [`each_page_tree_node`]'s reading. The converter declines such a source before it writes
+/// anything, and writes the tree this reader recovered where `recovered-structure` is granted
+/// (ADR 2558); this row is what the validator says about it.
+fn page_tree_root_states_no_parent(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    let Ok(catalog) = document.catalog() else {
+        return;
+    };
+    let Some(root) = catalog.get("Pages") else {
+        return;
+    };
+    let place = match root {
+        Object::Reference(id) => Where::object(*id),
+        _ => Where::file().named("the page tree's root, written inside the catalog"),
+    };
+    let resolved = document.resolve(root);
+    let Some(node) = resolved.as_dict() else {
+        return;
+    };
+    let declares_a_node = document
+        .get_key(node, "Type")
+        .as_name()
+        .is_some_and(|name| name.as_bytes() == b"Pages");
+    if (declares_a_node || node.get("Kids").is_some()) && node.get("Parent").is_some() {
+        findings.record(place, "the root node of the page tree states Parent");
+    }
+}
+
+/// Section 5.1, at ISO 32000-2 §7.7.3.2's Table 30 `/Kids` row: every entry names a child, and a
+/// child is a page object or a page tree node, so an entry that resolves to no dictionary names
+/// none.
+///
+/// One finding per node, naming the first such entry and how many there are: a node listing a
+/// thousand nulls has one fault in it. Each node's array is read once, as [`each_page_tree_node`]
+/// reads it, so the work is bounded by its node budget and the arrays the file states. The converter
+/// declines such a source as it declines a root stating `/Parent` (ADR 2558).
+fn page_tree_kids_name_dictionaries(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    each_page_tree_node(document, &mut |place, node| {
+        let Object::Array(kids) = document.get_key(node, "Kids") else {
+            return;
+        };
+        let mut naming_none = kids
+            .iter()
+            .enumerate()
+            .filter(|(_, kid)| document.resolve(kid).as_dict().is_none())
+            .map(|(at, _)| at);
+        let Some(first) = naming_none.next() else {
+            return;
+        };
+        let more = naming_none.count();
+        findings.record(
+            place,
+            format!(
+                "entry {first} of a page tree node's Kids names no dictionary{}",
+                match more {
+                    0 => String::new(),
+                    more => format!(", and {more} more entries do not either"),
+                }
+            ),
+        );
+    });
+}
+
 /// Section 5.1, at ISO 32000-2 §7.7.3.2's Table 30 `/Count` row.
 ///
 /// A `/Count` resolving to an integer meets it, an indirect one included: the table states the
@@ -2651,8 +2742,9 @@ mod tests {
     use super::{
         LARGEST_INTEGER, LONGEST_NAME, LONGEST_STRING, SMALLEST_INTEGER,
         cross_reference_keyword_line_endings, for_each_value, hexadecimal_string_digits,
-        hexadecimal_string_holds_only_digits, page_tree_node_count_is_an_integer,
-        page_tree_node_kids_is_an_array, shortened, stream_keyword_line_endings,
+        hexadecimal_string_holds_only_digits, page_tree_kids_name_dictionaries,
+        page_tree_node_count_is_an_integer, page_tree_node_kids_is_an_array,
+        page_tree_root_states_no_parent, shortened, stream_keyword_line_endings,
     };
 
     /// Builds a dictionary from pairs, for the small hand-made objects the tests walk.
@@ -2966,6 +3058,79 @@ mod tests {
         ]);
         assert!(judged(&untyped_leaf, page_tree_node_kids_is_an_array).met());
         assert!(judged(&untyped_leaf, page_tree_node_count_is_an_integer).met());
+    }
+
+    /// ISO 32000-2 §7.7.3.2's Table 30, at section 5.1: `/Parent` "not permitted in the root
+    /// node", and every `/Kids` entry a child, which an entry resolving to no dictionary is not.
+    /// `PDFBOX-6040-nodeloop.pdf`'s shape: a root naming itself as its parent and listing a kid
+    /// the file does not hold, which §7.3.10 makes the null object.
+    #[test]
+    fn a_root_stating_parent_and_a_kid_naming_no_dictionary_fail_table_30() {
+        let catalog = "<< /Type /Catalog /Pages 2 0 R >>";
+        let page = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>";
+        let sound = document_of(&[
+            catalog,
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Pages /Parent 2 0 R /Kids [4 0 R] /Count 1 >>",
+            page,
+        ]);
+        assert!(
+            judged(&sound, page_tree_root_states_no_parent).met(),
+            "the control: the node below the root states its parent, as the row requires"
+        );
+        assert!(judged(&sound, page_tree_kids_name_dictionaries).met());
+
+        let looped = document_of(&[
+            catalog,
+            "<< /Type /Pages /Parent 2 0 R /Kids [3 0 R 9 0 R null] /Count 2 >>",
+            page,
+        ]);
+        let found = judged(&looped, page_tree_root_states_no_parent);
+        assert_eq!(found.kept().len(), 1);
+        assert_eq!(found.kept()[0].place.object.map(|id| id.number), Some(2));
+        let found = judged(&looped, page_tree_kids_name_dictionaries);
+        assert_eq!(found.kept().len(), 1, "one finding for the node");
+        assert_eq!(
+            found.kept()[0].what,
+            "entry 1 of a page tree node's Kids names no dictionary, and 1 more entries do not \
+             either"
+        );
+        assert!(
+            judged(&looped, page_tree_node_kids_is_an_array).met(),
+            "the array itself is one"
+        );
+
+        // A kid naming a number one level down is named at the node that lists it.
+        let nested = document_of(&[
+            catalog,
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Pages /Parent 2 0 R /Kids [4 0 R 5 0 R] /Count 1 >>",
+            page,
+            "7",
+        ]);
+        let found = judged(&nested, page_tree_kids_name_dictionaries);
+        assert_eq!(found.kept().len(), 1);
+        assert_eq!(found.kept()[0].place.object.map(|id| id.number), Some(3));
+    }
+
+    /// A node listing a hundred thousand nulls has one fault in it, and the row says so once: the
+    /// array is read once per node, as the walk reads it, so a hostile `/Kids` costs what the walk
+    /// already cost and the report one finding.
+    #[test]
+    fn a_kids_array_of_a_hundred_thousand_nulls_is_one_finding() {
+        let nulls = "null ".repeat(100_000);
+        let hostile = document_of(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            &format!("<< /Type /Pages /Kids [3 0 R {nulls}] /Count 1 >>"),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+        ]);
+        let found = judged(&hostile, page_tree_kids_name_dictionaries);
+        assert_eq!(found.kept().len(), 1);
+        assert_eq!(
+            found.kept()[0].what,
+            "entry 1 of a page tree node's Kids names no dictionary, and 99999 more entries do \
+             not either"
+        );
     }
 
     #[test]

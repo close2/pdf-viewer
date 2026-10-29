@@ -34,7 +34,7 @@
 //! that a verdict has an instant to be asserted as of. [`policy`] reads §12.8.3.4.4's signature
 //! policy identifier and whether the document the file carries is the one the signer committed
 //! to, as far as the texts this tree holds reach, and [`policy_rules`] enforces the constraints of
-//! a bound policy document written in ETSI TR 102 272's ASN.1 syntax.
+//! a bound policy document written in ETSI TR 102 272's ASN.1 syntax or in ETSI TS 119 172-3's.
 //!
 //! # Why this is not part of the document model
 //!

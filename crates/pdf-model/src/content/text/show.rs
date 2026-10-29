@@ -33,6 +33,10 @@ impl Interpreter<'_> {
             if entry.shortfall.is_none() {
                 entry.shortfall = counted.shortfall;
             }
+            entry.refused = entry.refused.saturating_add(counted.refused);
+            if entry.refusal.is_none() {
+                entry.refusal = counted.refusal;
+            }
         } else {
             self.glyph_coverage.insert(name.to_owned(), counted);
         }
@@ -464,6 +468,15 @@ impl Interpreter<'_> {
             coverage.lost = coverage.lost.saturating_add(1);
             if coverage.shortfall.is_none() {
                 coverage.shortfall = program.repair_shortfall();
+            }
+        } else if let Some(refusal) = program.outline_refusal(code) {
+            // Asked before the program's own empty answer for the same reason: the glyph has an
+            // index and no contours drawn because the evaluator stopped, not because the program
+            // describes it empty (ADR 2586). After the repair arm, whose reason is the narrower.
+            coverage.empty = coverage.empty.saturating_add(1);
+            coverage.refused = coverage.refused.saturating_add(1);
+            if coverage.refusal.is_none() {
+                coverage.refusal = Some(refusal);
             }
         } else if blank {
             // A glyph the program contains and describes as empty is the

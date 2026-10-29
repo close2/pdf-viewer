@@ -16,6 +16,19 @@ use skrifa::raw::TableProvider;
 use skrifa::{FontRef, GlyphId, MetadataProvider};
 use std::sync::Arc;
 
+/// A glyph whose outline the evaluator refused, and its reason in the evaluator's own words.
+///
+/// Principle 1's "no silent error swallowing" at the one place a glyph's program is run: a
+/// refused glyph is drawn as nothing, exactly as an empty one is, and this is what lets the page
+/// that showed it say so instead of counting it with the glyphs the program describes empty.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutlineRefused {
+    /// The glyph index in the face that was asked.
+    pub glyph: u16,
+    /// The evaluator's error, as its `Display` states it.
+    pub reason: String,
+}
+
 impl LoadedFont {
     /// Returns the outline for a character code, with one em as one unit.
     ///
@@ -23,7 +36,9 @@ impl LoadedFont {
     /// size and nothing else.
     ///
     /// Returns `None` when the code has no glyph, which includes the ordinary case of a
-    /// space in a font with no space outline.
+    /// space in a font with no space outline, and `None` for a glyph whose program the evaluator
+    /// refused: nothing is drawn for it either way, and [`Self::outline_refusal`] is the question
+    /// that tells the second from the first, answered from the same cache entry.
     ///
     /// # §9.6.5.2's `.notdef`, and why it is applied here rather than in the code table
     ///
@@ -43,14 +58,33 @@ impl LoadedFont {
     /// obeyed by blinding the gates that watch it.
     #[must_use]
     pub fn outline(&self, code: Code) -> Option<Arc<Path>> {
-        let placed = match self.placed_glyph(code) {
-            Some(placed) => placed,
-            None => Placed {
+        // A refusal is kept in the cache rather than dropped here, and `outline_refusal` reads it.
+        self.drawing(self.drawn_glyph(code)?).unwrap_or(None)
+    }
+
+    /// Why the evaluator refused the outline of the glyph `code` draws, where it did.
+    ///
+    /// `None` for a code that reaches no glyph, for a glyph drawn, and for a glyph its program
+    /// describes as empty — the three answers [`Self::outline`] gives with a mark or without one
+    /// that the program itself stated. `Some` is the fourth: the program was asked and its
+    /// charstring or outline could not be evaluated, so nothing is drawn for a glyph the file
+    /// may well describe, and the caller reports it with the evaluator's own reason. Read from
+    /// the cache [`Self::outline`] fills, so asking after drawing costs a lookup.
+    #[must_use]
+    pub fn outline_refusal(&self, code: Code) -> Option<OutlineRefused> {
+        self.drawing(self.drawn_glyph(code)?).err()
+    }
+
+    /// The glyph [`Self::outline`] draws for `code`: the one its route reaches, or §9.6.5.2's
+    /// `.notdef` where that sentence applies.
+    fn drawn_glyph(&self, code: Code) -> Option<Placed> {
+        match self.placed_glyph(code) {
+            Some(placed) => Some(placed),
+            None => Some(Placed {
                 face: Face::Own,
                 glyph: self.notdef.filter(|_| self.substitutes_notdef(code))?,
-            },
-        };
-        self.cached_outline(placed)
+            }),
+        }
     }
 
     /// One glyph's outline, through the cache both routes into this font share.
@@ -59,6 +93,14 @@ impl LoadedFont {
     /// without a code and must not build a second cache to do it: a face drawing an interface's
     /// own text reuses the same few dozen glyphs exactly as a page does.
     pub(super) fn cached_outline(&self, placed: Placed) -> Option<Arc<Path>> {
+        self.drawing(placed).unwrap_or(None)
+    }
+
+    /// One glyph's outline or the evaluator's refusal of it, through the cache.
+    ///
+    /// The refusal is cached beside the outlines because it is the same answer to the same
+    /// question: a program evaluated once per distinct glyph, whatever it said.
+    fn drawing(&self, placed: Placed) -> Result<Option<Arc<Path>>, OutlineRefused> {
         if let Some(cached) = outlines(&self.outlines).get(&placed) {
             return cached.clone();
         }
@@ -68,14 +110,22 @@ impl LoadedFont {
     }
 
     /// Extracts and normalises one glyph outline.
-    fn build_outline(&self, placed: Placed) -> Option<Arc<Path>> {
+    ///
+    /// `Ok(None)` is a glyph that is not there to draw — a class face or a glyph the program
+    /// does not hold — or one whose contours are empty; `Err` is a program the evaluator could
+    /// not run for this glyph, which includes a charstring past `cff::CHARSTRING_OPERATIONS`
+    /// (ADR 2572).
+    fn build_outline(&self, placed: Placed) -> Result<Option<Arc<Path>>, OutlineRefused> {
         let Placed { face, glyph } = placed;
         // §9.8.3.3's class face is a second face with its own em square, and it is always an
         // `sfnt`: `substitute::installed_covering` is the only thing that chose it and this
         // machine's catalogue admits no other container.
         let class = match face {
             Face::Own => None,
-            Face::Class(index) => Some(self.classes.get(index)?.as_ref()?),
+            Face::Class(index) => match self.classes.get(index) {
+                Some(Some(class)) => Some(class),
+                _ => return Ok(None),
+            },
         };
         let data = class.map_or(&self.data, |class| &class.data);
         let units_per_em = class.map_or(self.units_per_em, |class| class.units_per_em);
@@ -91,13 +141,28 @@ impl LoadedFont {
             last: None,
         };
 
+        let refused = |reason: String| OutlineRefused { glyph, reason };
         match program {
-            Program::BareCff => cff::draw(data, glyph, &mut pen).ok()?,
-            Program::Type1 => self.type1.as_ref()?.draw(glyph, &mut pen).ok()?,
+            Program::BareCff => {
+                cff::draw(data, glyph, &mut pen).map_err(|error| refused(error.to_string()))?;
+            }
+            Program::Type1 => {
+                // `parsed_type1` parses every `Program::Type1` or refuses the font, so the field
+                // is never empty here; an empty one would answer as a glyph not there.
+                let Some(type1) = self.type1.as_ref() else {
+                    return Ok(None);
+                };
+                type1
+                    .draw(glyph, &mut pen)
+                    .map_err(|error| refused(error.to_string()))?;
+            }
             Program::Sfnt => {
-                let font = FontRef::new(data).ok()?;
+                let font = FontRef::new(data)
+                    .map_err(|error| refused(format!("the sfnt could not be read: {error}")))?;
                 let glyphs = font.outline_glyphs();
-                let outline = glyphs.get(GlyphId::from(glyph))?;
+                let Some(outline) = glyphs.get(GlyphId::from(glyph)) else {
+                    return Ok(None);
+                };
                 // Unhinted and unscaled by default: hinting is a device-resolution decision,
                 // and this outline is resolution-independent because the text matrix scales
                 // it later. The exception is the hint-reliant family — see [`Self::hinting`]
@@ -118,11 +183,15 @@ impl LoadedFont {
                         {
                             pen.path = Path::new();
                             pen.last = None;
-                            outline.draw(unhinted(), &mut pen).ok()?;
+                            outline
+                                .draw(unhinted(), &mut pen)
+                                .map_err(|error| refused(error.to_string()))?;
                         }
                     }
                     None => {
-                        outline.draw(unhinted(), &mut pen).ok()?;
+                        outline
+                            .draw(unhinted(), &mut pen)
+                            .map_err(|error| refused(error.to_string()))?;
                     }
                 }
             }
@@ -133,16 +202,16 @@ impl LoadedFont {
         // glyph this method already answers `None` for.
         let path = without_point_contours(pen.path);
         if path.is_empty() {
-            return None;
+            return Ok(None);
         }
         // §9.3.6 NOTE 2 makes a glyph's contour direction visible where two glyphs overlap
         // inside one clipping path, and a face this program chose has no direction the
         // document stated — so every substituted outline is wound the same way, and an
         // embedded program's is left exactly as its producer drew it.
         if self.substituted {
-            return Some(Arc::new(wound_counter_clockwise(path)));
+            return Ok(Some(Arc::new(wound_counter_clockwise(path))));
         }
-        Some(Arc::new(path))
+        Ok(Some(Arc::new(path)))
     }
 
     /// The interpreter instance for a hint-reliant font program, built on first use.

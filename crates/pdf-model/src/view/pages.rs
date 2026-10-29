@@ -531,7 +531,7 @@ fn carried_page(
     }
     out.insert(
         name(b"Resources"),
-        crate::forms_data::carried(source, &Object::Dictionary(page.resources.clone()))?,
+        crate::forms_data::carried(source, &Object::Dictionary((*page.resources).clone()))?,
     );
     // §11.4.7's page group and Table 93's group attributes are the same dictionary, and a page
     // whose marks the producer composited inside a group composites differently without it.

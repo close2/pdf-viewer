@@ -419,20 +419,26 @@ Three things this item still owes, none of them blocking a face:
 - A directory the document would fill past `Config::max_entries` is refused rather than truncated,
   and no document on this disk reaches it — so the ceiling is a decision without a witness.
 
-## 6. RFC §9's open questions — one answered, six standing
+## 6. RFC §9's open questions — four answered, three standing
 
 **The fourth is answered: `meta/info.json` writes are in v1, yes.** They are implemented, and
 ADR 0855 §5 has the argument — the file *is* §14.3.3's Table 349, the write is the read's
 inverse, and reading the file and writing it straight back changes nothing the document states.
 The owner may of course overrule it; what it is not any more is undecided.
 
-The other six stand, and the owner has not been asked since approving the RFC: the scheme name
-(`pdf:/` recommended), whether writes are opt-in per krarc's precedent — **now a live question
-rather than a hypothetical, because the writes exist** — whether reorder-by-rename is wanted at
-all, whether a content-destroying rewrite is something RFC 0002 should offer so this face can
-refer to it (also now live: a page deleted through the mount keeps its bytes, and the deletion
-says so), page-label alias symlinks, and the resolution set for `renders/`, where 150 and 300 are
-what the core states.
+**Three more are answered by the owner, and two of the answers are not built.** The scheme name is
+`pdf:/` (`doc/questions/A07`). Whether writes are opt-in is answered by `A08`, which keeps the
+append construction and asks for an older version to be copyable out of the file system as an
+undo; no directory of the core's offers one yet. Reorder-by-rename is wanted (`A09`): integer keys
+with a stride of 100 counting from `00100`, an insertion taking the gap between its neighbours,
+renormalising only on request, and a rename that crosses directories, is not a well-formed key or
+lands on an occupied one refused by name — while the core still refuses every rename inside
+`pages/` as `ReorderIsAmbiguous` (`crates/pdf-vfs/src/writing.rs`). ADR 2564 lists both as owed.
+
+Three stand, unasked since the owner approved the RFC: whether a content-destroying rewrite is
+something RFC 0002 should offer so this face can refer to it (live: a page deleted through the
+mount keeps its bytes, and the deletion says so), page-label alias symlinks, and the resolution
+set for `renders/`, where 150 and 300 are what the core states.
 
 **And a seventh the write side raised, with its last sentence now corrected.** §5.3's refusals
 return `EACCES` for both `on` and *ask*, because a file system has nobody to ask. A KIO worker

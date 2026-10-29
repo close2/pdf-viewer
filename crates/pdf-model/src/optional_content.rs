@@ -798,9 +798,7 @@ const MAX_FORM_DEPTH: usize = 8;
 /// costs a person nothing; under-listing one hides a switch the document asked to show.
 #[must_use]
 pub fn groups_referenced_by(document: &Document, page: &crate::page::Page) -> BTreeSet<ObjectId> {
-    let mut found = BTreeSet::new();
-    let mut visited = BTreeSet::new();
-    gather_from_resources(document, &page.resources, &mut found, &mut visited, 0);
+    let mut found = groups_referenced_by_content(document, page);
     let annotations = document.get_key(&page.dict, "Annots");
     if let Some(annotations) = annotations.as_array() {
         for annotation in annotations {
@@ -811,6 +809,24 @@ pub fn groups_referenced_by(document: &Document, page: &crate::page::Page) -> BT
             }
         }
     }
+    found
+}
+
+/// Every optional content group one page's *content* references: [`groups_referenced_by`] without
+/// its annotations.
+///
+/// The two places §8.11 puts an `/OC` that the page's content stream reaches — the page's
+/// `/Resources /Properties` (§8.11.3.2) and an `XObject`'s own `/OC` (§8.11.3.3), followed into
+/// nested forms under the same bounds — for a caller that replaces the content and keeps the
+/// annotations, each of which still carries its own `/OC`.
+#[must_use]
+pub fn groups_referenced_by_content(
+    document: &Document,
+    page: &crate::page::Page,
+) -> BTreeSet<ObjectId> {
+    let mut found = BTreeSet::new();
+    let mut visited = BTreeSet::new();
+    gather_from_resources(document, &page.resources, &mut found, &mut visited, 0);
     found
 }
 

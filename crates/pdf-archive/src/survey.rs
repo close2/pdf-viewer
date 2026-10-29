@@ -911,7 +911,7 @@ impl Survey {
             actual_text_budget: ACTUAL_TEXT_BUDGET,
             marks: Vec::new(),
             seen: BTreeSet::new(),
-            page_resources: Dictionary::new(),
+            page_resources: Arc::default(),
             ledger,
             survey: Self::default(),
         };
@@ -1556,8 +1556,9 @@ struct Walk<'a> {
     /// What a form `XObject` or a Type 3 font stating no `/Resources` of its own is read against
     /// — the page's, which the clause names, and not the stream that invoked it, which is the
     /// same dictionary only until a form is nested in a form. Set by [`Walk::page`] and read by
-    /// [`Walk::form`] and [`Walk::type3`]; a tiling pattern gets neither (ADR 1059).
-    page_resources: Dictionary,
+    /// [`Walk::form`] and [`Walk::type3`]; a tiling pattern gets neither (ADR 1059). Shared with
+    /// the page that holds it rather than copied from it (ADR 2588).
+    page_resources: Arc<Dictionary>,
     /// Every named resource looked up, where [`Survey::ledgered`] asked for them.
     ///
     /// `None` for every other caller, and then the cost is one test per lookup. The ledger is

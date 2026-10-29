@@ -23,10 +23,11 @@
 //! 4. a certification path from that certificate reaches an anchor somebody supplied
 //!    ([`crate::trust`]), with §12.8.4's revocation material applied to every certificate on it.
 //!
-//! Step 4 is [`crate::trust::Trust::NoAnchorSupplied`] in this tree, because no host here names an
-//! anchor (ADR 1039). So every real document's timestamp is [`Time::Unknown`], and that is the
-//! honest answer rather than a gap: §12.8.5.2's authority is a *trusted* one, and nothing here
-//! decides whom to trust. What the token *claims* is still reported, as a claim ([`Claim`]).
+//! Step 4's anchors are a host's to name (ADR 1039), and a host names none unless the reader
+//! points it at a store; with none, step 4 is [`crate::trust::Trust::NoAnchorSupplied`] and the
+//! timestamp is [`Time::Unknown`]. That is the honest answer rather than a gap: §12.8.5.2's
+//! authority is a *trusted* one, and nothing in this crate decides whom to trust. What the token
+//! *claims* is still reported, as a claim ([`Claim`]).
 //!
 //! # The chain, and why it is an order rather than a list
 //!

@@ -4,15 +4,15 @@ use super::*;
 use crate::policy::Specification;
 
 /// `id-sha256`, 2.16.840.1.101.3.4.2.1.
-const SHA256: &[u8] = &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01];
+pub(super) const SHA256: &[u8] = &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01];
 /// `sha256WithRSAEncryption`, 1.2.840.113549.1.1.11.
-const SHA256_RSA: &[u8] = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0B];
+pub(super) const SHA256_RSA: &[u8] = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0B];
 /// A policy identifier of the tests' own, 1.2.3.4.
-const POLICY: &[u8] = &[0x2A, 0x03, 0x04];
+pub(super) const POLICY: &[u8] = &[0x2A, 0x03, 0x04];
 /// A commitment type of the tests' own, 1.2.3.5.
-const PROOF_OF_ORIGIN: &[u8] = &[0x2A, 0x03, 0x05];
+pub(super) const PROOF_OF_ORIGIN: &[u8] = &[0x2A, 0x03, 0x05];
 
-fn tlv(tag: u8, contents: &[u8]) -> Vec<u8> {
+pub(super) fn tlv(tag: u8, contents: &[u8]) -> Vec<u8> {
     let mut out = vec![tag];
     let length = contents.len();
     if length < 0x80 {
@@ -30,19 +30,19 @@ fn tlv(tag: u8, contents: &[u8]) -> Vec<u8> {
     out
 }
 
-fn seq(parts: &[Vec<u8>]) -> Vec<u8> {
+pub(super) fn seq(parts: &[Vec<u8>]) -> Vec<u8> {
     tlv(SEQUENCE, &parts.concat())
 }
 
-fn oid(octets: &[u8]) -> Vec<u8> {
+pub(super) fn oid(octets: &[u8]) -> Vec<u8> {
     tlv(OBJECT_IDENTIFIER, octets)
 }
 
-fn tagged(number: u8, inner: &[u8]) -> Vec<u8> {
+pub(super) fn tagged(number: u8, inner: &[u8]) -> Vec<u8> {
     tlv(0xA0 | number, inner)
 }
 
-fn time(spelled: &str) -> Vec<u8> {
+pub(super) fn time(spelled: &str) -> Vec<u8> {
     tlv(GENERALIZED_TIME, spelled.as_bytes())
 }
 
@@ -133,7 +133,7 @@ fn contents(info: &[u8]) -> &[u8] {
         .contents
 }
 
-fn signed_data<'a>(
+pub(super) fn signed_data<'a>(
     signed: Vec<&'a [u8]>,
     unsigned: Vec<&'a [u8]>,
     attributes: Vec<cms::Attribute<'a>>,
@@ -162,7 +162,7 @@ fn signed_data<'a>(
     }
 }
 
-fn facts(at: Option<&str>) -> SignerFacts {
+pub(super) fn facts(at: Option<&str>) -> SignerFacts {
     SignerFacts {
         signing_time: at.map(|spelled| SigningTime {
             instant: x509::read_time_digits(spelled.as_bytes(), true).expect("a time"),
@@ -171,10 +171,14 @@ fn facts(at: Option<&str>) -> SignerFacts {
         }),
         key_bits: Some(2048),
         carries_signer_certificate: true,
+        certificate_signature_algorithm: Some(SHA256_RSA.to_vec()),
     }
 }
 
-fn verdict_of(findings: &[Finding], wanted: impl Fn(&Constraint) -> bool) -> Vec<Verdict> {
+pub(super) fn verdict_of(
+    findings: &[Finding],
+    wanted: impl Fn(&Constraint) -> bool,
+) -> Vec<Verdict> {
     findings
         .iter()
         .filter(|finding| wanted(&finding.constraint))
@@ -371,7 +375,7 @@ fn ts_119_172_3s_syntax_is_told_apart_rather_than_misread() {
     ]);
     assert_eq!(
         PolicyDocument::parse(&octets),
-        Err(PolicyDocumentError::OtherSyntax)
+        Err(PolicyDocumentError::OtherSyntax(Syntax::Tr102272))
     );
 }
 
@@ -421,7 +425,11 @@ fn a_document_past_the_byte_budget_is_refused_before_it_is_walked() {
     );
 }
 
-fn policy<'a>(octets: &'a [u8], value: &'a [u8], identifier: &str) -> SignaturePolicy<'a> {
+pub(super) fn policy<'a>(
+    octets: &'a [u8],
+    value: &'a [u8],
+    identifier: &str,
+) -> SignaturePolicy<'a> {
     SignaturePolicy {
         identifier: identifier.to_owned(),
         hash: PolicyHash::Stated {
@@ -443,7 +451,7 @@ fn only_a_bound_document_naming_the_signers_policy_is_enforced() {
     let whole = Digest::Sha256.compute(&[&octets]);
     assert!(matches!(
         enforce(&policy(&octets, &whole, "1.2.3.4"), &cms, &facts(None)),
-        Enforcement::Enforced(_)
+        Enforcement::Enforced { .. }
     ));
     // Annex B.11's second way: the signer signed the policy's own hash.
     let document = PolicyDocument::parse(&octets).expect("a clause 6 document");
@@ -454,7 +462,7 @@ fn only_a_bound_document_naming_the_signers_policy_is_enforced() {
         .to_vec();
     assert!(matches!(
         enforce(&policy(&octets, &own, "1.2.3.4"), &cms, &facts(None)),
-        Enforcement::Enforced(_)
+        Enforcement::Enforced { .. }
     ));
     assert!(matches!(
         enforce(&policy(&octets, &[0x55; 32], "1.2.3.4"), &cms, &facts(None)),

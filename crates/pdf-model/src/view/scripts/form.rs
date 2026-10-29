@@ -5,7 +5,9 @@
 //! [`ViewState::activate_form_on_entry`] raise those two over the XFA resource §K.2 lets an
 //! interactive form carry, as [`crate::xfa::Resource::activate`] orders them (ADR 2506), and
 //! [`ViewState::activate_form_on_exit`] and [`ViewState::activate_form_on_enter`] raise the events
-//! pages 390–391 fire when the keyboard focus moves (ADR 2566). **The
+//! pages 390–391 fire when the keyboard focus moves (ADR 2566), and
+//! [`ViewState::activate_form_on_click`] the `click` events page 391 fires when a mouse click
+//! occurs within a field (ADR 2584). **The
 //! scripts run in the runner**, never here: this crate reads no script language and does not depend
 //! on one (ADR 2482), so [`ScriptRunner::run_form_script`] is the one call that carries a script
 //! out, and a runner that has none refuses it by name. What the scripts computed lands in the edit
@@ -94,6 +96,8 @@ enum Raised<'a> {
         reached: &'a str,
         leaving: Option<&'a str>,
     },
+    /// A mouse click occurred within the field of this PDF name.
+    Click(&'a str),
 }
 
 /// A runner seen as the [`Runner`] an activation runs its scripts through, counting the scripts
@@ -208,6 +212,19 @@ impl ViewState {
         self.activate_form(document, Raised::Enter { reached, leaving }, Instant::now())
     }
 
+    /// Runs the `click` events of the field `clicked`, within whose region a mouse click occurred
+    /// (XFA 3.3 page 391), followed by the calculations that depend on what the events changed
+    /// (page 379). Answers whether a value changed, which is ink to draw again.
+    ///
+    /// Only the field's own events run: page 390 gives a subform and an exclusion group no
+    /// `click`, and page 387's `listen="refAndDescendents"`, the one way a click reaches an
+    /// enclosing container, is not followed (ADR 2584). The events are one activation under the
+    /// sequence budget of one second, and one that is stopped drops what its scripts changed and
+    /// leaves every value a person entered as it was.
+    pub fn activate_form_on_click(&mut self, document: &Document, clicked: &str) -> bool {
+        self.activate_form(document, Raised::Click(clicked), Instant::now())
+    }
+
     /// The fields whose `override` asks a host to present a message since a host last took them, in
     /// the order a person entered them.
     pub fn take_form_overrides(&mut self) -> Vec<FormOverride> {
@@ -269,6 +286,7 @@ impl ViewState {
             Raised::Entry(_) => Stimulus::Entry(&entered),
             Raised::Exit { left, reaching } => Stimulus::Exit { left, reaching },
             Raised::Enter { reached, leaving } => Stimulus::Enter { reached, leaving },
+            Raised::Click(clicked) => Stimulus::Click { clicked },
         };
         // What a person entered before this merge stands under it (the merge's own comment).
         let before_the_merge: Vec<String> = match raised {

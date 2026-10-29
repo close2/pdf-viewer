@@ -95,7 +95,7 @@ seed() {
         fi
         ;;
     # One object out of a document each, in the framing each target reads.
-    xmp | sfnt | cmap | ccitt | crypt | variable_text)
+    xmp | sfnt | cmap | ccitt | crypt | variable_text | cff_write)
         documents | python3 "$here/seed_streams.py" "$t" "$root/$t" -
         ;;
     # §7.4.7 and §7.4.9: the codestreams of the documents naming either filter, in the framing

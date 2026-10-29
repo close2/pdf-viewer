@@ -252,8 +252,9 @@ fn signature_values(signature: &[u8]) -> Result<(&[u8], &[u8]), DsaError> {
 /// octets takes the bits the standard says rather than the octets that contain them.
 ///
 /// Its step 5 — "the verifier shall have assurances as specified in Section 3.3" — is a signature's
-/// *third* question and this program answers none of it. [`crate::signature::Authenticity`] is
-/// where that is said out loud rather than implied by a return value.
+/// *third* question, which this function does not answer: [`crate::signature::Signature::trust`]
+/// does, under anchors a host supplies, and [`crate::signature::Authenticity`] is where the
+/// difference is said out loud rather than implied by a return value.
 ///
 /// # Errors
 ///

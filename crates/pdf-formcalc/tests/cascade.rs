@@ -854,3 +854,180 @@ fn more_exit_events_than_an_activation_runs_end_on_its_limit_and_keep_nothing() 
     assert_eq!(activation.ended, Ended::Budget("activations"));
     assert!(activation.edits.is_empty(), "{:?}", activation.edits);
 }
+
+/// A container whose `click` event appends `tag` to `Log`.
+fn clicks(tag: &str) -> String {
+    format!("<event activity=\"click\"><script>Log = Concat(Log, \"{tag}!\")</script></event>")
+}
+
+/// Activates a click within the field `short`.
+fn click(template: &str, values: &[(&str, &str)], short: &str) -> Activation {
+    let clicked = name(short);
+    activate(
+        template,
+        values,
+        Stimulus::Click { clicked: &clicked },
+        Limits::DEFAULT,
+    )
+}
+
+/// Page 391: a click within a field fires the field's own `click` event. The subform around it
+/// stating one fires nothing, because page 390 gives a subform no `click` and page 387's default
+/// `listen` is `refOnly`; nor does a field beside it, which the click was not within.
+#[test]
+fn a_click_fires_the_fields_own_click_event_and_no_other() {
+    let template = [
+        format!(
+            "<subform name=\"A\">{}{}{}</subform>",
+            clicks("A"),
+            field("Button", &clicks("Button")),
+            field("Beside", &clicks("Beside"))
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    let values = [("A.Button", ""), ("A.Beside", ""), ("Log", "")];
+    let activation = click(&template, &values, "A.Button");
+    assert_eq!(activation.ended, Ended::Settled, "{:?}", activation.report);
+    assert_eq!(log(&activation).as_deref(), Some("Button!"));
+    assert!(activation.report.is_empty(), "{:?}", activation.report);
+}
+
+/// Page 379: a value a `click` script sets is a change like any other, and the calculations that
+/// read it run after the event.
+#[test]
+fn a_value_a_click_event_sets_wakes_the_calculations_that_read_it() {
+    let template = [
+        field(
+            "Add",
+            "<event activity=\"click\"><script>Units = Units + 1</script></event>",
+        ),
+        field("Units", ""),
+        field("Total", &calculate("Units * 2", "")),
+    ]
+    .concat();
+    let activation = click(
+        &template,
+        &[("Add", ""), ("Units", "2"), ("Total", "")],
+        "Add",
+    );
+    assert_eq!(
+        activation.edits,
+        vec![
+            edit("Units", Scalar::Number(3.0)),
+            edit("Total", Scalar::Number(6.0))
+        ]
+    );
+}
+
+/// Page 703's `submit`, one of an event's one-of properties this reader does not perform, is said
+/// where the click fires it rather than passing as an event that did nothing; a `script` beside it
+/// on another event still runs.
+#[test]
+fn a_click_event_that_submits_is_reported_as_not_performed() {
+    let template = [
+        field(
+            "Send",
+            &format!(
+                "<event activity=\"click\"><submit target=\"https://example.invalid/\"/></event>{}",
+                clicks("Send")
+            ),
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    let activation = click(&template, &[("Send", ""), ("Log", "")], "Send");
+    assert_eq!(log(&activation).as_deref(), Some("Send!"));
+    assert!(
+        activation
+            .report
+            .iter()
+            .any(|sentence| sentence.contains("click event's submit is not performed")),
+        "{:?}",
+        activation.report
+    );
+}
+
+/// An exclusion group's PDF field is one for every button in it, so a click on it does not say
+/// which of its fields it was within: nothing runs, and the report says why.
+#[test]
+fn a_click_on_an_exclusion_group_runs_nothing_and_says_so() {
+    let template = [
+        format!(
+            "<exclGroup name=\"Choice\">{}{}</exclGroup>",
+            field("Yes", &clicks("Yes")),
+            field("No", &clicks("No"))
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    let activation = click(&template, &[("Choice", ""), ("Log", "")], "Choice");
+    assert!(activation.edits.is_empty(), "{:?}", activation.edits);
+    assert!(
+        activation
+            .report
+            .iter()
+            .any(|sentence| sentence.contains("it is an exclusion group")),
+        "{:?}",
+        activation.report
+    );
+}
+
+/// A click within a field the form's field list does not name runs nothing, and says so.
+#[test]
+fn a_click_on_a_field_the_form_does_not_name_runs_nothing_and_says_so() {
+    let template = [field("Button", &clicks("Button")), field("Log", "")].concat();
+    let activation = activate(
+        &template,
+        &[("Button", ""), ("Log", "")],
+        Stimulus::Click {
+            clicked: "elsewhere[0]",
+        },
+        Limits::DEFAULT,
+    );
+    assert!(activation.edits.is_empty());
+    assert!(
+        activation
+            .report
+            .iter()
+            .any(|sentence| sentence.contains("elsewhere[0]")),
+        "{:?}",
+        activation.report
+    );
+}
+
+/// A field carrying more `click` events than an activation may run ends on the activation limit
+/// and keeps nothing its scripts set.
+#[test]
+fn more_click_events_than_an_activation_runs_end_on_its_limit_and_keep_nothing() {
+    let events = "<event activity=\"click\"><script>Log = 1</script></event>"
+        .repeat(Limits::DEFAULT.activations.saturating_add(1));
+    let template = [field("f", &events), field("Log", "")].concat();
+    let activation = click(&template, &[("f", ""), ("Log", "")], "f");
+    assert_eq!(activation.ended, Ended::Budget("activations"));
+    assert!(activation.edits.is_empty(), "{:?}", activation.edits);
+}
+
+/// A field carrying a hundred thousand `click` events that each `submit` runs no script and
+/// performs none of them; the report keeps one sentence for them, since they say the same thing,
+/// and the walk over them is held to the template's elements, which the XML reader bounds.
+#[test]
+fn a_hundred_thousand_click_events_that_submit_are_reported_once() {
+    let events = "<event activity=\"click\"><submit/></event>".repeat(100_000);
+    let template = [field("f", &events), field("Log", "")].concat();
+    let started = std::time::Instant::now();
+    let activation = click(&template, &[("f", ""), ("Log", "")], "f");
+    assert!(started.elapsed() < std::time::Duration::from_secs(30));
+    assert_eq!(activation.ended, Ended::Settled);
+    assert_eq!(activation.activations, 0);
+    assert_eq!(
+        activation
+            .report
+            .iter()
+            .filter(|sentence| sentence.contains("submit is not performed"))
+            .count(),
+        1,
+        "{:?}",
+        activation.report
+    );
+}

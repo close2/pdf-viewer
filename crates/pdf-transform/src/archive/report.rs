@@ -555,6 +555,46 @@ impl StatementPage {
     }
 }
 
+/// A site whose row names `append-statement`, whose objects no statement lists, and which the
+/// row's next step answered.
+///
+/// `doc/rfc/0014` section 3: a page that cannot be composed hands each object to the next step,
+/// and the report names each object's step. The step that answered is the site's row in
+/// [`Conversion::decided`]; this says why the statement before it did not, in the composition's
+/// own sentence (`doc/adr/2591`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Unstated {
+    /// The requirement whose row named the step.
+    pub site: &'static str,
+    /// The step the objects were handed to.
+    pub then: super::RemedyKind,
+    /// Why no page lists them.
+    pub because: &'static str,
+}
+
+impl Unstated {
+    /// The site as one sentence, for the text report.
+    #[must_use]
+    pub fn sentence(&self) -> String {
+        format!(
+            "{}: no page lists what append-statement would have stated, so its objects were \
+             handed to {} \u{2014} {}",
+            self.site,
+            self.then.word(),
+            self.because
+        )
+    }
+
+    /// The site as JSON.
+    pub(super) fn to_json(&self) -> Value {
+        Value::Object(vec![
+            ("site".to_owned(), Value::text(self.site)),
+            ("then".to_owned(), Value::text(self.then.word())),
+            ("because".to_owned(), Value::text(self.because)),
+        ])
+    }
+}
+
 /// The answers one embedded file can take.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AttachmentAnswer {
@@ -1026,6 +1066,11 @@ pub struct Conversion {
     /// The page `append-statement` appended, where a row's loss was stated (`doc/rfc/0014`
     /// section 4); `None` for every other conversion.
     pub statement: Option<StatementPage>,
+    /// Every site whose `append-statement` composed no page and handed its objects on.
+    ///
+    /// Empty for every conversion whose statement listed what each such row took, and for every
+    /// conversion no row of which names the step.
+    pub unstated: Vec<Unstated>,
     /// What the source's encryption asserted about its reader, where the source carried one.
     ///
     /// **`doc/pdf-a-mitigations.md` section 2's `preserve` beside the `discard`**, and
@@ -1357,6 +1402,10 @@ impl Conversion {
                     .map_or(Value::Null, StatementPage::to_json),
             ),
             (
+                "unstated".to_owned(),
+                Value::Array(self.unstated.iter().map(Unstated::to_json).collect()),
+            ),
+            (
                 "protection".to_owned(),
                 protection_json(self.protection.as_ref()),
             ),
@@ -1648,6 +1697,9 @@ impl Conversion {
         if let Some(statement) = &self.statement {
             let _ = writeln!(out, "  stated: {}", statement.sentence());
         }
+        for unstated in &self.unstated {
+            let _ = writeln!(out, "  not stated: {}", unstated.sentence());
+        }
         if !self.preserved.is_empty() {
             let _ = writeln!(
                 out,
@@ -1930,6 +1982,9 @@ impl Conversion {
                     page.loss_words(),
                     super::fonts::leaves_named(page.structure_leaves),
                 );
+                if let Some(groups) = &page.optional_content {
+                    let _ = writeln!(out, "          {}", groups.named());
+                }
                 if !page.text.is_empty() {
                     let _ = writeln!(
                         out,
@@ -2076,6 +2131,31 @@ fn predicate(departed: &Departed) -> String {
 }
 
 /// One substituted font as JSON.
+/// The optional content groups a photographed page fixed, each by its name and the state drawn.
+fn fixed_groups_to_json(groups: &super::fonts::FixedGroups) -> Value {
+    Value::Object(vec![
+        (
+            "groups".to_owned(),
+            Value::Array(
+                groups
+                    .groups
+                    .iter()
+                    .map(|group| {
+                        Value::Object(vec![
+                            ("name".to_owned(), Value::text(group.name.clone())),
+                            ("drawn".to_owned(), Value::text(group.state_word())),
+                        ])
+                    })
+                    .collect(),
+            ),
+        ),
+        (
+            "groups_left_out".to_owned(),
+            Value::Integer(i64::try_from(groups.left_out).unwrap_or(i64::MAX)),
+        ),
+    ])
+}
+
 fn photographed_to_json(page: &super::PhotographedPage) -> Value {
     Value::Object(vec![
         (
@@ -2104,6 +2184,12 @@ fn photographed_to_json(page: &super::PhotographedPage) -> Value {
         (
             "structure_leaves".to_owned(),
             Value::Integer(i64::try_from(page.structure_leaves).unwrap_or(i64::MAX)),
+        ),
+        (
+            "optional_content".to_owned(),
+            page.optional_content
+                .as_ref()
+                .map_or(Value::Null, fixed_groups_to_json),
         ),
         (
             "losses".to_owned(),

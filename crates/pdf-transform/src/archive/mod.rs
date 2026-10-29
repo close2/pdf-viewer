@@ -212,9 +212,9 @@ pub use decision::{
 };
 pub use fallback::Fallback;
 pub use fonts::{
-    CjkPack, Collection, DOTS_PER_INCH, Described, FaceAuthority, MAX_PHOTOGRAPHED_PAGES,
-    MAX_TEXT_CHARS, MetricRoute, PackFiles, PackGap, PhotographedPage, RestatedFont,
-    SubstitutedFont,
+    CjkPack, Collection, DOTS_PER_INCH, Described, FaceAuthority, FixedGroup, FixedGroups,
+    MAX_GROUP_NAME_CHARS, MAX_GROUPS_NAMED, MAX_PHOTOGRAPHED_PAGES, MAX_TEXT_CHARS, MetricRoute,
+    PackFiles, PackGap, PhotographedPage, RestatedFont, SubstitutedFont,
 };
 pub use in_place::{ProxiedReference, ShownAnnotation};
 pub use languages::RestatedLanguage;
@@ -224,7 +224,7 @@ pub use recovered::{PartlyRead, RecoveredCatalog, RecoveredStructure};
 pub use report::{
     Achieved, AttachmentAnswer, AttachmentOutcome, Conversion, ConvertedTo, Decided, Departed,
     DepartureOutcome, Derived, DerivedOutcome, NotChecked, Preserved, Resolved, SetIn,
-    SignatureDecision, StatementPage, SuppliedFact,
+    SignatureDecision, StatementPage, SuppliedFact, Unstated,
 };
 pub use rewrite::Rewrite;
 pub use signatures::{Reached, SourceSignature};
@@ -744,6 +744,7 @@ fn conversion_before_deciding(
         resolved: remedies.resolved_report.clone(),
         preserved: Vec::new(),
         statement: None,
+        unstated: Vec::new(),
         protection: SourceProtection::of(source),
     }
 }
@@ -808,6 +809,13 @@ fn decide_every_failure(
                 Ok(stated) => version = Some(stated),
                 Err(because) => decision = Decision::Refused(because),
             }
+        }
+        // Named only where the step it was handed to carried the site: a refusal of that step is
+        // the site's reason, and a statement nobody composed is no part of it.
+        if decision.proceeds() {
+            conversion
+                .unstated
+                .extend(statement_handed_on(plan, judgement.id, &prepared));
         }
         conversion.decided.push(Decided {
             requirement: judgement.id,
@@ -1177,32 +1185,64 @@ fn supply_not_carried_out(
 /// `preserve:append` is the preservation's, and [`configured`]'s page branch answers it. At a
 /// halftone row whose list goes on to `discard` (`doc/adr/2562`), the objects a page that could
 /// not be composed would have listed are handed to it, `doc/rfc/0014` section 3's rule for a step
-/// that fails, and the removal goes ahead with the report naming no statement for the site.
+/// that fails, and the removal goes ahead with the report naming the composition's sentence
+/// beside it ([`statement_handed_on`]).
 fn statement_not_composed(
     plan: &ArchivePlan,
     id: &'static str,
     prepared: &Prepared,
 ) -> Option<Decision> {
+    match unstated(plan, id, prepared)? {
+        (Some(_), _) => None,
+        (None, because) => Some(Decision::Refused(because)),
+    }
+}
+
+/// The site `append-statement` handed on, where it did: the step that took its objects and the
+/// composition's own sentence for why no page lists them (`doc/adr/2591`).
+fn statement_handed_on(
+    plan: &ArchivePlan,
+    id: &'static str,
+    prepared: &Prepared,
+) -> Option<Unstated> {
+    match unstated(plan, id, prepared)? {
+        (Some(then), because) => Some(Unstated {
+            site: id,
+            then,
+            because: because.sentence(),
+        }),
+        (None, _) => None,
+    }
+}
+
+/// Why no statement lists the site's objects, where its row names `append-statement` and none
+/// does, with the step that takes them where the row hands them on.
+///
+/// `None` where the row names no statement, or the page lists the site.
+fn unstated(
+    plan: &ArchivePlan,
+    id: &'static str,
+    prepared: &Prepared,
+) -> Option<(Option<RemedyKind>, Because)> {
     let preservation = plan.preservations.iter().find(|preservation| {
         preservation.site == id && preservation.statement.is_some() && !preservation.by_page
     })?;
     let handed_on = config::STATED_GRAPHICS.contains(&id)
         && preservation.no_page_carries == RemedyKind::Discard;
-    match &prepared.preserved {
+    let because = match &prepared.preserved {
         Ok(composed)
             if composed
                 .statement
                 .as_ref()
                 .is_some_and(|page| page.sites.contains(&id)) =>
         {
-            None
+            return None;
         }
-        _ if handed_on => None,
-        Ok(_) => Some(Decision::Refused(Because::NotBuiltYet(
-            statement::NOTHING_STATED,
-        ))),
-        Err(because) => Some(Decision::Refused(*because)),
-    }
+        Ok(_) if handed_on => Because::NotBuiltYet(statement::NOTHING_LISTED),
+        Ok(_) => Because::NotBuiltYet(statement::NOTHING_STATED),
+        Err(because) => *because,
+    };
+    Some((handed_on.then_some(preservation.no_page_carries), because))
 }
 
 /// The decision a `preserve` that moves nothing takes, where one answers this requirement.

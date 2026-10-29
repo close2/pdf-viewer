@@ -150,7 +150,7 @@ impl Walk<'_> {
             .get_key(&stream.dict, "Resources")
             .as_dict()
             .cloned()
-            .unwrap_or_else(|| self.page.resources.clone());
+            .unwrap_or_else(|| (*self.page.resources).clone());
 
         let group = self
             .document
