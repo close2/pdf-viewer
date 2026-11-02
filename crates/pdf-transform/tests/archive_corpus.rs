@@ -280,12 +280,63 @@ fn every_stated_width(document: &Document, only: Option<&BTreeSet<u32>>) -> Vec<
                 {
                     items.truncate(count);
                 }
-                stated.push(format!("{key}={value:?}"));
+                // §9.7.4.3's `/W` is a list of independent statements, each one CID range's
+                // widths, so it is compared statement by statement: a CID the conversion gives a
+                // width of its own (`doc/adr/2622`) adds one and moves none.
+                if key == "W"
+                    && let Object::Array(items) = &value
+                {
+                    stated.extend(width_statements(items));
+                } else {
+                    stated.push(format!("{key}={value:?}"));
+                }
             }
         }
     }
     stated.sort_unstable();
     stated
+}
+
+/// The statements of one `/W` array (ISO 32000-2 §9.7.4.3): `c [w1 … wn]` or `c_first c_last w`,
+/// each written on its own; an incomplete tail is kept as one statement, so it still binds.
+fn width_statements(items: &[Object]) -> Vec<String> {
+    let mut statements = Vec::new();
+    let mut rest = items;
+    while !rest.is_empty() {
+        let length = match rest.get(1) {
+            Some(Object::Array(_)) => 2,
+            _ => 3.min(rest.len()),
+        };
+        let (statement, after) = rest.split_at(length);
+        statements.push(format!("W={statement:?}"));
+        rest = after;
+    }
+    statements
+}
+
+/// How many `Type0` fonts `document` holds whose `/Encoding` is an embedded `CMap` stream
+/// (ISO 32000-2 §9.7.5.3) rather than a predefined name.
+fn embedded_encodings(document: &Document) -> usize {
+    document
+        .xref()
+        .object_numbers()
+        .collect::<Vec<_>>()
+        .into_iter()
+        .filter(|number| {
+            let object = document.get(pdf_syntax::ObjectId::new(*number, 0));
+            object.as_dict().is_some_and(|dict| {
+                document
+                    .get_key(dict, "Subtype")
+                    .as_name()
+                    .map(|name| name.as_bytes().to_vec())
+                    == Some(b"Type0".to_vec())
+                    && matches!(
+                        document.resolve(&document.get_key(dict, "Encoding")),
+                        Object::Stream(_)
+                    )
+            })
+        })
+        .count()
 }
 
 /// Property 3 for one converted document: every width the source states is still stated, and
@@ -328,9 +379,17 @@ fn no_width_is_rewritten(
             path.display()
         )
     });
+    // A `Type0` font whose shown CID 0 is sent to a fresh CID gains an embedded `CMap` and one
+    // `/W` statement, that CID's (`doc/adr/2622`).
+    let fresh = embedded_encodings(&held).saturating_sub(embedded_encodings(&source));
+    let (simple, composite): (Vec<_>, Vec<_>) =
+        added.iter().partition(|it| it.starts_with("Widths="));
     assert!(
-        added.iter().all(|it| it.starts_with("Widths=")) && added.len() <= described,
-        "{}: widths were added beyond the {described} described font(s): {added:?}",
+        simple.len() <= described
+            && composite.len() <= fresh
+            && composite.iter().all(|it| it.starts_with("W=")),
+        "{}: widths were added beyond the {described} described font(s) and the {fresh} fresh \
+         CID(s): {added:?}",
         path.display()
     );
 }

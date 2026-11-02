@@ -87,6 +87,38 @@ pub(super) fn objects_named(
     Ok((objects, elsewhere))
 }
 
+/// Every distinct place one failed requirement's findings named, in the order found.
+///
+/// The population a remedy iterates where the place is more than its object — a page and the
+/// entry it failed at, a file specification and the `/EF` key of the failing stream — read from
+/// [`pdf_archive::Named::places`] rather than from the places [`Outcome::Failed`] keeps, which are
+/// a prefix past thirty-two (trap 289, `doc/adr/2616`). A judgement whose outcome is not a failure
+/// has no places.
+///
+/// # Errors
+///
+/// [`PLACES_CUT_SHORT`] where the requirement failed at more distinct places than
+/// [`pdf_archive::MAX_NAMED`] or past [`pdf_archive::MAX_PLACE_NAME_BYTES`] of their names, so that
+/// the list held is itself a prefix.
+pub(super) fn places_failed(
+    judgement: &pdf_archive::Judgement,
+) -> Result<&[pdf_archive::Where], Because> {
+    if !matches!(judgement.outcome, Outcome::Failed { .. }) {
+        return Ok(&[]);
+    }
+    if judgement.named.places_cut_short() {
+        return Err(Because::NotBuiltYet(PLACES_CUT_SHORT));
+    }
+    Ok(judgement.named.places())
+}
+
+/// Why a remedy over a requirement that failed at more places than the checker holds is refused.
+pub(super) const PLACES_CUT_SHORT: &str = "the requirement this remedy answers failed at more \
+     distinct places than the checker keeps a list of (pdf_archive::MAX_NAMED, 4096 places, or \
+     pdf_archive::MAX_PLACE_NAME_BYTES, a mebibyte of their names), so the places to remedy are \
+     not all known and a remedy of those that are would leave the file failing the requirement \
+     it answered";
+
 /// Why a rewrite over a requirement that failed at more objects than the checker holds is refused.
 pub(super) const CHECKER_CUT_SHORT: &str = "the requirement this rewrite answers failed at more \
      distinct objects than the checker keeps a list of (pdf_archive::MAX_NAMED, 4096), so the \
@@ -3110,3 +3142,48 @@ const EMBEDDED_FILE_STILL_REACHED: &str = "an embedded file this target does not
      \u{a7}12.5.6.15's Table 184 makes required — so taking the specification out of the name \
      tree would leave it in the file, reached from a page, and the requirement failing. Removing \
      that annotation is a different loss, over the marks it draws, and it is not this one";
+
+#[cfg(test)]
+mod tests {
+    use pdf_archive::{Findings, MAX_NAMED, Outcome, Where};
+
+    use super::{Because, PLACES_CUT_SHORT, places_failed};
+
+    /// A failed judgement over `places` pages, as `pdf_archive` builds one.
+    fn failed_at_pages(places: usize) -> pdf_archive::Judgement {
+        let mut findings = Findings::default();
+        for page in 0..places {
+            findings.record(Where::page(page).named("F"), "wrong");
+        }
+        pdf_archive::Judgement {
+            id: "test/whole-population",
+            citation: String::new(),
+            asks: "",
+            amended_by: None,
+            clarified_by: None,
+            outcome: Outcome::Failed {
+                places: findings.kept().to_vec(),
+                total: findings.seen(),
+            },
+            named: findings.named().clone(),
+        }
+    }
+
+    #[test]
+    fn the_places_are_the_population_to_the_bound_and_refused_past_it() {
+        // The embedded-file and JPEG 2000 sites read only this helper's answer, so its bound is
+        // theirs: every place up to `MAX_NAMED`, and a refusal by name one place past it.
+        let at_the_bound = failed_at_pages(MAX_NAMED);
+        let places = places_failed(&at_the_bound).expect("within the bound");
+        assert_eq!(places.len(), MAX_NAMED);
+        assert_eq!(
+            places[MAX_NAMED.saturating_sub(1)],
+            Where::page(MAX_NAMED.saturating_sub(1)).named("F")
+        );
+        let past = failed_at_pages(MAX_NAMED.saturating_add(1));
+        assert_eq!(
+            places_failed(&past),
+            Err(Because::NotBuiltYet(PLACES_CUT_SHORT))
+        );
+    }
+}

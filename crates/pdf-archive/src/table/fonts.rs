@@ -1357,9 +1357,45 @@ fn font_programs_embedded(exam: &Examination<'_>, findings: &mut Findings) {
                     used.name
                 ),
             ),
-            Some(_) => {}
+            Some(descriptor) => {
+                if let Some((key, damage)) = program_stopping_short(document, &descriptor) {
+                    findings.record(
+                        place,
+                        format!(
+                            "the font {} is rendered and its {key} stream's data stops short \
+                             ({damage:?}), so the file holds only part of its program",
+                            used.name
+                        ),
+                    );
+                }
+            }
         }
     }
+}
+
+/// The descriptor key and the damage of an embedded program whose decode stops short of the data
+/// its filters describe, the one reading of a stream's bytes this row makes.
+///
+/// ISO 32000-2 §9.9 embeds a program as the data a stream holds — "a font program can be embedded
+/// in a PDF file as data contained in a PDF stream object" — and a decode that ran out, or met
+/// what its filter's grammar does not admit ([`pdf_syntax::filter::Damage::stops_short`]), has
+/// handed over the front of a program and not the program: what the rest of it held, no byte of
+/// the file states. So the program is not embedded, and the clause binds it as it binds a font
+/// that names none (ADR 2619). A check value that disagrees over every byte, or a filter this
+/// reader does not decode, says nothing about whether the program is there, and is passed over.
+fn program_stopping_short(
+    document: &Document,
+    descriptor: &Dictionary,
+) -> Option<(&'static str, pdf_syntax::filter::Damage)> {
+    let (key, at) = embedded_under(document, descriptor)?;
+    let Object::Stream(stream) = document.get(at) else {
+        return None;
+    };
+    let damage = document
+        .decoded_stream_data_reported(&stream)
+        .ok()?
+        .damage?;
+    damage.stops_short().then_some((key, damage))
 }
 
 /// The three names ISO 32000-2 §9.9's Table 125 lets a `/FontFile3` stream state as `/Subtype`.
@@ -3498,6 +3534,30 @@ mod tests {
             findings(&never_shown, font_programs_embedded).is_empty(),
             "a font no text-showing operator ran with is not a font the file uses"
         );
+    }
+
+    #[test]
+    fn a_program_whose_decode_stops_short_is_not_embedded_and_a_whole_one_is() {
+        // ISO 32000-2 §7.4.4.2 requires LZW's end-of-data code 257, so the codes 256 and 97 alone
+        // stop short of the program the stream holds, and 256, 97, 257 are whole (ADR 2619).
+        let with = |lzw: &str| {
+            page_with(
+                "BT /F1 12 Tf (hi) Tj ET",
+                &format!(
+                    "5 0 obj\n<< /Type /Font /Subtype /TrueType /BaseFont /F /FirstChar 104 \
+                     /LastChar 105 /Widths [500 500] /FontDescriptor 6 0 R >>\nendobj\n6 0 obj\n\
+                     << /Type /FontDescriptor /FontName /F /Flags 32 /FontBBox [0 0 1 1] \
+                     /ItalicAngle 0 /Ascent 1 /Descent 0 /CapHeight 1 /StemV 1 /FontFile2 7 0 R \
+                     >>\nendobj\n7 0 obj\n<< /Filter [/ASCIIHexDecode /LZWDecode] /Length {} \
+                     >>\nstream\n{lzw}\nendstream\nendobj\n",
+                    lzw.len()
+                ),
+            )
+        };
+        let short = findings(&with("801840>"), font_programs_embedded);
+        assert_eq!(short.len(), 1, "{short:?}");
+        let whole = findings(&with("80186020>"), font_programs_embedded);
+        assert!(whole.is_empty(), "{whole:?}");
     }
 
     /// An sfnt whose table directory names `tags`, each table empty, written as hexadecimal for

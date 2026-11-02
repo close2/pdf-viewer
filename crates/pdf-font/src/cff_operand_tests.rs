@@ -50,7 +50,7 @@ fn refused<T: std::fmt::Debug>(result: &Result<T, CffError>, dict: &str, operato
     clippy::cast_possible_wrap,
     reason = "a fixture builder over a font of two glyphs: every quantity is a few dozen"
 )]
-fn name_keyed(private: &[u8]) -> Vec<u8> {
+pub(super) fn name_keyed(private: &[u8]) -> Vec<u8> {
     let header = [1u8, 0, 4, 4];
     let names = index(&[b"F"]);
     let empty = index(&[]);
@@ -314,7 +314,7 @@ fn an_offset_the_rewrite_cannot_shift_is_refused_by_name() {
     assert!(matches!(
         with_advances(&inside, &advance),
         Err(CffError::Malformed { detail })
-            if detail.contains("the Top DICT's Private offset points into the header")
+            if detail.contains("the Top DICT's Private offset points before the program's start, into the header")
     ));
     let mut past = program.clone();
     past[at..at + 5].copy_from_slice(&int5(private_at + 3));

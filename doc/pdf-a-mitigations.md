@@ -1379,7 +1379,12 @@ widths are the viewer's, **built** (`doc/questions/A47`, `A566`, `A687`, ADRs 12
   applies it for viewing, never §8.11.4.4's `Print` usage — and each group its content names is
   named in the report and the history with the state it was drawn in, as far as 64 groups; the
   other pages and `/OCProperties` keep their optional content. `as-shown`, Level U and Level A keep
-  the refusal.
+  the refusal. The page must still be one the window drew whole, a fault of its own bytes apart
+  (A694 item 3, ADRs 2516 and 2618): an operator short of its operands, an undefined name, a path
+  with no current point, a matrix with no inverse, a stream damaged part-way (the page's own
+  `/Contents` as well as a form's), a stream that ends inside a text object and a keyword inside an
+  array are drawn as the window draws them; a part of `/Contents` the window drew nothing of, an
+  image or shading this reader cannot build and a drawing stopped at a bound keep the refusal.
 - **A code the font's own encoding sends to `.notdef`** — named nothing, or `.notdef` in
   `/Differences` — which this reader draws nothing for, in one of the standard 14 stated by name
   alone whose face is a CFF one: an empty glyph of the stated width, named outside the Adobe Glyph

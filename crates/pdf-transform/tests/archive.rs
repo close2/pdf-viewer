@@ -1694,7 +1694,7 @@ fn the_unconsidered_requirements_are_the_ones_this_file_names() {
     assert!(
         arrived.is_empty(),
         "these requirements have no considered answer and archive_unconsidered.txt does not \
-         name them: {arrived:?}. Give each one a row in decision.rs — a remedy, a refusal with \
+         name them: {arrived:?}. Give each one a row in its family's module under archive/decision/ — a remedy, a refusal with \
          its own argument, or a not-built-yet that names what it waits on — or add it here."
     );
     assert!(
@@ -16209,5 +16209,7 @@ mod cid_notdef_glyph;
 mod derived_converted;
 #[path = "archive/notdef_glyph.rs"]
 mod notdef_glyph;
+#[path = "archive/type1_notdef_glyph.rs"]
+mod type1_notdef_glyph;
 #[path = "archive/whole_population.rs"]
 mod whole_population;

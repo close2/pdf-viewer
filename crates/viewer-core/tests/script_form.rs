@@ -482,6 +482,32 @@ fn a_press_and_release_on_a_widget_runs_the_click_event_of_its_field() {
     }
 }
 
+/// XFA 3.3 page 392: a `mouseDown` fires when the button is pressed within the field's region and a
+/// `mouseUp` when it is released within it, wherever it was pressed (ADR 2627). A press on `Units`
+/// dragged to `Total` and released there runs the one's `mouseDown` and the other's `mouseUp`,
+/// which no `/U` names; at `off` neither runs.
+#[test]
+fn a_press_and_a_release_run_the_mouse_events_of_the_fields_they_land_on() {
+    let fields = "<field name=\"Units\"><ui><textEdit/></ui><value><text/></value>\
+                  <event activity=\"mouseDown\"><script>1</script></event>\
+                  <event activity=\"mouseUp\"><script>5</script></event></field>\
+                  <field name=\"Total\"><ui><textEdit/></ui><value><text/></value>\
+                  <event activity=\"mouseUp\"><script>2</script></event></field>";
+    let data = "<Units/><Total/>";
+    // `hybrid` puts `Units` at [20 300 220 320] and `Total` at [20 260 220 280].
+    let (units, total) = ((120.0, 310.0), (120.0, 270.0));
+    for (scripting, pressed, released) in [
+        (Scripting::Run(Arc::new(Calculators::default())), "1", "2"),
+        (Scripting::Off, "", ""),
+    ] {
+        let mut viewer = opened_on(scripting, hybrid(fields, data));
+        viewer.handle(Command::Presented).for_each(drop);
+        press_and_release(&mut viewer, units, total);
+        assert_eq!(value(&viewer, "Units"), pressed, "pressed within Units");
+        assert_eq!(value(&viewer, "Total"), released, "released within Total");
+    }
+}
+
 /// XFA 3.3 page 388: the Form DOM's `ready` runs once the form is shown, which is the open
 /// sequence's end, through the runner the reader's level supplied, and at `off` nothing runs; an
 /// event bound to `$layout`, which this reader raises nothing for, is named in the document's

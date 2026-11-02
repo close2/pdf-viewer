@@ -83,6 +83,58 @@ impl Viewer {
         }
     }
 
+    /// [`crate::Command::PolicyCopy`]: the copy kept beside the document, the report worded again
+    /// with it, and what is new said (ADR 2624).
+    ///
+    /// **At most one copy for each published entry**, so what a host can make this keep is bounded
+    /// by what the file's own signatures publish: a second copy of the same entry replaces the
+    /// first, and a copy of an entry no signature names is said and dropped.
+    pub(super) fn policy_copy(
+        &mut self,
+        document: DocumentId,
+        policy: pdf_signature::policy::PublishedPolicy,
+        copy: Vec<u8>,
+        events: &mut Vec<Event>,
+    ) {
+        let Some(open) = self.documents.get_mut(&document) else {
+            return;
+        };
+        let about = open.about(&self.trust);
+        if !about.published.contains(&policy) {
+            events.push(Event::Reported {
+                document,
+                page: None,
+                notes: vec![format!(
+                    "signature policy {}: a copy of its document from {} was handed in, and no \
+                     signature in this document names that copy, so it was not read",
+                    policy.identifier, policy.url
+                )],
+            });
+            return;
+        }
+        let before = about.notes.clone();
+        open.policy_copies.retain(|held| held.published != policy);
+        open.policy_copies.push(crate::notes::FetchedCopy {
+            published: policy,
+            octets: copy,
+        });
+        open.forget_about();
+        let notes: Vec<String> = open
+            .about(&self.trust)
+            .notes
+            .iter()
+            .filter(|note| !before.contains(note))
+            .cloned()
+            .collect();
+        if !notes.is_empty() {
+            events.push(Event::Reported {
+                document,
+                page: None,
+                notes,
+            });
+        }
+    }
+
     /// §12.4.4: enters or leaves presentation mode, in every open document.
     ///
     /// Nothing at all when the mode is already what the host says it is, which is what lets a host

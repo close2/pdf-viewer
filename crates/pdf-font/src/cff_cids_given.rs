@@ -32,9 +32,9 @@ use skrifa::raw::ps::cff::charset::CharsetKind;
 use skrifa::raw::ps::string::Sid;
 
 use super::{
-    CffError, ESCAPE, Layout, OP_CHARSTRINGS, OP_FD_ARRAY, OP_FD_SELECT, Subroutines,
-    charstring_with_advance, dict_ints, global_subroutines, index_item, index_items, int5,
-    local_subroutines, nominal_widths, offsets_stated_once, open, private_dict,
+    CffError, ESCAPE, Layout, NOTDEF_NOT_RESTATED, OP_CHARSTRINGS, OP_FD_ARRAY, OP_FD_SELECT,
+    Subroutines, charstring_with_advance, dict_ints, global_subroutines, index_item, index_items,
+    int5, local_subroutines, nominal_widths, offsets_stated_once, open, private_dict,
 };
 
 /// One CID for [`with_cids_given`] to give a glyph: the glyph is a copy of glyph 0's outline.
@@ -193,14 +193,12 @@ fn given_with(
         .collect();
     let fd_select = fd_select_of(stated.fd_select_format, &glyphs.font_dicts)
         .ok_or_else(|| malformed("the FDSelect could not be restated"))?;
-    let rebuilt = layout
-        .with_glyph_tables(
-            data,
-            &strings,
-            (&glyphs.charstrings, &charset_written(&glyphs.cids)),
-            Some(&fd_select),
-        )
-        .ok_or_else(|| malformed("the String INDEX or the FDArray could not be located"))?;
+    let rebuilt = layout.with_glyph_tables(
+        data,
+        &strings,
+        (&glyphs.charstrings, &charset_written(&glyphs.cids)),
+        Some(&fd_select),
+    )?;
     read_back(&rebuilt, &expected)?;
     Ok((rebuilt, added))
 }
@@ -335,6 +333,31 @@ fn glyphs_read(
     Ok(glyphs)
 }
 
+/// The highest CID a CID-keyed program's charset holds: a CID past it is one
+/// [`with_cids_given`] can give a glyph.
+///
+/// # Errors
+///
+/// [`CffError::Malformed`] where the program does not open, is name-keyed, or names no CID for a
+/// glyph it holds; [`CffError::NoCharset`] where it states no charset.
+pub fn highest_cid(data: &[u8]) -> Result<u16, CffError> {
+    let font = open(data)?;
+    if !font.is_cid() {
+        return Err(malformed(
+            "the program is name-keyed, and a name-keyed program's glyphs are keyed by name",
+        ));
+    }
+    let charset = font.charset().ok_or(CffError::NoCharset)?;
+    let mut highest = 0_u16;
+    for glyph in 0..font.num_glyphs() {
+        let cid = charset
+            .string_id(GlyphId::from(glyph))
+            .ok_or_else(|| malformed("the charset names no CID for a glyph the program holds"))?;
+        highest = highest.max(cid.to_u16());
+    }
+    Ok(highest)
+}
+
 /// A copy of glyph 0 appended to `glyphs` for each CID in `cids`, at its advance, under glyph 0's
 /// Font DICT (`notdef.0`) whose nominal width is `notdef.1`; the glyph index of each, in order.
 /// Refused where an advance cannot be restated or the copies pass [`MOST_CID_BYTES_GIVEN`].
@@ -353,12 +376,7 @@ fn copies_appended(
             malformed("the program already holds as many glyphs as an INDEX counts")
         })?;
         let charstring = charstring_with_advance(&outline, asked.advance, nominal, subroutines)
-            .ok_or(CffError::AdvanceNotRestatable {
-                glyph,
-                detail: "the advance does not fit a charstring's width operand, or .notdef's \
-                         charstring states its width inside a subroutine"
-                    .to_owned(),
-            })?;
+            .map_err(|why| why.refusal(glyph, NOTDEF_NOT_RESTATED))?;
         appended = appended.saturating_add(charstring.len());
         if appended > MOST_CID_BYTES_GIVEN {
             return Err(malformed(

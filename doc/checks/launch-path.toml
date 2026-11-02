@@ -350,7 +350,13 @@ calibration_ms = 0.62 .. 0.74
 # pipeline is in this figure: raster returns the device before its warm set, and the first frame's
 # own compiles are the first page's. `quorra-qt` and `quorra-gtk` print the same steps on their
 # `graphics device up in` line, and ADR 2283 prices the levers.
-bring_up_ms = 13.6 .. 20.6
+# **Re-taken on 2026-11-02 under ADR 2621**: three runs of HEAD's export in one quiet hold (one-minute
+# load 1.5 to 2.9, mesa and vulkan-radeon 26.2.4, kernel 7.2.9) read 19.99, 21.01 and 21.04 ms, and the
+# merge gates of three batches had read 22 to 25 on the base and the batch alike; the band is this
+# file's rule over the three, smallest × 0.85 and largest × 1.20. The device's bring-up is about four
+# milliseconds slower than the three runs of 2026-10-06, on an unchanged shader set and adapter
+# selection, which is the driver's share and is what principle 2 made this gate legible for.
+bring_up_ms = 17.0 .. 25.3
 
 # What the device costs in *allocated* memory, in the same process that has done nothing else.
 #
@@ -434,7 +440,11 @@ cold_first_page_ms = 21.0 .. 32.1
 # Floor at batch one hundred and two's merge figure, 2.514 ms × 0.85: ADR 2150 put the read-back page's
 # medium on the device, and `quorra`'s page turn draws through the same call, so the turn fell below
 # the floor the band was derived with (HEAD read 4.085 ms in the same hold); the ceiling stays.
-turn_ms = 2.13 .. 5.6
+# **Re-taken on 2026-11-02 under ADR 2621**: three runs of HEAD's export in one quiet hold read 1.929,
+# 2.214 and 1.930 ms, and every hold since the pause of 2026-10-29 had read this turn below the old
+# floor of 2.13 on the base and the batch alike; the band is this file's rule over the three, smallest
+# × 0.85 and largest × 1.20. The turn is faster than the runs of 2026-10-05 on the same bytes.
+turn_ms = 1.64 .. 2.66
 script_spawn_ms = none
 script_first_run_ms = none
 # In small pages (ADR 1902, see the header): 17.38 to 18.14 MiB over twelve children, the machine's

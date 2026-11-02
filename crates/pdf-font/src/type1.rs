@@ -50,7 +50,17 @@ pub enum Type1Error {
     /// for the same reason.
     #[error("the Type 1 font program names none of its glyphs")]
     NoNames,
+    /// The program read, and could not be rewritten as asked ([`with_glyphs_given`]).
+    #[error("the Type 1 font program could not be rewritten: {detail}")]
+    NotWritten {
+        /// What stopped the rewrite.
+        detail: String,
+    },
 }
+
+#[path = "type1_glyphs_given.rs"]
+mod glyphs_given;
+pub use glyphs_given::{GlyphsGiven, MOST_BYTES_WRITTEN, with_glyphs_given};
 
 /// A parsed Type 1 font program.
 ///
@@ -192,6 +202,14 @@ impl Program {
         }
 
         Ok(NameKeyed::new(&by_glyph, builtin))
+    }
+
+    /// Every glyph's name, by glyph index, as `read-fonts` orders them.
+    pub(crate) fn glyph_names(&self) -> Vec<String> {
+        self.font
+            .glyph_names()
+            .map(|(_, name)| name.to_owned())
+            .collect()
     }
 
     /// Draws one glyph.

@@ -454,6 +454,56 @@ fn a_fault_of_the_page_s_own_content_is_photographed_as_the_window_draws_it() {
 }
 
 #[test]
+fn a_text_object_the_stream_ends_inside_and_a_keyword_inside_an_array_are_baked_in() {
+    // ISO 32000-2 section 7.8.2 has the window act on the stream's objects in order, so the glyphs
+    // shown before the stream's end are painted (section 9.3.6 clips only at `ET`), and a keyword
+    // inside an array (section 7.3.6) draws nothing while the strings around it are the stream's.
+    for extra in [
+        &b"BT /F1 12 Tf 10 50 Td (World) Tj"[..],
+        &b"BT /F1 12 Tf 10 50 Td [(Wor) Tj (ld)] TJ ET"[..],
+    ] {
+        let source = a_page_with_a_fault_and(extra, Vec::new(), "");
+        let target = Target::Two(Level::B);
+        let (report, output) = convert_with_plan(&source, &printing("as-if-printed", target));
+        let output = output.unwrap_or_else(|| panic!("{:?}", decision(&report, OPERATORS)));
+        assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+        assert_eq!(conversion(&report).photographed.len(), 1);
+        let difference = largest_difference(&drawn(&source), &drawn(&output));
+        assert!(
+            difference <= 1,
+            "the photograph moved a level by {difference}"
+        );
+    }
+}
+
+#[test]
+fn a_page_whose_own_content_stream_is_damaged_part_way_is_photographed_as_the_window_draws_it() {
+    // A Flate stream whose RFC 1950 check value disagrees: every byte decodes (ISO 32000-2
+    // section 7.4.4.1), and the window draws the page's own `/Contents` from them.
+    let marks = b"BT /F1 12 Tf 10 100 Td (Hello) Tj ET 1 2 Frobnicate 0 0 1 rg 20 20 50 50 re f";
+    let mut data = pdf_syntax::serialize::flate_encode(marks, 9).expect("the marks compress");
+    let last = data.last_mut().expect("a check value ends the stream");
+    *last ^= 0xff;
+    let source = Conforming {
+        resources: "/Font << /F1 6 0 R >>".to_owned(),
+        contents: Some(("/Filter /FlateDecode".to_owned(), data)),
+        objects: vec![HELVETICA.to_owned()],
+        ..Conforming::part_two()
+    }
+    .build();
+    let target = Target::Two(Level::B);
+    let (report, output) = convert_with_plan(&source, &printing("as-if-printed", target));
+    let output = output.unwrap_or_else(|| panic!("{:?}", decision(&report, OPERATORS)));
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    assert_eq!(conversion(&report).photographed.len(), 1);
+    let difference = largest_difference(&drawn(&source), &drawn(&output));
+    assert!(
+        difference <= 1,
+        "the photograph moved a level by {difference}"
+    );
+}
+
+#[test]
 fn a_page_the_window_could_not_draw_whole_is_not_photographed() {
     // An image whose samples are missing: the window draws a page without the picture, and
     // a photograph would record that gap of this reader as the document's loss.

@@ -341,19 +341,29 @@ impl PublishedPolicy {
     /// to.
     #[must_use]
     pub fn binding(&self, octets: &[u8]) -> Published {
-        match &self.commitment {
-            Commitment::NotKnown => Published::PolicyHashNotKnown,
-            Commitment::UnderAnotherFunction { algorithm } => Published::UnderAnotherFunction {
-                algorithm: algorithm.clone(),
-            },
-            Commitment::Stated { digest, value } => {
-                if digests_to(*digest, octets, value) {
-                    Published::Matches { digest: *digest }
-                } else {
-                    Published::DoesNotMatchTheFetchedOctets {
-                        digest: *digest,
-                        specification: self.specification.clone(),
-                    }
+        published_binding(&self.commitment, self.specification.as_ref(), octets)
+    }
+}
+
+/// The comparison [`PublishedPolicy::binding`] and [`SignaturePolicy::fetched_binding`] make, over
+/// what the signer committed to and the specification they named.
+fn published_binding(
+    commitment: &Commitment,
+    specification: Option<&Specification>,
+    octets: &[u8],
+) -> Published {
+    match commitment {
+        Commitment::NotKnown => Published::PolicyHashNotKnown,
+        Commitment::UnderAnotherFunction { algorithm } => Published::UnderAnotherFunction {
+            algorithm: algorithm.clone(),
+        },
+        Commitment::Stated { digest, value } => {
+            if digests_to(*digest, octets, value) {
+                Published::Matches { digest: *digest }
+            } else {
+                Published::DoesNotMatchTheFetchedOctets {
+                    digest: *digest,
+                    specification: specification.cloned(),
                 }
             }
         }
@@ -466,6 +476,18 @@ impl<'a> SignaturePolicy<'a> {
                 }
             }
         }
+    }
+
+    /// Whether `octets`, fetched from a URL clause 5.2.9.2's qualifier names, are the policy
+    /// document the signer committed to.
+    ///
+    /// [`PublishedPolicy::binding`]'s comparison, made from this signature's own identifier
+    /// rather than from a [`PublishedPolicy`] that crossed to a host and back: what decides
+    /// whether a copy is the signer's is what the signature states, never what a host says it
+    /// stated.
+    #[must_use]
+    pub fn fetched_binding(&self, octets: &[u8]) -> Published {
+        published_binding(&Commitment::from(&self.hash), self.specification(), octets)
     }
 
     /// The notices clause 5.2.9.2 says are meant to be shown whenever the signature is validated.

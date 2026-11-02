@@ -786,6 +786,30 @@ pub enum Command {
         /// The answer's body.
         bytes: Vec<u8>,
     },
+    /// A copy of a signature policy's document, fetched from the URL a signature names and handed
+    /// back, so that §12.8.3.4.4's "shall enforce signature policy constraints" is carried out over
+    /// it as over a copy the file stores.
+    ///
+    /// **The answer to [`crate::Event::SignaturePoliciesPublished`]**, and named by document for
+    /// [`Self::Respond`]'s reason: it arrives when the server answers. Whether to fetch, and over
+    /// which network, is the host's under the reader's level (ADRs 1728, 1738); whose copy it is,
+    /// is this crate's, from the signature's own identifier and never from `policy`, which only
+    /// says which of the published copies this is. A copy whose octets do not digest to the value
+    /// the signer signed, and whose own rules do not either, is said and never enforced.
+    ///
+    /// Answered by [`crate::Event::Reported`] with the sentences the report now has that it did
+    /// not before — the constraints and their verdicts, and the signature's verdict where an anchor
+    /// was supplied — and never by a second [`crate::Event::SignaturePoliciesPublished`], which
+    /// would ask for the copy again. A `policy` the document's signatures do not publish is said
+    /// and not kept; a document no longer open takes nothing (ADR 2624).
+    PolicyCopy {
+        /// The document whose signature named the copy.
+        document: DocumentId,
+        /// Which published copy this is, as the event listed it.
+        policy: pdf_signature::policy::PublishedPolicy,
+        /// What the server answered with.
+        copy: Vec<u8>,
+    },
     /// A worker finished — or failed — the request it was handed.
     ///
     /// A token that does not match the request outstanding is **dropped**, which is the whole

@@ -462,6 +462,47 @@ pub enum Unsupported {
     },
 }
 
+/// The sentence an [`Unsupported::Operator`] carries for a text object its stream ended inside.
+pub(super) const TEXT_OBJECT_LEFT_OPEN: &str = "BT without ET";
+
+/// What follows the keyword in the sentence an [`Unsupported::Operator`] carries for a keyword
+/// inside an array.
+pub(super) const INSIDE_AN_ARRAY: &str = " inside an array, which §7.3.6 admits only objects into";
+
+/// A fault of a content stream's own syntax that an [`Unsupported::Operator`] report states in
+/// place of an operator's spelling.
+///
+/// Each is a sentence about a keyword, which is why it shares the variant with an operator this
+/// interpreter does not run; ISO 32000-2 §7.2.3 makes white space separate syntactic constructs,
+/// so a keyword holds none and neither sentence can be the spelling of an operator a stream wrote.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StreamSyntaxFault {
+    /// The stream ended inside a text object: a `BT` that no `ET` followed (ISO 32000-2 §9.4.1,
+    /// Table 105).
+    TextObjectLeftOpen,
+    /// A keyword between two elements of an array, which ISO 32000-2 §7.3.6 admits only objects
+    /// into; the interpreter steps over it and keeps the array.
+    KeywordInsideAnArray,
+}
+
+impl Unsupported {
+    /// The fault of the stream's own syntax this report states, where it is an
+    /// [`Unsupported::Operator`] naming one rather than an operator this interpreter does not run.
+    #[must_use]
+    pub fn stream_syntax_fault(&self) -> Option<StreamSyntaxFault> {
+        let Self::Operator { operator } = self else {
+            return None;
+        };
+        if operator == TEXT_OBJECT_LEFT_OPEN {
+            Some(StreamSyntaxFault::TextObjectLeftOpen)
+        } else if operator.ends_with(INSIDE_AN_ARRAY) {
+            Some(StreamSyntaxFault::KeywordInsideAnArray)
+        } else {
+            None
+        }
+    }
+}
+
 /// A content stream that decoded only as far as its damage, on its way to being drawn.
 ///
 /// [`Unsupported::DamagedContentStream`]'s payload as a value of its own, because one of the five

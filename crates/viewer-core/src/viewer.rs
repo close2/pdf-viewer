@@ -639,6 +639,11 @@ impl Viewer {
                 format,
                 bytes,
             } => self.respond(document, answers, source, format, &bytes, events),
+            Command::PolicyCopy {
+                document,
+                policy,
+                copy,
+            } => self.policy_copy(document, policy, copy, events),
             Command::RenderReady { token, rendered } => self.rendered(token, rendered, events),
             Command::Declined {
                 document,

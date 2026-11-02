@@ -167,45 +167,162 @@ fn two_cids_on_notdef_at_one_width_share_one_glyph_of_their_own() {
     );
 }
 
-#[test]
-fn cid_zero_under_the_identity_is_refused_and_no_file_is_written() {
-    // ISO 32000-2 §9.7.4.2: CID 0's glyph is the CIDFont's analogue of `.notdef`, so showing CID 0
-    // references it whatever glyph a map stream would send it to.
-    let source = a_page_showing_notdef(Map::Identity, (750, 750));
-    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
-    let program_row = decision(&report, "fonts/embedded-programs-define-every-glyph-shown");
-    assert!(
-        matches!(
-            program_row,
-            Decision::Refused(Because::NotBuiltYet(why)) if why.contains("not CID 0")
-        ),
-        "{program_row:?}"
-    );
-    assert!(output.is_none(), "and no file is written");
+/// The font object 6 of `bytes` as loaded, with the document it was read from.
+fn font_of(bytes: &[u8]) -> (Document, LoadedFont) {
+    let held = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let dict = held
+        .get(ObjectId::new(6, 0))
+        .as_dict()
+        .cloned()
+        .expect("the font object");
+    let font = LoadedFont::load(&held, &dict, "").expect("the font loads");
+    (held, font)
+}
+
+/// Converts a page whose code `<0000>` selects CID 0 at 2b and part 4, and holds each output to
+/// the fresh CID's properties: the code selects `fresh`, which draws `drawn` — a glyph other
+/// than 0 — at the width CID 0 had, code `<0024>` still selects CID 36 on `A`, the encoding is
+/// an embedded `CMap`, and the content stream is the producer's bytes (`doc/adr/2622`).
+fn sent_to_a_fresh_cid(source: &[u8], fresh: u32, drawn: Option<u16>) {
+    let (_, before) = font_of(source);
+    let zero = *before.decode(&[0, 0]).first().expect("one code");
+    assert_eq!(before.cid(zero), Some(0), "the code selects CID 0");
+    let failed: Vec<&str> = holds(source, Target::Two(Level::B))
+        .failures()
+        .map(|failed| failed.id)
+        .collect();
+    assert!(failed.contains(&NOTDEF_SHOWN), "{failed:?}");
+    for target in [
+        Target::Two(Level::B),
+        Target::Four(pdf_archive::Flavour::Plain),
+    ] {
+        let (report, output) = convert(source, target, Authorisations::default());
+        let output = output.unwrap_or_else(|| {
+            panic!(
+                "{:?}\n{:?}\n{:?}",
+                conversion(&report).achieved,
+                report.refused,
+                report.warnings
+            )
+        });
+        let held = holds(&output, target);
+        assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+        let (document, after) = font_of(&output);
+        let code = *after.decode(&[0, 0]).first().expect("one code");
+        assert_eq!(
+            after.cid(code),
+            Some(fresh),
+            "the code selects the fresh CID"
+        );
+        assert_eq!(after.drawn_cid(code), Some(fresh), "and draws it");
+        let glyph = after.glyph_index(code);
+        assert!(glyph.is_some_and(|glyph| glyph != 0), "{glyph:?}");
+        if let Some(drawn) = drawn {
+            assert_eq!(glyph, Some(drawn), "the glyph CID 0 drew");
+        }
+        assert!(
+            (after.advance(code) - before.advance(zero)).abs() < 0.001,
+            "at CID 0's width"
+        );
+        let letter = *after.decode(&[0, 0x24]).first().expect("one code");
+        assert_eq!(
+            (after.cid(letter), after.glyph_index(letter)),
+            (Some(36), Some(36))
+        );
+        let font = document.get(ObjectId::new(6, 0));
+        let encoding = document.get_key(font.as_dict().expect("a font"), "Encoding");
+        assert!(
+            matches!(encoding, pdf_syntax::object::Object::Stream(_)),
+            "{encoding:?}"
+        );
+        let text = String::from_utf8_lossy(&output).into_owned();
+        assert!(
+            text.contains("BT /F1 12 Tf 10 100 Td <00000024> Tj ET"),
+            "the content stream is the producer's bytes"
+        );
+        let packet = String::from_utf8(super::document_packet(&output)).expect("UTF-8");
+        assert!(packet.contains("goes to a fresh CID"), "{packet}");
+    }
 }
 
 #[test]
-fn a_shown_cid_0_on_a_glyph_of_the_program_is_refused_as_the_cidfont_s_notdef() {
+fn cid_zero_under_the_identity_is_sent_to_a_fresh_cid_given_a_copy_of_notdef() {
+    // ISO 32000-2 §9.7.4.2: CID 0's glyph is the CIDFont's analogue of `.notdef`, so the code that
+    // selects it is sent by an embedded CMap (§9.7.5.3) to a CID past every glyph of the program,
+    // which the identity restated as a stream sends to a copy of `.notdef`'s outline.
+    let source = a_page_showing_notdef(Map::Identity, (750, 750));
+    let glyphs = glyph_count(LIBERATION_SANS);
+    sent_to_a_fresh_cid(&source, u32::from(glyphs), Some(glyphs));
+}
+
+/// A TrueType program's glyph count, `maxp`'s `numGlyphs`, by its table directory.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "a fixture reader: every offset is inside the program the test embeds"
+)]
+fn glyph_count(program: &[u8]) -> u16 {
+    let u16_at = |at: usize| u16::from_be_bytes([program[at], program[at + 1]]);
+    let tables = usize::from(u16_at(4));
+    let record = (0..tables)
+        .map(|index| 12 + 16 * index)
+        .find(|record| &program[*record..*record + 4] == b"maxp")
+        .expect("a maxp table");
+    let offset = u32::from_be_bytes(
+        program[record + 8..record + 12]
+            .try_into()
+            .expect("four bytes"),
+    );
+    u16_at(usize::try_from(offset).expect("an offset") + 4)
+}
+
+#[test]
+fn a_shown_cid_0_on_a_glyph_of_the_program_is_sent_to_a_fresh_cid_on_that_glyph() {
     // ISO 32000-2 §9.7.4.2: CID 0 is the CIDFont's `.notdef` character whatever glyph the map
-    // sends it to, so this page shows `.notdef` though the program holds the glyph CID 0 draws, and
-    // the refusal says that rather than that a glyph is missing (`doc/adr/2582`).
+    // sends it to, so the code is sent to a fresh CID past the map's 37 entries, which the map
+    // sends to the glyph CID 0 drew (`doc/adr/2582`, `doc/adr/2622`).
     let source = a_page_showing_notdef(Map::CidZeroDrawn, (667, 667));
     assert_eq!(
         glyphs_of(&source, Map::CidZeroDrawn),
         [Some(36); 3],
         "CID 0 draws the program's `A`"
     );
+    sent_to_a_fresh_cid(&source, 37, Some(36));
+}
+
+/// `source` with its descendant's collection Adobe-Japan1 instead of Adobe-Identity, every
+/// offset where it was.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "a fixture edit: the offset is inside the file the test built"
+)]
+fn in_japan1(source: &[u8]) -> Vec<u8> {
+    let (from, to): (&[u8], &[u8]) = (b"/Ordering (Identity)", b"/Ordering (Japan1)  ");
+    let at = source
+        .windows(from.len())
+        .position(|window| window == from)
+        .expect("the collection");
+    let mut out = source.to_vec();
+    out[at..at + to.len()].copy_from_slice(to);
+    out
+}
+
+#[test]
+fn a_shown_cid_0_whose_collection_text_extraction_reads_by_cid_keeps_the_refusal() {
+    // ISO 32000-2 §9.10.2's third method reads a CID of the Adobe-Japan1 collection as a
+    // character when the font has no ToUnicode, so a fresh CID would change what the code reads
+    // as; the refusal names the condition and no file is written.
+    let source = a_page_showing_notdef(Map::Identity, (750, 750));
+    let japanese = in_japan1(&source);
     for target in [
         Target::Two(Level::B),
         Target::Four(pdf_archive::Flavour::Plain),
     ] {
-        let (report, output) = convert(&source, target, Authorisations::default());
+        let (report, output) = convert(&japanese, target, Authorisations::default());
         let row = decision(&report, NOTDEF_SHOWN);
         assert!(
             matches!(
                 row,
-                Decision::Refused(Because::NotBuiltYet(why))
-                    if why.contains("program holds the glyph it draws")
+                Decision::Refused(Because::NotBuiltYet(why)) if why.contains("does not read by CID")
             ),
             "{row:?}"
         );
@@ -303,8 +420,8 @@ fn a_font_both_remedies_refuse_states_the_cid_remedy_s_reason() {
     // the font, so the reason the row is refused is the second remedy's own (`doc/adr/2590`).
     for (source, condition) in [
         (
-            a_page_showing_notdef(Map::Identity, (750, 750)),
-            "not CID 0",
+            in_japan1(&a_page_showing_notdef(Map::Identity, (750, 750))),
+            "does not read by CID",
         ),
         (
             a_page_showing_notdef_under(Map::Stream, (500, 500), true),

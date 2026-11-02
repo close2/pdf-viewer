@@ -23,18 +23,26 @@
 //!   changed. The pages do not order a container's `enter` against the field's; outermost first
 //!   is the order page 387 reports Adobe's processor dispatching a propagating event in, an `exit`
 //!   innermost first is its mirror, and both are choices (ADR 2566).
-//! - A mouse click within a field's region ([`Stimulus::Click`]): the field's own `click` events
-//!   (page 391), and then the calculations that depend on what they changed. Page 390 gives a
-//!   subform and an exclusion group no `click`, and an event reaches an enclosing container only
-//!   where the container's event says `listen="refAndDescendents"` (page 387), whose default is
-//!   `refOnly` — so the field's are the only ones a click fires here (ADR 2584).
+//! - A mouse button pressed within a field's region, released within it, and a click within it
+//!   ([`Stimulus::MouseDown`], [`Stimulus::MouseUp`], [`Stimulus::Click`]): the field's own
+//!   `mouseDown`, `mouseUp` and `click` events (pages 391–392), and then the calculations that
+//!   depend on what they changed. Page 390 gives a subform and an exclusion group none of the
+//!   three, so the field is the only object they happen on (ADRs 2584, 2627).
 //! - The end of the open sequence ([`Stimulus::Ready`]): the `ready` events bound to the Form DOM
 //!   by `ref`, which page 388 fires once the merge, its calculations and its validations are done
 //!   (page 213's step 7), then the `docReady` events bound to the application, which page 388
 //!   puts after the Form DOM's `ready` and before rendering; after each, the calculations that
-//!   depend on what the events changed. An event that also listens to the objects inside its
-//!   `ref` (page 387's `refAndDescendents`), or whose `ref` names an object this reader raises no
-//!   event for, is named in the report as not run for what it is not run for (ADR 2606).
+//!   depend on what the events changed. An event whose `ref` names an object this reader raises
+//!   no event for is named in the report as not run (ADR 2606).
+//! - **What an activity on an object reaches above it** (page 387): an event whose `listen` is
+//!   `refAndDescendents` responds to the activity on every object its `ref` contains as well as
+//!   on the `ref` itself, and page 706 makes `refOnly`, the `ref` alone, the default. So each time
+//!   an activity happens on a field, subform or exclusion group, its own events of that activity
+//!   run, then those of each enclosing container that listen, innermost first, and then those
+//!   bound to the Form DOM that listen, which contains every object of the form; the walk goes no
+//!   further, because nothing else contains the object. Page 387 leaves the order to the
+//!   processor; the object's own first and upward from it is the direction its sentence gives the
+//!   propagation, and a choice (ADR 2626).
 //! - Value calculations come before property calculations, and among the property calculations
 //!   the inner subform before the outer one (page 405, rule 1, items 4 and 5). Among value
 //!   calculations the order is the template's own, except that a calculation comes after the
@@ -184,6 +192,18 @@ pub enum Stimulus<'a> {
         /// The field clicked, by its PDF field name.
         clicked: &'a str,
     },
+    /// A mouse button was pressed while the pointer was within the region of the field `pressed`
+    /// (page 392): the field's own `mouseDown` events.
+    MouseDown {
+        /// The field pressed on, by its PDF field name.
+        pressed: &'a str,
+    },
+    /// A mouse button was released while the pointer was within the region of the field
+    /// `released` (page 392), wherever it was pressed: the field's own `mouseUp` events.
+    MouseUp {
+        /// The field released on, by its PDF field name.
+        released: &'a str,
+    },
     /// The open sequence has ended (pages 388 and 704): the `ready` events bound to the Form DOM
     /// (`ref="$form"`), then the `docReady` events bound to the application (`ref="$host"`).
     Ready,
@@ -319,11 +339,9 @@ impl Resource {
                 session.fire("enter", Some(&crossed), &Bound::Own);
                 session.settle(Seeds::Changed);
             }
-            Stimulus::Click { clicked } => {
-                let field = session.clicked(clicked);
-                session.fire("click", Some(&field), &Bound::Own);
-                session.settle(Seeds::Changed);
-            }
+            Stimulus::Click { clicked } => session.pointed(clicked, "click"),
+            Stimulus::MouseDown { pressed } => session.pointed(pressed, "mouseDown"),
+            Stimulus::MouseUp { released } => session.pointed(released, "mouseUp"),
             Stimulus::Ready => {
                 session.unfollowed();
                 session.fire("ready", None, &Bound::Form);
@@ -341,6 +359,74 @@ impl Resource {
             session.settle(Seeds::Changed);
         }
         session.finish(&initial, validations)
+    }
+}
+
+/// Where the events that hear an activity from above are, for one activity (XFA 3.3 page 387).
+struct Listeners {
+    /// For each container by position, the nearest container around it that holds an event of
+    /// the activity bound to itself whose `listen` is `refAndDescendents`.
+    nearest: Vec<Option<usize>>,
+    /// Each such container's listening events of the activity, by their place among its events.
+    own: BTreeMap<usize, Vec<usize>>,
+    /// The containers holding events of the activity bound to the Form DOM that listen, which
+    /// contains every object of the form, each with those events by their place.
+    form: Vec<(usize, Vec<usize>)>,
+}
+
+impl Listeners {
+    /// The listeners of `activity` in `template`, or `None` where no event listens for it, so that
+    /// a form with none pays one pass over its events and nothing per activity.
+    ///
+    /// One pass in container order: the template numbers a container after the container around
+    /// it, so a container's parent has its answer before the container is reached, and the walk
+    /// from an object to each listener above it steps from listener to listener.
+    fn of(template: &Template, activity: &str) -> Option<Self> {
+        let count = template.container_count();
+        let listening = |node: usize, bound: &Bound| -> Vec<usize> {
+            template.get(node).map_or_else(Vec::new, |container| {
+                container
+                    .events
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, event)| {
+                        event.listens && event.bound == *bound && event.activity == activity
+                    })
+                    .map(|(at, _)| at)
+                    .collect()
+            })
+        };
+        let mut own = BTreeMap::new();
+        let mut form = Vec::new();
+        for node in 0..count {
+            let events = listening(node, &Bound::Own);
+            if !events.is_empty() {
+                own.insert(node, events);
+            }
+            let events = listening(node, &Bound::Form);
+            if !events.is_empty() {
+                form.push((node, events));
+            }
+        }
+        if own.is_empty() && form.is_empty() {
+            return None;
+        }
+        let mut nearest: Vec<Option<usize>> = vec![None; count];
+        for node in 0..count {
+            let Some(parent) = template
+                .get(node)
+                .and_then(|container| container.parent)
+                .filter(|&parent| parent < node)
+            else {
+                continue;
+            };
+            nearest[node] = if own.contains_key(&parent) {
+                Some(parent)
+            } else {
+                nearest[parent]
+            };
+        }
+        Some(Self { nearest, own, form })
     }
 }
 
@@ -477,30 +563,30 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             .collect()
     }
 
-    /// The container a click on the field `field` fires the `click` events of: the field alone
-    /// (pages 387 and 390–391). A name the form's field list does not hold, and a name that reaches
-    /// an exclusion group — whose PDF field is one for all its buttons, so the name does not say
-    /// which of its fields the click was within — fire nothing and say so.
-    fn clicked(&mut self, field: &str) -> Vec<usize> {
+    /// Fires the `activity` events of a pointer on the field `field` — `click`, `mouseDown` or
+    /// `mouseUp`, which pages 391–392 give a field and page 390 gives no subform and no exclusion
+    /// group — and then the calculations that depend on what they changed. A name the form's field
+    /// list does not hold, and a name that reaches an exclusion group — whose PDF field is one for
+    /// all its buttons, so the name does not say which of its fields the pointer was within —
+    /// fire nothing and say so.
+    fn pointed(&mut self, field: &str, activity: &str) {
         let Some(node) = self.form.named(field) else {
             self.say(format!("{field}: the form's field list does not name it"));
-            return Vec::new();
+            return;
         };
         match self.template.get(node).map(|container| container.class) {
-            Some(Class::Field) => vec![node],
-            Some(Class::ExclGroup) => {
-                self.say(format!(
-                    "{field}: its click events are not run: it is an exclusion group, and a                      click on one of its buttons does not name which of its fields it was within"
-                ));
-                Vec::new()
+            Some(Class::Field) => {
+                self.fire(activity, Some(&[node]), &Bound::Own);
+                self.settle(Seeds::Changed);
             }
-            _ => {
-                self.say(format!(
-                    "{field}: its click events are not run: the template container it names is \
-                     not a field"
-                ));
-                Vec::new()
-            }
+            Some(Class::ExclGroup) => self.say(format!(
+                "{field}: its {activity} events are not run: it is an exclusion group, and the \
+                 pointer on one of its buttons does not name which of its fields it was within"
+            )),
+            _ => self.say(format!(
+                "{field}: its {activity} events are not run: the template container it names is \
+                 not a field"
+            )),
         }
     }
 
@@ -575,81 +661,128 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
 
     /// Fires the `activity` events bound to `bound` of the containers `only` names, or of every
     /// container, in document order (page 404's order for scripts the standard leaves unordered).
+    ///
+    /// For an activity on an object (`bound` is [`Bound::Own`]), each field, subform and exclusion
+    /// group it happens on is followed by the events that hear it from above (page 387): those of
+    /// each enclosing container that listen, innermost first, and then those bound to the Form DOM
+    /// that listen. An activity on a DOM or the application ([`Bound::Form`], [`Bound::Host`])
+    /// happens on no container, so nothing contains it and it reaches no further.
     fn fire(&mut self, activity: &str, only: Option<&[usize]>, bound: &Bound) {
         let nodes: Vec<usize> = match only {
             Some(only) => only.to_vec(),
             None => (0..self.template.container_count()).collect(),
         };
+        let heard = match bound {
+            Bound::Own => Listeners::of(self.template, activity),
+            _ => None,
+        };
         for node in nodes {
+            if self.ended.is_some() {
+                return;
+            }
             let Some(container) = self.template.get(node) else {
                 continue;
             };
-            let performed: Vec<_> = container
-                .events
-                .iter()
-                .filter(|event| event.bound == *bound && event.activity == activity)
-                .map(|event| event.performs.clone())
+            let own: Vec<usize> = (0..container.events.len())
+                .filter(|&at| {
+                    container
+                        .events
+                        .get(at)
+                        .is_some_and(|event| event.bound == *bound && event.activity == activity)
+                })
                 .collect();
-            for performs in performed {
+            self.dispatch(node, activity, &own, false);
+            let Some(heard) = &heard else {
+                continue;
+            };
+            if !matches!(
+                container.class,
+                Class::Field | Class::Subform | Class::ExclGroup
+            ) {
+                continue;
+            }
+            let mut above = heard.nearest.get(node).copied().flatten();
+            while let Some(listener) = above {
+                if let Some(events) = heard.own.get(&listener) {
+                    self.dispatch(listener, activity, events, true);
+                }
                 if self.ended.is_some() {
                     return;
                 }
-                let script = match performs {
-                    Performs::Script(script) => script,
-                    Performs::Unperformed(property) => {
-                        let label = self.label(node);
-                        self.say(format!(
-                            "{label}: its {activity} event's {property} is not performed (XFA \
-                             3.3 page 703)"
-                        ));
-                        continue;
-                    }
-                };
-                if let Err(why) = self.execute(None, node, &script.language, &script.text) {
-                    let label = self.label(node);
-                    self.say(format!("{label}: its {activity} event: {why}"));
-                }
+                above = heard.nearest.get(listener).copied().flatten();
+            }
+            for (holder, events) in &heard.form {
+                self.dispatch(*holder, activity, events, true);
             }
         }
     }
 
-    /// Names every event the form holds that this reader does not run for all it is bound to: one
-    /// that also listens to the objects inside its `ref` (page 387), which runs for its `ref`
-    /// alone, and one whose `ref` names an object other than its own container, the Form DOM and
-    /// the application, which never runs (pages 404 and 707). The walk is one pass over the
-    /// template's events, which the XML reader bounds, and [`Self::say`] keeps a sentence once and
-    /// caps the report.
+    /// Runs the events of the container `node` at the places `events` names, in document order.
+    /// An event that hears the activity from below (`heard`) is charged one run of
+    /// [`Limits::activations`] even where it performs nothing, so the dispatches an activity
+    /// reaches above the object are bounded by the runs an activation may make, whatever a
+    /// template nests or repeats.
+    fn dispatch(&mut self, node: usize, activity: &str, events: &[usize], heard: bool) {
+        for &at in events {
+            if self.ended.is_some() {
+                return;
+            }
+            let Some(performs) = self
+                .template
+                .get(node)
+                .and_then(|container| container.events.get(at))
+                .map(|event| event.performs.clone())
+            else {
+                continue;
+            };
+            let script = match performs {
+                Performs::Script(script) => script,
+                Performs::Unperformed(property) => {
+                    if heard {
+                        if self.activations_left == 0 {
+                            self.ended.get_or_insert("activations");
+                            return;
+                        }
+                        self.activations_left = self.activations_left.saturating_sub(1);
+                    }
+                    let label = self.label(node);
+                    self.say(format!(
+                        "{label}: its {activity} event's {property} is not performed (XFA 3.3 \
+                         page 703)"
+                    ));
+                    continue;
+                }
+            };
+            if let Err(why) = self.execute(None, node, &script.language, &script.text) {
+                let label = self.label(node);
+                self.say(format!("{label}: its {activity} event: {why}"));
+            }
+        }
+    }
+
+    /// Names every event the form holds whose `ref` names an object other than its own container,
+    /// the Form DOM and the application, which never runs (pages 404 and 707). The walk is one pass
+    /// over the template's events, which the XML reader bounds, and [`Self::say`] keeps a sentence
+    /// once and caps the report.
     fn unfollowed(&mut self) {
         for node in 0..self.template.container_count() {
             let Some(container) = self.template.get(node) else {
                 continue;
             };
-            let unfollowed: Vec<(String, Option<String>, bool)> = container
+            let unfollowed: Vec<(String, String)> = container
                 .events
                 .iter()
-                .filter_map(|event| {
-                    let other = match &event.bound {
-                        Bound::Other(reference) => Some(reference.clone()),
-                        _ => None,
-                    };
-                    (event.listens || other.is_some())
-                        .then(|| (event.activity.clone(), other, event.listens))
+                .filter_map(|event| match &event.bound {
+                    Bound::Other(reference) => Some((event.activity.clone(), reference.clone())),
+                    _ => None,
                 })
                 .collect();
-            for (activity, other, listens) in unfollowed {
+            for (activity, reference) in unfollowed {
                 let label = self.label(node);
-                if let Some(reference) = other {
-                    self.say(format!(
-                        "{label}: its {activity} event is bound to {reference}, which this reader \
-                         raises no event for, and is not run (XFA 3.3 pages 404 and 707)"
-                    ));
-                } else if listens {
-                    self.say(format!(
-                        "{label}: its {activity} event listens to the objects inside what it is \
-                         bound to (listen=\"refAndDescendents\"), and is not run for them (XFA \
-                         3.3 page 387)"
-                    ));
-                }
+                self.say(format!(
+                    "{label}: its {activity} event is bound to {reference}, which this reader \
+                     raises no event for, and is not run (XFA 3.3 pages 404 and 707)"
+                ));
             }
         }
     }

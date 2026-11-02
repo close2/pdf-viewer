@@ -31,6 +31,21 @@ pub(crate) struct About {
     pub(crate) published: Vec<pdf_signature::policy::PublishedPolicy>,
 }
 
+/// A copy of a signature policy's document a host fetched from the URL ETSI EN 319 122-1 clause
+/// 5.2.9.2's qualifier names and handed back as [`crate::Command::PolicyCopy`].
+///
+/// Kept beside the document rather than in it — the document is immutable, and what a server
+/// answered is not what the file says — and read only through
+/// [`pdf_signature::policy_rules::enforce_fetched`], which binds it from the signature's own
+/// identifier: [`Self::published`] says which copy a host fetched, never whose it is (ADR 2624).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FetchedCopy {
+    /// The published copy a host was handed in [`crate::Event::SignaturePoliciesPublished`].
+    pub(crate) published: pdf_signature::policy::PublishedPolicy,
+    /// What the server answered with.
+    pub(crate) octets: Vec<u8>,
+}
+
 /// What to say of a file whose `/Prev` named bytes that are no section.
 ///
 /// Table 15's `/Prev` names the previous cross-reference section, and where the bytes it names
@@ -63,8 +78,13 @@ fn cut_chain_note(document: &Document) -> Option<String> {
     ))
 }
 
-/// Everything worth saying about a document the moment it opens.
-pub(crate) fn about(document: &Document, trust: &crate::TrustPolicy) -> About {
+/// Everything worth saying about a document the moment it opens, with the copies of its
+/// signatures' policy documents a host has fetched so far.
+pub(crate) fn about(
+    document: &Document,
+    trust: &crate::TrustPolicy,
+    copies: &[FetchedCopy],
+) -> About {
     let mut notes = Vec::new();
     let mut published = Vec::new();
 
@@ -216,7 +236,7 @@ pub(crate) fn about(document: &Document, trust: &crate::TrustPolicy) -> About {
     external_associated_files(document, &mut notes);
     xfa_form(document, &mut notes);
     tagged_structure(document, &mut notes);
-    signatures(document, trust, &mut notes, &mut published);
+    signatures(document, trust, copies, &mut notes, &mut published);
     About { notes, published }
 }
 
@@ -666,6 +686,7 @@ pub(crate) fn restricted(
 fn signatures(
     document: &Document,
     trust: &crate::TrustPolicy,
+    copies: &[FetchedCopy],
     notes: &mut Vec<String>,
     published: &mut Vec<pdf_signature::policy::PublishedPolicy>,
 ) {
@@ -712,6 +733,7 @@ fn signatures(
             when,
             acceptance: trust.acceptance,
             timestamps,
+            copies,
         };
         about_one(signature, document, length, &asked, notes, published);
         modifications(signature, document, &permissions, notes);
@@ -774,6 +796,9 @@ struct Asked<'a> {
     acceptance: pdf_signature::verdict::Acceptance,
     /// What §12.8.5's chain contributes, computed once for the document.
     timestamps: pdf_signature::verdict::Timestamps,
+    /// The policy documents a host fetched, which §12.8.3.4.4's constraints are enforced from
+    /// where the file carries no bound copy of its own.
+    copies: &'a [FetchedCopy],
 }
 
 /// What §12.8.5's chain contributes to a verdict on any signature in this document.
@@ -1527,7 +1552,7 @@ fn about_one(
                     }
                 ));
             }
-            signature_policy(signature, &cms, notes, published);
+            signature_policy(signature, &cms, asked.copies, notes, published);
             // §12.8.3.4.5 (a)'s first sentence, said whether or not the signature verifies and
             // whatever the `/SubFilter` is: RFC 5035 section 5.4.1 puts the same rule on any CMS
             // object carrying the attribute, and `Signature::authenticity` already refuses on a
@@ -1586,6 +1611,7 @@ fn about_one(
 fn signature_policy(
     signature: &pdf_signature::signature::Signature,
     cms: &pdf_signature::cms::SignedData<'_>,
+    copies: &[FetchedCopy],
     notes: &mut Vec<String>,
     published: &mut Vec<pdf_signature::policy::PublishedPolicy>,
 ) {
@@ -1678,42 +1704,70 @@ fn signature_policy(
         }
         notes.push(said);
     }
-    policy_constraints(&policy, cms, notes);
+    policy_constraints(&policy, cms, copies, notes);
 }
 
 /// §12.8.3.4.4's "shall enforce signature policy constraints", said one constraint at a time.
 ///
-/// A stored document bound to the signature and written in any of the three machine-processable
-/// syntaxes — ETSI TR 102 272's or ETSI TS 119 172-3's ASN.1, or ETSI TS 119 172-2's XML — is
-/// enforced, each constraint a sentence with its verdict (ADRs 2560, 2580, 2604). Anything else is
-/// said as the
-/// reason nothing was enforced; where the file carries no document, the sentence names the
-/// specification the signer named and is silent where it named none, since clause 5.2.9.1 leaves
-/// the syntax to the context there and a reader outside that context has nothing to name.
+/// A copy of the policy document bound to the signature and written in any of the three
+/// machine-processable syntaxes — ETSI TR 102 272's or ETSI TS 119 172-3's ASN.1, or ETSI TS
+/// 119 172-2's XML — is enforced, each constraint a sentence with its verdict (ADRs 2560, 2580,
+/// 2604). The copy is the one clause 5.2.10's store carries where that one is bound, and otherwise
+/// one a host fetched from the URL clause 5.2.9.2's qualifier names, bound and enforced the same
+/// way (ADR 2624). Anything else is said as the reason nothing was enforced; where the file
+/// carries no document and nothing was fetched, the sentence names the specification the signer
+/// named and is silent where it named none, since clause 5.2.9.1 leaves the syntax to the context
+/// there and a reader outside that context has nothing to name.
 fn policy_constraints(
     policy: &pdf_signature::policy::SignaturePolicy<'_>,
     cms: &pdf_signature::cms::SignedData<'_>,
+    copies: &[FetchedCopy],
     notes: &mut Vec<String>,
 ) {
-    use pdf_signature::policy_rules::{Enforcement, NotEnforced, SignerFacts, Verdict, enforce};
+    use pdf_signature::policy_rules::{Enforcement, NotEnforced, SignerFacts, enforce};
 
     let facts = SignerFacts::of(cms);
-    let why = match enforce(policy, cms, &facts) {
-        Enforcement::Enforced { syntax, findings } => {
-            let broken = findings
-                .iter()
-                .filter(|finding| finding.verdict == Verdict::Broken)
-                .count();
+    let fetched = fetched_copies(policy, copies);
+    let stored = enforce(policy, cms, &facts);
+    if let Enforcement::Enforced { syntax, findings } = &stored {
+        enforced(*syntax, findings, "the copy this file carries", notes);
+        for copy in fetched {
             notes.push(format!(
-                "§12.8.3.4.4 requires a signature handler to enforce that policy's constraints, and \
-                 the copy this file carries states them in {syntax}: {} constraint(s), {broken} of \
-                 them broken",
-                findings.len()
+                "the copy of that policy's document fetched from {} was not enforced beside it: \
+                 the copy this file carries is bound to the signature, and its constraints are \
+                 the ones above",
+                copy.published.url
             ));
-            notes.extend(findings.iter().map(ToString::to_string));
-            return;
         }
-        Enforcement::NotEnforced(NotEnforced::NoStoredDocument) => {
+        return;
+    }
+    let mut fetched_enforced = false;
+    for copy in &fetched {
+        let source = format!("the copy fetched from {}", copy.published.url);
+        match enforce_fetched_once(policy, copy, cms, &facts, fetched_enforced) {
+            Some(Enforcement::Enforced { syntax, findings }) => {
+                enforced(syntax, &findings, &source, notes);
+                fetched_enforced = true;
+            }
+            Some(Enforcement::NotEnforced(why)) => notes.push(format!(
+                "§12.8.3.4.4 also requires a signature handler to enforce that policy's \
+                 constraints, and this program did not enforce {source}: {}",
+                not_enforced(&why, &source)
+            )),
+            None => notes.push(format!(
+                "{source} was not enforced as well: another copy of that policy's document is \
+                 bound to the signature, and its constraints are the ones above"
+            )),
+        }
+    }
+    let Enforcement::NotEnforced(why) = stored else {
+        return;
+    };
+    let why = match why {
+        // A fetched copy has said what came of it, and a file that carries none has nothing more
+        // to say of its own.
+        NotEnforced::NoStoredDocument if !fetched.is_empty() => return,
+        NotEnforced::NoStoredDocument => {
             let Some(specification) = policy.specification() else {
                 return;
             };
@@ -1722,21 +1776,7 @@ fn policy_constraints(
                 named(specification)
             )
         }
-        Enforcement::NotEnforced(NotEnforced::NotBound(_)) => "the copy this file carries is not \
-             bound to the signature, so its rules are nobody's agreement"
-            .to_owned(),
-        Enforcement::NotEnforced(NotEnforced::Unreadable(refusal)) => refusal.to_string(),
-        Enforcement::NotEnforced(NotEnforced::CanonicalDigestNotComputed { canonicalization }) => {
-            format!(
-                "the signer committed to the digest the copy this file carries states over its \
-                 policy components canonicalised by {canonicalization}, and this program does not \
-                 canonicalise XML to re-compute it"
-            )
-        }
-        Enforcement::NotEnforced(NotEnforced::IdentifierDiffers { document }) => format!(
-            "the copy this file carries is the document of policy {document}, not of the one the \
-             signer named"
-        ),
+        why => not_enforced(&why, "the copy this file carries"),
     };
     notes.push(format!(
         "§12.8.3.4.4 also requires a signature handler to enforce that policy's constraints, and \
@@ -1745,14 +1785,111 @@ fn policy_constraints(
     ));
 }
 
+/// The fetched copies that are of this signature's policy: the ones whose published entry is one
+/// [`pdf_signature::policy::SignaturePolicy::published`] lists.
+fn fetched_copies<'a>(
+    policy: &pdf_signature::policy::SignaturePolicy<'_>,
+    copies: &'a [FetchedCopy],
+) -> Vec<&'a FetchedCopy> {
+    let published = policy.published();
+    copies
+        .iter()
+        .filter(|copy| published.contains(&copy.published))
+        .collect()
+}
+
+/// A fetched copy enforced, or `None` where an earlier copy already was: one bound copy is the
+/// signer's policy document, and a second would only say its constraints again.
+fn enforce_fetched_once(
+    policy: &pdf_signature::policy::SignaturePolicy<'_>,
+    copy: &FetchedCopy,
+    cms: &pdf_signature::cms::SignedData<'_>,
+    facts: &pdf_signature::policy_rules::SignerFacts,
+    already: bool,
+) -> Option<pdf_signature::policy_rules::Enforcement> {
+    use pdf_signature::policy_rules::{Enforcement, enforce_fetched};
+    let enforcement = enforce_fetched(policy, &copy.octets, cms, facts);
+    match enforcement {
+        Enforcement::Enforced { .. } if already => None,
+        enforcement => Some(enforcement),
+    }
+}
+
+/// The sentences of an enforced copy: the count, then each constraint with its verdict.
+fn enforced(
+    syntax: pdf_signature::policy_rules::Syntax,
+    findings: &[pdf_signature::policy_rules::Finding],
+    source: &str,
+    notes: &mut Vec<String>,
+) {
+    let broken = findings
+        .iter()
+        .filter(|finding| finding.verdict == pdf_signature::policy_rules::Verdict::Broken)
+        .count();
+    notes.push(format!(
+        "§12.8.3.4.4 requires a signature handler to enforce that policy's constraints, and \
+         {source} states them in {syntax}: {} constraint(s), {broken} of them broken",
+        findings.len()
+    ));
+    notes.extend(findings.iter().map(ToString::to_string));
+}
+
+/// Why a copy's constraints were not enforced, said of `copy` — the one the file carries or the
+/// one fetched from a URL.
+fn not_enforced(why: &pdf_signature::policy_rules::NotEnforced, copy: &str) -> String {
+    use pdf_signature::policy::Published;
+    use pdf_signature::policy_rules::NotEnforced;
+    match why {
+        NotEnforced::NoStoredDocument => "this file carries no copy of them".to_owned(),
+        NotEnforced::NotBound(_) => {
+            format!("{copy} is not bound to the signature, so its rules are nobody's agreement")
+        }
+        NotEnforced::FetchedCopyNotBound(Published::DoesNotMatchTheFetchedOctets {
+            digest,
+            ..
+        }) => format!(
+            "{copy} does not hash to the {} digest the signer signed over it, and states no digest \
+             of its own rules the signer signed, so it is not bound to the signature and its rules \
+             are nobody's agreement",
+            digest.name()
+        ),
+        NotEnforced::FetchedCopyNotBound(Published::PolicyHashNotKnown) => format!(
+            "the signer committed to the policy by name and to no particular copy of its document \
+             (ETSI EN 319 122-1 clause 5.2.9.1's all-zero digest), so {copy} is not bound to the \
+             signature"
+        ),
+        NotEnforced::FetchedCopyNotBound(Published::UnderAnotherFunction { algorithm }) => {
+            format!(
+                "the digest that would bind {copy} to the signature is under {algorithm}, which \
+                 this program does not compute"
+            )
+        }
+        NotEnforced::FetchedCopyNotBound(Published::Matches { .. }) => {
+            format!("{copy} is bound to the signature by its octets")
+        }
+        NotEnforced::Unreadable(refusal) => refusal.to_string(),
+        NotEnforced::CanonicalDigestNotComputed { canonicalization } => format!(
+            "the signer committed to the digest {copy} states over its policy components \
+             canonicalised by {canonicalization}, and this program does not canonicalise XML to \
+             re-compute it"
+        ),
+        NotEnforced::IdentifierDiffers { document } => {
+            format!("{copy} is the document of policy {document}, not of the one the signer named")
+        }
+    }
+}
+
 /// The findings of the bound policy a signature was made under, or none where nothing was enforced.
 ///
 /// What [`policy_constraints`] says as sentences, handed to the verdict as well, since
-/// §12.8.3.4.4's enforcement is a validator's and a broken constraint withholds the word (ADR 2560).
+/// §12.8.3.4.4's enforcement is a validator's and a broken constraint withholds the word (ADR 2560)
+/// — from the stored copy where it is bound, and otherwise from the first fetched copy that is
+/// (ADR 2624).
 fn policy_findings(
     signature: &pdf_signature::signature::Signature,
+    copies: &[FetchedCopy],
 ) -> Vec<pdf_signature::policy_rules::Finding> {
-    use pdf_signature::policy_rules::{Enforcement, SignerFacts, enforce};
+    use pdf_signature::policy_rules::{Enforcement, SignerFacts, enforce, enforce_fetched};
 
     let Ok(cms) = signature.signed_data() else {
         return Vec::new();
@@ -1760,10 +1897,19 @@ fn policy_findings(
     let Ok(Some(policy)) = signature.signature_policy(&cms) else {
         return Vec::new();
     };
-    match enforce(&policy, &cms, &SignerFacts::of(&cms)) {
-        Enforcement::Enforced { findings, .. } => findings,
-        Enforcement::NotEnforced(_) => Vec::new(),
+    let facts = SignerFacts::of(&cms);
+    if let Enforcement::Enforced { findings, .. } = enforce(&policy, &cms, &facts) {
+        return findings;
     }
+    fetched_copies(&policy, copies)
+        .into_iter()
+        .find_map(
+            |copy| match enforce_fetched(&policy, &copy.octets, &cms, &facts) {
+                Enforcement::Enforced { findings, .. } => Some(findings),
+                Enforcement::NotEnforced(_) => None,
+            },
+        )
+        .unwrap_or_default()
 }
 
 /// How a signature named the specification its policy document's syntax is defined by.
@@ -2184,7 +2330,7 @@ fn verdicts(
         asked.timestamps,
         asked.when,
     );
-    let verdict = verdict.under_policy(&policy_findings(signature));
+    let verdict = verdict.under_policy(&policy_findings(signature, asked.copies));
     // **Which instant the path was asked about, and on whose word** — said whichever answer it is,
     // because "valid" without it reads as *valid now* and that is the one thing this program never
     // establishes. §12.8.4.2's own reason for a document security store is that a signature
@@ -2409,7 +2555,12 @@ fn verifies(
 
 #[cfg(test)]
 mod tests {
-    use super::about;
+
+    /// [`super::about`] with no fetched policy copy, which is what every test but the ones about
+    /// fetched copies asks.
+    fn about(document: &Document, trust: &crate::TrustPolicy) -> super::About {
+        super::about(document, trust, &[])
+    }
 
     use pdf_syntax::Document;
 

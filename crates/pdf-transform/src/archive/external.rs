@@ -31,7 +31,7 @@
 //! [`pdf_model::file_spec::FileSpec`]'s reading of §7.11 rather than a second one written here; §7.11.5's
 //! URL is named as itself rather than passed off as a file name, because it is not one.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use pdf_archive::Outcome;
@@ -93,6 +93,11 @@ pub enum ExternalData {
 /// the rule every remedy here follows: which stream fails which rule is `pdf_archive`'s reading,
 /// and a second walk would be a second reading of ISO 19005. A report of another target, or one
 /// whose verdict never reached this requirement, yields nothing.
+///
+/// **Every distinct place the requirement failed at**, [`pdf_archive::Named::places`], and not
+/// the thirty-two [`Outcome::Failed`] keeps (`doc/adr/2616`); where that list was itself cut
+/// short, the streams it holds are returned and `embed` refuses by name. Each stream is read
+/// once, however many places name it.
 #[must_use]
 pub fn external_stream_data(
     document: &Document,
@@ -101,15 +106,16 @@ pub fn external_stream_data(
     let Some(judgement) = report.failures().find(|judgement| judgement.id == SITE) else {
         return Vec::new();
     };
-    let Outcome::Failed { places, .. } = &judgement.outcome else {
+    if !matches!(judgement.outcome, Outcome::Failed { .. }) {
         return Vec::new();
-    };
+    }
     let mut out: Vec<ExternalStream> = Vec::new();
-    for finding in places {
-        let Some(at) = finding.place.object else {
+    let mut seen: BTreeSet<ObjectId> = BTreeSet::new();
+    for place in judgement.named.places() {
+        let Some(at) = place.object else {
             continue;
         };
-        if out.iter().any(|held| held.at == at) {
+        if !seen.insert(at) {
             continue;
         }
         let object = document.get(at);
@@ -163,6 +169,9 @@ pub(super) fn embed(
     report: &pdf_archive::Report,
     supplied: &BTreeMap<ObjectId, Arc<[u8]>>,
 ) -> Result<Embedded, Because> {
+    if let Some(judgement) = report.failures().find(|judgement| judgement.id == SITE) {
+        super::sites::places_failed(judgement)?;
+    }
     let wanted = external_stream_data(document, report);
     if wanted.is_empty() {
         return Err(Because::NotThisTarget(NOTHING_NAMED));

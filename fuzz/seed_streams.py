@@ -22,6 +22,8 @@ the target never looks at:
                    `jpeg_bands.rs` reads first, one frame per shape (below)
     cff_write      an embedded bare CFF program (§9.9, `/Subtype /Type1C` or `/CIDFontType0C`) behind the three bytes
                    `cff_write.rs` reads its request from: three glyphs, alternating outlines
+    type1_write    an embedded Type 1 program (§9.9, a stream stating `/Length2`) behind the two bytes
+                   `type1_write.rs` reads its request from: three glyphs, alternating outlines
 
 The `-` reads the list of documents from standard input, one per NUL, for the reason
 `seed_x509.py` gives: one run counts everything, where `xargs` would print a summary per batch.
@@ -61,7 +63,7 @@ from seed_shape import Smallest, bucket, mapped, names_any, text_forms
 
 MAX_SEED = 256 * 1024
 MAX_DICTIONARY = 8 * 1024
-TARGETS = ("xmp", "sfnt", "cmap", "ccitt", "crypt", "variable_text", "jpeg_bands", "cff_write")
+TARGETS = ("xmp", "sfnt", "cmap", "ccitt", "crypt", "variable_text", "jpeg_bands", "cff_write", "type1_write")
 # What a document must state in the clear to hold a seed for each target: the name its stream
 # dictionary, its security dictionary or its field carries. A document naming none is passed over
 # by a search through its map, which is how the 126 GB is read in minutes; one naming it is read
@@ -77,6 +79,7 @@ NEEDLES = {
     "variable_text": b"/DA",
     "jpeg_bands": b"/DCT",
     "cff_write": b"Type",
+    "type1_write": b"/Length2",
 }
 # A `DCTDecode` frame past this is skipped for `jpeg_bands`: every execution decodes the frame
 # three times, and a frame of a few hundred lines is cut into bands as surely as a large one.
@@ -562,6 +565,7 @@ SHAPES = {
     "variable_text": variable_text_shape,
     "jpeg_bands": lambda seed: frame_shape(seed[1:]),
     "cff_write": lambda seed: cff_shape(seed[3:]),
+    "type1_write": lambda seed: type1_shape(seed[2:]),
 }
 
 
@@ -573,6 +577,16 @@ def cff_shape(program):
     one program's path through it from another's.
     """
     return (program[:4], len(program).bit_length())
+
+
+def type1_shape(program):
+    """A Type 1 program's first two bytes and its length's order of magnitude.
+
+    The first two bytes tell a program in the clear (`%!`, Adobe Type 1 Font Format section 2.3)
+    from one in a PFB's segments, which the writer refuses before it reads anything; the length
+    tells a subset from a whole face.
+    """
+    return (program[:2], len(program).bit_length())
 
 
 def seeds(target, data):
@@ -598,11 +612,12 @@ def seeds(target, data):
             "sfnt": b"/Length1" in dictionary and b"/Length2" not in dictionary,
             "cmap": re.search(rb"/Type\s*/CMap", dictionary),
             "cff_write": re.search(rb"/Subtype\s*/(?:Type1C|CIDFontType0C)", dictionary),
+            "type1_write": b"/Length2" in dictionary,
         }[target]
         if wanted:
             out = decoded(dictionary, body)
             if out:
-                yield (b"\x00\x03\x55" + out) if target == "cff_write" else out
+                yield {"cff_write": b"\x00\x03\x55", "type1_write": b"\x03\x55"}.get(target, b"") + out
 
 
 def main(argv):

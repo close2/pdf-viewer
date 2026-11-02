@@ -33,21 +33,41 @@ const NOT_RESTATABLE: &str = "a simple font's Widths array does not cover its st
     range, but the array is empty or its range cannot be read. This reader may then use a \
     substitute's metrics; inventing an entry would not state the widths the page already uses";
 
-/// Restates only the font objects the widths-length requirement found.
+/// How many width entries the restatement reads, all fonts together.
+///
+/// A simple font's codes are single bytes, so a legitimate array holds about 256 entries and
+/// [`pdf_archive::MAX_NAMED`] fonts about a mebi-entry; that product is the bound. It is needed
+/// because the fonts are the whole population rather than thirty-two (trap 305): every font may
+/// name one shared `/Widths` array by reference, and each font's reading — and copy — of a long
+/// one would otherwise cost fonts times the array.
+const MAX_READ_WIDTHS: usize = pdf_archive::MAX_NAMED * 256;
+
+/// Why the arrays were not restated.
+const WIDTHS_OVER_BUDGET: &str = "the simple fonts of this file whose Widths arrays do not \
+    match their character ranges state more width entries together than the 1 048 576 this \
+    conversion reads of them (256 for each of 4096 fonts)";
+
+/// Restates the font objects the widths-length requirement found, every one of them.
+///
+/// **The fonts are the requirement's whole population**, [`super::sites::places_failed`]'s, and
+/// not the thirty-two places [`Outcome::Failed`] keeps (`doc/adr/2616`): a font past the kept
+/// prefix keeps its array and the file fails the requirement it answered. The copies are bounded
+/// by [`MAX_READ_WIDTHS`].
 pub(super) fn restated(document: &Document, input: &Report) -> Result<WidthArrays, Because> {
     let mut out = WidthArrays::default();
+    let mut read = 0_usize;
     for judgement in input.failures() {
         if judgement.id != "fonts/widths-array-covers-character-range" {
             continue;
         }
-        let Outcome::Failed { places, .. } = &judgement.outcome else {
+        if !matches!(judgement.outcome, Outcome::Failed { .. }) {
             continue;
-        };
-        for finding in places {
-            let id = finding
-                .place
-                .object
-                .ok_or(Because::NotBuiltYet(NOT_RESTATABLE))?;
+        }
+        for place in super::sites::places_failed(judgement)? {
+            let id = place.object.ok_or(Because::NotBuiltYet(NOT_RESTATABLE))?;
+            if out.at.contains_key(&id) {
+                continue;
+            }
             let object = document.get(id);
             let dict = object
                 .as_dict()
@@ -70,6 +90,10 @@ pub(super) fn restated(document: &Document, input: &Report) -> Result<WidthArray
                 .and_then(|n| usize::try_from(n).ok())
                 .filter(|n| *n > 0)
                 .ok_or(Because::NotBuiltYet(NOT_RESTATABLE))?;
+            read = read.saturating_add(widths.len());
+            if read > MAX_READ_WIDTHS {
+                return Err(Because::NotBuiltYet(WIDTHS_OVER_BUDGET));
+            }
             if widths.is_empty() {
                 return Err(Because::NotBuiltYet(NOT_RESTATABLE));
             }

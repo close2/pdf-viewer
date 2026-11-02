@@ -166,7 +166,9 @@ impl Walk<'_> {
         if let Some(id) = id {
             self.visited.insert((page, id), origin.record);
         }
-        let mut reader = content.reader();
+        // A run like `12pt` is read whole, as the keyword ISO 32000-2 §7.2.3 makes it: section
+        // 6.2.2 asks which operators the stream uses, not what a renderer salvages (ADR 2619).
+        let mut reader = content.reader().with_runs_as_written();
         if let Some(ledger) = &mut self.ledger {
             // The interpreter's frame for a soft mask's group names no object — it holds the
             // group resolved rather than the reference — and the ledger is compared frame for

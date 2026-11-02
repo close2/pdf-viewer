@@ -136,6 +136,10 @@ pub(super) mod command_kind {
     // `SEPARATIONS`' reason: the confined worker interprets the pages the text is drawn on (ADR
     // 2612).
     pub(in crate::protocol) const NULL_FONT_SUBSTITUTE: u8 = 46;
+    // A signature policy's copy a server answered with. It crosses for `RESPOND`'s reason: the
+    // host holds the network and the confined worker holds the signature the copy is enforced
+    // for, and only the worker reads it (ADR 2624).
+    pub(in crate::protocol) const POLICY_COPY: u8 = 47;
 }
 
 /// How [`Command::Open`]'s document is held, on the wire.
@@ -628,6 +632,17 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
                 })
                 .bytes(bytes);
         }
+        // A signature policy's copy, crossing to the worker that holds the signature it is enforced
+        // for (ADR 2624): the published entry as the event carried it, and the octets unread.
+        Command::PolicyCopy {
+            document,
+            policy,
+            copy,
+        } => {
+            writer.u8(k::POLICY_COPY).document(*document);
+            super::published_policy::write_published(&mut writer, policy);
+            writer.bytes(copy);
+        }
         Command::Declined {
             document,
             page,
@@ -1041,6 +1056,11 @@ pub(crate) fn decode_command_holding(
                 }
             },
             bytes: reader.owned_bytes("an answer's body")?,
+        },
+        k::POLICY_COPY => Command::PolicyCopy {
+            document: reader.document(what)?,
+            policy: super::published_policy::read_published(&mut reader)?,
+            copy: reader.owned_bytes("a signature policy's copy")?,
         },
         k::DECLINED => Command::Declined {
             document: reader.document(what)?,

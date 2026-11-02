@@ -70,7 +70,7 @@ pub use ledger::Ledger;
 pub use list_budget::MAX_LIST_BYTES;
 pub use report::{
     ArtifactSource, ArtifactSpan, ContentStream, DamagedStream, Interpretation, MarkedSpan,
-    ObjectSpan, Placed, Shortfall, UnnamedCodes, Unsupported, named_sequences,
+    ObjectSpan, Placed, Shortfall, StreamSyntaxFault, UnnamedCodes, Unsupported, named_sequences,
 };
 
 /// Deepest nesting of `q`/`Q` that will be tracked.

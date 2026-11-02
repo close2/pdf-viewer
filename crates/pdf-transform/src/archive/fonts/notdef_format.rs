@@ -4,8 +4,8 @@
 //! ISO 32000-2 §9.9.1's Table 124 names a font program by the key that holds it: `FontFile` a Type 1
 //! program in its original format, `FontFile2` a TrueType program, and `FontFile3` the format its
 //! stream's `/Subtype` names — `Type1C`, `CIDFontType0C` or `OpenType`. The restatement
-//! (`super::truetype_cmap`) gives a code on `.notdef` a glyph in a TrueType, a simple CFF and a
-//! CID-keyed CFF program; where the row is refused because a font it names holds another, the
+//! (`super::truetype_cmap`) gives a code on `.notdef` a glyph in a TrueType, a simple CFF, a
+//! simple font's Type 1 and a CID-keyed CFF program; where the row is refused because a font it names holds another, the
 //! sentence says which, rather than calling every program TrueType.
 
 use pdf_syntax::Document;
@@ -15,11 +15,13 @@ use super::super::sites::{dictionary_of, objects_named};
 use super::truetype_cmap::{NOTDEF_NOT_GIVEN, NOTDEF_ROWS};
 use super::{cff_notdef_glyph, cid_cff_notdef_glyph, cid_notdef_glyph};
 
-/// Why the rows stay refused where a font they name embeds a Type 1 program.
+/// Why the rows stay refused where a font they name embeds a Type 1 program the restatement does
+/// not extend: one under an `MMType1` font, or one the descriptor does not name as a stream.
 const IN_TYPE_1: &str = "this file shows a character code that reaches the .notdef glyph of an \
      embedded Type 1 program (a FontFile stream), and this conversion gives such a code a glyph of \
-     its own only in a TrueType, simple CFF or CID-keyed CFF program, and only where every font the \
-     requirement names has one: it does not extend a Type 1 program";
+     its own only in a TrueType, simple CFF or CID-keyed CFF program, or a Type 1 program under a \
+     Type1 font that names it as a stream, and only where every font the requirement names has \
+     one: it does not extend this font's Type 1 program";
 
 /// Why the rows stay refused where a font they name embeds an OpenType program.
 const IN_OPENTYPE: &str = "this file shows a character code that reaches the .notdef glyph of an \
@@ -34,7 +36,8 @@ const NOT_EMBEDDED: &str = "this file shows a character code that reaches the .n
      requirement names has one";
 
 /// Whether the restatement extends the program `dict`'s font embeds: a TrueType program under a
-/// `TrueType` or `CIDFontType2` font, a simple CFF program or a CID-keyed CFF program.
+/// `TrueType` or `CIDFontType2` font, a simple CFF or Type 1 program under a `Type1` font, or a
+/// CID-keyed CFF program.
 pub(in crate::archive) fn extends(document: &Document, dict: &Dictionary) -> bool {
     document
         .get_key(dict, "Subtype")
@@ -43,6 +46,7 @@ pub(in crate::archive) fn extends(document: &Document, dict: &Dictionary) -> boo
         == Some(&b"TrueType"[..])
         || cid_notdef_glyph::is_cid_truetype(document, dict)
         || cff_notdef_glyph::is_simple_cff(document, dict)
+        || cff_notdef_glyph::is_simple_type1(document, dict)
         || cid_cff_notdef_glyph::is_cid_cff(document, dict)
 }
 

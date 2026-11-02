@@ -102,6 +102,9 @@ impl Host {
     pub(crate) fn take_the_answers(&mut self) {
         for returned in self.submitter.collect() {
             let (document, url) = (returned.document, returned.url.clone());
+            // A signature policy's copy goes on to the document's validation after the sentence
+            // saying what was fetched (ADR 2624).
+            let policy_copy = returned.policy_copy();
             match returned.reply() {
                 viewer_host::submit::Reply::Import {
                     answers,
@@ -129,6 +132,9 @@ impl Host {
                     }
                 }
                 viewer_host::submit::Reply::Say(note) => eprintln!("{note}"),
+            }
+            if let Some(command) = policy_copy {
+                self.dispatch(command);
             }
         }
     }

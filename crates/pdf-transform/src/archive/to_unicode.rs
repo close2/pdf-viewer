@@ -58,7 +58,7 @@
 //! table never held.
 
 use core::fmt::Write as _;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_archive::survey::Survey;
 use pdf_archive::{Part, Target};
@@ -115,14 +115,27 @@ pub(super) fn derive(
         return Err(NO_FONT_NAMED);
     }
     let survey = Survey::of(document);
+    // **The survey is walked once and read by object**, whatever the number of fonts: the fonts
+    // are the requirements' whole population (`doc/adr/2616`), up to `pdf_archive::MAX_NAMED`,
+    // and a search of the survey's fonts for each — or a second walk for each, which the
+    // restatement's question used to be — would cost the fonts times the document (trap 305).
+    let mut complete: BTreeMap<ObjectId, &pdf_archive::survey::SelectedFont> = BTreeMap::new();
+    let mut selected: BTreeSet<ObjectId> = BTreeSet::new();
+    for used in survey.fonts() {
+        let Some(id) = used.id else {
+            continue;
+        };
+        selected.insert(id);
+        if used.shown_complete {
+            complete.entry(id).or_insert(used);
+        }
+    }
     let mut maps = DerivedMaps {
         at: BTreeMap::new(),
         written: BTreeMap::new(),
     };
     for id in fonts {
-        let used = survey
-            .fonts()
-            .find(|used| used.id == Some(*id) && used.shown_complete);
+        let used = complete.get(id).copied();
         // Either no content stream selected this font — in which case there is no set of
         // referenced codes to write a CMap over — or the survey's own budget stopped before its
         // strings were read, in which case the set is a prefix and a CMap built on it would be
@@ -133,7 +146,7 @@ pub(super) fn derive(
             .map(|mapping| cmap_stream(&mapping));
         let stream = match derived {
             Ok(stream) => stream,
-            Err(why) => restated(document, *id, used, target).ok_or(why)?,
+            Err(why) => restated(document, *id, used, selected.contains(id), target).ok_or(why)?,
         };
         let at = spare.take(document).ok_or(NO_SPARE_OBJECT)?;
         maps.written.insert(at, stream);
@@ -150,10 +163,12 @@ pub(super) fn derive(
 /// of every referenced glyph, so a part 2 target takes the restatement only where none of the codes
 /// it unmaps was shown — read off the font's whole set of shown strings, decoded by the font
 /// itself. `None` keeps the reason the derivation gave, which is the one the refusal names.
+/// `selected` is whether any content stream selected the font, read whole or not.
 fn restated(
     document: &Document,
     id: ObjectId,
     used: Option<&pdf_archive::survey::SelectedFont>,
+    selected: bool,
     target: Target,
 ) -> Option<Object> {
     let Object::Stream(stream) = document.get_key_of(id, "ToUnicode")? else {
@@ -173,7 +188,7 @@ fn restated(
             if shown {
                 return None;
             }
-        } else if survey_saw_font(document, id) {
+        } else if selected {
             return None;
         }
     }
@@ -185,11 +200,6 @@ fn restated(
         dict.remove(entry);
     }
     Some(stream_object_with(dict, restated.data))
-}
-
-/// Whether any content stream selected this font at all, read whole or not.
-fn survey_saw_font(document: &Document, id: ObjectId) -> bool {
-    Survey::of(document).fonts().any(|used| used.id == Some(id))
 }
 
 /// One font's code-to-text table, or the reason it has none.

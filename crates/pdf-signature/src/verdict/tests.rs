@@ -158,6 +158,84 @@ fn an_xml_policy_whose_signing_period_ended_withholds_the_word() {
     assert!(constraint.contains("2021-01-01T00:00:00Z"), "{constraint}");
 }
 
+/// The same XML policy as [`an_xml_policy_whose_signing_period_ended_withholds_the_word`], fetched
+/// from the URL a signature's qualifier names rather than stored in the file: bound by the digest
+/// the signer signed over its octets, enforced through the same reader, and the word withheld for
+/// the same ended period (ADR 2624).
+///
+/// **The plant is the second half** (trap 13): one octet of the copy changed — inside a comment,
+/// so the document still reads and every rule in it is unchanged — and the copy is reported as not
+/// matching the signed digest and nothing in it is enforced, so the verdict keeps the word.
+#[test]
+fn a_fetched_policy_copy_is_enforced_as_a_stored_one_is_and_a_changed_one_is_not() {
+    use crate::cms::Digest;
+    use crate::policy::{PolicyHash, Published, SignaturePolicy};
+    use crate::policy_rules::{
+        Enforcement, NotEnforced, SignerFacts, SigningTime, Syntax, TimeSource, enforce_fetched,
+    };
+    let copy = r#"<!--a--><SignaturePolicy xmlns="http://uri.etsi.org/19172/v1.1.1#"
+        xmlns:ds="http://www.w3.org/2000/09/xmldsig#"><Digest>
+        <ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+        <ds:DigestValue>AAAA</ds:DigestValue>
+        <ds:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>
+        </Digest><PolicyComponents><GeneralDetails><SigPolicyDetails>
+        <PolicyIdentifier>urn:oid:1.2.3.4</PolicyIdentifier></SigPolicyDetails><OtherDetails>
+        <DateOfIssue>2020-01-01T00:00:00Z</DateOfIssue><SigningPeriod>
+        <NotBefore>2020-01-01T00:00:00Z</NotBefore><NotAfter>2021-01-01T00:00:00Z</NotAfter>
+        </SigningPeriod></OtherDetails></GeneralDetails><PolicyRules><PolicyRule>
+        <SCDLoARules>urn:qscd</SCDLoARules></PolicyRule></PolicyRules></PolicyComponents>
+        </SignaturePolicy>"#
+        .as_bytes()
+        .to_vec();
+    let mut hasher = Digest::Sha256.hasher();
+    hasher.update(&copy);
+    let signed = hasher.finish();
+    let policy = SignaturePolicy {
+        identifier: "1.2.3.4".to_owned(),
+        hash: PolicyHash::Stated {
+            digest: Digest::Sha256,
+            value: &signed,
+        },
+        qualifiers: Vec::new(),
+        store: None,
+    };
+    let der = hex(fixtures::SIGNATURE);
+    let cms = crate::cms::signed_data(&der).expect("the fixture value is a SignedData");
+    let mut facts = SignerFacts::of(&cms);
+    facts.signing_time = Some(SigningTime {
+        instant: AT,
+        spelled: "the fixture's validation time".to_owned(),
+        source: TimeSource::SignatureTimestamp,
+    });
+    let verdict = verdict_under(&[fixtures::ROOT], Acceptance::UnknownRevocationAccepted);
+    assert!(verdict.valid().is_some(), "{verdict:?}");
+
+    let Enforcement::Enforced { syntax, findings } = enforce_fetched(&policy, &copy, &cms, &facts)
+    else {
+        panic!("a fetched copy bound by its octets is enforced");
+    };
+    assert_eq!(syntax, Syntax::Ts1191722);
+    let withheld = verdict.clone().under_policy(&findings);
+    let Some(Reservation::PolicyConstraintBroken { constraint }) = withheld.reservation() else {
+        panic!("the ended signing period should be the reservation, not {withheld:?}");
+    };
+    assert!(constraint.contains("2021-01-01T00:00:00Z"), "{constraint}");
+
+    let mut changed = copy;
+    changed[5] = b'b';
+    let refused = enforce_fetched(&policy, &changed, &cms, &facts);
+    assert_eq!(
+        refused,
+        Enforcement::NotEnforced(NotEnforced::FetchedCopyNotBound(
+            Published::DoesNotMatchTheFetchedOctets {
+                digest: Digest::Sha256,
+                specification: None,
+            }
+        ))
+    );
+    assert!(verdict.under_policy(&[]).valid().is_some());
+}
+
 /// **A different root, and the same signature is not valid.**
 ///
 /// The one input changed. `crate::trust::tests`' hierarchy is a real root this project issued and

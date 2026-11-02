@@ -54,14 +54,15 @@ impl Open {
     /// the sentences are a function of the file and are the same sentences every time.
     pub(crate) fn about(&self, trust: &crate::TrustPolicy) -> &crate::notes::About {
         self.about
-            .get_or_init(|| crate::notes::about(&self.document, trust))
+            .get_or_init(|| crate::notes::about(&self.document, trust, &self.policy_copies))
     }
 
     /// Drops the wording, because the policy it was worded under has changed.
     ///
-    /// [`crate::Command::Trust`] is the one thing that can invalidate it: the sentences are a function of
-    /// the document *and* of whom this reader believes, and the first of those two is immutable
-    /// while the second is a host's to change at any moment.
+    /// [`crate::Command::Trust`] and [`crate::Command::PolicyCopy`] are the two things that can
+    /// invalidate it: the sentences are a function of the document, of whom this reader believes
+    /// and of the policy copies a host fetched, and the first of those is immutable while the
+    /// other two are a host's to change at any moment.
     pub(crate) fn forget_about(&mut self) {
         self.about = OnceLock::new();
     }

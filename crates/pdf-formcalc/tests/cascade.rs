@@ -1124,34 +1124,252 @@ fn a_value_a_ready_event_sets_wakes_the_calculations_that_read_it() {
     );
 }
 
-/// Page 387: an event whose `listen` is `refAndDescendents` also hears the objects inside its
-/// `ref`. This reader runs it for its own container alone, so the open sequence names it, and a
-/// click within a field inside the subform still runs only the field's own event.
+/// An event of `activity` whose `listen` is `refAndDescendents`, appending `tag` and `^` to `Log`.
+fn listens(activity: &str, tag: &str) -> String {
+    format!(
+        "<event activity=\"{activity}\" listen=\"refAndDescendents\"><script>Log = Concat(Log, \
+         \"{tag}^\")</script></event>"
+    )
+}
+
+/// Page 387: an event whose `listen` is `refAndDescendents` responds to the activity on what its
+/// `ref` contains. A click within a field runs the field's own event, then that of each enclosing
+/// subform that listens, innermost first (ADR 2626's choice), and then the Form DOM's listening
+/// event. A subform's `click` that does not listen, one whose `listen` says `refOnly`, and a
+/// listening subform beside the field rather than around it hear nothing.
 #[test]
-fn an_event_that_listens_to_descendants_is_named_as_not_run_for_them() {
+fn a_click_reaches_every_listening_container_around_the_field_innermost_first() {
     let template = [
         format!(
-            "<subform name=\"A\"><event activity=\"click\" listen=\"refAndDescendents\"><script>\
-             Log = Concat(Log, \"A!\")</script></event>{}</subform>",
-            field("Button", &clicks("Button"))
+            "<subform name=\"Outer\">{}{}<subform name=\"Middle\">{}{}{}</subform></subform>",
+            listens("click", "Outer"),
+            bound("click", "", "Plain"),
+            listens("click", "Middle"),
+            "<event activity=\"click\" listen=\"refOnly\"><script>Log = Concat(Log, \
+             \"refOnly!\")</script></event>",
+            field("Button", &clicks("Button")),
+        ),
+        format!(
+            "<subform name=\"Beside\">{}{}</subform>",
+            listens("click", "Beside"),
+            field("Other", "")
+        ),
+        format!(
+            "<subform name=\"Root\"><event activity=\"click\" ref=\"$form\" \
+             listen=\"refAndDescendents\"><script>Log = Concat(Log, \"Form^\")</script>\
+             </event></subform>{}",
+            field("Log", "")
+        ),
+    ]
+    .concat();
+    let values = [
+        ("Outer.Middle.Button", ""),
+        ("Beside.Other", ""),
+        ("Log", ""),
+    ];
+    let clicked = name("Outer.Middle.Button");
+    let document = document(&template, &values);
+    let resource = Resource::read(&document).unwrap().unwrap();
+    let activation = resource.activate(
+        &fields(&values),
+        Stimulus::Click { clicked: &clicked },
+        &mut FormCalcRunner,
+        Limits::DEFAULT,
+    );
+    assert_eq!(activation.ended, Ended::Settled, "{:?}", activation.report);
+    let logged = activation
+        .edits
+        .iter()
+        .find(|(field, _)| *field == name("Log"))
+        .map(|(_, value)| format!("{value:?}"));
+    assert_eq!(
+        logged.as_deref(),
+        Some("Text(\"Button!Middle^Outer^Form^\")"),
+        "{:?}",
+        activation.report
+    );
+    assert!(activation.report.is_empty(), "{:?}", activation.report);
+}
+
+/// Page 387 states no activity that does not propagate: a person's entry (`change`), the focus
+/// leaving and reaching a field within one subform (`exit`, `enter`), a press and a release
+/// (`mouseDown`, `mouseUp`) and the merge's `initialize` each reach the listening subform around
+/// the field, after the field's own event. The subform's own `enter` and `exit` do not fire,
+/// since the focus stays inside it (page 390), so what it logs is what it heard.
+#[test]
+fn each_built_activity_reaches_the_listening_subform_after_the_fields_own() {
+    let activities = [
+        "change",
+        "exit",
+        "enter",
+        "mouseDown",
+        "mouseUp",
+        "initialize",
+    ];
+    let own: String = activities
+        .iter()
+        .map(|activity| bound(activity, "", activity))
+        .collect();
+    let heard: String = activities
+        .iter()
+        .map(|activity| listens(activity, "A"))
+        .collect();
+    let template = [
+        format!(
+            "<subform name=\"A\">{heard}{}{}</subform>",
+            field("a1", &own),
+            field("a2", "")
         ),
         field("Log", ""),
     ]
     .concat();
-    let values = [("A.Button", ""), ("Log", "")];
-    let activation = ready(&template, &values);
+    let values = [("A.a1", ""), ("A.a2", ""), ("Log", "")];
+    let (a1, a2) = (name("A.a1"), name("A.a2"));
+    let entered = [a1.clone()];
+    let cases = [
+        (Stimulus::Entry(&entered), "change!A^"),
+        (
+            Stimulus::Exit {
+                left: &a1,
+                reaching: Some(&a2),
+            },
+            "exit!A^",
+        ),
+        (
+            Stimulus::Enter {
+                reached: &a1,
+                leaving: Some(&a2),
+            },
+            "enter!A^",
+        ),
+        (Stimulus::MouseDown { pressed: &a1 }, "mouseDown!A^"),
+        (Stimulus::MouseUp { released: &a1 }, "mouseUp!A^"),
+    ];
+    for (stimulus, expected) in cases {
+        let activation = activate(&template, &values, stimulus, Limits::DEFAULT);
+        assert_eq!(activation.ended, Ended::Settled, "{:?}", activation.report);
+        assert_eq!(log(&activation).as_deref(), Some(expected), "{stimulus:?}");
+    }
+    // The merge fires every container's `initialize` in document order: `A`'s own, to which its
+    // listening event responds as to its `ref` (page 706: the target and what it contains), then
+    // `a1`'s own and what `A` heard of it, then what `A` heard of `a2`'s.
+    let activation = merge(&template, &values);
+    assert_eq!(activation.ended, Ended::Settled, "{:?}", activation.report);
+    assert_eq!(log(&activation).as_deref(), Some("A^initialize!A^A^"));
+}
+
+/// Page 388 applies `ready` to the Form DOM, which no container contains: an event bound to it that
+/// listens runs once, as one that does not, and a listening subform's `ready` names an object that
+/// generates none and hears none from what it contains. Neither is named as not followed.
+#[test]
+fn a_listening_ready_runs_once_for_the_form_dom_and_never_for_a_subform() {
+    let template = [
+        format!(
+            "<subform name=\"A\">{}<event activity=\"ready\" ref=\"$form\" \
+             listen=\"refAndDescendents\"><script>Log = Concat(Log, \"Form^\")</script></event>\
+             {}</subform>",
+            listens("ready", "A"),
+            field("a1", "")
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    let activation = ready(&template, &[("A.a1", ""), ("Log", "")]);
+    assert_eq!(activation.ended, Ended::Settled, "{:?}", activation.report);
+    assert_eq!(log(&activation).as_deref(), Some("Form^"));
+    assert!(activation.report.is_empty(), "{:?}", activation.report);
+}
+
+/// Pages 391–392 give `mouseDown` and `mouseUp` to a field and page 390 to no subform: a press and
+/// a release run the field's own events and not a subform's that does not listen, and a name that
+/// reaches an exclusion group runs nothing and says which event it did not run.
+#[test]
+fn a_press_and_a_release_run_the_fields_own_mouse_events() {
+    let mouse = |tag: &str| [bound("mouseDown", "", tag), bound("mouseUp", "", tag)].concat();
+    let template = [
+        format!(
+            "<subform name=\"A\">{}{}</subform>",
+            mouse("A"),
+            field("Button", &mouse("Button"))
+        ),
+        format!(
+            "<exclGroup name=\"Choice\">{}</exclGroup>",
+            field("Yes", &mouse("Yes"))
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    let values = [("A.Button", ""), ("Choice", ""), ("Log", "")];
+    let button = name("A.Button");
+    for stimulus in [
+        Stimulus::MouseDown { pressed: &button },
+        Stimulus::MouseUp { released: &button },
+    ] {
+        let activation = activate(&template, &values, stimulus, Limits::DEFAULT);
+        assert_eq!(log(&activation).as_deref(), Some("Button!"), "{stimulus:?}");
+    }
+    let choice = name("Choice");
+    let activation = activate(
+        &template,
+        &values,
+        Stimulus::MouseUp { released: &choice },
+        Limits::DEFAULT,
+    );
+    assert!(activation.edits.is_empty(), "{:?}", activation.edits);
     assert!(
-        activation.report.iter().any(|sentence| sentence.contains(
-            "its click event listens to the objects inside what it is bound to \
-             (listen=\"refAndDescendents\"), and is not run for them"
-        )),
+        activation.report.iter().any(|sentence| sentence
+            .contains("its mouseUp events are not run: it is an exclusion group, and the pointer")),
         "{:?}",
         activation.report
     );
-    assert_eq!(
-        log(&click(&template, &values, "A.Button")).as_deref(),
-        Some("Button!")
-    );
+}
+
+/// The deepest nesting the XML reader admits, every level listening: one click runs the field's
+/// event and one event per level, each once, innermost first.
+#[test]
+fn a_click_at_the_deepest_nesting_reaches_every_level_once() {
+    let levels = 250;
+    let mut template = field("Button", &clicks("f"));
+    for level in (0..levels).rev() {
+        template = format!(
+            "<subform name=\"L{level}\">{}{template}</subform>",
+            listens("click", "")
+        );
+    }
+    let template = [template, field("Log", "")].concat();
+    let path: Vec<String> = (0..levels).map(|level| format!("L{level}")).collect();
+    let short = format!("{}.Button", path.join("."));
+    let values = [(short.as_str(), ""), ("Log", "")];
+    let activation = click(&template, &values, &short);
+    assert_eq!(activation.ended, Ended::Settled, "{:?}", activation.report);
+    assert_eq!(activation.activations, levels + 1);
+    let expected = format!("f!{}", "^".repeat(levels));
+    assert_eq!(log(&activation).as_deref(), Some(expected.as_str()));
+}
+
+/// A subform holding more listening events that perform nothing than an activation may run: each
+/// heard from below is charged one run, so a click ends on the activation limit, keeps nothing,
+/// and the walk is held to the limit rather than to the events times the fields.
+#[test]
+fn more_heard_events_than_an_activation_runs_end_on_its_limit_and_keep_nothing() {
+    let heard = "<event activity=\"click\" listen=\"refAndDescendents\"><submit/></event>"
+        .repeat(Limits::DEFAULT.activations.saturating_add(1));
+    let template = [
+        format!(
+            "<subform name=\"A\">{heard}{}</subform>",
+            field(
+                "Button",
+                "<event activity=\"click\"><script>Log = 1</script></event>"
+            )
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    let started = std::time::Instant::now();
+    let activation = click(&template, &[("A.Button", ""), ("Log", "")], "A.Button");
+    assert!(started.elapsed() < std::time::Duration::from_secs(30));
+    assert_eq!(activation.ended, Ended::Budget("activations"));
+    assert!(activation.edits.is_empty(), "{:?}", activation.edits);
 }
 
 /// A field carrying more `ready` events than an activation may run ends on the activation limit
@@ -1167,9 +1385,10 @@ fn more_ready_events_than_an_activation_runs_end_on_its_limit_and_keep_nothing()
 }
 
 /// A hundred thousand events that listen to a subform's descendants, and a hundred thousand fields
-/// each bound to an object this reader raises nothing for, run no script; the walk is one pass over
-/// the template's elements, which the XML reader bounds, the same sentence is kept once and the
-/// report is capped and says how many it left out.
+/// each bound to an object this reader raises nothing for, run no script at the open sequence's
+/// end: the listening events are followed and hear no `ready`, so nothing names them, the walk is
+/// one pass over the template's elements, which the XML reader bounds, and the report is capped
+/// and says how many it left out.
 #[test]
 fn a_hundred_thousand_unfollowed_events_are_reported_within_the_cap() {
     let listening =
@@ -1193,7 +1412,7 @@ fn a_hundred_thousand_unfollowed_events_are_reported_within_the_cap() {
             .iter()
             .filter(|sentence| sentence.contains("refAndDescendents"))
             .count(),
-        1,
+        0,
         "{:?}",
         activation.report
     );

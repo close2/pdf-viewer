@@ -968,3 +968,72 @@ width inserted where no operand count reads it, offsets into the header or past 
 bytes, an unreadable FDArray rewritten empty, a real number read past its end — and two more of the same
 family remain. One property can hide many faults: each artifact is replayed and decoded to its root cause,
 and a fix is counted only for the artifacts it clears.
+
+## A propagation walk is bounded by charging each heard dispatch to the run budget
+
+Round 1896 (ADR 2626) let a listening container hear every activity in what its `ref` contains. The bound
+is not events times targets, which the input chooses, but one run of `Limits::activations` per dispatch
+heard, so a template of two hundred thousand listeners costs what two hundred thousand of a field's own
+events cost and stops on the same limit. A walk that fans an event out charges each delivery to the budget
+the event already has.
+
+## A census of what a new face would free reads every shipped face's coverage first
+
+Round 1898 (ADR 2630) expected a wide-coverage family to free a dozen documents in Arabic and Cyrillic;
+it frees two, both Greek or Latin Extended-A on a serif face, because the shipped sans face already covers
+Greek and Cyrillic and the shipped serif and fixed faces carry the standard Latin charset only. Before a
+census of what a face would free, the coverage of every face already shipped is read per style — serif,
+sans, fixed — and the gap is named as a style's, not a script's.
+
+## A lifted cap exposes the helpers that walk the whole document per item
+
+Round 1891 (ADR 2616) took six sites from thirty-two kept places to the whole population and found
+`survey_saw_font` running a full `Survey::of` for every font — a cost the cap had hidden. When a cap on a
+population is lifted, every helper the site calls per item is read for a walk over the whole document, and
+the walk is done once and indexed before the items are visited.
+
+## A value type a validator names is traced to the parser before the checker's rows are opened
+
+veraPDF said `xmpMM:Ingredients` "does not correspond to type Bag Text"; round 1899 found the converter had
+written that description itself, because `pdf-model`'s XMP reader read an attribute-form structure (an
+empty element whose attributes are its fields) as empty text. When a validator names a value type this
+program wrote, the parser's reading of that value is checked first; the checker's row is only where the
+wrong reading became a verdict.
+
+## A deliverable that crosses the host and the core gets its ownership map from a census first
+
+Round 1895 (ADR 2624) carried a fetched policy copy from the window back to the document's validation —
+an event, a command, a protocol tag, three windows' loops and the C interface — and reading those sites
+itself cost most of a session's context. A change that crosses the host/core boundary first asks a Sonnet
+subagent for the map: which file owns the event, the command, the wire, each window's loop and the ABI
+entry, with line numbers, and reads only those.
+
+## A stricter checker is a census of its own
+
+Round 1892 (ADR 2619) read content streams more strictly in the checker's survey and refused a cut font
+program as not embedded; two documents its slot never named, converted at the base, moved to refused, and
+one it expected to fail moved to photographed instead. A row read more strictly moves documents outside the
+round's own list. The census after such a change is compared against the base's and against the round's
+own previous census, so every move is attributed to the decision that made it.
+
+## A whole-population test is run at the base before it is trusted
+
+Round 1891 (ADR 2616) wrote five tests for sites taking the whole population and ran them against the base
+first: all five failed there, which is what showed they test the change and not the fixture. A test that
+proves a lifted limit is run against the base before the lift is claimed, and a test that passes on both is
+rewritten.
+
+## A fork-mode fuzz run takes `-ignore_crashes=1`
+
+libFuzzer's fork mode exits 77 at the first crash unless told otherwise: round 1897's "ten-minute" run on its
+decisions 1–7 ended after 89 seconds with one artifact, where a census of stops was wanted. A run meant to
+measure a target over its whole time passes `-ignore_crashes=1` beside `-fork=1`, and the artifacts it
+leaves are sorted by panic site afterwards (trap 307).
+
+## A generated split is regenerated, not edited
+
+Round 1900 (ADR 2634) split `decision.rs` by a script over HEAD's file; every later change — two sentences,
+the plant and its reversal — went through the generator and was re-run, and a diff of the output tree
+against the previous run showed exactly the intended lines. A mechanical split or move produced by script
+is never hand-edited afterwards; the generator carries the change, and its diff is the proof that nothing
+else moved.

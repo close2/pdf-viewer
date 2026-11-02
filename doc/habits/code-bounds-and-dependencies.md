@@ -535,3 +535,11 @@ ran; that substitution finds a direct font by its exact value, so it no longer r
 the outputs failed their own row. A rewrite that changes a value another pass searches by runs after that
 pass, or leaves untouched what the pass will rewrite itself and writes the key into the object the pass
 emits.
+
+## A table that ends past the program gets its own refusal before any walk reads it
+
+Round 1897 (ADR 2628) decoded two fuzz stops to the same shape: a `Private` dictionary and a local
+subroutine index whose stated extent ended past the program's last byte. The input had no bytes there, so a
+walk found nothing; the rewrite's longer output did, so the same walk found tables and the writer refused its
+own output. An INDEX or DICT whose stated bytes lie past the program is refused by name as misstated before
+any walk reads it, so the walk's input is only the bytes the program holds.

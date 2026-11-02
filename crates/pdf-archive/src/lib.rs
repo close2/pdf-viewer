@@ -57,7 +57,7 @@ pub use crate::coverage::{
 pub use crate::editions::{Earlier, SHIFTS, Shift, shift_of};
 pub use crate::errata::Erratum;
 pub use crate::examination::Examination;
-pub use crate::finding::{Finding, Findings, MAX_NAMED, Named, Where};
+pub use crate::finding::{Finding, Findings, MAX_NAMED, MAX_PLACE_NAME_BYTES, Named, Where};
 pub use crate::reach::{Arrival, Entry, Exempt, Limit, Reach};
 pub use crate::report::{Judgement, Outcome, Report, Verdict};
 pub use crate::requirement::{Applies, Check, Clauses, Requirement};
@@ -85,7 +85,8 @@ pub use crate::table::metadata::{
     ContainerField, MisusedProperty, PacketFault, REQUIRED_PREFIXES, UndescribedField,
     UndescribedProperty, UndescribedSchema, dates_stated, extension_container_fields,
     incomplete_schema_descriptions, malformed_amendment_identifiers, metadata_streams,
-    packet_faults, properties_outside_their_schema, undescribed_fields, undescribed_schemas,
+    packet_faults, properties_outside_their_description, properties_outside_their_schema,
+    undescribed_fields, undescribed_schemas,
 };
 pub use crate::target::{Flavour, Level, Part, Target};
 pub use crate::withdrawal::{Reaches, Subject, subjects};

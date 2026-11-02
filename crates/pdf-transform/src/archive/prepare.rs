@@ -93,21 +93,26 @@ const NO_RGB_ALTERNATE: &str = "the DeviceN DefaultCMYK this file needs states I
 ///
 /// The population the derivation runs over, read off the validator's report rather than out of
 /// the document: ISO 19005-2 section 6.2.11.7.2 excuses four kinds of font and which fonts those
-/// are is the validator's reading, not this converter's.
-fn unicode_fonts(input: &pdf_archive::Report) -> Vec<ObjectId> {
-    let mut out: Vec<ObjectId> = input
+/// are is the validator's reading, not this converter's. **Every distinct place**,
+/// [`super::sites::places_failed`]'s, and not the thirty-two [`Outcome::Failed`] keeps
+/// (`doc/adr/2616`).
+///
+/// # Errors
+///
+/// [`super::sites::PLACES_CUT_SHORT`]'s sentence where either requirement's place list is itself a
+/// prefix, so that a derivation over it would leave fonts without a map.
+fn unicode_fonts(input: &pdf_archive::Report) -> Result<Vec<ObjectId>, &'static str> {
+    let mut out: Vec<ObjectId> = Vec::new();
+    for judgement in input
         .failures()
         .filter(|judgement| UNICODE_REQUIREMENTS.contains(&judgement.id))
-        .filter_map(|judgement| match &judgement.outcome {
-            Outcome::Failed { places, .. } => Some(places),
-            _ => None,
-        })
-        .flatten()
-        .filter_map(|finding| finding.place.object)
-        .collect();
+    {
+        let places = sites::places_failed(judgement).map_err(|_| sites::PLACES_CUT_SHORT)?;
+        out.extend(places.iter().filter_map(|place| place.object));
+    }
     out.sort_unstable();
     out.dedup();
-    out
+    Ok(out)
 }
 
 /// The two requirements a derived `/ToUnicode` `CMap` answers.
@@ -1735,11 +1740,10 @@ impl Prepared {
         };
         // The fonts are the validator's own findings rather than a walk of this converter's:
         // the clause has four exemptions and reading them belongs to `pdf_archive`, so the set of
-        // fonts that need a CMap is the set it named. A findings list is capped, and a document
-        // failing at more fonts than the cap is one `doc/adr/0947`'s third stage refuses rather
-        // than one this rewrite half-finishes.
+        // fonts that need a CMap is the set it named, every one of them.
         let to_unicode = asked(wanted(Rewrite::ToUnicode), || {
-            to_unicode::derive(document, &unicode_fonts(input), plan.target, &mut spare)
+            unicode_fonts(input)
+                .and_then(|fonts| to_unicode::derive(document, &fonts, plan.target, &mut spare))
                 .map_err(Because::NotBuiltYet)
         });
         // **Prepared after the removal and from it**, for the reason the composed pages are:
@@ -3653,11 +3657,12 @@ fn schema_packets(
 /// The requirement a removed property answers.
 const SCHEMA_REQUIREMENT: &str = "metadata/properties-use-known-schemas";
 
-/// Takes every property a predefined schema does not define out of the packets that state them.
+/// Takes every property a predefined schema does not define, and every property stated outside
+/// the form its extension schema's description gives it, out of the packets that state them.
 ///
-/// **Nothing is judged here.** `pdf_archive::properties_outside_their_schema` is the same reading
-/// the requirement's own row is, asked of one packet's bytes, so a property this cuts is exactly a
-/// property that row reported. What this decides is only whether the cut can be made at all — and
+/// **Nothing is judged here.** `pdf_archive::properties_outside_their_schema` and
+/// `properties_outside_their_description` are the same reading the requirement's own row is,
+/// asked of one packet's bytes, so a property this cuts is exactly a property that row reported. What this decides is only whether the cut can be made at all — and
 /// a packet left holding one afterwards refuses the document rather than leaving it half-edited,
 /// which is `doc/pdf-a-conversion-limits.md` section 3.9's line.
 fn prepare_properties(
@@ -3666,6 +3671,21 @@ fn prepare_properties(
     headers: Option<&Headers>,
     fresh: Option<&Fresh>,
 ) -> Result<Cleaned, Because> {
+    // Section 6.6.2.3.2 lets the catalog's packet describe a schema for every stream, so its
+    // descriptions type a property here as well, read as the header cut left them.
+    let catalog_packet = document.catalog().ok().and_then(|catalog| {
+        let at = catalog.get("Metadata").and_then(Object::as_reference)?;
+        let Object::Stream(stream) = document.get(at) else {
+            return None;
+        };
+        headers
+            .and_then(|headers| headers.packet(at).cloned())
+            .or_else(|| {
+                document
+                    .decoded_stream_data(&stream)
+                    .map(|bytes| bytes.to_vec())
+            })
+    });
     let mut packets = BTreeMap::new();
     let mut removed = Vec::new();
     for at in schema_packets(document, input, SCHEMA_REQUIREMENT) {
@@ -3685,7 +3705,7 @@ fn prepare_properties(
         let bytes = headers
             .and_then(|headers| headers.packet(at).cloned())
             .unwrap_or_else(|| bytes.to_vec());
-        let misused = pdf_archive::properties_outside_their_schema(&bytes);
+        let misused = outside_their_schemas(&bytes, catalog_packet.as_deref());
         if misused.is_empty() {
             continue;
         }
@@ -3697,13 +3717,24 @@ fn prepare_properties(
             xmp::remove(&bytes, &names).map_err(|_| Because::NotBuiltYet(PACKET_NOT_CUTTABLE))?;
         // Read back rather than trusted: the writer says what it cut and the packet says what it
         // holds, and only the second of those is what a validator will see.
-        if !pdf_archive::properties_outside_their_schema(&cut).is_empty() {
+        if !outside_their_schemas(&cut, catalog_packet.as_deref()).is_empty() {
             return Err(Because::NotBuiltYet(PROPERTY_NOT_CUT));
         }
         packets.insert(at, cut);
         removed.extend(misused);
     }
     Ok(Cleaned { packets, removed })
+}
+
+/// Both halves of the requirement's reading, asked of one packet: the properties a predefined
+/// schema does not define as stated, and those stated outside the form a description gives them.
+fn outside_their_schemas(packet: &[u8], catalog_packet: Option<&[u8]>) -> Vec<MisusedProperty> {
+    let mut misused = pdf_archive::properties_outside_their_schema(packet);
+    misused.extend(pdf_archive::properties_outside_their_description(
+        packet,
+        catalog_packet,
+    ));
+    misused
 }
 
 /// The requirement the container answers.

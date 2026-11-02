@@ -92,6 +92,22 @@ pub(super) const TRANSCODED: &str = "each JPEG 2000 image outside the JPX baseli
      a fault in that decoder is kept rather than left re-decodable. The report names every image \
      with its size before and after (doc/adr/1400, doc/adr/2484)";
 
+/// How many samples the transcode decodes, every image together.
+///
+/// Thirty-two images at [`ORDINARY_JPX_SAMPLES`] each, which is what this site decoded at most
+/// while it read the thirty-two places a report keeps: the images are now the requirement's whole
+/// population (`doc/adr/2616`), and a file of thousands of small codestreams each stating the
+/// decoder's largest picture would otherwise cost thousands of the decoder's longest decodes and
+/// hold their samples (trap 305). An image is counted once it is decoded, so the bound is passed
+/// by at most one image's samples before the site is refused.
+const MAX_TRANSCODED_SAMPLES: u64 = 32 * ORDINARY_JPX_SAMPLES;
+
+/// Why the images were not transcoded.
+const SAMPLES_OVER_BUDGET: &str = "the JPEG 2000 images this site answers decode to more samples \
+     together than this conversion transcodes, thirty-two images at the ordinary decoder's \
+     largest picture (2^31 samples), so they were not all transcoded and a file transcoding some \
+     of them would still fail the requirement";
+
 /// Why a finding naming no object cannot be acted on.
 const NO_IMAGE_OBJECT: &str = "a JPX baseline failure was reported without the image XObject it \
      is about, so there is no stream to transcode. Writing into an object no finding named would \
@@ -275,6 +291,11 @@ pub(super) struct Transcodes {
 /// requirements reported; one that cannot be transcoded refuses the site with its own sentence,
 /// because a conversion that transcoded the others would still fail the requirement.
 ///
+/// **The images are every distinct place the requirements failed at**,
+/// [`super::sites::places_failed`]'s, and not the thirty-two [`Outcome::Failed`] keeps
+/// (`doc/adr/2616`); the samples they decode to together are bounded by
+/// [`MAX_TRANSCODED_SAMPLES`].
+///
 /// # Errors
 ///
 /// [`Because`] naming the shape that stopped it.
@@ -285,22 +306,21 @@ pub(super) fn prepare(
     answered: &[&str],
 ) -> Result<Transcodes, Because> {
     let mut out = Transcodes::default();
+    let mut decoded = 0_u64;
     for judgement in input.failures() {
         if !answered.contains(&judgement.id) {
             continue;
         }
-        let Outcome::Failed { places, .. } = &judgement.outcome else {
+        if !matches!(judgement.outcome, Outcome::Failed { .. }) {
             continue;
-        };
-        for finding in places {
-            let id = finding
-                .place
-                .object
-                .ok_or(Because::NotBuiltYet(NO_IMAGE_OBJECT))?;
+        }
+        for place in super::sites::places_failed(judgement)? {
+            let id = place.object.ok_or(Because::NotBuiltYet(NO_IMAGE_OBJECT))?;
             if out.at.contains_key(&id) {
                 continue;
             }
             let transcoded = transcode(document, id, spare)?;
+            decoded = with_samples(decoded, transcoded.samples)?;
             out.at.insert(id, transcoded.stream);
             out.rows.push(transcoded.row);
             if let Some((at, mask)) = transcoded.soft_mask {
@@ -323,6 +343,8 @@ struct Transcoded {
     row: TranscodedImage,
     /// The soft-mask image object and its number.
     soft_mask: Option<(ObjectId, Object)>,
+    /// How many samples the image decoded to, counted against [`MAX_TRANSCODED_SAMPLES`].
+    samples: u64,
 }
 
 /// One image's replacement stream, proved, its report row, and the soft-mask image its opacity
@@ -399,7 +421,29 @@ fn transcode(
         stream: Object::Stream(Arc::new(replacement)),
         row,
         soft_mask,
+        samples: sample_count(&samples),
     })
+}
+
+/// The samples decoded so far, `decoded`, with one more image's `samples` added.
+///
+/// # Errors
+///
+/// [`SAMPLES_OVER_BUDGET`] where the sum passes [`MAX_TRANSCODED_SAMPLES`].
+fn with_samples(decoded: u64, samples: u64) -> Result<u64, Because> {
+    let decoded = decoded.saturating_add(samples);
+    if decoded > MAX_TRANSCODED_SAMPLES {
+        return Err(Because::NotBuiltYet(SAMPLES_OVER_BUDGET));
+    }
+    Ok(decoded)
+}
+
+/// How many samples one decoded image holds: its width, its height and its components.
+fn sample_count(samples: &JpxSamples) -> u64 {
+    let components = u64::try_from(samples.components).unwrap_or(u64::MAX);
+    u64::from(samples.width)
+        .saturating_mul(u64::from(samples.height))
+        .saturating_mul(components)
 }
 
 /// The sentence a decode the codec did not complete is refused by, one for each reason the decode
@@ -570,6 +614,7 @@ fn written_as_jpeg_2000(
         stream: Object::Stream(Arc::new(replacement)),
         row,
         soft_mask: None,
+        samples: sample_count(samples),
     })
 }
 
@@ -815,6 +860,24 @@ fn packed(samples: &JpxSamples, depth: u8) -> Vec<u8> {
 mod tests {
     use super::*;
     use pdf_model::image::JpxSpace;
+
+    #[test]
+    fn the_images_decode_to_the_sample_budget_and_no_further() {
+        let short = MAX_TRANSCODED_SAMPLES.saturating_sub(ORDINARY_JPX_SAMPLES);
+        assert_eq!(
+            with_samples(short, ORDINARY_JPX_SAMPLES),
+            Ok(MAX_TRANSCODED_SAMPLES)
+        );
+        assert_eq!(
+            with_samples(MAX_TRANSCODED_SAMPLES, 1),
+            Err(Because::NotBuiltYet(SAMPLES_OVER_BUDGET))
+        );
+        assert_eq!(
+            with_samples(u64::MAX, u64::MAX),
+            Err(Because::NotBuiltYet(SAMPLES_OVER_BUDGET)),
+            "a sum past the integer is past the budget too"
+        );
+    }
 
     /// Samples as the decoder delivers them, one byte each at eight bits and fewer.
     fn samples(width: u32, depths: &[u8], colour: Vec<u8>) -> JpxSamples {

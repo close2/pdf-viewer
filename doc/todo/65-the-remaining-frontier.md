@@ -88,15 +88,17 @@ permanent) or an owner decision to acquire a specification.
   runtime rather than one text to acquire (ADR 1219). The signatures on this disk name none, and the
   policy most of them sign under is a PDF bound by its own digest — human-readable, which a validator can
   bind and show but not enforce (ADR 1709). That half is built: the copy at the qualifier's URL is
-  fetched, bound by the signed digest and opened beside the document, and the sentence says the
-  constraints were not enforced (ADR 1728); every window is handed the policy's URL and fetches it at
+  fetched, bound by the signed digest and opened beside the document (ADR 1728); every window is handed the policy's URL and fetches it at
   the reader's submissions level (ADR 1738), and a C caller that fetched the copy itself has it bound
-  (ADR 1753). A stored policy in ETSI TR 102 272's ASN.1 syntax, bound to its signature, is
+  (ADR 1753). A copy a window fetched goes back to the document's validation and is enforced as a
+  stored one is, under the three syntaxes, a copy not matching the signed digest said and never
+  enforced (ADR 2624); a C caller's copy is bound and not yet enforced, its interface having no call
+  that hands one on. A stored policy in ETSI TR 102 272's ASN.1 syntax, bound to its signature, is
   enforced constraint by constraint, what it cannot evaluate named (ADR 2560, on A713), and one in ETSI
   TS 119 172-3's ASN.1 syntax is read by a second parser and enforced the same way (ADR 2580), and one
   in TS 119 172-2's XML by a third, bound by its octets' digest (ADR 2604); what is left is
-  human-readable policies, enforcement over a fetched copy, and an XML policy bound only through its
-  own `Digest`, which needs XML canonicalisation.
+  human-readable policies, a C caller's fetched copy, and an XML policy bound only through its own
+  `Digest`, which needs XML canonicalisation.
 
 ISO/TS 32002's brainpoolP512r1 and Ed448 are not in this bucket: they are the tree's own under the
 owner's answer A170 (ADRs 1385 and 1386), so an upstream release is their *swap* condition rather

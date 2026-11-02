@@ -384,9 +384,13 @@ mod budget_tests;
 #[path = "cff_operand_tests.rs"]
 mod operand_tests;
 
+#[cfg(test)]
+#[path = "cff_stop_tests.rs"]
+mod stop_tests;
+
 #[path = "cff_cids_given.rs"]
 mod cids_given;
-pub use cids_given::{CidToGive, MOST_CID_BYTES_GIVEN, with_cids_given};
+pub use cids_given::{CidToGive, MOST_CID_BYTES_GIVEN, highest_cid, with_cids_given};
 
 /// A CID-keyed program some of whose Font DICTs could not be read, with those replaced.
 ///
@@ -627,7 +631,7 @@ impl Layout {
             .and_then(|(operands, _)| dict_int(operands))
             .and_then(|at| usize::try_from(at).ok());
         let misstated = misstated_entry(data, &entries)
-            .or_else(|| offset_outside(data, &entries, top_index.end));
+            .or_else(|| offset_outside(data, &entries, top_index.end, outside_copied));
         Some(Self {
             top_index,
             entries,
@@ -745,15 +749,42 @@ impl Layout {
     /// **A CID-keyed program's `fd_select` is appended after the charset, and its `FDArray`
     /// rewritten after that**, each Font DICT's `Private` offset shifted as
     /// [`Self::with_charstrings`] shifts it, since that offset is absolute and the bytes it names
-    /// moved with everything copied. `None` where the `FDArray` does not read.
+    /// moved with everything copied.
+    ///
+    /// Refused where the String INDEX or the `FDArray` does not read, and as
+    /// [`Misstated::InStrings`] where an offset this shifts points into the String INDEX, whose
+    /// bytes are re-encoded rather than copied.
     fn with_glyph_tables(
         &self,
         data: &[u8],
         strings: &[Vec<u8>],
+        tables: (&[Vec<u8>], &[u8]),
+        fd_select: Option<&[u8]>,
+    ) -> Result<Vec<u8>, CffError> {
+        let malformed = |detail: &str| CffError::Malformed {
+            detail: detail.to_owned(),
+        };
+        let old_strings = index_extent(data, self.top_index.end)
+            .ok_or_else(|| malformed("the String INDEX could not be located"))?;
+        if let Some(misstated) =
+            offset_outside(data, &self.entries, old_strings.end, inside_strings)
+        {
+            return Err(misstated.refusal());
+        }
+        self.glyph_tables_written(data, strings, old_strings.end, tables, fd_select)
+            .ok_or_else(|| malformed("the FDArray could not be read, or an offset overflows"))
+    }
+
+    /// [`Self::with_glyph_tables`]'s rebuild, once its String INDEX is located at
+    /// `..strings_end` and its offsets are known to point past it.
+    fn glyph_tables_written(
+        &self,
+        data: &[u8],
+        strings: &[Vec<u8>],
+        strings_end: usize,
         (charstrings, charset): (&[Vec<u8>], &[u8]),
         fd_select: Option<&[u8]>,
     ) -> Option<Vec<u8>> {
-        let old_strings = index_extent(data, self.top_index.end)?;
         let placeholder = self.top_dict(Moved::by(0).charstrings_to(0).charset_to(0));
         let new_index_len = 3usize
             .saturating_add(2 * 4)
@@ -761,7 +792,7 @@ impl Layout {
         let mut strings_index = Vec::new();
         push_index(&mut strings_index, strings);
         let grown = i64::try_from(new_index_len.saturating_add(strings_index.len())).ok()?;
-        let old = i64::try_from(old_strings.end.saturating_sub(self.top_index.start)).ok()?;
+        let old = i64::try_from(strings_end.saturating_sub(self.top_index.start)).ok()?;
         let delta = grown.saturating_sub(old);
         let charstrings_at = i64::try_from(data.len()).ok()?.saturating_add(delta);
         let mut charstrings_index = Vec::new();
@@ -789,7 +820,7 @@ impl Layout {
         out.extend_from_slice(data.get(..self.top_index.start)?);
         push_index(&mut out, std::slice::from_ref(&top_dict));
         out.extend_from_slice(&strings_index);
-        out.extend_from_slice(data.get(old_strings.end..)?);
+        out.extend_from_slice(data.get(strings_end..)?);
         out.extend_from_slice(&charstrings_index);
         out.extend_from_slice(charset);
         out.extend_from_slice(&cid_tables);
@@ -1236,8 +1267,8 @@ pub(crate) enum Misstated {
         /// `Font` or `Private`.
         dict: &'static str,
     },
-    /// An offset a writer here shifts that points into the header, the Name INDEX or the Top
-    /// DICT INDEX, which section 2 places first ("the first five occupy fixed locations"), or
+    /// An offset a writer here shifts that points below zero, into the header, the Name INDEX or
+    /// the Top DICT INDEX, which section 2 places first ("the first five occupy fixed locations"), or
     /// past the program's end: the structure it names would be the Top DICT's own bytes or none,
     /// and a rewrite that re-encodes the Top DICT, shifts every offset past it and appends what
     /// it rebuilt would name other bytes.
@@ -1247,8 +1278,29 @@ pub(crate) enum Misstated {
         /// The operator's name in the note's table.
         operator: &'static str,
     },
+    /// An offset a writer that restates the String INDEX shifts that points into that INDEX.
+    /// The String INDEX is re-encoded, not copied, so a byte inside it moves by less than the
+    /// growth every offset past it is shifted by, and the shifted offset would name other bytes.
+    InStrings {
+        /// `Top` or `Font`.
+        dict: &'static str,
+        /// The operator's name in the note's table.
+        operator: &'static str,
+    },
+    /// A `Private` entry whose size is negative. Table 9 gives the operator a size and an
+    /// offset, and a size counts the DICT's bytes; the outline reader drops a negative one where
+    /// its end overflows and refuses the font where it does not, so whether the program reads at
+    /// all turns on where the offset sits, which every writer here moves.
+    NegativeSize {
+        /// `Top` or `Font`.
+        dict: &'static str,
+    },
     /// An `FDArray` the Top DICT names that does not read as section 5 gives an INDEX.
     FdArrayUnread,
+    /// A `Subrs` a Private DICT states whose Local Subr INDEX does not read whole inside the
+    /// program: what the calls of a charstring reach would then turn on the bytes after the
+    /// program's end, which a rewrite's output may hold where its input did not (ADR 2628).
+    SubrsUnread,
     /// Private DICTs that together hold more bytes than the program, which only overlapping
     /// ones can: each is a structure of its own (section 15), and reading every one is then
     /// work no well-formed program asks for.
@@ -1273,12 +1325,25 @@ impl Misstated {
                  section 4 reserves, or an operand its end cuts short"
             ),
             Self::Outside { dict, operator } => format!(
-                "the {dict} DICT's {operator} offset points into the header, the Name INDEX or \
-                 the Top DICT INDEX, which Adobe Technical Note #5176 section 2 places first, \
-                 or past the program's end"
+                "the {dict} DICT's {operator} offset points before the program's start, into \
+                 the header, the Name INDEX or the Top DICT INDEX, which Adobe Technical Note \
+                 #5176 section 2 places first, or past the program's end, or names a Private DICT \
+                 ending past it"
+            ),
+            Self::InStrings { dict, operator } => format!(
+                "the {dict} DICT's {operator} offset points into the String INDEX, which a \
+                 writer that adds strings re-encodes rather than shifts"
+            ),
+            Self::NegativeSize { dict } => format!(
+                "the {dict} DICT's Private entry states a negative size, where Adobe Technical \
+                 Note #5176 Table 9 gives it the DICT's length in bytes"
             ),
             Self::FdArrayUnread => "the FDArray the Top DICT names does not read as the INDEX \
                                     Adobe Technical Note #5176 section 5 gives"
+                .to_owned(),
+            Self::SubrsUnread => "a Private DICT's Subrs names a Local Subr INDEX that does not \
+                                  read inside the program as Adobe Technical Note #5176 section \
+                                  5 gives an INDEX"
                 .to_owned(),
             Self::Overlapping => "the Private DICTs the program names overlap, holding more \
                                   bytes together than the program does"
@@ -1372,18 +1437,56 @@ fn misstated_entry(data: &[u8], top: &[(Vec<u8>, u16)]) -> Option<Misstated> {
             return Some(Misstated::Untokenised { dict: "Private" });
         };
         misstated_in(&entries, "Private", private_dict_entry)
+            .or_else(|| subrs_unread(data, *at, &entries))
     })
+}
+
+/// [`Misstated::SubrsUnread`] where the Private DICT at `at`, whose entries are `entries`, states
+/// a `Subrs` (an offset from the DICT's own start, Adobe Technical Note #5176 Table 23) whose
+/// INDEX the program does not hold whole.
+fn subrs_unread(data: &[u8], at: usize, entries: &[(Vec<u8>, u16)]) -> Option<Misstated> {
+    let relative = entries
+        .iter()
+        .find(|(_, op)| *op == OP_SUBRS)
+        .and_then(|(operands, _)| dict_int(operands))?;
+    let held = usize::try_from(relative)
+        .ok()
+        .and_then(|relative| at.checked_add(relative))
+        .and_then(|index| index_items(data, index))
+        .is_some();
+    (!held).then_some(Misstated::SubrsUnread)
+}
+
+/// [`Misstated::Outside`], as [`offset_outside`] names it for every writer.
+const fn outside_copied(dict: &'static str, operator: &'static str) -> Misstated {
+    Misstated::Outside { dict, operator }
+}
+
+/// [`Misstated::InStrings`], as [`offset_outside`] names it for a writer that adds strings.
+const fn inside_strings(dict: &'static str, operator: &'static str) -> Misstated {
+    Misstated::InStrings { dict, operator }
 }
 
 /// The first offset a rewrite shifts that names a structure inside the first `copied_from`
 /// bytes — the header, the Name INDEX and the Top DICT INDEX, which every writer here copies or
 /// re-encodes rather than shifts — or at or past the program's end, where every writer here
-/// appends what it rebuilt, in the Top DICT or a Font DICT of its `FDArray`.
+/// appends what it rebuilt, or a `Private` ending past it, in the Top DICT or a Font DICT of its
+/// `FDArray`.
 ///
 /// A `charset` of 0 to 2 and an `Encoding` of 0 or 1 name a predefined table rather than an
 /// offset (Adobe Technical Note #5176, sections 12 and 13), and a `Private` of no bytes names
-/// nothing, so none of them is an offset into anything.
-fn offset_outside(data: &[u8], top: &[(Vec<u8>, u16)], copied_from: usize) -> Option<Misstated> {
+/// nothing, so none of them is an offset into anything; a `Private` of fewer than none is
+/// [`Misstated::NegativeSize`] wherever its offset points.
+///
+/// `outside` names the finding for the writer asking: [`Misstated::Outside`] for the bytes every
+/// writer re-encodes, [`Misstated::InStrings`] for the String INDEX past them, which only a
+/// writer that adds strings re-encodes as well.
+fn offset_outside(
+    data: &[u8],
+    top: &[(Vec<u8>, u16)],
+    copied_from: usize,
+    outside: fn(&'static str, &'static str) -> Misstated,
+) -> Option<Misstated> {
     let inside =
         |value: i64| usize::try_from(value).map_or(true, |at| at < copied_from || at >= data.len());
     let named = |entries: &[(Vec<u8>, u16)], dict: &'static str| {
@@ -1396,11 +1499,25 @@ fn offset_outside(data: &[u8], top: &[(Vec<u8>, u16)], copied_from: usize) -> Op
                 OP_FD_SELECT => ("FDSelect", dict_int(operands)?, -1),
                 OP_PRIVATE => match dict_two_ints(operands)? {
                     (0, _) => return None,
+                    (size, _) if size < 0 => return Some(Misstated::NegativeSize { dict }),
+                    // A Private DICT that ends past the program states bytes the program does
+                    // not hold, and whether a rewrite's output holds them turns on how long the
+                    // output is (ADR 2628).
+                    (size, at)
+                        if at >= 0
+                            && usize::try_from(at.saturating_add(size))
+                                .map_or(true, |end| end > data.len()) =>
+                    {
+                        return Some(outside(dict, "Private"));
+                    }
                     (_, at) => ("Private", at, -1),
                 },
                 _ => return None,
             };
-            (at > predefined && inside(at)).then_some(Misstated::Outside { dict, operator })
+            // An offset that names no predefined table is one wherever it points, below zero
+            // included: the outline reader drops a negative `Private` where its end overflows,
+            // and a shift that brings it past zero hands the reader bytes it never read.
+            ((predefined < 0 || at > predefined) && inside(at)).then(|| outside(dict, operator))
         })
     };
     named(top, "Top").or_else(|| {
@@ -1687,12 +1804,16 @@ struct Subroutines<'a> {
     local: &'a [Vec<u8>],
 }
 
-/// How many bytes of a subroutine are its body, with a trailing `return` left off.
+/// How many bytes of a subroutine are its body: the bytes before its first `return`, read as
+/// Type 2, or all of them where it states none.
 ///
 /// A subroutine is spliced into a charstring in place of the call, which is what `callsubr`
 /// does; the `return` that ends it has nothing to return to once it is inlined, so it is
-/// dropped. Finding it means reading the subroutine as Type 2 rather than looking at its last
-/// byte, because `hintmask`'s mask bytes follow the operator as data and one of them may be 11.
+/// dropped. The first `return` read is the one that ends it, wherever it stands: the
+/// interpreter goes back to the caller there (Adobe Technical Note #5177 section 4.7), so a byte
+/// after it is never run, and splicing that byte in would run it (ADR 2628). Finding it means
+/// reading the subroutine as Type 2 rather than looking at its bytes, because `hintmask`'s mask
+/// bytes follow the operator as data and one of them may be 11.
 ///
 /// `None` where the subroutine cannot be read that far: a mask whose length depends on stems
 /// counted inside a *nested* call is one this does not follow, and a subroutine holding both is
@@ -1702,9 +1823,7 @@ fn subroutine_body(subr: &[u8]) -> Option<usize> {
     let mut operands = 0usize;
     let mut called = false;
     let mut at = 0usize;
-    let mut last: Option<(usize, u8)> = None;
     while let Some(&b0) = subr.get(at) {
-        last = Some((at, b0));
         let step = match b0 {
             28 => {
                 operands = operands.saturating_add(1);
@@ -1747,6 +1866,7 @@ fn subroutine_body(subr: &[u8]) -> Option<usize> {
                 operands = operands.saturating_sub(1);
                 1
             }
+            RETURN => return Some(at),
             _ => {
                 operands = 0;
                 1
@@ -1757,11 +1877,7 @@ fn subroutine_body(subr: &[u8]) -> Option<usize> {
             return None;
         }
     }
-    match last {
-        Some((start, RETURN)) => Some(start),
-        Some(_) => Some(subr.len()),
-        None => None,
-    }
+    (!subr.is_empty()).then_some(subr.len())
 }
 
 /// The charstring with the leading subroutine call it begins with spliced out.
@@ -1806,13 +1922,335 @@ fn inline_leading_call(charstring: &[u8], subrs: &Subroutines<'_>) -> Option<Vec
     None
 }
 
+/// The refusal's sentence where a copy of `.notdef`'s charstring cannot carry the advance asked.
+const NOTDEF_NOT_RESTATED: &str = "the advance does not fit a charstring's width \
+                                              operand, or .notdef's charstring states its width \
+                                              inside a subroutine";
+
+/// Why [`charstring_with_advance`] wrote no charstring.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NotRestated {
+    /// No width can be put where Adobe Technical Note #5177 section 3.1 reads one, or the
+    /// advance does not fit the operand; the caller's own sentence says which of its cases.
+    Placement,
+    /// An operator after the first pops the operand stack while it is empty
+    /// ([`pops_an_empty_stack`]).
+    EmptyStack,
+    /// The first operator is stated with every operand the argument stack holds, so a width
+    /// written in front of it would be one past [`MOST_OPERANDS`] ([`leading_operands`]).
+    FullStack,
+}
+
+impl NotRestated {
+    /// The refusal for `glyph`, `placement` being the caller's sentence for
+    /// [`NotRestated::Placement`].
+    fn refusal(self, glyph: u16, placement: &str) -> CffError {
+        let detail = match self {
+            Self::Placement => placement.to_owned(),
+            Self::EmptyStack => "its charstring states an operator that takes operands with the \
+                                 operand stack empty after the first, where the outline reader \
+                                 takes a value left from before, and the width written in front \
+                                 is that value"
+                .to_owned(),
+            Self::FullStack => "its charstring states its first operator with the 48 operands \
+                                Adobe Technical Note #5177's Appendix B lets the argument stack \
+                                hold, so a width written in front of them would be a forty-ninth"
+                .to_owned(),
+        };
+        CffError::AdvanceNotRestatable { glyph, detail }
+    }
+}
+
+/// Whether `charstring` states, after its first operator and before any operand, an operator
+/// that takes operands — a `callsubr`, a `callgsubr`, a move, a line, a curve or an escaped
+/// operator such as `seac` — while the operand stack is empty.
+///
+/// Adobe Technical Note #5177 section 4 gives every such operator its operands, so a charstring
+/// stating one with none states nothing the note defines. `read-fonts`' evaluator does not refuse
+/// it: popping an empty stack answers the value its bottom slot last held, and the first operator
+/// clears the stack without overwriting that slot. The bottom slot is where a width is written,
+/// so a width inserted or restated in front changes what the operator reads — the subroutine a
+/// `callsubr` calls above all — until the next operand overwrites it. Only stem hints, masks,
+/// `endchar` and `return`, which take nothing off an empty stack, are passed over on the way.
+fn pops_an_empty_stack(charstring: &[u8]) -> bool {
+    use stack_clearing::{CNTRMASK, ENDCHAR, HINTMASK, HSTEM, HSTEMHM, VSTEM, VSTEMHM};
+    let mut operands = 0usize;
+    let mut stems = 0usize;
+    let mut cleared = false;
+    let mut at = 0usize;
+    while let Some(&b0) = charstring.get(at) {
+        let step = match b0 {
+            28 | 32..=246 | 247..=254 | 255 if cleared => return false,
+            28 => 3,
+            32..=246 => 1,
+            247..=254 => 2,
+            255 => 5,
+            HSTEM | VSTEM | HSTEMHM | VSTEMHM => {
+                stems = stems.saturating_add(operands / 2);
+                1
+            }
+            HINTMASK | CNTRMASK => {
+                stems = stems.saturating_add(operands / 2);
+                1usize.saturating_add(stems.div_ceil(8))
+            }
+            ENDCHAR | RETURN => return false,
+            _ if cleared => return true,
+            _ => 1,
+        };
+        if matches!(b0, 28 | 32..=255) {
+            operands = operands.saturating_add(1);
+        } else {
+            operands = 0;
+            cleared = true;
+        }
+        at = at.saturating_add(step);
+    }
+    false
+}
+
+/// The second byte of the escaped operator 12 6, which Adobe Technical Note #5177's Appendix A
+/// lists as reserved and which Type 1's `seac` was.
+const RESERVED_SEAC: u8 = 6;
+
+/// How many operands and operators [`first_reserved_seac`] reads over the whole program, every
+/// glyph's walk and every subroutine it enters counted.
+///
+/// One glyph's walk stops at [`CHARSTRING_OPERATIONS`], but this walk visits every glyph, and
+/// 65 535 glyphs at that bound is work no conversion can wait for. Thirty-two million is room for
+/// 65 535 glyphs of almost five hundred operations each; a program past it is refused by name,
+/// on the side the walk errs on (ADR 2628).
+const PROGRAM_SEAC_OPERATIONS: u32 = 32_000_000;
+
+/// How many operands Adobe Technical Note #5177's Appendix B lets the argument stack hold.
+const MOST_OPERANDS: usize = 48;
+
+/// Where [`SeacWalk::walk`] left a charstring.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reached {
+    /// A `return`, or the end of the bytes, with the walk to go on in the caller.
+    Return,
+    /// `endchar`, or a fault the outline reader stops the glyph at.
+    End,
+    /// The escaped operator 12 6, or a point past which the walk cannot tell what is read.
+    Reserved,
+}
+
+/// A walk of one glyph's charstring through the subroutines it calls, far enough to tell
+/// whether it reaches the escaped operator 12 6.
+///
+/// The operand stack is followed so that the subroutine a call names is the one entered, and the
+/// stems are counted across calls so that a `hintmask`'s data bytes are skipped as the reader
+/// skips them. Whatever the walk cannot follow — a call on an empty stack, which the outline
+/// reader answers from a stale slot, an operand an arithmetic operator computed, a spent bound —
+/// counts as reaching 12 6, the side on which a writer refuses rather than writes.
+struct SeacWalk<'a> {
+    /// The subroutines this glyph's calls reach.
+    subrs: &'a Subroutines<'a>,
+    /// The operands since the last operator that cleared them.
+    stack: Vec<i64>,
+    /// Whether `stack` is what the reader's holds: false after an operator whose results this
+    /// walk does not compute.
+    known: bool,
+    /// The stems declared so far, which fix a mask's length.
+    stems: usize,
+    /// What is left of the bound on this glyph's walk.
+    operations: u32,
+}
+
+impl SeacWalk<'_> {
+    /// Adobe Technical Note #5177 section 4.7 bounds subroutine nesting to ten levels.
+    const MAX_DEPTH: u8 = 10;
+
+    /// Walks `charstring`, entered at `depth` calls below the glyph's own.
+    fn walk(&mut self, charstring: &[u8], depth: u8) -> Reached {
+        use stack_clearing::{CNTRMASK, ENDCHAR, HINTMASK, HSTEM, HSTEMHM, VSTEM, VSTEMHM};
+        let mut at = 0usize;
+        while let Some(&b0) = charstring.get(at) {
+            let Some(left) = self.operations.checked_sub(1) else {
+                return Reached::Reserved;
+            };
+            self.operations = left;
+            let step = match b0 {
+                28 | 32..=255 => {
+                    if self.stack.len() >= MOST_OPERANDS {
+                        return Reached::Reserved;
+                    }
+                    let (value, width) = charstring_operand(charstring, at);
+                    self.stack.push(value);
+                    width
+                }
+                CALL_LOCAL | CALL_GLOBAL => {
+                    let subrs = if b0 == CALL_LOCAL {
+                        self.subrs.local
+                    } else {
+                        self.subrs.global
+                    };
+                    let Some(operand) = self.stack.pop().filter(|_| self.known) else {
+                        return Reached::Reserved;
+                    };
+                    let Some(subr) = usize::try_from(operand.saturating_add(bias(subrs.len())))
+                        .ok()
+                        .and_then(|index| subrs.get(index))
+                    else {
+                        return Reached::End;
+                    };
+                    if depth >= Self::MAX_DEPTH {
+                        return Reached::End;
+                    }
+                    match self.walk(subr, depth.saturating_add(1)) {
+                        Reached::Return => 1,
+                        other => return other,
+                    }
+                }
+                RETURN => return Reached::Return,
+                ENDCHAR => return Reached::End,
+                HSTEM | VSTEM | HSTEMHM | VSTEMHM | HINTMASK | CNTRMASK => {
+                    if !self.known {
+                        return Reached::Reserved;
+                    }
+                    self.stems = self.stems.saturating_add(self.stack.len() / 2);
+                    self.stack.clear();
+                    if matches!(b0, HINTMASK | CNTRMASK) {
+                        1usize.saturating_add(self.stems.div_ceil(8))
+                    } else {
+                        1
+                    }
+                }
+                ESCAPE_BYTE => {
+                    let Some(&b1) = charstring.get(at.saturating_add(1)) else {
+                        return Reached::End;
+                    };
+                    if b1 == RESERVED_SEAC {
+                        return Reached::Reserved;
+                    }
+                    // The four flex operators clear the stack as Technical Note #5177 section
+                    // 4.1 defines them; any other escaped operator the reader may compute with,
+                    // or, as Type 1's `sbw` and `dotsection` are read, leave the stack under.
+                    self.known = matches!(b1, 34..=37);
+                    self.stack.clear();
+                    2
+                }
+                // An operator Technical Note #5177's Appendix A reserves is one the reader may
+                // leave the stack under, as it does Type 1's `hsbw` (13); every other clears it.
+                _ => {
+                    self.known = !matches!(b0, 0 | 2 | 9 | 13 | 15..=17);
+                    self.stack.clear();
+                    1
+                }
+            };
+            at = at.saturating_add(step);
+        }
+        Reached::Return
+    }
+}
+
+/// One charstring operand at `at`, and how many bytes it takes (Adobe Technical Note #5177
+/// section 3.2); a 16.16 fixed number is kept by its integer part, the only part that could name
+/// a subroutine.
+fn charstring_operand(charstring: &[u8], at: usize) -> (i64, usize) {
+    let byte = |offset: usize| {
+        charstring
+            .get(at.saturating_add(offset))
+            .copied()
+            .unwrap_or(0)
+    };
+    match byte(0) {
+        28 => (i64::from(i16::from_be_bytes([byte(1), byte(2)])), 3),
+        255 => (
+            i64::from(i32::from_be_bytes([byte(1), byte(2), byte(3), byte(4)])) >> 16,
+            5,
+        ),
+        b0 => small_operand(b0, byte(1)),
+    }
+}
+
+/// The first glyph whose charstring reaches the escaped operator 12 6, itself or through the
+/// subroutines it calls, or that a walk bounded as [`SeacWalk`] is cannot tell of.
+///
+/// Adobe Technical Note #5177's Appendix A lists 12 6 as reserved: a Type 2 charstring makes an
+/// accented character with `endchar`'s four optional arguments (section 4.1), and the operator
+/// that did so in Type 1 is not one of its own. `read-fonts`' evaluator reads 12 6 as Type 1's
+/// `seac` all the same and, where the glyph has stated no width before it, gives the glyph its
+/// base character's width — the base being `.notdef` where the stack held no codes. So a glyph
+/// that states 12 6 has an advance some other glyph's charstring decides, and a writer that
+/// restates any advance cannot say it kept that glyph's.
+fn first_reserved_seac<'a>(
+    charstrings: &[Vec<u8>],
+    subrs_of: impl Fn(u16) -> Subroutines<'a>,
+) -> Option<u16> {
+    let mut program = PROGRAM_SEAC_OPERATIONS;
+    for (glyph, charstring) in (0..=u16::MAX).zip(charstrings) {
+        let subrs = subrs_of(glyph);
+        let mut walk = SeacWalk {
+            subrs: &subrs,
+            stack: Vec::new(),
+            known: true,
+            stems: 0,
+            operations: CHARSTRING_OPERATIONS.min(program),
+        };
+        let reached = walk.walk(charstring, 0);
+        let spent = CHARSTRING_OPERATIONS
+            .min(program)
+            .saturating_sub(walk.operations);
+        program = program.saturating_sub(spent);
+        if reached == Reached::Reserved {
+            return Some(glyph);
+        }
+    }
+    None
+}
+
 /// One charstring with its width operand restated as `advance`, in the program's own units.
 ///
 /// The outline is untouched: what changes is the one leading operand Adobe Technical Note #5177
 /// section 3.1 defines, written in the three-byte form so that its length does not depend on its
-/// value. `None` where the charstring states its width through a subroutine ([`width_span`]) or
-/// where the difference from `nominal` will not fit a 16-bit operand.
+/// value. [`NotRestated::Placement`] where the charstring states its width through a subroutine
+/// ([`width_span`]) or where the difference from `nominal` will not fit a 16-bit operand, and
+/// [`NotRestated::EmptyStack`] where what the width is written in front of would read it as
+/// another operator's operand, and [`NotRestated::FullStack`] where it would put the operand
+/// stack past the limit Adobe Technical Note #5177's Appendix B sets.
 fn charstring_with_advance(
+    charstring: &[u8],
+    advance: i64,
+    nominal: i64,
+    subrs: &Subroutines<'_>,
+) -> Result<Vec<u8>, NotRestated> {
+    let restated =
+        charstring_restated(charstring, advance, nominal, subrs).ok_or(NotRestated::Placement)?;
+    if leading_operands(&restated) > MOST_OPERANDS {
+        return Err(NotRestated::FullStack);
+    }
+    if pops_an_empty_stack(&restated) {
+        return Err(NotRestated::EmptyStack);
+    }
+    Ok(restated)
+}
+
+/// How many operands a charstring states before its first operator.
+///
+/// A width inserted where the charstring stated none is one operand more on the stack its first
+/// operator clears, and a program whose first operator already takes 48 would come back with 49:
+/// past Appendix B's limit, which [`SeacWalk`] reads as a point it cannot tell past, so the
+/// writer's own output would be refused by the walk its input passed (ADR 2628, decision 8).
+fn leading_operands(charstring: &[u8]) -> usize {
+    let mut count = 0usize;
+    let mut at = 0usize;
+    while let Some(&b0) = charstring.get(at) {
+        let width = match b0 {
+            28 => 3,
+            32..=246 => 1,
+            247..=254 => 2,
+            255 => 5,
+            _ => break,
+        };
+        count = count.saturating_add(1);
+        at = at.saturating_add(width);
+    }
+    count
+}
+
+/// [`charstring_with_advance`]'s rewrite, before the operators after the width are read.
+fn charstring_restated(
     charstring: &[u8],
     advance: i64,
     nominal: i64,
@@ -1997,6 +2435,31 @@ pub fn with_advances(data: &[u8], advances: &BTreeMap<u16, i64>) -> Result<Vec<u
         .iter()
         .map(|dict| local_subroutines(data, dict))
         .collect();
+    let subfont_of = |glyph: u16| {
+        if cid_keyed {
+            font.subfont_index(GlyphId::from(glyph)).unwrap_or(0)
+        } else {
+            0
+        }
+    };
+    let subrs_of = |glyph: u16| Subroutines {
+        global: &global,
+        local: locals
+            .get(usize::from(subfont_of(glyph)))
+            .map_or(&[][..], Vec::as_slice),
+    };
+    if !advances.is_empty()
+        && let Some(glyph) = first_reserved_seac(&charstrings, subrs_of)
+    {
+        return Err(CffError::AdvanceNotRestatable {
+            glyph,
+            detail: "its charstring reaches the escaped operator 12 6, which Technical Note \
+                     #5177 reserves and the outline reader takes as Type 1's seac, giving the \
+                     glyph its base character's width, so restating any advance may restate \
+                     this one; or the walk that would tell spent its bound"
+                .to_owned(),
+        });
+    }
     for (glyph, advance) in advances {
         let slot =
             charstrings
@@ -2005,28 +2468,19 @@ pub fn with_advances(data: &[u8], advances: &BTreeMap<u16, i64>) -> Result<Vec<u
                     glyph: *glyph,
                     detail: "the program's CharStrings INDEX has no entry for it".to_owned(),
                 })?;
-        let subfont = if cid_keyed {
-            font.subfont_index(GlyphId::from(*glyph)).unwrap_or(0)
-        } else {
-            0
-        };
-        let against = nominal.get(usize::from(subfont)).copied().unwrap_or(0);
-        let subrs = Subroutines {
-            global: &global,
-            local: locals
-                .get(usize::from(subfont))
-                .map_or(&[][..], Vec::as_slice),
-        };
-        *slot = charstring_with_advance(slot, *advance, against, &subrs).ok_or(
-            CffError::AdvanceNotRestatable {
-                glyph: *glyph,
-                detail: "its charstring does not begin with one of the stack-clearing operators \
-                         a width is stated against, so the width is inside a subroutine, or \
-                         begins with one stated with too few operands for a width before it \
-                         to be read as one"
-                    .to_owned(),
-            },
-        )?;
+        let against = nominal
+            .get(usize::from(subfont_of(*glyph)))
+            .copied()
+            .unwrap_or(0);
+        *slot =
+            charstring_with_advance(slot, *advance, against, &subrs_of(*glyph)).map_err(|why| {
+                why.refusal(
+                *glyph,
+                "its charstring does not begin with one of the stack-clearing operators a width \
+                 is stated against, so the width is inside a subroutine, or begins with one \
+                 stated with too few operands for a width before it to be read as one",
+            )
+            })?;
     }
     Ok(layout.with_charstrings(data, &charstrings))
 }
@@ -2219,19 +2673,12 @@ pub fn with_glyphs_given(
             GivenOutline::NotdefsOwn => (&notdef, &notdefs_subroutines),
         };
         let charstring = charstring_with_advance(source, asked.advance, nominal, subroutines)
-            .ok_or(CffError::AdvanceNotRestatable {
-                glyph,
-                detail: "the advance does not fit a charstring's width operand, or .notdef's \
-                         charstring states its width inside a subroutine"
-                    .to_owned(),
-            })?;
+            .map_err(|why| why.refusal(glyph, NOTDEF_NOT_RESTATED))?;
         charstrings.push(charstring);
         table.extend_from_slice(&sid.to_be_bytes());
         added.push(AddedGlyph { glyph, name });
     }
-    let rebuilt = layout
-        .with_glyph_tables(data, &strings, (&charstrings, &table), None)
-        .ok_or_else(|| malformed("the String INDEX could not be located"))?;
+    let rebuilt = layout.with_glyph_tables(data, &strings, (&charstrings, &table), None)?;
     read_back(&rebuilt, &charstrings, &added)?;
     Ok((rebuilt, added))
 }

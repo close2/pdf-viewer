@@ -2191,3 +2191,36 @@ Two rounds of batch 129 widened `cff_write` at once. Round 1882's plain run stop
 round 1888's `advances_restated` assertion and would have reported nothing of its own branch. A fuzz run
 over a target a sibling is editing uses `-fork=1 -ignore_crashes=1`, runs its whole time, and sorts every
 artifact by the panic site in its stack, naming each to the round whose assertion it is.
+
+### 308. An unquoted heredoc eats a Rust string's line continuation
+
+A Rust string literal may break a line with `\` followed by a newline, and the compiler joins the halves.
+Written through an unquoted shell heredoc, that `\`-newline is the shell's own continuation and vanishes,
+leaving the next line's indentation inside the string: round 1895 found two sentences in `notes.rs` and
+one in `viewer-host/src/policy.rs` carrying a run of eighteen spaces where the join had been, and its own
+three new lines had the same fault. A Rust file is edited with a quoted heredoc (`<<'EOF'`) or a Python
+script, and a diff is grepped for a long run of spaces inside a string before it lands.
+
+### 309. A path an export takes whole is read for a sibling's hunks first
+
+Round 1894 read `fonts/truetype_cmap.rs` clean, edited it, and exported it whole; round 1893 had begun
+editing the same file in between, so the export carried half-built hunks that failed clippy under 1894's
+name. A sibling can start on a file after a round's first read. Before `tools/batch.sh export`, every path
+the export takes whole is checked with `git diff HEAD -- <path>`, and a path that shows another round's
+hunks goes in as a `--patch` of one's own.
+
+### 310. A zero-context patch lands in the wrong function and compiles
+
+Round 1893 filtered its own hunks out of a shared file with `git apply --unidiff-zero` to build an export's
+`--patch`. One hunk, stripped of its context lines, applied at a matching line in another function; the
+crate compiled and a test caught it. An export's patch is built by applying one's own replacements to
+HEAD's copy of the file (a script over `git show HEAD:<path>`) and diffing the result, so every hunk carries
+the context that places it.
+
+### 311. A fuzz finding is replayed before its fix is written
+
+Batch 130's brief handed round 1897 a fault worded from round 1888's report: a `Private` dictionary of
+negative size. The artifact replayed at a different root — an offset of −48 that `offset_outside`'s
+`at > -1` admitted — and the negative size was a second, separate fault. A brief's sentence about a fuzz
+stop is a guess about its root; the artifact is replayed with the current binary and decoded at the panic
+site before any fix is designed, and each fix is credited only with the artifacts it clears.

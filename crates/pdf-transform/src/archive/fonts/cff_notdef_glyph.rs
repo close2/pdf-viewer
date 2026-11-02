@@ -51,19 +51,51 @@ pub(in crate::archive) struct CffGlyphsGiven {
 }
 
 /// Whether a font dictionary is a simple `Type1` font whose descriptor embeds a bare CFF program
-/// as `/FontFile3` of `/Subtype /Type1C` — the font [`given`] can carry.
+/// as `/FontFile3` of `/Subtype /Type1C` — a font [`given`] can carry.
 pub(in crate::archive) fn is_simple_cff(document: &Document, dict: &Dictionary) -> bool {
-    program_of(document, dict).is_some()
+    program_of(document, dict).is_some_and(|(_, _, format)| format == Format::Cff)
 }
 
-/// The font's descriptor and the reference to its program, for a font [`is_simple_cff`] admits.
-fn program_of(document: &Document, dict: &Dictionary) -> Option<(Dictionary, ObjectId)> {
+/// Whether a font dictionary is a simple `Type1` font whose descriptor embeds a Type 1 program as
+/// `/FontFile` — the other font [`given`] can carry (`doc/adr/2620`).
+pub(in crate::archive) fn is_simple_type1(document: &Document, dict: &Dictionary) -> bool {
+    program_of(document, dict).is_some_and(|(_, _, format)| format == Format::Type1)
+}
+
+/// The two programs a simple `Type1` font's descriptor names, by ISO 32000-2 §9.9.1's Table 124.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Format {
+    /// A bare CFF program, `/FontFile3` of `/Subtype /Type1C`.
+    Cff,
+    /// A Type 1 program in its original format, `/FontFile`.
+    Type1,
+}
+
+impl Format {
+    /// The descriptor key that holds the program.
+    fn key(self) -> &'static [u8] {
+        match self {
+            Self::Cff => b"FontFile3",
+            Self::Type1 => b"FontFile",
+        }
+    }
+}
+
+/// The font's descriptor, the reference to its program and the program's format, for a font
+/// [`is_simple_cff`] or [`is_simple_type1`] admits.
+fn program_of(document: &Document, dict: &Dictionary) -> Option<(Dictionary, ObjectId, Format)> {
     if document.get_key(dict, "Subtype").as_name()?.as_bytes() != b"Type1" {
         return None;
     }
     let resolved = document.resolve(dict.get("FontDescriptor")?);
     let descriptor = dictionary_of(&resolved)?.clone();
-    let at = descriptor.get("FontFile3")?.as_reference()?;
+    let Some(at) = descriptor.get("FontFile3").and_then(Object::as_reference) else {
+        let at = descriptor.get("FontFile")?.as_reference()?;
+        let Object::Stream(_) = document.get(at) else {
+            return None;
+        };
+        return Some((descriptor, at, Format::Type1));
+    };
     let Object::Stream(stream) = document.get(at) else {
         return None;
     };
@@ -72,7 +104,84 @@ fn program_of(document: &Document, dict: &Dictionary) -> Option<(Dictionary, Obj
         .as_name()?
         .as_bytes()
         == b"Type1C")
-        .then_some((descriptor, at))
+        .then_some((descriptor, at, Format::Cff))
+}
+
+/// A program with the glyphs asked for appended, as [`pdf_font::cff::with_glyphs_given`] or
+/// [`pdf_font::type1::with_glyphs_given`] writes it, and its stream dictionary's lengths: none
+/// for a CFF, whose `/Length1` Table 125 does not ask for, and Table 125's three for a Type 1
+/// program, whose `/Length1` and `/Length2` the writer divides the program by.
+fn written(
+    document: &Document,
+    stream: &pdf_syntax::object::Stream,
+    (program, format): (&[u8], Format),
+    glyphs: &[GlyphToGive],
+) -> Option<Written> {
+    match format {
+        Format::Cff => {
+            let (rebuilt, added) = pdf_font::cff::with_glyphs_given(program, glyphs).ok()?;
+            Some((rebuilt, added, None))
+        }
+        Format::Type1 => {
+            let stated =
+                |key: &str| usize::try_from(document.get_key(&stream.dict, key).as_integer()?).ok();
+            let lengths = (stated("Length1")?, stated("Length2")?);
+            let given = pdf_font::type1::with_glyphs_given(program, lengths, glyphs).ok()?;
+            Some((given.program, given.added, Some(given.lengths)))
+        }
+    }
+}
+
+/// A program [`written`] wrote: its bytes, the glyphs it was given, and the three lengths a
+/// Type 1 program's stream states.
+type Written = (Vec<u8>, Vec<pdf_font::cff::AddedGlyph>, Option<[usize; 3]>);
+
+/// The program's units per em, read by the reader of its format.
+fn units_of(program: &[u8], format: Format) -> Option<f32> {
+    match format {
+        Format::Cff => pdf_font::cff::units_per_em(program).ok(),
+        Format::Type1 => pdf_font::type1::Program::parse(program)
+            .ok()?
+            .units_per_em()
+            .ok(),
+    }
+}
+
+/// The glyphs to give, one per key of `asked`: `.notdef`'s outline copied or nothing drawn,
+/// under the name the key states, at its advance.
+fn glyphs_to_give<V>(asked: &BTreeMap<(bool, Option<String>, i64), V>) -> Vec<GlyphToGive> {
+    asked
+        .keys()
+        .map(|(copy, name, advance)| GlyphToGive {
+            draws: if *copy {
+                GivenOutline::NotdefsOwn
+            } else {
+                GivenOutline::Nothing
+            },
+            name: name.clone(),
+            advance: *advance,
+        })
+        .collect()
+}
+
+/// `object`, a stream [`super::program_stream`] made, with Table 125's three lengths stated.
+fn with_lengths(object: Object, lengths: Option<[usize; 3]>) -> Option<Object> {
+    let Some(lengths) = lengths else {
+        return Some(object);
+    };
+    let Object::Stream(stream) = object else {
+        return None;
+    };
+    let mut stream = (*stream).clone();
+    for (key, length) in [&b"Length1"[..], b"Length2", b"Length3"]
+        .into_iter()
+        .zip(lengths)
+    {
+        stream
+            .dict
+            .insert(Name::new(key), Object::Integer(i64::try_from(length).ok()?));
+    }
+    Some(Object::Stream(std::sync::Arc::new(stream)))
 }
 
 /// What one shown code is given: the outline it is to draw, the name it is reached by (`None`
@@ -102,7 +211,7 @@ pub(in crate::archive) fn given<'a>(
     (spare, programs, copied): (&mut Spare, &BTreeMap<ObjectId, Object>, &mut usize),
     budget: usize,
 ) -> Option<CffGlyphsGiven> {
-    let (descriptor, program_at) = program_of(document, dict)?;
+    let (descriptor, program_at, format) = program_of(document, dict)?;
     let before = loaded_as_stated(document, dict)?;
     if before.is_substituted() {
         return None;
@@ -127,7 +236,7 @@ pub(in crate::archive) fn given<'a>(
     if *copied > budget {
         return None;
     }
-    let units = pdf_font::cff::units_per_em(&program).ok()?;
+    let units = units_of(&program, format)?;
 
     // One glyph per name, or per outline and width for the codes a fresh name is written for.
     let mut asked: BTreeMap<(bool, Option<String>, i64), Vec<u8>> = BTreeMap::new();
@@ -151,19 +260,8 @@ pub(in crate::archive) fn given<'a>(
     {
         return None;
     }
-    let glyphs: Vec<GlyphToGive> = asked
-        .keys()
-        .map(|(copy, name, advance)| GlyphToGive {
-            draws: if *copy {
-                GivenOutline::NotdefsOwn
-            } else {
-                GivenOutline::Nothing
-            },
-            name: name.clone(),
-            advance: *advance,
-        })
-        .collect();
-    let (rebuilt, added) = pdf_font::cff::with_glyphs_given(&program, &glyphs).ok()?;
+    let glyphs = glyphs_to_give(&asked);
+    let (rebuilt, added, lengths) = written(document, &stream, (&program, format), &glyphs)?;
 
     let mut fresh: BTreeMap<u8, String> = BTreeMap::new();
     let mut given: BTreeMap<u8, u16> = BTreeMap::new();
@@ -180,13 +278,16 @@ pub(in crate::archive) fn given<'a>(
     } else {
         Some(encoding_restated(document, dict, &fresh)?)
     };
-    let new_program = super::program_stream(Some(&stream.dict), &rebuilt, false)?;
+    let new_program = with_lengths(
+        super::program_stream(Some(&stream.dict), &rebuilt, false)?,
+        lengths,
+    )?;
     let mut new_descriptor = descriptor;
     with_names_listed(document, &mut new_descriptor, &added);
 
     // The proof reads the font as the conversion will write it, from objects held in memory.
     let mut proof_descriptor = new_descriptor.clone();
-    proof_descriptor.insert(Name::new(&b"FontFile3"[..]), new_program.clone());
+    proof_descriptor.insert(Name::new(format.key()), new_program.clone());
     let mut candidate = dict.clone();
     candidate.insert(
         Name::new(&b"FontDescriptor"[..]),
@@ -202,7 +303,7 @@ pub(in crate::archive) fn given<'a>(
 
     let program_id = spare.take(document)?;
     let descriptor_id = spare.take(document)?;
-    new_descriptor.insert(Name::new(&b"FontFile3"[..]), Object::Reference(program_id));
+    new_descriptor.insert(Name::new(format.key()), Object::Reference(program_id));
     Some(CffGlyphsGiven {
         descriptor: descriptor_id,
         encoding,
@@ -239,6 +340,9 @@ fn asked_for(font: &LoadedFont, code: Code, units: f32) -> Option<Needs> {
     let draws = match glyph {
         Some(pdf_font::NOTDEF_GLYPH) => GivenOutline::NotdefsOwn,
         Some(_) => return Some(Needs::Reached),
+        // A Type 1 program's `.notdef` stands in for a name it lacks (§9.6.5.2), so the code drew
+        // that outline and is given a copy of it.
+        None if font.draws_notdef_in_place(code) => GivenOutline::NotdefsOwn,
         None if drawn(font, code).is_empty() => GivenOutline::Nothing,
         None => return None,
     };

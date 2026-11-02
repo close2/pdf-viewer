@@ -77,6 +77,7 @@ impl Viewer {
         // 0424. Asked once here for both arms below, which is also what a drag over a widget
         // costs least.
         let position = on_page.and_then(|(page, point)| self.focused()?.position_at(page, point));
+        let runner = !matches!(self.scripting, crate::Scripting::Off);
         let Some(open) = self.focused_mut() else {
             return;
         };
@@ -271,6 +272,14 @@ impl Viewer {
                 // for and not withdrawn by an `/X`, and `pressed_on` is the one the `/D` went
                 // down on. A press on the page that drags into an annotation and lets go there
                 // has neither, and used to raise `/U` all the same.
+                // A hybrid form's `mouseUp` is a release while the pointer is within the region
+                // (XFA 3.3 page 392), wherever the press went down and whether or not the press
+                // selected, so it is not `/U`'s, which §12.6.3 ties to a press within the same
+                // annotation. It runs before the `/U` it may precede, as the release comes before
+                // the click it completes (ADR 2627).
+                if runner && let Some(widget) = over {
+                    form_pointer(open, widget, FormPointer::Up);
+                }
                 let entered = open.inside;
                 if clicked
                     && let Some(annotation) = over
@@ -363,8 +372,11 @@ impl Viewer {
             if runner && matches!(event, Trigger::Blur | Trigger::Focus) {
                 form_focus(open, event, left, reached);
             }
+            if runner && event == Trigger::Down {
+                form_pointer(open, annotation, FormPointer::Down);
+            }
             if runner && event == Trigger::Up {
-                form_click(open, annotation);
+                form_pointer(open, annotation, FormPointer::Click);
             }
             let scripted = match event {
                 Trigger::Enter
@@ -429,20 +441,39 @@ fn form_focus(open: &mut Open, event: Trigger, left: Option<ObjectId>, reached: 
     }
 }
 
-/// A hybrid form's `click` events, at Table 197's `/U` on a widget (XFA 3.3 page 391; ADR 2584):
-/// page 391 has a `click` fire "when a mouse click occurs within the region", which is a press and
-/// a release both within it, and `/U` is raised only for a release within the annotation a press
-/// went down on (§12.6.3's third constraint). They run before the widget's own scripts, as the
-/// focus events do. A document with no XFA form, a view state with no runner, and an annotation
-/// that is no field's widget run nothing.
-fn form_click(open: &mut Open, widget: ObjectId) {
+/// Which of a hybrid form's pointer events a widget's field is given (XFA 3.3 pages 391–392).
+#[derive(Clone, Copy)]
+enum FormPointer {
+    /// `mouseDown`, at Table 197's `/D`: page 392's press while the pointer is within the region
+    /// is `/D`'s "pressed inside the annotation's active area".
+    Down,
+    /// `mouseUp`, at any release over the widget (page 392).
+    Up,
+    /// `click`, at Table 197's `/U` (ADR 2584): page 391 has a `click` fire when a mouse click
+    /// occurs within the region, which is a press and a release both within it, and `/U` is
+    /// raised only for a release within the annotation a press went down on (§12.6.3's third
+    /// constraint).
+    Click,
+}
+
+/// A hybrid form's pointer events on the field whose widget is `widget`, each before the widget's
+/// own scripts, as the focus events run (ADRs 2584, 2627). A document with no XFA form, a view
+/// state with no runner, and an annotation that is no field's widget run nothing.
+fn form_pointer(open: &mut Open, widget: ObjectId, event: FormPointer) {
     if !is_widget(&open.document, widget) {
         return;
     }
-    let Some(clicked) = field_of_widget(&open.document, widget) else {
+    let Some(field) = field_of_widget(&open.document, widget) else {
         return;
     };
-    if open.view.activate_form_on_click(&open.document, &clicked) {
+    let changed = match event {
+        FormPointer::Down => open
+            .view
+            .activate_form_on_mouse_down(&open.document, &field),
+        FormPointer::Up => open.view.activate_form_on_mouse_up(&open.document, &field),
+        FormPointer::Click => open.view.activate_form_on_click(&open.document, &field),
+    };
+    if changed {
         open.stale();
     }
 }

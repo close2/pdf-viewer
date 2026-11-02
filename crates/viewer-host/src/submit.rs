@@ -608,12 +608,36 @@ pub struct Returned {
 }
 
 impl Returned {
+    /// The command that hands a signature policy's copy to the document's validation, where this
+    /// answers [`Asked::Policy`] with a 2xx body; `None` for every other answer.
+    ///
+    /// Asked before [`Self::reply`] and dispatched after its sentence is said, so the reader is told
+    /// what was fetched before what its constraints come to. **Every 2xx body goes**, whatever
+    /// [`crate::policy::signature_policy_fetched`]'s comparison found: the core binds the copy from
+    /// the signature's own identifier, and a document stating a digest over its own rules can be
+    /// bound by that digest where its octets are not (ADR 2624). Only a 2xx is read, for [`reply`]'s
+    /// reason.
+    #[must_use]
+    pub fn policy_copy(&self) -> Option<viewer_core::Command> {
+        let (Asked::Policy(policy), Ok(response)) = (&self.asked, &self.answer) else {
+            return None;
+        };
+        (200..300)
+            .contains(&response.status)
+            .then(|| viewer_core::Command::PolicyCopy {
+                document: self.document,
+                policy: (**policy).clone(),
+                copy: response.body.clone(),
+            })
+    }
+
     /// What the window does about it — [`reply`] for an answer, a sentence for none.
     #[must_use]
     pub fn reply(self) -> Reply {
         match (self.asked, self.answer) {
             // Both halves are the policy module's, which says every outcome — a failure to
-            // connect included — in the one sentence that ends by naming what was not enforced.
+            // connect included — in the one sentence that ends by saying where the policy's
+            // constraints are enforced from.
             (Asked::Policy(policy), answer) => {
                 crate::policy::signature_policy_fetched(&policy, answer, self.warned.as_deref())
             }

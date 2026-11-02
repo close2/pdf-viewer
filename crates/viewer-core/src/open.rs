@@ -423,6 +423,9 @@ pub(crate) struct Open {
     /// So [`crate::Command::Report`] is what asks, and this is what makes asking twice cost once.
     /// ADR 1044.
     pub(crate) about: OnceLock<crate::notes::About>,
+    /// The copies of its signatures' policy documents a host fetched and handed back, at most one
+    /// for each copy [`crate::notes::About::published`] lists (ADR 2624).
+    pub(crate) policy_copies: Vec<crate::notes::FetchedCopy>,
 }
 
 /// One end of a selection: a page, and a byte offset into that page's readback.
@@ -983,6 +986,7 @@ impl Open {
             losses_said: 0,
             scan_refusal_said: false,
             about: OnceLock::new(),
+            policy_copies: Vec::new(),
         }
     }
 }

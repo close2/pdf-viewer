@@ -311,8 +311,9 @@ impl Interpreter<'_> {
                 self.note_keyword(KeywordNote::InsideAnArray, word.as_slice(), |keyword| {
                     Unsupported::Operator {
                         operator: format!(
-                            "{} inside an array, which §7.3.6 admits only objects into",
-                            String::from_utf8_lossy(keyword)
+                            "{}{}",
+                            String::from_utf8_lossy(keyword),
+                            super::report::INSIDE_AN_ARRAY
                         ),
                     }
                 });
@@ -477,7 +478,7 @@ impl Interpreter<'_> {
         // ended never reached it.
         if in_text {
             self.note(Unsupported::Operator {
-                operator: "BT without ET".to_owned(),
+                operator: super::report::TEXT_OBJECT_LEFT_OPEN.to_owned(),
             });
         }
         if let Some(outer) = text_object.enclosing_reading.take() {

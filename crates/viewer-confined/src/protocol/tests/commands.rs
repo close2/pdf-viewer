@@ -311,6 +311,33 @@ fn every_carried_command_round_trips() {
             format: DataFormat::Other,
             bytes: b"<p>thanks</p>".to_vec(),
         },
+        // §12.8.3.4.4's fetched policy copy, under a stated digest with a named specification
+        // and under no particular copy with an empty body (ADR 2624).
+        Command::PolicyCopy {
+            document: DocumentId(6),
+            policy: pdf_signature::policy::PublishedPolicy {
+                identifier: "2.16.724.1.3.1.1.2.1.9".to_owned(),
+                url: "https://sede.060.gob.es/politica_de_firma_anexo_1.pdf".to_owned(),
+                commitment: pdf_signature::policy::Commitment::Stated {
+                    digest: pdf_signature::cms::Digest::Sha256,
+                    value: vec![0x5a; 32],
+                },
+                specification: Some(pdf_signature::policy::Specification::Uri(
+                    "http://127.0.0.1/spec".to_owned(),
+                )),
+            },
+            copy: b"<SignaturePolicy/>".to_vec(),
+        },
+        Command::PolicyCopy {
+            document: DocumentId(6),
+            policy: pdf_signature::policy::PublishedPolicy {
+                identifier: "1.2.4".to_owned(),
+                url: "http://127.0.0.1/q.pdf".to_owned(),
+                commitment: pdf_signature::policy::Commitment::NotKnown,
+                specification: None,
+            },
+            copy: Vec::new(),
+        },
         // What a draw of a page the window drew from its marks declined, and a draw that
         // declined nothing (ADR 2290).
         Command::Declined {

@@ -434,6 +434,7 @@ impl Rewriter<'_> {
             count(applied, Rewrite::NotdefGlyphGiven);
             changed = true;
         }
+        changed |= self.send_cid_0_to_fresh_cid(id, out);
         // A simple CFF font names the program given the glyphs through its new descriptor, and a
         // code given a fresh name reaches it through the restated encoding (`doc/adr/2578`).
         if self.wants(Rewrite::NotdefGlyphGiven)
@@ -458,6 +459,28 @@ impl Rewriter<'_> {
             out.insert(Name::new(&b"Encoding"[..]), encoding.clone());
             out.insert(Name::new(&b"CharProcs"[..]), procedures.clone());
             count(applied, Rewrite::Type3NotdefRenamed);
+            changed = true;
+        }
+        changed
+    }
+
+    /// A `Type0` font that showed CID 0 sends that code to a fresh CID through its embedded
+    /// `CMap`, and its descendant states the fresh CID's width (`doc/adr/2622`); `true` where
+    /// `out` changed.
+    fn send_cid_0_to_fresh_cid(&self, id: ObjectId, out: &mut Dictionary) -> bool {
+        if !self.wants(Rewrite::NotdefGlyphGiven) {
+            return false;
+        }
+        let Some(restated) = self.cmap_restated else {
+            return false;
+        };
+        let mut changed = false;
+        if let Some((cmap, _)) = restated.fresh_cids.get(&id) {
+            out.insert(Name::new(&b"Encoding"[..]), Object::Reference(*cmap));
+            changed = true;
+        }
+        if let Some(widths) = restated.widths.get(&id) {
+            out.insert(Name::new(&b"W"[..]), widths.clone());
             changed = true;
         }
         changed

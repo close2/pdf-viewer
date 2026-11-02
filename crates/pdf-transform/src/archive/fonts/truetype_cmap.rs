@@ -100,16 +100,18 @@ pub(in crate::archive) const NOTDEF_NOT_GIVEN: &str = "this file shows a charact
      glyph, reached through a restated cmap, or for a CIDFontType2 through a restated \
      CIDToGIDMap; in a simple font's CFF program the code is given a copy of the .notdef \
      charstring, or a glyph that draws nothing where it reached no glyph, under the name its \
-     encoding gives it or a new one the encoding is restated to name; in a CIDFontType0's \
-     CID-keyed CFF program a CID the charset does not hold is given a copy of the .notdef \
-     charstring and added to the charset. It does that only for a TrueType, simple CFF or \
-     CID-keyed CFF program it can extend and prove, and only where every font the \
+     encoding gives it or a new one the encoding is restated to name, and in a simple font's \
+     Type 1 program the same, its CharStrings dictionary decrypted, grown and encrypted again; \
+     in a CIDFontType0's CID-keyed CFF program a CID the charset does not hold is given a copy \
+     of the .notdef charstring and added to the charset. It does that only for a TrueType, \
+     simple CFF, Type 1 or CID-keyed CFF program it can extend and prove, and only where every \
+     font the \
      requirement names has one: a font here is another kind, reaches no glyph at all for its \
      code, or could not be extended";
 
 /// Whether every font the [`NOTDEF_ROWS`] name has a program the copy reaches — a simple
 /// TrueType font, a `Type0` font over a `CIDFontType2` ([`cid_notdef_glyph::is_cid_truetype`]),
-/// or a simple font over a bare CFF program ([`cff_notdef_glyph::is_simple_cff`]) — and every place they name is an object: the condition
+/// or a simple font over a bare CFF program ([`cff_notdef_glyph::is_simple_cff`]) or a Type 1 program ([`cff_notdef_glyph::is_simple_type1`]) — and every place they name is an object: the condition
 /// for the rows to join [`restated`], which refuses whole on a font it cannot carry.
 pub(in crate::archive) fn notdef_fonts_have_truetype_programs(
     document: &Document,
@@ -139,12 +141,21 @@ pub(in crate::archive) struct CmapRestated {
     /// descendant, for the `Type0` fonts of [`Self::notdef_given`] (`doc/adr/2556`).
     pub(in crate::archive) descendants: BTreeMap<ObjectId, (ObjectId, ObjectId)>,
     /// The new descriptor, and the restated `/Encoding` where a code needed a name of its own,
-    /// each simple CFF font of [`Self::notdef_given`] names, by font dictionary
-    /// (`doc/adr/2578`).
+    /// each simple font over a CFF or a Type 1 program of [`Self::notdef_given`] names, by font
+    /// dictionary (`doc/adr/2578`, `doc/adr/2620`).
     pub(in crate::archive) cff: BTreeMap<ObjectId, (ObjectId, Option<Object>)>,
+    /// The fonts of [`Self::cff`] whose program is a Type 1 program (`doc/adr/2620`).
+    pub(in crate::archive) type1: BTreeSet<ObjectId>,
     /// The new descriptor each `CIDFontType0` descendant over a CID-keyed CFF program names, by
     /// descendant, for the `Type0` fonts of [`Self::notdef_given`] (`doc/adr/2598`).
     pub(in crate::archive) cid_cff: BTreeMap<ObjectId, ObjectId>,
+    /// The embedded `CMap` each `Type0` font of [`Self::notdef_given`] that showed CID 0 names as
+    /// its `/Encoding`, by font dictionary, with the fresh CID it sends that code to
+    /// (`doc/adr/2622`).
+    pub(in crate::archive) fresh_cids: BTreeMap<ObjectId, (ObjectId, u16)>,
+    /// The `/W` each descendant of a font of [`Self::fresh_cids`] states from now on, by
+    /// descendant, with the fresh CID at CID 0's width.
+    pub(in crate::archive) widths: BTreeMap<ObjectId, Object>,
     /// Whether every font the [`NOTDEF_ROWS`] name is in [`Self::notdef_given`], which is when
     /// those rows are answered.
     pub(in crate::archive) notdef_answered: bool,
@@ -187,6 +198,75 @@ impl CmapRestated {
     /// condition that the file's own history names the clause it answers, and the entry names
     /// the font objects, up to [`MOST_NAMED`], so a reader of the archive can find them.
     pub(in crate::archive) fn history(&self) -> Option<String> {
+        let glyphs = self.glyphs_history();
+        let Some(fresh) = self.fresh_cid_sentence() else {
+            return glyphs;
+        };
+        Some(match glyphs {
+            Some(glyphs) => format!("{glyphs}; {fresh}"),
+            None => fresh,
+        })
+    }
+
+    /// The sentence the history states for the fonts whose code of CID 0 was sent to a fresh
+    /// CID, or `None` where there is none (`doc/adr/2622`).
+    fn fresh_cid_sentence(&self) -> Option<String> {
+        if self.fresh_cids.is_empty() {
+            return None;
+        }
+        Some(format!(
+            "ISO 19005-2 section 6.2.11.8 and ISO 19005-4 section 6.2.10.9, with ISO 32000-2 \
+             section 9.7.4.2's CID 0: the Identity-H Encoding of {} Type0 font(s) is restated as \
+             an embedded CMap sending each code to the CID Identity-H gave it except code <0000>, \
+             which goes to a fresh CID given the glyph CID 0 drew at CID 0's width, so no mark \
+             moved and no content stream changed: fonts, in the source's object numbering, with \
+             the fresh CID, {}",
+            self.fresh_cids.len(),
+            self.fresh_cids
+                .iter()
+                .take(MOST_NAMED)
+                .map(|(id, (_, cid))| format!("{} {} R to CID {cid}", id.number, id.generation))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))
+    }
+
+    /// The sentence for the simple fonts whose CFF or Type 1 program gained glyphs, one clause
+    /// per format; empty where none did.
+    fn simple_programs_sentence(&self) -> String {
+        [("CFF", false), ("Type 1", true)]
+            .into_iter()
+            .filter_map(|(program, type1)| {
+                let fonts: Vec<_> = self
+                    .cff
+                    .keys()
+                    .filter(|id| self.type1.contains(id) == type1)
+                    .collect();
+                (!fonts.is_empty()).then(|| {
+                    format!(
+                        "ISO 19005-2 sections 6.2.11.4.1 and 6.2.11.8 and ISO 19005-4 sections \
+                     6.2.10.4.1 and 6.2.10.9: the {program} program of {} simple font(s) gained a \
+                     glyph for each code that reached .notdef, whose outline is the program's own \
+                     .notdef glyph's, and for each code that reached no glyph, which draws \
+                     nothing, each at the width the font dictionary states, so no mark moved and \
+                     no content stream changed: fonts, in the source's object numbering, {}",
+                        fonts.len(),
+                        fonts
+                            .iter()
+                            .take(MOST_NAMED)
+                            .map(|id| format!("{} {} R", id.number, id.generation))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                })
+            })
+            .collect::<Vec<_>>()
+            .join("; ")
+    }
+
+    /// The `xmpMM:History` parameters recording the programs given glyphs and the `cmap`s
+    /// restated; `None` where no font was.
+    fn glyphs_history(&self) -> Option<String> {
         if self.descriptors.is_empty()
             && self.descendants.is_empty()
             && self.cff.is_empty()
@@ -194,25 +274,7 @@ impl CmapRestated {
         {
             return None;
         }
-        let cff = if self.cff.is_empty() {
-            String::new()
-        } else {
-            format!(
-                "ISO 19005-2 sections 6.2.11.4.1 and 6.2.11.8 and ISO 19005-4 sections 6.2.10.4.1 \
-                 and 6.2.10.9: the CFF program of {} simple font(s) gained a glyph for each code \
-                 that reached .notdef, whose outline is the program's own .notdef glyph's, and for \
-                 each code that reached no glyph, which draws nothing, each at the width the font \
-                 dictionary states, so no mark moved and no content stream changed: fonts, in the \
-                 source's object numbering, {}",
-                self.cff.len(),
-                self.cff
-                    .keys()
-                    .take(MOST_NAMED)
-                    .map(|id| format!("{} {} R", id.number, id.generation))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-        };
+        let cff = self.simple_programs_sentence();
         let cff = match self.cid_cff_sentence() {
             None => cff,
             Some(cid_cff) if cff.is_empty() => cid_cff,
@@ -357,18 +419,21 @@ pub(in crate::archive) fn restated(
             let shown = used
                 .iter()
                 .flat_map(|used| used.shown.keys().map(Vec::as_slice));
-            if cid_notdef_glyph::shows_cid_0(document, dict, shown.clone()) {
-                return Err(Because::NotBuiltYet(cid_notdef_glyph::CID_0_SHOWN));
+            let cid_0_shown = Because::NotBuiltYet(cid_notdef_glyph::CID_0_SHOWN);
+            if cid_notdef_glyph::falls_back_to_cid_0(document, dict, shown.clone()) {
+                return Err(cid_0_shown);
             }
             let Some(given) = cid_notdef_glyph::given(
                 document,
                 dict,
-                shown,
+                shown.clone(),
                 (spare, programs, &mut copied),
                 MAX_COPIED_BYTES,
             ) else {
                 return Err(if copied > MAX_COPIED_BYTES {
                     Because::NotBuiltYet(OVER_BUDGET)
+                } else if cid_notdef_glyph::shows_cid_0(document, dict, shown) {
+                    cid_0_shown
                 } else {
                     not_given
                 });
@@ -380,6 +445,10 @@ pub(in crate::archive) fn restated(
             found
                 .descendants
                 .insert(given.descendant, (given.descriptor, given.map));
+            if let Some(fresh) = given.fresh {
+                found.fresh_cids.insert(id, (fresh.cmap, fresh.cid));
+                found.widths.insert(given.descendant, fresh.widths);
+            }
             found.written.extend(given.written);
             found.notdef_given.insert(id);
             continue;
@@ -413,7 +482,8 @@ pub(in crate::archive) fn restated(
     Ok(found)
 }
 
-/// A font over a CFF program, given its glyphs by writing the program into `found`, and `true`;
+/// A font over a CFF or a simple font's Type 1 program, given its glyphs by writing the program
+/// into `found` (`doc/adr/2620` for the Type 1 one), and `true`;
 /// `false` for a font over any other program. A simple font over a bare CFF program and a `Type0`
 /// font over a CID-keyed one reach this only by the `.notdef` rows: the first has its codes given
 /// glyphs (`doc/adr/2578`), the second its CIDs, by writing the program's charset
@@ -429,7 +499,9 @@ fn cff_routed(
         cid_cff_given(document, (id, dict), (notdef, survey), held, found)?;
         return Ok(true);
     }
-    if cff_notdef_glyph::is_simple_cff(document, dict) {
+    if cff_notdef_glyph::is_simple_cff(document, dict)
+        || cff_notdef_glyph::is_simple_type1(document, dict)
+    {
         let survey = survey.filter(|_| notdef.contains(&id));
         cff_given(document, (id, dict), survey, held, found)?;
         return Ok(true);
@@ -465,6 +537,8 @@ fn cid_cff_given(
         }
     }
     let mut fonts: Vec<(&Dictionary, Vec<&[u8]>)> = Vec::with_capacity(group.len());
+    // The members whose code of CID 0 the encoding sends to a fresh CID (`doc/adr/2622`).
+    let mut showing_zero: Vec<ObjectId> = Vec::new();
     for (member, member_dict) in &group {
         let used: Vec<_> = survey
             .fonts()
@@ -478,7 +552,7 @@ fn cid_cff_given(
             .flat_map(|used| used.shown.keys().map(Vec::as_slice))
             .collect();
         if cid_cff_notdef_glyph::shows_own_cid_0(document, member_dict, shown.iter().copied()) {
-            return Err(Because::NotBuiltYet(cid_cff_notdef_glyph::CID_CFF_0_SHOWN));
+            showing_zero.push(*member);
         }
         fonts.push((member_dict, shown));
     }
@@ -490,11 +564,19 @@ fn cid_cff_given(
     ) else {
         return Err(if *copied > MAX_COPIED_BYTES {
             Because::NotBuiltYet(OVER_BUDGET)
-        } else {
+        } else if showing_zero.is_empty() {
             refused
+        } else {
+            Because::NotBuiltYet(cid_cff_notdef_glyph::CID_CFF_0_SHOWN)
         });
     };
     found.cid_cff.insert(given.descendant, given.descriptor);
+    if let Some(fresh) = given.fresh {
+        for member in showing_zero {
+            found.fresh_cids.insert(member, (fresh.cmap, fresh.cid));
+        }
+        found.widths.insert(given.descendant, fresh.widths);
+    }
     found.written.extend(given.written);
     found.notdef_given.insert(id);
     Ok(())
@@ -535,6 +617,9 @@ fn cff_given(
         });
     };
     found.cff.insert(id, (given.descriptor, given.encoding));
+    if cff_notdef_glyph::is_simple_type1(document, dict) {
+        found.type1.insert(id);
+    }
     found.written.extend(given.written);
     found.notdef_given.insert(id);
     Ok(())

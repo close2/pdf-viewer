@@ -39,7 +39,9 @@ impl Walk<'_> {
             false,
         );
         self.page_resources = std::sync::Arc::clone(&page.resources);
-        let mut reader = ContentReader::for_page(self.document, page);
+        // A run like `12pt` is read whole, as the keyword ISO 32000-2 §7.2.3 makes it: section
+        // 6.2.2 asks which operators the stream uses, not what a renderer salvages (ADR 2619).
+        let mut reader = ContentReader::for_page(self.document, page).with_runs_as_written();
         if let Some(ledger) = &mut self.ledger {
             ledger.enter(Via::Page, page.id);
         }

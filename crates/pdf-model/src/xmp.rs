@@ -2665,8 +2665,26 @@ impl Reader {
         // §7.5's attribute form: every attribute of a description that is neither a namespace
         // declaration nor RDF's own is a simple property of it — of the packet where the
         // description is a top-level one, and of the structure where it is nested inside a value.
+        // The same attributes on a property, a field or an item are the fields of the structure
+        // that element's value is, which `Reader::attribute_form` argues.
         let mut fields = Vec::new();
-        if matches!(kind, Kind::Description | Kind::Nested) {
+        if matches!(
+            kind,
+            Kind::Description
+                | Kind::Nested
+                | Kind::Property {
+                    structured: true,
+                    ..
+                }
+                | Kind::Field {
+                    structured: true,
+                    ..
+                }
+                | Kind::Item {
+                    structured: true,
+                    ..
+                }
+        ) {
             for (prefix, local, value) in attributes {
                 if prefix == "xmlns" || (prefix.is_empty() && local == "xmlns") {
                     continue;
@@ -2742,7 +2760,7 @@ impl Reader {
             }
             Some(Kind::Description) => Kind::Property {
                 name: named(namespace, local),
-                structured: self.resource(attributes),
+                structured: self.resource(attributes) || self.attribute_form(attributes),
             },
             // A property, a field and an item hold a value, so the same three things may open
             // inside each: an array, a nested description, or — where the element has already
@@ -2764,13 +2782,13 @@ impl Reader {
                 (true, "Description") => Kind::Nested,
                 _ if *structured => Kind::Field {
                     name: named(namespace, local),
-                    structured: self.resource(attributes),
+                    structured: self.resource(attributes) || self.attribute_form(attributes),
                 },
                 _ => Kind::Uninterpreted,
             },
             Some(Kind::Nested) => Kind::Field {
                 name: named(namespace, local),
-                structured: self.resource(attributes),
+                structured: self.resource(attributes) || self.attribute_form(attributes),
             },
             Some(Kind::Container { .. }) => {
                 if rdf && local == "li" {
@@ -2780,7 +2798,7 @@ impl Reader {
                         .map(|(_, _, value)| unescaped(value));
                     Kind::Item {
                         language,
-                        structured: self.resource(attributes),
+                        structured: self.resource(attributes) || self.attribute_form(attributes),
                     }
                 } else {
                     Kind::Uninterpreted
@@ -2788,6 +2806,35 @@ impl Reader {
             }
             Some(Kind::Uninterpreted) => Kind::Uninterpreted,
         }
+    }
+
+    /// Whether a property, a field or an item element carries property attributes, which makes
+    /// its value a structure whose fields are those attributes.
+    ///
+    /// W3C's RDF/XML Syntax Specification (Revised, 2004) section 7.2.21 reads an empty property
+    /// element with property attributes as a blank node, each attribute one of its properties
+    /// (its section 2.5), and the XMP Specification of September 2005 (p. 21) admits any valid RDF
+    /// shorthand in a packet. An attribute that is a namespace declaration, RDF's own or `xml:`'s
+    /// is not one of them, and an element stating `rdf:resource` names its object rather than
+    /// describing one.
+    fn attribute_form(&self, attributes: &[(String, String, String)]) -> bool {
+        let mut properties = false;
+        for (prefix, local, _) in attributes {
+            if prefix == "xmlns" || prefix.is_empty() {
+                continue;
+            }
+            let namespace = self.namespace(prefix);
+            if namespace == RDF {
+                if local == "resource" {
+                    return false;
+                }
+                continue;
+            }
+            if namespace != XML {
+                properties = true;
+            }
+        }
+        properties
     }
 
     /// Whether an element states ISO 16684-1 section 7.6's `rdf:parseType="Resource"`.
@@ -4454,5 +4501,53 @@ mod tests {
             describe_fields(typed_packet("").as_bytes(), &[elsewhere]),
             Err(WriteError::NoPlaceForAField { found: 0, .. })
         ));
+    }
+
+    /// W3C's RDF/XML Syntax Specification (Revised) section 7.2.21: an empty `rdf:li` with
+    /// property attributes is a blank node whose properties are those attributes — the spelling
+    /// an image's `xmpMM:Ingredients` items take — while `xml:lang` and `rdf:resource` are not
+    /// fields.
+    #[test]
+    fn an_item_with_property_attributes_is_a_structure_of_them() {
+        let packet = r#"<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+          <rdf:Description rdf:about="" xmlns:xmpMM="http://ns.adobe.com/xap/1.0/mm/"
+              xmlns:stRef="http://ns.adobe.com/xap/1.0/sType/ResourceRef#">
+            <xmpMM:Ingredients><rdf:Bag>
+              <rdf:li stRef:filePath="x"/>
+              <rdf:li xml:lang="en">plain</rdf:li>
+              <rdf:li rdf:resource="http://example.test/" stRef:filePath="y"/>
+            </rdf:Bag></xmpMM:Ingredients>
+            <xmpMM:DerivedFrom stRef:documentID="d"/>
+          </rdf:Description>
+        </rdf:RDF>"#;
+        let detailed = Xmp::parse_detail(packet.as_bytes()).expect("well-formed");
+        let [ingredients, derived] = detailed.as_slice() else {
+            panic!("the packet states two properties");
+        };
+        let [structure, plain, named] = ingredients.value.array().expect("an rdf:Bag") else {
+            panic!("the bag holds three items");
+        };
+        let [field] = structure.fields().expect("a structure") else {
+            panic!("one property attribute, one field");
+        };
+        assert_eq!(field.name.local, "filePath");
+        assert_eq!(field.prefix, "stRef");
+        assert_eq!(field.value.text(), Some("x"));
+        assert_eq!(plain.text(), Some("plain"));
+        assert_eq!(named.fields(), None);
+        assert_eq!(
+            derived
+                .value
+                .fields()
+                .and_then(|fields| fields.first())
+                .and_then(|field| field.value.text()),
+            Some("d")
+        );
+
+        let flat = Xmp::parse(packet.as_bytes()).expect("well-formed");
+        assert_eq!(
+            flat.value("http://ns.adobe.com/xap/1.0/mm/", "DerivedFrom"),
+            Some(&Value::Structure)
+        );
     }
 }

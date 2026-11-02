@@ -50,7 +50,7 @@
 
 use crate::cms::{self, Digest, SignedData};
 use crate::der::{self, DerError, NotCanonical, OBJECT_IDENTIFIER, OCTET_STRING, SEQUENCE, Value};
-use crate::policy::{Binding, PolicyHash, SignaturePolicy, Store};
+use crate::policy::{Binding, PolicyHash, Published, SignaturePolicy, Store};
 use crate::signature::name;
 use crate::x509::{self, Instant, PublicKey};
 
@@ -964,6 +964,9 @@ pub enum NotEnforced {
     NoStoredDocument,
     /// The stored copy is not bound to the signature: the binding said so, in its own words.
     NotBound(Binding),
+    /// The copy fetched from the URL ETSI EN 319 122-1 clause 5.2.9.2's qualifier names is not
+    /// bound to the signature: [`SignaturePolicy::fetched_binding`] said so, in its own words.
+    FetchedCopyNotBound(Published),
     /// The stored copy is bound but its constraints could not be read.
     Unreadable(PolicyDocumentError),
     /// The signer signed the digest a TS 119 172-2 document states over its canonicalised
@@ -1014,10 +1017,52 @@ pub fn enforce(
     let Some(Store::Document { octets, .. }) = &policy.store else {
         return Enforcement::NotEnforced(NotEnforced::NoStoredDocument);
     };
-    let binding = policy.binding();
+    let by_octets = match policy.binding() {
+        Binding::Matches { .. } => Ok(()),
+        binding => Err(NotEnforced::NotBound(binding)),
+    };
+    enforce_copy(policy, octets, by_octets, cms, facts)
+}
+
+/// [`enforce`] for a copy of the policy document fetched from the URL ETSI EN 319 122-1 clause
+/// 5.2.9.2's qualifier names, rather than one clause 5.2.10's store carries.
+///
+/// **The same three readers, the same bindings and the same findings**, because a server is no
+/// more signed than a store is: clause 5.2.10's note makes the digest the signer signed the one
+/// thing that catches a substituted document, and that argument does not depend on where the
+/// octets came from (ADR 1728). So the copy is bound by its octets through
+/// [`SignaturePolicy::fetched_binding`] — made from the signature's own identifier, never from what
+/// a host says the signature stated — or by the digest the document states over its own rules,
+/// exactly as a stored copy is, and a copy neither binds is reported and never enforced
+/// (ADR 2624).
+#[must_use]
+pub fn enforce_fetched(
+    policy: &SignaturePolicy<'_>,
+    copy: &[u8],
+    cms: &SignedData<'_>,
+    facts: &SignerFacts,
+) -> Enforcement {
+    let by_octets = match policy.fetched_binding(copy) {
+        Published::Matches { .. } => Ok(()),
+        binding => Err(NotEnforced::FetchedCopyNotBound(binding)),
+    };
+    enforce_copy(policy, copy, by_octets, cms, facts)
+}
+
+/// One copy of the policy document enforced, wherever it came from: `by_octets` is `Ok` where its
+/// octets digest to the value the signer signed, and otherwise why they do not.
+fn enforce_copy(
+    policy: &SignaturePolicy<'_>,
+    octets: &[u8],
+    by_octets: Result<(), NotEnforced>,
+    cms: &SignedData<'_>,
+    facts: &SignerFacts,
+) -> Enforcement {
     match Syntax::of(octets) {
-        Some(Syntax::Ts1191723) => return enforce_components(policy, octets, binding, cms, facts),
-        Some(Syntax::Ts1191722) => return enforce_xml(policy, octets, binding, cms, facts),
+        Some(Syntax::Ts1191723) => {
+            return enforce_components(policy, octets, by_octets, cms, facts);
+        }
+        Some(Syntax::Ts1191722) => return enforce_xml(policy, octets, by_octets, cms, facts),
         _ => {}
     }
     let parsed = PolicyDocument::parse(octets);
@@ -1029,8 +1074,10 @@ pub fn enforce(
         }
         _ => false,
     };
-    if !matches!(binding, Binding::Matches { .. }) && !bound_by_own_hash {
-        return Enforcement::NotEnforced(NotEnforced::NotBound(binding));
+    if let Err(why) = by_octets
+        && !bound_by_own_hash
+    {
+        return Enforcement::NotEnforced(why);
     }
     let document = match parsed {
         Ok(document) => document,
@@ -1051,7 +1098,7 @@ pub fn enforce(
 fn enforce_components(
     policy: &SignaturePolicy<'_>,
     octets: &[u8],
-    binding: Binding,
+    by_octets: Result<(), NotEnforced>,
     cms: &SignedData<'_>,
     facts: &SignerFacts,
 ) -> Enforcement {
@@ -1062,8 +1109,10 @@ fn enforce_components(
         }
         _ => false,
     };
-    if !matches!(binding, Binding::Matches { .. }) && !bound_by_its_digest {
-        return Enforcement::NotEnforced(NotEnforced::NotBound(binding));
+    if let Err(why) = by_octets
+        && !bound_by_its_digest
+    {
+        return Enforcement::NotEnforced(why);
     }
     let document = match parsed {
         Ok(document) => document,
@@ -1085,7 +1134,7 @@ fn enforce_components(
 fn enforce_xml(
     policy: &SignaturePolicy<'_>,
     octets: &[u8],
-    binding: Binding,
+    by_octets: Result<(), NotEnforced>,
     cms: &SignedData<'_>,
     facts: &SignerFacts,
 ) -> Enforcement {
@@ -1094,7 +1143,7 @@ fn enforce_xml(
         .as_ref()
         .map_err(Clone::clone)
         .and_then(ts_119_172_2::Reading::document);
-    if !matches!(binding, Binding::Matches { .. }) {
+    if let Err(why) = by_octets {
         if let (PolicyHash::Stated { value, .. }, Ok(document)) = (&policy.hash, &parsed)
             && document.digest_value == *value
         {
@@ -1102,7 +1151,7 @@ fn enforce_xml(
                 canonicalization: document.canonicalization.to_owned(),
             });
         }
-        return Enforcement::NotEnforced(NotEnforced::NotBound(binding));
+        return Enforcement::NotEnforced(why);
     }
     let document = match parsed {
         Ok(document) => document,

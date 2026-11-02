@@ -33,15 +33,15 @@ fn authorised_by(profile: &str, target: Target) -> Authorisations {
         .authorised
 }
 
-/// A file of `objects`, numbered from 1, with a classic cross-reference table.
-fn file(objects: &[String]) -> Vec<u8> {
+/// A file of `objects`, numbered from 1, each its bytes, with a classic cross-reference table.
+fn file<T: AsRef<[u8]>>(objects: &[T]) -> Vec<u8> {
     let mut bytes = b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n".to_vec();
     let mut offsets = Vec::new();
     for (index, object) in objects.iter().enumerate() {
         offsets.push(bytes.len());
-        bytes.extend_from_slice(
-            format!("{} 0 obj\n{object}\nendobj\n", index.saturating_add(1)).as_bytes(),
-        );
+        bytes.extend_from_slice(format!("{} 0 obj\n", index.saturating_add(1)).as_bytes());
+        bytes.extend_from_slice(object.as_ref());
+        bytes.extend_from_slice(b"\nendobj\n");
     }
     let xref = bytes.len();
     let size = objects.len().saturating_add(1);
@@ -277,4 +277,322 @@ fn codes_on_notdef_past_the_report_s_bound_are_each_given_the_copy() {
             );
         }
     }
+}
+
+const BOUNDARIES: &str = "implementation-limits/page-boundary-sizes";
+const EXTERNAL: &str = "file-structure/no-external-stream-data";
+const WIDTHS: &str = "fonts/widths-array-covers-character-range";
+const TO_UNICODE: &str = "fonts/to-unicode-present";
+
+/// Past the thirty-two places a report keeps, so that a site reading those places as the
+/// population leaves eight failing.
+const PAST_THE_KEPT: usize = 40;
+
+/// How many places `requirement`'s failure keeps and how many it counts, where `bytes` fail it.
+fn failed_at(bytes: &[u8], target: Target, requirement: &str) -> Option<(usize, usize)> {
+    holds(bytes, target)
+        .failures()
+        .find(|judgement| judgement.id == requirement)
+        .and_then(|judgement| match &judgement.outcome {
+            pdf_archive::Outcome::Failed { places, total } => Some((places.len(), *total)),
+            _ => None,
+        })
+}
+
+/// Asserts that the report holds a prefix of `requirement`'s `population` findings.
+fn the_report_keeps_a_prefix(bytes: &[u8], target: Target, requirement: &str, population: usize) {
+    let failed = failed_at(bytes, target, requirement);
+    assert!(
+        failed.is_some_and(|(kept, total)| total == population && kept < total),
+        "{target}: the report keeps a prefix of the {population} places of {requirement}: \
+         {failed:?}"
+    );
+}
+
+/// `source` converted at `target` under the shipped `as-if-printed` profile, held to the target
+/// again and conforming.
+fn converted_whole(source: &[u8], target: Target) -> Vec<u8> {
+    let (report, output) = convert(source, target, authorised_by("as-if-printed", target));
+    let output = written(&report, output);
+    let held = holds(&output, target);
+    assert_eq!(
+        held.verdict(),
+        Verdict::Conforms,
+        "{target}: {}",
+        held.render()
+    );
+    output
+}
+
+/// `pages` pages, each stating a crop box of 14 402 units over a media box of 200: section
+/// 6.1.13's limit fails at every page, and §14.11.2.1 makes the entry the media box to a reader.
+fn pages_stating_crop_boxes(pages: usize) -> Vec<u8> {
+    let kids = (0..pages).fold(String::new(), |mut kids, index| {
+        let _ = write!(kids, "{} 0 R ", index.saturating_add(3));
+        kids
+    });
+    let mut objects = vec![
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        format!("<< /Type /Pages /Kids [{kids}] /Count {pages} >>"),
+    ];
+    objects.extend((0..pages).map(|_| {
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /CropBox [0 0 14402 14402] \
+         /Resources << >> >>"
+            .to_owned()
+    }));
+    file(&objects)
+}
+
+#[test]
+fn forty_pages_stating_an_over_sized_crop_box_each_lose_it() {
+    let source = pages_stating_crop_boxes(PAST_THE_KEPT);
+    // One finding for each of a box's two dimensions, both past the limit.
+    the_report_keeps_a_prefix(
+        &source,
+        TARGETS[0],
+        BOUNDARIES,
+        PAST_THE_KEPT.saturating_mul(2),
+    );
+    for target in TARGETS {
+        let failed = failed_at(&source, target, BOUNDARIES).is_some();
+        let output = converted_whole(&source, target);
+        let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+        let tree = pdf_model::Pages::new(&document);
+        let every: Vec<_> = tree.every().into_iter().flatten().collect();
+        assert_eq!(every.len(), PAST_THE_KEPT, "every page is written");
+        if failed {
+            assert!(
+                every.iter().all(|page| page.dict.get("CropBox").is_none()),
+                "{target}: every page's entry is gone, the thirty-third's too"
+            );
+        }
+    }
+}
+
+/// One page whose resources name `forms` form `XObject`s, each stating `/FFilter` and no `/F`:
+/// Table 5's key describes the filters of an external file that is not there.
+fn forms_naming_filters_for_no_file(forms: usize) -> Vec<u8> {
+    let names = (0..forms).fold(String::new(), |mut names, index| {
+        let _ = write!(names, "/Fm{index} {} 0 R ", index.saturating_add(4));
+        names
+    });
+    let data = b"% the producer's\n";
+    let mut objects = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject \
+             << {names}>> >> >>"
+        )
+        .into_bytes(),
+    ];
+    objects.extend((0..forms).map(|_| {
+        stream(
+            &format!(
+                "/Type /XObject /Subtype /Form /BBox [0 0 100 100] /Resources << >> \
+                 /FFilter /FlateDecode /Length {}",
+                data.len()
+            ),
+            data,
+        )
+    }));
+    file(&objects)
+}
+
+#[test]
+fn forty_streams_naming_filters_for_no_file_each_lose_the_key() {
+    let source = forms_naming_filters_for_no_file(PAST_THE_KEPT);
+    for target in TARGETS {
+        the_report_keeps_a_prefix(&source, target, EXTERNAL, PAST_THE_KEPT);
+        let (report, _) = convert(&source, target, authorised_by("as-if-printed", target));
+        assert_eq!(
+            decision(&report, EXTERNAL),
+            Decision::Mechanical(Rewrite::ExternalDataEmbedded),
+            "{target}"
+        );
+        let output = converted_whole(&source, target);
+        let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+        let forms = forms_of_page_one(&document);
+        assert_eq!(
+            forms.len(),
+            PAST_THE_KEPT,
+            "{target}: every form is written"
+        );
+        assert!(
+            forms.iter().all(|form| form.get("FFilter").is_none()),
+            "{target}: no stream keeps the key, the thirty-third's neither"
+        );
+    }
+}
+
+/// The dictionaries of every form page one's resources name.
+fn forms_of_page_one(document: &Document) -> Vec<pdf_syntax::object::Dictionary> {
+    named_on_page_one(document, "XObject")
+        .into_iter()
+        .filter_map(|object| object.as_stream().map(|stream| stream.dict.clone()))
+        .collect()
+}
+
+/// The fonts page one's resources name.
+fn fonts_of_page_one(document: &Document) -> Vec<pdf_syntax::object::Dictionary> {
+    named_on_page_one(document, "Font")
+        .into_iter()
+        .filter_map(|object| object.as_dict().cloned())
+        .collect()
+}
+
+/// Every object page one's resources name under `category`, resolved.
+fn named_on_page_one(document: &Document, category: &str) -> Vec<Object> {
+    let tree = pdf_model::Pages::new(document);
+    let every: Vec<_> = tree.every().into_iter().flatten().collect();
+    let page = every.first().expect("a page");
+    let resources = document.get_key(&page.dict, "Resources");
+    let resources = resources.as_dict().expect("page one states its resources");
+    let named = document.get_key(resources, category);
+    named
+        .as_dict()
+        .map(|named| {
+            named
+                .iter()
+                .map(|(_, value)| document.resolve(value))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// A simple `TrueType` font dictionary over the embedded Liberation Sans of
+/// [`a_page_drawing_in_fonts`], stating `/FirstChar 65 /LastChar 65` and `entries`.
+fn truetype(entries: &str) -> String {
+    format!(
+        "<< /Type /Font /Subtype /TrueType /BaseFont /LiberationSans /FirstChar 65 /LastChar 65 \
+         /FontDescriptor 5 0 R /Encoding /WinAnsiEncoding {entries} >>"
+    )
+}
+
+/// One page drawing code 65 in each of `fonts` fonts, every one the dictionary `font`; objects 5
+/// and 6 are a descriptor and an embedded Liberation Sans a font may name, and object 7 is
+/// `seventh`.
+fn a_page_drawing_in_fonts(fonts: usize, font: &str, seventh: &[u8]) -> Vec<u8> {
+    let first_font = 8_usize;
+    let (named, shown) = (0..fonts).fold(
+        (String::new(), String::new()),
+        |(mut named, mut shown), index| {
+            let _ = write!(named, "/F{index} {} 0 R ", index.saturating_add(first_font));
+            let _ = write!(shown, "/F{index} 12 Tf (A) Tj ");
+            (named, shown)
+        },
+    );
+    let content = format!("/CS0 cs 0 sc BT 10 100 Td {shown}ET");
+    let mut objects = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /Resources \
+             << /Font << {named}>> /ColorSpace << /CS0 [/CalGray << /WhitePoint [0.9505 1.0 \
+             1.089] >>] >> >> >>"
+        )
+        .into_bytes(),
+        stream(&format!("/Length {}", content.len()), content.as_bytes()),
+        b"<< /Type /FontDescriptor /FontName /LiberationSans /Flags 32 /FontBBox [-543 -303 1300 \
+          980] /ItalicAngle 0 /Ascent 905 /Descent -212 /CapHeight 716 /StemV 80 /FontFile2 \
+          6 0 R >>"
+            .to_vec(),
+        stream(
+            &format!("/Length {}", LIBERATION_SANS.len()),
+            LIBERATION_SANS,
+        ),
+        seventh.to_vec(),
+    ];
+    objects.extend((0..fonts).map(|_| font.as_bytes().to_vec()));
+    file(&objects)
+}
+
+#[test]
+fn forty_fonts_stating_a_widths_array_too_long_are_each_restated() {
+    // Table 109: one entry for each code from `FirstChar` to `LastChar`, so `[667 600]` over the
+    // one code 65 states an entry past the range, and narrowing it moves no advance.
+    let source = a_page_drawing_in_fonts(PAST_THE_KEPT, &truetype("/Widths [667 600]"), b"null");
+    for target in TARGETS {
+        the_report_keeps_a_prefix(&source, target, WIDTHS, PAST_THE_KEPT);
+        let output = converted_whole(&source, target);
+        let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+        let fonts = fonts_of_page_one(&document);
+        assert_eq!(
+            fonts.len(),
+            PAST_THE_KEPT,
+            "{target}: every font is written"
+        );
+        for font in &fonts {
+            let widths = document.get_key(font, "Widths");
+            let widths = widths.as_array().expect("a /Widths array");
+            assert_eq!(
+                widths.len(),
+                1,
+                "{target}: every font's array is restated, the thirty-third's too"
+            );
+        }
+    }
+}
+
+/// One `/Widths` array of `entries` entries, the first 667, as object 7's bytes.
+fn a_long_widths_array(entries: usize) -> Vec<u8> {
+    let mut array = b"[667".to_vec();
+    for _ in 1..entries {
+        array.extend_from_slice(b" 0");
+    }
+    array.push(b']');
+    array
+}
+
+#[test]
+fn fonts_sharing_one_long_widths_array_are_read_to_a_mebi_entry_and_no_further() {
+    // `font_widths::MAX_READ_WIDTHS` is 4096 fonts of 256 entries, 1 048 576 entries read: two
+    // fonts naming one array of half that are read to the bound exactly, a third font is past it.
+    let half = 524_288;
+    let target = TARGETS[0];
+    let at_the_bound =
+        a_page_drawing_in_fonts(2, &truetype("/Widths 7 0 R"), &a_long_widths_array(half));
+    converted_whole(&at_the_bound, target);
+    let past = a_page_drawing_in_fonts(3, &truetype("/Widths 7 0 R"), &a_long_widths_array(half));
+    let (report, output) = convert(&past, target, authorised_by("as-if-printed", target));
+    assert!(output.is_none(), "past the bound nothing is written");
+    let Decision::Refused(Because::NotBuiltYet(because)) = decision(&report, WIDTHS) else {
+        panic!("{:?}", decision(&report, WIDTHS));
+    };
+    assert!(because.contains("1 048 576"), "{because}");
+}
+
+#[test]
+fn forty_fonts_naming_no_characters_are_each_given_a_to_unicode_map() {
+    // ISO 19005-2 section 6.2.11.7.2 binds level U (part 4 states it as a `should`). A Type 3
+    // font drawing `uni0041` is outside its second exemption, the name being in neither list, and
+    // §9.10.2's second method derives U+0041 from the name by the Adobe Glyph List
+    // Specification's algorithm.
+    let glyph = b"1000 0 0 0 1000 1000 d1 0 0 1000 1000 re f";
+    let charproc = stream(&format!("/Length {}", glyph.len()), glyph);
+    let font = "<< /Type /Font /Subtype /Type3 /FontBBox [0 0 1000 1000] /FontMatrix [0.001 0 0 \
+                0.001 0 0] /CharProcs << /uni0041 7 0 R >> /Encoding << /Type /Encoding \
+                /Differences [65 /uni0041] >> /FirstChar 65 /LastChar 65 /Widths [1000] \
+                /Resources << >> >>";
+    let source = a_page_drawing_in_fonts(PAST_THE_KEPT, font, &charproc);
+    let target = Target::Two(Level::U);
+    the_report_keeps_a_prefix(&source, target, TO_UNICODE, PAST_THE_KEPT);
+    let (report, _) = convert(&source, target, authorised_by("as-if-printed", target));
+    assert_eq!(
+        decision(&report, TO_UNICODE).rewrite(),
+        Some(Rewrite::ToUnicode),
+        "{target}"
+    );
+    let output = converted_whole(&source, target);
+    let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let fonts = fonts_of_page_one(&document);
+    assert_eq!(
+        fonts.len(),
+        PAST_THE_KEPT,
+        "{target}: every font is written"
+    );
+    assert!(
+        fonts.iter().all(|font| font.get("ToUnicode").is_some()),
+        "{target}: every font states a map, the thirty-third too"
+    );
 }

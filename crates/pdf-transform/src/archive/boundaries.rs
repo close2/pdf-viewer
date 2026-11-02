@@ -143,6 +143,13 @@ impl Boundaries {
 /// *is* walked here is the page tree, and only for a document that failed: an entry a page
 /// inherits is written on an ancestor, so which pages a removal reaches is a question about the
 /// tree rather than about the finding.
+///
+/// **The places are the requirement's whole population**, [`super::sites::places_failed`]'s,
+/// and not the thirty-two [`Outcome::Failed`] keeps (`doc/adr/2616`): a page past the kept
+/// prefix keeps the entry it failed at and writes a file failing the requirement it answered.
+/// With the population lifted, two costs the prefix hid are bounded here (trap 305): the pages are
+/// enumerated once by [`Pages::every`] rather than looked up per place, and each page asks which
+/// object states each of the [`OPTIONAL`] entries once, rather than once per holder.
 pub(super) fn removal(
     document: &Document,
     report: &pdf_archive::Report,
@@ -150,21 +157,23 @@ pub(super) fn removal(
     let Some(judgement) = report.failures().find(|judgement| judgement.id == SITE) else {
         return Err(Because::NotThisTarget(NOTHING_FAILED));
     };
-    let Outcome::Failed { places, .. } = &judgement.outcome else {
+    if !matches!(judgement.outcome, Outcome::Failed { .. }) {
         return Err(Because::NotThisTarget(NOTHING_FAILED));
-    };
+    }
+    let places = super::sites::places_failed(judgement)?;
     let tree = Pages::new(document);
+    let pages = tree.every();
     // Which object *states* each failing entry, which for §7.7.3.3's two inheritable boundaries
     // may be an ancestor of the page the finding names.
     let mut holders: BTreeMap<ObjectId, BTreeSet<&'static str>> = BTreeMap::new();
     // Which page failed at which entry, so that a removal reaching a page that failed nothing
     // can be told from one a page asked for.
     let mut failed: BTreeMap<usize, BTreeSet<&'static str>> = BTreeMap::new();
-    for finding in places {
-        let Some(index) = finding.place.page else {
+    for place in places {
+        let Some(index) = place.page else {
             return Err(Because::NotBuiltYet(NOT_REPORTED_AT_A_PAGE));
         };
-        let Some(entry) = finding.place.name.as_deref() else {
+        let Some(entry) = place.name.as_deref() else {
             return Err(Because::NotBuiltYet(NOT_REPORTED_AT_AN_ENTRY));
         };
         if entry == "MediaBox" {
@@ -173,24 +182,30 @@ pub(super) fn removal(
         let Some((key, _)) = OPTIONAL.iter().find(|(key, _)| *key == entry) else {
             return Err(Because::NotBuiltYet(NOT_REPORTED_AT_AN_ENTRY));
         };
-        let page = tree.get(index).ok_or(Because::NotBuiltYet(NO_SUCH_PAGE))?;
-        let holder = states(document, &page, key).ok_or(Because::NotBuiltYet(NOT_STATED))?;
+        let page = pages
+            .get(index)
+            .and_then(Option::as_ref)
+            .ok_or(Because::NotBuiltYet(NO_SUCH_PAGE))?;
+        let holder = states(document, page, key).ok_or(Because::NotBuiltYet(NOT_STATED))?;
         holders.entry(holder).or_default().insert(key);
         failed.entry(index).or_default().insert(key);
     }
     let mut out = Boundaries::default();
-    for (index, page) in tree.every().into_iter().enumerate() {
+    // The entries any holder lost, each asked of a page once.
+    let removed_keys: BTreeSet<&'static str> = holders.values().flatten().copied().collect();
+    for (index, page) in pages.into_iter().enumerate() {
         let Some(page) = page else {
             return Err(Because::NotBuiltYet(NO_SUCH_PAGE));
         };
         // Which of the removals this page's boundaries resolve through — its own entries, and
         // the ancestors' entries §7.7.3.4 puts in force for it.
         let mut reaching: BTreeSet<&'static str> = BTreeSet::new();
-        for (holder, keys) in &holders {
-            for key in keys {
-                if states(document, &page, key) == Some(*holder) {
-                    reaching.insert(key);
-                }
+        for key in &removed_keys {
+            let held = states(document, &page, key)
+                .and_then(|holder| holders.get(&holder))
+                .is_some_and(|keys| keys.contains(key));
+            if held {
+                reaching.insert(key);
             }
         }
         if reaching.is_empty() {

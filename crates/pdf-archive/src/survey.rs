@@ -2862,6 +2862,24 @@ mod tests {
         assert!(Survey::of(&objects).unlisted_operators().is_empty());
     }
 
+    /// A run that opens with a number and spells none under ISO 32000-2 §7.3.3 is one token by
+    /// §7.2.3, and so a keyword, which section 6.2.2 judges as the operator it is (ADR 2619).
+    #[test]
+    fn a_run_that_opens_with_a_number_and_spells_none_is_an_unlisted_operator() {
+        let document = page_with("0 0 m 454\u{85} 3NT-DE290.58 m 12 w 1.5 0 l S", "", &[]);
+        let survey = Survey::of(&document);
+        let spelled: Vec<&[u8]> = survey
+            .unlisted_operators()
+            .iter()
+            .map(|unlisted| unlisted.spelling.as_slice())
+            .collect();
+        assert_eq!(
+            spelled,
+            vec!["454\u{85}".as_bytes(), b"3NT-DE290.58".as_slice()],
+            "a number the clause spells is no operator, and each run that spells none is one"
+        );
+    }
+
     /// One unlisted operator on one page in one kind of stream is one observation, however
     /// often it is written.
     #[test]

@@ -7,7 +7,9 @@
 //! [`ViewState::activate_form_on_exit`] and [`ViewState::activate_form_on_enter`] raise the events
 //! pages 390–391 fire when the keyboard focus moves (ADR 2566), and
 //! [`ViewState::activate_form_on_click`] the `click` events page 391 fires when a mouse click
-//! occurs within a field (ADR 2584). **The
+//! occurs within a field (ADR 2584), and [`ViewState::activate_form_on_mouse_down`] and
+//! [`ViewState::activate_form_on_mouse_up`] the `mouseDown` and `mouseUp` events page 392 fires
+//! when a mouse button is pressed or released within one (ADR 2627). **The
 //! scripts run in the runner**, never here: this crate reads no script language and does not depend
 //! on one (ADR 2482), so [`ScriptRunner::run_form_script`] is the one call that carries a script
 //! out, and a runner that has none refuses it by name. What the scripts computed lands in the edit
@@ -98,6 +100,10 @@ enum Raised<'a> {
     },
     /// A mouse click occurred within the field of this PDF name.
     Click(&'a str),
+    /// A mouse button was pressed within the field of this PDF name.
+    MouseDown(&'a str),
+    /// A mouse button was released within the field of this PDF name.
+    MouseUp(&'a str),
     /// The open sequence ended: the Form DOM's `ready` and the application's `docReady` (pages 388
     /// and 704).
     Ready,
@@ -232,13 +238,29 @@ impl ViewState {
     /// (XFA 3.3 page 391), followed by the calculations that depend on what the events changed
     /// (page 379). Answers whether a value changed, which is ink to draw again.
     ///
-    /// Only the field's own events run: page 390 gives a subform and an exclusion group no
-    /// `click`, and page 387's `listen="refAndDescendents"`, the one way a click reaches an
-    /// enclosing container, is not followed (ADR 2584). The events are one activation under the
+    /// Page 390 gives a subform and an exclusion group no `click`, so the field is the object the
+    /// click happens on, and an enclosing container's event hears it only where its `listen` is
+    /// `refAndDescendents` (page 387; ADRs 2584, 2626). The events are one activation under the
     /// sequence budget of one second, and one that is stopped drops what its scripts changed and
     /// leaves every value a person entered as it was.
     pub fn activate_form_on_click(&mut self, document: &Document, clicked: &str) -> bool {
         self.activate_form(document, Raised::Click(clicked), Instant::now())
+    }
+
+    /// Runs the `mouseDown` events of the field `pressed`, within whose region a mouse button was
+    /// pressed (XFA 3.3 page 392), followed by the calculations that depend on what the events
+    /// changed (page 379). Answers whether a value changed, which is ink to draw again. The
+    /// events reach what [`Self::activate_form_on_click`]'s reach, under the same budget.
+    pub fn activate_form_on_mouse_down(&mut self, document: &Document, pressed: &str) -> bool {
+        self.activate_form(document, Raised::MouseDown(pressed), Instant::now())
+    }
+
+    /// Runs the `mouseUp` events of the field `released`, within whose region a mouse button was
+    /// released (XFA 3.3 page 392) wherever it was pressed, followed by the calculations that
+    /// depend on what the events changed (page 379). Answers whether a value changed. The events
+    /// reach what [`Self::activate_form_on_click`]'s reach, under the same budget.
+    pub fn activate_form_on_mouse_up(&mut self, document: &Document, released: &str) -> bool {
+        self.activate_form(document, Raised::MouseUp(released), Instant::now())
     }
 
     /// The fields whose `override` asks a host to present a message since a host last took them, in
@@ -303,6 +325,8 @@ impl ViewState {
             Raised::Exit { left, reaching } => Stimulus::Exit { left, reaching },
             Raised::Enter { reached, leaving } => Stimulus::Enter { reached, leaving },
             Raised::Click(clicked) => Stimulus::Click { clicked },
+            Raised::MouseDown(pressed) => Stimulus::MouseDown { pressed },
+            Raised::MouseUp(released) => Stimulus::MouseUp { released },
             Raised::Ready => Stimulus::Ready,
         };
         // What a person entered before this merge stands under it (the merge's own comment).

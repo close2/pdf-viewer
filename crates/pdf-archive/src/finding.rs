@@ -14,7 +14,7 @@ use pdf_syntax::ObjectId;
 ///
 /// `None` in every field is a legitimate witness for a rule about the file as a whole — the
 /// header's bytes, the trailer's keys — and says so rather than inventing a location.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct Where {
     /// The object the failure is in, where it is in one.
     pub object: Option<ObjectId>,
@@ -106,16 +106,37 @@ const MAX_KEPT: usize = 32;
 /// remedy is told the list is incomplete rather than handed a prefix.
 pub const MAX_NAMED: usize = 4096;
 
-/// Every distinct object one requirement's findings named, and whether any place named none.
+/// How many bytes of entry names one requirement's [`Named::places`] holds before it is cut short.
 ///
-/// What a remedy iterates where [`Findings::kept`] would hand it a prefix. The set stops growing
-/// at [`MAX_NAMED`] objects and then says so through [`Self::cut_short`]; a caller reading a
-/// set that was cut short has a prefix again and refuses by name rather than half-remedy.
+/// A place's name can be a producer's string — a font's or a colourant's — so [`MAX_NAMED`]
+/// places alone do not bound the set: four thousand names of a megabyte each are four gigabytes
+/// for one requirement. A mebibyte of names is far past any place list a remedy reads (the
+/// names it acts on are a dictionary's keys) and is the bound of its own the lifted cap needs
+/// (trap 305).
+pub const MAX_PLACE_NAME_BYTES: usize = 1 << 20;
+
+/// Every distinct object and every distinct place one requirement's findings named, and whether
+/// any place named no object.
+///
+/// What a remedy iterates where [`Findings::kept`] would hand it a prefix. The object set stops
+/// growing at [`MAX_NAMED`] objects and then says so through [`Self::cut_short`]; the place list
+/// stops at [`MAX_NAMED`] places or [`MAX_PLACE_NAME_BYTES`] of their names and says so through
+/// [`Self::places_cut_short`]. A caller reading either after it was cut short has a prefix again
+/// and refuses by name rather than half-remedy.
+///
+/// The places are what a remedy needs where the object is not the whole of the place — a page and
+/// the boundary entry it failed at, a file specification and the `/EF` key under which the
+/// failing stream sits — and they are kept in the order they were first found, so that a remedy
+/// over them does its work in the order a remedy over [`Findings::kept`] did.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Named {
     objects: BTreeSet<ObjectId>,
     cut_short: bool,
     elsewhere: bool,
+    places: Vec<Where>,
+    distinct: BTreeSet<Where>,
+    name_bytes: usize,
+    places_cut_short: bool,
 }
 
 impl Named {
@@ -137,14 +158,40 @@ impl Named {
         self.elsewhere
     }
 
-    fn record(&mut self, object: Option<ObjectId>) {
-        match object {
+    /// Every distinct place named, in the order each was first found.
+    #[must_use]
+    pub fn places(&self) -> &[Where] {
+        &self.places
+    }
+
+    /// Whether a place past [`MAX_NAMED`] distinct ones, or past [`MAX_PLACE_NAME_BYTES`] of
+    /// their names, was found and is not in [`Self::places`].
+    #[must_use]
+    pub const fn places_cut_short(&self) -> bool {
+        self.places_cut_short
+    }
+
+    fn record(&mut self, place: &Where) {
+        match place.object {
             Some(id) if self.objects.len() < MAX_NAMED || self.objects.contains(&id) => {
                 self.objects.insert(id);
             }
             Some(_) => self.cut_short = true,
             None => self.elsewhere = true,
         }
+        if self.places_cut_short || self.distinct.contains(place) {
+            return;
+        }
+        let name_bytes = place.name.as_ref().map_or(0, String::len);
+        if self.places.len() >= MAX_NAMED
+            || self.name_bytes.saturating_add(name_bytes) > MAX_PLACE_NAME_BYTES
+        {
+            self.places_cut_short = true;
+            return;
+        }
+        self.name_bytes = self.name_bytes.saturating_add(name_bytes);
+        self.distinct.insert(place.clone());
+        self.places.push(place.clone());
     }
 }
 
@@ -184,7 +231,7 @@ impl Findings {
         if place.object.is_some() {
             self.objects = self.objects.saturating_add(1);
         }
-        self.named.record(place.object);
+        self.named.record(&place);
         if self.kept.len() < MAX_KEPT {
             self.kept.push(Finding {
                 place,
@@ -244,7 +291,7 @@ impl Findings {
 
 #[cfg(test)]
 mod tests {
-    use super::{Findings, MAX_NAMED, Where};
+    use super::{Findings, MAX_NAMED, MAX_PLACE_NAME_BYTES, Where};
     use pdf_syntax::ObjectId;
 
     fn id(number: usize) -> ObjectId {
@@ -278,6 +325,45 @@ mod tests {
             at_the_bound.named().cut_short(),
             "the set says it is a prefix"
         );
+    }
+
+    #[test]
+    fn every_distinct_place_is_kept_in_the_order_found_up_to_its_own_bounds() {
+        // A page and the entry it failed at: the place, not its object, is the population.
+        let mut findings = Findings::default();
+        for page in 0..40 {
+            findings.record(Where::page(page).named("BleedBox"), "too small");
+            findings.record(Where::page(page).named("BleedBox"), "reported twice");
+            findings.record(Where::page(page).named("TrimBox"), "too small");
+        }
+        assert_eq!(findings.kept().len(), 32);
+        let places = findings.named().places();
+        assert_eq!(places.len(), 80);
+        assert_eq!(places[0], Where::page(0).named("BleedBox"));
+        assert_eq!(places[1], Where::page(0).named("TrimBox"));
+        assert_eq!(places[79], Where::page(39).named("TrimBox"));
+        assert!(!findings.named().places_cut_short());
+
+        let mut at_the_bound = Findings::default();
+        for page in 0..MAX_NAMED {
+            at_the_bound.record(Where::page(page), "wrong");
+        }
+        at_the_bound.record(Where::page(0), "a place already held");
+        assert_eq!(at_the_bound.named().places().len(), MAX_NAMED);
+        assert!(!at_the_bound.named().places_cut_short());
+        at_the_bound.record(Where::page(MAX_NAMED), "one more");
+        assert_eq!(at_the_bound.named().places().len(), MAX_NAMED);
+        assert!(at_the_bound.named().places_cut_short());
+
+        // The names' bytes are a bound of their own: a producer's string can be long.
+        let mut by_bytes = Findings::default();
+        let long = "N".repeat(MAX_PLACE_NAME_BYTES / 2);
+        by_bytes.record(Where::page(0).named(long.clone()), "wrong");
+        by_bytes.record(Where::page(1).named(long.clone()), "wrong");
+        assert!(!by_bytes.named().places_cut_short());
+        by_bytes.record(Where::page(2).named("N"), "one byte past");
+        assert_eq!(by_bytes.named().places().len(), 2);
+        assert!(by_bytes.named().places_cut_short());
     }
 
     #[test]

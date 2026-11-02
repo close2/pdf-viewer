@@ -500,9 +500,12 @@ the window as a notice (ADRs 2524, 2525). **A move of the keyboard focus runs th
 `enter` events** — of the field and of each subform and exclusion group the focus crosses (XFA 3.3
 pages 390–391) — wherever a window raises `/Bl` and `/Fo` on a widget (ADR 2566), **and a click
 within a field runs the field's own `click` events** (page 391) wherever a window raises `/U` on its
-widget (ADR 2584). **The open sequence ends with the Form DOM's `ready` and the application's
-`docReady`** (page 388), after the merge and under its clock, and an event whose `listen` is
-`refAndDescendents` or whose `ref` names another object is named in the report as not run (ADR 2606).
+widget (ADR 2584), and a press and a release within one its `mouseDown` and `mouseUp` (page 392; ADR
+2627). **The open sequence ends with the Form DOM's `ready` and the application's `docReady`** (page
+388), after the merge and under its clock, and an event whose `ref` names another object is named in
+the report as not run (ADR 2606). **An event whose `listen` is `refAndDescendents` hears the activity
+on every object its `ref` contains** (pages 387 and 706), innermost container first and the Form DOM
+last, in the same activation (ADR 2626).
 
 **Table 22's bit 12 is a second operation beside bit 3, at four levels of its own**, because the
 cell states two consequences: bit 3 clear withholds printing, and bit 12 clear limits a print that

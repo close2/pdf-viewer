@@ -653,6 +653,94 @@ fn a_click_event_runs_in_the_confined_worker_and_wakes_a_calculation() {
     assert!(worker.deaths().is_empty(), "{:?}", worker.deaths());
 }
 
+/// A JavaScript event of `activity` bound to the Form DOM that listens to every object it contains
+/// (XFA 3.3 pages 387 and 706), running `script`.
+fn form_listener(activity: &str, script: &str) -> String {
+    format!(
+        "<event activity=\"{activity}\" ref=\"$form\" listen=\"refAndDescendents\"><script \
+         contentType=\"application/x-javascript\">{script}</script></event>"
+    )
+}
+
+/// XFA 3.3 pages 387 and 392: a release within a field is the field's `mouseUp`, and an event bound
+/// to the Form DOM that listens hears it, in the confined worker; a press runs the `mouseDown` the
+/// same way, and neither runs the other's.
+#[test]
+fn a_listening_event_hears_a_fields_mouse_up_and_mouse_down_in_the_worker() {
+    let template = [
+        field(
+            "Watcher",
+            &[
+                form_listener("mouseUp", "Up.rawValue = 7;"),
+                form_listener("mouseDown", "Down.rawValue = 3;"),
+            ]
+            .concat(),
+        ),
+        field("Button", ""),
+        field("Up", ""),
+        field("Down", ""),
+    ]
+    .concat();
+    let values = [("Watcher", ""), ("Button", ""), ("Up", ""), ("Down", "")];
+    let document = document(&template, &values);
+    let worker = Arc::new(ScriptWorker::with_program(WORKER).with_deadline(OUT_OF_THE_WAY));
+    let mut view = view_with(&document, &worker);
+    view.activate_form_on_merge(&document);
+    assert!(view.activate_form_on_mouse_up(&document, &name("Button")));
+    assert_eq!(shown(&view, &document, "Up").as_deref(), Some("7"));
+    assert_eq!(shown(&view, &document, "Down").as_deref(), Some(""));
+    assert!(view.activate_form_on_mouse_down(&document, &name("Button")));
+    assert_eq!(shown(&view, &document, "Down").as_deref(), Some("3"));
+    assert!(worker.deaths().is_empty(), "{:?}", worker.deaths());
+}
+
+/// The plant: a listening event that never ends, heard from a click within a field whose own
+/// `click` event runs first and says so. The worker stops the activation within its budget, the
+/// field's own event is in the report, and what the stopped activation set is dropped.
+#[test]
+fn a_listening_click_that_never_ends_is_stopped_after_the_fields_own_event_ran() {
+    for script in [
+        "Other.rawValue = 9; for (;;) {}",
+        "Other.rawValue = 9; function f() { return f() + 1; } f()",
+        "Other.rawValue = 9; for (var i = 0; i &lt; 90000; i++) { for (var j = 0; j &lt; 90000; j++) {} }",
+    ] {
+        let template = [
+            field("Watcher", &form_listener("click", script)),
+            field(
+                "Button",
+                &javascript_event("click", "throw new Error(\"own-click-ran\");"),
+            ),
+            field("Other", ""),
+        ]
+        .concat();
+        let document = document(&template, &[("Watcher", ""), ("Button", ""), ("Other", "")]);
+        let worker = Arc::new(ScriptWorker::with_program(WORKER).with_deadline(OUT_OF_THE_WAY));
+        let mut view = view_with(&document, &worker);
+        view.activate_form_on_merge(&document);
+        let started = std::time::Instant::now();
+        let changed = view.activate_form_on_click(&document, &name("Button"));
+        let took = started.elapsed();
+        assert!(took < Duration::from_secs(5), "{script}: {took:?}");
+        assert!(!changed, "{script}");
+        assert_eq!(
+            shown(&view, &document, "Other").as_deref(),
+            Some(""),
+            "{script}: what the stopped event set is dropped"
+        );
+        let said = view.script_reports().join("\n");
+        assert!(said.contains("own-click-ran"), "{script}: {said}");
+        assert!(
+            said.contains("nothing it calculated is kept"),
+            "{script}: {said}"
+        );
+        assert!(
+            worker.deaths().is_empty(),
+            "{script}: {:?}",
+            worker.deaths()
+        );
+    }
+}
+
 /// The plant: a `click` event that never ends, raised after a person's entry into another field
 /// was committed. The worker stops it within the activation's budget, the entry stands, and what
 /// the stopped activation set is dropped.

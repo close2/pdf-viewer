@@ -989,6 +989,13 @@ cd fuzz && cargo +nightly fuzz run cff_write    -- -max_total_time=600 -rss_limi
   # advance writer, `with_advances`, under the DICT operand rule (ADR 2610): the reader reads every
   # advance asked for, and every other glyph's as it was. Seeded by `fuzz/seeds.sh` through
   # `fuzz/seed_streams.py` with every embedded `/Type1C` program, one of each header and length.
+cd fuzz && cargo +nightly fuzz run type1_write  -- -max_total_time=600 -rss_limit_mb=3072 -timeout=30
+  # The writer that grows a simple font's Type 1 program by glyphs for its codes on `.notdef` (ADR
+  # 2620): the `eexec` section decrypted and written again with `.notdef`'s charstring under each new
+  # name, the glyphs after the program's own in order, the lengths dividing what was written, the
+  # answer a function of the bytes, and the program written one the writer extends again. Seeded by
+  # `fuzz/seeds.sh` through `fuzz/seed_streams.py` with every embedded program stating `/Length2`,
+  # one of each opening and length.
 cd fuzz && cargo +nightly fuzz run policy_document -- -max_total_time=600 -rss_limit_mb=2048 -timeout=20
   # §12.8.3.4.4's stored signature policy document under TR 102 272's and TS 119 172-3's ASN.1 and
   # TS 119 172-2's XML (ADR 2604): the one reader that accepts a document is the one `Syntax::of`

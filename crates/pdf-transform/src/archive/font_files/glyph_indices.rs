@@ -35,15 +35,13 @@
 //! program's last; a font this reader substituted or did not load.
 
 use std::collections::BTreeMap;
-use std::fmt::Write as _;
 
 use pdf_font::LoadedFont;
 use pdf_syntax::Document;
-use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
-use pdf_syntax::serialize::flate_encode;
+use pdf_syntax::object::{Dictionary, Object, ObjectId};
 
-use super::super::COMPRESSION_LEVEL;
 use super::super::decision::Because;
+use super::super::fonts::embedded_cmap;
 use super::super::prepare::Spare;
 
 /// Why an encoding other than the two identity `CMap`s keeps the refusal.
@@ -100,9 +98,6 @@ const NO_NUMBER: &str = "no object number was free for the CMap a re-keyed compo
 const NOT_ENCODED: &str = "the CMap a re-keyed composite font's encoding names could not be \
      compressed into a stream";
 
-/// TN 5014 caps one `begincidrange` block at a hundred entries.
-const RANGES_PER_BLOCK: usize = 100;
-
 /// How deep the search for a `Type0` font written inside another object looks.
 const MAX_DEPTH: usize = 32;
 
@@ -148,7 +143,8 @@ pub(super) fn rekey(
     // Under either identity code *c* is CID *c*, so one parent's glyphs are every parent's.
     let drawn = drawn(document, &type0, glyphs)?;
     let widths = widths(&drawn)?;
-    let info = system_info(document, &dict).ok_or(Because::NotBuiltYet(NO_SYSTEM_INFO))?;
+    let info =
+        embedded_cmap::system_info(document, &dict).ok_or(Because::NotBuiltYet(NO_SYSTEM_INFO))?;
     let mut out = Rekeyed {
         widths,
         ..Rekeyed::default()
@@ -167,8 +163,8 @@ pub(super) fn rekey(
                 descendant.generation,
                 if mode == 0 { "H" } else { "V" }
             );
-            let stream =
-                cmap_stream(&name, &info, mode, &drawn).ok_or(Because::NotBuiltYet(NOT_ENCODED))?;
+            let stream = embedded_cmap::cid_cmap_stream(&name, &info, mode, &ranges(&drawn))
+                .ok_or(Because::NotBuiltYet(NOT_ENCODED))?;
             out.written.insert(at, stream);
             by_mode.insert(mode, at);
             at
@@ -334,97 +330,6 @@ fn width(advance: f32) -> Option<Object> {
         let number = (exact * scale).round() / scale;
         reads_back(number).then_some(Object::Real(number))
     })
-}
-
-/// The descendant's `/CIDSystemInfo`, which the `CMap` states as its own: ISO 19005-2 section
-/// 6.2.11.3.1 holds a `CMap` that is no identity to its font's `Registry` and `Ordering`.
-///
-/// Each string is taken where it is printable ASCII with no parenthesis or backslash, so that the
-/// `CMap` file can write it as a PostScript string unchanged.
-fn system_info(document: &Document, descendant: &Dictionary) -> Option<(Vec<u8>, Vec<u8>, i64)> {
-    let info = document.get_key(descendant, "CIDSystemInfo");
-    let info = info.as_dict()?;
-    let text = |key: &str| {
-        document
-            .get_key(info, key)
-            .as_string()
-            .filter(|text| {
-                text.iter()
-                    .all(|byte| byte.is_ascii_graphic() && !b"()\\".contains(byte))
-            })
-            .map(<[u8]>::to_vec)
-    };
-    Some((
-        text("Registry")?,
-        text("Ordering")?,
-        document.get_key(info, "Supplement").as_integer()?,
-    ))
-}
-
-/// The embedded `CMap` §9.7.5.3 asks for, mapping every code to the glyph it drew.
-fn cmap_stream(
-    name: &str,
-    (registry, ordering, supplement): &(Vec<u8>, Vec<u8>, i64),
-    mode: i64,
-    drawn: &[(u16, f32)],
-) -> Option<Object> {
-    let ranges = ranges(drawn);
-    let registry_text = String::from_utf8_lossy(registry);
-    let ordering_text = String::from_utf8_lossy(ordering);
-    let mut program = String::new();
-    let _ = write!(
-        program,
-        "%!PS-Adobe-3.0 Resource-CMap\n%%DocumentNeededResources: ProcSet (CIDInit)\n\
-         %%IncludeResource: ProcSet (CIDInit)\n%%BeginResource: CMap ({name})\n%%EndComments\n\
-         /CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
-         /CIDSystemInfo 3 dict dup begin\n/Registry ({registry_text}) def\n\
-         /Ordering ({ordering_text}) def\n/Supplement {supplement} def\nend def\n\
-         /CMapName /{name} def\n/CMapVersion 1.000 def\n/CMapType 1 def\n/WMode {mode} def\n\
-         1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n"
-    );
-    for block in ranges.chunks(RANGES_PER_BLOCK) {
-        let _ = writeln!(program, "{} begincidrange", block.len());
-        for (low, high, glyph) in block {
-            let _ = writeln!(program, "<{low:04X}> <{high:04X}> {glyph}");
-        }
-        program.push_str("endcidrange\n");
-    }
-    program.push_str(
-        "1 beginnotdefrange\n<0000> <FFFF> 0\nendnotdefrange\nendcmap\n\
-         CMapName currentdict /CMap defineresource pop\nend\nend\n%%EndResource\n%%EOF\n",
-    );
-
-    let mut info = Dictionary::new();
-    info.insert(
-        Name::new(&b"Registry"[..]),
-        Object::String(registry.clone().into()),
-    );
-    info.insert(
-        Name::new(&b"Ordering"[..]),
-        Object::String(ordering.clone().into()),
-    );
-    info.insert(Name::new(&b"Supplement"[..]), Object::Integer(*supplement));
-    let mut dict = Dictionary::new();
-    dict.insert(
-        Name::new(&b"Type"[..]),
-        Object::Name(Name::new(&b"CMap"[..])),
-    );
-    dict.insert(
-        Name::new(&b"CMapName"[..]),
-        Object::Name(Name::new(name.as_bytes())),
-    );
-    dict.insert(Name::new(&b"CIDSystemInfo"[..]), Object::Dictionary(info));
-    dict.insert(Name::new(&b"WMode"[..]), Object::Integer(mode));
-    let encoded = flate_encode(program.as_bytes(), COMPRESSION_LEVEL)?;
-    dict.insert(
-        Name::new(&b"Filter"[..]),
-        Object::Name(Name::new(&b"FlateDecode"[..])),
-    );
-    Some(Object::Stream(std::sync::Arc::new(Stream {
-        dict,
-        data: encoded.into(),
-        decryption_failed: false,
-    })))
 }
 
 /// The codes that drew a glyph other than 0, as `cidrange` entries: runs of consecutive codes

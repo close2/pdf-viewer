@@ -1003,11 +1003,13 @@ pub fn fetch_signature_policy(
 /// named it, as it opens a PDF a server answered a form with. Only a 2xx is read, for
 /// `crate::submit::reply`'s reason.
 ///
-/// **And every outcome says what is not done.** §12.8.3.4.4's validator "shall enforce signature
-/// policy constraints", the constraints are in the policy document, and their syntax is whichever
-/// specification the signature names under clause 5.2.9.2 — which no signature in reach names
-/// (ADR 1709). So the sentence ends by saying the constraints were not enforced and why, rather
-/// than letting a bound policy read as an enforced one.
+/// **And every outcome says where the constraints are enforced.** §12.8.3.4.4's validator "shall
+/// enforce signature policy constraints", and the constraints are in the policy document. A copy
+/// the server answered with is handed on as `viewer_core::Command::PolicyCopy` by
+/// [`crate::submit::Returned::policy_copy`], whatever this comparison found, because the document's
+/// validation binds it from the signature itself and may bind it by the digest its own rules state
+/// (ADR 2624); so the sentence says the outcome is said there, and where no copy came back it says
+/// none was enforced from the URL, rather than letting a fetched policy read as an enforced one.
 #[must_use]
 pub fn signature_policy_fetched(
     policy: &pdf_signature::policy::PublishedPolicy,
@@ -1027,7 +1029,7 @@ pub fn signature_policy_fetched(
                 "its document could not be fetched from {}: {error}",
                 policy.url
             );
-            return Reply::Say(closed(note, policy, warned));
+            return Reply::Say(closed(note, warned, Onward::NoCopy));
         }
     };
     let media = response.media_type.as_deref().unwrap_or("no media type");
@@ -1047,9 +1049,9 @@ pub fn signature_policy_fetched(
             );
         }
         note.push_str(", so no copy of the policy's document came back");
-        return Reply::Say(closed(note, policy, warned));
+        return Reply::Say(closed(note, warned, Onward::NoCopy));
     }
-    bound(policy, response.body, note, warned)
+    bound(policy, response.body, note, warned, Onward::ToValidation)
 }
 
 /// What a copy of a signature policy's document a host was handed comes to — fetched by a caller
@@ -1064,12 +1066,13 @@ pub fn signature_policy_handed(
     copy: Vec<u8>,
 ) -> crate::submit::Reply {
     let note = format!(
-        "signature policy {}: the copy of its document at {} that this program was handed ({}          byte(s))",
+        "signature policy {}: the copy of its document at {} that this program was handed ({} \
+         byte(s))",
         policy.identifier,
         policy.url,
         copy.len()
     );
-    bound(policy, copy, note, None)
+    bound(policy, copy, note, None, Onward::NotCarried)
 }
 
 /// The binding of a copy to the signature, which ETSI EN 319 122-1 clause 5.2.10's note makes the
@@ -1080,6 +1083,7 @@ fn bound(
     copy: Vec<u8>,
     mut note: String,
     warned: Option<&str>,
+    onward: Onward,
 ) -> crate::submit::Reply {
     use crate::submit::Reply;
     use pdf_signature::policy::Published;
@@ -1097,13 +1101,13 @@ fn bound(
                 note.push_str(". It is opened beside this document");
                 Reply::Document {
                     bytes: copy,
-                    note: closed(note, policy, warned),
+                    note: closed(note, warned, onward),
                 }
             } else {
                 note.push_str(
                     ". It is not a PDF, so this reader cannot show it; its media type is above",
                 );
-                Reply::Say(closed(note, policy, warned))
+                Reply::Say(closed(note, warned, onward))
             }
         }
         Published::DoesNotMatchTheFetchedOctets {
@@ -1122,7 +1126,7 @@ fn bound(
                     |named| format!("this signature names as {}", specification_named(named)),
                 )
             );
-            Reply::Say(closed(note, policy, warned))
+            Reply::Say(closed(note, warned, onward))
         }
         Published::PolicyHashNotKnown => {
             note.push_str(
@@ -1130,7 +1134,7 @@ fn bound(
                  its document (ETSI EN 319 122-1 clause 5.2.9.1's all-zero digest), so that copy \
                  cannot be bound to it and is not shown as the signer's",
             );
-            Reply::Say(closed(note, policy, warned))
+            Reply::Say(closed(note, warned, onward))
         }
         Published::UnderAnotherFunction { algorithm } => {
             let _ = write!(
@@ -1139,7 +1143,7 @@ fn bound(
                  {algorithm}, which this program does not compute, so the two were not compared \
                  and the copy is not shown as the signer's"
             );
-            Reply::Say(closed(note, policy, warned))
+            Reply::Say(closed(note, warned, onward))
         }
     }
 }
@@ -1156,8 +1160,8 @@ pub fn signature_policy_declined(
              copy is the one the signer committed to is not known here",
             policy.identifier, policy.url
         ),
-        policy,
         None,
+        Onward::NoCopy,
     )
 }
 
@@ -1171,32 +1175,47 @@ pub fn policy_fetch_note(policy: &pdf_signature::policy::PublishedPolicy) -> Str
     )
 }
 
-/// The two sentences every signature-policy note ends with: the level's warning where it gave
-/// one, and what §12.8.3.4.4 also requires that this program does not do.
-fn closed(
-    mut note: String,
-    policy: &pdf_signature::policy::PublishedPolicy,
-    warned: Option<&str>,
-) -> String {
+/// Where a copy of a signature policy's document goes once this program has compared it, which is
+/// what the closing sentence states.
+#[derive(Clone, Copy)]
+enum Onward {
+    /// A copy the server answered a window with, which the window hands to the document's
+    /// validation as `viewer_core::Command::PolicyCopy`: that is where the copy is bound from the
+    /// signature's own identifier and enforced, under the same three readers as a copy the file
+    /// stores (ADR 2624).
+    ToValidation,
+    /// No copy came back, or none was fetched, so nothing was enforced from the URL.
+    NoCopy,
+    /// A copy a caller of the C interface fetched itself and handed to
+    /// [`signature_policy_handed`]: that interface has no call that hands a copy to the
+    /// document's validation, so the sentence says the constraints were not enforced from it
+    /// (ADR 2624).
+    NotCarried,
+}
+
+/// The sentences every signature-policy note ends with: the level's warning where it gave one,
+/// and where §12.8.3.4.4's constraints are enforced from, which `onward` decides.
+fn closed(mut note: String, warned: Option<&str>, onward: Onward) -> String {
     if let Some(warned) = warned {
         note.push_str(" — ");
         note.push_str(warned);
     }
-    note.push_str(
-        ". §12.8.3.4.4 also requires a signature handler to enforce the policy's constraints, and \
-         this program does not: ",
-    );
-    match &policy.specification {
-        Some(specification) => {
-            note.push_str("they are written under ");
-            note.push_str(&specification_named(specification));
-            note.push_str(", a specification it does not hold");
+    note.push_str(match onward {
+        Onward::ToValidation => {
+            ". §12.8.3.4.4 also requires a signature handler to enforce the policy's constraints: \
+             the copy goes on to this document's validation, which enforces them from it where it \
+             is bound to the signature and says what came of them"
         }
-        None => note.push_str(
-            "the signature names no specification for the policy's syntax (ETSI EN 319 122-1 \
-             clause 5.2.9.2), so no syntax this program holds states them",
-        ),
-    }
+        Onward::NoCopy => {
+            ". §12.8.3.4.4 also requires a signature handler to enforce the policy's constraints, \
+             and none was enforced from that URL, because no copy came from it"
+        }
+        Onward::NotCarried => {
+            ". §12.8.3.4.4 also requires a signature handler to enforce the policy's constraints, \
+             and none was enforced from this copy: this program's C interface has no call that \
+             hands a copy to the document's validation"
+        }
+    });
     note
 }
 

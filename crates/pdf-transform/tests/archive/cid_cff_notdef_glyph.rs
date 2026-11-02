@@ -13,8 +13,8 @@ use pdf_syntax::object::ObjectId;
 use pdf_syntax::{Document, Limits};
 
 use super::{
-    Authorisations, Because, Conforming, Decision, Level, Rewrite, Target, Verdict, conversion,
-    convert, decision, holds, stream,
+    Authorisations, Conforming, Decision, Level, Rewrite, Target, Verdict, conversion, convert,
+    decision, holds, stream,
 };
 
 const NOTDEF_SHOWN: &str = "fonts/no-notdef-glyph-shown";
@@ -241,24 +241,61 @@ fn a_cid_the_charset_does_not_hold_is_given_a_copy_of_notdef_under_its_own_cid()
 }
 
 #[test]
-fn a_code_whose_own_cid_is_0_keeps_the_refusal_and_no_file_is_written() {
-    // ISO 32000-2 §9.7.4.2: CID 0 is the `CIDFont`'s `.notdef` character, so a copy has nothing
-    // to give the code `<0000>` (`doc/adr/2557`).
+fn a_code_whose_own_cid_is_0_is_sent_to_a_fresh_cid_given_a_copy_of_notdef() {
+    // ISO 32000-2 §9.7.4.2: CID 0 is the `CIDFont`'s `.notdef` character, so the code `<0000>` is
+    // sent by an embedded CMap (§9.7.5.3) to CID 8, past the charset's CIDs 0 and 1, the CID 7
+    // shown and the CID 1 `/W` states, and CID 8 is given the copy of glyph 0 at CID 0's width
+    // (`doc/adr/2622`).
     let source = a_page_showing("00000007");
+    let before = font_of(&source);
+    let [zero, seven]: [Code; 2] = before
+        .decode(&[0, 0, 0, 7])
+        .try_into()
+        .expect("two codes under Identity-H");
+    assert_eq!(before.cid(zero), Some(0));
     for target in [
         Target::Two(Level::B),
         Target::Four(pdf_archive::Flavour::Plain),
     ] {
         let (report, output) = convert(&source, target, Authorisations::default());
-        let row = decision(&report, NOTDEF_SHOWN);
-        assert!(
-            matches!(
-                row,
-                Decision::Refused(Because::NotBuiltYet(why))
-                    if why.contains("shows CID 0 of a CIDFontType0 font")
-            ),
-            "{row:?}"
+        let output = output.unwrap_or_else(|| {
+            panic!(
+                "{:?}\n{:?}\n{:?}",
+                conversion(&report).achieved,
+                report.refused,
+                report.warnings
+            )
+        });
+        let held = holds(&output, target);
+        assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+        let after = font_of(&output);
+        assert_eq!(after.cid(zero), Some(8), "the code selects the fresh CID");
+        assert_eq!(after.drawn_cid(zero), Some(8), "and draws it");
+        assert_eq!(
+            after.drawn_cid(seven),
+            Some(7),
+            "CID 7 reaches its own glyph"
         );
-        assert!(output.is_none(), "and no file is written");
+        let outline = |font: &LoadedFont, code| {
+            font.outline(code)
+                .map(|outline| outline.commands().to_vec())
+                .unwrap_or_default()
+        };
+        for code in [zero, seven] {
+            assert!(after.glyph_index(code).is_some_and(|glyph| glyph != 0));
+            assert_eq!(
+                outline(&after, code),
+                outline(&before, code),
+                "the box it drew"
+            );
+            assert!((after.advance(code) - before.advance(code)).abs() <= 0.001);
+        }
+        let text = String::from_utf8_lossy(&output).into_owned();
+        assert!(
+            text.contains("BT /F1 12 Tf 10 100 Td <00000007> Tj ET"),
+            "the content stream is the producer's bytes"
+        );
+        let packet = String::from_utf8(super::document_packet(&output)).expect("UTF-8");
+        assert!(packet.contains("to CID 8"), "{packet}");
     }
 }

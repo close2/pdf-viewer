@@ -88,6 +88,7 @@ use pdf_model::Pages;
 use pdf_model::content::Unsupported;
 use pdf_model::content::ledger::{Ledger, Outcome};
 use pdf_model::optional_content::OptionalContent;
+use pdf_model::page::ContentIssue;
 use pdf_render::{Point, Rasterizer as _, TargetSpec, Transform};
 use pdf_syntax::Document;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
@@ -744,7 +745,7 @@ fn leaves_the_page_undrawn(report: &Unsupported, gate: Gate<'_>) -> bool {
         Unsupported::Font { .. } | Unsupported::Text { .. } => false,
         // An operator no standard defines is the fault the photograph answers, and no reader
         // draws anything for it (`super::super::fenced`).
-        Unsupported::Operator { operator } => {
+        Unsupported::Operator { operator } if report.stream_syntax_fault().is_none() => {
             !(gate.anywhere && gate.fenced.operators.contains(operator))
         }
         other => !(gate.anywhere && is_a_fault_of_the_documents_own_stream(other)),
@@ -756,26 +757,39 @@ fn leaves_the_page_undrawn(report: &Unsupported, gate: Gate<'_>) -> bool {
 /// state we currently show the pdf").
 ///
 /// The faults are an operator short of its operands (§7.8.2), a name no resource dictionary defines
-/// (§7.8.3), a stream damaged part-way (§7.8.2), a path painted with no current point (§8.5), a
-/// matrix that cannot be inverted, and a soft mask dictionary §11.6.5.1 does not describe: the
-/// document asked for nothing the window could draw there.
+/// (§7.8.3), a stream damaged part-way (§7.8.2), the page's own `/Contents` among them, a path
+/// painted with no current point (§8.5), a matrix that cannot be inverted, and a soft mask
+/// dictionary §11.6.5.1 does not describe: the document asked for nothing the window could draw
+/// there. A stream that ends inside a text object and a keyword inside an array (§7.3.6) are the
+/// same kind of fault: the window acts on the stream's objects in order as §7.8.2 has it, so a
+/// glyph shown before the end is painted and the clip §9.3.6 makes at `ET` is never made, and a
+/// keyword that is no object of the array draws nothing while the objects around it are the
+/// stream's own. ADR 2618 has the reading kind by kind.
 ///
 /// Everything else stays refused, because the window's picture is then missing or approximating
 /// something a well-formed document asked for, and the photograph would record this reader's gap
 /// as the document's own loss: an image or a shading it cannot build, a stream it cannot decode, an
 /// annotation, optional content, a page box or dictionary it does not read, a drawing stopped at a
 /// bound, and the constructions §9.3.8, §11.4, §11.6.2 and §11.7.4 define that this reader composites
-/// otherwise (`TextKnockout`, `TransparencyGroup`, `CompositedInParts`, `Overprint`). ADR 2516.
+/// otherwise (`TextKnockout`, `TransparencyGroup`, `CompositedInParts`, `Overprint`). So are the
+/// parts of `/Contents` the window drew nothing of: where nothing decoded or a bound of this reader
+/// stopped the read, nothing tells the file's fault from this reader's gap, and where the entry
+/// names no stream the file holds, a photograph would carry content the producer named and the
+/// file lost with no loss of its own to name it. ADR 2516, ADR 2618.
 fn is_a_fault_of_the_documents_own_stream(report: &Unsupported) -> bool {
-    matches!(
-        report,
-        Unsupported::SoftMask { .. }
-            | Unsupported::UndefinedCurrentPoint { .. }
-            | Unsupported::OperandShortfall { .. }
-            | Unsupported::NoninvertibleMatrix { .. }
-            | Unsupported::MissingResource { .. }
-            | Unsupported::DamagedContentStream { .. }
-    )
+    report.stream_syntax_fault().is_some()
+        || matches!(
+            report,
+            Unsupported::SoftMask { .. }
+                | Unsupported::UndefinedCurrentPoint { .. }
+                | Unsupported::OperandShortfall { .. }
+                | Unsupported::NoninvertibleMatrix { .. }
+                | Unsupported::MissingResource { .. }
+                | Unsupported::DamagedContentStream { .. }
+                | Unsupported::Content {
+                    issue: ContentIssue::Damaged { .. }
+                }
+        )
 }
 
 /// A page's text as the report names it: white space collapsed to single spaces, cut at
@@ -1218,6 +1232,70 @@ mod tests {
         assert!(!leaves_the_page_undrawn(&fault, wide));
         let narrow = Gate::new(Target::Two(Level::B), (false, false, false), &fenced);
         assert!(leaves_the_page_undrawn(&fault, narrow));
+    }
+
+    #[test]
+    fn a_fault_of_the_page_s_own_bytes_is_baked_in_and_a_part_the_window_drew_nothing_of_is_not() {
+        let fenced = super::super::super::fenced::Fenced::default();
+        let wide = Gate::new(Target::Two(Level::B), (true, false, false), &fenced);
+        let narrow = Gate::new(Target::Two(Level::B), (false, false, false), &fenced);
+        let damaged = |damage| Unsupported::Content {
+            issue: ContentIssue::Damaged {
+                index: 0,
+                damage,
+                kept: 10,
+                filters: vec![String::from("FlateDecode")],
+            },
+        };
+        let operator = |operator: &str| Unsupported::Operator {
+            operator: operator.to_owned(),
+        };
+        // What the window drew is every object the stream's bytes state, acted on in order
+        // (ISO 32000-2 section 7.8.2): baked in under the wide gate, and only there (ADR 2618).
+        for fault in [
+            damaged(pdf_syntax::Damage::Truncated),
+            damaged(pdf_syntax::Damage::Corrupt),
+            damaged(pdf_syntax::Damage::CheckValue),
+            damaged(pdf_syntax::Damage::ForeignCharacter),
+            operator("BT without ET"),
+            operator("Tj inside an array, which §7.3.6 admits only objects into"),
+        ] {
+            assert!(!leaves_the_page_undrawn(&fault, wide), "{fault:?}");
+            assert!(leaves_the_page_undrawn(&fault, narrow), "{fault:?}");
+        }
+        // A part of `/Contents` the window drew nothing of, and an operator the fence does not
+        // name, stay refused at either gate.
+        for kept in [
+            Unsupported::Content {
+                issue: ContentIssue::Undecodable {
+                    index: 0,
+                    filters: vec![String::from("BrotliDecode")],
+                },
+            },
+            Unsupported::Content {
+                issue: ContentIssue::TooLarge {
+                    part: Some(0),
+                    limit: 1,
+                },
+            },
+            Unsupported::Content {
+                issue: ContentIssue::TokenTooLong { limit: 1 },
+            },
+            Unsupported::Content {
+                issue: ContentIssue::NotAStream { index: 1 },
+            },
+            Unsupported::Content {
+                issue: ContentIssue::Unreachable {
+                    index: 1,
+                    object: ObjectId::new(9, 0),
+                },
+            },
+            operator("Frobnicate"),
+            operator("BT without ET and more"),
+        ] {
+            assert!(leaves_the_page_undrawn(&kept, wide), "{kept:?}");
+            assert!(leaves_the_page_undrawn(&kept, narrow), "{kept:?}");
+        }
     }
 
     #[test]

@@ -144,10 +144,13 @@ shown is `.notdef`. A694 item 3 adopts it. **Built for a simple TrueType program
 restated `cmap` mapping each code to its copy; the ten documents of this row whose fonts are simple
 TrueType convert in six at 2b and five at part 4. **Built for a `CIDFontType2`** (ADR 2556): the same
 copy by CID, one per `/W` width, the `CIDToGIDMap` restated as a stream; `issue10519_reduced.pdf`
-converts at both targets under both profiles and passes veraPDF at both. Never for a shown CID 0, which
-ISO 32000-2 §9.7.4.2 makes the CIDFont's own `.notdef` whatever glyph it is sent to (ADR 2557; veraPDF
-agrees): `4387ba48….pdf` and `emi15514-sup-0002-SupinfoS2.pdf` show one, and an embedded CMap sending
-the code to a fresh CID is what they would take. The fonts are named from the whole population the
+converts at both targets under both profiles and passes veraPDF at both. **Built for a shown CID 0**,
+which ISO 32000-2 §9.7.4.2 makes the CIDFont's own `.notdef` whatever glyph it is sent to (ADR 2557;
+veraPDF agrees), over either program (ADR 2622): `Identity-H` restated as an embedded CMap that sends the
+code to a fresh CID drawing CID 0's glyph, `/W` given its width; `4387ba48….pdf`,
+`emi15514-sup-0002-SupinfoS2.pdf`, `issue7544.pdf`, `issue4650.pdf`, `issue11718_reduced.pdf` and
+`PDFBOX-3062-005717-p1.pdf` convert at both targets and pass veraPDF at both; `issue11768_reduced.pdf`
+(an `Adobe-Japan1` font under a CMap of its own, no `ToUnicode`) keeps the refusal. The fonts are named from the whole population the
 requirement failed over, not the places the report keeps (ADR 2602). **Built for a simple
 font's bare CFF program** (`/FontFile3 /Type1C`, ADR 2578): the program is written, its `CharStrings`
 INDEX grown by a copy of `.notdef`'s charstring per width (or a glyph that draws nothing where the code
@@ -160,10 +163,15 @@ for a `CIDFontType0`'s CID-keyed CFF program** (`/FontFile3 /CIDFontType0C`, ADR
 restated with the CIDs, `FDSelect` restated in the source's format 0 or 3 and the `FDArray` with it,
 `CIDCount` raised, every table read back before the font is proved; every `Type0` font over one
 descendant is answered together. Of the four documents of this row over such a program,
-`issue4650.pdf`, `issue11718_reduced.pdf` and `PDFBOX-3062-005717-p1.pdf` show their own CID 0 and keep
-the refusal under ADR 2557's reason, now named; `issue12963.pdf`, with 199 places on glyph 0, converts at
-both targets and passes veraPDF at both. A Type 1 program is owed (ADR 2578
-section 4). Mitigations
+`issue4650.pdf`, `issue11718_reduced.pdf` and `PDFBOX-3062-005717-p1.pdf` show their own CID 0, which
+ADR 2622 answers; `issue12963.pdf`, with 199 places on glyph 0, converts at
+both targets and passes veraPDF at both. **Built for a simple font's Type 1 program** (`/FontFile`,
+ADR 2620): the `eexec` section decrypted, the `CharStrings` dictionary grown by a copy of `.notdef`'s
+charstring per width (or a glyph that draws nothing) under Type 1 charstring encryption at the program's
+`lenIV`, the encoding restated to name each copy, `/Length1`–`/Length3` restated, and the section read
+back byte for byte and by `read-fonts` before the font is proved. `issue11477_reduced.pdf`,
+`issue6721_reduced.pdf` and `issue6901.pdf` convert at both targets under both profiles and pass veraPDF
+at both; `504076.pdf` loses this row and stays refused on others. Mitigations
 `fonts/no-notdef-glyph-shown`; limits 2.2.
 
 **R11 — a TrueType code that reaches its glyph by a route ISO 19005 does not admit** (built; 13
@@ -254,6 +262,11 @@ stops, except where the page's readback names no character (ADR 2394's gate as i
 remedies exist for some: the bound names a content stream never uses can be renamed outright; a
 MediaBox past 14 400 units becomes a smaller box under `/UserUnit` (ADR 1123's bracket around the
 producer's operators); part 4 has none of part 2's limits (R06b). Q694 asks for the widening.
+A photographed page is one the window drew whole, its own bytes' faults apart (ADR 2516 decision
+5); ADR 2618 adds the page's own damaged `/Contents`, a text object the stream ends inside and a
+keyword inside an array, and names what stays refused: a part of `/Contents` drawn of nothing, an
+image or shading this reader cannot build, a drawing stopped at a bound (the census's "does not
+draw whole" line names the documents).
 A page photographed in a document that states optional content is drawn in the configuration this
 viewer shows and carries `optional-content-of-photographed-pages`, the groups it fixed named with
 the state drawn, under `as-if-printed` and `state-every-loss` at 2b and part 4; Level A and Level U

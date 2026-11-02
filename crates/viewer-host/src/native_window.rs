@@ -2083,6 +2083,9 @@ pub trait NativeWindow {
     fn take_the_answers(&mut self) {
         for returned in self.state_mut().submitter.collect() {
             let (document, url) = (returned.document, returned.url.clone());
+            // A signature policy's copy goes on to the document's validation after the sentence
+            // saying what was fetched (ADR 2624).
+            let policy_copy = returned.policy_copy();
             match returned.reply() {
                 crate::submit::Reply::Import {
                     answers,
@@ -2112,6 +2115,9 @@ pub trait NativeWindow {
                     }
                 }
                 crate::submit::Reply::Say(note) => self.say(&note),
+            }
+            if let Some(command) = policy_copy {
+                self.dispatch(command);
             }
         }
         self.take_the_conversions();

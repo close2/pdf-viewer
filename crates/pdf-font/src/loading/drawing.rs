@@ -75,6 +75,19 @@ impl LoadedFont {
         self.drawing(self.drawn_glyph(code)?).err()
     }
 
+    /// Whether `code` reaches no glyph of the program's own and is drawn with the program's
+    /// `.notdef` in its place: ISO 32000-2 §9.6.5.2's rule for a name the program lacks,
+    ///
+    /// > If an encoding maps to a character name that does not exist in the Type 1 font program,
+    /// > the .notdef glyph shall be substituted.
+    ///
+    /// as [`Self::outline`] applies it. A caller that gives such a code a glyph of its own copies
+    /// `.notdef`'s outline into it, since that is what the code drew (`doc/adr/2620`).
+    #[must_use]
+    pub fn draws_notdef_in_place(&self, code: Code) -> bool {
+        self.placed_glyph(code).is_none() && self.notdef.is_some() && self.substitutes_notdef(code)
+    }
+
     /// The glyph [`Self::outline`] draws for `code`: the one its route reaches, or §9.6.5.2's
     /// `.notdef` where that sentence applies.
     fn drawn_glyph(&self, code: Code) -> Option<Placed> {

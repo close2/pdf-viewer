@@ -301,9 +301,11 @@ impl NestedContent {
                     filters.clone(),
                     *limit,
                 ))),
+                runs: Runs::Salvaged,
             },
             Nested::Refused { limit } => ContentReader {
                 held: Held::Window(Box::new(Window::refused(*limit))),
+                runs: Runs::Salvaged,
             },
         }
     }
@@ -386,6 +388,32 @@ impl NestedContent {
 pub struct ContentReader<'a> {
     /// Where the bytes come from.
     held: Held<'a>,
+    /// How a run that begins with a number and spells none is handed over.
+    runs: Runs,
+}
+
+/// How a [`ContentReader`] hands over a run of regular characters that opens with a number and
+/// spells none under ISO 32000-2 §7.3.3 — `12pt`, `454` followed by a byte above 127.
+///
+/// §7.2.3 settles what such a run is:
+///
+/// > A sequence of consecutive regular characters comprises a single token.
+///
+/// so it is one token, and since it is no number it is a keyword, which §7.8.2 makes an operator:
+///
+/// > An operator is a PDF keyword specifying some action that shall be performed, such as
+/// > painting a graphical shape on the page.
+///
+/// A reader that draws salvages the number all the same where the rest names no operator
+/// ([`next_content_token`], ADR 1004), because a unit after a number costs no action. A reader
+/// that judges a file against ISO 19005's section 6.2.2 is asking which operators the stream
+/// uses, and to it the run is the keyword it is (ADR 2619).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Runs {
+    /// The number off the front, unless the rest names an operator: what is drawn.
+    Salvaged,
+    /// The whole run, as §7.2.3's keyword: what a validator reads.
+    AsWritten,
 }
 
 /// The two shapes of [`ContentReader`].
@@ -418,7 +446,18 @@ impl<'a> ContentReader<'a> {
                 at: 0,
                 of_page: None,
             },
+            runs: Runs::Salvaged,
         }
+    }
+
+    /// The same reader, handing a run that opens with a number and spells none over whole, as
+    /// the keyword ISO 32000-2 §7.2.3 makes it, where it would otherwise salvage the number
+    /// (`Runs`). For a validator's walk, which asks what operators the stream uses rather than
+    /// what to draw.
+    #[must_use]
+    pub const fn with_runs_as_written(mut self) -> Self {
+        self.runs = Runs::AsWritten;
+        self
     }
 
     /// A reader over one piece of a page's stream, `from` bytes into a stream `of` bytes long,
@@ -431,6 +470,7 @@ impl<'a> ContentReader<'a> {
                 at: 0,
                 of_page: Some((from, of)),
             },
+            runs: Runs::Salvaged,
         }
     }
 
@@ -530,6 +570,7 @@ impl<'a> ContentReader<'a> {
         }
         Self {
             held: Held::Window(Box::new(window)),
+            runs: Runs::Salvaged,
         }
     }
 
@@ -602,15 +643,15 @@ impl<'a> ContentReader<'a> {
                         *at = end;
                         return read(Some(Token::String(Vec::new())));
                     }
-                    let token = content_token_at_cursor(&mut lexer);
+                    let token = content_token_at_cursor(&mut lexer, self.runs);
                     *at = lexer.position();
                     return read(token);
                 }
-                let token = next_content_token(&mut lexer);
+                let token = next_content_token(&mut lexer, self.runs);
                 *at = lexer.position();
                 read(token)
             }
-            Held::Window(window) => window.with_operand(strings, read),
+            Held::Window(window) => window.with_operand(strings, self.runs, read),
         }
     }
 
@@ -895,6 +936,7 @@ impl Window {
     fn with_operand<T>(
         &mut self,
         strings: Strings,
+        runs: Runs,
         read: impl FnOnce(Option<Token<'_>>) -> T,
     ) -> T {
         if !self.in_comment && self.filled.saturating_sub(self.at) >= SLACK {
@@ -908,8 +950,8 @@ impl Window {
                 }
             }
             let token = match strings {
-                Strings::StepOver => content_token_at_cursor(&mut lexer),
-                Strings::Read => next_content_token(&mut lexer),
+                Strings::StepOver => content_token_at_cursor(&mut lexer, runs),
+                Strings::Read => next_content_token(&mut lexer, runs),
             };
             let end = lexer.position();
             if end < self.filled {
@@ -917,14 +959,14 @@ impl Window {
                 return read(token);
             }
         }
-        self.settle_then(read)
+        self.settle_then(runs, read)
     }
 
     /// The rest of [`Self::with_operand`]: refilling, growing and the two boundary cases.
     ///
     /// Split out so that the arm above stays a leaf, and cold because it runs once per refill.
     #[cold]
-    fn settle_then<T>(&mut self, read: impl FnOnce(Option<Token<'_>>) -> T) -> T {
+    fn settle_then<T>(&mut self, runs: Runs, read: impl FnOnce(Option<Token<'_>>) -> T) -> T {
         loop {
             self.settle();
             // A token that ends exactly where the buffer does may have been cut by the
@@ -955,7 +997,7 @@ impl Window {
             }
         }
         let mut lexer = Lexer::at(self.buffer.get(..self.filled).unwrap_or_default(), self.at);
-        let token = next_content_token(&mut lexer);
+        let token = next_content_token(&mut lexer, runs);
         self.at = lexer.position();
         read(token)
     }
@@ -1457,22 +1499,28 @@ fn string_end(bytes: &[u8], start: usize, whole: bool) -> Option<usize> {
 ///
 /// The vocabulary is the standard's, not this interpreter's: a run that swallowed an operator
 /// this tree does not implement has still swallowed one, and the report names the run either
-/// way.
-fn next_content_token<'b>(lexer: &mut Lexer<'b>) -> Option<Token<'b>> {
+/// way. Under [`Runs::AsWritten`] every salvaged run is handed over whole, whatever its tail.
+fn next_content_token<'b>(lexer: &mut Lexer<'b>, runs: Runs) -> Option<Token<'b>> {
     let token = lexer.next_token()?;
-    match lexer.salvaged() {
-        Some(salvage) if names_an_operator(salvage.dropped) => Some(Token::Keyword(salvage.run)),
-        _ => Some(token),
-    }
+    Some(unsalvaged(lexer, token, runs))
 }
 
 /// [`next_content_token`] where the white space and comments before the token are already
 /// skipped: see [`Lexer::token_at_cursor`].
-fn content_token_at_cursor<'b>(lexer: &mut Lexer<'b>) -> Option<Token<'b>> {
+fn content_token_at_cursor<'b>(lexer: &mut Lexer<'b>, runs: Runs) -> Option<Token<'b>> {
     let token = lexer.token_at_cursor()?;
+    Some(unsalvaged(lexer, token, runs))
+}
+
+/// The token just read, or the whole run where [`next_content_token`]'s rule, or `runs`, says
+/// the salvage does not stand. The mode is asked only of a salvaged token, so a number §7.3.3
+/// spells pays nothing for it.
+fn unsalvaged<'b>(lexer: &Lexer<'b>, token: Token<'b>, runs: Runs) -> Token<'b> {
     match lexer.salvaged() {
-        Some(salvage) if names_an_operator(salvage.dropped) => Some(Token::Keyword(salvage.run)),
-        _ => Some(token),
+        Some(salvage) if runs == Runs::AsWritten || names_an_operator(salvage.dropped) => {
+            Token::Keyword(salvage.run)
+        }
+        _ => token,
     }
 }
 

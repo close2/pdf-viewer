@@ -337,6 +337,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "type1_write"
+path = "fuzz_targets/type1_write.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "policy_document"
 path = "fuzz_targets/policy_document.rs"
 test = false

@@ -234,7 +234,8 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         id: "metadata/properties-use-known-schemas",
         asks: "Every property an XMP packet states in a predefined schema shall be used as that \
                schema defines it — the value type it is given, and the language qualifiers a \
-               language alternative's items carry.",
+               language alternative's items carry — and every property an extension schema \
+               describes, in the form its described value type fixes.",
         clauses: Clauses::only_two("6.6.2.3.1"),
         applies: Applies::Always,
         check: Check::Implemented(properties_use_known_schemas),
@@ -2296,10 +2297,27 @@ fn spelled(property: &XmpProperty) -> String {
 /// The language-qualifier finding below survives the resolution and is worth saying why: an `Alt`
 /// whose items carry `xml:lang` is what the *type* language alternative is, in the XMP
 /// Specification's own definition of it, rather than something read off the property's name.
+///
+/// # The described half
+///
+/// The same subclause admits an extension schema's property only as that schema complies with
+/// section 6.6.2.3.2, and a description naming a value type has said what form the value takes:
+/// `judge_against_description` holds the property to it. The description is read where
+/// [`extension_schema_structure_fields`] reads it, in the property's own stream and in the
+/// catalog's.
 fn properties_use_known_schemas(exam: &Examination<'_>, findings: &mut Findings) {
+    let mut inherited = Described::default();
+    if let Some(properties) = catalog_detail(exam.document) {
+        describe(&properties, &mut inherited);
+    }
     for_each_packet(exam, |id, properties| {
+        let mut described = inherited.clone();
+        describe(properties, &mut described);
         for property in properties {
-            for complaint in judge_against_schema(property) {
+            let complaints = judge_against_schema(property)
+                .into_iter()
+                .chain(judge_against_description(property, &described));
+            for complaint in complaints {
                 findings.record(Where::object(id).named(spelled(property)), complaint);
             }
         }
@@ -2552,6 +2570,184 @@ pub fn properties_outside_their_schema(packet: &[u8]) -> Vec<MisusedProperty> {
         });
     }
     out
+}
+
+/// Every property one XMP packet states outside the form its extension schema's description
+/// gives it.
+///
+/// The population `judge_against_description` reports over in
+/// `metadata/properties-use-known-schemas`, answered for one packet's bytes as
+/// [`properties_outside_their_schema`] answers the predefined half. `described` is the catalog's
+/// own packet where the caller holds one, for section 6.6.2.3.2's reason [`undescribed_schemas`]
+/// gives. A packet that does not parse yields nothing.
+#[must_use]
+pub fn properties_outside_their_description(
+    packet: &[u8],
+    described: Option<&[u8]>,
+) -> Vec<MisusedProperty> {
+    let Ok(properties) = Xmp::parse_detail(packet) else {
+        return Vec::new();
+    };
+    let mut seen = Described::default();
+    if let Some(inherited) = described.and_then(|bytes| Xmp::parse_detail(bytes).ok()) {
+        describe(&inherited, &mut seen);
+    }
+    describe(&properties, &mut seen);
+    properties
+        .iter()
+        .filter_map(|property| {
+            Some(MisusedProperty {
+                name: property.name.clone(),
+                spelled: spelled(property),
+                stated: rendered(&property.value),
+                because: judge_against_description(property, &seen)?,
+            })
+        })
+        .collect()
+}
+
+/// What one item of a described value is, where its type fixes that.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ItemForm {
+    /// One string: a simple type.
+    Text,
+    /// A structure: one of the edition's structured types, or a custom type a description names.
+    Structure,
+}
+
+/// The value types the September 2005 edition of the XMP Specification defines as simple.
+///
+/// Chapter 4's "Property Value Types" (pp. 73–86), each heading whose entry defines a string
+/// rather than fields: `Choice` is a `Text` drawn from a vocabulary, and `Rational` and
+/// `GPSCoordinate` are the EXIF value types written as one string.
+const SIMPLE_TYPES: &[&str] = &[
+    "AgentName",
+    "Boolean",
+    "Choice",
+    "Date",
+    "GPSCoordinate",
+    "Integer",
+    "Locale",
+    "MIMEType",
+    "ProperName",
+    "Rational",
+    "Real",
+    "RenditionClass",
+    "Text",
+    "URI",
+    "URL",
+    "XPath",
+];
+
+/// The value types the same chapter defines by their fields.
+const STRUCTURE_TYPES: &[&str] = &[
+    "beatSpliceStretch",
+    "CFAPattern",
+    "Colorant",
+    "DeviceSettings",
+    "Dimensions",
+    "Flash",
+    "Font",
+    "Job",
+    "Marker",
+    "Media",
+    "OECF/SFR",
+    "ProjectLink",
+    "resampleStretch",
+    "ResourceEvent",
+    "ResourceRef",
+    "Thumbnail",
+    "Time",
+    "Timecode",
+    "timeScaleStretch",
+    "Version",
+];
+
+/// The form an item of the named type takes, where the type is one the edition or a description
+/// defines; `None` for a name neither does, which is
+/// `metadata/extension-property-value-types-are-defined`'s question rather than this one's.
+fn item_form(name: &str, described: &Described) -> Option<ItemForm> {
+    if SIMPLE_TYPES.contains(&name) {
+        Some(ItemForm::Text)
+    } else if STRUCTURE_TYPES.contains(&name) || described.custom(name).is_some() {
+        Some(ItemForm::Structure)
+    } else {
+        None
+    }
+}
+
+/// The shape a described value type gives a value, and what each of its items is.
+///
+/// `Lang Alt` is the edition's own name for a language alternative of text; any other type is a
+/// container's name and then its item type's, as [`item_type`] reads it, or a single type.
+fn described_shape(value_type: &str, described: &Described) -> Option<(Shape, ItemForm)> {
+    let value_type = value_type.trim();
+    if value_type == "Lang Alt" {
+        return Some((Shape::Language, ItemForm::Text));
+    }
+    let item = item_type(value_type);
+    let form = item_form(item, described)?;
+    let shape = if item == value_type {
+        match form {
+            ItemForm::Text => Shape::Simple,
+            ItemForm::Structure => Shape::Structure,
+        }
+    } else if value_type.starts_with("Bag") {
+        Shape::Unordered
+    } else if value_type.starts_with("Seq") {
+        Shape::Ordered
+    } else {
+        Shape::Alternative
+    };
+    Some((shape, form))
+}
+
+/// Why one property breaks the form the extension schema describing it fixes, where it does.
+///
+/// ISO 19005-2 section 6.6.2.3.1 admits a property no predefined schema defines only as an
+/// extension schema complying with section 6.6.2.3.2 describes it, and a description is held to
+/// by the form its `pdfaProperty:valueType` names: a simple type is one string, a structured one
+/// a structure, and a container's items each its item type's form. A property the predefined
+/// schema does define is [`judge_against_schema`]'s, whatever a description says; one in a
+/// namespace ISO 19005 defines itself is its own rows'.
+fn judge_against_description(property: &XmpProperty, described: &Described) -> Option<String> {
+    let namespace = &property.name.namespace;
+    if defined_by_iso_19005(namespace)
+        || predefined(namespace)
+            .is_some_and(|schema| schema.property(&property.name.local).is_some())
+    {
+        return None;
+    }
+    let value_type = described.value_type_of(namespace, &property.name.local)?;
+    let (shape, form) = described_shape(value_type, described)?;
+    let refused = |stated: &str| {
+        format!(
+            "the extension schema describing {} gives it the value type {}, and the packet \
+             states {stated}",
+            spelled(property),
+            value_type.trim()
+        )
+    };
+    if !shape.accepts(&property.value) {
+        return Some(refused(shaped(&property.value)));
+    }
+    let items: Vec<&Detail> = match &property.value {
+        Detail::Alt(items) => items.iter().map(|(_, item)| item).collect(),
+        Detail::Seq(items) | Detail::Bag(items) => items.iter().collect(),
+        Detail::Text(_) | Detail::Structure(_) => return None,
+    };
+    let (ordinal, item) = (1usize..).zip(items).find(|(_, item)| {
+        let stated = match item {
+            Detail::Text(_) => ItemForm::Text,
+            Detail::Structure(_) => ItemForm::Structure,
+            Detail::Alt(_) | Detail::Seq(_) | Detail::Bag(_) => return true,
+        };
+        stated != form
+    })?;
+    Some(refused(&format!(
+        "{} as item {ordinal} of it",
+        shaped(item)
+    )))
 }
 
 /// Every scalar one packet states for a property the XMP Specification types as a `Date`, each
@@ -3632,7 +3828,8 @@ mod tests {
     };
     use super::{
         PacketFault, declared_target, identification_schema_prefix,
-        malformed_amendment_identifiers, packet_faults, undescribed_schemas,
+        malformed_amendment_identifiers, packet_faults, properties_outside_their_description,
+        undescribed_schemas,
     };
     use crate::target::{Flavour, Level, Target};
 
@@ -5205,6 +5402,74 @@ mod tests {
             ),
             1,
             "and the two properties are judged separately"
+        );
+    }
+
+    /// ISO 19005-2 section 6.6.2.3.1 through a description: `xmpMM:Ingredients`, which the 2005
+    /// edition's Media Management schema does not define, written as attribute-form `ResourceRef`
+    /// structures, fails a description typing it `Bag Text` and passes one typing it
+    /// `Bag ResourceRef` — in the packet's own stream and inherited from the catalog's alike.
+    #[test]
+    fn a_property_is_held_to_the_form_its_description_gives_it() {
+        let description = |value_type: &str| {
+            format!(
+                "<pdfaExtension:schemas><rdf:Bag><rdf:li rdf:parseType=\"Resource\">\
+                 <pdfaSchema:schema>Media Management</pdfaSchema:schema>\
+                 <pdfaSchema:namespaceURI>http://ns.adobe.com/xap/1.0/mm/</pdfaSchema:namespaceURI>\
+                 <pdfaSchema:prefix>xmpMM</pdfaSchema:prefix>\
+                 <pdfaSchema:property><rdf:Seq><rdf:li rdf:parseType=\"Resource\">\
+                 <pdfaProperty:name>Ingredients</pdfaProperty:name>\
+                 <pdfaProperty:valueType>{value_type}</pdfaProperty:valueType>\
+                 <pdfaProperty:category>internal</pdfaProperty:category>\
+                 <pdfaProperty:description>ingredients</pdfaProperty:description>\
+                 </rdf:li></rdf:Seq></pdfaSchema:property>\
+                 </rdf:li></rdf:Bag></pdfaExtension:schemas>"
+            )
+        };
+        let ingredients = "<xmpMM:Ingredients \
+             xmlns:stRef=\"http://ns.adobe.com/xap/1.0/sType/ResourceRef#\"><rdf:Bag>\
+             <rdf:li stRef:filePath=\"x\"/></rdf:Bag></xmpMM:Ingredients>";
+        let mm = "http://ns.adobe.com/xap/1.0/mm/";
+        let stated =
+            |value_type: &str| schema_packet("xmpMM", mm, &(description(value_type) + ingredients));
+
+        let misused = properties_outside_their_description(stated("Bag Text").as_bytes(), None);
+        let [property] = misused.as_slice() else {
+            panic!("one property breaks its description: {misused:?}");
+        };
+        assert_eq!(property.spelled, "xmpMM:Ingredients");
+        assert!(
+            property.because.contains("Bag Text") && property.because.contains("a structure"),
+            "{}",
+            property.because
+        );
+        // The plant: the same packet, its description naming the structure the items are.
+        assert!(
+            properties_outside_their_description(stated("Bag ResourceRef").as_bytes(), None)
+                .is_empty()
+        );
+
+        // A description the catalog's packet carries types a property every stream states.
+        let alone = schema_packet("xmpMM", mm, ingredients);
+        let catalog = |value_type: &str| schema_packet("xmpMM", mm, &description(value_type));
+        assert_eq!(
+            properties_outside_their_description(
+                alone.as_bytes(),
+                Some(catalog("Bag Text").as_bytes())
+            )
+            .len(),
+            1
+        );
+        assert!(
+            properties_outside_their_description(
+                alone.as_bytes(),
+                Some(catalog("Bag ResourceRef").as_bytes())
+            )
+            .is_empty()
+        );
+        // A type neither the edition nor a description defines is another row's question.
+        assert!(
+            properties_outside_their_description(stated("Bag Machine").as_bytes(), None).is_empty()
         );
     }
 }

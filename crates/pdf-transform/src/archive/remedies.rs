@@ -388,7 +388,10 @@ impl Remedies {
             // The requirement is met; there is nothing to derive.
             return;
         };
-        let streams = embedded_streams(document, judgement);
+        // A place list that is itself a prefix leaves the site unanswered, so its refusal stands.
+        let Ok(streams) = embedded_streams(document, judgement) else {
+            return;
+        };
         if streams.is_empty() {
             return;
         }
@@ -606,7 +609,10 @@ impl Remedies {
                 return;
             }
         };
-        let streams = embedded_streams(document, judgement);
+        // A place list that is itself a prefix leaves the site unanswered, so its refusal stands.
+        let Ok(streams) = embedded_streams(document, judgement) else {
+            return;
+        };
         if streams.is_empty() {
             return;
         }
@@ -1107,16 +1113,24 @@ fn most_used<'a>(document: &Document, uses: &[&'a SeparationUse]) -> &'a Separat
 /// stream sits under, which is how `pdf_archive` records both rules this file answers. Resolving
 /// the pair here rather than walking the document again is what keeps the population the
 /// validator's.
+///
+/// **The pairs are every distinct place the requirement failed at**,
+/// [`super::sites::places_failed`]'s, and not the thirty-two [`Outcome::Failed`] keeps
+/// (`doc/adr/2616`). Each stream is taken once, by a set rather than a scan of what is held, so
+/// a population of thousands of places is not a quadratic walk (trap 305).
+///
+/// # Errors
+///
+/// [`super::sites::PLACES_CUT_SHORT`] where the place list is itself a prefix.
 fn embedded_streams(
     document: &Document,
     judgement: &pdf_archive::Judgement,
-) -> Vec<(ObjectId, ObjectId, String)> {
-    let Outcome::Failed { places, .. } = &judgement.outcome else {
-        return Vec::new();
-    };
+) -> Result<Vec<(ObjectId, ObjectId, String)>, super::decision::Because> {
+    let places = super::sites::places_failed(judgement)?;
     let mut out: Vec<(ObjectId, ObjectId, String)> = Vec::new();
-    for finding in places {
-        let Some(specification) = finding.place.object else {
+    let mut seen: BTreeSet<ObjectId> = BTreeSet::new();
+    for place in places {
+        let Some(specification) = place.object else {
             continue;
         };
         let object = document.get(specification);
@@ -1130,7 +1144,7 @@ fn embedded_streams(
         let name = specification_name(document, dict);
         // The finding names the key where it knows it; where it does not, every key Table 43
         // admits is taken, which is the same population the requirement was failed over.
-        let keys: Vec<&str> = match finding.place.name.as_deref() {
+        let keys: Vec<&str> = match place.name.as_deref() {
             Some(named) if files.get(named).is_some() => vec![named],
             _ => vec!["F", "UF", "DOS", "Mac", "Unix"],
         };
@@ -1138,13 +1152,13 @@ fn embedded_streams(
             let Some(at) = files.get(key).and_then(Object::as_reference) else {
                 continue;
             };
-            if out.iter().any(|(held, _, _)| *held == at) {
+            if !seen.insert(at) {
                 continue;
             }
             out.push((at, specification, name.clone()));
         }
     }
-    out
+    Ok(out)
 }
 
 /// The media type the operator's table gives a file name, matched on its extension.

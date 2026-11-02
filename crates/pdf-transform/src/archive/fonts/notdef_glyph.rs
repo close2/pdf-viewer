@@ -177,6 +177,11 @@ pub(in crate::archive) fn units_per_em(program: &[u8]) -> Option<u16> {
     u16_at(directory(program)?.get(b"head")?, 18).filter(|units| *units > 0)
 }
 
+/// The number of glyphs a program holds, from `maxp`.
+pub(in crate::archive) fn glyph_count(program: &[u8]) -> Option<u16> {
+    u16_at(directory(program)?.get(b"maxp")?, 4)
+}
+
 /// One glyph's outline bytes in a program, by its `loca`.
 pub(in crate::archive) fn outline(program: &[u8], glyph: u16) -> Option<&[u8]> {
     let tables = directory(program)?;
