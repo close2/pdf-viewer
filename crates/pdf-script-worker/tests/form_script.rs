@@ -703,3 +703,78 @@ fn a_click_event_that_never_ends_is_stopped_and_the_entry_is_kept() {
         );
     }
 }
+
+/// A `ready` event bound to the Form DOM (XFA 3.3 page 388), written in JavaScript.
+fn javascript_ready(script: &str) -> String {
+    format!(
+        "<event activity=\"ready\" ref=\"$form\"><script contentType=\"application/x-javascript\">\
+         {script}</script></event>"
+    )
+}
+
+/// The Form DOM's `ready` runs in the confined worker at the end of the open sequence, after the
+/// merge's calculations (page 388), and what it sets wakes the calculations that read it.
+#[test]
+fn a_ready_event_runs_in_the_worker_after_the_merge() {
+    let template = [
+        field("Units", ""),
+        field("Start", &javascript_ready("Units.rawValue = 7;")),
+        field("Total", &calculate("Units * 2", "")),
+    ]
+    .concat();
+    let document = document(&template, &[("Units", "3"), ("Start", ""), ("Total", "")]);
+    let worker = Arc::new(ScriptWorker::with_program(WORKER).with_deadline(OUT_OF_THE_WAY));
+    let mut view = view_with(&document, &worker);
+    assert!(view.activate_form_on_merge(&document), "a value changed");
+    assert_eq!(shown(&view, &document, "Units").as_deref(), Some("7"));
+    assert_eq!(shown(&view, &document, "Total").as_deref(), Some("14"));
+    assert!(worker.deaths().is_empty(), "{:?}", worker.deaths());
+}
+
+/// The plant: a `ready` script that never ends. The sequence clock the merge started stops it
+/// within the activation's budget, what it set is dropped, and the form keeps what the merge
+/// calculated, which is what the window draws.
+#[test]
+fn a_ready_event_that_never_ends_is_stopped_and_the_merge_is_kept() {
+    for script in [
+        "Other.rawValue = 9; for (;;) {}",
+        "Other.rawValue = 9; function f() { return f() + 1; } f()",
+        "Other.rawValue = 9; for (var i = 0; i &lt; 90000; i++) { for (var j = 0; j &lt; 90000; j++) {} }",
+    ] {
+        let template = [
+            field("Units", ""),
+            field("Start", &javascript_ready(script)),
+            field("Total", &calculate("Units * 2", "")),
+            field("Other", ""),
+        ]
+        .concat();
+        let document = document(
+            &template,
+            &[("Units", "3"), ("Start", ""), ("Total", ""), ("Other", "")],
+        );
+        let worker = Arc::new(ScriptWorker::with_program(WORKER).with_deadline(OUT_OF_THE_WAY));
+        let mut view = view_with(&document, &worker);
+        let started = std::time::Instant::now();
+        let changed = view.activate_form_on_merge(&document);
+        let took = started.elapsed();
+        assert!(took < Duration::from_secs(5), "{script}: {took:?}");
+        assert!(changed, "{script}: the merge's calculation is kept");
+        assert_eq!(
+            shown(&view, &document, "Total").as_deref(),
+            Some("6"),
+            "{script}: the merge's value is drawn"
+        );
+        assert_eq!(
+            shown(&view, &document, "Other").as_deref(),
+            Some(""),
+            "{script}: what the stopped event set is dropped"
+        );
+        let said = view.script_reports().join("\n");
+        assert!(said.contains("its ready event"), "{script}: {said}");
+        assert!(
+            worker.deaths().is_empty(),
+            "{script}: {:?}",
+            worker.deaths()
+        );
+    }
+}

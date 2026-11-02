@@ -353,24 +353,26 @@ fn fonts_sharing(count: usize, program_bytes: &[u8], null_descendant: bool) -> V
 }
 
 #[test]
-fn a_file_with_the_most_fonts_the_checker_names_converts_and_one_more_is_refused() {
-    let at_the_bound = fonts_sharing_one_program(MOST_PLACES_THE_CHECKER_KEEPS);
+fn fonts_past_the_places_the_checker_keeps_are_restated_too() {
+    // The fonts restated are every object the requirement named, not the places a report keeps
+    // (`doc/adr/2602`): one font past those places converts like the rest.
     let target = Target::Two(Level::B);
-    let (report, output) = convert(&at_the_bound, target, Authorisations::default());
-    let output = output.unwrap_or_else(|| panic!("{:?}", conversion(&report).achieved));
-    let held = holds(&output, target);
-    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
-
-    let past_it = fonts_sharing_one_program(MOST_PLACES_THE_CHECKER_KEEPS.saturating_add(1));
-    let (report, output) = convert(&past_it, target, Authorisations::default());
-    let Decision::Refused(because) = decision(&report, DIFFERENCES) else {
-        panic!("the font past the checker's places keeps the refusal");
-    };
-    assert!(
-        because.sentence().contains("only the first places"),
-        "and says why, rather than leaving the conversion's last check to: {because:?}"
-    );
-    assert!(output.is_none());
+    for count in [
+        MOST_PLACES_THE_CHECKER_KEEPS,
+        MOST_PLACES_THE_CHECKER_KEEPS.saturating_add(1),
+    ] {
+        let source = fonts_sharing_one_program(count);
+        let (report, output) = convert(&source, target, Authorisations::default());
+        let output =
+            output.unwrap_or_else(|| panic!("{count}: {:?}", conversion(&report).achieved));
+        let held = holds(&output, target);
+        assert_eq!(
+            held.verdict(),
+            Verdict::Conforms,
+            "{count}: {}",
+            held.render()
+        );
+    }
 }
 
 #[test]

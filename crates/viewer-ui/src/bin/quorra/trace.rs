@@ -373,6 +373,9 @@ pub(crate) fn describe_command(command: &Command) -> String {
         },
         Command::Separations(simulate) => format!("separation simulation {simulate}"),
         Command::Guidelines(shown) => format!("page-boundary guidelines {shown}"),
+        Command::NullFontSubstitute(substitute) => {
+            format!("substitute for a null /Font entry {substitute}")
+        }
         Command::Oversize(oversize) => format!("oversized pages {oversize:?}"),
         Command::Answer { proceed, .. } => format!("answer {proceed}"),
         Command::Scripts(scripting) => describe_scripting(scripting).to_owned(),

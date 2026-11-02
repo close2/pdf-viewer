@@ -137,6 +137,12 @@ const NOT_DECODED_WHOLE: &str = "a JPEG 2000 image outside the JPX baseline was 
      requires a feature this tree's decoder does not provide. A reduced resolution level is not \
      the image, and nothing else is a copy of it";
 
+/// Why an image is not transcoded when the worker that decodes it could not be reached.
+const DECODER_NOT_REACHED: &str = "a JPEG 2000 image outside the JPX baseline was not decoded \
+     because the sandbox worker that runs its codec could not be reached: it was not found, \
+     would not start, or was built from another tree. Nothing is known about the image, and a \
+     run with the worker built beside this program, or named by PDF_SANDBOX_WORKER, decodes it";
+
 /// Why an image whose samples no PDF colour space can carry is not transcoded.
 const NO_SPACE_FOR_ITS_SAMPLES: &str = "a JPEG 2000 image outside the JPX baseline is in a \
      colour space no PDF colour space restates for its samples: PIMA 7667's e-sRGB or e-sYCC, \
@@ -401,10 +407,12 @@ fn transcode(
 /// ADR 2292's.
 ///
 /// The budget's and the decoder's are one: `pdf_sandbox` reports either in its own words, and both
-/// mean the image was not had whole. A colour space no PDF space restates is no question of
-/// resolution, and neither is a dictionary its codestream contradicts.
+/// mean the image was not had whole. A worker that was never reached is neither, and says so
+/// (ADR 2609). A colour space no PDF space restates is no question of resolution, and neither is
+/// a dictionary its codestream contradicts.
 fn not_decoded(error: &ImageError) -> &'static str {
     match error {
+        ImageError::DecoderUnreachable { .. } => DECODER_NOT_REACHED,
         ImageError::Sandboxed { .. } | ImageError::TooLarge { .. } => NOT_DECODED_WHOLE,
         ImageError::UnsupportedColourSpace { .. } => NO_SPACE_FOR_ITS_SAMPLES,
         ImageError::Malformed { .. } => NOT_THE_DICTIONARY_S_IMAGE,
@@ -823,6 +831,22 @@ mod tests {
             space: JpxSpace::Stated,
             decode: vec![(0.0, 1.0); depths.len()],
         }
+    }
+
+    /// A worker never reached is refused in its own sentence, and a reached worker's refusal —
+    /// a budget or the decoder's — keeps the budget's (ADR 2609).
+    #[test]
+    fn an_unreached_worker_is_not_a_budget() {
+        let unreached = ImageError::DecoderUnreachable {
+            detail: "starting the sandbox worker failed".to_owned(),
+        };
+        assert_eq!(not_decoded(&unreached), DECODER_NOT_REACHED);
+        let stopped = ImageError::Sandboxed {
+            detail: "the sandbox worker stopped without answering (killed)".to_owned(),
+        };
+        assert_eq!(not_decoded(&stopped), NOT_DECODED_WHOLE);
+        assert!(NOT_DECODED_WHOLE.contains("budget"));
+        assert!(!DECODER_NOT_REACHED.contains("budget"));
     }
 
     /// One depth Table 87 states is written at that depth, packed high bit first, and the

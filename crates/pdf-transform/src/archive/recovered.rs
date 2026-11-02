@@ -36,8 +36,16 @@
 //! # Where it stops
 //!
 //! A source this does not rebuild is refused by name: one the reader draws no page of, and one
-//! that states more pages than the reader reached (a linearization parameter dictionary's `/N`, or the `/Count` of
-//! a page tree root the catalog still names).
+//! that states more pages than the reader reached (a linearization parameter dictionary's `/N`, or
+//! the `/Count` of a page tree root the catalog still names) where the caller has not authorised
+//! [`super::Loss::PageNotHeld`].
+//!
+//! A `/Kids` entry naming no object — a direct `null`, or a reference §7.3.10 makes a reference to
+//! the null object because the file defines no such object — is no page, so it is not written and
+//! the count it took is no page lost (`doc/questions/A727`, `doc/adr/2596`). An entry naming an
+//! object the cross-reference information places, which this reader reads as no dictionary, is a
+//! page the producer wrote and the file does not hold: the loss `page-not-held`, with the count
+//! stated and the count carried written into the report and the file's history.
 //!
 //! # Protection and signatures are the source's
 //!
@@ -86,6 +94,24 @@ pub struct RecoveredStructure {
     pub catalog: RecoveredCatalog,
     /// The pages whose dictionary this reader read in part, each written as the entries it read.
     pub read_in_part: Vec<PartlyRead>,
+    /// How many `/Kids` entries named no object and were not written (`doc/adr/2596`).
+    pub naming_nothing: usize,
+    /// The pages the source states and does not hold, where the caller authorised
+    /// [`super::Loss::PageNotHeld`]; `None` where the archive holds every page the source states.
+    pub not_held: Option<NotHeld>,
+}
+
+/// The loss [`super::Loss::PageNotHeld`] as one conversion took it: the count the source states and
+/// the count the archive holds (`doc/questions/A727`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NotHeld {
+    /// The statement the count is read from: the page tree root's `/Count` or a linearization
+    /// parameter dictionary's `/N`.
+    pub stated_by: &'static str,
+    /// The number of pages it states.
+    pub stated: usize,
+    /// The number of pages the archive holds, each the producer's.
+    pub carried: usize,
 }
 
 /// A page whose dictionary stops being readable, written as the entries the reader drew it from.
@@ -141,6 +167,46 @@ impl RecoveredStructure {
                 }
             );
         }
+        if self.naming_nothing > 0 {
+            let _ = write!(
+                partly,
+                " {} /Kids {} named no object (§7.3.10's null) and {} not written, since no page \
+                 is there.",
+                self.naming_nothing,
+                if self.naming_nothing == 1 {
+                    "entry"
+                } else {
+                    "entries"
+                },
+                if self.naming_nothing == 1 {
+                    "is"
+                } else {
+                    "are"
+                }
+            );
+        }
+        if let Some(not_held) = &self.not_held {
+            let _ = write!(
+                partly,
+                " page-not-held: {} states {} pages and the archive holds {}; the {} the file does \
+                 not hold where its cross-reference information places {} not in the archive, and \
+                 nothing is drawn in {} place.",
+                not_held.stated_by,
+                not_held.stated,
+                not_held.carried,
+                not_held.stated.saturating_sub(not_held.carried),
+                if not_held.stated.saturating_sub(not_held.carried) == 1 {
+                    "it is"
+                } else {
+                    "them are"
+                },
+                if not_held.stated.saturating_sub(not_held.carried) == 1 {
+                    "its"
+                } else {
+                    "their"
+                },
+            );
+        }
         format!(
             "recovered-structure: {catalog}, and a single page tree node listing the {} page(s) \
              this reader drew, {found}; each page is the producer's, with /Parent restated and \
@@ -161,7 +227,8 @@ pub(super) struct Recovered {
 
 /// Rebuilds the structure of a document this program declined as a source.
 ///
-/// `declined` is the refusal that declined it; its sentence is carried into the note. The rebuilt
+/// `declined` is the refusal that declined it; its sentence is carried into the note, and
+/// `page_not_held` is whether the caller authorised [`super::Loss::PageNotHeld`]. The rebuilt
 /// file states the source's version, or `target`'s where the source states none
 /// ([`super::header::target_version`], `doc/adr/2558`): it is the file the conversion goes on to
 /// write, and the source's header line is recorded from the source.
@@ -175,9 +242,10 @@ pub(super) fn rebuild(
     document: &Document,
     declined: &Refusal,
     target: Target,
+    page_not_held: bool,
 ) -> Result<Recovered, Refusal> {
     let because = declined.to_string();
-    build(document, because.clone(), target).map_err(|refusal| match refusal {
+    build(document, because.clone(), target, page_not_held).map_err(|refusal| match refusal {
         Refusal::Reconstructed(why) => Refusal::Reconstructed(format!(
             "{because}; it is not written out as the structure this reader recovered, because \
              {why} (ADR 2502)"
@@ -187,11 +255,22 @@ pub(super) fn rebuild(
 }
 
 /// [`rebuild`], with its refusals worded as the reason alone.
-fn build(document: &Document, because: String, target: Target) -> Result<Recovered, Refusal> {
+fn build(
+    document: &Document,
+    because: String,
+    target: Target,
+    page_not_held: bool,
+) -> Result<Recovered, Refusal> {
     let tree = Pages::new(document);
     let scanned = tree.found_by_scanning();
     let (pages, read_in_part) = pages_to_carry(&tree)?;
-    refuse_a_count_the_reader_fell_short_of(document, pages.len())?;
+    let children = super::page_tree::children_not_held(document);
+    let not_held = refuse_a_count_the_reader_fell_short_of(
+        document,
+        pages.len(),
+        children.naming_nothing,
+        page_not_held,
+    )?;
 
     let kept_catalog = document.catalog().ok();
     let mut assembly = Assembly::new(vec![document]);
@@ -232,20 +311,12 @@ fn build(document: &Document, because: String, target: Target) -> Result<Recover
         Object::Name(Name::new(&b"Catalog"[..])),
     );
     catalog.insert(Name::new(&b"Pages"[..]), Object::Reference(root_at));
-    let kids: Vec<Object> = placed
-        .iter()
-        .map(|(_, slot)| Object::Reference(*slot))
-        .collect();
-    let mut root = Dictionary::new();
-    root.insert(
-        Name::new(&b"Type"[..]),
-        Object::Name(Name::new(&b"Pages"[..])),
+    let root = page_tree_root(
+        placed
+            .iter()
+            .map(|(_, slot)| Object::Reference(*slot))
+            .collect(),
     );
-    root.insert(
-        Name::new(&b"Count"[..]),
-        Object::Integer(i64::try_from(kids.len()).unwrap_or(i64::MAX)),
-    );
-    root.insert(Name::new(&b"Kids"[..]), Object::Array(kids));
     assembly
         .place(root_at, Object::Dictionary(root))
         .and_then(|()| assembly.place(catalog_at, Object::Dictionary(catalog)))
@@ -288,6 +359,8 @@ fn build(document: &Document, because: String, target: Target) -> Result<Recover
                 RecoveredCatalog::Written
             },
             read_in_part,
+            naming_nothing: children.naming_nothing,
+            not_held,
         },
     })
 }
@@ -311,9 +384,10 @@ enum Carried {
 ///
 /// A page object is carried once, at the first index the reader draws it at. A tree whose `/Count`
 /// states more pages than its `/Kids` hold has the reader skip a subtree by the count it states and
-/// land on the next subtree's first page again, so one object answers two indices; the second is
-/// the reader's reach past what the file holds and no page of the producer's, and the stated count
-/// is then answered by [`refuse_a_count_the_reader_fell_short_of`] against the pages carried.
+/// land on the next subtree's first page again, so one object answers two indices, or answer an
+/// index with no page at all; either is the reader's reach past what the file holds and no page of
+/// the producer's, so it is not carried, and the stated count is then answered by
+/// [`refuse_a_count_the_reader_fell_short_of`] against the pages carried.
 fn pages_to_carry(tree: &Pages<'_>) -> Result<(Vec<Carried>, Vec<PartlyRead>), Refusal> {
     let mut pages = Vec::new();
     let mut carried_objects = BTreeSet::new();
@@ -321,10 +395,7 @@ fn pages_to_carry(tree: &Pages<'_>) -> Result<(Vec<Carried>, Vec<PartlyRead>), R
     for (index, page) in tree.every().into_iter().enumerate() {
         let number = index.saturating_add(1);
         let Some(page) = page else {
-            return Err(not_rebuilt(&format!(
-                "page {number} of the {} this reader counts cannot be read",
-                tree.len()
-            )));
+            continue;
         };
         if page.id.is_some_and(|id| !carried_objects.insert(id)) {
             continue;
@@ -394,7 +465,8 @@ fn with_resolved_entries(page: pdf_model::Page) -> Dictionary {
     dict
 }
 
-/// Refuses a source that states more pages than this reader reached.
+/// Answers a source that states more pages than this reader reached: refused by name, or, where
+/// the caller authorised [`super::Loss::PageNotHeld`], the counts the loss is reported with.
 ///
 /// The reader finds pages through what the file's cross-reference information names, and a file
 /// whose later sections it does not reach would be written as the pages it did reach and nothing
@@ -402,11 +474,19 @@ fn with_resolved_entries(page: pdf_model::Page) -> Dictionary {
 /// with what was drawn: a linearization parameter dictionary's `/N` (ISO 32000-2 §F.3.3, Table
 /// F.1: "( Required ) The number of pages in the document."), and the `/Count` of the page tree's
 /// root where the catalog still names it (Table 30). Nothing else in a file states a count; a
-/// source that states none is rebuilt on the pages the reader drew, which is the loss.
+/// source that states none is rebuilt on the pages the reader drew, which is the loss
+/// `recovered-structure`.
+///
+/// `naming_nothing` is how many `/Kids` entries name no object
+/// ([`super::page_tree::ChildrenNotHeld::naming_nothing`]). Each is no leaf, and Table 30 makes
+/// the `/Kids` arrays what "definitively determines the number of descendant pages", so a count
+/// that exceeds the pages drawn by no more than those entries states no page the file lacks.
 fn refuse_a_count_the_reader_fell_short_of(
     document: &Document,
     drawn: usize,
-) -> Result<(), Refusal> {
+    naming_nothing: usize,
+    page_not_held: bool,
+) -> Result<Option<NotHeld>, Refusal> {
     let as_count = |value: Option<i64>| value.and_then(|n| usize::try_from(n).ok());
     let linearized = document.xref().object_numbers().find_map(|number| {
         let object = document.get(ObjectId::new(number, 0));
@@ -423,18 +503,31 @@ fn refuse_a_count_the_reader_fell_short_of(
             other => other,
         })
         .and_then(|root| as_count(root.as_dict()?.get("Count").and_then(Object::as_integer)));
+    let mut not_held: Option<NotHeld> = None;
     for (stated, whose) in [
         (linearized, "its linearization parameter dictionary's /N"),
         (root_count, "its page tree root's /Count"),
     ] {
-        if let Some(stated) = stated.filter(|stated| *stated > drawn) {
+        let Some(stated) = stated.filter(|stated| stated.saturating_sub(naming_nothing) > drawn)
+        else {
+            continue;
+        };
+        if !page_not_held {
             return Err(not_rebuilt(&format!(
                 "{whose} states {stated} pages where this reader reaches {drawn}, and the \
-                 rebuilt file would hold those {drawn} and say nothing of the rest"
+                 rebuilt file would hold those {drawn} and say nothing of the rest; authorise \
+                 page-not-held to write the {drawn} with the two counts stated"
             )));
         }
+        if not_held.is_none_or(|held| stated > held.stated) {
+            not_held = Some(NotHeld {
+                stated_by: whose,
+                stated,
+                carried: drawn,
+            });
+        }
     }
-    Ok(())
+    Ok(not_held)
 }
 
 /// The refusal of a source this module does not rebuild, worded as `Refusal::Reconstructed`.
@@ -468,6 +561,22 @@ fn check_what_declined_the_source(rebuilt: &Document, pages: usize) -> Result<()
 /// hundred pages under one node with a large direct `/Resources` are a few hundred times that
 /// dictionary).
 type Handed<'a> = BTreeMap<(ObjectId, &'a str), Option<Object>>;
+
+/// The rebuild's one page tree node: ISO 32000-2 §7.7.3.2 Table 30's three required entries, its
+/// `/Count` the kids it lists, each a page.
+fn page_tree_root(kids: Vec<Object>) -> Dictionary {
+    let mut root = Dictionary::new();
+    root.insert(
+        Name::new(&b"Type"[..]),
+        Object::Name(Name::new(&b"Pages"[..])),
+    );
+    root.insert(
+        Name::new(&b"Count"[..]),
+        Object::Integer(i64::try_from(kids.len()).unwrap_or(i64::MAX)),
+    );
+    root.insert(Name::new(&b"Kids"[..]), Object::Array(kids));
+    root
+}
 
 /// One page of the rebuild: the source's dictionary, `/Parent` naming the new root, the entries
 /// §7.7.3.4 makes inheritable stated where the page stated none, every reference mapped.

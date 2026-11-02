@@ -10,8 +10,8 @@
 # keeps, else stops, until the executor carries the second step there.
 #
 # At a presentation site the answer is try = ["append-statement", "discard"]. This version sets
-# append-statement's page at the two embedded-file rows and the three halftone rows
-# (config/steps.rs, doc/adr/2562), where a page that cannot be composed hands its objects to
+# append-statement's page at the two embedded-file rows, the three halftone rows and the font row
+# (config/steps.rs, doc/adr/2562, doc/adr/2600), where a page that cannot be composed hands its objects to
 # discard; at every other site the first step is passed over with its sentence and the loss is
 # taken as discard takes it, named in the report and in xmpMM:History, until the page is built there. The three
 # transfer-function sites keep keep-everything's answer, because a transfer function decides what
@@ -292,9 +292,10 @@ winner = "first"
 # one `discard` this row resolves to carries every loss the font site's bundle holds, as it does
 # in as-if-printed: `machine-face`, `substitute-stretch`, `glyphs-from-to-unicode`,
 # `layout-from-this-viewer`, `text-as-image`, `page-as-image`, `tagging-of-photographed-pages`
-# and `optional-content-of-photographed-pages` (decision.rs's bundle), each named with its page or font in the report and in xmpMM:History. `append-statement` is
-# first, so the statement page lists them once the step is built at this site; until then it is
-# passed over with its sentence (config/steps.rs) and `discard` takes the loss.
+# and `optional-content-of-photographed-pages` (decision.rs's bundle), each named with its page or
+# font in the report and in xmpMM:History. `append-statement` is first, so the statement page lists
+# each photographed page and each face embedded with a loss, with its loss words (doc/adr/2600);
+# a page that cannot be composed hands them to `discard`, and the report says why.
 [site."fonts/font-programs-embedded"]
 try = ["append-statement", "discard"]
 

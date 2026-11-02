@@ -38,6 +38,7 @@
 //! neither exactly one field access it never makes.
 
 use std::cell::OnceCell;
+use std::collections::BTreeSet;
 
 use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 
@@ -69,9 +70,9 @@ pub struct Examination<'a> {
     reach: OnceCell<Reach>,
     /// Section 6.2.2's exempt population, computed once; see [`Self::exempt`].
     exempt: OnceCell<Exempt>,
-    /// Every font dictionary written directly inside an object, found once; see
-    /// [`Self::direct_fonts`].
-    direct_fonts: OnceCell<Vec<(ObjectId, Dictionary)>>,
+    /// The font population's two halves the cross-reference table does not list, found once;
+    /// see [`Self::direct_fonts`] and [`Self::fonts_by_position`].
+    fonts: OnceCell<crate::table::fonts::FontPopulation>,
 }
 
 /// One annotation, with the page it is on and the object it was reached through.
@@ -103,7 +104,7 @@ impl<'a> Examination<'a> {
             spans: OnceCell::new(),
             reach: OnceCell::new(),
             exempt: OnceCell::new(),
-            direct_fonts: OnceCell::new(),
+            fonts: OnceCell::new(),
         }
     }
 
@@ -203,10 +204,25 @@ impl<'a> Examination<'a> {
     /// Thirteen rows of the font tranche walk the font population, and the indirect half of it is
     /// [`Self::objects`] filtered; this is the other half, which only a walk into each object's
     /// own structure finds, so it is walked once rather than by every row (`doc/adr/2413`). The
-    /// walk is `crate::table::fonts::direct_font_dictionaries`, beside the rows that read it.
+    /// walk is `crate::table::fonts::font_population`, beside the rows that read it.
     pub(crate) fn direct_fonts(&self) -> &[(ObjectId, Dictionary)] {
-        self.direct_fonts
-            .get_or_init(|| crate::table::fonts::direct_font_dictionaries(self))
+        &self.font_population().direct
+    }
+
+    /// The numbers of the objects a font's position names a font, whatever their `/Type` says.
+    ///
+    /// A value of a resource dictionary's `/Font` subdictionary and an element of a Type 0
+    /// font's `/DescendantFonts` are font dictionaries by where they stand (ISO 32000-2 §7.8.3's
+    /// Table 34, §9.7.6.1's Table 119), so a font whose `/Type` is missing is still in the
+    /// population the font rows judge (`doc/adr/2608`). Found by the same walk as
+    /// [`Self::direct_fonts`].
+    pub(crate) fn fonts_by_position(&self) -> &BTreeSet<u32> {
+        &self.font_population().by_position
+    }
+
+    fn font_population(&self) -> &crate::table::fonts::FontPopulation {
+        self.fonts
+            .get_or_init(|| crate::table::fonts::font_population(self))
     }
 
     /// Every annotation of every page, resolved once.
@@ -229,7 +245,7 @@ impl<'a> Examination<'a> {
                 let Some(items) = listed.as_array() else {
                     continue;
                 };
-                let mut seen = std::collections::BTreeSet::new();
+                let mut seen = BTreeSet::new();
                 for item in items {
                     let id = item.as_reference();
                     if let Some(id) = id

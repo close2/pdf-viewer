@@ -209,19 +209,69 @@ pub struct TimeEvidence<'a> {
     pub delay_seconds: Option<i64>,
 }
 
+/// An identifier a policy states, as far as this program can place it.
+///
+/// TS 119 172-3 writes every identifier as an object identifier. TS 119 172-2 writes them as
+/// URIs, an object identifier among them as RFC 3061's `urn:oid:` URN, and an algorithm
+/// identifier may be a URI that names the algorithm in another registry
+/// ([`super::ts_119_172_2`] places those it lists); a URI placed as neither stays a URI, which
+/// no object identifier a signature states can be.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Identifier<'a> {
+    /// The contents octets of an object identifier.
+    Oid(&'a [u8]),
+    /// A URI this program does not place as an object identifier.
+    Uri(&'a str),
+}
+
+impl Identifier<'_> {
+    /// Whether this is the object identifier `oid`.
+    #[must_use]
+    pub fn is(&self, oid: &[u8]) -> bool {
+        matches!(self, Self::Oid(own) if *own == oid)
+    }
+}
+
+/// How an extension a policy states is named.
+///
+/// TS 119 172-3's `Other` carries an object identifier saying what its value is; TS 119 172-2's
+/// `AnyType` (its clause 4.1.3) carries arbitrary content, named here by its first element.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExtensionName<'a> {
+    /// The extension's object identifier.
+    Identifier(&'a [u8]),
+    /// The `{namespace}local` name of the extension's first element, or `text` where it holds
+    /// character data alone.
+    Element(&'a str),
+}
+
+impl ExtensionName<'_> {
+    /// How a sentence names the extension.
+    #[must_use]
+    pub fn sentence(&self) -> String {
+        match self {
+            Self::Identifier(identifier) => name(identifier),
+            Self::Element(element) => (*element).to_owned(),
+        }
+    }
+}
+
 /// One of clause 4.29's `AlgConstraints`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AlgorithmConstraint<'a> {
     /// `algID`.
-    pub algorithm: &'a [u8],
-    /// `usages`, as URIs.
+    pub algorithm: Identifier<'a>,
+    /// `usages`, as URIs. Empty where TS 119 172-2's `Usages` is absent, which its clause 4.29.1
+    /// reads as every usage; TS 119 172-3's list holds at least one.
     pub usages: Vec<&'a str>,
     /// `minKeyLength`, in bits.
     pub min_key_length: Option<i64>,
     /// `minHashLength`, in bits.
     pub min_hash_length: Option<i64>,
-    /// The identifier of `other`, where stated.
-    pub other: Option<&'a [u8]>,
+    /// Each `other`, by its name.
+    pub others: Vec<ExtensionName<'a>>,
+    /// TS 119 172-2's `ExpirationDate`, which TS 119 172-3's type does not carry.
+    pub expiration: Option<Stated>,
 }
 
 /// Clause 4.14.2's `BasicRule`, one alternative per rule type.
@@ -263,8 +313,8 @@ pub enum BasicRule<'a> {
     CreationDevice(&'a str),
     /// `[11]` clause 4.29.
     CryptoSuites(Vec<AlgorithmConstraint<'a>>),
-    /// `[12]` an `Other`, by its identifier.
-    Other(&'a [u8]),
+    /// `[12]` an `Other`, by its name.
+    Other(ExtensionName<'a>),
 }
 
 impl BasicRule<'_> {
@@ -291,7 +341,7 @@ impl BasicRule<'_> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommitmentRule<'a> {
     /// Each `Commitment`'s `commitmentIdentifier`.
-    pub commitments: Vec<&'a [u8]>,
+    pub commitments: Vec<Identifier<'a>>,
     /// `matchingIndicator`.
     pub matching: Matching,
     /// `basicRules`.
@@ -302,7 +352,7 @@ impl CommitmentRule<'_> {
     /// Whether the rule applies to a signature stating `stated` (TS 119 172-2 clause 4.15.1).
     #[must_use]
     pub fn applies(&self, stated: Option<&[u8]>) -> bool {
-        let listed = |commitment: &&[u8]| stated == Some(*commitment);
+        let listed = |commitment: &Identifier<'_>| stated.is_some_and(|oid| commitment.is(oid));
         match self.matching {
             Matching::All => self.commitments.iter().all(listed),
             Matching::AtLeastOne => self.commitments.iter().any(listed),
@@ -494,6 +544,9 @@ impl<'a> PolicyDocument<'a> {
             });
         }
         let other_syntax = || PolicyDocumentError::OtherSyntax(Syntax::Ts1191723);
+        if super::ts_119_172_2::is_xml(octets) {
+            return Err(other_syntax());
+        }
         let mut budget = Budget(MAX_ENTRIES);
         let policy = der::Reader::new(octets)?
             .next_value()?
@@ -679,13 +732,13 @@ fn read_commitment_rules<'a>(
         let mut listed = listed.children()?;
         while let Some(commitment) = listed.next_value()? {
             budget.take()?;
-            commitments.push(
+            commitments.push(Identifier::Oid(
                 need(Some(commitment), SEQUENCE, "Commitment")?
                     .children()?
                     .next_value()?
                     .and_then(|first| first.object_identifier())
                     .ok_or(malformed("Commitment.commitmentIdentifier"))?,
-            );
+            ));
         }
         let matching = match enumerated(members.next_value()?, 3, "MatchingIndicator")? {
             0 => Matching::All,
@@ -771,7 +824,10 @@ fn read_basic_rule<'a>(
         }
         10 => BasicRule::CreationDevice(text(&inner, IA5_STRING, "SCDLoARules")?),
         11 => BasicRule::CryptoSuites(read_crypto_suites(&inner, budget)?),
-        12 => BasicRule::Other(other_identifier(&inner, "otherRules")?),
+        12 => BasicRule::Other(ExtensionName::Identifier(other_identifier(
+            &inner,
+            "otherRules",
+        )?)),
         _ => return Err(malformed("BasicRule")),
     })
 }
@@ -1074,11 +1130,12 @@ fn read_crypto_suites<'a>(
             budget,
         )?;
         let mut constraint = AlgorithmConstraint {
-            algorithm,
+            algorithm: Identifier::Oid(algorithm),
             usages,
             min_key_length: None,
             min_hash_length: None,
-            other: None,
+            others: Vec::new(),
+            expiration: None,
         };
         while let Some(member) = members.next_value()? {
             match context_number(&member) {
@@ -1091,7 +1148,12 @@ fn read_crypto_suites<'a>(
                         Some(tagged_integer(&member, "AlgConstraints.minHashLength")?);
                 }
                 _ if member.identifier == SEQUENCE => {
-                    constraint.other = Some(other_identifier(&member, "AlgConstraints.other")?);
+                    constraint
+                        .others
+                        .push(ExtensionName::Identifier(other_identifier(
+                            &member,
+                            "AlgConstraints.other",
+                        )?));
                 }
                 _ => return Err(malformed("AlgConstraints")),
             }
@@ -1180,6 +1242,17 @@ pub enum Constraint {
     },
     /// A clause 4.29 usage this program does not evaluate, by its URI.
     SuiteUsage(String),
+    /// A clause 4.29 algorithm named by a URI this program does not place as an object
+    /// identifier, by that URI.
+    UnplacedAlgorithm(String),
+    /// TS 119 172-2 clause 4.29.1's expiration date of an algorithm, which the clause compares
+    /// with no instant it names.
+    AlgorithmExpiration {
+        /// The algorithm, dotted or as its URI.
+        algorithm: String,
+        /// The date as written.
+        expiration: String,
+    },
     /// A rule whose recommended scope leaves out validation.
     OutsideValidation {
         /// The rule, in words.
@@ -1201,8 +1274,27 @@ pub fn findings(
     if let Some((not_before, not_after)) = &document.signing_period {
         out.push(signing_period(facts, not_before, not_after.as_ref()));
     }
+    judge_rules(&document.rules, cms, facts, &mut out);
+    for identifier in &document.other_details {
+        out.push(Finding {
+            verdict: Verdict::NotEvaluated,
+            constraint: super::Constraint::Extension(name(identifier)),
+        });
+    }
+    out
+}
+
+/// The findings of a policy's rules, in either syntax that writes TS 119 172-2's building blocks:
+/// each rule judged in the scope it is recommended for, and a commitment rule's rules where its
+/// matching indicator selects the signature.
+pub(super) fn judge_rules(
+    rules: &[ScopedRule<'_>],
+    cms: &SignedData<'_>,
+    facts: &SignerFacts,
+    out: &mut Vec<Finding>,
+) {
     let stated = stated_commitment_type(cms);
-    for scoped in &document.rules {
+    for scoped in rules {
         if let Some(scope @ (Scope::Generation | Scope::Augmentation)) = scoped.scope {
             let rule = match &scoped.rule {
                 PolicyRule::Commitments(_) => "commitment rules",
@@ -1215,23 +1307,16 @@ pub fn findings(
             continue;
         }
         match &scoped.rule {
-            PolicyRule::Basic(rule) => judge(rule, cms, facts, &mut out),
+            PolicyRule::Basic(rule) => judge(rule, cms, facts, out),
             PolicyRule::Commitments(rules) => {
                 for rule in rules.iter().filter(|rule| rule.applies(stated)) {
                     for basic in &rule.rules {
-                        judge(basic, cms, facts, &mut out);
+                        judge(basic, cms, facts, out);
                     }
                 }
             }
         }
     }
-    for identifier in &document.other_details {
-        out.push(Finding {
-            verdict: Verdict::NotEvaluated,
-            constraint: super::Constraint::Extension(name(identifier)),
-        });
-    }
-    out
 }
 
 const fn component(verdict: Verdict, constraint: Constraint) -> Finding {
@@ -1343,9 +1428,9 @@ fn judge(rule: &BasicRule<'_>, cms: &SignedData<'_>, facts: &SignerFacts, out: &
             ));
         }
         BasicRule::CryptoSuites(list) => judge_suites(list, cms, facts, out),
-        BasicRule::Other(identifier) => out.push(Finding {
+        BasicRule::Other(other) => out.push(Finding {
             verdict: Verdict::NotEvaluated,
-            constraint: super::Constraint::Extension(name(identifier)),
+            constraint: super::Constraint::Extension(other.sentence()),
         }),
     }
 }
@@ -1456,7 +1541,19 @@ fn judge_suites(
     out: &mut Vec<Finding>,
 ) {
     let names = |entry: &AlgorithmConstraint<'_>, usage: &[&str]| {
-        entry.usages.iter().any(|named| usage.contains(named))
+        entry.usages.is_empty() || entry.usages.iter().any(|named| usage.contains(named))
+    };
+    // An entry whose algorithm stays a URI may name the one used, so a used algorithm no placed
+    // entry lists is not evaluated where one does, rather than broken.
+    let unplaced = |usage: &[&str]| {
+        list.iter()
+            .any(|entry| matches!(entry.algorithm, Identifier::Uri(_)) && names(entry, usage))
+    };
+    let undecided = |mut finding: Finding, listed: bool, usage: &[&str]| {
+        if !listed && finding.verdict == Verdict::Broken && unplaced(usage) {
+            finding.verdict = Verdict::NotEvaluated;
+        }
+        finding
     };
     if list.iter().any(|entry| names(entry, &[SIGNATURE_USAGE])) {
         for (used, is_signature) in [
@@ -1465,13 +1562,17 @@ fn judge_suites(
         ] {
             let entry = list
                 .iter()
-                .find(|entry| entry.algorithm == used && names(entry, &[SIGNATURE_USAGE]));
-            out.push(suite_finding(
-                Usage::Signature,
-                Some(used),
-                entry,
-                is_signature.then_some(facts.key_bits).flatten(),
-                is_signature,
+                .find(|entry| entry.algorithm.is(used) && names(entry, &[SIGNATURE_USAGE]));
+            out.push(undecided(
+                suite_finding(
+                    Usage::Signature,
+                    Some(used),
+                    entry,
+                    is_signature.then_some(facts.key_bits).flatten(),
+                    is_signature,
+                ),
+                entry.is_some(),
+                &[SIGNATURE_USAGE],
             ));
         }
     }
@@ -1479,15 +1580,33 @@ fn judge_suites(
         let used = facts.certificate_signature_algorithm.as_deref();
         let entry = used.and_then(|used| {
             list.iter()
-                .find(|entry| entry.algorithm == used && names(entry, &SIGNING_CERT_USAGE))
+                .find(|entry| entry.algorithm.is(used) && names(entry, &SIGNING_CERT_USAGE))
         });
-        out.push(suite_finding(
-            Usage::SigningCertificate,
-            used,
-            entry,
-            None,
-            false,
+        out.push(undecided(
+            suite_finding(Usage::SigningCertificate, used, entry, None, false),
+            entry.is_some(),
+            &SIGNING_CERT_USAGE,
         ));
+    }
+    for entry in list {
+        if let Identifier::Uri(uri) = entry.algorithm {
+            out.push(component(
+                Verdict::NotEvaluated,
+                Constraint::UnplacedAlgorithm(uri.to_owned()),
+            ));
+        }
+        if let Some(expiration) = &entry.expiration {
+            out.push(component(
+                Verdict::NotEvaluated,
+                Constraint::AlgorithmExpiration {
+                    algorithm: match entry.algorithm {
+                        Identifier::Oid(oid) => name(oid),
+                        Identifier::Uri(uri) => uri.to_owned(),
+                    },
+                    expiration: expiration.spelled.clone(),
+                },
+            ));
+        }
     }
     let mut others = BTreeSet::new();
     for entry in list {
@@ -1503,10 +1622,10 @@ fn judge_suites(
             Constraint::SuiteUsage(usage.to_owned()),
         ));
     }
-    for identifier in list.iter().filter_map(|entry| entry.other) {
+    for other in list.iter().flat_map(|entry| &entry.others) {
         out.push(Finding {
             verdict: Verdict::NotEvaluated,
-            constraint: super::Constraint::Extension(name(identifier)),
+            constraint: super::Constraint::Extension(other.sentence()),
         });
     }
 }
@@ -1660,10 +1779,9 @@ impl Constraint {
                 (*min_key_length, *key_bits),
                 (*min_hash_length, *hash_bits),
             ),
-            Self::SuiteUsage(usage) => write!(
-                f,
-                "the policy's cryptographic suite rules for usage {usage} are {verdict}: they constrain algorithms this program does not check against the policy"
-            ),
+            Self::SuiteUsage(_) | Self::UnplacedAlgorithm(_) | Self::AlgorithmExpiration { .. } => {
+                self.suite_entry_sentence(f, verdict)
+            }
             Self::OutsideValidation { rule, scope } => write!(
                 f,
                 "the policy's {rule} is {verdict}: the policy recommends it for {} and not for validation",
@@ -1673,6 +1791,34 @@ impl Constraint {
                     Scope::Augmentation => "signature augmentation",
                 }
             ),
+        }
+    }
+}
+
+impl Constraint {
+    /// The sentences of the suite constraints this program names and does not evaluate.
+    fn suite_entry_sentence(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+        verdict: &str,
+    ) -> std::fmt::Result {
+        match self {
+            Self::SuiteUsage(usage) => write!(
+                f,
+                "the policy's cryptographic suite rules for usage {usage} are {verdict}: they constrain algorithms this program does not check against the policy"
+            ),
+            Self::UnplacedAlgorithm(uri) => write!(
+                f,
+                "the policy's cryptographic suite entry for algorithm {uri} is {verdict}: the URI names no algorithm this program can match to an object identifier"
+            ),
+            Self::AlgorithmExpiration {
+                algorithm,
+                expiration,
+            } => write!(
+                f,
+                "the policy's expiration date {expiration} for algorithm {algorithm} is {verdict}: ETSI TS 119 172-2 clause 4.29.1 does not say which instant it is compared with"
+            ),
+            _ => Ok(()),
         }
     }
 }

@@ -377,7 +377,7 @@ fn map_restated(
 ///
 /// Table 124: one bit a CID, high-order bit first, CID 0 the first byte's most significant bit.
 /// A CID given a glyph is present in the program from now on, which is what the set states.
-fn cid_set_with<'a>(bits: &[u8], cids: impl Iterator<Item = &'a u16>) -> Vec<u8> {
+pub(super) fn cid_set_with<'a>(bits: &[u8], cids: impl Iterator<Item = &'a u16>) -> Vec<u8> {
     let mut out = bits.to_vec();
     for cid in cids {
         let byte = usize::from(*cid / 8);

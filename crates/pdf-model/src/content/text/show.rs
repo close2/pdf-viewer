@@ -86,6 +86,16 @@ impl Interpreter<'_> {
             }
             return;
         };
+        // A font drawn where the entry reached no dictionary is the reader's substitute (ADR
+        // 2612), and the page owes the same sentence as when it drew nothing, said by the same
+        // show, so a guess is never mistaken for the producer's face.
+        if let Some(detail) = &state.text.owed_font_report
+            && !self.is_hidden()
+        {
+            self.note(Unsupported::Font {
+                detail: detail.clone(),
+            });
+        }
 
         if font.is_metrics_only() {
             self.advance_through_a_refused_font(&font, bytes, state, text);

@@ -175,6 +175,8 @@ seed() {
     xfdf) cp --update=none "$tree"/crates/pdf-model/tests/xfdf/*.xfdf "$root/$t/" ;;
     # §12.8's ASN.1, by the routes each seeder's own header names.
     cms) documents | python3 "$here/seed_cms.py" "$root/$t" - ;;
+    # §12.8.3.4.4's stored policy document under its three syntaxes; no corpus document stores one.
+    policy_document) python3 "$here/seed_policy_document.py" "$root/$t" > /dev/null ;;
     revocation) documents | python3 "$here/seed_revocation.py" "$root/$t" - ;;
     # Every Rust source under `crates/` beside the documents, so that the fixture certificates are
     # found in whichever crate holds them; `tools/conformance/tests/fuzz_seeds.rs` counts them.

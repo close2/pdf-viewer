@@ -42,6 +42,13 @@ default = "stop"
 # loss by name and not a repair, and both profiles carry it because both draw the pages the
 # viewer found (ADR 2490, ADR 2502). It is no site's key: the refusal it lifts is the source's.
 recovered-structure = "discard"
+# A rebuilt source whose page tree root's /Count (or linearization /N) states more pages than the
+# file holds where its cross-reference information places them is written with the pages it holds,
+# the loss `page-not-held`: nothing is drawn for the page that is not there, and the report and the
+# file's history state the count the source states and the count carried. A print of the file has
+# those pages and no others. A /Kids entry naming no object is no page and costs no loss
+# (doc/questions/A727, ADR 2596).
+page-not-held = "discard"
 
 # A part 4 file that draws in DeviceCMYK beside an RGB destination profile has one licence left,
 # ISO 19005-4 section 6.2.4.3's device independent DefaultCMYK, and an ICC CMYK profile states a

@@ -442,8 +442,27 @@ tree (ISO 32000-2 §7.5.5's Table 15, §7.7.2's Table 29) · **built** (ADR 2502
 - **By target** — none.
 - **From a configuration** — `[profile] recovered-structure = "discard"`, a key of the profile and
   not of a site; both shipped profiles carry it. Any other value leaves the refusal.
-- **Still refused, by name** — an encrypted or signed source, one that states more pages than the reader reached, a page that is no indirect dictionary
+- **Still refused, by name** — an encrypted or signed source, one that states more pages than the reader reached unless `page-not-held` is taken (below), a page that is no indirect dictionary
   parsed whole, a source this reader draws no page of. `optimize` and `redact` keep the decline.
+- **Departure** — not needed.
+
+### A page the tree counts and the file does not hold: the loss `page-not-held`
+Not a requirement of ISO 19005: the rebuild's own refusal of a page tree root whose `/Count` (ISO
+32000-2 §7.7.3.2 Table 30), or a linearization parameter dictionary's `/N` (Annex F.3.3), states more
+pages than the rebuilt file holds · **built** (ADR 2596, A727)
+
+- **What was built.** A `/Kids` entry that names no object — a direct value that is no dictionary, or
+  a reference with no cross-reference location — is §7.3.10's null; it is no page, it is subtracted
+  from the count before the comparison, and it falls under `recovered-structure`. An entry the
+  cross-reference information places, with no dictionary there, is a page not held: where the loss
+  is taken the pages carried are written, and the count stated and the count carried are named in
+  the report, the JSON and `xmpMM:History`. Nothing is drawn for the page that is not there.
+- **By target** — none.
+- **From a configuration** — `[profile] page-not-held = "discard"` takes the loss; `= "append-statement"`
+  takes it and lists it on the appended page with both counts and the clause stating the count.
+  `as-if-printed` carries `discard`; `as-shown` keeps the refusal; `state-every-loss` and
+  `no-data-loss` take no `recovered-structure`, so the loss does not reach them (Q757).
+- **Still refused, by name** — every profile not taking the loss, with "authorise page-not-held".
 - **Departure** — not needed.
 
 ---

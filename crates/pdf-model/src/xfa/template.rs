@@ -230,17 +230,47 @@ impl Override {
 }
 
 /// What one of a container's `event` elements does when it fires (XFA 3.3 pages 390–391, 703,
-/// 1539).
+/// 706–707, 1539).
 #[derive(Debug, Clone)]
 pub(crate) struct Event {
     /// The `activity` it fires on.
     pub(crate) activity: String,
-    /// Whether its `ref` is the container itself: page 1539 gives the default as `$`, and an event
-    /// bound to another object is the inverted notation of page 404 that this reader does not
-    /// follow.
-    pub(crate) own: bool,
+    /// The object its `ref` names as the one that generates the event (page 706).
+    pub(crate) bound: Bound,
+    /// Whether its `listen` is `refAndDescendents`, so that it also hears the event on every
+    /// object its `ref` contains (page 387). Page 706 gives the default as `refOnly`.
+    pub(crate) listens: bool,
     /// What it does.
     pub(crate) performs: Performs,
+}
+
+/// The object an event's `ref` names (XFA 3.3 pages 706–707): the container holding it, which is
+/// the default, one of the two objects whose events this reader raises, or another.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Bound {
+    /// `$`, or no `ref`: the container the event belongs to.
+    Own,
+    /// `$form` or `xfa.form`, the Form DOM, whose `ready` fires once the merge, its calculations
+    /// and its validations are done (page 388).
+    Form,
+    /// `$host` or `xfa.host`, the application, whose `docReady` fires after the Form DOM's `ready`
+    /// and before the document is rendered (pages 387–388 and 704).
+    Host,
+    /// Any other SOM expression — `$layout`, another container — as the event states it: the
+    /// inverted notation of page 404, which this reader does not follow.
+    Other(String),
+}
+
+impl Bound {
+    /// Reads a `ref` attribute's text.
+    fn of(reference: Option<&str>) -> Self {
+        match reference.map(str::trim) {
+            None | Some("$") => Self::Own,
+            Some("$form" | "xfa.form") => Self::Form,
+            Some("$host" | "xfa.host") => Self::Host,
+            Some(other) => Self::Other(other.to_owned()),
+        }
+    }
 }
 
 /// Page 703's one-of properties of an `event`: the one it states.
@@ -770,8 +800,8 @@ fn read_properties(container: &mut Container, tree: &Tree, element: &Element) {
 }
 
 /// What an `event` element does, where it states a non-blank `script` or one of page 703's
-/// other one-of properties (XFA 3.3 pages 390–391 and 703). An event stating none does nothing
-/// and is not kept.
+/// other one-of properties (XFA 3.3 pages 390–391 and 703), with the object its `ref` binds it to
+/// and its `listen` (pages 387 and 706). An event stating none does nothing and is not kept.
 fn read_event(container: &mut Container, tree: &Tree, child: usize, event: &Element) {
     /// Page 703's one-of properties other than `script`.
     const UNPERFORMED: [&str; 4] = ["encryptData", "execute", "signData", "submit"];
@@ -794,9 +824,10 @@ fn read_event(container: &mut Container, tree: &Tree, child: usize, event: &Elem
     };
     container.events.push(Event {
         activity: event.attribute("activity").unwrap_or_default().to_owned(),
-        own: event
-            .attribute("ref")
-            .is_none_or(|reference| reference.trim() == "$"),
+        bound: Bound::of(event.attribute("ref")),
+        listens: event
+            .attribute("listen")
+            .is_some_and(|listen| listen.trim() == "refAndDescendents"),
         performs,
     });
 }

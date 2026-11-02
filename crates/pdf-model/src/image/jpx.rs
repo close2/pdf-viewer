@@ -68,9 +68,7 @@ pub(super) fn decode_jpx(
         data: &choice.data,
         indices,
     })
-    .map_err(|error| ImageError::Sandboxed {
-        detail: error.to_string(),
-    })?;
+    .map_err(ImageError::from)?;
     let Decoded::Raster(mut raster) = decoded else {
         return Err(ImageError::Malformed {
             detail: "JPEG 2000 did not decode to component samples".to_owned(),
@@ -278,9 +276,7 @@ pub fn jpx_samples(
         indices,
         samples,
     })
-    .map_err(|error| ImageError::Sandboxed {
-        detail: error.to_string(),
-    })?;
+    .map_err(ImageError::from)?;
     let Decoded::Raster(mut raster) = decoded else {
         return Err(ImageError::Malformed {
             detail: "JPEG 2000 did not decode to component samples".to_owned(),

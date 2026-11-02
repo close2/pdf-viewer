@@ -64,7 +64,8 @@ pub use crate::requirement::{Applies, Check, Clauses, Requirement};
 pub use crate::table::document_level::{standard_structure_element, standard_structure_type};
 pub use crate::table::fonts::{
     Table124Row, cmap_is_predefined, direct_cid_fonts_stating_no_cid_to_gid_map,
-    fonts_naming_an_undefined_cmap, table_124_rows, type3_encoding,
+    direct_fonts_stating_no_font_type, fonts_naming_an_undefined_cmap, table_124_rows,
+    type3_encoding,
 };
 pub use crate::table::graphics::{
     Beside, CmykProfileUse, IccTagShortfall, cmyk_profile_uses, icc_profile_component_count,

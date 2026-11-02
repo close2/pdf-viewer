@@ -578,49 +578,193 @@ pub(super) struct PageResources {
     pub(super) at: BTreeMap<ObjectId, Object>,
 }
 
+/// The requirement [`page_resources`] answers at a page's own content stream.
+const EXPLICIT_RESOURCES: &str = "graphics/content-streams-have-an-explicit-resources-dictionary";
+
+/// How many bytes of inherited resource dictionaries one conversion copies onto pages.
+///
+/// A dictionary written directly inside a page tree node is not an object a page can name, so
+/// each page given it carries a copy, and a node over many pages multiplies the output by them.
+/// The same figure as `super::reader_resources::MAX_COPIED_BYTES` for the copies of forms, and
+/// for the same reason: it is far above what a document of honest size copies, and below what a
+/// hostile tree of one large direct dictionary over a hundred thousand pages would.
+const MAX_COPIED_BYTES: usize = 32 << 20;
+
+/// What one value of a copied dictionary costs [`MAX_COPIED_BYTES`], beside its own bytes.
+///
+/// An `Object` held in a `BTreeMap` node and the bytes the writer spends on its delimiters: an
+/// estimate that keeps a dictionary of many small values from passing as free.
+const VALUE_WEIGHT: usize = 48;
+
+/// Why the pages inheriting a direct dictionary were not given their copies.
+const COPIES_OVER_BUDGET: &str = "pages of this file that name resources state none of their \
+     own and inherit a resources dictionary written directly inside a node of the page tree, \
+     which a page cannot name and so is given as a copy; the copies together would pass the \
+     32 MiB this conversion writes of them";
+
 /// Every page that is to be given the resources dictionary it already inherits.
 ///
 /// ISO 19005-2 section 6.2.2, ISO 19005-4 section 6.2.2, as `TechNote 0010`'s A003 reads the
 /// phrase *explicitly associated*.
-pub(super) fn page_resources(document: &Document, input: &pdf_archive::Report) -> PageResources {
-    let mut pages: BTreeSet<usize> = BTreeSet::new();
-    for judgement in input.failures() {
-        if judgement.id != "graphics/content-streams-have-an-explicit-resources-dictionary" {
-            continue;
-        }
-        let Outcome::Failed { places, .. } = &judgement.outcome else {
-            continue;
-        };
-        for finding in places {
-            // An object is a form `XObject`, a tiling pattern or a Type 3 glyph procedure, which
-            // `super::reader_resources::assign` answers; only a page's own `/Contents` is
-            // reported at a page with no object beside it.
-            if finding.place.object.is_some() {
-                continue;
-            }
-            let Some(page) = finding.place.page else {
-                continue;
-            };
-            pages.insert(page);
-        }
-    }
-    let tree = Pages::new(document);
+///
+/// **The pages are the requirement's whole population, read from the survey** — every page
+/// content stream it opened that named a resource and was read against an inherited dictionary,
+/// which is the predicate's own condition in `pdf_archive`'s graphics table. The report's places
+/// are a prefix past thirty-two (`pdf_archive::Findings`), and a site that read them as the set
+/// gave thirty-two pages their dictionary and wrote a file failing the requirement it answered
+/// (`doc/adr/2602`). Where the survey stopped at one of its bounds, the pages past it are not
+/// known, so every page stating no `/Resources` is given what it inherits: §7.7.3.4 already puts
+/// that value in force, so writing it on a page that names no resource changes nothing any name
+/// resolves to.
+///
+/// Each page tree node is read once whatever the pages beneath it (`MemoisedInheritance`), and
+/// the pages once, by [`Pages::every`], since a lookup per page is quadratic in a wide tree
+/// (`doc/adr/1953`).
+///
+/// # Errors
+///
+/// [`COPIES_OVER_BUDGET`] where the copies of directly inherited dictionaries would pass
+/// [`MAX_COPIED_BYTES`].
+pub(super) fn page_resources(
+    document: &Document,
+    input: &pdf_archive::Report,
+    survey: Option<&Survey>,
+) -> Result<PageResources, Because> {
     let mut found = PageResources::default();
-    for index in pages {
-        let Some(page) = tree.get(index) else {
+    if !input
+        .failures()
+        .any(|judgement| judgement.id == EXPLICIT_RESOURCES)
+    {
+        return Ok(found);
+    }
+    // A page's own `/Contents` is the one content stream the survey opens with no object beside
+    // it; every other is a form `XObject`, a tiling pattern or a Type 3 glyph procedure, which
+    // `super::reader_resources::assign` answers.
+    let every_page = survey.is_none_or(Survey::stopped_short);
+    let pages: BTreeSet<usize> = survey
+        .map(|survey| {
+            survey
+                .opened_streams()
+                .iter()
+                .filter(|opened| {
+                    opened.object.is_none() && opened.referenced && !opened.own_resources
+                })
+                .map(|opened| opened.page)
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut inheritance = MemoisedInheritance::new(document);
+    let mut copied = 0_usize;
+    for (index, page) in Pages::new(document).every().into_iter().enumerate() {
+        let Some(page) = page else {
             continue;
         };
+        if !every_page && !pages.contains(&index) {
+            continue;
+        }
         let Some(id) = page.id else {
             continue;
         };
         if page.dict.get("Resources").is_some() {
             continue;
         }
-        found
-            .at
-            .insert(id, inherited_resources(document, &page.dict));
+        let value = inheritance.above(&page.dict);
+        if let Object::Dictionary(_) = &value {
+            copied = copied.saturating_add(copy_weight(&value, MAX_COPIED_BYTES));
+            if copied > MAX_COPIED_BYTES {
+                return Err(Because::NotBuiltYet(COPIES_OVER_BUDGET));
+            }
+        }
+        found.at.insert(id, value);
     }
-    found
+    Ok(found)
+}
+
+/// What a copy of `value` costs [`MAX_COPIED_BYTES`], counted no further than `cap`.
+///
+/// A direct value holds no reference to itself, so the walk ends; it is a stack rather than a
+/// recursion, so a deeply nested value costs heap and not the thread's stack.
+fn copy_weight(value: &Object, cap: usize) -> usize {
+    let mut weight = 0_usize;
+    let mut pending = vec![value];
+    while let Some(value) = pending.pop() {
+        weight = weight.saturating_add(VALUE_WEIGHT);
+        match value {
+            Object::String(bytes) => weight = weight.saturating_add(bytes.len()),
+            Object::Name(name) => weight = weight.saturating_add(name.as_bytes().len()),
+            Object::Array(items) => pending.extend(items),
+            Object::Dictionary(dict) => {
+                for (key, value) in dict.iter() {
+                    weight = weight.saturating_add(key.as_bytes().len());
+                    pending.push(value);
+                }
+            }
+            _ => {}
+        }
+        if weight > cap {
+            break;
+        }
+    }
+    weight
+}
+
+/// [`inherited_resources`] for many pages, each page tree node read once.
+///
+/// The answer for a node is the answer for every page beneath it, so it is kept by the node's
+/// object number: a wide tree's root, read again for each of its leaves, would cost the leaves
+/// times the root's `/Kids`.
+struct MemoisedInheritance<'a> {
+    document: &'a Document,
+    by_node: BTreeMap<ObjectId, Object>,
+}
+
+impl<'a> MemoisedInheritance<'a> {
+    fn new(document: &'a Document) -> Self {
+        Self {
+            document,
+            by_node: BTreeMap::new(),
+        }
+    }
+
+    /// The value [`inherited_resources`] gives `page`.
+    ///
+    /// The chain is followed at most [`MAX_INHERITANCE_DEPTH`] nodes from the first node not yet
+    /// answered, and each node it passed is given the answer it ended on.
+    fn above(&mut self, page: &Dictionary) -> Object {
+        let mut passed = Vec::new();
+        let mut next = page.get("Parent").and_then(Object::as_reference);
+        let mut value = None;
+        for _ in 0..MAX_INHERITANCE_DEPTH {
+            let Some(at) = next else {
+                break;
+            };
+            if let Some(known) = self.by_node.get(&at) {
+                value = Some(known.clone());
+                break;
+            }
+            passed.push(at);
+            let node = self.document.get(at);
+            let Some(node) = node.as_dict() else {
+                break;
+            };
+            match node.get("Resources") {
+                Some(reference @ Object::Reference(_)) => {
+                    value = Some(reference.clone());
+                    break;
+                }
+                Some(Object::Dictionary(resources)) => {
+                    value = Some(Object::Dictionary(resources.clone()));
+                    break;
+                }
+                _ => next = node.get("Parent").and_then(Object::as_reference),
+            }
+        }
+        let value = value.unwrap_or_else(|| Object::Dictionary(Dictionary::new()));
+        for at in passed {
+            self.by_node.insert(at, value.clone());
+        }
+        value
+    }
 }
 
 /// How far up §7.7.3.2's page tree a `/Resources` entry is looked for.
@@ -843,6 +987,204 @@ pub(super) fn cid_to_gid_maps(
     }
     Ok(CidToGidSites { at, descendant_in })
 }
+
+/// Where `/Type /Font` is written: the fonts that are objects of their own, and the objects that
+/// hold fonts written directly inside them (`doc/adr/2608`).
+#[derive(Debug, Default)]
+pub(super) struct FontTypeSites {
+    /// The font dictionaries that are objects of their own, in the source's numbering.
+    pub(super) at: BTreeSet<ObjectId>,
+    /// The dictionaries a font is written directly inside, each rewritten by [`typed_fonts`].
+    pub(super) holders: BTreeSet<ObjectId>,
+}
+
+/// Every font dictionary that is to be given `/Type /Font`.
+///
+/// ISO 19005-2 section 6.2.11.2, ISO 19005-4 section 6.2.10.2, through the four font tables of
+/// ISO 32000-2 that make the entry required and admit one value. A font that is an object of its
+/// own is named by its finding; a font written directly inside another object is reported at no
+/// object (`doc/adr/2413`), so `pdf_archive` names its holder, and [`typed_fonts`] has to type in
+/// those holders exactly as many fonts as the row reported there, or the whole requirement is
+/// refused rather than half answered.
+pub(super) fn font_types(
+    document: &Document,
+    input: &pdf_archive::Report,
+    target: Target,
+) -> Result<FontTypeSites, Because> {
+    let (named, elsewhere) = objects_named(input, &[FONT_TYPE_STATED])?;
+    let mut sites = FontTypeSites::default();
+    for id in named {
+        if dictionary_of(&document.get(id)).is_none() {
+            return Err(Because::NotBuiltYet(FONT_TYPE_IN_ANOTHER_OBJECT));
+        }
+        sites.at.insert(id);
+    }
+    if elsewhere {
+        let placed = pdf_archive::direct_fonts_stating_no_font_type(document, target);
+        let reported = findings_at_no_object(input, FONT_TYPE_STATED);
+        sites.holders = placed.iter().copied().collect();
+        let mut typed = 0_usize;
+        for holder in &sites.holders {
+            let resolved = document.get(*holder);
+            let dict = dictionary_of(&resolved)
+                .ok_or(Because::NotBuiltYet(FONT_TYPE_IN_ANOTHER_OBJECT))?;
+            typed = typed
+                .saturating_add(typed_fonts(document, dict, &[], 0).map_or(0, |(_, count)| count));
+        }
+        if placed.len() != reported || typed != reported {
+            return Err(Because::NotBuiltYet(FONT_TYPE_IN_ANOTHER_OBJECT));
+        }
+    }
+    Ok(sites)
+}
+
+/// `dict` with `/Type /Font` written into every font dictionary written directly inside it that
+/// states another `/Type` or none, and how many that was; `None` where there were none.
+///
+/// A font is found where `pdf_archive`'s font population finds one by its position: an element
+/// of a `/Font` resource dictionary or of a `/DescendantFonts` array, and inward through every
+/// direct dictionary and array, a font's own included, since a direct Type 0 font may hold a
+/// direct descendant. A reference is not followed, because what it names is an object of its own
+/// and is rewritten on its own turn. The walk stops at [`MAX_FONT_WALK_DEPTH`].
+///
+/// A font equal to one of `written_out`'s source dictionaries is counted and left as it stands:
+/// the substitution writes it out as an object of its own, stating the entry there, and finds
+/// where it stood by its value (`doc/adr/2162`), which a `/Type` written here first would change.
+pub(super) fn typed_fonts(
+    document: &Document,
+    dict: &Dictionary,
+    written_out: &[(Dictionary, ObjectId)],
+    depth: usize,
+) -> Option<(Dictionary, usize)> {
+    if depth >= MAX_FONT_WALK_DEPTH {
+        return None;
+    }
+    let deeper = depth.saturating_add(1);
+    let mut out: Option<Dictionary> = None;
+    let mut typed = 0_usize;
+    for (key, value) in dict.iter() {
+        let changed = match (key.as_bytes(), value) {
+            (b"Font", Object::Dictionary(map)) => {
+                let names: Vec<Name> = map.iter().map(|(name, _)| name.clone()).collect();
+                typed_elements(
+                    document,
+                    map.iter().map(|(_, element)| element),
+                    written_out,
+                    deeper,
+                )
+                .map(|(elements, count)| {
+                    let mut map = map.clone();
+                    for (name, element) in names.into_iter().zip(elements) {
+                        map.insert(name, element);
+                    }
+                    (Object::Dictionary(map), count)
+                })
+            }
+            (b"DescendantFonts", Object::Array(items)) => {
+                typed_elements(document, items.iter(), written_out, deeper)
+                    .map(|(items, count)| (Object::Array(items), count))
+            }
+            _ => typed_inside(document, value, written_out, deeper),
+        };
+        if let Some((value, count)) = changed {
+            out.get_or_insert_with(|| dict.clone())
+                .insert(key.clone(), value);
+            typed = typed.saturating_add(count);
+        }
+    }
+    out.map(|dict| (dict, typed))
+}
+
+/// Each element of a font-holding entry, typed where it is a direct font, and how many were;
+/// `None` where none changed.
+fn typed_elements<'a>(
+    document: &Document,
+    elements: impl Iterator<Item = &'a Object>,
+    written_out: &[(Dictionary, ObjectId)],
+    depth: usize,
+) -> Option<(Vec<Object>, usize)> {
+    let mut typed = 0_usize;
+    let mut changed = false;
+    let mut out = Vec::new();
+    for element in elements {
+        let Object::Dictionary(font) = element else {
+            out.push(element.clone());
+            continue;
+        };
+        if written_out.iter().any(|(source, _)| source == font) {
+            out.push(element.clone());
+            typed = typed.saturating_add(1);
+            continue;
+        }
+        let mut font = match typed_fonts(document, font, written_out, depth) {
+            Some((inner, count)) => {
+                typed = typed.saturating_add(count);
+                changed = true;
+                inner
+            }
+            None => font.clone(),
+        };
+        if document
+            .get_key(&font, "Type")
+            .as_name()
+            .map(Name::as_bytes)
+            != Some(&b"Font"[..])
+        {
+            font.insert(
+                Name::new(&b"Type"[..]),
+                Object::Name(Name::new(&b"Font"[..])),
+            );
+            typed = typed.saturating_add(1);
+            changed = true;
+        }
+        out.push(Object::Dictionary(font));
+    }
+    (changed || typed > 0).then_some((out, typed))
+}
+
+/// A value that is no font-holding entry, walked for the ones inside it.
+fn typed_inside(
+    document: &Document,
+    value: &Object,
+    written_out: &[(Dictionary, ObjectId)],
+    depth: usize,
+) -> Option<(Object, usize)> {
+    match value {
+        Object::Dictionary(dict) => typed_fonts(document, dict, written_out, depth)
+            .map(|(dict, count)| (Object::Dictionary(dict), count)),
+        Object::Array(items) => {
+            let mut typed = 0_usize;
+            let mut changed = false;
+            let mut out = Vec::with_capacity(items.len());
+            for item in items {
+                match typed_inside(document, item, written_out, depth.saturating_add(1)) {
+                    Some((item, count)) => {
+                        typed = typed.saturating_add(count);
+                        changed = true;
+                        out.push(item);
+                    }
+                    None => out.push(item.clone()),
+                }
+            }
+            changed.then_some((Object::Array(out), typed))
+        }
+        _ => None,
+    }
+}
+
+/// The deepest [`typed_fonts`] walks: one more than `pdf_syntax::Limits::DEFAULT`'s `max_depth`,
+/// so that every direct object the parser admitted is reached, as `super::rewrite` walks.
+const MAX_FONT_WALK_DEPTH: usize = 257;
+
+/// The requirement [`font_types`] answers.
+const FONT_TYPE_STATED: &str = "fonts/font-dictionary-states-type-font";
+
+/// Why a font dictionary that states no `/Type /Font` is not given one.
+const FONT_TYPE_IN_ANOTHER_OBJECT: &str = "a font dictionary a Font resource or a Type 0 font's \
+     DescendantFonts names, and which does not state the Type Font ISO 32000-2 \u{a7}9.6.2.1's \
+     Table 109 and the three font tables beside it require, is written directly inside another \
+     object, and writing the entry into that holder is a rewrite this converter does not yet \
+     perform";
 
 /// The requirement [`cid_to_gid_maps`] answers.
 const CID_TO_GID_MAP_PRESENT: &str = "fonts/cid-to-gid-map-present";

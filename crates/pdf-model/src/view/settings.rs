@@ -207,6 +207,43 @@ impl ViewState {
         self.guidelines
     }
 
+    /// Says whether text shown under a `/Font` entry that is null is drawn in a substitute face.
+    ///
+    /// **A person's request, because the file has nothing to answer it with.** ISO 32000-2
+    /// §9.3.1's Table 103 makes `Tf`'s operand "the name of a font resource in the Font
+    /// subdictionary of the current resource dictionary", and §7.3.9 makes an entry there that is
+    /// a reference to an object the file does not define the null object, which is no font
+    /// dictionary:
+    ///
+    /// > An indirect object reference (see 7.3.10, "Indirect objects") to a nonexistent object
+    /// > shall be treated the same as a null object.
+    ///
+    /// §9.5's substitution reads the font dictionary's own entries, and there is none, so a face
+    /// drawn for such text is this program's guess at what the producer wrote. Whether to guess
+    /// is the reader's to say and never decided here, which is `CLAUDE.md` principle 3's shape:
+    /// the policy is asked once, in a place a host can supply (A35, A738).
+    ///
+    /// `false` until a host says otherwise, under which the text draws nothing; `true` draws it in
+    /// §9.6.2.2's Helvetica at that face's own advances. The page's report names the entry at
+    /// both answers, so a substituted line is never mistaken for the producer's.
+    ///
+    /// Returns whether the answer moved, which is what a caller needs: an answer that changes
+    /// supersedes the ink already produced. ADR 2612.
+    pub fn set_null_font_substitute(&mut self, substitute: bool) -> bool {
+        if self.null_font_substitute == substitute {
+            return false;
+        }
+        self.null_font_substitute = substitute;
+        true
+    }
+
+    /// Whether text under a `/Font` entry that is null is drawn in a substitute face; see
+    /// [`Self::set_null_font_substitute`].
+    #[must_use]
+    pub fn null_font_substitute(&self) -> bool {
+        self.null_font_substitute
+    }
+
     /// What a host's clock says, for Table 166's `/M` on what [`Self::save`] writes.
     ///
     /// The entry is "\[t]he date and time when the annotation was most recently modified", and

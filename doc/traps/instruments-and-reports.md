@@ -2158,3 +2158,36 @@ Round 1875 ran `cargo clippy -p pdf-model` and read a `too_many_lines` in `pdf-f
 own red; round 1878 met a `doc_markdown` in a sibling's hunk of a file both edited. Clippy lints every
 workspace path dependency it compiles. A round checks its crate with `--no-deps`, attributes a red in a
 shared file by `git diff` of that file before touching it, and re-runs once the sibling has closed.
+
+### 304. A refusal sentence is not the defect
+
+Batch 129's brief sent round 1881 (ADR 2596) after six documents the census listed under two different
+sentences: five "refused by the rebuild" and one "a count the reader fell short of". All six had the same
+defect, a `/Kids` entry naming no dictionary; the reader's walk gave one of them a second index of the same
+page and so a different sentence. A census sentence says what stopped the converter where it stopped, not
+what is wrong with the file. Before a slot's finish line rests on a document, the file's bytes are read at
+the place the sentence names, and the premise is restated from them.
+
+### 305. A lifted cap takes a bound of its own
+
+The checker keeps 32 places per requirement, and two converter sites read that list as the population
+(round 1884, ADR 2602). The cap had hidden two costs: each page's ancestors were cloned per page, and a
+direct inherited dictionary was copied per page. Taking the whole population made the first quadratic and
+the second proportional to pages times size. When a cap that was never meant as a bound is lifted, every
+allocation and walk it used to limit is listed and given a bound of its own, tested at the bound, before
+the population is measured.
+
+### 306. An environment variable is proved through the process that reads it
+
+Round 1887 (ADR 2609) was to show an unreachable image worker through the command line with
+`PDF_SANDBOX_WORKER=/nonexistent`. The command line never read it: the conversion runs inside
+`quorra-transform-worker`, which decodes images in its own process. The case was shown through the library
+under `Isolation::Sandboxed` instead. A finish line that names an environment variable names the process
+that reads it and is proved through that process.
+
+### 307. A shared fuzz target runs in fork mode and attributes its artifacts
+
+Two rounds of batch 129 widened `cff_write` at once. Round 1882's plain run stopped after 172 seconds on
+round 1888's `advances_restated` assertion and would have reported nothing of its own branch. A fuzz run
+over a target a sibling is editing uses `-fork=1 -ignore_crashes=1`, runs its whole time, and sorts every
+artifact by the panic site in its stack, naming each to the round whose assertion it is.

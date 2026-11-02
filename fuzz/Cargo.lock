@@ -1868,6 +1868,7 @@ dependencies = [
  "sha3",
  "shake",
  "thiserror",
+ "xmlparser",
 ]
 
 [[package]]

@@ -520,3 +520,18 @@ the C ABI for a sentence a precedent already carried.
 share of nothing: round 1877 (ADR 2588) found every page holding its own copy of a dictionary two thousand
 pages named by one reference, and the interpreter copying it again per page. A value shared across pages
 is keyed by the reference the file states for it, never by what the reference resolved to.
+
+## A substitute takes a cache key of its own
+
+Round 1889 (ADR 2612) cached the substitute face for a null `/Font` entry under `FontKey::NullSubstitute`
+rather than under the key of the entry it stands in for, so the common case never re-resolves the entry
+and the report a lookup owes is decided once. A cached path that decides what report a lookup owes never
+re-resolves the entry for the common case; a stand-in gets its own key.
+
+## A rewrite ahead of a by-value search changes what the search finds
+
+Round 1887 (ADR 2608) wrote `/Type /Font` into direct font dictionaries before the substitution of ADR 2162
+ran; that substitution finds a direct font by its exact value, so it no longer recognised four fonts and
+the outputs failed their own row. A rewrite that changes a value another pass searches by runs after that
+pass, or leaves untouched what the pass will rewrite itself and writes the key into the object the pass
+emits.

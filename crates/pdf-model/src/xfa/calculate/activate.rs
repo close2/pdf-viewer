@@ -28,6 +28,13 @@
 //!   subform and an exclusion group no `click`, and an event reaches an enclosing container only
 //!   where the container's event says `listen="refAndDescendents"` (page 387), whose default is
 //!   `refOnly` — so the field's are the only ones a click fires here (ADR 2584).
+//! - The end of the open sequence ([`Stimulus::Ready`]): the `ready` events bound to the Form DOM
+//!   by `ref`, which page 388 fires once the merge, its calculations and its validations are done
+//!   (page 213's step 7), then the `docReady` events bound to the application, which page 388
+//!   puts after the Form DOM's `ready` and before rendering; after each, the calculations that
+//!   depend on what the events changed. An event that also listens to the objects inside its
+//!   `ref` (page 387's `refAndDescendents`), or whose `ref` names an object this reader raises no
+//!   event for, is named in the report as not run for what it is not run for (ADR 2606).
 //! - Value calculations come before property calculations, and among the property calculations
 //!   the inner subform before the outer one (page 405, rule 1, items 4 and 5). Among value
 //!   calculations the order is the template's own, except that a calculation comes after the
@@ -54,7 +61,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::{Calculation, Form, Scalar};
 use crate::xfa::datasets::Change;
-use crate::xfa::template::{Class, Language, Override, Performs};
+use crate::xfa::template::{Bound, Class, Language, Override, Performs};
 use crate::xfa::{Resource, Template};
 
 /// What a [`Runner`] says of one script.
@@ -177,6 +184,9 @@ pub enum Stimulus<'a> {
         /// The field clicked, by its PDF field name.
         clicked: &'a str,
     },
+    /// The open sequence has ended (pages 388 and 704): the `ready` events bound to the Form DOM
+    /// (`ref="$form"`), then the `docReady` events bound to the application (`ref="$host"`).
+    Ready,
 }
 
 /// How an activation ended.
@@ -294,24 +304,31 @@ impl Resource {
         match stimulus {
             Stimulus::Entry(names) => {
                 let typed = session.typed(names);
-                session.fire("change", Some(&typed));
+                session.fire("change", Some(&typed), &Bound::Own);
                 session.settle(Seeds::Entered(&typed));
             }
             Stimulus::Merge => session.settle(Seeds::All),
             Stimulus::Exit { left, reaching } => {
                 let crossed = session.crossed(left, reaching);
-                session.fire("exit", Some(&crossed));
+                session.fire("exit", Some(&crossed), &Bound::Own);
                 session.settle(Seeds::Changed);
             }
             Stimulus::Enter { reached, leaving } => {
                 let mut crossed = session.crossed(reached, leaving);
                 crossed.reverse();
-                session.fire("enter", Some(&crossed));
+                session.fire("enter", Some(&crossed), &Bound::Own);
                 session.settle(Seeds::Changed);
             }
             Stimulus::Click { clicked } => {
                 let field = session.clicked(clicked);
-                session.fire("click", Some(&field));
+                session.fire("click", Some(&field), &Bound::Own);
+                session.settle(Seeds::Changed);
+            }
+            Stimulus::Ready => {
+                session.unfollowed();
+                session.fire("ready", None, &Bound::Form);
+                session.settle(Seeds::Changed);
+                session.fire("docReady", None, &Bound::Host);
                 session.settle(Seeds::Changed);
             }
         }
@@ -320,7 +337,7 @@ impl Resource {
             validations = self.before_save(&session.after(fields, &initial));
         }
         if matches!(stimulus, Stimulus::Merge) {
-            session.fire("initialize", None);
+            session.fire("initialize", None, &Bound::Own);
             session.settle(Seeds::Changed);
         }
         session.finish(&initial, validations)
@@ -556,9 +573,9 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
         ran.outcome
     }
 
-    /// Fires the `activity` events of the containers `only` names, or of every container, in
-    /// document order (page 404's order for scripts the standard leaves unordered).
-    fn fire(&mut self, activity: &str, only: Option<&[usize]>) {
+    /// Fires the `activity` events bound to `bound` of the containers `only` names, or of every
+    /// container, in document order (page 404's order for scripts the standard leaves unordered).
+    fn fire(&mut self, activity: &str, only: Option<&[usize]>, bound: &Bound) {
         let nodes: Vec<usize> = match only {
             Some(only) => only.to_vec(),
             None => (0..self.template.container_count()).collect(),
@@ -570,7 +587,7 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             let performed: Vec<_> = container
                 .events
                 .iter()
-                .filter(|event| event.own && event.activity == activity)
+                .filter(|event| event.bound == *bound && event.activity == activity)
                 .map(|event| event.performs.clone())
                 .collect();
             for performs in performed {
@@ -591,6 +608,47 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
                 if let Err(why) = self.execute(None, node, &script.language, &script.text) {
                     let label = self.label(node);
                     self.say(format!("{label}: its {activity} event: {why}"));
+                }
+            }
+        }
+    }
+
+    /// Names every event the form holds that this reader does not run for all it is bound to: one
+    /// that also listens to the objects inside its `ref` (page 387), which runs for its `ref`
+    /// alone, and one whose `ref` names an object other than its own container, the Form DOM and
+    /// the application, which never runs (pages 404 and 707). The walk is one pass over the
+    /// template's events, which the XML reader bounds, and [`Self::say`] keeps a sentence once and
+    /// caps the report.
+    fn unfollowed(&mut self) {
+        for node in 0..self.template.container_count() {
+            let Some(container) = self.template.get(node) else {
+                continue;
+            };
+            let unfollowed: Vec<(String, Option<String>, bool)> = container
+                .events
+                .iter()
+                .filter_map(|event| {
+                    let other = match &event.bound {
+                        Bound::Other(reference) => Some(reference.clone()),
+                        _ => None,
+                    };
+                    (event.listens || other.is_some())
+                        .then(|| (event.activity.clone(), other, event.listens))
+                })
+                .collect();
+            for (activity, other, listens) in unfollowed {
+                let label = self.label(node);
+                if let Some(reference) = other {
+                    self.say(format!(
+                        "{label}: its {activity} event is bound to {reference}, which this reader \
+                         raises no event for, and is not run (XFA 3.3 pages 404 and 707)"
+                    ));
+                } else if listens {
+                    self.say(format!(
+                        "{label}: its {activity} event listens to the objects inside what it is \
+                         bound to (listen=\"refAndDescendents\"), and is not run for them (XFA \
+                         3.3 page 387)"
+                    ));
                 }
             }
         }

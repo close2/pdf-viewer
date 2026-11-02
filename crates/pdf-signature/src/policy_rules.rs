@@ -39,13 +39,14 @@
 //! the syntax is encoded under the distinguished rules, so the same pre-pass refuses a document
 //! that is not DER by name.
 //!
-//! # The other syntax
+//! # The other syntaxes
 //!
 //! ETSI TS 119 172-3 writes the same family of constraints in a second ASN.1 syntax, whose top
-//! level opens with a digest of its components where this one opens with an algorithm identifier.
-//! [`Syntax::of`] tells the two apart by that first member, [`enforce`] reads each with its own
-//! parser — [`ts_119_172_3`] for the second — and both speak the one [`Finding`] vocabulary the
-//! verdict takes (ADR 2580).
+//! level opens with a digest of its components where this one opens with an algorithm identifier,
+//! and ETSI TS 119 172-2 writes TS 119 172-3's building blocks in XML. [`Syntax::of`] tells the
+//! three apart — markup first, then the first member of the ASN.1 top level — [`enforce`] reads
+//! each with its own parser, [`ts_119_172_3`] for the second and [`ts_119_172_2`] for the third,
+//! and all three speak the one [`Finding`] vocabulary the verdict takes (ADRs 2580, 2604).
 
 use crate::cms::{self, Digest, SignedData};
 use crate::der::{self, DerError, NotCanonical, OBJECT_IDENTIFIER, OCTET_STRING, SEQUENCE, Value};
@@ -53,6 +54,7 @@ use crate::policy::{Binding, PolicyHash, SignaturePolicy, Store};
 use crate::signature::name;
 use crate::x509::{self, Instant, PublicKey};
 
+pub mod ts_119_172_2;
 pub mod ts_119_172_3;
 
 /// The longest policy document this module reads, in octets.
@@ -88,23 +90,30 @@ const ENUMERATED: u8 = 0x0A;
 /// `GeneralizedTime`, primitive and universal.
 const GENERALIZED_TIME: u8 = 0x18;
 
-/// The machine-processable ASN.1 signature policy syntax a document is written in.
+/// The machine-processable signature policy syntax a document is written in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Syntax {
     /// ETSI TR 102 272 clause 6's `SignaturePolicy`, the syntax RFC 3125 also publishes.
     Tr102272,
     /// ETSI TS 119 172-3 clause 4.2's `SignaturePolicy`.
     Ts1191723,
+    /// ETSI TS 119 172-2 clause 4.2's `SignaturePolicy` element.
+    Ts1191722,
 }
 
 impl Syntax {
-    /// The syntax a document's top level is written in, read from its first member's first
-    /// value: TR 102 272's algorithm identifier opens with an object identifier, TS 119 172-3's
-    /// `Digest` with a sequence. `None` where it is neither, which each parser refuses by name.
+    /// The syntax a document is written in: XML where it opens with markup
+    /// ([`ts_119_172_2::is_xml`]), else read from the ASN.1 top level's first member's first
+    /// value — TR 102 272's algorithm identifier opens with an object identifier, TS 119 172-3's
+    /// `Digest` with a sequence. `None` where it is none of them, which each parser refuses by
+    /// name.
     #[must_use]
     pub fn of(octets: &[u8]) -> Option<Self> {
         if octets.len() > MAX_POLICY_OCTETS {
             return None;
+        }
+        if ts_119_172_2::is_xml(octets) {
+            return Some(Self::Ts1191722);
         }
         let policy = der::Reader::new(octets).ok()?.next_value().ok()??;
         let first = policy.children().ok()?.next_value().ok()??;
@@ -122,6 +131,7 @@ impl std::fmt::Display for Syntax {
         f.write_str(match self {
             Self::Tr102272 => "ETSI TR 102 272's ASN.1 syntax",
             Self::Ts1191723 => "ETSI TS 119 172-3's ASN.1 syntax",
+            Self::Ts1191722 => "ETSI TS 119 172-2's XML syntax",
         })
     }
 }
@@ -163,6 +173,23 @@ pub enum PolicyDocumentError {
         "the policy document's {0} is missing or is not the type ETSI TS 119 172-3 clause 4 gives it"
     )]
     ComponentMalformed(&'static str),
+    /// The XML of a TS 119 172-2 document cannot be read: it is not UTF-8 or not well-formed, or
+    /// it declares a document type; the reason is said.
+    #[error("the policy document's XML cannot be read: {0}")]
+    Xml(String),
+    /// A TS 119 172-2 document nests elements deeper than [`der::MAX_DEPTH`], the bound the ASN.1
+    /// syntaxes' values are held to.
+    #[error(
+        "the policy document nests its elements deeper than the {} levels this program reads",
+        der::MAX_DEPTH
+    )]
+    NestedTooDeep,
+    /// An element ETSI TS 119 172-2 clause 4 requires is missing or its value is not of the type
+    /// the clause gives it; the element is named.
+    #[error(
+        "the policy document's {0} is missing or is not what ETSI TS 119 172-2 clause 4 gives it"
+    )]
+    ElementMalformed(&'static str),
     /// TS 119 172-3 clause 4.3.2's digest, re-computed over the policy components, is not the
     /// value the document states.
     #[error(
@@ -323,6 +350,9 @@ impl<'a> PolicyDocument<'a> {
             return Err(PolicyDocumentError::TooLarge {
                 octets: octets.len(),
             });
+        }
+        if ts_119_172_2::is_xml(octets) {
+            return Err(PolicyDocumentError::OtherSyntax(Syntax::Tr102272));
         }
         // The whole document is walked once, depth-bounded, before anything below allocates.
         if let Some(departure) = der::is_canonical(octets)? {
@@ -936,6 +966,13 @@ pub enum NotEnforced {
     NotBound(Binding),
     /// The stored copy is bound but its constraints could not be read.
     Unreadable(PolicyDocumentError),
+    /// The signer signed the digest a TS 119 172-2 document states over its canonicalised
+    /// components, and this program does not canonicalise XML to re-compute it, so the binding is
+    /// unchecked rather than refused (ADR 2604).
+    CanonicalDigestNotComputed {
+        /// The canonicalisation method the document names.
+        canonicalization: String,
+    },
     /// The stored document is a different policy from the one the signer named.
     IdentifierDiffers {
         /// The identifier the document states, dotted.
@@ -958,7 +995,8 @@ pub enum Enforcement {
 }
 
 /// §12.8.3.4.4's "shall enforce signature policy constraints", for a policy stored in the file
-/// under either machine-processable ASN.1 syntax, [`Syntax::of`] deciding which parser reads it.
+/// under any of the three machine-processable syntaxes, [`Syntax::of`] deciding which parser
+/// reads it.
 ///
 /// The document is enforced only where it is bound to the signature — its octets digest to the
 /// value the signer signed, or the signer signed the digest the document states over its own
@@ -977,8 +1015,10 @@ pub fn enforce(
         return Enforcement::NotEnforced(NotEnforced::NoStoredDocument);
     };
     let binding = policy.binding();
-    if Syntax::of(octets) == Some(Syntax::Ts1191723) {
-        return enforce_components(policy, octets, binding, cms, facts);
+    match Syntax::of(octets) {
+        Some(Syntax::Ts1191723) => return enforce_components(policy, octets, binding, cms, facts),
+        Some(Syntax::Ts1191722) => return enforce_xml(policy, octets, binding, cms, facts),
+        _ => {}
     }
     let parsed = PolicyDocument::parse(octets);
     let bound_by_own_hash = match (&policy.hash, &parsed) {
@@ -1037,6 +1077,45 @@ fn enforce_components(
     Enforcement::Enforced {
         syntax: Syntax::Ts1191723,
         findings: ts_119_172_3::findings(&document, cms, facts),
+    }
+}
+
+/// [`enforce`] for a document in TS 119 172-2's XML syntax, bound only by the digest of its
+/// octets: its own `Digest` is over canonicalised XML, which is not re-computed here (ADR 2604).
+fn enforce_xml(
+    policy: &SignaturePolicy<'_>,
+    octets: &[u8],
+    binding: Binding,
+    cms: &SignedData<'_>,
+    facts: &SignerFacts,
+) -> Enforcement {
+    let reading = ts_119_172_2::Reading::parse(octets);
+    let parsed = reading
+        .as_ref()
+        .map_err(Clone::clone)
+        .and_then(ts_119_172_2::Reading::document);
+    if !matches!(binding, Binding::Matches { .. }) {
+        if let (PolicyHash::Stated { value, .. }, Ok(document)) = (&policy.hash, &parsed)
+            && document.digest_value == *value
+        {
+            return Enforcement::NotEnforced(NotEnforced::CanonicalDigestNotComputed {
+                canonicalization: document.canonicalization.to_owned(),
+            });
+        }
+        return Enforcement::NotEnforced(NotEnforced::NotBound(binding));
+    }
+    let document = match parsed {
+        Ok(document) => document,
+        Err(refusal) => return Enforcement::NotEnforced(NotEnforced::Unreadable(refusal)),
+    };
+    if document.identifier_oid() != Some(policy.identifier.as_str()) {
+        return Enforcement::NotEnforced(NotEnforced::IdentifierDiffers {
+            document: document.identifier.to_owned(),
+        });
+    }
+    Enforcement::Enforced {
+        syntax: Syntax::Ts1191722,
+        findings: ts_119_172_2::findings(&document, cms, facts),
     }
 }
 

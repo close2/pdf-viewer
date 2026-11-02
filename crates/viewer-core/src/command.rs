@@ -388,6 +388,23 @@ pub enum Command {
     /// Applies to every open document and to every one opened afterwards, until it is sent
     /// again, which is [`Self::Separations`]' rule for its reason. ADR 2440.
     Guidelines(bool),
+    /// Whether this reader is asking for text under a `/Font` entry that is null to be drawn in a
+    /// substitute face.
+    ///
+    /// ISO 32000-2 §9.3.1's Table 103 makes `Tf`'s operand "the name of a font resource in the
+    /// Font subdictionary of the current resource dictionary", and §7.3.9 makes an entry there
+    /// that refers to an object the file does not define the null object — so there is no font
+    /// dictionary, and §9.5 has nothing to choose a substitute from. Drawing the text at all is a
+    /// guess, and whether to guess is the reader's to say (A35, A738): `true` draws it in
+    /// §9.6.2.2's Helvetica at that face's own advances
+    /// (`pdf_model::view::ViewState::set_null_font_substitute`). **A preference and not a
+    /// restriction level**, for [`Self::Separations`]' reason, and nothing changes for a host
+    /// that never sends it: such text draws nothing. The page's report names the entry at both
+    /// answers.
+    ///
+    /// Applies to every open document and to every one opened afterwards, until it is sent
+    /// again, which is [`Self::Separations`]' rule for its reason. ADR 2612.
+    NullFontSubstitute(bool),
     /// What this host does with a page whose whole raster would be past [`crate::MAX_PIXELS`].
     ///
     /// **A statement about the host's drawing, and the same shape as [`Self::Delegate`].**

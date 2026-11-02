@@ -147,15 +147,23 @@ copy by CID, one per `/W` width, the `CIDToGIDMap` restated as a stream; `issue1
 converts at both targets under both profiles and passes veraPDF at both. Never for a shown CID 0, which
 ISO 32000-2 §9.7.4.2 makes the CIDFont's own `.notdef` whatever glyph it is sent to (ADR 2557; veraPDF
 agrees): `4387ba48….pdf` and `emi15514-sup-0002-SupinfoS2.pdf` show one, and an embedded CMap sending
-the code to a fresh CID is what they would take. Refused as well where the checker's list of places
-is cut short (more than 32 places on glyph 0), since the fonts are named from it. **Built for a simple
+the code to a fresh CID is what they would take. The fonts are named from the whole population the
+requirement failed over, not the places the report keeps (ADR 2602). **Built for a simple
 font's bare CFF program** (`/FontFile3 /Type1C`, ADR 2578): the program is written, its `CharStrings`
 INDEX grown by a copy of `.notdef`'s charstring per width (or a glyph that draws nothing where the code
 reached no glyph), the charset and String INDEX restated, and the encoding restated to name each copy
 where it named none; the rebuilt program is read back by `read-fonts` before the font is proved.
 `issue5256.pdf`, `issue7439.pdf` and `10531_2004_Article_5096977.pdf` convert at both targets under
-both profiles and pass veraPDF at both; six more lose this row and stay refused on others. A
-CID-keyed CFF and a Type 1 program are owed (ADR 2578 section 4). Mitigations
+both profiles and pass veraPDF at both; six more lose this row and stay refused on others. **Built
+for a `CIDFontType0`'s CID-keyed CFF program** (`/FontFile3 /CIDFontType0C`, ADR 2598): a copy of
+`.notdef`'s charstring per shown CID the charset does not hold, under glyph 0's Font DICT, the charset
+restated with the CIDs, `FDSelect` restated in the source's format 0 or 3 and the `FDArray` with it,
+`CIDCount` raised, every table read back before the font is proved; every `Type0` font over one
+descendant is answered together. Of the four documents of this row over such a program,
+`issue4650.pdf`, `issue11718_reduced.pdf` and `PDFBOX-3062-005717-p1.pdf` show their own CID 0 and keep
+the refusal under ADR 2557's reason, now named; `issue12963.pdf`, with 199 places on glyph 0, converts at
+both targets and passes veraPDF at both. A Type 1 program is owed (ADR 2578
+section 4). Mitigations
 `fonts/no-notdef-glyph-shown`; limits 2.2.
 
 **R11 — a TrueType code that reaches its glyph by a route ISO 19005 does not admit** (built; 13
@@ -286,7 +294,7 @@ A page tree root that states `/Parent`, or a kid that names no dictionary, decli
 and print it. **Remedy**: write the structure the reader recovered — the catalog and page tree it
 walked — loss `recovered-structure` (new), the report naming what was rebuilt; the photograph is the
 fallback where the recovered objects do not convert. ADR 2490 reopens the declining sentence ("would
-state a structure no producer wrote"): the output states the structure this reader drew from. **Built** by ADR 2502, its outcome in ADR 2503; the encrypted and the signed source (the claim and the signatures are the source's) and the direct page, parented or not, are ADR 2523's, which removed `refuse_what_is_not_rebuilt`; the stated-count refusal of ADR 2502 decision 7 stands. Of the six ADR 2503 left, `poppler-742-0-fuzzed` (its page's dictionary stops being readable at byte 678) is rebuilt from the seven entries the reader drew the page from, named as read in part (ADR 2551), and refused by other rows; `027613` states `/N 429` and the reader now reaches all 429 pages (ADR 2526), so its refusal is an ordinary requirement's and not this row's; `issue19484_1`, `issue19484_2` and `poppler-395-0-fuzzed` get past the rebuild and are refused by other rows, and `issue9105_other` by the file-header row.
+state a structure no producer wrote"): the output states the structure this reader drew from. **Built** by ADR 2502, its outcome in ADR 2503; the encrypted and the signed source (the claim and the signatures are the source's) and the direct page, parented or not, are ADR 2523's, which removed `refuse_what_is_not_rebuilt`; the stated-count refusal of ADR 2502 decision 7 stands. Of the six ADR 2503 left, `poppler-742-0-fuzzed` (its page's dictionary stops being readable at byte 678) is rebuilt from the seven entries the reader drew the page from, named as read in part (ADR 2551), and refused by other rows; `027613` states `/N 429` and the reader now reaches all 429 pages (ADR 2526), so its refusal is an ordinary requirement's and not this row's; `issue19484_1`, `issue19484_2` and `poppler-395-0-fuzzed` get past the rebuild and are refused by other rows, and `issue9105_other` by the file-header row. The stated-count refusal is now the named loss `page-not-held` where a profile takes it (A727, ADR 2596): a `/Kids` entry that names no object is §7.3.10's null and is subtracted from the root's `/Count` under `recovered-structure`, and one the cross-reference information places with no dictionary there is a page not held, the root's count and the count carried stated in the report, the JSON and `xmpMM:History`. `as-if-printed` converts `A Defence of the New Tenseless Theory of Time`, `T02-02_003`, `10856087`, `14342427` and `66307685`; `as-shown` converts three and refuses the Defence document and `14342427` by `page-not-held`; `T02-03_006` draws no page and stays refused. `state-every-loss` and `no-data-loss` take no `recovered-structure`, so the loss cannot reach them (Q757).
 
 **R07 — a filter no reader decodes** (the seven `UnknownFilter-*` files; never alone — each also
 needs R06b or a font route). **Remedy**: the stream is what the reader treated it as, absent — an

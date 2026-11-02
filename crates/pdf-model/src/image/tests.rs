@@ -721,3 +721,45 @@ fn a_combined_raster_is_its_sources_nearest_samples() {
         }
     }
 }
+
+/// A worker that was never reached keeps its own variant through the conversion, and every answer
+/// of a reached one — a stop, a timeout, the decoder's refusal — stays `Sandboxed` (ADR 2609).
+#[test]
+fn an_unreached_worker_is_its_own_error() {
+    use super::ImageError;
+    use pdf_sandbox::SandboxError;
+    let unreached = [
+        SandboxError::WorkerMissing {
+            executable: std::path::PathBuf::from("/nowhere/quorra"),
+        },
+        SandboxError::Spawn(std::io::Error::from(std::io::ErrorKind::NotFound)),
+        SandboxError::WorkerMismatch {
+            program: std::path::PathBuf::from("/nowhere/pdf-sandbox-worker"),
+            theirs: "a".to_owned(),
+            ours: "b".to_owned(),
+        },
+    ];
+    for error in unreached {
+        let said = error.to_string();
+        assert_eq!(
+            ImageError::from(error),
+            ImageError::DecoderUnreachable { detail: said }
+        );
+    }
+    let reached = [
+        SandboxError::WorkerDied {
+            detail: "killed by signal 9".to_owned(),
+        },
+        SandboxError::TimedOut,
+        SandboxError::Undecodable {
+            detail: "the codestream ends early".to_owned(),
+        },
+    ];
+    for error in reached {
+        let said = error.to_string();
+        assert_eq!(
+            ImageError::from(error),
+            ImageError::Sandboxed { detail: said }
+        );
+    }
+}

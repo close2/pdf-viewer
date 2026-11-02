@@ -136,16 +136,43 @@ pub enum ImageError {
         /// What was wrong.
         detail: String,
     },
-    /// A codec that runs outside this process could not decode the image.
+    /// A codec that runs outside this process was reached and did not decode the image.
     ///
-    /// Carries the sandbox's own words, which distinguish the two cases that matter: the
-    /// decoder refused the data, or the worker itself could not be reached or died. The
-    /// second is a deployment problem and reads like one.
+    /// Carries the sandbox's own words: the decoder refused the data, the worker stopped or ran
+    /// out of time on it — the bounds a decode is run under — or its answer was not one.
     #[error("{detail}")]
     Sandboxed {
         /// What the sandbox reported.
         detail: String,
     },
+    /// The worker that runs the codec could not be reached, so the image was never decoded.
+    ///
+    /// **Its own variant, because every sentence about the image would be false.** The worker
+    /// was not found, would not start, or was built from another tree — `pdf_sandbox`'s
+    /// `WorkerMissing`, `Spawn` and `WorkerMismatch` — and none of those is a budget the image
+    /// exceeded or a refusal of its data. It is a deployment problem, and a caller that words
+    /// what it could not do says so rather than blaming the image (ADR 2609).
+    #[error("{detail}")]
+    DecoderUnreachable {
+        /// What the sandbox reported, which names the program and how to supply it.
+        detail: String,
+    },
+}
+
+impl From<pdf_sandbox::SandboxError> for ImageError {
+    /// Keeps the one distinction `pdf_sandbox` makes that a caller acts on: a worker that was
+    /// never reached, against everything a reached worker can answer.
+    fn from(error: pdf_sandbox::SandboxError) -> Self {
+        let detail = error.to_string();
+        match error {
+            pdf_sandbox::SandboxError::WorkerMissing { .. }
+            | pdf_sandbox::SandboxError::Spawn(_)
+            | pdf_sandbox::SandboxError::WorkerMismatch { .. } => {
+                Self::DecoderUnreachable { detail }
+            }
+            _ => Self::Sandboxed { detail },
+        }
+    }
 }
 
 /// An image `XObject` decoded as far as a grid the *file* states can take it.
@@ -262,15 +289,14 @@ impl Picture {
 ///
 /// # Errors
 ///
-/// [`ImageError::Sandboxed`], carrying the sandbox's own sentence — which names whether the
-/// worker was missing, was built from another tree, or would not start.
+/// [`ImageError::DecoderUnreachable`], carrying the sandbox's own sentence — which names whether
+/// the worker was missing, was built from another tree, or would not start — and
+/// [`ImageError::Sandboxed`] for a worker that started and did not answer.
 pub fn sandboxed_decoder() -> Result<(), ImageError> {
     pdf_sandbox::Sandbox::shared()
         .confinement()
         .map(|_confinement| ())
-        .map_err(|error| ImageError::Sandboxed {
-            detail: error.to_string(),
-        })
+        .map_err(ImageError::from)
 }
 
 /// Decodes an image `XObject` to one raster on the grid the file states.

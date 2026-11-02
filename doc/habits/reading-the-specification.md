@@ -334,3 +334,10 @@ Round 1873 (ADR 2580) was to parse TS 119 172-3's policy syntax under round 1863
 included. TS 119 172-3 clause 4.1.3.2 admits BER, so the pre-pass would have refused documents the
 standard itself writes; nesting is held as each value opens instead. Before a parser for a second syntax
 of a family inherits a sibling's encoding check, the second syntax's own encoding clause is read.
+
+## A second syntax's identifiers may live in another registry
+
+TS 119 172-2 names algorithms by XML Signature URIs where the ASN.1 syntaxes name them by OIDs; round
+1885 (ADR 2604) placed fifteen URIs by a table checked against XML Signature 1.1 and RFCs 9231, 3279, 4055,
+5754 and 5758. Before a parser for a second syntax of a standards family is built, its identifier scheme is
+read: where a URI can name a thing another registry names by number, the mapping is part of the parser.

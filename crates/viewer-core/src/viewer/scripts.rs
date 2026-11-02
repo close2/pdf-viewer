@@ -389,8 +389,9 @@ pub(super) fn open_sequence(open: &mut Open) {
     }
     let page = open.page_index;
     // XFA 3.3 page 379: the completion of the merge activates a hybrid form's calculations, and it
-    // is complete when the form is shown. A reader that asks first reaches its question through
-    // the withheld runner here, as it does at the first of a field's scripts.
+    // is complete when the form is shown; page 388's `ready` and `docReady` follow it in the same
+    // call, which ends the sequence (ADR 2606). A reader that asks first reaches its question
+    // through the withheld runner here, as it does at the first of a field's scripts.
     let ran = open.view.run_open_scripts(&open.document, page) > 0;
     let calculated = open.view.activate_form_on_merge(&open.document);
     if ran || calculated {

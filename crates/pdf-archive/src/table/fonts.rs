@@ -160,6 +160,14 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         ),
     },
     Requirement {
+        id: "fonts/font-dictionary-states-type-font",
+        asks: "Every font dictionary and CIDFont dictionary shall state its Type entry as the \
+               name Font, which each of the base standard's font dictionary tables requires.",
+        clauses: Clauses::both("6.2.11.2", "6.2.10.2"),
+        applies: Applies::Always,
+        check: Check::Implemented(font_dictionary_states_type_font),
+    },
+    Requirement {
         id: "fonts/descendant-fonts-holds-one-cidfont",
         asks: "A Type 0 font's DescendantFonts shall be a one-element array whose element is a \
                CIDFont dictionary.",
@@ -405,7 +413,8 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
 // The population every dictionary-shaped rule is about.
 // --------------------------------------------------------------------------------------------
 
-/// Visits every `/Type /Font` dictionary the cross-reference table reaches, with where it is.
+/// Visits every font dictionary the cross-reference table reaches, with where it is: every one
+/// that states `/Type /Font`, and every one a font's position names ([`font_population`]).
 ///
 /// Bounded by that table for the reason `super::file_structure::for_each_stream` gives: ISO 19005-2
 /// Section 6.1.4 and ISO 19005-4 section 6.1.4 exempt an indirect object no cross-reference section
@@ -416,9 +425,10 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
 /// [`FontSite::place_named`] says where a finding about either kind is reported.
 fn for_each_font(exam: &Examination<'_>, mut visit: impl FnMut(FontSite, &Dictionary)) {
     let document = exam.document;
+    let by_position = exam.fonts_by_position();
     for (id, object) in exam.objects() {
         if let Object::Dictionary(dict) = object
-            && is_a_font(document, dict)
+            && (is_a_font(document, dict) || by_position.contains(&id.number))
         {
             visit(
                 FontSite {
@@ -486,21 +496,58 @@ fn is_a_font(document: &Document, dict: &Dictionary) -> bool {
     named(document.get_key(dict, "Type").as_name()).as_deref() == Some("Font")
 }
 
-/// Every font dictionary written directly inside an object the cross-reference table names, with
-/// that object, in object order.
+/// The two halves of the font population the cross-reference table's own list does not give.
+#[derive(Debug, Default)]
+pub(crate) struct FontPopulation {
+    /// Every font dictionary written directly inside an object the table names, with that
+    /// object, in object order.
+    pub(crate) direct: Vec<(ObjectId, Dictionary)>,
+    /// The numbers of the objects a font's position names a font, stated `/Type` or not.
+    pub(crate) by_position: BTreeSet<u32>,
+}
+
+/// The keys whose value holds font dictionaries by where they stand, whatever those state.
 ///
-/// The object itself is not one of these even when it is a font — that is [`for_each_font`]'s
-/// indirect half — so the walk starts at what each object holds: a dictionary's values, a
-/// stream's dictionary's values, an array's items, and inward through every direct dictionary and
-/// array they contain, a font's own included, since a direct font may hold a direct descendant.
-/// A reference is not followed: what it names is an object of its own, which the table's walk
-/// visits on its own turn. Direct objects form a tree the parser has already bounded, so the walk
-/// is linear in what was parsed and needs no budget of its own.
-pub(crate) fn direct_font_dictionaries(exam: &Examination<'_>) -> Vec<(ObjectId, Dictionary)> {
+/// ISO 32000-2 §7.8.3's Table 34 states of a resource dictionary's `/Font` entry: "A dictionary
+/// that maps resource names to font dictionaries". §9.7.6.1's Table 119 states of a Type 0
+/// font's `/DescendantFonts`: "A one-element array specifying the `CIDFont` dictionary that is the
+/// descendant of this Type 0 font". No other
+/// dictionary of the standard's tables carries either key with that shape — a graphics state's
+/// `/Font` is an array, which [`held_fonts`] does not read as a holder — so the position is a
+/// statement of the file's that the dictionary there is a font (`doc/adr/2608`).
+const FONT_HOLDING_KEYS: [&str; 2] = ["Font", "DescendantFonts"];
+
+/// The population's two halves: fonts written directly inside another object, and the objects a
+/// font's position names a font.
+///
+/// **A font is a font by its `/Type` or by where it stands.** Table 109, Table 110, Table 115 and
+/// Table 119 each make `/Type /Font` required, which is why a dictionary that states it is
+/// judged wherever it is; and a dictionary a `/Font` resource or a `/DescendantFonts` array
+/// names is a font the file uses whether or not it says so, which is why its missing `/Type` is
+/// a finding of its own ([`font_dictionary_states_type_font`]) rather than a way out of every
+/// other font row.
+///
+/// The direct half starts at what each object holds: a dictionary's values, a stream's
+/// dictionary's values, an array's items, and inward through every direct dictionary and array
+/// they contain, a font's own included, since a direct font may hold a direct descendant. A
+/// reference is not followed: what it names is an object of its own, which the table's walk
+/// visits on its own turn; a holder that is one is read once, after the walk, from the set of
+/// such references. Direct objects form a tree the parser has already bounded, and each holder
+/// object is read once, so the walk is linear in what was parsed and needs no budget of its own.
+pub(crate) fn font_population(exam: &Examination<'_>) -> FontPopulation {
     let document = exam.document;
-    let mut out = Vec::new();
+    let mut population = FontPopulation::default();
+    let mut indirect_holders: BTreeSet<(ObjectId, &'static str)> = BTreeSet::new();
     let mut pending: Vec<&Object> = Vec::new();
     for (id, object) in exam.objects() {
+        let top = match object {
+            Object::Dictionary(dict) => Some(dict),
+            Object::Stream(stream) => Some(&stream.dict),
+            _ => None,
+        };
+        if let Some(dict) = top {
+            held_fonts(document, dict, *id, &mut population, &mut indirect_holders);
+        }
         match object {
             Object::Dictionary(dict) => pending.extend(dict.iter().map(|(_, value)| value)),
             Object::Stream(stream) => pending.extend(stream.dict.iter().map(|(_, value)| value)),
@@ -513,8 +560,9 @@ pub(crate) fn direct_font_dictionaries(exam: &Examination<'_>) -> Vec<(ObjectId,
             match held {
                 Object::Dictionary(dict) => {
                     if is_a_font(document, dict) {
-                        out.push((*id, dict.clone()));
+                        population.direct.push((*id, dict.clone()));
                     }
+                    held_fonts(document, dict, *id, &mut population, &mut indirect_holders);
                     let at = pending.len();
                     pending.extend(dict.iter().map(|(_, value)| value));
                     pending[at..].reverse();
@@ -528,7 +576,98 @@ pub(crate) fn direct_font_dictionaries(exam: &Examination<'_>) -> Vec<(ObjectId,
             }
         }
     }
-    out
+    for (holder, key) in indirect_holders {
+        let fetched = document.get(holder);
+        let elements: Vec<&Object> = match (key, &fetched) {
+            ("Font", Object::Dictionary(map)) => map.iter().map(|(_, value)| value).collect(),
+            ("DescendantFonts", Object::Array(items)) => items.iter().collect(),
+            _ => continue,
+        };
+        for element in elements {
+            positioned_font(document, element, holder, &mut population);
+        }
+    }
+    // A holder read after the walk adds its direct fonts out of object order; a stable sort puts
+    // them back without disturbing the order each object's fonts were written in.
+    population.direct.sort_by_key(|(holder, _)| *holder);
+    population
+}
+
+/// Records the fonts `dict`'s font-holding entries name, where the holder is written in `dict`;
+/// a holder that is a reference is left in `indirect_holders` for [`font_population`] to read.
+fn held_fonts(
+    document: &Document,
+    dict: &Dictionary,
+    object: ObjectId,
+    population: &mut FontPopulation,
+    indirect_holders: &mut BTreeSet<(ObjectId, &'static str)>,
+) {
+    for key in FONT_HOLDING_KEYS {
+        match (key, dict.get(key)) {
+            (_, Some(Object::Reference(holder))) => {
+                indirect_holders.insert((*holder, key));
+            }
+            ("Font", Some(Object::Dictionary(map))) => {
+                for (_, element) in map.iter() {
+                    positioned_font(document, element, object, population);
+                }
+            }
+            ("DescendantFonts", Some(Object::Array(items))) => {
+                for element in items {
+                    positioned_font(document, element, object, population);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// One element a font-holding entry names, its holder written in or being `object`.
+///
+/// A direct dictionary that states `/Type /Font` is pushed by the walk itself when it reaches
+/// it, so only one that does not is pushed here, and none is pushed twice.
+fn positioned_font(
+    document: &Document,
+    element: &Object,
+    object: ObjectId,
+    population: &mut FontPopulation,
+) {
+    match element {
+        Object::Reference(font) => {
+            population.by_position.insert(font.number);
+        }
+        Object::Dictionary(font) if !is_a_font(document, font) => {
+            population.direct.push((object, font.clone()));
+        }
+        _ => {}
+    }
+}
+
+/// Every font dictionary whose `/Type` is not the name `Font`.
+///
+/// ISO 32000-2 §9.6.2.1's Table 109 (inherited by TrueType fonts through §9.6.3), §9.6.4's
+/// Table 110, §9.7.4.1's Table 115 and §9.7.6.1's Table 119 each make `/Type` required, and each
+/// states that it "shall be Font"; ISO 19005-2 section 6.2.11.2 and ISO 19005-4 section 6.2.10.2
+/// make every font conform to those clauses. A dictionary that states `/Type /Font` cannot fail
+/// this, so the population is the one [`font_population`] finds by position alone: the value of
+/// a `/Font` resource or a `/DescendantFonts` element that does not say it is a font
+/// (`doc/adr/2608`).
+fn font_dictionary_states_type_font(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    for_each_font(exam, |site, font| {
+        if is_a_font(document, font) {
+            return;
+        }
+        let said = match named(document.get_key(font, "Type").as_name()) {
+            Some(other) => format!(
+                "a font dictionary states the Type {other} where the base standard requires Font"
+            ),
+            None => "a font dictionary states no Type entry, which the base standard's font \
+                     dictionary tables require to be Font"
+                .to_owned(),
+        };
+        findings.record(site.place_named("Type"), said);
+    });
 }
 
 /// The count Table 109 states, also inherited by TrueType fonts through §9.6.3.
@@ -975,6 +1114,28 @@ pub fn direct_cid_fonts_stating_no_cid_to_gid_map(
             _ => false,
         };
         out.push(in_its_type0_font.then_some(holder));
+    });
+    out
+}
+
+/// The object each font dictionary is written in, for every font that is written directly inside
+/// another object and does not state `/Type /Font`: one entry a font, in the order
+/// `fonts/font-dictionary-states-type-font` reports them.
+///
+/// The row reports such a font at no object (`doc/adr/2413`), so a converter that writes the
+/// entry needs the holder in another form, and the number of entries is the number of findings
+/// it has to answer (`doc/adr/2608`).
+#[must_use]
+pub fn direct_fonts_stating_no_font_type(
+    document: &Document,
+    target: crate::Target,
+) -> Vec<ObjectId> {
+    let exam = Examination::new(document, target);
+    let mut out = Vec::new();
+    for_each_font(&exam, |site, font| {
+        if site.own_object().is_none() && !is_a_font(document, font) {
+            out.push(site.object);
+        }
     });
     out
 }
@@ -3172,9 +3333,9 @@ mod tests {
         Findings, actual_text_covers_private_use_characters, actual_text_states_no_private_use,
         charset_names, cid_system_info_agrees_with_the_cmap, cid_to_gid_map_present,
         cmap_embedded_or_predefined, consistent, descendant_fonts_holds_one_cidfont,
-        embedded_cmap_states_its_own_write_mode, font_programs_embedded,
-        font_programs_filed_by_their_format, glyph_procedure_width, is_private_use,
-        no_notdef_glyph_shown, non_symbolic_truetype_differences_are_listed_names,
+        embedded_cmap_states_its_own_write_mode, font_dictionary_states_type_font,
+        font_programs_embedded, font_programs_filed_by_their_format, glyph_procedure_width,
+        is_private_use, no_notdef_glyph_shown, non_symbolic_truetype_differences_are_listed_names,
         non_symbolic_truetype_uses_a_standard_encoding, private_use_codes,
         symbolic_truetype_states_no_encoding, table_124_rows, to_unicode_present,
         to_unicode_values_are_usable, type3_glyph_procedures_state_their_width,
@@ -3535,6 +3696,92 @@ mod tests {
              4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n",
         );
         assert!(findings(&identity, cid_to_gid_map_present).is_empty());
+    }
+
+    /// A font is a font by where it stands as well as by its `/Type`: the descendant a Type 0
+    /// font names without `/Type` — pdf.js's `issue7544.pdf` — is judged by the font rows, and
+    /// its missing entry is a finding of its own (`doc/adr/2608`).
+    #[test]
+    fn a_font_its_position_names_is_judged_whatever_its_type_says() {
+        let descendant = |ty: &str| {
+            page_with(
+                "BT /F1 12 Tf <0001> Tj ET",
+                &format!(
+                    "5 0 obj\n<< /Type /Font /Subtype /Type0 /BaseFont /A /Encoding /Identity-H \
+                     /DescendantFonts [6 0 R] >>\nendobj\n\
+                     6 0 obj\n<< {ty} /Subtype /CIDFontType2 /BaseFont /A \
+                     /FontDescriptor 7 0 R >>\nendobj\n\
+                     7 0 obj\n<< /Type /FontDescriptor /FontFile2 8 0 R >>\nendobj\n\
+                     8 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n"
+                ),
+            )
+        };
+        for (ty, typed) in [("/Type /Font", 0), ("", 1), ("/Type /FontDescriptor", 1)] {
+            let source = descendant(ty);
+            assert_eq!(
+                findings(&source, font_dictionary_states_type_font).len(),
+                typed,
+                "{ty:?}"
+            );
+            assert_eq!(
+                findings(&source, cid_to_gid_map_present).len(),
+                1,
+                "the descendant stating {ty:?} is still judged as the CIDFont it stands as"
+            );
+        }
+
+        // A simple font a resource names: indirect, behind a `/Font` subdictionary that is an
+        // object of its own, and written directly into the resource dictionary.
+        let untyped = "/Subtype /Type1 /BaseFont /Helvetica /FirstChar 65 /LastChar 66 \
+                       /Widths [500]";
+        let indirect = page_with(
+            "BT /F1 12 Tf (AB) Tj ET",
+            &format!("5 0 obj\n<< {untyped} >>\nendobj\n"),
+        );
+        let held = document(&format!(
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+             2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+             3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] \
+             /Resources << /Font 4 0 R >> >>\nendobj\n\
+             4 0 obj\n<< /F1 5 0 R /F2 << {untyped} >> >>\nendobj\n\
+             5 0 obj\n<< {untyped} >>\nendobj\n"
+        ));
+        let direct = document(&format!(
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+             2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+             3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] \
+             /Resources << /Font << /F1 << {untyped} >> >> >> >>\nendobj\n"
+        ));
+        for (source, fonts) in [(&indirect, 1), (&held, 2), (&direct, 1)] {
+            assert_eq!(
+                findings(source, font_dictionary_states_type_font).len(),
+                fonts
+            );
+            assert_eq!(
+                findings(source, widths_array_covers_character_range).len(),
+                fonts
+            );
+        }
+        assert_eq!(
+            findings(&direct, font_dictionary_states_type_font),
+            vec![
+                "a font dictionary states no Type entry, which the base standard's font \
+                  dictionary tables require to be Font"
+                    .to_owned()
+            ]
+        );
+
+        // The control: a graphics state's `/Font` is an array, and a dictionary only it names is
+        // not taken for a font by position.
+        let state = document(&format!(
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+             2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+             3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] \
+             /Resources << /ExtGState << /G1 << /Font [4 0 R 12] >> >> >> >>\nendobj\n\
+             4 0 obj\n<< {untyped} >>\nendobj\n"
+        ));
+        assert!(findings(&state, font_dictionary_states_type_font).is_empty());
+        assert!(findings(&state, widths_array_covers_character_range).is_empty());
     }
 
     /// The population is fonts, not objects: a `CIDFont` written directly into a Type 0 font's

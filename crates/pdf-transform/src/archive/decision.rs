@@ -494,11 +494,23 @@ pub enum Loss {
     /// offered no photograph at all (`doc/questions/A717`). The groups each photographed page
     /// fixed, by `/Name` and by the state drawn, are named in the report and in the file's history.
     OptionalContentOfPhotographedPages,
+    /// ISO 32000-2 §7.7.3.2 Table 30, §F.3.3 Table F.1: a page the page tree or the linearization
+    /// parameter dictionary counts, and the file names a place for and does not hold there, is not
+    /// in the archive; the count stated and the count carried are written into the report.
+    ///
+    /// A rebuilt structure ([`Self::RecoveredStructure`]) lists the pages this reader drew. Where
+    /// the root's `/Count` or `/N` states more, and the difference is not a `/Kids` entry naming
+    /// no object (§7.3.10's null, which is no page), the cross-reference information placed an
+    /// object the reader could not read there: a page of the producer's whose bytes are not where
+    /// the file says. Nothing is invented for it; what is lost is that page, and the report says
+    /// how many the source stated and how many the archive holds (`doc/questions/A727`,
+    /// `doc/adr/2596`).
+    PageNotHeld,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 32] = [
+    pub const ALL: [Self; 33] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::MetadataPacket,
@@ -531,6 +543,7 @@ impl Loss {
         Self::PageAsImage,
         Self::TaggingOfPhotographedPages,
         Self::OptionalContentOfPhotographedPages,
+        Self::PageNotHeld,
     ];
 
     /// The word a caller authorises it by.
@@ -569,6 +582,7 @@ impl Loss {
             Self::PageAsImage => "page-as-image",
             Self::TaggingOfPhotographedPages => "tagging-of-photographed-pages",
             Self::OptionalContentOfPhotographedPages => "optional-content-of-photographed-pages",
+            Self::PageNotHeld => "page-not-held",
         }
     }
 
@@ -824,6 +838,12 @@ impl Loss {
                  changes that page; every other page keeps its optional content, and the groups \
                  each photographed page fixed are named in the report with the state drawn"
             }
+            Self::PageNotHeld => {
+                "a page the page tree counts and the file does not hold where its cross-reference \
+                 information places it is not in the archive: nothing is drawn in its place, and \
+                 the report states how many pages the source counted and how many the archive \
+                 holds"
+            }
         }
     }
 
@@ -847,28 +867,28 @@ impl Loss {
 /// Indexed by a loss's position in [`Loss::ALL`], which is its declaration order; the set
 /// iterates in that order, so the report names the losses the same way every time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct Losses(u32);
+pub struct Losses(u64);
 
 // Room for every loss in the bits of one word, checked where the word is chosen.
-const _: () = assert!(Loss::ALL.len() <= u32::BITS as usize);
+const _: () = assert!(Loss::ALL.len() <= u64::BITS as usize);
 
 impl Losses {
     /// The set holding one loss.
     #[must_use]
     pub const fn one(loss: Loss) -> Self {
-        Self(1 << (loss as u32))
+        Self(1 << (loss as u64))
     }
 
     /// This set with one more loss in it.
     #[must_use]
     pub const fn with(self, loss: Loss) -> Self {
-        Self(self.0 | (1 << (loss as u32)))
+        Self(self.0 | (1 << (loss as u64)))
     }
 
     /// Whether the set holds this loss.
     #[must_use]
     pub const fn contains(self, loss: Loss) -> bool {
-        self.0 & (1 << (loss as u32)) != 0
+        self.0 & (1 << (loss as u64)) != 0
     }
 
     /// Whether the set holds no loss.
@@ -977,6 +997,12 @@ pub struct Authorisations {
     pub tagging_of_photographed_pages: bool,
     /// Whether [`Loss::OptionalContentOfPhotographedPages`] was authorised.
     pub optional_content_of_photographed_pages: bool,
+    /// Whether [`Loss::PageNotHeld`] was authorised.
+    pub page_not_held: bool,
+    /// Whether [`Loss::PageNotHeld`], where it is taken, is also stated on the appended page
+    /// `append-statement` composes (`doc/adr/2596`). No loss of its own: it answers *where* a
+    /// taken loss is said, and `grants` reads [`Self::page_not_held`] alone.
+    pub page_not_held_stated: bool,
 }
 
 impl Authorisations {
@@ -1016,6 +1042,7 @@ impl Authorisations {
             Loss::PageAsImage => self.page_as_image,
             Loss::TaggingOfPhotographedPages => self.tagging_of_photographed_pages,
             Loss::OptionalContentOfPhotographedPages => self.optional_content_of_photographed_pages,
+            Loss::PageNotHeld => self.page_not_held,
         }
     }
 
@@ -1062,6 +1089,7 @@ impl Authorisations {
             Loss::OptionalContentOfPhotographedPages => {
                 self.optional_content_of_photographed_pages = true;
             }
+            Loss::PageNotHeld => self.page_not_held = true,
         }
     }
 }
@@ -2506,6 +2534,15 @@ pub(super) const REMEDIES: &[Remedy] = &[
     Remedy {
         requirement: "fonts/cid-to-gid-map-present",
         answer: Answer::Stated(None, Rewrite::CidToGidIdentity, CID_TO_GID_REINTERPRETS),
+    },
+    // ISO 19005-2 section 6.2.11.2, ISO 19005-4 section 6.2.10.2, through ISO 32000-2 §9.6.2.1's
+    // Table 109 and the three font tables beside it: each makes `/Type` required with the one
+    // value `Font`, and a dictionary a `/Font` resource or a `/DescendantFonts` array names is a
+    // font by where it stands, so the name written is the only one the entry may hold and says
+    // what the file's own structure already says (`doc/adr/2608`).
+    Remedy {
+        requirement: "fonts/font-dictionary-states-type-font",
+        answer: Answer::Mechanical(Rewrite::FontTypeStated),
     },
     // ISO 19005-2 section 6.6.2.1, ISO 19005-4 section 6.7.2.1.
     Remedy {

@@ -901,3 +901,70 @@ Round 1874 moved `issue7544.pdf` from converted to refused, rightly, and the sen
 glyph was not in the program, which was false: the program held it, and CID 0 is the `.notdef`. When a
 census moves a document into a refusal, the sentence printed beside it is read against that file, and a
 catch-all sentence that describes the wrong fault is replaced before the move is reported.
+
+## A fuzz target's seeds are run once before its bounded run queues
+
+Round 1885 wrote `seed_policy_document.py` for an input no corpus document carries and ran the seeds with
+`-runs=0` in one second before the ten-minute run joined a lock queue thirty minutes long. A fuzz target
+whose input no corpus carries gets a seed recipe of its own, and the seeds are checked with `-runs=0` before
+the bounded run queues, so a broken seed is not found an hour later.
+
+## The converter is rebuilt with every binary, never the command line alone
+
+Round 1881 rebuilt `--bin quorra-transform` to check a change and saw no effect: the library runs inside
+`quorra-transform-worker`, and the command line only forwards. While iterating on archive behaviour the
+rebuild is `cargo build -p pdf-transform --bins` (habit 185's reason, read the other way), so the binary a
+test exercises is the one that changed.
+
+## A census sentence standing behind a capped list names the cap
+
+`issue12963` sat under R03a's generic refusal because its 199 places exceeded the checker's 32 kept ones,
+and round 1882 read that sentence as the remedy's own refusal until the cap was found. A refusal that
+follows from a cut-short list names the cap in its sentence, so a remedy round does not debug its writer for
+a limit that is the report's.
+
+## An export's own scratchpad copy is excluded before a conformance run or a merge
+
+Round 1886's conformance run in its export went red on seven tests that read git and the submodules
+(habit 173), because the export carried a copy of `scratchpad/` with another round's files in it. Before a
+conformance run or a three-way merge from an export, its `scratchpad/` copy is deleted or excluded, and only
+the run in the shared worktree counts for the record.
+
+## A statement section fed by a later preparation moves the preparation first
+
+Round 1883 (ADR 2600) gave the statement page a section for the font bundle and found `prepare_fonts`
+running after `the_preserved_pages`, so the page listed nothing; moving it first changed object numbers in
+an output holding both, and a file with no output intent handed the page on under Table 51's DeviceGray.
+A statement section is fed by a preparation that runs before the page is composed, and the output intent
+is decided wherever a statement may be appended.
+
+## A document whose remedy is split across rounds is run in the merged tree
+
+`issue12963` needed round 1882's CID-keyed writer and round 1884's lifted cap at once; each round's census,
+taken in an export of HEAD plus its own hunks, still showed it refused, and only the merged worktree
+converted it. A census in an export of HEAD plus one round cannot show a sibling's move. Where a document's
+remedy is split across rounds, it is run in the merged tree before either round claims or disclaims it.
+
+## The census prints two profiles, and a line it does not print proves nothing
+
+Round 1883's brief asked that the `state-every-loss` census lines stay unchanged in count; the census
+runs `as-if-printed` and `as-shown` only (`archive_corpus.rs`), so the lines did not exist at HEAD or after,
+and "unchanged" held of nothing. Before a finish line names a profile's census lines, the census is read
+for which profiles it prints; what the other profiles do is shown by `--test profiles` and a read-back test.
+
+## A walk's claims are checked by claim, not by name
+
+The teaching gate holds the names a walk makes, and it passed round 1890's draft with seven false or
+imprecise sentences in it. Three Sonnet checkers, each given one stage's claim list and HEAD's files by
+range, found every one in under a minute each without the code entering the round's context. A walk's
+sentences are checked one by one against the tree they describe before the round reports, and the gate's
+green is read as what it is: every name resolves.
+
+## A reader-versus-writer fuzz property has each crash decoded before any is counted fixed
+
+Round 1888 (ADR 2610) widened `cff_write` to compare the advance writer's output with what the reader reads
+and got 1 361 crashes from one assertion. They were six separate writer faults — a reserved byte skipped, a
+width inserted where no operand count reads it, offsets into the header or past the end shifted onto other
+bytes, an unreadable FDArray rewritten empty, a real number read past its end — and two more of the same
+family remain. One property can hide many faults: each artifact is replayed and decoded to its root cause,
+and a fix is counted only for the artifacts it clears.

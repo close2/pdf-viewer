@@ -23,7 +23,12 @@ use std::fmt::Write as _;
 /// `Adobe-Identity` `CIDFontType2` named `Arial` with no program and no `/ToUnicode`, then
 /// `extra` — and `page` added to the page dictionary, `fonts` to its font resources and `more` as
 /// objects 9 and up.
-fn a_page_no_reader_can_read(fonts: &str, extra: &[u8], page: &str, more: &[&str]) -> Vec<u8> {
+pub(super) fn a_page_no_reader_can_read(
+    fonts: &str,
+    extra: &[u8],
+    page: &str,
+    more: &[&str],
+) -> Vec<u8> {
     Conforming {
         resources: format!(
             "/Font << /F1 6 0 R {fonts} >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
@@ -919,7 +924,7 @@ fn a_tagged_document_keeps_the_refusal_where_the_tagging_loss_was_not_authorised
 /// Two pages and two optional content groups, `Shown` on and `Hidden` off by `/D`'s `/OFF`. The
 /// first page shows `Hello`, a blue square in `Shown`, a red square in `Hidden`, and then an
 /// operator the base standard does not define; the second draws only the blue square in `Shown`.
-fn a_layered_document_with_a_fault_on_its_first_page(target: Target) -> Vec<u8> {
+pub(super) fn a_layered_document_with_a_fault_on_its_first_page(target: Target) -> Vec<u8> {
     let kept = "/OC /L1 BDC 0 0 1 rg 10 10 50 50 re f EMC";
     let header = Conforming::part_two().header;
     Conforming {

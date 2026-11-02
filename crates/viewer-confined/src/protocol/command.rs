@@ -132,6 +132,10 @@ pub(super) mod command_kind {
     // §14.11.2.2's guidelines, asked for by the reader. It crosses for `SEPARATIONS`' reason: the
     // confined worker interprets the pages a guideline is drawn over (ADR 2440).
     pub(in crate::protocol) const GUIDELINES: u8 = 45;
+    // The substitute for a null `/Font` entry, asked for by the reader. It crosses for
+    // `SEPARATIONS`' reason: the confined worker interprets the pages the text is drawn on (ADR
+    // 2612).
+    pub(in crate::protocol) const NULL_FONT_SUBSTITUTE: u8 = 46;
 }
 
 /// How [`Command::Open`]'s document is held, on the wire.
@@ -419,6 +423,9 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
         }
         Command::Guidelines(shown) => {
             writer.u8(k::GUIDELINES).bool(*shown);
+        }
+        Command::NullFontSubstitute(substitute) => {
+            writer.u8(k::NULL_FONT_SUBSTITUTE).bool(*substitute);
         }
         // Table 29's arrangement crosses for the reason every other policy value does: the
         // confined process is the one that decides which pages to interpret and where each of
@@ -821,6 +828,9 @@ pub(crate) fn decode_command_holding(
         }
         k::SEPARATIONS => Command::Separations(reader.bool("whether separations are simulated")?),
         k::GUIDELINES => Command::Guidelines(reader.bool("whether guidelines are shown")?),
+        k::NULL_FONT_SUBSTITUTE => Command::NullFontSubstitute(
+            reader.bool("whether a null /Font entry is drawn in a substitute")?,
+        ),
         k::BESIDE => Command::Beside(match reader.u8("a reserved name")? {
             0 => None,
             1 => Some(reader.document(what)?),

@@ -20,7 +20,7 @@ the target never looks at:
                    `variable_text.rs` splits its input into
     jpeg_bands     a `DCTDecode` stream's own bytes (§7.4.8) behind the band-height byte
                    `jpeg_bands.rs` reads first, one frame per shape (below)
-    cff_write      an embedded bare CFF program (§9.9, `/Subtype /Type1C`) behind the three bytes
+    cff_write      an embedded bare CFF program (§9.9, `/Subtype /Type1C` or `/CIDFontType0C`) behind the three bytes
                    `cff_write.rs` reads its request from: three glyphs, alternating outlines
 
 The `-` reads the list of documents from standard input, one per NUL, for the reason
@@ -76,7 +76,7 @@ NEEDLES = {
     "crypt": b"/Standard",
     "variable_text": b"/DA",
     "jpeg_bands": b"/DCT",
-    "cff_write": b"/Type1C",
+    "cff_write": b"Type",
 }
 # A `DCTDecode` frame past this is skipped for `jpeg_bands`: every execution decodes the frame
 # three times, and a frame of a few hundred lines is cut into bands as surely as a large one.
@@ -597,7 +597,7 @@ def seeds(target, data):
             "xmp": re.search(rb"/Type\s*/Metadata", dictionary),
             "sfnt": b"/Length1" in dictionary and b"/Length2" not in dictionary,
             "cmap": re.search(rb"/Type\s*/CMap", dictionary),
-            "cff_write": re.search(rb"/Subtype\s*/Type1C", dictionary),
+            "cff_write": re.search(rb"/Subtype\s*/(?:Type1C|CIDFontType0C)", dictionary),
         }[target]
         if wanted:
             out = decoded(dictionary, body)

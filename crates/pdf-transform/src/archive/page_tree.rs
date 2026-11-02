@@ -205,6 +205,80 @@ fn refuse_what_no_conforming_reader_opens(
     Ok(())
 }
 
+/// How many `/Kids` entries of the page tree name no object, and how many name an object the
+/// file places and does not hold: the two kinds of child that is no dictionary, told apart because
+/// they answer a stated page count differently (`doc/adr/2596`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) struct ChildrenNotHeld {
+    /// Entries that are no reference (a direct `null`, a number), or a reference to an object
+    /// number the cross-reference information gives no place for, which ISO 32000-2 §7.3.10 makes
+    /// a reference to the null object.
+    ///
+    /// > An indirect reference to an undefined object shall not be considered an error by a PDF
+    /// > processor; it shall be treated as a reference to the null object.
+    ///
+    /// Such an entry is no leaf, so it is no page: Table 30's `/Count` is the number of leaf
+    /// nodes, and the `/Kids` arrays are what "definitively determines the number of descendant
+    /// pages". A `/Count` that counted one counted a page nobody wrote.
+    pub(super) naming_nothing: usize,
+    /// Entries naming an object the cross-reference information places, which this reader reads
+    /// as no dictionary there: a child the producer wrote and the file does not hold.
+    pub(super) not_held: usize,
+}
+
+/// Counts the page tree's children that are no dictionary, by kind, walking every node the
+/// catalog's `/Pages` reaches once, under [`MAX_DEPTH`] and with at most [`MAX_NODES_VISITED`]
+/// `/Kids` entries examined — the bounds the refusals above walk the same tree under, since
+/// `/Kids` can make a cycle. A node reached a second time is not walked again, so a cycle neither
+/// repeats the work nor counts a child twice.
+///
+/// A walk that reaches a bound stops there and counts what it reached; a child it did not reach
+/// is counted in neither field, so the caller's shortfall stays a page not held, which is the
+/// louder answer.
+pub(super) fn children_not_held(document: &Document) -> ChildrenNotHeld {
+    let mut counted = ChildrenNotHeld::default();
+    let Some(root) = document
+        .catalog()
+        .ok()
+        .and_then(|catalog| catalog.get("Pages").and_then(Object::as_reference))
+    else {
+        return counted;
+    };
+    let mut examined = 0_usize;
+    let mut walked = std::collections::BTreeSet::new();
+    let mut pending = vec![(root, 0_usize)];
+    while let Some((node, depth)) = pending.pop() {
+        if depth > MAX_DEPTH || !walked.insert(node) {
+            continue;
+        }
+        let value = document.get(node);
+        let Some(kids) = value
+            .as_dict()
+            .and_then(|dict| dict.get("Kids"))
+            .map(|kids| document.resolve(kids))
+        else {
+            continue;
+        };
+        for kid in kids.as_array().into_iter().flatten() {
+            examined = examined.saturating_add(1);
+            if examined > MAX_NODES_VISITED {
+                return counted;
+            }
+            match kid.as_reference() {
+                Some(id) if document.get(id).as_dict().is_some() => {
+                    pending.push((id, depth.saturating_add(1)));
+                }
+                Some(id) if document.xref().location(id.number).is_some() => {
+                    counted.not_held = counted.not_held.saturating_add(1);
+                }
+                _ if kid.as_dict().is_some() => {}
+                _ => counted.naming_nothing = counted.naming_nothing.saturating_add(1),
+            }
+        }
+    }
+    counted
+}
+
 /// Why a node written inside its parent's `/Kids` keeps its failing `/Count`.
 const WRITTEN_INSIDE_ITS_PARENT: &str = "a page tree node whose Count is no integer is written \
      directly inside its parent's Kids array rather than as an object of its own, and this \

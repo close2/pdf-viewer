@@ -229,9 +229,7 @@ pub(super) fn ccitt_bilevel(
         data: &source.data,
         parameters,
     })
-    .map_err(|error| ImageError::Sandboxed {
-        detail: error.to_string(),
-    })?;
+    .map_err(ImageError::from)?;
     let Decoded::Bilevel(bilevel) = decoded else {
         return Err(ImageError::Malformed {
             detail: "CCITTFaxDecode did not decode to bilevel samples".to_owned(),

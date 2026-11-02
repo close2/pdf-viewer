@@ -42,7 +42,12 @@ use pdf_syntax::object::{Object, ObjectId};
 use sha2::{Digest as _, Sha256};
 
 use super::config::Statement;
+use super::recovered::NotHeld;
 use super::report::{AttachmentAnswer, AttachmentOutcome};
+
+mod fonts;
+
+pub(super) use fonts::{FontsStated, entries as font_entries};
 
 /// The most objects one statement lists.
 ///
@@ -136,6 +141,47 @@ pub(super) fn text(
         return Err(STATEMENT_TOO_LONG);
     }
     Ok(out)
+}
+
+/// The one line the `page-not-held` loss is described by on the page.
+const NOT_HELD_LOSS: &str = "the source's page tree states more pages than the file holds where \
+     its cross-reference information places them, and nothing is drawn for a page that is not there";
+
+/// Appends the entry for the loss [`super::Loss::PageNotHeld`] to a statement's `text`, numbered
+/// `index` from zero, or the bound it would pass (`doc/adr/2596`).
+///
+/// Both counts are the rebuild's own, read from the source rather than handed in by a profile: the
+/// count the source states in ISO 32000-2 §7.7.3.2 Table 30's `/Count` of its page tree root, or in
+/// a linearization parameter dictionary's `/N` (Annex F), and the count the archive holds. The
+/// entry names no requirement, because no requirement of ISO 19005 declines the source: the
+/// refusal the loss lifts is the source's structure (`doc/adr/2502`).
+pub(super) fn not_held_entry(
+    out: &mut String,
+    index: usize,
+    not_held: NotHeld,
+) -> Result<(), &'static str> {
+    if out.len() > MOST_STATEMENT_BYTES {
+        return Err(STATEMENT_TOO_LONG);
+    }
+    let clause = if not_held.stated_by.ends_with("/N") {
+        "ISO 32000-2 F.3.3, Table F.1"
+    } else {
+        "ISO 32000-2 7.7.3.2, Table 30"
+    };
+    // Writing into a `String` cannot fail, so the `write!` result is discarded deliberately.
+    let _ = write!(
+        out,
+        "\n{}. Loss: page-not-held, {NOT_HELD_LOSS}\n   Pages the source states: {}, in {} \
+         ({clause})\n   Pages this document holds: {}, each the producer's\n",
+        index.saturating_add(1),
+        not_held.stated,
+        not_held.stated_by,
+        not_held.carried,
+    );
+    if out.len() > MOST_STATEMENT_BYTES {
+        return Err(STATEMENT_TOO_LONG);
+    }
+    Ok(())
 }
 
 /// What a row whose statement is its first step says was tried: nothing.

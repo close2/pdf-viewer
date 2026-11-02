@@ -481,3 +481,40 @@ fn a_press_and_release_on_a_widget_runs_the_click_event_of_its_field() {
         assert_eq!(value(&viewer, "Total"), "");
     }
 }
+
+/// XFA 3.3 page 388: the Form DOM's `ready` runs once the form is shown, which is the open
+/// sequence's end, through the runner the reader's level supplied, and at `off` nothing runs; an
+/// event bound to `$layout`, which this reader raises nothing for, is named in the document's
+/// report as not run (ADR 2606).
+#[test]
+fn the_ready_event_runs_when_the_form_is_presented_and_an_unfollowed_one_is_reported() {
+    let fields = "<field name=\"Units\"><ui><textEdit/></ui><value><text/></value>\
+                  <event activity=\"ready\" ref=\"$form\"><script>4</script></event></field>\
+                  <field name=\"Total\"><ui><textEdit/></ui><value><text/></value>\
+                  <event activity=\"ready\" ref=\"$layout\"><script>9</script></event></field>";
+    let data = "<Units>1</Units><Total/>";
+    for (scripting, units, reported) in [
+        (Scripting::Run(Arc::new(Calculators::default())), "4", true),
+        (Scripting::Off, "", false),
+    ] {
+        let mut viewer = opened_on(scripting, hybrid(fields, data));
+        assert_eq!(value(&viewer, "Units"), "", "nothing runs at the open");
+        let mut events: Vec<Event> = viewer.handle(Command::Presented).collect();
+        events.extend(viewer.handle(Command::Presented));
+        assert_eq!(value(&viewer, "Units"), units);
+        assert_eq!(value(&viewer, "Total"), "", "a $layout ready is not run");
+        let said: Vec<String> = events
+            .iter()
+            .filter_map(|event| match event {
+                Event::Reported { notes, .. } => Some(notes.join("\n")),
+                _ => None,
+            })
+            .collect();
+        let said = said.join("\n");
+        assert_eq!(
+            said.contains("its ready event is bound to $layout"),
+            reported,
+            "{said}"
+        );
+    }
+}

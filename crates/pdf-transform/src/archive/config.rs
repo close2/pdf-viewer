@@ -87,7 +87,7 @@ use super::toml::{self, Value};
 
 mod steps;
 
-pub(in crate::archive) use steps::STATED_GRAPHICS;
+pub(in crate::archive) use steps::{STATED_FONTS, STATED_GRAPHICS, statement_hands_on};
 pub use steps::{Skipped, Statement};
 
 /// `doc/rfc/0007` section 2's remedy vocabulary, closed and small so a configuration is legible.
@@ -928,10 +928,10 @@ pub struct Preservation {
     /// The outcome is per object (`doc/adr/2536`): each attachment the requirement failed at is
     /// laid out as pages where this reader can lay it out, and one it cannot is removed where
     /// this is [`Kind::Discard`] and stops the conversion where it is [`Kind::Stop`], which is
-    /// what a row saying nothing states. At a halftone row whose loss is stated
-    /// (`steps::STATED_GRAPHICS`, `doc/adr/2562`) it is the step after `append-statement`, which
-    /// the objects take where the statement's page cannot be composed. [`Kind::Stop`] at every
-    /// other site.
+    /// what a row saying nothing states. At a halftone row or the font row whose loss is stated
+    /// (`steps::statement_hands_on`, `doc/adr/2562`, `doc/adr/2600`) it is the step after
+    /// `append-statement`, which the objects take where the statement's page cannot be composed.
+    /// [`Kind::Stop`] at every other site.
     pub no_page_carries: Kind,
     /// Whether an embedded file that is a PDF, or an image this reader decodes, is drawn on the
     /// appended pages beside the text files it sets (`doc/adr/2536`'s drawn attachments).
@@ -1320,6 +1320,14 @@ pub struct Configuration {
     /// declines: the refusal comes from the source's structure, before any site is asked
     /// (`doc/adr/2502`). Anything but `discard` leaves the refusal in place.
     recovered_structure: bool,
+    /// `[profile] page-not-held` — whether a rebuilt structure may hold fewer pages than the source
+    /// states, under the loss [`Loss::PageNotHeld`], the two counts written into the report. Like
+    /// `recovered-structure` it is no site's key, and it is asked only of a source that is rebuilt
+    /// (`doc/questions/A727`, `doc/adr/2596`). `discard` takes the loss, `append-statement` takes it
+    /// and states it on the appended page as well, and anything else leaves the refusal in place.
+    page_not_held: bool,
+    /// Whether `[profile] page-not-held` was `append-statement`.
+    page_not_held_stated: bool,
     /// `[profile] base`, and the sites read from it (`doc/rfc/0014` section 6).
     inherited: Option<Inherited>,
 }
@@ -1491,6 +1499,8 @@ impl Configuration {
         let mut name = None;
         let mut sentence = None;
         let mut recovered_structure = false;
+        let mut page_not_held = false;
+        let mut page_not_held_stated = false;
         let mut sites: Vec<Row> = Vec::new();
         let mut applicable: Vec<(bool, Row)> = Vec::new();
         let mut flag_shapes = Vec::new();
@@ -1506,21 +1516,8 @@ impl Configuration {
                         .and_then(Value::as_text)
                         .map(str::to_owned);
                     recovered_structure = kind_or_stop(tbl, "recovered-structure") == Kind::Discard;
-                    // `doc/pdf-a-mitigations.md` section 14's ninth finding: a `default` may only be
-                    // `stop` — today's behaviour, stated deliberately so `refuse-any-loss` is not
-                    // the empty file. A default of anything else would authorise a loss for every
-                    // site at once, which is exactly what a per-site vocabulary exists to prevent.
-                    if let Some(default) = tbl.get("default")
-                        && default.as_text() != Some("stop")
-                    {
-                        return Err(ConfigError::WrongValue {
-                            line: tbl.line,
-                            site: "profile".to_owned(),
-                            key: "default".to_owned(),
-                            wanted: "the string \"stop\" (the only default a profile may state)",
-                            found: default.kind(),
-                        });
-                    }
+                    (page_not_held, page_not_held_stated) = page_not_held_key(tbl);
+                    check_profile_default(tbl)?;
                 }
                 Some("site") => {
                     let site = site_identifier(tbl, &requirements)?;
@@ -1597,6 +1594,8 @@ impl Configuration {
             departures,
             annotation_flags,
             recovered_structure,
+            page_not_held,
+            page_not_held_stated,
             inherited,
         })
     }
@@ -1677,10 +1676,14 @@ impl Configuration {
                 authorised.authorise(Loss::TextAsImage);
             }
         }
-        // The one loss that belongs to no site: the refusal it lifts is the source's, not a row's
-        // (`doc/adr/2502`).
+        // The two losses that belong to no site: the refusals they lift are the source's, not a
+        // row's (`doc/adr/2502`, `doc/adr/2596`).
         if self.recovered_structure {
             authorised.authorise(Loss::RecoveredStructure);
+        }
+        if self.page_not_held {
+            authorised.authorise(Loss::PageNotHeld);
+            authorised.page_not_held_stated = self.page_not_held_stated;
         }
         authorised
     }
@@ -1897,7 +1900,7 @@ impl Configuration {
                     || (row.remedy == Kind::Discard
                         && row.states_the_loss
                         && (DERIVABLE.contains(&row.site.as_str())
-                            || STATED_GRAPHICS.contains(&row.site.as_str())))
+                            || statement_hands_on(&row.site)))
             })
             .map(|row| Preservation {
                 site: row.site.clone(),
@@ -1921,7 +1924,7 @@ impl Configuration {
                 no_page_carries: if (DERIVABLE.contains(&row.site.as_str())
                     && row.placement == Some(Placement::Append)
                     && row.on_failure == Kind::Discard)
-                    || (STATED_GRAPHICS.contains(&row.site.as_str())
+                    || (statement_hands_on(&row.site)
                         && row.states_the_loss
                         && row.on_failure == Kind::Discard)
                 {
@@ -2135,11 +2138,13 @@ fn check_rows(
 fn check_what_moves_nothing(row: &Row) -> Result<(), ConfigError> {
     // **`doc/rfc/0014` section 4, built where the loss is reported per object**: the page lists
     // each object the step removed, so it is built at the two embedded-file rows whose outcome is
-    // already one per file (`doc/adr/2536`) and at the three halftone rows, whose removal takes
-    // one entry from each object it names (`doc/adr/2562`), and refused by name at every other.
+    // already one per file (`doc/adr/2536`), at the three halftone rows, whose removal takes
+    // one entry from each object it names (`doc/adr/2562`), and at the font row, whose losses are
+    // reported one photographed page or one embedded face at a time (`doc/adr/2600`), and refused
+    // by name at every other.
     if row.states_the_loss
         && !DERIVABLE.contains(&row.site.as_str())
-        && !STATED_GRAPHICS.contains(&row.site.as_str())
+        && !statement_hands_on(&row.site)
     {
         return Err(ConfigError::NotBuiltThatWay {
             line: row.line,
@@ -2427,6 +2432,37 @@ fn language_key(tbl: &toml::Table, site: &str) -> Result<Option<String>, ConfigE
 }
 
 /// A key whose value is a remedy word, `stop` where the row states none or a word no remedy is.
+/// `[profile] page-not-held`: whether the loss is taken, and whether it is stated on the appended
+/// page as well. `discard` takes it, `append-statement` takes and states it, and anything else
+/// leaves the refusal in place (`doc/adr/2596`).
+fn page_not_held_key(tbl: &toml::Table) -> (bool, bool) {
+    match tbl
+        .get("page-not-held")
+        .and_then(Value::as_text)
+        .and_then(remedy_word)
+    {
+        Some((Kind::Discard, stated)) => (true, stated),
+        _ => (false, false),
+    }
+}
+
+/// `doc/pdf-a-mitigations.md` section 14's ninth finding: a `default` may only be `stop` — today's
+/// behaviour, stated deliberately so `refuse-any-loss` is not the empty file. A default of anything
+/// else would authorise a loss for every site at once, which is exactly what a per-site vocabulary
+/// exists to prevent.
+fn check_profile_default(tbl: &toml::Table) -> Result<(), ConfigError> {
+    match tbl.get("default") {
+        Some(default) if default.as_text() != Some("stop") => Err(ConfigError::WrongValue {
+            line: tbl.line,
+            site: "profile".to_owned(),
+            key: "default".to_owned(),
+            wanted: "the string \"stop\" (the only default a profile may state)",
+            found: default.kind(),
+        }),
+        _ => Ok(()),
+    }
+}
+
 fn kind_or_stop(tbl: &toml::Table, key: &str) -> Kind {
     tbl.get(key)
         .and_then(Value::as_text)

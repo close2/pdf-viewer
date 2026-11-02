@@ -1031,3 +1031,179 @@ fn a_hundred_thousand_click_events_that_submit_are_reported_once() {
         activation.report
     );
 }
+
+/// An event of `activity` bound by `ref` to `reference` that appends `tag` to `Log`; no `ref`
+/// where `reference` is empty.
+fn bound(activity: &str, reference: &str, tag: &str) -> String {
+    let reference = if reference.is_empty() {
+        String::new()
+    } else {
+        format!(" ref=\"{reference}\"")
+    };
+    format!(
+        "<event activity=\"{activity}\"{reference}><script>Log = Concat(Log, \"{tag}!\")</script>\
+         </event>"
+    )
+}
+
+/// Activates the end of the open sequence.
+fn ready(template: &str, values: &[(&str, &str)]) -> Activation {
+    activate(template, values, Stimulus::Ready, Limits::DEFAULT)
+}
+
+/// Page 388: the Form DOM's `ready` fires once its merge is done, and the application's `docReady`
+/// after it, whatever the document order of the fields carrying them. A `ready` bound to the field
+/// itself names an object that generates no `ready`, which page 703 requires its `ref` to name, so
+/// it fires nothing; one bound to `$layout` is not raised by this reader and is named in the report
+/// as not run.
+#[test]
+fn ready_runs_the_form_doms_events_and_then_the_applications() {
+    let template = [
+        field("Doc", &bound("docReady", "$host", "doc")),
+        field("Form", &bound("ready", "$form", "form")),
+        field("Alias", &bound("ready", "xfa.form", "alias")),
+        field("Own", &bound("ready", "", "own")),
+        field("Layout", &bound("ready", "$layout", "layout")),
+        field("Log", ""),
+    ]
+    .concat();
+    let values = [
+        ("Doc", ""),
+        ("Form", ""),
+        ("Alias", ""),
+        ("Own", ""),
+        ("Layout", ""),
+        ("Log", ""),
+    ];
+    let activation = ready(&template, &values);
+    assert_eq!(activation.ended, Ended::Settled, "{:?}", activation.report);
+    assert_eq!(log(&activation).as_deref(), Some("form!alias!doc!"));
+    assert!(
+        activation.report.iter().any(|sentence| sentence.contains(
+            "its ready event is bound to $layout, which this reader raises no event for"
+        )),
+        "{:?}",
+        activation.report
+    );
+    assert_eq!(activation.report.len(), 1, "{:?}", activation.report);
+}
+
+/// No other stimulus raises `ready`: a merge runs the calculations and the `initialize` events, and
+/// the Form DOM's `ready` waits for the end of the open sequence.
+#[test]
+fn a_merge_alone_does_not_run_ready() {
+    let template = [
+        field("Form", &bound("ready", "$form", "form")),
+        field("Log", ""),
+    ]
+    .concat();
+    let activation = merge(&template, &[("Form", ""), ("Log", "")]);
+    assert_eq!(log(&activation), None, "{:?}", activation.edits);
+}
+
+/// Page 379: a value a `ready` script sets is a change like any other, and the calculations that
+/// read it run after the event.
+#[test]
+fn a_value_a_ready_event_sets_wakes_the_calculations_that_read_it() {
+    let template = [
+        field(
+            "Start",
+            "<event activity=\"ready\" ref=\"$form\"><script>Units = 4</script></event>",
+        ),
+        field("Units", ""),
+        field("Total", &calculate("Units * 2", "")),
+    ]
+    .concat();
+    let activation = ready(&template, &[("Start", ""), ("Units", ""), ("Total", "")]);
+    assert_eq!(
+        activation.edits,
+        vec![
+            edit("Units", Scalar::Number(4.0)),
+            edit("Total", Scalar::Number(8.0))
+        ]
+    );
+}
+
+/// Page 387: an event whose `listen` is `refAndDescendents` also hears the objects inside its
+/// `ref`. This reader runs it for its own container alone, so the open sequence names it, and a
+/// click within a field inside the subform still runs only the field's own event.
+#[test]
+fn an_event_that_listens_to_descendants_is_named_as_not_run_for_them() {
+    let template = [
+        format!(
+            "<subform name=\"A\"><event activity=\"click\" listen=\"refAndDescendents\"><script>\
+             Log = Concat(Log, \"A!\")</script></event>{}</subform>",
+            field("Button", &clicks("Button"))
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    let values = [("A.Button", ""), ("Log", "")];
+    let activation = ready(&template, &values);
+    assert!(
+        activation.report.iter().any(|sentence| sentence.contains(
+            "its click event listens to the objects inside what it is bound to \
+             (listen=\"refAndDescendents\"), and is not run for them"
+        )),
+        "{:?}",
+        activation.report
+    );
+    assert_eq!(
+        log(&click(&template, &values, "A.Button")).as_deref(),
+        Some("Button!")
+    );
+}
+
+/// A field carrying more `ready` events than an activation may run ends on the activation limit
+/// and keeps nothing its scripts set.
+#[test]
+fn more_ready_events_than_an_activation_runs_end_on_its_limit_and_keep_nothing() {
+    let events = "<event activity=\"ready\" ref=\"$form\"><script>Log = 1</script></event>"
+        .repeat(Limits::DEFAULT.activations.saturating_add(1));
+    let template = [field("f", &events), field("Log", "")].concat();
+    let activation = ready(&template, &[("f", ""), ("Log", "")]);
+    assert_eq!(activation.ended, Ended::Budget("activations"));
+    assert!(activation.edits.is_empty(), "{:?}", activation.edits);
+}
+
+/// A hundred thousand events that listen to a subform's descendants, and a hundred thousand fields
+/// each bound to an object this reader raises nothing for, run no script; the walk is one pass over
+/// the template's elements, which the XML reader bounds, the same sentence is kept once and the
+/// report is capped and says how many it left out.
+#[test]
+fn a_hundred_thousand_unfollowed_events_are_reported_within_the_cap() {
+    let listening =
+        "<event activity=\"click\" listen=\"refAndDescendents\"><submit/></event>".repeat(100_000);
+    let fields: String = (0..100_000)
+        .map(|at| field(&format!("f{at}"), &bound("ready", "$layout", "x")))
+        .collect();
+    let template = [
+        format!("<subform name=\"A\">{listening}</subform>"),
+        fields,
+        field("Log", ""),
+    ]
+    .concat();
+    let started = std::time::Instant::now();
+    let activation = ready(&template, &[("Log", "")]);
+    assert!(started.elapsed() < std::time::Duration::from_secs(30));
+    assert_eq!(activation.activations, 0);
+    assert_eq!(
+        activation
+            .report
+            .iter()
+            .filter(|sentence| sentence.contains("refAndDescendents"))
+            .count(),
+        1,
+        "{:?}",
+        activation.report
+    );
+    assert_eq!(activation.report.len(), 257, "{}", activation.report.len());
+    assert!(
+        activation
+            .report
+            .last()
+            .is_some_and(|sentence| sentence.contains("more sentences, past the")),
+        "{:?}",
+        activation.report.last()
+    );
+}

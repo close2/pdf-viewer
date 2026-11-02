@@ -580,6 +580,14 @@ pub enum Rewrite {
     /// object of its own, and into its Type 0 font's `/DescendantFonts` array where it is written
     /// there (ADR 2432).
     CidToGidIdentity,
+    /// Every font dictionary a `/Font` resource or a Type 0 font's `/DescendantFonts` names, and
+    /// which states no `/Type` or another name there, states `/Type /Font`.
+    ///
+    /// ISO 32000-2 §9.6.2.1's Table 109, §9.6.4's Table 110, §9.7.4.1's Table 115 and §9.7.6.1's
+    /// Table 119 each make the entry required and admit the one value, so the name written is
+    /// decided by the tables and the dictionary's position, never by this converter
+    /// (`doc/adr/2608`).
+    FontTypeStated,
     /// Every XMP packet whose header states the deprecated `bytes` or `encoding` attribute loses
     /// it.
     ///
@@ -1414,6 +1422,11 @@ impl Rewrite {
                  optional and give its absence the same meaning, the subset tag in FontName, and \
                  ISO 32000-2 deprecates it besides"
             }
+            Self::FontTypeStated => {
+                "a font dictionary a Font resource or a Type 0 font's DescendantFonts names, and \
+                 which stated no Type or another name there, states Type Font, the one value ISO \
+                 32000-2 \u{a7}9.6.2.1's Table 109 and the three font tables beside it admit"
+            }
             Self::CidToGidIdentity => {
                 "an embedded Type 2 CIDFont stating no CIDToGIDMap is given the name Identity, \
                  which ISO 32000-1 gives as that entry's default and which a PDF/A-2 file's own \
@@ -1744,6 +1757,7 @@ impl Rewrite {
             Self::PageCountRestated => "page-count-restated",
             Self::DescriptorSetRemoved => "descriptor-set-removed",
             Self::CidToGidIdentity => "cid-to-gid-identity",
+            Self::FontTypeStated => "font-type-stated",
             Self::PacketHeaderAttributes => "packet-header-attributes",
             Self::NeedsRendering => "needs-rendering",
             Self::NeedAppearancesCleared => "need-appearances-cleared",
@@ -1960,6 +1974,7 @@ impl<'a> Rewriter<'a> {
                 .map(|counts| &counts.at),
             descriptor_sets: prepared.owed.descriptor_sets.as_ref().ok(),
             cid_to_gid: prepared.owed.cid_to_gid.as_ref().ok(),
+            font_types: prepared.owed.font_types.as_ref().ok(),
             font_files: prepared.owed.font_files.as_ref().ok(),
             packet_headers: prepared.owed.packet_headers.as_ref().ok(),
             symbolic_encodings: prepared.owed.symbolic_encodings.as_ref().ok(),
@@ -2891,6 +2906,8 @@ struct Rewriter<'a> {
     descriptor_sets: Option<&'a DescriptorSets>,
     /// The `CIDFont`s given `/CIDToGIDMap` `/Identity`.
     cid_to_gid: Option<&'a sites::CidToGidSites>,
+    /// The font dictionaries given `/Type /Font` (`doc/adr/2608`).
+    font_types: Option<&'a sites::FontTypeSites>,
     /// The key and name each misfiled font program is filed under instead.
     font_files: Option<&'a super::font_files::Refiled>,
     /// The packets whose header loses a deprecated attribute, where any do.
@@ -3282,6 +3299,7 @@ impl Rewriter<'_> {
         changed |= self.remove_descriptor_sets(id, out, applied);
         changed |= self.remove_page_boundaries(id, out, applied);
         changed |= self.write_cid_to_gid_map(id, out, applied);
+        changed |= self.state_font_type(id, out, applied);
         changed |= self.restate_truetype_encoding(id, out, applied);
         changed |= self.share_destination_profile(id, out, applied);
         changed |= self.write_colorants(id, out, applied);

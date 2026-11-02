@@ -121,6 +121,43 @@ fn a_broken_policy_constraint_withholds_the_word() {
     assert!(constraint.contains("1.2.840.113549.1.9.5") && constraint.contains("broken"));
 }
 
+/// A TS 119 172-2 XML policy whose signing period ended before the signature was made: its
+/// findings, judged against the fixture's own `SignedData`, withhold the word (ADR 2604).
+#[test]
+fn an_xml_policy_whose_signing_period_ended_withholds_the_word() {
+    use crate::policy_rules::ts_119_172_2::{Reading, findings};
+    use crate::policy_rules::{SignerFacts, SigningTime, TimeSource};
+    let policy = r#"<SignaturePolicy xmlns="http://uri.etsi.org/19172/v1.1.1#"
+        xmlns:ds="http://www.w3.org/2000/09/xmldsig#"><Digest>
+        <ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+        <ds:DigestValue>AAAA</ds:DigestValue>
+        <ds:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>
+        </Digest><PolicyComponents><GeneralDetails><SigPolicyDetails>
+        <PolicyIdentifier>urn:oid:1.2.3.4</PolicyIdentifier></SigPolicyDetails><OtherDetails>
+        <DateOfIssue>2020-01-01T00:00:00Z</DateOfIssue><SigningPeriod>
+        <NotBefore>2020-01-01T00:00:00Z</NotBefore><NotAfter>2021-01-01T00:00:00Z</NotAfter>
+        </SigningPeriod></OtherDetails></GeneralDetails><PolicyRules><PolicyRule>
+        <SCDLoARules>urn:qscd</SCDLoARules></PolicyRule></PolicyRules></PolicyComponents>
+        </SignaturePolicy>"#;
+    let reading = Reading::parse(policy.as_bytes()).expect("a clause 4 document");
+    let document = reading.document().expect("a clause 4 document");
+    let der = hex(fixtures::SIGNATURE);
+    let cms = crate::cms::signed_data(&der).expect("the fixture value is a SignedData");
+    let mut facts = SignerFacts::of(&cms);
+    facts.signing_time = Some(SigningTime {
+        instant: AT,
+        spelled: "the fixture's validation time".to_owned(),
+        source: TimeSource::SignatureTimestamp,
+    });
+    let verdict = verdict_under(&[fixtures::ROOT], Acceptance::UnknownRevocationAccepted);
+    assert!(verdict.valid().is_some(), "{verdict:?}");
+    let withheld = verdict.under_policy(&findings(&document, &cms, &facts));
+    let Some(Reservation::PolicyConstraintBroken { constraint }) = withheld.reservation() else {
+        panic!("the ended signing period should be the reservation, not {withheld:?}");
+    };
+    assert!(constraint.contains("2021-01-01T00:00:00Z"), "{constraint}");
+}
+
 /// **A different root, and the same signature is not valid.**
 ///
 /// The one input changed. `crate::trust::tests`' hierarchy is a real root this project issued and

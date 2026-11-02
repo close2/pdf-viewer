@@ -2617,6 +2617,7 @@ static READINGS: &[Reading] = &[
                     "fonts/font-programs-conform-to-their-own-specifications",
                     "fonts/widths-array-covers-character-range",
                     "fonts/descendant-fonts-holds-one-cidfont",
+                    "fonts/font-dictionary-states-type-font",
                 ]),
             },
             Sentence {
@@ -4713,6 +4714,7 @@ static READINGS: &[Reading] = &[
                     "fonts/font-programs-conform-to-their-own-specifications",
                     "fonts/widths-array-covers-character-range",
                     "fonts/descendant-fonts-holds-one-cidfont",
+                    "fonts/font-dictionary-states-type-font",
                 ]),
             },
             Sentence {

@@ -398,6 +398,9 @@ fn every_carried_command_round_trips() {
         // §14.11.2.2's guidelines, in both answers, for the bit's reason above (ADR 2440).
         Command::Guidelines(true),
         Command::Guidelines(false),
+        // The substitute for a null `/Font` entry, in both answers, for the bit's reason (ADR 2612).
+        Command::NullFontSubstitute(true),
+        Command::NullFontSubstitute(false),
         Command::Beside(None),
         Command::Beside(Some(DocumentId(9))),
         // §8.11.4.4's answers about the reader, in both the shapes that differ on the wire:

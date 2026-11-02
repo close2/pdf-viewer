@@ -870,14 +870,16 @@ fn a_root_naming_a_parent_or_a_child_that_is_no_dictionary_is_written_as_a_well_
 }
 
 #[test]
-fn a_page_the_reader_reaches_at_two_indices_is_carried_once_and_the_count_it_falls_short_of_refuses()
- {
+fn a_page_the_reader_reaches_at_two_indices_is_carried_once_and_a_kid_naming_no_object_is_no_page()
+{
     // Table 30 makes a node's /Count the number of leaves beneath it. Node 3 states two and holds
-    // one page, its other kid a reference to an object the file does not hold (§7.3.10's null), so
-    // the reader skips node 3 by the two it states and lands on node 5's page again: one object at
-    // two indices. The kid naming no dictionary declines the source (ADR 2558); the rebuild then
-    // carries page 6 once rather than reserving its object twice, and the root's /Count of three
-    // against the two pages the file holds is refused by name, as a page lost is (ADR 2502).
+    // one page, its other kid a reference to an object the file does not define, which §7.3.10
+    // makes a reference to the null object, so the reader skips node 3 by the two it states and
+    // lands on node 5's page again: one object at two indices. The kid naming no dictionary
+    // declines the source (ADR 2558); the rebuild carries page 6 once rather than reserving its
+    // object twice, and the root's /Count of three against the two pages written is no page lost,
+    // because the third leaf it counted is a kid naming no object, which Table 30's /Kids arrays
+    // do not make a page (A727, ADR 2596).
     let source = file(
         &[
             "<< /Type /Catalog /Pages 2 0 R >>",
@@ -902,16 +904,268 @@ fn a_page_the_reader_reaches_at_two_indices_is_carried_once_and_the_count_it_fal
         "the shape under test: the reader answers two indices with object 6"
     );
     for target in TARGETS {
-        let refusal = attempt(&source, target, authorised())
-            .expect_err("a page the file does not hold is not written as another page");
-        let pdf_transform::Refusal::Reconstructed(sentence) = refusal else {
-            panic!(
-                "{target}: another variant, where the rebuild placed an object twice: {refusal}"
-            );
-        };
-        assert!(
-            sentence.contains("page tree root's /Count states 3 pages where this reader reaches 2"),
-            "{target}: {sentence}"
+        let (report, document, _) = recovered(&source, target);
+        let note = conversion(&report)
+            .recovered_structure
+            .as_ref()
+            .expect("the report names what was rebuilt");
+        assert_eq!(
+            (note.pages, note.naming_nothing, note.not_held),
+            (2, 1, None),
+            "{target}"
         );
+        assert!(
+            note.sentence().contains("1 /Kids entry named no object"),
+            "{target}: {}",
+            note.sentence()
+        );
+        assert_eq!(pdf_model::Pages::new(&document).len(), 2, "{target}");
+    }
+}
+
+/// A file of a catalog, a root stating `stated` pages, `held` pages under it and one kid whose
+/// cross-reference entry places it inside the first page's content stream, where no object
+/// begins: the shape of `A Defence of the New Tenseless Theory of Time`'s thirteenth page.
+fn a_tree_with_a_page_not_held(stated: usize, held: usize) -> Vec<u8> {
+    a_tree_with_a_page_not_held_and(stated, held, "")
+}
+
+/// The same tree, with `more` written into the catalog.
+fn a_tree_with_a_page_not_held_and(stated: usize, held: usize, more: &str) -> Vec<u8> {
+    let content = "BT ET";
+    let mut objects = vec![
+        format!("<< /Type /Catalog /Pages 2 0 R {more}>>"),
+        String::new(),
+        format!(
+            "<< /Length {} >>\nstream\n{content}\nendstream",
+            content.len()
+        ),
+    ];
+    let mut kids = Vec::new();
+    for _ in 0..held {
+        kids.push(format!("{} 0 R", objects.len().saturating_add(1)));
+        objects.push(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 300] /Contents 3 0 R >>".to_owned(),
+        );
+    }
+    let missing = objects.len().saturating_add(1);
+    kids.push(format!("{missing} 0 R"));
+    objects.push("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 300] >>".to_owned());
+    objects[1] = format!(
+        "<< /Type /Pages /Kids [{}] /Count {stated} >>",
+        kids.join(" ")
+    );
+    let borrowed: Vec<&str> = objects.iter().map(String::as_str).collect();
+    let mut bytes = file(&borrowed, "/Root 1 0 R");
+    // The last page's cross-reference entry is moved into object 3's stream data, so the table
+    // places object `missing` where the file holds no object of that number.
+    let into_stream = bytes
+        .windows(content.len())
+        .position(|window| window == content.as_bytes())
+        .expect("the content stream's data");
+    let xref = bytes
+        .windows(6)
+        .rposition(|window| window == b"\nxref\n")
+        .expect("the table");
+    let line = xref
+        .saturating_add("\nxref\n0 ".len())
+        .saturating_add(format!("{}\n", missing.saturating_add(1)).len())
+        .saturating_add(missing.saturating_mul(20));
+    let replacement = format!("{into_stream:010} 00000 n \n");
+    bytes[line..line.saturating_add(20)].copy_from_slice(replacement.as_bytes());
+    // And the object itself is blanked, offsets kept, so no scan of the file finds it either.
+    let header = format!("{missing} 0 obj");
+    let at = bytes
+        .windows(header.len())
+        .position(|window| window == header.as_bytes())
+        .expect("the object");
+    let end = at
+        .saturating_add(
+            bytes[at..]
+                .windows(6)
+                .position(|window| window == b"endobj")
+                .expect("its end"),
+        )
+        .saturating_add(6);
+    bytes[at..end].fill(b' ');
+    bytes
+}
+
+#[test]
+fn a_page_the_file_does_not_hold_is_refused_unless_page_not_held_is_authorised_and_then_stated() {
+    // A727: a page the tree counts and the file does not hold where its cross-reference
+    // information places it is the named loss page-not-held. Table 30's root /Count of 13, twelve
+    // pages the reader draws and a thirteenth whose entry places it inside a content stream: the
+    // two counts are read back from the report, its JSON and the file's own history.
+    let source = a_tree_with_a_page_not_held(13, 12);
+    let reader = Document::open_with_limits(source.clone(), Limits::DEFAULT).expect("it opens");
+    assert!(
+        reader.xref().location(16).is_some()
+            && reader.get(ObjectId::new(16, 0)).as_dict().is_none(),
+        "the shape under test: object 16 is placed and is no dictionary there"
+    );
+    for target in TARGETS {
+        let refusal = attempt(&source, target, authorised())
+            .expect_err("a page not held is not dropped without the loss");
+        assert!(
+            refusal
+                .to_string()
+                .contains("states 13 pages where this reader reaches 12")
+                && refusal.to_string().contains("authorise page-not-held"),
+            "{target}: {refusal}"
+        );
+        let (report, output) = attempt(&source, target, authorised_with(&[Loss::PageNotHeld]))
+            .expect("the conversion applies");
+        let output = written(&report, output);
+        assert_eq!(
+            holds(&output, target).verdict(),
+            Verdict::Conforms,
+            "{target}: what was written is held to the target again"
+        );
+        let note = conversion(&report)
+            .recovered_structure
+            .as_ref()
+            .expect("the report names what was rebuilt");
+        assert_eq!(
+            note.not_held,
+            Some(pdf_transform::archive::NotHeld {
+                stated_by: "its page tree root's /Count",
+                stated: 13,
+                carried: 12,
+            }),
+            "{target}"
+        );
+        let said =
+            "page-not-held: its page tree root's /Count states 13 pages and the archive holds 12";
+        assert!(
+            note.sentence().contains(said),
+            "{target}: {}",
+            note.sentence()
+        );
+        assert!(
+            output.windows(said.len()).any(|w| w == said.as_bytes()),
+            "{target}: the file's own xmpMM:History says it"
+        );
+        let json = format!("{:?}", conversion(&report).to_json());
+        assert!(
+            json.contains("page_not_held") && json.contains("Integer(13)"),
+            "{target}: {json}"
+        );
+        let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+        assert_eq!(pdf_model::Pages::new(&document).len(), 12, "{target}");
+    }
+}
+
+#[test]
+fn a_page_not_held_asked_as_append_statement_is_stated_with_both_counts_on_the_appended_page() {
+    // A727's statement-page half: `page-not-held = "append-statement"` takes the loss as `discard`
+    // does and lists it on the page `append-statement` composes, with Table 30's /Count of 13 and
+    // the 12 pages carried read from the rebuild (`doc/adr/2596`).
+    let profile =
+        "[profile]\nrecovered-structure = \"discard\"\npage-not-held = \"append-statement\"\n";
+    let source = a_tree_with_a_page_not_held(13, 12);
+    for target in TARGETS {
+        let configuration =
+            pdf_transform::archive::Configuration::read(profile, target).expect("it reads");
+        let authorised = configuration.authorisations(target);
+        assert!(
+            authorised.grants(Loss::PageNotHeld) && authorised.page_not_held_stated,
+            "{target}: append-statement takes the loss and states it"
+        );
+        let (report, output) =
+            attempt(&source, target, authorised).expect("the conversion applies");
+        let output = written(&report, output);
+        assert_eq!(
+            holds(&output, target).verdict(),
+            Verdict::Conforms,
+            "{target}: the archive with its statement page is held to the target again"
+        );
+        let statement = conversion(&report)
+            .statement
+            .as_ref()
+            .expect("the report names the statement page");
+        assert_eq!(statement.sites, vec!["page-not-held"], "{target}");
+        assert_eq!(
+            statement.pages,
+            vec![12],
+            "{target}: after the twelve carried"
+        );
+        let document =
+            Document::open_with_limits(output.clone(), Limits::DEFAULT).expect("it opens");
+        let pages = pdf_model::Pages::new(&document);
+        assert_eq!(
+            pages.len(),
+            13,
+            "{target}: twelve carried and the statement"
+        );
+        let page = pages.get(12).expect("the statement page");
+        let text: String = pdf_model::interpret(&document, &page)
+            .text
+            .split_whitespace()
+            .collect();
+        for fact in [
+            "Loss:page-not-held",
+            "Pagesthesourcestates:13,initspagetreeroot's/Count(ISO32000-27.7.3.2,Table30)",
+            "Pagesthisdocumentholds:12,eachtheproducer's",
+        ] {
+            assert!(text.contains(fact), "{target}: {fact} in {text}");
+        }
+        let said = "listing 1 object(s) removed under page-not-held";
+        assert!(
+            output.windows(said.len()).any(|w| w == said.as_bytes()),
+            "{target}: the file's own xmpMM:History names the page"
+        );
+    }
+    // A page that cannot be composed refuses the source with the composition's reason: ADR
+    // 1014's appended page is not built over page labels in a number tree with /Kids.
+    let labelled = a_tree_with_a_page_not_held_and(
+        13,
+        12,
+        "/PageLabels << /Kids [<< /Limits [0 0] /Nums [0 << /S /D >>] >>] >> ",
+    );
+    let configuration =
+        pdf_transform::archive::Configuration::read(profile, TARGETS[0]).expect("it reads");
+    let refusal = attempt(
+        &labelled,
+        TARGETS[0],
+        configuration.authorisations(TARGETS[0]),
+    )
+    .expect_err("the loss is not taken unstated");
+    assert!(
+        refusal
+            .to_string()
+            .contains("page-not-held is to be stated on an appended page")
+            && refusal.to_string().contains("/Kids"),
+        "{refusal}"
+    );
+    // `discard` takes the loss and composes no page for it.
+    let (report, _) = attempt(&source, TARGETS[0], authorised_with(&[Loss::PageNotHeld]))
+        .expect("the conversion applies");
+    assert!(conversion(&report).statement.is_none());
+}
+
+#[test]
+fn only_as_if_printed_of_the_shipped_profiles_takes_a_page_not_held() {
+    // A727 names as-if-printed of the two profiles that take recovered-structure; as-shown keeps
+    // the refusal, and so does every profile that rebuilds nothing.
+    let directory = concat!(env!("CARGO_MANIFEST_DIR"), "/../../doc/profiles/");
+    for (profile, expected) in [
+        ("as-if-printed", true),
+        ("as-shown", false),
+        ("refuse-any-loss", false),
+        ("keep-everything", false),
+    ] {
+        let text = std::fs::read_to_string(format!("{directory}{profile}.toml")).expect("profile");
+        for target in TARGETS {
+            let configuration =
+                pdf_transform::archive::Configuration::read(&text, target).expect("it reads");
+            assert_eq!(
+                configuration
+                    .authorisations(target)
+                    .grants(Loss::PageNotHeld),
+                expected,
+                "{profile} {target}"
+            );
+        }
     }
 }

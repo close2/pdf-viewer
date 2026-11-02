@@ -1683,9 +1683,10 @@ fn signature_policy(
 
 /// §12.8.3.4.4's "shall enforce signature policy constraints", said one constraint at a time.
 ///
-/// A stored document bound to the signature and written in either machine-processable ASN.1
-/// syntax, ETSI TR 102 272's or ETSI TS 119 172-3's, is enforced, each constraint a sentence with
-/// its verdict (ADRs 2560, 2580). Anything else is said as the
+/// A stored document bound to the signature and written in any of the three machine-processable
+/// syntaxes — ETSI TR 102 272's or ETSI TS 119 172-3's ASN.1, or ETSI TS 119 172-2's XML — is
+/// enforced, each constraint a sentence with its verdict (ADRs 2560, 2580, 2604). Anything else is
+/// said as the
 /// reason nothing was enforced; where the file carries no document, the sentence names the
 /// specification the signer named and is silent where it named none, since clause 5.2.9.1 leaves
 /// the syntax to the context there and a reader outside that context has nothing to name.
@@ -1725,6 +1726,13 @@ fn policy_constraints(
              bound to the signature, so its rules are nobody's agreement"
             .to_owned(),
         Enforcement::NotEnforced(NotEnforced::Unreadable(refusal)) => refusal.to_string(),
+        Enforcement::NotEnforced(NotEnforced::CanonicalDigestNotComputed { canonicalization }) => {
+            format!(
+                "the signer committed to the digest the copy this file carries states over its \
+                 policy components canonicalised by {canonicalization}, and this program does not \
+                 canonicalise XML to re-compute it"
+            )
+        }
         Enforcement::NotEnforced(NotEnforced::IdentifierDiffers { document }) => format!(
             "the copy this file carries is the document of policy {document}, not of the one the \
              signer named"

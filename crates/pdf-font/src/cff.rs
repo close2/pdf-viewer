@@ -253,6 +253,30 @@ pub fn draw(data: &[u8], glyph: u16, pen: &mut impl OutlinePen) -> Result<(), Cf
 /// See [`CffError`]. A glyph the program cannot evaluate yields `None` rather than an error,
 /// because one unreadable charstring is not a reason to lose the other 255 widths.
 pub fn advances(data: &[u8], glyphs: &[u16]) -> Result<Vec<Option<f32>>, CffError> {
+    evaluated_widths(data, glyphs, horizontal_metric)
+}
+
+/// The width each glyph's charstring states, in the program's own units and before its
+/// `FontMatrix`: the charstring's width operand added to its Private DICT's `nominalWidthX`, or
+/// the `defaultWidthX` where the charstring states none (Adobe Technical Note #5177, section 3.1).
+///
+/// This is the number [`with_advances`] is asked to write, read the way the outline reader reads
+/// it, so that a restated program can be held to stating what it was asked to — the `cff_write`
+/// fuzz target's question of whether the writer and the reader read one program alike.
+///
+/// # Errors
+///
+/// See [`CffError`]; a glyph the program cannot evaluate yields `None`, as in [`advances`].
+pub fn charstring_widths(data: &[u8], glyphs: &[u16]) -> Result<Vec<Option<f32>>, CffError> {
+    evaluated_widths(data, glyphs, |_, width| width.to_f32())
+}
+
+/// Each glyph's charstring width, carried through `metric` with the program's transform.
+fn evaluated_widths(
+    data: &[u8],
+    glyphs: &[u16],
+    metric: impl Fn(&Transform, Fixed) -> f32,
+) -> Result<Vec<Option<f32>>, CffError> {
     /// Discards the outline: only the charstring's width operand is wanted here.
     struct NoCommands;
     impl CommandSink for NoCommands {
@@ -281,7 +305,7 @@ pub fn advances(data: &[u8], glyphs: &[u16]) -> Result<Vec<Option<f32>>, CffErro
             let width = font
                 .evaluate_charstring(&subfont, id, &[], &mut NoCommands)
                 .ok()??;
-            Some(horizontal_metric(&font.transform(&subfont, None), width))
+            Some(metric(&font.transform(&subfont, None), width))
         })
         .collect())
 }
@@ -355,6 +379,14 @@ mod scale_tests;
 #[cfg(test)]
 #[path = "cff_budget_tests.rs"]
 mod budget_tests;
+
+#[cfg(test)]
+#[path = "cff_operand_tests.rs"]
+mod operand_tests;
+
+#[path = "cff_cids_given.rs"]
+mod cids_given;
+pub use cids_given::{CidToGive, MOST_CID_BYTES_GIVEN, with_cids_given};
 
 /// A CID-keyed program some of whose Font DICTs could not be read, with those replaced.
 ///
@@ -445,6 +477,11 @@ pub fn readable_font_dicts(data: &[u8]) -> Result<Option<FontDictRepair>, CffErr
     let layout = Layout::read(data).ok_or_else(|| CffError::Malformed {
         detail: "the Top DICT INDEX could not be located".to_owned(),
     })?;
+    // The Top DICT is restated whole and each kept Font DICT's `Private` offset with it, so
+    // those are the entries this rewrite follows; no Private DICT is read, only copied.
+    if let Some(misstated) = misstated_in(&layout.entries, "Top", top_dict_entry) {
+        return Err(misstated.refusal());
+    }
     let fd_array_at = layout.fd_array_at.unwrap_or(0);
     // The program's own Font DICTs, where its FDArray reads at all; the witness's does not.
     let own: Vec<&[u8]> = index_items(data, fd_array_at).unwrap_or_default();
@@ -474,6 +511,13 @@ pub fn readable_font_dicts(data: &[u8]) -> Result<Option<FontDictRepair>, CffErr
                     })
         })
         .collect();
+    if let Some(misstated) = font_dicts
+        .iter()
+        .flatten()
+        .find_map(|dict| misstated_in(&dict_entries(dict)?, "Font", top_dict_entry))
+    {
+        return Err(misstated.refusal());
+    }
     let replaced = font_dicts.iter().filter(|dict| dict.is_none()).count();
     let data = layout.with_font_dicts(data, &font_dicts);
     Ok(Some(FontDictRepair {
@@ -497,6 +541,10 @@ struct Layout {
     /// The Top DICT's entries: the operands' bytes and their operator.
     entries: Vec<(Vec<u8>, u16)>,
     fd_array_at: Option<usize>,
+    /// The first entry a writer here follows that the program states otherwise than Adobe
+    /// Technical Note #5176 gives it, in the Top DICT, a Font DICT or a Private DICT; see
+    /// [`misstated_entry`].
+    misstated: Option<Misstated>,
 }
 
 /// The two-byte escape's operators, as `escape + second byte`.
@@ -525,6 +573,8 @@ struct Moved {
     charstrings_at: Option<i64>,
     /// Where the charset now is, where the rebuild wrote a fresh one.
     charset_at: Option<i64>,
+    /// Where the `FDSelect` now is, where the rebuild wrote a fresh one.
+    fd_select_at: Option<i64>,
 }
 
 impl Moved {
@@ -535,6 +585,7 @@ impl Moved {
             fd_array_at: None,
             charstrings_at: None,
             charset_at: None,
+            fd_select_at: None,
         }
     }
 
@@ -555,6 +606,12 @@ impl Moved {
         self.charset_at = Some(at);
         self
     }
+
+    /// The same, with a fresh `FDSelect` at `at`.
+    const fn fd_select_to(mut self, at: i64) -> Self {
+        self.fd_select_at = Some(at);
+        self
+    }
 }
 
 impl Layout {
@@ -569,10 +626,13 @@ impl Layout {
             .find(|(_, op)| *op == OP_FD_ARRAY)
             .and_then(|(operands, _)| dict_int(operands))
             .and_then(|at| usize::try_from(at).ok());
+        let misstated = misstated_entry(data, &entries)
+            .or_else(|| offset_outside(data, &entries, top_index.end));
         Some(Self {
             top_index,
             entries,
             fd_array_at,
+            misstated,
         })
     }
 
@@ -681,12 +741,17 @@ impl Layout {
     /// are appended past the end. A name-keyed program's only other absolute offsets — its
     /// `Encoding` and its `Private` DICT — move with the copied bytes, and a Private DICT's
     /// `Subrs` is relative to the Private DICT itself.
+    ///
+    /// **A CID-keyed program's `fd_select` is appended after the charset, and its `FDArray`
+    /// rewritten after that**, each Font DICT's `Private` offset shifted as
+    /// [`Self::with_charstrings`] shifts it, since that offset is absolute and the bytes it names
+    /// moved with everything copied. `None` where the `FDArray` does not read.
     fn with_glyph_tables(
         &self,
         data: &[u8],
         strings: &[Vec<u8>],
-        charstrings: &[Vec<u8>],
-        charset: &[u8],
+        (charstrings, charset): (&[Vec<u8>], &[u8]),
+        fd_select: Option<&[u8]>,
     ) -> Option<Vec<u8>> {
         let old_strings = index_extent(data, self.top_index.end)?;
         let placeholder = self.top_dict(Moved::by(0).charstrings_to(0).charset_to(0));
@@ -703,11 +768,23 @@ impl Layout {
         push_index(&mut charstrings_index, charstrings);
         let charset_at =
             charstrings_at.saturating_add(i64::try_from(charstrings_index.len()).ok()?);
-        let top_dict = self.top_dict(
-            Moved::by(delta)
-                .charstrings_to(charstrings_at)
-                .charset_to(charset_at),
-        );
+        let mut moved = Moved::by(delta)
+            .charstrings_to(charstrings_at)
+            .charset_to(charset_at);
+        let mut cid_tables = Vec::new();
+        if let Some(fd_select) = fd_select {
+            let fd_select_at = charset_at.saturating_add(i64::try_from(charset.len()).ok()?);
+            let font_dicts: Vec<Vec<u8>> = index_items(data, self.fd_array_at?)?
+                .iter()
+                .map(|dict| font_dict_shifted(dict, delta))
+                .collect();
+            moved = moved
+                .fd_select_to(fd_select_at)
+                .fd_array_to(fd_select_at.saturating_add(i64::try_from(fd_select.len()).ok()?));
+            cid_tables.extend_from_slice(fd_select);
+            push_index(&mut cid_tables, &font_dicts);
+        }
+        let top_dict = self.top_dict(moved);
         let mut out = Vec::with_capacity(data.len().saturating_mul(2));
         out.extend_from_slice(data.get(..self.top_index.start)?);
         push_index(&mut out, std::slice::from_ref(&top_dict));
@@ -715,6 +792,7 @@ impl Layout {
         out.extend_from_slice(data.get(old_strings.end..)?);
         out.extend_from_slice(&charstrings_index);
         out.extend_from_slice(charset);
+        out.extend_from_slice(&cid_tables);
         Some(out)
     }
 
@@ -746,7 +824,9 @@ impl Layout {
                 )),
                 OP_FD_SELECT => {
                     out.extend_from_slice(&int5(
-                        dict_int(operands).unwrap_or(0).saturating_add(delta),
+                        moved.fd_select_at.unwrap_or_else(|| {
+                            dict_int(operands).unwrap_or(0).saturating_add(delta)
+                        }),
                     ));
                 }
                 OP_PRIVATE => {
@@ -917,18 +997,7 @@ fn dict_entries(dict: &[u8]) -> Option<Vec<(Vec<u8>, u16)>> {
             }
             28 => 3,
             29 => 5,
-            30 => {
-                // A real number: nibbles until one is 0xf.
-                let mut end = i.checked_add(1)?;
-                loop {
-                    let nibbles = *dict.get(end)?;
-                    end = end.checked_add(1)?;
-                    if nibbles & 0x0f == 0x0f || nibbles >> 4 == 0x0f {
-                        break;
-                    }
-                }
-                end.checked_sub(i)?
-            }
+            30 => real_width(dict.get(i.checked_add(1)?..)?)?.checked_add(1)?,
             32..=246 => 1,
             247..=254 => 2,
             22..=27 | 31 | 255 => return None,
@@ -937,6 +1006,45 @@ fn dict_entries(dict: &[u8]) -> Option<Vec<(Vec<u8>, u16)>> {
         i = i.checked_add(width)?;
     }
     Some(entries)
+}
+
+/// How many bytes a real number's nibbles take after its first byte, 30, read as `read-fonts`
+/// reads them; `None` where the bytes end first.
+///
+/// Adobe Technical Note #5176, section 4, writes a real as nibbles — digits, a decimal point, an
+/// exponent and a minus sign — ended by a 0xf nibble, and reserves the nibble 0xd; it says nothing of a nibble standing where its grammar admits none.
+/// `read-fonts` ends the number with the byte holding the first such nibble, and with the byte
+/// in which an exponent past 1000 meets another digit, and reads the next byte as the next
+/// operand. A writer restates what that reader will read, so a DICT is tokenised here at the
+/// same byte: ending it only at a 0xf nibble took the operands after a reserved one into the
+/// number, and the writer reckoned against an entry the reader never saw (ADR 2610).
+fn real_width(nibbles: &[u8]) -> Option<usize> {
+    #[derive(Clone, Copy)]
+    enum Part {
+        Integer,
+        Fraction,
+        Exponent,
+    }
+    let mut part = Part::Integer;
+    let mut exponent = 0u32;
+    for (at, &byte) in nibbles.iter().enumerate() {
+        for nibble in [byte >> 4, byte & 0x0f] {
+            part = match (part, nibble) {
+                (Part::Exponent, 0..=9) if exponent > 1000 => return at.checked_add(1),
+                (Part::Exponent, 0..=9) => {
+                    exponent = exponent
+                        .saturating_mul(10)
+                        .saturating_add(u32::from(nibble));
+                    Part::Exponent
+                }
+                (Part::Integer, 0..=9 | 0x0e) => Part::Integer,
+                (Part::Integer, 0x0a) | (Part::Fraction, 0..=9) => Part::Fraction,
+                (Part::Integer | Part::Fraction, 0x0b | 0x0c) => Part::Exponent,
+                _ => return at.checked_add(1),
+            };
+        }
+    }
+    None
 }
 
 /// The value a one- or two-byte operand encodes and its width, for a first byte in
@@ -1000,13 +1108,311 @@ pub(crate) fn dict_ints(operands: &[u8]) -> Vec<i64> {
     values
 }
 
-fn dict_int(operands: &[u8]) -> Option<i64> {
-    dict_ints(operands).first().copied()
+/// How many operands a DICT entry states, integers and reals alike: the forms are told apart
+/// by their first byte (Adobe Technical Note #5176, section 4 and Table 3).
+///
+/// Every operand is at least one byte wide, so the count is bounded by the bytes.
+fn operand_count(operands: &[u8]) -> usize {
+    let mut count = 0usize;
+    let mut i = 0usize;
+    while let Some(&b0) = operands.get(i) {
+        let width = match b0 {
+            28 => 3,
+            29 => 5,
+            30 => operands
+                .get(i.saturating_add(1)..)
+                .and_then(real_width)
+                .map_or(operands.len(), |width| width.saturating_add(1)),
+            247..=254 => 2,
+            _ => 1,
+        };
+        count = count.saturating_add(1);
+        i = i.saturating_add(width);
+    }
+    count
 }
 
+/// The integers an entry states, where it states exactly `N` operands and each is an integer.
+///
+/// **The operand rule every reader and writer of DICT offsets here shares** (ADR 2610).
+/// Technical Note #5176's section 4 has an operator preceded by the operand(s) that specify its
+/// value, and lets only an array's or a delta's length be told by counting them; Tables 9, 10
+/// and 23 give each offset this crate follows one number, and `Private` two. An entry stated
+/// with more, with fewer or with a real has no value the note defines, so it reads here as no
+/// value — never as its first operands, and never as its last. [`misstated_entry`] finds such an
+/// entry before any of this is read, so that a writer refuses the program by name rather than
+/// taking the entry as absent.
+fn exactly<const N: usize>(operands: &[u8]) -> Option<[i64; N]> {
+    if operand_count(operands) != N {
+        return None;
+    }
+    <[i64; N]>::try_from(dict_ints(operands)).ok()
+}
+
+/// The one integer an entry states, under [`exactly`]'s rule.
+fn dict_int(operands: &[u8]) -> Option<i64> {
+    exactly::<1>(operands).map(|[value]| value)
+}
+
+/// The two integers an entry states — `Private`'s size and offset — under [`exactly`]'s rule.
 fn dict_two_ints(operands: &[u8]) -> Option<(i64, i64)> {
-    let values = dict_ints(operands);
-    Some((*values.first()?, *values.get(1)?))
+    exactly::<2>(operands).map(|[size, at]| (size, at))
+}
+
+/// How Technical Note #5176 states an entry the writers here follow: its operator's name, how
+/// many operands it takes, and whether they are integers (an offset, a size) or any number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Stated {
+    operator: &'static str,
+    operands: usize,
+    integers: bool,
+}
+
+/// The Top DICT entries a writer here follows or restates — Table 9's `charset`, `Encoding`,
+/// `CharStrings` and `Private`, Table 10's `FDArray` and `FDSelect` — and, by the same table, a
+/// Font DICT's (section 19), of which only `Private` is followed.
+const fn top_dict_entry(op: u16) -> Option<Stated> {
+    let (operator, operands) = match op {
+        OP_CHARSET => ("charset", 1),
+        OP_ENCODING => ("Encoding", 1),
+        OP_CHARSTRINGS => ("CharStrings", 1),
+        OP_PRIVATE => ("Private", 2),
+        OP_FD_ARRAY => ("FDArray", 1),
+        OP_FD_SELECT => ("FDSelect", 1),
+        _ => return None,
+    };
+    Some(Stated {
+        operator,
+        operands,
+        integers: true,
+    })
+}
+
+/// The Private DICT entries a writer here follows (Table 23): `Subrs`, an offset, and the two
+/// widths a restated charstring's width operand is reckoned against, each a number.
+const fn private_dict_entry(op: u16) -> Option<Stated> {
+    match op {
+        OP_SUBRS => Some(Stated {
+            operator: "Subrs",
+            operands: 1,
+            integers: true,
+        }),
+        OP_DEFAULT_WIDTH => Some(Stated {
+            operator: "defaultWidthX",
+            operands: 1,
+            integers: false,
+        }),
+        OP_NOMINAL_WIDTH => Some(Stated {
+            operator: "nominalWidthX",
+            operands: 1,
+            integers: false,
+        }),
+        _ => None,
+    }
+}
+
+/// `defaultWidthX` and `nominalWidthX` (Adobe Technical Note #5176, Table 23).
+const OP_DEFAULT_WIDTH: u16 = 20;
+const OP_NOMINAL_WIDTH: u16 = 21;
+
+/// An entry a writer here follows, stated otherwise than Adobe Technical Note #5176 gives it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Misstated {
+    /// An entry stated twice in one DICT, or with other operands than the note's table gives it.
+    Entry {
+        /// `Top`, `Font` or `Private`.
+        dict: &'static str,
+        /// The operator's name in the note's table.
+        operator: &'static str,
+        /// How many operands the table gives it.
+        operands: usize,
+    },
+    /// A Font DICT or a Private DICT the program names whose bytes do not read as operands and
+    /// operators: a byte section 4 reserves ("Byte values 22–27, 31, and 255 are reserved"),
+    /// or an operand the DICT's end cuts short. What such a DICT states is then not something
+    /// a writer here can tell, while the outline reader passes over the reserved byte and reads
+    /// on, so a width reckoned against it would be reckoned against another number.
+    Untokenised {
+        /// `Font` or `Private`.
+        dict: &'static str,
+    },
+    /// An offset a writer here shifts that points into the header, the Name INDEX or the Top
+    /// DICT INDEX, which section 2 places first ("the first five occupy fixed locations"), or
+    /// past the program's end: the structure it names would be the Top DICT's own bytes or none,
+    /// and a rewrite that re-encodes the Top DICT, shifts every offset past it and appends what
+    /// it rebuilt would name other bytes.
+    Outside {
+        /// `Top` or `Font`.
+        dict: &'static str,
+        /// The operator's name in the note's table.
+        operator: &'static str,
+    },
+    /// An `FDArray` the Top DICT names that does not read as section 5 gives an INDEX.
+    FdArrayUnread,
+    /// Private DICTs that together hold more bytes than the program, which only overlapping
+    /// ones can: each is a structure of its own (section 15), and reading every one is then
+    /// work no well-formed program asks for.
+    Overlapping,
+}
+
+impl Misstated {
+    /// The refusal every writer gives for it, naming the entry.
+    pub(crate) fn refusal(self) -> CffError {
+        let detail = match self {
+            Self::Entry {
+                dict,
+                operator,
+                operands,
+            } => format!(
+                "the {dict} DICT states {operator} more than once, or with other than the \
+                 {operands} operand{} Adobe Technical Note #5176 gives it",
+                if operands == 1 { "" } else { "s" }
+            ),
+            Self::Untokenised { dict } => format!(
+                "a {dict} DICT the program names holds a byte Adobe Technical Note #5176 \
+                 section 4 reserves, or an operand its end cuts short"
+            ),
+            Self::Outside { dict, operator } => format!(
+                "the {dict} DICT's {operator} offset points into the header, the Name INDEX or \
+                 the Top DICT INDEX, which Adobe Technical Note #5176 section 2 places first, \
+                 or past the program's end"
+            ),
+            Self::FdArrayUnread => "the FDArray the Top DICT names does not read as the INDEX \
+                                    Adobe Technical Note #5176 section 5 gives"
+                .to_owned(),
+            Self::Overlapping => "the Private DICTs the program names overlap, holding more \
+                                  bytes together than the program does"
+                .to_owned(),
+        };
+        CffError::Malformed { detail }
+    }
+}
+
+/// The first of `entries` that `rule` gives a statement and the DICT states otherwise: a second
+/// time, or with another count or kind of operand.
+fn misstated_in(
+    entries: &[(Vec<u8>, u16)],
+    dict: &'static str,
+    rule: fn(u16) -> Option<Stated>,
+) -> Option<Misstated> {
+    let mut seen = std::collections::BTreeSet::new();
+    entries.iter().find_map(|(operands, op)| {
+        let stated = rule(*op)?;
+        let count = operand_count(operands);
+        let well = seen.insert(*op)
+            && count == stated.operands
+            && (!stated.integers || dict_ints(operands).len() == count);
+        (!well).then_some(Misstated::Entry {
+            dict,
+            operator: stated.operator,
+            operands: stated.operands,
+        })
+    })
+}
+
+/// The first entry a writer here follows that the program states otherwise than Technical
+/// Note #5176 gives it: in the Top DICT, in a Font DICT of its `FDArray`, or in a Private DICT
+/// either names.
+///
+/// A structure that is not there is not this function's finding — each writer reports that
+/// itself — so an `FDArray` or a Private DICT the program does not hold is passed over. One
+/// that is there and does not tokenise is [`Misstated::Untokenised`]: its entries are what a
+/// writer follows, and the outline reader reads past what this reader stops at. The Private
+/// DICTs are read once each however many Font DICTs share one, and refused as
+/// [`Misstated::Overlapping`] before any is read where together they would hold more bytes
+/// than the program, which bounds the reading by the program's length.
+fn misstated_entry(data: &[u8], top: &[(Vec<u8>, u16)]) -> Option<Misstated> {
+    if let Some(found) = misstated_in(top, "Top", top_dict_entry) {
+        return Some(found);
+    }
+    let private_of = |entries: &[(Vec<u8>, u16)]| -> Option<(usize, usize)> {
+        let (size, at) = entries
+            .iter()
+            .find(|(_, op)| *op == OP_PRIVATE)
+            .and_then(|(operands, _)| dict_two_ints(operands))?;
+        let (at, size) = (usize::try_from(at).ok()?, usize::try_from(size).ok()?);
+        data.get(at..at.checked_add(size)?).map(|_| (at, size))
+    };
+    let mut privates: std::collections::BTreeSet<(usize, usize)> =
+        private_of(top).into_iter().collect();
+    let fd_array_at = top
+        .iter()
+        .find(|(_, op)| *op == OP_FD_ARRAY)
+        .and_then(|(operands, _)| dict_int(operands));
+    let font_dicts = match fd_array_at {
+        None => Vec::new(),
+        // A rewrite restates the `FDArray` from its items, so one that does not read would be
+        // written as an INDEX of none, which names another subfont than the reader found.
+        Some(at) => match usize::try_from(at)
+            .ok()
+            .and_then(|at| index_items(data, at))
+        {
+            Some(items) => items,
+            None => return Some(Misstated::FdArrayUnread),
+        },
+    };
+    for dict in font_dicts {
+        let Some(entries) = dict_entries(dict) else {
+            return Some(Misstated::Untokenised { dict: "Font" });
+        };
+        if let Some(found) = misstated_in(&entries, "Font", top_dict_entry) {
+            return Some(found);
+        }
+        privates.extend(private_of(&entries));
+    }
+    let held = privates
+        .iter()
+        .fold(0usize, |sum, (_, size)| sum.saturating_add(*size));
+    if held > data.len() {
+        return Some(Misstated::Overlapping);
+    }
+    privates.iter().find_map(|(at, size)| {
+        // `private_of` kept only a range the program holds, so the slice is there.
+        let Some(entries) = dict_entries(data.get(*at..at.saturating_add(*size))?) else {
+            return Some(Misstated::Untokenised { dict: "Private" });
+        };
+        misstated_in(&entries, "Private", private_dict_entry)
+    })
+}
+
+/// The first offset a rewrite shifts that names a structure inside the first `copied_from`
+/// bytes — the header, the Name INDEX and the Top DICT INDEX, which every writer here copies or
+/// re-encodes rather than shifts — or at or past the program's end, where every writer here
+/// appends what it rebuilt, in the Top DICT or a Font DICT of its `FDArray`.
+///
+/// A `charset` of 0 to 2 and an `Encoding` of 0 or 1 name a predefined table rather than an
+/// offset (Adobe Technical Note #5176, sections 12 and 13), and a `Private` of no bytes names
+/// nothing, so none of them is an offset into anything.
+fn offset_outside(data: &[u8], top: &[(Vec<u8>, u16)], copied_from: usize) -> Option<Misstated> {
+    let inside =
+        |value: i64| usize::try_from(value).map_or(true, |at| at < copied_from || at >= data.len());
+    let named = |entries: &[(Vec<u8>, u16)], dict: &'static str| {
+        entries.iter().find_map(|(operands, op)| {
+            let (operator, at, predefined) = match *op {
+                OP_CHARSET => ("charset", dict_int(operands)?, 2),
+                OP_ENCODING => ("Encoding", dict_int(operands)?, 1),
+                OP_CHARSTRINGS => ("CharStrings", dict_int(operands)?, -1),
+                OP_FD_ARRAY => ("FDArray", dict_int(operands)?, -1),
+                OP_FD_SELECT => ("FDSelect", dict_int(operands)?, -1),
+                OP_PRIVATE => match dict_two_ints(operands)? {
+                    (0, _) => return None,
+                    (_, at) => ("Private", at, -1),
+                },
+                _ => return None,
+            };
+            (at > predefined && inside(at)).then_some(Misstated::Outside { dict, operator })
+        })
+    };
+    named(top, "Top").or_else(|| {
+        top.iter()
+            .find(|(_, op)| *op == OP_FD_ARRAY)
+            .and_then(|(operands, _)| dict_int(operands))
+            .and_then(|at| usize::try_from(at).ok())
+            .and_then(|at| index_items(data, at))
+            .unwrap_or_default()
+            .into_iter()
+            .find_map(|dict| named(&dict_entries(dict)?, "Font"))
+    })
 }
 
 /// Whether a Type 2 charstring reaches `callsubr`, itself or through the global subroutines it
@@ -1168,7 +1574,9 @@ enum LeadingWidth {
 
 /// Where a Type 2 charstring's leading width operand is, where it has one.
 ///
-/// `None` is [`LeadingWidth`]'s third answer: the width is not in this charstring at all.
+/// `None` is [`LeadingWidth`]'s third answer: the width is not in this charstring at all, or
+/// the first operator is stated with fewer operands than it takes, so that no width can be
+/// put before it that the count would read as one.
 ///
 /// The rule is positional (Adobe Technical Note #5177, section 3.1): the width is present when
 /// the stack holds one operand more than the operator takes.
@@ -1185,15 +1593,20 @@ fn width_span(charstring: &[u8]) -> Option<LeadingWidth> {
             247..=254 => 2,
             255 => 5,
             HSTEM | VSTEM | HSTEMHM | VSTEMHM | HINTMASK | CNTRMASK => {
-                return Some(has_width(&operands, operands.len() % 2 == 1));
+                let odd = operands.len() % 2 == 1;
+                return has_width(&operands, odd, !odd);
             }
-            RMOVETO => return Some(has_width(&operands, operands.len() > 2)),
-            HMOVETO | VMOVETO => return Some(has_width(&operands, operands.len() > 1)),
+            RMOVETO => return has_width(&operands, operands.len() > 2, operands.len() == 2),
+            HMOVETO | VMOVETO => {
+                return has_width(&operands, operands.len() > 1, operands.len() == 1);
+            }
             ENDCHAR => {
-                return Some(has_width(
+                let count = operands.len();
+                return has_width(
                     &operands,
-                    operands.len() == 1 || operands.len() == 5,
-                ));
+                    count == 1 || count == 5,
+                    count == 0 || count == 4,
+                );
             }
             _ => return None,
         };
@@ -1205,11 +1618,21 @@ fn width_span(charstring: &[u8]) -> Option<LeadingWidth> {
     None
 }
 
-/// The first operand's span where `present`, which is where the width sits when there is one.
-fn has_width(operands: &[std::ops::Range<usize>], present: bool) -> LeadingWidth {
+/// The first operand's span where `present`, which is where the width sits when there is one;
+/// [`LeadingWidth::Absent`] where it is not and `insertable`; and `None` where it is neither.
+///
+/// `insertable` is whether one operand more before the operator is read as its width by the
+/// same count: `rmoveto` stated with one operand, or `endchar` with two, takes a second or a
+/// third as an argument rather than as a width, so a width inserted there would be read as
+/// none and the glyph would keep the `defaultWidthX` it had.
+fn has_width(
+    operands: &[std::ops::Range<usize>],
+    present: bool,
+    insertable: bool,
+) -> Option<LeadingWidth> {
     match operands.first().filter(|_| present) {
-        Some(span) => LeadingWidth::At(span.clone()),
-        None => LeadingWidth::Absent,
+        Some(span) => Some(LeadingWidth::At(span.clone())),
+        None => insertable.then_some(LeadingWidth::Absent),
     }
 }
 
@@ -1533,6 +1956,9 @@ pub fn with_advances(data: &[u8], advances: &BTreeMap<u16, i64>) -> Result<Vec<u
     let layout = Layout::read(data).ok_or_else(|| CffError::Malformed {
         detail: "the Top DICT INDEX could not be located".to_owned(),
     })?;
+    if let Some(misstated) = layout.misstated {
+        return Err(misstated.refusal());
+    }
     let charstrings_at = layout
         .entries
         .iter()
@@ -1595,7 +2021,9 @@ pub fn with_advances(data: &[u8], advances: &BTreeMap<u16, i64>) -> Result<Vec<u
             CffError::AdvanceNotRestatable {
                 glyph: *glyph,
                 detail: "its charstring does not begin with one of the stack-clearing operators \
-                         a width is stated against, so the width is inside a subroutine"
+                         a width is stated against, so the width is inside a subroutine, or \
+                         begins with one stated with too few operands for a width before it \
+                         to be read as one"
                     .to_owned(),
             },
         )?;
@@ -1716,11 +2144,11 @@ pub fn with_glyphs_given(
             "the program is CID-keyed, and a CID-keyed program names no glyph",
         ));
     }
-    let layout = Layout::read(data)
-        .filter(offsets_stated_once)
-        .ok_or_else(|| {
-            malformed("the Top DICT could not be located, or states an offset twice or misstated")
-        })?;
+    let layout =
+        Layout::read(data).ok_or_else(|| malformed("the Top DICT INDEX could not be located"))?;
+    if let Some(misstated) = layout.misstated {
+        return Err(misstated.refusal());
+    }
     let charstrings_at = layout
         .entries
         .iter()
@@ -1802,29 +2230,17 @@ pub fn with_glyphs_given(
         added.push(AddedGlyph { glyph, name });
     }
     let rebuilt = layout
-        .with_glyph_tables(data, &strings, &charstrings, &table)
+        .with_glyph_tables(data, &strings, (&charstrings, &table), None)
         .ok_or_else(|| malformed("the String INDEX could not be located"))?;
     read_back(&rebuilt, &charstrings, &added)?;
     Ok((rebuilt, added))
 }
 
-/// Whether every offset the Top DICT states is stated at most once and with the operands
-/// Technical Note #5176's Table 9 gives it: one for `charset`, `Encoding`, `CharStrings`,
-/// `FDSelect` and `FDArray`, two for `Private`.
-///
-/// `Layout::with_glyph_tables` restates each from its first operands, and `read-fonts` resolves a
-/// repeated or over-long entry by its own rule, so a program stating one otherwise would be
-/// written against tables its reader never read.
+/// Whether every entry a writer here follows is stated once and with the operands Technical
+/// Note #5176 gives it, in the Top DICT, its Font DICTs and their Private DICTs — the shared rule
+/// of [`exactly`] and [`misstated_entry`], as a test; [`Misstated::refusal`] names the entry.
 fn offsets_stated_once(layout: &Layout) -> bool {
-    let mut seen = std::collections::BTreeSet::new();
-    layout.entries.iter().all(|(operands, op)| {
-        let wanted = match *op {
-            OP_PRIVATE => 2,
-            OP_CHARSET | OP_ENCODING | OP_CHARSTRINGS | OP_FD_SELECT | OP_FD_ARRAY => 1,
-            _ => return true,
-        };
-        seen.insert(*op) && dict_ints(operands).len() == wanted
-    })
+    layout.misstated.is_none()
 }
 
 /// The name `asked` is given: its own, refused where a glyph already holds it, or the first of
@@ -1964,6 +2380,9 @@ impl<'a> Parts<'a> {
         let top_index = index_extent(data, name_index.end)?;
         let top_bytes = index_item(data, name_index.end, 0)?;
         let top = dict_entries(top_bytes)?;
+        if misstated_entry(data, &top).is_some() {
+            return None;
+        }
         let string_index = index_extent(data, top_index.end)?;
         let strings = index_items(data, top_index.end)?;
         let global_subrs = index_items(data, string_index.end)?;
@@ -2077,7 +2496,7 @@ mod font_dict_repair {
         reason = "a fixture builder over a font of two glyphs: every quantity is a few hundred, \
                   and a wrong table is what the assertions exist to catch"
     )]
-    fn index(items: &[&[u8]]) -> Vec<u8> {
+    pub(super) fn index(items: &[&[u8]]) -> Vec<u8> {
         let mut out = Vec::new();
         out.extend_from_slice(
             &u16::try_from(items.len())
@@ -2110,7 +2529,11 @@ mod font_dict_repair {
         reason = "a fixture builder over a font of two glyphs: every quantity is a few hundred, \
                   and a wrong table is what the assertions exist to catch"
     )]
-    fn cid_keyed(glyph: &[u8], gsubr: Option<&[u8]>, fd_array_readable: bool) -> Vec<u8> {
+    pub(super) fn cid_keyed(
+        glyph: &[u8],
+        gsubr: Option<&[u8]>,
+        fd_array_readable: bool,
+    ) -> Vec<u8> {
         let header = [1u8, 0, 4, 4];
         let names = index(&[b"F"]);
         let strings = index(&[b"Adobe", b"Identity"]);
@@ -2566,52 +2989,6 @@ mod empty_glyphs {
         let past = vec![one; MOST_GLYPHS_GIVEN + 1];
         assert!(matches!(
             with_glyphs_given(face, &past),
-            Err(CffError::Malformed { .. })
-        ));
-    }
-
-    /// A Top DICT whose `CharStrings` entry carries three operands is refused: `read-fonts` reads
-    /// the program as holding no glyph, and the INDEX at the first operand holds one, so a glyph
-    /// written there would be numbered against a program the reader never saw. The program is the
-    /// `cff_write` fuzz target's first finding, minimised; its second, a `Private` entry of five
-    /// operands, is refused by the same check.
-    #[test]
-    fn a_charstrings_entry_of_three_operands_is_refused() {
-        const PRIVATE_OF_FIVE: &[u8] = &[
-            0x01, 0x00, 0x04, 0x01, 0x00, 0x01, 0x01, 0x01, 0x08, 0x48, 0x6f, 0x73, 0x74, 0x69,
-            0x6c, 0x65, 0x00, 0x01, 0x01, 0x01, 0x10, 0xd8, 0x02, 0x8b, 0x00, 0x00, 0x01, 0x01,
-            0x43, 0x43, 0x80, 0x8b, 0xef, 0x12, 0xc7, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a,
-            0x6f, 0x74, 0x64, 0x65, 0x66, 0x2e, 0x30, 0x39, 0x6e, 0x6f, 0x74, 0x64, 0x65, 0x66,
-            0x5b, 0x03, 0x55, 0x01, 0x00, 0x04, 0x01, 0x00, 0x00, 0x01, 0x01, 0x01, 0x4e, 0x43,
-            0xff, 0xff, 0xff, 0x00, 0x0e, 0x0a,
-        ];
-        const PROGRAM: &[u8] = &[
-            0x01, 0x00, 0x04, 0x01, 0x00, 0x01, 0x01, 0x01, 0x08, 0x48, 0x6f, 0x73, 0x74, 0x69,
-            0x6c, 0x65, 0x00, 0x01, 0x01, 0x01, 0x10, 0xf8, 0x1d, 0x02, 0x8b, 0x8b, 0xef, 0xef,
-            0x05, 0xc3, 0x12, 0x0f, 0xc7, 0x8b, 0xef, 0x11, 0x00, 0x03, 0x01, 0x01, 0x03, 0x05,
-            0x0c, 0x67, 0x31, 0x67, 0x32, 0x48, 0x6f, 0x73, 0x74, 0x69, 0x5c, 0x65, 0x00, 0x00,
-            0x01, 0x01, 0x87, 0x01, 0x00, 0x01, 0x01, 0x10, 0x1c, 0x1c, 0xdd, 0xff, 0xff, 0xff,
-            0x1c, 0x0d, 0x1d, 0x02, 0x8b, 0x8b, 0xef, 0xef, 0x05, 0xc3, 0x12, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x0a,
-        ];
-        assert_eq!(
-            glyph_count(PROGRAM).ok(),
-            Some(0),
-            "the reader opens it, and finds no glyph"
-        );
-        let one = GlyphToGive {
-            draws: GivenOutline::NotdefsOwn,
-            name: None,
-            advance: 500,
-        };
-        assert!(matches!(
-            with_glyphs_given(PROGRAM, std::slice::from_ref(&one)),
-            Err(CffError::Malformed { .. })
-        ));
-        assert!(glyph_count(PRIVATE_OF_FIVE).is_ok(), "the reader opens it");
-        assert!(matches!(
-            with_glyphs_given(PRIVATE_OF_FIVE, &[one]),
             Err(CffError::Malformed { .. })
         ));
     }

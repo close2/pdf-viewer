@@ -67,10 +67,12 @@
 
 mod bystanders;
 mod cff_notdef_glyph;
+mod cid_cff_notdef_glyph;
 mod cid_notdef_glyph;
 mod composite;
 mod described;
 mod empty;
+mod notdef_format;
 mod notdef_glyph;
 mod notices;
 mod pack;
@@ -82,6 +84,7 @@ mod untagged;
 pub use pack::{CjkPack, Collection, PackFiles, PackGap};
 
 pub use described::Described;
+pub(super) use notdef_format::notdef_not_given;
 pub use photographed::{
     DOTS_PER_INCH, FixedGroup, FixedGroups, MAX_GROUP_NAME_CHARS, MAX_GROUPS_NAMED,
     MAX_PHOTOGRAPHED_PAGES, MAX_TEXT_CHARS, PhotographedPage,
@@ -1072,6 +1075,13 @@ pub(super) fn gains(
     for (key, value) in entries.iter() {
         written.insert(key.clone(), value.clone());
     }
+    // The font is a font by where it stood, and the object written for it states the `/Type`
+    // §9.6.2.1's Table 109 requires with its one value, which the rewriter's own walk leaves to
+    // this object rather than change the value it finds the font by (`doc/adr/2608`).
+    written.insert(
+        Name::new(&b"Type"[..]),
+        Object::Name(Name::new(&b"Font"[..])),
+    );
     substitutes.written.insert(at, Object::Dictionary(written));
     substitutes.direct.push((used.dict.clone(), at));
     Ok(())

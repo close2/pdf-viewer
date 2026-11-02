@@ -157,12 +157,16 @@ impl Font {
 pub(super) enum FontKey {
     /// A font dictionary, by the object it is.
     ///
-    /// The only kind, because keying by the resource *name* conflates a page's `/F1` with a
-    /// form `XObject`'s (ADR 0115). Kept as an enum of one because
-    /// the two routes to a font — `Tf`'s resource name and Table 57's `/Font`, which §8.4.1's
-    /// NOTE 1 makes alternatives — arrive here differently and only this says they are the
-    /// same thing when they name the same object.
+    /// The only kind a font the file states is kept under, because keying by the resource
+    /// *name* conflates a page's `/F1` with a form `XObject`'s (ADR 0115). The two routes to a
+    /// font — `Tf`'s resource name and Table 57's `/Font`, which §8.4.1's NOTE 1 makes
+    /// alternatives — arrive here differently and only this says they are the same thing when
+    /// they name the same object.
     Referenced(ObjectId),
+    /// The face drawn for every `/Font` entry that is null, where a reader asked for one
+    /// ([`Interpreter::null_font_substitute`]): one face whatever the entry, since nothing in the
+    /// file tells two such entries apart. Page-scoped only. ADR 2612.
+    NullSubstitute,
 }
 
 /// How many bytes of font program one open document's [`FontCache`] may hold.
@@ -570,6 +574,13 @@ fn standard_font_named(name: &str) -> Option<Object> {
     Some(Object::Dictionary(dict))
 }
 
+/// The face [`Interpreter::null_font_substitute`] draws text under a null `/Font` entry in.
+///
+/// One of §9.6.2.2's fourteen, which a reader is required to have, and the sans-serif upright of
+/// them: a substitute is chosen for codes nothing in the file describes, so the face that guesses
+/// least about the style is the one taken. ADR 2612.
+const NULL_FONT_SUBSTITUTE: &str = "Helvetica";
+
 /// Why a lookup that owed a font dictionary produced none.
 ///
 /// **Two conditions wore one sentence until ADR 0779**, and `Font` was the last resource
@@ -596,6 +607,25 @@ enum Absent {
 }
 
 impl Absent {
+    /// What to report, for a font the content stream called `name`, and what was drawn instead
+    /// where the reader asked for [`Interpreter::null_font_substitute`]'s face.
+    ///
+    /// The sentence [`Self::detail`] says is kept whole at both answers, so the population it
+    /// counts is the same population, and the substitute is named after it: text drawn in a face
+    /// the file never named is the page's least checkable output, and the report is how a reader
+    /// knows (A35).
+    fn said(self, name: &str, substituted: bool) -> String {
+        let detail = self.detail(name);
+        if substituted {
+            format!(
+                "{detail}; its text is drawn in {NULL_FONT_SUBSTITUTE} at that face's own \
+                 advances, as this reader asked"
+            )
+        } else {
+            detail
+        }
+    }
+
     /// What to report, for a font the content stream called `name`.
     ///
     /// Table 57's route names an object rather than a resource, and takes the second arm with
@@ -643,13 +673,18 @@ impl Interpreter<'_> {
             .map(|item| self.document.resolve(item))
             .and_then(|item| item.as_number());
         if let (Some(Object::Reference(id)), Some(size)) = (reference, size) {
-            let font_dict = self.document.get(id).as_dict().cloned();
+            let target = self.document.get(id);
+            let font_dict = target.as_dict().cloned();
             let name = format!("object {} {}", id.number, id.generation);
+            let substituted = self.substitutes_for(&target);
             state.text.owed_font_report = font_dict
                 .is_none()
-                .then(|| Absent::NotAFontDictionary.detail(&name));
-            state.text.font =
-                self.load_font(Some(FontKey::Referenced(id)), font_dict.as_ref(), &name);
+                .then(|| Absent::NotAFontDictionary.said(&name, substituted));
+            state.text.font = if substituted {
+                self.null_font_substitute(&name)
+            } else {
+                self.load_font(Some(FontKey::Referenced(id)), font_dict.as_ref(), &name)
+            };
             state.text.size = narrow(size);
         } else {
             // A `/Font` this crate cannot read as the clause states it is reported rather
@@ -733,9 +768,49 @@ impl Interpreter<'_> {
             Absent::NoSuchResource
         };
         let resolved = entry.map(|object| self.document.resolve(&object));
+        let substituted = resolved
+            .as_ref()
+            .is_some_and(|target| self.substitutes_for(target));
         let dict = resolved.as_ref().and_then(Object::as_dict);
-        let owed = dict.is_none().then(|| absent.detail(&label));
+        let owed = dict.is_none().then(|| absent.said(&label, substituted));
+        if substituted {
+            return (self.null_font_substitute(&label), owed);
+        }
         (self.load_font(key, dict, &label), owed)
+    }
+
+    /// Whether a `/Font` entry that resolved to `target` is drawn in the reader's substitute.
+    ///
+    /// Only the null object, and only where a host asked ([`crate::view::ViewState::
+    /// set_null_font_substitute`]). §7.3.9 makes a reference to a nonexistent object the null
+    /// object, so this is the entry the producer wrote and the file lost; an entry that names
+    /// something which is there and is not a font dictionary is a different fault, and nobody has
+    /// asked for a guess at that one. ADR 2612.
+    fn substitutes_for(&self, target: &Object) -> bool {
+        matches!(target, Object::Null) && self.view.null_font_substitute()
+    }
+
+    /// The face text under a null `/Font` entry is drawn in, where the reader asked for one.
+    ///
+    /// §9.6.2.2's Helvetica, through the same dictionary [`standard_font_named`] builds for a
+    /// name that is one of the fourteen: the program is compiled in, so the guess draws the same on
+    /// every machine, and with no `/Widths` the advances are that face's own from
+    /// `pdf_font::standard_metrics`. §9.5's route to a substitute reads the font dictionary's
+    /// entries and there is none, so neither the face nor the advances is derived from the file;
+    /// both are this program's choice, and ADR 2612 argues them.
+    ///
+    /// Kept in this page's cache under [`FontKey::NullSubstitute`] and never under the entry's
+    /// own object, so a page that selects such a name on every line loads the face once while a
+    /// `Tf` under any other name keeps its cached path, which resolves nothing, unchanged. Never in
+    /// the cache that outlives the page, which only [`Self::load_font`] fills with a key.
+    fn null_font_substitute(&mut self, name: &str) -> Option<Font> {
+        if let Some(font) = self.fonts.get(&FontKey::NullSubstitute) {
+            return font.clone();
+        }
+        let substitute = standard_font_named(NULL_FONT_SUBSTITUTE)?;
+        let font = self.load_font(None, substitute.as_dict(), name);
+        self.fonts.insert(FontKey::NullSubstitute, font.clone());
+        font
     }
 
     /// What a previous load left under `key`, where there was one.

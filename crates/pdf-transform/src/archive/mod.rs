@@ -220,7 +220,7 @@ pub use in_place::{ProxiedReference, ShownAnnotation};
 pub use languages::RestatedLanguage;
 pub use prepare::{DestinationProfile, ProfileSource, RemovedAnnotation, WrittenAppearance};
 pub use protection::{PERMISSIONS_NO_LONGER_ASSERTED, SourceProtection};
-pub use recovered::{PartlyRead, RecoveredCatalog, RecoveredStructure};
+pub use recovered::{NotHeld, PartlyRead, RecoveredCatalog, RecoveredStructure};
 pub use report::{
     Achieved, AttachmentAnswer, AttachmentOutcome, Conversion, ConvertedTo, Decided, Departed,
     DepartureOutcome, Derived, DerivedOutcome, NotChecked, Preserved, Resolved, SetIn,
@@ -533,6 +533,12 @@ fn run_pass(
         protection: protection_history.as_deref(),
         resolved: resolved_history.as_deref(),
         recovered: recovered_history.as_deref(),
+        // A taken `page-not-held` is stated on the appended page only where the profile asked
+        // for it there (`doc/adr/2596`).
+        not_held: recovered_note
+            .as_ref()
+            .and_then(|note| note.not_held)
+            .filter(|_| plan.authorised.page_not_held_stated),
     };
     // `A59`: a departed conversion omits the PDF/A identification by default, so the output does not
     // claim what it has not earned. `--claim-conformance` is the second, separate switch that keeps
@@ -586,6 +592,20 @@ fn run_pass(
         provenance,
         &remedies,
     );
+    // A `page-not-held` the profile asked to be stated is taken only with its page: where the page
+    // cannot be composed the source is refused with the composition's reason, rather than the
+    // loss taken and stated nowhere but the report (`doc/adr/2596`).
+    if provenance.not_held.is_some() && conversion.statement.is_none() {
+        let because = prepared
+            .preserved
+            .as_ref()
+            .err()
+            .map_or(statement::NOTHING_STATED, |because| because.sentence());
+        return Err(Refusal::Reconstructed(format!(
+            "page-not-held is to be stated on an appended page, and that page cannot be composed: \
+             {because}"
+        )));
+    }
     conversion.recovered_structure = recovered_note;
     if !conversion.proceeds() {
         for decided in &conversion.decided {
@@ -668,7 +688,13 @@ fn rebuild_a_declined_structure(
         Err(refusal @ Refusal::Reconstructed(_))
             if plan.authorised.grants(Loss::RecoveredStructure) =>
         {
-            recovered::rebuild(document, &refusal, plan.target).map(Some)
+            recovered::rebuild(
+                document,
+                &refusal,
+                plan.target,
+                plan.authorised.grants(Loss::PageNotHeld),
+            )
+            .map(Some)
         }
         Err(refusal) => Err(refusal),
     }
@@ -1227,8 +1253,8 @@ fn unstated(
     let preservation = plan.preservations.iter().find(|preservation| {
         preservation.site == id && preservation.statement.is_some() && !preservation.by_page
     })?;
-    let handed_on = config::STATED_GRAPHICS.contains(&id)
-        && preservation.no_page_carries == RemedyKind::Discard;
+    let handed_on =
+        config::statement_hands_on(id) && preservation.no_page_carries == RemedyKind::Discard;
     let because = match &prepared.preserved {
         Ok(composed)
             if composed

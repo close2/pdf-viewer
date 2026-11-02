@@ -500,7 +500,9 @@ the window as a notice (ADRs 2524, 2525). **A move of the keyboard focus runs th
 `enter` events** — of the field and of each subform and exclusion group the focus crosses (XFA 3.3
 pages 390–391) — wherever a window raises `/Bl` and `/Fo` on a widget (ADR 2566), **and a click
 within a field runs the field's own `click` events** (page 391) wherever a window raises `/U` on its
-widget (ADR 2584).
+widget (ADR 2584). **The open sequence ends with the Form DOM's `ready` and the application's
+`docReady`** (page 388), after the merge and under its clock, and an event whose `listen` is
+`refAndDescendents` or whose `ref` names another object is named in the report as not run (ADR 2606).
 
 **Table 22's bit 12 is a second operation beside bit 3, at four levels of its own**, because the
 cell states two consequences: bit 3 clear withholds printing, and bit 12 clear limits a print that
@@ -614,6 +616,13 @@ window, `Command::Guidelines` across the confined wire, and `ViewState::guidelin
 interpreter draws a stroke over each crop, bleed, trim and art box the page defines, in the style
 its `/BoxColorInfo` states or this program's own default — on the screen only, and not over a page
 composited in a blending space of its own, which is said (ADR 2440).
+
+**Text under a `/Font` entry that is null draws in a substitute only where the reader asks.**
+`Command::NullFontSubstitute` across the confined wire and `ViewState::set_null_font_substitute`
+where `Tf` and Table 57's `/Font` meet §7.3.9's null: off by default, under which the text draws
+nothing; on, §9.6.2.2's Helvetica at that face's own advances. The page names the entry at both
+answers, and the substitute under the second (A35, A738, ADR 2612). No window offers it yet; a host
+passes it.
 
 **And under that control §10.8.3's four steps are performed, which is what §8.6.6.5's per-component
 sentence needed.** A `DeviceN` space whose `/Subtype` is `NChannel` and which names a spot colourant

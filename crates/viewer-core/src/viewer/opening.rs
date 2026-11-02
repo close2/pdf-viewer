@@ -194,6 +194,9 @@ impl Viewer {
         open.view.set_separation_simulation(self.separations);
         // §14.11.2.2's guidelines, on the same rule (ADR 2440).
         open.view.set_guidelines(self.guidelines);
+        // The substitute for a null `/Font` entry, on the same rule (ADR 2612).
+        open.view
+            .set_null_font_substitute(self.null_font_substitute);
         // RFC 0008 section 6.3's level, on the same rule: a reader who let scripts run, or asked
         // to be asked, said it about every document this window will show (ADR 1616).
         let runner = crate::scripting::runner_for(&self.scripting, &mut open.consent);

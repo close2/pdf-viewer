@@ -385,6 +385,12 @@ fn stated_lines(output: &[u8], statement: &StatementPage) -> String {
         "Tried before:",
         "Not admitted",
         "Removed in",
+        "Page:",
+        "Font:",
+        "Fonts not drawn:",
+        "Content stream requirements",
+        "Structure tree leaves",
+        "Optional content groups",
     ];
     let mut out = String::new();
     for line in statement
@@ -553,4 +559,164 @@ fn a_halftone_statement_that_cannot_be_composed_says_why_beside_the_discard() {
     }
     let json = conversion.to_json().render();
     assert!(json.contains("thirty-two objects"), "{json}");
+}
+
+/// The font row's site, whose `discard` carries the font bundle (`doc/adr/2600`).
+const FONT_SITE: &str = "fonts/font-programs-embedded";
+
+/// Every photographed page and every face the font row's entries name, read back against the
+/// report: each `Page:` the statement gives is a page the report says was photographed, with the
+/// report's loss words in its order and the report's fonts; each `Font:` is a face the report says
+/// was embedded with those losses. Returns how many entries it read, so a caller can hold the count
+/// to the report's own.
+fn fonts_read_back_against(conversion: &pdf_transform::archive::Conversion, page: &str) -> usize {
+    let mut read: usize = 0;
+    let lines: Vec<&str> = page.lines().map(str::trim).collect();
+    for (index, line) in lines.iter().enumerate() {
+        let following = lines
+            .iter()
+            .skip(index.saturating_add(1))
+            .take_while(|line| !line.starts_with("Requirement:"));
+        let losses: Vec<&str> = following
+            .clone()
+            .filter_map(|line| line.strip_prefix("Loss: "))
+            .map(|line| line.split(',').next().unwrap_or_default())
+            .collect();
+        if let Some(stated) = line.strip_prefix("Page: ") {
+            let number: usize = stated
+                .split(',')
+                .next()
+                .and_then(|number| number.parse().ok())
+                .expect("a page number");
+            let photographed = conversion
+                .photographed
+                .iter()
+                .find(|photographed| photographed.page == number)
+                .unwrap_or_else(|| {
+                    panic!("the statement names page {number}, which the report does not: {page}")
+                });
+            let words: Vec<&str> = photographed.losses().into_iter().map(Loss::word).collect();
+            assert_eq!(losses, words, "page {number}'s losses: {page}");
+            let fonts = following
+                .clone()
+                .find_map(|line| line.strip_prefix("Fonts not drawn: "))
+                .map(|fonts| fonts.split(',').map(str::trim).collect::<Vec<_>>())
+                .unwrap_or_default();
+            assert_eq!(fonts, photographed.fonts, "page {number}'s fonts: {page}");
+            read = read.saturating_add(1);
+        } else if let Some(stated) = line.strip_prefix("Font: ") {
+            let face = conversion
+                .substituted
+                .iter()
+                .find(|face| {
+                    let named = format!("{} (resource {})", face.requested, face.resource);
+                    stated.split_whitespace().collect::<String>()
+                        == named.split_whitespace().collect::<String>()
+                })
+                .unwrap_or_else(|| {
+                    panic!("the statement names the font {stated}, which the report does not")
+                });
+            assert_eq!(
+                losses,
+                face.losses.iter().map(Loss::word).collect::<Vec<_>>()
+            );
+            read = read.saturating_add(1);
+        }
+    }
+    read
+}
+
+#[test]
+fn each_page_the_font_row_photographs_is_stated_and_reads_back_against_the_report() {
+    // ISO 32000-2 §9.7.5.2: an Identity CMap shall not be used with a non-embedded font, and the
+    // fixture's Adobe-Identity font has no program and no ToUnicode map, so the font row's one
+    // remedy is the photograph (A570). state-every-loss answers the row with
+    // try = ["append-statement", "discard"], so the page is photographed and the statement page
+    // names it with its loss.
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        let source = photographed::a_page_no_reader_can_read("", b"", "", &[]);
+        let plan = planned(STATE_EVERY_LOSS, target);
+        let (report, output) = convert_with_plan(&source, &plan);
+        let conversion = conversion(&report);
+        let output = output.unwrap_or_else(|| panic!("{}", conversion.render()));
+        let held = holds(&output, target);
+        assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+        if let Some(directory) = std::env::var_os("FONT_STATEMENT_ARTIFACTS") {
+            let path =
+                std::path::Path::new(&directory).join(format!("font-statement-{target:?}.pdf"));
+            std::fs::write(path, &output).expect("the artifact is written");
+        }
+        assert_eq!(conversion.photographed.len(), 1, "{}", conversion.render());
+        let statement = conversion
+            .statement
+            .as_ref()
+            .unwrap_or_else(|| panic!("the page is reported: {}", conversion.render()));
+        assert_eq!(statement.sites, [FONT_SITE], "at {target}");
+        assert_eq!(statement.objects, 1);
+        assert_eq!(statement.pages.first(), Some(&1));
+        assert_eq!(pages_of(&output), 1 + statement.pages.len());
+        assert!(
+            conversion.unstated.iter().all(|row| row.site != FONT_SITE),
+            "{:?}",
+            conversion.unstated
+        );
+        let page = stated_lines(&output, statement);
+        assert_eq!(fonts_read_back_against(conversion, &page), 1, "{page}");
+        let unbroken: String = page.split_whitespace().collect();
+        for fact in [
+            "Requirement: fonts/font-programs-embedded",
+            "Page: 1, photographed at 300 dpi",
+            "Loss: text-as-image,",
+            "Fonts not drawn: Arial",
+            "Tried before: no step",
+        ] {
+            assert!(
+                holds_fact(&unbroken, fact),
+                "the page states {fact:?}:\n{page}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_photographed_page_of_a_layered_document_is_stated_with_the_groups_it_fixed() {
+    // A717: the photograph of a page of a document stating optional content is drawn in the
+    // configuration this viewer shows (ISO 32000-2 §8.11.4.3's /D, whose /OFF array turns Hidden
+    // off), and the groups its content named are named with the state drawn. The page holds an
+    // operator §8.2's Table 50 does not define, so it is photographed under page-as-image.
+    let target = Target::Four(Flavour::Plain);
+    let source = photographed::a_layered_document_with_a_fault_on_its_first_page(target);
+    let plan = planned(STATE_EVERY_LOSS, target);
+    let (report, output) = convert_with_plan(&source, &plan);
+    let conversion = conversion(&report);
+    let output = output.unwrap_or_else(|| panic!("{}", conversion.render()));
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    if let Some(directory) = std::env::var_os("FONT_STATEMENT_ARTIFACTS") {
+        let path = std::path::Path::new(&directory).join("font-statement-layered.pdf");
+        std::fs::write(path, &output).expect("the artifact is written");
+    }
+    let statement = conversion.statement.as_ref().expect("the page is reported");
+    let page = stated_lines(&output, statement);
+    let listed = conversion.photographed.len().saturating_add(
+        conversion
+            .substituted
+            .iter()
+            .filter(|face| !face.losses.is_empty())
+            .count(),
+    );
+    assert!(listed > 0, "{}", conversion.render());
+    assert_eq!(fonts_read_back_against(conversion, &page), listed, "{page}");
+    let unbroken: String = page.split_whitespace().collect();
+    for fact in [
+        "Page: 1, photographed at 300 dpi",
+        "Loss: page-as-image,",
+        "Loss: optional-content-of-photographed-pages,",
+        "Optional content groups fixed as drawn: \"Shown\" on, \"Hidden\" off",
+        "Content stream requirements answered: graphics/only-operators-the-base-standard-defines",
+    ] {
+        assert!(
+            holds_fact(&unbroken, fact),
+            "the page states {fact:?}:\n{page}"
+        );
+    }
 }

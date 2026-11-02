@@ -41,12 +41,15 @@ use super::{ConfigError, DERIVABLE, Kind, Placement, Row, check_rows};
 /// The step that takes a site's loss and states it on an appended page (`doc/rfc/0014` section 4).
 pub(in crate::archive) const APPEND_STATEMENT: &str = "append-statement";
 
-/// Why `append-statement` is built only at the embedded-file rows and the halftone rows.
+/// Why `append-statement` is built only at the embedded-file rows, the halftone rows and the font
+/// row.
 pub(in crate::archive) const STATED_ONLY_PER_OBJECT: &str = "the page append-statement appends \
      lists each object the loss took, so it is built where the loss is reported one object at a \
-     time: the two embedded-file rows (ISO 19005-2 section 6.8, ISO 19005-4 section 6.9) and the \
-     three halftone rows (ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5). At every other \
-     site the step is not built yet, and `discard` takes the loss without the page";
+     time: the two embedded-file rows (ISO 19005-2 section 6.8, ISO 19005-4 section 6.9), the \
+     three halftone rows (ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5) and the font row \
+     (ISO 19005-2 section 6.2.11.4.1, ISO 19005-4 section 6.2.10.4.1), whose losses are reported \
+     one photographed page or one embedded face at a time. At every other site the step is not \
+     built yet, and `discard` takes the loss without the page";
 
 /// The graphics family's sites whose loss `append-statement` states, one graphics state or
 /// halftone at a time (`doc/adr/2562`).
@@ -62,12 +65,27 @@ pub(in crate::archive) const STATED_GRAPHICS: [&str; 3] = [
     "graphics/no-halftone-origin-in-a-graphics-state",
 ];
 
+/// The font site whose loss `append-statement` states, one photographed page or one embedded face
+/// at a time (`doc/adr/2600`).
+///
+/// The one `discard` this row resolves to carries the font bundle (`super::super::fonts`): each
+/// photographed page and each face embedded with a loss is a record of its own in the report, so
+/// the page lists those records, and a page that cannot be composed hands them to `discard` as
+/// [`STATED_GRAPHICS`]' page does.
+pub(in crate::archive) const STATED_FONTS: &str = "fonts/font-programs-embedded";
+
+/// Whether `append-statement` at `site` states a loss reported per object and hands every object
+/// its page could not list to the step after it: [`STATED_GRAPHICS`] and [`STATED_FONTS`].
+pub(in crate::archive) fn statement_hands_on(site: &str) -> bool {
+    STATED_GRAPHICS.contains(&site) || site == STATED_FONTS
+}
+
 /// Whether a step hands an object it could not answer to the next one, at this site.
 ///
-/// [`Step::hands_on`], and `append-statement` at [`STATED_GRAPHICS`], whose page is one per
+/// [`Step::hands_on`], and `append-statement` where [`statement_hands_on`], whose page is one per
 /// document and whose failure leaves every object it would have listed to the next step.
 fn hands_on_at(step: Step<'_>, site: &str) -> bool {
-    step.hands_on() || (step == Step::AppendStatement && STATED_GRAPHICS.contains(&site))
+    step.hands_on() || (step == Step::AppendStatement && statement_hands_on(site))
 }
 
 /// Why `depart:<name>` is passed over as a step.
@@ -297,7 +315,7 @@ fn resolved(row: &Row, tools: &BTreeMap<String, Tool>, target: Target) -> Result
         let carried = (DERIVABLE.contains(&row.site.as_str())
             && resolved.remedy == Kind::Preserve
             && resolved.placement == Some(Placement::Append))
-            || (first == Step::AppendStatement && STATED_GRAPHICS.contains(&row.site.as_str()));
+            || (first == Step::AppendStatement && statement_hands_on(&row.site));
         if second.hands_on() || (!carried && *second != Step::Stop) {
             return Err(ConfigError::NotBuiltThatWay {
                 line: row.line,

@@ -931,7 +931,9 @@ pub(super) struct Prepared {
     /// and its condition are one thing.
     pub(super) recorded_provenance: bool,
     /// Whether pages appended from a derived file were licensed by that file's own output intent,
-    /// which does not come across, so that the archive's intent licenses them (`doc/adr/2539`).
+    /// which does not come across, so that the archive's intent licenses them (`doc/adr/2539`) —
+    /// or a statement page lists pages not held, which no failed row's intent licenses
+    /// (`doc/adr/2596`).
     pub(super) derived_pages_need_an_intent: bool,
 }
 
@@ -954,6 +956,9 @@ pub(super) struct Provenance<'a> {
     pub(super) resolved: Option<&'a str>,
     /// The structure this viewer recovered and the file now states (`doc/adr/2502`).
     pub(super) recovered: Option<&'a str>,
+    /// The pages the source states and the rebuilt file does not hold, where the profile asked for
+    /// the loss to be stated on the appended page (`doc/adr/2596`).
+    pub(super) not_held: Option<super::recovered::NotHeld>,
 }
 
 impl Prepared {
@@ -1018,6 +1023,21 @@ impl Prepared {
                     DeviceFamily::Cmyk => DEVICE_CMYK_ROWS[0],
                 });
             }
+        }
+        // And for a statement page listing pages not held, which no failed row composes: its
+        // text paints in Table 51's initial `DeviceGray`, so the intent is prepared as a gray row
+        // would have asked for it (`doc/adr/2596`).
+        if provenance.not_held.is_some() {
+            derived_pages_need_an_intent = true;
+            failed.insert(DEVICE_GRAY_ROW);
+        }
+        // And for a statement page the font row may compose, the same way: whether it lists
+        // anything is known only once the fonts are prepared, below the intent, so the intent is
+        // prepared wherever that preparation can photograph a page or embed a face — and written
+        // only where a page is appended (`doc/adr/2600`).
+        if fonts_may_be_stated(plan, &failed) {
+            derived_pages_need_an_intent = true;
+            failed.insert(DEVICE_GRAY_ROW);
         }
         let failed = failed;
         let wanted = |rewrite: Rewrite| wanted_by(&failed, rewrite);
@@ -1399,6 +1419,21 @@ impl Prepared {
                 as_pages,
             )
         });
+        // Before the preserved pages, because the statement page lists the pages the fonts'
+        // preparation photographed and the faces it embedded with a loss (`doc/adr/2600`).
+        let PreparedFonts {
+            substitutes,
+            metrics,
+            recorded: font_history,
+        } = prepare_fonts(
+            plan,
+            document,
+            &mut spare,
+            wanted(Rewrite::SubstituteFontProgram),
+            metric_directions(&failed),
+            (survey.as_ref(), input),
+            &standard_fonts,
+        );
         let preserved = the_preserved_pages(
             plan,
             document,
@@ -1410,6 +1445,8 @@ impl Prepared {
             embedded_files.as_ref(),
             intent.is_ok() || states_an_output_intent(document, catalog.as_ref()),
             remedies,
+            provenance.not_held,
+            substitutes.as_ref().ok(),
             &mut spare,
         );
         let attached = the_attached_files(
@@ -1448,19 +1485,6 @@ impl Prepared {
             .as_ref()
             .ok()
             .and_then(|files| super::attach::attached_history(&files.rows));
-        let PreparedFonts {
-            substitutes,
-            metrics,
-            recorded: font_history,
-        } = prepare_fonts(
-            plan,
-            document,
-            &mut spare,
-            wanted(Rewrite::SubstituteFontProgram),
-            metric_directions(&failed),
-            (survey.as_ref(), input),
-            &standard_fonts,
-        );
         let edited = Edited {
             fresh: fresh.as_ref().ok(),
             headers: headers.as_ref().ok(),
@@ -1912,6 +1936,7 @@ impl Prepared {
             Rewrite::PageCountRestated => self.owed.page_counts.as_ref().err().copied(),
             Rewrite::DescriptorSetRemoved => self.owed.descriptor_sets.as_ref().err().copied(),
             Rewrite::CidToGidIdentity => self.owed.cid_to_gid.as_ref().err().copied(),
+            Rewrite::FontTypeStated => self.owed.font_types.as_ref().err().copied(),
             Rewrite::FontProgramRefiled => self.owed.font_files.as_ref().err().copied(),
             Rewrite::FilterNamesSpelledOut => self.owed.filter_names.as_ref().err().copied(),
             Rewrite::HalftoneNameRemoved => self.owed.halftone_names.as_ref().err().copied(),
@@ -1950,14 +1975,15 @@ impl Prepared {
             Rewrite::StandardRouteNames => self.owed.standard_route.as_ref().err().copied(),
             Rewrite::TrueTypeCmapRestated => self.owed.cmap_restated.as_ref().err().copied(),
             // The restatement goes unasked for a failed `.notdef` row only where a font the row
-            // names has no TrueType program the copy reaches, so that is the reason it states.
+            // names has no program the copy reaches, so that is the reason it states, naming the
+            // program's format (`doc/adr/2601`).
             Rewrite::NotdefGlyphGiven => match &self.owed.cmap_restated {
                 Err(Because::NotBuiltYet(NOT_ASKED_FOR)) => {
-                    Some(Because::NotBuiltYet(fonts::NOTDEF_NOT_GIVEN))
+                    Some(Because::NotBuiltYet(self.owed.notdef_not_given))
                 }
                 Err(because) => Some(*because),
                 Ok(restated) if restated.notdef_answered => None,
-                Ok(_) => Some(Because::NotBuiltYet(fonts::NOTDEF_NOT_GIVEN)),
+                Ok(_) => Some(Because::NotBuiltYet(self.owed.notdef_not_given)),
             },
             Rewrite::Type3NotdefRenamed => self.owed.type3_notdef.as_ref().err().copied(),
             Rewrite::SharedDestinationProfile => self.owed.shared_profile.as_ref().err().copied(),
@@ -2153,6 +2179,8 @@ pub(super) struct Owed {
     pub(super) descriptor_sets: Result<DescriptorSets, Because>,
     /// The `CIDFont`s given `/CIDToGIDMap` `/Identity`, or why none are.
     pub(super) cid_to_gid: Result<sites::CidToGidSites, Because>,
+    /// The font dictionaries given `/Type /Font`, or why none are (`doc/adr/2608`).
+    pub(super) font_types: Result<sites::FontTypeSites, Because>,
     /// The font programs filed under the key and name of their format, or why none are (ADR 2307).
     pub(super) font_files: Result<super::font_files::Refiled, Because>,
     /// The packets whose header loses a deprecated attribute, or why none do.
@@ -2170,6 +2198,10 @@ pub(super) struct Owed {
     pub(super) standard_route: Result<StandardRouteNames, Because>,
     /// The TrueType fonts whose program's `cmap` is restated, with the objects that hold them.
     pub(super) cmap_restated: Result<fonts::CmapRestated, Because>,
+    /// What a `.notdef` row the restatement does not answer is refused with: the format of the
+    /// program a font it names embeds, where the restatement does not extend that format
+    /// (`doc/adr/2601`).
+    pub(super) notdef_not_given: &'static str,
     /// The Type 3 fonts whose `.notdef` glyph is renamed, or why none are.
     pub(super) type3_notdef: Result<Type3Renames, Because>,
     /// The output intents pointed at one shared destination profile, or why none are.
@@ -2253,7 +2285,7 @@ impl Owed {
                 sites::completed_orders(document)
             }),
             page_resources: asked(wanted(Rewrite::PageResources), || {
-                Ok(sites::page_resources(document, input))
+                sites::page_resources(document, input, survey)
             }),
             defined_resources,
             form_resources,
@@ -2265,6 +2297,9 @@ impl Owed {
             }),
             cid_to_gid: asked(wanted(Rewrite::CidToGidIdentity), || {
                 sites::cid_to_gid_maps(document, input, plan.target)
+            }),
+            font_types: asked(wanted(Rewrite::FontTypeStated), || {
+                sites::font_types(document, input, plan.target)
             }),
             font_files: asked(wanted(Rewrite::FontProgramRefiled), || {
                 super::font_files::refiled(document, input, spare)
@@ -2309,6 +2344,11 @@ impl Owed {
                 sites::type3_notdef_renames(document, input)
             }),
             cmap_restated,
+            notdef_not_given: if wanted(Rewrite::NotdefGlyphGiven) {
+                fonts::notdef_not_given(document, input)
+            } else {
+                fonts::NOTDEF_NOT_GIVEN
+            },
             standard_route,
             shared_profile: asked(wanted(Rewrite::SharedDestinationProfile), || {
                 let catalog = document
@@ -4646,6 +4686,8 @@ fn the_preserved_pages(
     embedded: Result<&sites::EmbeddedFiles, &Because>,
     has_output_intent: bool,
     remedies: &super::remedies::Remedies,
+    not_held: Option<super::recovered::NotHeld>,
+    substitutes: Option<&Substitutes>,
     spare: &mut Spare,
 ) -> Result<Composed, Because> {
     let appended = &remedies.appended;
@@ -4790,11 +4832,14 @@ fn the_preserved_pages(
             );
     }
     let graphics = stated_graphics(plan, document, input, failed);
+    let fonts = stated_fonts(plan, substitutes);
     let statement_text = statement_of(
         document,
         plan.target,
         stated.map(|(_, asked)| (attachments.removed.as_slice(), asked)),
         &graphics,
+        fonts.as_ref(),
+        not_held,
     )?;
     if packets.is_empty()
         && replaced.is_empty()
@@ -4977,7 +5022,9 @@ fn the_preserved_pages(
     // Last, so that its row is the last `compose` writes and the pages it takes are the last.
     let statement_site = stated
         .map(|(site, _)| site)
-        .or_else(|| graphics.first().map(|entry| entry.site));
+        .or_else(|| graphics.first().map(|entry| entry.site))
+        .or_else(|| fonts.as_ref().map(|_| super::config::STATED_FONTS))
+        .or_else(|| not_held.map(|_| NOT_HELD_SITE));
     if let (Some(site), Some(text)) = (statement_site, statement_text.as_ref()) {
         keeps.push(statement_keep(site, text));
     }
@@ -5038,6 +5085,8 @@ fn the_preserved_pages(
                 plan.target,
                 stated.map(|(_, asked)| (attachments.removed.as_slice(), asked)),
                 &graphics,
+                fonts.as_ref(),
+                not_held,
             )?;
             if let (Some(site), Some(text)) = (statement_site, restated.as_ref()) {
                 others.push(statement_keep(site, text));
@@ -5076,12 +5125,25 @@ fn the_preserved_pages(
                 sites.push(entry.site);
             }
         }
+        if fonts.is_some() {
+            sites.push(super::config::STATED_FONTS);
+        }
+        if not_held.is_some() {
+            sites.push(NOT_HELD_SITE);
+        }
         let files = if files_stated {
             attachments.removed.len()
         } else {
             0
         };
-        let page = the_statement_page(&mut composed, sites, files.saturating_add(graphics.len()))?;
+        let page = the_statement_page(
+            &mut composed,
+            sites,
+            files
+                .saturating_add(graphics.len())
+                .saturating_add(fonts.as_ref().map_or(0, statement::FontsStated::listed))
+                .saturating_add(usize::from(not_held.is_some())),
+        )?;
         if files_stated {
             for outcome in &mut attachments.removed {
                 outcome.stated_on = Some(page);
@@ -5257,8 +5319,10 @@ fn attachment_outcomes(
         .collect()
 }
 
-/// The statement's text over the files an embedded-file row removed and the entries the halftone
-/// rows took, or `None` where neither lists anything.
+/// The statement's text over the files an embedded-file row removed, the entries the halftone
+/// rows took, the pages photographed and faces embedded with a loss under the font row
+/// (`doc/adr/2600`) and the pages the source states and the file does not hold, or `None` where
+/// none of the four lists anything. The pages not held are the last entry.
 fn statement_of(
     document: &Document,
     target: Target,
@@ -5267,23 +5331,73 @@ fn statement_of(
         &super::config::Statement,
     )>,
     graphics: &[statement::GraphicsEntry<'_>],
+    fonts: Option<&statement::FontsStated<'_>>,
+    not_held: Option<super::recovered::NotHeld>,
 ) -> Result<Option<String>, Because> {
     let files = files.filter(|(removed, _)| !removed.is_empty());
-    if files.is_none() && graphics.is_empty() {
+    if files.is_none() && graphics.is_empty() && fonts.is_none() && not_held.is_none() {
         return Ok(None);
     }
     let listed: Vec<&super::report::AttachmentOutcome> = files
         .map(|(removed, _)| removed.iter().collect())
         .unwrap_or_default();
-    statement::text(
+    let mut text = statement::text(
         document,
         target,
         files.map(|(_, asked)| (listed.as_slice(), asked)),
         graphics,
     )
-    .map(Some)
-    .map_err(Because::NotBuiltYet)
+    .map_err(Because::NotBuiltYet)?;
+    let mut before = listed.len().saturating_add(graphics.len());
+    if let Some(fonts) = fonts {
+        statement::font_entries(&mut text, target, fonts, before).map_err(Because::NotBuiltYet)?;
+        before = before.saturating_add(fonts.listed());
+    }
+    if let Some(not_held) = not_held {
+        statement::not_held_entry(&mut text, before, not_held).map_err(Because::NotBuiltYet)?;
+    }
+    Ok(Some(text))
 }
+
+/// Whether the font row's statement page may be composed: its row names `append-statement`, and
+/// the fonts' preparation will run, because the font row failed or a content-stream row of
+/// `super::fenced` failed where the profile authorised `page-as-image`.
+fn fonts_may_be_stated(plan: &ArchivePlan, failed: &BTreeSet<&'static str>) -> bool {
+    plan.preservations.iter().any(|preservation| {
+        preservation.site == super::config::STATED_FONTS && preservation.statement.is_some()
+    }) && (failed.contains(super::config::STATED_FONTS)
+        || (plan.authorised.grants(Loss::PageAsImage)
+            && super::fenced::ROWS.iter().any(|row| failed.contains(row))))
+}
+
+/// What the font row states, where its row names `append-statement` and the fonts' preparation
+/// photographed a page or embedded a face with a loss (`doc/adr/2600`).
+///
+/// Every record is the report's own — `Substitutes::photographed` and `Substitutes::done` become
+/// the report's `photographed` and `substituted` unchanged — so the page lists exactly what the
+/// report names. A page photographed for a fault of its content stream is listed too: the font
+/// row's `discard` is what authorised `page-as-image` in the profile.
+fn stated_fonts<'a>(
+    plan: &'a ArchivePlan,
+    substitutes: Option<&'a Substitutes>,
+) -> Option<statement::FontsStated<'a>> {
+    let asked = plan
+        .preservations
+        .iter()
+        .find(|preservation| preservation.site == super::config::STATED_FONTS)
+        .and_then(|preservation| preservation.statement.as_ref())?;
+    let substitutes = substitutes?;
+    let stated = statement::FontsStated {
+        pages: &substitutes.photographed,
+        faces: &substitutes.done,
+        asked,
+    };
+    (stated.listed() > 0).then_some(stated)
+}
+
+/// What the statement page's record names a `page-not-held` entry under: the loss word, because
+/// no requirement's row states it (`doc/adr/2596`).
+const NOT_HELD_SITE: &str = "page-not-held";
 
 /// Every entry a halftone row whose loss is stated takes, in `STATED_GRAPHICS`'s order and each
 /// population's own (`doc/adr/2562`).

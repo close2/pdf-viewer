@@ -910,6 +910,8 @@ fn image_interpolation_is_a_loss_and_needs_authorising() {
         page_as_image: false,
         tagging_of_photographed_pages: false,
         optional_content_of_photographed_pages: false,
+        page_not_held: false,
+        page_not_held_stated: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
@@ -1073,6 +1075,8 @@ fn an_annotation_stating_no_flags_is_made_printable_only_with_authorisation() {
         page_as_image: false,
         tagging_of_photographed_pages: false,
         optional_content_of_photographed_pages: false,
+        page_not_held: false,
+        page_not_held_stated: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -1163,6 +1167,8 @@ fn a_property_its_own_schema_does_not_define_is_removed_only_with_authorisation(
         page_as_image: false,
         tagging_of_photographed_pages: false,
         optional_content_of_photographed_pages: false,
+        page_not_held: false,
+        page_not_held_stated: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -2812,6 +2818,44 @@ fn mismatched_width_arrays_are_stated_without_moving_the_page() {
     }
 }
 
+/// Table 109's `/Type`, written into a font its position names one: the name is the one the four
+/// font tables admit, so nothing the page draws moves (`doc/adr/2608`).
+#[test]
+fn a_font_stating_no_type_or_another_is_given_type_font() {
+    let stated: &[u8] = b"<< /Type /Font /Subtype /TrueType";
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        for written_instead in [
+            &b"<<             /Subtype /TrueType"[..],
+            &b"<< /Type /Fnot /Subtype /TrueType"[..],
+        ] {
+            let mut source = a_font_range_stating("667", true, 65);
+            let at = source
+                .windows(stated.len())
+                .position(|window| window == stated)
+                .expect("the fixture's font dictionary");
+            // The same length, so that every cross-reference offset still holds.
+            source[at..at + stated.len()].copy_from_slice(written_instead);
+            let (report, output) = convert(&source, target, Authorisations::default());
+            assert_eq!(
+                decision(&report, "fonts/font-dictionary-states-type-font"),
+                Decision::Mechanical(Rewrite::FontTypeStated)
+            );
+            let output = written(&report, output);
+            assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+            assert_eq!(drawn(&source), drawn(&output));
+            let held = Document::open(output).expect("output opens");
+            let font = held.get(ObjectId::new(6, 0));
+            let font = font.as_dict().expect("the font object");
+            assert_eq!(
+                held.get_key(font, "Type")
+                    .as_name()
+                    .map(|name| name.as_bytes().to_vec()),
+                Some(b"Font".to_vec())
+            );
+        }
+    }
+}
+
 #[test]
 fn an_empty_width_array_is_refused_instead_of_inventing_metrics() {
     let source = a_font_range_stating("", true, 65);
@@ -3669,6 +3713,64 @@ fn a_cid_to_gid_map_left_out_of_a_direct_descendant_is_written_into_its_type0_fo
 }
 
 #[test]
+fn a_direct_descendant_stating_no_type_is_given_type_font_inside_its_type0_font() {
+    // A `CIDFont` written inside its Type 0 font's `/DescendantFonts` array is a font by where it
+    // stands, so the row reports its missing `/Type` at no object (ADR 2413), and the entry is
+    // written where the font is written: inside the array its holder carries (`doc/adr/2608`).
+    let stated: &[u8] = b"<< /Type /Font /Subtype /CIDFontType2";
+    let mut source = an_embedded_cid_font_stating_no_map("%PDF-1.6", Descendant::Direct);
+    let at = source
+        .windows(stated.len())
+        .position(|window| window == stated)
+        .expect("the fixture's descendant");
+    // The same length, so that every cross-reference offset still holds.
+    source[at..at + stated.len()].copy_from_slice(b"<<             /Subtype /CIDFontType2");
+    let row = "fonts/font-dictionary-states-type-font";
+    for (target, (report, output)) in [
+        (Target::Four(Flavour::Plain), to_part_four(&source)),
+        (Target::Two(Level::B), to_part_two(&source)),
+    ] {
+        let found = holds(&source, target);
+        let failed = found
+            .failures()
+            .find(|failed| failed.id == row)
+            .expect("the absent entry fails the rule before anything is converted");
+        let Outcome::Failed { places, .. } = &failed.outcome else {
+            panic!("a failure");
+        };
+        assert!(
+            places.iter().all(|finding| finding.place.object.is_none()),
+            "a direct font is reported at no object"
+        );
+        assert_eq!(
+            decision(&report, row),
+            Decision::Mechanical(Rewrite::FontTypeStated),
+            "{target:?}"
+        );
+        let output = output.expect("the document converts");
+        assert_eq!(
+            holds(&output, target).verdict(),
+            Verdict::Conforms,
+            "{target:?}"
+        );
+        let held = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+        let font = font_resource(&held);
+        let Some(pdf_syntax::Object::Array(kids)) = font.get("DescendantFonts") else {
+            panic!("the array is still written in the Type 0 font");
+        };
+        let Some(pdf_syntax::Object::Dictionary(descendant)) = kids.first() else {
+            panic!("and the descendant is still written inside it: {kids:?}");
+        };
+        assert_eq!(
+            held.get_key(descendant, "Type")
+                .as_name()
+                .map(|name| name.as_bytes().to_vec()),
+            Some(b"Font".to_vec()),
+            "{target:?}: the one value Table 115 admits, written where the font is written"
+        );
+    }
+}
+#[test]
 fn a_direct_descendant_of_a_pdf_two_file_stays_refused_at_part_four() {
     // The control for the test above: labelled 2.0, the same direct font is the file's own
     // statement under an edition with no default, and keeps the refusal that names the label.
@@ -4275,6 +4377,8 @@ fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_st
         page_as_image: false,
         tagging_of_photographed_pages: false,
         optional_content_of_photographed_pages: false,
+        page_not_held: false,
+        page_not_held_stated: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
@@ -5447,6 +5551,8 @@ fn a_colour_specification_the_part_ignores_is_removed_only_with_authorisation() 
         page_as_image: false,
         tagging_of_photographed_pages: false,
         optional_content_of_photographed_pages: false,
+        page_not_held: false,
+        page_not_held_stated: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -5510,6 +5616,8 @@ fn a_file_marking_no_specification_best_keeps_the_one_a_jp2_reader_uses() {
         page_as_image: false,
         tagging_of_photographed_pages: false,
         optional_content_of_photographed_pages: false,
+        page_not_held: false,
+        page_not_held_stated: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -5571,6 +5679,8 @@ fn two_specifications_marked_best_stay_refused() {
         page_as_image: false,
         tagging_of_photographed_pages: false,
         optional_content_of_photographed_pages: false,
+        page_not_held: false,
+        page_not_held_stated: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
@@ -5625,6 +5735,8 @@ fn one_specification_with_a_method_the_part_forbids_stays_refused() {
         page_as_image: false,
         tagging_of_photographed_pages: false,
         optional_content_of_photographed_pages: false,
+        page_not_held: false,
+        page_not_held_stated: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
@@ -9043,6 +9155,8 @@ fn an_annotation_of_a_forbidden_subtype_goes_only_with_authorisation() {
         page_as_image: false,
         tagging_of_photographed_pages: false,
         optional_content_of_photographed_pages: false,
+        page_not_held: false,
+        page_not_held_stated: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -9374,6 +9488,8 @@ fn an_annotation_that_drew_nothing_refuses_a_preserve_by_name() {
         page_as_image: false,
         tagging_of_photographed_pages: false,
         optional_content_of_photographed_pages: false,
+        page_not_held: false,
+        page_not_held_stated: false,
         layout_from_this_viewer: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -9421,6 +9537,8 @@ fn every_loss() -> Authorisations {
         page_as_image: false,
         tagging_of_photographed_pages: false,
         optional_content_of_photographed_pages: false,
+        page_not_held: false,
+        page_not_held_stated: false,
         layout_from_this_viewer: false,
     }
 }
@@ -14981,6 +15099,55 @@ fn a_standard_font_written_inside_its_resource_dictionary_becomes_an_object_hold
 }
 
 #[test]
+fn a_direct_font_stating_no_type_and_given_a_face_states_type_font_in_its_new_object() {
+    // A font written inside the page's `/Font` subdictionary without `/Type` is a font by where
+    // it stands, and the substitution writes it out as an object of its own, finding where it
+    // stood by its value (`doc/adr/2162`): the entry is written into that object, so the face
+    // is placed and the dictionary states the one value Table 109 admits (`doc/adr/2608`).
+    let font = "<< /Subtype /Type1 /BaseFont /Times-Roman /Encoding /WinAnsiEncoding >>";
+    let source = Conforming {
+        resources: format!(
+            "/Font << /F1 {font} >> /ColorSpace << /CS0 [/CalGray << /WhitePoint [0.9505 1.0 \
+             1.089] >>] >>"
+        ),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (Hello's) Tj ET".to_vec(),
+        )),
+        ..Conforming::part_two()
+    }
+    .build();
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    assert_eq!(
+        decision(&report, "fonts/font-dictionary-states-type-font"),
+        Decision::Mechanical(Rewrite::FontTypeStated)
+    );
+    let output = written(&report, output);
+    assert_eq!(
+        holds(&output, Target::Two(Level::B)).verdict(),
+        Verdict::Conforms
+    );
+    assert_eq!(conversion(&report).substituted.len(), 1);
+    let held = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let pages = pdf_model::Pages::new(&held).every();
+    let page = pages.first().and_then(Option::as_ref).expect("the page");
+    let fonts = held.get_key(&page.resources, "Font");
+    let fonts = fonts.as_dict().expect("the font subdictionary");
+    let at = fonts
+        .get("F1")
+        .and_then(pdf_syntax::object::Object::as_reference)
+        .expect("the font is now an object of its own");
+    let written_font = held.get(at);
+    let written_font = written_font.as_dict().expect("a font dictionary");
+    assert_eq!(
+        held.get_key(written_font, "Type")
+            .as_name()
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"Font".to_vec())
+    );
+}
+
+#[test]
 fn a_standard_font_drawn_from_a_machines_face_takes_the_shipped_one_only_as_an_authorised_loss() {
     // The encoding names a Cyrillic glyph at a code the page never shows. ADR 0270 then draws
     // the font from a face of this machine's that has it, where one is installed; the shipped face
@@ -16034,9 +16201,13 @@ fn a_font_with_a_descriptor_and_no_widths_is_given_the_widths_the_viewer_draws_i
 }
 #[path = "archive/cff_notdef_glyph.rs"]
 mod cff_notdef_glyph;
+#[path = "archive/cid_cff_notdef_glyph.rs"]
+mod cid_cff_notdef_glyph;
 #[path = "archive/cid_notdef_glyph.rs"]
 mod cid_notdef_glyph;
 #[path = "archive/derived_converted.rs"]
 mod derived_converted;
 #[path = "archive/notdef_glyph.rs"]
 mod notdef_glyph;
+#[path = "archive/whole_population.rs"]
+mod whole_population;

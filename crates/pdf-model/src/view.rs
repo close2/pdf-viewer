@@ -257,6 +257,14 @@ pub struct ViewState {
     /// the screen for the various page boundaries" — and what it permits is offered, not imposed.
     /// ADR 2440.
     guidelines: bool,
+    /// Whether a person has asked for text under a `/Font` entry that is null to be drawn in a
+    /// substitute face rather than left out.
+    ///
+    /// `false` until a person says otherwise, under which such text draws nothing and the page
+    /// says why. §7.3.9 makes the entry an absence and §9.5's substitution has no dictionary to
+    /// read, so drawing it at all is a guess, and the guess is the reader's to ask for (A35,
+    /// A738). ADR 2612.
+    null_font_substitute: bool,
     /// Annotations a person has **added**, in the order they added them.
     ///
     /// The fifth thing in this struct that comes from outside the document, and the first that
@@ -1054,6 +1062,7 @@ impl ViewState {
             paper: None,
             separation_simulation: false,
             guidelines: false,
+            null_font_substitute: false,
             added: Vec::new(),
             retyped: BTreeMap::new(),
             filed: Vec::new(),

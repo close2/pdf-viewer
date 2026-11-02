@@ -78,8 +78,8 @@ pub enum FormOverrideMode {
     Warning,
 }
 
-/// What raised an activation: page 379's two stimuli, and a move of the keyboard focus (pages
-/// 390–391), each half of which is [`Stimulus`]'s own.
+/// What raised an activation: page 379's two stimuli, a move of the keyboard focus (pages
+/// 390–391), each half of which is [`Stimulus`]'s own, a click, and the open sequence's end.
 #[derive(Debug, Clone, Copy)]
 enum Raised<'a> {
     /// The completion of the merge.
@@ -98,6 +98,9 @@ enum Raised<'a> {
     },
     /// A mouse click occurred within the field of this PDF name.
     Click(&'a str),
+    /// The open sequence ended: the Form DOM's `ready` and the application's `docReady` (pages 388
+    /// and 704).
+    Ready,
 }
 
 /// A runner seen as the [`Runner`] an activation runs its scripts through, counting the scripts
@@ -167,8 +170,21 @@ impl ViewState {
     /// entry, which is the rule page 379 gives it: an `error` replaces the entry and says so, a
     /// `warning` or a disabled calculation keeps it (ADR 2525 item 2). The cost is a second
     /// activation, and the notices arrive with the merge instead of with the keystroke.
+    ///
+    /// **The open sequence ends with `ready`.** Once the merge and the entries it raises again are
+    /// done, the `ready` events bound to the Form DOM run, which page 388 fires after the merge's
+    /// calculations and validations, and then the `docReady` events bound to the application,
+    /// which page 388 puts after the Form DOM's `ready` and before the document is rendered; this
+    /// is the one call that raises them, so a sequence raises them once. They are an activation
+    /// of their own under the same sequence clock, so a `ready` script that never ends is stopped
+    /// within the one second the merge started, keeps nothing and leaves the form as the merge
+    /// left it. The same activation names the events whose `listen` or `ref` this reader does not
+    /// follow (ADR 2606).
     pub fn activate_form_on_merge(&mut self, document: &Document) -> bool {
-        self.activate_form(document, Raised::Merge, Instant::now())
+        let started = Instant::now();
+        let merged = self.activate_form(document, Raised::Merge, started);
+        let ready = self.activate_form(document, Raised::Ready, started);
+        merged || ready
     }
 
     /// Activates the calculations that depend on the field `name`, which a person just committed a
@@ -287,6 +303,7 @@ impl ViewState {
             Raised::Exit { left, reaching } => Stimulus::Exit { left, reaching },
             Raised::Enter { reached, leaving } => Stimulus::Enter { reached, leaving },
             Raised::Click(clicked) => Stimulus::Click { clicked },
+            Raised::Ready => Stimulus::Ready,
         };
         // What a person entered before this merge stands under it (the merge's own comment).
         let before_the_merge: Vec<String> = match raised {

@@ -92,7 +92,8 @@ def remedy(kind, site, why):
             return "R08b-cjk-pack"
         return "R08-unembedded-font-photograph"
     if site in ("fonts/font-programs-filed-by-their-format", "fonts/cid-to-gid-map-present",
-                "fonts/descendant-fonts-holds-one-cidfont", "fonts/widths-agree-with-the-program"):
+                "fonts/descendant-fonts-holds-one-cidfont", "fonts/widths-agree-with-the-program",
+                "fonts/font-dictionary-states-type-font"):
         return "R10-font-refiling"
     if site in ("fonts/truetype-codes-reach-glyphs-by-the-standard-route", "fonts/symbolic-truetype-states-no-encoding",
                 "fonts/non-symbolic-truetype-uses-a-standard-encoding"):

@@ -260,6 +260,12 @@ pub struct Viewer {
     /// [`pdf_model::view::ViewState`] by [`Command::Guidelines`]. `false` until a host says
     /// otherwise, under which no page carries one. ADR 2440.
     guidelines: bool,
+    /// Whether text under a `/Font` entry that is null is what this reader has asked to see drawn.
+    ///
+    /// Held here for `separations`' reason and pushed into each document's
+    /// [`pdf_model::view::ViewState`] by [`Command::NullFontSubstitute`]. `false` until a host says
+    /// otherwise, under which such text draws nothing and the page says why. ADR 2612.
+    null_font_substitute: bool,
     /// The name the next document opened **beside** the one showing would be called by.
     ///
     /// The eleventh host-supplied policy value, held here for `separations`'s reason — it is a
@@ -333,6 +339,7 @@ impl Viewer {
             clock: None,
             separations: false,
             guidelines: false,
+            null_font_substitute: false,
             beside: None,
             locked: None,
             references: Arc::new(pdf_model::reference::Supply::none()),
@@ -534,6 +541,17 @@ impl Viewer {
                 self.guidelines = shown;
                 for open in self.documents.values_mut() {
                     if open.view.set_guidelines(shown) {
+                        open.stale();
+                    }
+                }
+            }
+            // The substitute for a null `/Font` entry, on `Separations`' rule: every open document
+            // and every one opened afterwards, and a page interpreted for the other answer is
+            // superseded (ADR 2612).
+            Command::NullFontSubstitute(substitute) => {
+                self.null_font_substitute = substitute;
+                for open in self.documents.values_mut() {
+                    if open.view.set_null_font_substitute(substitute) {
                         open.stale();
                     }
                 }
@@ -1125,6 +1143,7 @@ mod tests {
             Command::Clock(clock),
             Command::Separations(true),
             Command::Guidelines(true),
+            Command::NullFontSubstitute(true),
             Command::Present(crate::PresentationMode::On),
         ] {
             viewer.handle(command).for_each(drop);
@@ -1151,6 +1170,7 @@ mod tests {
             assert_eq!(open.view.modification_time(), clock, "{id:?}: Table 166");
             assert!(open.view.separation_simulation(), "{id:?}: §10.8.3");
             assert!(open.view.guidelines(), "{id:?}: §14.11.2.2");
+            assert!(open.view.null_font_substitute(), "{id:?}: §9.3.1, A738");
         }
         assert_eq!(
             viewer.focused,

@@ -419,6 +419,21 @@ impl Rewriter<'_> {
             count(applied, Rewrite::NotdefGlyphGiven);
             changed = true;
         }
+        // A `CIDFontType0` descendant names the CID-keyed CFF program given the glyphs through its
+        // new descriptor, and the CIDs reach them through the program's own charset
+        // (`doc/adr/2598`).
+        if self.wants(Rewrite::NotdefGlyphGiven)
+            && let Some(descriptor) = self
+                .cmap_restated
+                .and_then(|restated| restated.cid_cff.get(&id))
+        {
+            out.insert(
+                Name::new(&b"FontDescriptor"[..]),
+                Object::Reference(*descriptor),
+            );
+            count(applied, Rewrite::NotdefGlyphGiven);
+            changed = true;
+        }
         // A simple CFF font names the program given the glyphs through its new descriptor, and a
         // code given a fresh name reaches it through the restated encoding (`doc/adr/2578`).
         if self.wants(Rewrite::NotdefGlyphGiven)
@@ -691,6 +706,51 @@ impl Rewriter<'_> {
         }
         count(applied, Rewrite::CidToGidIdentity);
         true
+    }
+
+    /// §9.6.2.1's Table 109 `/Type`, written as `Font` into each font dictionary
+    /// `sites::font_types` found stating no `/Type` or another name, and into each font written
+    /// directly inside an object it named a holder, save one the substitution writes out as an
+    /// object of its own, where `fonts::gains` states it (`doc/adr/2608`).
+    ///
+    /// The value is the one the four font tables admit, so a name the producer wrote there is
+    /// replaced rather than kept: the entry holds one value, and the tables rule out every other.
+    pub(super) fn state_font_type(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let Some(sites) = self
+            .font_types
+            .filter(|_| self.wants(Rewrite::FontTypeStated))
+        else {
+            return false;
+        };
+        let mut changed = false;
+        // A direct font the substitution writes out is found again by its value and typed there.
+        let written_out = self
+            .substitutes
+            .filter(|_| self.wants(Rewrite::SubstituteFontProgram))
+            .map_or(&[][..], |substitutes| substitutes.direct.as_slice());
+        if sites.holders.contains(&id)
+            && let Some((typed, fonts)) = sites::typed_fonts(self.document, out, written_out, 0)
+        {
+            *out = typed;
+            for _ in 0..fonts {
+                count(applied, Rewrite::FontTypeStated);
+            }
+            changed = true;
+        }
+        if sites.at.contains(&id) {
+            out.insert(
+                Name::new(&b"Type"[..]),
+                Object::Name(Name::new(&b"Font"[..])),
+            );
+            count(applied, Rewrite::FontTypeStated);
+            changed = true;
+        }
+        changed
     }
 
     /// §8.6.5.6's `/DefaultCMYK` and `/DefaultRGB`, each written wherever [`DefaultSites`] found

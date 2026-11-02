@@ -495,7 +495,7 @@ fn state_every_loss_photographs_a_page_of_a_layered_document_where_as_if_printed
     // the configuration this viewer shows, under `optional-content-of-photographed-pages`, at 2b
     // and part 4 (`doc/adr/2576`). The font site's `discard` carries the loss in both; in
     // `state-every-loss` it is reached through `try = ["append-statement", "discard"]`, whose
-    // first step is passed over by name at this site until its page is built there.
+    // first step is admitted at this site and states each photographed page (`doc/adr/2600`).
     let losses = [
         pdf_transform::archive::Loss::PageAsImage,
         pdf_transform::archive::Loss::OptionalContentOfPhotographedPages,
@@ -516,8 +516,7 @@ fn state_every_loss_photographs_a_page_of_a_layered_document_where_as_if_printed
             .into_iter()
             .filter(|skipped| skipped.site == "fonts/font-programs-embedded")
             .collect();
-        assert_eq!(passed_over.len(), 1, "at {target}: {passed_over:?}");
-        assert_eq!(passed_over[0].step, "append-statement");
+        assert!(passed_over.is_empty(), "at {target}: {passed_over:?}");
     }
     for name in ["no-data-loss", "refuse-any-loss"] {
         let target = Target::Two(Level::B);

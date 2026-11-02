@@ -88,9 +88,7 @@ pub(super) fn jbig2_bilevel(
         data: &source.data,
         globals: globals.as_deref().unwrap_or_default(),
     })
-    .map_err(|error| ImageError::Sandboxed {
-        detail: error.to_string(),
-    })?;
+    .map_err(ImageError::from)?;
     let Decoded::Bilevel(bilevel) = decoded else {
         return Err(ImageError::Malformed {
             detail: "JBIG2 did not decode to bilevel samples".to_owned(),

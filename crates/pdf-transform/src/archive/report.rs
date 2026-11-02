@@ -1648,6 +1648,21 @@ fn recovered_structure_json(recovered: Option<&crate::archive::RecoveredStructur
                 ),
             ),
             (
+                "kids_naming_nothing".to_owned(),
+                Value::Integer(i64::try_from(recovered.naming_nothing).unwrap_or(i64::MAX)),
+            ),
+            (
+                "page_not_held".to_owned(),
+                recovered.not_held.map_or(Value::Null, |not_held| {
+                    let number = |n: usize| Value::Integer(i64::try_from(n).unwrap_or(i64::MAX));
+                    Value::Object(vec![
+                        ("stated_by".to_owned(), Value::text(not_held.stated_by)),
+                        ("stated".to_owned(), number(not_held.stated)),
+                        ("carried".to_owned(), number(not_held.carried)),
+                    ])
+                }),
+            ),
+            (
                 "declined_because".to_owned(),
                 Value::text(&recovered.because),
             ),
