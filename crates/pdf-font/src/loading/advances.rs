@@ -78,6 +78,29 @@ impl LoadedFont {
         self.in_ems(advance)
     }
 
+    /// The advance an `OpenType` program's `CFF ` table states for a code, in the units
+    /// [`Self::advance`] answers in: one em is 1.0.
+    ///
+    /// **The program's second statement of the same advance.** An `OpenType` program with
+    /// PostScript outlines states each glyph's advance in `hmtx`, which [`Self::program_advance`]
+    /// reads, and again as the width of the glyph's Type 2 charstring in the `CFF ` table. ISO
+    /// 19005-2 section 6.2.11.5 and ISO 19005-4 section 6.2.10.5 ask the font program to agree with
+    /// the dictionary without saying which statement is the program's, so a caller holding a
+    /// file to them asks both.
+    ///
+    /// `None` for a program with no `CFF ` table — a `glyf` sfnt, whose `hmtx` is its only
+    /// statement, and a bare CFF or Type 1 program, whose charstrings [`Self::program_advance`]
+    /// already reads — and for every refusal [`Self::program_advance`] lists, for the same
+    /// reasons.
+    #[must_use]
+    pub fn program_charstring_advance(&self, code: Code) -> Option<f32> {
+        if self.type1.is_some() {
+            return None;
+        }
+        let glyph = self.program_glyph(code)?;
+        metrics::program_charstring_advance(self.program, &self.data, glyph)
+    }
+
     /// The vertical displacement the *embedded font program* states for a code, in the units
     /// [`Self::vertical_metrics`] answers in and with its sign convention: downward is negative.
     ///

@@ -922,7 +922,9 @@ believing it is easy.
   2. **Adjust the embedded program's advances to match `/Widths`.** Outlines untouched, metrics
      rewritten to the numbers the file already states. Mechanical, and it keeps the positions and
      the conformance together. It is font surgery, and it is the reason this default is a feature
-     with a cost rather than a flag.
+     with a cost rather than a flag. An OpenType program with PostScript outlines states each
+     advance twice, in `hmtx` and in its `CFF ` table's charstrings, and both are the program's
+     statement, so both are rewritten, read back, and judged by the checker (ADR 2642).
   3. **Rewrite `/Widths` to match the substitute.** **Never**: `/Widths` is what positions the
      glyphs, so this one *does* move the text.
   The converter does 1 where it can and 2 otherwise, and reports which.

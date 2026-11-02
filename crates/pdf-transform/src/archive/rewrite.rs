@@ -594,7 +594,7 @@ pub enum Rewrite {
     /// ISO 19005-2 section 6.6.2.1 and ISO 19005-4 section 6.7.2.1 forbid both. Each describes
     /// the packet's own framing rather than anything inside it, so the attribute is cut out of
     /// the processing instruction and every other byte of the producer's packet crosses
-    /// unchanged — `super::prepare::without_deprecated_header_attributes` is the cut.
+    /// unchanged — `super::prepare::metadata::without_deprecated_header_attributes` is the cut.
     ///
     /// **The edit is the last of the three a packet can take.** A property removal and the
     /// identification schema both rewrite the RDF the header wraps, so the attributes come off
@@ -912,6 +912,16 @@ pub enum Rewrite {
     /// `super::hexadecimal` the reading; the sibling row about a byte that is not a digit stays
     /// refused, because §7.3.4.3 gives that byte no value to transcribe.
     HexadecimalDigitCompleted,
+    /// A content stream states, in place of a run ISO 32000-2 §7.3.3 spells as no number, the
+    /// number this reader draws for it.
+    ///
+    /// §7.2.3 makes a run of regular characters one token, and §7.3.3 spells a real with one
+    /// period, so a run such as `33600.272.58` is the operator ISO 19005-2 section 6.2.2 and ISO
+    /// 19005-4 section 6.2.2 forbid. This reader draws the number it lexes off the run's front
+    /// (`doc/adr/1004`); the rewrite writes that number and touches nothing around it. Unlike
+    /// [`Self::HexadecimalDigitCompleted`] it is a loss, `content-as-drawn`, because the value is
+    /// this reader's salvage rather than one the standard states (`doc/adr/2638`).
+    RunWrittenAsDrawn,
     /// Every `Separation` array naming one colourant states the one definition of it the
     /// operator's configuration chose.
     ///
@@ -992,7 +1002,7 @@ pub enum Rewrite {
     /// `/Title`, `dc:creator` for `/Author`, `dc:description` for `/Subject`, `pdf:Keywords`,
     /// `xmp:CreatorTool`, `pdf:Producer`, `xmp:CreateDate`, `xmp:ModifyDate` and `pdf:Trapped`.
     /// So every property written is the one the standard pairs with the key, and every value is
-    /// the producer's own; `super::prepare::Information` is the whole construction.
+    /// the producer's own; `super::prepare::metadata::Information` is the whole construction.
     ///
     /// **Nothing overwrites what the packet already says.** §14.3.4 permits the addition only
     /// into a silence — "a PDF processor may add the information to the other, as long as both
@@ -1572,6 +1582,11 @@ impl Rewrite {
                 "a content stream's hexadecimal string states the final digit ISO 32000-2 \
                  \u{a7}7.3.4.3 already assumed, so the string reads the same and the file says so"
             }
+            Self::RunWrittenAsDrawn => {
+                "a content stream states, in place of a run ISO 32000-2 \u{a7}7.3.3 spells as no \
+                 number, the number this viewer draws for it, and the characters after that \
+                 number are gone"
+            }
             Self::PageBoundaryRemoved => {
                 "a page loses the optional crop, bleed, trim or art box entry whose size ISO \
                  19005-2 section 6.1.13 does not admit, so that ISO 32000-2 \u{a7}14.11.2.1's \
@@ -1783,6 +1798,7 @@ impl Rewrite {
             Self::AdditionalActionsRemoved => "additional-actions-removed",
             Self::WidgetActionEntryRemoved => "widget-action-entry-removed",
             Self::HexadecimalDigitCompleted => "hexadecimal-digit-completed",
+            Self::RunWrittenAsDrawn => "run-written-as-drawn",
             Self::SeparationAgreed => "separation-agreed",
             Self::EncryptionRemoved => "encryption-removed",
             Self::ExternalDataEmbedded => "external-data-embedded",
@@ -1991,6 +2007,7 @@ impl<'a> Rewriter<'a> {
             attached: prepared.attached.as_ref().ok(),
             actions: prepared.actions.as_ref().ok(),
             hexadecimal: prepared.hexadecimal.as_ref().ok(),
+            as_drawn: prepared.as_drawn.as_ref().ok(),
             languages: prepared.languages.as_ref().ok(),
             external_data: prepared.external_data.as_ref().ok(),
             boundaries: prepared.boundaries.as_ref().ok(),
@@ -2135,6 +2152,12 @@ fn count_what_has_no_place(
         && let Ok(completed) = &prepared.hexadecimal
     {
         applied.insert(Rewrite::HexadecimalDigitCompleted, completed.digits);
+    }
+    // The runs rather than the streams, for the same reason (`doc/adr/2638`).
+    if wanted.contains(&Rewrite::RunWrittenAsDrawn)
+        && let Ok(drawn) = &prepared.as_drawn
+    {
+        applied.insert(Rewrite::RunWrittenAsDrawn, drawn.runs.len());
     }
     // The entries rather than the objects: a content stream may respell three property lists'
     // `/Lang`, and a report saying "1 done" would be counting the stream (`doc/adr/2066`).
@@ -2942,6 +2965,9 @@ struct Rewriter<'a> {
     actions: Option<&'a super::actions::Removals>,
     /// The content streams whose hexadecimal strings state their final digit, where any do.
     hexadecimal: Option<&'a super::hexadecimal::Completed>,
+    /// The content streams written with the number this reader draws in place of each run it
+    /// salvages, where any are (`doc/adr/2638`).
+    as_drawn: Option<&'a super::as_drawn::Drawn>,
     /// The `/Lang` entries restated, and the objects they are in (`doc/adr/2066`).
     languages: Option<&'a super::languages::Restated>,
     /// The streams whose data comes inside the file, where any do.
@@ -3035,6 +3061,65 @@ impl Rewriter<'_> {
         }
     }
 
+    /// Writes the substitute program's entries, the `/CIDToGIDMap` it needs and the descriptor
+    /// that describes it into a font's dictionary, each counted as one substitution, and answers
+    /// whether any was written.
+    fn substitute_font_program(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let mut changed = false;
+        if self.wants(Rewrite::SubstituteFontProgram)
+            && let Some(embedding) = self
+                .substitutes
+                .and_then(|substitutes| substitutes.at.get(&id))
+        {
+            embedding.write_into(out);
+            count(applied, Rewrite::SubstituteFontProgram);
+            changed = true;
+        }
+        if self.identity_cid_to_gid(id, out) {
+            count(applied, Rewrite::SubstituteFontProgram);
+            changed = true;
+        }
+        if self.describe_font(id, out) {
+            count(applied, Rewrite::SubstituteFontProgram);
+            changed = true;
+        }
+        changed
+    }
+
+    /// Points a font given its own copy of a descriptor it shared at the copy, which names the
+    /// restated program, and answers whether it did. The restatement is counted here because the
+    /// program it carries is a new object rather than one this walk reaches
+    /// (`super::fonts::restate_metrics`).
+    fn name_the_copied_descriptor(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let Some(metrics) = self.metrics else {
+            return false;
+        };
+        let Some(&(descriptor, program)) = metrics.descriptors.get(&id) else {
+            return false;
+        };
+        out.insert(
+            Name::new(&b"FontDescriptor"[..]),
+            Object::Reference(descriptor),
+        );
+        if self.wants(Rewrite::RestateFontMetrics) && metrics.horizontal.contains(&program) {
+            count(applied, Rewrite::RestateFontMetrics);
+        }
+        if self.wants(Rewrite::RestateVerticalFontMetrics) && metrics.vertical.contains(&program) {
+            count(applied, Rewrite::RestateVerticalFontMetrics);
+        }
+        true
+    }
+
     fn rewrite_dictionary(
         &self,
         id: ObjectId,
@@ -3082,24 +3167,9 @@ impl Rewriter<'_> {
             changed = true;
         }
         changed |= self.interactive_edits(id, &mut out, applied);
-        if self.wants(Rewrite::SubstituteFontProgram)
-            && let Some(embedding) = self
-                .substitutes
-                .and_then(|substitutes| substitutes.at.get(&id))
-        {
-            embedding.write_into(&mut out);
-            count(applied, Rewrite::SubstituteFontProgram);
-            changed = true;
-        }
-        if self.identity_cid_to_gid(id, &mut out) {
-            count(applied, Rewrite::SubstituteFontProgram);
-            changed = true;
-        }
-        if self.describe_font(id, &mut out) {
-            count(applied, Rewrite::SubstituteFontProgram);
-            changed = true;
-        }
+        changed |= self.substitute_font_program(id, &mut out, applied);
         changed |= self.refile_font_program(id, &mut out);
+        changed |= self.name_the_copied_descriptor(id, &mut out, applied);
         if self.wants(Rewrite::SuppliedMediaType)
             && let Some(media_type) = self.remedies.supplied.get(&id)
         {
@@ -3353,7 +3423,7 @@ impl Rewriter<'_> {
     /// amendment cut and the container are the three `doc/adr/1245` and `doc/adr/1246` added, and
     /// the information dictionary's entries are supplemented into it (`doc/adr/1269`). Any one
     /// alone is enough to make the packet the prepared one — which is what carries every edit the
-    /// others made, since `super::prepare::Edited` folds them in that order.
+    /// others made, since `super::prepare::metadata::Edited` folds them in that order.
     fn wants_metadata(&self) -> bool {
         self.wants(Rewrite::IdentificationSchema)
             || self.wants(Rewrite::DefaultCmyk)

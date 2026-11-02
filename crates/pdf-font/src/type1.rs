@@ -60,7 +60,7 @@ pub enum Type1Error {
 
 #[path = "type1_glyphs_given.rs"]
 mod glyphs_given;
-pub use glyphs_given::{GlyphsGiven, MOST_BYTES_WRITTEN, with_glyphs_given};
+pub use glyphs_given::{GlyphsGiven, MOST_BYTES_WRITTEN, MOST_CHARSTRING_BYTES, with_glyphs_given};
 
 /// A parsed Type 1 font program.
 ///

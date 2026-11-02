@@ -405,7 +405,7 @@ pub struct ContentReader<'a> {
 /// > painting a graphical shape on the page.
 ///
 /// A reader that draws salvages the number all the same where the rest names no operator
-/// ([`next_content_token`], ADR 1004), because a unit after a number costs no action. A reader
+/// (`next_content_token`, ADR 1004), because a unit after a number costs no action. A reader
 /// that judges a file against ISO 19005's section 6.2.2 is asking which operators the stream
 /// uses, and to it the run is the keyword it is (ADR 2619).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1505,23 +1505,34 @@ fn next_content_token<'b>(lexer: &mut Lexer<'b>, runs: Runs) -> Option<Token<'b>
     Some(unsalvaged(lexer, token, runs))
 }
 
-/// [`next_content_token`] where the white space and comments before the token are already
+/// `next_content_token` where the white space and comments before the token are already
 /// skipped: see [`Lexer::token_at_cursor`].
 fn content_token_at_cursor<'b>(lexer: &mut Lexer<'b>, runs: Runs) -> Option<Token<'b>> {
     let token = lexer.token_at_cursor()?;
     Some(unsalvaged(lexer, token, runs))
 }
 
-/// The token just read, or the whole run where [`next_content_token`]'s rule, or `runs`, says
+/// The token just read, or the whole run where `next_content_token`'s rule, or `runs`, says
 /// the salvage does not stand. The mode is asked only of a salvaged token, so a number §7.3.3
 /// spells pays nothing for it.
 fn unsalvaged<'b>(lexer: &Lexer<'b>, token: Token<'b>, runs: Runs) -> Token<'b> {
     match lexer.salvaged() {
-        Some(salvage) if runs == Runs::AsWritten || names_an_operator(salvage.dropped) => {
+        Some(salvage) if runs == Runs::AsWritten || !draws_the_salvage(salvage) => {
             Token::Keyword(salvage.run)
         }
         _ => token,
     }
+}
+
+/// Whether a reader that draws reads `salvage` as the number the lexer read off its front.
+///
+/// `next_content_token`'s rule, asked by one more caller: an archival conversion that writes
+/// the number this reader draws in place of the run (`pdf_transform`'s `content-as-drawn`, ADR
+/// 2638) has to write exactly the runs this reader salvages and no other, so it asks here rather
+/// than restating which tails are ISO 32000-2 §8.2 Table 50's operators.
+#[must_use]
+pub fn draws_the_salvage(salvage: pdf_syntax::lexer::Salvage<'_>) -> bool {
+    !names_an_operator(salvage.dropped)
 }
 
 /// Whether `word` is one of the operators ISO 32000-2 §8.2 Table 50 catalogues.

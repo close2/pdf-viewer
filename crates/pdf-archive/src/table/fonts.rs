@@ -1362,8 +1362,20 @@ fn font_programs_embedded(exam: &Examination<'_>, findings: &mut Findings) {
                     findings.record(
                         place,
                         format!(
-                            "the font {} is rendered and its {key} stream's data stops short \
+                            "the font {} is rendered and its {key} stream's data does not decode whole \
                              ({damage:?}), so the file holds only part of its program",
+                            used.name
+                        ),
+                    );
+                } else if let Some((key, detail)) =
+                    program_unparsed(document, &used.dict, &used.name)
+                {
+                    findings.record(
+                        place,
+                        format!(
+                            "the font {} is rendered and its {key} stream's data decodes whole and is \
+                             not a program in the format it is filed under: this reader's parse of \
+                             that format refuses it ({detail}), so the file holds no program for it",
                             used.name
                         ),
                     );
@@ -1381,9 +1393,16 @@ fn font_programs_embedded(exam: &Examination<'_>, findings: &mut Findings) {
 /// what its filter's grammar does not admit ([`pdf_syntax::filter::Damage::stops_short`]), has
 /// handed over the front of a program and not the program: what the rest of it held, no byte of
 /// the file states. So the program is not embedded, and the clause binds it as it binds a font
-/// that names none (ADR 2619). A check value that disagrees over every byte, or a filter this
-/// reader does not decode, says nothing about whether the program is there, and is passed over.
-fn program_stopping_short(
+/// that names none (ADR 2619). So has a decode this reader's filter refuses from its first byte,
+/// which hands over no program at all, and one whose check value disagrees, which hands over bytes
+/// the stream's own checksum disowns: neither is a program the file holds (ADR 2636). A filter
+/// this reader does not decode says nothing about whether the program is there, and is passed
+/// over.
+///
+/// The converter asks the same question of the same bytes, so that the font it hands to a
+/// substitute is the font this row fails (ADR 2636).
+#[must_use]
+pub fn program_stopping_short(
     document: &Document,
     descriptor: &Dictionary,
 ) -> Option<(&'static str, pdf_syntax::filter::Damage)> {
@@ -1391,11 +1410,53 @@ fn program_stopping_short(
     let Object::Stream(stream) = document.get(at) else {
         return None;
     };
-    let damage = document
-        .decoded_stream_data_reported(&stream)
-        .ok()?
-        .damage?;
-    damage.stops_short().then_some((key, damage))
+    let damage = match document.decoded_stream_data_reported(&stream) {
+        Ok(decoded) => decoded.damage?,
+        Err(pdf_syntax::StreamRefusal::Filter {
+            why: pdf_syntax::filter::FilterRefusal::Corrupt,
+            ..
+        }) => pdf_syntax::filter::Damage::Corrupt,
+        Err(_) => return None,
+    };
+    (damage.stops_short() || matches!(damage, pdf_syntax::filter::Damage::CheckValue))
+        .then_some((key, damage))
+}
+
+/// The descriptor key of a rendered font's embedded program that decodes whole and is not a
+/// program in the format it is filed under, with the reason this reader's parse of that format
+/// gives.
+///
+/// ISO 32000-2 §9.9's Table 124 files each program under the format its key and Table 125's
+/// `/Subtype` state — a `/Type1C` stream holds "Type 1 compact fonts", a `CFF` program as Adobe
+/// Technical Note #5176 describes one — and bytes that are not a program in that format are not
+/// the font program §9.9 embeds, however whole their stream decodes: a program under a key or
+/// name its bytes contradict, in ADR 2307's words, read here by the grammar the name selects
+/// rather than by the signature alone. `178360`'s `ICLJGJ+Glypha` is
+/// the witness: 1009 unfiltered bytes under `/Type1C` in which every zero byte of the program
+/// reads `0x20`, so the header states minor version 0x20 and the Name INDEX after it a count of
+/// 8193 names whose offsets alone overrun the program. The reading is [`LoadedFont::load`]'s
+/// [`pdf_font::FontError::Malformed`], the variant whose subject is a program read and rejected,
+/// so a font this crate refuses for its dictionary, or for a program it names none of, is not
+/// this row's (ADR 2636).
+///
+/// The converter asks the same question of the same font, so that the font it hands to a
+/// substitute is the font this row fails.
+#[must_use]
+pub fn program_unparsed(
+    document: &Document,
+    font: &Dictionary,
+    name: &str,
+) -> Option<(&'static str, String)> {
+    let holder = if subtype(document, font).as_deref() == Some("Type0") {
+        descendant(document, font)?.1
+    } else {
+        font.clone()
+    };
+    let (key, _) = embedded_under(document, &descriptor(document, &holder)?)?;
+    match LoadedFont::load(document, font, name) {
+        Err(pdf_font::FontError::Malformed { detail, .. }) => Some((key, detail)),
+        _ => None,
+    }
 }
 
 /// The three names ISO 32000-2 §9.9's Table 125 lets a `/FontFile3` stream state as `/Subtype`.
@@ -2332,6 +2393,15 @@ fn type3_glyph_procedures_state_their_width(exam: &Examination<'_>, findings: &m
 ///   charstring its evaluator refuses, a repaired CFF — and naming the file for it would report
 ///   our gap as the producer's fault.
 ///
+/// # An `OpenType` program states each advance twice
+///
+/// One with PostScript outlines carries them in a `CFF ` table whose Type 2 charstrings each
+/// state a width, beside the `hmtx` record [`pdf_font::LoadedFont::program_advance`] reads. The
+/// clause asks the *program* to agree and names neither table, so a glyph is judged against both:
+/// [`pdf_font::LoadedFont::program_charstring_advance`] is the second statement, read in the
+/// table's own `FontMatrix` scale the way a bare CFF's is. A program whose `hmtx` agrees and
+/// whose charstrings do not is named under the second sentence.
+///
 /// A Compact Font Format program's `FontMatrix` need not be the reciprocal of a whole number.
 /// `pdf_font::cff::units_per_em` preserves that fractional scale (ADR 2180): `wp315.pdf`'s
 /// `dcbx100120` states `0.00049`, so its 649-unit glyph is 0.31801 text-space units. The
@@ -2357,20 +2427,38 @@ fn widths_agree_with_the_program(exam: &Examination<'_>, findings: &mut Findings
                     continue;
                 };
                 let stated = font.advance(code);
-                if consistent(stated, program) {
+                if !consistent(stated, program) {
+                    findings.record(
+                        font_place(used).named(used.name.clone()),
+                        format!(
+                            "the font {} draws code {}, which its dictionary makes {} wide and \
+                             its embedded program {} wide",
+                            used.name,
+                            code.value(),
+                            stated,
+                            program
+                        ),
+                    );
                     continue;
                 }
-                findings.record(
-                    font_place(used).named(used.name.clone()),
-                    format!(
-                        "the font {} draws code {}, which its dictionary makes {} wide and its \
-                         embedded program {} wide",
-                        used.name,
-                        code.value(),
-                        stated,
-                        program
-                    ),
-                );
+                // An `OpenType` program with PostScript outlines states the advance a second
+                // time, as its `CFF ` table's charstring width, and the clause names the program
+                // rather than one of its tables.
+                if let Some(charstring) = font.program_charstring_advance(code)
+                    && !consistent(stated, charstring)
+                {
+                    findings.record(
+                        font_place(used).named(used.name.clone()),
+                        format!(
+                            "the font {} draws code {}, which its dictionary makes {} wide and \
+                             its embedded OpenType program's CFF table {} wide",
+                            used.name,
+                            code.value(),
+                            stated,
+                            charstring
+                        ),
+                    );
+                }
             }
         }
     }
@@ -3556,8 +3644,84 @@ mod tests {
         };
         let short = findings(&with("801840>"), font_programs_embedded);
         assert_eq!(short.len(), 1, "{short:?}");
+        // The whole decode, the one byte "a", is no TrueType program either, which is the other
+        // arm's sentence and not this one's.
         let whole = findings(&with("80186020>"), font_programs_embedded);
-        assert!(whole.is_empty(), "{whole:?}");
+        assert!(
+            whole
+                .iter()
+                .all(|found| !found.contains("does not decode whole")),
+            "{whole:?}"
+        );
+    }
+
+    #[test]
+    fn a_flate_program_refused_outright_or_disowned_by_its_checksum_is_not_embedded() {
+        // RFC 1950 frames RFC 1951's stored block of "hi" (§7.4.4.1 makes both normative): 78 01,
+        // the block 01 0200 FDFF 68 69, then the Adler-32 of "hi", 013B00D2. A header that is no
+        // zlib header hands over no program, and a checksum that disagrees disowns the bytes;
+        // neither is a program the file holds (ADR 2636).
+        let with = |flate: &str| {
+            page_with(
+                "BT /F1 12 Tf (hi) Tj ET",
+                &format!(
+                    "5 0 obj\n<< /Type /Font /Subtype /TrueType /BaseFont /F /FirstChar 104 \
+                     /LastChar 105 /Widths [500 500] /FontDescriptor 6 0 R >>\nendobj\n6 0 obj\n\
+                     << /Type /FontDescriptor /FontName /F /Flags 32 /FontBBox [0 0 1 1] \
+                     /ItalicAngle 0 /Ascent 1 /Descent 0 /CapHeight 1 /StemV 1 /FontFile2 7 0 R \
+                     >>\nendobj\n7 0 obj\n<< /Filter [/ASCIIHexDecode /FlateDecode] /Length {} \
+                     >>\nstream\n{flate}\nendstream\nendobj\n",
+                    flate.len()
+                ),
+            )
+        };
+        let refused = findings(&with("FFFFFFFF>"), font_programs_embedded);
+        assert_eq!(refused.len(), 1, "{refused:?}");
+        let disowned = findings(&with("7801010200FDFF686900000000>"), font_programs_embedded);
+        assert_eq!(disowned.len(), 1, "{disowned:?}");
+        let whole = findings(&with("7801010200FDFF6869013B00D2>"), font_programs_embedded);
+        assert!(
+            whole
+                .iter()
+                .all(|found| !found.contains("does not decode whole")),
+            "{whole:?}"
+        );
+    }
+
+    #[test]
+    fn a_whole_program_that_is_not_one_in_its_format_is_not_embedded() {
+        // ISO 32000-2 §9.9's Table 125 files a `/Type1C` stream as a CFF program, which Adobe
+        // Technical Note #5176 describes. These are the first 40 bytes of 178360's ICLJGJ+Glypha,
+        // in which every zero byte of the program reads 0x20: the header states minor version
+        // 0x20, which the note admits, and the Name INDEX after it counts 8193 names whose
+        // offsets overrun the bytes, which it does not (ADR 2636).
+        let with = |program: &str| {
+            page_with(
+                "BT /F1 12 Tf (hi) Tj ET",
+                &format!(
+                    "5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /F /FirstChar 104 \
+                     /LastChar 105 /Widths [500 500] /FontDescriptor 6 0 R >>\nendobj\n6 0 obj\n\
+                     << /Type /FontDescriptor /FontName /F /Flags 32 /FontBBox [0 0 1 1] \
+                     /ItalicAngle 0 /Ascent 1 /Descent 0 /CapHeight 1 /StemV 1 /FontFile3 7 0 R \
+                     >>\nendobj\n7 0 obj\n<< /Subtype /Type1C /Filter /ASCIIHexDecode /Length {} \
+                     >>\nstream\n{program}\nendstream\nendobj\n",
+                    program.len()
+                ),
+            )
+        };
+        let spaced = findings(
+            &with(
+                "01200402200101010E49434C4A474A2B476C797068612001010122F81B01F81704F81C0C16FB3AFB63>",
+            ),
+            font_programs_embedded,
+        );
+        assert_eq!(spaced.len(), 1, "{spaced:?}");
+        assert!(
+            spaced
+                .iter()
+                .all(|found| found.contains("decodes whole and is not a program")),
+            "{spaced:?}"
+        );
     }
 
     /// An sfnt whose table directory names `tags`, each table empty, written as hexadecimal for
@@ -4593,5 +4757,122 @@ mod tests {
         assert!(!is_private_use('A'));
         assert!(!is_private_use('\u{F900}'));
         assert!(!is_private_use('\u{EFFFF}'));
+    }
+
+    /// An `OpenType` program with PostScript outlines around the shipped serif CFF, its `hmtx`
+    /// stating every charstring's width plus `skew` units, at a thousand units per em.
+    fn opentype_serif(skew: u16) -> Vec<u8> {
+        let (cff, _) = pdf_font::standard::face(pdf_font::substitute::Request {
+            family: pdf_font::substitute::Family::Serif,
+            bold: false,
+            italic: false,
+            standard: true,
+        });
+        let probe: Vec<u16> = (0..2000).collect();
+        let widths = pdf_font::cff::advances(cff, &probe).expect("the shipped face reads");
+        let glyphs: Vec<f32> = widths.iter().map_while(|width| *width).collect();
+        let count = u16::try_from(glyphs.len()).expect("a u16 glyph count");
+        let mut hmtx = Vec::new();
+        for width in &glyphs {
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "the shipped face's widths are whole, non-negative and small"
+            )]
+            let advance = (width.round() as u16).saturating_add(skew);
+            hmtx.extend_from_slice(&advance.to_be_bytes());
+            hmtx.extend_from_slice(&[0, 0]);
+        }
+        let mut head = vec![0u8; 54];
+        head[0..4].copy_from_slice(&0x0001_0000u32.to_be_bytes());
+        head[12..16].copy_from_slice(&0x5F0F_3CF5u32.to_be_bytes());
+        head[18..20].copy_from_slice(&1000u16.to_be_bytes());
+        let mut hhea = vec![0u8; 36];
+        hhea[0..4].copy_from_slice(&0x0001_0000u32.to_be_bytes());
+        hhea[34..36].copy_from_slice(&count.to_be_bytes());
+        let mut maxp = vec![0u8; 6];
+        maxp[0..4].copy_from_slice(&0x0000_5000u32.to_be_bytes());
+        maxp[4..6].copy_from_slice(&count.to_be_bytes());
+        let tables: [(&[u8; 4], Vec<u8>); 5] = [
+            (b"CFF ", cff.to_vec()),
+            (b"head", head),
+            (b"hhea", hhea),
+            (b"hmtx", hmtx),
+            (b"maxp", maxp),
+        ];
+        let mut out = b"OTTO".to_vec();
+        out.extend_from_slice(&5u16.to_be_bytes());
+        out.extend_from_slice(&[0, 64, 0, 2, 0, 16]);
+        // Twelve bytes of header and a sixteen-byte record for each of the five tables.
+        let directory = 92usize;
+        let mut at = directory;
+        let mut body = Vec::new();
+        for (tag, bytes) in &tables {
+            out.extend_from_slice(*tag);
+            out.extend_from_slice(&[0; 4]);
+            out.extend_from_slice(&u32::try_from(at).expect("small").to_be_bytes());
+            out.extend_from_slice(&u32::try_from(bytes.len()).expect("small").to_be_bytes());
+            body.extend_from_slice(bytes);
+            while body.len() % 4 != 0 {
+                body.push(0);
+            }
+            at = directory.checked_add(body.len()).expect("a small fixture");
+        }
+        out.extend_from_slice(&body);
+        out
+    }
+
+    /// ISO 19005-2 section 6.2.11.5 asks the font *program* to agree with the dictionary, and an
+    /// `OpenType` program with PostScript outlines states each advance in `hmtx` and again as its
+    /// `CFF ` table's charstring width: a glyph is named whichever of the two disagrees. The
+    /// shipped serif face states `h` 500 and `i` 278 wide, its Times metrics.
+    #[test]
+    fn an_opentype_programs_cff_widths_are_judged_beside_its_hmtx() {
+        use super::widths_agree_with_the_program;
+        let judged = |skew: u16, widths: &str| {
+            let program: String =
+                opentype_serif(skew)
+                    .iter()
+                    .fold(String::new(), |mut hex, byte| {
+                        let _ = write!(hex, "{byte:02X}");
+                        hex
+                    });
+            let data = format!("{program}>");
+            let document = page_with(
+                "BT /F1 12 Tf (hi) Tj ET",
+                &format!(
+                    "5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /F /FirstChar 104 \
+                     /LastChar 105 /Encoding /WinAnsiEncoding /Widths [{widths}] \
+                     /FontDescriptor 6 0 R >>\nendobj\n6 0 obj\n<< /Type /FontDescriptor \
+                     /FontName /F /Flags 32 /FontBBox [0 0 1 1] /ItalicAngle 0 /Ascent 1 \
+                     /Descent 0 /CapHeight 1 /StemV 1 /FontFile3 7 0 R >>\nendobj\n7 0 obj\n\
+                     << /Subtype /OpenType /Filter /ASCIIHexDecode /Length {} >>\nstream\n\
+                     {data}\nendstream\nendobj\n",
+                    data.len()
+                ),
+            );
+            findings(&document, widths_agree_with_the_program)
+        };
+        assert_eq!(
+            judged(0, "500 278"),
+            Vec::<String>::new(),
+            "both statements agree"
+        );
+        let charstrings = judged(37, "537 315");
+        assert_eq!(charstrings.len(), 2, "{charstrings:?}");
+        assert!(
+            charstrings
+                .iter()
+                .all(|found| found.contains("CFF table 0.5") || found.contains("CFF table 0.278")),
+            "hmtx agrees and the charstrings do not: {charstrings:?}"
+        );
+        let hmtx = judged(37, "500 278");
+        assert_eq!(hmtx.len(), 2, "{hmtx:?}");
+        assert!(
+            hmtx.iter()
+                .all(|found| found.contains("embedded program 0.5")
+                    || found.contains("embedded program 0.315")),
+            "{hmtx:?}"
+        );
     }
 }

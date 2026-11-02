@@ -508,6 +508,48 @@ fn a_press_and_a_release_run_the_mouse_events_of_the_fields_they_land_on() {
     }
 }
 
+/// XFA 3.3 page 391: a field's `mouseEnter` fires as the pointer moves into its region and its
+/// `mouseExit` as it moves out, with a button up or down (ADR 2647) — unlike Table 197's `/E`,
+/// which §12.6.3's first constraint holds back while the button is down. A pointer dragged onto
+/// `Units` still enters it, and a move from it to `Total` exits it; at `off` neither runs.
+#[test]
+fn the_pointer_crossing_a_widget_runs_the_mouse_enter_and_mouse_exit_of_its_field() {
+    let fields = "<field name=\"Units\"><ui><textEdit/></ui><value><text/></value>\
+                  <event activity=\"mouseEnter\"><script>7</script></event>\
+                  <event activity=\"mouseExit\"><script>8</script></event></field>\
+                  <field name=\"Total\"><ui><textEdit/></ui><value><text/></value></field>";
+    let data = "<Units/><Total/>";
+    // `hybrid` puts `Units` at [20 300 220 320] and `Total` at [20 260 220 280].
+    let (units, total, nowhere) = ((120.0, 310.0), (120.0, 270.0), (320.0, 100.0));
+    for (scripting, entered, exited) in [
+        (Scripting::Run(Arc::new(Calculators::default())), "7", "8"),
+        (Scripting::Off, "", ""),
+    ] {
+        let mut viewer = opened_on(scripting, hybrid(fields, data));
+        viewer.handle(Command::Presented).for_each(drop);
+        let point = |viewer: &mut Viewer, to: (f32, f32), action: PointerAction| {
+            let at = on_page(viewer, to);
+            viewer
+                .handle(Command::Pointer { at, action })
+                .for_each(drop);
+        };
+        point(&mut viewer, units, PointerAction::Moved);
+        assert_eq!(value(&viewer, "Units"), entered, "moved into Units");
+        point(&mut viewer, total, PointerAction::Moved);
+        assert_eq!(value(&viewer, "Units"), exited, "moved out of Units");
+        assert_eq!(
+            value(&viewer, "Total"),
+            "",
+            "Total states no crossing event"
+        );
+        point(&mut viewer, nowhere, PointerAction::Pressed);
+        point(&mut viewer, units, PointerAction::Dragged);
+        assert_eq!(value(&viewer, "Units"), entered, "dragged into Units");
+        point(&mut viewer, nowhere, PointerAction::Dragged);
+        assert_eq!(value(&viewer, "Units"), exited, "dragged out of Units");
+    }
+}
+
 /// XFA 3.3 page 388: the Form DOM's `ready` runs once the form is shown, which is the open
 /// sequence's end, through the runner the reader's level supplied, and at `off` nothing runs; an
 /// event bound to `$layout`, which this reader raises nothing for, is named in the document's

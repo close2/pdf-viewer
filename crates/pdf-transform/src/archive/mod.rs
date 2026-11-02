@@ -133,6 +133,7 @@
 //! verdict rests on.
 
 mod actions;
+mod as_drawn;
 mod attach;
 mod base;
 mod boundaries;
@@ -196,6 +197,7 @@ use crate::tool::ToolOutputs;
 use crate::{Declined, Origin, Output, Refusal, Report, Sinks};
 
 pub use actions::RemovedAction;
+pub use as_drawn::WrittenRun;
 pub use base::ReadFrom;
 pub use boundaries::RemovedBoundary;
 pub use census::{Kind, Standing, census, standing, unconsidered};
@@ -307,9 +309,10 @@ pub struct ArchivePlan {
     ///
     /// `None` is one of the two profiles this program ships, which is `doc/questions/A18`'s
     /// answer and `prepare::SRGB`'s and `prepare::CMYK`'s reason for existing; which of them a
-    /// document gets is `prepare::shipped_for`'s decision, argued in `doc/adr/1153`. A caller
-    /// supplies one — `--output-intent-profile` — for a document produced for a particular press,
-    /// which is the case `doc/pdf-a-conversion-limits.md` section 10.1 says nobody but the
+    /// document gets is `prepare::colour_and_graphics::shipped_for`'s decision, argued in
+    /// `doc/adr/1153`. A caller supplies one — `--output-intent-profile` — for a document
+    /// produced for a particular press, which is the case `doc/pdf-a-conversion-limits.md`
+    /// section 10.1 says nobody but the
     /// document's owner can decide. Whichever profile is embedded, its own `cprt` tag is named in
     /// the report, because a user embedding somebody else's profile is entitled to be told whose
     /// it is.
@@ -751,6 +754,7 @@ fn conversion_before_deciding(
         removed_annotations: Vec::new(),
         removed_actions: Vec::new(),
         removed_boundaries: Vec::new(),
+        runs_written_as_drawn: Vec::new(),
         removed_transfer_functions: Vec::new(),
         shown_annotations: Vec::new(),
         embedded_cmaps: Vec::new(),
@@ -1639,6 +1643,13 @@ fn apply_the_decisions(
     {
         conversion.removed_boundaries.clone_from(&removals.done);
     }
+    // `doc/adr/2638`: each run written as the number this reader draws is named with its pages,
+    // its bytes and the number, because the characters after the number are what went.
+    if wanted.contains(&Rewrite::RunWrittenAsDrawn)
+        && let Ok(drawn) = &prepared.as_drawn
+    {
+        conversion.runs_written_as_drawn.clone_from(&drawn.runs);
+    }
     // `doc/adr/1964`: a removed transfer function leaves nothing on the page to notice, so each
     // graphics state it went from is named with what it said — the same statement the output's
     // own `xmpMM:History` keeps.
@@ -1811,6 +1822,15 @@ fn rewrites_wanted(
         .and_then(|signed| signed.decision.rewrite())
     {
         wanted.insert(rewrite);
+    }
+    // A row photographed for an operator that is no run still has the runs on every other page
+    // written as the numbers this reader draws, so the loss its decision carries asks for that
+    // rewrite beside its own (`doc/adr/2638`).
+    if conversion.decided.iter().any(|decided| {
+        matches!(decided.decision, Decision::Authorised { losses, .. }
+            if losses.contains(Loss::ContentAsDrawn))
+    }) {
+        wanted.insert(Rewrite::RunWrittenAsDrawn);
     }
     // A departed conversion writes the metadata packet even where no requirement asked for it, so
     // the file carries the departure in its own `xmpMM:History` (`doc/rfc/0007` section 4.7.3) —

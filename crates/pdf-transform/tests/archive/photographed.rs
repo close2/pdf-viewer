@@ -427,6 +427,64 @@ fn a_page_with_a_fault_of_its_content_stream_is_photographed_under_as_if_printed
     );
 }
 
+/// A page whose `/Contents` is the object the catalog names as its `/Metadata`, the shape a
+/// producer leaves that reuses an object number in an update while an older page still names it.
+/// Read as a content stream the packet is undefined operators and hexadecimal strings of every
+/// length, so the page is photographed; what is left of the object is the packet, and the
+/// content-stream rewrites leave it to the packet's writers (`doc/adr/2640`).
+#[test]
+fn a_photographed_page_whose_contents_are_the_packet_keeps_the_packet() {
+    let source = Conforming {
+        objects: vec![
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << >> \
+             /Contents 5 0 R >>"
+                .to_owned(),
+        ],
+        more_pages: vec![6],
+        ..Conforming::part_two()
+    }
+    .build();
+    for target in [
+        Target::Two(Level::B),
+        Target::Four(pdf_archive::Flavour::Plain),
+    ] {
+        let (report, output) = convert_with_plan(&source, &printing("as-if-printed", target));
+        let output = output.unwrap_or_else(|| panic!("a file is written: {report:?}"));
+        assert_eq!(
+            holds(&output, target).verdict(),
+            Verdict::Conforms,
+            "{:?}",
+            holds(&output, target)
+        );
+        let pages = &conversion(&report).photographed;
+        assert_eq!(
+            pages.iter().map(|page| page.page).collect::<Vec<_>>(),
+            [2],
+            "{pages:?}"
+        );
+        let packet =
+            String::from_utf8(super::document_packet(&output)).expect("the packet is UTF-8");
+        assert!(
+            !packet.contains("0>"),
+            "a digit was written into the packet:\n{packet}"
+        );
+        // §7.3.4.3's digit had nowhere left to go, so the photograph answers the row.
+        let Decision::Authorised { losses, .. } =
+            decision(&report, "file-structure/hexadecimal-string-digits")
+        else {
+            panic!(
+                "{:?}",
+                decision(&report, "file-structure/hexadecimal-string-digits")
+            );
+        };
+        assert!(
+            losses.iter().any(|loss| loss == Loss::PageAsImage),
+            "{}",
+            losses.words()
+        );
+    }
+}
+
 /// A page whose text and undefined operator share a content stream with `extra`.
 fn a_page_with_a_fault_and(extra: &[u8], objects: Vec<String>, resources: &str) -> Vec<u8> {
     let mut content = b"BT /F1 12 Tf 10 100 Td (Hello) Tj ET 1 2 Frobnicate ".to_vec();

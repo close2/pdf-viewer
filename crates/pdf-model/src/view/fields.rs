@@ -220,7 +220,7 @@ impl ViewState {
         self.chosen.remove(name);
         // Characters are typed and later committed; a choice or a clear is whole when it is made.
         if matches!(value, Entered::Text(_)) {
-            self.begin_typing(name, &taking);
+            self.begin_typing(document, name, &taking);
         } else {
             self.uncommitted.remove(name);
         }

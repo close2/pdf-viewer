@@ -11,7 +11,64 @@
 use pdf_archive::Judgement;
 use pdf_archive::Outcome;
 
-use super::Because;
+use super::super::prepare::Prepared;
+use super::super::rewrite::Rewrite;
+use super::{
+    Answer, Authorisations, Because, Conditional, Decision, Loss, Losses, Remedy, answer_of,
+};
+
+/// The operator row, where a run this reader draws as a number is answered by writing the number.
+const OPERATORS: &str = "graphics/only-operators-the-base-standard-defines";
+
+/// This family's rows of [`super::REMEDIES`].
+pub(super) const REMEDIES: &[Remedy] = &[
+    // ISO 19005-2 section 6.2.2, ISO 19005-4 section 6.2.2, where the operator is a run ISO
+    // 32000-2 §7.3.3 spells as no number and this reader draws a number for (`doc/adr/1004`):
+    // the number written in its place, at the loss `content-as-drawn` (`doc/adr/2638`). Every
+    // other operator keeps the fence's refusal, so [`run_written_as_drawn`] routes on what
+    // `super::super::as_drawn` found, as [`CONDITIONAL`] says.
+    Remedy {
+        requirement: OPERATORS,
+        answer: Answer::Mechanical(Rewrite::RunWrittenAsDrawn),
+    },
+];
+
+/// This family's rows of [`super::CONDITIONAL`].
+pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[(
+    OPERATORS,
+    Conditional::PerDocument(Losses::one(Loss::ContentAsDrawn)),
+)];
+
+/// The operator row's answer: the number written in place of every run where the profile
+/// authorised `content-as-drawn` and every operator the survey found is such a run, the reason
+/// the rewrite could not be made where it could not, and the fence's refusal otherwise, which is
+/// what a profile that authorised nothing meets.
+pub(super) fn run_written_as_drawn(authorised: Authorisations, prepared: &Prepared) -> Decision {
+    if !authorised.grants(Loss::ContentAsDrawn) {
+        return Decision::Refused(Because::TheFence(CONTENT_STREAM_IS_THE_PRODUCERS));
+    }
+    match &prepared.as_drawn {
+        Ok(drawn) if drawn.answers_every_operator => {
+            prepared.obstacle(Rewrite::RunWrittenAsDrawn).map_or_else(
+                || {
+                    answer_of(
+                        Answer::Loses(Loss::ContentAsDrawn, Rewrite::RunWrittenAsDrawn),
+                        authorised,
+                        prepared,
+                    )
+                },
+                Decision::Refused,
+            )
+        }
+        // A document whose unlisted operators are not all runs, or hold none, is the fence's as
+        // where the loss is not granted: the remedy has nothing to answer there.
+        Ok(_) => Decision::Refused(Because::TheFence(CONTENT_STREAM_IS_THE_PRODUCERS)),
+        Err(because) if crate::archive::as_drawn::reached_no_run(*because) => {
+            Decision::Refused(Because::TheFence(CONTENT_STREAM_IS_THE_PRODUCERS))
+        }
+        Err(because) => Decision::Refused(*because),
+    }
+}
 
 /// This family's rows of [`super::REFUSED_BY_NAME`].
 pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
@@ -35,10 +92,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
     ),
     (
         "file-structure/inline-image-filters",
-        Because::TheFence(CONTENT_STREAM_IS_THE_PRODUCERS),
-    ),
-    (
-        "graphics/only-operators-the-base-standard-defines",
         Because::TheFence(CONTENT_STREAM_IS_THE_PRODUCERS),
     ),
     (

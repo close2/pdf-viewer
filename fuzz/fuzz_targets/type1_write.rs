@@ -13,7 +13,8 @@
 //! - **The glyphs come after the program's own**: every glyph given is numbered past the glyphs
 //!   the program held, in the order asked.
 //! - **The lengths divide what was written**: `/Length1` is the header's, unchanged, and the
-//!   three sum to the program's length.
+//!   three sum to the program's length; the header is copied, a carriage return in the white
+//!   space after `eexec` either kept or written as a line feed (ADR 2650).
 //! - **The answer is a function of the bytes**: asked twice, the same program comes back.
 //! - **A written program is a program this function writes again**: growing it by one more glyph
 //!   under the lengths it returned succeeds.
@@ -38,6 +39,15 @@ fn lengths(program: &[u8]) -> Option<(usize, usize)> {
         .count();
     let length1 = at.saturating_add(white);
     Some((length1, program.len().saturating_sub(length1)))
+}
+
+/// How many white space bytes end `header`, the run after its `eexec`.
+fn white_after_eexec(header: &[u8]) -> usize {
+    header
+        .iter()
+        .rev()
+        .take_while(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b'\n'))
+        .count()
 }
 
 fuzz_target!(|data: &[u8]| {
@@ -75,7 +85,16 @@ fuzz_target!(|data: &[u8]| {
         );
     }
     assert_eq!(given.lengths[0], divided.0, "the header is copied");
-    assert_eq!(given.program[..divided.0], program[..divided.0]);
+    let header = &program[..divided.0];
+    let eexec_ends = header.len().saturating_sub(white_after_eexec(header));
+    let copied = given.program[..divided.0]
+        .iter()
+        .zip(header)
+        .enumerate()
+        .all(|(at, (&written, &read))| {
+            written == read || (at >= eexec_ends && read == b'\r' && written == b'\n')
+        });
+    assert!(copied, "the header is copied");
     assert_eq!(given.lengths.iter().sum::<usize>(), given.program.len());
     let again = with_glyphs_given(program, divided, &glyphs);
     assert_eq!(again.as_ref().ok(), Some(&given), "a function of the bytes");

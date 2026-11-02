@@ -780,15 +780,27 @@ section_remedies() {
 # column that matters, and every one of it is a question for doc/pdfa/ before it is a bug; the
 # per-clause rows under each heading are for a reader. The second keeps the converter's own
 # summary line per target and what a user who answers nothing gets. Both say so, loudly, without
-# `doc/veraPDF-corpus`, and the filters keep that line too (ADR 1015).
+# `doc/veraPDF-corpus`, and the filters keep that line too (ADR 1015). The converter's walk keeps
+# every output the census of real producers' files writes, and `tools/verapdf-census.py` puts each
+# through veraPDF at the flavour it was written for: its two lines count the outputs this tree wrote
+# as conforming and veraPDF does not, and the rules it fails them on (ADR 2652). The outputs are
+# about two gigabytes, in a `mktemp` directory removed when the section ends; where `/tmp` is memory,
+# `TMPDIR` names a disk.
 section_archive() {
     section_remedies
     run "the validator against the veraPDF corpus (ISO 19005, clause by clause per target)" \
         '^== PDF_A|^  clause |^  all |not here|^bounded:' \
         walk small -- cargo test --profile gates -p pdf-archive --test corpus -- --ignored --nocapture
+    local outputs
+    outputs=$(mktemp -d) || return 1
     run "the converter over the veraPDF corpus (conforms in, conforms out, no glyph moves)" \
         '^(archive |profile |pdf.js profile |corpora profile |    )|not here|^bounded:' \
-        walk small -- cargo test --profile gates -p pdf-transform --test archive_corpus -- --ignored --nocapture
+        walk small --build '--profile gates -p pdf-sandbox --bins' -- env QUORRA_CENSUS_OUTPUTS="$outputs" \
+        cargo test --profile gates -p pdf-transform --test archive_corpus -- --ignored --nocapture
+    run "veraPDF over every output the census of real producers' files wrote as conforming (ADR 2652)" \
+        '^veraPDF census: |^disagreements: |^bounded:' \
+        walk long -- env PYTHONDONTWRITEBYTECODE=1 python3 -I -B tools/verapdf-census.py "$outputs"
+    rm -rf "$outputs"
     run "the survey's resource selections held to the interpreter's (A61, ADR 1055)" \
         '^cross-check: |not here|^bounded:' \
         walk small -- cargo test --profile gates -p pdf-archive --test cross_check -- --ignored --nocapture

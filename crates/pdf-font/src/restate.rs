@@ -126,6 +126,16 @@ pub enum RestateError {
         /// The advance asked for, in the program's own units.
         units: i64,
     },
+    /// The restated program does not state what it was restated to.
+    ///
+    /// A table checksum that is not its bytes' sum, or a glyph whose advance read back is not
+    /// the width asked for: a fault of this module's writing rather than of the program, caught
+    /// before the program reaches a file.
+    #[error("the restated font program does not read back as restated: {detail}")]
+    NotReadBack {
+        /// What the read-back found.
+        detail: String,
+    },
     /// The program states no vertical metrics, so there is nothing to restate.
     ///
     /// ISO 19005-4 section 6.2.10.5's vertical requirement is conditional on the program
@@ -172,7 +182,50 @@ pub fn with_widths(
     format: Format,
     widths: &BTreeMap<u16, f32>,
 ) -> Result<Vec<u8>, RestateError> {
-    let units = units_per_em(program, format)?;
+    let design = in_design_units(widths, units_per_em(program, format)?)?;
+    match format {
+        Format::BareCff => Ok(cff::with_advances(program, &whole_advances(&design))?),
+        Format::Sfnt => {
+            let mut advances: BTreeMap<u16, u16> = BTreeMap::new();
+            for (glyph, units) in &design {
+                advances.insert(*glyph, sfnt_advance(*glyph, *units)?);
+            }
+            let mut restated = sfnt::with_advances(program, &advances).ok_or_else(|| {
+                RestateError::Unreadable {
+                    detail: "the program states no readable hhea, hmtx and maxp, which is where \
+                             an sfnt's advances are"
+                        .to_owned(),
+                }
+            })?;
+            if let Some(table) = sfnt::table(&restated, *CFF_TABLE) {
+                let table = restated_cff_table(table, widths)?;
+                restated =
+                    sfnt::with_tables(&restated, &[(CFF_TABLE, table)]).ok_or_else(|| {
+                        RestateError::Unreadable {
+                            detail: "the program's table directory could not be laid out again \
+                                 around its restated CFF table"
+                                .to_owned(),
+                        }
+                    })?;
+            }
+            read_back(&restated, widths)?;
+            Ok(restated)
+        }
+    }
+}
+
+/// The tag of the table an `OpenType` program with PostScript outlines carries them in.
+const CFF_TABLE: &[u8; 4] = b"CFF ";
+
+/// Each width in the program's own design units, rounded to the integer it can state.
+///
+/// A width the rounding moves further than [`CONSISTENT`] is refused as
+/// [`RestateError::TooCoarse`], so a caller is never handed a program that states a width other
+/// than the one it asked for.
+fn in_design_units(
+    widths: &BTreeMap<u16, f32>,
+    units: f32,
+) -> Result<BTreeMap<u16, f32>, RestateError> {
     let mut design = BTreeMap::new();
     for (glyph, width) in widths {
         let rounded = (width * units).round();
@@ -187,26 +240,64 @@ pub fn with_widths(
         }
         design.insert(*glyph, rounded);
     }
-    match format {
-        Format::BareCff => {
-            let advances = design
-                .iter()
-                .map(|(glyph, units)| (*glyph, whole(*units)))
-                .collect();
-            Ok(cff::with_advances(program, &advances)?)
-        }
-        Format::Sfnt => {
-            let mut advances: BTreeMap<u16, u16> = BTreeMap::new();
-            for (glyph, units) in &design {
-                advances.insert(*glyph, sfnt_advance(*glyph, *units)?);
-            }
-            sfnt::with_advances(program, &advances).ok_or_else(|| RestateError::Unreadable {
-                detail: "the program states no readable hhea, hmtx and maxp, which is where an \
-                         sfnt's advances are"
-                    .to_owned(),
-            })
+    Ok(design)
+}
+
+/// Rounded design-unit advances as the whole numbers [`cff::with_advances`] takes.
+fn whole_advances(design: &BTreeMap<u16, f32>) -> BTreeMap<u16, i64> {
+    design
+        .iter()
+        .map(|(glyph, units)| (*glyph, whole(*units)))
+        .collect()
+}
+
+/// An `OpenType` program's `CFF ` table with the named glyphs' charstring widths restated.
+///
+/// **An `OpenType` program with PostScript outlines states every advance twice**: ISO/IEC
+/// 14496-22 puts it in `hmtx`, and the `CFF ` table it sends a reader to for outlines is a whole
+/// CFF program whose Type 2 charstrings each state a width too (Adobe Technical Note #5177
+/// section 3.1). ISO 19005-2 section 6.2.11.5 asks the font program to agree with the dictionary
+/// and does not say which of the two to read, so a restatement that left either would leave a
+/// program a validator reading the other fails on every glyph it was asked to correct. The table
+/// is restated the way a bare CFF is, in the table's own scale — its `FontMatrix`, which need not
+/// be the reciprocal of `head`'s `unitsPerEm` — and every other byte of every charstring copied.
+fn restated_cff_table(table: &[u8], widths: &BTreeMap<u16, f32>) -> Result<Vec<u8>, RestateError> {
+    let units = cff::units_per_em(table).map_err(|error| RestateError::Unreadable {
+        detail: format!("the program's CFF table: {error}"),
+    })?;
+    if units <= 0.0 {
+        return Err(RestateError::Unreadable {
+            detail: format!("the program's CFF table states {units} units per em"),
+        });
+    }
+    let design = in_design_units(widths, units)?;
+    Ok(cff::with_advances(table, &whole_advances(&design))?)
+}
+
+/// The restated program, asked what it now states, before any caller is handed it.
+///
+/// Every checksum [`sfnt::checksummed`] wrote is summed again, and every named glyph's advance is
+/// read back through [`advance`], which for an `OpenType` program with PostScript outlines reads
+/// both of its statements. A program failing either was restated wrongly here, and is refused
+/// rather than written into an archive that claims it is consistent.
+fn read_back(program: &[u8], widths: &BTreeMap<u16, f32>) -> Result<(), RestateError> {
+    if !sfnt::checksums_hold(program) {
+        return Err(RestateError::NotReadBack {
+            detail: "a table's checksum, or the whole program's, is not the one its bytes sum to"
+                .to_owned(),
+        });
+    }
+    for (glyph, width) in widths {
+        let stated = advance(program, Format::Sfnt, *glyph);
+        if stated.is_none_or(|stated| (stated - width).abs() > CONSISTENT) {
+            return Err(RestateError::NotReadBack {
+                detail: format!(
+                    "glyph {glyph} was restated as {width} and the program now states {stated:?}"
+                ),
+            });
         }
     }
+    Ok(())
 }
 
 /// The program with the vertical advance of each named glyph restated as the caller states it.
@@ -478,18 +569,38 @@ fn be16(data: &[u8], at: usize) -> Option<u16> {
 ///
 /// `None` for a glyph the program does not hold, and for a program whose advances cannot be
 /// read at all.
+///
+/// **`None` too where an `OpenType` program's two statements of the advance disagree**, or its
+/// `CFF ` table's cannot be read: `restated_cff_table` says why such a program states the
+/// advance twice, and a face that states two widths does not state the file's, whichever of the
+/// two `hmtx` holds. Where they agree the answer is `hmtx`'s.
 #[must_use]
 pub fn advance(program: &[u8], format: Format, glyph: u16) -> Option<f32> {
     let units = units_per_em(program, format).ok()?;
     let stated = match format {
-        Format::BareCff => cff::advances(program, &[glyph])
-            .ok()?
-            .first()
-            .copied()
-            .flatten()?,
+        Format::BareCff => charstring_advance(program, glyph)?,
         Format::Sfnt => sfnt::advance(program, glyph)?,
     };
-    Some(stated / units)
+    let stated = stated / units;
+    if format == Format::Sfnt
+        && let Some(table) = sfnt::table(program, *CFF_TABLE)
+    {
+        let units = cff::units_per_em(table).ok().filter(|units| *units > 0.0)?;
+        let charstring = charstring_advance(table, glyph)? / units;
+        if (charstring - stated).abs() > CONSISTENT {
+            return None;
+        }
+    }
+    Some(stated)
+}
+
+/// One glyph's Type 2 charstring width, in the CFF program's own units.
+fn charstring_advance(cff: &[u8], glyph: u16) -> Option<f32> {
+    cff::advances(cff, &[glyph])
+        .ok()?
+        .first()
+        .copied()
+        .flatten()
 }
 
 /// A rounded design-unit advance as a whole number, clamped to what a font can state.
@@ -725,7 +836,7 @@ mod tests {
     }
 
     /// How many glyphs a program holds.
-    fn glyph_count(program: &[u8], format: Format) -> usize {
+    pub(super) fn glyph_count(program: &[u8], format: Format) -> usize {
         match format {
             Format::BareCff => (0..u16::MAX)
                 .take_while(|glyph| {
@@ -830,7 +941,7 @@ mod vertical_tests {
     }
 
     /// An sfnt file assembled from tables, in the directory order given.
-    fn assembled(tables: &[([u8; 4], Vec<u8>)]) -> Vec<u8> {
+    pub(super) fn assembled(tables: &[([u8; 4], Vec<u8>)]) -> Vec<u8> {
         let mut out = Vec::new();
         out.extend_from_slice(&0x0001_0000u32.to_be_bytes());
         out.extend_from_slice(
@@ -887,7 +998,7 @@ mod vertical_tests {
     ///
     /// Returns the file with all of them written afresh, so that a font whose checksums are
     /// already true comes back byte for byte identical.
-    fn checksummed(mut data: Vec<u8>) -> Vec<u8> {
+    pub(super) fn checksummed(mut data: Vec<u8>) -> Vec<u8> {
         let count = usize::from(u16::from_be_bytes([
             *data.get(4).expect("a directory"),
             *data.get(5).expect("a directory"),
@@ -1070,5 +1181,227 @@ mod vertical_tests {
             }),
             "an advance past the field's range was written rather than refused"
         );
+    }
+}
+
+#[cfg(test)]
+mod opentype_cff_tests {
+    use std::collections::BTreeMap;
+
+    use super::tests::{compiled_in, glyph_count};
+    use super::vertical_tests::{assembled, checksummed};
+    use super::{CFF_TABLE, RestateError, advance, read_back, with_widths};
+    use crate::substitute::Format;
+    use crate::{cff, sfnt};
+
+    /// The first compiled-in face that is a bare CFF program, and its glyph count.
+    fn a_bare_cff() -> (&'static [u8], u16) {
+        let (_, program, _) = compiled_in()
+            .into_iter()
+            .find(|(_, _, format)| *format == Format::BareCff)
+            .expect("the shipped faces include a CFF program");
+        let glyphs = u16::try_from(glyph_count(program, Format::BareCff)).expect("a u16 count");
+        (program, glyphs)
+    }
+
+    /// One glyph's charstring width in the CFF program's own units.
+    fn charstring_width(cff_program: &[u8], glyph: u16) -> Option<f32> {
+        cff::advances(cff_program, &[glyph])
+            .ok()?
+            .first()
+            .copied()
+            .flatten()
+    }
+
+    /// An `OpenType` program with PostScript outlines around `cff_program`, its `hmtx` stating
+    /// the charstrings' own widths except where `skewed` names a glyph and what to add to it.
+    ///
+    /// The tables ISO/IEC 14496-22 makes an advance's reader need — `head` for the em, `hhea`
+    /// for `numberOfHMetrics`, `hmtx`, `maxp` for the glyph count — and the `CFF ` table, at a
+    /// thousand units per em, which is the shipped face's `FontMatrix`.
+    fn opentype_around(cff_program: &[u8], glyphs: u16, skewed: Option<(u16, u16)>) -> Vec<u8> {
+        let mut head = vec![0u8; 54];
+        head.get_mut(0..4)
+            .expect("a version")
+            .copy_from_slice(&0x0001_0000u32.to_be_bytes());
+        head.get_mut(12..16)
+            .expect("magicNumber")
+            .copy_from_slice(&0x5F0F_3CF5u32.to_be_bytes());
+        head.get_mut(18..20)
+            .expect("unitsPerEm")
+            .copy_from_slice(&1000u16.to_be_bytes());
+        let mut hhea = vec![0u8; 36];
+        hhea.get_mut(0..4)
+            .expect("a version")
+            .copy_from_slice(&0x0001_0000u32.to_be_bytes());
+        hhea.get_mut(34..36)
+            .expect("numberOfHMetrics")
+            .copy_from_slice(&glyphs.to_be_bytes());
+        let mut hmtx = Vec::new();
+        for glyph in 0..glyphs {
+            let width = charstring_width(cff_program, glyph).unwrap_or(0.0);
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "a shipped face's widths are whole, non-negative and under 65 536 units"
+            )]
+            let mut advance = width.round() as u16;
+            if let Some((skewed, by)) = skewed
+                && skewed == glyph
+            {
+                advance = advance.saturating_add(by);
+            }
+            hmtx.extend_from_slice(&advance.to_be_bytes());
+            hmtx.extend_from_slice(&0i16.to_be_bytes());
+        }
+        let mut maxp = vec![0u8; 6];
+        maxp.get_mut(0..4)
+            .expect("a version")
+            .copy_from_slice(&0x0000_5000u32.to_be_bytes());
+        maxp.get_mut(4..6)
+            .expect("numGlyphs")
+            .copy_from_slice(&glyphs.to_be_bytes());
+        let mut program = checksummed(assembled(&[
+            (*CFF_TABLE, cff_program.to_vec()),
+            (*b"head", head),
+            (*b"hhea", hhea),
+            (*b"hmtx", hmtx),
+            (*b"maxp", maxp),
+        ]));
+        program
+            .get_mut(0..4)
+            .expect("an sfnt version")
+            .copy_from_slice(b"OTTO");
+        sfnt::checksummed(program).expect("the fixture's checksums are restated")
+    }
+
+    /// A glyph whose charstring states a width, past `.notdef`.
+    fn a_drawn_glyph(cff_program: &[u8], glyphs: u16) -> u16 {
+        (1..glyphs)
+            .find(|glyph| charstring_width(cff_program, *glyph).is_some_and(|width| width > 100.0))
+            .expect("a shipped face has a glyph with a width")
+    }
+
+    /// An `OpenType` program whose two statements of one advance disagree states no advance for
+    /// it: neither number is the program's, so a converter asking "does this face already state
+    /// the file's width" is told no, and restates.
+    #[test]
+    fn two_statements_that_disagree_are_no_advance() {
+        let (bare, glyphs) = a_bare_cff();
+        let glyph = a_drawn_glyph(bare, glyphs);
+        let width = charstring_width(bare, glyph).expect("a drawn glyph's width") / 1000.0;
+        let agreeing = opentype_around(bare, glyphs, None);
+        assert_eq!(advance(&agreeing, Format::Sfnt, glyph), Some(width));
+        let skewed = opentype_around(bare, glyphs, Some((glyph, 37)));
+        assert_eq!(
+            sfnt::advance(&skewed, glyph),
+            Some(width.mul_add(1000.0, 37.0)),
+            "the fixture's hmtx states the skewed advance"
+        );
+        assert_eq!(advance(&skewed, Format::Sfnt, glyph), None);
+        assert_eq!(
+            advance(&skewed, Format::Sfnt, glyph.saturating_add(1)),
+            advance(&agreeing, Format::Sfnt, glyph.saturating_add(1)),
+            "a glyph whose two statements agree keeps its answer"
+        );
+    }
+
+    /// The restatement writes both statements, `hmtx`'s and the `CFF ` table's charstring
+    /// width, and the program it hands back states the width asked for in each.
+    #[test]
+    fn both_statements_are_restated_to_the_width_asked_for() {
+        let (bare, glyphs) = a_bare_cff();
+        let glyph = a_drawn_glyph(bare, glyphs);
+        let neighbour = glyph.saturating_add(1);
+        for program in [
+            opentype_around(bare, glyphs, None),
+            opentype_around(bare, glyphs, Some((glyph, 37))),
+        ] {
+            let asked = BTreeMap::from([(glyph, 0.611f32)]);
+            let restated = with_widths(&program, Format::Sfnt, &asked).expect("restatable");
+            assert_eq!(sfnt::advance(&restated, glyph), Some(611.0), "hmtx");
+            let table = sfnt::table(&restated, *CFF_TABLE).expect("the CFF table is kept");
+            assert_eq!(
+                charstring_width(table, glyph),
+                Some(611.0),
+                "the charstring"
+            );
+            assert_eq!(advance(&restated, Format::Sfnt, glyph), Some(0.611));
+            assert_eq!(
+                advance(&restated, Format::Sfnt, neighbour),
+                advance(&program, Format::Sfnt, neighbour),
+                "a glyph not named keeps its advance"
+            );
+            assert!(
+                sfnt::checksums_hold(&restated),
+                "every checksum is restated"
+            );
+            assert!(sfnt::table(&restated, *b"head").is_some());
+        }
+    }
+
+    /// The read-back refuses a program whose `CFF ` table's checksum was left stale, which is
+    /// the fault a restatement that replaced the table without restating its record would make.
+    #[test]
+    fn a_stale_cff_checksum_is_not_read_back() {
+        let (bare, glyphs) = a_bare_cff();
+        let glyph = a_drawn_glyph(bare, glyphs);
+        let asked = BTreeMap::from([(glyph, 0.611f32)]);
+        let restated = with_widths(&opentype_around(bare, glyphs, None), Format::Sfnt, &asked)
+            .expect("restatable");
+        assert_eq!(read_back(&restated, &asked), Ok(()));
+        // The `CFF ` record is the directory's first: its checksum is bytes 16 to 20.
+        assert_eq!(restated.get(12..16), Some(CFF_TABLE.as_slice()));
+        let mut stale = restated.clone();
+        let byte = stale.get_mut(19).expect("the record's checksum");
+        *byte = byte.wrapping_add(1);
+        assert!(matches!(
+            read_back(&stale, &asked),
+            Err(RestateError::NotReadBack { .. })
+        ));
+        let mut wrong = restated;
+        let byte = wrong.get_mut(18).expect("the record's checksum");
+        *byte = byte.wrapping_add(1);
+        let byte = wrong.get_mut(19).expect("the record's checksum");
+        *byte = byte.wrapping_sub(1);
+        assert!(
+            matches!(
+                read_back(&wrong, &asked),
+                Err(RestateError::NotReadBack { .. })
+            ),
+            "a checksum moved by any amount is refused"
+        );
+    }
+
+    /// A producer's `head` off the four-byte boundary is read back as [`sfnt::checksummed`]
+    /// wrote it: `checkSumAdjustment` then spans two of the file's words, and a read-back that
+    /// summed the file again its own way refused sound restatements of two corpus documents.
+    #[test]
+    fn a_head_off_the_word_boundary_reads_back() {
+        let mut program = b"\x00\x01\x00\x00".to_vec();
+        program.extend_from_slice(&[0, 2, 0, 32, 0, 1, 0, 0]);
+        for (tag, at, length) in [(b"aaaa", 44u32, 2u32), (b"head", 46, 54)] {
+            program.extend_from_slice(tag);
+            program.extend_from_slice(&[0; 4]);
+            program.extend_from_slice(&at.to_be_bytes());
+            program.extend_from_slice(&length.to_be_bytes());
+        }
+        program.extend_from_slice(&[7, 9]);
+        let mut head = vec![0u8; 54];
+        head.get_mut(18..20)
+            .expect("unitsPerEm")
+            .copy_from_slice(&1000u16.to_be_bytes());
+        program.extend_from_slice(&head);
+        let summed = sfnt::checksummed(program).expect("a readable directory");
+        assert_ne!(
+            summed.get(54..58),
+            Some([0u8; 4].as_slice()),
+            "an adjustment was written, across the word boundary"
+        );
+        assert!(sfnt::checksums_hold(&summed));
+        let mut moved = summed;
+        let byte = moved.get_mut(44).expect("the first table");
+        *byte = byte.wrapping_add(1);
+        assert!(!sfnt::checksums_hold(&moved));
     }
 }

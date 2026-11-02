@@ -236,6 +236,122 @@ fn a_fetched_policy_copy_is_enforced_as_a_stored_one_is_and_a_changed_one_is_not
     assert!(verdict.under_policy(&[]).valid().is_some());
 }
 
+/// The XML policy of [`an_xml_policy_whose_signing_period_ended_withholds_the_word`], stored in
+/// the file and bound the way TS 119 172-2 clause 4.3.2 binds one: the signer signed the digest
+/// the document's `Digest` states, which is over its `PolicyComponents` element canonicalised by
+/// inclusive Canonical XML 1.0, and not over its octets (ADR 2644).
+///
+/// [`CANONICAL_COMPONENTS`] is that element's canonical form derived by hand from the
+/// Recommendation: section 2.3 renders on the apex both namespaces the root declares and section
+/// 2.2 orders them by prefix and the attributes by namespace URI. The digest stated is its SHA-256.
+///
+/// **The plant is the second half** (trap 13): the same document served with its root's two
+/// declarations and the apex's two attributes written in the other order canonicalises to the same
+/// octets and is still enforced; one character of the components changed is not bound.
+#[test]
+fn an_xml_policy_bound_by_its_canonical_digest_is_enforced_and_a_changed_one_is_not() {
+    use crate::cms::Digest;
+    use crate::policy::{PolicyHash, SignaturePolicy, Specification, Store};
+    use crate::policy_rules::canonical_xml::{Apex, Comments, canonicalize};
+    use crate::policy_rules::ts_119_172_2::NAMESPACE;
+    use crate::policy_rules::{
+        Enforcement, NotEnforced, SignerFacts, SigningTime, Syntax, TimeSource, enforce,
+    };
+    const BODY: &str = concat!(
+        "<GeneralDetails><SigPolicyDetails><PolicyIdentifier>urn:oid:1.2.3.4</PolicyIdentifier>",
+        "</SigPolicyDetails><OtherDetails><DateOfIssue>2020-01-01T00:00:00Z</DateOfIssue>",
+        "<SigningPeriod><NotBefore>2020-01-01T00:00:00Z</NotBefore>",
+        "<NotAfter>2021-01-01T00:00:00Z</NotAfter></SigningPeriod></OtherDetails></GeneralDetails>",
+        "\n<PolicyRules><PolicyRule><SCDLoARules>urn:qscd</SCDLoARules></PolicyRule></PolicyRules>",
+        "</PolicyComponents>",
+    );
+    const CANONICAL_COMPONENTS: &str = concat!(
+        r#"<PolicyComponents xmlns="http://uri.etsi.org/19172/v1.1.1#" "#,
+        r#"xmlns:ds="http://www.w3.org/2000/09/xmldsig#" Id="components" xml:lang="en">"#,
+    );
+    /// The base64 of the SHA-256 of [`CANONICAL_COMPONENTS`] followed by [`BODY`].
+    const STATED: &str = "tg7VZXS3LbtW6YstqQ8HqRjicbqRP82C6o4wt04CNBA=";
+    fn policy<'a>(octets: &'a str, value: &'a [u8]) -> SignaturePolicy<'a> {
+        SignaturePolicy {
+            identifier: "1.2.3.4".to_owned(),
+            hash: PolicyHash::Stated {
+                digest: Digest::Sha256,
+                value,
+            },
+            qualifiers: Vec::new(),
+            store: Some(Store::Document {
+                specification: Specification::Uri("urn:test".to_owned()),
+                octets: octets.as_bytes(),
+            }),
+        }
+    }
+    let served = |root: &str, apex: &str, body: &str| {
+        format!(
+            "<SignaturePolicy {root}><Digest>\
+             <ds:DigestMethod Algorithm=\"http://www.w3.org/2001/04/xmlenc#sha256\"/>\
+             <ds:DigestValue>{STATED}</ds:DigestValue><ds:CanonicalizationMethod \
+             Algorithm=\"http://www.w3.org/TR/2001/REC-xml-c14n-20010315\"/></Digest>\
+             <PolicyComponents {apex}>{body}</SignaturePolicy>"
+        )
+    };
+    let namespaces = r#"xmlns="http://uri.etsi.org/19172/v1.1.1#" xmlns:ds="http://www.w3.org/2000/09/xmldsig#""#;
+    let reordered = r#"xmlns:ds="http://www.w3.org/2000/09/xmldsig#"   xmlns="http://uri.etsi.org/19172/v1.1.1#""#;
+    let stored = served(namespaces, r#"Id="components" xml:lang="en""#, BODY);
+    let swapped = served(reordered, r#"xml:lang='en'  Id="components""#, BODY);
+    let changed = served(
+        namespaces,
+        r#"Id="components" xml:lang="en""#,
+        &BODY.replace("2021", "2029"),
+    );
+
+    let mut canonical = Vec::new();
+    let apex = Apex {
+        depth: 1,
+        namespaces: &NAMESPACE,
+        local: "PolicyComponents",
+    };
+    canonicalize(stored.as_bytes(), &apex, Comments::Omitted, &mut |piece| {
+        canonical.extend_from_slice(piece);
+    })
+    .expect("the stored document canonicalises");
+    assert_eq!(
+        String::from_utf8(canonical).expect("UTF-8"),
+        format!("{CANONICAL_COMPONENTS}{BODY}")
+    );
+    let signed = Digest::Sha256.compute(&[CANONICAL_COMPONENTS.as_bytes(), BODY.as_bytes()]);
+    let der = hex(fixtures::SIGNATURE);
+    let cms = crate::cms::signed_data(&der).expect("the fixture value is a SignedData");
+    let mut facts = SignerFacts::of(&cms);
+    facts.signing_time = Some(SigningTime {
+        instant: AT,
+        spelled: "the fixture's validation time".to_owned(),
+        source: TimeSource::SignatureTimestamp,
+    });
+    let verdict = verdict_under(&[fixtures::ROOT], Acceptance::UnknownRevocationAccepted);
+    assert!(verdict.valid().is_some(), "{verdict:?}");
+
+    for octets in [&stored, &swapped] {
+        let Enforcement::Enforced { syntax, findings } =
+            enforce(&policy(octets, &signed), &cms, &facts)
+        else {
+            panic!("a document bound by its canonical digest is enforced");
+        };
+        assert_eq!(syntax, Syntax::Ts1191722);
+        let withheld = verdict.clone().under_policy(&findings);
+        let Some(Reservation::PolicyConstraintBroken { constraint }) = withheld.reservation()
+        else {
+            panic!("the ended signing period should be the reservation, not {withheld:?}");
+        };
+        assert!(constraint.contains("2021-01-01T00:00:00Z"), "{constraint}");
+    }
+    assert_eq!(
+        enforce(&policy(&changed, &signed), &cms, &facts),
+        Enforcement::NotEnforced(NotEnforced::CanonicalDigestDiffers {
+            canonicalization: "http://www.w3.org/TR/2001/REC-xml-c14n-20010315".to_owned(),
+        })
+    );
+}
+
 /// **A different root, and the same signature is not valid.**
 ///
 /// The one input changed. `crate::trust::tests`' hierarchy is a real root this project issued and

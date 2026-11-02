@@ -866,3 +866,191 @@ fn a_ready_event_that_never_ends_is_stopped_and_the_merge_is_kept() {
         );
     }
 }
+
+/// XFA 3.3 pages 398 and 404: a JavaScript event bound to the Form DOM that hears a click (page
+/// 387) reads the field clicked from `$event.target`, and `$event.name` and `xfa.event.name` are
+/// the activity, each a question the worker puts to the host. Two clicks name each field in turn.
+#[test]
+fn a_listening_event_reads_the_clicked_field_from_event_target_in_the_worker() {
+    let template = [
+        field(
+            "Watcher",
+            &form_listener(
+                "click",
+                "Seen.rawValue = $event.target.rawValue + '/' + $event.name + '/' + \
+                 xfa.event.name;",
+            ),
+        ),
+        field("One", ""),
+        field("Two", ""),
+        field("Seen", ""),
+    ]
+    .concat();
+    let values = [
+        ("Watcher", ""),
+        ("One", "first"),
+        ("Two", "second"),
+        ("Seen", ""),
+    ];
+    let document = document(&template, &values);
+    let worker = Arc::new(ScriptWorker::with_program(WORKER).with_deadline(OUT_OF_THE_WAY));
+    let mut view = view_with(&document, &worker);
+    view.activate_form_on_merge(&document);
+    assert!(view.activate_form_on_click(&document, &name("One")));
+    assert_eq!(
+        shown(&view, &document, "Seen").as_deref(),
+        Some("first/click/click"),
+        "{:?}",
+        view.script_reports()
+    );
+    assert!(view.activate_form_on_click(&document, &name("Two")));
+    assert_eq!(
+        shown(&view, &document, "Seen").as_deref(),
+        Some("second/click/click")
+    );
+    assert!(worker.deaths().is_empty(), "{:?}", worker.deaths());
+}
+
+/// Page 399: a script may write `change`, `selStart`, `selEnd` and `cancelAction` only, so a
+/// JavaScript click writing `$event.name` or `$event.target` is stopped with the sentence, and
+/// its later statement does not run.
+#[test]
+fn a_javascript_write_to_a_read_only_event_property_is_reported() {
+    for (write, said) in [
+        ("$event.name = 'other';", "$event.name: read-only"),
+        ("$event.target = 1;", "$event.target: read-only"),
+    ] {
+        let script = format!("{write} Seen.rawValue = 1;");
+        let template = [
+            field("Button", &javascript_event("click", &script)),
+            field("Seen", ""),
+        ]
+        .concat();
+        let document = document(&template, &[("Button", ""), ("Seen", "")]);
+        let worker = Arc::new(ScriptWorker::with_program(WORKER).with_deadline(OUT_OF_THE_WAY));
+        let mut view = view_with(&document, &worker);
+        view.activate_form_on_merge(&document);
+        assert!(
+            !view.activate_form_on_click(&document, &name("Button")),
+            "{write}"
+        );
+        assert_eq!(
+            shown(&view, &document, "Seen").as_deref(),
+            Some(""),
+            "{write}"
+        );
+        let reports = view.script_reports().join("\n");
+        assert!(
+            reports.contains(said) && reports.contains("page 399"),
+            "{write}: {reports}"
+        );
+    }
+}
+
+/// Page 400: a JavaScript `change` event that writes `$event.change` changes `$event.newText`,
+/// which is placed into the field after the event's scripts, so a person's entry committed
+/// through the view is the field's value as the script rewrote it; `$event.prevText` is what the
+/// field showed before the typing began.
+#[test]
+fn a_change_event_rewrites_the_entry_through_event_change_in_the_worker() {
+    let template = [
+        field(
+            "Name",
+            &javascript_event(
+                "change",
+                "Seen.rawValue = $event.prevText + '>' + $event.newText; \
+                 $event.change = $event.change.toUpperCase();",
+            ),
+        ),
+        field("Echo", &javascript("Name.rawValue + '!'", "")),
+        field("Seen", ""),
+    ]
+    .concat();
+    let document = document(&template, &[("Name", "jones"), ("Echo", ""), ("Seen", "")]);
+    let worker = Arc::new(ScriptWorker::with_program(WORKER).with_deadline(OUT_OF_THE_WAY));
+    let mut view = view_with(&document, &worker);
+    view.activate_form_on_merge(&document);
+    assert!(view.set_field(&document, &name("Name"), &Entered::Text("smith".to_owned())) > 0);
+    view.commit_field(&document, &name("Name"));
+    assert_eq!(
+        shown(&view, &document, "Name").as_deref(),
+        Some("SMITH"),
+        "{:?}",
+        view.script_reports()
+    );
+    assert_eq!(shown(&view, &document, "Echo").as_deref(), Some("SMITH!"));
+    assert_eq!(
+        shown(&view, &document, "Seen").as_deref(),
+        Some("jones>smith"),
+        "prevText is what the field showed before the typing began"
+    );
+    assert!(worker.deaths().is_empty(), "{:?}", worker.deaths());
+}
+
+/// XFA 3.3 page 391: the pointer moving into a field's region runs its `mouseEnter`, and out of it
+/// its `mouseExit`, in the confined worker; `$event.name` says which.
+#[test]
+fn the_pointer_crossing_a_field_runs_its_mouse_enter_and_mouse_exit_in_the_worker() {
+    let crossing = [
+        javascript_event("mouseEnter", "Seen.rawValue = 'in:' + $event.name;"),
+        javascript_event("mouseExit", "Seen.rawValue = 'out:' + $event.name;"),
+    ]
+    .concat();
+    let template = [field("Button", &crossing), field("Seen", "")].concat();
+    let document = document(&template, &[("Button", ""), ("Seen", "")]);
+    let worker = Arc::new(ScriptWorker::with_program(WORKER).with_deadline(OUT_OF_THE_WAY));
+    let mut view = view_with(&document, &worker);
+    view.activate_form_on_merge(&document);
+    assert!(view.activate_form_on_mouse_enter(&document, &name("Button")));
+    assert_eq!(
+        shown(&view, &document, "Seen").as_deref(),
+        Some("in:mouseEnter")
+    );
+    assert!(view.activate_form_on_mouse_exit(&document, &name("Button")));
+    assert_eq!(
+        shown(&view, &document, "Seen").as_deref(),
+        Some("out:mouseExit")
+    );
+    assert!(worker.deaths().is_empty(), "{:?}", worker.deaths());
+}
+
+/// The plant: a `mouseEnter` script that never ends is stopped within its budget, what it set is
+/// dropped, and the report names the event.
+#[test]
+fn a_mouse_enter_event_that_never_ends_is_stopped() {
+    for script in [
+        "Other.rawValue = 9; for (;;) {}",
+        "Other.rawValue = 9; while (true) {}",
+    ] {
+        let template = [
+            field("Button", &javascript_event("mouseEnter", script)),
+            field("Other", ""),
+        ]
+        .concat();
+        let document = document(&template, &[("Button", ""), ("Other", "")]);
+        let worker = Arc::new(ScriptWorker::with_program(WORKER).with_deadline(OUT_OF_THE_WAY));
+        let mut view = view_with(&document, &worker);
+        view.activate_form_on_merge(&document);
+        let started = std::time::Instant::now();
+        let changed = view.activate_form_on_mouse_enter(&document, &name("Button"));
+        let took = started.elapsed();
+        assert!(took < Duration::from_secs(5), "{script}: {took:?}");
+        assert!(!changed, "{script}");
+        assert_eq!(
+            shown(&view, &document, "Other").as_deref(),
+            Some(""),
+            "{script}"
+        );
+        let said = view.script_reports().join("\n");
+        assert!(said.contains("its mouseEnter event"), "{script}: {said}");
+        assert!(
+            said.contains("nothing it calculated is kept"),
+            "{script}: {said}"
+        );
+        assert!(
+            worker.deaths().is_empty(),
+            "{script}: {:?}",
+            worker.deaths()
+        );
+    }
+}

@@ -1873,3 +1873,18 @@ Round 1866 was briefed to rank XFA events over the test trees and found six read
 too few to order anything. It said so and ranked from the crawl cache's 151 templates instead. A census
 of what documents contain states the size of the population it read in its first line, and when the
 trees the tests read are too thin to rank, it says so and names the larger population it used.
+
+## What the dependency's reader peaks at is measured before a slot counts on lowering a bound
+
+Round 1908 (ADR 2650) was briefed to bring the Type 1 writer's hostile probe under 200 MiB by holding fewer
+copies; `read-fonts`' own parse peaks at 2.5–3 times the section, so the writer's copies could never reach
+the target alone, and the at-bound probe's 237.8 MiB is mostly the conversion after the writer. Before a slot
+promises a memory figure, the peak of every dependency on the path is measured at the base, and the
+promise is made about the share the slot's code owns.
+
+## A witness's unrecognised operators are dumped before the pages it frees are claimed
+
+Round 1902 (ADR 2638) was briefed to free five pages of `509284`; page 2's one unlisted operator was a stray
+`)`, not a salvaged run, and the page stays photographed. Before a brief or a round claims which pages a
+remedy frees, the survey's unrecognised operators are dumped per page for the witness, and the claim names
+only the pages whose operators the remedy reaches.

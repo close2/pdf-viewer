@@ -114,6 +114,8 @@ pub struct RestatedLanguage {
     pub now: String,
     /// Which site it answered.
     pub(super) class: Class,
+    /// The content stream it stood in, where it stood in one.
+    pub(super) stream: Option<ObjectId>,
 }
 
 impl RestatedLanguage {
@@ -153,6 +155,25 @@ pub(super) struct Restated {
 }
 
 impl Restated {
+    /// Leaves out every content stream of `taken_off`, the streams
+    /// [`hexadecimal::taken_off_by`] a photograph, with the entries that stood in them.
+    ///
+    /// The same reason [`Completed::leaving_out`] gives: what such a stream still is in the
+    /// output, if anything, is not a content stream, so respelling it as one would write over it.
+    pub(super) fn leaving_out(mut self, taken_off: &BTreeSet<ObjectId>) -> Self {
+        let before = self.places(Class::Marked);
+        self.streams.retain(|id, _| !taken_off.contains(id));
+        self.carries_hexadecimal
+            .retain(|id| !taken_off.contains(id));
+        self.rows
+            .retain(|row| row.stream.is_none_or(|id| !taken_off.contains(&id)));
+        if before > 0 && self.places(Class::Marked) == 0 {
+            self.marked_obstacle
+                .get_or_insert(Because::NotBuiltYet(NOTHING_TO_RESTATE));
+        }
+        self
+    }
+
     /// How many entries of one class were restated.
     pub(super) fn places(&self, class: Class) -> usize {
         self.rows.iter().filter(|row| row.class == class).count()
@@ -244,6 +265,7 @@ fn restate_the_catalog(document: &Document, values: Values<'_>, out: &mut Restat
         stated: shown(&stated),
         now: values.catalog.to_owned(),
         class: Class::Catalog,
+        stream: None,
     });
 }
 
@@ -317,6 +339,7 @@ fn restate_the_elements(
                         stated: shown(&stated),
                         now: values.marked.to_owned(),
                         class: Class::Marked,
+                        stream: None,
                     });
                 }
                 None => obstacle = Some(Because::NotBuiltYet(DIRECT_ELEMENT)),
@@ -379,6 +402,7 @@ fn restate_the_property_lists(
                 stated: span.stated,
                 now: values.marked.to_owned(),
                 class: Class::Marked,
+                stream: Some(id),
             });
         }
         if carried.is_some() {
@@ -443,6 +467,7 @@ fn restate_named(
             stated: shown(&stated),
             now: values.marked.to_owned(),
             class: Class::Marked,
+            stream: None,
         });
     }
     obstacle.map_or(Ok(()), Err)
@@ -677,6 +702,43 @@ mod tests {
         let spans = operands_of(data);
         let span = spans.first().expect("one span");
         assert_eq!(data.get(span.start..span.end), Some(&b"/en"[..]));
+    }
+
+    /// A property list respelled in a stream that a photograph took off its page is left out
+    /// with its entry, because what is left of object 6 is the catalog's `/Metadata`.
+    #[test]
+    fn a_stream_a_photograph_took_off_is_not_respelled() {
+        let data = "/Span <</Lang (es_MX)>> BDC EMC";
+        let text = format!(
+            "%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R /Metadata 6 0 R >>\nendobj\n\
+             2 0 obj\n<< /Type /Pages /Kids [4 0 R] /Count 1 >>\nendobj\n\
+             4 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Contents 6 0 R >>\nendobj\n\
+             6 0 obj\n<< /Length {} >>\nstream\n{data}\nendstream\nendobj\n\
+             trailer\n<< /Root 1 0 R /Size 7 >>\n%%EOF\n",
+            data.len()
+        );
+        let document =
+            Document::open(text.into_bytes()).expect("the fixture is a well-formed file");
+        let values = Values {
+            catalog: "",
+            marked: "",
+        };
+        let six = ObjectId {
+            number: 6,
+            generation: 0,
+        };
+        let restated = restate(&document, None, None, values);
+        assert!(restated.streams.contains_key(&six));
+        assert_eq!(restated.places(Class::Marked), 1);
+        let page = ObjectId {
+            number: 4,
+            generation: 0,
+        };
+        let taken_off = hexadecimal::taken_off_by(&document, None, &BTreeSet::from([page]));
+        let left = restated.leaving_out(&taken_off);
+        assert!(left.streams.is_empty());
+        assert_eq!(left.places(Class::Marked), 0);
+        assert!(left.marked_obstacle.is_some());
     }
 
     #[test]

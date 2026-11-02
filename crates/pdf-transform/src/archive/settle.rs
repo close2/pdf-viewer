@@ -71,6 +71,12 @@ pub(super) fn second_conversion(
 /// are the report's `substituted` and `restated`; and the id of every requirement it decided is
 /// kept in [`Conversion::settled`], a row the first pass also held included, so a reader can tell
 /// that a second pass ran and what it answered.
+///
+/// The second conversion runs the first's plan, so a loss it takes under a row naming
+/// `append-statement` — a page it photographed for a face only its constructed appearances show —
+/// is stated on a page it appends after the first's; [`fold_statement`] makes the report's one
+/// statement name both, and the sites the second handed on are the report's `unstated` with the
+/// first's.
 pub(super) fn fold(conversion: &mut Conversion, second: Conversion) {
     fold_decided(
         &mut conversion.decided,
@@ -81,6 +87,8 @@ pub(super) fn fold(conversion: &mut Conversion, second: Conversion) {
     conversion.photographed.extend(second.photographed);
     conversion.restated.extend(second.restated);
     conversion.supplied.extend(second.supplied);
+    fold_statement(&mut conversion.statement, second.statement);
+    conversion.unstated.extend(second.unstated);
     if conversion.profile.is_none() {
         conversion.profile = second.profile;
     }
@@ -88,6 +96,33 @@ pub(super) fn fold(conversion: &mut Conversion, second: Conversion) {
         (Some(first), Some(second)) => Some(format!("{first}; {second}")),
         (first, second) => first.or(second),
     };
+}
+
+/// The second conversion's statement joined to the first's, so the report's one statement names
+/// every page a loss of either pass is stated on (`doc/rfc/0014` section 4, `doc/adr/2640`).
+///
+/// The second conversion's source is the first's output, which already ends in the first's
+/// statement pages, and it appends its own after every page it was given; so the two are one
+/// run of pages, the first's entries then the second's. The face stays the first's: the second
+/// sets its text in the document's own face only because the first embedded the face it names.
+fn fold_statement(
+    statement: &mut Option<super::report::StatementPage>,
+    second: Option<super::report::StatementPage>,
+) {
+    let Some(second) = second else {
+        return;
+    };
+    let Some(first) = statement else {
+        *statement = Some(second);
+        return;
+    };
+    for site in second.sites {
+        if !first.sites.contains(&site) {
+            first.sites.push(site);
+        }
+    }
+    first.pages.extend(second.pages);
+    first.objects = first.objects.saturating_add(second.objects);
 }
 
 /// The second pass's decisions joined to the first's, each requirement once.
@@ -116,6 +151,7 @@ fn fold_decided(
 #[cfg(test)]
 mod tests {
     use super::super::Decided;
+    use super::super::report::StatementPage;
     use super::*;
 
     fn decided(places: usize, changed: usize) -> Decided {
@@ -137,5 +173,37 @@ mod tests {
         assert_eq!(first.len(), 1, "one row for the requirement");
         assert_eq!((first[0].places, first[0].changed), (3, 3));
         assert_eq!(settled, vec!["fonts/font-programs-embedded"]);
+    }
+
+    fn stated(pages: Vec<usize>, face: super::super::report::SetIn) -> StatementPage {
+        StatementPage {
+            sites: vec!["fonts/font-programs-embedded"],
+            pages,
+            objects: 1,
+            face,
+        }
+    }
+
+    #[test]
+    fn a_page_the_second_pass_states_is_on_the_one_statement_the_report_names() {
+        let ships = super::super::report::SetIn::AFaceThisProgramShips("serif".to_owned());
+        let mut first = Some(stated(vec![1], ships.clone()));
+        let second = stated(vec![2], super::super::report::SetIn::TheDocumentsOwnFace);
+        fold_statement(&mut first, Some(second.clone()));
+        assert_eq!(
+            first,
+            Some(StatementPage {
+                pages: vec![1, 2],
+                objects: 2,
+                ..stated(vec![], ships)
+            })
+        );
+        let mut none = None;
+        fold_statement(&mut none, Some(second.clone()));
+        assert_eq!(
+            none,
+            Some(second),
+            "the second's statement where the first composed none"
+        );
     }
 }

@@ -692,8 +692,8 @@ impl Layout {
     /// #5176 locates it by the Top DICT's offset alone, so bytes nothing points at are inert.
     ///
     /// **A CID-keyed program's `FDArray` is written afresh as well**, after the `CharStrings`, each
-    /// Font DICT's `Private` offset shifted as [`Self::with_font_dicts`] shifts it: that offset is
-    /// absolute (Adobe Technical Note #5176, section 19), so an `FDArray` copied verbatim would
+    /// Font DICT's offsets shifted as [`Self::with_font_dicts`] shifts them: a `Private` offset is
+    /// absolute (Adobe Technical Note #5176, Table 9 and section 18), so an `FDArray` copied verbatim would
     /// name, for every Font DICT, bytes `delta` away from its Private DICT — its `nominalWidthX`,
     /// against which every restated width is stated, and its local subroutines.
     fn with_charstrings(&self, data: &[u8], charstrings: &[Vec<u8>]) -> Vec<u8> {
@@ -747,9 +747,9 @@ impl Layout {
     /// `Subrs` is relative to the Private DICT itself.
     ///
     /// **A CID-keyed program's `fd_select` is appended after the charset, and its `FDArray`
-    /// rewritten after that**, each Font DICT's `Private` offset shifted as
-    /// [`Self::with_charstrings`] shifts it, since that offset is absolute and the bytes it names
-    /// moved with everything copied.
+    /// rewritten after that** — a name-keyed program's too where it states one that reads — each
+    /// Font DICT's offsets shifted as [`Self::with_charstrings`] shifts them, since they are
+    /// absolute and the bytes they name moved with everything copied.
     ///
     /// Refused where the String INDEX or the `FDArray` does not read, and as
     /// [`Misstated::InStrings`] where an offset this shifts points into the String INDEX, whose
@@ -803,16 +803,27 @@ impl Layout {
             .charstrings_to(charstrings_at)
             .charset_to(charset_at);
         let mut cid_tables = Vec::new();
+        let fd_select_at = charset_at.saturating_add(i64::try_from(charset.len()).ok()?);
         if let Some(fd_select) = fd_select {
-            let fd_select_at = charset_at.saturating_add(i64::try_from(charset.len()).ok()?);
-            let font_dicts: Vec<Vec<u8>> = index_items(data, self.fd_array_at?)?
+            moved = moved.fd_select_to(fd_select_at);
+            cid_tables.extend_from_slice(fd_select);
+        }
+        // A CID-keyed program's Font DICTs are rewritten whatever else it states; a name-keyed
+        // one's are where its `FDArray` reads, since the offsets they state are shifted only in a
+        // rewritten copy. A name-keyed `FDArray` that does not read is copied and shifted whole.
+        let font_dicts = match (self.fd_array_at, fd_select) {
+            (None, Some(_)) => return None,
+            (None, None) => None,
+            (Some(at), Some(_)) => Some(index_items(data, at)?),
+            (Some(at), None) => index_items(data, at),
+        };
+        if let Some(font_dicts) = font_dicts {
+            let font_dicts: Vec<Vec<u8>> = font_dicts
                 .iter()
                 .map(|dict| font_dict_shifted(dict, delta))
                 .collect();
             moved = moved
-                .fd_select_to(fd_select_at)
-                .fd_array_to(fd_select_at.saturating_add(i64::try_from(fd_select.len()).ok()?));
-            cid_tables.extend_from_slice(fd_select);
+                .fd_array_to(fd_select_at.saturating_add(i64::try_from(cid_tables.len()).ok()?));
             push_index(&mut cid_tables, &font_dicts);
         }
         let top_dict = self.top_dict(moved);
@@ -829,81 +840,79 @@ impl Layout {
 
     /// The Top DICT's bytes, every offset it states restated under `moved`.
     fn top_dict(&self, moved: Moved) -> Vec<u8> {
-        let delta = moved.delta;
-        let mut out = Vec::new();
-        for (operands, op) in &self.entries {
-            match *op {
-                // A charset or Encoding operand below the first custom offset names a
-                // predefined table (ISOAdobe/Expert/ExpertSubset, standard/expert) and is
-                // not an offset.
-                OP_CHARSET if moved.charset_at.is_some() => {
-                    out.extend_from_slice(&int5(moved.charset_at.unwrap_or(0)));
-                }
-                OP_CHARSET | OP_ENCODING => {
-                    let at = dict_int(operands).unwrap_or(0);
-                    let custom = if *op == OP_CHARSET { at > 2 } else { at > 1 };
-                    out.extend_from_slice(&int5(if custom {
-                        at.saturating_add(delta)
-                    } else {
-                        at
-                    }));
-                }
-                OP_CHARSTRINGS => out.extend_from_slice(&int5(
-                    moved
-                        .charstrings_at
-                        .unwrap_or_else(|| dict_int(operands).unwrap_or(0).saturating_add(delta)),
-                )),
-                OP_FD_SELECT => {
-                    out.extend_from_slice(&int5(
-                        moved.fd_select_at.unwrap_or_else(|| {
-                            dict_int(operands).unwrap_or(0).saturating_add(delta)
-                        }),
-                    ));
-                }
-                OP_PRIVATE => {
-                    let (size, at) = dict_two_ints(operands).unwrap_or((0, 0));
-                    out.extend_from_slice(&int5(size));
-                    out.extend_from_slice(&int5(at.saturating_add(delta)));
-                }
-                OP_FD_ARRAY => out.extend_from_slice(&int5(
-                    moved
-                        .fd_array_at
-                        .unwrap_or_else(|| dict_int(operands).unwrap_or(0).saturating_add(delta)),
-                )),
-                _ => out.extend_from_slice(operands),
-            }
-            push_operator(&mut out, *op);
-        }
-        // A Top DICT that states no charset means the predefined ISOAdobe one (Adobe Technical
-        // Note #5176, section 13), so a fresh charset is reached only by an entry added for it.
-        if let Some(at) = moved.charset_at
-            && !self.entries.iter().any(|(_, op)| *op == OP_CHARSET)
-        {
-            out.extend_from_slice(&int5(at));
-            push_operator(&mut out, OP_CHARSET);
-        }
-        out
+        dict_restated(&self.entries, moved)
     }
 }
 
-/// A Font DICT re-encoded with its Private DICT's offset — the one absolute offset it states —
-/// shifted by `delta`; every other entry verbatim. A DICT that does not parse is kept as it is.
-fn font_dict_shifted(dict: &[u8], delta: i64) -> Vec<u8> {
-    let Some(entries) = dict_entries(dict) else {
-        return dict.to_vec();
-    };
-    let mut out = Vec::with_capacity(dict.len().saturating_add(8));
-    for (operands, op) in &entries {
-        if *op == OP_PRIVATE {
-            let (size, at) = dict_two_ints(operands).unwrap_or((0, 0));
-            out.extend_from_slice(&int5(size));
-            out.extend_from_slice(&int5(at.saturating_add(delta)));
-        } else {
-            out.extend_from_slice(operands);
+/// A Top DICT's or a Font DICT's `entries` re-encoded, every offset they state restated under
+/// `moved` and every other operand verbatim.
+///
+/// A Font DICT is read with the Top DICT's operators: Adobe Technical Note #5176 gives a Font DICT
+/// no operator table of its own, and section 18 asks of it only that it specify its Private DICT.
+/// So an offset a Font DICT states — a `charset`, an `Encoding`, a `CharStrings`, an `FDSelect` or
+/// an `FDArray` as well as its `Private` — names the bytes the Top DICT's same operator would, and
+/// is shifted with them; left as it stood, it names bytes `delta` away once the String INDEX or the
+/// Top DICT INDEX in front of them has grown.
+fn dict_restated(entries: &[(Vec<u8>, u16)], moved: Moved) -> Vec<u8> {
+    let delta = moved.delta;
+    let mut out = Vec::new();
+    for (operands, op) in entries {
+        match *op {
+            // A charset or Encoding operand below the first custom offset names a
+            // predefined table (ISOAdobe/Expert/ExpertSubset, standard/expert) and is
+            // not an offset.
+            OP_CHARSET if moved.charset_at.is_some() => {
+                out.extend_from_slice(&int5(moved.charset_at.unwrap_or(0)));
+            }
+            OP_CHARSET | OP_ENCODING => {
+                let at = dict_int(operands).unwrap_or(0);
+                let custom = if *op == OP_CHARSET { at > 2 } else { at > 1 };
+                out.extend_from_slice(&int5(if custom { at.saturating_add(delta) } else { at }));
+            }
+            OP_CHARSTRINGS => out.extend_from_slice(&int5(
+                moved
+                    .charstrings_at
+                    .unwrap_or_else(|| dict_int(operands).unwrap_or(0).saturating_add(delta)),
+            )),
+            OP_FD_SELECT => {
+                out.extend_from_slice(&int5(
+                    moved
+                        .fd_select_at
+                        .unwrap_or_else(|| dict_int(operands).unwrap_or(0).saturating_add(delta)),
+                ));
+            }
+            OP_PRIVATE => {
+                let (size, at) = dict_two_ints(operands).unwrap_or((0, 0));
+                out.extend_from_slice(&int5(size));
+                out.extend_from_slice(&int5(at.saturating_add(delta)));
+            }
+            OP_FD_ARRAY => out.extend_from_slice(&int5(
+                moved
+                    .fd_array_at
+                    .unwrap_or_else(|| dict_int(operands).unwrap_or(0).saturating_add(delta)),
+            )),
+            _ => out.extend_from_slice(operands),
         }
         push_operator(&mut out, *op);
     }
+    // A Top DICT that states no charset means the predefined ISOAdobe one (Adobe Technical
+    // Note #5176, section 13), so a fresh charset is reached only by an entry added for it.
+    if let Some(at) = moved.charset_at
+        && !entries.iter().any(|(_, op)| *op == OP_CHARSET)
+    {
+        out.extend_from_slice(&int5(at));
+        push_operator(&mut out, OP_CHARSET);
+    }
     out
+}
+
+/// A Font DICT re-encoded with every offset it states shifted by `delta`, as [`dict_restated`]
+/// shifts them; every other entry verbatim. A DICT that does not parse is kept as it is.
+fn font_dict_shifted(dict: &[u8], delta: i64) -> Vec<u8> {
+    dict_entries(dict).map_or_else(
+        || dict.to_vec(),
+        |entries| dict_restated(&entries, Moved::by(delta)),
+    )
 }
 
 /// Writes an INDEX holding `items`, header and data (Adobe Technical Note #5176, section 5).
@@ -1533,12 +1542,13 @@ fn offset_outside(
 }
 
 /// Whether a Type 2 charstring reaches `callsubr`, itself or through the global subroutines it
-/// calls (Adobe Technical Note #5177, section 4.1).
+/// calls (Adobe Technical Note #5177, section 4.7).
 ///
 /// The operand stack is followed far enough to know which global subroutine a `callgsubr`
 /// names; a call whose operand cannot be told is counted as reaching one, which errs on the
 /// side of reporting. The stem count is kept for `hintmask`'s data bytes, which would
-/// otherwise be read as operators. `operations` is what is left of the glyph's
+/// otherwise be read as operators, and both are carried into and out of every subroutine called
+/// ([`LocalSubrWalk`]); an `endchar` ends the walk wherever it is met. `operations` is what is left of the glyph's
 /// [`CHARSTRING_OPERATIONS`], shared across the calls; a walk that spends it is counted as
 /// reaching one too, on the same side.
 fn calls_local_subr(
@@ -1547,97 +1557,137 @@ fn calls_local_subr(
     depth: u8,
     operations: &mut u32,
 ) -> bool {
-    const CALLSUBR: u8 = 10;
-    const RETURN: u8 = 11;
-    const CALLGSUBR: u8 = 29;
-    const ENDCHAR: u8 = 14;
-    const HSTEM: u8 = 1;
-    const VSTEM: u8 = 3;
-    const HSTEMHM: u8 = 18;
-    const VSTEMHM: u8 = 23;
-    const HINTMASK: u8 = 19;
-    const CNTRMASK: u8 = 20;
-    const ESCAPE_BYTE: u8 = 12;
-    // Type 2 bounds subroutine nesting to ten levels.
-    const MAX_DEPTH: u8 = 10;
-
-    let gsubrs = font.global_subrs();
-    let bias: i64 = match gsubrs.count() {
-        0..1240 => 107,
-        1240..33900 => 1131,
-        _ => 32768,
+    let mut walk = LocalSubrWalk {
+        font,
+        stack: Vec::new(),
+        stems: 0,
+        operations,
     };
-    let mut stack: Vec<i64> = Vec::new();
-    let mut stems = 0usize;
-    let mut i = 0usize;
-    while let Some(&b0) = charstring.get(i) {
-        let Some(left) = operations.checked_sub(1) else {
-            return true;
+    walk.run(charstring, depth) == Stopped::LocalSubr
+}
+
+/// Where [`LocalSubrWalk::run`] stopped in the charstring or subroutine it was given.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Stopped {
+    /// At a `callsubr`, or at a point counted as one.
+    LocalSubr,
+    /// At `return`, or past the last byte, where the caller goes on.
+    Returned,
+    /// At `endchar`, which ends the glyph in whichever subroutine it is run.
+    Ended,
+}
+
+/// [`calls_local_subr`]'s walk, its state the charstring's and every subroutine's it calls.
+///
+/// Adobe Technical Note #5177 section 4.7 leaves what the caller pushed before a call and what the
+/// subroutine pushes on the one argument stack, and section 4.3 sizes a `hintmask`'s data bytes
+/// by every stem hint the charstring declared, inside a subroutine or not, so the operand stack
+/// and the stem count are the walk's, not a call's: a call that starts at no stems reads a mask
+/// after the caller's hints as too short, and the bytes after it as operators. Section 4.2 makes
+/// `endchar` the last operator of the outline, so a subroutine that runs it ends the walk.
+struct LocalSubrWalk<'w, 'f> {
+    font: &'w CffFontRef<'f>,
+    stack: Vec<i64>,
+    /// The stems declared so far, which fix a mask's length.
+    stems: usize,
+    /// What is left of the glyph's [`CHARSTRING_OPERATIONS`].
+    operations: &'w mut u32,
+}
+
+impl LocalSubrWalk<'_, '_> {
+    fn run(&mut self, charstring: &[u8], depth: u8) -> Stopped {
+        const CALLSUBR: u8 = 10;
+        const RETURN: u8 = 11;
+        const CALLGSUBR: u8 = 29;
+        const ENDCHAR: u8 = 14;
+        const HSTEM: u8 = 1;
+        const VSTEM: u8 = 3;
+        const HSTEMHM: u8 = 18;
+        const VSTEMHM: u8 = 23;
+        const HINTMASK: u8 = 19;
+        const CNTRMASK: u8 = 20;
+        const ESCAPE_BYTE: u8 = 12;
+        // Type 2 bounds subroutine nesting to ten levels.
+        const MAX_DEPTH: u8 = 10;
+
+        let gsubrs = self.font.global_subrs();
+        let bias: i64 = match gsubrs.count() {
+            0..1240 => 107,
+            1240..33900 => 1131,
+            _ => 32768,
         };
-        *operations = left;
-        match b0 {
-            32..=254 => {
-                let b1 = charstring.get(i.saturating_add(1)).copied().unwrap_or(0);
-                let (value, width) = small_operand(b0, b1);
-                stack.push(value);
-                i = i.saturating_add(width);
-            }
-            28 => {
-                let value = charstring
-                    .get(i.saturating_add(1)..i.saturating_add(3))
-                    .map_or(0, |b| i64::from(i16::from_be_bytes([b[0], b[1]])));
-                stack.push(value);
-                i = i.saturating_add(3);
-            }
-            255 => {
-                // 16.16 fixed; only the integer part could name a subroutine.
-                let value = charstring
-                    .get(i.saturating_add(1)..i.saturating_add(5))
-                    .map_or(0, |b| {
-                        i64::from(i32::from_be_bytes([b[0], b[1], b[2], b[3]])) >> 16
-                    });
-                stack.push(value);
-                i = i.saturating_add(5);
-            }
-            CALLSUBR => return true,
-            CALLGSUBR => {
-                let Some(operand) = stack.pop() else {
-                    return true;
-                };
-                let index = usize::try_from(operand.saturating_add(bias)).unwrap_or(usize::MAX);
-                if depth < MAX_DEPTH
-                    && gsubrs.get(index).is_some_and(|subr| {
-                        calls_local_subr(subr, font, depth.saturating_add(1), operations)
-                    })
-                {
-                    return true;
+        let mut i = 0usize;
+        while let Some(&b0) = charstring.get(i) {
+            let Some(left) = self.operations.checked_sub(1) else {
+                return Stopped::LocalSubr;
+            };
+            *self.operations = left;
+            match b0 {
+                32..=254 => {
+                    let b1 = charstring.get(i.saturating_add(1)).copied().unwrap_or(0);
+                    let (value, width) = small_operand(b0, b1);
+                    self.stack.push(value);
+                    i = i.saturating_add(width);
                 }
-                i = i.saturating_add(1);
-            }
-            RETURN | ENDCHAR => return false,
-            HSTEM | VSTEM | HSTEMHM | VSTEMHM => {
-                stems = stems.saturating_add(stack.len() / 2);
-                stack.clear();
-                i = i.saturating_add(1);
-            }
-            HINTMASK | CNTRMASK => {
-                stems = stems.saturating_add(stack.len() / 2);
-                stack.clear();
-                i = i
-                    .saturating_add(1)
-                    .saturating_add(stems.saturating_add(7) / 8);
-            }
-            ESCAPE_BYTE => {
-                stack.clear();
-                i = i.saturating_add(2);
-            }
-            _ => {
-                stack.clear();
-                i = i.saturating_add(1);
+                28 => {
+                    let value = charstring
+                        .get(i.saturating_add(1)..i.saturating_add(3))
+                        .map_or(0, |b| i64::from(i16::from_be_bytes([b[0], b[1]])));
+                    self.stack.push(value);
+                    i = i.saturating_add(3);
+                }
+                255 => {
+                    // 16.16 fixed; only the integer part could name a subroutine.
+                    let value = charstring
+                        .get(i.saturating_add(1)..i.saturating_add(5))
+                        .map_or(0, |b| {
+                            i64::from(i32::from_be_bytes([b[0], b[1], b[2], b[3]])) >> 16
+                        });
+                    self.stack.push(value);
+                    i = i.saturating_add(5);
+                }
+                CALLSUBR => return Stopped::LocalSubr,
+                CALLGSUBR => {
+                    let Some(operand) = self.stack.pop() else {
+                        return Stopped::LocalSubr;
+                    };
+                    let index = usize::try_from(operand.saturating_add(bias)).unwrap_or(usize::MAX);
+                    if depth < MAX_DEPTH
+                        && let Some(subr) = gsubrs.get(index)
+                    {
+                        match self.run(subr, depth.saturating_add(1)) {
+                            Stopped::Returned => {}
+                            stopped => return stopped,
+                        }
+                    }
+                    i = i.saturating_add(1);
+                }
+                RETURN => return Stopped::Returned,
+                ENDCHAR => return Stopped::Ended,
+                HSTEM | VSTEM | HSTEMHM | VSTEMHM => {
+                    self.stems = self.stems.saturating_add(self.stack.len() / 2);
+                    self.stack.clear();
+                    i = i.saturating_add(1);
+                }
+                HINTMASK | CNTRMASK => {
+                    self.stems = self.stems.saturating_add(self.stack.len() / 2);
+                    self.stack.clear();
+                    i = i
+                        .saturating_add(1)
+                        .saturating_add(self.stems.saturating_add(7) / 8);
+                }
+                ESCAPE_BYTE => {
+                    self.stack.clear();
+                    i = i.saturating_add(2);
+                }
+                _ => {
+                    self.stack.clear();
+                    i = i.saturating_add(1);
+                }
             }
         }
+        Stopped::Returned
     }
-    false
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -17,14 +17,20 @@
 //! - **The XML reader's two steps agree**: a tree `Reading::parse` accepts is read by
 //!   `Reading::document` the same way twice, since the second step re-charges the entry budget the
 //!   first left.
+//! - **Canonical XML 1.0 is a function of the bytes and its own fixed point**
+//!   (`policy_rules::canonical_xml`, ADR 2644): the `PolicyComponents` element of any input, with
+//!   and without comments, canonicalises the same way twice, and its canonical form read as a
+//!   document of its own canonicalises to itself, since the Recommendation's section 2.1 makes the
+//!   form a function of the data model alone and the form preserves that model.
 
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
 use pdf_signature::cms::{self, Digest, SignedData};
+use pdf_signature::policy_rules::canonical_xml::{self, Apex, Comments};
 use pdf_signature::policy_rules::{
-    self, Finding, PolicyDocumentError, SignerFacts, SigningTime, Syntax, TimeSource, ts_119_172_2,
-    ts_119_172_3,
+    self, Finding, MAX_POLICY_OCTETS, PolicyDocumentError, SignerFacts, SigningTime, Syntax,
+    TimeSource, ts_119_172_2, ts_119_172_3,
 };
 use pdf_signature::x509::Instant;
 
@@ -114,7 +120,43 @@ fn judged(data: &[u8], syntax: Syntax) -> Result<Vec<Vec<Finding>>, PolicyDocume
     }
 }
 
+/// The canonical form of the `PolicyComponents` element `depth` elements down, or the refusal.
+fn canonical(
+    data: &[u8],
+    depth: usize,
+    comments: Comments,
+) -> Result<Vec<u8>, PolicyDocumentError> {
+    let apex = Apex {
+        depth,
+        namespaces: &ts_119_172_2::NAMESPACE,
+        local: "PolicyComponents",
+    };
+    let mut out = Vec::new();
+    canonical_xml::canonicalize(data, &apex, comments, &mut |piece| {
+        out.extend_from_slice(piece);
+    })?;
+    Ok(out)
+}
+
 fuzz_target!(|data: &[u8]| {
+    for comments in [Comments::Omitted, Comments::Kept] {
+        let first = canonical(data, 1, comments);
+        assert_eq!(
+            first,
+            canonical(data, 1, comments),
+            "the canonical form is a function of the bytes"
+        );
+        if let Ok(form) = first
+            && form.len() <= MAX_POLICY_OCTETS
+        {
+            assert_eq!(
+                canonical(&form, 0, comments).as_ref(),
+                Ok(&form),
+                "a canonical form canonicalises to itself"
+            );
+        }
+    }
+
     let named = Syntax::of(data);
     for syntax in [Syntax::Tr102272, Syntax::Ts1191723, Syntax::Ts1191722] {
         let first = judged(data, syntax);

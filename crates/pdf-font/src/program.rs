@@ -611,13 +611,18 @@ fn extracted_cff(program: Program, data: &[u8]) -> Option<Vec<u8>> {
 ///
 /// A CFF file starts with a header whose first two bytes are its major and minor version,
 /// conventionally 1 and 0. An sfnt file starts with a recognisable tag instead — `0x00010000`,
-/// `OTTO`, `true` or `ttcf` — so a leading `01 00` that is none of those is CFF.
+/// `OTTO`, `true` or `ttcf` — so a leading `01` that is none of those is CFF.
+///
+/// The minor version is not asked. Adobe Technical Note #5176 section 6 makes the major version
+/// the one a reader must understand and a change of the minor version a compatible one, so a
+/// program stating major 1 is read as CFF whatever its minor version says; a header that is not
+/// the program's own is then the CFF reader's to refuse, by the grammar that follows it.
 fn is_bare_cff(data: &[u8]) -> bool {
     match data.get(..4) {
         // The four sfnt container signatures.
         Some([0x00, 0x01, 0x00, 0x00] | b"OTTO" | b"true" | b"ttcf") => false,
-        // A CFF header begins with its major and minor version.
-        Some([1, 0, ..]) => true,
+        // A CFF header begins with its major version.
+        Some([1, ..]) => true,
         _ => false,
     }
 }
@@ -773,6 +778,14 @@ mod font_file_signature {
     fn a_font_file_whose_bytes_are_a_cff_is_read_as_one() {
         // A CFF header: major 1, minor 0, header size 4, offset size 3.
         assert_eq!(program_of(b"\x01\x00\x04\x03rest"), Program::BareCff);
+    }
+
+    /// Technical Note #5176 section 6: a minor version other than 0 is compatible, so the program
+    /// still goes to the CFF reader and not to the sfnt one, whose refusal would name a container
+    /// the bytes never claimed to be.
+    #[test]
+    fn a_cff_header_of_another_minor_version_is_read_as_one() {
+        assert_eq!(program_of(b"\x01\x20\x04\x02rest"), Program::BareCff);
     }
 
     /// The other side of the same rule: neither of Type 1's own two packagings can begin `01 00`,

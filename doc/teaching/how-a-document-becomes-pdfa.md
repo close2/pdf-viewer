@@ -311,7 +311,7 @@ The remedies come in four shapes, and they differ by what happens to the documen
 
 1. **A rewrite that loses nothing, or states what the standard defines.** The invoice's output
    intent embeds the sRGB profile this program ships, because its device colours are RGB
-   (`crates/pdf-transform/src/archive/prepare.rs::shipped_for`); the identification schema goes into
+   (`crates/pdf-transform/src/archive/prepare/colour_and_graphics.rs::shipped_for`); the identification schema goes into
    a new XMP packet; `Helvetica`, embedded nowhere, gains Liberation Sans Regular under
    `crates/pdf-transform/src/archive/fonts.rs`, with the widths the dictionary states left
    untouched so no glyph moves. The `Stated` ones carry ADR 0927's condition: what was written is
@@ -343,7 +343,7 @@ a form XObject from the annotation's own `/DA`, as Table 177 says the text is fo
 and **no pass over the source saw it**, because it did not exist when stage 2 surveyed the fonts.
 
 **Every remedy that writes something is conditional on the file saying so.**
-`crates/pdf-transform/src/archive/prepare.rs::the_packet` composes the XMP packet with one
+`crates/pdf-transform/src/archive/prepare/metadata.rs::the_packet` composes the XMP packet with one
 `xmpMM:History` entry per action the conversion records, from a `Recording` that names each — the
 faces substituted, the images unsmoothed, the default colour spaces written, the pages preserved,
 the facts supplied — at the instant the plan's `Clock` gives (ADR 2306). Where the packet will not
@@ -359,7 +359,7 @@ flowchart TD
     REMOVE["removal under a Loss<br/>smoothing.rs, transfer.rs, boundaries.rs, actions.rs"]
     SUPPLY["a fact the operator supplied<br/>--font, supplied_cmyk.rs, a supply row<br/>ADR 2130, ADR 2518"]
     PAGE["a page: preserve.rs::compose, in_place.rs, pdf-transform/src/archive/fonts/photographed.rs<br/>ADR 1014, ADR 1123, ADR 2394"]
-    PACKET["prepare.rs::the_packet: one xmpMM:History entry per recorded action<br/>unless_recorded withdraws a remedy the packet cannot record"]
+    PACKET["pdf-transform/src/archive/prepare/metadata.rs::the_packet: one xmpMM:History entry per recorded action<br/>unless_recorded withdraws a remedy the packet cannot record"]
     BYTES["the converted bytes, and per-rewrite counts"]
 
     DECISIONS --> WANTED --> CONVERT

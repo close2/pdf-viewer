@@ -165,3 +165,20 @@ ambiguous verdict is decided reference against reference: all 1 107 voting pairs
 pages fail the text class's differing-fraction bound, and a pair would form on 322 of them without
 it (round 1483, ADR 1802). Read such a group by the bound its references fail, and let the gate print
 the figures — ours copied into a note had drifted by up to 0.29 of 255 since ADR 0685.
+
+## A witness program's bytes are compared with a sibling program from the same producer
+
+Round 1901 (ADR 2636) read `ICLJGJ+Glypha`'s header as valid by TN 5176 Table 8 — major 1, minor 0x20 — and
+nearly recorded veraPDF's failure on it as a disagreement. Its sibling `ICLJGI+Glypha-Black` from the same
+producer begins `01 00 04 02 00 01 01 01` where it begins `01 20 04 02 20 01 01 01`: every zero byte written
+`0x20`, no `0x00` anywhere, a Name INDEX counting 8193 names. Before a program's header is called valid
+against a validator's verdict, its bytes are set beside a sibling program the same producer wrote; a
+whole-file corruption shows in seconds where a header-only reading passes it.
+
+## The decoded length is compared with Table 125's before a program is routed on its damage
+
+Round 1901 (ADR 2636) expected `F001u_3_7j` to be a cut program; its `FontFile2` decodes all 28 976 bytes
+`/Length1` states and the stream's `/Length` ends two bytes into the zlib check value, so the decode says
+`Truncated` on a program this reader draws whole. A `Truncated` decode is routed only after its decoded
+length is set beside ISO 32000-2 Table 125's `/Length1`, `/Length2` and `/Length3`; a program that reaches
+its stated extent is whole, and the cut in its check value is a separate fault with its own sentence.

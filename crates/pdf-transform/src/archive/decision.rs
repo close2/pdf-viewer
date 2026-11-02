@@ -522,11 +522,22 @@ pub enum Loss {
     /// how many the source stated and how many the archive holds (`doc/questions/A727`,
     /// `doc/adr/2596`).
     PageNotHeld,
+    /// ISO 19005-2 section 6.2.2 and ISO 19005-4 section 6.2.2: a run of a content stream that
+    /// ISO 32000-2 §7.3.3 spells as no number, and that this reader draws as the number it reads
+    /// off the run's front (`33600.272.58` drawn as `33600.272`, ADR 1004), is written as that
+    /// number.
+    ///
+    /// The page draws as the window drew it, and its text stays text: what is lost is the
+    /// characters of each run after the number, which no reader of the source drew, and the
+    /// run's own spelling, which the report and the statement page name with the number written
+    /// (`doc/adr/2638`). It is answered ahead of the photograph, which the same profiles take for a
+    /// page whose fault this does not reach.
+    ContentAsDrawn,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 33] = [
+    pub const ALL: [Self; 34] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::MetadataPacket,
@@ -560,6 +571,7 @@ impl Loss {
         Self::TaggingOfPhotographedPages,
         Self::OptionalContentOfPhotographedPages,
         Self::PageNotHeld,
+        Self::ContentAsDrawn,
     ];
 
     /// The word a caller authorises it by.
@@ -599,6 +611,7 @@ impl Loss {
             Self::TaggingOfPhotographedPages => "tagging-of-photographed-pages",
             Self::OptionalContentOfPhotographedPages => "optional-content-of-photographed-pages",
             Self::PageNotHeld => "page-not-held",
+            Self::ContentAsDrawn => "content-as-drawn",
         }
     }
 
@@ -860,6 +873,12 @@ impl Loss {
                  the report states how many pages the source counted and how many the archive \
                  holds"
             }
+            Self::ContentAsDrawn => {
+                "a run of a content stream that spells no number and that this viewer draws as \
+                 the number it reads off the run's front is written as that number, so the page \
+                 draws as the window drew it and keeps its text; the characters after the number \
+                 are gone, and the report names each run with the number written"
+            }
         }
     }
 
@@ -1019,6 +1038,8 @@ pub struct Authorisations {
     /// `append-statement` composes (`doc/adr/2596`). No loss of its own: it answers *where* a
     /// taken loss is said, and `grants` reads [`Self::page_not_held`] alone.
     pub page_not_held_stated: bool,
+    /// Whether [`Loss::ContentAsDrawn`] was authorised.
+    pub content_as_drawn: bool,
 }
 
 impl Authorisations {
@@ -1059,6 +1080,7 @@ impl Authorisations {
             Loss::TaggingOfPhotographedPages => self.tagging_of_photographed_pages,
             Loss::OptionalContentOfPhotographedPages => self.optional_content_of_photographed_pages,
             Loss::PageNotHeld => self.page_not_held,
+            Loss::ContentAsDrawn => self.content_as_drawn,
         }
     }
 
@@ -1106,6 +1128,7 @@ impl Authorisations {
                 self.optional_content_of_photographed_pages = true;
             }
             Loss::PageNotHeld => self.page_not_held = true,
+            Loss::ContentAsDrawn => self.content_as_drawn = true,
         }
     }
 }
@@ -1443,6 +1466,7 @@ const WRONG_FAMILY: &str = "this requirement is licensed by a destination profil
 const REMEDIES_BY_FAMILY: &[&[Remedy]] = &[
     fonts::REMEDIES,
     colour_and_graphics::REMEDIES,
+    content_stream_fences::REMEDIES,
     files_and_structure::REMEDIES,
     annotations_and_attachments::REMEDIES,
     metadata::REMEDIES,
@@ -1540,6 +1564,7 @@ impl Conditional {
 const CONDITIONAL_BY_FAMILY: &[&[(&str, Conditional)]] = &[
     fonts::CONDITIONAL,
     colour_and_graphics::CONDITIONAL,
+    content_stream_fences::CONDITIONAL,
     files_and_structure::CONDITIONAL,
     annotations_and_attachments::CONDITIONAL,
     metadata::CONDITIONAL,
@@ -1838,12 +1863,33 @@ pub(super) fn decide(
     // with the tagging of those pages where the document states a structure tree (A707).
     // The row keeps its refusal below otherwise: `as-shown` and a caller who authorised nothing
     // are refused by the fence's sentence.
+    //
+    // The same answer for §7.3.4.3's digit where every stream that omitted one was a content
+    // stream the photographs took off their pages, so that no stream is left for the repair to
+    // write into (`super::hexadecimal::Completed::leaving_out`, `doc/adr/2640`).
+    let only_photographed = judgement.id == ODD_HEXADECIMAL_DIGITS
+        && prepared
+            .hexadecimal
+            .as_ref()
+            .is_ok_and(super::hexadecimal::Completed::only_on_photographed_pages);
     if authorised.grants(Loss::PageAsImage)
         && let Ok(substitutes) = prepared.substitutes.as_ref()
-        && substitutes.fenced.contains(judgement.id)
+        && (substitutes.fenced.contains(judgement.id) || only_photographed)
     {
+        // A page photographed for an operator that is no run keeps the runs written on every
+        // other page, and the row costs both (`doc/adr/2638`).
+        let runs_written = authorised.grants(Loss::ContentAsDrawn)
+            && prepared
+                .as_drawn
+                .as_ref()
+                .is_ok_and(|drawn| !drawn.runs.is_empty());
+        let losses = substitutes.photograph_losses();
         return losing(
-            substitutes.photograph_losses(),
+            if runs_written && judgement.id == super::fenced::OPERATORS {
+                losses.with(Loss::ContentAsDrawn)
+            } else {
+                losses
+            },
             Rewrite::SubstituteFontProgram,
             authorised,
         );
@@ -2040,6 +2086,9 @@ fn answer_of(answer: Answer, authorised: Authorisations, prepared: &Prepared) ->
         // A rewrite is an answer only where the document can take it, and the reason it cannot
         // is the reason the requirement is refused with — never this converter's own paraphrase
         // of it. `Prepared::obstacle` is where that question is asked, once.
+        Answer::Mechanical(Rewrite::RunWrittenAsDrawn) => {
+            content_stream_fences::run_written_as_drawn(authorised, prepared)
+        }
         Answer::Mechanical(rewrite) => prepared
             .obstacle(rewrite)
             .map_or(Decision::Mechanical(rewrite), Decision::Refused),

@@ -13,9 +13,10 @@ use std::collections::BTreeMap;
 use super::font_dict_repair::cid_keyed;
 use super::operand_tests::name_keyed;
 use super::{
-    CffError, GivenOutline, GlyphToGive, Layout, Misstated, NotRestated, Subroutines,
-    charstring_with_advance, first_reserved_seac, glyph_count, int5, leading_operands,
-    pops_an_empty_stack, subroutine_body, with_advances, with_glyphs_given,
+    CHARSTRING_OPERATIONS, CffError, CidToGive, GivenOutline, GlyphToGive, Layout, Misstated,
+    NotRestated, OP_CHARSET, Subroutines, calls_local_subr, charstring_with_advance, dict_entries,
+    dict_int, first_reserved_seac, glyph_count, index_items, int5, leading_operands, open,
+    pops_an_empty_stack, subroutine_body, with_advances, with_cids_given, with_glyphs_given,
 };
 
 /// The Private DICT every fixture here holds: `nominalWidthX 20`.
@@ -276,4 +277,134 @@ fn a_local_subr_index_ending_past_the_program_is_refused_by_name() {
         None
     );
     assert!(with_advances(&held, &BTreeMap::from([(1, 500)])).is_ok());
+}
+
+/// The `charset` offset `program`'s first Font DICT states, where it states one.
+fn font_dict_charset(program: &[u8]) -> Option<i64> {
+    let at = Layout::read(program)?.fd_array_at?;
+    let dict = *index_items(program, at)?.first()?;
+    dict_entries(dict)?
+        .iter()
+        .find(|(_, op)| *op == OP_CHARSET)
+        .and_then(|(operands, _)| dict_int(operands))
+}
+
+/// A Font DICT that states a `charset` past the String INDEX, as artifact `64656d0d`'s copy of its
+/// Top DICT did (ADR 2648): the writer that restates the String INDEX shifts it with the bytes it
+/// names, so the output's Font DICT names its input's charset, and the output is one the writer
+/// extends again rather than refusing an offset left inside the re-encoded String INDEX.
+#[test]
+fn a_font_dict_offset_is_shifted_with_the_bytes_it_names() {
+    let program = cid_keyed(&[14], None, true);
+    let layout = Layout::read(&program).expect("the fixture's layout");
+    let fd_array_at = layout.fd_array_at.expect("the fixture's FDArray");
+    let charset_at = layout
+        .entries
+        .iter()
+        .find(|(_, op)| *op == OP_CHARSET)
+        .and_then(|(operands, _)| dict_int(operands))
+        .expect("the fixture's charset");
+    // The fixture's FDArray ends the program: an INDEX of one Font DICT, `0 <offset> Private`,
+    // restated with a `charset` that names the Top DICT's own.
+    let mut font_dict = int5(0).to_vec();
+    font_dict.extend_from_slice(&int5(i64::try_from(fd_array_at).expect("a fixture offset")));
+    font_dict.push(18);
+    font_dict.extend_from_slice(&int5(charset_at));
+    font_dict.push(15);
+    let mut stated = program[..fd_array_at].to_vec();
+    stated.extend_from_slice(&[
+        0,
+        1,
+        1,
+        1,
+        1 + u8::try_from(font_dict.len()).expect("small"),
+    ]);
+    stated.extend_from_slice(&font_dict);
+    assert!(glyph_count(&stated).is_ok(), "the reader opens the program");
+    assert_eq!(font_dict_charset(&stated), Some(charset_at));
+    assert_eq!(
+        Layout::read(&stated).and_then(|layout| layout.misstated),
+        None
+    );
+    let named = |program: &[u8], at: i64| {
+        let at = usize::try_from(at).expect("an offset the program holds");
+        program[at..at + 3].to_vec()
+    };
+
+    let (written, _) = with_cids_given(
+        &stated,
+        &[CidToGive {
+            cid: 9,
+            advance: 500,
+        }],
+    )
+    .expect("the first rewrite");
+    let shifted = font_dict_charset(&written).expect("the output's Font DICT states a charset");
+    assert_ne!(shifted, charset_at, "the String INDEX grew under it");
+    assert_eq!(named(&written, shifted), named(&stated, charset_at));
+    assert_eq!(
+        Layout::read(&written).and_then(|layout| layout.misstated),
+        None
+    );
+    let again = with_cids_given(
+        &written,
+        &[CidToGive {
+            cid: 10,
+            advance: 500,
+        }],
+    );
+    assert!(
+        again.is_ok(),
+        "the writer extends its own output: {again:?}"
+    );
+}
+
+/// Whether glyph 1 of a CID-keyed fixture whose one global subroutine is `gsubr` reaches a
+/// `callsubr`, by [`calls_local_subr`]'s walk.
+fn glyph_calls_local_subr(glyph: &[u8], gsubr: &[u8]) -> bool {
+    let program = cid_keyed(glyph, Some(gsubr), true);
+    let font = open(&program).expect("the fixture opens");
+    let glyph = font.charstrings().get(1).expect("the fixture's glyph");
+    calls_local_subr(glyph, &font, 0, &mut { CHARSTRING_OPERATIONS })
+}
+
+/// A `hintmask` after a global subroutine that declares the stems (ADR 2649): Technical Note
+/// #5177 section 4.7 keeps one argument stack across the call and section 4.3 sizes the mask by
+/// every stem declared, so nine stems make the mask two bytes, and the `callsubr` after it is
+/// reached.
+/// Counted from no stems in the caller, the mask was no bytes, its first byte read as a 32-bit
+/// operand, and the `callsubr` it swallowed was missed.
+#[test]
+fn a_mask_after_a_global_subroutine_counts_the_stems_it_declared() {
+    // Eighteen zeros hstemhm return: nine stems.
+    let stems = [&[139; 18][..], &[18, 11]].concat();
+    // -107 callgsubr hintmask <0xff 0x80> -107 callsubr endchar.
+    let glyph = [32, 29, 19, 0xff, 0x80, 32, 10, 14];
+    assert!(glyph_calls_local_subr(&glyph, &stems));
+    // The same mask with no `callsubr` after it is not counted as one.
+    assert!(!glyph_calls_local_subr(
+        &[32, 29, 19, 0xff, 0x80, 14],
+        &stems
+    ));
+    // The stems stated in the caller and the operands the subroutine leaves count together:
+    // two stems in the caller, fifteen by the subroutine's thirty operands and the `hstemhm` the
+    // caller states after it, so the mask is three bytes; the two of the caller's stems alone
+    // would make it one, and its second byte a 32-bit operand swallowing the `callsubr`.
+    let operands = [&[139; 30][..], &[11]].concat();
+    let split = [
+        &[139; 4][..],
+        &[18, 32, 29, 18, 19, 0xff, 0xff, 0x80, 32, 10, 14],
+    ]
+    .concat();
+    assert!(glyph_calls_local_subr(&split, &operands));
+}
+
+/// An `endchar` in a global subroutine ends the glyph (Technical Note #5177 section 4.2), so a
+/// `callsubr` the caller states after the call is never run and is not counted as reached.
+#[test]
+fn a_callsubr_after_a_subroutine_s_endchar_is_not_reached() {
+    // -107 callgsubr -107 callsubr endchar, the subroutine `endchar`.
+    assert!(!glyph_calls_local_subr(&[32, 29, 32, 10, 14], &[14]));
+    // The subroutine returning instead, the `callsubr` is reached.
+    assert!(glyph_calls_local_subr(&[32, 29, 32, 10, 14], &[11]));
 }

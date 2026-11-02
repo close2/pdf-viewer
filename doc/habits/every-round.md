@@ -25,3 +25,25 @@ incident that earned it, is there. Nothing is decided from a line here alone.
 **Three more bind every round and live beside the round they bind**: `doc/todo/02` section 7's
 "a closed form taken from one renderer is not a limit", "a count that improves is not a picture",
 and "a round that changes what gets drawn re-runs `doc/todo/00`'s step 7".
+
+## Context is measured after the reading list, and a slot spanning five crates is two slots
+
+Round 1906 (ADRs 2646, 2647) wired `$event` through `pdf-model`, `pdf-script`, `pdf-formcalc`,
+`pdf-script-worker` and `viewer-core` and reached the handover point before its tests were written. A slot's
+reading list alone costs about 100k of context; a round reads its own context as soon as the list is read
+and sizes what remains, and a brief that names five crates in one slot has written two slots.
+
+## A converter path over three hundred lines is read by a Sonnet subagent before any code is written
+
+Round 1901 (ADR 2636) read `embed_pass` and its routes in `archive/fonts.rs` itself — about three hundred
+lines — and that reading cost some 40k of context before the first edit. A path that long is summarised by a
+Sonnet subagent into the entry points, the routes and the line numbers the slot needs; the round then
+reads only the ranges it will edit.
+
+## A test in a shared worktree never imports a helper from a sibling's untracked file
+
+Round 1903 found round 1902's `tests/archive/as_drawn.rs` not compiling in the worktree (a private
+`HELVETICA`, a `Target::Four(None)`), and an export of HEAD plus one round's own hunks will not compile when
+a test leans on a sibling's untracked file. A test under `tests/archive/` imports only from the tracked
+tree and its own module; a helper two rounds need is tracked by the first and read by the second after it
+lands.

@@ -175,6 +175,14 @@ remedy = "discard"
 [site."graphics/image-interpolation-is-off"]
 remedy = "discard"
 
+# A content stream run such as 33600.272.58 is one token (ISO 32000-2 7.2.3) and no number (7.3.3,
+# one period), so it is the operator ISO 19005-2 section 6.2.2 forbids; the window draws the number
+# it reads off the run's front (ADR 1004). Where every such operator is a run of that kind, the
+# number is written in its place, the loss `content-as-drawn`: the page draws as the window drew it,
+# and the report and xmpMM:History name each run. Any other operator stays refused (ADR 2638).
+[site."graphics/only-operators-the-base-standard-defines"]
+remedy = "discard"
+
 # One ink defined two ways. On the device this profile is named for the choice is immaterial:
 # ISO 32000-2 8.6.6.4. On a screen the alternate space and tint transform are what draw the ink,
 # so `first` keeps the producer's own first statement of it, which is the one this viewer drew

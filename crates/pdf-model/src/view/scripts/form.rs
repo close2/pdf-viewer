@@ -86,8 +86,12 @@ pub enum FormOverrideMode {
 enum Raised<'a> {
     /// The completion of the merge.
     Merge,
-    /// A person's entry into the field of this PDF name.
-    Entry(&'a str),
+    /// A person's entry into the field `name`, which showed `before` before it where the caller
+    /// said (XFA 3.3 page 400's `prevText`).
+    Entry {
+        name: &'a str,
+        before: Option<&'a str>,
+    },
     /// The focus left `left` for `reaching`.
     Exit {
         left: &'a str,
@@ -104,6 +108,10 @@ enum Raised<'a> {
     MouseDown(&'a str),
     /// A mouse button was released within the field of this PDF name.
     MouseUp(&'a str),
+    /// The pointer moved into the region of the field of this PDF name.
+    MouseEnter(&'a str),
+    /// The pointer moved out of the region of the field of this PDF name.
+    MouseExit(&'a str),
     /// The open sequence ended: the Form DOM's `ready` and the application's `docReady` (pages 388
     /// and 704).
     Ready,
@@ -194,12 +202,19 @@ impl ViewState {
     }
 
     /// Activates the calculations that depend on the field `name`, which a person just committed a
-    /// value to, in page 379's order (XFA 3.3 pages 379 and 641–642).
-    pub fn activate_form_on_entry(&mut self, document: &Document, name: &str) -> bool {
+    /// value to, in page 379's order (XFA 3.3 pages 379 and 641–642). `before` is what the field
+    /// showed before the typing began, where the caller knows it, which the field's `change`
+    /// event reads as `$event.prevText` (page 400).
+    pub fn activate_form_on_entry(
+        &mut self,
+        document: &Document,
+        name: &str,
+        before: Option<&str>,
+    ) -> bool {
         if self.scripting.form_entered.len() < MAX_ENTERED_FIELDS {
             self.scripting.form_entered.insert(name.to_owned());
         }
-        self.activate_form(document, Raised::Entry(name), Instant::now())
+        self.activate_form(document, Raised::Entry { name, before }, Instant::now())
     }
 
     /// Runs the `exit` events of the keyboard focus leaving the field `left` for the field
@@ -263,6 +278,22 @@ impl ViewState {
         self.activate_form(document, Raised::MouseUp(released), Instant::now())
     }
 
+    /// Runs the `mouseEnter` events of the field `entered`, into whose region the pointer moved
+    /// with a button up or down (XFA 3.3 page 391), followed by the calculations that depend on
+    /// what the events changed (page 379). Answers whether a value changed. The events reach what
+    /// [`Self::activate_form_on_click`]'s reach, under the same budget (ADR 2647).
+    pub fn activate_form_on_mouse_enter(&mut self, document: &Document, entered: &str) -> bool {
+        self.activate_form(document, Raised::MouseEnter(entered), Instant::now())
+    }
+
+    /// Runs the `mouseExit` events of the field `exited`, out of whose region the pointer moved
+    /// with a button up or down (XFA 3.3 page 391), followed by the calculations that depend on
+    /// what the events changed (page 379). Answers whether a value changed, under the budget of
+    /// [`Self::activate_form_on_mouse_enter`].
+    pub fn activate_form_on_mouse_exit(&mut self, document: &Document, exited: &str) -> bool {
+        self.activate_form(document, Raised::MouseExit(exited), Instant::now())
+    }
+
     /// The fields whose `override` asks a host to present a message since a host last took them, in
     /// the order a person entered them.
     pub fn take_form_overrides(&mut self) -> Vec<FormOverride> {
@@ -313,20 +344,37 @@ impl ViewState {
             }
             Held::Nothing => return false,
         };
+        // The pointer crosses widgets on nearly every movement, and a form with no event of the
+        // crossing has nothing to run, so it is not given a whole activation of the form.
+        let crossing = match raised {
+            Raised::MouseEnter(_) => Some("mouseEnter"),
+            Raised::MouseExit(_) => Some("mouseExit"),
+            _ => None,
+        };
+        if crossing.is_some_and(|activity| !resource.has_activity(activity)) {
+            return false;
+        }
         let table = crate::view::field_table(document, crate::view::Omitted::Calculation);
         let fields = self.form_fields(document, &table);
-        let entered = match raised {
-            Raised::Entry(name) => vec![name.to_owned()],
-            _ => Vec::new(),
+        let (entered, shown) = match raised {
+            Raised::Entry { name, before } => {
+                (vec![name.to_owned()], vec![before.map(str::to_owned)])
+            }
+            _ => (Vec::new(), Vec::new()),
         };
         let stimulus = match raised {
             Raised::Merge => Stimulus::Merge,
-            Raised::Entry(_) => Stimulus::Entry(&entered),
+            Raised::Entry { .. } => Stimulus::Entry {
+                entered: &entered,
+                before: &shown,
+            },
             Raised::Exit { left, reaching } => Stimulus::Exit { left, reaching },
             Raised::Enter { reached, leaving } => Stimulus::Enter { reached, leaving },
             Raised::Click(clicked) => Stimulus::Click { clicked },
             Raised::MouseDown(pressed) => Stimulus::MouseDown { pressed },
             Raised::MouseUp(released) => Stimulus::MouseUp { released },
+            Raised::MouseEnter(entered) => Stimulus::MouseEnter { entered },
+            Raised::MouseExit(exited) => Stimulus::MouseExit { exited },
             Raised::Ready => Stimulus::Ready,
         };
         // What a person entered before this merge stands under it (the merge's own comment).
@@ -382,7 +430,7 @@ impl ViewState {
                 ));
                 break;
             }
-            changed |= self.activate_form(document, Raised::Entry(name), started);
+            changed |= self.activate_form(document, Raised::Entry { name, before: None }, started);
         }
         changed
     }

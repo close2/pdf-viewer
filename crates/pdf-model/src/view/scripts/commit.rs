@@ -49,6 +49,7 @@ impl ViewState {
             return Committed::Nothing;
         };
         let widgets: Vec<ObjectId> = before.iter().map(|(widget, _)| *widget).collect();
+        let previous = before.first().and_then(|(_, was)| was.shown.clone());
         let Some(first) = widgets.first().copied() else {
             return Committed::Nothing;
         };
@@ -178,7 +179,7 @@ impl ViewState {
         }
 
         // XFA 3.3 page 379: a person's entry activates the calculations that depend on it.
-        let _ = self.activate_form_on_entry(document, name);
+        let _ = self.activate_form_on_entry(document, name, previous.as_deref());
         self.recalculate_scripts(document, &table, name);
         self.scripting.committing = Some((name.to_owned(), key));
         self.refresh_formatted(document, &table);
@@ -201,7 +202,12 @@ impl ViewState {
     }
 
     /// Records what each widget showed before typing began, the first time a field is typed into.
-    pub(in crate::view) fn begin_typing(&mut self, name: &str, widgets: &[ObjectId]) {
+    pub(in crate::view) fn begin_typing(
+        &mut self,
+        document: &Document,
+        name: &str,
+        widgets: &[ObjectId],
+    ) {
         if self.uncommitted.contains_key(name) {
             return;
         }
@@ -214,6 +220,7 @@ impl ViewState {
                         edited: self.edited.get(widget).cloned(),
                         imported: self.imported.get(widget).cloned(),
                         reset: self.reset.contains(widget),
+                        shown: self.text_of(document, *widget),
                     },
                 )
             })

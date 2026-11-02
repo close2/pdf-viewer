@@ -2,7 +2,7 @@
 //! 2.4's shape, so every expected value is the format's and not a reader's.
 
 use super::{
-    CHARSTRING_KEY, EEXEC_KEY, ENDCHAR, ESCAPE, HSBW, MOST_BYTES_WRITTEN, SBW, encrypt, number,
+    CHARSTRING_KEY, EEXEC_KEY, ENDCHAR, ESCAPE, HSBW, MOST_CHARSTRING_BYTES, SBW, encrypt, number,
     with_glyphs_given,
 };
 use crate::cff::{GivenOutline, GlyphToGive, MOST_GLYPHS_GIVEN};
@@ -243,24 +243,90 @@ fn the_glyph_bound_is_checked_before_anything_is_written() {
     ));
 }
 
-#[test]
-fn copies_of_a_large_notdef_past_the_byte_bound_are_refused_before_they_are_built() {
-    // A .notdef whose copies, MOST_GLYPHS_GIVEN of them, would pass MOST_BYTES_WRITTEN.
+/// A `.notdef` of `segments` one-unit `rlineto`s after `0 500 hsbw`, closed by `endchar`: five
+/// bytes and three a segment.
+fn notdef_of(segments: usize) -> Vec<u8> {
     let mut notdef = number(0);
     notdef.extend(number(500));
     notdef.push(HSBW);
     let segment = [number(1), number(0), vec![RLINETO]].concat();
-    while notdef.len() < MOST_BYTES_WRITTEN / MOST_GLYPHS_GIVEN + 1 {
+    for _ in 0..segments {
         notdef.extend_from_slice(&segment);
     }
     notdef.push(ENDCHAR);
-    let (data, lengths) = program(&[(".notdef", notdef)], &PLAIN);
-    let all = vec![asked(GivenOutline::NotdefsOwn, None, 500); MOST_GLYPHS_GIVEN];
-    let refused = with_glyphs_given(&data, lengths, &all);
-    assert!(
-        matches!(&refused, Err(Type1Error::NotWritten { detail }) if detail.contains("bound")),
-        "{refused:?}"
-    );
+    notdef
+}
+
+#[test]
+fn a_copy_of_notdef_is_written_up_to_the_charstring_bound_and_refused_past_it() {
+    // 5 + 3 × 21 842 bytes and lenIV's 4 are MOST_CHARSTRING_BYTES exactly; one segment more is
+    // past it, and the refusal comes before any glyph is built.
+    for (segments, written) in [(21_842, true), (21_843, false)] {
+        let notdef = notdef_of(segments);
+        assert_eq!(notdef.len() + 4 <= MOST_CHARSTRING_BYTES, written);
+        let (data, lengths) = program(&[(".notdef", notdef)], &PLAIN);
+        let all = vec![asked(GivenOutline::NotdefsOwn, None, 500); MOST_GLYPHS_GIVEN];
+        let result = with_glyphs_given(&data, lengths, &all);
+        if written {
+            assert_eq!(result.expect("at the bound").added.len(), MOST_GLYPHS_GIVEN);
+        } else {
+            assert!(
+                matches!(&result, Err(Type1Error::NotWritten { detail })
+                    if detail.contains("65 535")),
+                "{result:?}"
+            );
+        }
+    }
+}
+
+/// `type1_write`'s finding `defcb9b3`, minimised by `cargo fuzz tmin`: a header ending `eexec`
+/// and a carriage return.
+const CR_HEADER: &[u8] = b"%!PS-AdobeFont-01\n/Fo\xcd eexec\r";
+
+/// The same finding's section as it decrypts: four leading bytes, the Private dictionary and
+/// three charstrings under `lenIV` 4, and the bytes the finding left after `end`.
+const CR_SECTION: &[u8] = b"\
+    \xff\xff\xff\xffdup /Private 8 dict dup begin\n\
+    /RD{string currentfile exch readstring pop}executeonly def\n\
+    /ND{noaccess def}executeonly def\n\
+    /NP{noaccess put}executeonly def\n\
+    /lenIV 4 def\n\
+    /Subrs 0 array\n\
+    2 index /CharStrings 3 dict dup begin\n\
+    /.notdef 21 RD \x10\xbf1pO\xa5\x97\xdboZJ9\x11\xb4\xb3\xcen\x9e\x9b\n\x19 ND\n\
+    /A 21 RD \x10\xbf1pO\xab\x89'1biI\xb2\xe9r\xdc\xe0\xf9\x9eDA ND\n\
+    /B 21 RD \x10\xbf1pO\xab\x89'1biI\xd6\xe2\x8c\x14O\xe9\x9ai\x1c ND\n\
+    end\n\
+    \xb9\xda";
+
+#[test]
+fn a_carriage_return_after_eexec_is_written_as_a_line_feed_and_the_program_written_again() {
+    // Adobe Type 1 Font Format section 7.2 starts the section at the first byte after the white
+    // space after `eexec`; `read-fonts` skips a carriage return there only where a line feed
+    // occurs later in the data. This program's ciphertext holds one, so `read-fonts` finds its
+    // section; the program written from the program written from it holds none, so only the
+    // line feed written for the carriage return lets its section be found.
+    let section = encrypt(CR_SECTION, EEXEC_KEY);
+    assert!(section.contains(&b'\n'));
+    let data = [CR_HEADER, &section].concat();
+    let length1 = CR_HEADER.len();
+    // The three glyphs `type1_write` asks for under the finding's first two bytes, 3 and 180.
+    let glyphs = [
+        asked(GivenOutline::Nothing, Some("g0"), 660),
+        asked(GivenOutline::Nothing, None, 761),
+        asked(GivenOutline::NotdefsOwn, None, 862),
+    ];
+    let given = with_glyphs_given(&data, (length1, section.len()), &glyphs).expect("written");
+    let again = with_glyphs_given(
+        &given.program,
+        (given.lengths[0], given.lengths[1]),
+        &[asked(GivenOutline::Nothing, None, 500)],
+    )
+    .expect("written again");
+    assert!(!again.program[length1..].contains(&b'\n'));
+    assert_eq!(given.lengths[0], length1);
+    assert_eq!(given.program[..length1 - 1], CR_HEADER[..length1 - 1]);
+    assert_eq!(given.program[length1 - 1], b'\n');
 }
 
 #[test]

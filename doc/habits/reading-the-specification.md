@@ -341,3 +341,18 @@ TS 119 172-2 names algorithms by XML Signature URIs where the ASN.1 syntaxes nam
 1885 (ADR 2604) placed fifteen URIs by a table checked against XML Signature 1.1 and RFCs 9231, 3279, 4055,
 5754 and 5758. Before a parser for a second syntax of a standards family is built, its identifier scheme is
 read: where a URI can name a thing another registry names by number, the mapping is part of the parser.
+
+## A PDF trigger's constraint is not an XFA event's
+
+Round 1906 (ADR 2647) raised XFA's `mouseEnter` and `mouseExit` from the viewer's record of which annotation
+the pointer is inside, and that record waits for the button to come up because §12.6.3's `/E` and `/X`
+triggers say so; XFA's crossing events fire with the button up or down (page 404), so a second record,
+`Open::hovered`, was needed. When an XFA event is raised at a PDF trigger's site, §12.6.3's constraint on the
+trigger is read against the XFA event's own page before the trigger's state is reused.
+
+## A section number in a brief is read before it is followed
+
+Batch 131's brief sent round 1907 to TN 5176 "§19" for the Font DICT; section 19 is FDSelect and the Font
+DICT is section 18's, with Table 9 holding the offsets the slot needed. A clause or section number a brief
+names is checked against the document's own contents page — one grep — before it is cited in code or an
+ADR, and the brief's number is corrected in the record when it was wrong.

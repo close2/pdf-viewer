@@ -184,6 +184,61 @@ pub(super) fn not_held_entry(
     Ok(())
 }
 
+/// The one line the `content-as-drawn` loss is described by on the page.
+const RUN_LOSS: &str = "the content stream held a run of characters ISO 32000-2 7.2.3 makes one \
+     token and 7.3.3 spells as no number, and the number this viewer draws for it is written in its \
+     place; the characters after that number are gone";
+
+/// Appends one entry per run the operator row wrote as the number this reader draws, the loss
+/// [`super::Loss::ContentAsDrawn`], to a statement's `text`, the first numbered `index` from zero,
+/// or the bound it would pass (`doc/adr/2638`).
+///
+/// Every fact is the rewrite's own record ([`super::WrittenRun`]): the pages the checker read the
+/// run on, the content stream it stood in, the producer's bytes and the number written. A byte
+/// outside printable ASCII is written `\xHH`, the report's spelling, so the page and the report
+/// name one run alike.
+pub(super) fn runs_entry(
+    out: &mut String,
+    target: Target,
+    index: usize,
+    runs: &[super::WrittenRun],
+) -> Result<(), &'static str> {
+    let requirement =
+        table::requirements().find(|requirement| requirement.id == super::config::STATED_RUNS);
+    let citation = requirement
+        .and_then(|requirement| requirement.clauses.citation(target))
+        .unwrap_or_default();
+    let asks = requirement.map_or("", |requirement| requirement.asks);
+    for (offset, written) in runs.iter().enumerate() {
+        if out.len() > MOST_STATEMENT_BYTES {
+            return Err(STATEMENT_TOO_LONG);
+        }
+        let pages = written
+            .pages
+            .iter()
+            .map(usize::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        // Writing into a `String` cannot fail, so the `write!` result is discarded deliberately.
+        let _ = write!(
+            out,
+            "\n{}. Requirement: {} ({citation})\n   Asks: {asks}\n   Loss: content-as-drawn, \
+             {RUN_LOSS}\n   Pages: {pages}\n   Object: content stream {} {}\n   Run as the producer \
+             wrote it: {}\n   Number written: {} (ISO 32000-2 7.3.3)\n",
+            index.saturating_add(offset).saturating_add(1),
+            super::config::STATED_RUNS,
+            written.object.number,
+            written.object.generation,
+            super::as_drawn::spelled(&written.run),
+            super::as_drawn::spelled(&written.number),
+        );
+    }
+    if out.len() > MOST_STATEMENT_BYTES {
+        return Err(STATEMENT_TOO_LONG);
+    }
+    Ok(())
+}
+
 /// What a row whose statement is its first step says was tried: nothing.
 static NOTHING_TRIED: Statement = Statement {
     before: None,

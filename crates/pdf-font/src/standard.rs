@@ -331,9 +331,9 @@ pub fn supplied_face(
 pub fn program_format(program: &[u8]) -> Option<Format> {
     match program.get(..4)? {
         b"\x00\x01\x00\x00" | b"true" | b"OTTO" => Some(Format::Sfnt),
-        // Adobe Technical Note #5176: major 1, minor 0, then the header size and the offset
-        // size, both of which are at least one byte.
-        [1, 0, header, offsets] if *header >= 4 && (1..=4).contains(offsets) => {
+        // Adobe Technical Note #5176: major 1, then the minor version — which section 6 makes
+        // a compatible change, so it is not asked — the header size and the offset size.
+        [1, _, header, offsets] if *header >= 4 && (1..=4).contains(offsets) => {
             Some(Format::BareCff)
         }
         _ => None,

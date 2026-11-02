@@ -45,6 +45,14 @@ file with documents/alone per profile and target, the order in which building th
 and the documents behind each remedy (section 9 below is that last table). The attachment census of
 section 6 is `quorra-transform attachments <file> --list` over the same 1478 files.
 
+With `QUORRA_CENSUS_OUTPUTS=<empty directory>` the census keeps every output it writes, and
+`python3 -I -B tools/verapdf-census.py <directory>` puts each through veraPDF at the flavour it was
+written for and prints every rule veraPDF fails on an output this tree wrote as conforming, by rule
+and by document (ADR 2652); `tools/state.sh archive` prints its two count lines.
+Two disagreements found outside it, to weigh in batch 132 (ADR 2652 section 2):
+- 6.2.2: veraPDF reads the run `33600.272.58` as no operator where this tree's fence names it one; §7.3.3 makes it an operator token, so the standard reads for this tree, provisionally.
+- 6.2.11.4.1 on `178360`'s `ICLJGJ+Glypha` was no disagreement: the 1009-byte `Type1C` program holds no `0x00` byte where a CFF's header and Name INDEX hold several, its Name INDEX counts 8193 names in the bytes of one, and this tree now fails it as veraPDF does and substitutes it (ADR 2636 decision 5); `178360` passes veraPDF at 2b and 4.
+
 | census line, with the pack | converted | conforming | refused | unreadable | declined as a source |
 |---|---|---|---|---|---|
 | pdf.js `as-if-printed` 2b | 804 | 2 | 149 | 11 | 10 |
@@ -206,6 +214,13 @@ in encrypted charstrings (2 — decrypt, restate, re-encrypt), a restatement tha
 (1), a Type 0 font with no descendant (1 — the photograph), and one refusal naming no font to
 restate (1, a defect). Builds only; no owner word.
 
+**A cut font program** (built, ADR 2636): a program whose decode stops short and that this reader
+cannot load takes the unembedded route; `issue11651`, `435321` (2b and 4) and `268346` (4) are freed
+and pass veraPDF. A `FlateDecode` refused outright or disowned by its Adler-32 is cut too;
+bytes that decode whole and are not a program in the format they are filed under are too (decision
+5): `178360` converts with `ICLJGJ+Glypha` substituted as well and passes veraPDF at 2b and 4; `F001u_3_7j`'s front loads whole and is
+refused by name — writing the stream whole is the remedy it waits for.
+
 ## 4. Colour and graphics
 
 **R02 — `image-smoothing`** (43 documents at every census line; alone in 41 at 2b, 39 at 4 — the
@@ -272,6 +287,13 @@ viewer shows and carries `optional-content-of-photographed-pages`, the groups it
 the state drawn, under `as-if-printed` and `state-every-loss` at 2b and part 4; Level A and Level U
 keep the refusal (A717, ADR 2576). Where that page also holds content this reader does not draw
 whole, the refusal is that one's, and the photograph waits for the fence to name it.
+An operator that is a run of regular characters §7.3.3 spells as no number, and that this reader
+draws as the number on its front (`33600.272.58`, `454` and a damaged byte; ADR 1004), is the one
+answer here that edits a content stream, and only the run: where every unlisted operator in the
+document is such a run, each is written as the number the window draws, loss `content-as-drawn`,
+under `as-if-printed`, `as-shown` and `state-every-loss` (whose page names each run), and the page
+keeps its text (ADR 2638). `509284` keeps one page photographed of five: its page 2 holds a stray
+`)`, which is no run.
 Mitigations section 4.7; limits 5.2.
 
 **R04 — a resource the content stream names and its dictionary does not hold** (22 documents;
@@ -395,6 +417,9 @@ row is 4 per profile and target (ADRs 2534 and 2535). The families, by cause:
 | The checker accepted `Differences` names `uniXXXX`, `_` ligatures and `.suffix` variants through `encoding::text_for`, the Adobe Glyph List Specification's *algorithm*, where ISO 19005-2 6.2.11.6 asks for names the 2002 list itself lists | `issue6961`, `bug1132849`, `issue6068`, `issue6889`, `issue6894` | fixed in the checker: `encoding::is_listed` is the row test, and the five are refused under ADR 2520's restatement (ADR 2540) |
 | The rows of 6.2.11.4.1 (every glyph shown is in the program) and 6.2.11.5 (its width agrees) still reach a `uniXXXX` glyph through the reader's lenient name mapping, where the clause's own mapping of a non-symbolic TrueType font (6.2.11.6's) finds none; veraPDF fails such a file at all three | a planted `/uni00A7` in place of `/section`: this tree fails it at 6.2.11.6 alone | open, owed: the two rows to resolve a name as 6.2.11.6 does (ADR 2540 section 5) |
 | A crypt filter and an embedded file that is not itself PDF/A, both still failing after their decisions | `auth-event-ef-open` (part 4) | open |
+| A photographed page's `/Contents` names the object the final revision reuses as the catalog's `/Metadata`, and the hexadecimal-digit repair and the `/Lang` respelling rewrote it as a content stream, breaking the packet and the identification edit with it | `064034` | fixed: a stream only photographed pages name is no content stream of the output, and both rewrites leave it (ADR 2640 section 1) |
+| Two fonts share one descriptor and one CFF program whose widths only one of them agrees with, and the restatement for the other was written over the shared program | `507618` | fixed: the program is restated in a copy, with a copied descriptor naming it, where another font's widths would break in place (ADR 2640 section 2) |
+| The second conversion's statement page was not in the report, which named only the first pass's | none in the corpora: no document reaches a second-pass photograph | fixed: the report's one statement names both passes' pages (ADR 2640 section 3) |
 
 `0004-637X_751_2_90` is a CFF witness (`/FontFile3 /Type1C`, a CMR10 subset whose glyph 61 is 776.89 wide against
 `/Widths` 778): the CFF width reader rounded to whole units and read 777, inside the tolerance, while veraPDF fails

@@ -24,7 +24,7 @@ use pdf_archive::report::Outcome;
 use pdf_archive::survey::Survey;
 
 /// The operator row, whose pages the survey names exactly.
-const OPERATORS: &str = "graphics/only-operators-the-base-standard-defines";
+pub(super) const OPERATORS: &str = "graphics/only-operators-the-base-standard-defines";
 
 /// The rows a page's content stream fails and that nothing repairs on the page, besides
 /// [`OPERATORS`] (ISO 19005-2 section 6.2.2, ISO 19005-4 section 6.2.2): an inline image's
@@ -54,24 +54,27 @@ pub(super) struct Fenced {
 /// The pages each failed fenced row holds a fault on.
 ///
 /// A row whose pages are not all known is absent from every value, so the requirement keeps the
-/// refusal it had.
-pub(super) fn pages(input: &Report, survey: &Survey) -> Fenced {
+/// refusal it had. Where `runs_written` holds, `super::as_drawn` wrote the number this reader
+/// draws in place of every run it salvages, so an operator that is such a run holds no page: its
+/// page converts as text (`doc/adr/2638`).
+pub(super) fn pages(input: &Report, survey: &Survey, runs_written: bool) -> Fenced {
     let mut found = Fenced::default();
     for judgement in input.failures() {
         let Some(row) = ROWS.iter().copied().find(|row| *row == judgement.id) else {
             continue;
         };
         let pages: BTreeSet<usize> = if row == OPERATORS {
-            for unlisted in survey.unlisted_operators() {
+            let unwritten = || {
+                survey.unlisted_operators().iter().filter(|unlisted| {
+                    !(runs_written && super::as_drawn::is_drawn_as_a_number(&unlisted.spelling))
+                })
+            };
+            for unlisted in unwritten() {
                 found
                     .operators
                     .insert(String::from_utf8_lossy(&unlisted.spelling).into_owned());
             }
-            survey
-                .unlisted_operators()
-                .iter()
-                .map(|unlisted| unlisted.page)
-                .collect()
+            unwritten().map(|unlisted| unlisted.page).collect()
         } else {
             let Outcome::Failed { places, total } = &judgement.outcome else {
                 continue;

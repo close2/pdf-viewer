@@ -191,10 +191,49 @@ pub struct SubstitutedFont {
     /// embedded program, which `doc/questions/A48` allows on condition that each is reported and
     /// recorded (`doc/adr/2458`).
     pub empty_glyphs: Vec<u8>,
+    /// The program the file held only the front of, which this substitution dropped, where the
+    /// font had one (`doc/adr/2636`).
+    pub cut_program: Option<CutProgram>,
     /// The font this entry substituted, as a content stream's lookup finds it — its object, or
     /// its dictionary where a resource dictionary states it directly — so that an entry whose
     /// font no object of the output holds is not reported (`doc/adr/2454`).
     pub(crate) font: Outcome,
+}
+
+/// A font program the file does not hold whole — its decode stops short of the data its filters
+/// describe, or it decodes whole and is not a program in the format it is filed under — dropped
+/// so that a face takes the font's place (`doc/adr/2636`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CutProgram {
+    /// The descriptor key the program stood under: `FontFile`, `FontFile2` or `FontFile3`.
+    pub key: &'static str,
+    /// Where the decode stopped — [`pdf_syntax::filter::Damage::Truncated`],
+    /// [`pdf_syntax::filter::Damage::Corrupt`] or [`pdf_syntax::filter::Damage::CheckValue`] —
+    /// or `None` where it decoded whole and this reader's parse of the program's format refused
+    /// the bytes ([`pdf_archive::program_unparsed`]).
+    pub damage: Option<pdf_syntax::filter::Damage>,
+}
+
+impl CutProgram {
+    /// What was dropped and why, in one clause, for the report and for the file's own
+    /// `xmpMM:History` alike.
+    #[must_use]
+    pub fn describe(self) -> String {
+        match self.damage {
+            Some(damage) => format!(
+                "its {} stream's data does not decode whole ({damage:?}), so the file held only the \
+                 front of its program, which ISO 32000-2 section 9.9 does not count as embedded; \
+                 that front was removed, and this reader drew none of its glyphs",
+                self.key
+            ),
+            None => format!(
+                "its {} stream's data decodes whole and is not a program in the format it is filed \
+                 under, which ISO 32000-2 section 9.9 does not count as embedded; those bytes were \
+                 removed, and this reader drew none of its glyphs",
+                self.key
+            ),
+        }
+    }
 }
 
 /// What an empty glyph given in place of `.notdef` is, in one clause naming the codes and the
@@ -439,6 +478,9 @@ pub(super) struct Metrics {
     pub(super) horizontal: BTreeSet<ObjectId>,
     /// The programs whose `/DW2` or `/W2` disagreement was answered.
     pub(super) vertical: BTreeSet<ObjectId>,
+    /// The dictionaries whose `/FontDescriptor` now names a copy of the descriptor they shared,
+    /// each with that copy and the restated program it names, both among [`Self::written`].
+    pub(super) descriptors: BTreeMap<ObjectId, (ObjectId, ObjectId)>,
     /// What was done, per font.
     pub(super) done: Vec<RestatedFont>,
 }
@@ -586,12 +628,26 @@ pub(super) fn restate_metrics(
         let mut stream = program_stream(Some(&stream.dict), &restated, embedded.length1)
             .ok_or(Because::NotBuiltYet(PROGRAM_NOT_ENCODED))?;
         notices::attach(document, &bytes, &mut stream, spare, &mut metrics.written)?;
-        metrics.at.insert(embedded.at, stream);
+        // **A program another font shares is restated in a copy where restating it in place would
+        // change what the other font draws**: §9.6.3's widths of the other dictionary agreed with
+        // the program as it was, and ISO 19005-2 section 6.2.11.5 would fail them against the new
+        // advances. The copy is this font's own descriptor and program, the file's own objects
+        // with the advances restated, so nothing a page shows is new (`doc/adr/2640`).
+        let shares = metrics.at.contains_key(&embedded.at)
+            || another_font_differs(
+                document, survey, used, &embedded, &widths, &heights, &metrics,
+            );
+        let at = if shares {
+            copy_on_write(document, used, &embedded, stream, spare, &mut metrics)?
+        } else {
+            metrics.at.insert(embedded.at, stream);
+            embedded.at
+        };
         if !widths.is_empty() {
-            metrics.horizontal.insert(embedded.at);
+            metrics.horizontal.insert(at);
         }
         if !heights.is_empty() {
-            metrics.vertical.insert(embedded.at);
+            metrics.vertical.insert(at);
         }
         metrics.done.push(RestatedFont {
             resource: used.name.clone(),
@@ -600,10 +656,104 @@ pub(super) fn restate_metrics(
             heights: heights.len(),
         });
     }
-    if metrics.at.is_empty() {
+    if metrics.at.is_empty() && metrics.descriptors.is_empty() {
         return Err(Because::NotBuiltYet(NO_PROGRAM_TO_RESTATE));
     }
     Ok(metrics)
+}
+
+/// Whether a font other than `used` draws from the same program and states, for a glyph it shows,
+/// an advance the restated `widths` or `heights` contradict.
+///
+/// A font that cannot be read is counted as one that differs: whether restating the program in
+/// place would break it is then unknown, and the copy costs two objects where the guess could
+/// cost the other font its agreement.
+fn another_font_differs(
+    document: &Document,
+    survey: &Survey,
+    used: &SelectedFont,
+    embedded: &Embedded,
+    widths: &BTreeMap<u16, f32>,
+    heights: &BTreeMap<u16, f32>,
+    metrics: &Metrics,
+) -> bool {
+    survey.fonts().any(|other| {
+        let same = match (other.id, used.id) {
+            (Some(left), Some(right)) => left == right,
+            _ => other.name == used.name && other.dict == used.dict,
+        };
+        let redirected = holder_of(document, other)
+            .is_some_and(|holder| metrics.descriptors.contains_key(&holder));
+        let draws_from_it = descriptor_of(document, other)
+            .and_then(|descriptor| embedded_program(document, descriptor))
+            .is_some_and(|program| program.at == embedded.at);
+        if same || redirected || !draws_from_it {
+            return false;
+        }
+        let Some((font, _)) = own_program(document, other) else {
+            return true;
+        };
+        let contradicts = |stated: Result<BTreeMap<u16, (f32, Option<f32>)>, Because>,
+                           restated: &BTreeMap<u16, f32>| {
+            stated.map_or(true, |stated| {
+                stated.iter().any(|(glyph, (stated, _))| {
+                    restated
+                        .get(glyph)
+                        .is_some_and(|restated| disagrees(*stated, *restated))
+                })
+            })
+        };
+        (!widths.is_empty() && contradicts(shown_widths(&font, other), widths))
+            || (!heights.is_empty()
+                && font.is_vertical()
+                && contradicts(shown_heights(&font, other), heights))
+    })
+}
+
+/// Writes `stream` into a fresh object, with a copy of `used`'s descriptor naming it, and points
+/// the dictionary that names the descriptor at the copy; the program's own object is left to the
+/// fonts that still share it. Returns the fresh program's object.
+fn copy_on_write(
+    document: &Document,
+    used: &SelectedFont,
+    embedded: &Embedded,
+    stream: Object,
+    spare: &mut Spare,
+    metrics: &mut Metrics,
+) -> Result<ObjectId, Because> {
+    let not_copied = Because::NotBuiltYet(SHARED_PROGRAM_NOT_COPIED);
+    let holder = holder_of(document, used).ok_or(not_copied)?;
+    let descriptor = descriptor_of(document, used).ok_or(not_copied)?;
+    let mut copy = document
+        .get(descriptor)
+        .as_dict()
+        .cloned()
+        .ok_or(not_copied)?;
+    let key = ["FontFile2", "FontFile3"]
+        .into_iter()
+        .find(|key| copy.get(key).and_then(Object::as_reference) == Some(embedded.at))
+        .ok_or(not_copied)?;
+    let program = spare.take(document).ok_or(not_copied)?;
+    let copied = spare.take(document).ok_or(not_copied)?;
+    copy.insert(Name::new(key.as_bytes()), Object::Reference(program));
+    metrics.written.insert(program, stream);
+    metrics.written.insert(copied, Object::Dictionary(copy));
+    metrics.descriptors.insert(holder, (copied, program));
+    Ok(program)
+}
+
+/// The indirect dictionary that names a rendered font's descriptor: the font's own for a simple
+/// font, its one descendant's for a `Type0` (§9.7.6.2), where either is an indirect object.
+fn holder_of(document: &Document, used: &SelectedFont) -> Option<ObjectId> {
+    if name_of(document, &used.dict, "Subtype").as_deref() != Some("Type0") {
+        return used.id;
+    }
+    let array = document.get_key(&used.dict, "DescendantFonts");
+    document
+        .resolve(&array)
+        .as_array()?
+        .first()
+        .and_then(Object::as_reference)
 }
 
 /// Reads the rewritten program back, and refuses it unless every glyph named actually moved.
@@ -693,7 +843,7 @@ fn shown_widths(
             let stated = font.advance(code);
             match widths.entry(glyph) {
                 Entry::Vacant(slot) => {
-                    slot.insert((stated, font.program_advance(code)));
+                    slot.insert((stated, program_statement(font, code, stated)));
                 }
                 Entry::Occupied(held) if disagrees(held.get().0, stated) => {
                     return Err(Because::TheFence(TWO_WIDTHS_FOR_ONE_GLYPH));
@@ -703,6 +853,23 @@ fn shown_widths(
         }
     }
     Ok(widths)
+}
+
+/// The program's statement of a code's advance that the dictionary's `stated` is judged by.
+///
+/// `hmtx`'s, unless it agrees and an `OpenType` program's `CFF ` table states a width that does
+/// not: `pdf_archive`'s width rule asks both of the program's statements, so a glyph either
+/// disagrees with is one to restate, and [`pdf_font::restate::with_widths`] restates both.
+fn program_statement(font: &LoadedFont, code: Code, stated: f32) -> Option<f32> {
+    let program = font.program_advance(code)?;
+    if disagrees(stated, program) {
+        return Some(program);
+    }
+    Some(
+        font.program_charstring_advance(code)
+            .filter(|charstring| disagrees(stated, *charstring))
+            .unwrap_or(program),
+    )
 }
 
 /// Whether two statements of one advance are further apart than ISO 19005 allows.
@@ -827,6 +994,7 @@ fn embed_pass(
         defined,
     } = *routes;
     let mut substitutes = Substitutes::default();
+    let mut drawn_whole = false;
     // **The standard fourteen this conversion itself defined**, each an object of its own that
     // every definition of its name references: the face is embedded once for the name, from the
     // text drawn under it in every stream (`doc/adr/2522`).
@@ -842,9 +1010,21 @@ fn embed_pass(
         described::describe(document, &used, spare, &mut substitutes, target)?;
     }
     for (index, used) in survey.fonts().enumerate() {
-        if !used.rendered || !needs_a_program(document, &used.dict) {
+        if !used.rendered {
             continue;
         }
+        let cut = if needs_a_program(document, &used.dict) {
+            None
+        } else {
+            match cut_program(document, used) {
+                Shortfall::Cut(cut) => Some(cut),
+                Shortfall::DrawnWhole => {
+                    drawn_whole = true;
+                    continue;
+                }
+                Shortfall::None => continue,
+            }
+        };
         if substitutes.wrote_out(used) {
             continue;
         }
@@ -860,7 +1040,11 @@ fn embed_pass(
             continue;
         }
         if subtype == "Type0" {
+            let before = substitutes.done.len();
             composite::embed(document, used, spare, supplied, pack, &mut substitutes)?;
+            for entry in substitutes.done.iter_mut().skip(before) {
+                entry.cut_program = cut;
+            }
             continue;
         }
         let requested = base_font(document, &used.dict);
@@ -881,6 +1065,11 @@ fn embed_pass(
             .get("FontDescriptor")
             .and_then(Object::as_reference)
             .ok_or(Because::NotBuiltYet(DESCRIPTOR_NOT_AN_OBJECT))?;
+        // Every reading of the font from here on is of the font a cut program leaves: the
+        // descriptor's names and the dictionary's widths, and no program (`doc/adr/2636`). The
+        // writes go to the font and the descriptor the file holds.
+        let dropped = cut.map(|_| program_dropped(document, used));
+        let reading = dropped.as_ref().unwrap_or(used);
         // **The operator's face first, and only where the operator named one.** ISO 19005-2
         // section 6.2.11.4.1 admits a program that may lawfully be embedded for unlimited
         // universal rendering, which ISO 32000-2 §9.9.1 makes a fact about a licence — so it is
@@ -891,22 +1080,22 @@ fn embed_pass(
             Some((named, program)) => Face::Supplied(
                 pdf_font::standard::supplied_face(
                     document,
-                    &used.dict,
-                    &used.name,
+                    &reading.dict,
+                    &reading.name,
                     std::sync::Arc::clone(program),
                 )
                 .map_err(|_| Because::NotBuiltYet(SUPPLIED_FACE_NOT_READ))?,
                 named,
             ),
             None => Face::Shipped(
-                pdf_font::standard::shipped_face(document, &used.dict, &used.name)
+                pdf_font::standard::shipped_face(document, &reading.dict, &reading.name)
                     .map_err(|_| Because::NotBuiltYet(NO_SHIPPED_FACE_COVERS_IT))?,
             ),
         };
-        let (row, restated) = row_for(document, used, &subtype, &face)?;
-        let font = LoadedFont::load(document, &used.dict, &used.name)
+        let (row, restated) = row_for(document, reading, &subtype, &face)?;
+        let font = LoadedFont::load(document, &reading.dict, &reading.name)
             .map_err(|_| Because::NotBuiltYet(FONT_NOT_READ))?;
-        let (widths, route) = face_widths(&font, &face, used)?;
+        let (widths, route) = face_widths(&font, &face, reading)?;
         let program = if route == MetricRoute::FaceMetrics {
             face.program().to_vec()
         } else {
@@ -921,7 +1110,7 @@ fn embed_pass(
         // readers a caller holding nothing but bytes has.
         proves(&program, face.format(), &widths, &BTreeMap::new())?;
         if let Some(restatement) = &restated {
-            described::restatement_proved(document, used, restatement, &program)?;
+            described::restatement_proved(document, reading, restatement, &program)?;
         }
         let at = spare
             .take(document)
@@ -983,6 +1172,7 @@ fn embed_pass(
             losses,
             fitting,
             empty_glyphs: Vec::new(),
+            cut_program: cut,
             font: selected(used),
         });
         if !entries.is_empty() {
@@ -1003,7 +1193,11 @@ fn embed_pass(
         && substitutes.direct.is_empty()
         && substitutes.photographs.is_empty()
     {
-        return Err(Because::NotBuiltYet(NO_FONT_TO_EMBED));
+        return Err(Because::NotBuiltYet(if drawn_whole {
+            CUT_PROGRAM_DRAWN_WHOLE
+        } else {
+            NO_FONT_TO_EMBED
+        }));
     }
     Ok(substitutes)
 }
@@ -1288,14 +1482,92 @@ fn embedded_program(document: &Document, descriptor: ObjectId) -> Option<Embedde
     })
 }
 
+/// The dictionary that states a font's descriptor: a Type 0 font's descendant, or the font.
+fn descriptor_holder(document: &Document, dict: &Dictionary) -> Option<Dictionary> {
+    match name_of(document, dict, "Subtype").as_deref() {
+        Some("Type0") => descendant(document, dict),
+        _ => Some(dict.clone()),
+    }
+}
+
+/// Whether the program a rendered font's descriptor states is one the file holds only the front
+/// of, or one whose whole bytes are not a program in the format it is filed under, and for the
+/// first whether this reader draws from it all the same.
+///
+/// ISO 32000-2 §9.9 embeds a program "as data contained in a PDF stream object", and a decode
+/// that stops short has handed over the front of one: `fonts/font-programs-embedded` fails it as
+/// it fails a font that names none (`doc/adr/2619`), by the reading
+/// [`pdf_archive::program_stopping_short`] makes here too. So it is answered as that font is: the
+/// front is dropped and a face takes the font's place under the descriptor's names and the
+/// dictionary's widths (`doc/adr/2636`). Not where this reader draws the program whole all the
+/// same — a truncation reaching the extent §9.9's Table 125 states — because dropping it would
+/// change shapes the window drew, and writing the stream whole is a remedy of its own.
+fn cut_program(document: &Document, used: &SelectedFont) -> Shortfall {
+    let Some(descriptor) = descriptor_holder(document, &used.dict).and_then(|holder| {
+        document
+            .get_key(&holder, "FontDescriptor")
+            .as_dict()
+            .cloned()
+    }) else {
+        return Shortfall::None;
+    };
+    let Some((key, damage)) = pdf_archive::program_stopping_short(document, &descriptor) else {
+        // Bytes that decode whole and are not a program in the format they are filed under are
+        // no program either, and this reader draws none of them by the reading that finds them.
+        return pdf_archive::program_unparsed(document, &used.dict, &used.name)
+            .map_or(Shortfall::None, |(key, _)| {
+                Shortfall::Cut(CutProgram { key, damage: None })
+            });
+    };
+    if LoadedFont::load(document, &used.dict, &used.name).is_ok() {
+        Shortfall::DrawnWhole
+    } else {
+        Shortfall::Cut(CutProgram {
+            key,
+            damage: Some(damage),
+        })
+    }
+}
+
+/// What [`cut_program`] found of a rendered font's embedded program.
+enum Shortfall {
+    /// The decode did not stop short, or there is no program to decode.
+    None,
+    /// The decode stopped short, or the bytes are not a program in their format, and this reader
+    /// draws none of the program: the substitution's.
+    Cut(CutProgram),
+    /// The decode stopped short and this reader draws the program all the same: the refusal
+    /// [`CUT_PROGRAM_DRAWN_WHOLE`]'s.
+    DrawnWhole,
+}
+
+/// A simple font as it reads with its cut program dropped: the descriptor written into the font
+/// without §9.9's three keys, so that each reading of it loads the face a font naming no program
+/// is drawn from.
+fn program_dropped(document: &Document, used: &SelectedFont) -> SelectedFont {
+    let mut descriptor = document
+        .get_key(&used.dict, "FontDescriptor")
+        .as_dict()
+        .cloned()
+        .unwrap_or_default();
+    for key in ["FontFile", "FontFile2", "FontFile3"] {
+        descriptor.remove(key);
+    }
+    let mut dict = used.dict.clone();
+    dict.insert(
+        Name::new(&b"FontDescriptor"[..]),
+        Object::Dictionary(descriptor),
+    );
+    SelectedFont {
+        dict,
+        ..used.clone()
+    }
+}
+
 /// Whether a rendered font's descriptor states no program at all.
 fn needs_a_program(document: &Document, dict: &Dictionary) -> bool {
-    let holder = match name_of(document, dict, "Subtype").as_deref() {
-        Some("Type0") => match descendant(document, dict) {
-            Some(descendant) => descendant,
-            None => return false,
-        },
-        _ => dict.clone(),
+    let Some(holder) = descriptor_holder(document, dict) else {
+        return false;
     };
     let Some(descriptor) = document
         .get_key(&holder, "FontDescriptor")
@@ -1468,9 +1740,25 @@ const NO_PROGRAM_TO_RESTATE: &str = "no font in this document has an embedded pr
 const NO_FONT_TO_EMBED: &str = "no font a content stream renders in this document lacks an \
      embedded program";
 
+/// Why a program whose decode stops short is not dropped where this reader draws it all the same
+/// (`doc/adr/2636`).
+const CUT_PROGRAM_DRAWN_WHOLE: &str = "a font a content stream renders has an embedded program \
+     whose stream's data stops short of what its filter describes, so ISO 32000-2 section 9.9 \
+     does not count it as embedded; but the part the file holds is a program this reader \
+     loads and draws from, so dropping it for a substitute face would change the shapes this \
+     viewer shows, and writing the stream whole again is a remedy this version does not carry out";
+
 /// Why a program this tree cannot decode is not restated.
 const PROGRAM_NOT_DECODED: &str = "the embedded font program whose advances would have to be \
      restated could not be decoded from its stream, so there are no bytes to restate";
+
+/// Why a program another font shares is not restated where restating it in place would break
+/// that font and no copy can be written.
+const SHARED_PROGRAM_NOT_COPIED: &str = "this font's embedded program is shared with another \
+     font whose widths agree with it as it is, so restating it in place would make that font's \
+     widths disagree instead, and the copy this font would be given cannot be made: the \
+     dictionary naming its descriptor is not an indirect object, the descriptor does not name \
+     the program under FontFile2 or FontFile3, or no object number is free for the copy";
 
 /// Why a program whose advances are stated somewhere unreachable is not restated.
 const PROGRAM_NOT_RESTATABLE: &str = "this font's embedded program states a glyph's advance \

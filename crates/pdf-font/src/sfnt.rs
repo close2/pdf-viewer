@@ -785,6 +785,50 @@ pub(crate) fn without_tables(data: &[u8], dropped: &[[u8; 4]]) -> Option<Vec<u8>
     if kept.len() == tables.len() {
         return Some(data.to_vec());
     }
+    laid_out(data, &kept)
+}
+
+/// A copy of an sfnt with the named tables' bytes replaced, its directory and layout written
+/// afresh.
+///
+/// **Where [`rewritten_sfnt`] appends, this lays the file out again**, for a table whose old
+/// bytes are too many to leave behind unreferenced: an OpenType program's `CFF ` table is its
+/// every outline, so appending a restated one would carry the program twice. Each other table's
+/// bytes are copied unchanged, and [`checksummed`] restates every checksum over the new layout.
+///
+/// `None` where the bytes are not an sfnt this can take apart or a replacement names a table the
+/// program does not have, which a caller asked to restate is told rather than handed a program
+/// that gained a table.
+pub(crate) fn with_tables(data: &[u8], replacements: &[(&[u8; 4], Vec<u8>)]) -> Option<Vec<u8>> {
+    let tables = sfnt_tables(data)?;
+    if replacements
+        .iter()
+        .any(|(tag, _)| !tables.contains_key(tag.as_slice()))
+    {
+        return None;
+    }
+    let kept: Vec<(&[u8], &[u8])> = tables
+        .iter()
+        .map(|(tag, &(at, length))| {
+            let replaced = replacements
+                .iter()
+                .find(|(named, _)| named.as_slice() == tag.as_slice())
+                .map(|(_, bytes)| bytes.as_slice());
+            let bytes = match replaced {
+                Some(bytes) => bytes,
+                None => data.get(at..at.checked_add(length)?)?,
+            };
+            Some((tag.as_slice(), bytes))
+        })
+        .collect::<Option<_>>()?;
+    laid_out(data, &kept)
+}
+
+/// The tables given, in the order given, as one sfnt with the version `data` states.
+///
+/// The directory is the tables' own: [`sfnt_tables`] hands them over sorted by tag, which is the
+/// order ISO/IEC 14496-22 requires of the records. Every table begins on a four-byte boundary.
+fn laid_out(data: &[u8], kept: &[(&[u8], &[u8])]) -> Option<Vec<u8>> {
     let count = u16::try_from(kept.len()).ok()?;
     if count == 0 {
         return None;
@@ -801,7 +845,7 @@ pub(crate) fn without_tables(data: &[u8], dropped: &[[u8; 4]]) -> Option<Vec<u8>
     out.extend_from_slice(&count.checked_mul(16)?.checked_sub(search)?.to_be_bytes());
     let mut at = 12usize.checked_add(usize::from(count).checked_mul(16)?)?;
     let mut body: Vec<u8> = Vec::new();
-    for (tag, bytes) in &kept {
+    for (tag, bytes) in kept {
         out.extend_from_slice(tag);
         // The checksum is written as zero and restated below, over the layout this is building.
         out.extend_from_slice(&[0; 4]);
@@ -878,6 +922,24 @@ fn words(data: &[u8], at: usize, length: usize) -> Option<u32> {
         sum = sum.wrapping_add(u32::from_be_bytes(word));
     }
     Some(sum)
+}
+
+/// Whether every checksum the program states is the one [`checksummed`] would write.
+///
+/// The read-back half of [`checksummed`], and asked as that function's fixed point rather than
+/// as a second summation: a producer's file whose `head` is not on the four-byte boundary
+/// ISO/IEC 14496-22 requires puts `checkSumAdjustment` across two of the whole file's words,
+/// and only the arithmetic [`checksummed`] used reproduces the number it wrote there. A program
+/// this tree restated and that fails here was restated wrongly, and is refused by its caller
+/// rather than handed to a reader.
+pub(crate) fn checksums_hold(data: &[u8]) -> bool {
+    checksummed(data.to_vec()).is_some_and(|again| again == data)
+}
+
+/// The bytes of one table, found by its tag; `None` where the program states no such table.
+pub(crate) fn table(data: &[u8], tag: [u8; 4]) -> Option<&[u8]> {
+    let &(at, length) = sfnt_tables(data)?.get(tag.as_slice())?;
+    data.get(at..at.checked_add(length)?)
 }
 
 /// The `head` table's `unitsPerEm`, which is the scale every metric an sfnt states is in.

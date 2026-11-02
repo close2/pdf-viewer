@@ -2224,3 +2224,20 @@ negative size. The artifact replayed at a different root — an offset of −48 
 `at > -1` admitted — and the negative size was a second, separate fault. A brief's sentence about a fuzz
 stop is a guess about its root; the artifact is replayed with the current binary and decoded at the panic
 site before any fix is designed, and each fix is credited only with the artifacts it clears.
+
+### 314. "No render path calls this" is a premise to grep
+
+Round 1907 (ADRs 2648, 2649) changed two functions of the CFF writer that round 1897's record had placed off
+every render path. `cff::readable_font_dicts` calls both while a font loads (`loading.rs:470`), so the six
+arms and `raster_golden` were owed, and were run: no pixel moved, which is a result and not a presumption. A
+sentence in a record or a brief saying a change cannot reach the screen is a claim about the call graph;
+`grep -rn` for each changed function across `crates/` is read before any pixel gate is left out, and the
+gates are run when the grep names a loading or drawing path.
+
+### 315. A census is not a clock figure
+
+Round 1901's third session passed `--clock` to a PDF/A census and waited twenty-three minutes for the
+lane the clock-flagged runs share, while round 1909's `--long` veraPDF walk waited about forty-five minutes
+at the head of lane 2 behind runs flagged the same way. A census counts documents; its elapsed time is a
+line in its log and never a band. It runs under `tools/bounded.sh --lock --tree 6` without `--clock`, so the
+clock lane stays for `launch_path`, `turn_path` and the other gates whose figures a band judges.

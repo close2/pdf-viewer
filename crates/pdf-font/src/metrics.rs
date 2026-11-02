@@ -414,6 +414,31 @@ pub(crate) fn program_advance(program: Program, data: &[u8], glyph: u16) -> Opti
     }
 }
 
+/// One glyph's advance as an `OpenType` program's `CFF ` table states it, in ems.
+///
+/// An sfnt with PostScript outlines states each advance twice — in `hmtx`, which
+/// [`program_advance`] reads, and as the leading width of the glyph's Type 2 charstring in the
+/// `CFF ` table (Adobe Technical Note #5177 section 3.1) — and the second is in the table's own
+/// scale, its `FontMatrix`, which need not be the reciprocal of `head`'s `unitsPerEm`. So this
+/// answers in ems rather than in units a caller would divide by the wrong em.
+///
+/// `None` for every other program — a `glyf` sfnt, a bare CFF whose charstrings
+/// [`program_advance`] already reads, a Type 1 program — and for a glyph the table's charstrings
+/// cannot be evaluated for, which is a fact about this reader.
+pub(crate) fn program_charstring_advance(program: Program, data: &[u8], glyph: u16) -> Option<f32> {
+    if program != Program::Sfnt {
+        return None;
+    }
+    let table = crate::sfnt::table(data, *b"CFF ")?;
+    let units = cff::units_per_em(table).ok().filter(|units| *units > 0.0)?;
+    let width = cff::advances(table, &[glyph])
+        .ok()?
+        .first()
+        .copied()
+        .flatten()?;
+    Some(width / units)
+}
+
 /// One glyph's advance *height* as the embedded program states it, in the program's own units.
 ///
 /// OpenType's `vmtx` is the program-side counterpart of §9.7.4.3's `w1` for a font shown in

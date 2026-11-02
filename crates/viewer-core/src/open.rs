@@ -227,6 +227,10 @@ pub(crate) struct Open {
     /// crossing an activation region and say nothing about appearances, so an annotation with
     /// one `/AP` and an `/AA /E` still raises the event.
     pub(crate) inside: Option<ObjectId>,
+    /// Which annotation the pointer is over whatever the button, for a hybrid form's
+    /// `mouseEnter` and `mouseExit` (XFA 3.3 page 391), which follow the pointer with a button up
+    /// or down where `inside` is held back by §12.6.3's first constraint (ADR 2647).
+    pub(crate) hovered: Option<ObjectId>,
     /// Which widget holds the input focus, for §12.6.3's `/Fo` and `/Bl`.
     ///
     /// **A press inside a widget's active area gives it the focus, and a press anywhere else
@@ -964,6 +968,7 @@ impl Open {
             pressed: None,
             pressed_on: None,
             inside: None,
+            hovered: None,
             focus: None,
             importing: None,
             resuming: None,

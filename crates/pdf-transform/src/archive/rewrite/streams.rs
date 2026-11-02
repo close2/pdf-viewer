@@ -107,6 +107,14 @@ impl Rewriter<'_> {
             count(applied, Rewrite::HexadecimalDigitCompleted);
             return Rewritten::Changed(repaired);
         }
+        // The same shape once more: the stream written with the number this reader draws in place
+        // of each run it salvages. `super::super::as_drawn` refuses a stream either repair above
+        // also rewrites, so no stream reaching here carries two (`doc/adr/2638`).
+        if self.wants(Rewrite::RunWrittenAsDrawn)
+            && let Some(drawn) = self.as_drawn.and_then(|drawn| drawn.at.get(&id))
+        {
+            return Rewritten::Changed(drawn.clone());
+        }
         // **Five writers over one packet, and the last of them is what carries the others'
         // work.** `super::super::prepare` folds the replacement into the bytes the header cut starts
         // from, those into the property removal's, those into the container respelling's, those

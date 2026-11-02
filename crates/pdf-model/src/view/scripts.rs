@@ -497,6 +497,9 @@ pub(super) struct Before {
     imported: Option<Import>,
     /// Whether a reset had named it.
     reset: bool,
+    /// The widget's value as a script reads it, which an XFA form's `change` event offers as
+    /// `$event.prevText` (XFA 3.3 page 400).
+    shown: Option<String>,
 }
 
 /// What committing a field did.

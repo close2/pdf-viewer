@@ -19,9 +19,13 @@
 //!   child of it is that child (page 90's basic references); `resolveNode` and `resolveNodes`
 //!   (page 107) take a SOM expression in a string. Anything else on a container — `value`, which is
 //!   a node and not its value (page 107's note), `formattedValue`, `presence` — is refused by name.
-//! - `xfa` and its synonym `$xfa` (page 414) offer `resolveNode` and `resolveNodes` and refuse
-//!   every other member — the DOMs, `xfa.host`, `xfa.event` — by name. A qualified reference other
+//! - `xfa` and its synonym `$xfa` (page 414) offer `resolveNode`, `resolveNodes` and `event`, and
+//!   refuse every other member — the DOMs, `xfa.host` — by name. A qualified reference other
 //!   than `$` (`$form`, `$data`) is the host's to refuse, which says so in its own sentence.
+//! - `$event` and `xfa.event` (pages 398–404) are the event the script runs under: each property
+//!   is a question to the host, as a path `$event.<property>` is for `FormCalc`, so the host
+//!   decides what the event set, what a script may write (page 399) and what it refuses; `target`
+//!   is the container the activity happened on (ADR 2646).
 //!
 //! **The value of a calculation** (page 379 evaluates the script as a function and assigns its
 //! return value) is the script's completion value, which for a script
@@ -408,7 +412,79 @@ fn install(context: &mut Context) -> JsResult<()> {
         .build(context)?;
     context.register_global_property(js_string!("xfa"), xfa.clone(), Attribute::READONLY)?;
     context.register_global_property(js_string!("$xfa"), xfa, Attribute::READONLY)?;
+    let event = JsProxy::builder(JsObject::with_null_proto())
+        .get(event_get)
+        .set(event_set)
+        .build(context)?;
+    context.register_global_property(js_string!("$event"), event, Attribute::READONLY)?;
     Ok(())
+}
+
+/// The node the property `name` of `$event` is, as the host answers the path `$event.<name>`.
+fn event_property(name: &str, context: &mut Context) -> JsResult<u32> {
+    if name.len() > MAX_NAME_BYTES {
+        return Err(refuse(
+            format!("$event: a property name past {MAX_NAME_BYTES} bytes"),
+            context,
+        ));
+    }
+    let path = [
+        Step {
+            name: "$event".to_owned(),
+            occurrence: Occurrence::Same,
+        },
+        Step {
+            name: name.to_owned(),
+            occurrence: Occurrence::Same,
+        },
+    ];
+    let host = Rc::clone(&run_of(context)?.host);
+    let found = host
+        .resolve(None, &path)
+        .map_err(|why| refuse(why, context))?;
+    match found.first() {
+        Some(node) => Ok(*node),
+        None => Err(refuse(format!("$event.{name}: names nothing"), context)),
+    }
+}
+
+/// `get` of `$event` (XFA 3.3 pages 398–404): `target` as the container it is, any other property
+/// as the value the host holds for it.
+fn event_get(_: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let Some(name) = args.get(1).and_then(key_name) else {
+        return Ok(JsValue::undefined());
+    };
+    let node = event_property(&name, context)?;
+    if name == "target" {
+        return Ok(node_object(node, context)?.into());
+    }
+    let host = Rc::clone(&run_of(context)?.host);
+    let value = host
+        .value(node)
+        .map_err(|why| refuse(format!("$event.{name}: {why}"), context))?;
+    Ok(js_value(value))
+}
+
+/// `set` of `$event`: the host stores what page 399 lets a script write and refuses the rest;
+/// `target` is the container, which is never replaced.
+fn event_set(_: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let name = args.get(1).and_then(key_name).unwrap_or_default();
+    if name == "target" {
+        return Err(refuse(
+            "$event.target: read-only, since a script may write only change, selStart, selEnd and \
+             cancelAction (XFA 3.3 page 399)"
+                .to_owned(),
+            context,
+        ));
+    }
+    let node = event_property(&name, context)?;
+    let value = args.get(2).cloned().unwrap_or_default();
+    let value =
+        scalar(&value, context).map_err(|why| refuse(format!("$event.{name}: {why}"), context))?;
+    let host = Rc::clone(&run_of(context)?.host);
+    host.assign(node, value)
+        .map_err(|why| refuse(why, context))?;
+    Ok(true.into())
 }
 
 /// The container a naked reference names, asked once a run, or `None`.
@@ -645,10 +721,11 @@ fn xfa_get(_: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsV
     match name.as_str() {
         "resolveNode" => Ok(method(context, "resolveNode", resolve_node).into()),
         "resolveNodes" => Ok(method(context, "resolveNodes", resolve_nodes).into()),
+        "event" => context.global_object().get(js_string!("$event"), context),
         _ => Err(refuse(
             format!(
                 "xfa.{name}: not in the object model this reader offers a form's JavaScript, \
-                 which is resolveNode, resolveNodes and the form's own containers"
+                 which is resolveNode, resolveNodes, event and the form's own containers"
             ),
             context,
         )),

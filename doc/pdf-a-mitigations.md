@@ -1212,15 +1212,22 @@ ISO 19005-2 6.2.10, ISO 19005-4 6.2.9 · all six / part 4 · **array half built 
 
 #### `graphics/only-operators-the-base-standard-defines`
 ISO 19005-2 6.2.2, ISO 19005-4 6.2.2 · all six · today `the-fence`; under `as-if-printed` at 2b
-and every part 4 flavour, the page is photographed (the loss `page-as-image`, ADR 2516)
+and every part 4 flavour, the page is photographed (the loss `page-as-image`, ADR 2516); **built**
+(`Mechanical`, the loss `content-as-drawn`, ADR 2638) where every such operator is a run this reader
+draws as a number
 
 - **Mitigation** — **none on the page** — under `as-if-printed` the page itself is photographed,
   and the content stream that carried the operator is no longer in the output. Removing an operator
   edits the producer's page. `A50`'s one exception —
   a closed list of spellings the standard documents as equivalent — does not reach an operator the
-  standard does not define at all.
+  standard does not define at all. **One case is on the page**: a run §7.2.3 makes one token and
+  §7.3.3 spells as no number, whose front this reader draws as a number because its tail names no
+  operator (ADR 1004), is written as that number, the producer's operators around it untouched; the
+  marks are the ones the window drew, the characters after the number are the loss
+  `content-as-drawn`, and a document holding any other unlisted operator keeps the answer above.
 - **By target** — none.
-- **From a configuration** — nothing.
+- **From a configuration** — `content-as-drawn`, which `as-if-printed`, `as-shown` and
+  `state-every-loss` take at this site.
 - **What the real corpora hold** (ADR 2294): every one of the 33 `doc/corpora` documents it refuses
   is a damaged content stream rather than a producer's extension — 28 from the format corpus's
   `govdocs1-error-pdfs`, four hand-built malformed tests and one JHOVE error file — whose spellings
@@ -1325,6 +1332,13 @@ widths are the viewer's, **built** (`doc/questions/A47`, `A566`, `A687`, ADRs 12
 - **A font written directly inside its resource dictionary** is written out as an object of its
   own holding what it gains, and a reference stands where it stood; §7.3.10 makes the two spellings
   equivalent, and equal dictionaries share the one object (ADR 2162).
+- **A font whose embedded program stops short** (ADR 2619's reading) and that this reader cannot
+  load is a font naming no program: the `/FontFile*` entry is dropped and the font takes the route
+  above under the descriptor's names and the font's widths, under the same losses, the report and
+  `xmpMM:History` naming the cut program. One whose front this reader loads whole is refused by its
+  own sentence, since dropping it would change what the window drew (ADR 2636). A `FlateDecode`
+  refused outright or disowned by its Adler-32, and bytes that decode whole and are not a program in
+  the format their key and `/Subtype` file them under, take the same route (ADR 2636 decisions 4, 5).
 - **A font this machine draws from a face of its own** (ADR 0270, or a TrueType name
   `substitute::find` matches to an installed face) takes the shipped face where that face has a
   glyph for every code the pages show: every mark kept at its width, the shapes changed — the loss

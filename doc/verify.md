@@ -990,17 +990,20 @@ cd fuzz && cargo +nightly fuzz run cff_write    -- -max_total_time=600 -rss_limi
   # advance asked for, and every other glyph's as it was. Seeded by `fuzz/seeds.sh` through
   # `fuzz/seed_streams.py` with every embedded `/Type1C` program, one of each header and length.
 cd fuzz && cargo +nightly fuzz run type1_write  -- -max_total_time=600 -rss_limit_mb=3072 -timeout=30
-  # The writer that grows a simple font's Type 1 program by glyphs for its codes on `.notdef` (ADR
-  # 2620): the `eexec` section decrypted and written again with `.notdef`'s charstring under each new
-  # name, the glyphs after the program's own in order, the lengths dividing what was written, the
+  # The writer that grows a simple font's Type 1 program by glyphs for its codes on `.notdef` (ADRs
+  # 2620, 2650): the `eexec` section decrypted and written again with `.notdef`'s charstring under
+  # each new name, the glyphs after the program's own in order, the lengths dividing what was
+  # written, the header copied but for a carriage return after `eexec` written as a line feed, the
   # answer a function of the bytes, and the program written one the writer extends again. Seeded by
   # `fuzz/seeds.sh` through `fuzz/seed_streams.py` with every embedded program stating `/Length2`,
   # one of each opening and length.
 cd fuzz && cargo +nightly fuzz run policy_document -- -max_total_time=600 -rss_limit_mb=2048 -timeout=20
   # §12.8.3.4.4's stored signature policy document under TR 102 272's and TS 119 172-3's ASN.1 and
   # TS 119 172-2's XML (ADR 2604): the one reader that accepts a document is the one `Syntax::of`
-  # names, and the findings judged from it are a function of the bytes. Seeded by `fuzz/seeds.sh`
-  # through `fuzz/seed_policy_document.py`, one document per rule kind and per syntax.
+  # names, and the findings judged from it are a function of the bytes; an XML policy's components
+  # canonicalised by Canonical XML 1.0 in both forms (ADR 2644) give one form each time, and that
+  # form canonicalised again is itself. Seeded by `fuzz/seeds.sh` through
+  # `fuzz/seed_policy_document.py`, one document per rule kind, per syntax and per inclusive method.
 cd fuzz && cargo +nightly fuzz run jpeg_bands   -- -max_total_time=600 -rss_limit_mb=2048 -timeout=20
   # §7.4.8's frames cut into bands at their restart intervals (ADR 1433) and at an entropy pass's
   # rows (ADR 1481), each against the whole frame's decoder through `pdf_model::image::

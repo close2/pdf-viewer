@@ -1037,3 +1037,55 @@ the plant and its reversal — went through the generator and was re-run, and a 
 against the previous run showed exactly the intended lines. A mechanical split or move produced by script
 is never hand-edited afterwards; the generator carries the change, and its diff is the proof that nothing
 else moved.
+
+## A new loss variant costs eleven struct literals
+
+Round 1902 (ADR 2638) added `Loss::ContentAsDrawn` and widened eleven `Authorisations` literals in
+`tests/archive.rs` before anything of the remedy could compile, and the worktree's test crate was red for
+its siblings until it did. A slot that adds a `Loss` variant counts those literals in its size, lands them
+in one edit, and runs `cargo check -p pdf-transform --tests` before any other file is touched.
+
+## A fuzz property accepts the old and the new behaviour so a revert shows the defect
+
+Round 1908 (ADR 2650) first wrote the `type1_write` header property to require the line feed its fix writes
+after `eexec`; with the fix reverted, the five findings failed on the property instead of the defect. A
+property that fences the fix proves nothing about the fault. The property accepts either byte, so that
+reverting the fix makes the findings fail on "written again", the defect itself.
+
+## Every serialiser over a lenient tokenizer gets a fixed-point fuzz property
+
+Round 1905 (ADR 2644) gave the canonicaliser's fuzz target the property "the output canonicalised again is
+itself", and the second run found a processing instruction `<?xml<?…` whose canonical form read back as a
+misplaced declaration — a leniency of the tokenizer no unit test had asked about. A serialiser whose
+reader is lenient carries a fixed-point property from its first fuzz run.
+
+## When a row leaves the by-name refusals, every reader of that list is checked for its short-circuit
+
+Round 1902 (ADR 2638) moved the operator row from `REFUSED_BY_NAME` to a conditional row and the census's
+`as-shown` reason lines moved for nine documents while no total changed: the by-name list had
+short-circuited the TrueType rows of a refused file, and now their programs are copied for nothing. A row
+that leaves the list is followed by a read of every site that reads the list, and each short-circuit is
+either kept by another means or its loss is named.
+
+## A second pass is a whole conversion
+
+Round 1903 (ADR 2640) found `settle::fold` dropping the second conversion's `statement` and `unstated`, so
+the report said a page was photographed while the statement page the second pass appended went unmentioned;
+`preserved`, `attached` and `removed` are still dropped. Whatever `run_pass` reports, `fold` either joins
+onto the first pass's report or names as dropped, and a test of `fold` covers every field of the report.
+
+## A Python line in `tools/*.sh` spells `PYTHONDONTWRITEBYTECODE=1`
+
+Round 1909's new `tools/state.sh` section called Python with `-I -B` and
+`batch::every_python_run_in_tools_writes_no_bytecode` was red: the gate reads the literal
+`PYTHONDONTWRITEBYTECODE=1`, not the flag. A Python call in a tools script carries `env
+PYTHONDONTWRITEBYTECODE=1 python3 -I -B …` whatever the flags already prevent, because the gate is a
+string scan and says so in its name.
+
+## A use declaration's comment moves with it
+
+Round 1910's (ADR 2654) line-for-line proof failed first on two comment lines above `use
+crate::update::TABLE_349;` that the generator's import rebuild had dropped, and rustfmt's import sorting
+separates a carried comment from its import unless the two are emitted as a group of their own. A splitter
+that rebuilds imports carries each import's comment as a group with it, and the multiset proof is what
+shows a dropped comment.

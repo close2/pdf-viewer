@@ -28,6 +28,10 @@
 //!   `mouseDown`, `mouseUp` and `click` events (pages 391–392), and then the calculations that
 //!   depend on what they changed. Page 390 gives a subform and an exclusion group none of the
 //!   three, so the field is the only object they happen on (ADRs 2584, 2627).
+//! - The pointer moving into a field's region and out of it ([`Stimulus::MouseEnter`],
+//!   [`Stimulus::MouseExit`]), with a button up or down: the field's own `mouseEnter` and
+//!   `mouseExit` events (page 391), which page 390 also gives the field alone, and then the
+//!   calculations that depend on what they changed (ADR 2647).
 //! - The end of the open sequence ([`Stimulus::Ready`]): the `ready` events bound to the Form DOM
 //!   by `ref`, which page 388 fires once the merge, its calculations and its validations are done
 //!   (page 213's step 7), then the `docReady` events bound to the application, which page 388
@@ -50,6 +54,12 @@
 //!   undefined and report that Adobe's processor runs them in document order, which is the
 //!   choice made here for events.
 //!
+//! **The primary event** (pages 398–400): before each object's own events of an activity a person
+//! caused, and those that hear it from above, `$event` is set to that activity on that object, and
+//! the calculations it wakes see the same values (ADR 2646). After a field's `change` events,
+//! `$event.newText` is placed into the field where its scripts moved `change`, `selStart` or
+//! `selEnd`.
+//!
 //! **The cascade** (pages 379–380): a calculation is run again when a container it names has
 //! changed. What it names is what [`Form::resolve`] returned while it ran, so the dependency
 //! follows the path the script took. A subform counts as changed whenever a container inside it
@@ -67,7 +77,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{Calculation, Form, Scalar};
+use super::{Calculation, Event, Form, Replaced, Scalar};
 use crate::xfa::datasets::Change;
 use crate::xfa::template::{Bound, Class, Language, Override, Performs};
 use crate::xfa::{Resource, Template};
@@ -166,8 +176,16 @@ impl Limits {
 pub enum Stimulus<'a> {
     /// Data binding finished (page 379): every calculation is activated.
     Merge,
-    /// A person entered values into these fields, named by their PDF field names.
-    Entry(&'a [String]),
+    /// A person entered values into fields: the field's `change` events, with `$event.prevText`
+    /// what it showed before (page 400).
+    Entry {
+        /// The fields entered into, by their PDF field names.
+        entered: &'a [String],
+        /// What each field of `entered`, at the same place, showed before the entry, where the
+        /// window said; a place past its end, or `None`, leaves `prevText`, `selStart` and
+        /// `selEnd` unsupplied.
+        before: &'a [Option<String>],
+    },
     /// The keyboard focus left the field `left` for the field `reaching`, or for nothing a form
     /// holds (pages 390–391): the `exit` events of the field and of each subform and exclusion
     /// group around it that the focus goes out of.
@@ -203,6 +221,18 @@ pub enum Stimulus<'a> {
     MouseUp {
         /// The field released on, by its PDF field name.
         released: &'a str,
+    },
+    /// The pointer moved into the region of the field `entered` (page 391), a button up or down:
+    /// the field's own `mouseEnter` events.
+    MouseEnter {
+        /// The field the pointer moved into, by its PDF field name.
+        entered: &'a str,
+    },
+    /// The pointer moved out of the region of the field `exited` (page 391), a button up or down:
+    /// the field's own `mouseExit` events.
+    MouseExit {
+        /// The field the pointer moved out of, by its PDF field name.
+        exited: &'a str,
     },
     /// The open sequence has ended (pages 388 and 704): the `ready` events bound to the Form DOM
     /// (`ref="$form"`), then the `docReady` events bound to the application (`ref="$host"`).
@@ -302,6 +332,22 @@ const MAX_REPORT: usize = 256;
 const MAX_SENTENCE: usize = 512;
 
 impl Resource {
+    /// Whether an event of the template is of `activity`, which lets a host skip the activation of
+    /// an activity a person causes on nearly every movement — the pointer crossing a field — in a
+    /// form that states no event for it. The walk is one pass over the template's events, which
+    /// the XML reader bounds.
+    #[must_use]
+    pub fn has_activity(&self, activity: &str) -> bool {
+        (0..self.template.container_count()).any(|node| {
+            self.template.get(node).is_some_and(|container| {
+                container
+                    .events
+                    .iter()
+                    .any(|event| event.activity == activity)
+            })
+        })
+    }
+
     /// Activates the automation objects a `stimulus` reaches, in page 379's order, and says what
     /// they changed. `fields` are every field of the form by its PDF name with the value its
     /// `/V` carries, a person's entry included.
@@ -322,8 +368,8 @@ impl Resource {
         let initial = form.values.clone();
         let mut session = Session::new(&mut form, runner, limits, &self.template);
         match stimulus {
-            Stimulus::Entry(names) => {
-                let typed = session.typed(names);
+            Stimulus::Entry { entered, before } => {
+                let typed = session.typed(entered, before);
                 session.fire("change", Some(&typed), &Bound::Own);
                 session.settle(Seeds::Entered(&typed));
             }
@@ -342,6 +388,8 @@ impl Resource {
             Stimulus::Click { clicked } => session.pointed(clicked, "click"),
             Stimulus::MouseDown { pressed } => session.pointed(pressed, "mouseDown"),
             Stimulus::MouseUp { released } => session.pointed(released, "mouseUp"),
+            Stimulus::MouseEnter { entered } => session.pointed(entered, "mouseEnter"),
+            Stimulus::MouseExit { exited } => session.pointed(exited, "mouseExit"),
             Stimulus::Ready => {
                 session.unfollowed();
                 session.fire("ready", None, &Bound::Form);
@@ -471,6 +519,8 @@ struct Session<'f, 'a, 'r> {
     ended: Option<&'static str>,
     /// The entries whose `override` the host presents.
     overridden: Vec<Overridden>,
+    /// What each entered field's entry replaced, by container, for its `change` event's `$event`.
+    replaced: BTreeMap<usize, Replaced>,
 }
 
 impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
@@ -508,19 +558,78 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             unreported: 0,
             ended: None,
             overridden: Vec::new(),
+            replaced: BTreeMap::new(),
         }
     }
 
-    /// The containers of the PDF field names a person entered values into.
-    fn typed(&mut self, names: &[String]) -> Vec<usize> {
+    /// The containers of the PDF field names a person entered values into, each with what its
+    /// entry replaced: a commit replaces the whole of what the field showed, `before` at the
+    /// same place.
+    fn typed(&mut self, names: &[String], before: &[Option<String>]) -> Vec<usize> {
         let mut typed = Vec::new();
-        for name in names {
+        for (at, name) in names.iter().enumerate() {
             match self.form.named(name) {
-                Some(node) => typed.push(node),
+                Some(node) => {
+                    let previous = before.get(at).and_then(Option::as_deref);
+                    let entered = text(&self.form.value(node));
+                    self.replaced
+                        .insert(node, Replaced::commit(previous, &entered));
+                    typed.push(node);
+                }
                 None => self.say(format!("{name}: the form's field list does not name it")),
             }
         }
         typed
+    }
+
+    /// The primary event `activity` on the container `node` is (page 398's table), or `None` for
+    /// an activity no person's action raises. The table sets `name` and `target` for every event
+    /// of a field and for a subform's `enter` and `exit`, and nothing for an exclusion group's;
+    /// a field's `change` sets what the entry replaced as well.
+    fn primary(&self, activity: &str, node: usize) -> Option<Event> {
+        const PRIMARY: [&str; 8] = [
+            "change",
+            "click",
+            "enter",
+            "exit",
+            "mouseDown",
+            "mouseEnter",
+            "mouseExit",
+            "mouseUp",
+        ];
+        if !PRIMARY.contains(&activity) {
+            return None;
+        }
+        let class = self.template.get(node)?.class;
+        let named = !matches!(class, Class::ExclGroup);
+        let replaced = match (activity, class) {
+            ("change", Class::Field) => self.replaced.get(&node).cloned(),
+            _ => None,
+        };
+        Some(Event::new(activity, node, named, replaced))
+    }
+
+    /// Places `$event.newText` into the field `node` once its `change` events have run (page
+    /// 400), where they moved `change`, `selStart` or `selEnd` so that it is no longer the entry.
+    fn place_new_text(&mut self, node: usize) {
+        let Some(entered) = self.replaced.get(&node).map(Replaced::new_text) else {
+            return;
+        };
+        let Some(placed) = self
+            .form
+            .event()
+            .and_then(Event::replaced)
+            .map(Replaced::new_text)
+        else {
+            return;
+        };
+        if placed == entered {
+            return;
+        }
+        if let Err(why) = self.form.set(node, Scalar::Text(placed)) {
+            let label = self.label(node);
+            self.say(format!("{label}: $event.newText is not placed: {why}"));
+        }
     }
 
     /// The containers the focus crosses at `field` on its way to or from `other`, innermost first:
@@ -691,8 +800,13 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
                         .is_some_and(|event| event.bound == *bound && event.activity == activity)
                 })
                 .collect();
+            if matches!(bound, Bound::Own) {
+                let event = self.primary(activity, node);
+                self.form.set_event(event);
+            }
             self.dispatch(node, activity, &own, false);
             let Some(heard) = &heard else {
+                self.place_new_text(node);
                 continue;
             };
             if !matches!(
@@ -714,6 +828,7 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             for (holder, events) in &heard.form {
                 self.dispatch(*holder, activity, events, true);
             }
+            self.place_new_text(node);
         }
     }
 

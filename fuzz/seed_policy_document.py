@@ -7,7 +7,8 @@ The target reads its bytes as §12.8.3.4.4's stored policy document under each o
 syntaxes, so the seeds are documents of all three, written for this file: ETSI TS 119 172-2
 clause 4.2's XML `SignaturePolicy` holding one clause 4.14 `PolicyRule` of each `BasicRule` kind
 (the shapes `policy_rules/ts_119_172_2/tests.rs` judges), once more with every rule at once and
-once in a prefixed namespace without its final `#`; ETSI TS 119 172-3 clause 4.2's ASN.1
+once in a prefixed namespace without its final `#`, and twice under inclusive Canonical XML 1.0
+with an extension holding every construct its section 2.3 renders; ETSI TS 119 172-3 clause 4.2's ASN.1
 `SignaturePolicy` with its `Digest` computed over its components as clause 4.3.2 says; and RFC
 3125 section 5's `SignaturePolicy`, the syntax ETSI TR 102 272 clause 6 restates, its
 `signPolicyHash` computed over `signPolicyInfo`. No corpus document stores one, which is why
@@ -52,7 +53,22 @@ RULES = [
 ]
 
 
-def xml(rules, namespace=NAMESPACE, prefix="", scope=None):
+EXC_C14N = "http://www.w3.org/2001/10/xml-exc-c14n#"
+C14N = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315"
+C14N_WITH_COMMENTS = C14N + "#WithComments"
+
+# One `OtherRule` extension holding every construct Canonical XML 1.0 section 2.3 renders a
+# rule for: a re-declared and an undeclared default namespace, a prefixed attribute, attribute
+# white space and references, a comment, a processing instruction, a CDATA section and a line
+# break written as CR LF.
+CANONICAL_RULE = (
+    '<OtherRule><x:Rule xmlns:x="urn:extension" xmlns:y="urn:y" y:b="2" a="\t&quot;&lt;&#xA;">'
+    '<e xmlns=""><f xmlns="urn:d"/></e><!-- c --><?pi  data ?><![CDATA[<&>]]>t&#xD;&gt;\r\n'
+    "</x:Rule></OtherRule>"
+)
+
+
+def xml(rules, namespace=NAMESPACE, prefix="", scope=None, method=EXC_C14N, root=""):
     p = f"{prefix}:" if prefix else ""
     declared = f'xmlns{":" + prefix if prefix else ""}="{namespace}"'
     attribute = f' RecommendedScope="{scope}"' if scope else ""
@@ -63,10 +79,10 @@ def xml(rules, namespace=NAMESPACE, prefix="", scope=None):
         body = body.replace(f"{p}x:", "x:")
     return (
         f'<?xml version="1.0" encoding="UTF-8"?>\n<{p}SignaturePolicy {declared} '
-        'xmlns:ds="http://www.w3.org/2000/09/xmldsig#">'
+        f'xmlns:ds="http://www.w3.org/2000/09/xmldsig#"{root}>'
         f'<{p}Digest><ds:DigestMethod Algorithm="{SHA256_URI}"/>'
         "<ds:DigestValue>AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</ds:DigestValue>"
-        '<ds:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>'
+        f'<ds:CanonicalizationMethod Algorithm="{method}"/>'
         f"</{p}Digest><{p}PolicyComponents><{p}GeneralDetails><{p}SigPolicyDetails>"
         f"<{p}PolicyIdentifier>urn:oid:1.2.3.4</{p}PolicyIdentifier></{p}SigPolicyDetails>"
         f"<{p}OtherDetails><{p}DateOfIssue>2025-12-01T00:00:00Z</{p}DateOfIssue><{p}SigningPeriod>"
@@ -128,6 +144,10 @@ def documents():
         yield xml([rule], scope="generation")
     yield xml(RULES)
     yield xml(RULES, namespace=NAMESPACE.rstrip("#"), prefix="sp")
+    # The inclusive canonicaliser's (ADR 2644): an `xml` attribute and an unused declaration on
+    # the root for the apex to inherit, under both inclusive methods.
+    for method in (C14N, C14N_WITH_COMMENTS):
+        yield xml([CANONICAL_RULE], method=method, root=' xmlns:u="urn:unused" xml:lang="en"')
     yield ts_119_172_3()
     yield tr_102_272()
 

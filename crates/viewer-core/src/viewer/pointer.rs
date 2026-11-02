@@ -137,6 +137,20 @@ impl Viewer {
             open.stale();
         }
 
+        // A hybrid form's `mouseExit` and `mouseEnter` (XFA 3.3 page 391) are the pointer moving
+        // out of a field's region and into one with a button up or down, so they follow `over` on
+        // every message, before the `/X` and `/E` that §12.6.3's first constraint may hold back;
+        // the exit comes first, as the cursor leaves one region before it reaches the next.
+        if open.hovered != over {
+            if let Some(left) = open.hovered.take() {
+                form_pointer(open, left, FormPointer::Exit);
+            }
+            open.hovered = over;
+            if let Some(entered) = over {
+                form_pointer(open, entered, FormPointer::Enter);
+            }
+        }
+
         // Table 197's `/E` and `/X`, in the clause's own order: the cursor leaves one region
         // before it enters the next, and a document may act on both. §12.6.3's fourth constraint
         // needs nothing here because `over` is the topmost annotation rather than a set — "[i]n
@@ -454,6 +468,10 @@ enum FormPointer {
     /// raised only for a release within the annotation a press went down on (§12.6.3's third
     /// constraint).
     Click,
+    /// `mouseEnter`, at the pointer moving over the widget, a button up or down (page 391).
+    Enter,
+    /// `mouseExit`, at the pointer moving off the widget, a button up or down (page 391).
+    Exit,
 }
 
 /// A hybrid form's pointer events on the field whose widget is `widget`, each before the widget's
@@ -472,6 +490,12 @@ fn form_pointer(open: &mut Open, widget: ObjectId, event: FormPointer) {
             .activate_form_on_mouse_down(&open.document, &field),
         FormPointer::Up => open.view.activate_form_on_mouse_up(&open.document, &field),
         FormPointer::Click => open.view.activate_form_on_click(&open.document, &field),
+        FormPointer::Enter => open
+            .view
+            .activate_form_on_mouse_enter(&open.document, &field),
+        FormPointer::Exit => open
+            .view
+            .activate_form_on_mouse_exit(&open.document, &field),
     };
     if changed {
         open.stale();

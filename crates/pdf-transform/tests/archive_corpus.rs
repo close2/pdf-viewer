@@ -161,6 +161,80 @@ fn pack_line() -> String {
     )
 }
 
+/// The variable naming the directory the census of real producers' files writes every output it
+/// makes into, so that a validator other than this tree's can read them (`tools/verapdf-census.py`,
+/// `doc/adr/2652`).
+const OUTPUTS_VARIABLE: &str = "QUORRA_CENSUS_OUTPUTS";
+
+/// Where one sweep writes each output it makes: the directory each source's place under its
+/// corpus is mirrored into, so that two sources sharing a file name keep two outputs.
+#[derive(Debug, Clone, Copy)]
+struct Kept<'a> {
+    /// The corpus root the sources are named relative to.
+    corpus: &'a Path,
+    /// The directory the mirror is written under.
+    into: &'a Path,
+}
+
+impl Kept<'_> {
+    /// Writes one output, and beside it the requirements this tree's validator did not check, one
+    /// `requirement<TAB>citation` line each: a requirement another validator fails and this one
+    /// never held the file to is a gap in what was checked rather than a disagreement about it.
+    fn keep(
+        &self,
+        source: &Path,
+        bytes: &[u8],
+        conversion: Option<&pdf_transform::archive::Conversion>,
+    ) {
+        let relative = source
+            .strip_prefix(self.corpus)
+            .expect("every swept source is under the corpus it was collected from");
+        let output = self.into.join(relative);
+        let parent = output
+            .parent()
+            .expect("an output joined under a directory has a parent");
+        std::fs::create_dir_all(parent).expect("the outputs directory takes a subdirectory");
+        std::fs::write(&output, bytes).expect("the outputs directory takes a file");
+        let mut unchecked = String::new();
+        for requirement in
+            conversion.map_or(&[][..], |conversion| conversion.not_checked.as_slice())
+        {
+            unchecked.push_str(requirement.requirement);
+            unchecked.push('\t');
+            unchecked.push_str(&requirement.citation);
+            unchecked.push('\n');
+        }
+        let mut sidecar = output.into_os_string();
+        sidecar.push(".unchecked.tsv");
+        std::fs::write(sidecar, unchecked).expect("the outputs directory takes a file");
+    }
+}
+
+/// The directory [`OUTPUTS_VARIABLE`] names, which must be absent or empty: an output a previous
+/// run left there would otherwise be read as this run's.
+fn outputs_from_environment() -> Option<PathBuf> {
+    let directory = PathBuf::from(std::env::var_os(OUTPUTS_VARIABLE)?);
+    let empty = match std::fs::read_dir(&directory) {
+        Ok(mut entries) => entries.next().is_none(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+        Err(error) => panic!("{OUTPUTS_VARIABLE} names {}: {error}", directory.display()),
+    };
+    assert!(
+        empty,
+        "{OUTPUTS_VARIABLE} names {}, which is not empty; a census writes into an empty directory",
+        directory.display()
+    );
+    Some(directory)
+}
+
+/// veraPDF's own `--flavour` word for a target, which names the directory its outputs go in.
+fn flavour_word(target: Target) -> String {
+    target
+        .to_string()
+        .trim_start_matches("PDF/A-")
+        .to_ascii_lowercase()
+}
+
 /// The corpus root, or `None` where the submodule is not checked out.
 fn corpus() -> Option<PathBuf> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/veraPDF-corpus");
@@ -786,6 +860,7 @@ fn convert_under(
     target: Target,
     contribution: &pdf_transform::profiles::Contribution,
     press: Option<&std::sync::Arc<[u8]>>,
+    kept: Option<Kept<'_>>,
 ) -> Outcome {
     let Ok(bytes) = std::fs::read(path) else {
         return Outcome::Unreadable;
@@ -809,7 +884,10 @@ fn convert_under(
             return Outcome::Failed(named(path), format!("the source is refused: {refusal}"));
         }
     };
-    if sinks.into_outputs().pop().is_some() {
+    if let Some((_, written)) = sinks.into_outputs().pop() {
+        if let Some(kept) = kept {
+            kept.keep(path, &written, report.archive.as_ref());
+        }
         return Outcome::Written(conformed);
     }
     let Some(conversion) = report.archive.as_ref() else {
@@ -869,6 +947,7 @@ fn sweep_under(
     target: Target,
     shipped: &pdf_transform::profiles::Shipped,
     press: Option<&std::sync::Arc<[u8]>>,
+    kept: Option<Kept<'_>>,
 ) -> UnderProfile {
     use rayon::prelude::*;
     let contribution = pdf_transform::profiles::Contribution::read(shipped.text, target)
@@ -877,7 +956,7 @@ fn sweep_under(
         .par_iter()
         .map(|path| {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                convert_under(path, target, &contribution, press)
+                convert_under(path, target, &contribution, press, kept)
             }))
             .unwrap_or_else(|panic| {
                 let said = panic
@@ -1053,7 +1132,7 @@ fn profile_sweep(
     target: Target,
     shipped: &pdf_transform::profiles::Shipped,
 ) -> UnderProfile {
-    sweep_under(&documents(root, part), target, shipped, None)
+    sweep_under(&documents(root, part), target, shipped, None, None)
 }
 
 /// Prints one census: its counts, then every refusing requirement by how many documents it
@@ -1135,6 +1214,10 @@ const REAL_TARGETS: [Target; 2] = [Target::Two(Level::B), Target::Four(Flavour::
 /// is not viewable, and no profile answers it; a document the verb declines as a source is printed
 /// with the verb's sentence, and one it panics on as `PANICKED`, a converter defect (trap 5,
 /// trap 11).
+///
+/// **Given [`OUTPUTS_VARIABLE`], it keeps every output it writes**, under
+/// `<directory>/<profile>/<flavour>/<corpus>/` at the source's own place in its corpus, for
+/// `tools/verapdf-census.py` to put through a second validator (`doc/adr/2652`).
 #[test]
 #[ignore = "needs doc/pdf.js and doc/corpora, which are not part of a checkout"]
 fn the_shipped_profiles_list_what_real_producers_files_refuse_on() {
@@ -1149,13 +1232,26 @@ fn the_shipped_profiles_list_what_real_producers_files_refuse_on() {
         println!("neither doc/pdf.js nor doc/corpora is here; nothing to sweep");
         return;
     }
+    let outputs = outputs_from_environment();
+    match &outputs {
+        Some(directory) => println!("outputs: kept under {}", directory.display()),
+        None => println!("outputs: not kept ({OUTPUTS_VARIABLE} is not set)"),
+    }
     for name in ["as-if-printed", "as-shown"] {
         let shipped = pdf_transform::profiles::named(name).expect("a shipped profile");
         let mut by_part: Vec<Vec<UnderProfile>> = Vec::new();
         for target in REAL_TARGETS {
             let mut censuses = Vec::new();
             for (corpus, paths) in &corpora {
-                let census = sweep_under(paths, target, shipped, None);
+                let corpus_root = doc.join(corpus);
+                let into = outputs
+                    .as_ref()
+                    .map(|root| root.join(name).join(flavour_word(target)).join(corpus));
+                let kept = into.as_deref().map(|into| Kept {
+                    corpus: &corpus_root,
+                    into,
+                });
+                let census = sweep_under(paths, target, shipped, None, kept);
                 print_refusals(&format!("{corpus} profile {name} {target}"), &census);
                 censuses.push(census);
             }
@@ -1213,7 +1309,7 @@ fn a_supplied_press_profile_answers_the_colour_family_refusals() {
         include_bytes!("../../../data/icc/GRACoL2006_Coated1v2.icc")[..].into();
     let shipped = pdf_transform::profiles::named("as-if-printed").expect("a shipped profile");
     for (part, target) in TARGETS {
-        let census = sweep_under(&documents(&root, part), target, shipped, Some(&press));
+        let census = sweep_under(&documents(&root, part), target, shipped, Some(&press), None);
         print_refusals(&format!("press profile as-if-printed {target}"), &census);
         assert!(census.failed.is_empty(), "{:?}", census.failed);
     }

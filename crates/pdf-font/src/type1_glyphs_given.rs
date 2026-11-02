@@ -9,8 +9,10 @@
 //! leading bytes as the Private dictionary's `lenIV` states (section 5.12; four where it states
 //! none). So a glyph is given by decrypting the section, appending one `/name len RD <bytes> ND`
 //! entry per glyph before the dictionary's `end`, raising the dictionary's stated size by as many,
-//! and encrypting the section again; the header and the trailer are copied, so `/Length1` and
-//! `/Length3` keep their values and `/Length2` is the new section's length.
+//! and encrypting the section again; the header and the trailer are copied — a carriage return
+//! in the white space after `eexec` written as a line feed, for the reason
+//! `Sections::header_written` gives — so `/Length1` and `/Length3` keep their values and
+//! `/Length2` is the new section's length.
 //!
 //! **The reading is proved twice before a program is returned** (trap 301): this module's own
 //! scan of the rewritten section must find every entry the program held, byte for byte, and each
@@ -40,6 +42,13 @@ const SBW: u8 = 7;
 /// `endchar` (section 6.4).
 const ENDCHAR: u8 = 14;
 
+/// The longest charstring a given glyph is written as, its `lenIV` leading bytes included: Adobe
+/// Type 1 Font Format chapter 10 (page 83) rules that no charstring of a Type 1 program exceeds
+/// 65 535 bytes, so a copy of a `.notdef` longer than that is refused rather than written. It
+/// bounds what one call adds to the program at [`MOST_GLYPHS_GIVEN`] such charstrings
+/// (`doc/adr/2650`).
+pub const MOST_CHARSTRING_BYTES: usize = 65_535;
+
 /// The most bytes one call writes: every given glyph copies `.notdef`'s charstring, and a
 /// hostile program's `.notdef` times [`MOST_GLYPHS_GIVEN`] would otherwise be the allocation.
 /// It is checked before the section is built.
@@ -65,7 +74,7 @@ pub struct GlyphsGiven {
 /// first of `notdef`, `notdef.1`, … the program does not hold, as
 /// [`crate::cff::with_glyphs_given`] names it. Every glyph the program held keeps its name and
 /// its charstring byte for byte, and the cleartext header — the built-in `/Encoding` with it — is
-/// not touched.
+/// not touched but for a carriage return after `eexec`, which is written as a line feed.
 ///
 /// # Errors
 ///
@@ -112,16 +121,15 @@ pub fn with_glyphs_given(
         let name = name_for(asked, &held, &mut suffix)?;
         let advance = i32::try_from(asked.advance)
             .map_err(|_| not_written("an advance does not fit a charstring number"))?;
-        let body = match asked.draws {
-            GivenOutline::Nothing => {
-                let mut body = number(0);
-                body.extend(number(advance));
-                body.extend([HSBW, ENDCHAR]);
-                body
-            }
-            GivenOutline::NotdefsOwn => with_width(&notdef_plain, advance)
-                .ok_or_else(|| not_written("the .notdef charstring's width cannot be restated"))?,
-        };
+        let body = body_of(asked.draws, advance, &notdef_plain)?;
+        let stored = body
+            .len()
+            .saturating_add(usize::try_from(scan.len_iv.max(0)).unwrap_or(usize::MAX));
+        if stored > MOST_CHARSTRING_BYTES {
+            return Err(not_written(
+                "a given glyph's charstring would pass the 65 535 bytes a charstring may hold",
+            ));
+        }
         size = size
             .saturating_add(body.len())
             .saturating_add(name.len())
@@ -134,19 +142,31 @@ pub fn with_glyphs_given(
         }
         // Held from here on so a later glyph of the same call cannot take the name again.
         held.insert(name.as_bytes().to_vec());
-        written.push((name, body));
+        written.push(Written {
+            name,
+            advance,
+            draws: asked.draws,
+        });
     }
 
     let first = u16::try_from(scan.entries.len())
         .map_err(|_| not_written("the program holds more glyphs than a glyph index reaches"))?;
-    let section = section_with(&plain, &scan, notdef, &written)?;
-    let encrypted = encrypt(&section, EEXEC_KEY);
+    // The section is written once, into the program, and encrypted where it lies: a hostile
+    // `.notdef` makes it the size of the writer's bound, and the program is the one copy held.
     let mut program = Vec::with_capacity(size);
-    program.extend_from_slice(sections.header);
-    program.extend_from_slice(&encrypted);
+    program.extend(sections.header_written());
+    let section_at = program.len();
+    section_with(
+        &mut program,
+        (&plain, &scan, notdef),
+        &written,
+        &notdef_plain,
+    )?;
+    encrypt_in_place(&mut program[section_at..], EEXEC_KEY);
+    let section_length = program.len().saturating_sub(section_at);
     program.extend_from_slice(sections.trailer);
     let mut added = Vec::with_capacity(written.len());
-    for (at, (name, _)) in written.iter().enumerate() {
+    for (at, Written { name, .. }) in written.iter().enumerate() {
         let glyph = u16::try_from(at)
             .ok()
             .and_then(|at| first.checked_add(at))
@@ -157,21 +177,43 @@ pub fn with_glyphs_given(
         });
     }
     let given = GlyphsGiven {
-        lengths: [
-            sections.header.len(),
-            encrypted.len(),
-            sections.trailer.len(),
-        ],
+        lengths: [section_at, section_length, sections.trailer.len()],
         program,
         added,
     };
-    read_back(&given, (&plain, &scan), &written, glyphs)?;
+    read_back(&given, (&plain, &scan), (&written, &notdef_plain), glyphs)?;
     Ok(given)
+}
+
+/// One glyph [`with_glyphs_given`] appends: its name, its advance and what it draws. Its
+/// charstring is built from these by [`body_of`] where it is written and again where it is read
+/// back, rather than held, since each can be a copy of a `.notdef` as long as the program.
+struct Written {
+    name: String,
+    advance: i32,
+    draws: GivenOutline,
+}
+
+/// The charstring a glyph is given, before charstring encryption: `0 <advance> hsbw endchar`,
+/// or `.notdef`'s own with its width restated.
+fn body_of(draws: GivenOutline, advance: i32, notdef_plain: &[u8]) -> Result<Vec<u8>, Type1Error> {
+    match draws {
+        GivenOutline::Nothing => {
+            let mut body = number(0);
+            body.extend(number(advance));
+            body.extend([HSBW, ENDCHAR]);
+            Ok(body)
+        }
+        GivenOutline::NotdefsOwn => with_width(notdef_plain, advance)
+            .ok_or_else(|| not_written("the .notdef charstring's width cannot be restated")),
+    }
 }
 
 /// The program divided by its stated lengths.
 struct Sections<'a> {
     header: &'a [u8],
+    /// Where the white space after `eexec` begins in [`Self::header`].
+    white: usize,
     encrypted: &'a [u8],
     trailer: &'a [u8],
 }
@@ -202,9 +244,30 @@ impl<'a> Sections<'a> {
         }
         Ok(Self {
             header,
+            white: stated.len(),
             encrypted,
             trailer,
         })
+    }
+
+    /// The header as it is written: every byte copied, but a carriage return in the white space
+    /// after `eexec`, which is written as a line feed.
+    ///
+    /// Adobe Type 1 Font Format section 7.2 rules that the first ciphertext byte is not white
+    /// space, so every white space byte after `eexec` comes before the section and either one
+    /// reads the same to the standard. `read-fonts` follows `FreeType`'s rule instead and skips a
+    /// carriage return there only where a line feed occurs somewhere later in the data: for a
+    /// header ending `eexec` and a carriage return, where the section starts would then depend on
+    /// whether the re-encrypted bytes happen to hold a line feed. A line feed it skips whatever
+    /// follows, and the substitution keeps the header's length, so `/Length1` is unchanged
+    /// (`doc/adr/2650`).
+    fn header_written(&self) -> impl Iterator<Item = u8> + '_ {
+        let (stated, white) = self.header.split_at(self.white);
+        stated.iter().copied().chain(
+            white
+                .iter()
+                .map(|&byte| if byte == b'\r' { b'\n' } else { byte }),
+        )
     }
 }
 
@@ -460,11 +523,11 @@ fn agrees_with_reader(scan: &Scan, plain: &[u8], program: &Program) -> Result<()
 /// The section with `written` appended before the dictionary's close and its stated size raised
 /// by as many; the leading bytes, and every byte of every entry held, kept.
 fn section_with(
-    plain: &[u8],
-    scan: &Scan,
-    notdef: &Entry,
-    written: &[(String, Vec<u8>)],
-) -> Result<Vec<u8>, Type1Error> {
+    section: &mut Vec<u8>,
+    (plain, scan, notdef): (&[u8], &Scan, &Entry),
+    written: &[Written],
+    notdef_plain: &[u8],
+) -> Result<(), Type1Error> {
     let size = scan
         .stated
         .checked_add(u64::try_from(written.len()).unwrap_or(u64::MAX))
@@ -475,13 +538,17 @@ fn section_with(
         .as_ref()
         .map(|range| &plain[range.clone()])
         .ok_or_else(|| not_written("the .notdef entry has no defining token to copy"))?;
-    let mut section =
-        Vec::with_capacity(plain.len().saturating_add(written.len().saturating_mul(64)));
     section.extend_from_slice(&plain[..scan.size.start]);
     section.extend_from_slice(size.to_string().as_bytes());
     section.extend_from_slice(&plain[scan.size.end..scan.close]);
-    for (name, body) in written {
-        let encrypted = charstring_encrypted(body, scan.len_iv)
+    for Written {
+        name,
+        advance,
+        draws,
+    } in written
+    {
+        let body = body_of(*draws, *advance, notdef_plain)?;
+        let encrypted = charstring_encrypted(&body, scan.len_iv)
             .ok_or_else(|| not_written("lenIV does not fit a charstring"))?;
         section.push(b'/');
         section.extend_from_slice(name.as_bytes());
@@ -494,14 +561,14 @@ fn section_with(
         section.push(b'\n');
     }
     section.extend_from_slice(&plain[scan.close..]);
-    Ok(section)
+    Ok(())
 }
 
 /// Whether `given` reads as it was written, by this module's scan and by `read-fonts`.
 fn read_back(
     given: &GlyphsGiven,
     (plain, scan): (&[u8], &Scan),
-    written: &[(String, Vec<u8>)],
+    (written, notdef_plain): (&[Written], &[u8]),
     glyphs: &[GlyphToGive],
 ) -> Result<(), Type1Error> {
     let differs = || not_written("the rewritten program does not read back as it was written");
@@ -510,6 +577,7 @@ fn read_back(
         .program
         .get(header..header.saturating_add(section))
         .ok_or_else(differs)?;
+    // This scan's decrypted copy is dropped before `read-fonts` makes its own below.
     let section = decrypt(stored, EEXEC_KEY);
     let again = Scan::of(&section).ok_or_else(differs)?;
     let stated = u64::try_from(written.len())
@@ -529,12 +597,14 @@ fn read_back(
             return Err(differs());
         }
     }
-    for ((name, body), is) in written.iter().zip(&again.entries[scan.entries.len()..]) {
+    for (glyph, is) in written.iter().zip(&again.entries[scan.entries.len()..]) {
         let read = charstring_plain(&section[is.data.clone()], again.len_iv);
-        if is.name(&section) != name.as_bytes() || read.as_deref() != Some(body.as_slice()) {
+        let body = body_of(glyph.draws, glyph.advance, notdef_plain)?;
+        if is.name(&section) != glyph.name.as_bytes() || read != Some(body) {
             return Err(differs());
         }
     }
+    drop(section);
 
     let program = Program::parse(&given.program)?;
     let names = program.glyph_names();
@@ -734,6 +804,15 @@ fn charstring_encrypted(body: &[u8], len_iv: i64) -> Option<Vec<u8>> {
     let mut plain = vec![0u8; leading];
     plain.extend_from_slice(body);
     Some(encrypt(&plain, CHARSTRING_KEY))
+}
+
+/// Section 7.1's encryption under the initial key `r`, of `bytes` where they lie.
+fn encrypt_in_place(bytes: &mut [u8], mut r: u16) {
+    for byte in bytes {
+        let cipher = *byte ^ r.to_be_bytes()[0];
+        r = step(cipher, r);
+        *byte = cipher;
+    }
 }
 
 /// Section 7.1's decryption under the initial key `r`.

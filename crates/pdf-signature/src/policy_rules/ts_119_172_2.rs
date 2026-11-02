@@ -23,11 +23,14 @@
 //! # Binding
 //!
 //! Clause 4.3's `Digest` is computed over the *canonicalised* `PolicyComponents` element, under
-//! the canonicalisation method it names. This reader does not canonicalise XML, so it re-computes
-//! nothing: a document is enforced where its octets digest to the value the signer signed, and a
-//! signer who signed the stated `Digest` instead is told so by name
+//! the canonicalisation method it names. A document is enforced where its octets digest to the
+//! value the signer signed, or where the signer signed the stated `Digest` and the components,
+//! canonicalised by [`super::canonical_xml`] under inclusive Canonical XML 1.0 with or without
+//! comments, digest to it; components that do not are
+//! [`super::NotEnforced::CanonicalDigestDiffers`], and a method other than those two — Exclusive
+//! Canonical XML and Canonical XML 1.1 among them — is said by name
 //! ([`super::NotEnforced::CanonicalDigestNotComputed`]) rather than enforced on an unchecked
-//! commitment (ADR 2604).
+//! commitment (ADRs 2604, 2644).
 //!
 //! # Budgets, before the work
 //!

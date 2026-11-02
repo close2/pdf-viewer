@@ -87,7 +87,9 @@ use super::toml::{self, Value};
 
 mod steps;
 
-pub(in crate::archive) use steps::{STATED_FONTS, STATED_GRAPHICS, statement_hands_on};
+pub(in crate::archive) use steps::{
+    STATED_FONTS, STATED_GRAPHICS, STATED_RUNS, statement_hands_on,
+};
 pub use steps::{Skipped, Statement};
 
 /// `doc/rfc/0007` section 2's remedy vocabulary, closed and small so a configuration is legible.
@@ -2139,9 +2141,10 @@ fn check_what_moves_nothing(row: &Row) -> Result<(), ConfigError> {
     // **`doc/rfc/0014` section 4, built where the loss is reported per object**: the page lists
     // each object the step removed, so it is built at the two embedded-file rows whose outcome is
     // already one per file (`doc/adr/2536`), at the three halftone rows, whose removal takes
-    // one entry from each object it names (`doc/adr/2562`), and at the font row, whose losses are
-    // reported one photographed page or one embedded face at a time (`doc/adr/2600`), and refused
-    // by name at every other.
+    // one entry from each object it names (`doc/adr/2562`), at the font row, whose losses are
+    // reported one photographed page or one embedded face at a time (`doc/adr/2600`), and at the
+    // operator row, whose runs are reported one at a time (`doc/adr/2638`), and refused by name at
+    // every other.
     if row.states_the_loss
         && !DERIVABLE.contains(&row.site.as_str())
         && !statement_hands_on(&row.site)
@@ -3416,12 +3419,13 @@ remedy = \"discard\"
 
     #[test]
     fn a_discard_at_an_unbuilt_site_authorises_nothing_and_is_named() {
-        // A site whose catalogued mitigation is *none* rather than one nobody has written yet: an
-        // operator the base standard does not define sits inside the producer's content stream,
-        // and taking it out edits the marks the producer wrote, which the fence puts on the far
-        // side. So the example cannot go stale the way a not-built-yet one does.
+        // A site whose catalogued mitigation is *none* rather than one nobody has written yet: a
+        // rendering intent operator's operand sits inside the producer's content stream, and
+        // naming one of the four intents in its place would be choosing an intent the producer
+        // did not write, which the fence puts on the far side. So the example cannot go stale the
+        // way a not-built-yet one does.
         let text = "\
-[site.\"graphics/only-operators-the-base-standard-defines\"]
+[site.\"graphics/rendering-intent-operator-names-one-of-four\"]
 remedy = \"discard\"
 ";
         let config = Configuration::read(text, TWO_B).expect("it reads");
@@ -3430,7 +3434,7 @@ remedy = \"discard\"
         assert_eq!(unbuilt.len(), 1);
         assert_eq!(
             unbuilt[0].site,
-            "graphics/only-operators-the-base-standard-defines"
+            "graphics/rendering-intent-operator-names-one-of-four"
         );
     }
 

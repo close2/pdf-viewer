@@ -548,6 +548,7 @@ pub(super) fn describe(
         losses,
         fitting,
         empty_glyphs: empty.keys().copied().collect(),
+        cut_program: None,
         font: super::selected(used),
     });
     Ok(())

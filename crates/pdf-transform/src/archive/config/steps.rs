@@ -46,9 +46,11 @@ pub(in crate::archive) const APPEND_STATEMENT: &str = "append-statement";
 pub(in crate::archive) const STATED_ONLY_PER_OBJECT: &str = "the page append-statement appends \
      lists each object the loss took, so it is built where the loss is reported one object at a \
      time: the two embedded-file rows (ISO 19005-2 section 6.8, ISO 19005-4 section 6.9), the \
-     three halftone rows (ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5) and the font row \
+     three halftone rows (ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5), the font row \
      (ISO 19005-2 section 6.2.11.4.1, ISO 19005-4 section 6.2.10.4.1), whose losses are reported \
-     one photographed page or one embedded face at a time. At every other site the step is not \
+     one photographed page or one embedded face at a time, and the operator row (ISO 19005-2 \
+     section 6.2.2, ISO 19005-4 section 6.2.2), whose runs are reported one at a time. At every \
+     other site the step is not \
      built yet, and `discard` takes the loss without the page";
 
 /// The graphics family's sites whose loss `append-statement` states, one graphics state or
@@ -74,10 +76,21 @@ pub(in crate::archive) const STATED_GRAPHICS: [&str; 3] = [
 /// [`STATED_GRAPHICS`]' page does.
 pub(in crate::archive) const STATED_FONTS: &str = "fonts/font-programs-embedded";
 
+/// The content-stream site whose loss `append-statement` states, one run written as the number
+/// this reader draws at a time (`doc/adr/2638`).
+///
+/// The `discard` this row resolves to writes the runs (`super::super::as_drawn`), each a record of
+/// its own in the report with its pages, its stream, its bytes and its number, so the page lists
+/// those records, and a page that cannot be composed hands them to `discard` as
+/// [`STATED_GRAPHICS`]' page does.
+pub(in crate::archive) const STATED_RUNS: &str =
+    "graphics/only-operators-the-base-standard-defines";
+
 /// Whether `append-statement` at `site` states a loss reported per object and hands every object
-/// its page could not list to the step after it: [`STATED_GRAPHICS`] and [`STATED_FONTS`].
+/// its page could not list to the step after it: [`STATED_GRAPHICS`], [`STATED_FONTS`] and
+/// [`STATED_RUNS`].
 pub(in crate::archive) fn statement_hands_on(site: &str) -> bool {
-    STATED_GRAPHICS.contains(&site) || site == STATED_FONTS
+    STATED_GRAPHICS.contains(&site) || site == STATED_FONTS || site == STATED_RUNS
 }
 
 /// Whether a step hands an object it could not answer to the next one, at this site.

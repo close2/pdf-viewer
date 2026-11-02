@@ -96,9 +96,10 @@ permanent) or an owner decision to acquire a specification.
   that hands one on. A stored policy in ETSI TR 102 272's ASN.1 syntax, bound to its signature, is
   enforced constraint by constraint, what it cannot evaluate named (ADR 2560, on A713), and one in ETSI
   TS 119 172-3's ASN.1 syntax is read by a second parser and enforced the same way (ADR 2580), and one
-  in TS 119 172-2's XML by a third, bound by its octets' digest (ADR 2604); what is left is
-  human-readable policies, a C caller's fetched copy, and an XML policy bound only through its own
-  `Digest`, which needs XML canonicalisation.
+  in TS 119 172-2's XML by a third, bound by its octets' digest (ADR 2604) or by its own `Digest`
+  over its components under inclusive Canonical XML 1.0, which `policy_rules::canonical_xml`
+  computes (ADR 2644); what is left is human-readable policies, a C caller's fetched copy, and an
+  XML policy whose `Digest` names Exclusive Canonical XML or Canonical XML 1.1.
 
 ISO/TS 32002's brainpoolP512r1 and Ed448 are not in this bucket: they are the tree's own under the
 owner's answer A170 (ADRs 1385 and 1386), so an upstream release is their *swap* condition rather

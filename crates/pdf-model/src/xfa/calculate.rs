@@ -23,8 +23,10 @@ use super::datasets::Change;
 use super::template::{Class, Container, Language, Override, Template};
 
 pub use activate::{Activation, Ended, FormLanguage, Limits, Overridden, Ran, Runner, Stimulus};
+pub use event::{Event, Replaced};
 
 mod activate;
+mod event;
 
 /// A value a script reads from a container or assigns to one.
 #[derive(Debug, Clone, PartialEq)]
@@ -95,6 +97,8 @@ pub struct Form<'a> {
     text_room: u64,
     /// Whether an assignment was refused for want of [`Self::text_room`].
     text_exhausted: bool,
+    /// The primary event the scripts now running are under, which `$event` reads (ADR 2646).
+    event: Option<Event>,
 }
 
 impl Resource {
@@ -118,6 +122,7 @@ impl<'a> Form<'a> {
             changed: BTreeSet::new(),
             text_room: u64::MAX,
             text_exhausted: false,
+            event: None,
         };
         for (name, change) in fields {
             let Some(at) = template.resolve(name) else {
@@ -168,7 +173,11 @@ impl<'a> Form<'a> {
     /// than `$`, or the `parent` property.
     pub fn resolve(&self, here: usize, path: &[Step]) -> Result<Vec<usize>, String> {
         let found = self.resolve_path(here, path)?;
-        self.resolved.borrow_mut().extend(found.iter().copied());
+        // A property of `$event` is no container, so nothing that reads it depends on it.
+        let containers = self.template.container_count();
+        self.resolved
+            .borrow_mut()
+            .extend(found.iter().copied().filter(|&node| node < containers));
         Ok(found)
     }
 
@@ -178,6 +187,15 @@ impl<'a> Form<'a> {
             return Ok(Vec::new());
         };
         let qualified = first.name == "$";
+        if first.name == "$event" {
+            return self.resolve_event(here, rest);
+        }
+        if first.name == "xfa"
+            && let Some((event, rest)) = rest.split_first()
+            && event.name == "event"
+        {
+            return self.resolve_event(here, rest);
+        }
         if !qualified && (first.name.starts_with(['$', '!']) || first.name == "xfa") {
             return Err(format!(
                 "the qualified reference {} (page 114) other than $",
@@ -187,7 +205,7 @@ impl<'a> Form<'a> {
         if let Some(step) = rest.iter().find(|step| step.name == "parent") {
             return Err(format!("the property {} (page 114)", step.name));
         }
-        let mut current = if qualified {
+        let current = if qualified {
             vec![here]
         } else {
             self.select(
@@ -197,15 +215,62 @@ impl<'a> Form<'a> {
                 true,
             )
         };
-        for step in rest {
+        Ok(self.descend(current, rest, here, !qualified))
+    }
+
+    /// The containers each step of `steps` names within those before it.
+    fn descend(
+        &self,
+        mut current: Vec<usize>,
+        steps: &[Step],
+        here: usize,
+        inferred: bool,
+    ) -> Vec<usize> {
+        for step in steps {
             let mut next = Vec::new();
             for &node in &current {
                 let named = self.template.named_within(Some(node), &step.name);
-                next.extend(self.select(&named, step.occurrence, here, !qualified));
+                next.extend(self.select(&named, step.occurrence, here, inferred));
             }
             current = next;
         }
-        Ok(current)
+        current
+    }
+
+    /// What a path after `$event` or `xfa.event` names (XFA 3.3 pages 398–404): `target` is the
+    /// container the event happened on, the rest of the path continuing from it, and any other
+    /// property the node it is, which is a value and has nothing within it.
+    fn resolve_event(&self, here: usize, rest: &[Step]) -> Result<Vec<usize>, String> {
+        let Some((property, rest)) = rest.split_first() else {
+            return Err(
+                "$event: an object, of which a script reads a property (XFA 3.3 page 398)"
+                    .to_owned(),
+            );
+        };
+        let containers = self.template.container_count();
+        match event::property(self.event.as_ref(), containers, &property.name)? {
+            event::Named::Target(target) => Ok(self.descend(vec![target], rest, here, false)),
+            event::Named::Property(_) if !rest.is_empty() => Err(format!(
+                "$event.{}: a value, which holds nothing named {}",
+                property.name,
+                rest.iter()
+                    .map(|step| step.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(".")
+            )),
+            event::Named::Property(node) => Ok(vec![node]),
+        }
+    }
+
+    /// Makes `event` the primary event the scripts from here on run under, or ends it.
+    pub fn set_event(&mut self, event: Option<Event>) {
+        self.event = event;
+    }
+
+    /// The primary event the scripts run under, as they have left it.
+    #[must_use]
+    pub fn event(&self) -> Option<&Event> {
+        self.event.as_ref()
     }
 
     /// The matches `occurrence` selects; `inferred` lets an omitted index among several matches
@@ -242,6 +307,10 @@ impl<'a> Form<'a> {
     /// The value the container `node` holds; null for one that holds none.
     #[must_use]
     pub fn value(&self, node: usize) -> Scalar {
+        let containers = self.template.container_count();
+        if event::is_property(containers, node) {
+            return event::value(self.event.as_ref(), containers, node).unwrap_or(Scalar::Null);
+        }
         self.values.get(node).cloned().unwrap_or(Scalar::Null)
     }
 
@@ -252,6 +321,18 @@ impl<'a> Form<'a> {
     /// A sentence naming why the container takes no value: it is not a field or an exclusion
     /// group.
     pub fn set(&mut self, node: usize, value: Scalar) -> Result<(), String> {
+        let containers = self.template.container_count();
+        if event::is_property(containers, node) {
+            if let Scalar::Text(text) = &value
+                && u64::try_from(text.len()).unwrap_or(u64::MAX) > self.text_room
+            {
+                self.text_exhausted = true;
+                return Err("the activation ran out of room for text".to_owned());
+            }
+            let cost = event::assign(self.event.as_mut(), containers, node, value)?;
+            self.text_room = self.text_room.saturating_sub(cost);
+            return Ok(());
+        }
         let class = self
             .template
             .get(node)

@@ -68,6 +68,37 @@ pub(super) struct Completed {
     pub(super) at: BTreeMap<ObjectId, Object>,
     /// How many final digits were written, over every stream.
     pub(super) digits: usize,
+    /// How many of `digits` each stream of `at` holds.
+    written_at: BTreeMap<ObjectId, usize>,
+    /// How many digits [`Self::leaving_out`] took back, with the streams that held them.
+    left_out: usize,
+}
+
+impl Completed {
+    /// Leaves out every stream of `taken_off`, the streams [`taken_off_by`] a photograph.
+    ///
+    /// A photographed page's `/Contents` is the photograph's own stream (`super::fonts`), so the
+    /// stream it named is no longer a content stream of the output, and any other object that
+    /// names it reads it as whatever else it is. A producer that reused an object number for its
+    /// catalog's metadata stream while an older page still names it as its contents is the case
+    /// in hand: writing §7.3.4.3's digit there would write `0` before every `>` of an XMP packet,
+    /// and the packet writers' edits, which reach the same object later, would be lost with it.
+    pub(super) fn leaving_out(mut self, taken_off: &BTreeSet<ObjectId>) -> Self {
+        for id in taken_off {
+            if self.at.remove(id).is_some() {
+                let written = self.written_at.remove(id).unwrap_or(0);
+                self.digits = self.digits.saturating_sub(written);
+                self.left_out = self.left_out.saturating_add(written);
+            }
+        }
+        self
+    }
+
+    /// Whether every place the repair found was on a page a photograph took off, so that the
+    /// photograph rather than the repair is what answers ISO 19005's row.
+    pub(super) fn only_on_photographed_pages(&self) -> bool {
+        self.at.is_empty() && self.left_out > 0
+    }
 }
 
 /// Writes §7.3.4.3's assumed final digit into every content stream that omitted one.
@@ -101,6 +132,7 @@ pub(super) fn complete(document: &Document, survey: Option<&Survey>) -> Result<C
         let replacement =
             repaired(stream, &written).ok_or(Because::NotBuiltYet(STREAM_WILL_NOT_RE_ENCODE))?;
         out.digits = out.digits.saturating_add(places.len());
+        out.written_at.insert(id, places.len());
         out.at.insert(id, replacement);
     }
     if out.at.is_empty() {
@@ -153,6 +185,40 @@ pub(super) fn streams(
         out.push((id, resources));
     }
     out
+}
+
+/// The streams a photograph of each page of `photographed` takes off the page: those that are
+/// some page's `/Contents`, are named so by photographed pages only, and are nothing the survey
+/// opened as a resource.
+///
+/// What is left is a stream the output reaches, if at all, as something other than a content
+/// stream, which is why a content stream's rewrite has nothing to write there.
+pub(super) fn taken_off_by(
+    document: &Document,
+    survey: Option<&Survey>,
+    photographed: &BTreeSet<ObjectId>,
+) -> BTreeSet<ObjectId> {
+    if photographed.is_empty() {
+        return BTreeSet::new();
+    }
+    let mut kept: BTreeSet<ObjectId> = survey
+        .map(Survey::opened_streams)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|opened| opened.object)
+        .collect();
+    let mut taken = BTreeSet::new();
+    let pages = Pages::new(document);
+    for page in pages.every().into_iter().flatten() {
+        // A page this walk cannot name by its object is one no photograph replaced.
+        let into = if page.id.is_some_and(|id| photographed.contains(&id)) {
+            &mut taken
+        } else {
+            &mut kept
+        };
+        into.extend(contents_of(document, &page.dict));
+    }
+    taken.difference(&kept).copied().collect()
 }
 
 /// The objects one page's `/Contents` names, which §7.7.3.3 lets be one stream or an array.
@@ -263,5 +329,80 @@ fn holds_reference(value: &Object, depth: usize) -> bool {
         Object::Array(items) => items.iter().any(|item| holds_reference(item, deeper)),
         Object::Dictionary(dict) => dict.iter().any(|(_, item)| holds_reference(item, deeper)),
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Two pages, objects 3 and 4; object 6 is the catalog's `/Metadata` and the `/Contents` of
+    /// page 4, and of page 3 too where `shared`. Both content streams omit §7.3.4.3's final digit.
+    fn fixture(shared: bool) -> Document {
+        let page_three = if shared { "[5 0 R 6 0 R]" } else { "5 0 R" };
+        let text = format!(
+            "%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R /Metadata 6 0 R >>\nendobj\n\
+             2 0 obj\n<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>\nendobj\n\
+             3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Contents {page_three} >>\nendobj\n\
+             4 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Contents 6 0 R >>\nendobj\n\
+             5 0 obj\n<< /Length 9 >>\nstream\n<414> Tj\nendstream\nendobj\n\
+             6 0 obj\n<< /Length 11 >>\nstream\n<41424> Tj\nendstream\nendobj\n\
+             trailer\n<< /Root 1 0 R /Size 7 >>\n%%EOF\n"
+        );
+        Document::open(text.into_bytes()).expect("the fixture is a well-formed file")
+    }
+
+    fn page(number: u32) -> ObjectId {
+        ObjectId {
+            number,
+            generation: 0,
+        }
+    }
+
+    /// A stream only a photographed page names as its contents is left out with its digits, and
+    /// the repair of the stream an unphotographed page names stays.
+    #[test]
+    fn a_stream_only_photographed_pages_name_is_left_out() {
+        let document = fixture(false);
+        let completed = complete(&document, None).expect("both streams omit a digit");
+        assert_eq!(completed.digits, 2);
+        let taken_off = taken_off_by(&document, None, &BTreeSet::from([page(4)]));
+        assert_eq!(taken_off, BTreeSet::from([page(6)]));
+        let left = completed.leaving_out(&taken_off);
+        assert_eq!(left.at.keys().copied().collect::<Vec<_>>(), vec![page(5)]);
+        assert_eq!(left.digits, 1);
+        assert!(!left.only_on_photographed_pages());
+    }
+
+    /// Where every page is photographed, nothing is left for the repair to write, and ISO
+    /// 19005's row is the photographs' to answer.
+    #[test]
+    fn every_page_photographed_leaves_nothing_to_repair() {
+        let document = fixture(false);
+        let completed = complete(&document, None).expect("both streams omit a digit");
+        let taken_off = taken_off_by(&document, None, &BTreeSet::from([page(3), page(4)]));
+        let left = completed.leaving_out(&taken_off);
+        assert!(left.at.is_empty());
+        assert_eq!(left.digits, 0);
+        assert!(left.only_on_photographed_pages());
+    }
+
+    /// A stream an unphotographed page still draws is a content stream of the output, so its
+    /// repair is kept whatever else names it.
+    #[test]
+    fn a_stream_an_unphotographed_page_names_is_kept() {
+        let document = fixture(true);
+        let taken_off = taken_off_by(&document, None, &BTreeSet::from([page(4)]));
+        assert!(taken_off.is_empty());
+        let completed = complete(&document, None).expect("both streams omit a digit");
+        let left = completed.leaving_out(&taken_off);
+        assert_eq!(left.digits, 2);
+        assert!(left.at.contains_key(&page(6)));
+    }
+
+    /// No page photographed takes nothing off, without walking the page tree.
+    #[test]
+    fn no_photograph_takes_nothing_off() {
+        assert!(taken_off_by(&fixture(false), None, &BTreeSet::new()).is_empty());
     }
 }

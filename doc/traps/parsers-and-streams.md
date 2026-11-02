@@ -498,3 +498,22 @@ has 4": the image reader takes a `cdef` channel of type 1 as opacity and rejects
 decoder tolerates type 2. A writer whose files the tree will read again proves its round trip through every
 reader that will read them — here both — and the fixture that passed one reader alone was the gap the
 second found.
+
+### 312. An object number is not a role
+
+Round 1903 (ADR 2640) found `064034`'s converter writing `0` before twenty-nine `>` of its XMP packet: the
+producer's incremental update had reused object 6 as the catalog's `/Metadata` while page 3 still named it
+as its `/Contents`, and the hexadecimal-string repair, keyed by the stream's object number, rewrote it as a
+content stream. The first-match dispatch in `rewrite/streams.rs` then applied that rewrite before the packet
+writers, so the loss showed only in veraPDF. One stream may serve two roles at once; a rewrite keyed by an
+object number reads what else names the object before it writes, and leaves a stream a photograph already
+took off the page.
+
+### 313. A read-back is the writer's fixed point, never a second summation
+
+Round 1904 (ADR 2642) read every restated sfnt back by summing each table over aligned words, and the first
+no-pack census moved two documents HEAD converts to refused: `issue3323.pdf`'s TrueType face has its `head`
+table at byte 34 038, off the four-byte boundary, and the second summation disagreed with the writer's.
+Producers' files are not aligned the way a writer aligns its own. A read-back of a producer's file asks
+whether applying the writer's own `checksummed` again leaves the bytes unchanged — the writer as a fixed
+point — and a census compared against the base's is what shows a read-back refusing what it should pass.

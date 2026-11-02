@@ -913,6 +913,7 @@ fn image_interpolation_is_a_loss_and_needs_authorising() {
         page_not_held: false,
         page_not_held_stated: false,
         layout_from_this_viewer: false,
+        content_as_drawn: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -1078,6 +1079,7 @@ fn an_annotation_stating_no_flags_is_made_printable_only_with_authorisation() {
         page_not_held: false,
         page_not_held_stated: false,
         layout_from_this_viewer: false,
+        content_as_drawn: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -1170,6 +1172,7 @@ fn a_property_its_own_schema_does_not_define_is_removed_only_with_authorisation(
         page_not_held: false,
         page_not_held_stated: false,
         layout_from_this_viewer: false,
+        content_as_drawn: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -1896,7 +1899,8 @@ fn paints_in_device_cmyk() -> (String, Vec<u8>) {
 /// ISO 19005-2 section 6.2.3 and ISO 19005-4 section 6.2.3 make every entry of one
 /// `OutputIntents` array name the same destination profile object, and section 6.2.4.3 of each
 /// licenses a device space only through a profile of that space's own family. So this page is the
-/// fixture for the one decision `prepare::shipped_for` has to take and `doc/adr/1153` argues.
+/// fixture for the one decision `prepare::colour_and_graphics::shipped_for` has to take and
+/// `doc/adr/1153` argues.
 fn paints_in_both_device_spaces() -> (String, Vec<u8>) {
     (
         String::new(),
@@ -3000,6 +3004,119 @@ fn a_program_whose_advances_disagree_with_its_dictionary_is_restated_in_place() 
         Some(("LiberationSans", 1)),
         "and the report names the font and how many glyphs were restated: {restated:?}"
     );
+}
+
+/// Two fonts drawing from one embedded program through one descriptor, object 7: `F1` (object 6)
+/// states 500 for `A`, which the program makes 667 wide, and `F2` (object 8) states the program's
+/// own 667.
+fn two_fonts_sharing_one_program() -> Vec<u8> {
+    let font = |widths: &str| {
+        format!(
+            "<< /Type /Font /Subtype /TrueType /BaseFont /LiberationSans /FirstChar 65 \
+             /LastChar 65 /Widths [{widths}] /FontDescriptor 7 0 R /Encoding /WinAnsiEncoding >>"
+        )
+    };
+    Conforming {
+        resources: "/Font << /F1 6 0 R /F2 8 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (A) Tj /F2 12 Tf (A) Tj ET".to_vec(),
+        )),
+        objects: vec![
+            font("500"),
+            "<< /Type /FontDescriptor /FontName /LiberationSans /Flags 32 \
+             /FontBBox [-543 -303 1300 980] /ItalicAngle 0 /Ascent 905 /Descent -212 \
+             /CapHeight 716 /StemV 80 /FontFile2 9 0 R >>"
+                .to_owned(),
+            font("667"),
+        ],
+        binary_objects: vec![stream(
+            &format!("/Length {}", LIBERATION_SANS.len()),
+            LIBERATION_SANS,
+        )],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+#[test]
+fn a_program_two_fonts_share_is_restated_in_a_copy_where_their_widths_disagree() {
+    // ISO 19005-2 section 6.2.11.5 holds each font dictionary's widths to the program it names.
+    // Restating the shared program to `F1`'s 500 would make `F2`'s 667 disagree in its place, so
+    // `F1` is given its own copy of the descriptor and a restated copy of the program, and `F2`
+    // keeps the producer's two objects byte for byte (`doc/adr/2640`).
+    let source = two_fonts_sharing_one_program();
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        let (report, output) = convert(&source, target, Authorisations::default());
+        let output = output.unwrap_or_else(|| panic!("the document converts: {report:?}"));
+        assert_eq!(
+            holds(&output, target).verdict(),
+            Verdict::Conforms,
+            "{:?}",
+            holds(&output, target)
+        );
+        assert_eq!(stated_widths(&output), stated_widths(&source));
+        // The output is renumbered, so each font is found by the width it states.
+        let held = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+        let mut drawn_from: std::collections::BTreeMap<i64, (ObjectId, Vec<u8>)> =
+            std::collections::BTreeMap::new();
+        for number in 1..32 {
+            let object = held.get(ObjectId::new(number, 0));
+            let Some(font) = object.as_dict() else {
+                continue;
+            };
+            let Some(width) = held
+                .resolve(&held.get_key(font, "Widths"))
+                .as_array()
+                .and_then(|widths| {
+                    widths
+                        .first()
+                        .and_then(|width| held.resolve(width).as_number())
+                })
+            else {
+                continue;
+            };
+            let descriptor = font
+                .get("FontDescriptor")
+                .and_then(pdf_syntax::object::Object::as_reference)
+                .expect("a descriptor");
+            let program = held.get_key(
+                held.get(descriptor).as_dict().expect("a dictionary"),
+                "FontFile2",
+            );
+            let bytes = program
+                .as_stream()
+                .and_then(|stream| held.decoded_stream_data(stream))
+                .expect("a program")
+                .to_vec();
+            #[expect(clippy::cast_possible_truncation, reason = "a width the fixture wrote")]
+            drawn_from.insert(width as i64, (descriptor, bytes));
+        }
+        let (shared, kept) = drawn_from.get(&667).expect("F2");
+        let (copy, restated_program) = drawn_from.get(&500).expect("F1");
+        assert_ne!(shared, copy, "F1 names a copy of the descriptor");
+        assert_eq!(
+            kept.as_slice(),
+            LIBERATION_SANS,
+            "F2's program crosses unchanged"
+        );
+        assert_ne!(
+            restated_program.as_slice(),
+            LIBERATION_SANS,
+            "F1's copy is restated"
+        );
+        let restated = &conversion(&report).restated;
+        assert_eq!(
+            restated
+                .iter()
+                .map(|font| (font.resource.as_str(), font.glyphs))
+                .collect::<Vec<_>>(),
+            [("F1", 1)],
+            "{restated:?}"
+        );
+    }
 }
 
 #[test]
@@ -4380,6 +4497,7 @@ fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_st
         page_not_held: false,
         page_not_held_stated: false,
         layout_from_this_viewer: false,
+        content_as_drawn: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -5554,6 +5672,7 @@ fn a_colour_specification_the_part_ignores_is_removed_only_with_authorisation() 
         page_not_held: false,
         page_not_held_stated: false,
         layout_from_this_viewer: false,
+        content_as_drawn: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -5619,6 +5738,7 @@ fn a_file_marking_no_specification_best_keeps_the_one_a_jp2_reader_uses() {
         page_not_held: false,
         page_not_held_stated: false,
         layout_from_this_viewer: false,
+        content_as_drawn: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -5682,6 +5802,7 @@ fn two_specifications_marked_best_stay_refused() {
         page_not_held: false,
         page_not_held_stated: false,
         layout_from_this_viewer: false,
+        content_as_drawn: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -5738,6 +5859,7 @@ fn one_specification_with_a_method_the_part_forbids_stays_refused() {
         page_not_held: false,
         page_not_held_stated: false,
         layout_from_this_viewer: false,
+        content_as_drawn: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -9158,6 +9280,7 @@ fn an_annotation_of_a_forbidden_subtype_goes_only_with_authorisation() {
         page_not_held: false,
         page_not_held_stated: false,
         layout_from_this_viewer: false,
+        content_as_drawn: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -9491,6 +9614,7 @@ fn an_annotation_that_drew_nothing_refuses_a_preserve_by_name() {
         page_not_held: false,
         page_not_held_stated: false,
         layout_from_this_viewer: false,
+        content_as_drawn: false,
     };
     let (report, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -9540,6 +9664,7 @@ fn every_loss() -> Authorisations {
         page_not_held: false,
         page_not_held_stated: false,
         layout_from_this_viewer: false,
+        content_as_drawn: false,
     }
 }
 
@@ -15878,6 +16003,9 @@ mod font_notices;
 #[path = "archive/annotation_flags.rs"]
 mod annotation_flags;
 
+#[path = "archive/as_drawn.rs"]
+mod as_drawn;
+
 #[path = "archive/linked_popups.rs"]
 mod linked_popups;
 
@@ -15888,6 +16016,8 @@ mod default_rgb_page_intent;
 mod attachments_as_pages;
 #[path = "archive/cjk_pack.rs"]
 mod cjk_pack;
+#[path = "archive/cut_program.rs"]
+mod cut_program;
 #[path = "archive/deep_jpx.rs"]
 mod deep_jpx;
 #[path = "archive/drawn_attachments.rs"]

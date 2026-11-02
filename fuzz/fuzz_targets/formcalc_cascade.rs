@@ -171,7 +171,10 @@ fuzz_target!(|data: &[u8]| {
     let stimulus = if mode & 1 == 0 {
         Stimulus::Merge
     } else {
-        Stimulus::Entry(&typed)
+        Stimulus::Entry {
+            entered: &typed,
+            before: &[],
+        }
     };
     let started = Instant::now();
     let first = activate(&resource, &fields, stimulus);

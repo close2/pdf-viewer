@@ -10,8 +10,8 @@
 # keeps, else stops, until the executor carries the second step there.
 #
 # At a presentation site the answer is try = ["append-statement", "discard"]. This version sets
-# append-statement's page at the two embedded-file rows, the three halftone rows and the font row
-# (config/steps.rs, doc/adr/2562, doc/adr/2600), where a page that cannot be composed hands its objects to
+# append-statement's page at the two embedded-file rows, the three halftone rows, the font row and
+# the operator row (config/steps.rs, doc/adr/2562, doc/adr/2600, doc/adr/2638), where a page that cannot be composed hands its objects to
 # discard; at every other site the first step is passed over with its sentence and the loss is
 # taken as discard takes it, named in the report and in xmpMM:History, until the page is built there. The three
 # transfer-function sites keep keep-everything's answer, because a transfer function decides what
@@ -182,6 +182,13 @@ try = ["append-statement", "discard"]
 try = ["append-statement", "discard"]
 
 [site."graphics/no-halftone-origin-in-a-graphics-state"]
+try = ["append-statement", "discard"]
+
+# A content stream run such as 33600.272.58 that the window draws as the number on its front
+# (ISO 32000-2 7.2.3 and 7.3.3, ADR 1004) is written as that number, the loss `content-as-drawn`,
+# where every operator the base standard does not define is such a run, and the appended page
+# names each run by its pages, its content stream, its bytes and its number (ADR 2638).
+[site."graphics/only-operators-the-base-standard-defines"]
 try = ["append-statement", "discard"]
 
 [site."file-structure/no-external-stream-data"]

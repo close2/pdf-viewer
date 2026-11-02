@@ -1870,8 +1870,13 @@ fn not_enforced(why: &pdf_signature::policy_rules::NotEnforced, copy: &str) -> S
         NotEnforced::Unreadable(refusal) => refusal.to_string(),
         NotEnforced::CanonicalDigestNotComputed { canonicalization } => format!(
             "the signer committed to the digest {copy} states over its policy components \
-             canonicalised by {canonicalization}, and this program does not canonicalise XML to \
-             re-compute it"
+             canonicalised by {canonicalization}, a method this program does not compute, so it \
+             cannot re-compute that digest"
+        ),
+        NotEnforced::CanonicalDigestDiffers { canonicalization } => format!(
+            "the signer committed to the digest {copy} states over its policy components, and \
+             those components canonicalised by {canonicalization} do not digest to it, so {copy} \
+             is not the document the signer committed to"
         ),
         NotEnforced::IdentifierDiffers { document } => {
             format!("{copy} is the document of policy {document}, not of the one the signer named")

@@ -969,6 +969,11 @@ pub struct Conversion {
     /// intersection with the media box. Empty for every conversion whose pages met the limit
     /// (`doc/adr/1210`).
     pub removed_boundaries: Vec<super::RemovedBoundary>,
+    /// Every run a content stream held that ISO 32000-2 §7.3.3 spells as no number and this
+    /// conversion wrote as the number this reader draws, the loss `content-as-drawn`: each by its
+    /// pages, its content stream, its bytes and the number. Empty for every conversion whose
+    /// content streams named no such run (`doc/adr/2638`).
+    pub runs_written_as_drawn: Vec<super::WrittenRun>,
     /// Every graphics state or halftone whose transfer function other than the identity this
     /// conversion removed, with what the function said (`doc/adr/1964`, `doc/adr/2007`).
     ///
@@ -1207,6 +1212,10 @@ impl Conversion {
                         .map(boundary_to_json)
                         .collect(),
                 ),
+            ),
+            (
+                "runs_written_as_drawn".to_owned(),
+                Value::Array(self.runs_written_as_drawn.iter().map(run_to_json).collect()),
             ),
             (
                 "removed_transfer_functions".to_owned(),
@@ -1972,7 +1981,30 @@ impl Conversion {
                         super::fonts::empty_glyphs_given(&font.empty_glyphs)
                     );
                 }
+                if let Some(cut) = font.cut_program {
+                    let _ = write!(out, "; {}", cut.describe());
+                }
                 let _ = writeln!(out);
+            }
+        }
+        if !self.runs_written_as_drawn.is_empty() {
+            let _ = writeln!(
+                out,
+                "  {} run(s) ISO 32000-2 \u{a7}7.3.3 spells as no number are written as the \
+                 number this viewer draws for each, losing content-as-drawn:",
+                self.runs_written_as_drawn.len()
+            );
+            for written in &self.runs_written_as_drawn {
+                let pages: Vec<String> = written.pages.iter().map(usize::to_string).collect();
+                let _ = writeln!(
+                    out,
+                    "      page {}, object {} {}: {} written as {}",
+                    pages.join(", "),
+                    written.object.number,
+                    written.object.generation,
+                    super::as_drawn::spelled(&written.run),
+                    super::as_drawn::spelled(&written.number)
+                );
             }
         }
         if !self.photographed.is_empty() {
@@ -2257,6 +2289,19 @@ fn substituted_to_json(font: &SubstitutedFont) -> Value {
             ),
         ));
     }
+    if let Some(cut) = font.cut_program {
+        fields.push((
+            "cut_program".to_owned(),
+            Value::Object(vec![
+                ("key".to_owned(), Value::text(cut.key.to_owned())),
+                (
+                    "damage".to_owned(),
+                    cut.damage
+                        .map_or(Value::Null, |damage| Value::text(format!("{damage:?}"))),
+                ),
+            ]),
+        ));
+    }
     Value::Object(fields)
 }
 
@@ -2307,6 +2352,32 @@ fn external_to_json(stream: &super::ExternalStream) -> Value {
 /// The two rectangles are what says whether the removal cost anything: equal means
 /// §14.11.2.1 had already made the entry its intersection with the media box and no reader used
 /// what it said (`doc/adr/1210`).
+/// One run written as the number this reader draws, for the report's machine-readable form.
+fn run_to_json(written: &super::WrittenRun) -> Value {
+    let integer = |value: usize| Value::Integer(i64::try_from(value).unwrap_or(i64::MAX));
+    Value::Object(vec![
+        (
+            "pages".to_owned(),
+            Value::Array(written.pages.iter().copied().map(integer).collect()),
+        ),
+        (
+            "object".to_owned(),
+            Value::text(format!(
+                "{} {}",
+                written.object.number, written.object.generation
+            )),
+        ),
+        (
+            "run".to_owned(),
+            Value::text(super::as_drawn::spelled(&written.run)),
+        ),
+        (
+            "number".to_owned(),
+            Value::text(super::as_drawn::spelled(&written.number)),
+        ),
+    ])
+}
+
 fn boundary_to_json(removed: &super::RemovedBoundary) -> Value {
     let rect = |sides: [f32; 4]| {
         Value::Array(

@@ -51,7 +51,7 @@ fn sha256(bytes: &[u8]) -> String {
 ///
 /// `doc/adr/1025` section 4 sets an appended page's text verbatim and breaks a line at the measure
 /// wherever it falls, inside a word or a digest, so a fact is compared with the breaks removed.
-fn stated(output: &[u8], statement: &StatementPage) -> String {
+pub(super) fn stated(output: &[u8], statement: &StatementPage) -> String {
     statement
         .pages
         .iter()
@@ -62,7 +62,7 @@ fn stated(output: &[u8], statement: &StatementPage) -> String {
 }
 
 /// Whether the statement's text holds a fact, compared without spaces or line breaks.
-fn holds_fact(page: &str, fact: &str) -> bool {
+pub(super) fn holds_fact(page: &str, fact: &str) -> bool {
     page.contains(&fact.split_whitespace().collect::<String>())
 }
 

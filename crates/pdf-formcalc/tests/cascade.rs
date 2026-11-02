@@ -124,7 +124,15 @@ fn merge(template: &str, values: &[(&str, &str)]) -> Activation {
 
 fn entered(template: &str, values: &[(&str, &str)], typed: &[&str]) -> Activation {
     let typed: Vec<String> = typed.iter().map(|short| name(short)).collect();
-    activate(template, values, Stimulus::Entry(&typed), Limits::DEFAULT)
+    activate(
+        template,
+        values,
+        Stimulus::Entry {
+            entered: &typed,
+            before: &[],
+        },
+        Limits::DEFAULT,
+    )
 }
 
 fn edit(short: &str, value: Scalar) -> (String, Scalar) {
@@ -571,7 +579,10 @@ fn a_calculated_value_reaches_the_value_and_the_datasets_packet_through_the_save
     let typed = [name("Units")];
     let activation = resource.activate(
         &now,
-        Stimulus::Entry(&typed),
+        Stimulus::Entry {
+            entered: &typed,
+            before: &[],
+        },
         &mut FormCalcRunner,
         Limits::DEFAULT,
     );
@@ -1227,7 +1238,13 @@ fn each_built_activity_reaches_the_listening_subform_after_the_fields_own() {
     let (a1, a2) = (name("A.a1"), name("A.a2"));
     let entered = [a1.clone()];
     let cases = [
-        (Stimulus::Entry(&entered), "change!A^"),
+        (
+            Stimulus::Entry {
+                entered: &entered,
+                before: &[],
+            },
+            "change!A^",
+        ),
         (
             Stimulus::Exit {
                 left: &a1,
@@ -1425,4 +1442,228 @@ fn a_hundred_thousand_unfollowed_events_are_reported_within_the_cap() {
         "{:?}",
         activation.report.last()
     );
+}
+
+/// The value the activation left in the field `short`, where a script or `$event.newText` set it.
+fn edited(activation: &Activation, short: &str) -> Option<Scalar> {
+    activation
+        .edits
+        .iter()
+        .find(|(field, _)| *field == name(short))
+        .map(|(_, value)| value.clone())
+}
+
+/// Activates a person's entry into the field `short`, which showed `before` before it.
+fn entry(template: &str, values: &[(&str, &str)], short: &str, before: Option<&str>) -> Activation {
+    let typed = [name(short)];
+    let before = [before.map(str::to_owned)];
+    activate(
+        template,
+        values,
+        Stimulus::Entry {
+            entered: &typed,
+            before: &before,
+        },
+        Limits::DEFAULT,
+    )
+}
+
+/// XFA 3.3 pages 398 and 404: `$event.target` is the object the activity happened on, so a
+/// subform that hears a click from below (page 387) reads the field that was clicked and not
+/// itself, and `$event.name` is the activity. Two clicks on two fields name each in turn.
+#[test]
+fn a_listening_subform_reads_the_clicked_field_from_event_target() {
+    let template = [
+        format!(
+            "<subform name=\"A\"><event activity=\"click\" listen=\"refAndDescendents\"><script>\
+             Log = Concat(Log, $event.name, \"=\", $event.target, \"!\")</script></event>{}{}\
+             </subform>",
+            field("One", ""),
+            field("Two", "")
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    let values = [("A.One", "first"), ("A.Two", "second"), ("Log", "")];
+    for (short, expected) in [("A.One", "click=first!"), ("A.Two", "click=second!")] {
+        let activation = click(&template, &values, short);
+        assert_eq!(activation.ended, Ended::Settled, "{:?}", activation.report);
+        assert_eq!(log(&activation).as_deref(), Some(expected));
+        assert!(activation.report.is_empty(), "{:?}", activation.report);
+    }
+}
+
+/// Page 399: a script may write `change`, `selStart`, `selEnd` and `cancelAction` and no other
+/// property, so a click script writing `$event.name` is stopped and the sentence says why; the
+/// script's later statement does not run.
+#[test]
+fn a_script_writing_a_read_only_event_property_is_reported() {
+    let template = [
+        field(
+            "Button",
+            "<event activity=\"click\"><script>$event.name = \"other\"\nLog = \"ran\"</script>\
+             </event>",
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    let values = [("Button", ""), ("Log", "")];
+    let activation = click(&template, &values, "Button");
+    assert_eq!(log(&activation), None, "{:?}", activation.report);
+    assert!(
+        activation
+            .report
+            .iter()
+            .any(|sentence| sentence.contains("$event.name: read-only")
+                && sentence.contains("page 399")),
+        "{:?}",
+        activation.report
+    );
+}
+
+/// Page 398: using a property the current event did not set is an error. A click sets no
+/// `change`, and a merge's `initialize` is no person's action, so neither script is handed a null.
+#[test]
+fn a_property_the_event_did_not_set_is_refused_by_name() {
+    let reads_change = field(
+        "Button",
+        "<event activity=\"click\"><script>Log = $event.change</script></event>",
+    );
+    let template = [reads_change, field("Log", "")].concat();
+    let values = [("Button", ""), ("Log", "")];
+    let activation = click(&template, &values, "Button");
+    assert_eq!(log(&activation), None);
+    assert!(
+        activation
+            .report
+            .iter()
+            .any(|sentence| sentence.contains("$event.change: the click event does not set it")),
+        "{:?}",
+        activation.report
+    );
+
+    let reads_name = field(
+        "Button",
+        "<event activity=\"initialize\"><script>Log = $event.name</script></event>",
+    );
+    let template = [reads_name, field("Log", "")].concat();
+    let activation = merge(&template, &values);
+    assert_eq!(log(&activation), None);
+    assert!(
+        activation
+            .report
+            .iter()
+            .any(|sentence| sentence.contains("$event.name: no person's action is being handled")),
+        "{:?}",
+        activation.report
+    );
+}
+
+/// Page 400: a `change` script reads what the field showed (`prevText`), the entry (`change`)
+/// and what the field will hold (`newText`), and a write to `change` changes `newText`, which is
+/// placed into the field once the event's scripts have run; the calculation that reads the
+/// field, a secondary event, sees the placed text and the primary event's `$event.name`.
+#[test]
+fn a_change_script_reads_the_entry_and_rewrites_it_through_event_change() {
+    let template = [
+        field(
+            "Name",
+            "<event activity=\"change\"><script>Log = Concat($event.prevText, \">\", \
+             $event.newText, \"@\", $event.selStart, \"-\", $event.selEnd)\n\
+             $event.change = Concat($event.change, \"!\")</script></event>",
+        ),
+        field("Echo", &calculate("Concat(Name, \"/\", $event.name)", "")),
+        field("Log", ""),
+    ]
+    .concat();
+    let values = [("Name", "smith"), ("Echo", ""), ("Log", "")];
+    let activation = entry(&template, &values, "Name", Some("jones"));
+    assert_eq!(activation.ended, Ended::Settled, "{:?}", activation.report);
+    assert_eq!(log(&activation).as_deref(), Some("jones>smith@0-5"));
+    assert_eq!(
+        edited(&activation, "Name"),
+        Some(Scalar::Text("smith!".to_owned())),
+        "{:?} {:?}",
+        activation.edits,
+        activation.report
+    );
+    assert_eq!(
+        edited(&activation, "Echo"),
+        Some(Scalar::Text("smith!/change".to_owned()))
+    );
+    assert!(activation.report.is_empty(), "{:?}", activation.report);
+
+    // Where the window did not say what the field showed, `prevText` is not offered.
+    let reads_previous = field(
+        "Name",
+        "<event activity=\"change\"><script>Log = $event.prevText</script></event>",
+    );
+    let template = [reads_previous, field("Log", "")].concat();
+    let activation = entry(&template, &[("Name", "a"), ("Log", "")], "Name", None);
+    assert_eq!(log(&activation), None);
+    assert!(
+        activation.report.iter().any(|sentence| sentence
+            .contains("$event.prevText: the window did not say what the field held")),
+        "{:?}",
+        activation.report
+    );
+}
+
+/// Page 403: `selStart` is never past `selEnd`, and a position lies within `prevText`; a script
+/// that moves the span outside it is stopped and the entry stands as the person made it.
+#[test]
+fn a_selection_moved_outside_the_previous_text_is_refused() {
+    let template = [
+        field(
+            "Name",
+            "<event activity=\"change\"><script>$event.selEnd = 99</script></event>",
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    let values = [("Name", "abc"), ("Log", "")];
+    let activation = entry(&template, &values, "Name", Some("xy"));
+    assert_eq!(edited(&activation, "Name"), None, "{:?}", activation.edits);
+    assert!(
+        activation
+            .report
+            .iter()
+            .any(|sentence| sentence
+                .contains("$event.selEnd: a position in prevText's 2 characters")),
+        "{:?}",
+        activation.report
+    );
+}
+
+/// Page 391: the pointer moving into a field's region and out of it fire the field's own
+/// `mouseEnter` and `mouseExit`, which page 390 gives no subform; a listening subform hears both
+/// (page 387) and reads the field from `$event.target`.
+#[test]
+fn the_pointer_crossing_a_field_runs_its_mouse_enter_and_mouse_exit() {
+    let template = [
+        format!(
+            "<subform name=\"A\">{}{}{}</subform>",
+            listens("mouseEnter", "A"),
+            listens("mouseExit", "A"),
+            field(
+                "Button",
+                "<event activity=\"mouseEnter\"><script>Log = Concat(Log, \"in:\", \
+                 $event.target)</script></event><event activity=\"mouseExit\"><script>\
+                 Log = Concat(Log, \"out:\", $event.target)</script></event>"
+            )
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    let values = [("A.Button", "b"), ("Log", "")];
+    let button = name("A.Button");
+    let cases = [
+        (Stimulus::MouseEnter { entered: &button }, "in:bA^"),
+        (Stimulus::MouseExit { exited: &button }, "out:bA^"),
+    ];
+    for (stimulus, expected) in cases {
+        let activation = activate(&template, &values, stimulus, Limits::DEFAULT);
+        assert_eq!(activation.ended, Ended::Settled, "{:?}", activation.report);
+        assert_eq!(log(&activation).as_deref(), Some(expected));
+    }
 }

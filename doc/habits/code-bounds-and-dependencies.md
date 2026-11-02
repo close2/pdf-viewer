@@ -543,3 +543,11 @@ subroutine index whose stated extent ended past the program's last byte. The inp
 walk found nothing; the rewrite's longer output did, so the same walk found tables and the writer refused its
 own output. An INDEX or DICT whose stated bytes lie past the program is refused by name as misstated before
 any walk reads it, so the walk's input is only the bytes the program holds.
+
+## A brief's "one pass over the tree" is checked against what the tree keeps
+
+Round 1905 (ADR 2644) was briefed to canonicalise in one pass over the policy module's tree; that tree drops
+comments, processing instructions, prefixed attributes and per-element namespace declarations, all of which
+Canonical XML section 2 renders, so a second bounded pass over the tokens was the design. Before a design
+fixes on an existing tree, what the tree keeps and drops is listed against what the output needs, and the
+brief's sentence is corrected where they differ.

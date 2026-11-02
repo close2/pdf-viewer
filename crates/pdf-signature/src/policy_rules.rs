@@ -54,6 +54,7 @@ use crate::policy::{Binding, PolicyHash, Published, SignaturePolicy, Store};
 use crate::signature::name;
 use crate::x509::{self, Instant, PublicKey};
 
+pub mod canonical_xml;
 pub mod ts_119_172_2;
 pub mod ts_119_172_3;
 
@@ -970,9 +971,17 @@ pub enum NotEnforced {
     /// The stored copy is bound but its constraints could not be read.
     Unreadable(PolicyDocumentError),
     /// The signer signed the digest a TS 119 172-2 document states over its canonicalised
-    /// components, and this program does not canonicalise XML to re-compute it, so the binding is
-    /// unchecked rather than refused (ADR 2604).
+    /// components, under a canonicalisation method other than the inclusive Canonical XML 1.0
+    /// [`canonical_xml`] computes, so the binding is unchecked rather than refused (ADRs 2604,
+    /// 2644).
     CanonicalDigestNotComputed {
+        /// The canonicalisation method the document names.
+        canonicalization: String,
+    },
+    /// The signer signed the digest a TS 119 172-2 document states over its canonicalised
+    /// components, and the components, canonicalised by the method the document names, do not
+    /// digest to it: the document is not the one the signer committed to (ADR 2644).
+    CanonicalDigestDiffers {
         /// The canonicalisation method the document names.
         canonicalization: String,
     },
@@ -1129,8 +1138,9 @@ fn enforce_components(
     }
 }
 
-/// [`enforce`] for a document in TS 119 172-2's XML syntax, bound only by the digest of its
-/// octets: its own `Digest` is over canonicalised XML, which is not re-computed here (ADR 2604).
+/// [`enforce`] for a document in TS 119 172-2's XML syntax, bound by the digest of its octets or
+/// by the digest its own `Digest` states over its canonicalised components, re-computed (ADRs
+/// 2604, 2644).
 fn enforce_xml(
     policy: &SignaturePolicy<'_>,
     octets: &[u8],
@@ -1144,14 +1154,15 @@ fn enforce_xml(
         .map_err(Clone::clone)
         .and_then(ts_119_172_2::Reading::document);
     if let Err(why) = by_octets {
-        if let (PolicyHash::Stated { value, .. }, Ok(document)) = (&policy.hash, &parsed)
-            && document.digest_value == *value
-        {
-            return Enforcement::NotEnforced(NotEnforced::CanonicalDigestNotComputed {
-                canonicalization: document.canonicalization.to_owned(),
-            });
+        let (PolicyHash::Stated { digest, value }, Ok(document)) = (&policy.hash, &parsed) else {
+            return Enforcement::NotEnforced(why);
+        };
+        if document.digest_value != *value {
+            return Enforcement::NotEnforced(why);
         }
-        return Enforcement::NotEnforced(why);
+        if let Err(refusal) = canonical_binding(octets, document.canonicalization, *digest, value) {
+            return Enforcement::NotEnforced(refusal);
+        }
     }
     let document = match parsed {
         Ok(document) => document,
@@ -1165,6 +1176,41 @@ fn enforce_xml(
     Enforcement::Enforced {
         syntax: Syntax::Ts1191722,
         findings: ts_119_172_2::findings(&document, cms, facts),
+    }
+}
+
+/// TS 119 172-2 clause 4.3.2's binding, made where the signer signed the value a document's
+/// `Digest` states: its `PolicyComponents` element canonicalised by the method the document
+/// names, digested under the function the signer named, is that value.
+///
+/// The signer's function rather than the document's `DigestMethod`, because the signed value and
+/// its function are the commitment and the document is unsigned until this succeeds, so nothing
+/// the document states can choose what it is checked under (ADR 2644).
+fn canonical_binding(
+    octets: &[u8],
+    canonicalization: &str,
+    digest: Digest,
+    signed: &[u8],
+) -> Result<(), NotEnforced> {
+    let Some(comments) = canonical_xml::Comments::of(canonicalization) else {
+        return Err(NotEnforced::CanonicalDigestNotComputed {
+            canonicalization: canonicalization.to_owned(),
+        });
+    };
+    let apex = canonical_xml::Apex {
+        depth: 1,
+        namespaces: &ts_119_172_2::NAMESPACE,
+        local: "PolicyComponents",
+    };
+    let mut hasher = digest.hasher();
+    canonical_xml::canonicalize(octets, &apex, comments, &mut |piece| hasher.update(piece))
+        .map_err(NotEnforced::Unreadable)?;
+    if hasher.finish() == signed {
+        Ok(())
+    } else {
+        Err(NotEnforced::CanonicalDigestDiffers {
+            canonicalization: canonicalization.to_owned(),
+        })
     }
 }
 
