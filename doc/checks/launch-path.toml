@@ -227,29 +227,20 @@
 
 # What the bands are a claim about. The gate prints every figure on any machine and judges the
 # clock ones only where the calibration probe says this is that machine.
-machine = "AMD Ryzen AI 9 HX 370 (4 Zen 5 + 8 Zen 5c cores, 24 threads), 61 GiB, btrfs on NVMe, Radeon 890M through RADV, Linux 7.1"
+machine = "AMD EPYC 7301 (Zen 1; this account's CPUs 0-31 of 48, NUMA node 0, one class of core), 92 GiB, ext4 on a rotating disk, Radeon RX 580 (Polaris) through RADV (Mesa 25.0.7, `VK_ICD_FILENAMES` naming the radeon driver alone), Linux 6.12.115 (Debian 13)"
 profile = "release"
 
 # The calibration probe: the smallest document opened from bytes already in memory and its first
 # page interpreted, fifty times, the quickest — in a child of its own, pinned like every other.
 # No I/O after the first read, no device, no subprocess.
 #
-# **The upper edge is a little over 4% above the slowest child whose figure was judged in band**:
-# this machine may be a twentieth slower than its good readings and no more. The edge was 0.82
-# until a run at a load average of 39 read exactly 0.820 and reported twelve figures out of band;
-# it was 0.78 while the good readings reached 0.750. The probe is an interpretation, so it reads
-# what the code costs as well as what the machine is, and the good readings moved down with the
-# code: in one clock hold on 2026-10-23, HEAD and ADR 2258's change interleaved, the 57 clock
-# figures the change's runs judged in band had children reading 0.667 to 0.715 ms, so the edge is
-# 0.74 (ADR 2259).
-# **Not 0.72, though seven of fifteen failures over that hold and an earlier one read above it.**
-# Eight read 0.675 to 0.715, inside the passes' own range, so the warm-open mode that fails is
-# not what this probe sees (ADR 2245); an edge at 0.72 sits 0.7% over the slowest good child,
-# inside the probe's own quiet spread, and would decline failures the probe did not cause.
-# `turn-path.toml` keeps 0.78 for its own children, which run the probe after their device rounds
-# and read a median of 0.735 in the same hold.
+# **The band is ADR 1969's rule over every run of the gate on this machine** (ADR 2660): the
+# gate's calibration read 1.979 to 2.010 ms over seven runs on 2026-11-03, at one-minute loads of 7
+# to 102 — the probe does not see the load, as the paragraph below says — and its children 1.98 to
+# 2.10 ms in nine of ten; smallest × 0.85 and largest × 1.20, rounded outward. A child past the edge
+# did not have this machine; the band is the clock bands' own width.
 calibration_document = "doc/PDF20_AN001-BPC.pdf"
-calibration_ms = 0.62 .. 0.74
+calibration_ms = 1.68 .. 2.42
 
 # **And this probe answers only half of the question it is asked, which the nine-hundred-and-
 # thirty-first session measured.** "Is this the machine" it answers very well — its spread over
@@ -350,13 +341,12 @@ calibration_ms = 0.62 .. 0.74
 # pipeline is in this figure: raster returns the device before its warm set, and the first frame's
 # own compiles are the first page's. `quorra-qt` and `quorra-gtk` print the same steps on their
 # `graphics device up in` line, and ADR 2283 prices the levers.
-# **Re-taken on 2026-11-02 under ADR 2621**: three runs of HEAD's export in one quiet hold (one-minute
-# load 1.5 to 2.9, mesa and vulkan-radeon 26.2.4, kernel 7.2.9) read 19.99, 21.01 and 21.04 ms, and the
-# merge gates of three batches had read 22 to 25 on the base and the batch alike; the band is this
-# file's rule over the three, smallest × 0.85 and largest × 1.20. The device's bring-up is about four
-# milliseconds slower than the three runs of 2026-10-06, on an unchanged shader set and adapter
-# selection, which is the driver's share and is what principle 2 made this gate legible for.
-bring_up_ms = 17.0 .. 25.3
+# **This machine's band** (ADR 2660): every run of the gate under its load ceiling on 2026-11-03,
+# each under its own `with-gpu-lock` on the RX 580 with the busy share at 0 %, read 69.225, 67.888,
+# 71.529, 66.599, 65.732 and 71.032 ms; this file's rule over the six. `bring_up_anon_mib` below is
+# not re-taken: it is judged, and on this driver it reads 15.1 to 15.3 MiB, past its band (the
+# round's record).
+bring_up_ms = 55.8 .. 85.9
 
 # What the device costs in *allocated* memory, in the same process that has done nothing else.
 #
@@ -385,16 +375,18 @@ bring_up_anon_mib = 4.8 .. 7.5
 # same stuff as the figure it guards. The probe is 128 KiB written in one piece, so it is one
 # extent and answers with one trip. The band is the observed minimum less a sixth and the observed
 # median times two and a half, which is the shape `io_ms` already has (it reads 2.8 against a
-# ceiling of 7.0); forty samples on an idle machine read 0.086 min, 0.098 median, 0.401 max.
-io_latency_ms = 0.073 .. 0.25
+# ceiling of 7.0 where it was taken). On this machine's rotating disk (ADR 2660), the 72 cold
+# samples the gate's runs printed on 2026-11-03 read 0.556 min, 0.740 median, 2.221 max.
+io_latency_ms = 0.46 .. 1.85
 
 # The disk's own state, and the other half of the guard: a cold read of a fixed eight-mebibyte
 # file of this gate's own, evicted the same way a document is, timed beside every *cold* sample.
 # The calibration probe above is deliberately CPU-bound and in memory, so it cannot see a
 # neighbour queueing the disk — and a cold open is mostly disk. This gate failed on a five-page
 # document's cold open while its child's calibration sat dead centre in its band, which is what
-# this line is for. Only the cold figures are held to it.
-io_ms = 2.0 .. 7.0
+# this line is for. Only the cold figures are held to it. The band is `io_latency_ms`'s shape over
+# this machine's 72 cold samples of 2026-11-03 (ADR 2660): 12.315 min, 17.446 median, 157.3 max.
+io_ms = 10.2 .. 43.7
 
 [[document]]
 path = "doc/PDF20_AN001-BPC.pdf"
@@ -409,42 +401,22 @@ pages = 5
 # observed range widened by one per cent, bytes and calls the figure plus and less the width the
 # old band had. `first_page_ms` does not move: the device is the longer thread on four rows
 # before and after, and ADR 1544's timeline prints by how much.
-cold_open_ms = 0.47 .. 0.83
-# **Every row's `warm_open_ms` is taken from children that warmed their cores first** (ADR 1621):
-# six runs on 2026-10-07 at a one-minute load of 1.1 to 11.5, three of them interleaved with HEAD's
-# idle-born arm, and this file's clock rule over the six. Here they read 0.31 to 0.33 ms, where the
-# idle-born arm read 0.29, 0.56 and 0.73 beside them.
-warm_open_ms = 0.26 .. 0.40
-# **Every row's `first_page_ms` and `peak_anon_mib` were re-taken on 2026-10-05, for two levers
-# (ADRs 1531 and 1532).** Page one is interpreted on the document's thread while the device comes
-# up (`Viewer::anticipate`), which took the interpretation — 0.6 ms here, 18.6 on
-# `bug1815476.pdf` — out from behind the device; and the device comes up without GL, about 9 ms
-# and 4.5 MiB less on every row. The frame is the same bytes: the run prints its hash, and every
-# row's read the same before and after both. Each band is this file's rule over three runs of the
-# gate that morning — clocks smallest × 0.85 to largest × 1.20, allocations the observed range
-# widened by a tenth and rounded outwards to half a mebibyte. The allocations here read 21.9 to
-# 23.1 MiB against 26.6 to 27.4.
-#
-# **Every row's `first_page_ms` was re-taken on 2026-10-06 on a quiet machine** (ADR 1585): the
-# same three runs as `bring_up_ms` above, this file's clock rule over them. Here they read 24.76,
-# 26.57 and 26.67 ms.
-first_page_ms = 21.0 .. 32.1
-# **The cold first page takes this row's warm band, and ADR 2158 says why rather than the file's
-# rule over its own three runs.** One hold on 2026-10-21 read the two figures paired, three runs
-# each: every row's cold first page inside the warm figure's own run-to-run spread, because the
-# document thread finishes before the device on every row but this file's font-substitution one.
-# All three ran with the adapter's carve-out held by others, the state the gate declines both
-# figures in; the rule over them would be a band taken where it is never judged. A cold first
-# page outside the warm band is the disk reaching the critical path, which is the claim.
-cold_first_page_ms = 21.0 .. 32.1
-# Floor at batch one hundred and two's merge figure, 2.514 ms × 0.85: ADR 2150 put the read-back page's
-# medium on the device, and `quorra`'s page turn draws through the same call, so the turn fell below
-# the floor the band was derived with (HEAD read 4.085 ms in the same hold); the ceiling stays.
-# **Re-taken on 2026-11-02 under ADR 2621**: three runs of HEAD's export in one quiet hold read 1.929,
-# 2.214 and 1.930 ms, and every hold since the pause of 2026-10-29 had read this turn below the old
-# floor of 2.13 on the base and the batch alike; the band is this file's rule over the three, smallest
-# × 0.85 and largest × 1.20. The turn is faster than the runs of 2026-10-05 on the same bytes.
-turn_ms = 1.64 .. 2.66
+# This machine (ADR 2660): 1.956, 2.103, 2.056, 1.944, 1.888, 1.791 ms, every run of the gate under
+# its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+cold_open_ms = 1.52 .. 2.53
+# This machine (ADR 2660): 1.255, 1.99, 2, 2.331, 1.411, 1.26 ms, every run of the gate under its
+# load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+warm_open_ms = 1.06 .. 2.80
+# This machine (ADR 2660): 122.605, 145.636, 128.595, 140.352, 131.996, 140.464 ms, every run of the
+# gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+first_page_ms = 104.2 .. 174.8
+# This row's warm band, as ADR 2158 rules: a cold first page outside it is the disk reaching the
+# critical path. Its own runs on this machine read 124.228, 130.44, 150.806, 149.655, 131.363,
+# 145.026 ms (ADR 2660).
+cold_first_page_ms = 104.2 .. 174.8
+# This machine (ADR 2660): 13.579, 14.957, 19.182, 15.766, 13.228, 15.183, 14.391 ms, every run of
+# the gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+turn_ms = 11.2 .. 23.1
 script_spawn_ms = none
 script_first_run_ms = none
 # In small pages (ADR 1902, see the header): 17.38 to 18.14 MiB over twelve children, the machine's
@@ -474,19 +446,23 @@ path = "doc/Well-Tagged-PDF-WTPDF-1.0.pdf"
 pages = 57
 # Moved for ADR 1543 (see the first row): 26692.3 → 13183.7 thousand instructions, 350 → 118 KiB
 # in 88 → 30 calls, cold 2.34 to 2.77 ms → 1.31 to 1.61, warm 1.93 to 2.45 → 0.91 to 1.17.
-cold_open_ms = 1.11 .. 1.93
-# Warm cores (ADR 1621, see the first row): 0.94 to 0.98 ms, the idle-born arm 0.97 to 1.42.
-warm_open_ms = 0.79 .. 1.18
-# Re-taken on a quiet machine (ADR 1585, see the first row): 29.02, 31.50 and 26.93 ms. The
-# allocations read 25.6 to 26.5 MiB. This page's `ICCBased` page group is converted on more than
-# one thread (`pdf_render::resolve_cube`).
-first_page_ms = 22.8 .. 37.8
-# The warm band, as the first row says (ADR 2158).
-cold_first_page_ms = 22.8 .. 37.8
-# Floor at batch one hundred and two's merge figure, 2.691 ms × 0.85: ADR 2150 put the read-back page's
-# medium on the device, and `quorra`'s page turn draws through the same call, so the turn fell below
-# the floor the band was derived with (HEAD read 4.476 ms in the same hold); the ceiling stays.
-turn_ms = 2.28 .. 6.6
+# This machine (ADR 2660): 4.694, 4.788, 5.537, 4.49, 4.323, 4.862, 4.417 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+cold_open_ms = 3.67 .. 6.65
+# This machine (ADR 2660): 3.542, 4.03, 3.528, 3.976, 3.556, 3.789, 3.085 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+warm_open_ms = 2.62 .. 4.84
+# This machine (ADR 2660): 149.128, 155.974, 151.487, 152.08, 147.839, 162.833, 150.783 ms, every
+# run of the gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock
+# rule.
+first_page_ms = 125.6 .. 195.4
+# This row's warm band, as ADR 2158 rules: a cold first page outside it is the disk reaching the
+# critical path. Its own runs on this machine read 149.092, 156.195, 179.892, 156.326, 147.954,
+# 161.022, 167.275 ms (ADR 2660).
+cold_first_page_ms = 125.6 .. 195.4
+# This machine (ADR 2660): 19.032, 16.313, 15.013, 20.883, 15.538, 15.848, 19.347 ms, every run of
+# the gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+turn_ms = 12.7 .. 25.1
 script_spawn_ms = none
 script_first_run_ms = none
 # In small pages (ADR 1902, see the header): 20.65 to 21.60 MiB over twelve children, the machine's
@@ -512,18 +488,22 @@ pages = 1023
 # Moved for ADR 1543 (see the first row): cold 21.97 to 26.75 ms → 5.43 to 6.13, warm 12.53 to
 # 15.94 → 4.38 to 5.41 — the outline's 988 items and the page tree's 1023 leaves were 4.2 of the
 # 4.3 MB a cold open read. What is left is §7.5's cross-reference, 57.2 M of 70.3 M.
-cold_open_ms = 4.6 .. 7.4
-# Warm cores (ADR 1621, see the first row): 4.37 to 4.61 ms, the idle-born arm 4.36 to 4.96.
-warm_open_ms = 3.7 .. 5.6
-# Re-taken on a quiet machine (ADR 1585, see the first row): 26.28, 26.36 and 26.00 ms. The
-# allocations read 28.4 to 28.9 MiB.
-first_page_ms = 22.1 .. 31.7
-# The warm band, as the first row says (ADR 2158).
-cold_first_page_ms = 22.1 .. 31.7
-# Floor at batch one hundred and two's merge figure, 3.067 ms × 0.85: ADR 2150 put the read-back page's
-# medium on the device, and `quorra`'s page turn draws through the same call, so the turn fell below
-# the floor the band was derived with (HEAD read 4.659 ms in the same hold); the ceiling stays.
-turn_ms = 2.60 .. 7.2
+# This machine (ADR 2660): 16.453, 17.223, 15.973, 16.986, 16.543, 15.497, 18.256 ms, every run of
+# the gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+cold_open_ms = 13.1 .. 22.0
+# This machine (ADR 2660): 14.609, 15.536, 15.667, 16.201, 14.934, 15.657, 16.778 ms, every run of
+# the gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+warm_open_ms = 12.4 .. 20.2
+# This machine (ADR 2660): 129.442, 137.577, 130.714, 149.109, 126.072, 125.701 ms, every run of the
+# gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+first_page_ms = 106.8 .. 179.0
+# This row's warm band, as ADR 2158 rules: a cold first page outside it is the disk reaching the
+# critical path. Its own runs on this machine read 131.563, 141.109, 122.948, 131.337, 126.707,
+# 132.922 ms (ADR 2660).
+cold_first_page_ms = 106.8 .. 179.0
+# This machine (ADR 2660): 16.882, 17.591, 14.437, 17.08, 16.664, 17.667, 16.346 ms, every run of
+# the gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+turn_ms = 12.2 .. 21.3
 script_spawn_ms = none
 script_first_run_ms = none
 # In small pages (ADR 1902, see the header): 25.9 to 26.73 MiB over twelve children, the machine's
@@ -549,44 +529,19 @@ pages = 1
 # 0.85 to 0.466 × 1.20. The same hold's three runs of another export, whose open is the same code,
 # read 0.452, 0.413 and 0.492. A cold open past the ceiling while the row's instructions, bytes and
 # calls sit in their bands is judged by habit 101 and does not move the band.
-cold_open_ms = 0.35 .. 0.56
-# **The warm open is 0.23 .. 0.35, and what read twice it was the idle clock** (trap 110). Ten
-# runs at a one-minute load of 1.54 to 1.68, each the minimum of nine pinned children, interleaved
-# with ten whose children first kept their cores busy for 30 ms: warm cores read 0.288 to 0.307 ms
-# in all ten, and idle ones 0.267 to 0.329 in five and 0.402 to 0.610 in the other five, every
-# calibration inside its band. So the warm arm warms its cores (ADR 1621, see the first row), and
-# this file's rule over six warm runs gives the same band: 0.274 to 0.290 ms, the idle-born arm
-# 0.26 to 0.68 beside them.
-warm_open_ms = 0.23 .. 0.35
-# **The device is the longer thread on this row too since ADR 1557**, which unpacks a
-# one-component image a byte at a time: page one's three one-bit CCITT stencils cost 244 M
-# instructions by the per-sample route and 5.4 M by that one, and the page's interpretation 403 M
-# and 128 M under callgrind. ADR 1544's timeline, three runs: page one interpreted at 20.3 to 20.9
-# ms against a device up at 22.9 to 24.0, where it was 25.9 to 32.9 against 23.7 to 29.9. What is
-# left on that thread is page one's own ink — the font catalogue a non-embedded font needs, a
-# JPEG, the annotations — and none of it can be deferred. Re-taken on a quiet machine (ADR 1585,
-# see the first row): 28.34, 30.12 and 28.44 ms, every frame's hash unchanged; the band is this
-# file's clock rule over them.
-#
-# **`peak_anon_mib` rose with it, by the overlap and not by the bytes.** The stencils are decoded
-# on the interpreter's thread and the page's other images ahead of their `Do` on the pool (ADR
-# 1321); with the stencils quick the two now run side by side, so their transient buffers are
-# held at once. Under valgrind, whose threads take turns, massif reads the same 27.65 MB peak in
-# both arms; the interpretation alone at one rayon thread reads 36.4 against 35.7 MiB resident,
-# and at two to eight 39.0 to 39.5 against 47.7 to 48.0. The three gate runs read 53.24, 53.24 and
-# 53.46 MiB against 44.5 to 46.2 before, and the band is this file's allocation rule over them.
-#
-# **The floor was 47.5 and is 41.0, because the overlap is the scheduler's** (ADR 1647). Whether the
-# stencils' and the images' transient buffers are held at once is decided by which thread gets
-# where first, so the figure has two modes: sixteen gate runs on 2026-10-07 at a load of 0.96 to
-# 2.87 read 52.81 to 55.60 MiB in fifteen and 45.91 in one, and forty children born after 1.5 s of
-# idle read 53.5 to 54.7 in thirty-nine and 46.3 in the first. The low mode is the figure before
-# the two ran side by side, 44.5 to 46.2. The floor is this file's allocation rule over the new
-# smallest, 45.91 less a tenth, rounded down to half a mebibyte; the ceiling stays, 3.4 MiB above
-# the largest reading of either mode.
-first_page_ms = 24.0 .. 36.2
-# The warm band, as the first row says (ADR 2158).
-cold_first_page_ms = 24.0 .. 36.2
+# This machine (ADR 2660): 2.085, 1.907, 1.861, 1.984, 1.878, 1.788, 1.728 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+cold_open_ms = 1.46 .. 2.51
+# This machine (ADR 2660): 2.295, 1.982, 1.481, 1.413, 1.787, 1.496 ms, every run of the gate under
+# its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+warm_open_ms = 1.20 .. 2.76
+# This machine (ADR 2660): 164.973, 161.784, 143.652, 138.267, 155.534, 135.673 ms, every run of the
+# gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+first_page_ms = 115.3 .. 198.0
+# This row's warm band, as ADR 2158 rules: a cold first page outside it is the disk reaching the
+# critical path. Its own runs on this machine read 142.655, 175.21, 176.987, 140.977, 139.552,
+# 153.065, 134.791 ms (ADR 2660).
+cold_first_page_ms = 115.3 .. 198.0
 turn_ms = none
 script_spawn_ms = none
 script_first_run_ms = none
@@ -617,11 +572,13 @@ pages = 1
 # clocks are printed on every run with clocks, and deriving them is an edit here.
 cold_open_ms = none
 warm_open_ms = none
-# Derived on a quiet machine with every other row's (ADR 1585, see the first row): 24.6, 25.8 and
-# 23.8 ms, as the run prints them, and this file's clock rule over them.
-first_page_ms = 20.2 .. 31.0
-# The warm band, as the first row says (ADR 2158).
-cold_first_page_ms = 20.2 .. 31.0
+# This machine (ADR 2660): 119.606, 125.099, 214.906, 115.603, 127.393, 118.842 ms, every run of the
+# gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+first_page_ms = 98.2 .. 257.9
+# This row's warm band, as ADR 2158 rules: a cold first page outside it is the disk reaching the
+# critical path. Its own runs on this machine read 121.601, 126.844, 131.007, 113.983, 127.968,
+# 118.066 ms (ADR 2660).
+cold_first_page_ms = 98.2 .. 257.9
 turn_ms = none
 script_spawn_ms = none
 script_first_run_ms = none
@@ -653,17 +610,26 @@ pages = 1
 # (ADR 1969), at a one-minute load of 1.4 to 2.6: 0.176, 0.231 and 0.183 ms. The same hold's three
 # runs of another export, whose open is the same code, read 0.407, 0.176 and 0.205: a second mode
 # the rule over three quiet runs does not band, judged by habit 101 where it reads.
-cold_open_ms = 0.14 .. 0.28
-warm_open_ms = 0.08 .. 0.14
-first_page_ms = 22.4 .. 33.0
-# The warm band, as the first row says (ADR 2158).
-cold_first_page_ms = 22.4 .. 33.0
+# This machine (ADR 2660): 0.772, 0.834, 0.726, 0.7, 0.784, 0.82, 0.735 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+cold_open_ms = 0.59 .. 1.01
+# This machine (ADR 2660): 0.494, 0.715, 0.549, 0.496, 0.631, 0.555, 0.477 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+warm_open_ms = 0.40 .. 0.86
+# This machine (ADR 2660): 118.258, 142.667, 133.142, 145.961, 122.519, 129.036 ms, every run of the
+# gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+first_page_ms = 100.5 .. 175.2
+# This row's warm band, as ADR 2158 rules: a cold first page outside it is the disk reaching the
+# critical path. Its own runs on this machine read 120.903, 135.823, 130.799, 146.895, 123.387,
+# 129.054 ms (ADR 2660).
+cold_first_page_ms = 100.5 .. 175.2
 turn_ms = none
-# Each the quickest of nine first-page children of its own, three runs: the spawn read 0.684 to
-# 0.709 ms and the first run 0.449 to 0.475. Started after the frame's clock, so neither is inside
-# `first_page_ms`; a worker started before the frame is a failure of its own, judged on any machine.
-script_spawn_ms = 0.58 .. 0.86
-script_first_run_ms = 0.38 .. 0.57
+# This machine (ADR 2660): 3.25, 2.672, 3.258, 2.549, 2.641, 2.871, 2.639 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+script_spawn_ms = 2.16 .. 3.91
+# This machine (ADR 2660): 1.579, 1.527, 1.768, 1.573, 1.609, 1.533, 1.584 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+script_first_run_ms = 1.29 .. 2.13
 # In small pages (ADR 1902, see the header): 13.96 to 14.60 MiB over twelve children, the machine's
 # huge pages beside them 15.35 to 16.16.
 peak_anon_mib = 12.5 .. 16.5

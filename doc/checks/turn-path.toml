@@ -70,19 +70,20 @@
 # trap 110, which no band here is widened for. A third gate run on these bands judged 33 of 33.
 #
 # The calibration probe is the launch gate's, the same work on the same document, run by every
-# child after its rounds. Its band is its own, because these children read higher than the launch
-# gate's (ADR 2259): over the 240 children of the runs above it read 0.659 to 0.802 ms, the one
-# child past 0.78 being the first of a run. A child outside it is printed and not used.
+# child after its rounds. Its band is its own (ADR 2259): ADR 1969's rule over the quickest child of
+# each of seven runs on this machine on 2026-11-03, 1.978 to 2.008 ms (ADR 2660). A child outside it
+# is printed and not used; 20 of those runs' 231 children read past it, up to 3.80 ms.
 
-machine = "AMD Ryzen AI 9 HX 370 (4 Zen 5 + 8 Zen 5c cores, 24 threads), 61 GiB, Radeon 890M through RADV, Linux 7.2"
+machine = "AMD EPYC 7301 (Zen 1; this account's CPUs 0-31 of 48, NUMA node 0, one class of core), 92 GiB, ext4 on a rotating disk, Radeon RX 580 (Polaris) through RADV (Mesa 25.0.7, `VK_ICD_FILENAMES` naming the radeon driver alone), Linux 6.12.115 (Debian 13)"
 profile = "release"
 calibration_document = "doc/PDF20_AN001-BPC.pdf"
-calibration_ms = 0.62 .. 0.78
+calibration_ms = 1.68 .. 2.41
 # The device's busy share, read before each child and after it (`device_busy`): above this a child
 # shares the graphics device with somebody else's work, which no processor load average counts
 # (trap 101), and it is printed with the figure and not judged (ADR 1537). Calibrated on
 # 2026-10-05 by `a_planted_busy_device_is_seen_as_busy`: the idle device and the compositor read
-# IDLE, a planted compute loop PLANTED.
+# IDLE, a planted compute loop PLANTED. On this machine's RX 580 on 2026-11-03 the same test read
+# 0.0 % idle, 95.8 % planted and 0.0 % after, so the threshold stands (ADR 2660).
 device_busy_percent = 20
 
 # **No form page has a row, on purpose** (ADR 1670). This harness interprets with the widgets drawn and
@@ -93,132 +94,98 @@ device_busy_percent = 20
 path = "doc/ISO_32000-2_sponsored_EC3.pdf"
 page = 101
 commands = 3007
-# observed 7.20 .. 8.99 ms (turn), 1.57 .. 1.72 ms (step)
-# Floor at this file's rule over batch eighty-one's merge figure, 5.65 ms (× 0.85, rounded down to a
-# tenth); the ceiling stays. The stage that moved is the encode, 4.83 ms in the 2026-10-06 table of
-# `doc/performance.md` and 3.07 now, with the interpretation 1.49 → 1.32. With ADR 1861's lexer
-# change compiled out, one clock hold reads 5.47 ms without it against HEAD's 5.49, so the lexer
-# moved none of it (ADR 1870). What moved the stage since the table — the device lane's changes
-# since it or the day's machine — is not separated.
-turn_ms = 4.8 .. 10.8
-# seventh frame of a long-lived device (ADR 1607): observed 7.20 .. 8.10 ms
-# Floor at this file's rule over batch eighty-one's merge figure, 5.67 ms (× 0.85, rounded down to a
-# tenth); the ceiling stays. The stage that moved is the encode, 5.07 ms in the table's seventh row
-# and 3.36 now. With ADR 1861's lexer change compiled out, one clock hold reads 5.64 ms without it
-# against HEAD's 5.58, so the lexer moved none of it (ADR 1870). What moved the stage since the
-# table — the device lane's changes since it or the day's machine — is not separated.
-seventh_ms = 4.8 .. 9.8
-# The raised band holds HEAD's twelve raised runs of one hold on 2026-10-26, 1.65 .. 1.94 ms, read at
-# 796 MHz and up, every one of them on the table's middle line (ADR 2420).
-step_ms = 1.3 .. 2.1
+# This machine (ADR 2660): 26.93, 31.43, 31.29, 30.05, 28.4, 31.04, 31.15 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+turn_ms = 22.8 .. 37.8
+# This machine (ADR 2660): 27.25, 31.87, 31.54, 30.14, 26.62, 33.45, 30.92 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+seventh_ms = 22.6 .. 40.2
+# This machine (ADR 2660): 5.29, 5.54, 5.5, 5.26, 5.39, 5.76, 5.38 ms, every run of the gate under
+# its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+step_ms = 4.4 .. 7.0
 # The step at the device's lowest clock (ADR 2420): HEAD's two runs the gate admitted wholly at 600 MHz
 # in that hold, 5.57 and 5.68 ms at loads of 7.5 and 9.8, this file's rule over them; three more at 600
 # MHz, 5.46 .. 5.63, were declined by the calibration probe and lie inside it.
 step_lowest_ms = 4.7 .. 6.9
-step_raised_mhz = 796
+# The slowest raised clock this machine's `step_ms` runs were read at, 2026-11-03 (ADR 2660). No run
+# read at the RX 580's lowest level, 300 MHz, so `step_lowest_ms` above is the notebook's and is not
+# re-taken here.
+step_raised_mhz = 1326
 why = "text, 3 007 commands: the turn is raster's encode of the glyphs on the fan-out, which runs at the clock the processor gives the cores its threads wake on, so a child's figure is 7.2 to about 9.5 ms by that clock and not by the tree, and the band spans both ends (ADR 1519)"
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/personwithdog.pdf"
 page = 1
 commands = 18
-# observed 6.97 .. 7.09 ms (turn), three gate runs on 2026-10-26 in two clock holds interleaved with
-# HEAD's export, which read 9.38 and 9.40; pinned, warm cores, load 1.3 to 2.3. This file's rule over
-# the three, ADR 1969's: the stage that moved is the interpretation, 3.72 → 1.41 ms, whose mesh data
-# is now read as bytes where it lies on them (ADR 2332).
-turn_ms = 5.9 .. 8.6
-# seventh frame of a long-lived device (ADR 1607): observed 7.25 .. 7.29 ms in the same three runs,
-# HEAD's 9.42 and 9.65; this file's rule over the three, for the same interpretation.
-seventh_ms = 6.1 .. 8.8
-# Floor at this file's rule over batch eighty-one's merge figure, 8.38 ms (× 0.85, rounded down to a
-# tenth); the ceiling stays. The stage that moved is the scene with what else the gate prints no
-# stage for, 5.09 ms in the 2026-10-06 table of `doc/performance.md` (the scene 3.28 of it) and 3.13
-# now; the encode, 4.68 → 4.80, and the transfer, 0.52, did not move. With ADR 1861's lexer change
-# compiled out, one clock hold reads 8.39 ms without it against HEAD's 8.45, so the lexer moved none
-# of it (ADR 1870). What moved the stage since the table — the device lane's changes since it or the
-# day's machine — is not separated.
-step_ms = 7.1 .. 12.5
+# This machine (ADR 2660): 31.84, 36.81, 39.35, 38.68, 34.51, 37.17, 37.37 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+turn_ms = 27.0 .. 47.3
+# This machine (ADR 2660): 32.07, 35.33, 34.23, 39.29, 33.63, 32.5, 34.39 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+seventh_ms = 27.2 .. 47.2
+# This machine (ADR 2660): 38.63, 43.94, 54.26, 41.18, 41.23, 43.65, 42.9 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+step_ms = 32.8 .. 65.2
 why = "§8.7.4.5.7 patch meshes: their 32-bit coordinates and 8-bit flags and components are read as bytes (ADR 2332), and the scene walk divides the mesh rows across the pool (ADR 1259). A turn past the ceiling is the processor's clock, at one end of the load or the other: the idle end is taken away by starting every round on warm cores (ADR 1577), and the busy end, the cores the child is not pinned to kept busy at a load average the ceiling admits (ADR 1556), is a second mode judged against HEAD and not banded (ADR 1969)"
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/issue12841_reduced.pdf"
 page = 1
 commands = 2
-# observed 29.92 .. 33.10 ms (turn), 2.99 .. 3.31 ms (step)
-turn_ms = 25.4 .. 39.8
-# seventh frame of a long-lived device (ADR 1607): observed 32.36 .. 34.98 ms
-# Floor at this file's rule over batch eighty-one's merge figure, 27.03 ms (× 0.85, rounded down to
-# a tenth); the ceiling stays. The stage that moved is the interpretation, which is the photograph's
-# decode: 29.20 ms in the table's seventh row and 25.15 in the turn's now. With ADR 1861's lexer
-# change compiled out, one clock hold reads 27.79 ms without it against HEAD's 27.63, so the lexer
-# moved none of it (ADR 1870). What moved the stage since the table — the device lane's changes
-# since it or the day's machine — is not separated.
-seventh_ms = 22.9 .. 42.0
-step_ms = 2.5 .. 4.0
+# This machine (ADR 2660): 90.36, 94.15, 96.5, 90.79, 96.91, 99.03, 96.19 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+turn_ms = 76.8 .. 118.9
+# This machine (ADR 2660): 90.69, 93.36, 102.16, 92.07, 96.39, 99.35, 95.23 ms, every run of the
+# gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+seventh_ms = 77.0 .. 122.6
+# This machine (ADR 2660): 9.62, 13.25, 13.19, 12.85, 12.59, 13.08, 12.79 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+step_ms = 8.1 .. 15.9
 why = "one 5 280 × 3 792 photograph whose codestream has no EOI, decoded in bands at its restart intervals (ADRs 1433, 1513): 69 ms where the bands are declined, which is the regression this row exists to see"
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/22060_A1_01_Plans.pdf"
 page = 1
 commands = 70
-# observed 50.22 .. 51.42 ms (turn), 14.73 .. 15.23 ms (step)
-turn_ms = 42.6 .. 61.8
-# seventh frame of a long-lived device (ADR 1607): observed 49.31 .. 59.53 ms
-seventh_ms = 41.9 .. 71.5
-# Floor at this file's rule over batch eighty-one's merge figure, 13.24 ms (× 0.85, rounded down to
-# a tenth); the ceiling stays. The stage that moved is the transfer, 6.61 ms in the 2026-10-06 table
-# of `doc/performance.md` and 5.86 now, and what the gate prints no stage for, 1.54 → 1.14; the
-# encode, 6.41 → 6.49, did not move. With ADR 1861's lexer change compiled out, one clock hold reads
-# 13.52 ms without it against HEAD's 13.49, so the lexer moved none of it (ADR 1870). What moved the
-# stage since the table — the device lane's changes since it or the day's machine — is not
-# separated.
-step_ms = 11.2 .. 18.3
+# This machine (ADR 2660): 142.56, 143.97, 138.82, 148.71, 146.97, 161.49 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+turn_ms = 117.9 .. 193.8
+# This machine (ADR 2660): 140.13, 138.42, 138.96, 142.28, 140.01, 158.82 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+seventh_ms = 117.6 .. 190.6
+# This machine (ADR 2660): 43.02, 45.15, 43.37, 47.92, 44.88, 45.66 ms, every run of the gate under
+# its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+step_ms = 36.5 .. 57.6
 why = "four photographs and four DCTDecode masks with no restart interval, decoded beside each other on the pool (ADRs 1321, 1505)"
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/issue13931.pdf"
 page = 1
 commands = 513
-# observed 21.55 .. 22.38 ms (turn, ten runs re-banded for ADR 1519), 6.01 .. 7.18 ms (step)
-turn_ms = 18.3 .. 26.9
-# seventh frame of a long-lived device (ADR 1607): observed 21.90 .. 23.18 ms
-# Floor at this file's rule over batch eighty-one's merge figure, 19.43 ms (× 0.85, rounded down to
-# a tenth); the ceiling stays. The stage that moved is the interpretation, 16.61 ms in the table's
-# seventh row and 15.85 in the turn's now, and the transfer, which this row does not print and the
-# turn's reads 3.94 → 2.70. With ADR 1861's lexer change compiled out, one clock hold reads 19.53 ms
-# without it against HEAD's 20.04, so the lexer moved none of it (ADR 1870). What moved the stage
-# since the table — the device lane's changes since it or the day's machine — is not separated.
-seventh_ms = 16.5 .. 27.9
-# Floor at this file's rule over batch eighty-one's merge figure, 4.47 ms (× 0.85, rounded down to a
-# tenth); the ceiling stays. The stage that moved is the transfer, 4.98 ms in the 2026-10-06 table
-# of `doc/performance.md` and 3.65 now. With ADR 1861's lexer change compiled out, one clock hold
-# reads 4.39 ms without it against HEAD's 4.47, so the lexer moved none of it (ADR 1870). What moved
-# the stage since the table — the device lane's changes since it or the day's machine — is not
-# separated.
-step_ms = 3.7 .. 8.7
+# This machine (ADR 2660): 75.1, 72.58, 75.62, 77.61, 64.7, 69.09 ms, every run of the gate under
+# its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+turn_ms = 54.9 .. 93.2
+# This machine (ADR 2660): 72.7, 75.31, 73.36, 77.34, 69.51, 68.2 ms, every run of the gate under
+# its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+seventh_ms = 57.9 .. 92.9
+# This machine (ADR 2660): 12.86, 14.12, 12.82, 13.87, 11.67, 13.14 ms, every run of the gate under
+# its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+step_ms = 9.9 .. 17.0
 why = "one photograph under a /Matte mask, its frame decoded beside its mask (ADR 1481) and the mask's opacity written by the inversion, the multiplication's pass over 51 MB gone (ADR 1519): 24 ms where that pass is made"
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/images.pdf"
 page = 1
 commands = 2
-# observed 34.51 .. 36.86 ms (turn), 9.56 .. 10.15 ms (step)
-# Floor at this file's rule over batch eighty-one's merge figure, 30.42 ms (× 0.85, rounded down to
-# a tenth); the ceiling stays. The stage that moved is the transfer, 6.13 ms in the 2026-10-06 table
-# of `doc/performance.md` and 3.09 now, with the interpretation 25.74 → 24.76. With ADR 1861's lexer
-# change compiled out, one clock hold reads 30.76 ms without it against HEAD's 31.00, so the lexer
-# moved none of it (ADR 1870). What moved the stage since the table — the device lane's changes
-# since it or the day's machine — is not separated.
-turn_ms = 25.8 .. 44.3
-# seventh frame of a long-lived device (ADR 1607): observed 33.01 .. 34.00 ms
-seventh_ms = 28.0 .. 40.8
-# Floor at this file's rule over batch eighty-one's merge figure, 8.27 ms (× 0.85, rounded down to a
-# tenth); the ceiling stays. The stage that moved is the transfer, 4.64 ms in the 2026-10-06 table
-# of `doc/performance.md` and 3.96 now, and the encode, 3.33 → 2.94. With ADR 1861's lexer change
-# compiled out, one clock hold reads 8.27 ms without it against HEAD's 8.09, so the lexer moved none
-# of it (ADR 1870). What moved the stage since the table — the device lane's changes since it or the
-# day's machine — is not separated.
-step_ms = 7.0 .. 12.2
+# This machine (ADR 2660): 105.11, 103.59, 106.28, 105.56, 124.7, 100.19, 107.1 ms, every run of the
+# gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+turn_ms = 85.1 .. 149.7
+# This machine (ADR 2660): 104.61, 103, 104.78, 106.18, 114.78, 99.29, 103.23 ms, every run of the
+# gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+seventh_ms = 84.3 .. 137.8
+# This machine (ADR 2660): 32.61, 38.46, 33.15, 34.88, 35.08, 32.18, 33.97 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+step_ms = 27.3 .. 46.2
 why = "this tree's own sample unpacking and soft-mask combination (ADRs 1433, 1469)"
 
 [[page]]
@@ -228,60 +195,38 @@ path = "doc/pdf.js/test/pdfs/issue14415.pdf"
 # trap 110, and the band keeps its reason (ADR 1647).
 page = 1
 commands = 959
-# observed 15.80 .. 17.08 ms (turn), 8.22 .. 8.62 ms (step)
-turn_ms = 13.4 .. 20.5
-# seventh frame of a long-lived device (ADR 1607): observed 15.97 .. 16.90 ms
-# Floor at this file's rule over batch eighty-one's merge figure, 14.29 ms (× 0.85, rounded down to
-# a tenth); the ceiling stays. The stage that moved is the encode, 10.98 ms in the table's seventh
-# row and 9.73 now. With ADR 1861's lexer change compiled out, one clock hold reads 14.21 ms without
-# it against HEAD's 14.15, so the lexer moved none of it (ADR 1870). What moved the stage since the
-# table — the device lane's changes since it or the day's machine — is not separated.
-seventh_ms = 12.1 .. 20.3
-# Floor at this file's rule over batch eighty-one's merge figure, 6.77 ms (× 0.85, rounded down to a
-# tenth); the ceiling stays. The stage that moved is the encode, 6.18 ms in the 2026-10-06 table of
-# `doc/performance.md` and 5.47 now, and what the gate prints no stage for, 1.46 → 0.85. With ADR
-# 1861's lexer change compiled out, one clock hold reads 6.49 ms without it against HEAD's 6.50, so
-# the lexer moved none of it (ADR 1870). What moved the stage since the table — the device lane's
-# changes since it or the day's machine — is not separated.
-step_ms = 5.7 .. 10.4
+# This machine (ADR 2660): 34.71, 37.06, 34.69, 34.84, 35.28, 35.37, 35.06 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+turn_ms = 29.4 .. 44.5
+# This machine (ADR 2660): 33.1, 34.17, 35.59, 34.04, 33.68, 33.9, 31.53 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+seventh_ms = 26.8 .. 42.8
+# This machine (ADR 2660): 13.99, 15.44, 15.57, 14.3, 14.39, 16.69, 14.06 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+step_ms = 11.8 .. 20.1
 why = "curved strokes bent tighter than their half-width: two chords a flat piece (ADR 1443) and the tiling of a tight bend (ADR 1375) are its encode"
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/issue19802.pdf"
 page = 1
 commands = 1032
-# observed 6.19 .. 6.73 ms (turn), 1.33 .. 1.44 ms (step)
-# Floor at this file's rule over batch eighty-one's merge figure, 4.72 ms (× 0.85, rounded down to a
-# tenth); the ceiling stays. The stage that moved is the encode, 4.30 ms in the 2026-10-06 table of
-# `doc/performance.md` and 3.43 now. With ADR 1861's lexer change compiled out, one clock hold reads
-# 4.71 ms without it against HEAD's 4.66, so the lexer moved none of it (ADR 1870). What moved the
-# stage since the table — the device lane's changes since it or the day's machine — is not
-# separated.
-turn_ms = 4.0 .. 8.1
-# seventh frame of a long-lived device (ADR 1607): observed 5.94 .. 6.31 ms
-# Floor at this file's rule over batch eighty-one's merge figure, 4.68 ms (× 0.85, rounded down to a
-# tenth); the ceiling stays. The stage that moved is the encode, 4.45 ms in the table's seventh row
-# and 3.42 now. With ADR 1861's lexer change compiled out, one clock hold reads 4.45 ms without it
-# against HEAD's 4.46, so the lexer moved none of it (ADR 1870). What moved the stage since the
-# table — the device lane's changes since it or the day's machine — is not separated.
-seventh_ms = 3.9 .. 7.6
-# Kept by ADR 2388. The step left this band twice over for two reasons. The tree's: ADR 2355 sized the
-# compute lane's first frame by its own count, so a light warm-up left a capacity the page outgrew at
-# 1x and the step outgrew again at 2x, and the step ran whole twice — 2.74 .. 3.28 ms in one quiet
-# hold, where the first frame's floor of the old guess reads 1.71 .. 1.89 and the tree before ADR
-# 2355 1.70 .. 1.76. The device's: the 890M runs this row at its lowest clock, 600 MHz, or at a
-# raised one, mostly 1 100 MHz and more, each at a busy share the device check admits (ADR 2402).
-# The figures above are the raised clock's, and so is this band; at the lowest the step reads about
-# 5 ms on every tree.
-step_ms = 1.1 .. 1.8
+# This machine (ADR 2660): 18.84, 20.96, 18.4, 19.84, 19.61, 21.53, 19.85 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+turn_ms = 15.6 .. 25.9
+# This machine (ADR 2660): 17.74, 18.49, 18.07, 17.74, 17.95, 19.18, 19.93 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+seventh_ms = 15.0 .. 24.0
+# This machine (ADR 2660): 6.65, 7.12, 6.82, 7.19, 6.69, 7.44, 6.56 ms, every run of the gate under
+# its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+step_ms = 5.5 .. 9.0
 # The step at the device's lowest clock (ADR 2402): ADR 2388's six arms read 5.10 .. 6.02 ms there on
 # ecb6bea0 and on the fix, with `pp_dpm_sclk` at 600 MHz through the whole child; this file's rule
 # over them. HEAD before the fix, 004f8e73, read 9.07 .. 9.59 at the same clock, past the ceiling.
 step_lowest_ms = 4.3 .. 7.3
-# The slowest clock HEAD's raised runs of one hold on 2026-10-26 were read at, twelve runs from 860 MHz
-# (ADR 2421); the band held nine of them, 1.48 .. 1.78 ms, and three read 1.81 .. 1.97 at 889 .. 1422
-# MHz, outside it, which no band here is widened for.
-step_raised_mhz = 860
+# The slowest raised clock this machine's `step_ms` runs were read at, 2026-11-03 (ADR 2660). No run
+# read at the RX 580's lowest level, 300 MHz, so `step_lowest_ms` above is the notebook's and is not
+# re-taken here.
+step_raised_mhz = 1239
 why = "1 032 commands of text and rules"
 
 [[page]]
@@ -291,84 +236,43 @@ path = "doc/pdf.js/test/pdfs/ContentStreamNoCycleType3insideType3.pdf"
 # 6.0 and left with it, the busy end of trap 110 (ADR 1621 section 4), so the band keeps its reason.
 page = 1
 commands = 152
-# observed 10.39 .. 10.93 ms (turn), 11.04 .. 11.71 ms (step)
-# Floor at this file's rule over batch eighty-one's merge figure, 8.55 ms (× 0.85, rounded down to a
-# tenth); the ceiling stays. The stage that moved is the encode, 8.94 ms in the 2026-10-06 table of
-# `doc/performance.md` and 7.21 to 8.44 now — this row's encode spreads by a millisecond between
-# children, which is also why HEAD read the slower of the two arms here. With ADR 1861's lexer
-# change compiled out, one clock hold reads 8.54 ms without it against HEAD's 9.74, so the lexer
-# moved none of it (ADR 1870). What moved the stage since the table — the device lane's changes
-# since it or the day's machine — is not separated.
-turn_ms = 7.2 .. 13.2
-# seventh frame of a long-lived device (ADR 1607): observed 9.92 .. 10.60 ms
-# Floor at this file's rule over batch eighty-one's merge figure, 8.20 ms (× 0.85, rounded down to a
-# tenth); the ceiling stays. The stage that moved is the encode, 8.61 ms in the table's seventh row
-# and 7.20 now. With ADR 1861's lexer change compiled out, one clock hold reads 8.47 ms without it
-# against HEAD's 8.26, so the lexer moved none of it (ADR 1870). What moved the stage since the
-# table — the device lane's changes since it or the day's machine — is not separated.
-seventh_ms = 6.9 .. 12.8
-# Floor at this file's rule over batch eighty-one's merge figure, 9.51 ms (× 0.85, rounded down to a
-# tenth); the ceiling stays. The stage that moved is the encode, 10.43 ms in the 2026-10-06 table of
-# `doc/performance.md` and 9.13 now. With ADR 1861's lexer change compiled out, one clock hold reads
-# 9.57 ms without it against HEAD's 9.72, so the lexer moved none of it (ADR 1870). What moved the
-# stage since the table — the device lane's changes since it or the day's machine — is not
-# separated.
-step_ms = 8.0 .. 14.1
+# This machine (ADR 2660): 24.05, 24.39, 25.14, 25.7, 24.06, 27.2, 25.98 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+turn_ms = 20.4 .. 32.7
+# This machine (ADR 2660): 23.8, 23.45, 24.93, 25.32, 22.89, 27.35, 24.69 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+seventh_ms = 19.4 .. 32.9
+# This machine (ADR 2660): 26.5, 30.43, 30.14, 32.07, 28.42, 34.8, 30.81 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+step_ms = 22.5 .. 41.8
 why = "stroked Type 3 glyphs in a tiling under a residue clip: each glyph's expansion made once (ADR 1445), two chords a piece (ADR 1443), and the exact meet with the residue (ADR 1467) whose mark edges the fan-out builds (ADR 1513)"
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/bug1743245.pdf"
 page = 1
 commands = 269
-# observed 40.24 .. 43.19 ms (turn), 38.33 .. 40.52 ms (step)
-# Floor at this file's rule over batch eighty-one's merge figure, 35.36 ms (× 0.85, rounded down to
-# a tenth); the ceiling stays. The stage that moved is the encode, 33.25 ms in the 2026-10-06 table
-# of `doc/performance.md` and 31.49 now, with the interpretation 3.38 → 2.67. With ADR 1861's lexer
-# change compiled out, one clock hold reads 35.54 ms without it against HEAD's 35.46, so the lexer
-# moved none of it (ADR 1870). What moved the stage since the table — the device lane's changes
-# since it or the day's machine — is not separated.
-turn_ms = 30.0 .. 51.9
-# seventh frame of a long-lived device (ADR 1607): observed 39.14 .. 40.89 ms
-# Floor at this file's rule over batch eighty-one's merge figure, 35.03 ms (× 0.85, rounded down to
-# a tenth); the ceiling stays. The stage that moved is the encode, 35.12 ms in the table's seventh
-# row and 31.32 now. With ADR 1861's lexer change compiled out, one clock hold reads 35.06 ms
-# without it against HEAD's 34.99, so the lexer moved none of it (ADR 1870). What moved the stage
-# since the table — the device lane's changes since it or the day's machine — is not separated.
-seventh_ms = 29.7 .. 49.1
-# Floor at this file's rule over batch eighty-one's merge figure, 33.24 ms (× 0.85, rounded down to
-# a tenth); the ceiling stays. The stage that moved is the encode, 34.12 ms in the 2026-10-06 table
-# of `doc/performance.md` and 32.83 now. With ADR 1861's lexer change compiled out, one clock hold
-# reads 33.77 ms without it against HEAD's 33.50, so the lexer moved none of it (ADR 1870). What
-# moved the stage since the table — the device lane's changes since it or the day's machine — is not
-# separated.
-step_ms = 28.2 .. 48.7
+# This machine (ADR 2660): 40.65, 44.08, 41.25, 43.58, 39.27, 41.02, 44.02 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+turn_ms = 33.3 .. 52.9
+# This machine (ADR 2660): 39.84, 46.64, 39.91, 45.94, 40.32, 41.12, 42.81 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+seventh_ms = 33.8 .. 56.0
+# This machine (ADR 2660): 30.42, 33.21, 30.71, 33.29, 28.42, 31.69, 32.01 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+step_ms = 24.1 .. 40.0
 why = "tight bends: the tiling's own cost, which ADR 1505 divided across the fan-out"
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/bug1721218_reduced.pdf"
 page = 1
 commands = 1
-# observed 141.00 .. 147.51 ms (turn), 81.87 .. 84.38 ms (step): three frame_budget runs on the
-# tree with ADR 1644, interleaved with three of the tree before it, and two gate runs, 2026-10-07,
-# pinned, warm cores, load 1.3 for the runs and 1.4 to 2.2 for the gate; the step interprets
-# nothing, did not move and keeps its band
-# Floor at this file's rule over batch eighty-one's merge figure, 126.62 ms (× 0.85, rounded down to
-# a tenth); the ceiling stays. The stage that moved is the interpretation, 59.88 ms in the
-# 2026-10-06 table of `doc/performance.md` and 50.69 now, and the scene, which the gate prints no
-# stage for (77.97 in the table, 75.46 now with the rest it does not print). With ADR 1861's lexer
-# change compiled out, one clock hold reads 128.24 ms without it against HEAD's 128.13; the lexer is
-# 1.85 ms of the interpretation's 9.19 (52.54 without it), inside the figure's spread (ADR 1870).
-# What moved the stage since the table — the device lane's changes since it or the day's machine —
-# is not separated.
-turn_ms = 107.6 .. 177.1
-# seventh frame of a long-lived device (ADR 1607): observed 140.97 .. 145.61 ms
-# Floor at this file's rule over batch eighty-one's merge figure, 125.61 ms (× 0.85, rounded down to
-# a tenth); the ceiling stays. The stage that moved is the interpretation, 59.07 ms in the table's
-# seventh row and 50.69 in the turn's now, and the scene. With ADR 1861's lexer change compiled out,
-# one clock hold reads 128.21 ms without it against HEAD's 126.40; the lexer is about 1.8 ms of the
-# 14.6 the row moved, by the turn's interpretation (52.54 without it against 50.69) (ADR 1870). What
-# moved the stage since the table — the device lane's changes since it or the day's machine — is not
-# separated.
-seventh_ms = 106.7 .. 174.8
-step_ms = 69.3 .. 101.6
+# This machine (ADR 2660): 543.29, 529.11, 461.74, 473.61, 459.18, 550.92, 530.47 ms, every run of
+# the gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+turn_ms = 390.3 .. 661.2
+# This machine (ADR 2660): 523.83, 528.05, 494.01, 479.15, 451.29, 523.36, 517.6 ms, every run of
+# the gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+seventh_ms = 383.5 .. 633.7
+# This machine (ADR 2660): 351.11, 355.99, 362.5, 349.44, 348.28, 448.32, 339.14 ms, every run of
+# the gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+step_ms = 288.2 .. 538.0
 why = "a four-component group of 3 518 residue-clipped shadings, drawn as two frames of one geometry (ADRs 1471, 1529), whose exact meets are made beside the walk (ADR 1541) and whose shading quads read one buffer of their numbers at their own offsets (ADR 1555): the tree before that read 191 to 203 and 118 to 126 ms beside it, past the top of both bands, so the bands hold that change. Its 132 ramps, first seen on the turn, are sampled beside each other (ADR 1567), and its meets of a disc with a dot clip are measured from the two convex polygons (ADR 1582), which took the turn's scene 5 ms quicker beside the tree before it; a run of its shading quads is one instanced draw (ADR 1594) and its black frame is walked while the device draws the chromatic one (ADR 1595), which took the turn 1.5 ms quicker and leaves the step where it was, a device of its own paying for wgpu's command encoders as the overlap first needs them; a child's composite is drawn in the pass of the marks after it and the frame's end timestamp on its last pass, 193 passes a turn where it recorded 222 (ADR 1618), which took each row 0.6 to 1.4 ms quicker beside the tree before it and, in one sitting, read the seventh frame the quicker of the two; a composite's backdrop is copied by a transfer (ADR 1630) and a composite waits past the next child where their rectangles stand apart and the priced peak holds both (ADR 1631), 114 passes a turn where it recorded 193, which took every row quicker than the tree before them in each of eight interleaved pairs, the turn by 0.57 to 3.49 ms; its 41 shadings' functions are parsed once an interpretation rather than once a build under each conversion, 41 parses a run where it made 137 (ADR 1644), which took the turn 1.9 to 3.5 ms quicker and the seventh frame 0.8 to 2.8 in each of three interleaved pairs, the turn's interp 2.5 to 3.8; the bands follow that re-take, and its black run, 486.6 M instructions of the turn's 1 258.9 M, is not drawn from the chromatic list because the black component is not in that list (ADR 1645)"

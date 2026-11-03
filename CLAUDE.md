@@ -36,6 +36,14 @@ section disagree about the machine, **this section is the machine**. The rules a
   Software Vulkan needs no lock: `VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json`.
   wgpu picks the hardware adapter when none is pinned, so an unpinned GPU run counts as hardware.
   A clock figure taken without the lock may include the other user's load and is not a reading.
+  **Use the device, and hold it briefly.** Stated by the project owner on 2026-11-03: "please use
+  the GPU, do not try to avoid it! All other processes on this server need it maybe a few percent
+  of the time. Just give other processes a chance to get a short slot between you tasks. (I.e.
+  don't block the GPU for hours). the other processes do the same. So it is possible (but probably
+  even unlikely) that you might have to wait a few seconds for a GPU task, but do not avoid using
+  the GPU." So each hardware run takes its own `with-gpu-lock` — one gate run, one lock — and a
+  sequence of runs is never wrapped in one; a run that waited seconds for the lock is still a
+  reading, and nothing moves to the software adapter to avoid the device.
 - **Processor and memory**: CPUs `0-31` of one EPYC socket, NUMA node 0, in slice
   `user-1001.slice` (`Delegate=yes`, nested cgroup v2 bounds work); memory capped at 92 GiB
   (`MemoryHigh=88G`) with **no swap** — a walk past the cap is killed, not slowed.

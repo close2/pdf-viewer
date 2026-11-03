@@ -25,7 +25,9 @@
 //! - **Each figure is the minimum of [`SAMPLES`] fresh processes of [`ROUNDS`] rounds each**,
 //!   pinned to the machine's fastest cores (derived from `cpuinfo_max_freq`, never written down)
 //!   with rayon given exactly those cores — the table's "minimum of three runs of five rounds,
-//!   pinned". Contention adds time and never removes it.
+//!   pinned". Contention adds time and never removes it. A machine with one class of core, or
+//!   none that publishes its clock, is not pinned and is judged all the same, as the launch gate
+//!   judges it: the pinning removes a choice between two classes, and there is none (ADR 2661).
 //! - **Every round starts on warm cores**: `frame_cost::warm_the_cores` keeps each core the
 //!   child is pinned to busy for 30 ms first, so that a light page is measured at the clock a
 //!   working processor runs at and not at the one an idle core wakes at, which read the mesh
@@ -929,9 +931,6 @@ fn the_turn_path_stays_inside_its_bands() {
             "built under `{profile}`, and the bands are a claim about `{}`",
             check.profile
         ));
-    }
-    if pinning.is_none() {
-        declined.push("no faster class of core to pin to".to_owned());
     }
     let device = device_busy().map_or_else(
         || "unread on this machine, so a child is judged on the processor's figures".to_owned(),
