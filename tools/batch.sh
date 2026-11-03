@@ -402,8 +402,12 @@ gates() {
     run t2-launch_path    env PDFVIEWER_LAUNCH_CLOCKS=1 \
         cargo test --release -p viewer-ui --test launch_path -- --ignored --nocapture
     # The toolkit windows' launch, banded on both lanes by the harness the two crates share; its band
-    # file `doc/checks/toolkit-launch.toml` spells this command line (ADR 2125).
-    run t2-toolkit_launch cargo test --release -p viewer-qt -p viewer-gtk --test launch_path -- --ignored --nocapture
+    # file `doc/checks/toolkit-launch.toml` spells this command line (ADR 2125). `--no-fail-fast`, so
+    # that a red GTK window does not leave Qt's unmeasured (round 1913's finding).
+    # The three clock gates above and here judge this machine's bands, from the directory under
+    # `doc/checks/machines` whose fingerprint is this machine's; a machine with none fails them by
+    # name, and `tools/bands.sh retake` takes its bands (ADR 2662).
+    run t2-toolkit_launch cargo test --release --no-fail-fast -p viewer-qt -p viewer-gtk --test launch_path -- --ignored --nocapture
     # `release`, as CI's job builds them. The tree ceiling is a walk's 12 GiB, not a build's 8: the
     # release build of `raster-gpu`'s examples peaked at 7.85 GiB over the tree when it was measured,
     # inside a build's ceiling by too little to survive a heavier dependency (ADR 1575).

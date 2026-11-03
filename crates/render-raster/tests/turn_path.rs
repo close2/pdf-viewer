@@ -94,6 +94,8 @@
 mod device_clock;
 #[path = "support/frame_cost.rs"]
 mod frame_cost;
+#[path = "../../../tools/conformance/test-support/machine_bands.rs"]
+mod machine_bands;
 
 use std::path::PathBuf;
 use std::process::Command as Child;
@@ -920,7 +922,12 @@ fn the_turn_path_stays_inside_its_bands() {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let file = root().join("doc/checks/turn-path.toml");
-    let check = parse(&std::fs::read_to_string(&file).expect("doc/checks/turn-path.toml reads"));
+    // The clock bands are this machine's, found by its fingerprint, whose device is the adapter a
+    // bring-up here takes — the one every child takes (ADR 2662).
+    let bands = machine_bands::for_this_machine(&root(), "turn-path", &this_adapter())
+        .unwrap_or_else(|complaint| panic!("{}: {complaint}", file.display()));
+    println!("turn path: clock bands from {}", bands.said);
+    let check = parse(&bands.text);
     assert!(!check.pages.is_empty(), "the check file names no page");
     let profile = profile_of_this_binary();
     let pinning = performance_cores();
@@ -1117,15 +1124,42 @@ impl Tally {
     }
 }
 
-/// The check file parses, names no key the gate does not read, and states all three bands of every
-/// row with a floor below its ceiling — read without measuring anything, so it runs in every
-/// workspace test run.
+/// The adapter a headless bring-up takes here, as it names itself.
+fn this_adapter() -> String {
+    match render_raster::QuorraRasterizer::new_headless() {
+        Ok(raster) => raster.adapter_description().to_owned(),
+        Err(error) => panic!("no graphics device to name this machine by: {error}"),
+    }
+}
+
+/// Prints this machine's fingerprint, the line `tools/bands.sh fingerprint` reads (ADR 2662).
+///
+/// `#[ignore]`d because it brings the real adapter up.
+#[test]
+#[ignore = "brings the real adapter up; tools/bands.sh fingerprint runs it"]
+fn this_machine_s_fingerprint() {
+    println!(
+        "bands: fingerprint {}",
+        machine_bands::fingerprint(&this_adapter())
+    );
+}
+
+/// The check file parses with every machine's clock bands put in, names no key the gate does not
+/// read, and states all three bands of every row with a floor below its ceiling — read without
+/// measuring anything, so it runs in every workspace test run (ADR 2662).
 #[test]
 fn the_check_file_states_a_band_for_every_row() {
-    let check = parse(
-        &std::fs::read_to_string(root().join("doc/checks/turn-path.toml"))
-            .expect("doc/checks/turn-path.toml reads"),
-    );
+    let dirs = machine_bands::machine_dirs(&root());
+    assert!(!dirs.is_empty(), "doc/checks/machines holds no machine");
+    for dir in dirs {
+        let text = machine_bands::for_dir(&root(), "turn-path", &dir)
+            .unwrap_or_else(|complaint| panic!("{complaint}"));
+        every_row_is_banded(&parse(&text));
+    }
+}
+
+/// What [`the_check_file_states_a_band_for_every_row`] asks of one machine's merged file.
+fn every_row_is_banded(check: &Check) {
     assert!(check.calibration_ms.is_some(), "a calibration band");
     assert!(
         check
@@ -1181,9 +1215,14 @@ fn a_planted_busy_device_is_seen_as_busy() {
     let _device = THE_DEVICE
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // The threshold is the band file's own, the same under every machine's clock bands.
+    let dir = machine_bands::machine_dirs(&root())
+        .into_iter()
+        .next()
+        .expect("doc/checks/machines holds a machine");
     let check = parse(
-        &std::fs::read_to_string(root().join("doc/checks/turn-path.toml"))
-            .expect("doc/checks/turn-path.toml reads"),
+        &machine_bands::for_dir(&root(), "turn-path", &dir)
+            .unwrap_or_else(|complaint| panic!("{complaint}")),
     );
     let threshold = check.device_busy_percent.expect("a device threshold");
     let Some(idle) = device_busy() else {

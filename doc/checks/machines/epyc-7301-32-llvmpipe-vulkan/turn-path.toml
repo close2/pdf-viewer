@@ -1,0 +1,114 @@
+# This machine's clock bands, written by tools/bands.sh retake (ADR 2662).
+machine = "processor=AMD EPYC 7301 16-Core Processor; processors=32; device=llvmpipe (LLVM 19.1.7, 256 bits) (Cpu, Vulkan)"
+# ADR 1969's rule over 3 kept reading(s): 2.004, 2.001, 1.996
+calibration_ms = 1.69 .. 2.41
+
+[[page]]
+path = "doc/ISO_32000-2_sponsored_EC3.pdf"
+page = 101
+# ADR 1969's rule over 3 kept reading(s): 25.18, 22.98, 23.62
+turn_ms = 19.5 .. 30.3
+# ADR 1969's rule over 3 kept reading(s): 24.47, 24.05, 25.07
+seventh_ms = 20.4 .. 30.1
+# ADR 1969's rule over 3 kept reading(s): 58.77, 56.44, 55.11
+step_ms = 46.8 .. 70.6
+
+[[page]]
+path = "doc/pdf.js/test/pdfs/personwithdog.pdf"
+page = 1
+# ADR 1969's rule over 3 kept reading(s): 52.02, 45.03, 50.31
+turn_ms = 38.2 .. 62.5
+# ADR 1969's rule over 3 kept reading(s): 49.47, 47.87, 49.04
+seventh_ms = 40.6 .. 59.4
+# ADR 1969's rule over 3 kept reading(s): 78.18, 71.7, 77.74
+step_ms = 60.9 .. 93.9
+
+[[page]]
+path = "doc/pdf.js/test/pdfs/issue12841_reduced.pdf"
+page = 1
+# ADR 1969's rule over 3 kept reading(s): 112.9, 116.51, 106.42
+turn_ms = 90.4 .. 139.9
+# ADR 1969's rule over 3 kept reading(s): 114.99, 115.3, 108.07
+seventh_ms = 91.8 .. 138.4
+# ADR 1969's rule over 3 kept reading(s): 25.37, 21.33, 23.4
+step_ms = 18.1 .. 30.5
+
+[[page]]
+path = "doc/pdf.js/test/pdfs/22060_A1_01_Plans.pdf"
+page = 1
+# ADR 1969's rule over 3 kept reading(s): 182.41, 187.03, 179.14
+turn_ms = 152.2 .. 224.5
+# ADR 1969's rule over 3 kept reading(s): 182.25, 188.22, 175.28
+seventh_ms = 148.9 .. 225.9
+# ADR 1969's rule over 3 kept reading(s): 104.37, 99.68, 96.59
+step_ms = 82.1 .. 125.3
+
+[[page]]
+path = "doc/pdf.js/test/pdfs/issue13931.pdf"
+page = 1
+# ADR 1969's rule over 3 kept reading(s): 86.72, 98.27, 89.12
+turn_ms = 73.7 .. 118.0
+# ADR 1969's rule over 3 kept reading(s): 90.89, 100.06, 90.7
+seventh_ms = 77.0 .. 120.1
+# ADR 1969's rule over 3 kept reading(s): 42.94, 45.56, 40.81
+step_ms = 34.6 .. 54.7
+
+[[page]]
+path = "doc/pdf.js/test/pdfs/images.pdf"
+page = 1
+# ADR 1969's rule over 3 kept reading(s): 125.89, 121.25, 121.56
+turn_ms = 103.0 .. 151.1
+# ADR 1969's rule over 3 kept reading(s): 130.88, 121.7, 121.04
+seventh_ms = 102.8 .. 157.1
+# ADR 1969's rule over 3 kept reading(s): 80.43, 71.31, 65.62
+step_ms = 55.7 .. 96.6
+
+[[page]]
+path = "doc/pdf.js/test/pdfs/issue14415.pdf"
+page = 1
+# ADR 1969's rule over 3 kept reading(s): 45.19, 45.49, 49.21
+turn_ms = 38.4 .. 59.1
+# ADR 1969's rule over 3 kept reading(s): 46.94, 46.6, 46.13
+seventh_ms = 39.2 .. 56.4
+# ADR 1969's rule over 3 kept reading(s): 33.66, 33.92, 31.9
+step_ms = 27.1 .. 40.8
+
+[[page]]
+path = "doc/pdf.js/test/pdfs/issue19802.pdf"
+page = 1
+# ADR 1969's rule over 3 kept reading(s): 20.76, 18.98, 18.25
+turn_ms = 15.5 .. 25.0
+# ADR 1969's rule over 3 kept reading(s): 18.88, 18.22, 17.88
+seventh_ms = 15.1 .. 22.7
+# ADR 1969's rule over 3 kept reading(s): 31.22, 30.47, 30.93
+step_ms = 25.8 .. 37.5
+
+[[page]]
+path = "doc/pdf.js/test/pdfs/ContentStreamNoCycleType3insideType3.pdf"
+page = 1
+# ADR 1969's rule over 3 kept reading(s): 28.17, 28.89, 29.2
+turn_ms = 23.9 .. 35.1
+# ADR 1969's rule over 3 kept reading(s): 26.94, 29.06, 27.48
+seventh_ms = 22.8 .. 34.9
+# ADR 1969's rule over 3 kept reading(s): 33.77, 33.68, 33.44
+step_ms = 28.4 .. 40.6
+
+[[page]]
+path = "doc/pdf.js/test/pdfs/bug1743245.pdf"
+page = 1
+# ADR 1969's rule over 3 kept reading(s): 48.31, 50.63, 48.83
+turn_ms = 41.0 .. 60.8
+# ADR 1969's rule over 3 kept reading(s): 53.11, 50.18, 48.16
+seventh_ms = 40.9 .. 63.8
+# ADR 1969's rule over 3 kept reading(s): 41.3, 39.62, 40.42
+step_ms = 33.6 .. 49.6
+
+[[page]]
+path = "doc/pdf.js/test/pdfs/bug1721218_reduced.pdf"
+page = 1
+# ADR 1969's rule over 3 kept reading(s): 781.13, 761.76, 675.33
+turn_ms = 574.0 .. 937.4
+# ADR 1969's rule over 3 kept reading(s): 764.39, 762.82, 647.47
+seventh_ms = 550.3 .. 917.3
+# ADR 1969's rule over 3 kept reading(s): 623.72, 619.23, 535.79
+step_ms = 455.4 .. 748.5

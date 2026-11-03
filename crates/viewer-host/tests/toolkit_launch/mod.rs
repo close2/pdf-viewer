@@ -62,6 +62,9 @@ use std::time::{Duration, Instant};
 
 mod x_lock;
 
+#[path = "../../../../tools/conformance/test-support/machine_bands.rs"]
+mod machine_bands;
+
 /// Fresh processes per lane, and the figure is their minimum — `launch_path`'s count.
 const SAMPLES: usize = 9;
 
@@ -115,6 +118,10 @@ impl Lane {
     }
 }
 
+/// The adapter the windows drew on, as the first device lane's trace named it: the device part of
+/// this machine's fingerprint (ADR 2662). A window is the only thing here that brings a device up.
+static ADAPTER: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
 /// One launch's figures, in milliseconds; `None` for a line the trace did not print.
 #[derive(Debug, Clone, Copy, Default)]
 struct Figures {
@@ -150,6 +157,11 @@ impl Figures {
             self.window = Some(at * 1000.0);
         } else if let Some(took) = said.strip_prefix("graphics device up in ") {
             self.up = self.up.or_else(|| milliseconds(took.split(':').next()?));
+            if let Some((_, adapter)) = took.split_once(": ") {
+                let adapter = adapter.split(';').next().unwrap_or(adapter).trim();
+                // The first window to say wins; every window of one process tree takes the same.
+                let _ = ADAPTER.set(adapter.to_owned());
+            }
         } else if let Some(drawn) = said.strip_prefix("page 1 rasterised ") {
             let took = drawn.split_once(" in ").map(|(_, took)| took);
             self.page_one = self
@@ -456,9 +468,6 @@ pub(crate) fn hold(window: &Window) -> Result<(), String> {
     let binary =
         std::env::var_os(BINARY).map_or_else(|| PathBuf::from(window.binary), PathBuf::from);
     let document = root.join(DOCUMENT);
-    let file = std::fs::read_to_string(root.join("doc/checks/toolkit-launch.toml"))
-        .map_err(|error| format!("doc/checks/toolkit-launch.toml: {error}"))?;
-    let bands = bands(&file, window.name)?;
     let display = Display::start()?;
     let cores = the_performance_cores();
     let ceiling = the_load_ceiling();
@@ -481,6 +490,14 @@ pub(crate) fn hold(window: &Window) -> Result<(), String> {
         }
     }
     let after = load();
+    // The clock bands are this machine's, found by its fingerprint, whose device is the adapter
+    // the windows said they drew on — so they are read after the launches (ADR 2662).
+    let adapter = ADAPTER
+        .get()
+        .ok_or("no window said which adapter it drew on (`graphics device up in`)")?;
+    let file = machine_bands::for_this_machine(&root, "toolkit-launch", adapter)?;
+    println!("toolkit launch: clock bands from {}", file.said);
+    let bands = bands(&file.text, window.name)?;
     let judged = before <= ceiling && after <= ceiling;
     println!(
         "toolkit launch: load {before:.2} before and {after:.2} after, {}",
@@ -537,15 +554,26 @@ pub(crate) fn hold(window: &Window) -> Result<(), String> {
     }
 }
 
-/// The band file as it is committed: both windows' rows, every band a range.
+/// The band file as it is committed, with each machine's clock bands put in: both windows' rows,
+/// every band a range (ADR 2662).
 #[test]
 fn both_windows_rows_are_read_whole() {
-    let file = std::fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/checks/toolkit-launch.toml"),
-    )
-    .expect("the band file is committed");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let dirs = machine_bands::machine_dirs(&root);
+    assert!(!dirs.is_empty(), "doc/checks/machines holds no machine");
+    for dir in dirs {
+        let file = machine_bands::for_dir(&root, "toolkit-launch", &dir)
+            .unwrap_or_else(|complaint| panic!("{complaint}"));
+        both_windows_rows_are_in(&file);
+    }
+}
+
+/// What [`both_windows_rows_are_read_whole`] asks of one machine's merged file.
+fn both_windows_rows_are_in(file: &str) {
     for name in ["quorra-gtk", "quorra-qt"] {
-        let row = bands(&file, name).expect("the window has a row");
+        let row = bands(file, name);
+        assert!(row.is_ok(), "{name}: {row:?}");
+        let row = row.unwrap_or_default();
         let keys: Vec<&str> = row.iter().map(|(key, _, _)| key.as_str()).collect();
         assert_eq!(
             keys,
@@ -562,7 +590,7 @@ fn both_windows_rows_are_read_whole() {
         );
     }
     assert!(
-        bands(&file, "quorra").is_err(),
+        bands(file, "quorra").is_err(),
         "a window with no row is said"
     );
 }

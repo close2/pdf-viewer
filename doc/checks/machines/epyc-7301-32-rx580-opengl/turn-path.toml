@@ -1,0 +1,149 @@
+machine = "AMD EPYC 7301 (Zen 1; this account's CPUs 0-31 of 48, NUMA node 0, one class of core), 92 GiB, ext4 on a rotating disk, Radeon RX 580 (Polaris) through RADV (Mesa 25.0.7, `VK_ICD_FILENAMES` naming the radeon driver alone), Linux 6.12.115 (Debian 13)"
+calibration_ms = 1.68 .. 2.41
+
+[[page]]
+path = "doc/ISO_32000-2_sponsored_EC3.pdf"
+page = 101
+# This machine (ADR 2660): 26.93, 31.43, 31.29, 30.05, 28.4, 31.04, 31.15 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+turn_ms = 22.8 .. 37.8
+# This machine (ADR 2660): 27.25, 31.87, 31.54, 30.14, 26.62, 33.45, 30.92 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+seventh_ms = 22.6 .. 40.2
+# This machine (ADR 2660): 5.29, 5.54, 5.5, 5.26, 5.39, 5.76, 5.38 ms, every run of the gate under
+# its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+step_ms = 4.4 .. 7.0
+step_lowest_ms = 4.7 .. 6.9
+step_raised_mhz = 1326
+
+[[page]]
+path = "doc/pdf.js/test/pdfs/personwithdog.pdf"
+page = 1
+# This machine (ADR 2660): 31.84, 36.81, 39.35, 38.68, 34.51, 37.17, 37.37 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+turn_ms = 27.0 .. 47.3
+# This machine (ADR 2660): 32.07, 35.33, 34.23, 39.29, 33.63, 32.5, 34.39 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+seventh_ms = 27.2 .. 47.2
+# This machine (ADR 2660): 38.63, 43.94, 54.26, 41.18, 41.23, 43.65, 42.9 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+step_ms = 32.8 .. 65.2
+
+[[page]]
+path = "doc/pdf.js/test/pdfs/issue12841_reduced.pdf"
+page = 1
+# This machine (ADR 2660): 90.36, 94.15, 96.5, 90.79, 96.91, 99.03, 96.19 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+turn_ms = 76.8 .. 118.9
+# This machine (ADR 2660): 90.69, 93.36, 102.16, 92.07, 96.39, 99.35, 95.23 ms, every run of the
+# gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+seventh_ms = 77.0 .. 122.6
+# This machine (ADR 2660): 9.62, 13.25, 13.19, 12.85, 12.59, 13.08, 12.79 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+step_ms = 8.1 .. 15.9
+
+[[page]]
+path = "doc/pdf.js/test/pdfs/22060_A1_01_Plans.pdf"
+page = 1
+# This machine (ADR 2660): 142.56, 143.97, 138.82, 148.71, 146.97, 161.49 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+turn_ms = 117.9 .. 193.8
+# This machine (ADR 2660): 140.13, 138.42, 138.96, 142.28, 140.01, 158.82 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+seventh_ms = 117.6 .. 190.6
+# This machine (ADR 2660): 43.02, 45.15, 43.37, 47.92, 44.88, 45.66 ms, every run of the gate under
+# its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+step_ms = 36.5 .. 57.6
+
+[[page]]
+path = "doc/pdf.js/test/pdfs/issue13931.pdf"
+page = 1
+# This machine (ADR 2660): 75.1, 72.58, 75.62, 77.61, 64.7, 69.09 ms, every run of the gate under
+# its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+turn_ms = 54.9 .. 93.2
+# This machine (ADR 2660): 72.7, 75.31, 73.36, 77.34, 69.51, 68.2 ms, every run of the gate under
+# its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+seventh_ms = 57.9 .. 92.9
+# This machine (ADR 2660): 12.86, 14.12, 12.82, 13.87, 11.67, 13.14 ms, every run of the gate under
+# its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+step_ms = 9.9 .. 17.0
+
+[[page]]
+path = "doc/pdf.js/test/pdfs/images.pdf"
+page = 1
+# This machine (ADR 2660): 105.11, 103.59, 106.28, 105.56, 124.7, 100.19, 107.1 ms, every run of the
+# gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+turn_ms = 85.1 .. 149.7
+# This machine (ADR 2660): 104.61, 103, 104.78, 106.18, 114.78, 99.29, 103.23 ms, every run of the
+# gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+seventh_ms = 84.3 .. 137.8
+# This machine (ADR 2660): 32.61, 38.46, 33.15, 34.88, 35.08, 32.18, 33.97 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+step_ms = 27.3 .. 46.2
+
+[[page]]
+path = "doc/pdf.js/test/pdfs/issue14415.pdf"
+page = 1
+# This machine (ADR 2660): 34.71, 37.06, 34.69, 34.84, 35.28, 35.37, 35.06 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+turn_ms = 29.4 .. 44.5
+# This machine (ADR 2660): 33.1, 34.17, 35.59, 34.04, 33.68, 33.9, 31.53 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+seventh_ms = 26.8 .. 42.8
+# This machine (ADR 2660): 13.99, 15.44, 15.57, 14.3, 14.39, 16.69, 14.06 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+step_ms = 11.8 .. 20.1
+
+[[page]]
+path = "doc/pdf.js/test/pdfs/issue19802.pdf"
+page = 1
+# This machine (ADR 2660): 18.84, 20.96, 18.4, 19.84, 19.61, 21.53, 19.85 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+turn_ms = 15.6 .. 25.9
+# This machine (ADR 2660): 17.74, 18.49, 18.07, 17.74, 17.95, 19.18, 19.93 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+seventh_ms = 15.0 .. 24.0
+# This machine (ADR 2660): 6.65, 7.12, 6.82, 7.19, 6.69, 7.44, 6.56 ms, every run of the gate under
+# its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+step_ms = 5.5 .. 9.0
+step_lowest_ms = 4.3 .. 7.3
+step_raised_mhz = 1239
+
+[[page]]
+path = "doc/pdf.js/test/pdfs/ContentStreamNoCycleType3insideType3.pdf"
+page = 1
+# This machine (ADR 2660): 24.05, 24.39, 25.14, 25.7, 24.06, 27.2, 25.98 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+turn_ms = 20.4 .. 32.7
+# This machine (ADR 2660): 23.8, 23.45, 24.93, 25.32, 22.89, 27.35, 24.69 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+seventh_ms = 19.4 .. 32.9
+# This machine (ADR 2660): 26.5, 30.43, 30.14, 32.07, 28.42, 34.8, 30.81 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+step_ms = 22.5 .. 41.8
+
+[[page]]
+path = "doc/pdf.js/test/pdfs/bug1743245.pdf"
+page = 1
+# This machine (ADR 2660): 40.65, 44.08, 41.25, 43.58, 39.27, 41.02, 44.02 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+turn_ms = 33.3 .. 52.9
+# This machine (ADR 2660): 39.84, 46.64, 39.91, 45.94, 40.32, 41.12, 42.81 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+seventh_ms = 33.8 .. 56.0
+# This machine (ADR 2660): 30.42, 33.21, 30.71, 33.29, 28.42, 31.69, 32.01 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+step_ms = 24.1 .. 40.0
+
+[[page]]
+path = "doc/pdf.js/test/pdfs/bug1721218_reduced.pdf"
+page = 1
+# This machine (ADR 2660): 543.29, 529.11, 461.74, 473.61, 459.18, 550.92, 530.47 ms, every run of
+# the gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+turn_ms = 390.3 .. 661.2
+# This machine (ADR 2660): 523.83, 528.05, 494.01, 479.15, 451.29, 523.36, 517.6 ms, every run of
+# the gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+seventh_ms = 383.5 .. 633.7
+# This machine (ADR 2660): 351.11, 355.99, 362.5, 349.44, 348.28, 448.32, 339.14 ms, every run of
+# the gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
+step_ms = 288.2 .. 538.0

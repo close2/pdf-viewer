@@ -151,6 +151,9 @@
     reason = "a gate whose output is the numbers a person reads to see what moved"
 )]
 
+#[path = "../../../tools/conformance/test-support/machine_bands.rs"]
+mod machine_bands;
+
 use std::path::{Path, PathBuf};
 use std::process::Command as Child;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -314,6 +317,25 @@ const CALIBRATION_PASSES: usize = 50;
 /// The repository root, from this crate's manifest directory.
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+/// Every machine's clock bands merge into the band file and the result parses — read without
+/// measuring anything, so it runs in every workspace test run, on a machine whose own bands are
+/// not among them as well (ADR 2662).
+#[test]
+fn every_machine_s_clock_bands_merge_and_parse() {
+    let root = root();
+    let dirs = machine_bands::machine_dirs(&root);
+    assert!(!dirs.is_empty(), "doc/checks/machines holds no machine");
+    for dir in dirs {
+        let text = match machine_bands::for_dir(&root, "launch-path", &dir) {
+            Ok(text) => text,
+            Err(complaint) => panic!("{complaint}"),
+        };
+        if let Err(complaint) = parse(&text) {
+            panic!("{}: {complaint}", dir.display());
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -3040,9 +3062,18 @@ fn the_launch_path_stays_inside_its_bands() {
     require_the_sandbox();
     let root = root();
     let file = root.join("doc/checks/launch-path.toml");
-    let text = match std::fs::read_to_string(&file) {
-        Ok(text) => text,
-        Err(error) => panic!("{} does not read: {error}", file.display()),
+    // The clock bands are this machine's, found by its fingerprint, whose device is the adapter a
+    // bring-up here takes — the one every child takes (ADR 2662).
+    let adapter = match QuorraRasterizer::new_headless() {
+        Ok(raster) => raster.adapter_description().to_owned(),
+        Err(error) => panic!("no graphics device to name this machine by: {error}"),
+    };
+    let text = match machine_bands::for_this_machine(&root, "launch-path", &adapter) {
+        Ok(bands) => {
+            println!("launch-path: clock bands from {}", bands.said);
+            bands.text
+        }
+        Err(complaint) => panic!("{}: {complaint}", file.display()),
     };
     let check = match parse(&text) {
         Ok(check) => check,

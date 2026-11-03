@@ -1,0 +1,34 @@
+# This machine's clock bands, written by tools/bands.sh retake (ADR 2662).
+[[window]]
+name = "quorra-gtk"
+# ADR 1969's rule over 1 kept reading(s): 165
+device_window_ms = 140.2 .. 198.0
+# ADR 1969's rule over 1 kept reading(s): 79.1
+device_up_ms = 67.2 .. 95.0
+# ADR 1969's rule over 1 kept reading(s): 119.8
+device_page_one_ms = 101.8 .. 143.8
+# ADR 1969's rule over 1 kept reading(s): 328.7
+device_first_frame_ms = 279.3 .. 394.5
+# ADR 1969's rule over 1 kept reading(s): 198
+processor_window_ms = 168.2 .. 237.6
+# ADR 1969's rule over 1 kept reading(s): 18
+processor_page_one_ms = 15.3 .. 21.6
+# ADR 1969's rule over 1 kept reading(s): 360.2
+processor_first_frame_ms = 306.1 .. 432.3
+
+[[window]]
+name = "quorra-qt"
+# ADR 1969's rule over 2 kept reading(s): 100, 95
+device_window_ms = 80.7 .. 120.0
+# ADR 1969's rule over 2 kept reading(s): 69.2, 79.6
+device_up_ms = 58.8 .. 95.6
+# ADR 1969's rule over 2 kept reading(s): 134, 126
+device_page_one_ms = 107.1 .. 160.8
+# ADR 1969's rule over 2 kept reading(s): 253.4, 235.4
+device_first_frame_ms = 200.0 .. 304.1
+# ADR 1969's rule over 2 kept reading(s): 81, 83
+processor_window_ms = 68.8 .. 99.6
+# ADR 1969's rule over 2 kept reading(s): 21.1, 17.9
+processor_page_one_ms = 15.2 .. 25.4
+# ADR 1969's rule over 2 kept reading(s): 132.1, 123.2
+processor_first_frame_ms = 104.7 .. 158.6

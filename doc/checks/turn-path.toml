@@ -5,7 +5,10 @@
 # already-drawn document; this file holds the other end of the gesture — `doc/performance.md`
 # section 3e's table, a turn onto a page whose outlines the device has not seen and one notch of
 # zoom on it — which nothing held until three of its rows had doubled over two batches (ADR 1513).
-# The one command:
+# The one command (the clock bands are this machine's, from `doc/checks/machines/<machine>/
+# turn-path.toml` where each `clock_bands = machine` stands, found by the fingerprint the harness
+# takes — its processor, its processor count and the adapter it draws on; a machine with none fails
+# and `tools/bands.sh retake` takes them, ADR 2662):
 #
 #   cargo test --release -p render-raster --test turn_path -- --ignored --nocapture
 #
@@ -74,10 +77,9 @@
 # each of seven runs on this machine on 2026-11-03, 1.978 to 2.008 ms (ADR 2660). A child outside it
 # is printed and not used; 20 of those runs' 231 children read past it, up to 3.80 ms.
 
-machine = "AMD EPYC 7301 (Zen 1; this account's CPUs 0-31 of 48, NUMA node 0, one class of core), 92 GiB, ext4 on a rotating disk, Radeon RX 580 (Polaris) through RADV (Mesa 25.0.7, `VK_ICD_FILENAMES` naming the radeon driver alone), Linux 6.12.115 (Debian 13)"
+clock_bands = machine
 profile = "release"
 calibration_document = "doc/PDF20_AN001-BPC.pdf"
-calibration_ms = 1.68 .. 2.41
 # The device's busy share, read before each child and after it (`device_busy`): above this a child
 # shares the graphics device with somebody else's work, which no processor load average counts
 # (trap 101), and it is printed with the figure and not judged (ADR 1537). Calibrated on
@@ -94,98 +96,48 @@ device_busy_percent = 20
 path = "doc/ISO_32000-2_sponsored_EC3.pdf"
 page = 101
 commands = 3007
-# This machine (ADR 2660): 26.93, 31.43, 31.29, 30.05, 28.4, 31.04, 31.15 ms, every run of the gate
-# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-turn_ms = 22.8 .. 37.8
-# This machine (ADR 2660): 27.25, 31.87, 31.54, 30.14, 26.62, 33.45, 30.92 ms, every run of the gate
-# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-seventh_ms = 22.6 .. 40.2
-# This machine (ADR 2660): 5.29, 5.54, 5.5, 5.26, 5.39, 5.76, 5.38 ms, every run of the gate under
-# its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-step_ms = 4.4 .. 7.0
+clock_bands = machine
 # The step at the device's lowest clock (ADR 2420): HEAD's two runs the gate admitted wholly at 600 MHz
 # in that hold, 5.57 and 5.68 ms at loads of 7.5 and 9.8, this file's rule over them; three more at 600
 # MHz, 5.46 .. 5.63, were declined by the calibration probe and lie inside it.
-step_lowest_ms = 4.7 .. 6.9
 # The slowest raised clock this machine's `step_ms` runs were read at, 2026-11-03 (ADR 2660). No run
 # read at the RX 580's lowest level, 300 MHz, so `step_lowest_ms` above is the notebook's and is not
 # re-taken here.
-step_raised_mhz = 1326
 why = "text, 3 007 commands: the turn is raster's encode of the glyphs on the fan-out, which runs at the clock the processor gives the cores its threads wake on, so a child's figure is 7.2 to about 9.5 ms by that clock and not by the tree, and the band spans both ends (ADR 1519)"
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/personwithdog.pdf"
 page = 1
 commands = 18
-# This machine (ADR 2660): 31.84, 36.81, 39.35, 38.68, 34.51, 37.17, 37.37 ms, every run of the gate
-# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-turn_ms = 27.0 .. 47.3
-# This machine (ADR 2660): 32.07, 35.33, 34.23, 39.29, 33.63, 32.5, 34.39 ms, every run of the gate
-# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-seventh_ms = 27.2 .. 47.2
-# This machine (ADR 2660): 38.63, 43.94, 54.26, 41.18, 41.23, 43.65, 42.9 ms, every run of the gate
-# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-step_ms = 32.8 .. 65.2
+clock_bands = machine
 why = "§8.7.4.5.7 patch meshes: their 32-bit coordinates and 8-bit flags and components are read as bytes (ADR 2332), and the scene walk divides the mesh rows across the pool (ADR 1259). A turn past the ceiling is the processor's clock, at one end of the load or the other: the idle end is taken away by starting every round on warm cores (ADR 1577), and the busy end, the cores the child is not pinned to kept busy at a load average the ceiling admits (ADR 1556), is a second mode judged against HEAD and not banded (ADR 1969)"
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/issue12841_reduced.pdf"
 page = 1
 commands = 2
-# This machine (ADR 2660): 90.36, 94.15, 96.5, 90.79, 96.91, 99.03, 96.19 ms, every run of the gate
-# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-turn_ms = 76.8 .. 118.9
-# This machine (ADR 2660): 90.69, 93.36, 102.16, 92.07, 96.39, 99.35, 95.23 ms, every run of the
-# gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-seventh_ms = 77.0 .. 122.6
-# This machine (ADR 2660): 9.62, 13.25, 13.19, 12.85, 12.59, 13.08, 12.79 ms, every run of the gate
-# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-step_ms = 8.1 .. 15.9
+clock_bands = machine
 why = "one 5 280 × 3 792 photograph whose codestream has no EOI, decoded in bands at its restart intervals (ADRs 1433, 1513): 69 ms where the bands are declined, which is the regression this row exists to see"
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/22060_A1_01_Plans.pdf"
 page = 1
 commands = 70
-# This machine (ADR 2660): 142.56, 143.97, 138.82, 148.71, 146.97, 161.49 ms, every run of the gate
-# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-turn_ms = 117.9 .. 193.8
-# This machine (ADR 2660): 140.13, 138.42, 138.96, 142.28, 140.01, 158.82 ms, every run of the gate
-# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-seventh_ms = 117.6 .. 190.6
-# This machine (ADR 2660): 43.02, 45.15, 43.37, 47.92, 44.88, 45.66 ms, every run of the gate under
-# its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-step_ms = 36.5 .. 57.6
+clock_bands = machine
 why = "four photographs and four DCTDecode masks with no restart interval, decoded beside each other on the pool (ADRs 1321, 1505)"
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/issue13931.pdf"
 page = 1
 commands = 513
-# This machine (ADR 2660): 75.1, 72.58, 75.62, 77.61, 64.7, 69.09 ms, every run of the gate under
-# its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-turn_ms = 54.9 .. 93.2
-# This machine (ADR 2660): 72.7, 75.31, 73.36, 77.34, 69.51, 68.2 ms, every run of the gate under
-# its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-seventh_ms = 57.9 .. 92.9
-# This machine (ADR 2660): 12.86, 14.12, 12.82, 13.87, 11.67, 13.14 ms, every run of the gate under
-# its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-step_ms = 9.9 .. 17.0
+clock_bands = machine
 why = "one photograph under a /Matte mask, its frame decoded beside its mask (ADR 1481) and the mask's opacity written by the inversion, the multiplication's pass over 51 MB gone (ADR 1519): 24 ms where that pass is made"
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/images.pdf"
 page = 1
 commands = 2
-# This machine (ADR 2660): 105.11, 103.59, 106.28, 105.56, 124.7, 100.19, 107.1 ms, every run of the
-# gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-turn_ms = 85.1 .. 149.7
-# This machine (ADR 2660): 104.61, 103, 104.78, 106.18, 114.78, 99.29, 103.23 ms, every run of the
-# gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-seventh_ms = 84.3 .. 137.8
-# This machine (ADR 2660): 32.61, 38.46, 33.15, 34.88, 35.08, 32.18, 33.97 ms, every run of the gate
-# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-step_ms = 27.3 .. 46.2
+clock_bands = machine
 why = "this tree's own sample unpacking and soft-mask combination (ADRs 1433, 1469)"
 
 [[page]]
@@ -195,38 +147,20 @@ path = "doc/pdf.js/test/pdfs/issue14415.pdf"
 # trap 110, and the band keeps its reason (ADR 1647).
 page = 1
 commands = 959
-# This machine (ADR 2660): 34.71, 37.06, 34.69, 34.84, 35.28, 35.37, 35.06 ms, every run of the gate
-# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-turn_ms = 29.4 .. 44.5
-# This machine (ADR 2660): 33.1, 34.17, 35.59, 34.04, 33.68, 33.9, 31.53 ms, every run of the gate
-# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-seventh_ms = 26.8 .. 42.8
-# This machine (ADR 2660): 13.99, 15.44, 15.57, 14.3, 14.39, 16.69, 14.06 ms, every run of the gate
-# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-step_ms = 11.8 .. 20.1
+clock_bands = machine
 why = "curved strokes bent tighter than their half-width: two chords a flat piece (ADR 1443) and the tiling of a tight bend (ADR 1375) are its encode"
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/issue19802.pdf"
 page = 1
 commands = 1032
-# This machine (ADR 2660): 18.84, 20.96, 18.4, 19.84, 19.61, 21.53, 19.85 ms, every run of the gate
-# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-turn_ms = 15.6 .. 25.9
-# This machine (ADR 2660): 17.74, 18.49, 18.07, 17.74, 17.95, 19.18, 19.93 ms, every run of the gate
-# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-seventh_ms = 15.0 .. 24.0
-# This machine (ADR 2660): 6.65, 7.12, 6.82, 7.19, 6.69, 7.44, 6.56 ms, every run of the gate under
-# its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-step_ms = 5.5 .. 9.0
+clock_bands = machine
 # The step at the device's lowest clock (ADR 2402): ADR 2388's six arms read 5.10 .. 6.02 ms there on
 # ecb6bea0 and on the fix, with `pp_dpm_sclk` at 600 MHz through the whole child; this file's rule
 # over them. HEAD before the fix, 004f8e73, read 9.07 .. 9.59 at the same clock, past the ceiling.
-step_lowest_ms = 4.3 .. 7.3
 # The slowest raised clock this machine's `step_ms` runs were read at, 2026-11-03 (ADR 2660). No run
 # read at the RX 580's lowest level, 300 MHz, so `step_lowest_ms` above is the notebook's and is not
 # re-taken here.
-step_raised_mhz = 1239
 why = "1 032 commands of text and rules"
 
 [[page]]
@@ -236,43 +170,19 @@ path = "doc/pdf.js/test/pdfs/ContentStreamNoCycleType3insideType3.pdf"
 # 6.0 and left with it, the busy end of trap 110 (ADR 1621 section 4), so the band keeps its reason.
 page = 1
 commands = 152
-# This machine (ADR 2660): 24.05, 24.39, 25.14, 25.7, 24.06, 27.2, 25.98 ms, every run of the gate
-# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-turn_ms = 20.4 .. 32.7
-# This machine (ADR 2660): 23.8, 23.45, 24.93, 25.32, 22.89, 27.35, 24.69 ms, every run of the gate
-# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-seventh_ms = 19.4 .. 32.9
-# This machine (ADR 2660): 26.5, 30.43, 30.14, 32.07, 28.42, 34.8, 30.81 ms, every run of the gate
-# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-step_ms = 22.5 .. 41.8
+clock_bands = machine
 why = "stroked Type 3 glyphs in a tiling under a residue clip: each glyph's expansion made once (ADR 1445), two chords a piece (ADR 1443), and the exact meet with the residue (ADR 1467) whose mark edges the fan-out builds (ADR 1513)"
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/bug1743245.pdf"
 page = 1
 commands = 269
-# This machine (ADR 2660): 40.65, 44.08, 41.25, 43.58, 39.27, 41.02, 44.02 ms, every run of the gate
-# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-turn_ms = 33.3 .. 52.9
-# This machine (ADR 2660): 39.84, 46.64, 39.91, 45.94, 40.32, 41.12, 42.81 ms, every run of the gate
-# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-seventh_ms = 33.8 .. 56.0
-# This machine (ADR 2660): 30.42, 33.21, 30.71, 33.29, 28.42, 31.69, 32.01 ms, every run of the gate
-# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-step_ms = 24.1 .. 40.0
+clock_bands = machine
 why = "tight bends: the tiling's own cost, which ADR 1505 divided across the fan-out"
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/bug1721218_reduced.pdf"
 page = 1
 commands = 1
-# This machine (ADR 2660): 543.29, 529.11, 461.74, 473.61, 459.18, 550.92, 530.47 ms, every run of
-# the gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-turn_ms = 390.3 .. 661.2
-# This machine (ADR 2660): 523.83, 528.05, 494.01, 479.15, 451.29, 523.36, 517.6 ms, every run of
-# the gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-seventh_ms = 383.5 .. 633.7
-# This machine (ADR 2660): 351.11, 355.99, 362.5, 349.44, 348.28, 448.32, 339.14 ms, every run of
-# the gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-step_ms = 288.2 .. 538.0
+clock_bands = machine
 why = "a four-component group of 3 518 residue-clipped shadings, drawn as two frames of one geometry (ADRs 1471, 1529), whose exact meets are made beside the walk (ADR 1541) and whose shading quads read one buffer of their numbers at their own offsets (ADR 1555): the tree before that read 191 to 203 and 118 to 126 ms beside it, past the top of both bands, so the bands hold that change. Its 132 ramps, first seen on the turn, are sampled beside each other (ADR 1567), and its meets of a disc with a dot clip are measured from the two convex polygons (ADR 1582), which took the turn's scene 5 ms quicker beside the tree before it; a run of its shading quads is one instanced draw (ADR 1594) and its black frame is walked while the device draws the chromatic one (ADR 1595), which took the turn 1.5 ms quicker and leaves the step where it was, a device of its own paying for wgpu's command encoders as the overlap first needs them; a child's composite is drawn in the pass of the marks after it and the frame's end timestamp on its last pass, 193 passes a turn where it recorded 222 (ADR 1618), which took each row 0.6 to 1.4 ms quicker beside the tree before it and, in one sitting, read the seventh frame the quicker of the two; a composite's backdrop is copied by a transfer (ADR 1630) and a composite waits past the next child where their rectangles stand apart and the priced peak holds both (ADR 1631), 114 passes a turn where it recorded 193, which took every row quicker than the tree before them in each of eight interleaved pairs, the turn by 0.57 to 3.49 ms; its 41 shadings' functions are parsed once an interpretation rather than once a build under each conversion, 41 parses a run where it made 137 (ADR 1644), which took the turn 1.9 to 3.5 ms quicker and the seventh frame 0.8 to 2.8 in each of three interleaved pairs, the turn's interp 2.5 to 3.8; the bands follow that re-take, and its black run, 486.6 M instructions of the turn's 1 258.9 M, is not drawn from the chromatic list because the black component is not in that list (ADR 1645)"

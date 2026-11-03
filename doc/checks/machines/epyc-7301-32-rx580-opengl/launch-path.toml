@@ -1,0 +1,108 @@
+machine = "AMD EPYC 7301 (Zen 1; this account's CPUs 0-31 of 48, NUMA node 0, one class of core), 92 GiB, ext4 on a rotating disk, Radeon RX 580 (Polaris) through RADV (Mesa 25.0.7, `VK_ICD_FILENAMES` naming the radeon driver alone), Linux 6.12.115 (Debian 13)"
+calibration_ms = 1.68 .. 2.42
+bring_up_ms = 55.8 .. 85.9
+io_latency_ms = 0.46 .. 1.85
+io_ms = 10.2 .. 43.7
+
+[[document]]
+path = "doc/PDF20_AN001-BPC.pdf"
+# This machine (ADR 2660): 1.956, 2.103, 2.056, 1.944, 1.888, 1.791 ms, every run of the gate under
+# its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+cold_open_ms = 1.52 .. 2.53
+# This machine (ADR 2660): 1.255, 1.99, 2, 2.331, 1.411, 1.26 ms, every run of the gate under its
+# load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+warm_open_ms = 1.06 .. 2.80
+# This machine (ADR 2660): 122.605, 145.636, 128.595, 140.352, 131.996, 140.464 ms, every run of the
+# gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+first_page_ms = 104.2 .. 174.8
+cold_first_page_ms = 104.2 .. 174.8
+# This machine (ADR 2660): 13.579, 14.957, 19.182, 15.766, 13.228, 15.183, 14.391 ms, every run of
+# the gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+turn_ms = 11.2 .. 23.1
+script_spawn_ms = none
+script_first_run_ms = none
+
+[[document]]
+path = "doc/Well-Tagged-PDF-WTPDF-1.0.pdf"
+# This machine (ADR 2660): 4.694, 4.788, 5.537, 4.49, 4.323, 4.862, 4.417 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+cold_open_ms = 3.67 .. 6.65
+# This machine (ADR 2660): 3.542, 4.03, 3.528, 3.976, 3.556, 3.789, 3.085 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+warm_open_ms = 2.62 .. 4.84
+# This machine (ADR 2660): 149.128, 155.974, 151.487, 152.08, 147.839, 162.833, 150.783 ms, every
+# run of the gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock
+# rule.
+first_page_ms = 125.6 .. 195.4
+cold_first_page_ms = 125.6 .. 195.4
+# This machine (ADR 2660): 19.032, 16.313, 15.013, 20.883, 15.538, 15.848, 19.347 ms, every run of
+# the gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+turn_ms = 12.7 .. 25.1
+script_spawn_ms = none
+script_first_run_ms = none
+
+[[document]]
+path = "doc/ISO_32000-2_sponsored_EC3.pdf"
+# This machine (ADR 2660): 16.453, 17.223, 15.973, 16.986, 16.543, 15.497, 18.256 ms, every run of
+# the gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+cold_open_ms = 13.1 .. 22.0
+# This machine (ADR 2660): 14.609, 15.536, 15.667, 16.201, 14.934, 15.657, 16.778 ms, every run of
+# the gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+warm_open_ms = 12.4 .. 20.2
+# This machine (ADR 2660): 129.442, 137.577, 130.714, 149.109, 126.072, 125.701 ms, every run of the
+# gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+first_page_ms = 106.8 .. 179.0
+cold_first_page_ms = 106.8 .. 179.0
+# This machine (ADR 2660): 16.882, 17.591, 14.437, 17.08, 16.664, 17.667, 16.346 ms, every run of
+# the gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+turn_ms = 12.2 .. 21.3
+script_spawn_ms = none
+script_first_run_ms = none
+
+[[document]]
+path = "doc/pdf.js/test/pdfs/bug1815476.pdf"
+# This machine (ADR 2660): 2.085, 1.907, 1.861, 1.984, 1.878, 1.788, 1.728 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+cold_open_ms = 1.46 .. 2.51
+# This machine (ADR 2660): 2.295, 1.982, 1.481, 1.413, 1.787, 1.496 ms, every run of the gate under
+# its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+warm_open_ms = 1.20 .. 2.76
+# This machine (ADR 2660): 164.973, 161.784, 143.652, 138.267, 155.534, 135.673 ms, every run of the
+# gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+first_page_ms = 115.3 .. 198.0
+cold_first_page_ms = 115.3 .. 198.0
+turn_ms = none
+script_spawn_ms = none
+script_first_run_ms = none
+
+[[document]]
+path = "doc/pdf.js/test/pdfs/xfa_filled_imm1344e.pdf"
+cold_open_ms = none
+warm_open_ms = none
+# This machine (ADR 2660): 119.606, 125.099, 214.906, 115.603, 127.393, 118.842 ms, every run of the
+# gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+first_page_ms = 98.2 .. 257.9
+cold_first_page_ms = 98.2 .. 257.9
+turn_ms = none
+script_spawn_ms = none
+script_first_run_ms = none
+
+[[document]]
+path = "doc/pdf.js/test/pdfs/opt_demo.pdf"
+# This machine (ADR 2660): 0.772, 0.834, 0.726, 0.7, 0.784, 0.82, 0.735 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+cold_open_ms = 0.59 .. 1.01
+# This machine (ADR 2660): 0.494, 0.715, 0.549, 0.496, 0.631, 0.555, 0.477 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+warm_open_ms = 0.40 .. 0.86
+# This machine (ADR 2660): 118.258, 142.667, 133.142, 145.961, 122.519, 129.036 ms, every run of the
+# gate under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+first_page_ms = 100.5 .. 175.2
+cold_first_page_ms = 100.5 .. 175.2
+turn_ms = none
+# This machine (ADR 2660): 3.25, 2.672, 3.258, 2.549, 2.641, 2.871, 2.639 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+script_spawn_ms = 2.16 .. 3.91
+# This machine (ADR 2660): 1.579, 1.527, 1.768, 1.573, 1.609, 1.533, 1.584 ms, every run of the gate
+# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's clock rule.
+script_first_run_ms = 1.29 .. 2.13

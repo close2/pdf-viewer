@@ -31,9 +31,14 @@ section disagree about the machine, **this section is the machine**. The rules a
 - **The GPU is shared, and every run on it holds the lock.** A physical AMD Radeon RX 580
   (Polaris, RADV, `/dev/dri/renderD128`) is shared with a second agent user (`spacescuffle`); a
   test, gate or measurement that may touch the hardware adapter is wrapped:
-  `VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/radeon_icd.x86_64.json with-gpu-lock <command>`
+  `WGPU_BACKEND=vulkan VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/radeon_icd.json with-gpu-lock <command>`
   (an exclusive `flock` on `/run/lock/gpu.lock`, 600 s wait; `GPU_LOCK_TIMEOUT=1200` for longer).
-  Software Vulkan needs no lock: `VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json`.
+  Software Vulkan needs no lock:
+  `WGPU_BACKEND=vulkan VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json <command>`.
+  **Both halves are needed** (ADR 2663): an ICD path naming no file leaves Vulkan without a driver,
+  and wgpu then falls back to OpenGL on the hardware card without a word — so a "software" run
+  without `WGPU_BACKEND=vulkan` is a hardware run, and the adapter a gate prints is the record of
+  which device it drew on, never the environment it was given.
   wgpu picks the hardware adapter when none is pinned, so an unpinned GPU run counts as hardware.
   A clock figure taken without the lock may include the other user's load and is not a reading.
   **Use the device, and hold it briefly.** Stated by the project owner on 2026-11-03: "please use
