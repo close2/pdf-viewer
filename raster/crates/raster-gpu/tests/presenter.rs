@@ -13,10 +13,16 @@
 // allow-panic-in-tests does not reach them; this is the same policy, stated here.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+#[path = "../../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use raster_gpu::{Device, Layer, Options, PresentCost, Presenter, RenderError, Target, Viewport};
 use raster_scene::{Affine, Scene, SceneBuilder};
 
 fn headless() -> Device {
+    gpu_lock_hook::install();
     Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         ..Options::default()

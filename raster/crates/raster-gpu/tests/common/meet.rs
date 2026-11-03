@@ -110,6 +110,7 @@ pub fn in_pixel(polygon: &[(f64, f64)], x: u32, y: u32) -> f64 {
 /// rasterised by the processor on every lane, made by a fan-out job where the host allowed
 /// threads and in place where it allowed one (ADR 1395, ADR 1541).
 pub fn device_with(coverage: Coverage, threads: usize) -> Device {
+    super::gpu_lock_hook::install();
     Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         coverage,

@@ -96,6 +96,12 @@ mod as_read;
 mod device;
 #[cfg(test)]
 mod gesture;
+#[cfg(test)]
+#[path = "../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[cfg(test)]
+#[path = "../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
 mod lanes;
 mod processor;
 pub mod read_back;

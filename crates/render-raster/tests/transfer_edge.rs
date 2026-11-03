@@ -42,6 +42,11 @@
               is over a raster this file sized itself"
 )]
 
+#[path = "../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use std::sync::Arc;
 
 use pdf_render::{
@@ -150,6 +155,7 @@ const EDGE: (u32, u32) = (12, 7);
 /// The discipline is `headless_quorra`'s (ADR 0004): a skipped suite reports success while
 /// verifying nothing, so this fails loudly where no adapter is present instead.
 fn raster() -> QuorraRasterizer {
+    gpu_lock_hook::install();
     QuorraRasterizer::new_headless().unwrap_or_else(|e| {
         panic!(
             "no adapter available for raster: {e}\n\

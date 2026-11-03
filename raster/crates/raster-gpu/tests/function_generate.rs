@@ -14,6 +14,7 @@
 //! hash covers the program, the component count and the revision, *not* the text, and that is
 //! the one seam between the two that discipline rather than a type has to hold.
 
+mod common;
 mod function_support;
 
 use function_support::programs::{self, ODD_RGB, UNIT_GRAY, UNIT_RGB, WIDE_RGB};

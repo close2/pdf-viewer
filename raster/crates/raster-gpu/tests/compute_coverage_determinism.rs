@@ -46,6 +46,9 @@
               is the test failing"
 )]
 
+#[path = "../../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+
 use raster_gpu::wgpu;
 
 /// Region size the shader is generated for: one workgroup, one invocation per row.
@@ -378,6 +381,8 @@ struct Gpu {
     device: wgpu::Device,
     queue: wgpu::Queue,
     name: String,
+    /// The shared adapter's lock for as long as the device lives; raw `wgpu` bypasses the hook.
+    _gpu_lock: gpu_lock::Hold,
 }
 
 fn adapters() -> Vec<Gpu> {
@@ -386,6 +391,11 @@ fn adapters() -> Vec<Gpu> {
         .into_iter()
         .filter_map(|adapter| {
             let name = adapter.get_info().name;
+            // Every adapter is enumerated, so each one's own type decides, not the environment.
+            let gpu_lock = gpu_lock::Hold::when(
+                adapter.get_info().device_type != wgpu::DeviceType::Cpu,
+                "raw-wgpu-test",
+            );
             let (device, queue) =
                 pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
                     label: Some("coverage determinism"),
@@ -397,6 +407,7 @@ fn adapters() -> Vec<Gpu> {
                 device,
                 queue,
                 name,
+                _gpu_lock: gpu_lock,
             })
         })
         .collect()

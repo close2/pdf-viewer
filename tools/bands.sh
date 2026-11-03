@@ -15,8 +15,9 @@
 #   tools/bands.sh which            print this machine's band directory, or say there is none (exit 1)
 #   tools/bands.sh retake [--runs N] [--gates "launch turn toolkit"] [--again] [--round R]
 #                                   take this machine's bands, unless it has them (`--again` takes
-#                                   them over); every run of every gate is its own `--clock` hold
-#                                   and its own `with-gpu-lock`, never one lock around the sequence
+#                                   them over); every run of every gate is its own `--clock` hold,
+#                                   and the GPU lock is the harness's own, taken around each device
+#                                   section and never by this script (ADR 2664)
 #   tools/bands.sh write <logdir>   write the bands from a retake's logs (what `retake` ends with)
 #
 # **The fingerprint** is the processor's model, how many processors this process may run on, and the
@@ -44,14 +45,14 @@ ulimit -u "$task_budget"
 # The fingerprint is the harness's own (`machine_bands::fingerprint`), because the device in it is
 # the adapter wgpu chose, which the environment does not say: asked of `vulkaninfo`, it named
 # lavapipe where the gate drew through OpenGL on the RX 580. So it is the turn gate's test binary,
-# built and asked, under the one lock a bring-up on the shared adapter takes.
+# built and asked; its bring-up takes the shared adapter's lock for itself (ADR 2664).
 fingerprint() {
     (cd "$here" && cargo test --release -q -p render-raster --test turn_path --no-run) >/dev/null 2>&1 || {
         echo "bands: the turn gate's test binary does not build" >&2
         return 1
     }
     local said
-    said=$(cd "$here" && with-gpu-lock cargo test --release -q -p render-raster --test turn_path -- \
+    said=$(cd "$here" && cargo test --release -q -p render-raster --test turn_path -- \
         --ignored --exact this_machine_s_fingerprint --nocapture 2>/dev/null |
         sed -n 's/^bands: fingerprint //p')
     [ -n "$said" ] || { echo "bands: the turn gate printed no fingerprint" >&2; return 1; }
@@ -106,14 +107,12 @@ retake() {
     fi
     logs="$HOME/scratch/bands/$(date +%Y%m%dT%H%M%S)"
     mkdir -p "$logs"
-    # A device the processor draws for is not the shared adapter, and its runs take no GPU lock.
-    local lock=(with-gpu-lock)
-    case $print in *"(Cpu, "*) lock=() ;; esac
     echo "bands: re-taking for $print, $runs run(s) of: $gates; logs in $logs"
     local run gate
-    # Each gate's test binary is built once, before any lock: a build inside `with-gpu-lock` holds the
-    # shared adapter for minutes and measures nothing, and the same `-p` set is what keeps Cargo's
-    # feature resolution, and so the binary, the one the runs use.
+    # Each gate's test binary is built once, before any run, and the same `-p` set is what keeps
+    # Cargo's feature resolution, and so the binary, the one the runs use. No run is wrapped in the
+    # GPU lock: each harness takes it around its own device sections and releases it before its
+    # processor and disk work, so a neighbour's device work interleaves (ADR 2664).
     for gate in $gates; do
         gate_args "$gate" || return 2
         (cd "$here" && "$here/tools/bounded.sh" --lock --round "$round" --tree 24 "${build[@]}" -- \
@@ -130,7 +129,7 @@ retake() {
             # (ADR 2660), and the clock figures it printed are what is read.
             (cd "$here" && GPU_LOCK_TIMEOUT="${GPU_LOCK_TIMEOUT:-1200}" PDFVIEWER_BANDS_RETAKE=1 \
                 "$here/tools/bounded.sh" --lock --clock --round "$round" --tree 12 -- \
-                env "${clocks[@]}" "${lock[@]}" cargo test --release "${args[@]}" -- --ignored --nocapture) \
+                env "${clocks[@]}" cargo test --release "${args[@]}" -- --ignored --nocapture) \
                 > "$logs/$gate-$run.log" 2>&1 || true
         done
     done

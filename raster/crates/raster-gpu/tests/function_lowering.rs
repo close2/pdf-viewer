@@ -22,6 +22,7 @@
 //!   comment. That is the direction CLAUDE.md principle 5 requires: not "this is what the
 //!   other implementation produces", but "this is what the clause says".
 
+mod common;
 mod function_support;
 
 use function_support::programs::{self, WIDE_GRAY, Witness};

@@ -39,6 +39,11 @@
     clippy::arithmetic_side_effects
 )]
 
+#[path = "../../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use raster_gpu::{
     Device, EncodeSource, Frame, Options, RenderError, RetainedScene, Target, Viewport,
 };
@@ -61,6 +66,7 @@ const A_SECOND_PROGRAM: [FnOp; 1] = [FnOp::PushReal(0.25)];
 /// promises no cross-adapter identity for this paint).
 fn device() -> (Device, String) {
     let requested = std::env::var("QUORRA_ADAPTER").unwrap_or_else(|_| "llvmpipe".into());
+    gpu_lock_hook::install();
     let device = Device::headless(&Options {
         adapter: Some(requested),
         ..Options::default()

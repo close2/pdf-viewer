@@ -155,6 +155,9 @@ pub struct Device {
     gpu: wgpu::Device,
     queue: wgpu::Queue,
     description: String,
+    /// The adapter's kind, which every device section reports to the installed hook
+    /// ([`crate::section`]).
+    adapter_type: wgpu::DeviceType,
     limits: Limits,
     pipelines: Arc<PipelineStore>,
     /// The warm-up thread, held so that [`Drop`] can join it: a thread compiling

@@ -51,3 +51,13 @@
 # ITU-T T.88 Annex K's conformance data, which its licence keeps out of the tree
 # (`crates/pdf-sandbox/tests/t88_conformance.rs`, `doc/third-party-data.md`).
 : "${T88_CONFORMANCE_DATA:=$PDF_VIEWER_AGENT/specs/T.88/Software/conf/JBIG2_ConformanceData-A20180829}"
+
+# The lock the shared hardware graphics adapter is serialised on, taken by the code around each
+# device section and never by a shell around a build, a gate or a suite
+# (`tools/conformance/test-support/gpu_lock.rs`, ADR 2664). The default is the system's own file
+# where it exists — the one `with-gpu-lock` takes on the server VM — and empty where it does not,
+# which means no lock: a machine whose adapter is its own waits for nobody. Not derived from `$HOME`
+# because it is not this account's place but the machine's, shared with every account on it.
+if [ -z "${PDF_VIEWER_GPU_LOCK+set}" ]; then
+    if [ -e /run/lock/gpu.lock ]; then PDF_VIEWER_GPU_LOCK=/run/lock/gpu.lock; else PDF_VIEWER_GPU_LOCK=; fi
+fi

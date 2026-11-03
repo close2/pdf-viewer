@@ -23,6 +23,11 @@
               reports, and it reports it by name"
 )]
 
+#[path = "../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use std::sync::Arc;
 
 use pdf_render::{
@@ -42,6 +47,7 @@ const PAGE: Size = Size {
 /// Deliberately does not skip, for `headless_quorra.rs`'s reason (ADR 0004): a skipped suite
 /// reports success while verifying nothing.
 fn backend() -> QuorraRasterizer {
+    gpu_lock_hook::install();
     match QuorraRasterizer::new_headless() {
         Ok(rasterizer) => rasterizer,
         Err(error) => panic!(

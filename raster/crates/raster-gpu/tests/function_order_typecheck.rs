@@ -45,6 +45,7 @@
     clippy::float_cmp
 )]
 
+mod common;
 mod function_support;
 
 use function_support::compute::{Compute, Shading};

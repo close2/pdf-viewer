@@ -17,6 +17,11 @@
               indices are inside rasters of a few hundred pixels a side"
 )]
 
+#[path = "../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use std::sync::Arc;
 
 use pdf_render::{
@@ -33,6 +38,7 @@ const GENEROUS: u64 = 1 << 30;
 const LEVELS: u8 = 2;
 
 fn raster() -> QuorraRasterizer {
+    gpu_lock_hook::install();
     QuorraRasterizer::new_headless().expect("a device is available (ADR 0004)")
 }
 

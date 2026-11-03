@@ -113,6 +113,8 @@ pub struct Presenter {
     /// number is the same monotonic device id, for the same reason — two live devices
     /// never share one.
     device_id: u64,
+    /// The adapter's kind, reported with each present's device section ([`crate::section`]).
+    device_type: wgpu::DeviceType,
     gpu: wgpu::Device,
     queue: wgpu::Queue,
     pipelines: Arc<PipelineStore>,
@@ -147,6 +149,7 @@ impl Presenter {
     /// offers `adapter_info()` and no adapter).
     pub(crate) fn new(
         device_id: u64,
+        device_type: wgpu::DeviceType,
         gpu: wgpu::Device,
         queue: wgpu::Queue,
         pipelines: Arc<PipelineStore>,
@@ -158,6 +161,7 @@ impl Presenter {
         let size = surface.configured_size();
         Self {
             device_id,
+            device_type,
             gpu,
             queue,
             pipelines,
@@ -203,6 +207,8 @@ impl Presenter {
     /// **On every one of them nothing was presented**, and [`Presenter::last`] still
     /// describes the last present that happened.
     pub fn present(&mut self, layers: &[Layer<'_>]) -> Result<(), RenderError> {
+        let _section =
+            crate::section::Open::begin(crate::section::DeviceWork::Frame, self.device_type);
         let (width, height) = self.size.ok_or(RenderError::PresenterUnsized)?;
         if width == 0 || height == 0 {
             return Err(RenderError::ZeroSizeTarget { target: "Surface" });

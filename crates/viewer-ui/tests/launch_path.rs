@@ -151,6 +151,10 @@
     reason = "a gate whose output is the numbers a person reads to see what moved"
 )]
 
+#[path = "../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
 #[path = "../../../tools/conformance/test-support/machine_bands.rs"]
 mod machine_bands;
 
@@ -1013,6 +1017,9 @@ fn phase_open(warm: bool) {
 /// here loads drivers, and a second device in the same process is measured with the loader
 /// already warm.
 fn phase_bring_up() {
+    // The phase is a device section from here to its return: the lock is taken before the clock
+    // starts, so no figure includes a wait for another process (ADR 2664).
+    let _device_section = gpu_lock::Hold::unless_software("bring-up-phase");
     let scheduled = scheduling();
     let began = Instant::now();
     let backend = QuorraRasterizer::new_headless();
@@ -1100,6 +1107,9 @@ fn phase_first_page() {
     // This thread's wait alone, and the document thread's is not in it — which under-corrects
     // rather than over-corrects, so a figure this leaves too large is never one that passes when
     // it should have failed.
+    // The phase is a device section from here to its return, locked before its clock starts
+    // (ADR 2664); the document thread's processor work inside it overlaps the bring-up by design.
+    let _device_section = gpu_lock::Hold::unless_software("first-page-phase");
     let scheduled = scheduling();
     let began = Instant::now();
     let spawned = spawned_before(began);
@@ -1272,6 +1282,8 @@ fn script_stage(
 fn phase_page_turn() {
     let path = document_of_the_child();
     let (mut viewer, pages) = open_document(&path, None);
+    // The document was opened on the processor; the device section starts here (ADR 2664).
+    let _device_section = gpu_lock::Hold::unless_software("page-turn-phase");
     let mut backend = match QuorraRasterizer::new_headless() {
         Ok(backend) => backend,
         Err(error) => {
@@ -3063,7 +3075,9 @@ fn the_launch_path_stays_inside_its_bands() {
     let root = root();
     let file = root.join("doc/checks/launch-path.toml");
     // The clock bands are this machine's, found by its fingerprint, whose device is the adapter a
-    // bring-up here takes — the one every child takes (ADR 2662).
+    // bring-up here takes — the one every child takes (ADR 2662). The bring-up holds the lock for
+    // itself alone, through the hook (ADR 2664).
+    gpu_lock_hook::install();
     let adapter = match QuorraRasterizer::new_headless() {
         Ok(raster) => raster.adapter_description().to_owned(),
         Err(error) => panic!("no graphics device to name this machine by: {error}"),

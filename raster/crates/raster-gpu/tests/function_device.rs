@@ -35,6 +35,7 @@
               helpers are scaffolding whose panic is the test failing"
 )]
 
+mod common;
 mod function_support;
 
 use function_support::compute::{Compute, Shading};

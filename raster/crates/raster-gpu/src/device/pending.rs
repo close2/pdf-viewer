@@ -142,6 +142,8 @@ impl Device {
         scene: &Scene,
         viewport: &Viewport<'_>,
     ) -> Result<PendingFrame, RenderError> {
+        let _section =
+            crate::section::Open::begin(crate::section::DeviceWork::Frame, self.adapter_type);
         let submission = self.submit_scene(scene, viewport, &Target::Readback)?;
         let state = match submission {
             Submission::Drawn(frame) => State::Drawn(frame),
@@ -172,6 +174,8 @@ impl Device {
     ///
     /// [`Device::render`]'s phase-4 failures: a lost device, or a readback that did not map.
     pub fn collect(&mut self, pending: PendingFrame) -> Result<Frame, RenderError> {
+        let _section =
+            crate::section::Open::begin(crate::section::DeviceWork::Frame, self.adapter_type);
         match pending.state {
             State::Drawn(frame) => Ok(*frame),
             State::Submitted(submitted) => self.complete(*submitted),

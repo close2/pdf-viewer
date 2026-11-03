@@ -94,6 +94,10 @@
 mod device_clock;
 #[path = "support/frame_cost.rs"]
 mod frame_cost;
+#[path = "../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
 #[path = "../../../tools/conformance/test-support/machine_bands.rs"]
 mod machine_bands;
 
@@ -181,6 +185,8 @@ fn turn_probe() {
         phase, "measure",
         "a child measures or keeps the device busy"
     );
+    // Every bring-up and frame outside the rounds' own holds takes the lock on its own (ADR 2664).
+    gpu_lock_hook::install();
     let document = std::env::var(DOCUMENT).expect("a document");
     let page: usize = std::env::var(PAGE)
         .expect("a page")
@@ -400,6 +406,11 @@ fn keep_the_device_busy(for_how_long: std::time::Duration) {
         ..Default::default()
     }))
     .expect("an adapter to keep busy");
+    // A planted neighbour is device work for as long as it runs, and holds the lock for that long.
+    let _held = gpu_lock::Hold::when(
+        adapter.get_info().device_type != wgpu::DeviceType::Cpu,
+        "busy-device",
+    );
     let (gpu, queue) =
         pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
             .expect("a device to keep busy");
@@ -1126,6 +1137,8 @@ impl Tally {
 
 /// The adapter a headless bring-up takes here, as it names itself.
 fn this_adapter() -> String {
+    // A bring-up and nothing else: the hook holds the lock for that section alone (ADR 2664).
+    gpu_lock_hook::install();
     match render_raster::QuorraRasterizer::new_headless() {
         Ok(raster) => raster.adapter_description().to_owned(),
         Err(error) => panic!("no graphics device to name this machine by: {error}"),

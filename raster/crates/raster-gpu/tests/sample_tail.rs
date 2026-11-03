@@ -100,6 +100,7 @@ const TINY_ATLAS: u64 = 64 * 1024;
 const REQUESTED: [u32; 7] = [4, 9, 16, 25, 36, 49, 64];
 
 fn device_with(samples: u32) -> Device {
+    common::gpu_lock_hook::install();
     Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         coverage: Coverage::Gpu,

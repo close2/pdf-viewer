@@ -40,6 +40,11 @@
     clippy::arithmetic_side_effects
 )]
 
+#[path = "../../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use raster_gpu::{Counters, Coverage, Device, Options, Target, Viewport};
 use raster_scene::{
     Affine, BlendMode, Color, Compose, FillRule, GroupSpec, LineCap, LineJoin, OutlineId, Paint,
@@ -54,6 +59,7 @@ const SIDE: u32 = 220;
 const COUNTS: [usize; 5] = [1, 2, 3, 7, 64];
 
 fn device(threads: usize) -> Device {
+    gpu_lock_hook::install();
     let device = Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         encode_threads: threads,
@@ -383,6 +389,7 @@ fn a_repeated_atlas_key_is_rasterised_once_at_every_thread_count() {
 #[test]
 fn a_budget_refusal_names_the_same_numbers_at_every_thread_count() {
     let refusal = |threads: usize| {
+        gpu_lock_hook::install();
         let mut device = Device::headless(&Options {
             adapter: Some("llvmpipe".into()),
             encode_threads: threads,
@@ -554,6 +561,7 @@ fn text_page(device: &mut Device) -> Scene {
 }
 
 fn draw_with(options: &Options, scene: impl Fn(&mut Device) -> Scene) -> (Vec<u8>, Counters) {
+    gpu_lock_hook::install();
     let mut device =
         Device::headless(options).expect("llvmpipe is present wherever this suite runs");
     device.wait_until_warm();
@@ -683,6 +691,7 @@ fn long_text_page(device: &mut Device) -> Scene {
 #[test]
 fn the_page_after_a_refused_frame_is_the_same_bytes_at_every_thread_count() {
     let history = |threads: usize, refused_first: bool| {
+        gpu_lock_hook::install();
         let mut device = Device::headless(&Options {
             adapter: Some("llvmpipe".into()),
             encode_threads: threads,
@@ -1006,6 +1015,7 @@ fn a_page_of_lines_is_the_same_bytes_at_every_thread_count() {
 #[test]
 fn a_replayed_page_of_lines_is_the_same_bytes_at_every_thread_count() {
     let replayed = |threads: usize| {
+        gpu_lock_hook::install();
         let mut device = Device::headless(&Options {
             adapter: Some("llvmpipe".into()),
             encode_threads: threads,

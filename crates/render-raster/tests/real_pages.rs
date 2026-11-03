@@ -30,6 +30,11 @@
               expects live in helpers the allow-expect-in-tests config cannot see"
 )]
 
+#[path = "../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use std::path::Path;
 
 use pdf_render::{DisplayList, Rasterizer, TargetSpec};
@@ -97,6 +102,7 @@ fn interpret(name: &str, index: usize) -> DisplayList {
 fn real_pages_agree_with_the_cpu_oracle() {
     // Exact glyph phases: this gate isolates translation and rasterisation
     // fidelity from the quantum's deliberate, separately-gated trade.
+    gpu_lock_hook::install();
     let mut raster = QuorraRasterizer::with_options(&raster_gpu::Options {
         glyph_quantum: None,
         ..render_raster::options()
@@ -151,6 +157,7 @@ fn real_pages_agree_with_the_cpu_oracle() {
 /// stays high, and a missing mark would crater it).
 #[test]
 fn the_glyph_quantum_cost_stays_bounded() {
+    gpu_lock_hook::install();
     let mut raster = QuorraRasterizer::new_headless()
         .unwrap_or_else(|e| panic!("no adapter available for raster: {e}"));
     for (name, index) in CASES {

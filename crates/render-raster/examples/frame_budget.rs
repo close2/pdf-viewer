@@ -76,6 +76,10 @@
 mod device_clock;
 #[path = "../tests/support/frame_cost.rs"]
 mod frame_cost;
+#[path = "../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
 
 use frame_cost::{Stages, WINDOW, keep, round};
 
@@ -118,6 +122,7 @@ struct Row {
 }
 
 fn main() {
+    gpu_lock_hook::install();
     let mut arguments = std::env::args().skip(1);
     let population: Vec<(String, usize, String)> = match arguments.next() {
         Some(path) => {

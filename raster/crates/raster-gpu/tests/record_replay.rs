@@ -30,6 +30,7 @@ use raster_scene::{
 const SIZE: u32 = 96;
 
 fn device() -> Device {
+    common::gpu_lock_hook::install();
     Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         coverage: Coverage::Compute,

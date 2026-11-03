@@ -14,6 +14,11 @@
               expects live in helpers the allow-expect-in-tests config cannot see"
 )]
 
+#[path = "../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use pdf_render::{Rasterizer, TargetSpec};
 use raster_compare::Comparison;
 use render_cpu::CpuRasterizer;
@@ -32,6 +37,7 @@ const MAX_DIFFERING_FRACTION: f64 = 0.01;
 /// Builds the raster backend, or explains why the whole suite should fail.
 /// Deliberately does not skip (ADR 0004): CI installs a software Vulkan driver.
 fn raster() -> QuorraRasterizer {
+    gpu_lock_hook::install();
     match QuorraRasterizer::new_headless() {
         Ok(rasterizer) => rasterizer,
         Err(e) => panic!(

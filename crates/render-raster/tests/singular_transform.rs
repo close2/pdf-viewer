@@ -60,6 +60,11 @@
               it is read"
 )]
 
+#[path = "../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use std::sync::Arc;
 
 use pdf_render::{
@@ -249,6 +254,7 @@ fn backends() -> Vec<Backend> {
         Box::new(move |list, target| cpu.rasterize(list, target).expect("a cpu raster")),
     )];
 
+    gpu_lock_hook::install();
     match QuorraRasterizer::new_headless() {
         Ok(mut raster) => backends.push((
             "raster",
@@ -256,6 +262,7 @@ fn backends() -> Vec<Backend> {
         )),
         Err(why) => println!("  omitted: raster has no device here ({why})"),
     }
+    let _vello_lock = gpu_lock::Hold::when(true, "vello-device");
     match render_gpu::GpuRasterizer::new_headless() {
         Ok(mut gpu) => backends.push((
             "vello",

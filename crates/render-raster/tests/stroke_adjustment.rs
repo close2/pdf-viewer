@@ -24,6 +24,11 @@
               failure this file exists to report, and it reports it by name"
 )]
 
+#[path = "../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use std::sync::Arc;
 
 use pdf_render::{
@@ -145,6 +150,7 @@ fn lanes() -> Option<Vec<(&'static str, QuorraRasterizer)>> {
     ]
     .into_iter()
     .map(|(name, coverage)| {
+        gpu_lock_hook::install();
         QuorraRasterizer::with_options(&raster_gpu::Options {
             coverage,
             ..render_raster::options()

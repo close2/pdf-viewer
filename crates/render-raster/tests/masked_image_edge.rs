@@ -21,6 +21,11 @@
               is on the fixture's own sides and pixel indices, all far below overflow"
 )]
 
+#[path = "../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use pdf_render::{Rasterizer, TargetSpec};
 use render_cpu::CpuRasterizer;
 use render_raster::QuorraRasterizer;
@@ -156,6 +161,7 @@ fn a_masked_images_hidden_colour_does_not_reach_its_edge_at_any_reduction() {
     let pages = pdf_model::Pages::new(&document);
     let page = pages.get(0).expect("the fixture has a page");
     let list = pdf_model::content::interpret(&document, &page).display_list;
+    gpu_lock_hook::install();
     let mut device = QuorraRasterizer::new_headless().unwrap_or_else(|e| {
         panic!("no adapter for raster: {e} — these tests do not skip (ADR 0004)")
     });
@@ -285,6 +291,7 @@ fn both(file: Vec<u8>, scale: f32) -> (pdf_render::Raster, pdf_render::Raster) {
     let oracle = CpuRasterizer::new()
         .rasterize(&list, target)
         .expect("the CPU oracle draws the page");
+    gpu_lock_hook::install();
     let mut device = QuorraRasterizer::new_headless().unwrap_or_else(|e| {
         panic!("no adapter for raster: {e} — these tests do not skip (ADR 0004)")
     });

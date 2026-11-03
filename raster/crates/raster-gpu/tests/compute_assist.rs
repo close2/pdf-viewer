@@ -33,6 +33,7 @@ const SIZE: u32 = 128;
 const SMALL_ATLAS: u64 = 2048;
 
 fn device(assist: bool) -> Device {
+    common::gpu_lock_hook::install();
     Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         coverage: Coverage::Cpu,
@@ -223,6 +224,7 @@ fn a_full_atlas_declines_at_admission_and_the_device_draws_the_tile() {
     // the byte comparison below would be measuring that stated policy rather than the
     // reroute. With exact keying all three constructions share one phase.
     let exact_device = |assist: Option<bool>, coverage: Coverage| {
+        common::gpu_lock_hook::install();
         Device::headless(&Options {
             adapter: Some("llvmpipe".into()),
             coverage,

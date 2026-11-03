@@ -29,6 +29,11 @@
     clippy::arithmetic_side_effects
 )]
 
+#[path = "../../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use raster_gpu::{Device, DeviceError, Options, wgpu};
 
 /// The software adapter, as everywhere in this suite: deterministic, always present.
@@ -46,6 +51,7 @@ fn a_named_backend_is_the_backend_the_device_uses() {
     );
 
     for name in names {
+        gpu_lock_hook::install();
         let device = Device::headless_with_instance(
             &instance,
             &Options {
@@ -92,6 +98,7 @@ fn a_set_this_machine_cannot_supply_refuses_by_name() {
         "an instance holding no backend can enumerate no adapter"
     );
 
+    gpu_lock_hook::install();
     match Device::headless_with_instance(&instance, &Options::default()) {
         Err(DeviceError::NoAdapter {
             requested,
@@ -116,6 +123,7 @@ fn a_set_this_machine_cannot_supply_refuses_by_name() {
 #[test]
 fn a_filter_against_no_backend_refuses_too() {
     let instance = raster_gpu::create_instance_with(wgpu::Backends::empty());
+    gpu_lock_hook::install();
     match Device::headless_with_instance(
         &instance,
         &Options {

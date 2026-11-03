@@ -21,6 +21,7 @@ pub const H: u32 = 180;
 /// The software adapter with `options`, warmed before it is handed back: `wait_until_warm`
 /// puts every pipeline compile before the first frame rather than inside one.
 pub fn device_with(options: &Options) -> Device {
+    super::gpu_lock_hook::install();
     let device = Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         ..options.clone()

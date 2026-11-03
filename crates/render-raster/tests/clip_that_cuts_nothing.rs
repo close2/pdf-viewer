@@ -45,6 +45,11 @@
               this file reports, and the sums are over a raster this file sized itself"
 )]
 
+#[path = "../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use std::sync::Arc;
 
 use pdf_render::{
@@ -157,6 +162,7 @@ fn drawn(list: &DisplayList, scale: f32) -> (f64, f64) {
     let oracle = CpuRasterizer::new()
         .rasterize(list, target)
         .expect("the oracle draws one rectangle");
+    gpu_lock_hook::install();
     let mut backend =
         QuorraRasterizer::with_options(&render_raster::options()).expect("a graphics device");
     backend.set_coverage(raster_gpu::Coverage::Cpu);

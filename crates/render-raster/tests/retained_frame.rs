@@ -23,6 +23,11 @@
               reports, and it reports it by name"
 )]
 
+#[path = "../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use std::sync::Arc;
 
 use pdf_render::{
@@ -47,6 +52,7 @@ const PAGE: Size = Size {
 /// reports success while verifying nothing, and what this file verifies is that a viewer does not
 /// show the wrong page.
 fn backend() -> QuorraRasterizer {
+    gpu_lock_hook::install();
     match QuorraRasterizer::new_headless() {
         Ok(rasterizer) => rasterizer,
         Err(error) => panic!(

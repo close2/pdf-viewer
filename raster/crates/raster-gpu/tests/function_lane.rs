@@ -49,6 +49,7 @@ use common::probe::pixel;
 /// is **not** promised for this paint — is why the name is in every message.
 fn device() -> (Device, String) {
     let requested = std::env::var("QUORRA_ADAPTER").unwrap_or_else(|_| "llvmpipe".into());
+    common::gpu_lock_hook::install();
     let device = Device::headless(&Options {
         adapter: Some(requested),
         ..Options::default()

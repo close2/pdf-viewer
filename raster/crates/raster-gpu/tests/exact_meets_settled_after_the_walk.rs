@@ -103,6 +103,7 @@ fn scene(device: &mut Device, marks: &[Vec<(f64, f64)>]) -> Scene {
 
 fn device(coverage: Coverage, threads: usize, max_frame_bytes: Option<u64>) -> Device {
     let defaults = Options::default();
+    common::gpu_lock_hook::install();
     Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         coverage,

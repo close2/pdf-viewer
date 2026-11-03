@@ -74,6 +74,7 @@ const CLIP_EDGE: f32 = 40.25;
 /// rasteriser, as everywhere else in this tree.
 fn device() -> (Device, String) {
     let requested = std::env::var("QUORRA_ADAPTER").unwrap_or_else(|_| "llvmpipe".into());
+    common::gpu_lock_hook::install();
     let device = Device::headless(&Options {
         adapter: Some(requested),
         ..Options::default()

@@ -37,6 +37,11 @@
     reason = "test-file policy as in coverage_lanes.rs, plus one scene builder that is               one fixture and an LCG seed quoted as-is"
 )]
 
+#[path = "../../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use raster_gpu::{Coverage, Device, Options, RetainedScene, Target, Viewport};
 use raster_scene::{
     Affine, BlendMode, Color, Compose, FillRule, LineCap, LineJoin, Paint, Point, Scene,
@@ -64,6 +69,7 @@ fn adapter_names() -> Vec<String> {
 }
 
 fn device_with(adapter: &str, coverage: Coverage) -> Device {
+    gpu_lock_hook::install();
     Device::headless(&Options {
         adapter: Some(adapter.into()),
         coverage,
@@ -507,6 +513,7 @@ fn glyphs(device: &mut Device) -> Scene {
 fn the_compute_lane_is_within_one_level_of_the_cpu_lane_on_glyphs() {
     const PAGE: u32 = 640;
     let render = |adapter: &str, coverage: Coverage| {
+        gpu_lock_hook::install();
         let mut device = Device::headless(&Options {
             adapter: Some(adapter.into()),
             coverage,

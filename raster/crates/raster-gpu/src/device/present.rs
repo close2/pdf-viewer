@@ -47,6 +47,7 @@ impl Device {
         let surface = self.surface.detach()?;
         Some(Presenter::new(
             self.id,
+            self.adapter_type,
             self.gpu.clone(),
             self.queue.clone(),
             Arc::clone(&self.pipelines),

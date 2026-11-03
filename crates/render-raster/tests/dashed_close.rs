@@ -63,6 +63,11 @@
               how it is read"
 )]
 
+#[path = "../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use std::sync::Arc;
 
 use pdf_render::{
@@ -168,7 +173,9 @@ type Backend = (
 /// The three backends, each built once per scene so that a device is not held across the run.
 fn backends() -> Vec<Backend> {
     let mut cpu = render_cpu::CpuRasterizer::new();
+    gpu_lock_hook::install();
     let mut raster = QuorraRasterizer::new_headless().expect("a raster device");
+    let _vello_lock = gpu_lock::Hold::when(true, "vello-device");
     let mut gpu = render_gpu::GpuRasterizer::new_headless().expect("a vello device");
     vec![
         (

@@ -42,6 +42,8 @@ impl Device {
     /// [`DeviceError::ResourceIdsExhausted`] — ids are never reused, because a reissued
     /// one would make a retained encode draw a resource it did not name (ADR 0050).
     pub fn upload_outline(&mut self, path: &[Segment]) -> Result<OutlineId, DeviceError> {
+        let _section =
+            crate::section::Open::begin(crate::section::DeviceWork::Upload, self.adapter_type);
         self.resources.upload_outline(path)
     }
 
@@ -52,6 +54,8 @@ impl Device {
     ///
     /// As [`Device::upload_outline`].
     pub fn upload_image(&mut self, image: &ImageSpec) -> Result<ImageId, DeviceError> {
+        let _section =
+            crate::section::Open::begin(crate::section::DeviceWork::Upload, self.adapter_type);
         self.resources.upload_image(image)
     }
 
@@ -61,6 +65,8 @@ impl Device {
     ///
     /// As [`Device::upload_outline`].
     pub fn upload_ramp(&mut self, stops: &[Stop]) -> Result<RampId, DeviceError> {
+        let _section =
+            crate::section::Open::begin(crate::section::DeviceWork::Upload, self.adapter_type);
         self.resources.upload_ramp(stops)
     }
 
@@ -71,6 +77,8 @@ impl Device {
     ///
     /// As [`Device::upload_outline`].
     pub fn upload_mesh(&mut self, mesh: &MeshSpec) -> Result<MeshId, DeviceError> {
+        let _section =
+            crate::section::Open::begin(crate::section::DeviceWork::Upload, self.adapter_type);
         self.resources.upload_mesh(mesh)
     }
 
@@ -97,6 +105,8 @@ impl Device {
     ///
     /// [`Paint::Function`]: raster_scene::Paint::Function
     pub fn upload_function(&mut self, program: &[FnOp]) -> Result<FunctionId, DeviceError> {
+        let _section =
+            crate::section::Open::begin(crate::section::DeviceWork::Upload, self.adapter_type);
         self.resources.upload_function(program)
     }
 
@@ -108,6 +118,8 @@ impl Device {
     /// released — an error rather than a no-op, because a double release is a caller
     /// bug and hiding it would hide the defect (integration note 7 in `raster/doc/PLAN.md`).
     pub fn release(&mut self, id: impl Into<ResourceId>) -> Result<(), DeviceError> {
+        let _section =
+            crate::section::Open::begin(crate::section::DeviceWork::Upload, self.adapter_type);
         let id = id.into();
         // Read before the release, because the analysis that carries the hash is exactly
         // what the release removes.

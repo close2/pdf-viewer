@@ -30,6 +30,7 @@ use common::scene::dense_scene;
 
 #[test]
 fn dense_page_at_window_scale_stays_under_the_gate() {
+    common::gpu_lock_hook::install();
     let mut device = Device::headless(&Options::default()).expect("some adapter must exist");
     device.wait_until_warm();
     let scene = dense_scene();
@@ -98,6 +99,7 @@ fn dense_page_at_window_scale_stays_under_the_gate() {
 /// tenfold change nobody predicted.
 #[test]
 fn a_readback_frame_reports_what_its_pixels_cost() {
+    common::gpu_lock_hook::install();
     let mut device = Device::headless(&Options::default()).expect("some adapter must exist");
     device.wait_until_warm();
     let scene = dense_scene();
@@ -147,6 +149,7 @@ fn a_readback_frame_reports_what_its_pixels_cost() {
 /// viewport moves.
 #[test]
 fn a_zoomed_page_culls_what_it_cannot_reach() {
+    common::gpu_lock_hook::install();
     let mut device = Device::headless(&Options::default()).expect("some adapter must exist");
     device.wait_until_warm();
     let scene = dense_scene();
@@ -191,6 +194,7 @@ fn a_zoomed_page_culls_what_it_cannot_reach() {
 /// adapter, and a threshold either side of it would be a number about this laptop.
 #[test]
 fn the_gpu_lane_draws_and_culls_the_same_frame() {
+    common::gpu_lock_hook::install();
     let mut device = Device::headless(&Options {
         coverage: Coverage::Gpu,
         ..Options::default()
@@ -241,6 +245,7 @@ fn the_gpu_lane_draws_and_culls_the_same_frame() {
 /// them reports zero.
 #[test]
 fn the_timestamp_query_survives_a_device_full_of_frames() {
+    common::gpu_lock_hook::install();
     let mut device = Device::headless(&Options::default()).expect("some adapter must exist");
     device.wait_until_warm();
     let scene = dense_scene();

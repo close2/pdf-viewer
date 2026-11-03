@@ -71,6 +71,7 @@ const POSITION_IS_COLOUR: [FnOp; 1] = [FnOp::PushReal(0.5)];
 /// another; the suite's default is the software rasteriser.
 fn device(coverage: Coverage) -> (Device, String) {
     let requested = std::env::var("QUORRA_ADAPTER").unwrap_or_else(|_| "llvmpipe".into());
+    common::gpu_lock_hook::install();
     let device = Device::headless(&Options {
         adapter: Some(requested),
         coverage,

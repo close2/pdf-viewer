@@ -3,6 +3,7 @@
 //!
 //! One concern per test, and each names the property rather than the program.
 
+mod common;
 mod function_support;
 
 use function_support::programs::{self, UNIT_GRAY, UNIT_RGB, WIDE_GRAY, WIDE_RGB};

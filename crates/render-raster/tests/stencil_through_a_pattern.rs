@@ -17,6 +17,11 @@
               into a 40 × 40 raster at points chosen inside it"
 )]
 
+#[path = "../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use pdf_render::{DisplayList, Raster, Rasterizer, TargetSpec};
 use render_gpu::GpuRasterizer;
 use render_raster::QuorraRasterizer;
@@ -138,6 +143,7 @@ fn assert_composed(raster: &Raster, what: &str) {
 
 #[test]
 fn raster_composes_the_two_masks_of_a_stencil_painted_through_a_pattern() {
+    gpu_lock_hook::install();
     let mut device = QuorraRasterizer::new_headless().unwrap_or_else(|e| {
         panic!("no adapter for raster: {e} — these tests do not skip (ADR 0004)")
     });
@@ -156,6 +162,7 @@ fn raster_composes_the_two_masks_of_a_stencil_painted_through_a_pattern() {
 
 #[test]
 fn vello_composes_the_two_masks_of_a_stencil_painted_through_a_pattern() {
+    let _vello_lock = gpu_lock::Hold::when(true, "vello-device");
     let mut device = GpuRasterizer::new_headless().unwrap_or_else(|e| {
         panic!("no adapter for vello: {e} — these tests do not skip (ADR 0004)")
     });

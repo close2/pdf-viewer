@@ -17,6 +17,11 @@
               transcriptions multiply bytes, whose products a `u16` holds"
 )]
 
+#[path = "../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use std::path::Path;
 
 use pdf_render::{Color, DisplayList, Medium, Rasterizer as _, TargetSpec};
@@ -68,6 +73,7 @@ fn pages(file: &str, indices: &[usize]) -> Vec<DisplayList> {
 }
 
 fn backend(medium: Medium) -> QuorraRasterizer {
+    gpu_lock_hook::install();
     QuorraRasterizer::new_headless()
         .unwrap_or_else(|error| panic!("no adapter for raster: {error} — these tests do not skip"))
         .with_medium(medium)

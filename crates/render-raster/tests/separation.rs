@@ -15,6 +15,11 @@
     reason = "test code: the arithmetic indexes a raster this file just drew"
 )]
 
+#[path = "../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use std::fmt::Write as _;
 
 use pdf_render::{Rasterizer, TargetSpec};
@@ -103,6 +108,7 @@ fn same_page_as_the_oracle(bytes: Vec<u8>, expected: [u8; 3]) {
     let oracle = CpuRasterizer::new()
         .rasterize(list, target)
         .expect("the oracle draws a separated page");
+    gpu_lock_hook::install();
     let mut raster = QuorraRasterizer::new_headless().unwrap_or_else(|error| {
         panic!(
             "no adapter available for raster: {error}\n\

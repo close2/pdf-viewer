@@ -22,6 +22,11 @@
 // Test-file lint policy as in m1.rs.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+#[path = "../../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use raster_gpu::{Device, Options, Target, Viewport, WarmUp};
 use raster_scene::{Affine, BlendMode, Color, Compose, GroupSpec, Point, Rect, SceneBuilder};
 
@@ -36,6 +41,7 @@ fn churn() {
     for name in names {
         // An adapter that cannot yield a device (a GL adapter this suite does not use)
         // is not this test's subject; it is skipped rather than failed.
+        gpu_lock_hook::install();
         if let Ok(device) = Device::headless(&Options {
             adapter: Some(name),
             ..Options::default()
@@ -69,6 +75,7 @@ fn churn_d() {
 /// must still be droppable, and joining an already-finished thread must not hang.
 #[test]
 fn a_warm_device_drops_too() {
+    gpu_lock_hook::install();
     let device = Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         ..Options::default()
@@ -99,6 +106,7 @@ fn a_warm_device_drops_too() {
 /// A frame that compiles nothing has nothing to report there.
 #[test]
 fn a_warm_device_compiles_nothing_inside_a_layered_frame() {
+    gpu_lock_hook::install();
     let mut device = Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         ..Options::default()
@@ -195,6 +203,7 @@ fn warming_changes_the_timing_and_nothing_else() {
     };
     let viewport = Viewport::full(64, 48, Affine::IDENTITY);
     let draw = |warm: Option<(u32, u32)>| {
+        gpu_lock_hook::install();
         let mut device = Device::headless(&Options {
             adapter: Some("llvmpipe".into()),
             ..Options::default()

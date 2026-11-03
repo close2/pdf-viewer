@@ -36,6 +36,7 @@ const SMALL: u32 = 48;
 const LARGE: u32 = 240;
 
 fn device(coverage: Coverage) -> Device {
+    common::gpu_lock_hook::install();
     let device = Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         coverage,
@@ -141,6 +142,7 @@ fn a_short_cpu_frame_after_a_tall_one_draws_its_own_coverage() {
 const SMALL_ATLAS: u64 = 160 * 160;
 
 fn atlas_device(max_frame_bytes: u64) -> Device {
+    common::gpu_lock_hook::install();
     Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         atlas_budget: SMALL_ATLAS,

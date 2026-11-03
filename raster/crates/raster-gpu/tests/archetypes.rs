@@ -52,6 +52,11 @@
     clippy::arithmetic_side_effects
 )]
 
+#[path = "../../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use std::time::{Duration, Instant};
 
 use raster_gpu::{Counters, Device, Options, Target, Viewport};
@@ -83,6 +88,7 @@ fn build(device: &mut Device, shape: &Archetype) -> Scene {
 
 /// A device with nothing in its caches, which is what every frame of a page turn is.
 fn cold_device() -> Device {
+    gpu_lock_hook::install();
     let device = Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         ..Options::default()

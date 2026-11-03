@@ -202,6 +202,7 @@ fn adapters() -> Vec<String> {
 }
 
 fn device_on(adapter: &str, coverage: Coverage) -> Device {
+    common::gpu_lock_hook::install();
     Device::headless(&Options {
         adapter: Some(adapter.into()),
         coverage,
@@ -780,6 +781,7 @@ fn a_rectangular_clip_cuts_the_line_inside_the_pixel() {
 fn a_line_is_charged_less_than_a_stroke_before_the_walk() {
     const MARKS: u64 = 4_000;
     let budget = MARKS * 80;
+    common::gpu_lock_hook::install();
     let mut device = Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         max_frame_bytes: budget,

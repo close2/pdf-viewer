@@ -44,6 +44,11 @@
               read"
 )]
 
+#[path = "../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use std::sync::Arc;
 
 use pdf_render::{
@@ -142,7 +147,9 @@ type Backend = (
 /// The three backends.
 fn backends() -> Vec<Backend> {
     let mut cpu = render_cpu::CpuRasterizer::new();
+    gpu_lock_hook::install();
     let mut raster = QuorraRasterizer::new_headless().expect("a raster device");
+    let _vello_lock = gpu_lock::Hold::when(true, "vello-device");
     let mut gpu = render_gpu::GpuRasterizer::new_headless().expect("a vello device");
     vec![
         (
@@ -206,6 +213,7 @@ const LANES_APART: u8 = 2;
 #[test]
 fn the_processor_and_raster_agree_at_every_pixel_of_the_rule() {
     let mut cpu = render_cpu::CpuRasterizer::new();
+    gpu_lock_hook::install();
     let mut raster = QuorraRasterizer::new_headless().expect("a raster device");
     let mut worst = 0_u8;
     for (length, lay) in [(100.0, Lay::Across), (102.0, Lay::Up), (100.0, Lay::Back)] {

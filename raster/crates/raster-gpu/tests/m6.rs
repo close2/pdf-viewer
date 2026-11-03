@@ -554,12 +554,14 @@ fn compositor_frames_are_deterministic_and_bounded_cross_adapter() {
     let b = render(&mut first, &scene, 32, 32);
     assert_eq!(a, b, "the same compositor frame must be byte-identical");
 
+    common::gpu_lock_hook::install();
     if Device::headless(&Options {
         adapter: Some("RADV".into()),
         ..Options::default()
     })
     .is_ok()
     {
+        common::gpu_lock_hook::install();
         let mut radv = Device::headless(&Options {
             adapter: Some("RADV".into()),
             ..Options::default()

@@ -138,6 +138,7 @@ fn job(pages: &[Placed], size: (u32, u32)) -> Job {
 /// sharpened picture that follows must be of the *new* view.
 #[test]
 fn a_zoom_step_is_drawn_before_the_sharp_pass_of_the_view_it_replaced() {
+    gpu_lock_hook::install();
     let Ok(renderer) = QuorraWindowRenderer::new_headless() else {
         println!("skipped: no adapter on this machine");
         return;
@@ -209,6 +210,7 @@ fn a_zoom_step_is_drawn_before_the_sharp_pass_of_the_view_it_replaced() {
 /// the same view at four times the pixels and would only hear the same answer.
 #[test]
 fn a_frame_the_device_refused_before_is_drawn_on_the_processor_without_asking_it() {
+    gpu_lock_hook::install();
     let Ok(renderer) = QuorraWindowRenderer::new_headless() else {
         println!("skipped: no adapter on this machine");
         return;
@@ -254,6 +256,7 @@ fn a_frame_the_device_refused_before_is_drawn_on_the_processor_without_asking_it
 /// it, on the device, drew the scene it held rather than building one.
 #[test]
 fn a_scene_built_ahead_after_a_processor_frame_is_kept_by_the_device_s_next_frame() {
+    gpu_lock_hook::install();
     let Ok(renderer) = QuorraWindowRenderer::new_headless() else {
         println!("skipped: no adapter on this machine");
         return;
@@ -301,6 +304,7 @@ fn a_scene_built_ahead_after_a_processor_frame_is_kept_by_the_device_s_next_fram
 /// for it (ADR 1821) — the shape a notch of zoom takes while the device is still being asked.
 #[test]
 fn an_interrupt_raised_before_the_processor_starts_abandons_the_frame() {
+    gpu_lock_hook::install();
     let Ok(renderer) = QuorraWindowRenderer::new_headless() else {
         println!("skipped: no adapter on this machine");
         return;
@@ -338,6 +342,7 @@ fn an_interrupt_raised_before_the_processor_starts_abandons_the_frame() {
 /// [`Landed::drew`] is measured over has to begin after the first has finished.
 #[test]
 fn a_frame_that_waited_behind_another_is_charged_only_its_own_drawing() {
+    gpu_lock_hook::install();
     let Ok(renderer) = QuorraWindowRenderer::new_headless() else {
         println!("skipped: no adapter on this machine");
         return;
@@ -391,6 +396,7 @@ fn a_frame_that_waited_behind_another_is_charged_only_its_own_drawing() {
     reason = "one simulated event loop, read top to bottom as the tick it models"
 )]
 fn a_zoom_gesture_out_counts_what_each_refresh_put_up() {
+    gpu_lock_hook::install();
     let Ok(renderer) = QuorraWindowRenderer::new_headless() else {
         eprintln!("no adapter: nothing to measure");
         return;

@@ -19,6 +19,11 @@
               reports, and it reports it by name"
 )]
 
+#[path = "../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use std::sync::Arc;
 
 use pdf_render::{
@@ -41,6 +46,7 @@ const PAGE: Size = Size {
 
 /// A window renderer, or the reason the suite fails: a skipped suite verifies nothing (ADR 0004).
 fn renderer() -> QuorraWindowRenderer {
+    gpu_lock_hook::install();
     QuorraWindowRenderer::new_headless().unwrap_or_else(|error| {
         panic!(
             "no adapter available for raster: {error}\n\

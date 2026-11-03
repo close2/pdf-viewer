@@ -52,6 +52,7 @@ const SIZE: u32 = UNITS * MAGNIFY;
 const TINY_ATLAS: u64 = 64 * 1024;
 
 fn device_with(coverage: Coverage) -> Device {
+    common::gpu_lock_hook::install();
     Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         coverage,
@@ -552,6 +553,7 @@ fn one_sheet_carries_both_producers() {
 /// could only be told once would have to be told before the zoom existed.
 #[test]
 fn the_lane_can_change_between_frames_on_one_device() {
+    common::gpu_lock_hook::install();
     let mut device = Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         atlas_budget: TINY_ATLAS,
@@ -665,6 +667,7 @@ fn only_the_lane_that_makes_the_winding_texture_pays_for_it() {
     // which allocates the sheet and nothing else, and refuses the GPU lane, which adds
     // eight bytes a texel of `rgba16float` on top of it.
     let budget = u64::from(WIDE) * u64::from(WIDE) * 4;
+    common::gpu_lock_hook::install();
     let mut device = Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         atlas_budget: TINY_ATLAS,
@@ -940,6 +943,7 @@ fn every_pane_draws_the_tiles_it_holds() {
 fn a_page_of_large_shapes_fits_a_budget_no_band_of_the_sheet_could() {
     let columns = 8_u32;
     let width = columns * PANE_FIXTURE_SIDE;
+    common::gpu_lock_hook::install();
     let mut device = Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         coverage: Coverage::Gpu,
@@ -1025,6 +1029,7 @@ fn the_lane_follows_how_often_the_page_places_the_shape() {
         }
     };
     let tiles_for = |count: u32| {
+        common::gpu_lock_hook::install();
         let mut device = Device::headless(&Options {
             adapter: Some("llvmpipe".into()),
             coverage: Coverage::Gpu,

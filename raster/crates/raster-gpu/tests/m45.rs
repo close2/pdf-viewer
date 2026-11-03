@@ -31,6 +31,7 @@ use common::headless::render;
 use common::scene::rect_outline;
 
 fn device_with(options: Options) -> Device {
+    common::gpu_lock_hook::install();
     Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         ..options
@@ -364,6 +365,7 @@ fn cross_adapter_bound_holds_for_coverage_lanes() {
     let adapters: Vec<String> = ["llvmpipe", "RADV"]
         .iter()
         .filter_map(|name| {
+            common::gpu_lock_hook::install();
             Device::headless(&Options {
                 adapter: Some((*name).into()),
                 ..Options::default()

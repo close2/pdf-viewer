@@ -22,6 +22,11 @@
     clippy::cast_precision_loss
 )]
 
+#[path = "../../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use raster_gpu::{Device, Options, Target, Viewport};
 use raster_scene::{
     Affine, BlendMode, Color, Compose, FillRule, Paint, Point, Rect, Scene, SceneBuilder, Segment,
@@ -30,6 +35,7 @@ use raster_scene::{
 const SIZE: u32 = 320;
 
 fn device(atlas_budget: u64) -> Device {
+    gpu_lock_hook::install();
     Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         atlas_budget,

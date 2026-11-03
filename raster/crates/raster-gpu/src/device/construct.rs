@@ -266,6 +266,10 @@ impl Device {
 
         let info = adapter.get_info();
         let description = format!("{} ({:?}, {:?})", info.name, info.device_type, info.backend);
+        // From the adapter's choice to the return: the span an installed hook is told of as
+        // bring-up, and nothing at all when none is (the caller's ADR 2664).
+        let _section =
+            crate::section::Open::begin(crate::section::DeviceWork::BringUp, info.device_type);
         // ADR 0090's auto: the hybrid's compute dispatches only pay on a real device;
         // a software "device" loses to the scanline they replace.
         let compute_assist = options
@@ -329,6 +333,7 @@ impl Device {
             gpu,
             queue,
             description,
+            adapter_type: info.device_type,
             limits,
             pipelines,
             warm_up,

@@ -54,6 +54,7 @@ fn devices() -> Vec<(String, Device)> {
                 adapter: Some(name.clone()),
                 ..Options::default()
             };
+            common::gpu_lock_hook::install();
             match Device::headless(&options) {
                 Ok(device) => Some((name, device)),
                 Err(refused) => {

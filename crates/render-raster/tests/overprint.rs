@@ -27,6 +27,11 @@
               arithmetic indexes a raster this file just drew"
 )]
 
+#[path = "../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use std::sync::Arc;
 
 use pdf_render::display_list::Command;
@@ -105,6 +110,7 @@ fn page(mark: Command) -> DisplayList {
 
 /// The raster backend, or a panic naming why the whole suite should fail rather than skip.
 fn raster() -> QuorraRasterizer {
+    gpu_lock_hook::install();
     QuorraRasterizer::new_headless().unwrap_or_else(|e| {
         panic!(
             "no adapter available for raster: {e}\n\

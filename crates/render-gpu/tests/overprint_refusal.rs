@@ -11,6 +11,9 @@
     reason = "test code: a missing adapter is a failure rather than a skip (ADR 0004)"
 )]
 
+#[path = "../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+
 use std::sync::Arc;
 
 use pdf_render::display_list::Command;
@@ -72,6 +75,7 @@ fn gpu() -> GpuRasterizer {
 
 #[test]
 fn a_list_that_overprints_is_refused_and_the_same_list_without_it_is_drawn() {
+    let _gpu = gpu_lock::Hold::when(true, "vello-device");
     let mut gpu = gpu();
     let kept = Overprint::new([false, true, true]);
 

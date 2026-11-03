@@ -37,6 +37,7 @@ const SIDE: u32 = 1030;
 const WINDOW: (u32, u32) = (300, 200);
 
 fn device() -> Device {
+    common::gpu_lock_hook::install();
     Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         encode_threads: 4,

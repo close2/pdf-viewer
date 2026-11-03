@@ -163,6 +163,7 @@ const SUB_PIXEL_WIDTHS: [f32; 6] = [0.75, 0.5, 0.25, 0.125, 0.1, 0.05];
 const OFF_LATTICE_WIDTHS: [f32; 3] = [0.9, 0.6, 0.35];
 
 fn device_with(coverage: Coverage) -> Device {
+    common::gpu_lock_hook::install();
     Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         coverage,
@@ -400,6 +401,7 @@ fn the_device_lane_really_is_what_draws_the_tall_bar() {
     // Between the sheet the processor lane allocates for this bar and the bytes the device
     // lane needs on top of it; the refusal below prints the second figure.
     let budget = 4 * 1024;
+    common::gpu_lock_hook::install();
     let mut device = Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         atlas_budget: 4 * 1024,

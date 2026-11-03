@@ -64,6 +64,7 @@ mod readback;
 pub mod report;
 mod resources;
 pub mod retained;
+pub mod section;
 mod shaders;
 pub mod startup;
 mod surface;
@@ -85,6 +86,7 @@ pub use frame::{
 pub use present::{ForeignPresenter, Layer, PresentCost, Presenter, Texels};
 pub use report::{Report, ReportKind};
 pub use retained::RetainedScene;
+pub use section::{DeviceWork, Section, SectionHook, install_section_hook, section_hook_installed};
 pub use startup::{
     Coverage, DEFAULT_ATLAS_BUDGET, DEFAULT_COVERAGE_SAMPLES, DEFAULT_GLYPH_QUANTUM,
     DEFAULT_MAX_FRAME_BYTES, DEFAULT_MAX_RESOURCE_BYTES, LaunchInstance, LaunchSteps, Options,

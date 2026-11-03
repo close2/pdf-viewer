@@ -48,6 +48,11 @@
     reason = "test code: the seam's size is the measurement, and `--nocapture` is how it is read"
 )]
 
+#[path = "../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use std::sync::Arc;
 
 use pdf_render::{
@@ -137,6 +142,7 @@ fn backdrop_showing(raster: &pdf_render::Raster, column: usize) -> f32 {
 /// Both backends' reading of one scene, or nothing where this machine has no adapter.
 fn both(list: &DisplayList, column: usize) -> Option<[(&'static str, f32); 2]> {
     let target = TargetSpec::for_page(list, 1.0, 1 << 30).expect("a page of a stated size");
+    gpu_lock_hook::install();
     let mut device = QuorraRasterizer::new_headless().ok()?;
     let processor = render_cpu::CpuRasterizer::new()
         .rasterize(list, target)

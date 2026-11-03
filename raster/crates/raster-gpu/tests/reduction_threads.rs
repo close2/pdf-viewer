@@ -32,6 +32,7 @@ use raster_scene::{Affine, BlendMode, ImageFilter, ImageSpec, SceneBuilder};
 const SIDE: u32 = 1030;
 
 fn device(threads: usize) -> Device {
+    common::gpu_lock_hook::install();
     Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         encode_threads: threads,

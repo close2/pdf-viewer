@@ -5,6 +5,9 @@
 //! frame to the CPU backend. It is asserted by the clause it names rather than by the pair's own
 //! refusal, which a separated page also carries and which would describe a different page.
 
+#[path = "../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+
 use std::sync::Arc;
 
 use pdf_render::{
@@ -15,6 +18,7 @@ use render_gpu::{GpuRasterError, GpuRasterizer};
 
 #[test]
 fn a_separated_page_is_refused_by_name() {
+    let _gpu = gpu_lock::Hold::when(true, "vello-device");
     let cube = || {
         let grid: Vec<[f32; 3]> = (0..8_u8)
             .map(|corner| {

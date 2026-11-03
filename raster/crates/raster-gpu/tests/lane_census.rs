@@ -223,6 +223,7 @@ fn one_fill_takes_the_glyph_lane_or_the_path_lane_by_what_the_atlas_will_hold() 
     assert_eq!(cached.lanes.glyph, 1, "the default atlas holds this tile");
     assert_eq!(cached.lanes.path, 0);
 
+    common::gpu_lock_hook::install();
     let mut cramped = Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         atlas_budget: TINY_ATLAS,

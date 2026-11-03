@@ -51,6 +51,11 @@
               output is the point of the run"
 )]
 
+#[path = "../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -1042,6 +1047,7 @@ impl Settings {
                   the intended failure"
     )]
     fn rasterizer(self) -> QuorraRasterizer {
+        gpu_lock_hook::install();
         let mut raster = QuorraRasterizer::with_options(&raster_gpu::Options {
             glyph_quantum: self.quantum,
             encode_threads: self.threads,

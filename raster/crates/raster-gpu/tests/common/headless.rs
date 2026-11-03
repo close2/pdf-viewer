@@ -12,6 +12,7 @@ use raster_scene::{Affine, Scene};
 /// byte is asserting it about a rasteriser. The `function_*.rs` files ask the other way
 /// round on purpose and keep a device of their own.
 pub fn device() -> Device {
+    super::gpu_lock_hook::install();
     Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         ..Options::default()

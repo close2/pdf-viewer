@@ -62,6 +62,10 @@
 pub mod blend;
 pub mod bound;
 pub mod clause;
+#[path = "../../../../../tools/conformance/test-support/gpu_lock.rs"]
+pub mod gpu_lock;
+#[path = "../../../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+pub mod gpu_lock_hook;
 pub mod headless;
 pub mod meet;
 pub mod probe;

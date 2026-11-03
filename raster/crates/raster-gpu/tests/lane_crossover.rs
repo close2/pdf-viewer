@@ -39,6 +39,11 @@
     clippy::arithmetic_side_effects
 )]
 
+#[path = "../../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use std::time::Instant;
 
 use raster_gpu::{Coverage, Device, Options, Target, Viewport};
@@ -161,6 +166,7 @@ struct Run {
 }
 
 fn measure(coverage: Coverage, side: u32, sharing: Sharing, atlas: u64) -> Run {
+    gpu_lock_hook::install();
     let mut device = Device::headless(&Options {
         coverage,
         atlas_budget: atlas,

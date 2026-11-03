@@ -35,6 +35,11 @@
               failure this file exists to report, and it reports it by name"
 )]
 
+#[path = "../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use std::sync::Arc;
 
 use pdf_render::{
@@ -231,6 +236,7 @@ fn both(
     measure: fn(&pdf_render::Raster) -> f32,
 ) -> Option<[(&'static str, f32); 2]> {
     let target = TargetSpec::for_page(list, 1.0, 1 << 30).expect("a page of a stated size");
+    gpu_lock_hook::install();
     let mut gpu = QuorraRasterizer::new_headless().ok()?;
     let processor = render_cpu::CpuRasterizer::new()
         .rasterize(list, target)
@@ -710,6 +716,7 @@ fn a_sub_pixel_rule_marks_only_the_pixels_its_own_band_meets() {
             let list = turned_rule(degrees, width);
             let target =
                 TargetSpec::for_page(&list, 1.0, 1 << 30).expect("a page of a stated size");
+            gpu_lock_hook::install();
             let Ok(mut device) = QuorraRasterizer::new_headless() else {
                 println!("skipped: no adapter on this machine");
                 return;

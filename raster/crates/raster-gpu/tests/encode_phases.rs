@@ -20,6 +20,11 @@
 // Test-file lint policy as in m1.rs.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+#[path = "../../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use std::time::Duration;
 
 use raster_gpu::{Device, Options, Target, Viewport};
@@ -31,6 +36,7 @@ const W: u32 = 512;
 const H: u32 = 512;
 
 fn device(instrument_encode: bool) -> Device {
+    gpu_lock_hook::install();
     Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         instrument_encode,

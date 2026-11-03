@@ -58,6 +58,8 @@ impl Device {
         viewport: &Viewport<'_>,
         into: Target<'_>,
     ) -> Result<Frame, RenderError> {
+        let _section =
+            crate::section::Open::begin(crate::section::DeviceWork::Frame, self.adapter_type);
         match self.submit_scene(scene, viewport, &into)? {
             Submission::Drawn(frame) => Ok(*frame),
             Submission::Submitted(submitted) => self.complete(*submitted),
@@ -134,6 +136,8 @@ impl Device {
         viewport: &Viewport<'_>,
         into: Target<'_>,
     ) -> Result<Frame, RenderError> {
+        let _section =
+            crate::section::Open::begin(crate::section::DeviceWork::Frame, self.adapter_type);
         self.validate_viewport(viewport)?;
 
         let mut reports = Vec::new();
@@ -217,6 +221,8 @@ impl Device {
         viewport: &Viewport<'_>,
         into: Target<'_>,
     ) -> Result<Option<Frame>, RenderError> {
+        let _section =
+            crate::section::Open::begin(crate::section::DeviceWork::Frame, self.adapter_type);
         self.validate_viewport(viewport)?;
         let mut reports = Vec::new();
         let damage = Self::plan_damage(viewport, &into, &mut reports)?;

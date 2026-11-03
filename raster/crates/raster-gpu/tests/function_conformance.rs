@@ -56,6 +56,8 @@
     clippy::cast_precision_loss
 )]
 
+mod common;
+
 mod function_support;
 
 use function_support::compute::{Compute, Shading};
@@ -91,6 +93,7 @@ fn calls_an_inexact_operator(program: &[FnOp]) -> bool {
 /// A headless device on the software adapter, as everywhere in this crate's tests.
 fn device() -> Device {
     let requested = std::env::var("QUORRA_ADAPTER").unwrap_or_else(|_| "llvmpipe".into());
+    common::gpu_lock_hook::install();
     Device::headless(&Options {
         adapter: Some(requested),
         ..Options::default()

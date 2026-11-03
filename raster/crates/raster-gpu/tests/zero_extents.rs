@@ -54,6 +54,7 @@ use common::headless::render;
 const SIZE: u32 = 32;
 
 fn device() -> Device {
+    common::gpu_lock_hook::install();
     Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         ..Options::default()

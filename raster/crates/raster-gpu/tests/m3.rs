@@ -482,6 +482,7 @@ fn clip_refusals_are_named() {
 /// only there do the two rules differ.
 #[test]
 fn a_clip_stated_again_admits_exactly_what_it_did() {
+    common::gpu_lock_hook::install();
     let mut device = Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         ..Options::default()

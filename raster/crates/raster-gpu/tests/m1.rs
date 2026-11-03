@@ -69,6 +69,7 @@ use common::bound::{Reference, disagreement};
 fn vulkan_adapters() -> Vec<String> {
     let mut names = Vec::new();
     for name in Device::adapter_names() {
+        common::gpu_lock_hook::install();
         let device = Device::headless(&Options {
             adapter: Some(name.clone()),
             ..Options::default()
@@ -95,6 +96,7 @@ fn vulkan_adapters() -> Vec<String> {
 }
 
 fn device_for(adapter: &str) -> Device {
+    common::gpu_lock_hook::install();
     Device::headless(&Options {
         adapter: Some(adapter.to_owned()),
         ..Options::default()
@@ -601,6 +603,7 @@ fn refusals_name_what_they_refuse() {
     let scene = golden_scene();
     let viewport = golden_viewport();
 
+    common::gpu_lock_hook::install();
     let mut tiny_budget = Device::headless(&Options {
         adapter: Some(adapter.clone()),
         max_frame_bytes: 16,
@@ -659,6 +662,7 @@ fn frame_budget_refusal_precedes_target_binding() {
     // each, both at the target. 65 536 → 33 024 (ADR 0036 sized the group) → 16 896
     // (ADR 0038 gave each plan one texture) → 768 (ADR 0039 sized the root).
     let budget = 512;
+    common::gpu_lock_hook::install();
     let mut device = Device::headless(&Options {
         adapter: Some(adapter.clone()),
         max_frame_bytes: budget,
@@ -789,6 +793,7 @@ fn a_supplied_instance_is_used_and_not_claimed_as_ours() {
     let adapter = &vulkan_adapters()[0];
     // What a host would create on a thread at `main`'s first line and hand over.
     let instance = raster_gpu::create_instance();
+    common::gpu_lock_hook::install();
     let device = Device::headless_with_instance(
         &instance,
         &Options {

@@ -62,6 +62,8 @@ use std::time::{Duration, Instant};
 
 mod x_lock;
 
+#[path = "../../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
 #[path = "../../../../tools/conformance/test-support/machine_bands.rs"]
 mod machine_bands;
 
@@ -485,6 +487,13 @@ pub(crate) fn hold(window: &Window) -> Result<(), String> {
     let mut samples: Vec<(Lane, Figures)> = Vec::new();
     for _ in 0..SAMPLES {
         for lane in Lane::BOTH {
+            // A device-lane launch is a device section from the window's start to its first frame,
+            // locked before the launch's clock starts; a processor-lane launch takes no lock (ADR
+            // 2664).
+            let _device_section = gpu_lock::Hold::when(
+                lane == Lane::Device && !gpu_lock::environment_pins_software(),
+                "toolkit-launch",
+            );
             let figures = launch(window, &binary, lane, &display, cores.as_deref(), &document)?;
             samples.push((lane, figures));
         }

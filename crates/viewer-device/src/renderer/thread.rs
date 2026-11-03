@@ -491,6 +491,7 @@ mod tests {
     #[test]
     fn a_window_opened_zoomed_steps_without_its_lines_after_the_idle_build() {
         for still in [false, true] {
+            super::super::gpu_lock_hook::install();
             let Ok(renderer) = QuorraWindowRenderer::new_headless() else {
                 println!("skipped: no adapter on this machine");
                 return;

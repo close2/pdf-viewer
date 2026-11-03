@@ -21,6 +21,11 @@
     clippy::arithmetic_side_effects
 )]
 
+#[path = "../../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use raster_gpu::{Device, Options, Target, Viewport};
 use raster_scene::{
     Affine, BlendMode, Color, Compose, GroupSpec, Point, Rect, Scene, SceneBuilder,
@@ -29,6 +34,7 @@ use raster_scene::{
 const SIZE: u32 = 64;
 
 fn device() -> Device {
+    gpu_lock_hook::install();
     Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         ..Options::default()

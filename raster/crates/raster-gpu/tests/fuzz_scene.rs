@@ -47,6 +47,11 @@
     clippy::manual_is_multiple_of
 )]
 
+#[path = "../../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 // Cargo compiles every `tests/*.rs` into its own test binary, so the two halves of the
 // generator live in a subdirectory — which cargo ignores, having no `main.rs` — and are
 // named by path rather than by position.
@@ -155,6 +160,7 @@ fn check_cost(scene: &Scene, seed: u64) {
 /// and every finished scene either renders or is refused with a typed error.
 #[test]
 fn the_boundary_never_panics_and_never_accepts_silently() {
+    gpu_lock_hook::install();
     let mut device = Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         max_resource_bytes: RESOURCE_BUDGET,

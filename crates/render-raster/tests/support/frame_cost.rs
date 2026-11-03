@@ -321,6 +321,10 @@ pub(crate) fn round(path: &str, index: usize, window: (u32, u32)) -> Round {
     // Read from before the first device to after the last frame; each timed frame keeps the
     // readings inside its own span (ADR 2402).
     let sampler = Sampler::start();
+    // The round's device section holds the shared adapter's lock from before its first bring-up
+    // to after its last frame, and every clock below starts inside it, so no figure includes a
+    // wait for another process (ADR 2664). The page was read before it, on the processor.
+    let device_section = crate::gpu_lock::Hold::unless_software("turn-round");
     // The page turn and the repaint after it, on the lane `coverage_for` gives every
     // magnification below 10× — which is the lane the window turns a page on.
     let (mut backend, adapter) = warmed_device(raster_gpu::Coverage::Cpu, window);
@@ -342,6 +346,8 @@ pub(crate) fn round(path: &str, index: usize, window: (u32, u32)) -> Round {
     let stepped = placed(&page.list, 2.0, window);
     let (mut step, step_span) =
         spanned(|| Stages::of(0.0, draw(&mut backend, &page.list, stepped)));
+    drop(backend);
+    drop(device_section);
     let readings = sampler.map(Sampler::stop).unwrap_or_default();
     for (stages, span) in [
         (&mut turn, turn_span),

@@ -65,6 +65,11 @@
     clippy::arithmetic_side_effects
 )]
 
+#[path = "../../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use std::path::{Path, PathBuf};
 
 use raster_gpu::{Counters, Device, Options, Target, Viewport};
@@ -292,6 +297,7 @@ fn nested_page(device: &mut Device, reversed: bool) -> Scene {
 }
 
 fn draw(threads: usize, reversed: bool) -> (Vec<u8>, Counters) {
+    gpu_lock_hook::install();
     let mut device = Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         encode_threads: threads,
@@ -363,6 +369,7 @@ fn a_nested_page_is_the_same_bytes_at_every_thread_count() {
 #[test]
 fn a_nested_refusal_names_the_same_numbers_at_every_thread_count() {
     let refusal = |threads: usize| {
+        gpu_lock_hook::install();
         let mut device = Device::headless(&Options {
             adapter: Some("llvmpipe".into()),
             encode_threads: threads,

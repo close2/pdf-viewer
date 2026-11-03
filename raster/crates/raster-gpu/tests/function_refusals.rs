@@ -20,6 +20,7 @@
 //! `Analysis::admits`: a `Range` belongs to the shading rather than to the program, and so
 //! does the moment it is refused.
 
+mod common;
 mod function_support;
 
 use function_support::programs;

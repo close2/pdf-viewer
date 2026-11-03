@@ -15,6 +15,11 @@
     clippy::cast_precision_loss
 )]
 
+#[path = "../../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use raster_gpu::{Device, DeviceError, Options, Target, Viewport};
 use raster_scene::{
     Affine, BlendMode, Color, Compose, FillRule, Paint, Point, Rect, ResourceId, SceneBuilder,
@@ -23,6 +28,7 @@ use raster_scene::{
 
 fn device() -> Device {
     // Any Vulkan adapter will do; llvmpipe exists everywhere the suite runs.
+    gpu_lock_hook::install();
     Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         ..Options::default()
@@ -143,6 +149,7 @@ fn resource_budget_is_discoverable_and_loud() {
     // and ADR 0075 moved them off the upload, so what this measures now is the
     // segments alone until a frame takes that lane.
     let budget = {
+        gpu_lock_hook::install();
         let mut sizing = Device::headless(&Options {
             adapter: Some("llvmpipe".into()),
             ..Options::default()
@@ -153,6 +160,7 @@ fn resource_budget_is_discoverable_and_loud() {
             .expect("the default budget holds one outline");
         sizing.resource_bytes_in_use() * 3 / 2
     };
+    gpu_lock_hook::install();
     let mut device = Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         max_resource_bytes: budget,

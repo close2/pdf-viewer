@@ -29,6 +29,11 @@
     clippy::arithmetic_side_effects
 )]
 
+#[path = "../../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use raster_gpu::{Coverage, Device, Options, RenderError, Target, Viewport};
 use raster_scene::{
     Affine, BlendMode, Color, Compose, FillRule, OutlineId, Paint, Point, Scene, SceneBuilder,
@@ -45,6 +50,7 @@ const H: u32 = 1684;
 const TINY_ATLAS: u64 = 64 * 1024;
 
 fn device(coverage: Coverage, budget: u64) -> Device {
+    gpu_lock_hook::install();
     Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         coverage,

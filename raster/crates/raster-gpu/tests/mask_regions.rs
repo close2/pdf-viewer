@@ -49,6 +49,7 @@ fn device() -> Device {
 }
 
 fn device_with(options: &Options) -> Device {
+    common::gpu_lock_hook::install();
     Device::headless(options).expect("llvmpipe is present wherever this suite runs")
 }
 

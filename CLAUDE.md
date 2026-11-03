@@ -28,27 +28,33 @@ section disagree about the machine, **this section is the machine**. The rules a
   is over the SSH deploy key `~/.ssh/id_ed25519`; GitHub rejects force-pushes on protected history.
   Commits and tags are **unsigned** (`commit.gpgsign = false`) — never enable signing. CI:
   `gh run list -R close2/pdf-viewer`, `gh run view <id> -R close2/pdf-viewer --log-failed`.
-- **The GPU is shared, and every run on it holds the lock.** A physical AMD Radeon RX 580
-  (Polaris, RADV, `/dev/dri/renderD128`) is shared with a second agent user (`spacescuffle`); a
-  test, gate or measurement that may touch the hardware adapter is wrapped:
-  `WGPU_BACKEND=vulkan VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/radeon_icd.json with-gpu-lock <command>`
-  (an exclusive `flock` on `/run/lock/gpu.lock`, 600 s wait; `GPU_LOCK_TIMEOUT=1200` for longer).
-  Software Vulkan needs no lock:
-  `WGPU_BACKEND=vulkan VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json <command>`.
+- **The GPU is shared, and the code that uses it holds the lock — for the device work only.** A
+  physical AMD Radeon RX 580 (Polaris, RADV, `/dev/dri/renderD128`) is shared with a second agent
+  user (`spacescuffle`), serialised on an exclusive `flock` of `/run/lock/gpu.lock`. The device is
+  selected with `WGPU_BACKEND=vulkan VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/radeon_icd.json`, and
+  software Vulkan with `WGPU_BACKEND=vulkan VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json`.
   **Both halves are needed** (ADR 2663): an ICD path naming no file leaves Vulkan without a driver,
   and wgpu then falls back to OpenGL on the hardware card without a word — so a "software" run
   without `WGPU_BACKEND=vulkan` is a hardware run, and the adapter a gate prints is the record of
   which device it drew on, never the environment it was given.
   wgpu picks the hardware adapter when none is pinned, so an unpinned GPU run counts as hardware.
-  A clock figure taken without the lock may include the other user's load and is not a reading.
   **Use the device, and hold it briefly.** Stated by the project owner on 2026-11-03: "please use
   the GPU, do not try to avoid it! All other processes on this server need it maybe a few percent
   of the time. Just give other processes a chance to get a short slot between you tasks. (I.e.
   don't block the GPU for hours). the other processes do the same. So it is possible (but probably
   even unlikely) that you might have to wait a few seconds for a GPU task, but do not avoid using
-  the GPU." So each hardware run takes its own `with-gpu-lock` — one gate run, one lock — and a
-  sequence of runs is never wrapped in one; a run that waited seconds for the lock is still a
-  reading, and nothing moves to the software adapter to avoid the device.
+  the GPU."
+  And, of rounds that held the lock for an hour and more around builds, gates and suites, on the same
+  day: "yes! fix this. the other process was starved and only locked the GPU when it really needed
+  it!" So **the code locks the device section**: `raster_gpu`'s section hook, which the tests and
+  the clock gates install (`tools/conformance/test-support/gpu_lock_hook.rs`), takes the lock around
+  each hardware bring-up and frame, and a clock gate holds it around a child's device section and
+  starts its clock inside it (ADR 2664); the file is `PDF_VIEWER_GPU_LOCK` in `tools/places.sh`.
+  **A shell never wraps a build, a gate or a suite** in `with-gpu-lock`; `with-gpu-lock <command>`
+  is for a one-off command that is itself only device work and holds no lock of its own (a
+  `vulkaninfo`, an example that brings the device up). A run that waited seconds for the lock is
+  still a reading, and nothing moves to the software adapter to avoid the device;
+  `PDF_VIEWER_GPU_LOCK_LOG=<file>` makes every hold a line, and `tools/gpu-holds.sh <file>` sums them.
 - **Processor and memory**: CPUs `0-31` of one EPYC socket, NUMA node 0, in slice
   `user-1001.slice` (`Delegate=yes`, nested cgroup v2 bounds work); memory capped at 92 GiB
   (`MemoryHigh=88G`) with **no swap** — a walk past the cap is killed, not slowed.

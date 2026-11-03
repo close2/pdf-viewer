@@ -40,6 +40,11 @@
     clippy::arithmetic_side_effects
 )]
 
+#[path = "../../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use raster_gpu::{Device, Options, Target, Viewport};
 use raster_scene::{
     Affine, BlendMode, Color, Compose, FillRule, GroupSpec, OutlineId, Paint, Point, Scene,
@@ -74,6 +79,7 @@ fn blob(lobes: u32, radius: f32) -> Vec<Segment> {
 }
 
 fn device(threads: usize) -> Device {
+    gpu_lock_hook::install();
     let device = Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         encode_threads: threads,

@@ -55,6 +55,11 @@
     clippy::arithmetic_side_effects
 )]
 
+#[path = "../../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use raster_gpu::{Coverage, Device, Options, Target, Viewport};
 use raster_scene::{
     Affine, BlendMode, Color, Compose, FillRule, LineCap, LineJoin, Paint, Point, Scene,
@@ -80,6 +85,7 @@ const BAR_HEIGHT: f32 = 300.0;
 
 fn device(coverage: Coverage) -> (Device, String) {
     let requested = std::env::var("QUORRA_ADAPTER").unwrap_or_else(|_| "llvmpipe".into());
+    gpu_lock_hook::install();
     let device = Device::headless(&Options {
         adapter: Some(requested),
         coverage,

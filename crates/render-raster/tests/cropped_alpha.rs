@@ -1,5 +1,10 @@
 //! §14.11.2.1's crop removes pixels; it cannot recolour the pixels it keeps.
 //! The straight-alpha boundary uses the same nearest rounding on both routes (ADR 2183).
+#[path = "../../../tools/conformance/test-support/gpu_lock.rs"]
+mod gpu_lock;
+#[path = "../../../tools/conformance/test-support/gpu_lock_hook.rs"]
+mod gpu_lock_hook;
+
 use pdf_render::{
     BlendMode, Color, Command, DisplayList, FillRule, Medium, Paint, Path, PathCommand, Point,
     Rasterizer as _, Rect, Size, TargetSpec, Transform,
@@ -38,6 +43,7 @@ fn cropping_preserves_the_straight_colour_of_surviving_pixels() {
         blend: BlendMode::Normal,
     });
     let target = TargetSpec::for_page(&list, 1.0, 1 << 20).expect("small target");
+    gpu_lock_hook::install();
     let mut backend = QuorraRasterizer::new_headless()
         .expect("real adapter")
         .with_medium(Medium::NONE);

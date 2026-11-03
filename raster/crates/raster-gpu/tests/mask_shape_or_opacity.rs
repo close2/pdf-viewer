@@ -79,6 +79,7 @@ const SIZE: u32 = 64;
 /// pointed at the real GPU and answer the same clause question there.
 fn device() -> Device {
     let requested = std::env::var("QUORRA_ADAPTER").unwrap_or_else(|_| "llvmpipe".into());
+    common::gpu_lock_hook::install();
     Device::headless(&Options {
         adapter: Some(requested),
         ..Options::default()

@@ -52,6 +52,7 @@ use common::probe::alpha;
 const SIZE: u32 = 64;
 
 fn device() -> Device {
+    common::gpu_lock_hook::install();
     Device::headless(&Options {
         adapter: Some("llvmpipe".into()),
         ..Options::default()

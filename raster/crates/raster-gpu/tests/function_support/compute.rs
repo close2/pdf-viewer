@@ -50,6 +50,9 @@ pub struct Compute {
     /// The adapter this ran on. ADR 0053's consequence — cross-adapter identity is not
     /// promised for this paint — is why every assertion made through this harness names it.
     pub adapter: String,
+    /// The shared adapter's lock, held as long as the device exists: raw `wgpu` bypasses the
+    /// hook `raster_gpu` offers, so the harness holds the lock itself.
+    _gpu_lock: crate::common::gpu_lock::Hold,
 }
 
 /// What one program is evaluated under: everything `raster_function_evaluate` takes that is
@@ -82,6 +85,11 @@ impl Compute {
             }))
             .ok()?,
         };
+        // The adapter's own type decides, because a name filter can choose any of them.
+        let gpu_lock = crate::common::gpu_lock::Hold::when(
+            adapter.get_info().device_type != wgpu::DeviceType::Cpu,
+            "raw-wgpu-test",
+        );
         let name = adapter.get_info().name;
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("raster function tests"),
@@ -93,6 +101,7 @@ impl Compute {
             device,
             queue,
             adapter: name,
+            _gpu_lock: gpu_lock,
         })
     }
 
