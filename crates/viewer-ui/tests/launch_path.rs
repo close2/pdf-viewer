@@ -26,10 +26,10 @@
 //! | **cold bring-up** | `QuorraRasterizer::new_headless` in a process that has done nothing else | everything else |
 //! | **the script stage** | after page one's frame, `Command::Presented` to a viewer that was handed a runner before it opened the document (`Command::Scripts`, a window at `on`): RFC 0008 section 6.5's open sequence, which starts `pdf-script-worker` at its first trigger — `OpenCost::line()`'s `script_open spawn_ms=<f> first_run_ms=<f>`, the worker's start through its greeting and the first run's exchange with the realm constructed inside it (ADR 1620) | time to first page, which every row's child measures with the same runner supplied and whose clock has stopped before the stage begins; a worker started before the frame is a failure of its own |
 //! | **page turn** | `Command::GoTo(Next)`, the interpretation it causes, and the frame drawn on the device | — |
-//! | **memory high-water** | `VmHWM` of a process that drew page one with its transparent huge pages off, less the resident pages of the files it has mapped — what the program touched of what the allocator asked the kernel for ([`SMALL_PAGES`], ADR 1902) | every shared object the Vulkan loader brought in, which is nine tenths of the process's own `VmHWM` and is the kernel's decision rather than this program's (ADR 0910) |
+//! | **memory high-water** | `VmHWM` of a process that drew page one with its transparent huge pages off, less the resident pages of the files it has mapped — what the program touched of what the allocator asked the kernel for ([`SMALL_PAGES`], ADR 1902) — less what a process that only brought the device up allocated, which is the driver's ([`Row::peak_anon_mib`], ADR 2667) | every shared object the Vulkan loader brought in, which is nine tenths of the process's own `VmHWM` and is the kernel's decision rather than this program's (ADR 0910); the device's own allocation at bring-up, printed and unbanded (ADR 2667) |
 //! | **what an open allocates** | `VmHWM` of a process that only opened the document, with its transparent huge pages off, less the resident pages of the files it has mapped ([`Row::open_anon_mib`], ADR 2244) | the test binary's and the C library's resident text, seven parts in eight of that process's `VmHWM`, whose size is the page cache's decision |
 //! | **bytes read** | `rchar` from `/proc/self/io` across the open, which is what principle 2's "reads the trailer and the objects page one needs — not the whole file" is a claim about | the binary's own loading, which is `mmap` rather than `read` |
-//! | **instructions an open executes** | the whole of a process that opens the document and stops, counted under callgrind — what principle 2's "cold open" asks about, with no clock in it (see [`open_kinstructions`]) | the disk, and how fast this machine happens to be executing today |
+//! | **instructions an open executes** | every thread of a process that opens the document and stops, counted under callgrind in this program's own object — what principle 2's "cold open" asks about, with no clock in it (see [`open_kinstructions`]) | the disk, and how fast this machine happens to be executing today; the dynamic loader's relocation of the binary, which the link editor decides, and the C library's instructions, which the system's C library decides — both printed beside it (ADR 2666) |
 //!
 //! **Every duration above is elapsed time less the time the thread spent waiting for a
 //! processor**, which the kernel counts exactly and which is not this program's (see
@@ -158,6 +158,7 @@ mod gpu_lock_hook;
 #[path = "../../../tools/conformance/test-support/machine_bands.rs"]
 mod machine_bands;
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command as Child;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -294,6 +295,24 @@ const SAMPLES: usize = 9;
 /// no observed population between those two, so anything from a few per cent to a half would
 /// separate the same samples.
 const WAITED_SHARE: f64 = 0.10;
+
+/// How far under its floor a warm open may read and still be printed rather than failed, as a
+/// share of the floor — and only where the same row's counted open held (ADR 2667 §5).
+///
+/// **A warm open is a processor figure of one to two milliseconds, and a quieter minute than the
+/// band's runs reads under its floor.** On the server VM the band's runs were taken at a one-minute
+/// load of 15 to 25 from another account, and three of ten gate runs then put one warm open 4 to
+/// 8 % under its floor, a different row each time, each with its row's bytes, read calls and
+/// instruction count inside: the open did all its work and the machine was quicker. A floor that
+/// fires on three runs in ten is a floor whose red is not read. What a floor is still for is a
+/// clock that stopped before the work did, which no counted figure sees; such a reading is far
+/// under, so a reading more than this share under the floor still fails. The share is the band
+/// rule's own lower margin (`smallest × 0.85`), so the furthest a warm open can read and pass is
+/// what a band taken with that reading among its runs would have allowed.
+const QUICKER_THAN_ITS_FLOOR: f64 = 0.85;
+
+/// The figures that say an open did all of its work, judged in the same run as its warm open.
+const THE_OPENS_WORK: [&str; 3] = ["open_kinstructions", "read_kib", "read_calls"];
 
 /// How many times a figure taken above [`the_load_ceiling`] is re-taken before it is declined.
 ///
@@ -1598,6 +1617,13 @@ struct Row {
     /// measured. The whole-process figure is printed beside it and banded nowhere. **And not the
     /// first-page children's own allocation**, which carries the machine's huge pages: see
     /// [`SMALL_PAGES`]. Both are printed.
+    ///
+    /// **And less the device's own allocation** — [`Check::bring_up_anon_mib`]'s figure, read in
+    /// the same run from a process that brought the device up and did nothing else — because that
+    /// share is the driver's (ADR 2667). On the server VM it read 8.9 MiB where the notebook's read
+    /// 5.3, 5.4 of the 8.9 being the pages the dynamic loader wrote relocating Debian's
+    /// `libLLVM.so.19.1` for RADV; every row's first page read past its band by about that
+    /// difference, and every row less its machine's bring-up read where the notebook's had.
     peak_anon_mib: Pin,
     /// The band on how much *this program* had allocated at the high-water of a process that
     /// only *opened* it, in mebibytes, in a child whose transparent huge pages are off.
@@ -1668,6 +1694,11 @@ struct Check {
     /// what that sentence is about, and this is the figure here that carries it (ADR 0911): the
     /// device's share of a document row's [`Row::peak_anon_mib`], measured in a process that has
     /// done nothing else.
+    ///
+    /// **`none` in the file: the figure is the driver's, so it is printed and subtracted, not
+    /// banded as this program's** (ADR 2667). It is the driver's build and its libraries' as
+    /// much as anything: 5.4 of the 8.9 MiB it reads on the server VM are the loader's relocation
+    /// of `libLLVM.so`, and a Mesa upgrade moved it by a fifth on the notebook with the tree still.
     bring_up_anon_mib: Option<Band>,
     /// The band a cold read of [`IO_PROBE_BYTES`] must land in for a *cold* figure to be judged.
     io_ms: Option<Band>,
@@ -2412,7 +2443,8 @@ fn run_phase(phase: &str, document: Option<&Path>) -> Result<Fields, String> {
 }
 
 /// How many thousands of instructions a process that opens `document` and does nothing else
-/// executes, and how many pages it found — counted by callgrind.
+/// executes in this program's own object, how many it executes in all, and how many pages it
+/// found — counted by callgrind.
 ///
 /// **The one figure here with no machine in it**, and the reason it is here (ADR 0917). Every other
 /// duration this gate judges is a claim about an afternoon, and the check file's own header now
@@ -2428,11 +2460,23 @@ fn run_phase(phase: &str, document: Option<&Path>) -> Result<Fields, String> {
 /// are the observed range widened by half a percent on each side, which is forty times tighter
 /// than the clock bands beside them.
 ///
+/// **Only the instructions executed in this program's own object are the figure** (ADR 2666).
+/// The rest of the process is two other parties' work. The dynamic loader relocates the binary
+/// before `main`, and what that costs is the link editor's decision: the same binary linked by
+/// GNU `ld` carries `DT_RELACOUNT`, which sends the loader's fifteen thousand relative relocations
+/// down its quick loop, and linked by `mold` it does not, so the loader executed 820 thousand
+/// instructions against 503 on the server VM — 320 thousand on every row, from a linker named in a
+/// user's cargo configuration and not in this tree. The C library's `malloc`, `memcpy` and
+/// `memset` are the system's, and on the rows the server VM read past the notebook's bands with
+/// the notebook's linker the excess was about a tenth of the C library's share of each open.
+/// Every thread is counted, so work moved off the opening thread is still in the figure; the
+/// whole-process total is returned and printed beside it, unbanded.
+///
 /// The child is [`phase_count_open`], which does the open and stops: no calibration probe and no
 /// `/proc`, because every instruction beside the open is an instruction in the figure. It is not
 /// pinned — a count does not care which core runs it — and it costs a fifth of a second for
 /// three of the documents and two fifths for the 1023-page one.
-fn open_kinstructions(document: &Path, into: &Path) -> Result<(f64, f64), String> {
+fn open_kinstructions(document: &Path, into: &Path) -> Result<(f64, f64, f64), String> {
     let exe = std::env::current_exe().map_err(|error| format!("no current exe: {error}"))?;
     let profile = into.join("callgrind.out");
     // Removed rather than overwritten, so that a run in which valgrind produced nothing reads
@@ -2442,7 +2486,7 @@ fn open_kinstructions(document: &Path, into: &Path) -> Result<(f64, f64), String
     let output = Child::new("valgrind")
         .arg("--tool=callgrind")
         .arg(format!("--callgrind-out-file={}", profile.display()))
-        .arg(exe)
+        .arg(&exe)
         .args(["--exact", "launch_probe", "--nocapture", "--test-threads=1"])
         // **A cleared environment, and it is not tidiness.** Every byte of a process's
         // environment is copied and walked at start-up, so the same binary counted under `cargo
@@ -2486,7 +2530,90 @@ fn open_kinstructions(document: &Path, into: &Path) -> Result<(f64, f64), String
         .trim()
         .parse()
         .map_err(|_| "callgrind's total is not a number".to_owned())?;
-    Ok((total / 1e3, pages))
+    let own_name = exe
+        .file_name()
+        .ok_or_else(|| "the test binary has no file name".to_owned())?
+        .to_string_lossy()
+        .into_owned();
+    let own = instructions_in_object(&text, &own_name)?;
+    Ok((own / 1e3, total / 1e3, pages))
+}
+
+/// The instructions a callgrind profile charges to the object whose file name is `own`, as the
+/// sum of that object's self cost.
+///
+/// The profile's grammar is callgrind's own format: an `ob=` line names the object every cost
+/// line after it belongs to, compressed as `(n) path` the first time a name appears and `(n)`
+/// after; a `cob=` line names the object a call goes to, from the same table, and is often where
+/// a name first appears; a `calls=` line is followed by one cost line that is the *inclusive*
+/// cost of that call, already counted in the callee's own lines, so it is skipped; a cost line is
+/// a position and then the event count, the first event being instructions. `cfn=`, `fl=`, `fi=`,
+/// `fe=` and `fn=` name things the sum does not group by.
+///
+/// **A profile in which the object never appears is an error, not a zero** (trap 16): a child
+/// that ran under another name would otherwise read as an open that executed nothing.
+fn instructions_in_object(profile: &str, own: &str) -> Result<f64, String> {
+    let mut names: HashMap<String, String> = HashMap::new();
+    let mut in_own = false;
+    let mut seen = false;
+    let mut after_call = false;
+    let mut sum = 0_u64;
+    for line in profile.lines() {
+        let (sets, rest) = match (line.strip_prefix("ob="), line.strip_prefix("cob=")) {
+            (Some(rest), _) => (true, rest),
+            (None, Some(rest)) => (false, rest),
+            (None, None) => (false, ""),
+        };
+        if sets || line.starts_with("cob=") {
+            let name = match rest.strip_prefix('(').and_then(|r| r.split_once(')')) {
+                Some((id, "")) => names.get(id).cloned().unwrap_or_default(),
+                Some((id, path)) => {
+                    let path = path.trim().to_owned();
+                    names.insert(id.to_owned(), path.clone());
+                    path
+                }
+                None => rest.trim().to_owned(),
+            };
+            if sets {
+                in_own = Path::new(&name).file_name().is_some_and(|file| file == own);
+                seen |= in_own;
+            }
+            continue;
+        }
+        if line.starts_with("calls=") {
+            after_call = true;
+            continue;
+        }
+        let Some(first) = line.chars().next() else {
+            continue;
+        };
+        if !(first.is_ascii_digit() || matches!(first, '+' | '-' | '*')) {
+            continue;
+        }
+        if after_call {
+            after_call = false;
+            continue;
+        }
+        if in_own {
+            let cost = line
+                .split_whitespace()
+                .nth(1)
+                .map_or(Ok(0), str::parse::<u64>)
+                .map_err(|_| format!("callgrind's cost line is not a count: {line}"))?;
+            sum = sum.saturating_add(cost);
+        }
+    }
+    // An instruction count below 2^53 is exact as a double, and an open's is under 10^10.
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a count under 2^53, exact in an f64"
+    )]
+    let counted = sum as f64;
+    if seen {
+        Ok(counted)
+    } else {
+        Err(format!("callgrind's profile names no object called {own}"))
+    }
 }
 
 /// Whether callgrind is on this machine, asked once.
@@ -3241,6 +3368,10 @@ fn the_launch_path_stays_inside_its_bands() {
 
     // Principle 2 makes cold bring-up a gate of its own, "so that a regression in the driver,
     // the adapter selection or the shader set is legible as itself rather than as a slower page".
+    // What the device allocated in a process that did nothing else: the driver's, and what each
+    // row's memory figure is judged beyond (ADR 2667). `None` where the bring-up failed, which
+    // leaves every row's memory figure unjudged and says so.
+    let mut device_allocates: Option<f64> = None;
     match quickest("bring-up", "bring_up_ms", None, samples, &mut || {
         Ok(Vec::new())
     }) {
@@ -3251,6 +3382,7 @@ fn the_launch_path_stays_inside_its_bands() {
                 .map_or("unnamed", |(_, name)| name.as_str());
             let peak = field(&fields, "peak_kib").unwrap_or(0.0) / 1024.0;
             let allocated = anonymous_high_water_mib(&fields);
+            device_allocates = Some(allocated);
             println!(
                 "launch-path: cold graphics bring-up {value:.1} ms on {adapter}, \
                  {peak:.0} MiB resident of which {allocated:.1} MiB is allocated \
@@ -3534,10 +3666,11 @@ fn the_launch_path_stays_inside_its_bands() {
         // arm, because it runs the document through callgrind and would leave its pages hot.
         match (callgrind_is_here(), cache.as_deref()) {
             (true, Some(directory)) => match open_kinstructions(cold_source, directory) {
-                Ok((value, counted_pages)) => {
+                Ok((value, whole, counted_pages)) => {
                     println!(
                         "launch-path:   the open executes {value:.1} thousand instructions \
-                         for {counted_pages:.0} pages"
+                         for {counted_pages:.0} pages in this program, {whole:.1} thousand in \
+                         the whole process with the loader and the C library (ADR 2666)"
                     );
                     band_it(
                         &mut judged,
@@ -3728,22 +3861,32 @@ fn the_launch_path_stays_inside_its_bands() {
         match allocation {
             Ok(fields) if field(&fields, "small_pages") == Some(1.0) => {
                 let touched = anonymous_high_water_mib(&fields);
-                println!(
-                    "launch-path:   {touched:.1} MiB allocated by the same first page in a child \
-                     with transparent huge pages off, the figure banded (ADR 1902)"
-                );
-                band_it(
-                    &mut judged,
-                    format!("{}: the memory high-water it allocates", row.path),
-                    "peak_anon_mib",
-                    touched,
-                    row.peak_anon_mib,
-                    true,
-                    Sample {
-                        fields: &fields,
-                        waited: None,
-                    },
-                );
+                if let Some(device) = device_allocates {
+                    let beyond = touched - device;
+                    println!(
+                        "launch-path:   {touched:.1} MiB allocated by the same first page in a \
+                         child with transparent huge pages off (ADR 1902), {beyond:.1} MiB of it \
+                         beyond the device's own {device:.1}, the figure banded (ADR 2667)"
+                    );
+                    band_it(
+                        &mut judged,
+                        format!("{}: the memory high-water it allocates", row.path),
+                        "peak_anon_mib",
+                        beyond,
+                        row.peak_anon_mib,
+                        true,
+                        Sample {
+                            fields: &fields,
+                            waited: None,
+                        },
+                    );
+                } else {
+                    complaints.push(format!(
+                        "{}: the memory high-water read {touched:.1} MiB, and with no bring-up \
+                         figure there is no device's share to judge it beyond (ADR 2667)",
+                        row.path
+                    ));
+                }
             }
             Ok(fields) => complaints.push(format!(
                 "{}: the memory high-water's child says its huge pages were {}, not off, so its \
@@ -3845,6 +3988,7 @@ fn the_launch_path_stays_inside_its_bands() {
     let mut for_load = 0_usize;
     let mut for_carve_out = 0_usize;
     let mut outside: Vec<String> = Vec::new();
+    let mut quicker = 0_usize;
     for (what, figure) in &judged {
         // **The band goes out beside the figure on every run, and not only when the figure is
         // outside it.** A band this gate prints only on a failure is a band nobody reads until it
@@ -3860,6 +4004,34 @@ fn the_launch_path_stays_inside_its_bands() {
             figure.band.high,
         );
         let held = figure.band.holds(figure.value);
+        // **A warm open under its floor, not far under, whose open did all its work** is the
+        // machine quicker than the band's runs, and is printed rather than failed (ADR 2667 §5,
+        // [`QUICKER_THAN_ITS_FLOOR`]).
+        let held = held || {
+            let document = what.split(": ").next().unwrap_or_default();
+            let its_work_held = THE_OPENS_WORK.iter().all(|key| {
+                judged.iter().any(|(other, done)| {
+                    done.key == *key
+                        && other.starts_with(&format!("{document}: "))
+                        && done.band.holds(done.value)
+                })
+            });
+            let just_under = figure.key == "warm_open_ms"
+                && figure.value < figure.band.low
+                && figure.value >= figure.band.low * QUICKER_THAN_ITS_FLOOR;
+            if just_under && its_work_held {
+                quicker = quicker.saturating_add(1);
+                println!(
+                    "launch-path:   ({what}) {:.3} ms, under its floor {:.3} by {:.1} %, with the \
+                     open's bytes, read calls and instructions inside: the machine was quicker \
+                     than the band's runs, printed and not failed (ADR 2667)",
+                    figure.value,
+                    figure.band.low,
+                    (1.0 - figure.value / figure.band.low) * 100.0
+                );
+            }
+            just_under && its_work_held
+        };
         // **Per figure, and paired with its own child's probe.** A steady figure is judged
         // whatever the machine is doing; every other one is judged only where the process that
         // produced it says the machine was the machine — see [`Judged::steady`] and
@@ -3997,7 +4169,8 @@ fn the_launch_path_stays_inside_its_bands() {
         "launch-path: {measured_documents} documents measured, {absent} absent, \
          {uncounted} not counted, {unmeasured_scripts} script stages not measured, {} figures \
          banded, {unjudged} not judged ({for_load} of them for load, {for_carve_out} for the \
-         carve-out), {} outside{}",
+         carve-out), {quicker} warm opens quicker than their floors with their work done, {} \
+         outside{}",
         judged.len(),
         outside.len(),
         if outside.is_empty() {
@@ -4141,4 +4314,29 @@ fn a_drop_that_left_the_file_resident_is_read_as_resident() {
         ),
         None => println!("`fincore` does not answer here, so the reading is not asked"),
     }
+}
+
+/// **The counted figure is this program's object alone, named however callgrind first names it**
+/// (ADR 2666). The profile is callgrind's format in the shape the gate's own child writes: the
+/// binary first named by a call into it (`cob=`), a call's inclusive line that must not be added
+/// again, and the loader's and the C library's lines around it. Planted the other way — asked for
+/// an object the profile never names — the reading is an error rather than a zero (trap 16), so
+/// an open run under another name cannot read as an open that executed nothing.
+#[test]
+fn the_counted_open_is_the_programs_own_object_and_a_missing_one_is_no_reading() {
+    let profile = "positions: line\nevents: Ir\n\
+                   ob=(1) /usr/lib/ld-linux-x86-64.so.2\nfl=(1) ???\nfn=(1) _dl_start\n\
+                   0 800\ncob=(2) /target/release/deps/launch_path-abc\ncfn=(2) main\n\
+                   calls=1 0\n0 290\n\
+                   ob=(2)\nfn=(2)\n0 40\ncob=(3) /usr/lib/libc.so.6\ncfn=(3) malloc\n\
+                   calls=2 0\n0 50\n+1 200\n\
+                   ob=(3)\nfn=(3)\n0 50\n\
+                   ob=(2)\nfn=(4) open\n-1 50\n\
+                   totals: 1190\n";
+    assert_eq!(
+        instructions_in_object(profile, "launch_path-abc"),
+        Ok(290.0),
+        "40 + 200 + 50 in the binary's own lines, and neither call's inclusive line"
+    );
+    assert!(instructions_in_object(profile, "launch_path-other").is_err());
 }

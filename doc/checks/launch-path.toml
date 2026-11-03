@@ -39,8 +39,18 @@
 # moved by at most 0.011% and the 1023-page one by 0.00017%. The bands are the observed range
 # widened by one per cent on each side, rounded outwards — ninety times the measured spread, so
 # that this program's own hash seeds cannot fire it, and forty times tighter than the clock bands
-# beside it. About 976 thousand instructions of each figure are the process's own start, which is
-# 26% of the smallest row and 0.5% of the largest.
+# beside it.
+#
+# **What it counts is the instructions executed in this program's own object, on every thread**
+# (ADR 2666), and the whole-process total is printed beside it, unbanded. The rest of the process
+# is two other parties' work. The dynamic loader's relocation of the binary costs what the link
+# editor decided: GNU `ld` writes `DT_RELACOUNT` and `mold` does not, so the same binary's loader
+# executed 503 thousand instructions linked by the one and 820 by the other — 320 thousand on every
+# row, from a linker a user's cargo configuration names and this tree does not. The C library's
+# `malloc`, `memcpy` and `memset` are the system's, a third of each open's instructions, and on the
+# server VM the three rows still past the notebook's bands with the notebook's linker were past them
+# by about a tenth of that share. A count of the binary's own object read the same, to a tenth of a
+# thousand, linked either way.
 #
 # **`read_calls` is the fifth**, and it is the other half of what a cold open is made of. A cold
 # open's elapsed time is the program's work plus one round trip to the disk for each read that
@@ -348,27 +358,25 @@ calibration_document = "doc/PDF20_AN001-BPC.pdf"
 # `graphics device up in` line, and ADR 2283 prices the levers.
 # **This machine's band** (ADR 2660): every run of the gate under its load ceiling on 2026-11-03,
 # each under its own `with-gpu-lock` on the RX 580 with the busy share at 0 %, read 69.225, 67.888,
-# 71.529, 66.599, 65.732 and 71.032 ms; this file's rule over the six. `bring_up_anon_mib` below is
-# not re-taken: it is judged, and on this driver it reads 15.1 to 15.3 MiB, past its band (the
-# round's record).
+# 71.529, 66.599, 65.732 and 71.032 ms; this file's rule over the six.
 
 # What the device costs in *allocated* memory, in the same process that has done nothing else.
 #
-# Principle 2 makes cold bring-up a gate of its own "so that a regression in the driver, the
-# adapter selection or the shader set is legible as itself rather than as a slower page", and
-# until session 935 the only thing that gate said was a duration. This is the driver's share of
-# every row's `peak_anon_mib` below — about six mebibytes of the twenty-three a five-page
-# document's first page reaches — and it is judged on any machine, like the other memory figures.
-# It was eleven, and the four and a half that went are GL's: the band below is 5.5 .. 7.5 and was
-# 9.5 .. 12.5 for ADR 1532's reason, three runs reading 6.36 to 6.45 under the rule beneath.
-# Its own spread over eleven consecutive samples was 0.8%; the band is the observed range widened
-# by a tenth on each side and rounded outwards, which is the rule every `*_anon_mib` here uses and
-# which is a transparent huge page's worth of headroom on the smallest of them.
-# Floor moved down at batch eighty-four's merge, for the driver and not the tree: mesa went 26.2.3 →
-# 26.2.4 on 2026-10-13 (`/var/log/pacman.log`), and the merge's gate read 5.309 where three runs on 26.2.3
-# read 6.36 to 6.45 — the device's own allocation at bring-up, which this gate exists to make legible as
-# the driver's. The observed figure less a tenth, rounded outwards; the ceiling stays.
-bring_up_anon_mib = 4.8 .. 7.5
+# **The driver's, so it is printed and not banded as this program's** (ADR 2667). It is the share
+# of every row's first page that the device takes before the reader does anything, and each row's
+# `peak_anon_mib` is now judged beyond it, from the same run. What it is made of was measured on
+# the server VM from the child's own `/proc/self/smaps`: 9.3 MiB of which 5.4 are the pages the
+# dynamic loader wrote relocating Debian's `libLLVM.so.19.1`, which RADV links, and 0.5 more the
+# other libraries of the driver's chain; the notebook's read 5.3 under Arch's Mesa 26.2.4 and 6.4
+# under 26.2.3 the week before, with the tree still. Each row's first page less this figure read on
+# the server VM where the notebook's had less its own: 12.2 against 12.1 to 12.8 MiB on the five-page
+# row, 5.5 against 5.2 to 6.0 on the smallest.
+#
+# **What the gate no longer claims**: an allocation this program makes while bringing the device
+# up — `raster`'s pipeline store, its device's own buffers — is in this figure and in every row's
+# first page alike, so the subtraction takes it out of both and no band holds it. It is printed on
+# every run; a band for it is the driver's and the machine's (`doc/checks/machines/`).
+bring_up_anon_mib = none
 
 # The disk's *latency*, where `io_ms` below is its throughput, timed beside every cold sample.
 #
@@ -409,7 +417,9 @@ clock_bands = machine
 # 145.026 ms (ADR 2660).
 # In small pages (ADR 1902, see the header): 17.38 to 18.14 MiB over twelve children, the machine's
 # huge pages beside them 19.37 to 20.79.
-peak_anon_mib = 15.5 .. 20.0
+# Beyond the device's own allocation (ADR 2667): the band 15.5 .. 20.0 less the notebook's bring-up,
+# 5.309 MiB (mesa 26.2.4, the same week), rounded outwards to half a mebibyte.
+peak_anon_mib = 10.0 .. 15.0
 # **What an open allocates, and no longer the open's whole `VmHWM`** (ADR 2244). That figure was
 # seven parts in eight the test binary's and the C library's resident text, so it moved with the
 # page cache: one binary at one path read 8.51 and then 9.89 MiB here in one hold on 2026-10-22,
@@ -420,13 +430,9 @@ peak_anon_mib = 15.5 .. 20.0
 open_anon_mib = 0.5 .. 1.0
 read_kib = 86 .. 92
 read_calls = 23 .. 27
-# ADR 1543's band over 4029.3 three times (see the clocks above); ADR 1044 took §12.8's signature
-# walk off the same open before it, for the same reason.
-# The floor is batch eighty-one's merge figure, 3972.917 thousand, less one per cent, this file's rule;
-# the ceiling stays. All of the move is ADR 1861's: the content lexer asks the string test where it
-# stands and skips the white space once, and compiled out it counts 4031.383 thousand against
-# HEAD's 3972.634 in one clock hold, 1.46 % (ADR 1870).
-open_kinstructions = 3933 .. 4070
+# What this program's own object executes (ADR 2666): 2201.3 thousand in four children of HEAD on
+# 2026-11-03, this file's rule — the observed range widened by one per cent, rounded outwards.
+open_kinstructions = 2179 .. 2224
 why = "the five-page end of principle 2's own claim that a 500-page document must open no slower than a five-page one"
 
 [[document]]
@@ -440,19 +446,16 @@ clock_bands = machine
 # 161.022, 167.275 ms (ADR 2660).
 # In small pages (ADR 1902, see the header): 20.65 to 21.60 MiB over twelve children, the machine's
 # huge pages beside them 22.76 to 24.11.
-peak_anon_mib = 18.5 .. 24.0
+# Beyond the device's own allocation (ADR 2667): the band 18.5 .. 24.0 less the notebook's bring-up,
+# 5.309 MiB (mesa 26.2.4, the same week), rounded outwards to half a mebibyte.
+peak_anon_mib = 13.0 .. 19.0
 # ADR 2244 (see the first row): 1.273 MiB in all twelve children.
 open_anon_mib = 1.0 .. 1.5
 read_kib = 115 .. 121
 read_calls = 28 .. 32
-# Moved down for ADR 1833: the content lexer's fast path for a number and a keyword takes this
-# document's open from 13 051 (its old floor) to 13 039 thousand instructions at batch seventy-nine's
-# merge; the floor follows the win, the ceiling stays.
-# The floor is batch eighty-one's merge figure, 12752.523 thousand, less one per cent, this file's rule;
-# the ceiling stays. All of the move is ADR 1861's: the content lexer asks the string test where it
-# stands and skips the white space once, and compiled out it counts 13041.702 thousand against
-# HEAD's 12752.380 in one clock hold, 2.22 % (ADR 1870).
-open_kinstructions = 12624 .. 13316
+# What this program's own object executes (ADR 2666): 9559.4 thousand in four children of HEAD on
+# 2026-11-03, this file's rule — the observed range widened by one per cent, rounded outwards.
+open_kinstructions = 9463 .. 9656
 why = "a middling text-heavy document, so that the two ends of the set are not the only shape measured"
 
 [[document]]
@@ -467,17 +470,17 @@ clock_bands = machine
 # 132.922 ms (ADR 2660).
 # In small pages (ADR 1902, see the header): 25.9 to 26.73 MiB over twelve children, the machine's
 # huge pages beside them 27.69 to 28.32.
-peak_anon_mib = 23.0 .. 29.5
+# Beyond the device's own allocation (ADR 2667): the band 23.0 .. 29.5 less the notebook's bring-up,
+# 5.309 MiB (mesa 26.2.4, the same week), rounded outwards to half a mebibyte.
+peak_anon_mib = 17.5 .. 24.5
 # ADR 2244 (see the first row): 3.637 to 4.047 MiB over twelve children, varying from child to
 # child as `5ded4916`'s did, 3.637 to 4.051.
 open_anon_mib = 3.0 .. 4.5
 read_kib = 99 .. 105
 read_calls = 25 .. 29
-# The floor is batch eighty-one's merge figure, 68847.151 thousand, less one per cent, this file's rule;
-# the ceiling stays. All of the move is ADR 1861's: the content lexer asks the string test where it
-# stands and skips the white space once, and compiled out it counts 70297.058 thousand against
-# HEAD's 68847.136 in one clock hold, 2.06 % (ADR 1870).
-open_kinstructions = 68158 .. 71052
+# What this program's own object executes (ADR 2666): 53396.4 thousand in four children of HEAD on
+# 2026-11-03, this file's rule — the observed range widened by one per cent, rounded outwards.
+open_kinstructions = 52862 .. 53931
 why = "the other end of that claim at two hundred times its pages — 1023 of them and 19 MB, the document every launch measurement in doc/performance.md is taken on. Its cold open is 36 times the five-page document's, which is the claim not holding of the open; its time to first page is inside the same band, which is the claim holding of the launch, because the graphics device is longer than either"
 
 [[document]]
@@ -494,18 +497,16 @@ clock_bands = machine
 # 153.065, 134.791 ms (ADR 2660).
 # In small pages (ADR 1902, see the header): 43.29 to 53.0 MiB over twelve children, the machine's
 # huge pages beside them 44.99 to 54.80.
-peak_anon_mib = 38.5 .. 58.5
+# Beyond the device's own allocation (ADR 2667): the band 38.5 .. 58.5 less the notebook's bring-up,
+# 5.309 MiB (mesa 26.2.4, the same week), rounded outwards to half a mebibyte.
+peak_anon_mib = 33.0 .. 53.5
 # ADR 2244 (see the first row): 0.730 MiB in all twelve children.
 open_anon_mib = 0.5 .. 1.0
 read_kib = 83 .. 87
 read_calls = 23 .. 27
-# The same saving here, and it is 52.1 thousand: 3446.5 before and 3394.4 after. It left the
-# figure 0.13% above a floor its own spread is 0.002% of — inside, and too close to stay, since
-# the next round that legitimately saves five thousand instructions here would fail for a win.
-# So the floor goes down by the measured saving, rounded down, and the ceiling stays. The other
-# two rows keep theirs untouched: the saving is 89.4 and 359.3 thousand there, against figures
-# that sit 1.6% and 1.8% above their own floors after it.
-open_kinstructions = 3337 .. 3459
+# What this program's own object executes (ADR 2666): 1827.2 thousand in four children of HEAD on
+# 2026-11-03, this file's rule — the observed range widened by one per cent, rounded outwards.
+open_kinstructions = 1808 .. 1846
 why = "the launch path's expensive case, and the one the other three rows cannot see: this page names a font it does not embed, so drawing it walks the machine's font directories (ADR 0870) — 23 files opened under share/fonts and 47 more directory listings than a document whose fonts are its own, and the row whose page one costs the most to interpret, 20 ms of the device's 23. `CLAUDE.md` principle 2's first bullet says `[n]o system font enumeration` flat, and this row is where that sentence meets the clock"
 
 [[document]]
@@ -525,17 +526,18 @@ clock_bands = machine
 # page read 24.5 to 26.7 ms in the same runs and stays unbanded for the reason above.
 # In small pages (ADR 1902, see the header): 10.52 to 11.33 MiB over twelve children, the machine's
 # huge pages beside them 12.57 to 13.19.
-peak_anon_mib = 9.0 .. 12.5
+# Beyond the device's own allocation (ADR 2667): the band 9.0 .. 12.5 less the notebook's bring-up,
+# 5.309 MiB (mesa 26.2.4, the same week), rounded outwards to half a mebibyte.
+peak_anon_mib = 3.5 .. 7.5
 # ADR 2244 (see the first row): 0.590 to 0.594 MiB over twelve children.
 open_anon_mib = 0.5 .. 1.0
 # Moved for ADR 1543 (see the first row): 99 → 87 KiB in 26 → 24 calls, and 1821.4 → 1160.3
 # thousand instructions.
 read_kib = 85 .. 90
 read_calls = 22 .. 26
-# ADR 1543's band over 1160.3 three times. About two thousand instructions of any row here are the
-# test binary's own start (`pthread_getattr_np` parsing `/proc/self/maps`, ADR 1507 section 2), so a
-# ceiling that moves by that much with no function of the tree moving is the linker's (trap 98).
-open_kinstructions = 1148 .. 1172
+# What this program's own object executes (ADR 2666): 272.3 to 272.4 thousand in four children of HEAD on
+# 2026-11-03, this file's rule — the observed range widened by one per cent, rounded outwards.
+open_kinstructions = 269 .. 276
 why = "the population's missing case: large **and** signed. Three megabytes, one page, and a §12.8 signature — so opening it used to read 1304 KiB in 118 calls and execute 47.6 M instructions, against the 99 KiB, 26 calls and 1.80 M that page one actually needs. None of the other four rows is signed, so none of them could see it (round 1027, ADR 1044)"
 
 [[document]]
@@ -555,13 +557,14 @@ clock_bands = machine
 # 129.054 ms (ADR 2660).
 # In small pages (ADR 1902, see the header): 13.96 to 14.60 MiB over twelve children, the machine's
 # huge pages beside them 15.35 to 16.16.
-peak_anon_mib = 12.5 .. 16.5
+# Beyond the device's own allocation (ADR 2667): the band 12.5 .. 16.5 less the notebook's bring-up,
+# 5.309 MiB (mesa 26.2.4, the same week), rounded outwards to half a mebibyte.
+peak_anon_mib = 7.0 .. 11.5
 # ADR 2244 (see the first row): 0.582 MiB in all twelve children.
 open_anon_mib = 0.5 .. 1.0
 read_kib = 40 .. 44
 read_calls = 29 .. 33
-# Ceiling raised by four for the figure read at batch seventy-nine's merge, 1 369.5, which is
-# +0.1 % on the open — the test binary's own start (trap 98), not a function of the tree (round
-# 1498 measured −0.015 % to +0.22 % over the six documents for ADR 1833).
-open_kinstructions = 1340 .. 1372
+# What this program's own object executes (ADR 2666): 429.7 to 431.0 thousand in four children of HEAD on
+# 2026-11-03, this file's rule — the observed range widened by one per cent, rounded outwards.
+open_kinstructions = 425 .. 436
 why = "a document whose open sequence runs a script, so the launch gate times the third confined process where a window starts it: after page one's frame, at the open sequence's first trigger (RFC 0008 section 6.6). Every other row hands its viewer the same runner and starts no worker before its frame either"

@@ -139,8 +139,8 @@ that process maps no driver.
 
 **So the gate bands the anonymous high-water** (`peak_anon_mib`), judged on any machine like the
 other two figures with no clock in them, and prints `VmHWM` beside it unbanded; the graphics
-device's own share is a figure of the bring-up gate (`bring_up_anon_mib`, ADR 0911), which is where
-principle 2 says a driver's regression belongs. The four documents separate at 27, 31, 32 and 44
+device's own share is a figure of the bring-up gate (`bring_up_anon_mib`, ADR 0911), printed and
+not banded as this program's, and each row is judged beyond it (ADR 2667). The four documents separate at 27, 31, 32 and 44
 MiB where the old figure separated them by a tenth against a band 82 MiB wide.
 
 That answers the three things the merge left open, and two of them by removing the question:
@@ -164,7 +164,7 @@ owner's `A29` — "combining option 1 and 2 sounds good" — is what it was buil
 
 | what a launch clock contains | who owns it | the instrument |
 |---|---|---|
-| the work | this program | **`open_kinstructions`**, counted under callgrind, spread 0.00007% to 0.004% over five runs; and **`read_calls`**, `syscr`, identical on every run |
+| the work | this program | **`open_kinstructions`**, counted under callgrind in this program's own object (ADR 2666), spread 0.00007% to 0.004% over five runs; and **`read_calls`**, `syscr`, identical on every run |
 | the rate this machine executes it at today | the machine | the calibration probe, which over-reads it: +74% against the figure's +43% in a controlled arm |
 | the time the thread had no processor | a neighbour | `sched_info.run_delay`, counted exactly, **subtracted**; a figure that lost more than a tenth of itself to it is declined |
 | a cold open's round trips to the disk | the machine | **`io_latency_ms`**, a 128 KiB single-extent probe evicted beside every cold sample, where `io_ms` reads eight mebibytes and measures throughput |
