@@ -746,7 +746,7 @@ sentence saying the worker was not found (ADR 1616). `quorra-retrieve` is not a 
 text a caller pipes (ADR 0257).
 
 **`libviewer_ffi.so` and `libpdf_vfs_ffi.so` are there because a person links against them**: a C
-program with `include/quorra.h` and no `-L` pointing at `/home/AI` is the only way somebody outside
+program with `include/quorra.h` and no `-L` pointing at a build directory is the only way somebody outside
 this tree can try the ABI, and `kio/`'s CMake build takes the path to the second as a *required*
 variable rather than searching — a `find_library` would pick up a copy of another revision, which is
 what `quorra_vfs_abi_check` exists to make loud (ADR 0869).
@@ -777,7 +777,7 @@ The commands, which directory each takes and when, are `doc/environment.md`'s bu
 entry; the shape of all of them is a profile directory by name and never `tmp/`:
 
 ```sh
-rm -rf /home/AI/cargo-target/pdf-viewer-batch/debug   # at a batch boundary — never tmp/, see below
+rm -rf "$BATCH_TARGET_DIR/debug"   # tools/places.sh's name; at a batch boundary — never tmp/, see below
 ```
 
 `target/tmp/pdfref-cache` is the reference-render cache (ADR 0020), and deleting it costs the next
@@ -820,7 +820,7 @@ change.
   is filed under it: a file saying only that a number is unused is a record that says nothing.
   Review 1704's four gaps are each allocated and unused: 2205 (its slot's record, `doc/history/1685`,
   names ADR 2204 alone), 2238 and 2239 (their slot never ran, review 1704 says) and 2243 (ADR 2242's
-  opening declares it). **A path under `/home/AI/` or `scratchpad/` is
+  opening declares it). **A path under a machine's own directories or `scratchpad/` is
   never evidence**: a record, a review or an ADR names one only in a sentence saying the session
   "worked in" it, as a directory with its closing `/`, and the figure, comparison or receipt a claim rests on is a
   committed file or a command in the tree (ADR 2242 decision 4; `--test evidence` holds it from
@@ -894,7 +894,7 @@ memory of the session the quota ended. `tools/batch.sh` is the command; this is 
    `scratchpad/open/build.log`: write the briefs while it runs, and the rounds find it warm rather
    than six of them meeting it cold behind one lock (ADR 1451). It then starts `tools/batch.sh
    arms`, detached, into `scratchpad/open/arms.log`: HEAD's six corpus arms, digest by page, into
-   `/home/AI/arms-<first>/`, which a pixels round compares against and never exports (ADR 1650). A
+   `$BATCH_ARMS_ROOT/arms-<first>/` (`tools/places.sh`), which a pixels round compares against and never exports (ADR 1650). A
    round's record and ADRs say it compared "against HEAD's six arms (`tools/batch.sh arms`)" and
    name no path for them, because a path outside the tree is never the evidence (ADR 2260).
 2. **Brief each round with the ledger rows it must close — by number, never by topic — from
@@ -949,7 +949,7 @@ memory of the session the quota ended. `tools/batch.sh` is the command; this is 
    bands re-taken by ADR 1969's rule or its instrument recalibrated before the merge; *the batch's* —
    the cause is fixed or the change taken back; *none shown* — a `Q` to the owner and the batch held.
    What a record, an ADR or this commit claims rests on evidence in the tree or reproduced by a
-   command in the tree; a path under `/home/AI/` or `scratchpad/` is a pointer for the session that
+   command in the tree; a path under a machine's own directories or `scratchpad/` is a pointer for the session that
    wrote it, never the evidence. The paragraph above states every round's duration *and* tool uses.
 5. **Commit in the worktree, then fast-forward `main` — from the main checkout,
    `git merge --ff-only <branch>`, never from inside the
@@ -978,7 +978,7 @@ memory of the session the quota ended. `tools/batch.sh` is the command; this is 
 7. **When a quota kills a batch mid-flight**, the notification's last visible line ("I'll start by
    reading…") is the round's *first* message, not its last act. One batch's six rounds
    died with 967 insertions across 21 files, a finished record, an ADR and an
-   unbuildable crate in the worktree. Before relaunching: `git -C /home/AI/pdf-viewer-rounds
+   unbuildable crate in the worktree. Before relaunching: `git -C "$BATCH_WORKTREE"
    status --short` and `cargo check --workspace --all-targets`; and `ps -eo pid,etime,args | grep -E
    'xargs|bounded.sh|examples/'` for **launchers the dead process left running** — three `xargs`
    feeders of a crawl census outlived the 2026-09-15 crash and kept starting a pre-fix binary

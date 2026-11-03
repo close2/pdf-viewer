@@ -15,7 +15,7 @@
 # 1440). One directory for every batch rather than one each, because the worktree's path is the
 # same every batch, so the second batch finds it warm and a cold build is paid once.
 #
-#   tools/batch.sh open  batch-1038-1043   # worktree at /home/AI/pdf-viewer-rounds, guard on
+#   tools/batch.sh open  batch-1038-1043   # worktree at $BATCH_WORKTREE, guard on
 #   tools/batch.sh gates --merge           # the merge's tiers 2 and 3, one line per gate, into batch-gates.log
 #   tools/batch.sh raster-examples         # CI's raster examples with --check under Xvfb (one gate of those)
 #   tools/batch.sh arms [<dir>]            # HEAD's six corpus arms, by page, once a batch (open runs it)
@@ -44,8 +44,11 @@
 set -euo pipefail
 
 root=$(dirname "$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --path-format=absolute --git-common-dir)")
-wt=${BATCH_WORKTREE:-/home/AI/pdf-viewer-rounds}
-log=${BATCH_GATES_LOG:-/home/AI/batch-gates.log}
+# Every machine-local place below is `tools/places.sh`'s, each overridable by the environment
+# (ADR 2656).
+. "$(dirname "${BASH_SOURCE[0]}")/places.sh"
+wt=$BATCH_WORKTREE
+log=$BATCH_GATES_LOG
 
 # Every subcommand runs under the agent's task budget, RLIMIT_NPROC, read from `tools/bounded.sh`,
 # where the figure is written once: `gates`, `open`'s warm-up, the raster examples and `install`
@@ -63,7 +66,7 @@ task_budget=$("$(dirname "${BASH_SOURCE[0]}")/bounded.sh" --task-budget)
 # so `open` says it before the worktree exists and `close` after the worktree is gone. The rule
 # is in KiB (`du -sk`) so a test can plant a tree over a smaller one (ADR 1526).
 debug_over_the_rule() {
-    local target=${BATCH_TARGET_DIR:-/home/AI/cargo-target/pdf-viewer-batch}
+    local target=$BATCH_TARGET_DIR
     local rule=${BATCH_DEBUG_RULE_KIB:-104857600} size
     [ -d "$target/debug" ] || return 0
     size=$(du -sk "$target/debug" 2>/dev/null | cut -f1)
@@ -82,7 +85,7 @@ open_batch() {
     if git -C "$wt" check-ignore -q .cargo/config.toml; then
         mkdir -p "$wt/.cargo"
         printf '[build]\ntarget-dir = "%s"\n' \
-            "${BATCH_TARGET_DIR:-/home/AI/cargo-target/pdf-viewer-batch}" > "$wt/.cargo/config.toml"
+            "$BATCH_TARGET_DIR" > "$wt/.cargo/config.toml"
     fi
     for r in doc/md doc/pdfa corpus-cache tmp fuzz/corpus fuzz/artifacts; do
         [ -e "$root/$r" ] || continue
@@ -137,7 +140,7 @@ detach() {
 # gate's own `--nocapture` output, and `<lane>-<scale>x.tsv`, the per-page `PDFVIEWER_RASTER_TIMES`
 # file whose fourth column is the frame's digest (ADR 1443) — the gate's printed output names only
 # the pages that differ from the oracle, so a comparison by page reads the second. Into
-# `/home/AI/arms-<first>/`, the batch's first session read off the branch name, or the directory
+# `$BATCH_ARMS_ROOT/arms-<first>/`, the batch's first session read off the branch name, or the directory
 # given; `README`'s first line names the commit, which is what keys the export.
 #
 # **It is HEAD's only if the tree is.** So it refuses a worktree holding anything uncommitted
@@ -163,7 +166,7 @@ export_arms() {
         branch=$(git -C "$wt" rev-parse --abbrev-ref HEAD)
         [[ "$branch" =~ ^batch-([0-9]+)-[0-9]+$ ]] ||
             { echo "arms: $branch does not name its first session as batch-<first>-<last>; give the directory"; return 1; }
-        out=${BATCH_ARMS_ROOT:-/home/AI}/arms-${BASH_REMATCH[1]}
+        out=$BATCH_ARMS_ROOT/arms-${BASH_REMATCH[1]}
     fi
     dirty=$(population | tr '\0' '\n') || { echo "arms: cannot read $wt's status — nothing exported"; return 1; }
     [ -z "$dirty" ] || {
@@ -202,7 +205,7 @@ export_arms() {
 # hold found complete, whose `released` line is its first hold's — is left as it is, and a hold on
 # no line of the log is said rather than left out.
 arms_released() {
-    local out=$1 commit=$2 asked=$3 log=${HEAVY_WALK_LOG:-/home/AI/heavy-walk.log} words line
+    local out=$1 commit=$2 asked=$3 log=$HEAVY_WALK_LOG words line
     [ -f "$out/README" ] && ! grep -q '^released ' "$out/README" || return 0
     # The command as the wrapper words it on its line, cut where it cuts it, so a long path matches.
     words=$(printf '%s ' "$wt/tools/batch.sh" arms-held "$out" "$commit" "$asked" | tr '\n\t' '  ' | cut -c1-200)
@@ -993,7 +996,7 @@ stamp_sources() {
 #     as `--patch <file>`, the round's own hunks of it applied to HEAD's copy, never the worktree's
 #     copy with a sibling's edits in it (trap 153). Every other changed path stays HEAD's, and the
 #     record counts them.
-#   - **Its own target directory**, `/home/AI/cargo-target/r<session>-<name>`, named in the export's
+#   - **Its own target directory**, `$BATCH_EXPORT_TARGET_ROOT/r<session>-<name>`, named in the export's
 #     own `.cargo/config.toml`, which cargo reads before the worktree's (traps 50, 129).
 #   - **A seed, if asked for, copied before the sources are stamped** (`--seed <build directory>`):
 #     the artefacts of a directory the batch's siblings rebuilt are newer than sources extracted
@@ -1028,7 +1031,7 @@ export_round() {
     done
     [[ "$name" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "export: --as $name is not a name of lower-case letters, digits and dashes"; return 1; }
     local out="$wt/scratchpad/r$session/$name" record="$wt/scratchpad/r$session/$name.export"
-    local target="${BATCH_EXPORT_TARGET_ROOT:-/home/AI/cargo-target}/r$session-$name"
+    local target="$BATCH_EXPORT_TARGET_ROOT/r$session-$name"
     local commit; commit=$(git -C "$wt" rev-parse HEAD)
     local changed; changed=$(population | tr '\0' '\n') || { echo "export: cannot read $wt's status — nothing exported"; return 1; }
     # Every named path is checked before anything is written, so a refusal leaves the last export.

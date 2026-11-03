@@ -23,7 +23,9 @@ set -euo pipefail
 # directory orphaned — and a `close` trusted the same wrong root. The common git directory is
 # the one path all worktrees share, and the main tree is its parent.
 root=$(dirname "$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --path-format=absolute --git-common-dir)")
-builds=/home/AI/cargo-target
+# Every round's build directory is made under `tools/places.sh`'s root for them (ADR 2656).
+. "$(dirname "${BASH_SOURCE[0]}")/places.sh"
+builds=$PDF_VIEWER_BUILDS
 
 # The gitignored data every gate reads. Symlinked rather than copied: `doc/md` alone is large, the
 # corpora are submodules, and a round has no business writing to any of them.

@@ -25,7 +25,7 @@ and the soft-mask/`AIS` question was settled by ADR 0066 on 2026-08-18, while `P
 on calling all four open. Every one is corrected at its site.
 
 **Two documents of ours live in their tree, by the owner's instruction** (2026-08-22 and
-2026-08-23): `/home/cl/projects/pdf-viewer/doc/QUORRA_GLYPH_PHASE_CARRY.md` and
+2026-08-23): the viewer's `doc/QUORRA_GLYPH_PHASE_CARRY.md` and
 `QUORRA_CLIP_LANE_AND_UPLOAD.md` — the second answers their §36, §33 and §31 and **asks them
 three questions**, of which the first (is `alpha_is_shape` set on any group of
 `22060_A1_01_Plans.pdf`?) blocks ADR 0074's remaining half. Written there rather than drafted
@@ -161,7 +161,7 @@ gate cannot even be built against their pin. Their adoption of ADR 0048 is done 
 on a push from this side, which reverses who is holding the round up.
 
 **What the caller must do to take it** is written for them in
-`/home/cl/projects/pdf-viewer/doc/QUORRA_UPGRADE.md` and, for the retained encode,
+the viewer's `doc/QUORRA_UPGRADE.md` and, for the retained encode,
 `QUORRA_RETAINED_FRAME.md`. Their `doc/QUORRA_FEEDBACK.md` is the other half of that
 conversation and is worth reading before answering anything in it: a heading there can be
 stale in either direction, and §13 sat marked *open* for eleven of their rounds after
@@ -696,18 +696,18 @@ names.
 
 ## Running the caller's corpus
 
-Never build in `/home/cl/projects/pdf-viewer` and never edit it: the owner works there, and
+Never build in the viewer's main checkout and never edit it: the owner works there, and
 its `[patch]` and lock are often their work in progress. Copy it instead —
 
 ```
 rsync -a --exclude=target --exclude=corpus-cache --exclude=fuzz --exclude=tmp \
       --exclude=.git --exclude='doc/pdf.js/.git' --exclude=.claude \
-      /home/cl/projects/pdf-viewer/ <dir>/viewer/
+      <main checkout>/ <dir>/viewer/
 ```
 
 — the excludes are not optional (that tree is 100 GB). `--exclude=.claude` because that
 tree's `.claude/worktrees/` holds other agents' build dirs, which reached 15 GB and was
-still growing when it was learned; `<dir>` under `/home/AI` rather than the `/tmp`
+still growing when it was learned; `<dir>` under `$PDF_VIEWER_SCRATCH` (`tools/places.sh`) rather than the `/tmp`
 scratchpad, because that tmpfs has run out mid-copy and the copy is about 537 MB. Then
 append a `[patch."https://github.com/close2/quorra"]` block pointing `quorra`, `raster-gpu`
 and `raster-scene` at `crates/*` here, and run
@@ -1089,7 +1089,7 @@ slope (`doc/notes-ceilings-audit.md` §2). Release **wraps**: `[profile.release]
 **A cross-worktree build can fail with another worktree's *source* in the error.** A `cargo test`
 failed with `E0027: missing field 'stencil' in Command::Image` against a field that exists nowhere
 in that worktree or at `HEAD`, and twice more with a `RenderError` variant that had just been
-added being "not found"; a sibling agent was building into `/home/AI/cargo-target/quorra` at the
+added being "not found"; a sibling agent was building into `$PDF_VIEWER_BUILDS/quorra` at the
 time, and re-running succeeded with no file changed. The existing shared-target-dir trap covers a
 stale *binary*; this is the same hazard producing a stale *compile error*, which reads like a
 defect in your own tree. Re-run before believing an error that names a symbol you cannot find,
@@ -1114,7 +1114,7 @@ believing a green run**, especially in the shared target dir, and touch the tree
 has just landed. A count is exact where a duration is not — the same seam ADR 0052 drew.
 
 **A clippy run that says "Finished" may not have looked at your file.** Eight edited test
-files in the shared `/home/AI/cargo-target/quorra`, and `RUSTFLAGS=-D warnings cargo clippy
+files in the shared `$PDF_VIEWER_BUILDS/quorra`, and `RUSTFLAGS=-D warnings cargo clippy
 --workspace --all-targets` reported clean while five of them held an unused import — which
 failed the moment the files were `touch`ed. Before believing a green gate on a fresh edit,
 check that cargo printed `Checking <crate>` and not only `Finished`. Clippy *does* lint
@@ -1127,7 +1127,7 @@ failing one both end in doctests. Redirect to a file and read cargo's own status
 `pipefail`; a status read through a pipe is not evidence that a suite passed.
 
 **The shared cargo target dir is not yours alone.** Sibling agents in other worktrees build
-the same crate and example names into `/home/AI/cargo-target/quorra`, and
+the same crate and example names into `$PDF_VIEWER_BUILDS/quorra`, and
 `release/examples/<name>` is whoever linked last. A measurement round was published from
 another tree's binary and only caught because its counters were impossible. Anything you read
 numbers from gets its own `CARGO_TARGET_DIR`; `cargo build` reporting "Compiling" is not
@@ -1139,7 +1139,7 @@ target dir per purpose reads as 0 % hits and a 27 s build where the same build a
 stable dir is 100 % and 4 s. Across worktrees the cache already shares at ~97 %, and
 `--remap-path-prefix` with a per-checkout value makes it *worse* — differing values took the
 same cross-worktree build from 2 misses to 121. One stable target dir per user (the untracked
-`.cargo/config.toml` here pins `/home/AI/cargo-target/quorra`), shared across worktrees when
+`.cargo/config.toml` here pins `$PDF_VIEWER_BUILDS/quorra`), shared across worktrees when
 builds are sequential.
 
 **`pgrep -f "<your own command>"` in an `until` loop never exits**, because the loop's own

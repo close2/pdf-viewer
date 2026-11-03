@@ -58,11 +58,11 @@
 //! The second test holds every heavy script under `tools/` to that figure.
 //!
 //! **A lock nobody logged is a wait nobody can count.** `tools/bounded.sh --lock` writes one line
-//! per hold of the heavy-walk lock into `/home/AI/heavy-walk.log`, and `tools/state.sh gates-cost`
-//! reads the batch's queue off those lines; a tool that takes the lock with a bare `flock` holds it
-//! on no line, which is how the merge's gates and the arms export each held it for half an hour
-//! unrecorded (ADR 1662). The third test holds every script under `tools/` but the wrapper, and the
-//! rule line `doc/environment.md` gives the rounds, to taking it through `--lock`.
+//! per hold of the heavy-walk lock into `$HEAVY_WALK_LOG` (`tools/places.sh`), and `tools/state.sh
+//! gates-cost` reads the batch's queue off those lines; a tool that takes the lock with a bare
+//! `flock` holds it on no line, which is how the merge's gates and the arms export each held it for
+//! half an hour unrecorded (ADR 1662). The third test holds every script under `tools/` but the
+//! wrapper, and the rule line `doc/environment.md` gives the rounds, to taking it through `--lock`.
 //!
 //! **A lane is granted on what a run declared**, never on what it turns out to peak at, so every
 //! `--lock` a person or a script is told to run says its kind: `--tree` (6 GiB or less a small walk,
@@ -238,10 +238,10 @@ fn bare_locks(source: &str) -> Vec<(usize, String)> {
 /// `exec`, and inside a command substitution, and passes a comment and the wrapper's own spelling.
 #[test]
 fn every_lock_a_tool_takes_is_taken_by_the_wrapper_that_logs_it() {
-    let planted = "# flock /home/AI/heavy-walk.lock is the old spelling\n\
-                   out=$(flock /home/AI/heavy-walk.lock sh -c true)\n\
+    let planted = "# flock ~/scratch/agent/heavy-walk.lock is the old spelling\n\
+                   out=$(flock \"$HEAVY_WALK_LOCK\" sh -c true)\n\
                    tools/bounded.sh --lock --round 1 -- true\n\
-                   exec {lock}>/home/AI/heavy-walk.lock; flock \"$lock\"\n\
+                   exec {lock}>/srv/agent/heavy-walk.lock; flock \"$lock\"\n\
                    \x20   flock -n 9\n";
     let found: Vec<usize> = bare_locks(planted).iter().map(|(line, _)| *line).collect();
     assert_eq!(found, [2, 4, 5], "the reader is not the shape it states");
@@ -287,7 +287,7 @@ fn every_lock_a_tool_takes_is_taken_by_the_wrapper_that_logs_it() {
         .join("\n");
     assert!(
         rule.contains("tools/bounded.sh --lock --round <session>")
-            && !rule.contains("flock /home/AI/heavy-walk.lock"),
+            && !rule.lines().any(spells_a_bare_lock),
         "doc/environment.md's rule line does not spell the lock as `tools/bounded.sh --lock \
          --round <session>`, or still runs a bare `flock`:\n{rule}"
     );
@@ -454,8 +454,9 @@ fn the_lock_cost_takes_a_suspend_off_the_line_it_was_inside() {
 }
 
 /// Whether `line` tells a person to take the heavy-walk lock with `flock` on the lock's path, as
-/// `flock /home/AI/heavy-walk.lock <command>` — options between the two allowed — rather than
-/// through `tools/bounded.sh --lock`.
+/// `flock ~/scratch/agent/heavy-walk.lock <command>` or `flock "$HEAVY_WALK_LOCK" <command>` —
+/// options between the two allowed, the path spelled as a file or as `tools/places.sh`'s name for
+/// it (ADR 2656) — rather than through `tools/bounded.sh --lock`.
 fn spells_a_bare_lock(line: &str) -> bool {
     let words: Vec<&str> = line.split_whitespace().collect();
     words.iter().enumerate().any(|(at, word)| {
@@ -469,8 +470,11 @@ fn spells_a_bare_lock(line: &str) -> bool {
                 .skip(at.saturating_add(1))
                 .find(|next| !next.starts_with('-'))
                 .is_some_and(|path| {
-                    path.trim_matches(|c: char| matches!(c, '`' | '"' | '\'' | ')' | ';' | ','))
-                        .ends_with("heavy-walk.lock")
+                    let path = path
+                        .trim_matches(|c: char| matches!(c, '`' | '"' | '\'' | ')' | ';' | ','));
+                    path.ends_with("heavy-walk.lock")
+                        || path == "$HEAVY_WALK_LOCK"
+                        || path == "${HEAVY_WALK_LOCK}"
                 })
     })
 }
@@ -490,10 +494,10 @@ const HELD_BARE_LOCK_INSTRUCTIONS: [&str; 0] = [];
 #[test]
 fn every_instruction_a_person_reads_spells_the_lock_as_the_wrapper() {
     for planted in [
-        "run it behind the lock, `flock /home/AI/heavy-walk.lock fuzz/seeds.sh`.",
-        "//! RAYON_NUM_THREADS=4 flock /home/AI/heavy-walk.lock tools/bounded.sh --data 12 -- \\",
-        "flock -n /home/AI/heavy-walk.lock true",
-        "out=$(flock \"/home/AI/heavy-walk.lock\" true)",
+        "run it behind the lock, `flock ~/scratch/agent/heavy-walk.lock fuzz/seeds.sh`.",
+        "//! RAYON_NUM_THREADS=4 flock /srv/agent/heavy-walk.lock tools/bounded.sh --data 12 -- \\",
+        "flock -n \"$HEAVY_WALK_LOCK\" true",
+        "out=$(flock \"${HEAVY_WALK_LOCK}\" true)",
     ] {
         assert!(spells_a_bare_lock(planted), "the reader passed {planted:?}");
     }

@@ -1,6 +1,6 @@
 //! A feasibility spike: is a §7.10.5 function a paint the device should evaluate?
 //!
-//! `/home/cl/projects/pdf-viewer/doc/QUORRA_FUNCTION_PAINT.md` asks for a paint whose
+//! This tree's `doc/QUORRA_FUNCTION_PAINT.md` asks for a paint whose
 //! colour is a small program, and says its section 3 — "a function-based shading is a
 //! fragment shader written in another language" — is an intuition rather than a
 //! number. This example is the number. It is **not** a library feature and nothing in

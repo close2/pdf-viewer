@@ -2,8 +2,8 @@
 //!
 //! `QUORRA_FUNCTION_PAINT.md` section 1 names both witnesses — "2580 bytes of PostScript
 //! calculator with `ifelse` branches driving a seven-segment display" and "1605
-//! computing π by the BBP series". They are tracked bytes in
-//! `/home/cl/projects/pdf-viewer/doc/corpora-own/`, and this reads the type 4 stream
+//! computing π by the BBP series". They are tracked bytes in this tree's
+//! `doc/corpora-own/`, and this reads the type 4 stream
 //! straight out of them so the spike measures *their* programs and not a plausible
 //! imitation of them. Nothing is written to that tree, and nothing is vendored into
 //! this one.
@@ -38,10 +38,16 @@ pub(crate) const WITNESSES: [Witness; 2] = [
     },
 ];
 
-/// Where the corpus is, overridable so the spike is not welded to one machine.
+/// Where the corpus is: this tree's own `doc/corpora-own/`, found from the crate's manifest so the
+/// spike names no machine's directory, and overridable to read another checkout's.
 pub(crate) fn root() -> PathBuf {
     std::env::var_os("QUORRA_FUNCTION_PAINT_CORPUS").map_or_else(
-        || PathBuf::from("/home/cl/projects/pdf-viewer/doc/corpora-own"),
+        || {
+            PathBuf::from(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../../doc/corpora-own"
+            ))
+        },
         PathBuf::from,
     )
 }

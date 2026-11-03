@@ -17,7 +17,7 @@ A 2D renderer for documents, in Rust, on wgpu. The one-sentence brief, quoted fr
 
 ## Who our caller is, and what that means
 
-The consuming project is the PDF viewer at `/home/cl/projects/pdf-viewer`. Its
+The consuming project is the PDF viewer, this repository above `raster/`. Its
 `pdf-render` crate defines a display list and a `Rasterizer` trait; **that is the
 contract, and it does not change for us.** Three consequences that shape everything
 here:
@@ -300,7 +300,7 @@ written in prose is a non-goal that arrives as a transitive dependency.
   enough.** Same-adapter determinism stays arranged by construction — it is free and
   load-bearing — and a cross-adapter or CPU-versus-device difference is a tolerance to
   state and bound rather than a defect or a crisis. §11's question 4 is retired by it.
-- The sibling checkout at `/home/cl/projects/pdf-viewer` is the caller, the oracle and
+- The PDF viewer's tree above `raster/` is the caller, the oracle and
   the source of every measurement quoted here. It is not a dependency of this
   workspace and this workspace is not a dependency of it — the two are wired together
   only when the viewer's `render-gpu` is replaced, which is the last milestone, not the

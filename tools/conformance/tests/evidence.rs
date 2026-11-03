@@ -3,11 +3,12 @@
 //! # The rule
 //!
 //! ADR 2242 decision 4: what a claim rests on is in the tree, or is reproduced by a command in the
-//! tree. A path under `/home/AI/` or `scratchpad/` is a pointer for the session that wrote it and
-//! never the evidence — the owner cannot read the one (`doc/environment.md`, "The machine, the
-//! account and the display"), and the other is gone by the next batch. Review 1704 section 1.5
-//! counted 63 lines of one span naming `/home/AI/`, and every relative `scratchpad/r16xx/` path its
-//! ADRs cited had already gone.
+//! tree. A path under a machine's own directories or under `scratchpad/` is a pointer for the
+//! session that wrote it and never the evidence — the one is on one machine only, and may be under an
+//! account the owner cannot read (`doc/environment.md`, "The machine, the account and the display"),
+//! and the other is gone by the next batch. Review 1704 section 1.5 counted 63 lines of one span
+//! naming the notebook agent's home directory, and every relative `scratchpad/r16xx/` path its ADRs
+//! cited had already gone.
 //!
 //! **A path may still be named as where a session worked**, and the check tells the two uses apart
 //! by the sentence's own words, so a reader can too: a sentence that names such a path is a
@@ -26,6 +27,16 @@
 //! and ten on, numbered by session from [`SESSIONS_FROM`], and its ADRs from [`DECISIONS_FROM`].
 //! A batch commit's message is under the same rule and is not in the tree for a test to read
 //! (`doc/todo/02` section 8 step 4 carries it).
+//!
+//! # Why each marker starts at a number of its own
+//!
+//! The same reason, a second time. The first markers were the notebook's: its agent's home
+//! directory and `scratchpad/`. When the tools stopped naming any home directory and took their
+//! places from `tools/places.sh` (ADR 2656), what a new record would name outside the tree became any
+//! home or scratch directory, `~/`, or a variable of that file — and a record written before then may
+//! name `~/.claude/…` as the configuration it describes, under no rule that existed. So each marker
+//! is held from the first session and the first ADR after it was added, [`OUTSIDE`] says which, and
+//! the records already held under the first markers stay held under them.
 
 #![expect(
     clippy::print_stdout,
@@ -47,8 +58,48 @@ const POPULATION: [(&str, u32); 3] = [
     ("doc/adr", DECISIONS_FROM),
 ];
 
-/// What marks a path that is not in the tree.
-const OUTSIDE: [&str; 2] = ["/home/AI/", "scratchpad/"];
+/// What marks a path that is not in the tree, with the first session and the first ADR whose
+/// documents it is held against.
+///
+/// A `$NAME/` marker is a root `tools/places.sh` defines, matched as `$NAME/` or `${NAME}/`; the
+/// calibration test holds each to a name that file assigns (trap 25).
+const OUTSIDE: [(&str, u32, u32); 10] = [
+    ("/home/AI/", SESSIONS_FROM, DECISIONS_FROM),
+    ("scratchpad/", SESSIONS_FROM, DECISIONS_FROM),
+    ("/home/", PLACES_FROM.0, PLACES_FROM.1),
+    ("/scratch/", PLACES_FROM.0, PLACES_FROM.1),
+    ("~/", PLACES_FROM.0, PLACES_FROM.1),
+    ("$HOME/", PLACES_FROM.0, PLACES_FROM.1),
+    ("$PDF_VIEWER_SCRATCH/", PLACES_FROM.0, PLACES_FROM.1),
+    ("$PDF_VIEWER_AGENT/", PLACES_FROM.0, PLACES_FROM.1),
+    ("$PDF_VIEWER_BUILDS/", PLACES_FROM.0, PLACES_FROM.1),
+    ("$BATCH_ARMS_ROOT/", PLACES_FROM.0, PLACES_FROM.1),
+];
+
+/// The first session and the first ADR held against the markers `tools/places.sh` made necessary:
+/// the round that wrote it, and its ADR (ADR 2656).
+const PLACES_FROM: (u32, u32) = (1911, 2656);
+
+/// The markers a document is held against: each whose first number the document's reaches.
+fn markers_for(directory: &str, number: u32) -> Vec<&'static str> {
+    OUTSIDE
+        .iter()
+        .filter(|(_, sessions, decisions)| {
+            number
+                >= if directory == "doc/adr" {
+                    *decisions
+                } else {
+                    *sessions
+                }
+        })
+        .map(|(marker, _, _)| *marker)
+        .collect()
+}
+
+/// Every marker, as the newest document is held against them.
+fn every_marker() -> Vec<&'static str> {
+    markers_for("doc/history", u32::MAX)
+}
 
 /// The words that make a sentence say where a session worked.
 const WORKED: [&str; 2] = ["worked in ", "worked under "];
@@ -66,9 +117,9 @@ enum Use {
 
 /// The paths outside the tree a sentence names, as written, with the quoting around them removed.
 ///
-/// A marker on its own — `scratchpad/`, `/home/AI/` — names the kind of place and points at
-/// nothing, which is how this rule itself is written down, so it is not one of them.
-fn outside_paths(sentence: &str) -> Vec<String> {
+/// A marker on its own — `scratchpad/`, `~/`, `$PDF_VIEWER_AGENT/` — names the kind of place and
+/// points at nothing, which is how this rule itself is written down, so it is not one of them.
+fn outside_paths(sentence: &str, markers: &[&str]) -> Vec<String> {
     sentence
         .split_whitespace()
         .map(|word| {
@@ -76,16 +127,38 @@ fn outside_paths(sentence: &str) -> Vec<String> {
                 .to_owned()
         })
         .filter(|word| {
-            OUTSIDE
-                .iter()
-                .any(|marker| word.contains(marker) && word != marker)
+            let unbraced = unbraced(word);
+            !markers.contains(&unbraced.as_str())
+                && markers.iter().any(|marker| unbraced.contains(marker))
         })
         .collect()
 }
 
-/// What one sentence does with the paths outside the tree it names.
-fn use_of(sentence: &str) -> Use {
-    let paths = outside_paths(sentence);
+/// A word with each `${NAME}` written as `$NAME`, so that both spellings of a variable meet one
+/// marker.
+fn unbraced(word: &str) -> String {
+    let mut out = String::with_capacity(word.len());
+    let mut rest = word;
+    while let Some(at) = rest.find("${") {
+        let (before, after) = rest.split_at(at);
+        out.push_str(before);
+        let name = &after[2..];
+        if let Some(end) = name.find('}') {
+            out.push('$');
+            out.push_str(&name[..end]);
+            rest = &name[end.saturating_add(1)..];
+        } else {
+            out.push_str(after);
+            rest = "";
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// What one sentence does with the paths outside the tree it names, read against `markers`.
+fn use_of(sentence: &str, markers: &[&str]) -> Use {
+    let paths = outside_paths(sentence, markers);
     let Some(first) = paths.first() else {
         return Use::None;
     };
@@ -147,7 +220,7 @@ fn sentences(text: &str) -> Vec<(usize, String)> {
     reason = "test code: a gate that cannot read the records has not found a defect, and \
               reporting that as one would be worse than stopping"
 )]
-fn population() -> (usize, Vec<(&'static str, String, String)>) {
+fn population() -> (usize, Vec<(&'static str, u32, String, String)>) {
     let root = conformance::workspace_root();
     let mut walked = 0usize;
     let mut found = Vec::new();
@@ -173,7 +246,7 @@ fn population() -> (usize, Vec<(&'static str, String, String)>) {
                 continue;
             }
             let text = std::fs::read_to_string(&path).expect("a record's text");
-            found.push((directory, name, text));
+            found.push((directory, number, name, text));
         }
     }
     found.sort_unstable();
@@ -186,9 +259,10 @@ fn no_record_since_the_rule_rests_on_a_path_outside_the_tree() {
     let (walked, documents) = population();
     let mut refused = String::new();
     let mut workplaces = 0usize;
-    for (directory, name, text) in &documents {
+    for (directory, number, name, text) in &documents {
+        let markers = markers_for(directory, *number);
         for (line, sentence) in sentences(text) {
-            match use_of(&sentence) {
+            match use_of(&sentence, &markers) {
                 Use::None => {}
                 Use::Workplace => workplaces = workplaces.saturating_add(1),
                 Use::Evidence(path) => {
@@ -251,8 +325,13 @@ fn the_evidence_check_is_calibrated_against_planted_sentences() {
             Use::Evidence("/home/AI/arms-9999/README".to_owned()),
         ),
     ];
+    let markers = every_marker();
     for (sentence, expected) in planted {
-        assert_eq!(use_of(sentence), expected, "planted sentence: {sentence}");
+        assert_eq!(
+            use_of(sentence, &markers),
+            expected,
+            "planted sentence: {sentence}"
+        );
     }
 
     // A workplace in one list item does not license a path in the next, nor one sentence another.
@@ -261,7 +340,7 @@ fn the_evidence_check_is_calibrated_against_planted_sentences() {
                 in `/home/AI/x/`.\n";
     let uses: Vec<Use> = sentences(text)
         .into_iter()
-        .map(|(_, sentence)| use_of(&sentence))
+        .map(|(_, sentence)| use_of(&sentence, &markers))
         .filter(|found| *found != Use::None)
         .collect();
     assert_eq!(
@@ -275,4 +354,78 @@ fn the_evidence_check_is_calibrated_against_planted_sentences() {
     );
     let lines: Vec<usize> = sentences(text).into_iter().map(|(line, _)| line).collect();
     assert_eq!(lines.first(), Some(&1), "{lines:?}");
+}
+
+/// The markers `tools/places.sh` made necessary, each in the spellings a record would use, and
+/// held only from the session and the ADR that added them (ADR 2657; trap 13).
+#[test]
+fn the_markers_the_places_file_added_are_held_from_their_round() {
+    let markers = every_marker();
+    let places = [
+        (
+            "The arms held by page against `~/scratch/agent/arms-9999/`.",
+            "~/scratch/agent/arms-9999/",
+        ),
+        (
+            "The receipt is /home/somebody/scratch/agent/batch-gates.log.",
+            "/home/somebody/scratch/agent/batch-gates.log",
+        ),
+        (
+            "The receipt is /scratch/somebody/cargo-target/r9999-head/x.txt.",
+            "/scratch/somebody/cargo-target/r9999-head/x.txt",
+        ),
+        (
+            "The six arms held against `${PDF_VIEWER_AGENT}/arms-9999/`.",
+            "${PDF_VIEWER_AGENT}/arms-9999/",
+        ),
+        (
+            "The figures are in `$BATCH_ARMS_ROOT/arms-9999/README`.",
+            "$BATCH_ARMS_ROOT/arms-9999/README",
+        ),
+        ("The log is `$HOME/x.log`.", "$HOME/x.log"),
+    ];
+    for (sentence, path) in places {
+        assert_eq!(
+            use_of(sentence, &markers),
+            Use::Evidence(path.to_owned()),
+            "planted sentence: {sentence}"
+        );
+        assert_eq!(
+            use_of(sentence, &markers_for("doc/history", PLACES_FROM.0 - 1)),
+            Use::None,
+            "a record from before the marker was added is held to it: {sentence}"
+        );
+        assert_eq!(
+            use_of(sentence, &markers_for("doc/adr", PLACES_FROM.1 - 1)),
+            Use::None,
+            "an ADR from before the marker was added is held to it: {sentence}"
+        );
+    }
+    for bare in [
+        "A path under `$PDF_VIEWER_AGENT/`, `${PDF_VIEWER_BUILDS}/` or `~/` is never the evidence.",
+        "A path under `/home/AI/` or `/home/` is never the evidence.",
+        "The session worked in `~/scratch/agent/arms-9999/`.",
+    ] {
+        assert!(
+            matches!(use_of(bare, &markers), Use::None | Use::Workplace),
+            "planted sentence: {bare}"
+        );
+    }
+
+    // Each `$NAME/` marker is a place `tools/places.sh` assigns, so that none names a variable
+    // that never existed (trap 25).
+    let places_sh = std::fs::read_to_string(conformance::workspace_root().join("tools/places.sh"))
+        .unwrap_or_default();
+    for (marker, _, _) in OUTSIDE {
+        let Some(name) = marker
+            .strip_prefix('$')
+            .and_then(|rest| rest.strip_suffix('/'))
+        else {
+            continue;
+        };
+        assert!(
+            name == "HOME" || places_sh.contains(&format!(": \"${{{name}:=")),
+            "the marker {marker} names no place tools/places.sh assigns"
+        );
+    }
 }

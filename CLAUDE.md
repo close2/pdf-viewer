@@ -39,12 +39,14 @@ section disagree about the machine, **this section is the machine**. The rules a
 - **Processor and memory**: CPUs `0-31` of one EPYC socket, NUMA node 0, in slice
   `user-1001.slice` (`Delegate=yes`, nested cgroup v2 bounds work); memory capped at 92 GiB
   (`MemoryHigh=88G`) with **no swap** — a walk past the cap is killed, not slowed.
-- **Storage**: `/` (NVMe, shared, 250 GiB) holds the checkout; `~/scratch` (`/scratch/quorra`, a
-  1.5 TiB rotating disk) holds what is large or temporary — `~/scratch/sccache` (`$SCCACHE_DIR`,
-  50 GiB cap), `~/scratch/cargo-target` (secondary and export build directories, corpora, fuzz
-  corpora, census outputs, extra worktrees), `~/scratch/handover` (the notebook's handover).
-  Linking is `clang` + `mold` (`~/.cargo/config.toml`). `df -h / ~/scratch` before a cold build:
-  the NVMe is shared and nearly full.
+- **Storage — anything big goes under `~/scratch`, never on `/`.** `/` (NVMe, 250 GiB) is shared
+  with the other users and the system, and it holds the checkout and little else. `~/scratch`
+  (`/scratch/quorra`, a 1.5 TiB rotating disk) holds everything large or temporary: build
+  directories (`~/scratch/cargo-target`, which `~/.cargo/config.toml`'s `target-dir` names),
+  `~/scratch/sccache` (`$SCCACHE_DIR`, 50 GiB cap), worktrees, corpora and the corpus cache, fuzz
+  corpora, census and conversion outputs, arms exports, and `~/scratch/handover` (the notebook's
+  handover). A command that will write gigabytes is pointed at `~/scratch` before it starts;
+  `df -h / ~/scratch` is the check. Linking is `clang` + `mold` (`~/.cargo/config.toml`).
 
 ## Non-negotiable principles
 

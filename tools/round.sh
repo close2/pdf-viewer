@@ -30,6 +30,8 @@ set -u -o pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$root" || exit 1
+# The machine-local places, `tools/places.sh`'s (ADR 2656).
+. "$root/tools/places.sh"
 
 status=0
 heading() { printf '\n== %s ==\n\n' "$1"; }
@@ -229,8 +231,9 @@ esac
 #
 # **The brief is the authority on its slots, and the branch's range only its first six.** A batch
 # may carry a seventh slot the branch was named before, so a session past the range is accepted
-# where the brief, `/home/AI/batch-<first>-brief.md` (`ROUND_BRIEF` names another), has a slot
-# heading ending `— session <n>`, and the slot it names is printed with the brief's path (ADR 1983).
+# where the brief, `$ROUND_BRIEFS/batch-<first>-brief.md` (`tools/places.sh`; `ROUND_BRIEF` names
+# another), has a slot heading ending `— session <n>`, and the slot it names is printed with the
+# brief's path (ADR 1983).
 assigned_by=
 brief_slot=
 case "$branch" in
@@ -238,7 +241,7 @@ case "$branch" in
         batch_first=${branch#batch-}; batch_first=${batch_first%%-*}
         batch_last=${branch##*-}
         assigned_by="the branch $branch holds sessions $batch_first to $batch_last"
-        brief=${ROUND_BRIEF:-/home/AI/batch-$batch_first-brief.md}
+        brief=${ROUND_BRIEF:-$ROUND_BRIEFS/batch-$batch_first-brief.md}
         ;;
 esac
 if [ -n "${ROUND_SESSION:-}" ]; then

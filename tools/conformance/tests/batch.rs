@@ -148,8 +148,9 @@ impl Sandbox {
             )
             .expect("a planted artefact");
         }
-        // `tools/bounded.sh` beside it, because the script reads the agent's task budget there.
-        for script in ["tools/batch.sh", "tools/bounded.sh"] {
+        // `tools/bounded.sh` beside it, because the script reads the agent's task budget there, and
+        // `tools/places.sh`, which both read the machine-local places from (ADR 2656).
+        for script in ["tools/batch.sh", "tools/bounded.sh", "tools/places.sh"] {
             std::fs::copy(repository_root().join(script), sandbox.repo().join(script))
                 .expect("the scripts copy");
         }
@@ -195,6 +196,17 @@ impl Sandbox {
             .current_dir(directory)
             .env("BATCH_WORKTREE", self.worktree())
             .env("BATCH_TARGET_DIR", self.target())
+            // Every other machine-local place `tools/places.sh` defines falls under the sandbox: the
+            // roots are the sandbox's, and a caller's override of one place is not inherited, so a
+            // test writes no line into the machine's gate log and reads none of its arms (ADR 2656).
+            .env("PDF_VIEWER_SCRATCH", self.base.join("scratch"))
+            .env("PDF_VIEWER_AGENT", self.base.join("agent"))
+            .env("PDF_VIEWER_BUILDS", self.base.join("builds"))
+            .env_remove("BATCH_GATES_LOG")
+            .env_remove("BATCH_ARMS_ROOT")
+            .env_remove("BATCH_EXPORT_TARGET_ROOT")
+            .env_remove("ROUND_BRIEFS")
+            .env_remove("ROUND_BRIEF")
             // The throwaway workspace names its own build directory; an inherited one would put a
             // stand-in called `quorra` beside the real one.
             .env_remove("CARGO_TARGET_DIR")

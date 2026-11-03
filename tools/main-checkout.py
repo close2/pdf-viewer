@@ -25,7 +25,8 @@ derivation `tools/batch.sh` makes — so run from the main checkout itself it re
 `MAIN_CHECKOUT` names another, and `SECTION_SIGNS_BIN` the built scanner to run in place of `cargo
 run`, which is how the shape test reads a planted checkout without a nested build.
 `MAIN_CHECKOUT_AGENT_USER`, `MAIN_CHECKOUT_PROC` and `MAIN_CHECKOUT_CGROUP_ROOT` name the agent's
-account (a name or a uid), the process table and the cgroup hierarchy the agent's scope is read from.
+account (a name or a uid; the account running this script where unset, since no user name is a
+default — ADR 2656), the process table and the cgroup hierarchy the agent's scope is read from.
 """
 
 import os
@@ -516,7 +517,7 @@ def agent_tasks(proc, uid):
     return scopes
 
 
-def agent_scope(owed):
+def agent_scope(main, owed):
     """The cgroups the agent's processes run in, against the task and memory limits that would have
     held trap 116's incident (ADR 1612).
 
@@ -525,7 +526,7 @@ def agent_scope(owed):
     0798). A tab's limit files belong to the owner, who writes them without root; a session started
     in a scope of its own carries the limits from its launch. The scope is read from the processes,
     because the tab changes with every session."""
-    user = os.environ.get("MAIN_CHECKOUT_AGENT_USER", "AI")
+    user = os.environ.get("MAIN_CHECKOUT_AGENT_USER") or str(os.getuid())
     proc = os.environ.get("MAIN_CHECKOUT_PROC", "/proc")
     hierarchy = os.environ.get("MAIN_CHECKOUT_CGROUP_ROOT", "/sys/fs/cgroup")
     try:
@@ -543,14 +544,16 @@ def agent_scope(owed):
         lines.append(f"  scope:            {path} — {tasks} task(s); the tightest pids.max on its "
                      f"path {shown[0]}, memory.max {shown[1]}")
     if unbounded:
+        # `sudo -u` reads a uid only as `#<uid>`.
+        sudo_user = f"'#{user}'" if user.isdigit() else user
         writes = " && ".join(f"echo {AGENT_TASKS} > '{hierarchy}{path}/pids.max' && echo "
                              f"{AGENT_MEMORY_GIB}G > '{hierarchy}{path}/memory.max'"
                              for path in unbounded)
         owe(owed, BOUND, f"bound the agent's scope at {AGENT_TASKS} tasks and {AGENT_MEMORY_GIB} "
             f"GiB, as yourself, who owns the files: `{writes}`; or start the next session in a scope "
             f"of its own: `systemd-run --user --scope -p TasksMax={AGENT_TASKS} -p MemoryHigh=36G "
-            f"-p MemoryMax={AGENT_MEMORY_GIB}G -p MemorySwapMax=4G sudo -u {user} bash -lc 'cd "
-            f"/home/cl/projects/pdf-viewer && claude'`")
+            f"-p MemoryMax={AGENT_MEMORY_GIB}G -p MemorySwapMax=4G sudo -u {sudo_user} bash -lc 'cd "
+            f"{main} && claude'`")
     return [f"agent's cgroup: {len(scopes)} scope(s) hold user {user}'s processes, "
             f"{len(unbounded)} with a limit above {AGENT_TASKS} tasks or {AGENT_MEMORY_GIB} GiB"] + lines
 
@@ -602,7 +605,7 @@ def main():
         print(line)
     for line in disk(main_dir, owed):
         print(line)
-    for line in agent_scope(owed):
+    for line in agent_scope(main_dir, owed):
         print(line)
     for line in owners_list(owed):
         print(line)

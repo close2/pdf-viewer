@@ -11,7 +11,7 @@ names; a round reads this block, and opens the section only where a line bites (
 
 - **One heavy walk on the machine at a time**, or two on the lock's two lanes, and you wait for
   it: `ulimit -u 8192; tools/bounded.sh --lock --round <session> --tree <GiB> -- <command>` —
-  the wrapper, never a bare `flock`, so the wait is a line of `/home/AI/heavy-walk.log` (ADR 1646)
+  the wrapper, never a bare `flock`, so the wait is a line of `$HEAVY_WALK_LOG` (ADR 1646)
   and the descriptor stays with the wrapper, which hands the command `HEAVY_WALK_HELD_BY` (ADR
   1674); a locked command runs at four rayon threads unless the caller set `RAYON_NUM_THREADS`
   (ADR 1766); `--data` never above 12 GiB. **The outermost wrapper declares the walk's kind**
@@ -165,7 +165,7 @@ names; a round reads this block, and opens the section only where a line bites (
   from every gate that walks it. `git checkout -- doc` is a third way in (session 720): a directory
   argument restores each submodule path under it as an empty directory, and `pdf-spec`'s build
   script then panics about a missing Arlington model with advice that would clone a second copy;
-  the repair is `rmdir` and `ln -s /home/cl/projects/pdf-viewer/doc/<each> doc/<each>`.
+  the repair is `rmdir` and `ln -s <main checkout>/doc/<each> doc/<each>`.
   `tools/worktree.sh` and `tools/batch.sh` set `--skip-worktree` on each linked submodule, and that
   is a second line, not a replacement: session 683 was bitten with the flag on. **Name the paths you
   mean**, and read `git commit`'s file list rather than trusting the command that produced it.
@@ -173,7 +173,7 @@ names; a round reads this block, and opens the section only where a line bites (
 ## The machine, the account and the display
 
 **Arch Linux. GPU: AMD Strix (Radeon 880M/890M, RDNA 3.5) — RADV. Session: X11.** The agent runs
-as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through the `coders` group.
+as user `AI` via `sudo -u AI`, reaching the owner's checkout through the `coders` group.
 **Hand a run on the real GPU to the user; everything else is testable here.**
 
 - **That sentence is about a *window*, not the adapter.** A **headless** quorra device needs no
@@ -211,7 +211,7 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
   (ADRs 1608, 1609).
 - KDE Frameworks 6 packages on Arch have no `kf6-` prefix (`kio`, `kconfig`, `ki18n`).
 - **Launch with a login shell** so `umask 002` applies, or every file the agent creates is
-  unwritable by `cl`: `sudo -u AI bash -lc 'cd /home/cl/projects/pdf-viewer && claude'`
+  unwritable by `cl`: `sudo -u AI bash -lc 'cd <main checkout> && claude'`
 - **`AI` has no X authority cookie**, so anything needing *the user's* display fails at
   `XOpenDisplayFailed` — but `Xvfb` and `lavapipe` are installed, so the real window, event loop and
   surface all run headless, `xdotool` drives them and `xwd` photographs the result (ADR 0126).
@@ -287,15 +287,25 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
 
   What a queued script must do: terminate itself (`timeout N …`, and exit the viewer with
   `Escape` — `SIGTERM` skips the summary), never wait for input, use `./target/…` paths
-  (`/home/AI` is unreadable by `cl`), and write only under `tmp/`. `xdotool` cannot reach a
+  (the agent's home directory is unreadable by `cl`), and write only under `tmp/`. `xdotool` cannot reach a
   Wayland client, so force XWayland with `env -u WAYLAND_DISPLAY`.
 
-- **Build directory**: `AI` builds the main checkout into `/home/AI/cargo-target/pdf-viewer` via
-  `~/.cargo/config.toml`'s `target-dir`, so the two users never fight over `target/`. Do not "fix"
-  this. `pdfref` needs `--work-dir` for the same reason. A worktree that wants a build directory
-  of its own names it with `--target-dir` or its own `.cargo/config.toml`, **never** an exported
-  `CARGO_TARGET_DIR` (the `sccache` entry below). A batch's worktree builds in
-  `/home/AI/cargo-target/pdf-viewer-batch` (ADR 1440), and `tools/batch.sh open` starts
+- **Machine-local places come from one file**, `tools/places.sh` (ADR 2656): two roots,
+  `PDF_VIEWER_SCRATCH` (default `$HOME/scratch`, the large disk) and `PDF_VIEWER_AGENT` (default
+  `$PDF_VIEWER_SCRATCH/agent`: the heavy-walk lock and its log, the gates log, the briefs, the arms,
+  the data no tree may carry), and every other place — `PDF_VIEWER_BUILDS`, `BATCH_WORKTREE`,
+  `BATCH_TARGET_DIR`, `BATCH_EXPORT_TARGET_ROOT`, `BATCH_ARMS_ROOT`, `BATCH_GATES_LOG`,
+  `HEAVY_WALK_LOCK`, `HEAVY_WALK_LOG`, `ROUND_BRIEFS`, `DOTNET_CHECK_SAVED`, `T88_CONFORMANCE_DATA` —
+  a name under one of them. Each is the environment's where it is set; a script or a test names
+  none of them as a literal path, and `bash -c '. tools/places.sh; printf "%s\n" "$NAME"'` prints
+  one.
+- **Build directory**: the main checkout builds where its own or the user's
+  `.cargo/config.toml` says (`tools/state.sh disk` prints it), so a worktree never fights it over
+  `target/`. Do not "fix" this. `pdfref` needs `--work-dir` for the same reason. A worktree that
+  wants a build directory of its own names it with `--target-dir` or its own `.cargo/config.toml`,
+  **never** an exported `CARGO_TARGET_DIR` (the `sccache` entry below); `tools/worktree.sh` makes
+  each under `$PDF_VIEWER_BUILDS`. A batch's worktree builds in `$BATCH_TARGET_DIR` (ADR 1440), and
+  `tools/batch.sh open` starts
   `cargo build --workspace --all-targets` there detached, logging to `scratchpad/open/build.log`,
   so the rounds find it warm (`BATCH_WARM=0` skips it). Cargo locks a profile's directory, so the
   rounds' `dev` builds queue behind one another rather than duplicating work, while `release` and
@@ -306,8 +316,8 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
   and buys tenths of a second a run (ADR 1463).
 - **What fills the disk, and what to prune when.** `tools/state.sh disk` prints it and prunes
   nothing: this tree's build directory, the main checkout's, every directory under
-  `/home/AI/cargo-target` with its profiles and the day it was last written, `sccache`'s cache
-  against its ceiling, the free space under `/home/AI` and the main checkout, and `scratchpad/`
+  `$PDF_VIEWER_BUILDS` with its profiles and the day it was last written, `sccache`'s cache
+  against its ceiling, the free space where the builds and the main checkout live, and `scratchpad/`
   (ADR 1500). Nearly all of it is `debug`: superseded artefacts stable Cargo has no command to
   collect (`cargo clean --gc` is nightly-only). The pruning is the orchestrator's call, made from
   the main checkout with no round running, each a profile directory by name and never `tmp/`
@@ -319,14 +329,15 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
   ```sh
   # At a batch boundary — after `close`, before the next `open` — when the batch directory's
   # `debug` passes 100 GB. Costs the next `open`'s warm build, which sccache mostly pays.
-  rm -rf /home/AI/cargo-target/pdf-viewer-batch/debug
+  . tools/places.sh   # the names below, each the environment's where it is set
+  rm -rf "$BATCH_TARGET_DIR/debug"
   # When the main checkout's directory passes 100 GB: its `debug` and `gates` profiles, which only
   # the merge's own runs there rebuild. `tools/batch.sh install` builds in the batch directory's
   # `release`, not here, so pruning this one costs no install.
-  rm -rf /home/AI/cargo-target/pdf-viewer/{debug,gates}
+  rm -rf <the main checkout's build directory, `tools/state.sh disk`'s line>/{debug,gates}
   # A directory under the root that no checkout's configuration names and no live round builds in
   # — the line's date says when it was last written, `tools/worktree.sh list` whose it was.
-  rm -rf /home/AI/cargo-target/<that directory>
+  rm -rf "$PDF_VIEWER_BUILDS/<that directory>"
   ```
 
   `sccache`'s cache is never pruned by hand: at its ceiling it evicts by age, so a full cache
@@ -424,7 +435,7 @@ so rather than failing obscurely.
 
 ## After a merge: the commands the owner runs in the main checkout
 
-A round works in a worktree and never edits `/home/cl/projects/pdf-viewer`, so what a batch cannot
+A round works in a worktree and never edits the main checkout, so what a batch cannot
 carry is left on the owner's disk. `tools/state.sh main-checkout` (`tools/main-checkout.py`) reads
 the main checkout without touching it and prints one line per kind of thing, with its count, and
 then **the owner's list**: every one of those that has anything to do, once, numbered in the order a

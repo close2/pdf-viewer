@@ -3,8 +3,10 @@
 # XAML generation and packaging still belong to the Windows CI job.
 set -euo pipefail
 check_root=${DOTNET_CHECK_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}
+# The saved SDK and its packages are under `tools/places.sh`'s `DOTNET_CHECK_SAVED` (ADR 2656).
+. "$(dirname "${BASH_SOURCE[0]}")/places.sh"
 check_sdk=
-for candidate in "${DOTNET_ROOT:-}/dotnet" /home/AI/dotnet-check/dotnet/dotnet; do
+for candidate in "${DOTNET_ROOT:-}/dotnet" "$DOTNET_CHECK_SAVED/dotnet/dotnet"; do
     if [ -x "$candidate" ]; then check_sdk=$candidate; break; fi
 done
 if [ -z "$check_sdk" ]; then check_sdk=$(command -v dotnet || true); fi
@@ -20,8 +22,8 @@ export DOTNET_ROOT
 DOTNET_ROOT=$(dirname "$check_sdk")
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
 export DOTNET_CLI_HOME="$check_work/home"
-if [ -z "${NUGET_PACKAGES:-}" ] && [ -d /home/AI/dotnet-check/cs/packages ]; then
-    export NUGET_PACKAGES=/home/AI/dotnet-check/cs/packages
+if [ -z "${NUGET_PACKAGES:-}" ] && [ -d "$DOTNET_CHECK_SAVED/cs/packages" ]; then
+    export NUGET_PACKAGES=$DOTNET_CHECK_SAVED/cs/packages
 fi
 PYTHONDONTWRITEBYTECODE=1 python3 -I -B - "$check_root" "$check_work" <<'PY'
 from pathlib import Path

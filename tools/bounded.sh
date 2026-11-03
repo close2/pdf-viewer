@@ -40,8 +40,8 @@
 #                so it is written down once (`ulimit -u "$(tools/bounded.sh --task-budget)"`).
 #   --nice n     the niceness (default 19: everything here runs behind the owner's desktop and
 #                behind any round's gates).
-#   --lock       take the heavy-walk lock (/home/AI/heavy-walk.lock) before the command starts, hold
-#                it until the wrapper ends, and append one line to /home/AI/heavy-walk.log saying how
+#   --lock       take the heavy-walk lock ($HEAVY_WALK_LOCK) before the command starts, hold
+#                it until the wrapper ends, and append one line to $HEAVY_WALK_LOG saying how
 #                long the run queued for it, behind what, how long it held it, the tree's peak, the
 #                run's kind and its lane (below) — a run stopped while it queued writes its line too,
 #                with `lane=-`. Walks are granted in the order they asked. The lock has two lanes: a run whose `--tree` is 6
@@ -224,10 +224,12 @@ blind_limit=6
 task_budget=8192
 tasks=$task_budget
 
-# The lock every round's walks queue on, and the log of what they paid for it. The two variables
-# exist for the self-test, which takes a lock of its own and must never queue behind a real walk.
-lock_path=${HEAVY_WALK_LOCK:-/home/AI/heavy-walk.lock}
-lock_log=${HEAVY_WALK_LOG:-/home/AI/heavy-walk.log}
+# The lock every round's walks queue on, and the log of what they paid for it, where
+# `tools/places.sh` puts them (ADR 2656). A caller's `HEAVY_WALK_LOCK` and `HEAVY_WALK_LOG` win,
+# which is what the self-test does: it takes a lock of its own and must never queue behind a real walk.
+. "$(dirname -- "${BASH_SOURCE[0]}")/places.sh"
+lock_path=$HEAVY_WALK_LOCK
+lock_log=$HEAVY_WALK_LOG
 take_lock=
 clock=
 long=
@@ -1500,6 +1502,9 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 if [ -n "$take_lock" ]; then
+    # The first walk on a new machine makes the directory the lock and its log live in.
+    mkdir -p -- "$(dirname -- "$lock_path")" "$(dirname -- "$lock_log")" ||
+        { echo "bounded: could not make the directory of the heavy-walk lock $lock_path" >&2; exit 75; }
     command_words=$(printf '%s ' "$@" | tr '\n\t' '  ' | cut -c1-200)
     # The branch of the tree this script is in, not of the directory it was called from: a round
     # measuring in a private export of HEAD calls the batch worktree's wrapper from there, and its

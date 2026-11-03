@@ -23,7 +23,7 @@
 #
 # Every section reads and none writes: a command that counts may not write, because six rounds edit
 # one worktree at once and the merge fast-forwards from it (ADR 1487, `tools/conformance/tests/
-# read_only.rs`). The one line a walk adds is its lock's, to `/home/AI/heavy-walk.log`, outside every
+# read_only.rs`). The one line a walk adds is its lock's, to `$HEAVY_WALK_LOG`, outside every
 # tree (`walk` below).
 
 set -u -o pipefail
@@ -31,6 +31,8 @@ set -u -o pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$root" || exit 1
 root_of_tree=$root
+# The machine-local places, `tools/places.sh`'s, each overridable by the environment (ADR 2656).
+. "$root/tools/places.sh"
 # Under the agent's task budget, the figure `tools/bounded.sh` writes once (trap 116, ADR 1612); a
 # limit already at or under it is kept.
 task_budget=$("$root/tools/bounded.sh" --task-budget) || exit 1
@@ -1000,7 +1002,7 @@ section_fuzz_stale() {
 # recorded carries only the test's own "finished in", which leaves the build out and is said to.
 # ADR 1476.
 section_gates_cost() {
-    local log=${BATCH_GATES_LOG:-/home/AI/batch-gates.log}
+    local log=$BATCH_GATES_LOG
     heading "which gate is dear: the merge's last gate run, read-only" "$log"
     [ -r "$log" ] || { printf 'no gate log at %s — no merge has run `tools/batch.sh gates` on this machine\n' "$log"; return 0; }
     printf 'last run: %s\n' "$(date -r "$log" '+%Y-%m-%d %H:%M')"
@@ -1103,10 +1105,10 @@ section_gates_cost() {
 # lane's own lock keeps disjoint; what of the wait no hold covers is the figure. Under ADR 1869's rule
 # it is a poll a walk, half a second, and the clock run's look; a larger one is the rule failing.
 lock_cost() {
-    local log=${HEAVY_WALK_LOG:-/home/AI/heavy-walk.log}
+    local log=$HEAVY_WALK_LOG
     heading "what the heavy-walk lock cost: the last batch's runs under tools/bounded.sh --lock, or LOCK_COST_BATCH's" "$log"
     [ -r "$log" ] || { printf 'no lock log at %s — no run on this machine has taken the lock through --lock\n' "$log"; return 0; }
-    awk -v want="${LOCK_COST_BATCH:-}" -v replay=/home/AI/lock-replay-1485 '
+    awk -v want="${LOCK_COST_BATCH:-}" -v replay="$HEAVY_WALK_REPLAY" '
         function named(field) { return field ~ /^batch=batch-[0-9]+-[0-9]+$/ }
         # Seconds from a fixed origin for a stamp `YYYY-MM-DDTHH:MM:SS` of the log, by the civil calendar
         # rather than `mktime`, which not every awk has; only differences are taken.
@@ -1360,26 +1362,32 @@ batch_figures() {
 }
 
 # What one batch commit's body names outside the tree, read on standard input: ADR 2242 decision 4
-# puts a batch commit under the rule a record is under — a path under `/home/AI/` or `scratchpad/` is
-# a pointer for the session that wrote it and never the evidence — and the body is not in the tree
-# for `tools/conformance/tests/evidence.rs` to read, so this counts it instead. A path is counted
-# as that test counts one: a whitespace-separated word holding a marker, the quoting around it
-# trimmed, and a marker on its own not one, because it names a kind of place and points at nothing;
-# a word holding both markers is one path, counted under `/home/AI/`. `tools/state.sh
-# --outside-paths` is this function, which `tools/conformance/tests/state_sections.rs` asks of a
-# planted body.
+# puts a batch commit under the rule a record is under — a path under a machine's own directories or
+# under `scratchpad/` is a pointer for the session that wrote it and never the evidence — and the
+# body is not in the tree for `tools/conformance/tests/evidence.rs` to read, so this counts it
+# instead, with that test's newest markers (ADR 2656): a home or scratch directory, `~/`, `$HOME/`
+# and the roots `tools/places.sh` defines, each `${NAME}` read as `$NAME`. A path is counted as that
+# test counts one: a whitespace-separated word holding a marker, the quoting around it trimmed, and
+# a marker on its own not one, because it names a kind of place and points at nothing; a word
+# holding both kinds is one path, counted under the machine's. `tools/state.sh --outside-paths` is
+# this function, which `tools/conformance/tests/state_sections.rs` asks of a planted body.
 outside_paths() {
     perl -CSD -ne '
+        BEGIN {
+            @machine = ("/home/", "/scratch/", "~/", "\$HOME/", "\$PDF_VIEWER_SCRATCH/",
+                        "\$PDF_VIEWER_AGENT/", "\$PDF_VIEWER_BUILDS/", "\$BATCH_ARMS_ROOT/");
+            %marker = map { $_ => 1 } @machine, "scratchpad/";
+        }
         for my $word (split /\s+/) {
             $word =~ s/^[`\x27"()\[\]{},.;:*\x{201c}\x{201d}]+//;
             $word =~ s/[`\x27"()\[\]{},.;:*\x{201c}\x{201d}]+$//;
-            for my $marker ("/home/AI/", "scratchpad/") {
-                if (index($word, $marker) >= 0 && $word ne $marker) { $named{$marker}++; last }
-            }
+            $word =~ s/\$\{(\w+)\}/\$$1/g;
+            next if $marker{$word};
+            if (grep { index($word, $_) >= 0 } @machine) { $home++ }
+            elsif (index($word, "scratchpad/") >= 0) { $scratch++ }
         }
         END {
-            my ($home, $scratch) = ($named{"/home/AI/"} // 0, $named{"scratchpad/"} // 0);
-            printf "outside the tree: %d path(s) named, %d under /home/AI/ and %d under scratchpad/\n",
+            printf "outside the tree: %d path(s) named, %d under a machine\x27s own directories and %d under scratchpad/\n",
                 $home + $scratch, $home, $scratch;
         }'
 }

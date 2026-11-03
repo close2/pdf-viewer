@@ -2241,3 +2241,13 @@ lane the clock-flagged runs share, while round 1909's `--long` veraPDF walk wait
 at the head of lane 2 behind runs flagged the same way. A census counts documents; its elapsed time is a
 line in its log and never a band. It runs under `tools/bounded.sh --lock --tree 6` without `--clock`, so the
 clock lane stays for `launch_path`, `turn_path` and the other gates whose figures a band judges.
+
+### 316. A path through a symlink is not the path cargo names
+
+On the server VM the round worktree lives under `~/scratch`, which is a symlink to `/scratch/quorra`.
+Round 1911 ran `cargo test -p conformance` twice: green from the physical path, red from the `~/scratch`
+path, where only `fuzz_wrapper` failed. `tools/fuzz.sh` spelled its root with a logical `pwd`, and the test
+compared that against `fs::canonicalize` of the workspace root, which is the path cargo itself uses. A gate
+whose verdict depends on how the shell reached the directory is judging the machine's layout and not the
+tree. The rule: when a script prints a path that anything compares, it uses `pwd -P`, or the comparison
+canonicalises both sides. `tools/fuzz.sh` now resolves its root with `pwd -P` (ADR 2656).

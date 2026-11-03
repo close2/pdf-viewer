@@ -17,8 +17,8 @@
 //! **The data is not in the repository.** Its copyright notice licenses it for conformance testing
 //! of an implementation and nothing wider, which an Apache-2.0 tree cannot carry
 //! (`doc/third-party-data.md`; `doc/questions/Q209` asks the owner). So this reads it from
-//! `$T88_CONFORMANCE_DATA`, or from where the round that fetched it unpacked it, and prints a
-//! sentence and passes where neither holds it.
+//! `$T88_CONFORMANCE_DATA`, or from the place `tools/places.sh` names for it (ADR 2656), and prints
+//! a sentence and passes where neither holds it.
 //!
 //! The count of streams that decode to their reference is printed, not written down anywhere: it
 //! is what `doc/conformance/ledger.toml`'s §7.4.7 row points at.
@@ -37,14 +37,14 @@ use std::path::{Path, PathBuf};
 
 use pdf_sandbox::{Bilevel, Decoded, Isolation, Request, Sandbox};
 
-/// Where Annex K's files are read from when `$T88_CONFORMANCE_DATA` does not say.
-///
-/// The directory `JBIG2_ConformanceData-A20180829.zip` unpacks to, inside the Recommendation's own
-/// zip (`doc/third-party-data.md` has the zip's address and hash).
-const DEFAULT_DIRECTORY: &str = "/home/AI/specs/T.88/Software/conf/JBIG2_ConformanceData-A20180829";
-
-/// The environment variable naming the directory instead.
+/// The environment variable naming the directory: the directory
+/// `JBIG2_ConformanceData-A20180829.zip` unpacks to, inside the Recommendation's own zip
+/// (`doc/third-party-data.md` has the zip's address and hash).
 const DIRECTORY_VARIABLE: &str = "T88_CONFORMANCE_DATA";
+
+/// The one definition of the machine-local places, which gives the variable its default from
+/// `$HOME` where the environment does not set it (ADR 2656).
+const PLACES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tools/places.sh");
 
 /// What a stream, or the part of one a case decodes, is held to.
 #[derive(Debug, Clone, Copy)]
@@ -479,9 +479,24 @@ impl Outcome {
 }
 
 /// The directory holding Annex K's files, or `None` where this machine has none.
+///
+/// The variable is read through `tools/places.sh`, which keeps a value the environment set and
+/// derives one where it did not, so the test and the tools agree on the place without a second copy
+/// of its default.
 fn directory() -> Option<PathBuf> {
-    let named = std::env::var_os(DIRECTORY_VARIABLE).map(PathBuf::from);
-    let directory = named.unwrap_or_else(|| PathBuf::from(DEFAULT_DIRECTORY));
+    let answered = std::process::Command::new("bash")
+        .arg("-c")
+        .arg(format!(". \"$1\" && printf %s \"${DIRECTORY_VARIABLE}\""))
+        .arg("places")
+        .arg(PLACES)
+        .output()
+        .expect("bash reads tools/places.sh");
+    assert!(
+        answered.status.success(),
+        "tools/places.sh did not answer: {}",
+        String::from_utf8_lossy(&answered.stderr)
+    );
+    let directory = PathBuf::from(String::from_utf8_lossy(&answered.stdout).into_owned());
     directory
         .join("codeStreamTest1_TT1.jb2")
         .is_file()

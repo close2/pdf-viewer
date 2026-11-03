@@ -476,15 +476,17 @@ fn the_batches_section_reads_a_grouped_figure_whole() {
 }
 
 /// **`tools/state.sh batches` counts what a batch commit names outside the tree** (ADR 2242 decision
-/// 4), word by word as `evidence.rs` reads a record: a quoted path is one path, a word holding both
-/// markers is one, counted under `/home/AI/`, and a marker on its own names a kind of place and is
-/// none. The body is planted, so each count is the one written into it.
+/// 4), word by word as `evidence.rs` reads its newest records: a quoted path is one path, a word
+/// holding both kinds of marker is one, counted under the machine's own directories, `${NAME}` is
+/// read as `$NAME`, and a marker on its own names a kind of place and is none. The body is planted,
+/// so each count is the one written into it.
 #[test]
 fn the_batches_section_counts_the_paths_a_body_names_outside_the_tree() {
     use std::io::Write as _;
-    let body = "The six arms held against `/home/AI/arms-9999/`, and a gate's log is \
-        scratchpad/r9999/gates.log. The export worked under \
-        /home/AI/pdf-viewer-rounds/scratchpad/r9999/export/. A path under `/home/AI/` or \
+    let body = "The six arms held against `/home/somebody/scratch/agent/arms-9999/`, and a gate's \
+        log is scratchpad/r9999/gates.log. The export worked under \
+        /scratch/somebody/worktrees/pdf-viewer-rounds/scratchpad/r9999/export/. The queue is in \
+        ${PDF_VIEWER_AGENT}/heavy-walk.log. A path under `/home/`, `${PDF_VIEWER_AGENT}/`, `~/` or \
         `scratchpad/` is never the evidence.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\n";
     let mut child = Command::new("bash")
         .arg(repository_root().join("tools/state.sh"))
@@ -502,6 +504,7 @@ fn the_batches_section_counts_the_paths_a_body_names_outside_the_tree() {
     let output = child.wait_with_output().expect("tools/state.sh ends");
     assert_eq!(
         String::from_utf8_lossy(&output.stdout).trim(),
-        "outside the tree: 3 path(s) named, 2 under /home/AI/ and 1 under scratchpad/"
+        "outside the tree: 4 path(s) named, 3 under a machine's own directories and 1 under \
+         scratchpad/"
     );
 }

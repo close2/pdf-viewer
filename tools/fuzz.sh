@@ -42,7 +42,9 @@
 
 set -u -o pipefail
 
-root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+# Physical (`pwd -P`): cargo names the fuzz directory by its real path, so a checkout reached
+# through a symlink would otherwise print a root cargo never sees (trap 316).
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 verify="$root/doc/verify.md"
 # Under the agent's task budget, the figure `tools/bounded.sh` writes once (trap 116, ADR 1612); a
 # limit already at or under it is kept.

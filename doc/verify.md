@@ -76,7 +76,7 @@ tools/platform-check.sh aarch64-apple-darwin
   # Native CI builds/tests still establish linking and runtime properties that cross-checks cannot.
 tools/dotnet-check.sh
   # Compiles the Windows host's C# against its actual Windows App SDK references on Linux too.
-  # Finds the SDK through DOTNET_ROOT, /home/AI/dotnet-check/dotnet, or PATH. Only XAML-generated
+  # Finds the SDK through DOTNET_ROOT, $DOTNET_CHECK_SAVED/dotnet (tools/places.sh), or PATH. Only XAML-generated
   # fields and initialization are substituted; XAML compilation and packaging remain Windows CI's.
   # The windows_csharp conformance test runs it when an SDK is present and reports its absence.
 
@@ -544,7 +544,7 @@ DISPLAY=:77 target/quorra-gtk --trace=launch,frames [file.pdf]   # and where a *
   # reads only the first number sees a fast rasteriser. `GSK_RENDERER=cairo` is the control that
   # separates the toolkit's frame from ours. Alternate the arms and say the load average; two arms
   # of an A/B **need `.cargo/config.toml` target directories of their own**, because a worktree
-  # inherits `/home/AI/.cargo/config.toml`'s and would otherwise measure whichever linked last —
+  # inherits `~/.cargo/config.toml`'s and would otherwise measure whichever linked last —
   # `cargo metadata --no-deps | jq -r .target_directory` is the check. ADR 0678
   #
   # **And a scratch arm that did share the directory leaves a residue that outlives it.** A build
