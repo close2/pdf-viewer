@@ -192,6 +192,7 @@ fn a_processor_s_adapter_never_waits() {
 
 /// The seam on the hardware adapter: the bring-up waits for the planted holder. `#[ignore]`d
 /// because it brings the real adapter up, for a moment and under the lock it tests.
+// not a gate: a check of the shared adapter's lock against a planted holder, run by name when the lock or its seam changes; a gate run on every machine would bring the hardware up where nothing shares it and nothing could be held to a number (ADR 2664).
 #[test]
 #[ignore = "brings the hardware adapter up; run by name on a machine with one"]
 fn a_hardware_bring_up_waits_for_a_planted_holder() {
