@@ -167,7 +167,7 @@ impl OpenSubpath {
     /// The point twice [`ZERO_DASH`] past its end along its last segment, or `None` where no
     /// segment gives it a direction.
     fn reach(&self) -> Option<Point> {
-        let length = self.direction.x.hypot(self.direction.y);
+        let length = segment_length(self.direction.x, self.direction.y);
         if length.is_nan() || length <= 0.0 {
             return None;
         }
@@ -177,6 +177,27 @@ impl OpenSubpath {
             self.end.y + self.direction.y * step,
         ))
     }
+}
+
+/// The length of a straight segment spanning `dx` and `dy`, the same number on every platform.
+///
+/// Not `f32::hypot`: the standard library leaves that function's precision unspecified, so its last
+/// bit is the platform's, and a length compared for equality with a dash's position — as
+/// [`on_a_zero_dash`] compares it — must not be. Miri perturbs it on purpose, and there an axis-aligned
+/// rule of 6 measured a hair off 6 and lost the dot at its end.
+///
+/// Each square of an `f32` is exact in `f64`, whose 53-bit significand holds the 48 bits two 24-bit
+/// ones make and whose range holds the square of the largest `f32`, so the only roundings are the sum's
+/// and the square root's, both of which IEEE 754 fixes to the nearest value; the narrowing to `f32` is
+/// the third, and is fixed the same way. An axis-aligned segment's length is therefore its extent
+/// exactly.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "a length of two f32 extents is in f32's range, or past f32::MAX infinite as hypot's is"
+)]
+fn segment_length(dx: f32, dy: f32) -> f32 {
+    let (dx, dy) = (f64::from(dx), f64::from(dy));
+    (dx * dx + dy * dy).sqrt() as f32
 }
 
 /// Every open subpath of `path` holding at least one segment, in construction order.
@@ -208,7 +229,9 @@ fn open_subpaths(path: &Path) -> Vec<OpenSubpath> {
                 if dx != 0.0 || dy != 0.0 {
                     building.direction = Point::new(dx, dy);
                 }
-                building.length = building.length.map(|so_far| so_far + dx.hypot(dy));
+                building.length = building
+                    .length
+                    .map(|so_far| so_far + segment_length(dx, dy));
                 building.end = p;
                 spans = true;
             }
@@ -236,7 +259,7 @@ fn open_subpaths(path: &Path) -> Vec<OpenSubpath> {
 
 #[cfg(test)]
 mod tests {
-    use super::extended_to_a_zero_dash_at_the_end;
+    use super::{extended_to_a_zero_dash_at_the_end, segment_length};
     use crate::degenerate::ZERO_DASH;
     use crate::geom::{Path, PathCommand, Point};
 
@@ -367,6 +390,19 @@ mod tests {
         assert!(extended_to_a_zero_dash_at_the_end(&square, &[0.0, 2.0], 0.0).is_none());
         // With the phase in the gap, the start carries no dot and the end's is its own.
         assert!(extended_to_a_zero_dash_at_the_end(&square, &[0.0, 3.0], 1.0).is_some());
+    }
+
+    /// A length is decided by IEEE 754's correctly rounded operations alone, so an axis-aligned
+    /// segment measures its extent and a 3-4-5 triangle its 5 on every platform, Miri's perturbed
+    /// library functions included.
+    #[test]
+    fn a_segments_length_is_exact_where_it_can_be() {
+        // Compared by their bits, because the claim is equality to the last one.
+        let bits = |dx, dy| segment_length(dx, dy).to_bits();
+        assert_eq!(bits(0.0, 6.0), 6.0_f32.to_bits());
+        assert_eq!(bits(-2.0, 0.0), 2.0_f32.to_bits());
+        assert_eq!(bits(3.0, 4.0), 5.0_f32.to_bits());
+        assert_eq!(bits(f32::MAX, f32::MAX), f32::INFINITY.to_bits());
     }
 
     /// Each open subpath is extended where it ends, before the next one's `m`.

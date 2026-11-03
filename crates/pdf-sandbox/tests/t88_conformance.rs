@@ -43,7 +43,9 @@ use pdf_sandbox::{Bilevel, Decoded, Isolation, Request, Sandbox};
 const DIRECTORY_VARIABLE: &str = "T88_CONFORMANCE_DATA";
 
 /// The one definition of the machine-local places, which gives the variable its default from
-/// `$HOME` where the environment does not set it (ADR 2656).
+/// `$HOME` where the environment does not set it (ADR 2656). A POSIX shell script, so it is asked
+/// only where a POSIX shell is the platform's own.
+#[cfg(unix)]
 const PLACES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tools/places.sh");
 
 /// What a stream, or the part of one a case decodes, is held to.
@@ -480,10 +482,29 @@ impl Outcome {
 
 /// The directory holding Annex K's files, or `None` where this machine has none.
 ///
-/// The variable is read through `tools/places.sh`, which keeps a value the environment set and
-/// derives one where it did not, so the test and the tools agree on the place without a second copy
-/// of its default.
+/// A value the environment set is taken as it stands, on every platform, and an empty one counts
+/// as unset, as `tools/places.sh`'s `:=` counts it.
 fn directory() -> Option<PathBuf> {
+    let directory = std::env::var_os(DIRECTORY_VARIABLE)
+        .filter(|set| !set.is_empty())
+        .map(PathBuf::from)
+        .or_else(default_directory)?;
+    directory
+        .join("codeStreamTest1_TT1.jb2")
+        .is_file()
+        .then_some(directory)
+}
+
+/// The place `tools/places.sh` derives where the environment set none, so the test and the tools
+/// agree on it without a second copy of its default (ADR 2656).
+///
+/// A failure to answer is a broken `places.sh`, and it is loud rather than read as "no data here".
+#[cfg(unix)]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "one signature for both platforms, and the other half answers None"
+)]
+fn default_directory() -> Option<PathBuf> {
     let answered = std::process::Command::new("bash")
         .arg("-c")
         .arg(format!(". \"$1\" && printf %s \"${DIRECTORY_VARIABLE}\""))
@@ -496,11 +517,19 @@ fn directory() -> Option<PathBuf> {
         "tools/places.sh did not answer: {}",
         String::from_utf8_lossy(&answered.stderr)
     );
-    let directory = PathBuf::from(String::from_utf8_lossy(&answered.stdout).into_owned());
-    directory
-        .join("codeStreamTest1_TT1.jb2")
-        .is_file()
-        .then_some(directory)
+    Some(PathBuf::from(
+        String::from_utf8_lossy(&answered.stdout).into_owned(),
+    ))
+}
+
+/// Off Unix there is no default to derive. `tools/places.sh` is a POSIX script whose defaults are
+/// this project's Unix machines' directories, and no POSIX shell is the platform's own here: on
+/// a Windows runner the `bash` a process finds need not be one that can read the script's Windows
+/// path, and CI's answered with a failure and an empty stderr. So only a directory the environment
+/// names is read, and with none the test says it has no data.
+#[cfg(not(unix))]
+fn default_directory() -> Option<PathBuf> {
+    None
 }
 
 /// The reference bitmap for one page of one stream: T.88 Table K.1's "reconstructed image", named
