@@ -46,6 +46,8 @@
               is the test failing"
 )]
 
+#[path = "../../../../tools/conformance/test-support/backends.rs"]
+mod backends;
 #[path = "../../../../tools/conformance/test-support/gpu_lock.rs"]
 mod gpu_lock;
 
@@ -386,7 +388,9 @@ struct Gpu {
 }
 
 fn adapters() -> Vec<Gpu> {
-    let instance = raster_gpu::create_instance();
+    // The environment's backends: every adapter of every backend would include OpenGL's view of
+    // the shared card under a run that pinned lavapipe (ADR 2665).
+    let instance = backends::instance();
     pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all()))
         .into_iter()
         .filter_map(|adapter| {

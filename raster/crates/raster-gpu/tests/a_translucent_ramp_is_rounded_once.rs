@@ -49,7 +49,7 @@ const ALPHA: f32 = 0.8;
 
 /// Every adapter this machine offers a headless device on, llvmpipe among them.
 fn devices() -> Vec<(String, Device)> {
-    let devices: Vec<(String, Device)> = Device::adapter_names()
+    let devices: Vec<(String, Device)> = Device::adapter_names_on(&common::backends::instance())
         .into_iter()
         .filter_map(|name| {
             let options = Options {

@@ -23,6 +23,14 @@
 //! - **Bounded.** A wait longer than `GPU_LOCK_TIMEOUT` seconds — `with-gpu-lock`'s own variable,
 //!   600 by default as there — panics naming the file, because a test that waits forever reports
 //!   nothing.
+//! - **Stopped by a hang.** A hardware section held past [`HUNG_AFTER`] — the kernel's ring timeout
+//!   is ten seconds, and no frame this program draws on the card comes near one — is taken for a
+//!   hung device, and leaves a marker beside the lock file ([`hung_marker`]). Every later hardware
+//!   section, in any process, refuses while the marker is there, until a person has read the
+//!   kernel's log and removed it: the next process's first frame after a recovery is where the
+//!   kernel has reported a privileged register written by the command stream, so a suite that goes
+//!   on after a hang feeds a card that is still recovering, and every reset cancels the other
+//!   user's work too (ADR 2665).
 //! - **Measured.** Where `PDF_VIEWER_GPU_LOCK_LOG` names a file, every hold appends one line to it —
 //!   the process, what the outermost section was, how long it waited and how long it held — so a
 //!   run's longest hold and total locked time are an `awk` over the file (`tools/gpu-holds.sh`).
@@ -53,6 +61,12 @@ pub(crate) const LOG: &str = "PDF_VIEWER_GPU_LOCK_LOG";
 /// The wait bound in seconds, `with-gpu-lock`'s own name for it.
 pub(crate) const TIMEOUT: &str = "GPU_LOCK_TIMEOUT";
 const DEFAULT_TIMEOUT: Duration = Duration::from_mins(10);
+/// A hardware section held this long is taken for a hung device (ADR 2665): amdgpu's ring timeout
+/// is ten seconds, so a job the kernel will time out holds its section at least that long, and the
+/// longest hold a working run measured was a planted busy device's 6.1 s.
+pub(crate) const HUNG_AFTER: Duration = Duration::from_secs(9);
+/// The variable that shortens [`HUNG_AFTER`], in milliseconds, for the marker's own test.
+pub(crate) const HUNG_AFTER_MS: &str = "PDF_VIEWER_GPU_HUNG_AFTER_MS";
 /// How often a waiting section asks again: short beside a frame, long beside a system call.
 const POLL: Duration = Duration::from_millis(5);
 
@@ -90,6 +104,53 @@ pub(crate) fn lock_file() -> Option<&'static Path> {
         (!named.is_empty()).then(|| PathBuf::from(named))
     })
     .as_deref()
+}
+
+/// The file a hung section leaves beside the lock file, or `None` where there is no lock.
+pub(crate) fn hung_marker() -> Option<PathBuf> {
+    let lock = lock_file()?;
+    let name = lock.file_name()?.to_string_lossy().into_owned();
+    Some(lock.with_file_name(format!("{name}.pdf-viewer-hung")))
+}
+
+/// Refuses a hardware section while a hung section's marker stands (ADR 2665).
+fn refuse_after_a_hang() {
+    let Some(marker) = hung_marker() else { return };
+    if let Ok(said) = std::fs::read_to_string(&marker) {
+        panic!(
+            "a device section on the shared card hung ({}); no hardware section runs until a \
+             person has read `journalctl -k` and removed {} (ADR 2665)",
+            said.trim(),
+            marker.display()
+        );
+    }
+}
+
+/// Leaves the marker when a hardware section was held past the hang bound.
+fn mark_if_hung(label: &str, holding: Duration) {
+    let bound = std::env::var(HUNG_AFTER_MS)
+        .ok()
+        .and_then(|millis| millis.parse().ok())
+        .map_or(HUNG_AFTER, Duration::from_millis);
+    if holding < bound {
+        return;
+    }
+    let Some(marker) = hung_marker() else { return };
+    let at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs());
+    let line = format!(
+        "pid={} section={label} held_ms={:.0} unix_time={at}\n",
+        std::process::id(),
+        holding.as_secs_f64() * 1e3
+    );
+    // The marker is the guard: a failed write is said, because without it the suite goes on.
+    if let Err(error) = std::fs::write(&marker, line) {
+        eprintln!(
+            "the hung-section marker {} was not written: {error}",
+            marker.display()
+        );
+    }
 }
 
 /// The place as `tools/places.sh` answers it, from the workspace that built this test.
@@ -153,6 +214,7 @@ impl Drop for Hold {
 /// Counts one more holder, taking the file's lock if this is the process's first.
 pub(crate) fn enter(label: &'static str) {
     let Some(path) = lock_file() else { return };
+    refuse_after_a_hang();
     let mut held = held();
     if held.holders > 0 {
         held.holders = held.holders.saturating_add(1);
@@ -204,6 +266,7 @@ pub(crate) fn leave() {
         .take()
         .map_or(Duration::ZERO, |since| since.elapsed());
     drop(held.file.take());
+    mark_if_hung(held.label, holding);
     if let Some(log) = std::env::var_os(LOG) {
         let line = format!(
             "gpu-lock pid={} section={} waited_ms={:.3} held_ms={:.3}\n",
@@ -214,6 +277,31 @@ pub(crate) fn leave() {
             holding.as_secs_f64() * 1e3,
         );
         // The log is a measurement's, never a test's verdict: a failed append loses one line.
+        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log) {
+            drop(file.write_all(line.as_bytes()));
+        }
+    }
+}
+
+/// Records the kind of adapter a device was brought up on, where `PDF_VIEWER_GPU_LOCK_LOG` names a
+/// file, whether or not the section locks: a run meant for lavapipe is shown to have had it by
+/// these lines rather than by the absence of holds, and a hardware bring-up in such a run is the
+/// leak ADR 2663 found (ADR 2665).
+pub(crate) fn note_adapter(device_type: &str) {
+    if let Some(log) = std::env::var_os(LOG) {
+        // The test binary, so that a bring-up on the wrong adapter names the file that made it.
+        let exe = std::env::current_exe()
+            .ok()
+            .and_then(|path| {
+                path.file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+            })
+            .unwrap_or_default();
+        let line = format!(
+            "gpu-adapter pid={} type={device_type} exe={exe}\n",
+            std::process::id()
+        );
+        // A measurement's line, as a hold's is: a failed append loses one line.
         if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log) {
             drop(file.write_all(line.as_bytes()));
         }

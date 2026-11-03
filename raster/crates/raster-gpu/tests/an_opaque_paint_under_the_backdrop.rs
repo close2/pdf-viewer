@@ -47,7 +47,7 @@ const ALPHAS: [u32; 9] = [0, 1, 32, 64, 128, 192, 224, 250, 254];
 
 /// Every adapter this machine offers a headless device on, llvmpipe among them.
 fn devices() -> Vec<(String, Device)> {
-    let devices: Vec<(String, Device)> = Device::adapter_names()
+    let devices: Vec<(String, Device)> = Device::adapter_names_on(&common::backends::instance())
         .into_iter()
         .filter_map(|name| {
             let options = Options {

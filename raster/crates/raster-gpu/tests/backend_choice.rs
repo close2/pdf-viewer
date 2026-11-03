@@ -29,6 +29,8 @@
     clippy::arithmetic_side_effects
 )]
 
+#[path = "../../../../tools/conformance/test-support/backends.rs"]
+mod backends;
 #[path = "../../../../tools/conformance/test-support/gpu_lock.rs"]
 mod gpu_lock;
 #[path = "../../../../tools/conformance/test-support/gpu_lock_hook.rs"]
@@ -72,7 +74,13 @@ fn a_named_backend_is_the_backend_the_device_uses() {
 /// sees is exactly what the unrestricted instance sees through Vulkan.
 #[test]
 fn restricting_the_set_only_removes() {
-    let all = Device::adapter_names();
+    // Over the environment's backends, as the test above (ADR 2665).
+    let all: Vec<String> = pollster::block_on(
+        raster_gpu::create_instance().enumerate_adapters(backends::from_environment()),
+    )
+    .iter()
+    .map(|adapter| adapter.get_info().name)
+    .collect();
     let vulkan =
         Device::adapter_names_on(&raster_gpu::create_instance_with(wgpu::Backends::VULKAN));
     for name in &vulkan {
@@ -148,11 +156,20 @@ fn a_filter_against_no_backend_refuses_too() {
 
 /// `create_instance()` keeps its meaning: every backend, and the adapters this suite's
 /// other tests rely on. The parameter is an addition, not a change of default.
+///
+/// The two are compared over the backends the environment names (ADR 2665): the instances hold
+/// every backend either way, and listing OpenGL's adapters under a run that pinned lavapipe would
+/// open a context on the shared card.
 #[test]
 fn the_unrestricted_entry_point_is_unchanged() {
-    let default = Device::adapter_names_on(&raster_gpu::create_instance());
-    let explicit =
-        Device::adapter_names_on(&raster_gpu::create_instance_with(wgpu::Backends::all()));
+    let names = |instance: &wgpu::Instance| -> Vec<String> {
+        pollster::block_on(instance.enumerate_adapters(backends::from_environment()))
+            .iter()
+            .map(|adapter| adapter.get_info().name)
+            .collect()
+    };
+    let default = names(&raster_gpu::create_instance());
+    let explicit = names(&raster_gpu::create_instance_with(wgpu::Backends::all()));
     assert_eq!(
         default, explicit,
         "create_instance() is create_instance_with(Backends::all())"

@@ -22,6 +22,8 @@
 // Test-file lint policy as in m1.rs.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+#[path = "../../../../tools/conformance/test-support/backends.rs"]
+mod backends;
 #[path = "../../../../tools/conformance/test-support/gpu_lock.rs"]
 mod gpu_lock;
 #[path = "../../../../tools/conformance/test-support/gpu_lock_hook.rs"]
@@ -33,7 +35,7 @@ use raster_scene::{Affine, BlendMode, Color, Compose, GroupSpec, Point, Rect, Sc
 /// Build a device on every adapter this machine has and drop each one at once —
 /// before the warm-up thread it started can plausibly have finished.
 fn churn() {
-    let names = Device::adapter_names();
+    let names = Device::adapter_names_on(&backends::instance());
     assert!(
         !names.is_empty(),
         "no adapter at all: nothing was exercised"

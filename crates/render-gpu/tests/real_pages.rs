@@ -48,7 +48,7 @@ fn ink(raster: &Raster) -> u64 {
 
 #[test]
 fn a_page_is_drawn_or_refused_and_never_silently_blank() {
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let Ok(mut gpu) = render_gpu::GpuRasterizer::new_headless() else {
         println!("skipped: no GPU adapter, not even a software one");
         return;
@@ -148,7 +148,7 @@ fn a_page_is_drawn_or_refused_and_never_silently_blank() {
 /// place, which deduplication cannot collapse and which a device therefore still has to band.
 #[test]
 fn a_scene_too_large_for_one_pass_is_banded() {
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let Ok(mut gpu) = render_gpu::GpuRasterizer::new_headless() else {
         println!("skipped: no GPU adapter, not even a software one");
         return;

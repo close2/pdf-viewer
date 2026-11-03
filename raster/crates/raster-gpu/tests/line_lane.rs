@@ -195,7 +195,7 @@ fn reference_polygon(case: &Case) -> Vec<(f64, f64)> {
 
 fn adapters() -> Vec<String> {
     // One name per driver: the same GPU appears through Vulkan and GL (compute_lane.rs).
-    Device::adapter_names()
+    Device::adapter_names_on(&common::backends::instance())
         .into_iter()
         .filter(|name| !name.contains("radeonsi"))
         .collect()

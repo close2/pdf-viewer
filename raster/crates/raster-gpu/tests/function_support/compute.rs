@@ -73,7 +73,9 @@ impl Compute {
     /// harness is a claim about one adapter and a reader has to be able to choose which.
     #[must_use]
     pub fn new() -> Option<Self> {
-        let instance = raster_gpu::create_instance();
+        // The environment's backends, so that a high-performance request under a run that
+        // pinned lavapipe does not find the shared card through OpenGL (ADR 2665).
+        let instance = crate::common::backends::instance();
         let wanted = std::env::var("QUORRA_ADAPTER").ok();
         let adapter = match &wanted {
             Some(name) => pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all()))

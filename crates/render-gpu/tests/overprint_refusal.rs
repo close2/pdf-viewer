@@ -75,7 +75,7 @@ fn gpu() -> GpuRasterizer {
 
 #[test]
 fn a_list_that_overprints_is_refused_and_the_same_list_without_it_is_drawn() {
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let mut gpu = gpu();
     let kept = Overprint::new([false, true, true]);
 

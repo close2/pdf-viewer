@@ -18,7 +18,7 @@ use render_gpu::{GpuRasterError, GpuRasterizer};
 
 #[test]
 fn a_separated_page_is_refused_by_name() {
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let cube = || {
         let grid: Vec<[f32; 3]> = (0..8_u8)
             .map(|corner| {

@@ -22,6 +22,9 @@ struct LockEachSection;
 
 impl SectionHook for LockEachSection {
     fn begin(&self, section: Section) {
+        if section.work == DeviceWork::BringUp {
+            super::gpu_lock::note_adapter(&format!("{:?}", section.device_type));
+        }
         if section.device_type != raster_gpu::wgpu::DeviceType::Cpu {
             super::gpu_lock::enter(label(section.work));
         }

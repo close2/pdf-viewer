@@ -68,7 +68,7 @@ use common::bound::{Reference, disagreement};
 /// skipped, with a note, rather than silently included or silently dropped.
 fn vulkan_adapters() -> Vec<String> {
     let mut names = Vec::new();
-    for name in Device::adapter_names() {
+    for name in Device::adapter_names_on(&common::backends::instance()) {
         common::gpu_lock_hook::install();
         let device = Device::headless(&Options {
             adapter: Some(name.clone()),

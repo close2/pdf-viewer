@@ -149,7 +149,7 @@ fn backends() -> Vec<Backend> {
     let mut cpu = render_cpu::CpuRasterizer::new();
     gpu_lock_hook::install();
     let mut raster = QuorraRasterizer::new_headless().expect("a raster device");
-    let _vello_lock = gpu_lock::Hold::when(true, "vello-device");
+    let _vello_lock = gpu_lock::Hold::unless_software("vello-device");
     let mut gpu = render_gpu::GpuRasterizer::new_headless().expect("a vello device");
     vec![
         (

@@ -59,6 +59,8 @@
               module is compiled into binaries that do not all state it themselves"
 )]
 
+#[path = "../../../../../tools/conformance/test-support/backends.rs"]
+pub mod backends;
 pub mod blend;
 pub mod bound;
 pub mod clause;

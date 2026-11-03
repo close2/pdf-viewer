@@ -37,6 +37,8 @@
     reason = "test-file policy as in coverage_lanes.rs, plus one scene builder that is               one fixture and an LCG seed quoted as-is"
 )]
 
+#[path = "../../../../tools/conformance/test-support/backends.rs"]
+mod backends;
 #[path = "../../../../tools/conformance/test-support/gpu_lock.rs"]
 mod gpu_lock;
 #[path = "../../../../tools/conformance/test-support/gpu_lock_hook.rs"]
@@ -58,7 +60,7 @@ const TINY_ATLAS: u64 = 4 * 1024;
 /// Every adapter on this machine, by name — llvmpipe is always among them where this
 /// suite runs, and a real adapter joins on developer machines (`m45.rs`'s discipline).
 fn adapter_names() -> Vec<String> {
-    Device::adapter_names()
+    Device::adapter_names_on(&backends::instance())
         .into_iter()
         .filter(|name| {
             // One name per driver: the same GPU can appear through Vulkan and GL, and

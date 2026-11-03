@@ -2251,3 +2251,16 @@ compared that against `fs::canonicalize` of the workspace root, which is the pat
 whose verdict depends on how the shell reached the directory is judging the machine's layout and not the
 tree. The rule: when a script prints a path that anything compares, it uses `pwd -P`, or the comparison
 canonicalises both sides. `tools/fuzz.sh` now resolves its root with `pwd -P` (ADR 2656).
+
+### 317. A pinned environment is not the adapter got
+
+ADR 2663 found that `VK_ICD_FILENAMES` alone does not keep wgpu off the shared card, and the rule became
+"both `WGPU_BACKEND=vulkan` and the ICD file". Round 1915 then ran its lavapipe suite with both, and the card
+reset once more at 14:50: vello's `headless_gpu`, whose instance read no environment, had loaded OpenGL beside
+lavapipe, and radeonsi's command-submission thread is the one the kernel named. Round 1916 logged the adapter
+of every bring-up and found that the same pinned suite brought 28 `raster-gpu` devices up on the card through
+OpenGL (`m1`, `perf_gate`, `device_lifecycle` and three others, by `Device::adapter_names()` and
+`Options::default()`), each drawing frames there under the lock. A pin pins the code that reads it; everything
+else enumerates what the instance holds. The rule: a run is judged by the adapter it got, not by the
+environment it was given — `PDF_VIEWER_GPU_LOCK_LOG` records each bring-up's type and `tools/gpu-holds.sh`
+sums them, and a run meant for lavapipe shows `type=Cpu` and nothing else (ADR 2665).

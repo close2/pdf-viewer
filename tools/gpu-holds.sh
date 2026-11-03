@@ -9,6 +9,8 @@ set -euo pipefail
 log=${1:?usage: tools/gpu-holds.sh <the PDF_VIEWER_GPU_LOCK_LOG file>}
 [ -f "$log" ] || { echo "gpu-holds: $log does not exist: the run took no lock"; exit 0; }
 awk '
+    # A gpu-adapter line names the adapter of one bring-up, and is no hold.
+    $1 == "gpu-adapter" { adapters[$3]++; next }
     {
         for (i = 1; i <= NF; i++) {
             split($i, kv, "=")
@@ -26,6 +28,7 @@ awk '
     END {
         printf "holds %d, longest %.1f ms (%s), total %.1f ms, longest wait %.1f ms\n",
             holds, longest, longest_section, total, longest_wait
+        for (a in adapters) printf "  bring-ups on %s: %d\n", a, adapters[a]
         for (s in count) printf "  %-20s %6d holds, longest %.1f ms\n", s, count[s], by_section[s]
     }
 ' "$log"

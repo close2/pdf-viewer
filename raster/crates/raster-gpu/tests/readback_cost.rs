@@ -54,7 +54,9 @@ fn a_readback_frame_allocates_one_target_and_no_second_copy() {
     // on either of this machine's two. Verified on both when it was written — RADV and
     // llvmpipe (LLVM 22.1.8) each report one allocation of 8 022 576 bytes.
     common::gpu_lock_hook::install();
-    let mut device = Device::headless(&Options::default()).expect("some adapter must exist");
+    let mut device =
+        Device::headless_with_instance(&common::backends::instance(), &Options::default())
+            .expect("some adapter must exist");
     device.wait_until_warm();
     let scene = dense_scene();
     let viewport = Viewport::full(1191, 1684, Affine::IDENTITY);

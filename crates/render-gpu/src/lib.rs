@@ -530,6 +530,8 @@ impl GpuContext {
     /// device, and a software implementation such as `lavapipe` serves when that is
     /// all there is.
     ///
+    /// The backends are those `WGPU_BACKEND` names, every one where it names none.
+    ///
     /// # Errors
     ///
     /// [`GpuRasterError::NoAdapter`] when no adapter can be found at all,
@@ -558,11 +560,17 @@ impl GpuContext {
         // acquire a windowing-system display handle at all, so no display server is
         // needed and none is looked for.
         //
-        // Environment overrides such as `WGPU_BACKEND` are deliberately not consulted:
-        // backend choice affects rendered output, and a comparison suite whose results
-        // depend on ambient environment is not reproducible. Selection is explicit,
-        // via this argument.
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        // `WGPU_BACKEND` narrows the backends, as it does for render-raster's instance: the
+        // driver loader's own variables already decide which Vulkan devices exist, and this
+        // one is how a run that pinned lavapipe keeps wgpu's OpenGL backend — whose driver is
+        // the hardware card's — from being loaded beside it and ranked above it (ADR 2665).
+        // Only the backend set is taken from the environment; the adapter is still this
+        // argument's choice.
+        let backends = wgpu::Backends::from_env().unwrap_or(wgpu::Backends::all());
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends,
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        });
 
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: if force_software {

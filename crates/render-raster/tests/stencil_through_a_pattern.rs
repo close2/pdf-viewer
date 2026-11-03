@@ -162,7 +162,7 @@ fn raster_composes_the_two_masks_of_a_stencil_painted_through_a_pattern() {
 
 #[test]
 fn vello_composes_the_two_masks_of_a_stencil_painted_through_a_pattern() {
-    let _vello_lock = gpu_lock::Hold::when(true, "vello-device");
+    let _vello_lock = gpu_lock::Hold::unless_software("vello-device");
     let mut device = GpuRasterizer::new_headless().unwrap_or_else(|e| {
         panic!("no adapter for vello: {e} — these tests do not skip (ADR 0004)")
     });

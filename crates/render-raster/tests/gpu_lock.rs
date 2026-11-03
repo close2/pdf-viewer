@@ -5,6 +5,7 @@
 //! that holds the lock for [`PLANTED`], and a *section* that asks for it once the holder has it.
 //! The section reports how long it waited, through the lock's own log line, and the parent judges
 //! that figure: about [`PLANTED`] where the section is the hardware's, nothing where it is not.
+//! A hold past the hang bound leaves a marker that stops every later hardware section (ADR 2665).
 
 #![allow(
     clippy::expect_used,
@@ -187,6 +188,50 @@ fn a_processor_s_adapter_never_waits() {
     assert!(
         elapsed < PLANTED,
         "the lavapipe section took {elapsed:?}, as long as the planted hold"
+    );
+}
+
+/// The hang guard: a section held past the hang bound leaves the marker, and the next hardware
+/// section of any process refuses rather than feed a card that may still be recovering (ADR
+/// 2665). The bound is shortened below the planted hold, so the planted holder is the hang.
+#[test]
+fn a_section_held_past_the_hang_bound_stops_every_later_section() {
+    let (lock, log) = scratch("hung");
+    let marker = lock.with_file_name("gpu.lock.pdf-viewer-hung");
+    drop(std::fs::remove_file(&marker));
+    let bound = (PLANTED / 3).as_millis().to_string();
+    let shortened = [(gpu_lock::HUNG_AFTER_MS, bound.as_str())];
+    let status = child("holder", &lock, &log, &shortened)
+        .stdout(Stdio::null())
+        .status()
+        .expect("the holder runs");
+    assert!(status.success(), "the planted holder failed");
+    let said = std::fs::read_to_string(&marker).expect("a hold past the bound leaves the marker");
+    assert!(
+        said.contains("section=planted-holder"),
+        "the marker names the section that hung: {said}"
+    );
+    let output = child("declared", &lock, &log, &[])
+        .output()
+        .expect("the section runs");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success() && stderr.contains("hung"),
+        "a hardware section ran with the marker standing:\n{stderr}"
+    );
+    assert_eq!(
+        waited(&log, "declared-section"),
+        None,
+        "the refused section took the lock"
+    );
+    std::fs::remove_file(&marker).expect("the marker is removed by hand, as here");
+    let status = child("declared", &lock, &log, &[])
+        .stdout(Stdio::null())
+        .status()
+        .expect("the section runs");
+    assert!(
+        status.success(),
+        "the section refused after the marker was removed"
     );
 }
 

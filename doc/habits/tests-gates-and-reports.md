@@ -1089,3 +1089,11 @@ crate::update::TABLE_349;` that the generator's import rebuild had dropped, and 
 separates a carried comment from its import unless the two are emitted as a group of their own. A splitter
 that rebuilds imports carries each import's comment as a group with it, and the multiset proof is what
 shows a dropped comment.
+
+## A new file is added to the index before `cargo test -p conformance`
+
+The conformance checks read the tracked tree: the sweeps list files through git, so a file a round created
+and did not add is not read at all, and a check that every ignored test file is run or excused passes or
+fails on a tree that is not the one the round will hand over. Commit 02d4bc15 is the incident — round
+1915's new hardware test carried its excuse only once it was tracked. Before `cargo test -p conformance`,
+`git add -N` every new file; `git status --short | grep '^??'` lists what is still outside.

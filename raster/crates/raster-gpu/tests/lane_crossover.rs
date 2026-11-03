@@ -39,6 +39,8 @@
     clippy::arithmetic_side_effects
 )]
 
+#[path = "../../../../tools/conformance/test-support/backends.rs"]
+mod backends;
 #[path = "../../../../tools/conformance/test-support/gpu_lock.rs"]
 mod gpu_lock;
 #[path = "../../../../tools/conformance/test-support/gpu_lock_hook.rs"]
@@ -256,7 +258,10 @@ fn table(sharing: Sharing, atlas: u64) {
 #[test]
 #[ignore = "a wall clock is a measurement here, not a gate; see the module comment"]
 fn lane_crossover_table() {
-    println!("adapters {:?}", Device::adapter_names());
+    println!(
+        "adapters {:?}",
+        Device::adapter_names_on(&backends::instance())
+    );
     // The default atlas, where a tile under an eighth of 8 MiB is cached and the rest
     // are not — both regimes the criterion distinguishes, on one budget.
     table(Sharing::Distinct, raster_gpu::startup::DEFAULT_ATLAS_BUDGET);

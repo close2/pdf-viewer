@@ -100,11 +100,15 @@ fn assert_within(what: &str, c: Comparison, max_differing: f64) {
 
 #[test]
 fn renders_without_a_window_or_display_server() {
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let list = test_scenes::basic();
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("A4 target is valid");
 
-    let raster = gpu()
+    let mut backend = gpu();
+    // The adapter got, which is what says whether a run pinned to lavapipe stayed off the
+    // hardware (ADR 2665).
+    println!("adapter: {}", backend.context().adapter_description());
+    let raster = backend
         .rasterize(&list, target)
         .expect("basic scene is supported");
 
@@ -119,7 +123,7 @@ fn renders_without_a_window_or_display_server() {
 /// The oracle: two independent rasterisers, identical input.
 #[test]
 fn cpu_and_gpu_agree_on_the_basic_scene() {
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let list = test_scenes::basic();
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
 
@@ -138,7 +142,7 @@ fn cpu_and_gpu_agree_on_the_basic_scene() {
 /// sets the realistic floor for the tolerances above.
 #[test]
 fn cpu_and_gpu_agree_on_a_diagonal_stroke() {
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let list = test_scenes::diagonal_stroke();
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
 
@@ -157,7 +161,7 @@ fn cpu_and_gpu_agree_on_a_diagonal_stroke() {
 /// likely to expose a genuine geometric disagreement rather than edge antialiasing.
 #[test]
 fn cpu_and_gpu_agree_on_curves() {
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let list = test_scenes::curves();
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
 
@@ -181,7 +185,7 @@ fn cpu_and_gpu_agree_on_curves() {
 /// group's alpha to each element and doubles the overlap.
 #[test]
 fn cpu_and_gpu_agree_on_a_transparency_group() {
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let list = test_scenes::transparency_group();
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
 
@@ -205,7 +209,7 @@ fn cpu_and_gpu_agree_on_a_transparency_group() {
 /// the knockout flag, which every other scene leaves `false`.
 #[test]
 fn cpu_and_gpu_agree_on_a_knockout_group() {
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let list = test_scenes::knockout_group();
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
 
@@ -232,7 +236,7 @@ fn cpu_and_gpu_agree_on_a_knockout_group() {
 /// the scene's wedge is for.
 #[test]
 fn cpu_and_gpu_agree_on_a_knockout_group_that_states_its_shape() {
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let list = test_scenes::knockout_stated_shape();
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
 
@@ -256,7 +260,7 @@ fn cpu_and_gpu_agree_on_a_knockout_group_that_states_its_shape() {
 /// would be a plausible wrong picture, and this fails if that ever becomes the answer.
 #[test]
 fn the_gpu_refuses_a_non_isolated_group() {
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let list = test_scenes::non_isolated_group();
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
     let refusal = gpu()
@@ -286,7 +290,7 @@ fn the_gpu_refuses_a_non_isolated_group() {
 /// device (ADR 0275); this fails if the refusal here ever becomes silent.
 #[test]
 fn the_gpu_refuses_a_four_component_page() {
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let list = test_scenes::four_component_page();
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
     let refusal = gpu()
@@ -314,7 +318,7 @@ fn the_gpu_refuses_a_four_component_page() {
 /// the device refuses.
 #[test]
 fn the_gpu_refuses_a_sampled_shading_by_name() {
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let list = test_scenes::sampled_shading();
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
     let refusal = gpu()
@@ -340,7 +344,7 @@ fn the_gpu_refuses_a_sampled_shading_by_name() {
 /// edge.
 #[test]
 fn cpu_and_gpu_agree_on_a_patch_mesh() {
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let list = test_scenes::patch_mesh();
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
 
@@ -364,7 +368,7 @@ fn cpu_and_gpu_agree_on_a_patch_mesh() {
 /// command; this fails if either backdrop is ever silently substituted for the other.
 #[test]
 fn the_gpu_refuses_a_knockout_group_on_its_own_backdrop() {
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let list = test_scenes::knockout_group_on_its_own_backdrop();
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
     let refusal = gpu()
@@ -390,7 +394,7 @@ fn the_gpu_refuses_a_knockout_group_on_its_own_backdrop() {
 /// one, so this fails if the refusal ever becomes silent.
 #[test]
 fn the_gpu_refuses_a_group_in_its_own_blending_space() {
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let list = test_scenes::group_in_its_own_blending_space();
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
     let refusal = gpu()
@@ -413,7 +417,7 @@ fn the_gpu_refuses_a_group_in_its_own_blending_space() {
 /// so this fails if the refusal ever becomes silent.
 #[test]
 fn the_gpu_refuses_a_group_in_a_one_component_blending_space() {
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let list = test_scenes::group_in_a_one_component_blending_space();
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
     let refusal = gpu()
@@ -431,7 +435,7 @@ fn the_gpu_refuses_a_group_in_a_one_component_blending_space() {
 /// light.
 #[test]
 fn the_gpu_refuses_a_group_in_a_three_component_blending_space() {
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let list = test_scenes::group_in_a_three_component_blending_space();
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
     let refusal = gpu()
@@ -486,7 +490,7 @@ fn cpu_and_gpu_agree_on_every_blend_mode() {
     /// Four by four tiles, in the order `test_scenes::ALL_BLEND_MODES` lists them.
     const ACROSS: u32 = 4;
 
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     // Still a release-build test, and the reason is not the one this comment used to give.
     // `tiny-skia`'s `u16x16` lanes are *meant* to wrap — that is what the SIMD instruction
     // they stand in for does — so Rust's debug-build overflow check fires inside the library
@@ -552,7 +556,7 @@ fn cpu_and_gpu_agree_on_every_blend_mode() {
 /// mask's range apart, so reaching for either library's version fails this test.
 #[test]
 fn cpu_and_gpu_agree_on_a_soft_mask() {
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let list = test_scenes::soft_mask();
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
 
@@ -585,7 +589,7 @@ fn vello_hands_back_straight_alpha() {
         Transform,
     };
 
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let mut list = DisplayList::new(Size::new(20.0, 20.0));
     let mut path = Path::new();
     // The right edge falls at x = 10.5, so column 10 is covered exactly half.
@@ -640,7 +644,7 @@ fn vello_hands_back_straight_alpha() {
 /// the defect unmissable: every pixel must be exactly the fill colour.
 #[test]
 fn readback_strips_row_padding_at_an_unaligned_width() {
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let list = test_scenes::unaligned_full_bleed();
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
     assert_eq!(
@@ -679,7 +683,7 @@ fn readback_strips_row_padding_at_an_unaligned_width() {
 /// assumption no longer holds and goldens must become per-adapter.
 #[test]
 fn hardware_and_software_adapters_agree_exactly() {
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let software = match GpuContext::new_headless_software() {
         Ok(context) => context,
         Err(e) => panic!(
@@ -762,7 +766,7 @@ fn ramp() -> pdf_render::Ramp {
 /// carries that verification across.
 #[test]
 fn cpu_and_gpu_agree_on_an_axial_shading() {
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let list = shaded_page(pdf_render::ShadingKind::Axial {
         start: pdf_render::Point::new(10.0, 0.0),
         end: pdf_render::Point::new(190.0, 0.0),
@@ -792,7 +796,7 @@ fn cpu_and_gpu_agree_on_an_axial_shading() {
 fn cpu_and_gpu_agree_on_an_image() {
     use pdf_render::{BlendMode, Command, DisplayList, Image, Size, Transform};
 
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     // A 4×4 checkerboard of distinguishable colours: a placement error that survives a
     // flat image does not survive this one.
     let mut data = Vec::with_capacity(4 * 4 * 4);
@@ -851,7 +855,7 @@ fn cpu_and_gpu_agree_on_an_image() {
 /// clause, so the pair together says both *agree* and are *right*.
 #[test]
 fn cpu_and_gpu_agree_on_a_vertical_axial_shading() {
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let list = shaded_page(pdf_render::ShadingKind::Axial {
         start: pdf_render::Point::new(0.0, 10.0),
         end: pdf_render::Point::new(0.0, 190.0),
@@ -876,7 +880,7 @@ fn cpu_and_gpu_agree_on_a_vertical_axial_shading() {
 /// directly rather than as a single-circle approximation.
 #[test]
 fn cpu_and_gpu_agree_on_a_radial_shading() {
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let list = shaded_page(pdf_render::ShadingKind::Radial {
         start: pdf_render::Point::new(100.0, 100.0),
         start_radius: 10.0,
@@ -906,7 +910,7 @@ fn cpu_and_gpu_agree_on_a_radial_shading() {
 /// about an evaluation rather than about two libraries' shaders.
 #[test]
 fn cpu_and_gpu_agree_on_a_radial_cone() {
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let list = test_scenes::radial_cone();
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
 
@@ -950,7 +954,7 @@ fn cpu_and_gpu_agree_on_a_radial_cone() {
 /// no brush at all, so the fourth quadrant draws here.
 #[test]
 fn cpu_and_gpu_agree_on_a_shadings_background() {
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let list = test_scenes::shading_background();
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
 
@@ -986,7 +990,7 @@ fn cpu_and_gpu_agree_on_a_shadings_background() {
 fn cpu_and_gpu_agree_on_a_mesh_shading() {
     use pdf_render::{Color, Corners, Point, Triangle};
 
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let triangles = vec![
         Triangle {
             points: [
@@ -1041,7 +1045,7 @@ fn cpu_and_gpu_agree_on_a_mesh_shading() {
 fn cpu_and_gpu_agree_on_a_parametric_mesh_shading() {
     use pdf_render::{Color, Corners, Point, Ramp, Triangle};
 
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let triangles = vec![Triangle {
         points: [
             Point::new(20.0, 20.0),
@@ -1086,7 +1090,7 @@ fn cpu_and_gpu_agree_on_a_parametric_mesh_shading() {
 fn cpu_and_gpu_agree_on_a_deeply_reduced_image() {
     use pdf_render::{BlendMode, Command, DisplayList, Image, Size, Transform};
 
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     // Fine detail at the sample grid — a pattern no reduction can resolve, so any
     // disagreement about *which* samples are read shows as a different average.
     //
@@ -1163,7 +1167,7 @@ fn cpu_and_gpu_agree_on_the_thinnest_line_the_device_draws() {
     };
     use std::sync::Arc;
 
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     // Both a horizontal and a diagonal line: a horizontal one at a half-integer y covers
     // exactly one row, which is where a wrong width shows as a wrong ink level, and a
     // diagonal one is where the two rasterisers' coverage differs and sets the floor for
@@ -1251,7 +1255,7 @@ fn cpu_and_gpu_agree_on_a_stroke_with_no_length() {
     };
     use std::sync::Arc;
 
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let scene = |commands: &[PathCommand], stroke: Stroke| {
         let mut list = DisplayList::new(Size::new(200.0, 200.0));
         let mut path = Path::new();
@@ -1361,7 +1365,7 @@ fn a_sub_pixel_dot_marks_the_devices_raster() {
     /// One level of an eight-bit raster, which is what a mark stated in one pixel is held to.
     const ONE_LEVEL: f32 = 1.0 / 255.0;
 
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     for width in [0.2_f32, 0.1, 0.05, 0.01] {
         let mut path = Path::new();
         // A whole number at scale 1 is a device pixel's *corner*, which is the placement the
@@ -1423,7 +1427,7 @@ fn cpu_and_gpu_agree_on_a_clip_that_admits_nothing() {
     };
     use std::sync::Arc;
 
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let page = 200.0_f32;
     let rectangle = |from: Point, to: Point| {
         let mut path = Path::new();
@@ -1496,7 +1500,7 @@ fn cpu_and_gpu_agree_on_a_fill_with_no_area() {
     };
     use std::sync::Arc;
 
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let page = 200.0_f32;
     let mut list = DisplayList::new(Size::new(page, page));
     // A grid: horizontal rules written as zero-height rectangles and vertical ones as
@@ -1568,7 +1572,7 @@ fn cpu_and_gpu_agree_on_a_clip_with_no_area() {
     };
     use std::sync::Arc;
 
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let page = 200.0_f32;
     let whole = {
         let mut path = Path::new();
@@ -1648,7 +1652,7 @@ fn a_clip_whose_region_is_a_union_of_two_fills_is_refused_and_the_square_alone_i
     };
     use std::sync::Arc;
 
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let page = 64.0_f32;
     let scene = |with_a_rule: bool| {
         let mut clip_path = Path::new();
@@ -1749,7 +1753,7 @@ fn cpu_and_gpu_smooth_a_stencils_edges_without_darkening_its_colour() {
     /// The colour the marked samples carry, and the one every partly covered pixel owes back.
     const PAINTED: [u8; 4] = [255, 0, 0, 255];
 
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let mut data = Vec::with_capacity(4 * 4 * 4);
     for row in 0..4u32 {
         for column in 0..4u32 {
@@ -1901,7 +1905,7 @@ fn stripe_boundaries(raster: &pdf_render::Raster, scale: u32) -> Vec<u32> {
 /// disagreed at every scale and one boundary sat 16 rows off at 8×.
 #[test]
 fn a_stripe_boundary_is_where_the_file_puts_it_whatever_extend_says() {
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let mut rasterizer = gpu();
     for scale in [1_u32, 2, 4, 8] {
         // Rows 85, 160, 235, 310 and 385 at 1×: t = 0.5, 1.0, …, 2.5, from the file's numbers.
@@ -1943,7 +1947,7 @@ fn a_stripe_boundary_is_where_the_file_puts_it_whatever_extend_says() {
 /// express in Vello's ramp, which is why `render_gpu::shading` places that pair just below 1.
 #[test]
 fn both_non_extended_ends_are_cut_on_the_gpu() {
-    let _gpu = gpu_lock::Hold::when(true, "vello-device");
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
     let mut rasterizer = gpu();
     // Pattern y 150..300 is page y 310..160, so device rows 160·s and 310·s.
     let list = stripe_column((150.0, 300.0), (false, false));

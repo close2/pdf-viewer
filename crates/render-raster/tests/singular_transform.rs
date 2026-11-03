@@ -262,7 +262,7 @@ fn backends() -> Vec<Backend> {
         )),
         Err(why) => println!("  omitted: raster has no device here ({why})"),
     }
-    let _vello_lock = gpu_lock::Hold::when(true, "vello-device");
+    let _vello_lock = gpu_lock::Hold::unless_software("vello-device");
     match render_gpu::GpuRasterizer::new_headless() {
         Ok(mut gpu) => backends.push((
             "vello",
