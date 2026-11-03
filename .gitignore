@@ -61,6 +61,11 @@ __pycache__/
 # which is the part that has to survive the directory being deleted.
 /doc/rasterrocket
 
+# A local checkout of qpdf's source, read as evidence where Annex F is unclear (A03) and never
+# vendored: third-party C++ under its own licences. Like the specifications, it travels beside
+# the tree rather than in it.
+/doc/qpdf
+
 # A worktree round names its build directory here rather than exporting CARGO_TARGET_DIR
 # (ADR 0344: an exported CARGO_* empties the sccache cache). The file is the round's own.
 .cargo/config.toml

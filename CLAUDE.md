@@ -17,6 +17,35 @@ a number appears below it is the standard's, not ours.
 | the working agreements, the machine, the agent user, the display | [`doc/environment.md`](doc/environment.md) | you are about to run something |
 | the ratification of each exclusion and each authoring-line amendment: date, question and answer, ADR pointers, reopening trigger, construction | [`doc/scope-ratifications.md`](doc/scope-ratifications.md) | you are about to declare a clause out of scope, touch an exclusion or an amendment, or ask what a construction on the near side is |
 
+## The machine: the server VM (`quorra@agents`)
+
+Development moved from the owner's notebook to this VM on 2026-11-03. `doc/environment.md` still
+describes the notebook (user `AI`, owner `cl`, Radeon 890M, the owner's GPU loop); where it and this
+section disagree about the machine, **this section is the machine**. The rules about walks, locks,
+`sccache` and measuring in that file are unchanged.
+
+- **Repository**: `github.com/close2/pdf-viewer`, checked out at `~/pdf-viewer`, user `quorra`. Push
+  is over the SSH deploy key `~/.ssh/id_ed25519`; GitHub rejects force-pushes on protected history.
+  Commits and tags are **unsigned** (`commit.gpgsign = false`) — never enable signing. CI:
+  `gh run list -R close2/pdf-viewer`, `gh run view <id> -R close2/pdf-viewer --log-failed`.
+- **The GPU is shared, and every run on it holds the lock.** A physical AMD Radeon RX 580
+  (Polaris, RADV, `/dev/dri/renderD128`) is shared with a second agent user (`spacescuffle`); a
+  test, gate or measurement that may touch the hardware adapter is wrapped:
+  `VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/radeon_icd.x86_64.json with-gpu-lock <command>`
+  (an exclusive `flock` on `/run/lock/gpu.lock`, 600 s wait; `GPU_LOCK_TIMEOUT=1200` for longer).
+  Software Vulkan needs no lock: `VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json`.
+  wgpu picks the hardware adapter when none is pinned, so an unpinned GPU run counts as hardware.
+  A clock figure taken without the lock may include the other user's load and is not a reading.
+- **Processor and memory**: CPUs `0-31` of one EPYC socket, NUMA node 0, in slice
+  `user-1001.slice` (`Delegate=yes`, nested cgroup v2 bounds work); memory capped at 92 GiB
+  (`MemoryHigh=88G`) with **no swap** — a walk past the cap is killed, not slowed.
+- **Storage**: `/` (NVMe, shared, 250 GiB) holds the checkout; `~/scratch` (`/scratch/quorra`, a
+  1.5 TiB rotating disk) holds what is large or temporary — `~/scratch/sccache` (`$SCCACHE_DIR`,
+  50 GiB cap), `~/scratch/cargo-target` (secondary and export build directories, corpora, fuzz
+  corpora, census outputs, extra worktrees), `~/scratch/handover` (the notebook's handover).
+  Linking is `clang` + `mold` (`~/.cargo/config.toml`). `df -h / ~/scratch` before a cold build:
+  the NVMe is shared and nearly full.
+
 ## Non-negotiable principles
 
 These are stated by the project owner and override convenience, velocity, and any
