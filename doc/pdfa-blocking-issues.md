@@ -2,7 +2,7 @@
 
 Status: **a census record**, taken at `7d6ed87f` on 2026-10-27 by session 1828 for the owner's
 `doc/questions/A681` item 1, and re-run by the commands in section 1. Section 1's census lines and
-section 2's table are session 1932's run, section 2 being `rank.py --table`'s output; the figures in
+section 2's table are session 1933's run, section 2 being `rank.py --table`'s output; the figures in
 sections 3 to 9 are session 1828's, each entry's built parts named where a round built them, and
 none is kept current by hand. ADR 2490 is the decision that reopens the blocks; this file
 is the list it reopens them over. It does not repeat `doc/pdf-a-conversion-limits.md` or
@@ -57,14 +57,14 @@ Two disagreements found outside it, to weigh in batch 132 (ADR 2652 section 2):
 
 | census line, with the pack | converted | conforming | refused | unreadable | declined as a source |
 |---|---|---|---|---|---|
-| pdf.js `as-if-printed` 2b | 898 | 2 | 60 | 11 | 5 |
-| corpora `as-if-printed` 2b | 426 | 6 | 52 | 16 | 3 |
-| pdf.js `as-if-printed` 4 | 909 | 0 | 51 | 11 | 5 |
-| corpora `as-if-printed` 4 | 435 | 0 | 50 | 16 | 2 |
-| pdf.js `as-shown` 2b | 833 | 2 | 125 | 11 | 5 |
-| corpora `as-shown` 2b | 344 | 6 | 133 | 16 | 4 |
-| pdf.js `as-shown` 4 | 838 | 0 | 122 | 11 | 5 |
-| corpora `as-shown` 4 | 341 | 0 | 142 | 16 | 4 |
+| pdf.js `as-if-printed` 2b | 899 | 2 | 59 | 11 | 5 |
+| corpora `as-if-printed` 2b | 425 | 6 | 53 | 16 | 3 |
+| pdf.js `as-if-printed` 4 | 905 | 0 | 55 | 11 | 5 |
+| corpora `as-if-printed` 4 | 433 | 0 | 52 | 16 | 2 |
+| pdf.js `as-shown` 2b | 834 | 2 | 124 | 11 | 5 |
+| corpora `as-shown` 2b | 343 | 6 | 134 | 16 | 4 |
+| pdf.js `as-shown` 4 | 834 | 0 | 126 | 11 | 5 |
+| corpora `as-shown` 4 | 339 | 0 | 144 | 16 | 4 |
 
 In session 1828's run, without the pack, pdf.js `as-if-printed` was eleven documents worse at each
 part, which is why the pack is taken as installed. `as-shown` is the same
@@ -104,7 +104,7 @@ column. R02 is built (ADR 2498) and no document reaches it.
 | order | remedy | frees at 2b | frees at 4 | stops under `as-shown`, 2b / 4 | what is left needs | built by, and what is left |
 |---|---|---|---|---|---|---|
 | 1 | R06b-the-other-part | 28 | 2 | 41 / 9 | built | ADR 2498: the two-target request; the figures are what a one-part request refuses |
-| 2 | R10-font-refiling | 11 | 11 | 14 / 14 | builds only | built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685) |
+| 2 | R10-font-refiling | 11 | 17 | 14 / 21 | builds only | built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685), a standard font's stated widths (ADR 2686) |
 | 3 | R07-undecodable-stream | 8 | 7 | 8 / 8 | builds only | decided by ADR 2490, unbuilt |
 | 4 | R12-spot-colourant | 7 | 7 | 7 / 7 | builds only | decided by ADR 2490 for a PostScript calculator function; a sampled or exponential one is owner-blocked until its loss is named |
 | 5 | R03-photograph | 6 | 8 | 55 / 57 | builds only | built under `as-if-printed`: A694, ADRs 2516, 2618, 2638; left, a page this reader does not draw whole; `as-shown` keeps ADR 2394's gate (A694 item 1) |
@@ -235,9 +235,16 @@ stated again, the width being the horizontal component the program's `/FontMatri
 `bug1157493`, `bug1539074`, `bug1539074.1`, `issue1905` and `issue2833` convert under both shipped
 profiles at 2b and 4, and `ESUjulyaugust2002` under `as-shown`
 (under `as-if-printed` its `halftone-name` is R17's); `issue_cff_unsigned_bbox`'s width is in a CFF
-subroutine and stays refused, and `issue11150_reduced`'s `Symbol` states a descriptor and no
-widths, which ISO 32000-1 Table 111 allows a standard 14 font only with all four absent, and is
-refused by that name (ADR 2685 decision 5).
+subroutine and stays refused. `issue11150_reduced`'s `Symbol` states a descriptor and no widths,
+which ISO 32000-1 Table 111 allows a standard 14 font only with all four absent and ISO 32000-2
+Table 109 allows no font; the checker fails it by name (`fonts/simple-font-states-its-widths`),
+and the three entries are written as the published metrics this reader lays it out by (ADRs 2686,
+2687). The same row refuses, by name, a font drawn only in rendering mode 3 that states none of the
+four, since no route embeds it and so none writes a descriptor: at part 4 for one of the fourteen,
+whose exemption ISO 32000-2 removes (`42828.0001.001`, `issue12963`, `issue2074`, `issue2956`,
+`multiple-filters-length-zero`, `scan-bad`, which veraPDF 1.30.3 passed), and at both parts for
+`0000490`'s TrueType `Arial`, whose earlier outputs veraPDF failed at 6.2.11.2-4 to -6. The remedy
+is the embedding route taken for such a font too.
 
 **A cut font program** (built, ADR 2636): a program whose decode stops short and that this reader
 cannot load takes the unembedded route; `issue11651`, `435321` (2b and 4) and `268346` (4) are freed

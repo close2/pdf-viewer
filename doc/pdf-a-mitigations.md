@@ -1672,6 +1672,22 @@ ISO 19005-2 6.2.11.2, ISO 19005-4 6.2.10.2 · all six · **built** (ADR 2178)
   metrics; inventing widths would require proving those advances separately. Missing
   arrays and invalid byte-code ranges are not claimed checked by this requirement.
 
+#### `fonts/simple-font-states-its-widths`
+ISO 19005-2 6.2.11.2, ISO 19005-4 6.2.10.2 · all six · **built** (ADRs 2686, 2687)
+
+- **Mitigation** — a font a content stream uses that states a `/FontDescriptor` and leaves out
+  any of `/FirstChar`, `/LastChar` and `/Widths` is given all three, as the advances this reader
+  lays its glyphs out by: for one of the standard 14 names, the published metrics ISO 32000-2
+  §9.6.2.1 makes a processor provide when the entries are absent; otherwise `/MissingWidth`. No
+  mark moves. This is a `Stated` interpretation, because the source was a dictionary the base
+  standard does not admit and another reader may have read it otherwise.
+- **By target** — part 2 lets a `Type1` font under one of the fourteen names leave out all four
+  entries (ISO 32000-1 Table 111); part 4 lets none (ISO 32000-2 Table 109), and a font with no
+  descriptor is the embedding route's either way, which writes all four.
+- **From a configuration** — none: no loss is offered.
+- **Remaining refusal** — a font written directly inside another object, or one this reader
+  cannot load, is refused by name.
+
 #### `fonts/vertical-metrics-agree-with-the-program`
 ISO 19005-4 6.2.10.5 · PDF/A-4, 4f, 4e · **built in session 976** (`Mechanical`) · corrected in
 sessions 962, 966 and 976

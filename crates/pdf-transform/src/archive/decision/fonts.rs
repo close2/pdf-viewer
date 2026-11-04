@@ -120,6 +120,23 @@ pub(super) const REMEDIES: &[Remedy] = &[
              MissingWidth, as this viewer already laid them out; the page's marks do not move",
         ),
     },
+    // ISO 19005-2 section 6.2.11.2 through ISO 32000-1 Table 111, ISO 19005-4 section 6.2.10.2
+    // through ISO 32000-2 Table 109: the three entries are written as the advances this reader
+    // lays the glyphs by, so nothing on the page moves here; what the output states is the reading
+    // a reader of the source had to choose, since a dictionary with a descriptor and no widths is
+    // one the base standard does not admit (`doc/adr/2686`).
+    Remedy {
+        requirement: "fonts/simple-font-states-its-widths",
+        answer: Answer::Stated(
+            None,
+            Rewrite::FontWidthsStated,
+            "a font that stated a FontDescriptor and not all of FirstChar, LastChar and Widths is \
+             given the three, as the advances this viewer laid its glyphs out by: for one of the \
+             standard 14 names its published metrics, otherwise the descriptor's MissingWidth. \
+             The page's marks do not move here; a reader that laid the source out by its font \
+             program instead would see the glyphs move where the program's widths differ",
+        ),
+    },
     Remedy {
         requirement: "fonts/widths-agree-with-the-program",
         answer: Answer::Mechanical(Rewrite::RestateFontMetrics),

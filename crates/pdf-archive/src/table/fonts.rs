@@ -183,6 +183,15 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Implemented(widths_array_covers_character_range),
     },
     Requirement {
+        id: "fonts/simple-font-states-its-widths",
+        asks: "A Type 1, multiple master or TrueType font dictionary shall state FirstChar, \
+               LastChar, Widths and FontDescriptor; under part 2 a Type 1 font named for one of \
+               the standard 14 may instead leave all four out, and only all four.",
+        clauses: Clauses::both("6.2.11.2", "6.2.10.2"),
+        applies: Applies::Always,
+        check: Check::Implemented(simple_font_states_its_widths),
+    },
+    Requirement {
         id: "fonts/cid-system-info-agrees-with-the-cmap",
         asks: "A composite font whose encoding is not one of the identity CMaps shall have the \
                same registry and ordering in the CIDFont and in the CMap, and the CIDFont's \
@@ -703,6 +712,102 @@ fn widths_array_covers_character_range(exam: &Examination<'_>, findings: &mut Fi
             ));
         }
     });
+}
+
+/// Every simple font dictionary that leaves out an entry its base standard requires of it.
+///
+/// ISO 19005-2 section 6.2.11.2 holds a font to ISO 32000-1's font clauses, and ISO 19005-4
+/// section 6.2.10.2 to ISO 32000-2's, and the two editions differ here. ISO 32000-1 Table 111
+/// marks `/FirstChar`, `/LastChar`, `/Widths` and `/FontDescriptor` each required except for the
+/// standard 14, and binds that exemption with the sentence ISO 32000-2 §9.6.2.1's Table 109 still
+/// prints in its `/FontDescriptor` row:
+///
+/// > For the standard 14 fonts, the entries FirstChar, LastChar, Widths , and FontDescriptor shall
+/// > either all be present or all be absent.
+///
+/// The same Table 109 states each of the four "Required; optional in PDF 1.0-1.7 for the standard
+/// 14 fonts", and a part 4 file is a PDF 2.0 file, so there the exemption is gone. §9.6.2.3 and §9.6.3 give a multiple master and a TrueType font dictionary the same
+/// entries; the standard 14 are Type 1 fonts, §9.6.2.2's fourteen names spelled exactly
+/// ([`pdf_font::standard::is_standard_name`]), so only a `Type1` dictionary is exempt. A `null`
+/// value is §7.3.9's absence. A Type 3 font is Table 112's (Table 110 in ISO 32000-2), with a
+/// descriptor of its own condition, and is not judged here (`doc/adr/2686`).
+///
+/// **The population is the fonts a text-showing operator ran with, in any rendering mode** —
+/// [`crate::survey::Survey::fonts`] — because both parts bind the fonts *used* in the file. An
+/// interactive form's `/DR` routinely names `/Helvetica` and `/ZapfDingbats` with no entry but
+/// `/BaseFont`, and no content draws with them; this tree's part 4 outputs carry such fonts and
+/// veraPDF 1.30.3 passes them, and they are no font the file uses in the clause's sense.
+fn simple_font_states_its_widths(exam: &Examination<'_>, findings: &mut Findings) {
+    const ENTRIES: [&str; 4] = ["FirstChar", "LastChar", "Widths", "FontDescriptor"];
+    let document = exam.document;
+    let mut judged = BTreeSet::new();
+    for used in exam.survey().fonts() {
+        let key = match used.id {
+            Some(id) => (Some(id), 0, String::new()),
+            None => (None, used.page, used.name.clone()),
+        };
+        if !judged.insert(key) {
+            continue;
+        }
+        let font = &used.dict;
+        let Some(kind) = subtype(document, font) else {
+            continue;
+        };
+        if !matches!(kind.as_str(), "Type1" | "MMType1" | "TrueType") {
+            continue;
+        }
+        let missing: Vec<&str> = ENTRIES
+            .into_iter()
+            .filter(|key| document.get_key(font, key).is_null())
+            .collect();
+        if missing.is_empty() {
+            continue;
+        }
+        let name = named(document.get_key(font, "BaseFont").as_name());
+        let standard = kind == "Type1"
+            && name
+                .as_deref()
+                .is_some_and(pdf_font::standard::is_standard_name);
+        let font_named = name.map_or_else(
+            || format!("a {kind} font naming no BaseFont"),
+            |name| format!("the {kind} font {name}"),
+        );
+        let said = match exam.target.part() {
+            Part::Two if standard && missing.len() == ENTRIES.len() => continue,
+            Part::Two if standard => format!(
+                "{font_named} states {} but not {}, where ISO 32000-1 Table 111 lets one of the \
+                 standard 14 leave out FirstChar, LastChar, Widths and FontDescriptor only all \
+                 together",
+                listed(ENTRIES.iter().filter(|key| !missing.contains(key)).copied()),
+                listed(missing.iter().copied()),
+            ),
+            Part::Two => format!(
+                "{font_named} states no {}, which ISO 32000-1 Table 111 requires of every font but \
+                 the standard 14",
+                listed(missing.iter().copied()),
+            ),
+            Part::Four => format!(
+                "{font_named} states no {}, which ISO 32000-2 Table 109 requires of every font, \
+                 the standard 14 included",
+                listed(missing.iter().copied()),
+            ),
+        };
+        let place = used.id.map_or_else(
+            || Where::page(used.page).named(used.name.clone()),
+            |id| Where::object(id).named(used.name.clone()),
+        );
+        findings.record(place, said);
+    }
+}
+
+/// Entry names joined as a sentence names them: `A`, `A and B`, `A, B and C`.
+fn listed<'a>(names: impl Iterator<Item = &'a str>) -> String {
+    let names: Vec<&str> = names.collect();
+    match names.split_last() {
+        None => String::new(),
+        Some((last, [])) => (*last).to_owned(),
+        Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+    }
 }
 
 /// Every Type 0 font a content stream uses whose `/DescendantFonts` is not the one `CIDFont`
@@ -3447,7 +3552,7 @@ fn actual_text_states_no_private_use(exam: &Examination<'_>, findings: &mut Find
 #[cfg(test)]
 mod tests {
     use crate::Examination;
-    use crate::{Flavour, Target};
+    use crate::{Flavour, Level, Target};
     use std::fmt::Write as _;
 
     use pdf_font::tounicode::ToUnicode;
@@ -3461,8 +3566,8 @@ mod tests {
         font_programs_embedded, font_programs_filed_by_their_format, glyph_procedure_width,
         is_private_use, no_notdef_glyph_shown, non_symbolic_truetype_differences_are_listed_names,
         non_symbolic_truetype_uses_a_standard_encoding, private_use_codes,
-        symbolic_truetype_states_no_encoding, table_124_rows, to_unicode_present,
-        to_unicode_values_are_usable, type3_glyph_procedures_state_their_width,
+        simple_font_states_its_widths, symbolic_truetype_states_no_encoding, table_124_rows,
+        to_unicode_present, to_unicode_values_are_usable, type3_glyph_procedures_state_their_width,
         widths_array_covers_character_range,
     };
 
@@ -3544,6 +3649,62 @@ mod tests {
                 expected
             );
         }
+    }
+
+    /// ISO 32000-1 Table 111 at part 2 and ISO 32000-2 Table 109 at part 4 (`doc/adr/2686`):
+    /// `issue11150_reduced`'s shape, one of the standard 14 stating a descriptor and no widths,
+    /// fails both; the same name stating none of the four passes only part 2, the one edition
+    /// whose exemption it is; a `TrueType` dictionary under that name and a font of any other name
+    /// have no exemption at either.
+    #[test]
+    fn a_simple_font_states_its_widths_unless_a_standard_one_states_none_of_the_four() {
+        let widths = "/FirstChar 65 /LastChar 66 /Widths [500 600]";
+        let standard = format!("Type1 /BaseFont /Symbol {widths} /FontDescriptor 6 0 R");
+        let truetype = format!("TrueType /BaseFont /F {widths} /FontDescriptor 6 0 R");
+        let cases = [
+            ("Type1 /BaseFont /Symbol /FontDescriptor 6 0 R", [1, 1]),
+            ("Type1 /BaseFont /Symbol /FontDescriptor null", [0, 1]),
+            ("Type1 /BaseFont /Helvetica /FirstChar 65", [1, 1]),
+            ("TrueType /BaseFont /Helvetica", [1, 1]),
+            ("Type1 /BaseFont /Fixture /FontDescriptor 6 0 R", [1, 1]),
+            ("MMType1 /BaseFont /Fixture", [1, 1]),
+            (standard.as_str(), [0, 0]),
+            (truetype.as_str(), [0, 0]),
+            ("Type3 /FontMatrix [1 0 0 1 0 0]", [0, 0]),
+        ];
+        let targets = [Target::Two(Level::B), Target::Four(Flavour::Plain)];
+        for (font, expected) in cases {
+            let source = page_with(
+                "BT /F1 12 Tf (AB) Tj ET",
+                &format!(
+                    "5 0 obj\n<< /Type /Font /Subtype /{font} >>\nendobj\n\
+                     6 0 obj\n<< /Type /FontDescriptor /FontName /F /Flags 4 >>\nendobj\n"
+                ),
+            );
+            for (target, expected) in targets.into_iter().zip(expected) {
+                let mut found = Findings::default();
+                simple_font_states_its_widths(&Examination::new(&source, target), &mut found);
+                let said: Vec<String> = found.kept().iter().map(|f| f.what.clone()).collect();
+                assert_eq!(said.len(), expected, "{font} at {target:?}: {said:?}");
+            }
+        }
+        let source = page_with(
+            "BT /F1 12 Tf (AB) Tj ET",
+            "5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Symbol /FontDescriptor 6 0 R \
+             >>\nendobj\n6 0 obj\n<< /Type /FontDescriptor /FontName /Symbol >>\nendobj\n",
+        );
+        let mut found = Findings::default();
+        simple_font_states_its_widths(
+            &Examination::new(&source, Target::Two(Level::B)),
+            &mut found,
+        );
+        assert_eq!(
+            found.kept()[0].what,
+            "the Type1 font Symbol states FontDescriptor but not FirstChar, LastChar and Widths, \
+             where ISO 32000-1 Table 111 lets one of the standard 14 leave out FirstChar, \
+             LastChar, Widths and FontDescriptor only all together",
+            "the finding names the font and the rule"
+        );
     }
 
     /// Table 119's one-element array, read through §7.3.10's null: `issue12823.pdf`'s

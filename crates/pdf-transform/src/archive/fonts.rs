@@ -86,6 +86,7 @@ mod untagged;
 pub use pack::{CjkPack, Collection, PackFiles, PackGap};
 
 pub use described::Described;
+pub(super) use described::state_laid_out_widths;
 pub(super) use notdef_format::notdef_not_given;
 pub use photographed::{
     DOTS_PER_INCH, FixedGroup, FixedGroups, MAX_GROUP_NAME_CHARS, MAX_GROUPS_NAMED,
@@ -637,13 +638,7 @@ pub(super) fn restate_metrics(
                 (restated, None)
             }
             Filed::Type1 => {
-                let restated = type1_restated(
-                    document,
-                    (&used.dict, &stream.dict),
-                    &bytes,
-                    &widths,
-                    &heights,
-                )?;
+                let restated = type1_restated(document, &stream.dict, &bytes, &widths, &heights)?;
                 (restated.program, Some(restated.lengths))
             }
         };
@@ -819,27 +814,19 @@ fn proves(
 /// divide the decoded program into its sections, so a stream that states neither is refused as
 /// one whose sections cannot be found.
 ///
-/// A font dictionary that states a `/FontDescriptor` and not all three of `/FirstChar`,
-/// `/LastChar` and `/Widths` is refused before anything is written: only a standard 14 font may
-/// leave them out, and ISO 32000-1 Table 111, which ISO 19005-2 section 6.2.11.2 holds a font to,
-/// makes the four entries all present or all absent for one; the restated program would be
-/// written into a file still failing that, and the remedy — the three entries written as the
-/// widths this reader positions by — is not built.
+/// A dictionary stating a `/FontDescriptor` and not all of `/FirstChar`, `/LastChar` and
+/// `/Widths` is restated too: `fonts/simple-font-states-its-widths` writes those three entries
+/// as the advances this reader lays the glyphs by, which are the ones `widths` holds the program
+/// to, so the dictionary and the program agree once both are written (`doc/adr/2686`).
 fn type1_restated(
     document: &Document,
-    (font, stream): (&Dictionary, &Dictionary),
+    stream: &Dictionary,
     bytes: &[u8],
     widths: &BTreeMap<u16, f32>,
     heights: &BTreeMap<u16, f32>,
 ) -> Result<pdf_font::type1::AdvancesRestated, Because> {
     if !heights.is_empty() {
         return Err(Because::NotBuiltYet(VERTICAL_NOT_RESTATABLE));
-    }
-    if ["FirstChar", "LastChar", "Widths"]
-        .into_iter()
-        .any(|key| font.get(key).is_none())
-    {
-        return Err(Because::NotBuiltYet(DESCRIPTOR_WITHOUT_WIDTHS));
     }
     let stated = |key: &str| usize::try_from(document.get_key(stream, key).as_integer()?).ok();
     let lengths = stated("Length1")
@@ -1216,7 +1203,7 @@ fn embed_pass(
         // present or all absent for the fourteen, and a font that states a descriptor and no widths
         // has its glyphs positioned by the viewer's own: the output states those numbers.
         if document.get_key(&used.dict, "Widths").is_null() {
-            described::state_laid_out_widths(&mut entries, &font);
+            state_laid_out_widths(&mut entries, &font);
         }
         // Which face the viewer drew the font from decides what embedding the shipped one loses:
         // the restatement's proof has already held the font to it (`doc/adr/2162`). The unrestated
@@ -1820,15 +1807,6 @@ const PROGRAM_NOT_RESTATABLE: &str = "this font's embedded program states a glyp
      pdf_font::restate does not follow. The alternative is restating /Widths to match the \
      program, and doc/pdf-a-conversion-limits.md section 4.9 calls that one never: /Widths is \
      what positions the glyphs, so it is the one change that would move every line of the page";
-
-/// Why a Type 1 program under a dictionary stating a descriptor and no widths is not restated.
-const DESCRIPTOR_WITHOUT_WIDTHS: &str = "this font's embedded Type 1 program states advances its \
-     font dictionary contradicts, and the dictionary states a FontDescriptor but not all of \
-     FirstChar, LastChar and Widths, which ISO 32000-1 Table 111 allows only a standard 14 font \
-     and then only with all four entries absent; restating the program would leave the \
-     dictionary failing ISO 19005-2 section 6.2.11.2 all the same, and writing the three entries \
-     as the widths this reader positions the glyphs by is a remedy this version does not carry \
-     out";
 
 /// Why a program that will not compress into a stream is not written.
 const PROGRAM_NOT_ENCODED: &str = "the font program this conversion built is longer than a \

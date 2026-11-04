@@ -99,7 +99,7 @@ def remedy(kind, site, why):
         return "R08-unembedded-font-photograph"
     if site in ("fonts/font-programs-filed-by-their-format", "fonts/cid-to-gid-map-present",
                 "fonts/descendant-fonts-holds-one-cidfont", "fonts/widths-agree-with-the-program",
-                "fonts/font-dictionary-states-type-font"):
+                "fonts/font-dictionary-states-type-font", "fonts/simple-font-states-its-widths"):
         return "R10-font-refiling"
     if site in ("fonts/truetype-codes-reach-glyphs-by-the-standard-route", "fonts/symbolic-truetype-states-no-encoding",
                 "fonts/non-symbolic-truetype-uses-a-standard-encoding"):
@@ -139,7 +139,7 @@ STATUS = {
     "R08-unembedded-font-photograph": ("builds only", "built under `as-if-printed`: A694, ADR 2516; `as-shown` keeps its stop (A694 item 1)"),
     "R08b-cjk-pack": ("built", "ADR 2460: the census runs with the pack"),
     "R09-as-shown-font-losses": ("builds only", "`as-shown` only; ADR 2490: (c) decided, (a) and (b) builds"),
-    "R10-font-refiling": ("builds only", "built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685)"),
+    "R10-font-refiling": ("builds only", "built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685), a standard font's stated widths (ADR 2686)"),
     "R11-truetype-route": ("builds only", "built: A694 item 3, ADR 2520"),
     "R12-spot-colourant": ("builds only", "decided by ADR 2490 for a PostScript calculator function; a sampled or exponential one is owner-blocked until its loss is named"),
     "R13-jpx-transcode": ("builds only", "unbuilt"),

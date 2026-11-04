@@ -437,7 +437,7 @@ fn restated_entries(
 /// For a font that has a descriptor and no `/Widths`, which Table 109 forbids of the standard
 /// fourteen in the sentence quoted above and which §9.6.2.1 leaves nobody else: the numbers stated
 /// are the ones the viewer already draws with, so no glyph moves (`doc/adr/2535`).
-pub(super) fn state_laid_out_widths(entries: &mut Dictionary, source: &LoadedFont) {
+pub(in crate::archive) fn state_laid_out_widths(entries: &mut Dictionary, source: &LoadedFont) {
     let (first, last, widths) = laid_out_widths(source);
     entries.insert(Name::new(&b"FirstChar"[..]), Object::Integer(first.into()));
     entries.insert(Name::new(&b"LastChar"[..]), Object::Integer(last.into()));

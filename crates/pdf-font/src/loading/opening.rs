@@ -121,6 +121,7 @@ impl LoadedFont {
 
         let metrics = SimpleMetrics {
             substituted: requested,
+            published: requested.or_else(|| published_metrics(document, dict, descriptor)),
             names: names.as_ref(),
             data: &data,
             program,
@@ -397,4 +398,40 @@ impl LoadedFont {
             program_by_glyph: OnceLock::new(),
         })
     }
+}
+
+/// The standard face whose published metrics position an embedded program's glyphs when its
+/// dictionary states no `/Widths`.
+///
+/// ISO 32000-2 §9.6.2.1, beneath Table 109:
+///
+/// > For compatibility reasons PDF processors shall provide glyph widths and font descriptor data
+/// > for those standard fonts for use in processing PDF files when the entries are absent.
+///
+/// The sentence is about the fourteen of §9.6.2.2, which are Type 1 fonts named exactly
+/// ([`crate::standard::is_standard_name`]), and about the widths being absent, so it binds a
+/// `Type1` dictionary under one of those names that states no `/Widths`, a descriptor and a
+/// program beside it or not. ISO 32000-1 Table 111 makes such a dictionary malformed, since it
+/// lets the fourteen leave out the four entries only all together, and says nothing of what a
+/// reader then lays the glyphs by; Table 109's `/MissingWidth` for every code would put every
+/// glyph at one advance, so the clause that names the widths of a standard font when they are
+/// absent is the one read (`doc/adr/2687`). A substitute already carries its request and is not
+/// asked again.
+fn published_metrics(
+    document: &Document,
+    dict: &Dictionary,
+    descriptor: Option<&Dictionary>,
+) -> Option<substitute::Request> {
+    let name = |key: &str| {
+        document
+            .get_key(dict, key)
+            .as_name()
+            .map(|value| String::from_utf8_lossy(value.as_bytes()).into_owned())
+    };
+    let standard = name("Subtype").as_deref() == Some("Type1")
+        && name("BaseFont")
+            .as_deref()
+            .is_some_and(crate::standard::is_standard_name)
+        && document.get_key(dict, "Widths").is_null();
+    standard.then(|| substitute::Request::derive(document, dict, descriptor))
 }

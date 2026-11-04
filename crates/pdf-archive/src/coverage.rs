@@ -2618,6 +2618,7 @@ static READINGS: &[Reading] = &[
                 carried: Carried::By(&[
                     "fonts/font-programs-conform-to-their-own-specifications",
                     "fonts/widths-array-covers-character-range",
+                    "fonts/simple-font-states-its-widths",
                     "fonts/descendant-fonts-holds-one-cidfont",
                     "fonts/font-dictionary-states-type-font",
                 ]),
@@ -4717,6 +4718,7 @@ static READINGS: &[Reading] = &[
                 carried: Carried::By(&[
                     "fonts/font-programs-conform-to-their-own-specifications",
                     "fonts/widths-array-covers-character-range",
+                    "fonts/simple-font-states-its-widths",
                     "fonts/descendant-fonts-holds-one-cidfont",
                     "fonts/font-dictionary-states-type-font",
                 ]),

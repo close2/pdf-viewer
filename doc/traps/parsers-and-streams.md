@@ -517,3 +517,16 @@ table at byte 34 038, off the four-byte boundary, and the second summation disag
 Producers' files are not aligned the way a writer aligns its own. A read-back of a producer's file asks
 whether applying the writer's own `checksummed` again leaves the bytes unchanged — the writer as a fixed
 point — and a census compared against the base's is what shows a read-back refusing what it should pass.
+
+### 321. A width unit is not a height unit
+
+Round 1932's first restatement of a Type 1 program's widths compared each charstring's `hsbw` `wx`
+against the dictionary's `/Widths` in the program's units per em, which `read-fonts` takes from the
+`/FontMatrix`'s fourth element, its vertical scale. veraPDF failed two outputs at 6.2.11.5:
+`bug1539074`'s matrix `[0.0005 0 0 0.001 0 0]` extends the face, and `bug1539074.1`'s
+`[0.001 0.002 0.003 -0.004 0 0]` skews it, so a horizontal advance there is not measured in the unit
+the outlines' height is. §9.2.4 calls a glyph's width its horizontal displacement, and Adobe Type 1
+Font Format section 6.4's vector (`wx`, 0) reaches text space through the whole matrix. The rule:
+before comparing or writing a program's advance against `/Widths`, carry it through the
+`/FontMatrix`'s horizontal component and never through a units-per-em read off the other axis
+(ADR 2685 decision 4).

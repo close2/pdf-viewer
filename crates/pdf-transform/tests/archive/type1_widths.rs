@@ -5,7 +5,8 @@
 //! agree; ISO 32000-2 §9.2.4 makes the dictionary's the one a reader positions glyphs by, so the
 //! program's is the one that moves. Adobe Type 1 Font Format section 6.4 states a glyph's width
 //! as the `wx` operand of the `hsbw` that opens its charstring. The fixture's program states 722
-//! for `A` and 500 for `B`; the dictionary states 600 for `A` and 500 for `B`.
+//! for `A` and 500 for `B`; the dictionary states 600 for `A` and 500 for `B`, or, under the
+//! standard name `Courier`, no widths at all, which `doc/adr/2686` gives the ones it is laid out by.
 
 use std::collections::BTreeMap;
 
@@ -19,6 +20,7 @@ use super::{
 };
 
 const WIDTHS: &str = "fonts/widths-agree-with-the-program";
+const STATED: &str = "fonts/simple-font-states-its-widths";
 
 /// Section 7.1's encryption under the initial key `r`.
 fn encrypt(plain: &[u8], mut r: u16) -> Vec<u8> {
@@ -101,12 +103,17 @@ fn a_page_whose_widths_disagree_with_its_program() -> Vec<u8> {
 
 /// The page, with font object 6 written as `font`.
 fn a_page_under(font: &str) -> Vec<u8> {
+    a_page_drawing(font, CONTENT)
+}
+
+/// The page, with font object 6 written as `font` and `content` its content stream.
+fn a_page_drawing(font: &str, content: &[u8]) -> Vec<u8> {
     let (data, length1, length2) = program();
     Conforming {
         resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
                     [0.9505 1.0 1.089] >>] >>"
             .to_owned(),
-        contents: Some((String::new(), CONTENT.to_vec())),
+        contents: Some((String::new(), content.to_vec())),
         objects: vec![
             font.to_owned(),
             "<< /Type /FontDescriptor /FontName /Fixture /Flags 34 /FontBBox [0 0 700 700] \
@@ -207,28 +214,100 @@ fn a_type1_programs_widths_are_restated_to_the_dictionarys_and_nothing_else_move
 }
 
 #[test]
-fn a_standard_name_stating_a_descriptor_and_no_widths_is_refused_by_name() {
-    // ISO 32000-1 Table 111, which ISO 19005-2 section 6.2.11.2 holds a font to: a standard 14
-    // font's FirstChar, LastChar, Widths and FontDescriptor are all present or all absent. This
-    // one names Courier, states a descriptor and no widths, so its 600-unit standard widths
-    // disagree with the program's 722 and restating the program alone would leave it failing.
+fn a_standard_name_stating_a_descriptor_and_no_widths_is_given_the_widths_it_is_laid_out_by() {
+    // ISO 32000-1 Table 111, which ISO 19005-2 section 6.2.11.2 holds a font to, makes a standard
+    // 14 font's FirstChar, LastChar, Widths and FontDescriptor all present or all absent, and ISO
+    // 32000-2 Table 109, part 4's, makes all four required. This one names Courier, states a
+    // descriptor and no widths, so ISO 32000-2 §9.6.2.1 has a reader lay it out by Courier's
+    // published 600 units; the program states 722 for A and 500 for B (`doc/adr/2686`, 2687).
     let source = a_page_under(
         "<< /Type /Font /Subtype /Type1 /BaseFont /Courier /FontDescriptor 7 0 R \
          /Encoding /WinAnsiEncoding >>",
     );
+    let codes = (*b"AB").map(Code::single_byte);
+    let before = read(&source, codes);
+    assert!(
+        near(before[&b'A'].0, 0.6) && near(before[&b'B'].0, 0.6),
+        "the published metrics, not MissingWidth's 0: {before:?}"
+    );
+    let failed: Vec<&str> = holds(&source, Target::Two(Level::B))
+        .failures()
+        .map(|failed| failed.id)
+        .collect();
+    assert!(failed.contains(&STATED), "{failed:?}");
     for target in [
         Target::Two(Level::B),
         Target::Four(pdf_archive::Flavour::Plain),
     ] {
         let (report, output) = convert(&source, target, Authorisations::default());
-        assert!(
-            matches!(
-                decision(&report, WIDTHS),
-                Decision::Refused(Because::NotBuiltYet(why)) if why.contains("Table 111")
-            ),
+        assert_eq!(
+            decision(&report, STATED).rewrite(),
+            Some(Rewrite::FontWidthsStated),
+            "{target:?}: {:?}",
+            decision(&report, STATED)
+        );
+        assert_eq!(
+            decision(&report, WIDTHS).rewrite(),
+            Some(Rewrite::RestateFontMetrics),
             "{target:?}: {:?}",
             decision(&report, WIDTHS)
         );
-        assert!(output.is_none(), "{target:?}: nothing is written");
+        let output = output
+            .unwrap_or_else(|| panic!("{:?}\n{:?}", conversion(&report).achieved, report.refused));
+        let held = holds(&output, target);
+        assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+        let written = Document::open_with_limits(output.clone(), Limits::DEFAULT).expect("opens");
+        let font = written
+            .get(ObjectId::new(6, 0))
+            .as_dict()
+            .cloned()
+            .expect("the font object");
+        assert_eq!(written.get_key(&font, "FirstChar").as_integer(), Some(32));
+        let after = read(&output, codes);
+        for key in *b"AB" {
+            assert!(
+                near(after[&key].0, 0.6),
+                "{target:?}: the page does not move: {after:?}"
+            );
+            assert!(
+                after[&key].1.is_some_and(|program| near(program, 0.6)),
+                "{target:?}: the program states it too: {after:?}"
+            );
+            assert_eq!(after[&key].2, before[&key].2, "the outline is the same");
+        }
     }
+}
+
+#[test]
+fn a_standard_font_drawn_only_in_mode_three_with_no_entries_passes_part_two_and_is_refused_at_four()
+{
+    // ISO 32000-1 Table 111 lets one of the standard 14 leave out all four entries, so part 2
+    // holds nothing against it; ISO 32000-2 Table 109 requires them of every font, and part 4's
+    // file is a PDF 2.0 file. The embedding route writes all four only for a font that is drawn,
+    // so this one, shown only in rendering mode 3, is refused by name at part 4 (`doc/adr/2686`).
+    let source = a_page_drawing(
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        b"BT /F1 12 Tf 3 Tr 10 100 Td (AB) Tj ET",
+    );
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    assert!(
+        output.is_some(),
+        "part 2: {:?}\n{:?}",
+        conversion(&report).achieved,
+        report.refused
+    );
+    let (report, output) = convert(
+        &source,
+        Target::Four(pdf_archive::Flavour::Plain),
+        Authorisations::default(),
+    );
+    assert!(
+        matches!(
+            decision(&report, STATED),
+            Decision::Refused(Because::NotBuiltYet(why)) if why.contains("rendering mode 3")
+        ),
+        "{:?}",
+        decision(&report, STATED)
+    );
+    assert!(output.is_none(), "part 4: nothing is written");
 }

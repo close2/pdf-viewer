@@ -58,6 +58,10 @@ pub(crate) fn narrow(value: f64) -> f32 {
 pub(crate) struct SimpleMetrics<'a> {
     /// The substitution request, when the font is a stand-in.
     pub(crate) substituted: Option<substitute::Request>,
+    /// Whose published metrics answer a font that states no `/Widths`: the substitution
+    /// request, or for an embedded program under one of the standard 14 names, that name's
+    /// (`opening::published_metrics`, `doc/adr/2687`).
+    pub(crate) published: Option<substitute::Request>,
     /// The glyph name each code selects, when the font has names.
     pub(crate) names: Option<&'a GlyphNames>,
     /// The font program.
@@ -150,8 +154,9 @@ mod declared_range_tests {
 /// statement and always wins — [`stated_widths`] is what the caller hands in. Failing that,
 /// which only the standard 14 are allowed to do, the specification's published metrics for
 /// the face apply, which keeps the layout a property of the document rather than of this
-/// machine. Anything still unanswered falls to the substitute's own advances, which in
-/// practice means glyphs outside the standard character set.
+/// machine; that holds for an embedded program under one of the fourteen names as much as for
+/// a substitute (`SimpleMetrics::published`). Anything still unanswered falls to the program's
+/// own advances, which in practice means glyphs outside the standard character set.
 ///
 /// Resolved once here rather than at each lookup, so [`crate::LoadedFont::advance`] stays free of
 /// work and of allocation on the per-character path.
@@ -160,7 +165,7 @@ pub(crate) fn simple_widths(
     font: SimpleMetrics<'_>,
 ) -> BTreeMap<u32, f32> {
     let mut widths = stated;
-    let Some(request) = font.substituted.filter(|_| widths.is_empty()) else {
+    let Some(request) = font.published.filter(|_| widths.is_empty()) else {
         return widths;
     };
 
@@ -360,8 +365,9 @@ fn program_widths(
             advances
         }
         // A substitute is never a bare Type 1 program: `substitute::Format` offers an sfnt
-        // or a bare CFF and nothing else, and this function runs only for a substituted
-        // font. An *embedded* Type 1 reaches here with `substituted` unset and returns above.
+        // or a bare CFF and nothing else. An *embedded* Type 1 reaches here only under one of
+        // the fourteen names with no `/Widths`, where the published metrics have answered every
+        // glyph they name, and a glyph they do not name keeps `/MissingWidth`.
         Program::Type1 => return widths,
     };
 

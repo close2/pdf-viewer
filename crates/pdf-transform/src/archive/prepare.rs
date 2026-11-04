@@ -1643,7 +1643,9 @@ impl Prepared {
                     alternates.unlicensed_by(self.intent.as_ref().ok().map(|intent| intent.family))
                 }
             },
-            Rewrite::FontWidthArrayRestated => self.owed.font_widths.as_ref().err().copied(),
+            Rewrite::FontWidthArrayRestated | Rewrite::FontWidthsStated => {
+                self.owed.font_widths.as_ref().err().copied()
+            }
             Rewrite::IccComponentCountRestated => {
                 self.owed.component_counts.as_ref().err().copied()
             }
@@ -1965,9 +1967,10 @@ impl Owed {
             cmap_restated,
         } = truetype;
         Self {
-            font_widths: asked(wanted(Rewrite::FontWidthArrayRestated), || {
-                super::font_widths::restated(document, input)
-            }),
+            font_widths: asked(
+                wanted(Rewrite::FontWidthArrayRestated) || wanted(Rewrite::FontWidthsStated),
+                || super::font_widths::restated(document, input),
+            ),
             rendering_intents: asked(wanted(Rewrite::RenderingIntent), || {
                 sites::rendering_intents(document, input)
             }),

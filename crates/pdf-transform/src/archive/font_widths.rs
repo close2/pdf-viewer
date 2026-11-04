@@ -13,25 +13,74 @@
 //! A short array narrows `/LastChar`; a long array loses entries past `/LastChar`. Both
 //! state the same advances this reader uses: codes without a stated width use `/MissingWidth`.
 //! An empty array is refused because the font loader may then use substitute metrics.
+//!
+//! **A dictionary that states a descriptor and leaves out any of `/FirstChar`, `/LastChar` and
+//! `/Widths`** is given all three, as the advances this reader lays its glyphs by
+//! ([`super::fonts::state_laid_out_widths`]), which `fonts/simple-font-states-its-widths` asks
+//! for: ISO 32000-1 Table 111 lets only a standard 14 font leave them out, and then with
+//! `/FontDescriptor` too, and ISO 32000-2's Table 109 lets none. For one of the fourteen names
+//! those advances are the standard's published metrics, which §9.6.2.1 makes a processor provide
+//! when the entries are absent, and otherwise `/MissingWidth`, which Table 109 sends every code
+//! outside a stated range to; either way the numbers written are the ones the page is already
+//! drawn by (`doc/adr/2686`). A dictionary with no descriptor is the embedding route's where the
+//! font is drawn, which writes the four entries with the program it embeds; one drawn only in
+//! rendering mode 3, which no route embeds, is refused by name.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_archive::{Outcome, Report};
+use pdf_font::LoadedFont;
 use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 
 use super::decision::Because;
+use super::rewrite::Rewrite;
 
 /// The dictionary entries to replace, by the font object the validator named.
 #[derive(Debug, Default)]
 pub(super) struct WidthArrays {
     /// Only `/LastChar` or `/Widths`; every retained width is the producer's original value.
     pub(super) at: BTreeMap<ObjectId, Dictionary>,
+    /// `/FirstChar`, `/LastChar` and `/Widths`, for a font that left any of them out.
+    pub(super) stated: BTreeMap<ObjectId, Dictionary>,
+}
+
+impl WidthArrays {
+    /// The entries written into the font object `id`, and the rewrite that writes them.
+    pub(super) fn of(&self, id: ObjectId) -> Option<(&Dictionary, Rewrite)> {
+        self.at
+            .get(&id)
+            .map(|entries| (entries, Rewrite::FontWidthArrayRestated))
+            .or_else(|| {
+                self.stated
+                    .get(&id)
+                    .map(|entries| (entries, Rewrite::FontWidthsStated))
+            })
+    }
 }
 
 /// Why an array that cannot be narrowed without choosing metrics stays refused.
 const NOT_RESTATABLE: &str = "a simple font's Widths array does not cover its stated character \
     range, but the array is empty or its range cannot be read. This reader may then use a \
     substitute's metrics; inventing an entry would not state the widths the page already uses";
+
+/// Why a font that leaves out its widths and cannot be read is not given them.
+const NOT_LAID_OUT: &str = "a simple font states a FontDescriptor but not all of FirstChar, \
+    LastChar and Widths, which ISO 32000-1 Table 111 allows only a standard 14 font and then \
+    only with all four entries absent, and ISO 32000-2 Table 109 allows no font; the three \
+    entries are written as the advances this reader lays the glyphs by, and this font is one \
+    this reader cannot load or one written directly inside another object, so there is no such \
+    advance to state or no object to state it in";
+
+/// Why a font that states no descriptor and that no route embeds is not given one.
+const NO_DESCRIPTOR_UNDRAWN: &str = "a simple font a content stream uses only in text rendering \
+    mode 3 states no FontDescriptor, nor FirstChar, LastChar and Widths, which ISO 32000-2 Table \
+    109 requires of every font in a PDF 2.0 file and ISO 32000-1 Table 111 of every font but the \
+    standard 14; the embedding route that writes all four is taken only for a font that is drawn, \
+    and writing a descriptor for a font no route embeds is a remedy this version does not carry \
+    out";
+
+/// The requirement whose fonts are given the three entries.
+const STATES_ITS_WIDTHS: &str = "fonts/simple-font-states-its-widths";
 
 /// How many width entries the restatement reads, all fonts together.
 ///
@@ -56,11 +105,28 @@ const WIDTHS_OVER_BUDGET: &str = "the simple fonts of this file whose Widths arr
 pub(super) fn restated(document: &Document, input: &Report) -> Result<WidthArrays, Because> {
     let mut out = WidthArrays::default();
     let mut read = 0_usize;
+    // The fonts the embedding route answers, which writes all four entries with the face: by
+    // object, and `None` for a font written directly inside another object, which that route
+    // writes out as an object of its own.
+    let mut embedded = BTreeSet::new();
     for judgement in input.failures() {
-        if judgement.id != "fonts/widths-array-covers-character-range" {
+        if judgement.id == "fonts/font-programs-embedded" {
+            for place in super::sites::places_failed(judgement)? {
+                embedded.insert(place.object);
+            }
+        }
+    }
+    for judgement in input.failures() {
+        if !matches!(judgement.outcome, Outcome::Failed { .. }) {
             continue;
         }
-        if !matches!(judgement.outcome, Outcome::Failed { .. }) {
+        if judgement.id == STATES_ITS_WIDTHS {
+            for place in super::sites::places_failed(judgement)? {
+                laid_out(document, place.object, &embedded, &mut out)?;
+            }
+            continue;
+        }
+        if judgement.id != "fonts/widths-array-covers-character-range" {
             continue;
         }
         for place in super::sites::places_failed(judgement)? {
@@ -118,4 +184,49 @@ pub(super) fn restated(document: &Document, input: &Report) -> Result<WidthArray
         }
     }
     Ok(out)
+}
+
+/// Gives the font at `at` the `/FirstChar`, `/LastChar` and `/Widths` it lays its glyphs out by,
+/// where it states a descriptor; a font with none is left to the embedding route where that
+/// route takes it, in `embedded`, and refused otherwise.
+///
+/// A font written directly inside another object has no object here to edit, and is left to the
+/// embedding route where that route takes such a font: the route writes it out as an object with
+/// all four entries, and the output's second verdict holds whatever it did not (`doc/adr/2686`).
+fn laid_out(
+    document: &Document,
+    at: Option<ObjectId>,
+    embedded: &BTreeSet<Option<ObjectId>>,
+    out: &mut WidthArrays,
+) -> Result<(), Because> {
+    let Some(id) = at else {
+        return if embedded.contains(&None) {
+            Ok(())
+        } else {
+            Err(Because::NotBuiltYet(NOT_LAID_OUT))
+        };
+    };
+    if out.stated.contains_key(&id) {
+        return Ok(());
+    }
+    let object = document.get(id);
+    let dict = object.as_dict().ok_or(Because::NotBuiltYet(NOT_LAID_OUT))?;
+    if document.get_key(dict, "FontDescriptor").is_null() {
+        return if embedded.contains(&Some(id)) {
+            Ok(())
+        } else {
+            Err(Because::NotBuiltYet(NO_DESCRIPTOR_UNDRAWN))
+        };
+    }
+    let name = document
+        .get_key(dict, "BaseFont")
+        .as_name()
+        .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
+        .unwrap_or_default();
+    let font =
+        LoadedFont::load(document, dict, &name).map_err(|_| Because::NotBuiltYet(NOT_LAID_OUT))?;
+    let mut entries = Dictionary::new();
+    super::fonts::state_laid_out_widths(&mut entries, &font);
+    out.stated.insert(id, entries);
+    Ok(())
 }

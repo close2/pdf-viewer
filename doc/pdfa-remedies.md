@@ -179,7 +179,7 @@ Answered without loss under every profile, no remedy owed: `a-device-dependent-p
 
 Not a property a file can fail, so never a refusal (a processor's requirement, unchecked, or outside validation): `embedded-programs-are-what-a-processor-renders` (Processor), `font-programs-conform-to-their-own-specifications` (Unchecked), `font-programs-embeddable-without-permission` (Unchecked).
 
-Answered without loss under every profile, no remedy owed: `charset-lists-every-glyph-in-the-program`, `cidset-lists-every-cid-in-the-program`, `font-programs-filed-by-their-format`, `no-notdef-glyph-shown`, `non-symbolic-truetype-uses-a-standard-encoding`, `symbolic-truetype-states-no-encoding`, `to-unicode-present`, `to-unicode-values-are-usable`, `truetype-codes-reach-glyphs-by-the-standard-route`, `widths-agree-with-the-program`, `widths-array-covers-character-range`.
+Answered without loss under every profile, no remedy owed: `charset-lists-every-glyph-in-the-program`, `cidset-lists-every-cid-in-the-program`, `font-programs-filed-by-their-format`, `no-notdef-glyph-shown`, `non-symbolic-truetype-uses-a-standard-encoding`, `simple-font-states-its-widths`, `symbolic-truetype-states-no-encoding`, `to-unicode-present`, `to-unicode-values-are-usable`, `truetype-codes-reach-glyphs-by-the-standard-route`, `widths-agree-with-the-program`, `widths-array-covers-character-range`.
 
 ### annotations
 

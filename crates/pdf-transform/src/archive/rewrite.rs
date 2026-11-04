@@ -444,6 +444,10 @@ pub enum Rewrite {
     /// A simple font's widths array and character range are made the same length (Table 109).
     /// Retained advances are unchanged; codes outside the range keep the missing-width default.
     FontWidthArrayRestated,
+    /// A simple font that states a descriptor and not all of `/FirstChar`, `/LastChar` and
+    /// `/Widths` is given the three, as the advances this reader lays its glyphs by (ISO 32000-1
+    /// Table 111, ISO 32000-2 Table 109, `doc/adr/2686`). No mark moves.
+    FontWidthsStated,
     /// Every embedded font program whose stated advance *heights* disagree with the `/DW2` and
     /// `/W2` of the `CIDFont` dictionary that shows it vertically has the program's restated.
     ///
@@ -1394,6 +1398,10 @@ impl Rewrite {
                 "a short Widths array narrows LastChar to its covered range, or a long array \
                  loses its unused tail, preserving every advance the viewer uses"
             }
+            Self::FontWidthsStated => {
+                "a font stating a FontDescriptor and not all of FirstChar, LastChar and Widths is \
+                 given the three, as the advances the viewer lays its glyphs out by"
+            }
             Self::RestateFontMetrics => {
                 "an embedded font program's stated advances are restated to the widths the font \
                  dictionary already states, which is the one of the two that does not move a mark"
@@ -1776,6 +1784,7 @@ impl Rewrite {
             Self::SubstituteFontProgram => "substitute-font-program",
             Self::RestateFontMetrics => "restate-font-metrics",
             Self::FontWidthArrayRestated => "font-width-array-restated",
+            Self::FontWidthsStated => "font-widths-stated",
             Self::RestateVerticalFontMetrics => "restate-vertical-font-metrics",
             Self::RenderingIntent => "rendering-intent",
             Self::BlendModeNormal => "blend-mode-normal",
@@ -3200,13 +3209,13 @@ impl Rewriter<'_> {
             count(applied, Rewrite::SuppliedMediaType);
             changed = true;
         }
-        if self.wants(Rewrite::FontWidthArrayRestated)
-            && let Some(entries) = self.font_widths.and_then(|widths| widths.at.get(&id))
+        if let Some((entries, rewrite)) = self.font_widths.and_then(|widths| widths.of(id))
+            && self.wants(rewrite)
         {
             for (key, value) in entries.iter() {
                 out.insert(key.clone(), value.clone());
             }
-            count(applied, Rewrite::FontWidthArrayRestated);
+            count(applied, rewrite);
             changed = true;
         }
         changed |= self.write_defaults(id, &mut out, applied);
