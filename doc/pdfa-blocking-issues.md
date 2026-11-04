@@ -355,10 +355,13 @@ asks how a page shows it); and `JPXTestGrey` at 2b, whose refusal is the extensi
 catalog packet is Flate data its stream states no filter for, so through the filters it states it
 is not text, and no other filter is tried (ADR 2679): `state-every-loss`'s packet rows now take the
 second step, removing a packet no page can lay out and listing it on the statement page (ADR 2678),
-so it converts under that profile at 2b. At part 4 it is refused by the two section 6.1.3
-document-information rows instead, for custom `/Info` keys (`/WPS-ARTICLEDOI` and others) Table 349
-names no XMP home for: that row's second step is its `unmapped` key, which has `discard` and `stop`
-and no `append-statement`, and `state-every-loss` names neither row, so it stops.
+so it converts under that profile at 2b. At part 4 the two section 6.1.3 document-information rows
+carry a custom `/Info` key Table 349 names no property for (`/WPS-ARTICLEDOI` and others) into the
+packet unchanged, under a namespace stating only where the value came from (ADR 2680,
+`doc/questions/Q779`), under both stating profiles. A value that is not a text string, such as its
+`/SaveStreams` dictionary, is removed by the rows' second step under `state-every-loss` and stated on
+the appended page (ADR 2681), so it converts under that profile at 4 too; `no-data-loss` refuses it
+by name.
 ADR 1014; `crates/pdf-transform/src/archive/preserve.rs`. A packet page in a file stating no intent
 is given one, a replaced packet answers the property row, and one that will not decode owes no page
 (ADR 2676); a character `/WinAnsiEncoding` does not name is set through a `/Differences` array of

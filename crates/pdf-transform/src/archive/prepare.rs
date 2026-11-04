@@ -75,13 +75,15 @@ use font_rewrites::{PreparedFonts, metric_directions, prepare_fonts, unicode_fon
 pub(super) use metadata::{
     AMENDMENT_REQUIREMENT, Amended, DEFAULT_CMYK_ACTION, DescribedField, DescribedSchema,
     FieldsDescribed, HEADER_ACTION, Headers, Metadata, MovedEntry, RemovedIdentifier,
-    RemovedPacket, ReplacedPacket, Respelled, SUBSTITUTED_FONTS_ACTION, SchemasDescribed,
-    field_key, metadata_stream, names_a_field, undescribed_fields_in,
+    RemovedInformation, RemovedPacket, ReplacedPacket, Respelled, SUBSTITUTED_FONTS_ACTION,
+    SchemasDescribed, field_key, metadata_stream, names_a_field, undescribed_fields_in,
 };
+pub use metadata::{CARRIED_INFORMATION_NAMESPACE, CARRIED_INFORMATION_PREFIX, carried_local_name};
 use metadata::{
-    Edited, Information, Recording, document_packet, prepare_amendment, prepare_field_descriptions,
-    prepare_fresh_packets, prepare_headers, prepare_information, prepare_properties,
-    prepare_respellings, prepare_schema_descriptions, schema_packets, the_packet,
+    Edited, Gained, Information, NotCarried, Recording, document_packet, prepare_amendment,
+    prepare_field_descriptions, prepare_fresh_packets, prepare_headers, prepare_information,
+    prepare_properties, prepare_respellings, prepare_schema_descriptions, schema_packets,
+    the_packet,
 };
 
 /// The `parameters` field of that action.
@@ -590,6 +592,13 @@ impl Prepared {
             derived_pages_need_an_intent = true;
             failed.insert(DEVICE_GRAY_ROW);
         }
+        // And for one the information rows may compose over the entries their second step
+        // removes, which is known only once the information is prepared, below the intent
+        // (`doc/adr/2681`).
+        if information_may_be_stated(plan, &failed) {
+            derived_pages_need_an_intent = true;
+            failed.insert(DEVICE_GRAY_ROW);
+        }
         // And for a page a `preserve` row sets a packet's text on, where the source states no intent of its
         // own: that text paints in Table 51's initial `DeviceGray` as the statement's does, and
         // ISO 19005-2 and ISO 19005-4 section 6.2.4.3 license it through an intent of any family
@@ -1009,6 +1018,58 @@ impl Prepared {
             (survey.as_ref(), input, as_drawn.is_ok()),
             &standard_fonts,
         );
+        let edited = Edited {
+            fresh: fresh.as_ref().ok(),
+            headers: headers.as_ref().ok(),
+            cleaned: properties.as_ref().ok(),
+            respelled: respelled.as_ref().ok(),
+            amended: amended.as_ref().ok(),
+            described: described.as_ref().ok(),
+            fields: fields_described.as_ref().ok(),
+        };
+        // ISO 19005-4 section 6.1.3's two rows, read against the packet as the five writers
+        // above left it: §14.3.4 permits an addition only into a silence, so what the packet
+        // already says has to be the packet this conversion is actually going to write. Before
+        // the preserved pages, because the statement page lists each entry the rows' second step
+        // removed (`doc/adr/2681`).
+        let information = asked(wanted(Rewrite::InformationMovedIntoThePacket), || {
+            prepare_information(
+                document,
+                catalog.as_ref(),
+                document_packet(document, catalog.as_ref(), edited).as_deref(),
+                // The operator's answers for a key Table 349 names nothing for and for a value
+                // not of its key's form, read the way the extension schema container reads
+                // `undeterminable`: a site the configuration says nothing about states `stop`,
+                // which refuses either by name.
+                plan.preservations
+                    .iter()
+                    .find(|preservation| {
+                        INFORMATION_REQUIREMENTS.contains(&preservation.site.as_str())
+                    })
+                    .map_or(
+                        (super::config::Unmapped::Stop, false, NotCarried::Refused),
+                        |preservation| {
+                            (
+                                preservation.unmapped,
+                                preservation.unreadable == super::config::Kind::Discard,
+                                not_carried(plan, &failed),
+                            )
+                        },
+                    ),
+            )
+        });
+        // The entries the information rows' `append-statement` removed, which the statement page
+        // lists (`doc/adr/2681`); an entry merely dropped is the report's alone.
+        let stated_information: Vec<RemovedInformation> = information
+            .as_ref()
+            .map(|moved| {
+                moved
+                    .entries
+                    .iter()
+                    .filter_map(|entry| entry.removed.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
         // Read before any page is composed, because an appended page's parent tree key comes after
         // every key the rebuild hands out (`doc/adr/2674`).
         let parent_tree = asked(wanted(Rewrite::ParentTreeRebuilt), || {
@@ -1029,6 +1090,7 @@ impl Prepared {
             substitutes.as_ref().ok(),
             stated_runs(plan, &failed, as_drawn.as_ref().ok()),
             parent_tree.as_ref().ok(),
+            &stated_information,
             &mut spare,
         );
         let attached = the_attached_files(
@@ -1059,7 +1121,17 @@ impl Prepared {
                 .map(RemovedPacket::sentence)
                 .collect::<Vec<_>>();
             let removed = (!removed.is_empty()).then(|| removed.join("; "));
-            let parts: Vec<String> = [kept, removed, stated].into_iter().flatten().collect();
+            // And each information entry an information row's second step removed (`doc/adr/2681`).
+            let entries = composed
+                .removed_information
+                .iter()
+                .map(RemovedInformation::sentence)
+                .collect::<Vec<_>>();
+            let entries = (!entries.is_empty()).then(|| entries.join("; "));
+            let parts: Vec<String> = [kept, removed, entries, stated]
+                .into_iter()
+                .flatten()
+                .collect();
             (!parts.is_empty()).then(|| parts.join("; "))
         });
         let attachments = attachment_outcomes(
@@ -1073,44 +1145,11 @@ impl Prepared {
             .as_ref()
             .ok()
             .and_then(|files| super::attach::attached_history(&files.rows));
-        let edited = Edited {
-            fresh: fresh.as_ref().ok(),
-            headers: headers.as_ref().ok(),
-            cleaned: properties.as_ref().ok(),
-            respelled: respelled.as_ref().ok(),
-            amended: amended.as_ref().ok(),
-            described: described.as_ref().ok(),
-            fields: fields_described.as_ref().ok(),
-        };
-        // ISO 19005-4 section 6.1.3's two rows, read against the packet as the five writers
-        // above left it: §14.3.4 permits an addition only into a silence, so what the packet
-        // already says has to be the packet this conversion is actually going to write.
-        let information = asked(wanted(Rewrite::InformationMovedIntoThePacket), || {
-            prepare_information(
-                document,
-                catalog.as_ref(),
-                document_packet(document, catalog.as_ref(), edited).as_deref(),
-                // The operator's answers for a key Table 349 names nothing for and for a value
-                // not of its key's form, read the way the extension schema container reads
-                // `undeterminable`: a site the configuration says nothing about states `stop`,
-                // which refuses either by name.
-                plan.preservations
-                    .iter()
-                    .find(|preservation| {
-                        INFORMATION_REQUIREMENTS.contains(&preservation.site.as_str())
-                    })
-                    .map_or((super::config::Unmapped::Stop, false), |preservation| {
-                        (
-                            preservation.unmapped,
-                            preservation.unreadable == super::config::Kind::Discard,
-                        )
-                    }),
-            )
-        });
-        let supplements: Vec<xmp::Supplement<'static>> = information
+        let gained: Vec<Gained> = information
             .as_ref()
             .map(|moved| moved.supplements.clone())
             .unwrap_or_default();
+        let supplements: Vec<xmp::Supplement<'_>> = gained.iter().map(Gained::supplement).collect();
         // ISO 19005-2 section 6.2.5's transfer functions, prepared before the packet: a function
         // other than the identity is written into its `xmpMM:History` before it goes, and the
         // record is a condition of the removal (`doc/adr/1964`).
@@ -2288,8 +2327,56 @@ fn unless_recorded<T>(
     }
 }
 
+/// What becomes of a value the information rows' `unmapped = "carry"` cannot carry: their second
+/// step where they name one, otherwise their `unreadable` answer (`doc/adr/2681`).
+///
+/// A row whose step list ends `append-statement` asks for a statement and hands its leftovers on;
+/// the page lists them under the row this document failed, which is the requirement that asked
+/// for the move, and under the first configured row where neither failed.
+fn not_carried(plan: &ArchivePlan, failed: &BTreeSet<&'static str>) -> NotCarried {
+    let rows = || {
+        plan.preservations
+            .iter()
+            .filter(|preservation| INFORMATION_REQUIREMENTS.contains(&preservation.site.as_str()))
+    };
+    let stating = rows().find(|preservation| {
+        preservation.statement.is_some()
+            && preservation.no_page_carries == super::config::Kind::Discard
+    });
+    if let Some(stating) = stating {
+        let site = INFORMATION_REQUIREMENTS
+            .iter()
+            .find(|site| failed.contains(**site) && rows().any(|row| row.site == **site))
+            .or_else(|| {
+                INFORMATION_REQUIREMENTS
+                    .iter()
+                    .find(|site| **site == stating.site)
+            });
+        if let Some(site) = site {
+            return NotCarried::Stated(site);
+        }
+    }
+    if rows().any(|preservation| {
+        preservation.no_page_carries == super::config::Kind::Discard
+            || preservation.unreadable == super::config::Kind::Discard
+    }) {
+        NotCarried::Dropped
+    } else {
+        NotCarried::Refused
+    }
+}
+
+/// Whether the information rows' statement page may be composed: a row this document failed names
+/// `append-statement` as its second step (`doc/adr/2681`).
+fn information_may_be_stated(plan: &ArchivePlan, failed: &BTreeSet<&'static str>) -> bool {
+    matches!(not_carried(plan, failed), NotCarried::Stated(_))
+        && INFORMATION_REQUIREMENTS
+            .iter()
+            .any(|site| failed.contains(site))
+}
+
 /// ISO 19005-4 section 6.1.3's two rows, whose `unmapped` answer is one answer for both.
-const INFORMATION_REQUIREMENTS: [&str; 2] = [
+pub(super) const INFORMATION_REQUIREMENTS: [&str; 2] = [
     "file-structure/document-information-dictionary-needs-piece-info",
     "file-structure/document-information-dictionary-holds-only-a-modification-date",
 ];

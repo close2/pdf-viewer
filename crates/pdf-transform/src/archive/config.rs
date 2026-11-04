@@ -853,6 +853,12 @@ pub enum Unmapped {
     /// identity rather than a label for it and which no file states. `doc/adr/1269` is the
     /// reading and `UNMAPPED_NEEDS_A_NAMESPACE` is the sentence an operator is given.
     ExtensionSchema,
+    /// The key's value is written into the packet unchanged, under this converter's namespace
+    /// for a dictionary key, which states where the value came from and nothing about what it
+    /// means (`doc/adr/2680`). ISO 19005-4 section 6.7.2 admits any well-formed XMP and asks for
+    /// no description of the schema; the key's name is the local name's escape, and a value that
+    /// is not a text string is the row's `unreadable` answer's.
+    Carry,
     /// The key's value leaves the document, and the report names it.
     Discard,
     /// The site keeps its refusal, naming the key.
@@ -865,6 +871,7 @@ impl Unmapped {
     pub const fn word(self) -> &'static str {
         match self {
             Self::ExtensionSchema => "extension-schema",
+            Self::Carry => "carry",
             Self::Discard => "discard",
             Self::Stop => "stop",
         }
@@ -873,9 +880,14 @@ impl Unmapped {
     /// The answer a configuration's word names.
     #[must_use]
     pub fn parse(word: &str) -> Option<Self> {
-        [Self::ExtensionSchema, Self::Discard, Self::Stop]
-            .into_iter()
-            .find(|unmapped| unmapped.word() == word)
+        [
+            Self::ExtensionSchema,
+            Self::Carry,
+            Self::Discard,
+            Self::Stop,
+        ]
+        .into_iter()
+        .find(|unmapped| unmapped.word() == word)
     }
 }
 
@@ -885,8 +897,10 @@ pub(super) const UNMAPPED_NEEDS_A_NAMESPACE: &str = "ISO 19005-2 section 6.6.2.3
      no schema at all: writing one into the packet needs a namespace URI, and a namespace URI is \
      the property's identity rather than a label for it. Nothing in the file states one, so this \
      converter would be deciding what somebody else's key means (doc/adr/1269). The answers this \
-     version carries out are `unmapped = \"discard\"`, which drops the value and names it in the \
-     report, and `unmapped = \"stop\"`, which keeps the refusal";
+     version carries out are `unmapped = \"carry\"`, which writes the value into the packet under \
+     a namespace stating only where it came from (doc/adr/2680), `unmapped = \"discard\"`, which \
+     drops the value and names it in the report, and `unmapped = \"stop\"`, which keeps the \
+     refusal";
 
 /// One `preserve` remedy this conversion carries out by appending pages.
 ///
@@ -1195,16 +1209,22 @@ fn preserves_a_packet(row: &Row) -> bool {
 /// handed to the row's second step — `discard`, or `append-statement`, which removes it and lists
 /// it on the statement page — rather than refusing the site.
 ///
-/// One mechanism at two families of rows (`doc/rfc/0014` section 3): the embedded-file rows'
-/// `preserve:append`, whose outcome is one per file (`doc/adr/2536`), and the packet rows'
+/// One mechanism at three families of rows (`doc/rfc/0014` section 3): the embedded-file rows'
+/// `preserve:append`, whose outcome is one per file (`doc/adr/2536`), the packet rows'
 /// `preserve` with `original = "page"`, whose outcome is one per replaced packet
-/// (`doc/adr/2678`). `original = "attach"` and `"both"` keep every packet's bytes as a file
-/// whatever they hold, so nothing is left for a second step there.
+/// (`doc/adr/2678`), and the two ISO 19005-4 section 6.1.3 document-information rows'
+/// `preserve` with `unmapped = "carry"`, whose outcome is one per dictionary entry
+/// (`doc/adr/2681`). `original = "attach"` and `"both"` keep every packet's bytes as a file
+/// whatever they hold, so nothing is left for a second step there; and the other `unmapped`
+/// answers decide every key Table 349 does not define themselves, so none is left over either.
 fn keeps_per_object(row: &Row) -> bool {
     (row.remedy == Kind::Preserve
         && row.placement == Some(Placement::Append)
         && DERIVABLE.contains(&row.site.as_str()))
         || (preserves_a_packet(row) && row.original == Some(Original::Page))
+        || (row.remedy == Kind::Preserve
+            && PRESERVABLE_INFORMATION.contains(&row.site.as_str())
+            && row.unmapped == Unmapped::Carry)
 }
 
 /// Why a `preserve` row states no mechanism.
@@ -2155,7 +2175,9 @@ fn check_what_moves_nothing(row: &Row) -> Result<(), ConfigError> {
     // **`doc/rfc/0014` section 4, built where the loss is reported per object**: the page lists
     // each object the step removed, so it is built at the two embedded-file rows whose outcome is
     // already one per file (`doc/adr/2536`), at the three packet rows answered by page, whose
-    // outcome is one per replaced packet (`doc/adr/2678`), at the three halftone rows, whose removal takes
+    // outcome is one per replaced packet (`doc/adr/2678`), at the two document-information rows
+    // carrying their keys, whose outcome is one per entry (`doc/adr/2681`), at the three halftone
+    // rows, whose removal takes
     // one entry from each object it names (`doc/adr/2562`), at the font row, whose losses are
     // reported one photographed page or one embedded face at a time (`doc/adr/2600`), and at the
     // operator row, whose runs are reported one at a time (`doc/adr/2638`), and refused by name at

@@ -1730,6 +1730,14 @@ impl Conversion {
         {
             let _ = writeln!(out, "  removed: {}", removed.sentence());
         }
+        // So does a document information entry the packet had no form for (`doc/adr/2681`).
+        for removed in self
+            .moved_information
+            .iter()
+            .filter_map(|entry| entry.removed.as_ref())
+        {
+            let _ = writeln!(out, "  removed: {}", removed.sentence());
+        }
         for unstated in &self.unstated {
             let _ = writeln!(out, "  not stated: {}", unstated.sentence());
         }

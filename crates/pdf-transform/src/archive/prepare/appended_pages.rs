@@ -69,6 +69,7 @@ pub(super) fn the_preserved_pages(
     substitutes: Option<&Substitutes>,
     runs: &[super::super::WrittenRun],
     rebuilt: Option<&super::super::parent_tree::Rebuilt>,
+    information: &[super::RemovedInformation],
     spare: &mut Spare,
 ) -> Result<Composed, Because> {
     let appended = &remedies.appended;
@@ -141,6 +142,18 @@ pub(super) fn the_preserved_pages(
         .and_then(|preservation| preservation.statement.as_ref())
         .filter(|_| !removed_packets.is_empty())
         .map(|asked| (removed_packets.as_slice(), asked));
+    // **An information entry the packet has no form for takes its row's second step**
+    // (`doc/adr/2681`), the same mechanism again: the information preparation removed it, and the
+    // page states it where that step is `append-statement`.
+    let information_site = information.first().map(|entry| entry.site);
+    let information_stated = information_site
+        .and_then(|site| {
+            plan.preservations
+                .iter()
+                .find(|preservation| preservation.site == site)
+        })
+        .and_then(|preservation| preservation.statement.as_ref())
+        .map(|asked| (information, asked));
     let packets = if asked(SCHEMA_REQUIREMENT) {
         // The removal is what makes the file conform; the pages are what keep what it removes. A
         // document whose packet cannot be cut gets neither, and the reason is the cut's own.
@@ -250,6 +263,7 @@ pub(super) fn the_preserved_pages(
         stated.map(|(_, asked)| (attachments.removed.as_slice(), asked)),
         &graphics,
         packets_stated,
+        information_stated,
         fonts.as_ref(),
         runs,
         recovery,
@@ -278,6 +292,7 @@ pub(super) fn the_preserved_pages(
                 linked_annotations: BTreeMap::new(),
                 statement: None,
                 removed_packets,
+                removed_information: information.to_vec(),
             };
             link_the_annotations(&mut composed, embedded);
             return Ok(composed);
@@ -441,6 +456,7 @@ pub(super) fn the_preserved_pages(
     let statement_site = stated
         .map(|(site, _)| site)
         .or_else(|| packets_stated.and(replaced_site))
+        .or_else(|| information_stated.and(information_site))
         .or_else(|| graphics.first().map(|entry| entry.site))
         .or_else(|| fonts.as_ref().map(|_| super::super::config::STATED_FONTS))
         .or_else(|| (!runs.is_empty()).then_some(super::super::config::STATED_RUNS))
@@ -510,6 +526,7 @@ pub(super) fn the_preserved_pages(
                 stated.map(|(_, asked)| (attachments.removed.as_slice(), asked)),
                 &graphics,
                 packets_stated,
+                information_stated,
                 fonts.as_ref(),
                 runs,
                 recovery,
@@ -529,6 +546,7 @@ pub(super) fn the_preserved_pages(
                     linked_annotations: BTreeMap::new(),
                     statement: None,
                     removed_packets,
+                    removed_information: information.to_vec(),
                 };
                 link_the_annotations(&mut composed, embedded);
                 return Ok(composed);
@@ -540,6 +558,7 @@ pub(super) fn the_preserved_pages(
         }
         Err(because) => return Err(because),
     };
+    let mut stated_information = None;
     if statement_site.is_some() && statement_text.is_some() {
         let files_stated = stated.is_some() && !attachments.removed.is_empty();
         let mut sites: Vec<&'static str> = stated
@@ -548,6 +567,9 @@ pub(super) fn the_preserved_pages(
             .into_iter()
             .collect();
         if let (Some(_), Some(site)) = (packets_stated, replaced_site) {
+            sites.push(site);
+        }
+        if let (Some(_), Some(site)) = (information_stated, information_site) {
             sites.push(site);
         }
         for entry in &graphics {
@@ -577,6 +599,7 @@ pub(super) fn the_preserved_pages(
             sites,
             files
                 .saturating_add(packets_stated.map_or(0, |(removed, _)| removed.len()))
+                .saturating_add(information_stated.map_or(0, |(removed, _)| removed.len()))
                 .saturating_add(graphics.len())
                 .saturating_add(fonts.as_ref().map_or(0, statement::FontsStated::listed))
                 .saturating_add(runs.len())
@@ -592,8 +615,18 @@ pub(super) fn the_preserved_pages(
                 packet.stated_on = Some(page);
             }
         }
+        if information_stated.is_some() {
+            stated_information = Some(page);
+        }
     }
     composed.removed_packets = removed_packets;
+    composed.removed_information = information
+        .iter()
+        .map(|entry| super::RemovedInformation {
+            stated_on: stated_information,
+            ..entry.clone()
+        })
+        .collect();
     // Each laid-out file's pages, read off the keep that carried it: `compose` writes one
     // `Preserved` row per keep and in the keeps' order.
     composed.attachments = attachments.removed;
@@ -724,10 +757,11 @@ fn link_the_annotations(
 }
 
 /// The statement's text over the files an embedded-file row removed, the entries the halftone
-/// rows took, the packets a packet row removed (`doc/adr/2678`), the pages photographed and faces embedded with a loss under the font row
+/// rows took, the packets a packet row removed (`doc/adr/2678`), the document information entries
+/// an information row removed (`doc/adr/2681`), the pages photographed and faces embedded with a loss under the font row
 /// (`doc/adr/2600`), the runs the operator row wrote as numbers (`doc/adr/2638`), the rebuilt
 /// structure (`doc/adr/2669`) and the pages the source states and the file does not hold, or
-/// `None` where none of the seven lists anything. The structure and the pages not held are
+/// `None` where none of the eight lists anything. The structure and the pages not held are
 /// the last entries.
 #[expect(
     clippy::too_many_arguments,
@@ -743,6 +777,10 @@ fn statement_of(
     )>,
     graphics: &[statement::GraphicsEntry<'_>],
     packets: Option<(&[super::RemovedPacket], &super::super::config::Statement)>,
+    information: Option<(
+        &[super::RemovedInformation],
+        &super::super::config::Statement,
+    )>,
     fonts: Option<&statement::FontsStated<'_>>,
     runs: &[super::super::WrittenRun],
     recovery: super::super::recovered::Stated<'_>,
@@ -750,6 +788,7 @@ fn statement_of(
     let files = files.filter(|(removed, _)| !removed.is_empty());
     if files.is_none()
         && packets.is_none()
+        && information.is_none()
         && graphics.is_empty()
         && fonts.is_none()
         && runs.is_empty()
@@ -770,6 +809,11 @@ fn statement_of(
     let mut before = listed.len().saturating_add(graphics.len());
     if let Some((removed, asked)) = packets {
         statement::packet_entries(&mut text, target, before, removed, asked)
+            .map_err(Because::NotBuiltYet)?;
+        before = before.saturating_add(removed.len());
+    }
+    if let Some((removed, asked)) = information {
+        statement::information_entries(&mut text, target, before, removed, asked)
             .map_err(Because::NotBuiltYet)?;
         before = before.saturating_add(removed.len());
     }

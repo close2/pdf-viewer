@@ -221,7 +221,10 @@ pub use fonts::{
 };
 pub use in_place::{ProxiedReference, ShownAnnotation};
 pub use languages::RestatedLanguage;
-pub use prepare::{DestinationProfile, ProfileSource, RemovedAnnotation, WrittenAppearance};
+pub use prepare::{
+    CARRIED_INFORMATION_NAMESPACE, CARRIED_INFORMATION_PREFIX, DestinationProfile, ProfileSource,
+    RemovedAnnotation, WrittenAppearance, carried_local_name,
+};
 pub use protection::{PERMISSIONS_NO_LONGER_ASSERTED, SourceProtection};
 pub use recovered::{NotHeld, PartlyRead, RecoveredCatalog, RecoveredStructure, StatedCount};
 pub use report::{
@@ -1298,6 +1301,23 @@ fn unstated(
     let preservation = plan.preservations.iter().find(|preservation| {
         preservation.site == id && preservation.statement.is_some() && !preservation.by_page
     })?;
+    // An information row's statement lists the entries its second step removed and nothing else,
+    // under the row the document failed (`doc/adr/2681`): where the preparation removed none, or
+    // refused the row for its own reason, there is nothing for a page to state, and where the page
+    // lists either row it states them all.
+    if prepare::INFORMATION_REQUIREMENTS.contains(&id)
+        && (prepared.information.as_ref().map_or(true, |moved| {
+            moved.entries.iter().all(|entry| entry.removed.is_none())
+        }) || prepared.preserved.as_ref().is_ok_and(|composed| {
+            composed.statement.as_ref().is_some_and(|page| {
+                page.sites
+                    .iter()
+                    .any(|site| prepare::INFORMATION_REQUIREMENTS.contains(site))
+            })
+        }))
+    {
+        return None;
+    }
     let handed_on =
         config::statement_hands_on(id) && preservation.no_page_carries == RemedyKind::Discard;
     let because = match &prepared.preserved {
@@ -1828,6 +1848,20 @@ fn apply_the_decisions(
         conversion
             .moved_information
             .clone_from(&information.entries);
+        // Each entry the row's second step removed is named with the page that states it
+        // (`doc/adr/2681`).
+        if let Ok(composed) = &prepared.preserved {
+            for entry in &mut conversion.moved_information {
+                if let Some(removed) = &mut entry.removed
+                    && let Some(stated) = composed
+                        .removed_information
+                        .iter()
+                        .find(|stated| stated.key == removed.key)
+                {
+                    removed.stated_on = stated.stated_on;
+                }
+            }
+        }
     }
     let converted = convert(document, plan.target, &wanted, version, prepared, remedies)?;
     for decided in &mut conversion.decided {

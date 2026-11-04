@@ -25,8 +25,9 @@
 //! `discard` or `append-statement` for each object it could not keep. Where a second step is
 //! carried out is the executor's own list — the keeping steps whose outcome is reported per
 //! object, [`super::keeps_per_object`]: the embedded-file rows' `preserve:append`
-//! (`doc/adr/2536`) and the packet rows' `preserve` with `original = "page"` (`doc/adr/2678`) —
-//! and a second step anywhere else,
+//! (`doc/adr/2536`), the packet rows' `preserve` with `original = "page"` (`doc/adr/2678`) and
+//! the document-information rows' `preserve` with `unmapped = "carry"` (`doc/adr/2681`) — and a
+//! second step anywhere else,
 //! or a keeping step in second place, is refused by name rather than read and not done. A step
 //! after one that never hands an object on (`stop`, `discard`, `append-statement`, `supply`) is
 //! an error, because it would never be taken: `stop` is implicit at the end of every list.
@@ -43,15 +44,15 @@ use super::{ConfigError, Kind, Placement, Row, check_rows};
 /// The step that takes a site's loss and states it on an appended page (`doc/rfc/0014` section 4).
 pub(in crate::archive) const APPEND_STATEMENT: &str = "append-statement";
 
-/// Why `append-statement` is built only at the embedded-file rows, the packet rows, the halftone
-/// rows, the font row and the operator
-/// row.
+/// Why `append-statement` is built only at the embedded-file rows, the packet rows, the
+/// document-information rows, the halftone rows, the font row and the operator row.
 pub(in crate::archive) const STATED_ONLY_PER_OBJECT: &str = "the page append-statement appends \
      lists each object the loss took, so it is built where the loss is reported one object at a \
      time: the two embedded-file rows (ISO 19005-2 section 6.8, ISO 19005-4 section 6.9), the \
      three packet rows after preserve with original = \"page\" (ISO 19005-2 section 6.6.2.1, \
      ISO 19005-4 section 6.7.2.1), whose packets are reported one replaced stream at a time, the \
-     three halftone rows (ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5), the font row \
+     two document-information rows after preserve with unmapped = \"carry\" (ISO 19005-4 section \
+     6.1.3), whose entries are reported one key at a time, the three halftone rows (ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5), the font row \
      (ISO 19005-2 section 6.2.11.4.1, ISO 19005-4 section 6.2.10.4.1), whose losses are reported \
      one photographed page or one embedded face at a time, and the operator row (ISO 19005-2 \
      section 6.2.2, ISO 19005-4 section 6.2.2), whose runs are reported one at a time. At every \
@@ -115,7 +116,9 @@ const DEPARTURE_IS_ITS_OWN_TABLE: &str = "a departure is stated in its own [depa
 const SECOND_STEP_UNBUILT: &str = "this version carries out a second step only after \
      preserve:append at the two embedded-file rows, whose outcome is one per file \
      (doc/adr/2536), and after preserve with original = \"page\" at the three packet rows, \
-     whose outcome is one per replaced packet (doc/adr/2678), and only where that step is stop, \
+     whose outcome is one per replaced packet (doc/adr/2678), and after preserve with unmapped = \
+     \"carry\" at the two document-information rows, whose outcome is one per entry \
+     (doc/adr/2681), and only where that step is stop, \
      discard or append-statement; and after append-statement at the three halftone rows \
      (doc/adr/2562); anywhere else the list holds one step and the implicit stop";
 

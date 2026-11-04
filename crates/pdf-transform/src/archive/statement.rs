@@ -220,6 +220,70 @@ pub(super) fn packet_entries(
     Ok(())
 }
 
+/// The one line the `document-information-entry` loss is described by on the page, where the
+/// packet had no form for an entry's value (`doc/adr/2681`).
+const INFORMATION_LOSS: &str = "the document information dictionary is not in this document, and \
+     this entry's value, which the XMP packet has no form for, went with it";
+
+/// Appends one entry per document information dictionary entry an information row's second step
+/// removed to a statement's `text`, numbered from `before`, or the bound it would pass
+/// (`doc/adr/2681`).
+///
+/// Every value is computed from the source — the key's name as ISO 32000-2 §7.3.5 writes it, the
+/// value's type and size — or is this program's fixed words for the requirement, the loss and the
+/// reason, as `CLAUDE.md`'s first authoring amendment allows. The value itself is never written:
+/// it is what the packet had no form for.
+pub(super) fn information_entries(
+    out: &mut String,
+    target: Target,
+    before: usize,
+    removed: &[super::prepare::RemovedInformation],
+    asked: &Statement,
+) -> Result<(), &'static str> {
+    if before.saturating_add(removed.len()) > MOST_STATED_OBJECTS {
+        return Err(TOO_MANY_STATED);
+    }
+    if out.len() > MOST_STATEMENT_BYTES {
+        return Err(STATEMENT_TOO_LONG);
+    }
+    for (offset, entry) in removed.iter().enumerate() {
+        let requirement = table::requirements().find(|requirement| requirement.id == entry.site);
+        let citation = requirement
+            .and_then(|requirement| requirement.clauses.citation(target))
+            .unwrap_or_default();
+        let asks = requirement.map_or("", |requirement| requirement.asks);
+        // Writing into a `String` cannot fail, so each `write!` result is discarded deliberately.
+        let _ = write!(
+            out,
+            "\n{}. Requirement: {} ({citation})\n   Asks: {asks}\n   Loss: \
+             document-information-entry, {INFORMATION_LOSS}\n   Key: {}\n   Value: {}\n",
+            before.saturating_add(offset).saturating_add(1),
+            entry.site,
+            entry.key,
+            entry.value,
+        );
+        match &asked.before {
+            Some(step) => {
+                let _ = writeln!(
+                    out,
+                    "   Tried before: {step}, which did not hold: {}",
+                    entry.because
+                );
+            }
+            None => {
+                let _ = writeln!(out, "   Tried before: no step");
+            }
+        }
+        for (step, why) in &asked.skipped {
+            let _ = writeln!(out, "   Not admitted at this target: {step}, because {why}");
+        }
+    }
+    if out.len() > MOST_STATEMENT_BYTES {
+        return Err(STATEMENT_TOO_LONG);
+    }
+    Ok(())
+}
+
 /// Appends the entry for the loss [`super::Loss::RecoveredStructure`] to a statement's `text`,
 /// numbered `index` from zero, or the bound it would pass (`doc/adr/2669`).
 ///

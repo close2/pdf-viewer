@@ -16063,6 +16063,8 @@ mod replaced_schemas;
 #[path = "archive/statement.rs"]
 mod statement;
 
+#[path = "archive/carried_information.rs"]
+mod carried_information;
 #[path = "archive/press_assumed.rs"]
 mod press_assumed;
 #[path = "archive/removed_annotation_actions.rs"]

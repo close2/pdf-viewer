@@ -9,6 +9,7 @@
 //! `decision/metadata`'s, section 6 of `doc/pdfa-blocking-issues.md`; the document information
 //! dictionary's are `file-structure/` rows whose remedy is that packet.
 
+use super::super::config::{UNMAPPED_NEEDS_A_NAMESPACE, Unmapped};
 use super::super::decision::Because;
 use super::super::sites;
 use super::{
@@ -1471,7 +1472,7 @@ pub(super) struct Recording<'a> {
     ///
     /// Additive by construction: `pdf_model::xmp::supplement` writes only a property the packet
     /// does not already state, which is the one addition §14.3.4 permits.
-    pub(super) supplements: &'a [xmp::Supplement<'static>],
+    pub(super) supplements: &'a [xmp::Supplement<'a>],
     /// What the writers before this one left in each packet, one of which may be the catalog's.
     pub(super) edited: Edited<'a>,
 }
@@ -1657,7 +1658,7 @@ fn prepare_metadata(
     schema_wanted: bool,
     omit_identification: bool,
     recorded: &[xmp::Event<'_>],
-    supplements: &[xmp::Supplement<'static>],
+    supplements: &[xmp::Supplement<'_>],
     edited: Edited<'_>,
 ) -> Result<Metadata, Because> {
     // `A59`: a departed conversion that does not claim conformance writes no `pdfaid:*` at all, so
@@ -1732,7 +1733,7 @@ pub(in crate::archive) struct Information {
     ///
     /// Additive: `pdf_model::xmp::supplement` writes only what the packet does not already state,
     /// which is the only addition §14.3.4 permits.
-    pub(in crate::archive) supplements: Vec<xmp::Supplement<'static>>,
+    pub(in crate::archive) supplements: Vec<Gained>,
     /// What became of each entry, for the report.
     pub(in crate::archive) entries: Vec<MovedEntry>,
     /// The `/ModDate` the output's own trailer still states, where the clause keeps it there.
@@ -1744,6 +1745,97 @@ pub(in crate::archive) struct Information {
     pub(in crate::archive) kept_modification_date: Option<Object>,
 }
 
+/// One property the packet gains from the dictionary.
+///
+/// Owned rather than an [`xmp::Supplement`], because a carried key's local name is spelled from
+/// the key itself ([`carried_local_name`]) and so is no `'static` string.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::archive) struct Gained {
+    /// The namespace URI the property belongs to.
+    namespace: &'static str,
+    /// The prefix to spell it with.
+    prefix: &'static str,
+    /// Its local name.
+    local: String,
+    /// Its value.
+    value: String,
+    /// Which of ISO 16684-1's shapes to write it in.
+    form: xmp::Form,
+}
+
+impl Gained {
+    /// The property as the packet writer takes it.
+    pub(in crate::archive) fn supplement(&self) -> xmp::Supplement<'_> {
+        xmp::Supplement {
+            namespace: self.namespace,
+            prefix: self.prefix,
+            local: &self.local,
+            value: self.value.clone(),
+            form: self.form,
+        }
+    }
+}
+
+/// The namespace a document information dictionary key Table 349 does not define is carried in.
+///
+/// **A choice, and stated as one** (`doc/adr/2680`). ISO 32000-2 §14.3.3 sends "any other
+/// document level metadata" to a metadata stream and names no property for a key Table 349 does
+/// not define, and ISO 19005-4 section 6.7.2 admits any well-formed XMP. This namespace is this
+/// project's, and it defines one thing about each of its properties: that its value is the text
+/// string the source's document information dictionary stated under the key the local name
+/// spells ([`carried_local_name`]). It says nothing about what the key means, which no file
+/// states — that is `doc/adr/1269` section 5's objection, and a namespace of provenance does not
+/// meet it.
+pub const CARRIED_INFORMATION_NAMESPACE: &str =
+    "https://github.com/close2/pdf-viewer/ns/document-information/1.0/";
+
+/// The prefix [`CARRIED_INFORMATION_NAMESPACE`] is spelled with.
+pub const CARRIED_INFORMATION_PREFIX: &str = "docinfo";
+
+/// The XMP local name a document information dictionary key is carried under, or `None` for the
+/// empty key, which no XML name can spell.
+///
+/// ISO 16684-1 makes a property name an XML qualified name, and a §7.3.5 name may hold any byte
+/// but null. So the spelling is an escape, and it is injective: an ASCII letter, digit, `-` or `.`
+/// stands for itself, except that a first character that is not a letter is escaped; every other
+/// byte of the name, `_` included, is written `_HH_` with its two upper-case hexadecimal digits.
+/// `_` appears only as an escape's delimiter, so the key is recovered from the local name
+/// byte for byte. `/WPS-ARTICLEDOI` is `docinfo:WPS-ARTICLEDOI`, `/Base#20Target` is
+/// `docinfo:Base_20_Target`.
+#[must_use]
+pub fn carried_local_name(key: &[u8]) -> Option<String> {
+    use std::fmt::Write as _;
+    if key.is_empty() {
+        return None;
+    }
+    let mut local = String::with_capacity(key.len());
+    for (at, &byte) in key.iter().enumerate() {
+        let plain = byte.is_ascii_alphabetic()
+            || (at > 0 && (byte.is_ascii_digit() || byte == b'-' || byte == b'.'));
+        if plain {
+            local.push(char::from(byte));
+        } else {
+            // Writing into a `String` cannot fail.
+            let _ = write!(local, "_{byte:02X}_");
+        }
+    }
+    Some(local)
+}
+
+/// Whether XML 1.0 carries `text` as element content unchanged.
+///
+/// Its `Char` production excludes every C0 control but the three line characters, and U+FFFE and
+/// U+FFFF,
+/// so a packet holding one is not well-formed (ISO 19005-4 section 6.7.2.1); and its end-of-line
+/// handling reads a carriage return as a line feed, so a value holding one would come back
+/// changed. Either is a value this converter cannot carry as the dictionary stated it.
+fn xml_carries(text: &str) -> bool {
+    text.chars().all(|character| {
+        matches!(character, '\t' | '\n')
+            || (character >= ' ' && !matches!(character, '\u{FFFE}' | '\u{FFFF}'))
+    })
+}
+
 /// One entry of the document information dictionary, and where it went.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MovedEntry {
@@ -1753,6 +1845,9 @@ pub struct MovedEntry {
     pub property: Option<String>,
     /// What happened to it, in one clause for a person.
     pub fate: &'static str,
+    /// Where `unmapped = "carry"` could not carry the value and the row's second step removed
+    /// it, what was removed and where that is stated (`doc/adr/2681`); `None` everywhere else.
+    pub removed: Option<RemovedInformation>,
 }
 
 impl MovedEntry {
@@ -1765,7 +1860,122 @@ impl MovedEntry {
         if let Some(property) = &self.property {
             fields.push(("property".to_owned(), Value::text(property.clone())));
         }
+        if let Some(removed) = &self.removed {
+            fields.push(("removed".to_owned(), removed.to_json()));
+        }
         Value::Object(fields)
+    }
+}
+
+/// What becomes of a value `unmapped = "carry"` cannot carry as the dictionary stated it.
+///
+/// The row's second step where it names one, `doc/rfc/0014` section 3's mechanism at a row whose
+/// outcome is one per entry (`doc/adr/2681`), and otherwise the row's `unreadable` answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::archive) enum NotCarried {
+    /// Removed, and listed on the statement page under the row this names: `append-statement`.
+    Stated(&'static str),
+    /// Removed, and named in the report only: `discard`, as the second step or as `unreadable`.
+    Dropped,
+    /// The site keeps its refusal, [`INFORMATION_VALUE_NOT_CARRIED`].
+    Refused,
+}
+
+/// A document information dictionary entry `unmapped = "carry"` could not carry, removed by its
+/// row's second step (`doc/adr/2681`).
+///
+/// ISO 32000-2 §14.3.3 requires the value of a key Table 349 does not define to be a text string,
+/// and ISO 19005-4 section 6.1.3 removes the dictionary, so a value that is not one has no form in
+/// the packet and leaves with the dictionary. Every field is computed from the source — the key's
+/// name, the value's type and size — and the value itself is never written: it is exactly what
+/// has no form to be written in, which is what lets the statement page name the loss in facts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemovedInformation {
+    /// The information row whose second step removed it.
+    pub site: &'static str,
+    /// The key, written as ISO 32000-2 §7.3.5 writes a name, solidus and `#xx` escapes included.
+    pub key: String,
+    /// The value's type in this program's fixed words, with its size where it has one.
+    pub value: String,
+    /// The value's length in bytes, where it is a string.
+    pub length: Option<usize>,
+    /// Why it could not be carried, one of three fixed sentences.
+    pub because: &'static str,
+    /// The first page of the statement that lists it, zero-based, where one does.
+    pub stated_on: Option<usize>,
+}
+
+impl RemovedInformation {
+    /// The entry's fate, in the words the report and `xmpMM:History` print.
+    #[must_use]
+    pub fn sentence(&self) -> String {
+        let mut out = format!(
+            "the document information dictionary entry {} (value: {}) is removed \
+             (document-information-entry): {}",
+            self.key, self.value, self.because
+        );
+        if let Some(page) = self.stated_on {
+            // Writing into a `String` cannot fail.
+            let _ = write!(
+                out,
+                "; its removal is stated on page {}",
+                page.saturating_add(1)
+            );
+        }
+        out
+    }
+
+    /// The removal as JSON, the page one-based as every page the report names.
+    pub(in crate::archive) fn to_json(&self) -> Value {
+        let mut fields = vec![
+            ("site".to_owned(), Value::text(self.site)),
+            ("loss".to_owned(), Value::text("document-information-entry")),
+            ("key".to_owned(), Value::text(self.key.clone())),
+            ("value".to_owned(), Value::text(self.value.clone())),
+        ];
+        if let Some(length) = self.length {
+            fields.push(("length".to_owned(), Value::count(length)));
+        }
+        fields.push(("because".to_owned(), Value::text(self.because)));
+        if let Some(page) = self.stated_on {
+            fields.push(("stated-on".to_owned(), Value::count(page.saturating_add(1))));
+        }
+        Value::Object(fields)
+    }
+}
+
+/// Why a value is not carried: §14.3.3 asks a text string of it, and it is none.
+pub(in crate::archive) const NOT_A_TEXT_STRING: &str = "ISO 32000-2 section 14.3.3 requires the \
+     value of a key Table 349 does not define to be a text string, and this value is not one \
+     (or its bytes contradict the encoding they claim), so the XMP packet has no form that \
+     carries it as the dictionary stated it";
+
+/// Why a value is not carried: XML 1.0 would not carry its text unchanged.
+pub(in crate::archive) const NOT_CARRIED_BY_XML: &str = "the value is a text string holding a \
+     character XML 1.0 does not carry unchanged (a control character it excludes, or a carriage \
+     return its end-of-line handling reads as a line feed), so the XMP packet cannot carry it as \
+     the dictionary stated it";
+
+/// Why a value is not carried: its key is the empty name.
+pub(in crate::archive) const NO_LOCAL_NAME: &str = "the key is the empty name, which no XML name \
+     can spell, so the XMP packet has no property to carry its value in";
+
+/// A value's type in the statement page's fixed words, with its size where it has one.
+fn value_type(value: &Object) -> (String, Option<usize>) {
+    match value {
+        Object::Null => ("null".to_owned(), None),
+        Object::Boolean(_) => ("boolean".to_owned(), None),
+        Object::Integer(_) => ("integer".to_owned(), None),
+        Object::Real(_) => ("real number".to_owned(), None),
+        Object::String(bytes) => (
+            format!("string of {} bytes", bytes.len()),
+            Some(bytes.len()),
+        ),
+        Object::Name(_) => ("name".to_owned(), None),
+        Object::Array(items) => (format!("array of {} elements", items.len()), None),
+        Object::Dictionary(dict) => (format!("dictionary of {} entries", dict.len()), None),
+        Object::Stream(_) => ("stream".to_owned(), None),
+        Object::Reference(_) => ("indirect reference to no object".to_owned(), None),
     }
 }
 
@@ -1775,6 +1985,18 @@ const MOVED: &str = "written into the XMP packet";
 /// The packet already stated the property, so §14.3.4 leaves what it says alone.
 const ALREADY_STATED: &str = "the packet already states this property, which §14.3.4 leaves \
      unchanged, so the dictionary's value is dropped";
+
+/// Table 349 names no counterpart, and the operator answered `unmapped = "carry"`.
+const CARRIED: &str = "Table 349 names no XMP property for this key and the configuration answers \
+     `unmapped = \"carry\"`, so the value is written into the XMP packet unchanged, under this \
+     converter's namespace for a dictionary key, which states where the value came from and \
+     nothing about what it means";
+
+/// `unmapped = "carry"` could not carry the value, and the row's second step stated its removal.
+const STATED_REMOVED: &str = "Table 349 names no XMP property for this key and the configuration \
+     answers `unmapped = \"carry\"`, but the value has no form the packet carries as the \
+     dictionary stated it, so the row's second step removes it and the statement page states the \
+     removal";
 
 /// Table 349 names no counterpart, and the operator answered `unmapped = "discard"`.
 const DROPPED: &str = "Table 349 names no XMP property for this key and the configuration \
@@ -1791,8 +2013,9 @@ const DATE_KEYS: [&str; 2] = ["CreationDate", "ModDate"];
 const UNMAPPED_KEY_DECLINED: &str = "this document information dictionary states a key ISO \
      32000-2 Table 349 does not define, and Table 349's NOTEs are what name every other key's XMP \
      counterpart — so there is no property this value belongs in. The configuration's `unmapped` \
-     answer decides: `discard` drops the value and the report names the key, and `stop`, which is \
-     what a row saying nothing states, keeps this refusal";
+     answer decides: `carry` writes the value into the packet under this converter's namespace \
+     for a dictionary key, `discard` drops the value and the report names the key, and `stop`, \
+     which is what a row saying nothing states, keeps this refusal";
 
 /// Why a date this converter cannot read stops the conversion, where the value would move.
 const INFORMATION_DATE_NOT_READABLE: &str = "this document information dictionary states a \
@@ -1810,6 +2033,18 @@ const INFORMATION_VALUE_NOT_TEXT: &str = "§14.3.3 requires every document infor
      packet and this converter will not invent a spelling for it. The configuration's \
      `unreadable` answer decides: `discard` drops the value and the report names the key, and \
      `stop`, which is what a row saying nothing states, keeps this refusal";
+
+/// Why a key the configuration asks to carry stops the conversion, where its value cannot be.
+const INFORMATION_VALUE_NOT_CARRIED: &str = "§14.3.3 requires the value of a document \
+     information dictionary key Table 349 does not define to be a text string, and the \
+     configuration answers `unmapped = \"carry\"`; this dictionary states such a key whose value \
+     is not a text string (or whose bytes contradict the encoding they claim), holds a character XML 1.0 does not carry unchanged (a control \
+     character, or a carriage return its end-of-line handling reads as a line feed), or whose \
+     name is empty, so there is no property to carry it in as the dictionary stated it. The \
+     row's second step decides: `on-failure = \"append-statement\"` removes the value and states \
+     the removal on an appended page (doc/adr/2681), `discard` there or as the `unreadable` answer \
+     drops the value and the report names the key, and `stop`, which is what a row saying nothing \
+     states, keeps this refusal";
 
 /// Why a modification date the clause keeps beside a packet that states one stops the conversion.
 ///
@@ -1868,7 +2103,7 @@ pub(super) fn prepare_information(
     document: &Document,
     catalog: Option<&Dictionary>,
     packet: Option<&[u8]>,
-    (unmapped, discard_unreadable): (super::super::config::Unmapped, bool),
+    (unmapped, discard_unreadable, not_carried): (Unmapped, bool, NotCarried),
 ) -> Result<Information, Because> {
     let Some(catalog) = catalog else {
         return Err(Because::NotBuiltYet(NO_CATALOG));
@@ -1882,10 +2117,8 @@ pub(super) fn prepare_information(
         Object::Null => Dictionary::new(),
         _ => return Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
     };
-    if unmapped == super::super::config::Unmapped::ExtensionSchema {
-        return Err(Because::NotBuiltYet(
-            super::super::config::UNMAPPED_NEEDS_A_NAMESPACE,
-        ));
+    if unmapped == Unmapped::ExtensionSchema {
+        return Err(Because::NotBuiltYet(UNMAPPED_NEEDS_A_NAMESPACE));
     }
     // ISO 19005-4 section 6.1.3's carve-out, and §14.5 is its reason: a page-piece dictionary's
     // `LastModified` is compared against this date, so a catalog holding private data keeps it.
@@ -1894,11 +2127,12 @@ pub(super) fn prepare_information(
     let mut supplements = Vec::new();
     let mut entries = Vec::new();
     let mut kept_modification_date = None;
-    let keys: Vec<String> = info
+    let keys: Vec<Vec<u8>> = info
         .iter()
-        .map(|(name, _)| String::from_utf8_lossy(name.as_bytes()).into_owned())
+        .map(|(name, _)| name.as_bytes().to_vec())
         .collect();
-    for key in keys {
+    for spelled in keys {
+        let key = String::from_utf8_lossy(&spelled).into_owned();
         let value = document.get_key(&info, &key);
         if matches!(value, Object::Null) {
             continue;
@@ -1906,14 +2140,12 @@ pub(super) fn prepare_information(
         let Some(&(_, namespace, prefix, local, form)) =
             TABLE_349.iter().find(|(name, ..)| *name == key)
         else {
-            if unmapped != super::super::config::Unmapped::Discard {
-                return Err(Because::Declined(UNMAPPED_KEY_DECLINED));
-            }
-            entries.push(MovedEntry {
-                key,
-                property: None,
-                fate: DROPPED,
-            });
+            unmapped_entry(
+                (key, &spelled, &value),
+                (unmapped, not_carried),
+                stated.as_ref(),
+                (&mut entries, &mut supplements),
+            )?;
             continue;
         };
         let property = format!("{prefix}:{local}");
@@ -1931,6 +2163,7 @@ pub(super) fn prepare_information(
             }
             kept_modification_date = Some(value.clone());
             entries.push(MovedEntry {
+                removed: None,
                 key,
                 property: Some(property),
                 fate: KEPT,
@@ -1943,6 +2176,7 @@ pub(super) fn prepare_information(
             // drop, as a key Table 349 names nothing for is (`doc/adr/2358`).
             Err(_) if discard_unreadable => {
                 entries.push(MovedEntry {
+                    removed: None,
                     key,
                     property: None,
                     fate: UNREADABLE_DROPPED,
@@ -1956,20 +2190,22 @@ pub(super) fn prepare_information(
             .is_some_and(|xmp| xmp.value(namespace, local).is_some())
         {
             entries.push(MovedEntry {
+                removed: None,
                 key,
                 property: Some(property),
                 fate: ALREADY_STATED,
             });
             continue;
         }
-        supplements.push(xmp::Supplement {
+        supplements.push(Gained {
             namespace,
             prefix,
-            local,
+            local: local.to_owned(),
             value: text,
             form,
         });
         entries.push(MovedEntry {
+            removed: None,
             key,
             property: Some(property),
             fate: MOVED,
@@ -1982,6 +2218,113 @@ pub(super) fn prepare_information(
         entries,
         kept_modification_date,
     })
+}
+
+/// A key Table 349 does not define, answered by the configuration's `unmapped` word.
+///
+/// `discard` drops it and names it; `carry` writes it under [`CARRIED_INFORMATION_NAMESPACE`],
+/// or hands a value it cannot carry as stated to [`NotCarried`] — the row's second step, which
+/// removes it and states it (`doc/adr/2681`), or `unreadable`'s answer; `stop` and the
+/// recognised, unbuilt `extension-schema` refuse by name (`doc/adr/1269`, `doc/adr/2680`).
+fn unmapped_entry(
+    (key, spelled, value): (String, &[u8], &Object),
+    (unmapped, not_carried): (Unmapped, NotCarried),
+    stated: Option<&xmp::Xmp>,
+    (entries, supplements): (&mut Vec<MovedEntry>, &mut Vec<Gained>),
+) -> Result<(), Because> {
+    match unmapped {
+        Unmapped::Discard => {
+            entries.push(MovedEntry {
+                removed: None,
+                key,
+                property: None,
+                fate: DROPPED,
+            });
+        }
+        Unmapped::Carry => match carried(value, spelled, stated) {
+            Ok(Some(gained)) => {
+                entries.push(MovedEntry {
+                    removed: None,
+                    key,
+                    property: Some(format!("{}:{}", gained.prefix, gained.local)),
+                    fate: CARRIED,
+                });
+                supplements.push(gained);
+            }
+            Ok(None) => entries.push(MovedEntry {
+                removed: None,
+                property: carried_local_name(spelled)
+                    .map(|local| format!("{CARRIED_INFORMATION_PREFIX}:{local}")),
+                key,
+                fate: ALREADY_STATED,
+            }),
+            Err(because) => match not_carried {
+                NotCarried::Stated(site) => {
+                    let (value, length) = value_type(value);
+                    entries.push(MovedEntry {
+                        key,
+                        property: None,
+                        fate: STATED_REMOVED,
+                        removed: Some(RemovedInformation {
+                            site,
+                            key: format!("/{}", Name::new(spelled).escaped()),
+                            value,
+                            length,
+                            because,
+                            stated_on: None,
+                        }),
+                    });
+                }
+                NotCarried::Dropped => entries.push(MovedEntry {
+                    removed: None,
+                    key,
+                    property: None,
+                    fate: UNREADABLE_DROPPED,
+                }),
+                NotCarried::Refused => {
+                    return Err(Because::Declined(INFORMATION_VALUE_NOT_CARRIED));
+                }
+            },
+        },
+        Unmapped::ExtensionSchema | Unmapped::Stop => {
+            return Err(Because::Declined(UNMAPPED_KEY_DECLINED));
+        }
+    }
+    Ok(())
+}
+
+/// A key Table 349 does not define, as the property that carries it.
+///
+/// `Ok(None)` where the packet already states the property, which §14.3.4 leaves as it is;
+/// `Err`, with the reason in the statement page's words, where the value cannot be carried as the
+/// dictionary stated it — not a §7.9.2.2 text
+/// string, which §14.3.3 requires of it (a string whose bytes contradict their encoding, such as
+/// a byte Table D.2 leaves undefined, is not one), or holding a character XML does not carry unchanged
+/// ([`xml_carries`]) — or the key is empty and so has no local name.
+fn carried(
+    value: &Object,
+    key: &[u8],
+    stated: Option<&xmp::Xmp>,
+) -> Result<Option<Gained>, &'static str> {
+    let local = carried_local_name(key).ok_or(NO_LOCAL_NAME)?;
+    let bytes = value.as_string().ok_or(NOT_A_TEXT_STRING)?;
+    if !pdf_syntax::text_string::is_text_string(bytes) {
+        return Err(NOT_A_TEXT_STRING);
+    }
+    let text = pdf_syntax::text_string::text_string(bytes);
+    if !xml_carries(&text) {
+        return Err(NOT_CARRIED_BY_XML);
+    }
+    if stated.is_some_and(|xmp| xmp.value(CARRIED_INFORMATION_NAMESPACE, &local).is_some()) {
+        return Ok(None);
+    }
+    Ok(Some(Gained {
+        namespace: CARRIED_INFORMATION_NAMESPACE,
+        prefix: CARRIED_INFORMATION_PREFIX,
+        local,
+        value: text,
+        form: xmp::Form::Simple,
+    }))
 }
 
 /// One entry's value as the text the packet is to carry.

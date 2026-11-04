@@ -272,6 +272,10 @@ pub(super) struct Composed {
     /// Each replaced packet a packet row's second step removed because no page could lay it out,
     /// listed on [`Self::statement`] where that step is `append-statement` (`doc/adr/2678`).
     pub(super) removed_packets: Vec<super::prepare::RemovedPacket>,
+    /// Each document information dictionary entry an information row's second step removed
+    /// because the packet had no form for its value, listed on [`Self::statement`] where that
+    /// step is `append-statement` (`doc/adr/2681`).
+    pub(super) removed_information: Vec<super::prepare::RemovedInformation>,
 }
 
 /// The two entries a relocation writes onto the producer's own page.
@@ -394,6 +398,7 @@ pub(super) fn compose(
         attachments: Vec::new(),
         linked_annotations: BTreeMap::new(),
         removed_packets: Vec::new(),
+        removed_information: Vec::new(),
         statement: None,
     };
     let first = tree.len();

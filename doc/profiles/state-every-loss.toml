@@ -282,6 +282,25 @@ remedy = "preserve"
 fresh-packet = true
 original = "attach"
 
+# ISO 19005-4 section 6.1.3: the document information dictionary moves into the packet, each
+# Table 349 key under the property its NOTE names (doc/adr/1269), and a key Table 349 does not
+# define is carried into the packet unchanged under this converter's namespace for a dictionary
+# key, which states where the value came from and nothing about what it means (doc/adr/2680). The
+# value is kept, so no information is lost; a value that is not a text string, which §14.3.3
+# requires, has no carried form, and the row's second step removes it and states it on the
+# appended statement page in facts: its key, its type and size (doc/adr/2681).
+[site."file-structure/document-information-dictionary-holds-only-a-modification-date"]
+remedy = "preserve"
+unmapped = "carry"
+# An entry the packet cannot carry is removed and stated on the appended page (doc/adr/2681).
+on-failure = "append-statement"
+
+[site."file-structure/document-information-dictionary-needs-piece-info"]
+remedy = "preserve"
+unmapped = "carry"
+# An entry the packet cannot carry is removed and stated on the appended page (doc/adr/2681).
+on-failure = "append-statement"
+
 [site."metadata/properties-use-known-schemas"]
 remedy = "preserve"
 placement = "append"
