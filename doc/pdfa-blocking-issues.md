@@ -355,7 +355,9 @@ a packet that is not UTF-8 (1), and one case where no requirement asked for the 
 Builds only. ADR 1014; `crates/pdf-transform/src/archive/preserve.rs`. A tagged document whose
 `/ParentTree` holds `/Kids` gave its appended page no place in the structure tree; that tree now
 takes the pages' entries in a new leaf at any depth (ADR 2672), and `064034`, `316267`, `459011`
-and `UMTRI-2008-80` convert under `state-every-loss` at 2b (`064034` at part 4 too).
+and `UMTRI-2008-80` convert under `state-every-loss` at 2b (`064034` at part 4 too). A source whose parent tree loses a content item
+the structure tree claims has the entries rebuilt from that tree (ADR 2674), so `issue15340`,
+`issue20516` and `pdfjs_wikipedia` convert under both stating profiles at 2b and 4.
 
 **R15 — embedded files, the owner's example** (3 documents blocked at 2b, 5 at 4). The attachment
 census: 22 of the 1478 documents carry 64 attachments — 13 PDFs (8 documents), 11 text or HTML (7),

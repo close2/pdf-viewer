@@ -68,6 +68,7 @@ pub(super) fn the_preserved_pages(
     recovery: super::super::recovered::Stated<'_>,
     substitutes: Option<&Substitutes>,
     runs: &[super::super::WrittenRun],
+    rebuilt: Option<&super::super::parent_tree::Rebuilt>,
     spare: &mut Spare,
 ) -> Result<Composed, Because> {
     let appended = &remedies.appended;
@@ -418,7 +419,8 @@ pub(super) fn the_preserved_pages(
     // The text keeps a fallback composition leaves out, so that the rows after them are found.
     let mut texts_dropped = 0;
     let before = spare.next;
-    let mut composed = match preserve::compose(document, &keeps, has_output_intent, spare) {
+    let mut composed = match preserve::compose(document, &keeps, has_output_intent, rebuilt, spare)
+    {
         Ok(composed) => composed,
         // **A file no page can carry takes `on-failure`, and so does one whose page cannot be
         // composed** (`doc/adr/2536`): with `discard`, the files set as text and the files drawn
@@ -495,7 +497,7 @@ pub(super) fn the_preserved_pages(
                 link_the_annotations(&mut composed, embedded);
                 return Ok(composed);
             }
-            let composed = preserve::compose(document, &others, has_output_intent, spare)?;
+            let composed = preserve::compose(document, &others, has_output_intent, rebuilt, spare)?;
             attachments.texts.clear();
             texts_dropped = laid_out;
             composed

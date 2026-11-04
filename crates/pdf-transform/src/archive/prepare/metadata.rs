@@ -137,6 +137,12 @@ pub(in crate::archive) const TRANSFER_REMOVED_ACTION: &str = "converted";
 /// word is `converted`, like every other recorded action here.
 pub(in crate::archive) const SMOOTHING_OFF_ACTION: &str = "converted";
 
+/// The action this conversion records in `xmpMM:History` when it rebuilds the parent tree.
+///
+/// `doc/adr/2674`: the entries are the structure tree read backwards, and the history says how
+/// many were written. The word is `converted`, like every other recorded action here.
+pub(in crate::archive) const PARENT_TREE_REBUILT_ACTION: &str = "converted";
+
 /// The action this conversion records in `xmpMM:History` when it restates a TrueType font's `cmap`.
 ///
 /// `doc/adr/2520`: the route this reader took is the file's statement from now on, and
@@ -1345,6 +1351,8 @@ pub(super) struct Recording<'a> {
     pub(super) header: Option<&'a str>,
     /// Which TrueType fonts had their program's `cmap` restated, where any did (`doc/adr/2520`).
     pub(super) cmap: Option<&'a str>,
+    /// How many parent tree entries were rebuilt, where any were (`doc/adr/2674`).
+    pub(super) parent_tree: Option<&'a str>,
     /// Whether the identification schema's properties are deliberately omitted (`A59`).
     ///
     /// A departed conversion that does not claim conformance still writes the packet, so the
@@ -1462,7 +1470,7 @@ fn recorded_events<'a>(recording: &Recording<'a>) -> Vec<xmp::Event<'a>> {
         return Vec::new();
     };
     let non_empty = |text: &'a str| (!text.is_empty()).then_some(text);
-    let actions: [(&'a str, Option<&'a str>); 18] = [
+    let actions: [(&'a str, Option<&'a str>); 19] = [
         (DEFAULT_CMYK_ACTION, recording.default_cmyk),
         (REMOVED_PROPERTIES_ACTION, non_empty(recording.removals)),
         (REMOVED_PROPERTIES_ACTION, non_empty(recording.discards)),
@@ -1481,6 +1489,7 @@ fn recorded_events<'a>(recording: &Recording<'a>) -> Vec<xmp::Event<'a>> {
         (SMOOTHING_OFF_ACTION, recording.as_drawn),
         (HEADER_ACTION, recording.header),
         (CMAP_RESTATED_ACTION, recording.cmap),
+        (PARENT_TREE_REBUILT_ACTION, recording.parent_tree),
     ];
     actions
         .into_iter()

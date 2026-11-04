@@ -402,6 +402,82 @@ fn a_parent_tree_with_kids_gains_the_statement_pages_entries_at_any_depth() {
     }
 }
 
+/// `doc/adr/2674`: a producer page the parent tree loses and an appended page share one new leaf.
+///
+/// The producer's page states no `/StructParents`, so the rebuild gives it the first key from
+/// `/ParentTreeNextKey` and the statement's pages take the keys after it; both sets of entries ride
+/// in the one leaf the appended pages' extension writes, and the structure tree root and the parent
+/// tree's root are rewritten once. Each page is read back through
+/// `pdf_model::structure::ParentTree`.
+#[test]
+fn a_rebuilt_entry_and_the_statement_pages_entries_share_one_new_leaf() {
+    let structure = [
+        "<< /Type /StructTreeRoot /K [7 0 R] /ParentTree 8 0 R /ParentTreeNextKey 4 >>",
+        "<< /Type /StructElem /S /P /P 6 0 R /Pg 3 0 R /K 0 >>",
+        "<< /Kids [9 0 R] >>",
+        "<< /Limits [3 3] /Nums [3 null] >>",
+    ];
+    let source = a_tagged_document_holding_two_files_under(
+        &structure,
+        String::new(),
+        b"/P << /MCID 0 >> BDC 1 0 0 rg 10 10 50 50 re f EMC",
+    );
+    for target in [Target::Two(Level::A), Target::Four(Flavour::Plain)] {
+        let text = if target == Target::Two(Level::A) {
+            row("remedy = \"append-statement\"")
+        } else {
+            format!("[site.\"{SITE}-in-the-plain-profile\"]\nremedy = \"append-statement\"\n")
+        };
+        let (report, output) = convert_with_plan(&source, &planned(&text, target));
+        let conversion = conversion(&report);
+        let output = output.unwrap_or_else(|| panic!("{target}: {:?}", conversion.decided));
+        assert_eq!(
+            holds(&output, target).verdict(),
+            Verdict::Conforms,
+            "{target}"
+        );
+        let statement = conversion.statement.as_ref().expect("the page is reported");
+        let document = Document::open(output.clone()).expect("the output opens");
+        let pages = pdf_model::Pages::new(&document);
+        let key_and_found = |index: usize| {
+            let page = pages.get(index).expect("the page");
+            let element = pdf_model::structure::ParentTree::for_page(&document, &page.dict)
+                .element(&document, 0)
+                .and_then(|element| {
+                    document
+                        .get_key(&element, "S")
+                        .as_name()
+                        .map(|name| name.as_bytes().to_vec())
+                });
+            (
+                document.get_key(&page.dict, "StructParents").as_integer(),
+                element,
+            )
+        };
+        assert_eq!(key_and_found(0), (Some(4), Some(b"P".to_vec())), "{target}");
+        for index in &statement.pages {
+            let (key, element) = key_and_found(*index);
+            assert!(
+                key >= Some(5),
+                "{target}: page {index} after the rebuilt key"
+            );
+            assert_eq!(
+                element.as_deref(),
+                Some(&b"P"[..]),
+                "{target}: page {index}"
+            );
+        }
+        let catalog = document.catalog().expect("a catalog");
+        let root = document.get_key(&catalog, "StructTreeRoot");
+        let tree = document.get_key(root.as_dict().expect("the root"), "ParentTree");
+        let kids = document
+            .get_key(tree.as_dict().expect("the tree"), "Kids")
+            .as_array()
+            .map(<[Object]>::len);
+        assert_eq!(kids, Some(2), "{target}: one new leaf for both");
+    }
+}
+
 /// The output with an incremental update (§7.5.6) writing its parent tree root back to its first
 /// kid alone, so that the leaf the conversion added for its appended pages is in no node.
 fn withholding_the_appended_pages_leaf(output: &[u8]) -> Vec<u8> {

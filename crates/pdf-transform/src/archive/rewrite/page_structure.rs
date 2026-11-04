@@ -35,6 +35,38 @@ impl Rewriter<'_> {
         true
     }
 
+    /// §14.7.5.4's keys on the producer's holders, and the root edits where no appended page
+    /// carries them (`super::super::parent_tree`, `doc/adr/2674`).
+    ///
+    /// A holder takes the entry Table 359 names for what it holds, and loses the other one, which
+    /// that table says "shall" not be present beside it. Counted once per key written, which is
+    /// once per entry the tree gains.
+    pub(super) fn rebuild_the_parent_tree(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        if !self.wants(Rewrite::ParentTreeRebuilt) {
+            return false;
+        }
+        let Some(rebuilt) = self.parent_tree else {
+            return false;
+        };
+        let mut changed = false;
+        if let Some((holds, key)) = rebuilt.keys.get(&id) {
+            let (this, other) = holds.keys();
+            out.remove(other);
+            out.insert(Name::new(this.as_bytes()), Object::Integer(*key));
+            count(applied, Rewrite::ParentTreeRebuilt);
+            changed = true;
+        }
+        if let Some(described) = rebuilt.described.as_ref() {
+            changed |= described.apply(self.document, id, out);
+        }
+        changed
+    }
+
     /// §7.7.3.2's Table 30 `/Count`, written as the leaves beneath the node where the source's is
     /// missing or no integer; `super::super::page_tree::restated` counted them (`doc/adr/2456`).
     pub(super) fn restate_page_count(

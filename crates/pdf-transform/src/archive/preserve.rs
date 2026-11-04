@@ -338,10 +338,14 @@ pub(super) struct Marks {
 /// the operator's configuration named a `preserve` remedy whose requirement this document failed,
 /// which is `doc/adr/0947`'s first rule — nothing is changed that no failed requirement asked for
 /// — applied to a remedy rather than to a decision.
+///
+/// `rebuilt` is the parent tree's rebuild where one was asked for: its entries ride in this
+/// extension of the tree wherever a page is appended, ahead of the pages' own (`doc/adr/2674`).
 pub(super) fn compose(
     document: &Document,
     keeps: &[Keep<'_>],
     has_output_intent: bool,
+    rebuilt: Option<&super::parent_tree::Rebuilt>,
     spare: &mut Spare,
 ) -> Result<Composed, Because> {
     let sets_text = keeps
@@ -370,6 +374,9 @@ pub(super) fn compose(
         return Err(Because::NotBuiltYet(tagged::MARKS_IN_A_TAGGED_DOCUMENT));
     }
     let mut planned = Planned::of(document)?;
+    if let (Some(planned), Some(rebuilt)) = (planned.as_mut(), rebuilt) {
+        planned.rebuilding(rebuilt);
+    }
     let tree = Pages::new(document);
     // Every keep is laid out on pages of its own, so that the report can say which pages carry
     // which of the document's objects rather than "somewhere in the six pages appended".
@@ -442,7 +449,8 @@ pub(super) fn compose(
     // hierarchy has to know which sequences fell on which page, and that is not decided until the
     // last keep has been set. `doc/adr/1163`.
     if let Some(planned) = planned {
-        let (described, elements) = planned.finish(document, spare)?;
+        let carry = !composed.pages.is_empty();
+        let (described, elements) = planned.finish(document, spare, carry)?;
         composed.written.extend(elements);
         composed.structure = Some(described);
     }
@@ -2006,6 +2014,10 @@ pub(super) struct NumberTree {
     root: Dictionary,
     /// The greatest key the tree holds, which every key added has to exceed.
     pub(super) last: Option<i64>,
+    /// Every key the tree holds and its value as written, unresolved so that a reference's
+    /// identity survives — what the parent tree's rebuild reads an entry back from
+    /// (`doc/adr/2674`).
+    pub(super) entries: BTreeMap<i64, Object>,
     /// The sentences this tree is refused in.
     refusals: TreeRefusals,
 }
@@ -2016,6 +2028,7 @@ impl NumberTree {
         Self {
             root: Dictionary::new(),
             last: None,
+            entries: BTreeMap::new(),
             refusals,
         }
     }
@@ -2041,12 +2054,14 @@ impl NumberTree {
         let mut walk = Walk {
             visited: at.map(|id| id.number).into_iter().collect(),
             last: None,
+            entries: BTreeMap::new(),
             refusals,
         };
         walk.read(document, &root, 0)?;
         Ok(Self {
             root,
             last: walk.last,
+            entries: walk.entries,
             refusals,
         })
     }
@@ -2195,6 +2210,8 @@ struct Walk {
     visited: BTreeSet<u32>,
     /// The greatest key read so far, which every later key has to exceed.
     last: Option<i64>,
+    /// Every pair read so far.
+    entries: BTreeMap<i64, Object>,
     /// The sentences the tree is refused in.
     refusals: TreeRefusals,
 }
@@ -2220,7 +2237,10 @@ impl Walk {
             if nums.len() % 2 != 0 {
                 return refused(self.refusals.not_a_tree);
             }
-            for key in nums.iter().step_by(2) {
+            for pair in nums.chunks_exact(2) {
+                let [key, value] = pair else {
+                    continue;
+                };
                 let Some(key) = document.resolve(key).as_integer() else {
                     return refused(self.refusals.not_a_tree);
                 };
@@ -2228,6 +2248,7 @@ impl Walk {
                     return refused(self.refusals.out_of_order);
                 }
                 self.last = Some(key);
+                self.entries.insert(key, value.clone());
             }
         }
         let Some(kids) = node.get("Kids") else {

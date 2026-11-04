@@ -192,6 +192,9 @@ pub(super) struct Planned {
     pages: Vec<(ObjectId, i64)>,
     /// One entry per preserved object: the grouping element's lines, each line's references.
     groups: Vec<Vec<Vec<Reference>>>,
+    /// The entries [`super::parent_tree::Rebuilt`] gives the producer's own holders, whose keys
+    /// come before every appended page's (`doc/adr/2674`).
+    rebuilt: Vec<(i64, Object)>,
 }
 
 /// One marked-content sequence a line of preserved text was set as.
@@ -255,7 +258,26 @@ impl Planned {
             next_key,
             pages: Vec::new(),
             groups: Vec::new(),
+            rebuilt: Vec::new(),
         }))
+    }
+
+    /// Every entry the producer's parent tree holds, its values as written.
+    #[must_use]
+    pub(super) fn entries(&self) -> &std::collections::BTreeMap<i64, Object> {
+        &self.tree.entries
+    }
+
+    /// The next key §14.7.5.4 admits, before any is handed out.
+    #[must_use]
+    pub(super) const fn next_key(&self) -> i64 {
+        self.next_key
+    }
+
+    /// Takes the rebuilt entries first, so an appended page's key comes after theirs.
+    pub(super) fn rebuilding(&mut self, rebuilt: &super::parent_tree::Rebuilt) {
+        self.next_key = self.next_key.max(rebuilt.next_key);
+        self.rebuilt.clone_from(&rebuilt.pairs);
     }
 
     /// The `/StructParents` an appended page states, taken from the keys not yet in use.
@@ -285,10 +307,14 @@ impl Planned {
     ///
     /// [`Because::NotBuiltYet`] with [`super::preserve::NO_SPARE_OBJECT`] where the document has
     /// no free object number left for an element or for the parent tree's new leaf.
+    ///
+    /// `carry` says whether the rebuilt entries ride in this extension: true wherever the result
+    /// is applied, which for the appended pages is only where a page was appended.
     pub(super) fn finish(
         self,
         document: &Document,
         spare: &mut Spare,
+        carry: bool,
     ) -> Result<(Described, Vec<(ObjectId, Object)>), Because> {
         let mut written: Vec<(ObjectId, Object)> = Vec::new();
         let mut tops: Vec<Object> = Vec::new();
@@ -318,7 +344,8 @@ impl Planned {
             written.push((group_at, grouping(self.root, kids)));
             tops.push(Object::Reference(group_at));
         }
-        let mut pairs = Vec::new();
+        let carries_rebuilt = carry && !self.rebuilt.is_empty();
+        let mut pairs = if carry { self.rebuilt } else { Vec::new() };
         for (page, key) in &self.pages {
             let mut sequences: Vec<Object> = Vec::new();
             for (group, lines) in self.groups.iter().enumerate() {
@@ -341,6 +368,7 @@ impl Planned {
                 next_key: self.next_key,
                 site: self.site,
                 tree,
+                carries_rebuilt,
             },
             written,
         ))
@@ -422,7 +450,12 @@ fn read_the_parent_tree(
     document: &Document,
     root: &Dictionary,
 ) -> Result<(NumberTree, Site), Because> {
-    let Some(stated) = root.get("ParentTree") else {
+    // §7.3.10 makes a reference to an object that does not exist the null object, and §7.3.7
+    // makes an entry whose value is null equivalent to an absent one.
+    let Some(stated) = root
+        .get("ParentTree")
+        .filter(|stated| !document.resolve(stated).is_null())
+    else {
         // §14.7.5.4 makes the entry "Required if any structure element contains content items",
         // and this conversion is about to add some; a tree with no entries of its own is created
         // in the structure tree root, as a root holding `/Nums`.
@@ -454,6 +487,9 @@ pub(super) struct Described {
     site: Site,
     /// The parent tree's root as it becomes, holding or reaching every appended page's entry.
     tree: Dictionary,
+    /// Whether the tree also holds [`super::parent_tree::Rebuilt`]'s entries, which then need no
+    /// edit of their own at the same two dictionaries.
+    pub(super) carries_rebuilt: bool,
 }
 
 impl Described {
@@ -468,13 +504,16 @@ impl Described {
             // structure element or an array of such dictionaries." A root stating one dictionary
             // becomes a root stating an array of two; a root stating an array gains a member; a
             // root stating nothing states this conversion's alone.
-            let mut kids = match document.get_key(out, "K") {
-                Object::Array(items) => items.clone(),
-                Object::Null => Vec::new(),
-                other => vec![other],
-            };
-            kids.extend(self.tops.iter().cloned());
-            out.insert(Name::new(&b"K"[..]), Object::Array(kids));
+            // A rebuild alone adds no element, and the producer's `/K` is then left as written.
+            if !self.tops.is_empty() {
+                let mut kids = match document.get_key(out, "K") {
+                    Object::Array(items) => items.clone(),
+                    Object::Null => Vec::new(),
+                    other => vec![other],
+                };
+                kids.extend(self.tops.iter().cloned());
+                out.insert(Name::new(&b"K"[..]), Object::Array(kids));
+            }
             out.insert(
                 Name::new(&b"ParentTreeNextKey"[..]),
                 Object::Integer(self.next_key),
@@ -552,7 +591,7 @@ mod tests {
                 .map(|&page| vec![Reference { page, mcid: 0 }])
                 .collect(),
         );
-        planned.finish(document, &mut Spare { next: 100 })
+        planned.finish(document, &mut Spare { next: 100 }, true)
     }
 
     fn integers(object: &Object) -> Vec<i64> {

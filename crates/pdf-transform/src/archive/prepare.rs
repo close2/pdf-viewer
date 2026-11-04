@@ -121,6 +121,11 @@ const NO_PLACE_TO_RECORD_A_TRANSFER: &str = "removing a transfer function other 
      XMP packet will not take that entry — so the function stays and no file is written \
      (doc/adr/1964)";
 
+/// Why the parent tree was not rebuilt.
+const NO_PLACE_TO_RECORD_A_REBUILD: &str = "rebuilding the structural parent tree writes how many \
+     entries it wrote into this file's own xmpMM:History, and this document's XMP packet will not \
+     take that entry — so the tree stays as it is and no file is written (doc/adr/2674)";
+
 /// Why `/Interpolate` was not written false even though the loss was authorised.
 const NO_PLACE_TO_RECORD_SMOOTHING: &str = "turning an image's smoothing off writes the images \
      it reached into this file's own xmpMM:History, and this document's XMP packet will not take \
@@ -432,6 +437,8 @@ pub(super) struct Prepared {
     /// says otherwise, so nothing is composed, no font is loaded and no page is measured for a
     /// document that asked for none.
     pub(super) preserved: Result<Composed, Because>,
+    /// The parent tree's rebuilt keys and entries, or why none can be (`doc/adr/2674`).
+    pub(super) parent_tree: Result<super::parent_tree::Rebuilt, Because>,
     /// What became of each embedded file the embedded-file requirements failed at, one entry per
     /// file (`doc/adr/2536`); empty where none failed or the files are derived rather than removed.
     pub(super) attachments: Vec<super::report::AttachmentOutcome>,
@@ -981,6 +988,11 @@ impl Prepared {
             (survey.as_ref(), input, as_drawn.is_ok()),
             &standard_fonts,
         );
+        // Read before any page is composed, because an appended page's parent tree key comes after
+        // every key the rebuild hands out (`doc/adr/2674`).
+        let parent_tree = asked(wanted(Rewrite::ParentTreeRebuilt), || {
+            super::parent_tree::Rebuilt::of(document)
+        });
         let preserved = the_preserved_pages(
             plan,
             document,
@@ -995,6 +1007,7 @@ impl Prepared {
             provenance.stated,
             substitutes.as_ref().ok(),
             stated_runs(plan, &failed, as_drawn.as_ref().ok()),
+            parent_tree.as_ref().ok(),
             &mut spare,
         );
         let attached = the_attached_files(
@@ -1100,6 +1113,10 @@ impl Prepared {
         // and the record of what the producer wrote there is a condition of writing it
         // (`doc/adr/2558`). Read off the source, not a structure this program rebuilt from it.
         let header_history = super::header::history(source, plan.target);
+        let parent_tree_history = parent_tree
+            .as_ref()
+            .ok()
+            .and_then(super::parent_tree::Rebuilt::history);
         // The TrueType routes are prepared before the packet too, because a restated `cmap` is
         // written into the file's own history (`doc/questions/A48`, `doc/adr/2520`).
         let truetype = {
@@ -1212,6 +1229,7 @@ impl Prepared {
                 smoothing: smoothing_history.as_deref(),
                 as_drawn: as_drawn_history.as_deref(),
                 header: header_history.as_deref(),
+                parent_tree: parent_tree_history.as_deref(),
                 cmap: cmap_history.as_deref(),
                 when: now.as_deref(),
                 // At most one of the two constructions is prepared, so one entry says which.
@@ -1277,6 +1295,21 @@ impl Prepared {
         // entry part of the permission to append a page at all, so a packet that will not take it
         // withdraws the pages rather than leaving them unrecorded.
         let preserved = unless_recorded(preserved, recorded_it, NO_PLACE_TO_RECORD_A_PRESERVATION);
+        // The rebuilt parent tree is named in the same history, and its root edits ride in the
+        // appended pages' extension of the tree wherever a page carries them, else in their own,
+        // so the two never rewrite the same dictionary (`doc/adr/2674`).
+        let carried = preserved
+            .as_ref()
+            .ok()
+            .and_then(|composed| composed.structure.as_ref())
+            .is_some_and(|described| described.carries_rebuilt);
+        let parent_tree = match parent_tree {
+            Ok(rebuilt) if !rebuilt.is_empty() && !recorded_it => {
+                Err(Because::NotBuiltYet(NO_PLACE_TO_RECORD_A_REBUILD))
+            }
+            Ok(mut rebuilt) if !carried => rebuilt.alone(document, &mut spare).map(|()| rebuilt),
+            other => other,
+        };
         // And for a transfer function: what it said is the one trace of it the archive keeps, so
         // a packet that will not take the record withdraws the removal (`doc/adr/1964`). An
         // identity-only removal records nothing and needs nothing taken.
@@ -1445,6 +1478,7 @@ impl Prepared {
             embedded_files,
             constructs_field_appearances: plan.forms.construct_appearances,
             preserved,
+            parent_tree,
             attachments,
             attached,
             information,
@@ -1481,6 +1515,7 @@ impl Prepared {
                 self.supplied_destination.as_ref().err().copied()
             }
             Rewrite::MarkInfo => self.structure.as_ref().err().copied(),
+            Rewrite::ParentTreeRebuilt => self.parent_tree.as_ref().err().copied(),
             Rewrite::ToUnicode => self.to_unicode.as_ref().err().copied(),
             Rewrite::PropertyOutsideItsSchema => self.properties.as_ref().err().copied(),
             Rewrite::FreshMetadataPacket => self.fresh.as_ref().err().copied(),
@@ -1658,6 +1693,11 @@ impl Prepared {
         }
         if let Ok(maps) = &self.to_unicode {
             for (id, object) in &maps.written {
+                out.insert(*id, object.clone());
+            }
+        }
+        if let Ok(rebuilt) = &self.parent_tree {
+            for (id, object) in &rebuilt.written {
                 out.insert(*id, object.clone());
             }
         }

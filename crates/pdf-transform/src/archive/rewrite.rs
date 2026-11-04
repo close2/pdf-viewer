@@ -170,6 +170,15 @@ pub enum Rewrite {
     /// a claim about content nobody had produced, which is the one thing
     /// `doc/pdf-a-conversion-limits.md` section 5.1 refuses.
     MarkInfo,
+    /// Every content item the structure tree claims finds its element through the parent tree.
+    ///
+    /// ISO 32000-2 §14.7.5.4: "The tree shall contain an entry for each object that is a content
+    /// item of at least one structure element and for each content stream containing at least
+    /// one marked-content sequence that is a content item." Each holder whose route back is
+    /// broken takes a key from `/ParentTreeNextKey` and an entry naming the element that claims
+    /// it — the structure tree read in the other direction, so nothing a reader sees is invented
+    /// (`super::parent_tree`, `doc/adr/2674`). Counted once per entry written.
+    ParentTreeRebuilt,
     /// Every embedded file's file specification states both `/F` and `/UF`, each derived from
     /// the other.
     ///
@@ -1287,6 +1296,10 @@ impl Rewrite {
                 "the catalog states MarkInfo with Marked true, which the structure tree this \
                  file already carries had demonstrated"
             }
+            Self::ParentTreeRebuilt => {
+                "the structural parent tree was rebuilt from the structure tree, one entry for \
+                 each page, stream or object whose content items it did not lead back to"
+            }
             Self::AssociatedFileNames => {
                 "an embedded file's specification states both F and UF, each written from the \
                  other's value"
@@ -1743,6 +1756,7 @@ impl Rewrite {
             Self::DefaultRgb => "default-rgb",
             Self::SuppliedDefaultCmyk => "supplied-default-cmyk",
             Self::MarkInfo => "mark-info",
+            Self::ParentTreeRebuilt => "parent-tree-rebuilt",
             Self::AssociatedFileNames => "associated-file-names",
             Self::AssociatedFileRelationship => "associated-file-relationship",
             Self::ToUnicode => "to-unicode",
@@ -1980,6 +1994,7 @@ impl<'a> Rewriter<'a> {
             appearance_states: prepared.owed.appearance_states.as_ref().ok(),
             orders: prepared.owed.orders.as_ref().ok(),
             page_resources: prepared.owed.page_resources.as_ref().ok(),
+            parent_tree: prepared.parent_tree.as_ref().ok(),
             form_resources: prepared.owed.form_resources.as_ref().ok(),
             defined_resources: prepared.owed.defined_resources.as_ref().ok(),
             page_counts: prepared
@@ -2919,6 +2934,8 @@ struct Rewriter<'a> {
     orders: Option<&'a CompletedOrders>,
     /// The `/Resources` each page with none of its own is given.
     page_resources: Option<&'a PageResources>,
+    /// The keys and entries the parent tree gains, and its root edits where no page carries them.
+    parent_tree: Option<&'a super::parent_tree::Rebuilt>,
     /// The dictionary each form, pattern or appearance that states none is given.
     form_resources: Option<&'a ReaderResources>,
     /// The empty resources that define the names nothing defined.
@@ -3363,6 +3380,7 @@ impl Rewriter<'_> {
         // After both, for the same reason: it edits what `out` holds by then.
         changed |= self.name_configurations(id, out, applied);
         changed |= self.attach_page_resources(id, out, applied);
+        changed |= self.rebuild_the_parent_tree(id, out, applied);
         changed |= self.give_reader_resources(id, out, applied);
         changed |= self.define_empty_resources(id, out, applied);
         changed |= self.restate_page_count(id, out, applied);
