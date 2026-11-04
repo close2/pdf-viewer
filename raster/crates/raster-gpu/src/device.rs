@@ -243,6 +243,9 @@ pub struct Device {
     /// The blocking startup steps, each measured on its own (brief section 7, and the caller's
     /// feedback section 8.1: one number that measured three could not be attributed).
     startup: StartupSteps,
+    /// The device's lifetime section ([`crate::section::DeviceWork::Lifetime`]), declared last so
+    /// that it ends after every field above has released its device memory.
+    _lifetime: crate::section::Open,
 }
 
 /// What the four blocking steps of construction cost, in the order they happen.

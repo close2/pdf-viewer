@@ -3,10 +3,9 @@
 //!
 //! A machine whose graphics adapter is shared between processes — two test suites, a gate and a
 //! neighbour's measurement — needs each process to hold the adapter only while it is actually
-//! using it. A [`Device`](crate::Device) lives as long as a window does, so its lifetime is the
-//! wrong span; what is the right span is known only here, where the device is brought up and
-//! each frame is submitted and waited for. This module is the seam: a [`SectionHook`] installed
-//! once per process is told [`SectionHook::begin`] and [`SectionHook::end`] around
+//! using it. What that span is is known only here, where the device is brought up, each frame is
+//! submitted and waited for, and the device is let go. This module is the seam: a [`SectionHook`]
+//! installed once per process is told [`SectionHook::begin`] and [`SectionHook::end`] around
 //!
 //! - **bring-up** ([`DeviceWork::BringUp`]): from the moment the adapter is chosen until the
 //!   constructor returns — `request_device`, the samplers and query sets, the warm-up thread's
@@ -17,10 +16,19 @@
 //!   siblings, [`Device::submit`](crate::Device::submit) and [`Device::collect`](crate::Device::collect)
 //!   each on its own, and [`Presenter::present`](crate::Presenter::present);
 //! - **an upload** ([`DeviceWork::Upload`]): a resident resource written to the device outside a
-//!   frame.
+//!   frame;
+//! - **the device's whole life** ([`DeviceWork::Lifetime`]): from the adapter's choice until the
+//!   device is dropped, around every section above. Device memory is allocated and freed anywhere in
+//!   that span — a buffer made while a frame is encoded, a pipeline compiled on the warm-up thread,
+//!   everything released at the drop — and on a card whose processor-visible window is small, an
+//!   allocation that evicts another process's buffers while that process's job is in flight has
+//!   been measured to corrupt the job and to hang the card (the caller's ADR 2675). A hook that
+//!   serialises processes on a shared card needs this span; a hook that only measures work may
+//!   ignore it.
 //!
-//! The warm-up thread's pipeline compiles are not a section: they are the driver's compiler on a
-//! processor, and they submit nothing to the adapter.
+//! The warm-up thread's pipeline compiles are not a section of their own: they are the driver's
+//! compiler on a processor and submit nothing, and the shader memory they allocate is inside the
+//! device's lifetime section.
 //!
 //! **Nobody installs a hook in a shipped host**, and with none installed a section is one atomic
 //! load of an empty [`OnceLock`]: the launch path pays nothing for the seam's existence (the
@@ -44,6 +52,10 @@ pub enum DeviceWork {
     Frame,
     /// A resident resource written to the device outside a frame.
     Upload,
+    /// A device's whole existence, from the adapter's choice until the device is dropped; every
+    /// other section of the device is inside it. Unlike the others it may end on another thread
+    /// than it began on, because a device may be dropped wherever its owner lets it go.
+    Lifetime,
 }
 
 /// One section, as a hook is told of it.
@@ -59,8 +71,8 @@ pub struct Section {
 /// What a host or a harness installs to be told when device work begins and ends.
 ///
 /// `begin` may block — a hook that waits for another process's hold does so here — and `end` is
-/// called exactly once for every `begin`, on the same thread, including when the section's work
-/// returned an error or unwound.
+/// called exactly once for every `begin`, including when the section's work returned an error or
+/// unwound; on the same thread, except for a [`DeviceWork::Lifetime`] section.
 pub trait SectionHook: Send + Sync {
     /// Device work described by `section` is about to start.
     fn begin(&self, section: Section);
@@ -101,6 +113,17 @@ impl Open {
             hook.begin(section);
         }
         Self { hook, section }
+    }
+}
+
+impl std::fmt::Debug for Open {
+    // The hook is a trait object with no `Debug` of its own; whether one was told is what a
+    // reader of a device's debug output can use.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Open")
+            .field("section", &self.section)
+            .field("hooked", &self.hook.is_some())
+            .finish()
     }
 }
 

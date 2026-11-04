@@ -5,7 +5,10 @@
 //! for as long as that takes — an hour and more, where the device work in it is seconds. So the lock
 //! is taken by the code doing the work, for the span of the work: [`Hold`] is a guard over one
 //! device section, and [`super::gpu_lock_hook`] installs it as `raster_gpu`'s section hook so that
-//! every bring-up and every frame of a test takes it on its own.
+//! every device a test makes holds it from its bring-up to its drop. That span, and not each frame,
+//! is the work on the RX 580: another process's allocation in the card's 256 MiB processor-visible
+//! window while a job is in flight corrupts the job or hangs the card, and a device allocates and
+//! frees memory anywhere in its life (ADR 2675).
 //!
 //! - **The file** is the place `PDF_VIEWER_GPU_LOCK` names, read through `tools/places.sh` (ADR
 //!   2656: one file holds every machine place). Its default there is `/run/lock/gpu.lock` where that
@@ -23,7 +26,7 @@
 //! - **Bounded.** A wait longer than `GPU_LOCK_TIMEOUT` seconds — `with-gpu-lock`'s own variable,
 //!   600 by default as there — panics naming the file, because a test that waits forever reports
 //!   nothing.
-//! - **Stopped by a hang.** A hardware section held past [`HUNG_AFTER`] — the kernel's ring timeout
+//! - **Stopped by a hang.** A hardware section that runs past [`HUNG_AFTER`] — the kernel's ring timeout
 //!   is ten seconds, and no frame this program draws on the card comes near one — is taken for a
 //!   hung device, and leaves a marker beside the lock file ([`hung_marker`]). Every later hardware
 //!   section, in any process, refuses while the marker is there, until a person has read the
@@ -185,16 +188,26 @@ pub(crate) fn environment_pins_software() -> bool {
 #[must_use = "the lock is released when the hold drops"]
 pub(crate) struct Hold {
     taken: bool,
+    label: &'static str,
+    began: Instant,
 }
 
 impl Hold {
     /// Holds the lock for a section on an adapter that is hardware (`hardware`), or does nothing.
     pub(crate) fn when(hardware: bool, label: &'static str) -> Self {
         if !hardware || lock_file().is_none() {
-            return Self { taken: false };
+            return Self {
+                taken: false,
+                label,
+                began: Instant::now(),
+            };
         }
         enter(label);
-        Self { taken: true }
+        Self {
+            taken: true,
+            label,
+            began: Instant::now(),
+        }
     }
 
     /// Holds the lock before any adapter exists, unless the environment pins a processor's.
@@ -207,7 +220,19 @@ impl Drop for Hold {
     fn drop(&mut self) {
         if self.taken {
             leave();
+            ended(self.label, self.began);
         }
+    }
+}
+
+/// Leaves the hang marker where a hardware section that began at `began` ran past the bound.
+///
+/// Each section is timed on its own rather than the process's outermost hold, because the
+/// outermost is a device's whole life where the section hook holds the lock across it (ADR 2675),
+/// and a device may live far longer than any one piece of its work.
+pub(crate) fn ended(label: &str, began: Instant) {
+    if lock_file().is_some() {
+        mark_if_hung(label, began.elapsed());
     }
 }
 
@@ -266,7 +291,6 @@ pub(crate) fn leave() {
         .take()
         .map_or(Duration::ZERO, |since| since.elapsed());
     drop(held.file.take());
-    mark_if_hung(held.label, holding);
     if let Some(log) = std::env::var_os(LOG) {
         let line = format!(
             "gpu-lock pid={} section={} waited_ms={:.3} held_ms={:.3}\n",

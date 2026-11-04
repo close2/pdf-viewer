@@ -1,20 +1,29 @@
 #!/usr/bin/env bash
-# One supervised run of one device test on the shared card that may hang it, under the shared lock
-# from before the test starts until the card has come back (ADR 2668, the owner's A776).
+# One supervised run on the shared card that may hang it — one device test, or a command such as a
+# parallel suite — under the shared lock from before the run starts until the card has come back
+# (ADR 2668 and ADR 2675, the owner's A776 and A777).
 #
-#   tools/hang-capture.sh <out-dir> -- <test binary> <test name> [more test arguments…]
+#   tools/hang-capture.sh [--no-radv-debug] [--wall <s>] <out-dir> -- <test binary> <test name> [args…]
+#   tools/hang-capture.sh --command [--no-radv-debug] [--wall <s>] <out-dir> -- <command> [args…]
 #
-# The test binary is built before this is called, outside any lock: the lock is held for device work
+# The first form runs one test `--exact`; the second runs a command as given — a `cargo nextest run
+# --archive-file` over binaries archived before, so that several test processes hold devices on the
+# card together, as a parallel suite does (ADR 2675). `--no-radv-debug` leaves `RADV_DEBUG` unset,
+# because its hang mode serialises every draw and submission and so is a second change to the run
+# (trap 318); `--wall` replaces the 60 s bound on the run.
+#
+# Whatever is run is built before this is called, outside any lock: the lock is held for device work
 # only. Then, in order, each step a line with its time in <out-dir>/run.log:
 #
 #   1. the shared lock (`/run/lock/gpu.lock`), waited for up to 10 min and held across every later
 #      step: the script runs itself again under the machine's `with-gpu-lock`, so the whole
 #      procedure below, and not the test alone, is the command the wrapper's `flock` holds the lock
 #      for;
-#   2. the test, `--exact`, on RADV (`WGPU_BACKEND=vulkan` and the radeon ICD — ADR 2663) with
-#      `RADV_DEBUG=hang`, under a wall of 60 s. Its own section hook is pointed at a private lock
-#      file in <out-dir>, because it would otherwise wait forever on the lock this script holds,
-#      and that file's hang marker (ADR 2665 §3) is cleared first;
+#   2. the run, on RADV (`WGPU_BACKEND=vulkan` and the radeon ICD — ADR 2663), with `RADV_DEBUG=hang`
+#      unless `--no-radv-debug`, under its wall. Every process's section hook is pointed at one
+#      private lock file in <out-dir>, because it would otherwise wait forever on the lock this script
+#      holds, and that file's hang marker (ADR 2665 §3) is cleared first; the processes of a
+#      `--command` run serialise their device sections on it among themselves, as on the shared one;
 #   3. the kernel's log since the run began, kept in <out-dir>/kernel.txt. If it shows a ring
 #      timeout or a reset, the script waits — still inside the lock — for `GPU reset(n) succeeded`
 #      and then for `vulkaninfo --summary` on RADV to exit 0, for at most 10 min in all;
@@ -29,24 +38,41 @@
 # (the lock is released then too, and the log says so).
 set -uo pipefail
 
-out=${1:?usage: tools/hang-capture.sh <out-dir> -- <test binary> <test name> [args…]}
+all_args=("$@")
+mode=test
+radv_debug=hang
+test_wall_s=60
+while :; do
+    case "${1:-}" in
+        --command) mode=command; shift ;;
+        --no-radv-debug) radv_debug=; shift ;;
+        --wall) test_wall_s=${2:?hang-capture: --wall needs seconds}; shift 2 ;;
+        *) break ;;
+    esac
+done
+out=${1:?usage: tools/hang-capture.sh [--command] [--no-radv-debug] [--wall <s>] <out-dir> -- <run…>}
 shift
 [ "${1:-}" = "--" ] || { echo "hang-capture: expected -- after the output directory" >&2; exit 64; }
 shift
-binary=${1:?hang-capture: no test binary}
-test_name=${2:?hang-capture: no test name}
-shift 2
+binary=${1:?hang-capture: nothing to run}
+if [ "$mode" = test ]; then
+    test_name=${2:?hang-capture: no test name}
+    shift 2
+    run=("$binary" "$test_name" --exact --nocapture "$@")
+else
+    test_name="$*"
+    run=("$@")
+fi
 
 shared_lock=/run/lock/gpu.lock
 radv_icd=/usr/share/vulkan/icd.d/radeon_icd.json
 recovery_bound_s=600
-test_wall_s=60
 
 mkdir -p "$out"
 log="$out/run.log"
 say() { printf '%s %s\n' "$(date '+%H:%M:%S.%3N')" "$*" | tee -a "$log"; }
 
-[ -x "$binary" ] || { say "the test binary $binary is not executable"; exit 66; }
+[ "$mode" = command ] || [ -x "$binary" ] || { say "the test binary $binary is not executable"; exit 66; }
 
 # The first invocation only waits for the lock and hands this same script to the wrapper; the
 # second, under it, does the work. The output directory is fresh, so `lock held` in its log can only
@@ -54,7 +80,7 @@ say() { printf '%s %s\n' "$(date '+%H:%M:%S.%3N')" "$*" | tee -a "$log"; }
 if [ -z "${HANG_CAPTURE_LOCKED:-}" ]; then
     [ ! -e "$log" ] || { echo "hang-capture: $log exists; give a fresh output directory" >&2; exit 64; }
     say "waiting for the shared lock $shared_lock"
-    GPU_LOCK_TIMEOUT=600 with-gpu-lock env HANG_CAPTURE_LOCKED=1 "$0" "$out" -- "$binary" "$test_name" "$@"
+    GPU_LOCK_TIMEOUT=600 with-gpu-lock env HANG_CAPTURE_LOCKED=1 "$0" "${all_args[@]}"
     status=$?
     grep -q "lock held" "$log" || { say "the shared lock was not had inside 600 s; nothing ran"; exit 75; }
     say "shared lock released"
@@ -69,13 +95,16 @@ rm -f "$private_lock.pdf-viewer-hung"
 since=$(date '+%Y-%m-%d %H:%M:%S')
 before_dumps=$(ls -d "$HOME"/radv_dumps_* 2>/dev/null | sort)
 
-say "test start: $test_name"
-env RADV_DEBUG=hang WGPU_BACKEND=vulkan VK_ICD_FILENAMES="$radv_icd" \
+say "test start (RADV_DEBUG=${radv_debug:-unset}, wall ${test_wall_s} s): $test_name"
+debug_env=(-u RADV_DEBUG)
+[ -z "$radv_debug" ] || debug_env=(RADV_DEBUG="$radv_debug")
+env "${debug_env[@]}" WGPU_BACKEND=vulkan VK_ICD_FILENAMES="$radv_icd" \
     PDF_VIEWER_GPU_LOCK="$private_lock" PDF_VIEWER_GPU_LOCK_LOG="$out/holds.log" \
-    timeout --kill-after=10 "$test_wall_s" "$binary" "$test_name" --exact --nocapture "$@" \
+    timeout --kill-after=10 "$test_wall_s" "${run[@]}" \
     >"$out/test.log" 2>&1
 status=$?
 say "test end: exit $status"
+[ ! -e "$private_lock.pdf-viewer-hung" ] || say "hang marker left: $(tr '\n' ' ' <"$private_lock.pdf-viewer-hung")"
 
 # A job the kernel times out is reported ten seconds after it stuck, so a test that did not pass is
 # given that long before the kernel's log is read for the first time.

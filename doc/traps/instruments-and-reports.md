@@ -2291,3 +2291,15 @@ extends a structure (the parent tree, the page-label tree, a name tree, the stru
 is checked by reading the output back through the reader that draws or extracts with it, page by
 page, and by planting the defect it guards against; a `Conforms` from the validator is evidence about
 the validator's rows, never about the extension.
+
+### 320. A lock around the work does not cover the memory
+
+ADR 2664 made the shared card's lock a span the code takes around each bring-up, frame and upload,
+because those are what submit, and the suites still reset the card and drew wrong pages when their
+processes ran side by side. Round 1926 found why: on the RX 580, another process's allocation in the
+256 MiB processor-visible window while a job is in flight corrupts that job — its shader wrote
+through an address made of another process's fill bytes — and a wgpu device allocates and frees
+memory in encoding, on its warm-up thread and at its drop, outside every section. Serialising the
+submissions left the allocations concurrent with them. The rule: before a lock is drawn around "the
+device work", list what of the device's state a neighbour can disturb — memory as well as queues —
+and take the span that covers all of it, here the device's life (ADR 2675).

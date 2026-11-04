@@ -266,6 +266,10 @@ impl Device {
 
         let info = adapter.get_info();
         let description = format!("{} ({:?}, {:?})", info.name, info.device_type, info.backend);
+        // From the adapter's choice to the device's drop, around the bring-up and every frame:
+        // the span in which device memory can be allocated and freed (the caller's ADR 2675).
+        let lifetime =
+            crate::section::Open::begin(crate::section::DeviceWork::Lifetime, info.device_type);
         // From the adapter's choice to the return: the span an installed hook is told of as
         // bring-up, and nothing at all when none is (the caller's ADR 2664).
         let _section =
@@ -384,6 +388,7 @@ impl Device {
                 adapter_selection,
                 device_creation,
             },
+            _lifetime: lifetime,
         })
     }
 
