@@ -220,6 +220,75 @@ pub(super) fn packet_entries(
     Ok(())
 }
 
+/// The one line the `metadata-packet-character` loss is described by on the page, where a page
+/// kept the packet without one of its characters (`doc/adr/2682`).
+const CHARACTER_LOSS: &str = "the page that keeps the producer's packet does not show this \
+     character, and the packet is otherwise laid out as the producer wrote it";
+
+/// Appends one entry per C0 control character a packet row's second step left off the page
+/// keeping its packet to a statement's `text`, numbered from `before`, or the bound it would pass
+/// (`doc/adr/2682`).
+///
+/// Every value is computed from the packet — the stream's object number, the character's code
+/// point, how often it occurs and its byte offsets in the decoded data — or is this program's
+/// fixed words for the requirement, the loss and the reason. The character is written only as
+/// its code point, as this page writes every character outside printable ASCII.
+pub(super) fn omitted_entries(
+    out: &mut String,
+    target: Target,
+    before: usize,
+    omitted: &[super::prepare::OmittedCharacter],
+    asked: &Statement,
+) -> Result<(), &'static str> {
+    if before.saturating_add(omitted.len()) > MOST_STATED_OBJECTS {
+        return Err(TOO_MANY_STATED);
+    }
+    if out.len() > MOST_STATEMENT_BYTES {
+        return Err(STATEMENT_TOO_LONG);
+    }
+    for (offset, character) in omitted.iter().enumerate() {
+        let requirement =
+            table::requirements().find(|requirement| requirement.id == character.site);
+        let citation = requirement
+            .and_then(|requirement| requirement.clauses.citation(target))
+            .unwrap_or_default();
+        let asks = requirement.map_or("", |requirement| requirement.asks);
+        // Writing into a `String` cannot fail, so each `write!` result is discarded deliberately.
+        let _ = write!(
+            out,
+            "\n{}. Requirement: {} ({citation})\n   Asks: {asks}\n   Loss: \
+             metadata-packet-character, {CHARACTER_LOSS}\n   Object: metadata stream {} {}\n   \
+             Character: {}\n   Occurrences: {}\n   Byte offsets in the decoded packet: {}\n",
+            before.saturating_add(offset).saturating_add(1),
+            character.site,
+            character.at.number,
+            character.at.generation,
+            character.code_point(),
+            character.count,
+            character.places(),
+        );
+        match &asked.before {
+            Some(step) => {
+                let _ = writeln!(
+                    out,
+                    "   Tried before: {step}, which did not hold: {}",
+                    super::prepare::CONTROL_NOT_SET
+                );
+            }
+            None => {
+                let _ = writeln!(out, "   Tried before: no step");
+            }
+        }
+        for (step, why) in &asked.skipped {
+            let _ = writeln!(out, "   Not admitted at this target: {step}, because {why}");
+        }
+    }
+    if out.len() > MOST_STATEMENT_BYTES {
+        return Err(STATEMENT_TOO_LONG);
+    }
+    Ok(())
+}
+
 /// The one line the `document-information-entry` loss is described by on the page, where the
 /// packet had no form for an entry's value (`doc/adr/2681`).
 const INFORMATION_LOSS: &str = "the document information dictionary is not in this document, and \

@@ -1212,7 +1212,8 @@ fn preserves_a_packet(row: &Row) -> bool {
 /// One mechanism at three families of rows (`doc/rfc/0014` section 3): the embedded-file rows'
 /// `preserve:append`, whose outcome is one per file (`doc/adr/2536`), the packet rows'
 /// `preserve` with `original = "page"`, whose outcome is one per replaced packet
-/// (`doc/adr/2678`), and the two ISO 19005-4 section 6.1.3 document-information rows'
+/// (`doc/adr/2678`) and, in a packet a page lays out, one per C0 control character no face draws
+/// (`doc/adr/2682`), and the two ISO 19005-4 section 6.1.3 document-information rows'
 /// `preserve` with `unmapped = "carry"`, whose outcome is one per dictionary entry
 /// (`doc/adr/2681`). `original = "attach"` and `"both"` keep every packet's bytes as a file
 /// whatever they hold, so nothing is left for a second step there; and the other `unmapped`

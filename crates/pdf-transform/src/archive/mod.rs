@@ -1799,6 +1799,12 @@ fn apply_the_decisions(
                     .iter()
                     .find(|removed| removed.at == packet.at)
                     .cloned();
+                packet.omitted = composed
+                    .omitted_characters
+                    .iter()
+                    .filter(|omitted| omitted.at == packet.at)
+                    .cloned()
+                    .collect();
             }
         }
     }

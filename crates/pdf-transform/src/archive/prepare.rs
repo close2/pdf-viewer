@@ -73,10 +73,11 @@ use files_and_structure::structure_tree;
 pub(super) use font_rewrites::substituted_fonts_recorded;
 use font_rewrites::{PreparedFonts, metric_directions, prepare_fonts, unicode_fonts, wanted_by};
 pub(super) use metadata::{
-    AMENDMENT_REQUIREMENT, Amended, DEFAULT_CMYK_ACTION, DescribedField, DescribedSchema,
-    FieldsDescribed, HEADER_ACTION, Headers, Metadata, MovedEntry, RemovedIdentifier,
-    RemovedInformation, RemovedPacket, ReplacedPacket, Respelled, SUBSTITUTED_FONTS_ACTION,
-    SchemasDescribed, field_key, metadata_stream, names_a_field, undescribed_fields_in,
+    AMENDMENT_REQUIREMENT, Amended, CONTROL_NOT_SET, DEFAULT_CMYK_ACTION, DescribedField,
+    DescribedSchema, FieldsDescribed, HEADER_ACTION, Headers, Metadata, MovedEntry,
+    OmittedCharacter, RemovedIdentifier, RemovedInformation, RemovedPacket, ReplacedPacket,
+    Respelled, SUBSTITUTED_FONTS_ACTION, SchemasDescribed, field_key, metadata_stream,
+    names_a_field, undescribed_fields_in,
 };
 pub use metadata::{CARRIED_INFORMATION_NAMESPACE, CARRIED_INFORMATION_PREFIX, carried_local_name};
 use metadata::{
@@ -1121,6 +1122,13 @@ impl Prepared {
                 .map(RemovedPacket::sentence)
                 .collect::<Vec<_>>();
             let removed = (!removed.is_empty()).then(|| removed.join("; "));
+            // Each character the same step left off a page that kept its packet (`doc/adr/2682`).
+            let omitted = composed
+                .omitted_characters
+                .iter()
+                .map(OmittedCharacter::sentence)
+                .collect::<Vec<_>>();
+            let omitted = (!omitted.is_empty()).then(|| omitted.join("; "));
             // And each information entry an information row's second step removed (`doc/adr/2681`).
             let entries = composed
                 .removed_information
@@ -1128,7 +1136,7 @@ impl Prepared {
                 .map(RemovedInformation::sentence)
                 .collect::<Vec<_>>();
             let entries = (!entries.is_empty()).then(|| entries.join("; "));
-            let parts: Vec<String> = [kept, removed, entries, stated]
+            let parts: Vec<String> = [kept, removed, omitted, entries, stated]
                 .into_iter()
                 .flatten()
                 .collect();

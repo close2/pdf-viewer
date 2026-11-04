@@ -16363,3 +16363,6 @@ mod notdef_glyph;
 mod type1_notdef_glyph;
 #[path = "archive/whole_population.rs"]
 mod whole_population;
+
+#[path = "archive/packet_characters.rs"]
+mod packet_characters;

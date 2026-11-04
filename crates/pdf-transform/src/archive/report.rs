@@ -1730,6 +1730,14 @@ impl Conversion {
         {
             let _ = writeln!(out, "  removed: {}", removed.sentence());
         }
+        // And a character the same step left off the page that kept its packet (`doc/adr/2682`).
+        for omitted in self
+            .replaced_packets
+            .iter()
+            .flat_map(|packet| packet.omitted.iter())
+        {
+            let _ = writeln!(out, "  omitted: {}", omitted.sentence());
+        }
         // So does a document information entry the packet had no form for (`doc/adr/2681`).
         for removed in self
             .moved_information

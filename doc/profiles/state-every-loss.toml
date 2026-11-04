@@ -8,7 +8,8 @@
 # keep, that object is removed and stated. This version carries a second step out at the
 # embedded-file rows (doc/adr/2536) and at the three packet rows answered by page, where a packet
 # whose stream data is not UTF-8 text through the filters it states is removed and listed on the
-# statement page (doc/adr/2678); every other information site keeps, else stops, until the
+# statement page (doc/adr/2678), and a C0 control character other than a line break or a tab in a
+# packet a page lays out is left off that page and listed (doc/adr/2682); every other information site keeps, else stops, until the
 # executor carries the second step there (doc/rfc/0014 section 3, config/steps.rs).
 #
 # At a presentation site the answer is try = ["append-statement", "discard"]. This version sets

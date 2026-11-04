@@ -349,8 +349,13 @@ appearance the converter could not build (1), a signature widget that does not p
 forms — section 7.1). Builds only. Mitigations sections 6 and 7.
 
 **R14 — the appended page could not be composed** (2 documents, each alone): `balloon_a1b_jp2k`'s
-packet header holds U+0000 where the byte-order mark goes, which no face draws (`doc/questions/Q778`
-asks how a page shows it); and `JPXTestGrey` at 2b, whose refusal is the extension-schema container
+packet header holds U+0000 where the byte-order mark goes, which no face draws. Under
+`state-every-loss` the packet rows' second step leaves a C0 control character other than a line
+break or a tab off the page that keeps the packet and lists it on the statement page by its code
+point, count and byte offsets (ADR 2682, `doc/questions/A778`), so it converts under that profile at
+2b and 4; `no-data-loss` and the profiles naming no second step keep the face search's refusal. No
+shipped face covers U+2400–U+243F, the control pictures A778's option (a) would set; and
+`JPXTestGrey` at 2b, whose refusal is the extension-schema container
 (a producer's container that does not describe every schema it uses), not the page. `241573_ftp`'s
 catalog packet is Flate data its stream states no filter for, so through the filters it states it
 is not text, and no other filter is tried (ADR 2679): `state-every-loss`'s packet rows now take the

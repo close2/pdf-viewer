@@ -276,6 +276,9 @@ pub(super) struct Composed {
     /// because the packet had no form for its value, listed on [`Self::statement`] where that
     /// step is `append-statement` (`doc/adr/2681`).
     pub(super) removed_information: Vec<super::prepare::RemovedInformation>,
+    /// Each C0 control character a packet row's second step left off the page keeping the packet,
+    /// listed on [`Self::statement`] where that step is `append-statement` (`doc/adr/2682`).
+    pub(super) omitted_characters: Vec<super::prepare::OmittedCharacter>,
 }
 
 /// The two entries a relocation writes onto the producer's own page.
@@ -399,6 +402,7 @@ pub(super) fn compose(
         linked_annotations: BTreeMap::new(),
         removed_packets: Vec::new(),
         removed_information: Vec::new(),
+        omitted_characters: Vec::new(),
         statement: None,
     };
     let first = tree.len();

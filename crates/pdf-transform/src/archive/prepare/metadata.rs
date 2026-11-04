@@ -994,6 +994,9 @@ pub struct ReplacedPacket {
     /// was removed and where that is stated (`doc/adr/2678`); `None` where the packet was kept,
     /// or replaced under a row that keeps nothing.
     pub removed: Option<RemovedPacket>,
+    /// Each C0 control character no page could set and its row's second step left off the page
+    /// that keeps this packet, one per code point (`doc/adr/2682`); empty where none was.
+    pub omitted: Vec<OmittedCharacter>,
 }
 
 impl ReplacedPacket {
@@ -1013,6 +1016,12 @@ impl ReplacedPacket {
         ];
         if let Some(removed) = &self.removed {
             fields.push(("removed".to_owned(), removed.to_json()));
+        }
+        if !self.omitted.is_empty() {
+            fields.push((
+                "omitted".to_owned(),
+                Value::Array(self.omitted.iter().map(OmittedCharacter::to_json).collect()),
+            ));
         }
         Value::Object(fields)
     }
@@ -1097,6 +1106,151 @@ impl RemovedPacket {
     }
 }
 
+/// One C0 control character a packet held, left off the page that keeps the packet by its row's
+/// second step (`doc/adr/2682`).
+///
+/// A control character has no glyph in any text face, and setting one would show `.notdef`,
+/// which ISO 19005-2 section 6.2.11.8 and ISO 19005-4 section 6.2.10.9 forbid, so no page can
+/// carry it as a mark. The line breaks are not among these: the layout reads them as ISO 32000-2
+/// §7.2.3's end-of-line markers. Neither is the horizontal tab, which the layout sets as a space
+/// (`doc/adr/1025` section 4). Every field is computed from the packet's decoded bytes, which is
+/// what lets the statement page name the omission in facts; the character itself is never
+/// written, only its code point.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OmittedCharacter {
+    /// The packet row whose second step left it off.
+    pub site: &'static str,
+    /// The metadata stream, in the source's numbering.
+    pub at: ObjectId,
+    /// The character, a C0 control other than a line break or a tab.
+    pub character: char,
+    /// How many times the packet holds it.
+    pub count: usize,
+    /// Where it stood, as byte offsets into the decoded packet, the first [`MOST_OFFSETS_NAMED`].
+    pub offsets: Vec<usize>,
+    /// The first page of the statement that lists it, zero-based, where one does.
+    pub stated_on: Option<usize>,
+}
+
+/// How many of one character's byte offsets an omission names.
+///
+/// `CLAUDE.md` principle 3's bound on what a packet, attacker-supplied, makes this program write:
+/// a packet of a million NULs is one count and sixteen offsets, not a million.
+pub(in crate::archive) const MOST_OFFSETS_NAMED: usize = 16;
+
+/// Why a C0 control character was left off the page rather than set (`doc/adr/2682`).
+pub(in crate::archive) const CONTROL_NOT_SET: &str = "it is a C0 control character, which no \
+     face has a glyph for, and setting it would show .notdef, which ISO 19005-2 section 6.2.11.8 \
+     and ISO 19005-4 section 6.2.10.9 forbid";
+
+/// Whether a packet character is one the second step leaves off the page (`doc/adr/2682`): a C0
+/// control other than §7.2.3's line breaks and the tab the layout sets as a space.
+pub(in crate::archive) fn is_omitted_control(character: char) -> bool {
+    character.is_ascii_control()
+        && character != '\u{7f}'
+        && !matches!(character, '\n' | '\r' | '\t')
+}
+
+/// A packet's text with every [`is_omitted_control`] character taken out, and each one taken as
+/// an [`OmittedCharacter`] in code-point order; the text unchanged and no omission where it holds
+/// none.
+pub(in crate::archive) fn without_controls(
+    site: &'static str,
+    at: ObjectId,
+    text: &str,
+) -> (String, Vec<OmittedCharacter>) {
+    let mut kept = String::with_capacity(text.len());
+    let mut omitted: BTreeMap<char, OmittedCharacter> = BTreeMap::new();
+    for (offset, character) in text.char_indices() {
+        if !is_omitted_control(character) {
+            kept.push(character);
+            continue;
+        }
+        let entry = omitted.entry(character).or_insert(OmittedCharacter {
+            site,
+            at,
+            character,
+            count: 0,
+            offsets: Vec::new(),
+            stated_on: None,
+        });
+        entry.count = entry.count.saturating_add(1);
+        if entry.offsets.len() < MOST_OFFSETS_NAMED {
+            entry.offsets.push(offset);
+        }
+    }
+    (kept, omitted.into_values().collect())
+}
+
+impl OmittedCharacter {
+    /// The character's code point as the statement page writes every character outside
+    /// printable ASCII.
+    #[must_use]
+    pub fn code_point(&self) -> String {
+        format!("U+{:04X}", u32::from(self.character))
+    }
+
+    /// Where it stood, in the words the page, the report and `xmpMM:History` print.
+    #[must_use]
+    pub fn places(&self) -> String {
+        let named = self
+            .offsets
+            .iter()
+            .map(usize::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        let more = self.count.saturating_sub(self.offsets.len());
+        if more == 0 {
+            named
+        } else {
+            format!("{named} and {more} more")
+        }
+    }
+
+    /// The omission, in the words the report and `xmpMM:History` print.
+    #[must_use]
+    pub fn sentence(&self) -> String {
+        let mut out = format!(
+            "{} {} of the XMP metadata packet object {} {} held, at byte offset(s) {} of its \
+             decoded data, is left off the page that keeps the packet \
+             (metadata-packet-character): {CONTROL_NOT_SET}",
+            self.count,
+            self.code_point(),
+            self.at.number,
+            self.at.generation,
+            self.places(),
+        );
+        if let Some(page) = self.stated_on {
+            // Writing into a `String` cannot fail.
+            let _ = write!(
+                out,
+                "; its omission is stated on page {}",
+                page.saturating_add(1)
+            );
+        }
+        out
+    }
+
+    /// The omission as JSON, the page one-based as every page the report names.
+    pub(in crate::archive) fn to_json(&self) -> Value {
+        let mut fields = vec![
+            ("site".to_owned(), Value::text(self.site)),
+            ("loss".to_owned(), Value::text("metadata-packet-character")),
+            ("code-point".to_owned(), Value::text(self.code_point())),
+            ("count".to_owned(), Value::count(self.count)),
+            (
+                "offsets".to_owned(),
+                Value::Array(self.offsets.iter().map(|at| Value::count(*at)).collect()),
+            ),
+            ("because".to_owned(), Value::text(CONTROL_NOT_SET)),
+        ];
+        if let Some(page) = self.stated_on {
+            fields.push(("stated-on".to_owned(), Value::count(page.saturating_add(1))));
+        }
+        Value::Object(fields)
+    }
+}
+
 /// What one fault costs a reader, in the words the report prints.
 fn why_a_packet_was_replaced(fault: pdf_archive::PacketFault) -> &'static str {
     match fault {
@@ -1171,6 +1325,7 @@ pub(super) fn prepare_fresh_packets(
             catalogs: catalog_packet == Some(at),
             because: because.join("; "),
             removed: None,
+            omitted: Vec::new(),
         });
     }
     if fresh.packets.is_empty() {

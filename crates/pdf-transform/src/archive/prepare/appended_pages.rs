@@ -101,6 +101,7 @@ pub(super) fn the_preserved_pages(
         preservation.no_page_carries == super::super::RemedyKind::Discard
     });
     let mut removed_packets: Vec<super::RemovedPacket> = Vec::new();
+    let mut omitted_characters: Vec<super::OmittedCharacter> = Vec::new();
     let replaced = match replaced_site {
         // The replacement is what makes the file conform and the page is what keeps what it
         // replaces, so a document whose packets cannot be replaced gets neither — the property
@@ -132,6 +133,19 @@ pub(super) fn the_preserved_pages(
                     });
                     continue;
                 }
+                // **The same step, one character at a time** (`doc/adr/2682`, `A778`): a C0
+                // control character has no glyph for the page to set, so the step that removes a
+                // packet no page can lay out leaves just that character off the page and names it,
+                // and the rest of the packet is laid out as the producer wrote it. Without the
+                // step the character keeps the face search's refusal, `NO_FACE`.
+                if discard_packets && let Ok(text) = std::str::from_utf8(&bytes) {
+                    let (kept, omitted) = super::metadata::without_controls(site, *at, text);
+                    if !omitted.is_empty() {
+                        omitted_characters.extend(omitted);
+                        packets.push((*at, kept.into_bytes().into()));
+                        continue;
+                    }
+                }
                 packets.push((*at, bytes));
             }
             packets
@@ -142,6 +156,10 @@ pub(super) fn the_preserved_pages(
         .and_then(|preservation| preservation.statement.as_ref())
         .filter(|_| !removed_packets.is_empty())
         .map(|asked| (removed_packets.as_slice(), asked));
+    let omitted_stated = packet_row
+        .and_then(|preservation| preservation.statement.as_ref())
+        .filter(|_| !omitted_characters.is_empty())
+        .map(|asked| (omitted_characters.as_slice(), asked));
     // **An information entry the packet has no form for takes its row's second step**
     // (`doc/adr/2681`), the same mechanism again: the information preparation removed it, and the
     // page states it where that step is `append-statement`.
@@ -263,6 +281,7 @@ pub(super) fn the_preserved_pages(
         stated.map(|(_, asked)| (attachments.removed.as_slice(), asked)),
         &graphics,
         packets_stated,
+        omitted_stated,
         information_stated,
         fonts.as_ref(),
         runs,
@@ -293,6 +312,7 @@ pub(super) fn the_preserved_pages(
                 statement: None,
                 removed_packets,
                 removed_information: information.to_vec(),
+                omitted_characters,
             };
             link_the_annotations(&mut composed, embedded);
             return Ok(composed);
@@ -456,6 +476,7 @@ pub(super) fn the_preserved_pages(
     let statement_site = stated
         .map(|(site, _)| site)
         .or_else(|| packets_stated.and(replaced_site))
+        .or_else(|| omitted_stated.and(replaced_site))
         .or_else(|| information_stated.and(information_site))
         .or_else(|| graphics.first().map(|entry| entry.site))
         .or_else(|| fonts.as_ref().map(|_| super::super::config::STATED_FONTS))
@@ -526,6 +547,7 @@ pub(super) fn the_preserved_pages(
                 stated.map(|(_, asked)| (attachments.removed.as_slice(), asked)),
                 &graphics,
                 packets_stated,
+                omitted_stated,
                 information_stated,
                 fonts.as_ref(),
                 runs,
@@ -547,6 +569,7 @@ pub(super) fn the_preserved_pages(
                     statement: None,
                     removed_packets,
                     removed_information: information.to_vec(),
+                    omitted_characters,
                 };
                 link_the_annotations(&mut composed, embedded);
                 return Ok(composed);
@@ -566,7 +589,10 @@ pub(super) fn the_preserved_pages(
             .map(|(site, _)| site)
             .into_iter()
             .collect();
-        if let (Some(_), Some(site)) = (packets_stated, replaced_site) {
+        if let (true, Some(site)) = (
+            packets_stated.is_some() || omitted_stated.is_some(),
+            replaced_site,
+        ) {
             sites.push(site);
         }
         if let (Some(_), Some(site)) = (information_stated, information_site) {
@@ -599,6 +625,7 @@ pub(super) fn the_preserved_pages(
             sites,
             files
                 .saturating_add(packets_stated.map_or(0, |(removed, _)| removed.len()))
+                .saturating_add(omitted_stated.map_or(0, |(omitted, _)| omitted.len()))
                 .saturating_add(information_stated.map_or(0, |(removed, _)| removed.len()))
                 .saturating_add(graphics.len())
                 .saturating_add(fonts.as_ref().map_or(0, statement::FontsStated::listed))
@@ -615,11 +642,17 @@ pub(super) fn the_preserved_pages(
                 packet.stated_on = Some(page);
             }
         }
+        if omitted_stated.is_some() {
+            for omitted in &mut omitted_characters {
+                omitted.stated_on = Some(page);
+            }
+        }
         if information_stated.is_some() {
             stated_information = Some(page);
         }
     }
     composed.removed_packets = removed_packets;
+    composed.omitted_characters = omitted_characters;
     composed.removed_information = information
         .iter()
         .map(|entry| super::RemovedInformation {
@@ -777,6 +810,7 @@ fn statement_of(
     )>,
     graphics: &[statement::GraphicsEntry<'_>],
     packets: Option<(&[super::RemovedPacket], &super::super::config::Statement)>,
+    omitted: Option<(&[super::OmittedCharacter], &super::super::config::Statement)>,
     information: Option<(
         &[super::RemovedInformation],
         &super::super::config::Statement,
@@ -788,6 +822,7 @@ fn statement_of(
     let files = files.filter(|(removed, _)| !removed.is_empty());
     if files.is_none()
         && packets.is_none()
+        && omitted.is_none()
         && information.is_none()
         && graphics.is_empty()
         && fonts.is_none()
@@ -811,6 +846,11 @@ fn statement_of(
         statement::packet_entries(&mut text, target, before, removed, asked)
             .map_err(Because::NotBuiltYet)?;
         before = before.saturating_add(removed.len());
+    }
+    if let Some((omitted, asked)) = omitted {
+        statement::omitted_entries(&mut text, target, before, omitted, asked)
+            .map_err(Because::NotBuiltYet)?;
+        before = before.saturating_add(omitted.len());
     }
     if let Some((removed, asked)) = information {
         statement::information_entries(&mut text, target, before, removed, asked)
