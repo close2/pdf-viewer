@@ -24,6 +24,17 @@ name = "no-data-loss"
 sentence = "No information is lost: it is kept, moved or written out on an appended page; a presentation loss is discarded and stated."
 catalogue = "doc/pdfa-remedies.md"
 default = "stop"
+# A document whose trailer, catalog or page tree node states no page tree is written out as the
+# structure this viewer recovered, the loss `recovered-structure`: a catalog and one page tree node
+# listing the pages it found, each page the producer's (ADR 2502). The structure is how a reader
+# reaches the pages, not information a reader reads, so it is a presentation loss and is stated on
+# the appended page with the count the source states and the count it holds; a page the tree
+# counts and the file does not hold is data the file names and does not hold, so `page-not-held`
+# is taken only as append-statement, listed there with both counts (doc/questions/A757, ADR 2669,
+# ADR 2596). A document holding none of the pages it states is refused under every profile
+# (doc/questions/A775, ADR 2670).
+recovered-structure = "append-statement"
+page-not-held = "append-statement"
 
 [site."embedded-files/embedded-file-is-itself-pdfa"]
 remedy = "preserve"

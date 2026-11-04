@@ -912,6 +912,7 @@ fn image_interpolation_is_a_loss_and_needs_authorising() {
         optional_content_of_photographed_pages: false,
         page_not_held: false,
         page_not_held_stated: false,
+        recovered_structure_stated: false,
         layout_from_this_viewer: false,
         content_as_drawn: false,
     };
@@ -1078,6 +1079,7 @@ fn an_annotation_stating_no_flags_is_made_printable_only_with_authorisation() {
         optional_content_of_photographed_pages: false,
         page_not_held: false,
         page_not_held_stated: false,
+        recovered_structure_stated: false,
         layout_from_this_viewer: false,
         content_as_drawn: false,
     };
@@ -1171,6 +1173,7 @@ fn a_property_its_own_schema_does_not_define_is_removed_only_with_authorisation(
         optional_content_of_photographed_pages: false,
         page_not_held: false,
         page_not_held_stated: false,
+        recovered_structure_stated: false,
         layout_from_this_viewer: false,
         content_as_drawn: false,
     };
@@ -4496,6 +4499,7 @@ fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_st
         optional_content_of_photographed_pages: false,
         page_not_held: false,
         page_not_held_stated: false,
+        recovered_structure_stated: false,
         layout_from_this_viewer: false,
         content_as_drawn: false,
     };
@@ -5671,6 +5675,7 @@ fn a_colour_specification_the_part_ignores_is_removed_only_with_authorisation() 
         optional_content_of_photographed_pages: false,
         page_not_held: false,
         page_not_held_stated: false,
+        recovered_structure_stated: false,
         layout_from_this_viewer: false,
         content_as_drawn: false,
     };
@@ -5737,6 +5742,7 @@ fn a_file_marking_no_specification_best_keeps_the_one_a_jp2_reader_uses() {
         optional_content_of_photographed_pages: false,
         page_not_held: false,
         page_not_held_stated: false,
+        recovered_structure_stated: false,
         layout_from_this_viewer: false,
         content_as_drawn: false,
     };
@@ -5801,6 +5807,7 @@ fn two_specifications_marked_best_stay_refused() {
         optional_content_of_photographed_pages: false,
         page_not_held: false,
         page_not_held_stated: false,
+        recovered_structure_stated: false,
         layout_from_this_viewer: false,
         content_as_drawn: false,
     };
@@ -5858,6 +5865,7 @@ fn one_specification_with_a_method_the_part_forbids_stays_refused() {
         optional_content_of_photographed_pages: false,
         page_not_held: false,
         page_not_held_stated: false,
+        recovered_structure_stated: false,
         layout_from_this_viewer: false,
         content_as_drawn: false,
     };
@@ -9279,6 +9287,7 @@ fn an_annotation_of_a_forbidden_subtype_goes_only_with_authorisation() {
         optional_content_of_photographed_pages: false,
         page_not_held: false,
         page_not_held_stated: false,
+        recovered_structure_stated: false,
         layout_from_this_viewer: false,
         content_as_drawn: false,
     };
@@ -9613,6 +9622,7 @@ fn an_annotation_that_drew_nothing_refuses_a_preserve_by_name() {
         optional_content_of_photographed_pages: false,
         page_not_held: false,
         page_not_held_stated: false,
+        recovered_structure_stated: false,
         layout_from_this_viewer: false,
         content_as_drawn: false,
     };
@@ -9663,6 +9673,7 @@ fn every_loss() -> Authorisations {
         optional_content_of_photographed_pages: false,
         page_not_held: false,
         page_not_held_stated: false,
+        recovered_structure_stated: false,
         layout_from_this_viewer: false,
         content_as_drawn: false,
     }

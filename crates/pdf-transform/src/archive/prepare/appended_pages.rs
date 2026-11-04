@@ -65,7 +65,7 @@ pub(super) fn the_preserved_pages(
     embedded: Result<&sites::EmbeddedFiles, &Because>,
     has_output_intent: bool,
     remedies: &super::super::remedies::Remedies,
-    not_held: Option<super::super::recovered::NotHeld>,
+    recovery: super::super::recovered::Stated<'_>,
     substitutes: Option<&Substitutes>,
     runs: &[super::super::WrittenRun],
     spare: &mut Spare,
@@ -221,7 +221,7 @@ pub(super) fn the_preserved_pages(
         &graphics,
         fonts.as_ref(),
         runs,
-        not_held,
+        recovery,
     )?;
     if packets.is_empty()
         && replaced.is_empty()
@@ -409,7 +409,8 @@ pub(super) fn the_preserved_pages(
         .or_else(|| graphics.first().map(|entry| entry.site))
         .or_else(|| fonts.as_ref().map(|_| super::super::config::STATED_FONTS))
         .or_else(|| (!runs.is_empty()).then_some(super::super::config::STATED_RUNS))
-        .or_else(|| not_held.map(|_| NOT_HELD_SITE));
+        .or_else(|| recovery.structure.map(|_| RECOVERED_SITE))
+        .or_else(|| recovery.not_held.map(|_| NOT_HELD_SITE));
     if let (Some(site), Some(text)) = (statement_site, statement_text.as_ref()) {
         keeps.push(statement_keep(site, text));
     }
@@ -474,7 +475,7 @@ pub(super) fn the_preserved_pages(
                 &graphics,
                 fonts.as_ref(),
                 runs,
-                not_held,
+                recovery,
             )?;
             if let (Some(site), Some(text)) = (statement_site, restated.as_ref()) {
                 others.push(statement_keep(site, text));
@@ -519,7 +520,10 @@ pub(super) fn the_preserved_pages(
         if !runs.is_empty() {
             sites.push(super::super::config::STATED_RUNS);
         }
-        if not_held.is_some() {
+        if recovery.structure.is_some() {
+            sites.push(RECOVERED_SITE);
+        }
+        if recovery.not_held.is_some() {
             sites.push(NOT_HELD_SITE);
         }
         let files = if files_stated {
@@ -534,7 +538,7 @@ pub(super) fn the_preserved_pages(
                 .saturating_add(graphics.len())
                 .saturating_add(fonts.as_ref().map_or(0, statement::FontsStated::listed))
                 .saturating_add(runs.len())
-                .saturating_add(usize::from(not_held.is_some())),
+                .saturating_add(recovery.entries()),
         )?;
         if files_stated {
             for outcome in &mut attachments.removed {
@@ -673,9 +677,10 @@ fn link_the_annotations(
 
 /// The statement's text over the files an embedded-file row removed, the entries the halftone
 /// rows took, the pages photographed and faces embedded with a loss under the font row
-/// (`doc/adr/2600`), the runs the operator row wrote as numbers (`doc/adr/2638`) and the pages
-/// the source states and the file does not hold, or `None` where none of the five lists anything.
-/// The pages not held are the last entry.
+/// (`doc/adr/2600`), the runs the operator row wrote as numbers (`doc/adr/2638`), the rebuilt
+/// structure (`doc/adr/2669`) and the pages the source states and the file does not hold, or
+/// `None` where none of the six lists anything. The structure and the pages not held are
+/// the last entries.
 fn statement_of(
     document: &Document,
     target: Target,
@@ -686,14 +691,14 @@ fn statement_of(
     graphics: &[statement::GraphicsEntry<'_>],
     fonts: Option<&statement::FontsStated<'_>>,
     runs: &[super::super::WrittenRun],
-    not_held: Option<super::super::recovered::NotHeld>,
+    recovery: super::super::recovered::Stated<'_>,
 ) -> Result<Option<String>, Because> {
     let files = files.filter(|(removed, _)| !removed.is_empty());
     if files.is_none()
         && graphics.is_empty()
         && fonts.is_none()
         && runs.is_empty()
-        && not_held.is_none()
+        && recovery.is_empty()
     {
         return Ok(None);
     }
@@ -716,7 +721,11 @@ fn statement_of(
         statement::runs_entry(&mut text, target, before, runs).map_err(Because::NotBuiltYet)?;
         before = before.saturating_add(runs.len());
     }
-    if let Some(not_held) = not_held {
+    if let Some(structure) = recovery.structure {
+        statement::recovered_entry(&mut text, before, structure).map_err(Because::NotBuiltYet)?;
+        before = before.saturating_add(1);
+    }
+    if let Some(not_held) = recovery.not_held {
         statement::not_held_entry(&mut text, before, not_held).map_err(Because::NotBuiltYet)?;
     }
     Ok(Some(text))
@@ -786,6 +795,10 @@ fn stated_fonts<'a>(
 /// What the statement page's record names a `page-not-held` entry under: the loss word, because
 /// no requirement's row states it (`doc/adr/2596`).
 const NOT_HELD_SITE: &str = "page-not-held";
+
+/// What the statement page's record names a `recovered-structure` entry under, for the same reason
+/// (`doc/adr/2669`).
+const RECOVERED_SITE: &str = "recovered-structure";
 
 /// Every entry a halftone row whose loss is stated takes, in `STATED_GRAPHICS`'s order and each
 /// population's own (`doc/adr/2562`).

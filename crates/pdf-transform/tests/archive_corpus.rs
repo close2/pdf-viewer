@@ -1221,6 +1221,21 @@ const REAL_TARGETS: [Target; 2] = [Target::Two(Level::B), Target::Four(Flavour::
 #[test]
 #[ignore = "needs doc/pdf.js and doc/corpora, which are not part of a checkout"]
 fn the_shipped_profiles_list_what_real_producers_files_refuse_on() {
+    sweep_real_producers(&["as-if-printed", "as-shown"]);
+}
+
+/// **What real producers' files refuse on under the two profiles that state every loss**
+/// (`doc/questions/A757`, `doc/adr/2669`): the census above, over the same corpora and targets,
+/// for `state-every-loss` and `no-data-loss`. Run once before and once after a change to either
+/// profile, the documents that move between the two runs' lists are what the change moved.
+#[test]
+#[ignore = "needs doc/pdf.js and doc/corpora, which are not part of a checkout"]
+fn the_stating_profiles_list_what_real_producers_files_refuse_on() {
+    sweep_real_producers(&["state-every-loss", "no-data-loss"]);
+}
+
+/// The census of real producers' files under each named shipped profile, at [`REAL_TARGETS`].
+fn sweep_real_producers(names: &[&str]) {
     println!("{}", pack_line());
     let doc = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc");
     let corpora: Vec<(&str, Vec<PathBuf>)> = ["pdf.js", "corpora"]
@@ -1237,7 +1252,7 @@ fn the_shipped_profiles_list_what_real_producers_files_refuse_on() {
         Some(directory) => println!("outputs: kept under {}", directory.display()),
         None => println!("outputs: not kept ({OUTPUTS_VARIABLE} is not set)"),
     }
-    for name in ["as-if-printed", "as-shown"] {
+    for &name in names {
         let shipped = pdf_transform::profiles::named(name).expect("a shipped profile");
         let mut by_part: Vec<Vec<UnderProfile>> = Vec::new();
         for target in REAL_TARGETS {

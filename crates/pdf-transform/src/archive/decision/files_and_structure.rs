@@ -239,6 +239,14 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "file-structure/page-tree-kids-name-dictionaries",
         Because::NotBuiltYet(A_TREE_THE_WALK_DOES_NOT_REACH),
     ),
+    // The same section through the `/Count` row: a source holding none of the pages its root
+    // counts is refused by the verb before anything is rebuilt or decided, under every profile
+    // (`super::super::refuse_a_document_holding_none_of_its_pages`, `doc/questions/A775`, ADR
+    // 2670); this is the row's own answer for the census.
+    (
+        "file-structure/page-tree-holds-a-page-it-counts",
+        Because::TheFence(NONE_OF_ITS_PAGES),
+    ),
     // ISO 19005-2 section 6.7.3.4 needs a judgement about what a producer's own structure type
     // *meant*, which `doc/pdf-a-conversion-limits.md` section 5.1 calls an **Ask**: the
     // operator's `role-map` answers it in advance (`doc/adr/1990` section 6).
@@ -314,6 +322,11 @@ const A_TREE_THE_WALK_DOES_NOT_REACH: &str = "this page tree has a root that sta
      at a node written inside the catalog or inside its parent's Kids; this conversion declines \
      such a tree, and rebuilds it from the pages this reader draws where recovered-structure is \
      granted, only at a node written as an object of its own";
+
+/// Why a source holding none of the pages it states is not converted (`doc/questions/A775`).
+const NONE_OF_ITS_PAGES: &str = "the source's page tree root counts one page or more and the \
+     file holds none of them, so it holds nothing a reader sees to archive; it is refused by the \
+     name of the loss page-not-held under every profile, never written as an archive of no page";
 
 /// Why a page tree node with no `/Kids` array is not rewritten (`doc/adr/2444`).
 const A_NODE_WITH_NO_CHILDREN: &str = "a page tree node here states no Kids array, so the tree \

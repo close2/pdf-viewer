@@ -1326,9 +1326,11 @@ fn read_config(
             authorised.authorise(loss);
         }
     }
-    // Where the file takes `page-not-held`, it also says whether the loss is stated on the
-    // appended page, which is no loss of its own (`doc/adr/2596`).
+    // Where the file takes `page-not-held` or `recovered-structure`, it also says whether the loss
+    // is stated on the appended page, which is no loss of its own (`doc/adr/2596`,
+    // `doc/adr/2669`).
     authorised.page_not_held_stated |= config.authorised.page_not_held_stated;
+    authorised.recovered_structure_stated |= config.authorised.recovered_structure_stated;
     for unbuilt in config.unbuilt.iter().filter(|_| announce) {
         errln!(
             io,

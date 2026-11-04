@@ -34,6 +34,16 @@ static WITNESSES: &[Witness] = &[
               itself as its parent and lists a kid the file does not hold (ADR 2558, ADR 2583)",
     },
     Witness {
+        path: "corpora/format-corpus/pdf-handbuilt-test-corpus/T02-03_006_page-object-missing.pdf",
+        rows: &[
+            "file-structure/page-tree-kids-name-dictionaries",
+            "file-structure/page-tree-holds-a-page-it-counts",
+        ],
+        why: "ISO 32000-2 section 7.7.3.2's Table 30, at section 5.1 of both parts: the root counts \
+              one page and its one kid is placed where another object sits, so the file holds \
+              none of the pages it states (doc/questions/A775, ADR 2670)",
+    },
+    Witness {
         path: "pdf.js/test/pdfs/issue7544.pdf",
         rows: &["fonts/font-dictionary-states-type-font"],
         why: "ISO 32000-2 section 9.7.4.1's Table 115, at ISO 19005-2 section 6.2.11.2 and ISO \

@@ -222,7 +222,7 @@ pub use in_place::{ProxiedReference, ShownAnnotation};
 pub use languages::RestatedLanguage;
 pub use prepare::{DestinationProfile, ProfileSource, RemovedAnnotation, WrittenAppearance};
 pub use protection::{PERMISSIONS_NO_LONGER_ASSERTED, SourceProtection};
-pub use recovered::{NotHeld, PartlyRead, RecoveredCatalog, RecoveredStructure};
+pub use recovered::{NotHeld, PartlyRead, RecoveredCatalog, RecoveredStructure, StatedCount};
 pub use report::{
     Achieved, AttachmentAnswer, AttachmentOutcome, Conversion, ConvertedTo, Decided, Departed,
     DepartureOutcome, Derived, DerivedOutcome, NotChecked, Preserved, Resolved, SetIn,
@@ -496,6 +496,7 @@ fn run_pass(
     // A source this program declines for its structure is rebuilt where the caller authorised the
     // loss, and the conversion goes on over the rebuilt file (`doc/adr/2502`).
     let source = document;
+    refuse_a_document_holding_none_of_its_pages(document)?;
     let recovered = rebuild_a_declined_structure(plan, document)?;
     let recovered_note = recovered.as_ref().map(|recovered| recovered.note.clone());
     let recovered_history = recovered_note.as_ref().map(RecoveredStructure::sentence);
@@ -536,12 +537,17 @@ fn run_pass(
         protection: protection_history.as_deref(),
         resolved: resolved_history.as_deref(),
         recovered: recovered_history.as_deref(),
-        // A taken `page-not-held` is stated on the appended page only where the profile asked
-        // for it there (`doc/adr/2596`).
-        not_held: recovered_note
-            .as_ref()
-            .and_then(|note| note.not_held)
-            .filter(|_| plan.authorised.page_not_held_stated),
+        // A taken `recovered-structure` or `page-not-held` is stated on the appended page only
+        // where the profile asked for it there (`doc/adr/2669`, `doc/adr/2596`).
+        stated: recovered::Stated {
+            structure: recovered_note
+                .as_ref()
+                .filter(|_| plan.authorised.recovered_structure_stated),
+            not_held: recovered_note
+                .as_ref()
+                .and_then(|note| note.not_held)
+                .filter(|_| plan.authorised.page_not_held_stated),
+        },
     };
     // `A59`: a departed conversion omits the PDF/A identification by default, so the output does not
     // claim what it has not earned. `--claim-conformance` is the second, separate switch that keeps
@@ -595,17 +601,23 @@ fn run_pass(
         provenance,
         &remedies,
     );
-    // A `page-not-held` the profile asked to be stated is taken only with its page: where the page
-    // cannot be composed the source is refused with the composition's reason, rather than the
-    // loss taken and stated nowhere but the report (`doc/adr/2596`).
-    if provenance.not_held.is_some() && conversion.statement.is_none() {
+    // A `recovered-structure` or `page-not-held` the profile asked to be stated is taken only with
+    // its page: where the page cannot be composed the source is refused with the composition's
+    // reason, rather than the loss taken and stated nowhere but the report (`doc/adr/2596`,
+    // `doc/adr/2669`).
+    if !provenance.stated.is_empty() && conversion.statement.is_none() {
         let because = prepared
             .preserved
             .as_ref()
             .err()
             .map_or(statement::NOTHING_STATED, |because| because.sentence());
+        let losses = match (provenance.stated.structure, provenance.stated.not_held) {
+            (Some(_), Some(_)) => "recovered-structure and page-not-held are",
+            (Some(_), None) => "recovered-structure is",
+            _ => "page-not-held is",
+        };
         return Err(Refusal::Reconstructed(format!(
-            "page-not-held is to be stated on an appended page, and that page cannot be composed: \
+            "{losses} to be stated on an appended page, and that page cannot be composed: \
              {because}"
         )));
     }
@@ -665,6 +677,26 @@ fn run_pass(
     }
     report.archive = Some(conversion);
     Ok(())
+}
+
+/// Refuses a source whose page tree counts one page or more and which holds none of them, under
+/// every profile and whatever it authorised (`doc/questions/A775`, ADR 2670).
+///
+/// The owner's answer: such a file "really is a broken pdf", and an archive of no page, or of a
+/// statement page alone, would have archived nothing a reader saw. The sentence is
+/// [`pdf_archive::NoPageHeld`]'s, the one the checker's row
+/// `file-structure/page-tree-holds-a-page-it-counts` records, so the two readers say the same
+/// words. It runs before the structure is rebuilt, so a profile taking `recovered-structure` and
+/// `page-not-held` meets it as one that takes neither does.
+///
+/// # Errors
+///
+/// [`Refusal::Reconstructed`] with that sentence (exit 4).
+fn refuse_a_document_holding_none_of_its_pages(document: &Document) -> Result<(), Refusal> {
+    match pdf_archive::NoPageHeld::of(document) {
+        Some(none_held) => Err(Refusal::Reconstructed(none_held.to_string())),
+        None => Ok(()),
+    }
 }
 
 /// The declining checks of a source's structure, and the rebuild that answers them where the caller

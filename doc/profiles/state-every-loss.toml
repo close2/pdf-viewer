@@ -22,6 +22,16 @@ name = "state-every-loss"
 sentence = "Convert whatever the window can show: keep what can be kept, and state every loss taken on an appended page."
 catalogue = "doc/pdfa-remedies.md"
 default = "stop"
+# A document whose trailer, catalog or page tree node states no page tree is written out as the
+# structure this viewer recovered, the loss `recovered-structure`: a catalog and one page tree node
+# listing the pages it found, each page the producer's (ADR 2502). This profile states every loss
+# it takes, so the structure is listed on the appended page with the count the source states and
+# the count it holds; and a page the tree counts and the file does not hold where its
+# cross-reference information places it is the loss `page-not-held`, listed there with both
+# counts (doc/questions/A757, ADR 2669, ADR 2596). A document holding none of the pages it states
+# is refused under every profile (doc/questions/A775, ADR 2670).
+recovered-structure = "append-statement"
+page-not-held = "append-statement"
 
 [site."embedded-files/embedded-file-is-itself-pdfa"]
 remedy = "preserve"

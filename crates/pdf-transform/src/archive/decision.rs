@@ -1024,6 +1024,10 @@ pub struct Authorisations {
     pub press_assumed: bool,
     /// Whether [`Loss::RecoveredStructure`] was authorised.
     pub recovered_structure: bool,
+    /// Whether [`Loss::RecoveredStructure`], where it is taken, is also stated on the appended
+    /// page `append-statement` composes (`doc/adr/2669`). No loss of its own, as
+    /// [`Self::page_not_held_stated`] is not.
+    pub recovered_structure_stated: bool,
     /// Whether [`Loss::TextAsImage`] was authorised.
     pub text_as_image: bool,
     /// Whether [`Loss::PageAsImage`] was authorised.

@@ -99,6 +99,43 @@ pub struct RecoveredStructure {
     /// The pages the source states and does not hold, where the caller authorised
     /// [`super::Loss::PageNotHeld`]; `None` where the archive holds every page the source states.
     pub not_held: Option<NotHeld>,
+    /// The count of pages the source states and where it states it, whether or not the archive
+    /// holds them all; `None` where the source states no count (`doc/adr/2669`).
+    pub stated: Option<StatedCount>,
+}
+
+/// A count of pages a source states: the page tree root's `/Count` (ISO 32000-2 §7.7.3.2, Table
+/// 30) or a linearization parameter dictionary's `/N` (Annex F.3.3, Table F.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StatedCount {
+    /// The statement the count is read from, in [`NotHeld::stated_by`]'s words.
+    pub stated_by: &'static str,
+    /// The number of pages it states.
+    pub stated: usize,
+}
+
+/// What of a rebuilt structure the profile asked to be stated on the appended page: the
+/// structure itself under `recovered-structure = "append-statement"` (`doc/adr/2669`), and the
+/// pages not held under `page-not-held = "append-statement"` (`doc/adr/2596`). Each is listed as
+/// one entry, the structure's first.
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct Stated<'a> {
+    /// The structure, where it is to be stated.
+    pub(super) structure: Option<&'a RecoveredStructure>,
+    /// The pages not held, where they are to be stated.
+    pub(super) not_held: Option<NotHeld>,
+}
+
+impl Stated<'_> {
+    /// How many entries the statement page lists for them.
+    pub(super) fn entries(&self) -> usize {
+        usize::from(self.structure.is_some()).saturating_add(usize::from(self.not_held.is_some()))
+    }
+
+    /// Whether nothing is to be stated.
+    pub(super) fn is_empty(&self) -> bool {
+        self.entries() == 0
+    }
 }
 
 /// The loss [`super::Loss::PageNotHeld`] as one conversion took it: the count the source states and
@@ -265,7 +302,7 @@ fn build(
     let scanned = tree.found_by_scanning();
     let (pages, read_in_part) = pages_to_carry(&tree)?;
     let children = super::page_tree::children_not_held(document);
-    let not_held = refuse_a_count_the_reader_fell_short_of(
+    let (not_held, stated) = refuse_a_count_the_reader_fell_short_of(
         document,
         pages.len(),
         children.naming_nothing,
@@ -361,6 +398,7 @@ fn build(
             read_in_part,
             naming_nothing: children.naming_nothing,
             not_held,
+            stated,
         },
     })
 }
@@ -466,7 +504,8 @@ fn with_resolved_entries(page: pdf_model::Page) -> Dictionary {
 }
 
 /// Answers a source that states more pages than this reader reached: refused by name, or, where
-/// the caller authorised [`super::Loss::PageNotHeld`], the counts the loss is reported with.
+/// the caller authorised [`super::Loss::PageNotHeld`], the counts the loss is reported with; and
+/// beside it the count the source states, the root's where it states one, for the statement page.
 ///
 /// The reader finds pages through what the file's cross-reference information names, and a file
 /// whose later sections it does not reach would be written as the pages it did reach and nothing
@@ -486,7 +525,7 @@ fn refuse_a_count_the_reader_fell_short_of(
     drawn: usize,
     naming_nothing: usize,
     page_not_held: bool,
-) -> Result<Option<NotHeld>, Refusal> {
+) -> Result<(Option<NotHeld>, Option<StatedCount>), Refusal> {
     let as_count = |value: Option<i64>| value.and_then(|n| usize::try_from(n).ok());
     let linearized = document.xref().object_numbers().find_map(|number| {
         let object = document.get(ObjectId::new(number, 0));
@@ -504,9 +543,20 @@ fn refuse_a_count_the_reader_fell_short_of(
         })
         .and_then(|root| as_count(root.as_dict()?.get("Count").and_then(Object::as_integer)));
     let mut not_held: Option<NotHeld> = None;
+    let stated_count = root_count
+        .map(|stated| StatedCount {
+            stated_by: pdf_archive::pages_held::STATED_BY_THE_ROOT,
+            stated,
+        })
+        .or_else(|| {
+            linearized.map(|stated| StatedCount {
+                stated_by: pdf_archive::pages_held::STATED_BY_LINEARIZATION,
+                stated,
+            })
+        });
     for (stated, whose) in [
-        (linearized, "its linearization parameter dictionary's /N"),
-        (root_count, "its page tree root's /Count"),
+        (linearized, pdf_archive::pages_held::STATED_BY_LINEARIZATION),
+        (root_count, pdf_archive::pages_held::STATED_BY_THE_ROOT),
     ] {
         let Some(stated) = stated.filter(|stated| stated.saturating_sub(naming_nothing) > drawn)
         else {
@@ -527,7 +577,7 @@ fn refuse_a_count_the_reader_fell_short_of(
             });
         }
     }
-    Ok(not_held)
+    Ok((not_held, stated_count))
 }
 
 /// The refusal of a source this module does not rebuild, worded as `Refusal::Reconstructed`.

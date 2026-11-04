@@ -42,7 +42,7 @@ use pdf_syntax::object::{Object, ObjectId};
 use sha2::{Digest as _, Sha256};
 
 use super::config::Statement;
-use super::recovered::NotHeld;
+use super::recovered::{NotHeld, RecoveredCatalog, RecoveredStructure};
 use super::report::{AttachmentAnswer, AttachmentOutcome};
 
 mod fonts;
@@ -143,6 +143,93 @@ pub(super) fn text(
     Ok(out)
 }
 
+/// The one line the `recovered-structure` loss is described by on the page.
+const RECOVERED_LOSS: &str = "the source states no page tree a writer may restate, so this \
+     document's catalog and page tree are the ones this reader drew its pages from, and the pages \
+     are the producer's";
+
+/// Appends the entry for the loss [`super::Loss::RecoveredStructure`] to a statement's `text`,
+/// numbered `index` from zero, or the bound it would pass (`doc/adr/2669`).
+///
+/// Every value is the rebuild's own, read from the source: the count the source states, where it
+/// states one (ISO 32000-2 §7.7.3.2 Table 30's root `/Count`, or Annex F.3.3 Table F.1's `/N`), the
+/// pages the archive holds, how many of them this reader found by their own `/Type /Page`
+/// declaration, whether the catalog is the producer's, how many `/Kids` entries named no object,
+/// and each page read in part. The entry names no requirement, as the `page-not-held` entry does
+/// not: the refusal the loss lifts is the source's structure (`doc/adr/2502`).
+pub(super) fn recovered_entry(
+    out: &mut String,
+    index: usize,
+    structure: &RecoveredStructure,
+) -> Result<(), &'static str> {
+    if out.len() > MOST_STATEMENT_BYTES || structure.read_in_part.len() > MOST_STATED_OBJECTS {
+        return Err(STATEMENT_TOO_LONG);
+    }
+    // Writing into a `String` cannot fail, so each `write!` result is discarded deliberately.
+    let _ = write!(
+        out,
+        "\n{}. Loss: recovered-structure, {RECOVERED_LOSS}\n",
+        index.saturating_add(1)
+    );
+    let _ = match structure.stated {
+        Some(stated) => writeln!(
+            out,
+            "   Pages the source states: {}, in {} ({})",
+            stated.stated,
+            stated.stated_by,
+            count_clause(stated.stated_by)
+        ),
+        None => writeln!(out, "   Pages the source states: no count is stated"),
+    };
+    let _ = writeln!(
+        out,
+        "   Pages this document holds: {}, each the producer's",
+        structure.pages
+    );
+    if let Some(scanned) = structure.scanned {
+        let _ = writeln!(
+            out,
+            "   Pages found by their own /Type /Page declaration: {scanned}, in ascending object \
+             number"
+        );
+    }
+    let _ = writeln!(
+        out,
+        "   Catalog: {}",
+        match structure.catalog {
+            RecoveredCatalog::Kept => "the producer's, with /Type and /Pages stated",
+            RecoveredCatalog::Written => "written, stating /Type and /Pages only",
+        }
+    );
+    if structure.naming_nothing > 0 {
+        let _ = writeln!(
+            out,
+            "   /Kids entries naming no object, not written: {}",
+            structure.naming_nothing
+        );
+    }
+    for read in &structure.read_in_part {
+        let _ = writeln!(
+            out,
+            "   Page {} read in part: {} entries, reading stopped at byte {} of the source",
+            read.page, read.entries, read.stopped_at
+        );
+    }
+    if out.len() > MOST_STATEMENT_BYTES {
+        return Err(STATEMENT_TOO_LONG);
+    }
+    Ok(())
+}
+
+/// The clause a count of pages is stated in, by the words naming where it is read from.
+fn count_clause(stated_by: &str) -> &'static str {
+    if stated_by == pdf_archive::pages_held::STATED_BY_LINEARIZATION {
+        "ISO 32000-2 F.3.3, Table F.1"
+    } else {
+        "ISO 32000-2 7.7.3.2, Table 30"
+    }
+}
+
 /// The one line the `page-not-held` loss is described by on the page.
 const NOT_HELD_LOSS: &str = "the source's page tree states more pages than the file holds where \
      its cross-reference information places them, and nothing is drawn for a page that is not there";
@@ -163,11 +250,7 @@ pub(super) fn not_held_entry(
     if out.len() > MOST_STATEMENT_BYTES {
         return Err(STATEMENT_TOO_LONG);
     }
-    let clause = if not_held.stated_by.ends_with("/N") {
-        "ISO 32000-2 F.3.3, Table F.1"
-    } else {
-        "ISO 32000-2 7.7.3.2, Table 30"
-    };
+    let clause = count_clause(not_held.stated_by);
     // Writing into a `String` cannot fail, so the `write!` result is discarded deliberately.
     let _ = write!(
         out,

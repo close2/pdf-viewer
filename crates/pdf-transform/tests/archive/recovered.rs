@@ -1145,12 +1145,15 @@ fn a_page_not_held_asked_as_append_statement_is_stated_with_both_counts_on_the_a
 }
 
 #[test]
-fn only_as_if_printed_of_the_shipped_profiles_takes_a_page_not_held() {
-    // A727 names as-if-printed of the two profiles that take recovered-structure; as-shown keeps
-    // the refusal, and so does every profile that rebuilds nothing.
+fn as_if_printed_and_the_two_stating_profiles_take_a_page_not_held() {
+    // A727 names as-if-printed of the two profiles that take recovered-structure, and A757 adds
+    // state-every-loss and no-data-loss; as-shown keeps the refusal, and so does every profile
+    // that rebuilds nothing.
     let directory = concat!(env!("CARGO_MANIFEST_DIR"), "/../../doc/profiles/");
     for (profile, expected) in [
         ("as-if-printed", true),
+        ("state-every-loss", true),
+        ("no-data-loss", true),
         ("as-shown", false),
         ("refuse-any-loss", false),
         ("keep-everything", false),
@@ -1168,4 +1171,269 @@ fn only_as_if_printed_of_the_shipped_profiles_takes_a_page_not_held() {
             );
         }
     }
+}
+
+/// Every profile `doc/profiles` ships, by name, with its text.
+fn shipped_profiles() -> Vec<(String, String)> {
+    let directory = concat!(env!("CARGO_MANIFEST_DIR"), "/../../doc/profiles");
+    let mut profiles: Vec<(String, String)> = std::fs::read_dir(directory)
+        .expect("doc/profiles")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "toml")
+        })
+        .map(|path| {
+            let name = path
+                .file_stem()
+                .expect("a file name")
+                .to_string_lossy()
+                .into_owned();
+            (name, std::fs::read_to_string(&path).expect("profile"))
+        })
+        .collect();
+    profiles.sort();
+    profiles
+}
+
+/// The checker's findings at the row `file-structure/page-tree-holds-a-page-it-counts`.
+fn page_count_findings(source: &[u8], target: Target) -> Vec<String> {
+    let document = Document::open_with_limits(source.to_vec(), Limits::DEFAULT).expect("it opens");
+    pdf_archive::check(&document, target)
+        .judgements
+        .into_iter()
+        .filter(|judgement| judgement.id == "file-structure/page-tree-holds-a-page-it-counts")
+        .flat_map(|judgement| match judgement.outcome {
+            Outcome::Failed { places, .. } => {
+                places.into_iter().map(|finding| finding.what).collect()
+            }
+            _ => Vec::new(),
+        })
+        .collect()
+}
+
+/// A775: a source whose root counts `stated` pages and which holds none of them is refused under
+/// every shipped profile with the one sentence the checker fails it with.
+fn refused_under_every_profile_with_the_checker_s_sentence(source: &[u8]) -> String {
+    let document = Document::open_with_limits(source.to_vec(), Limits::DEFAULT).expect("it opens");
+    let sentence = pdf_archive::NoPageHeld::of(&document)
+        .expect("the shape under test holds none of its pages")
+        .to_string();
+    for target in TARGETS {
+        assert_eq!(
+            page_count_findings(source, target),
+            vec![sentence.clone()],
+            "{target}: the checker's finding is the converter's sentence"
+        );
+        for (name, text) in shipped_profiles() {
+            let configuration =
+                pdf_transform::archive::Configuration::read(&text, target).expect("it reads");
+            let mut plan = plan_from(&text, target);
+            plan.authorised = configuration.authorisations(target);
+            let refusal = apply(
+                &Plan::Archive(plan),
+                &[Source::new(source.to_vec())],
+                &MemorySinks::new(),
+                &Policy::default(),
+                &Budget::default(),
+            )
+            .expect_err("no archive of a document holding none of its pages is written");
+            assert_eq!(refusal.to_string(), sentence, "{name} {target}");
+        }
+    }
+    sentence
+}
+
+#[test]
+fn a_document_holding_none_of_the_pages_it_states_is_refused_by_name_under_every_profile() {
+    // A775 (Reading 2): the root's /Count of 1 and a kid the cross-reference information places
+    // where no object of its number is, so the file holds none of the one page it states. Not a
+    // zero-page archive, nor a statement page alone: a refusal naming page-not-held with both
+    // counts, in the sentence the checker's row says too.
+    let source = a_tree_with_a_page_not_held(1, 0);
+    let sentence = refused_under_every_profile_with_the_checker_s_sentence(&source);
+    assert_eq!(
+        sentence,
+        "page-not-held: its page tree root's /Count states 1 page and the file holds 0 of them \
+         (ISO 32000-2 7.7.3.2, Table 30), so it holds nothing a reader sees to archive \
+         (doc/questions/A775)"
+    );
+}
+
+#[test]
+fn a_document_holding_some_of_the_pages_it_states_is_not_refused_for_holding_none() {
+    // The other side of A775's line: twelve of thirteen held is the loss page-not-held a profile
+    // may take (A727), and the checker's page-count row passes it.
+    let source = a_tree_with_a_page_not_held(13, 12);
+    let document = Document::open_with_limits(source.clone(), Limits::DEFAULT).expect("it opens");
+    assert_eq!(pdf_archive::NoPageHeld::of(&document), None);
+    for target in TARGETS {
+        assert!(page_count_findings(&source, target).is_empty(), "{target}");
+        let (report, output) = attempt(&source, target, authorised_with(&[Loss::PageNotHeld]))
+            .expect("the conversion applies");
+        let output = written(&report, output);
+        let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+        assert_eq!(pdf_model::Pages::new(&document).len(), 12, "{target}");
+    }
+}
+
+#[test]
+fn t02_03_006_is_refused_by_name_with_exit_4_and_the_checker_s_sentence() {
+    // The corpus witness of A775: `T02-03_006_page-object-missing`'s root states /Count 1 and its
+    // one kid is placed where object 3 sits. The program's own exit status is RFC 0002 section
+    // 4.4's 4, "we declined", and nothing is written.
+    let path =
+        "doc/corpora/format-corpus/pdf-handbuilt-test-corpus/T02-03_006_page-object-missing.pdf";
+    let Some(source) = corpus(path) else {
+        return;
+    };
+    let sentence = refused_under_every_profile_with_the_checker_s_sentence(&source);
+    assert!(
+        sentence.starts_with(
+            "page-not-held: its page tree root's /Count states 1 page and the \
+             file holds 0 of them"
+        ),
+        "{sentence}"
+    );
+    let directory = std::env::temp_dir().join(format!("r-t02-03-006-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).expect("a scratch directory");
+    std::fs::write(directory.join("in.pdf"), &source).expect("the source is written");
+    for profile in ["as-if-printed", "state-every-loss"] {
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_quorra-transform"))
+            .args([
+                "archive",
+                "in.pdf",
+                "--to",
+                "2b",
+                "--profile",
+                profile,
+                "-o",
+                "out.pdf",
+            ])
+            .current_dir(&directory)
+            .output()
+            .expect("the program runs");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(4), "{profile}: {stderr}");
+        assert!(stderr.contains(&sentence), "{profile}: {stderr}");
+        assert!(!directory.join("out.pdf").exists(), "{profile}");
+    }
+    let _ = std::fs::remove_dir_all(&directory);
+}
+
+/// The conversion of `source` to `target` under the profile `text`, with the authorisations it
+/// states: the report and the file written.
+fn converted_under(text: &str, target: Target, source: &[u8]) -> (Report, Vec<u8>) {
+    let mut plan = plan_from(text, target);
+    plan.authorised = pdf_transform::archive::Configuration::read(text, target)
+        .expect("it reads")
+        .authorisations(target);
+    let sinks = MemorySinks::new();
+    let report = apply(
+        &Plan::Archive(plan),
+        &[Source::new(source.to_vec())],
+        &sinks,
+        &Policy::default(),
+        &Budget::default(),
+    )
+    .expect("the conversion applies");
+    let output = written(&report, sinks.into_outputs().pop().map(|(_, bytes)| bytes));
+    (report, output)
+}
+
+/// The text of every page the report names as the statement, its white space removed.
+fn statement_text(report: &Report, output: &[u8]) -> String {
+    let statement = conversion(report).statement.as_ref().expect("a statement");
+    let document = Document::open_with_limits(output.to_vec(), Limits::DEFAULT).expect("it opens");
+    let pages = pdf_model::Pages::new(&document);
+    statement
+        .pages
+        .iter()
+        .map(|at| {
+            let page = pages.get(*at).expect("a statement page");
+            pdf_model::interpret(&document, &page).text
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect()
+}
+
+#[test]
+fn the_stating_profiles_state_the_recovered_structure_and_both_counts_on_the_appended_page() {
+    // A757 (Reading 1): state-every-loss and no-data-loss take recovered-structure and
+    // page-not-held, each as append-statement, so the appended page lists the structure this
+    // reader recovered with the root's /Count against the pages carried, and the page not held.
+    let source = a_tree_with_a_page_not_held(13, 12);
+    for (profile, text) in shipped_profiles()
+        .into_iter()
+        .filter(|(name, _)| name == "state-every-loss" || name == "no-data-loss")
+    {
+        for target in TARGETS {
+            let configuration =
+                pdf_transform::archive::Configuration::read(&text, target).expect("it reads");
+            let authorised = configuration.authorisations(target);
+            assert!(
+                authorised.grants(Loss::RecoveredStructure)
+                    && authorised.recovered_structure_stated
+                    && authorised.grants(Loss::PageNotHeld)
+                    && authorised.page_not_held_stated,
+                "{profile} {target}: both losses taken, and both stated"
+            );
+            let (report, output) = converted_under(&text, target, &source);
+            assert_eq!(
+                holds(&output, target).verdict(),
+                Verdict::Conforms,
+                "{profile} {target}: the archive with its statement page is held to the target"
+            );
+            let statement = conversion(&report)
+                .statement
+                .as_ref()
+                .expect("the report names the statement page");
+            assert_eq!(
+                statement.sites,
+                vec!["recovered-structure", "page-not-held"],
+                "{profile} {target}"
+            );
+            assert_eq!(statement.objects, 2, "{profile} {target}");
+            let document =
+                Document::open_with_limits(output.clone(), Limits::DEFAULT).expect("it opens");
+            assert_eq!(
+                statement.pages.first(),
+                Some(&12),
+                "{profile} {target}: after the twelve carried"
+            );
+            assert_eq!(
+                pdf_model::Pages::new(&document).len(),
+                12_usize.saturating_add(statement.pages.len()),
+                "{profile} {target}: twelve and the statement"
+            );
+            let text = statement_text(&report, &output);
+            for fact in [
+                "1.Loss:recovered-structure",
+                "Pagesthesourcestates:13,initspagetreeroot's/Count(ISO32000-27.7.3.2,Table30)",
+                "Pagesthisdocumentholds:12,eachtheproducer's",
+                "Catalog:theproducer's",
+                "2.Loss:page-not-held",
+            ] {
+                assert!(text.contains(fact), "{profile} {target}: {fact} in {text}");
+            }
+        }
+    }
+    // A source stating no count: the entry says so rather than inventing one.
+    let dangling = file(&DANGLING, "/Root 1 0 R");
+    let text = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../doc/profiles/state-every-loss.toml"
+    ))
+    .expect("profile");
+    let (report, output) = converted_under(&text, TARGETS[0], &dangling);
+    let statement = conversion(&report).statement.as_ref().expect("a statement");
+    assert_eq!(statement.sites, vec!["recovered-structure"]);
+    let text = statement_text(&report, &output);
+    assert!(
+        text.contains("Pagesthesourcestates:nocountisstated")
+            && text.contains("Catalog:theproducer's"),
+        "{text}"
+    );
 }

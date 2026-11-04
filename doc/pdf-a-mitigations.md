@@ -441,9 +441,15 @@ tree (ISO 32000-2 §7.5.5's Table 15, §7.7.2's Table 29) · **built** (ADR 2502
   document, in the report and in `xmpMM:History`.
 - **By target** — none.
 - **From a configuration** — `[profile] recovered-structure = "discard"`, a key of the profile and
-  not of a site; both shipped profiles carry it. Any other value leaves the refusal.
+  not of a site; `as-if-printed` and `as-shown` carry it. `= "append-statement"` takes it and lists
+  the structure on the appended page — the count the source states, the pages held, those found by
+  their own declaration, the catalog kept or written — and `state-every-loss` and `no-data-loss`
+  carry that (A757, ADR 2669). Any other value leaves the refusal.
 - **Still refused, by name** — an encrypted or signed source, one that states more pages than the reader reached unless `page-not-held` is taken (below), a page that is no indirect dictionary
   parsed whole, a source this reader draws no page of. `optimize` and `redact` keep the decline.
+  A source whose page tree counts a page and which holds none is refused before any of this, under
+  every profile, with the sentence the checker's row `file-structure/page-tree-holds-a-page-it-counts`
+  fails it with (A775, ADR 2670).
 - **Departure** — not needed.
 
 ### A page the tree counts and the file does not hold: the loss `page-not-held`
@@ -461,7 +467,8 @@ pages than the rebuilt file holds · **built** (ADR 2596, A727)
 - **From a configuration** — `[profile] page-not-held = "discard"` takes the loss; `= "append-statement"`
   takes it and lists it on the appended page with both counts and the clause stating the count.
   `as-if-printed` carries `discard`; `as-shown` keeps the refusal; `state-every-loss` and
-  `no-data-loss` take no `recovered-structure`, so the loss does not reach them (Q757).
+  `no-data-loss` carry `append-statement` beside `recovered-structure = "append-statement"` (A757,
+  ADR 2669).
 - **Still refused, by name** — every profile not taking the loss, with "authorise page-not-held".
 - **Departure** — not needed.
 

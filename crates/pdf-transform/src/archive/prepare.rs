@@ -483,9 +483,10 @@ pub(super) struct Provenance<'a> {
     pub(super) resolved: Option<&'a str>,
     /// The structure this viewer recovered and the file now states (`doc/adr/2502`).
     pub(super) recovered: Option<&'a str>,
-    /// The pages the source states and the rebuilt file does not hold, where the profile asked for
-    /// the loss to be stated on the appended page (`doc/adr/2596`).
-    pub(super) not_held: Option<super::recovered::NotHeld>,
+    /// The rebuilt structure and the pages the source states and the rebuilt file does not hold,
+    /// each where the profile asked for its loss to be stated on the appended page
+    /// (`doc/adr/2669`, `doc/adr/2596`).
+    pub(super) stated: super::recovered::Stated<'a>,
 }
 
 impl Prepared {
@@ -551,10 +552,10 @@ impl Prepared {
                 });
             }
         }
-        // And for a statement page listing pages not held, which no failed row composes: its
-        // text paints in Table 51's initial `DeviceGray`, so the intent is prepared as a gray row
-        // would have asked for it (`doc/adr/2596`).
-        if provenance.not_held.is_some() {
+        // And for a statement page listing a rebuilt structure or pages not held, which no failed
+        // row composes: its text paints in Table 51's initial `DeviceGray`, so the intent is
+        // prepared as a gray row would have asked for it (`doc/adr/2596`, `doc/adr/2669`).
+        if !provenance.stated.is_empty() {
             derived_pages_need_an_intent = true;
             failed.insert(DEVICE_GRAY_ROW);
         }
@@ -991,7 +992,7 @@ impl Prepared {
             embedded_files.as_ref(),
             intent.is_ok() || states_an_output_intent(document, catalog.as_ref()),
             remedies,
-            provenance.not_held,
+            provenance.stated,
             substitutes.as_ref().ok(),
             stated_runs(plan, &failed, as_drawn.as_ref().ok()),
             &mut spare,

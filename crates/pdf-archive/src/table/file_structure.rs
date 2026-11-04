@@ -432,6 +432,19 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Implemented(page_tree_node_count_is_an_integer),
     },
     Requirement {
+        id: "file-structure/page-tree-holds-a-page-it-counts",
+        asks: "A document whose page tree root states a Count of one or more shall hold at \
+               least one page.",
+        // The same table's `/Count` row, "( Required ) The number of leaf nodes (page objects)
+        // that are descendants of this node within the page tree.", narrowed to the one
+        // disagreement that leaves nothing to read: a root counting a page where this reader
+        // draws none. A count that disagrees with a tree holding some pages is the converter's
+        // loss `page-not-held` and is not judged here (ADR 2456, ADR 2596, ADR 2670).
+        clauses: Clauses::both("5.1", "5.1"),
+        applies: Applies::Always,
+        check: Check::Implemented(page_tree_holds_a_page_it_counts),
+    },
+    Requirement {
         id: "file-structure/bound-names-are-valid-utf8",
         asks: "Font names, the colourant names of Separation and DeviceN colour spaces, and \
                structure type names shall be valid UTF-8 once their number-sign escapes are \
@@ -2388,6 +2401,28 @@ fn page_tree_node_count_is_an_integer(exam: &Examination<'_>, findings: &mut Fin
     });
 }
 
+/// Section 5.1, at ISO 32000-2 §7.7.3.2's Table 30 `/Count` row: a root counting one page or more
+/// where this reader draws none.
+///
+/// The finding is [`crate::NoPageHeld`]'s sentence, the one the converter refuses such a source
+/// with (`doc/questions/A775`, ADR 2670), placed at the root. The pages are the examination's own,
+/// so the row costs no walk the other page rows have not already paid for.
+fn page_tree_holds_a_page_it_counts(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    let Some(none_held) = crate::NoPageHeld::given(document, !exam.pages().is_empty()) else {
+        return;
+    };
+    let place = match document
+        .catalog()
+        .ok()
+        .and_then(|catalog| catalog.get("Pages").cloned())
+    {
+        Some(Object::Reference(id)) => Where::object(id),
+        _ => Where::file(),
+    };
+    findings.record(place, none_held.to_string());
+}
+
 /// How many bytes are read at a cross-reference section's `xref` keyword.
 ///
 /// Enough for the keyword, whatever stands between it and the subsection header, and the header
@@ -2742,9 +2777,10 @@ mod tests {
     use super::{
         LARGEST_INTEGER, LONGEST_NAME, LONGEST_STRING, SMALLEST_INTEGER,
         cross_reference_keyword_line_endings, for_each_value, hexadecimal_string_digits,
-        hexadecimal_string_holds_only_digits, page_tree_kids_name_dictionaries,
-        page_tree_node_count_is_an_integer, page_tree_node_kids_is_an_array,
-        page_tree_root_states_no_parent, shortened, stream_keyword_line_endings,
+        hexadecimal_string_holds_only_digits, page_tree_holds_a_page_it_counts,
+        page_tree_kids_name_dictionaries, page_tree_node_count_is_an_integer,
+        page_tree_node_kids_is_an_array, page_tree_root_states_no_parent, shortened,
+        stream_keyword_line_endings,
     };
 
     /// Builds a dictionary from pairs, for the small hand-made objects the tests walk.
@@ -3111,6 +3147,34 @@ mod tests {
         let found = judged(&nested, page_tree_kids_name_dictionaries);
         assert_eq!(found.kept().len(), 1);
         assert_eq!(found.kept()[0].place.object.map(|id| id.number), Some(3));
+    }
+
+    /// A root counting one page where none is held fails the `/Count` row's narrowing with the
+    /// sentence the converter refuses with; a root counting two where one is held, and a root
+    /// counting none, do not (`doc/questions/A775`).
+    #[test]
+    fn a_root_counting_a_page_where_none_is_held_is_failed_with_the_shared_sentence() {
+        let catalog = "<< /Type /Catalog /Pages 2 0 R >>";
+        let page = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>";
+        let none = document_of(&[catalog, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>", "7"]);
+        let found = judged(&none, page_tree_holds_a_page_it_counts);
+        assert_eq!(found.kept().len(), 1);
+        assert_eq!(found.kept()[0].place.object.map(|id| id.number), Some(2));
+        assert_eq!(
+            found.kept()[0].what,
+            crate::NoPageHeld::of(&none)
+                .expect("the shape under test")
+                .to_string()
+        );
+        let some = document_of(&[
+            catalog,
+            "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
+            page,
+            "7",
+        ]);
+        assert!(judged(&some, page_tree_holds_a_page_it_counts).met());
+        let empty = document_of(&[catalog, "<< /Type /Pages /Kids [] /Count 0 >>"]);
+        assert!(judged(&empty, page_tree_holds_a_page_it_counts).met());
     }
 
     /// A node listing a hundred thousand nulls has one fault in it, and the row says so once: the

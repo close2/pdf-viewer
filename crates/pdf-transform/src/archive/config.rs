@@ -1320,16 +1320,16 @@ pub struct Configuration {
     /// stating no page tree is written out as the structure this viewer recovered, under the loss
     /// [`Loss::RecoveredStructure`]. It is no site's key because no requirement of the table
     /// declines: the refusal comes from the source's structure, before any site is asked
-    /// (`doc/adr/2502`). Anything but `discard` leaves the refusal in place.
-    recovered_structure: bool,
+    /// (`doc/adr/2502`). `discard` takes the loss, `append-statement` takes it and states the
+    /// structure on the appended page as well (`doc/adr/2669`), and anything else leaves the
+    /// refusal in place.
+    recovered_structure: StructureLoss,
     /// `[profile] page-not-held` — whether a rebuilt structure may hold fewer pages than the source
     /// states, under the loss [`Loss::PageNotHeld`], the two counts written into the report. Like
     /// `recovered-structure` it is no site's key, and it is asked only of a source that is rebuilt
     /// (`doc/questions/A727`, `doc/adr/2596`). `discard` takes the loss, `append-statement` takes it
     /// and states it on the appended page as well, and anything else leaves the refusal in place.
-    page_not_held: bool,
-    /// Whether `[profile] page-not-held` was `append-statement`.
-    page_not_held_stated: bool,
+    page_not_held: StructureLoss,
     /// `[profile] base`, and the sites read from it (`doc/rfc/0014` section 6).
     inherited: Option<Inherited>,
 }
@@ -1500,9 +1500,8 @@ impl Configuration {
             .collect();
         let mut name = None;
         let mut sentence = None;
-        let mut recovered_structure = false;
-        let mut page_not_held = false;
-        let mut page_not_held_stated = false;
+        let mut recovered_structure = StructureLoss::Refused;
+        let mut page_not_held = StructureLoss::Refused;
         let mut sites: Vec<Row> = Vec::new();
         let mut applicable: Vec<(bool, Row)> = Vec::new();
         let mut flag_shapes = Vec::new();
@@ -1517,8 +1516,8 @@ impl Configuration {
                         .get("sentence")
                         .and_then(Value::as_text)
                         .map(str::to_owned);
-                    recovered_structure = kind_or_stop(tbl, "recovered-structure") == Kind::Discard;
-                    (page_not_held, page_not_held_stated) = page_not_held_key(tbl);
+                    recovered_structure = structure_loss_key(tbl, "recovered-structure");
+                    page_not_held = structure_loss_key(tbl, "page-not-held");
                     check_profile_default(tbl)?;
                 }
                 Some("site") => {
@@ -1597,7 +1596,6 @@ impl Configuration {
             annotation_flags,
             recovered_structure,
             page_not_held,
-            page_not_held_stated,
             inherited,
         })
     }
@@ -1680,12 +1678,14 @@ impl Configuration {
         }
         // The two losses that belong to no site: the refusals they lift are the source's, not a
         // row's (`doc/adr/2502`, `doc/adr/2596`).
-        if self.recovered_structure {
+        if self.recovered_structure != StructureLoss::Refused {
             authorised.authorise(Loss::RecoveredStructure);
+            authorised.recovered_structure_stated =
+                self.recovered_structure == StructureLoss::Stated;
         }
-        if self.page_not_held {
+        if self.page_not_held != StructureLoss::Refused {
             authorised.authorise(Loss::PageNotHeld);
-            authorised.page_not_held_stated = self.page_not_held_stated;
+            authorised.page_not_held_stated = self.page_not_held == StructureLoss::Stated;
         }
         authorised
     }
@@ -2434,18 +2434,26 @@ fn language_key(tbl: &toml::Table, site: &str) -> Result<Option<String>, ConfigE
     }
 }
 
-/// A key whose value is a remedy word, `stop` where the row states none or a word no remedy is.
-/// `[profile] page-not-held`: whether the loss is taken, and whether it is stated on the appended
-/// page as well. `discard` takes it, `append-statement` takes and states it, and anything else
-/// leaves the refusal in place (`doc/adr/2596`).
-fn page_not_held_key(tbl: &toml::Table) -> (bool, bool) {
-    match tbl
-        .get("page-not-held")
-        .and_then(Value::as_text)
-        .and_then(remedy_word)
-    {
-        Some((Kind::Discard, stated)) => (true, stated),
-        _ => (false, false),
+/// The answer a profile gives one of the two losses that belong to no site, `recovered-structure`
+/// and `page-not-held` (`doc/adr/2596`, `doc/adr/2669`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum StructureLoss {
+    /// Not taken: the source's refusal stands.
+    #[default]
+    Refused,
+    /// `discard`: taken, and named in the report and the file's history.
+    Discarded,
+    /// `append-statement`: taken, and stated on the appended page as well.
+    Stated,
+}
+
+/// `[profile] recovered-structure` or `[profile] page-not-held`: `discard` takes the loss,
+/// `append-statement` takes and states it, and anything else leaves the refusal in place.
+fn structure_loss_key(tbl: &toml::Table, key: &str) -> StructureLoss {
+    match tbl.get(key).and_then(Value::as_text).and_then(remedy_word) {
+        Some((Kind::Discard, true)) => StructureLoss::Stated,
+        Some((Kind::Discard, false)) => StructureLoss::Discarded,
+        _ => StructureLoss::Refused,
     }
 }
 
@@ -2466,6 +2474,7 @@ fn check_profile_default(tbl: &toml::Table) -> Result<(), ConfigError> {
     }
 }
 
+/// A key whose value is a remedy word, `stop` where the row states none or a word no remedy is.
 fn kind_or_stop(tbl: &toml::Table, key: &str) -> Kind {
     tbl.get(key)
         .and_then(Value::as_text)
