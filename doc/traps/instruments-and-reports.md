@@ -2264,3 +2264,15 @@ OpenGL (`m1`, `perf_gate`, `device_lifecycle` and three others, by `Device::adap
 else enumerates what the instance holds. The rule: a run is judged by the adapter it got, not by the
 environment it was given — `PDF_VIEWER_GPU_LOCK_LOG` records each bring-up's type and `tools/gpu-holds.sh`
 sums them, and a run meant for lavapipe shows `type=Cpu` and nothing else (ADR 2665).
+
+### 318. A debugging mode that serialises is a second change to the run
+
+Round 1916's question to the owner said that if the clip test, run alone on the RX 580 under
+`RADV_DEBUG=hang`, did not hang, that would "itself" be the finding that the trigger was concurrency.
+Round 1919 took the run and it passed — and RADV's first line was `Enabled debug options: syncshaders,
+hang`: the hang mode turns on `syncshaders`, which waits out every draw and dispatch before the next and
+every submission before returning. The run had changed two things at once, alone-not-in-a-suite and
+nothing-in-flight-together, and a pass could not say which removed the hang. The rule: before a
+reproduction under an instrument is read as a reproduction, read what the instrument switched on (the
+driver prints it), and count the variables the run changed against the one the question asked about; a
+negative under a serialising mode does not acquit what needs overlap (ADR 2668).
