@@ -544,9 +544,19 @@ struct Embedded {
     /// The stream object the key names.
     at: ObjectId,
     /// Which reader the bytes belong to.
-    format: Format,
+    format: Filed,
     /// Whether §9.9's Table 124 makes `/Length1` part of the entry, which a rewrite must restate.
     length1: bool,
+}
+
+/// The format of a program the file embeds, as §9.9's Table 124 files it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Filed {
+    /// An sfnt or a bare CFF, which [`pdf_font::restate::with_widths`] restates.
+    Read(Format),
+    /// A Type 1 program under `/FontFile`, in the three sections §9.9.1's Table 125 measures,
+    /// which [`pdf_font::restate::type1_with_widths`] restates (`doc/adr/2685`).
+    Type1,
 }
 
 // ----------------------------------------------------------------------------------------------
@@ -571,9 +581,6 @@ pub(super) fn restate_metrics(
             continue;
         }
         let Some((font, embedded)) = own_program(document, used) else {
-            if wants.widths && type1_program_disagrees(document, used)? {
-                return Err(Because::NotBuiltYet(PROGRAM_NOT_RESTATABLE));
-            }
             continue;
         };
         // **Only the glyphs that actually disagree**, which is `doc/adr/0947`'s first rule read
@@ -610,22 +617,38 @@ pub(super) fn restate_metrics(
             .as_stream()
             .and_then(|stream| document.decoded_stream_data(stream))
             .ok_or(Because::NotBuiltYet(PROGRAM_NOT_DECODED))?;
-        let mut restated = bytes.to_vec();
-        if !widths.is_empty() {
-            restated = pdf_font::restate::with_widths(&restated, embedded.format, &widths)
-                .map_err(|_| Because::NotBuiltYet(PROGRAM_NOT_RESTATABLE))?;
-        }
-        if !heights.is_empty() {
-            restated =
-                pdf_font::restate::with_vertical_advances(&restated, embedded.format, &heights)
-                    .map_err(|_| Because::NotBuiltYet(VERTICAL_NOT_RESTATABLE))?;
-        }
-        restated = renamed_modified(&restated, embedded.format)?;
-        proves(&restated, embedded.format, &widths, &heights)?;
         let Object::Stream(stream) = document.get(embedded.at) else {
             return Err(Because::NotBuiltYet(PROGRAM_NOT_DECODED));
         };
+        let (restated, lengths) = match embedded.format {
+            Filed::Read(format) => {
+                let mut restated = bytes.to_vec();
+                if !widths.is_empty() {
+                    restated = pdf_font::restate::with_widths(&restated, format, &widths)
+                        .map_err(|_| Because::NotBuiltYet(PROGRAM_NOT_RESTATABLE))?;
+                }
+                if !heights.is_empty() {
+                    restated =
+                        pdf_font::restate::with_vertical_advances(&restated, format, &heights)
+                            .map_err(|_| Because::NotBuiltYet(VERTICAL_NOT_RESTATABLE))?;
+                }
+                restated = renamed_modified(&restated, format)?;
+                proves(&restated, format, &widths, &heights)?;
+                (restated, None)
+            }
+            Filed::Type1 => {
+                let restated = type1_restated(
+                    document,
+                    (&used.dict, &stream.dict),
+                    &bytes,
+                    &widths,
+                    &heights,
+                )?;
+                (restated.program, Some(restated.lengths))
+            }
+        };
         let mut stream = program_stream(Some(&stream.dict), &restated, embedded.length1)
+            .and_then(|written| cff_notdef_glyph::with_lengths(written, lengths))
             .ok_or(Because::NotBuiltYet(PROGRAM_NOT_ENCODED))?;
         notices::attach(document, &bytes, &mut stream, spare, &mut metrics.written)?;
         // **A program another font shares is restated in a copy where restating it in place would
@@ -729,7 +752,7 @@ fn copy_on_write(
         .as_dict()
         .cloned()
         .ok_or(not_copied)?;
-    let key = ["FontFile2", "FontFile3"]
+    let key = ["FontFile", "FontFile2", "FontFile3"]
         .into_iter()
         .find(|key| copy.get(key).and_then(Object::as_reference) == Some(embedded.at))
         .ok_or(not_copied)?;
@@ -784,6 +807,54 @@ fn proves(
         }
     }
     Ok(())
+}
+
+/// A Type 1 program with its advances restated and proved, and the three lengths its stream is
+/// to state (`doc/adr/2685`).
+///
+/// Adobe Type 1 Font Format section 6.4 puts a glyph's advance in the `hsbw` or `sbw` that opens
+/// its charstring, which [`pdf_font::restate::type1_with_widths`] rewrites. A Type 1 program is a
+/// simple font's, which §9.7.4.3's vertical metrics never reach, so `heights` is always empty; a
+/// non-empty one is refused rather than dropped. The stream's `/Length1` and `/Length2` are what
+/// divide the decoded program into its sections, so a stream that states neither is refused as
+/// one whose sections cannot be found.
+///
+/// A font dictionary that states a `/FontDescriptor` and not all three of `/FirstChar`,
+/// `/LastChar` and `/Widths` is refused before anything is written: only a standard 14 font may
+/// leave them out, and ISO 32000-1 Table 111, which ISO 19005-2 section 6.2.11.2 holds a font to,
+/// makes the four entries all present or all absent for one; the restated program would be
+/// written into a file still failing that, and the remedy — the three entries written as the
+/// widths this reader positions by — is not built.
+fn type1_restated(
+    document: &Document,
+    (font, stream): (&Dictionary, &Dictionary),
+    bytes: &[u8],
+    widths: &BTreeMap<u16, f32>,
+    heights: &BTreeMap<u16, f32>,
+) -> Result<pdf_font::type1::AdvancesRestated, Because> {
+    if !heights.is_empty() {
+        return Err(Because::NotBuiltYet(VERTICAL_NOT_RESTATABLE));
+    }
+    if ["FirstChar", "LastChar", "Widths"]
+        .into_iter()
+        .any(|key| font.get(key).is_none())
+    {
+        return Err(Because::NotBuiltYet(DESCRIPTOR_WITHOUT_WIDTHS));
+    }
+    let stated = |key: &str| usize::try_from(document.get_key(stream, key).as_integer()?).ok();
+    let lengths = stated("Length1")
+        .zip(stated("Length2"))
+        .ok_or(Because::NotBuiltYet(PROGRAM_NOT_RESTATABLE))?;
+    let restated = pdf_font::restate::type1_with_widths(bytes, lengths, widths)
+        .map_err(|_| Because::NotBuiltYet(PROGRAM_NOT_RESTATABLE))?;
+    for (glyph, width) in widths {
+        let stated = pdf_font::restate::type1_advance(&restated.program, *glyph)
+            .ok_or(Because::NotBuiltYet(RESTATEMENT_NOT_PROVED))?;
+        if disagrees(stated, *width) {
+            return Err(Because::NotBuiltYet(RESTATEMENT_NOT_PROVED));
+        }
+    }
+    Ok(restated)
 }
 
 /// The vertical displacement the dictionary states and the one the program states, per glyph.
@@ -1427,43 +1498,24 @@ fn descriptor_of(document: &Document, used: &SelectedFont) -> Option<ObjectId> {
     holder.get("FontDescriptor").and_then(Object::as_reference)
 }
 
-/// Whether a rendered font whose program is §9.9's `/FontFile` states a width its program
-/// contradicts.
-///
-/// [`embedded_program`] offers no `/FontFile`, because [`pdf_font::restate`] does not rewrite a
-/// Type 1 program's encrypted charstrings; a font it passes over is still one ISO 19005-2
-/// 6.2.11.5 fails when its `/Widths` disagree with the `hsbw` widths, so the conversion is
-/// refused by that name rather than reported as having nothing to restate (ADR 2540).
-fn type1_program_disagrees(document: &Document, used: &SelectedFont) -> Result<bool, Because> {
-    let holds_type1 = descriptor_of(document, used)
-        .and_then(|descriptor| document.get(descriptor).as_dict().cloned())
-        .is_some_and(|descriptor| descriptor.get("FontFile").is_some());
-    if !holds_type1 {
-        return Ok(false);
-    }
-    let Ok(font) = LoadedFont::load(document, &used.dict, &used.name) else {
-        return Ok(false);
-    };
-    if font.is_substituted() {
-        return Ok(false);
-    }
-    Ok(shown_widths(&font, used)?
-        .values()
-        .any(|(stated, program)| program.is_some_and(|own| disagrees(*stated, own))))
-}
-
 /// The `/FontFile` entry a descriptor states, and which reader its bytes belong to.
 ///
-/// §9.9's Table 124 is the mapping from key and `/Subtype` to format. `/FontFile` — a Type 1
-/// program in §9.9's own encrypted form — is deliberately absent: [`pdf_font::restate`] does not
-/// restate one, and answering `None` here is what turns that into a refusal by name rather than
-/// a program written wrongly.
+/// §9.9's Table 124 is the mapping from key and `/Subtype` to format: `/FontFile` a Type 1
+/// program in its own encrypted form, whose three lengths a rewrite states again, `/FontFile2`
+/// an sfnt, and `/FontFile3` what its `/Subtype` names.
 fn embedded_program(document: &Document, descriptor: ObjectId) -> Option<Embedded> {
     let dict = document.get(descriptor).as_dict().cloned()?;
+    if let Some(at) = dict.get("FontFile").and_then(Object::as_reference) {
+        return Some(Embedded {
+            at,
+            format: Filed::Type1,
+            length1: false,
+        });
+    }
     if let Some(at) = dict.get("FontFile2").and_then(Object::as_reference) {
         return Some(Embedded {
             at,
-            format: Format::Sfnt,
+            format: Filed::Read(Format::Sfnt),
             length1: true,
         });
     }
@@ -1477,7 +1529,7 @@ fn embedded_program(document: &Document, descriptor: ObjectId) -> Option<Embedde
     };
     Some(Embedded {
         at,
-        format,
+        format: Filed::Read(format),
         length1: false,
     })
 }
@@ -1762,11 +1814,21 @@ const SHARED_PROGRAM_NOT_COPIED: &str = "this font's embedded program is shared 
 
 /// Why a program whose advances are stated somewhere unreachable is not restated.
 const PROGRAM_NOT_RESTATABLE: &str = "this font's embedded program states a glyph's advance \
-     somewhere this converter does not rewrite — a Type 1 program's encrypted charstrings, or a \
-     CFF charstring whose width is inside a subroutine that is reached in a way \
+     somewhere this converter does not rewrite — a Type 1 charstring that does not open with \
+     hsbw or sbw over plain numbers or whose stream does not state the lengths of its sections, \
+     or a CFF charstring whose width is inside a subroutine that is reached in a way \
      pdf_font::restate does not follow. The alternative is restating /Widths to match the \
      program, and doc/pdf-a-conversion-limits.md section 4.9 calls that one never: /Widths is \
      what positions the glyphs, so it is the one change that would move every line of the page";
+
+/// Why a Type 1 program under a dictionary stating a descriptor and no widths is not restated.
+const DESCRIPTOR_WITHOUT_WIDTHS: &str = "this font's embedded Type 1 program states advances its \
+     font dictionary contradicts, and the dictionary states a FontDescriptor but not all of \
+     FirstChar, LastChar and Widths, which ISO 32000-1 Table 111 allows only a standard 14 font \
+     and then only with all four entries absent; restating the program would leave the \
+     dictionary failing ISO 19005-2 section 6.2.11.2 all the same, and writing the three entries \
+     as the widths this reader positions the glyphs by is a remedy this version does not carry \
+     out";
 
 /// Why a program that will not compress into a stream is not written.
 const PROGRAM_NOT_ENCODED: &str = "the font program this conversion built is longer than a \

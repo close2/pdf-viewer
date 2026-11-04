@@ -72,7 +72,7 @@ impl LoadedFont {
         // The kept parse rather than a second one per code: `type1::Program` says why a Type 1
         // program is parsed once, and `metrics` has only the bytes.
         let advance = match &self.type1 {
-            Some(program) => program.advance(glyph).ok().flatten()?,
+            Some(program) => program.horizontal_advance(glyph).ok().flatten()?,
             None => metrics::program_advance(self.program, &self.data, glyph)?,
         };
         self.in_ems(advance)

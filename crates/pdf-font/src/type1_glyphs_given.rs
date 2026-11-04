@@ -282,6 +282,8 @@ struct Entry {
     reader: std::ops::Range<usize>,
     /// The token after the bytes that defines the entry (`ND`, `|-`), where one follows.
     definer: Option<std::ops::Range<usize>>,
+    /// The integer before the reader token that counts the charstring's bytes.
+    count: std::ops::Range<usize>,
 }
 
 impl Entry {
@@ -312,8 +314,12 @@ enum Token {
     Name(std::ops::Range<usize>),
     /// An integer.
     Int(i64, std::ops::Range<usize>),
-    /// `<n> RD <n bytes>`: the bytes, and the reader token's range.
-    Binary(std::ops::Range<usize>, std::ops::Range<usize>),
+    /// `<n> RD <n bytes>`: the bytes, the reader token's range, and the count's.
+    Binary(
+        std::ops::Range<usize>,
+        std::ops::Range<usize>,
+        std::ops::Range<usize>,
+    ),
     /// Any other run, a string, a procedure brace or a bracket.
     Other(std::ops::Range<usize>),
 }
@@ -415,7 +421,11 @@ impl Tokens<'_> {
                             return None;
                         }
                         self.at = to;
-                        return Some(Token::Binary(from..to, reader_start..reader_end));
+                        return Some(Token::Binary(
+                            from..to,
+                            reader_start..reader_end,
+                            start..end,
+                        ));
                     }
                     return Some(Token::Int(value, start..end));
                 }
@@ -457,7 +467,7 @@ impl Scan {
                     break range.start;
                 }
                 Token::Name(name) => {
-                    let Token::Binary(data, reader) = tokens.next()? else {
+                    let Token::Binary(data, reader, count) = tokens.next()? else {
                         return None;
                     };
                     let mut ahead = Tokens {
@@ -479,6 +489,7 @@ impl Scan {
                         data,
                         reader,
                         definer,
+                        count,
                     });
                 }
                 _ => {
@@ -866,6 +877,10 @@ fn not_written(detail: &str) -> Type1Error {
         detail: detail.to_owned(),
     }
 }
+
+#[path = "type1_widths.rs"]
+mod widths;
+pub use widths::{AdvancesRestated, with_advances};
 
 #[cfg(test)]
 #[path = "type1_glyphs_given_tests.rs"]

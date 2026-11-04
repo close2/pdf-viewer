@@ -1,8 +1,10 @@
 # PDF/A: what still blocks a document, and what a company would do with it
 
 Status: **a census record**, taken at `7d6ed87f` on 2026-10-27 by session 1828 for the owner's
-`doc/questions/A681` item 1, and re-run by the commands in section 1 — the figures below are that
-run's and are not kept current by hand. ADR 2490 is the decision that reopens the blocks; this file
+`doc/questions/A681` item 1, and re-run by the commands in section 1. Section 1's census lines and
+section 2's table are session 1932's run, section 2 being `rank.py --table`'s output; the figures in
+sections 3 to 9 are session 1828's, each entry's built parts named where a round built them, and
+none is kept current by hand. ADR 2490 is the decision that reopens the blocks; this file
 is the list it reopens them over. It does not repeat `doc/pdf-a-conversion-limits.md` or
 `doc/pdf-a-mitigations.md`: each remedy points at their entry. ISO 19005 is cited by section and
 paraphrased (`doc/third-party-data.md`); quotation marks are ISO 32000-2's own words.
@@ -55,17 +57,17 @@ Two disagreements found outside it, to weigh in batch 132 (ADR 2652 section 2):
 
 | census line, with the pack | converted | conforming | refused | unreadable | declined as a source |
 |---|---|---|---|---|---|
-| pdf.js `as-if-printed` 2b | 804 | 2 | 149 | 11 | 10 |
-| corpora `as-if-printed` 2b | 351 | 6 | 116 | 16 | 14 |
-| pdf.js `as-if-printed` 4 | 807 | 0 | 148 | 11 | 10 |
-| corpora `as-if-printed` 4 | 353 | 0 | 121 | 16 | 13 |
-| pdf.js `as-shown` 2b | 768 | 2 | 185 | 11 | 10 |
-| corpora `as-shown` 2b | 304 | 6 | 164 | 16 | 13 |
-| pdf.js `as-shown` 4 | 772 | 0 | 183 | 11 | 10 |
-| corpora `as-shown` 4 | 304 | 0 | 170 | 16 | 13 |
+| pdf.js `as-if-printed` 2b | 898 | 2 | 60 | 11 | 5 |
+| corpora `as-if-printed` 2b | 426 | 6 | 52 | 16 | 3 |
+| pdf.js `as-if-printed` 4 | 909 | 0 | 51 | 11 | 5 |
+| corpora `as-if-printed` 4 | 435 | 0 | 50 | 16 | 2 |
+| pdf.js `as-shown` 2b | 833 | 2 | 125 | 11 | 5 |
+| corpora `as-shown` 2b | 344 | 6 | 133 | 16 | 4 |
+| pdf.js `as-shown` 4 | 838 | 0 | 122 | 11 | 5 |
+| corpora `as-shown` 4 | 341 | 0 | 142 | 16 | 4 |
 
-Without the pack, pdf.js `as-if-printed` is 793/2/160/11 at 2b and 796/0/159/11 at 4: eleven
-documents the pack frees, which is why the pack is taken as installed below. `as-shown` is the same
+In session 1828's run, without the pack, pdf.js `as-if-printed` was eleven documents worse at each
+part, which is why the pack is taken as installed. `as-shown` is the same
 either way (its `machine-face` stop holds the pack's documents).
 
 Two deep JPEG 2000 shapes that A691 wrote (a deep grey image with opacity; a colour image with an
@@ -75,43 +77,56 @@ reproducers and the clauses it cites (cited, not quoted) are indexed here:
 [`pdfa-blocking-issues/verapdf-jpeg2000-issue.md`](pdfa-blocking-issues/verapdf-jpeg2000-issue.md),
 files under `pdfa-blocking-issues/verapdf-jpeg2000/`.
 
-**Under `as-if-printed`, 289 documents are refused or declined at 2b and 292 at part 4; 262 at
-both parts, 319 at one at least. Under `as-shown`, 351 at both, 397 at one at least.** Of the
+**Under `as-if-printed`, 120 documents are refused or declined at 2b and 108 at part 4; 91 at
+both parts, 137 at one at least. Under `as-shown`, 248 at both, 292 at one at least.** Of the
 `as-if-printed` population, everything but a few documents falls under a remedy below; those are
-four exceptions (sections 7.1, 7.2) and five documents the converter itself fails
-(section 8).
+the exceptions of section 7 (four `X1`, six `X2`) and the documents the converter itself fails
+(section 8; seven at 2b, six at 4).
 
-## 2. The ranking, for batch 124's brief
+## 2. The ranking, and what each row still needs
 
-The order `rank.py` builds them in under `as-if-printed`, by documents freed (each figure given the
-remedies above it):
+The table below is the output of
 
-| order | remedy | frees at 2b | frees at 4 | the loss | needs |
-|---|---|---|---|---|---|
-| 1 | R02 image smoothing | 41 | 39 | `image-smoothing` (named today) | the profiles' entry; ADR 2490 |
-| 2 | R08 unembedded font, photographed | 27 | 30 | `text-as-image` (named today) | the owner: ADR 2394's gate widened (Q694) |
-| 3 | R03 content-stream fence, photographed | 30 | 29 | `text-as-image` | the owner: the same widening (Q694) |
-| 4 | R06b the other part | 26 | 1 | none — the target changes | an option of the verb |
-| 5 | R05 the press (part 4 only) | — | 25 | `press-assumed` (new) | the owner: ADR 2114 section 4 reopened (Q694) |
-| 6 | R03a `.notdef` named in the program | 23 | 23 | none visible | ADR 2490; the owner may prefer R03 |
-| 7 | R11 the TrueType route stated | 23 | 20 | none visible | the owner: A48's line (Q694) |
-| 8 | R04 the resource the reader used | 22 | 22 | none | ADR 2490 |
-| 9 | R01 the structure the reader recovered | 18 | 18 | `recovered-structure` (new) | ADR 2490 |
-| 10 | R10 a font re-filed | 15 | 15 | none | builds only |
-| 11 | R06a the header written | 7 | 7 | none | ADR 2490 |
-| 12 | R12 a spot colourant named | 7 | 7 | none for a Type 4 function | ADR 2490 |
-| 13 | R07 an undecodable stream | 7 | 7 | `undecodable-stream` (new) | ADR 2490 |
-| 14 | R14 the appended page composed | 6 | 5 | none | builds only |
-| 15 | R17 press statements | 4 | 4 | `halftone-name`, `overprint-mode` | the profile's entry |
-| 16 | R15 an embedded file as pages | 3 | 5 | `attachment-as-pages` (new) | inside ADR 1014 |
-| 17 | R13 a JPX transcode | 3 | 3 | none | builds only (slot 3's writer) |
-| 18 | R16 annotations and forms | 3 | 3 | named per site | builds only |
-| 19 | R18 PieceInfo's date | — | 3 | none | builds only |
+```sh
+python3 -I -B doc/pdfa-blocking-issues/rank.py census.log --repository . \
+  --render <target>/gates/quorra-transform --table
+```
 
-Under `as-shown` the first row is R09 (the `as-shown` font losses, 81 at 2b and 79 at 4), and the
-rest follow in nearly the same order. Rows 1, 4, 6, 8, 11 and 13 together free about a third of the
-blocked population with no loss beyond one already named; rows 2, 3 and 5 are the large ones that
-need the owner's word, because each changes what a previous answer of the owner's allowed.
+over section 1's census, and is replaced by it whole, never edited by hand: the order is the one in
+which building the remedies frees the most documents under `as-if-printed` at 2b, then those only
+part 4 reaches; each "frees" is given the rows above it; "what is left needs" and the last column
+are `rank.py`'s `STATUS`, the one judgement in it, kept beside the rule that files each reason. A
+`built` row leaves what it is meant to leave (R06b's figures are what a request for one part
+refuses, which the two-target request of ADR 2498 answers); a `builds only` row needs a build and
+no owner's word; no row is `owner-blocked` whole, and the parts that are say so in their last
+column. R02 is built (ADR 2498) and no document reaches it.
+
+| order | remedy | frees at 2b | frees at 4 | stops under `as-shown`, 2b / 4 | what is left needs | built by, and what is left |
+|---|---|---|---|---|---|---|
+| 1 | R06b-the-other-part | 28 | 2 | 41 / 9 | built | ADR 2498: the two-target request; the figures are what a one-part request refuses |
+| 2 | R10-font-refiling | 11 | 11 | 14 / 14 | builds only | built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685) |
+| 3 | R07-undecodable-stream | 8 | 7 | 8 / 8 | builds only | decided by ADR 2490, unbuilt |
+| 4 | R12-spot-colourant | 7 | 7 | 7 / 7 | builds only | decided by ADR 2490 for a PostScript calculator function; a sampled or exponential one is owner-blocked until its loss is named |
+| 5 | R03-photograph | 6 | 8 | 55 / 57 | builds only | built under `as-if-printed`: A694, ADRs 2516, 2618, 2638; left, a page this reader does not draw whole; `as-shown` keeps ADR 2394's gate (A694 item 1) |
+| 6 | R08-unembedded-font-photograph | 9 | 9 | 34 / 34 | builds only | built under `as-if-printed`: A694, ADR 2516; `as-shown` keeps its stop (A694 item 1) |
+| 7 | R11-truetype-route | 9 | 9 | 10 / 10 | builds only | built: A694 item 3, ADR 2520 |
+| 8 | R04-absent-resource | 6 | 6 | 6 / 6 | builds only | built: ADRs 2500, 2522, 2523; left, a Type 3 glyph procedure's resources and a font that moved |
+| 9 | R03a-notdef-named | 4 | 4 | 8 / 5 | builds only | built: ADRs 2543, 2556, 2602, 2620, 2650 |
+| 10 | R16-annotations-and-forms | 4 | 4 | 15 / 18 | builds only | named per site |
+| 11 | R17-press-statements | 4 | 4 | 0 / 0 | builds only | decided by ADR 2490, unbuilt |
+| 12 | R13-jpx-transcode | 3 | 3 | 3 / 3 | builds only | unbuilt |
+| 13 | R14-appended-page-composition | 3 | 3 | 3 / 3 | builds only | built: ADRs 2678, 2682 |
+| 14 | R01-recovered-structure | 1 | 1 | 3 / 3 | builds only | built: ADRs 2502, 2503, 2551, 2596, 2670; each left is refused by its own sentence |
+| 15 | R05-press | 0 | 9 | 0 / 29 | builds only | A694 item 2: (a) built; (b), `as-shown`'s assumed press, waits for an ICC table writer |
+| 16 | R18-piece-info | 0 | 3 | 0 / 3 | builds only | unbuilt |
+| 17 | R15-embedded-files | 0 | 2 | 3 / 7 | builds only | built: ADR 2536 |
+| 18 | D-defect | — | — | 7 / 6 | defect | section 8: the converter's own, diagnosed rather than ranked |
+| 19 | R09-as-shown-font-losses | 0 | 0 | 121 / 121 | builds only | `as-shown` only; ADR 2490: (c) decided, (a) and (b) builds |
+| 20 | X1-dynamic-xfa | — | — | 4 / 4 | exception | CLAUDE.md's exclusion; §K.1 |
+| 21 | X2-no-page-to-see | — | — | 6 / 6 | exception | the reader draws no page of it |
+
+Under `as-shown` the largest row is R09 (121 documents at each part), then R03 and R08, each held by
+an answer of the owner's (A694 item 1) rather than by a build.
 
 ## 3. Fonts
 
@@ -213,6 +228,16 @@ written inside another object (3 — make it an object, as ADR 2162 does for fon
 in encrypted charstrings (2 — decrypt, restate, re-encrypt), a restatement that did not read back
 (1), a Type 0 font with no descendant (1 — the photograph), and one refusal naming no font to
 restate (1, a defect). Builds only; no owner word.
+
+**A Type 1 advance in encrypted charstrings** (built, ADR 2685): the `hsbw` or `sbw` width operand
+is restated inside the decrypted charstring and the program is encrypted again, its three lengths
+stated again, the width being the horizontal component the program's `/FontMatrix` gives it.
+`bug1157493`, `bug1539074`, `bug1539074.1`, `issue1905` and `issue2833` convert under both shipped
+profiles at 2b and 4, and `ESUjulyaugust2002` under `as-shown`
+(under `as-if-printed` its `halftone-name` is R17's); `issue_cff_unsigned_bbox`'s width is in a CFF
+subroutine and stays refused, and `issue11150_reduced`'s `Symbol` states a descriptor and no
+widths, which ISO 32000-1 Table 111 allows a standard 14 font only with all four absent, and is
+refused by that name (ADR 2685 decision 5).
 
 **A cut font program** (built, ADR 2636): a program whose decode stops short and that this reader
 cannot load takes the unembedded route; `issue11651`, `435321` (2b and 4) and `268346` (4) are freed

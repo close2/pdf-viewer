@@ -60,7 +60,10 @@ pub enum Type1Error {
 
 #[path = "type1_glyphs_given.rs"]
 mod glyphs_given;
-pub use glyphs_given::{GlyphsGiven, MOST_BYTES_WRITTEN, MOST_CHARSTRING_BYTES, with_glyphs_given};
+pub use glyphs_given::{
+    AdvancesRestated, GlyphsGiven, MOST_BYTES_WRITTEN, MOST_CHARSTRING_BYTES, with_advances,
+    with_glyphs_given,
+};
 
 /// A parsed Type 1 font program.
 ///
@@ -266,6 +269,39 @@ impl Program {
             .evaluate_charstring(GlyphId::from(glyph), &mut NoCommands)
             .map_err(|e| malformed(&e))?;
         Ok(width.map(Fixed::to_f32))
+    }
+
+    /// How far one unit of a charstring's width moves the next glyph across the page, in the
+    /// units [`Self::units_per_em`] counts: the `/FontMatrix`'s horizontal scale over its
+    /// vertical one, `None` where the matrix has no horizontal scale at all.
+    ///
+    /// Adobe Type 1 Font Format section 6.4 states a width as the vector (`wx`, 0) in character
+    /// space, and the `/FontMatrix` carries character space into text space, so the advance a
+    /// reader moves by is that vector times the matrix: `wx` times its first element across and
+    /// times its second down. [`Self::units_per_em`] is the vertical scale's, which is how
+    /// `read-fonts` scales an outline; a matrix whose horizontal scale differs — a face extended
+    /// or condensed by its matrix, as `[0.0005 0 0 0.001 0 0]` extends one to twice its width —
+    /// moves the next glyph by `wx` times the ratio. A matrix whose second element is not zero
+    /// moves it down the page as well; that component is not a width, since ISO 32000-2 §9.2.4
+    /// calls a glyph's width "formally, its horizontal displacement", so only the horizontal
+    /// component is compared and restated.
+    #[must_use]
+    pub fn horizontal_scale(&self) -> Option<f32> {
+        let matrix = self.font.matrix();
+        (matrix.xx != Fixed::ZERO).then(|| matrix.xx.to_f32())
+    }
+
+    /// One glyph's advance across the page, in the units [`Self::units_per_em`] counts: the
+    /// width [`Self::advance`] reads, carried through [`Self::horizontal_scale`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::advance`]. `Ok(None)` also where the matrix has no horizontal scale.
+    pub fn horizontal_advance(&self, glyph: u16) -> Result<Option<f32>, Type1Error> {
+        let Some(scale) = self.horizontal_scale() else {
+            return Ok(None);
+        };
+        Ok(self.advance(glyph)?.map(|width| width * scale))
     }
 }
 

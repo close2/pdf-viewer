@@ -16361,6 +16361,8 @@ mod derived_converted;
 mod notdef_glyph;
 #[path = "archive/type1_notdef_glyph.rs"]
 mod type1_notdef_glyph;
+#[path = "archive/type1_widths.rs"]
+mod type1_widths;
 #[path = "archive/whole_population.rs"]
 mod whole_population;
 

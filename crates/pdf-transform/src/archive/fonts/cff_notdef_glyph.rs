@@ -165,7 +165,7 @@ fn glyphs_to_give<V>(asked: &BTreeMap<(bool, Option<String>, i64), V>) -> Vec<Gl
 }
 
 /// `object`, a stream [`super::program_stream`] made, with Table 125's three lengths stated.
-fn with_lengths(object: Object, lengths: Option<[usize; 3]>) -> Option<Object> {
+pub(super) fn with_lengths(object: Object, lengths: Option<[usize; 3]>) -> Option<Object> {
     let Some(lengths) = lengths else {
         return Some(object);
     };

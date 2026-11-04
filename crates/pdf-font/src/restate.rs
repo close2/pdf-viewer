@@ -165,6 +165,9 @@ pub enum RestateError {
         /// How many long vertical metrics the program states.
         pairs: u16,
     },
+    /// A Type 1 program's width could not be restated, or its program could not be read.
+    #[error("{0}")]
+    Type1(#[from] crate::type1::Type1Error),
 }
 
 /// The program with the advance of each named glyph restated as the width the caller states.
@@ -212,6 +215,55 @@ pub fn with_widths(
             Ok(restated)
         }
     }
+}
+
+/// A bare Type 1 program — §9.9's `/FontFile` — with the advance of each named glyph restated as
+/// the width the caller states, where `lengths` are the stream's `/Length1` and `/Length2`.
+///
+/// [`with_widths`] for the format §9.9.1's Table 125 states in three sections: the widths are in
+/// ems and keyed by the glyph index `read-fonts` gives, and each is rounded to the whole number of
+/// character space units the program's `FontMatrix` makes an em, then written as the `hsbw` or
+/// `sbw` operand that Adobe Type 1 Font Format section 6.4 makes the glyph's width
+/// ([`crate::type1::with_advances`], `doc/adr/2685`). The restated program is returned with the
+/// three lengths its stream is to state.
+///
+/// # Errors
+///
+/// [`RestateError::Type1`] where the program cannot be read or a width is stated somewhere the
+/// writer does not rewrite; [`RestateError::TooCoarse`] where the em cannot hold a width within
+/// ISO 19005's tolerance; [`RestateError::OutOfRange`] where an advance passes a charstring
+/// number.
+pub fn type1_with_widths(
+    program: &[u8],
+    lengths: (usize, usize),
+    widths: &BTreeMap<u16, f32>,
+) -> Result<crate::type1::AdvancesRestated, RestateError> {
+    let parsed = crate::type1::Program::parse(program)?;
+    // A width unit moves the next glyph by the matrix's horizontal scale, so an em holds that
+    // many fewer of them than the vertical units per em (`type1::Program::horizontal_scale`).
+    let scale = parsed
+        .horizontal_scale()
+        .filter(|scale| *scale > 0.0)
+        .ok_or_else(|| RestateError::Unreadable {
+            detail: "the program's FontMatrix has no horizontal scale or mirrors it".to_owned(),
+        })?;
+    let units = parsed.units_per_em()? / scale;
+    let mut advances = BTreeMap::new();
+    for (glyph, units) in whole_advances(&in_design_units(widths, units)?) {
+        let advance =
+            i32::try_from(units).map_err(|_| RestateError::OutOfRange { glyph, units })?;
+        advances.insert(glyph, advance);
+    }
+    Ok(crate::type1::with_advances(program, lengths, &advances)?)
+}
+
+/// One glyph's advance as a bare Type 1 program states it, in ems: [`advance`] for §9.9's
+/// `/FontFile`, which [`Format`] does not name because no substitute is ever one.
+#[must_use]
+pub fn type1_advance(program: &[u8], glyph: u16) -> Option<f32> {
+    let program = crate::type1::Program::parse(program).ok()?;
+    let units = program.units_per_em().ok()?;
+    Some(program.horizontal_advance(glyph).ok()?? / units)
 }
 
 /// The tag of the table an `OpenType` program with PostScript outlines carries them in.

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The PDF/A blocking-issues document's instrument: every refusal, its documents, and the remedy it is given.
 
-    python3 -I -B doc/pdfa-blocking-issues/rank.py <census.log> [--repository <dir>] [--render <quorra-transform>]
+    python3 -I -B doc/pdfa-blocking-issues/rank.py <census.log> [--repository <dir>] [--render <quorra-transform>] [--table]
 
 `<census.log>` is the `--nocapture` output of
 `cargo test --profile gates -p pdf-transform --test archive_corpus
@@ -20,6 +20,12 @@ It prints four tables:
    the most documents (greedy, `D-` and `X` rows never chosen: a defect is not a remedy and an
    exception is not built), and what is left;
 4. the documents behind each remedy.
+
+`--table` prints, instead, section 2 of `doc/pdfa-blocking-issues.md`: the remedies in the order
+building them frees the most under `as-if-printed` at 2b (then those only part 4 reaches, in its
+order), with documents freed at each part given the rows above, the documents each stops under
+`as-shown`, and `STATUS` below, which says of each row what what is left of it needs. That section is
+this command's output and is replaced by it, never edited by hand.
 
 `--render <quorra-transform>` runs the render verb on page 1 of each document the verb declined as
 a source, and files one the reader draws no page of under `X2-no-page-to-see` instead of
@@ -61,7 +67,7 @@ def remedy(kind, site, why):
         return "R03a-notdef-named"
     if site == "fonts/font-programs-embedded" and kind == "the-fence" and "names no glyph for" in why:
         return "R08-unembedded-font-photograph"
-    if kind == "the-fence" and site in ("fonts/non-symbolic-truetype-differences-are-listed-names",
+    if site in ("fonts/non-symbolic-truetype-differences-are-listed-names",
                                         "fonts/non-symbolic-truetype-program-maps-every-code",
                                         "fonts/symbolic-truetype-program-has-a-usable-cmap"):
         return "R11-truetype-route"
@@ -117,6 +123,80 @@ def remedy(kind, site, why):
     return "UNMAPPED"
 
 
+# What what is left of each remedy needs, and the records that built what is built: a judgement, not a
+# count, so it is written here beside the rule that files a reason under the remedy.
+# `built` means nothing is left to build (the figures are what the remedy leaves as it is meant to);
+# `builds only` that what is left needs a build and no owner's word; `owner-blocked` that it needs one.
+STATUS = {
+    "R01-recovered-structure": ("builds only", "built: ADRs 2502, 2503, 2551, 2596, 2670; each left is refused by its own sentence"),
+    "R02-image-smoothing": ("built", "ADR 2498"),
+    "R03-photograph": ("builds only", "built under `as-if-printed`: A694, ADRs 2516, 2618, 2638; left, a page this reader does not draw whole; `as-shown` keeps ADR 2394's gate (A694 item 1)"),
+    "R03a-notdef-named": ("builds only", "built: ADRs 2543, 2556, 2602, 2620, 2650"),
+    "R04-absent-resource": ("builds only", "built: ADRs 2500, 2522, 2523; left, a Type 3 glyph procedure's resources and a font that moved"),
+    "R05-press": ("builds only", "A694 item 2: (a) built; (b), `as-shown`'s assumed press, waits for an ICC table writer"),
+    "R06b-the-other-part": ("built", "ADR 2498: the two-target request; the figures are what a one-part request refuses"),
+    "R07-undecodable-stream": ("builds only", "decided by ADR 2490, unbuilt"),
+    "R08-unembedded-font-photograph": ("builds only", "built under `as-if-printed`: A694, ADR 2516; `as-shown` keeps its stop (A694 item 1)"),
+    "R08b-cjk-pack": ("built", "ADR 2460: the census runs with the pack"),
+    "R09-as-shown-font-losses": ("builds only", "`as-shown` only; ADR 2490: (c) decided, (a) and (b) builds"),
+    "R10-font-refiling": ("builds only", "built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685)"),
+    "R11-truetype-route": ("builds only", "built: A694 item 3, ADR 2520"),
+    "R12-spot-colourant": ("builds only", "decided by ADR 2490 for a PostScript calculator function; a sampled or exponential one is owner-blocked until its loss is named"),
+    "R13-jpx-transcode": ("builds only", "unbuilt"),
+    "R14-appended-page-composition": ("builds only", "built: ADRs 2678, 2682"),
+    "R15-embedded-files": ("builds only", "built: ADR 2536"),
+    "R16-annotations-and-forms": ("builds only", "named per site"),
+    "R17-press-statements": ("builds only", "decided by ADR 2490, unbuilt"),
+    "R18-piece-info": ("builds only", "unbuilt"),
+    "X1-dynamic-xfa": ("exception", "CLAUDE.md's exclusion; §K.1"),
+    "X2-no-page-to-see": ("exception", "the reader draws no page of it"),
+    "D-defect": ("defect", "section 8: the converter's own, diagnosed rather than ranked"),
+}
+
+
+def table(per):
+    """Section 2 of the document, as markdown: the build order under `as-if-printed`, and what is left."""
+    a2, a4 = ("as-if-printed", "PDF/A-2b"), ("as-if-printed", "PDF/A-4")
+    remedies = sorted({r for t in per for rs in per[t].values() for r in rs})
+    order, chosen = [], []
+    for target in (a2, a4):
+        left = dict(per.get(target, {}))
+        while True:
+            best, freed = None, 0
+            for rid in remedies:
+                if rid in chosen or rid.startswith(("D-", "X")):
+                    continue
+                n = sum(1 for rs in left.values() if rs <= set(chosen) | {rid})
+                if n > freed:
+                    best, freed = rid, n
+            if best is None:
+                break
+            chosen.append(best)
+            order.append(best)
+            for doc in [d for d, rs in left.items() if rs <= set(chosen)]:
+                del left[doc]
+        chosen = list(order)
+    order += [r for r in remedies if r not in order]
+
+    def frees(target, rid):
+        upto = set(order[:order.index(rid) + 1])
+        before = upto - {rid}
+        docs = per.get(target, {})
+        return sum(1 for rs in docs.values() if rid in rs and rs <= upto and not rs <= before)
+
+    def stops(target, rid):
+        return sum(1 for rs in per.get(target, {}).values() if rid in rs)
+
+    print("| order | remedy | frees at 2b | frees at 4 | stops under `as-shown`, 2b / 4 | what is left needs | built by, and what is left |")
+    print("|---|---|---|---|---|---|---|")
+    for at, rid in enumerate(order, 1):
+        status, note = STATUS.get(rid, ("unfiled", "no row of section 3 to 6 answers it"))
+        shown = f"{stops(('as-shown', 'PDF/A-2b'), rid)} / {stops(('as-shown', 'PDF/A-4'), rid)}"
+        # A defect is not a remedy and an exception is not built, so neither frees anything.
+        freed = ("—", "—") if rid.startswith(("D-", "X")) else (frees(a2, rid), frees(a4, rid))
+        print(f"| {at} | {rid} | {freed[0]} | {freed[1]} | {shown} | {status} | {note} |")
+
+
 def parse(path):
     """Census line -> {'counts', 'reasons': [(kind, site, why, docs)], 'declined': [(doc, said)]}."""
     out, current, pending = {}, None, None
@@ -167,6 +247,9 @@ def main():
     if not arguments:
         sys.exit(__doc__)
     options = {}
+    as_table = "--table" in arguments
+    if as_table:
+        arguments.remove("--table")
     for flag in ("--repository", "--render"):
         if flag in arguments:
             at = arguments.index(flag)
@@ -194,6 +277,9 @@ def main():
                 rid = "X2-no-page-to-see" if no_pages[doc] else rid
             per[(profile, target)][f"{corpus}:{doc}"].add(rid)
     lines = list(census)
+    if as_table:
+        table(per)
+        return
 
     print("== 1. the census lines (converted, conforming, refused, unreadable; declined)")
     for key in lines:

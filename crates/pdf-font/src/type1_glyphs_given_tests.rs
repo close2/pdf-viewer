@@ -14,14 +14,14 @@ const RLINETO: u8 = 5;
 const CLOSEPATH: u8 = 9;
 
 /// How a fixture spells its program.
-struct Shape {
-    len_iv: i64,
-    reader: &'static str,
-    definer: &'static str,
-    trailer: &'static [u8],
+pub(super) struct Shape {
+    pub(super) len_iv: i64,
+    pub(super) reader: &'static str,
+    pub(super) definer: &'static str,
+    pub(super) trailer: &'static [u8],
 }
 
-const PLAIN: Shape = Shape {
+pub(super) const PLAIN: Shape = Shape {
     len_iv: 4,
     reader: "RD",
     definer: "ND",
@@ -39,7 +39,7 @@ fn stored(body: &[u8], len_iv: i64) -> Vec<u8> {
 }
 
 /// A program holding `glyphs` by name, with its `/Length1` and `/Length2`.
-fn program(glyphs: &[(&str, Vec<u8>)], shape: &Shape) -> (Vec<u8>, (usize, usize)) {
+pub(super) fn program(glyphs: &[(&str, Vec<u8>)], shape: &Shape) -> (Vec<u8>, (usize, usize)) {
     let mut private = format!(
         "dup /Private 8 dict dup begin\n/{r}{{string currentfile exch readstring pop}}executeonly def\n\
          /{d}{{noaccess def}}executeonly def\n/NP{{noaccess put}}executeonly def\n/lenIV {l} def\n\
@@ -72,7 +72,7 @@ fn program(glyphs: &[(&str, Vec<u8>)], shape: &Shape) -> (Vec<u8>, (usize, usize
 }
 
 /// `sbx width hsbw`, then a triangle, `closepath` and `endchar`: a `.notdef` that draws.
-fn boxed(width: i32) -> Vec<u8> {
+pub(super) fn boxed(width: i32) -> Vec<u8> {
     let mut body = number(50);
     body.extend(number(width));
     body.push(HSBW);
@@ -85,7 +85,7 @@ fn boxed(width: i32) -> Vec<u8> {
     body
 }
 
-fn empty(width: i32) -> Vec<u8> {
+pub(super) fn empty(width: i32) -> Vec<u8> {
     let mut body = number(0);
     body.extend(number(width));
     body.extend([HSBW, ENDCHAR]);
@@ -100,7 +100,7 @@ fn asked(draws: GivenOutline, name: Option<&str>, advance: i64) -> GlyphToGive {
     }
 }
 
-fn index_of(program: &Program, name: &str) -> u16 {
+pub(super) fn index_of(program: &Program, name: &str) -> u16 {
     let at = program
         .glyph_names()
         .iter()
