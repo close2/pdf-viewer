@@ -1,114 +1,114 @@
 # This machine's clock bands, written by tools/bands.sh retake (ADR 2662).
 machine = "processor=AMD EPYC 7301 16-Core Processor; processors=32; device=AMD Radeon RX 580 Series (RADV POLARIS10) (DiscreteGpu, Vulkan)"
-# ADR 1969's rule over 3 kept reading(s): 1.989, 2.01, 1.997
+# ADR 1969's rule over 6 kept reading(s): 1.989, 2.01, 1.997, 1.996, 1.991, 1.989
 calibration_ms = 1.69 .. 2.42
 
 [[page]]
 path = "doc/ISO_32000-2_sponsored_EC3.pdf"
 page = 101
-# ADR 1969's rule over 3 kept reading(s): 26.04, 28.26, 26.62
-turn_ms = 22.1 .. 34.0
-# ADR 1969's rule over 3 kept reading(s): 26.3, 27.03, 27.44
-seventh_ms = 22.3 .. 33.0
-# ADR 1969's rule over 3 kept reading(s): 4.32, 4.29, 4.38
-step_ms = 3.64 .. 5.26
+# ADR 1969's rule over 6 kept reading(s): 26.04, 28.26, 26.62, 25.05, 24.97, 26.33
+turn_ms = 21.2 .. 34.0
+# ADR 1969's rule over 6 kept reading(s): 26.3, 27.03, 27.44, 25.31, 24.48, 26.29
+seventh_ms = 20.8 .. 33.0
+# ADR 1969's rule over 6 kept reading(s): 4.32, 4.29, 4.38, 4.26, 4.37, 4.39
+step_ms = 3.62 .. 5.27
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/personwithdog.pdf"
 page = 1
-# ADR 1969's rule over 3 kept reading(s): 32.36, 31.54, 29.1
-turn_ms = 24.7 .. 38.9
-# ADR 1969's rule over 3 kept reading(s): 29.57, 29.65, 29.78
-seventh_ms = 25.1 .. 35.8
-# ADR 1969's rule over 3 kept reading(s): 37.49, 38.04, 36.96
-step_ms = 31.4 .. 45.7
+# ADR 1969's rule over 6 kept reading(s): 32.36, 31.54, 29.1, 28.33, 29.88, 29.18
+turn_ms = 24.0 .. 38.9
+# ADR 1969's rule over 6 kept reading(s): 29.57, 29.65, 29.78, 26.97, 27.3, 27.69
+seventh_ms = 22.9 .. 35.8
+# ADR 1969's rule over 6 kept reading(s): 37.49, 38.04, 36.96, 34.24, 35.02, 36.7
+step_ms = 29.1 .. 45.7
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/issue12841_reduced.pdf"
 page = 1
-# ADR 1969's rule over 3 kept reading(s): 123.55, 126.98, 122.66
-turn_ms = 104.2 .. 152.4
-# ADR 1969's rule over 3 kept reading(s): 121.11, 127.38, 121.53
-seventh_ms = 102.9 .. 152.9
-# ADR 1969's rule over 3 kept reading(s): 7.81, 9.16, 7.68
+# ADR 1969's rule over 6 kept reading(s): 123.55, 126.98, 122.66, 91.9, 93.06, 98.93
+turn_ms = 78.1 .. 152.4
+# ADR 1969's rule over 6 kept reading(s): 121.11, 127.38, 121.53, 91.33, 92.62, 97.74
+seventh_ms = 77.6 .. 152.9
+# ADR 1969's rule over 6 kept reading(s): 7.81, 9.16, 7.68, 8.02, 8.19, 8.09
 step_ms = 6.52 .. 11.0
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/22060_A1_01_Plans.pdf"
 page = 1
-# ADR 1969's rule over 3 kept reading(s): 174.07, 180.25, 175.46
-turn_ms = 147.9 .. 216.3
-# ADR 1969's rule over 3 kept reading(s): 169.35, 180.13, 176.33
-seventh_ms = 143.9 .. 216.2
-# ADR 1969's rule over 3 kept reading(s): 39.26, 42.41, 39.49
-step_ms = 33.3 .. 50.9
+# ADR 1969's rule over 6 kept reading(s): 174.07, 180.25, 175.46, 134.96, 132.53, 124.26
+turn_ms = 105.6 .. 216.3
+# ADR 1969's rule over 6 kept reading(s): 169.35, 180.13, 176.33, 130, 132.35, 132.79
+seventh_ms = 110.5 .. 216.2
+# ADR 1969's rule over 6 kept reading(s): 39.26, 42.41, 39.49, 33.37, 32.99, 37.51
+step_ms = 28.0 .. 50.9
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/issue13931.pdf"
 page = 1
-# ADR 1969's rule over 3 kept reading(s): 104.11, 100.88, 102.52
-turn_ms = 85.7 .. 125.0
-# ADR 1969's rule over 3 kept reading(s): 105.07, 99.91, 104.25
-seventh_ms = 84.9 .. 126.1
-# ADR 1969's rule over 3 kept reading(s): 12.97, 13.71, 13.02
-step_ms = 11.0 .. 16.5
+# ADR 1969's rule over 6 kept reading(s): 104.11, 100.88, 102.52, 72.16, 67.53, 68.84
+turn_ms = 57.4 .. 125.0
+# ADR 1969's rule over 6 kept reading(s): 105.07, 99.91, 104.25, 71.72, 66.61, 69.89
+seventh_ms = 56.6 .. 126.1
+# ADR 1969's rule over 6 kept reading(s): 12.97, 13.71, 13.02, 12.06, 11.46, 11.91
+step_ms = 9.74 .. 16.5
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/images.pdf"
 page = 1
-# ADR 1969's rule over 3 kept reading(s): 131.22, 133.32, 130.35
-turn_ms = 110.7 .. 160.0
-# ADR 1969's rule over 3 kept reading(s): 131.44, 130.93, 130.68
-seventh_ms = 111.0 .. 157.8
-# ADR 1969's rule over 3 kept reading(s): 31.25, 31.27, 30.35
-step_ms = 25.7 .. 37.6
+# ADR 1969's rule over 6 kept reading(s): 131.22, 133.32, 130.35, 107.37, 113.62, 110.6
+turn_ms = 91.2 .. 160.0
+# ADR 1969's rule over 6 kept reading(s): 131.44, 130.93, 130.68, 105.75, 113.1, 110.59
+seventh_ms = 89.8 .. 157.8
+# ADR 1969's rule over 6 kept reading(s): 31.25, 31.27, 30.35, 28.05, 30.32, 28.6
+step_ms = 23.8 .. 37.6
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/issue14415.pdf"
 page = 1
-# ADR 1969's rule over 3 kept reading(s): 31.85, 34.12, 32.24
-turn_ms = 27.0 .. 41.0
-# ADR 1969's rule over 3 kept reading(s): 30.62, 31.12, 31.56
-seventh_ms = 26.0 .. 37.9
-# ADR 1969's rule over 3 kept reading(s): 13.19, 14.66, 13.86
-step_ms = 11.2 .. 17.6
+# ADR 1969's rule over 6 kept reading(s): 31.85, 34.12, 32.24, 30.89, 31.41, 30.77
+turn_ms = 26.1 .. 41.0
+# ADR 1969's rule over 6 kept reading(s): 30.62, 31.12, 31.56, 28.95, 30.09, 29.52
+seventh_ms = 24.6 .. 37.9
+# ADR 1969's rule over 6 kept reading(s): 13.19, 14.66, 13.86, 12.64, 13.11, 13.01
+step_ms = 10.7 .. 17.6
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/issue19802.pdf"
 page = 1
-# ADR 1969's rule over 3 kept reading(s): 17.8, 18.52, 16.65
-turn_ms = 14.1 .. 22.3
-# ADR 1969's rule over 3 kept reading(s): 16.75, 16.44, 16.02
-seventh_ms = 13.6 .. 20.1
-# ADR 1969's rule over 3 kept reading(s): 3.88, 3.97, 3.77
+# ADR 1969's rule over 6 kept reading(s): 17.8, 18.52, 16.65, 16.29, 16.4, 16.65
+turn_ms = 13.8 .. 22.3
+# ADR 1969's rule over 6 kept reading(s): 16.75, 16.44, 16.02, 15.65, 15.27, 16.03
+seventh_ms = 12.9 .. 20.1
+# ADR 1969's rule over 6 kept reading(s): 3.88, 3.97, 3.77, 3.82, 3.78, 3.83
 step_ms = 3.20 .. 4.77
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/ContentStreamNoCycleType3insideType3.pdf"
 page = 1
-# ADR 1969's rule over 3 kept reading(s): 26.84, 27.45, 26.09
-turn_ms = 22.1 .. 33.0
-# ADR 1969's rule over 3 kept reading(s): 25.8, 24.81, 24.58
-seventh_ms = 20.8 .. 31.0
-# ADR 1969's rule over 3 kept reading(s): 28.63, 29.21, 28.56
-step_ms = 24.2 .. 35.1
+# ADR 1969's rule over 6 kept reading(s): 26.84, 27.45, 26.09, 23.94, 24.41, 26.12
+turn_ms = 20.3 .. 33.0
+# ADR 1969's rule over 6 kept reading(s): 25.8, 24.81, 24.58, 23.06, 23.21, 23.1
+seventh_ms = 19.6 .. 31.0
+# ADR 1969's rule over 6 kept reading(s): 28.63, 29.21, 28.56, 27.28, 26.54, 27.33
+step_ms = 22.5 .. 35.1
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/bug1743245.pdf"
 page = 1
-# ADR 1969's rule over 3 kept reading(s): 44.01, 43.08, 45.47
-turn_ms = 36.6 .. 54.6
-# ADR 1969's rule over 3 kept reading(s): 43.52, 44.05, 45.45
-seventh_ms = 36.9 .. 54.6
-# ADR 1969's rule over 3 kept reading(s): 32.4, 31.56, 31.73
-step_ms = 26.8 .. 38.9
+# ADR 1969's rule over 6 kept reading(s): 44.01, 43.08, 45.47, 39.38, 37.84, 38.94
+turn_ms = 32.1 .. 54.6
+# ADR 1969's rule over 6 kept reading(s): 43.52, 44.05, 45.45, 38.4, 37.05, 37.66
+seventh_ms = 31.4 .. 54.6
+# ADR 1969's rule over 6 kept reading(s): 32.4, 31.56, 31.73, 28.02, 27.98, 27.19
+step_ms = 23.1 .. 38.9
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/bug1721218_reduced.pdf"
 page = 1
-# ADR 1969's rule over 3 kept reading(s): 538.86, 549.52, 591.6
-turn_ms = 458.0 .. 710.0
-# ADR 1969's rule over 3 kept reading(s): 593.81, 547.31, 567.19
-seventh_ms = 465.2 .. 712.6
-# ADR 1969's rule over 3 kept reading(s): 363.02, 376.46, 388.17
-step_ms = 308.5 .. 465.9
+# ADR 1969's rule over 6 kept reading(s): 538.86, 549.52, 591.6, 600.24, 595.62, 639.97
+turn_ms = 458.0 .. 768.0
+# ADR 1969's rule over 6 kept reading(s): 593.81, 547.31, 567.19, 609.91, 573.91, 634.86
+seventh_ms = 465.2 .. 761.9
+# ADR 1969's rule over 6 kept reading(s): 363.02, 376.46, 388.17, 405.06, 400.81, 445.62
+step_ms = 308.5 .. 534.8
