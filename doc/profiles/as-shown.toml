@@ -175,6 +175,17 @@ remedy = "discard"
 [site."graphics/image-interpolation-is-off"]
 remedy = "discard"
 
+# A stream whose filter is neither one of ISO 32000-2 7.4's nor an abbreviation Table 92 gives one
+# (R07, ADR 2490): no reader of the standard decodes it (7.4, ADR 2679), so the window drew without it.
+# What this viewer drew without it is written: an image or a form as a form that draws nothing, a
+# page's content stream as one holding no operator, a font program left out so the font takes the
+# routes every font with no program takes, and an object or cross-reference stream not written. A
+# stream of any other role, and an image another names as its mask, stays refused (ADR 2689).
+# The loss `undecodable-stream`, each stream named by its role, its filters and its length in the
+# report and in xmpMM:History.
+[site."file-structure/stream-filters-are-standard"]
+remedy = "discard"
+
 # A content stream run such as 33600.272.58 is one token (ISO 32000-2 7.2.3) and no number (7.3.3,
 # one period), so it is the operator ISO 19005-2 section 6.2.2 forbids; the window draws the number
 # it reads off the run's front (ADR 1004). Where every such operator is a run of that kind, the

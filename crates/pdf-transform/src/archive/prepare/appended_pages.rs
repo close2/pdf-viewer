@@ -877,7 +877,10 @@ fn statement_of(
 /// The filters a stream's dictionary states, in their written form and in order (ISO 32000-2
 /// Table 5's `Filter`, a name or an array of names); an entry that is neither is written as the
 /// statement page's fixed words for it rather than read as no filter.
-fn filters_stated(document: &Document, dict: &pdf_syntax::object::Dictionary) -> Vec<String> {
+pub(in crate::archive) fn filters_stated(
+    document: &Document,
+    dict: &pdf_syntax::object::Dictionary,
+) -> Vec<String> {
     let written = |object: &Object| {
         document.resolve(object).as_name().map_or_else(
             || "an entry that is not a name".to_owned(),

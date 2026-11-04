@@ -533,11 +533,24 @@ pub enum Loss {
     /// (`doc/adr/2638`). It is answered ahead of the photograph, which the same profiles take for a
     /// page whose fault this does not reach.
     ContentAsDrawn,
+    /// ISO 19005-2 section 6.1.7.2 and ISO 19005-4 section 6.1.6.2: a stream whose `/Filter`
+    /// names a filter that is neither one of ISO 32000-2 §7.4's standard filters nor an
+    /// abbreviation Table 92 gives one is written as this reader treated it — absent.
+    ///
+    /// §7.4 makes the filters a stream states the only route to its data (`doc/adr/2679`), so a
+    /// filter this reader does not have leaves the data unread, and the window drew the page
+    /// without it. An image or a form is written as a form that draws nothing, a page's content
+    /// stream as one holding no operator, a font program is left out so the font is one with no
+    /// program, and an object or cross-reference stream is not written, as the archive writes
+    /// its own. The bytes are lost; the report, `xmpMM:History` and, where the profile asks, the
+    /// statement page name each stream with its role, its filters and its length
+    /// (`doc/adr/2689`).
+    UndecodableStream,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 34] = [
+    pub const ALL: [Self; 35] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::MetadataPacket,
@@ -572,6 +585,7 @@ impl Loss {
         Self::OptionalContentOfPhotographedPages,
         Self::PageNotHeld,
         Self::ContentAsDrawn,
+        Self::UndecodableStream,
     ];
 
     /// The word a caller authorises it by.
@@ -612,6 +626,7 @@ impl Loss {
             Self::OptionalContentOfPhotographedPages => "optional-content-of-photographed-pages",
             Self::PageNotHeld => "page-not-held",
             Self::ContentAsDrawn => "content-as-drawn",
+            Self::UndecodableStream => "undecodable-stream",
         }
     }
 
@@ -879,6 +894,13 @@ impl Loss {
                  draws as the window drew it and keeps its text; the characters after the number \
                  are gone, and the report names each run with the number written"
             }
+            Self::UndecodableStream => {
+                "a stream whose filter is one no reader of the standard decodes is written as \
+                 this viewer drew it, absent: an image or a form draws nothing, a content stream \
+                 holds no operator, a font program is left out and the font is drawn as one with \
+                 no program; the stream's bytes are gone, and the report names each stream with \
+                 its role, the filters it states and its length"
+            }
         }
     }
 
@@ -1044,6 +1066,8 @@ pub struct Authorisations {
     pub page_not_held_stated: bool,
     /// Whether [`Loss::ContentAsDrawn`] was authorised.
     pub content_as_drawn: bool,
+    /// Whether [`Loss::UndecodableStream`] was authorised.
+    pub undecodable_stream: bool,
 }
 
 impl Authorisations {
@@ -1085,6 +1109,7 @@ impl Authorisations {
             Loss::OptionalContentOfPhotographedPages => self.optional_content_of_photographed_pages,
             Loss::PageNotHeld => self.page_not_held,
             Loss::ContentAsDrawn => self.content_as_drawn,
+            Loss::UndecodableStream => self.undecodable_stream,
         }
     }
 
@@ -1133,6 +1158,7 @@ impl Authorisations {
             }
             Loss::PageNotHeld => self.page_not_held = true,
             Loss::ContentAsDrawn => self.content_as_drawn = true,
+            Loss::UndecodableStream => self.undecodable_stream = true,
         }
     }
 }
@@ -2092,6 +2118,12 @@ fn answer_of(answer: Answer, authorised: Authorisations, prepared: &Prepared) ->
         // of it. `Prepared::obstacle` is where that question is asked, once.
         Answer::Mechanical(Rewrite::RunWrittenAsDrawn) => {
             content_stream_fences::run_written_as_drawn(authorised, prepared)
+        }
+        // A filter name that is no abbreviation is the loss `undecodable-stream` (`doc/adr/2689`).
+        Answer::Stated(_, Rewrite::FilterNamesSpelledOut, _)
+            if prepared.undecodable().is_some() =>
+        {
+            answer_of(files_and_structure::WRITTEN_ABSENT, authorised, prepared)
         }
         Answer::Mechanical(rewrite) => prepared
             .obstacle(rewrite)

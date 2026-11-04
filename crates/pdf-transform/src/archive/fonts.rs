@@ -1622,9 +1622,15 @@ fn needs_a_program(document: &Document, dict: &Dictionary) -> bool {
     // treated the same as if the entry does not exist", and §7.3.10 puts a dangling reference in
     // the same place. So `/FontFile3 19 0 R` where object 19 is null embeds no program, and this
     // is the corpus's `6-2-11-4-1-t01-fail-a` exactly.
-    ["FontFile", "FontFile2", "FontFile3"]
-        .iter()
-        .all(|key| document.get_key(&descriptor, key).is_null())
+    //
+    // A program under a filter no reader of the standard decodes was never read, and the archive
+    // leaves it out under `undecodable-stream` (`super::undecodable`, `doc/adr/2689`), so it is
+    // no program here either. Where that loss is not granted the filter row refuses the document.
+    ["FontFile", "FontFile2", "FontFile3"].iter().all(|key| {
+        let program = descriptor.get(key).cloned().unwrap_or(Object::Null);
+        document.resolve(&program).is_null()
+            || super::undecodable::decodes_through_no_known_filter(document, &program)
+    })
 }
 
 // One row of §9.9's Table 124 — a descriptor key, and the stream `/Subtype` that goes with it —

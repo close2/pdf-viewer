@@ -79,8 +79,9 @@ pub(super) const REMEDIES: &[Remedy] = &[
         answer: Answer::Mechanical(Rewrite::FlateInsteadOfLzw),
     },
     // The same two subclauses' first sentence, at the names this tree's decoder reads: a filter
-    // named by its inline-image abbreviation. Any other name is refused by `super::super::sites`, with
-    // the sentence that says this tree does not decode it (`doc/adr/1952`).
+    // named by its inline-image abbreviation (`doc/adr/1952`). Any other name is the loss
+    // `undecodable-stream`, which `CONDITIONAL` names and `super::answer_of` routes to
+    // (`super::super::undecodable`, `doc/adr/2689`).
     Remedy {
         requirement: "file-structure/stream-filters-are-standard",
         answer: Answer::Stated(
@@ -186,6 +187,13 @@ pub(super) const REMEDIES: &[Remedy] = &[
     },
 ];
 
+/// ISO 19005-2 section 6.1.7.2, ISO 19005-4 section 6.1.6.2: the filter row's answer where a name
+/// is no abbreviation, so that a stream no reader decodes is left, written as this reader drew it,
+/// absent; refused by its reason where a stream's role is undecided (`super::super::undecodable`,
+/// `doc/adr/2689`).
+pub(super) const WRITTEN_ABSENT: Answer =
+    Answer::Loses(Loss::UndecodableStream, Rewrite::UndecodableStreamRemoved);
+
 /// This family's rows of [`super::CONDITIONAL`].
 pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[
     (
@@ -195,6 +203,13 @@ pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[
     (
         "implementation-limits/page-boundary-sizes",
         Conditional::PerDocument(Losses::one(Loss::PageBoundary)),
+    ),
+    // An abbreviation is spelled out and loses nothing; a name that is no abbreviation leaves a
+    // stream no reader of the standard decodes, written as this reader drew it, absent, at the
+    // loss `undecodable-stream` (ADR 2490's R07, `doc/adr/2689`).
+    (
+        "file-structure/stream-filters-are-standard",
+        Conditional::PerDocument(Losses::one(Loss::UndecodableStream)),
     ),
 ];
 
@@ -314,11 +329,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "implementation-limits/values-written-in-content-streams",
         Because::NotThisTarget(IMPLEMENTATION_LIMITS),
     ),
-    // ISO 19005-2 section 6.1.7.2, ISO 19005-4 section 6.1.6.2.
-    (
-        "file-structure/stream-filters-are-standard",
-        Because::NotBuiltYet(NON_STANDARD_FILTER_NOT_BUILT),
-    ),
     // ISO 19005-2 section 6.9, ISO 19005-4 section 6.10: the one of section 3.8's three rules
     // still refused. The `/Order` rule and the `/AS` rule are both rows of `REMEDIES`.
     (
@@ -394,15 +404,6 @@ const INFORMATION_MOVES_INTO_THE_PACKET: &str = "the document information dictio
      packet's value stands and the dictionary's is dropped, which is §14.3.4's instruction to \
      leave inconsistent values unchanged; a key Table 349 names no counterpart for is the \
      `unmapped` answer's. What a reader sees change is where File → Properties reads from";
-
-/// Why a stream in a filter this tree cannot decode is refused.
-const NON_STANDARD_FILTER_NOT_BUILT: &str = "this stream names a filter outside the set the base \
-     standard defines, so no conforming reader can decode it and this program cannot either. \
-     Re-encoding needs the decoded bytes, which needs a decoder nobody specifies; what is left \
-     is dropping the stream, which is doc/pdf-a-conversion-limits.md section 3's kind of loss \
-     and is not offered. Where nothing draws the stream, ISO 19005-2 section 6.2.2's exemption \
-     for an unreferenced named resource would free it, and this tree does not yet state that \
-     exemption — doc/todo/62";
 
 /// Why a configuration's `/Name` is not written.
 ///

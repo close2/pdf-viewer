@@ -1105,8 +1105,12 @@ pub enum Rewrite {
     /// The standard says nothing of what a reader does with one in a stream, and this reader's
     /// decoder takes each as the filter Table 92 names — so the page a person saw was drawn
     /// through that filter, and writing the name out in full states the reading it was drawn by
-    /// (`doc/adr/1952`). A name that is no abbreviation is refused by `super::sites`.
+    /// (`doc/adr/1952`). A name that is no abbreviation is [`Self::UndecodableStreamRemoved`]'s.
     FilterNamesSpelledOut,
+    /// Every stream naming a filter that is neither standard nor an abbreviation written as this
+    /// reader treated it, absent, by its role (`super::undecodable`, `doc/adr/2689`); any
+    /// abbreviation in the same file is spelled out as [`Self::FilterNamesSpelledOut`] does.
+    UndecodableStreamRemoved,
     /// A font program filed under the key, and for a `/FontFile3` the `/Subtype`, of the format its
     /// bytes are in.
     ///
@@ -1648,6 +1652,12 @@ impl Rewrite {
                 "a stream naming a filter by the abbreviation ISO 32000-2 \u{a7}8.9.7's Table 92 \
                  gives it for inline images states the filter's full name, its bytes untouched"
             }
+            Self::UndecodableStreamRemoved => {
+                "a stream naming a filter no reader of the standard decodes is written as this \
+                 viewer drew it, absent: an image or a form as a form drawing nothing, a content \
+                 stream as one holding no operator, a font program left out, and an object or \
+                 cross-reference stream not written"
+            }
             Self::ConfigurationNamed => {
                 "an optional content configuration stating no Name is given the one the \
                  operator's name-template makes, numbered past every name the file already uses"
@@ -1839,6 +1849,7 @@ impl Rewrite {
             Self::ShippedCMapEmbedded => "shipped-cmap-embedded",
             Self::WriteModeAgreed => "write-mode-agreed",
             Self::FilterNamesSpelledOut => "filter-names-spelled-out",
+            Self::UndecodableStreamRemoved => "undecodable-stream-removed",
             Self::FontProgramRefiled => "font-program-refiled",
             Self::ConfigurationNamed => "configuration-named",
             Self::IdentityTransferFunctionRemoved => "identity-transfer-function-removed",
@@ -1932,6 +1943,12 @@ pub(super) fn convert(
 impl<'a> Rewriter<'a> {
     /// The rewriter for one conversion: what was wanted, and each preparation's result where it
     /// succeeded.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one field per preparation the rewrite reads, set straight down from the \
+                  preparation it comes from; split, the one place a reader sees which result \
+                  feeds which field would become several"
+    )]
     fn of(
         document: &'a Document,
         target: Target,
@@ -2010,6 +2027,7 @@ impl<'a> Rewriter<'a> {
             parent_tree: prepared.parent_tree.as_ref().ok(),
             form_resources: prepared.owed.form_resources.as_ref().ok(),
             defined_resources: prepared.owed.defined_resources.as_ref().ok(),
+            undecodable: prepared.undecodable(),
             page_counts: prepared
                 .owed
                 .page_counts
@@ -2262,6 +2280,12 @@ fn enter(
         replaced.push((id, rewriter.define_in_added(id, added.clone(), applied)));
         queue.push_back(id);
         return Ok(Some(placed));
+    }
+    // A font program no reader decodes is left out rather than written, so that every reference
+    // to it is §7.3.10's null and the descriptor holds no program (`doc/adr/2689`).
+    if rewriter.leaves_out(id) {
+        count(applied, Rewrite::UndecodableStreamRemoved);
+        return Ok(None);
     }
     let value = rewriter.document.get(id);
     if value == Object::Null {
@@ -2953,6 +2977,9 @@ struct Rewriter<'a> {
     form_resources: Option<&'a ReaderResources>,
     /// The empty resources that define the names nothing defined.
     defined_resources: Option<&'a ReaderResources>,
+    /// The streams no reader of the standard decodes, written absent by their role
+    /// (`super::undecodable`, `doc/adr/2689`).
+    undecodable: Option<&'a super::undecodable::Undecodable>,
     /// The `/Count` each page tree node whose own is no integer states (`doc/adr/2456`).
     page_counts: Option<&'a BTreeMap<ObjectId, i64>>,
     /// The subset descriptions removed from each font descriptor.
@@ -3444,6 +3471,47 @@ impl Rewriter<'_> {
         self.wanted.contains(&rewrite)
     }
 
+    /// Whether the stream at `id` is one no reader decodes that the archive does not write: a
+    /// font program, an object stream or a cross-reference stream (`super::undecodable::Role`).
+    fn leaves_out(&self, id: ObjectId) -> bool {
+        use super::undecodable::Role;
+        self.wants(Rewrite::UndecodableStreamRemoved)
+            && self
+                .undecodable
+                .and_then(|found| found.at(id))
+                .is_some_and(|stream| {
+                    matches!(
+                        stream.role,
+                        Role::FontProgram | Role::ObjectStream | Role::CrossReference
+                    )
+                })
+    }
+
+    /// What the archive writes in place of a stream no reader decodes that it does write: a
+    /// form drawing nothing for an image or a form, and a content stream holding no operator.
+    fn written_absent(&self, id: ObjectId, stream: &Stream) -> Option<Object> {
+        use super::undecodable::Role;
+        if !self.wants(Rewrite::UndecodableStreamRemoved) {
+            return None;
+        }
+        match self.undecodable?.at(id)?.role {
+            Role::Image | Role::Form => Some(streams::drawing_nothing()),
+            Role::Content => {
+                let mut dict = stream.dict.clone();
+                for key in ["Filter", "DecodeParms", "DL"] {
+                    dict.remove(key);
+                }
+                dict.insert(Name::new(&b"Length"[..]), Object::Integer(0));
+                Some(Object::Stream(std::sync::Arc::new(Stream {
+                    dict,
+                    data: Vec::new().into(),
+                    decryption_failed: false,
+                })))
+            }
+            Role::FontProgram | Role::ObjectStream | Role::CrossReference => None,
+        }
+    }
+
     /// Whether the document's XMP packet is being written.
     ///
     /// Eight rewrites reach it and each for its own reason: the identification schema is the
@@ -3467,6 +3535,7 @@ impl Rewriter<'_> {
             || self.wants(Rewrite::ExtensionFieldDescribed)
             || self.wants(Rewrite::InformationMovedIntoThePacket)
             || self.wants(Rewrite::InterpolationOff)
+            || self.wants(Rewrite::UndecodableStreamRemoved)
             || self.wants(Rewrite::TrueTypeCmapRestated)
             || self.wants(Rewrite::NotdefGlyphGiven)
             // A face embedded for a font the file never carried, and a photographed page

@@ -30,6 +30,12 @@ impl Rewriter<'_> {
         // object at all. So a form with no content draws on every page exactly what it drew —
         // nothing — and, written at the same object, keeps every resource entry naming it
         // defined, which a `Do` the producer wrote needs (`doc/adr/2115`).
+        // A stream whose filter no reader of the standard decodes drew nothing, and is written
+        // as what it drew at the same object, so every name for it stays defined (`doc/adr/2689`).
+        if let Some(absent) = self.written_absent(id, stream) {
+            count(applied, Rewrite::UndecodableStreamRemoved);
+            return Rewritten::Changed(absent);
+        }
         if self.wants(Rewrite::PostScriptXObject) && self.subtype_is(&stream.dict, b"PS") {
             count(applied, Rewrite::PostScriptXObject);
             return Rewritten::Changed(drawing_nothing());
@@ -302,7 +308,8 @@ impl Rewriter<'_> {
         }
         // Before the re-encoding, which carries whatever image codec follows the stages it
         // decodes under the name this has just written out.
-        if self.wants(Rewrite::FilterNamesSpelledOut)
+        if (self.wants(Rewrite::FilterNamesSpelledOut)
+            || self.wants(Rewrite::UndecodableStreamRemoved))
             && let Some(spelled) = filter_names_spelled_out(&dict)
         {
             dict = spelled;
@@ -455,7 +462,7 @@ impl Rewriter<'_> {
 
 /// The form `XObject` a PostScript `XObject` is written as: §8.10's form with an empty content
 /// stream and an empty `/BBox`, which paints nothing wherever a `Do` invokes it (`doc/adr/2115`).
-fn drawing_nothing() -> Object {
+pub(super) fn drawing_nothing() -> Object {
     let mut dict = Dictionary::new();
     dict.insert(
         Name::new(&b"Type"[..]),

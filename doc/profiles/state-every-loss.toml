@@ -204,6 +204,13 @@ try = ["append-statement", "discard"]
 [site."graphics/only-operators-the-base-standard-defines"]
 try = ["append-statement", "discard"]
 
+# A stream whose filter no reader of the standard decodes (R07, ADR 2490, ISO 32000-2 7.4) is
+# written as the window drew it, absent, the loss `undecodable-stream`; this version composes no
+# page at this site, so the first step is passed over with its sentence and the report and
+# xmpMM:History name each stream by its role, its filters and its length (ADR 2689).
+[site."file-structure/stream-filters-are-standard"]
+try = ["append-statement", "discard"]
+
 [site."file-structure/no-external-stream-data"]
 remedy = "stop"
 

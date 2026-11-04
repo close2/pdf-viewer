@@ -184,6 +184,7 @@ mod to_unicode;
 mod toml;
 mod transcode;
 mod transfer;
+mod undecodable;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write as _;
@@ -236,6 +237,7 @@ pub use rewrite::Rewrite;
 pub use signatures::{Reached, SourceSignature};
 pub use transcode::TranscodedImage;
 pub use transfer::RemovedTransferFunction;
+pub use undecodable::{Role as UndecodableRole, UndecodableStream};
 
 pub use external::{ExternalData, ExternalStream, external_stream_data};
 
@@ -791,6 +793,7 @@ fn conversion_before_deciding(
         removed_actions: Vec::new(),
         removed_boundaries: Vec::new(),
         runs_written_as_drawn: Vec::new(),
+        undecodable_streams: Vec::new(),
         removed_transfer_functions: Vec::new(),
         shown_annotations: Vec::new(),
         embedded_cmaps: Vec::new(),
@@ -1760,6 +1763,13 @@ fn apply_the_decisions(
         && let Ok(drawn) = &prepared.as_drawn
     {
         conversion.runs_written_as_drawn.clone_from(&drawn.runs);
+    }
+    // `doc/adr/2689`: a stream written absent is named with its role, its filters and its length,
+    // because its bytes are what went.
+    if wanted.contains(&Rewrite::UndecodableStreamRemoved)
+        && let Some(found) = prepared.undecodable()
+    {
+        conversion.undecodable_streams.clone_from(&found.streams);
     }
     // `doc/adr/1964`: a removed transfer function leaves nothing on the page to notice, so each
     // graphics state it went from is named with what it said — the same statement the output's

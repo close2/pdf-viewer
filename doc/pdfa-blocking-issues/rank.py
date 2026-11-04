@@ -135,7 +135,7 @@ STATUS = {
     "R04-absent-resource": ("builds only", "built: ADRs 2500, 2522, 2523; left, a Type 3 glyph procedure's resources and a font that moved"),
     "R05-press": ("builds only", "A694 item 2: (a) built; (b), `as-shown`'s assumed press, waits for an ICC table writer"),
     "R06b-the-other-part": ("built", "ADR 2498: the two-target request; the figures are what a one-part request refuses"),
-    "R07-undecodable-stream": ("builds only", "decided by ADR 2490, unbuilt"),
+    "R07-undecodable-stream": ("builds only", "built: ADR 2689; left, an ICC profile written as its alternate, and the seven `UnknownFilter` files' `%PDF-3.x` header"),
     "R08-unembedded-font-photograph": ("builds only", "built under `as-if-printed`: A694, ADR 2516; `as-shown` keeps its stop (A694 item 1)"),
     "R08b-cjk-pack": ("built", "ADR 2460: the census runs with the pack"),
     "R09-as-shown-font-losses": ("builds only", "`as-shown` only; ADR 2490: (c) decided, (a) and (b) builds"),

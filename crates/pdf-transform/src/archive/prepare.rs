@@ -41,6 +41,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 mod annotations_and_attachments;
 mod appended_pages;
+pub(super) use appended_pages::filters_stated;
 mod colour_and_graphics;
 mod files_and_structure;
 mod font_rewrites;
@@ -511,6 +512,16 @@ pub(super) struct Provenance<'a> {
 }
 
 impl Prepared {
+    /// The streams written absent under `undecodable-stream`, where the filter row's preparation
+    /// ran and found any (`doc/adr/2689`).
+    pub(super) fn undecodable(&self) -> Option<&super::undecodable::Undecodable> {
+        self.owed
+            .filter_names
+            .as_ref()
+            .ok()
+            .filter(|found| !found.streams.is_empty())
+    }
+
     /// Works out what can be built for this document, and only what a failed requirement asks for.
     #[expect(
         clippy::too_many_lines,
@@ -1183,6 +1194,15 @@ impl Prepared {
                 .map_or("", |judgement| judgement.citation.as_str());
             super::as_drawn::history(drawn, citation)
         });
+        // The streams no reader decodes, each named in the same history before it is written
+        // absent, a condition of the rewrite as smoothing's entry is of its own (`doc/adr/2689`).
+        let undecodable = asked(wanted(Rewrite::FilterNamesSpelledOut), || {
+            super::undecodable::survey(document, input)
+        });
+        let undecodable_history = undecodable
+            .as_ref()
+            .ok()
+            .and_then(super::undecodable::Undecodable::history);
         // The source's header, where it named no version: the output's header states the target's,
         // and the record of what the producer wrote there is a condition of writing it
         // (`doc/adr/2558`). Read off the source, not a structure this program rebuilt from it.
@@ -1302,6 +1322,7 @@ impl Prepared {
                 transfers: transfer_history.as_deref(),
                 smoothing: smoothing_history.as_deref(),
                 as_drawn: as_drawn_history.as_deref(),
+                undecodable: undecodable_history.as_deref(),
                 header: header_history.as_deref(),
                 parent_tree: parent_tree_history.as_deref(),
                 cmap: cmap_history.as_deref(),
@@ -1339,6 +1360,12 @@ impl Prepared {
         let supplied_cmyk = unless_recorded(supplied_cmyk, recorded_it, cmyk_not_recorded);
         let substitutes =
             unless_recorded(substitutes, recorded_it, NO_PLACE_TO_RECORD_A_SUBSTITUTION);
+        let undecodable = match undecodable {
+            Ok(_) if undecodable_history.is_some() && !recorded_it => {
+                Err(Because::NotBuiltYet(super::undecodable::NO_PLACE_TO_RECORD))
+            }
+            undecodable => undecodable,
+        };
         // A page the fonts' preparation photographed no longer names the content stream it did,
         // so neither content-stream rewrite writes into a stream only such pages named: what is
         // left there is whatever else the file names it as (`doc/adr/2640`).
@@ -1506,6 +1533,7 @@ impl Prepared {
             form_resources,
             defined_resources,
             truetype,
+            undecodable,
         };
         Self {
             raised,
@@ -1623,7 +1651,9 @@ impl Prepared {
             Rewrite::CidToGidIdentity => self.owed.cid_to_gid.as_ref().err().copied(),
             Rewrite::FontTypeStated => self.owed.font_types.as_ref().err().copied(),
             Rewrite::FontProgramRefiled => self.owed.font_files.as_ref().err().copied(),
-            Rewrite::FilterNamesSpelledOut => self.owed.filter_names.as_ref().err().copied(),
+            Rewrite::FilterNamesSpelledOut | Rewrite::UndecodableStreamRemoved => {
+                self.owed.filter_names.as_ref().err().copied()
+            }
             Rewrite::HalftoneNameRemoved => self.owed.halftone_names.as_ref().err().copied(),
             Rewrite::HalftoneWrittenDefault => self.owed.halftone_defaults.as_ref().err().copied(),
             Rewrite::HalftonePhaseRemoved => self.owed.halftone_phases.as_ref().err().copied(),
@@ -1903,8 +1933,9 @@ pub(super) struct Owed {
     pub(super) specifications: Result<Specifications, Because>,
     /// The permissions dictionary's keys outside Table 263, or why none are removed.
     pub(super) foreign_handlers: Result<ForeignHandlers, Because>,
-    /// Whether every non-standard filter name is an abbreviation spelled out, or why not.
-    pub(super) filter_names: Result<(), Because>,
+    /// The streams under a filter that is no abbreviation, each written absent by its role,
+    /// or why one cannot be (`doc/adr/2689`); an abbreviation is spelled out either way.
+    pub(super) filter_names: Result<super::undecodable::Undecodable, Because>,
     /// The halftones whose `HalftoneName` goes, or why none do.
     pub(super) halftone_names: Result<Sites, Because>,
     /// The graphics states whose `HT` is written `Default`, or why none are (`doc/adr/2034`).
@@ -1970,6 +2001,7 @@ impl Owed {
             form_resources,
             defined_resources,
             truetype,
+            undecodable,
         } = already;
         let TrueTypeRoutes {
             symbolic_encodings,
@@ -2014,9 +2046,7 @@ impl Owed {
             font_files: asked(wanted(Rewrite::FontProgramRefiled), || {
                 super::font_files::refiled(document, input, spare)
             }),
-            filter_names: asked(wanted(Rewrite::FilterNamesSpelledOut), || {
-                sites::abbreviated_filters(input)
-            }),
+            filter_names: undecodable,
             halftone_names: asked(wanted(Rewrite::HalftoneNameRemoved), || {
                 super::halftones::removal(document, input)
             }),
@@ -2121,6 +2151,8 @@ pub(super) struct Already<'a> {
     /// The four TrueType preparations, made before the packet because the restated `cmap` is
     /// recorded in it.
     truetype: TrueTypeRoutes,
+    /// The streams written absent, made before the packet that records them.
+    undecodable: Result<super::undecodable::Undecodable, Because>,
 }
 
 /// The preparations that put a rendered TrueType font's codes on §9.6.5.4's route.

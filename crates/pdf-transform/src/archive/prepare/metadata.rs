@@ -1598,6 +1598,8 @@ pub(super) struct Recording<'a> {
     pub(super) smoothing: Option<&'a str>,
     /// Which runs were written as the number this reader draws, where any were (`doc/adr/2638`).
     pub(super) as_drawn: Option<&'a str>,
+    /// Which streams no reader decodes were written absent, where any were (`doc/adr/2689`).
+    pub(super) undecodable: Option<&'a str>,
     /// What the source's header was, where it stated no version (`doc/adr/2558`).
     pub(super) header: Option<&'a str>,
     /// Which TrueType fonts had their program's `cmap` restated, where any did (`doc/adr/2520`).
@@ -1721,7 +1723,7 @@ fn recorded_events<'a>(recording: &Recording<'a>) -> Vec<xmp::Event<'a>> {
         return Vec::new();
     };
     let non_empty = |text: &'a str| (!text.is_empty()).then_some(text);
-    let actions: [(&'a str, Option<&'a str>); 19] = [
+    let actions: [(&'a str, Option<&'a str>); 20] = [
         (DEFAULT_CMYK_ACTION, recording.default_cmyk),
         (REMOVED_PROPERTIES_ACTION, non_empty(recording.removals)),
         (REMOVED_PROPERTIES_ACTION, non_empty(recording.discards)),
@@ -1738,6 +1740,7 @@ fn recorded_events<'a>(recording: &Recording<'a>) -> Vec<xmp::Event<'a>> {
         (TRANSFER_REMOVED_ACTION, recording.transfers),
         (SMOOTHING_OFF_ACTION, recording.smoothing),
         (SMOOTHING_OFF_ACTION, recording.as_drawn),
+        (SMOOTHING_OFF_ACTION, recording.undecodable),
         (HEADER_ACTION, recording.header),
         (CMAP_RESTATED_ACTION, recording.cmap),
         (PARENT_TREE_REBUILT_ACTION, recording.parent_tree),

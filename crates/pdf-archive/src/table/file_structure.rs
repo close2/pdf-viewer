@@ -859,6 +859,16 @@ const STANDARD_FILTERS: &[&str] = &[
     "Crypt",
 ];
 
+/// Whether `name` is one of the filters ISO 19005-2 section 6.1.7.2 and ISO 19005-4 section
+/// 6.1.6.2 admit: ISO 32000-2 §7.4's standard filters, as the standard prints them.
+///
+/// The converter asks it of a font program's filters, to know which programs it writes absent
+/// before the validator's findings reach the font routes.
+#[must_use]
+pub fn is_standard_filter(name: &str) -> bool {
+    STANDARD_FILTERS.contains(&name)
+}
+
 /// Walks every stream the cross-reference table reaches.
 ///
 /// Bounded by that table rather than by a traversal of the page tree, and deliberately: both parts

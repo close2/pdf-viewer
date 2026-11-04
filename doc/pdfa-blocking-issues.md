@@ -2,7 +2,7 @@
 
 Status: **a census record**, taken at `7d6ed87f` on 2026-10-27 by session 1828 for the owner's
 `doc/questions/A681` item 1, and re-run by the commands in section 1. Section 1's census lines and
-section 2's table are session 1934's run, section 2 being `rank.py --table`'s output; the figures in
+section 2's table are session 1935's run, section 2 being `rank.py --table`'s output; the figures in
 sections 3 to 9 are session 1828's, each entry's built parts named where a round built them, and
 none is kept current by hand. ADR 2490 is the decision that reopens the blocks; this file
 is the list it reopens them over. It does not repeat `doc/pdf-a-conversion-limits.md` or
@@ -57,11 +57,11 @@ Two disagreements found outside it, to weigh in batch 132 (ADR 2652 section 2):
 
 | census line, with the pack | converted | conforming | refused | unreadable | declined as a source |
 |---|---|---|---|---|---|
-| pdf.js `as-if-printed` 2b | 899 | 2 | 59 | 11 | 5 |
+| pdf.js `as-if-printed` 2b | 900 | 2 | 58 | 11 | 5 |
 | corpora `as-if-printed` 2b | 426 | 6 | 52 | 16 | 3 |
 | pdf.js `as-if-printed` 4 | 910 | 0 | 50 | 11 | 5 |
 | corpora `as-if-printed` 4 | 435 | 0 | 50 | 16 | 2 |
-| pdf.js `as-shown` 2b | 834 | 2 | 124 | 11 | 5 |
+| pdf.js `as-shown` 2b | 835 | 2 | 123 | 11 | 5 |
 | corpora `as-shown` 2b | 344 | 6 | 133 | 16 | 4 |
 | pdf.js `as-shown` 4 | 839 | 0 | 121 | 11 | 5 |
 | corpora `as-shown` 4 | 341 | 0 | 142 | 16 | 4 |
@@ -103,25 +103,25 @@ column. R02 is built (ADR 2498) and no document reaches it.
 
 | order | remedy | frees at 2b | frees at 4 | stops under `as-shown`, 2b / 4 | what is left needs | built by, and what is left |
 |---|---|---|---|---|---|---|
-| 1 | R06b-the-other-part | 28 | 2 | 41 / 9 | built | ADR 2498: the two-target request; the figures are what a one-part request refuses |
+| 1 | R06b-the-other-part | 34 | 8 | 41 / 9 | built | ADR 2498: the two-target request; the figures are what a one-part request refuses |
 | 2 | R10-font-refiling | 10 | 10 | 13 / 13 | builds only | built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685), a standard font's stated widths (ADR 2686), a mode 3 font's descriptor (ADR 2688) |
-| 3 | R07-undecodable-stream | 8 | 7 | 8 / 8 | builds only | decided by ADR 2490, unbuilt |
-| 4 | R12-spot-colourant | 7 | 7 | 7 / 7 | builds only | decided by ADR 2490 for a PostScript calculator function; a sampled or exponential one is owner-blocked until its loss is named |
-| 5 | R03-photograph | 6 | 8 | 55 / 57 | builds only | built under `as-if-printed`: A694, ADRs 2516, 2618, 2638; left, a page this reader does not draw whole; `as-shown` keeps ADR 2394's gate (A694 item 1) |
-| 6 | R08-unembedded-font-photograph | 9 | 9 | 34 / 34 | builds only | built under `as-if-printed`: A694, ADR 2516; `as-shown` keeps its stop (A694 item 1) |
-| 7 | R11-truetype-route | 9 | 9 | 10 / 10 | builds only | built: A694 item 3, ADR 2520 |
-| 8 | R04-absent-resource | 6 | 6 | 6 / 6 | builds only | built: ADRs 2500, 2522, 2523; left, a Type 3 glyph procedure's resources and a font that moved |
-| 9 | R03a-notdef-named | 4 | 4 | 8 / 5 | builds only | built: ADRs 2543, 2556, 2602, 2620, 2650 |
-| 10 | R16-annotations-and-forms | 4 | 4 | 15 / 18 | builds only | named per site |
-| 11 | R17-press-statements | 4 | 4 | 0 / 0 | builds only | decided by ADR 2490, unbuilt |
-| 12 | R13-jpx-transcode | 3 | 3 | 3 / 3 | builds only | unbuilt |
-| 13 | R14-appended-page-composition | 3 | 3 | 3 / 3 | builds only | built: ADRs 2678, 2682 |
-| 14 | R01-recovered-structure | 1 | 1 | 3 / 3 | builds only | built: ADRs 2502, 2503, 2551, 2596, 2670; each left is refused by its own sentence |
+| 3 | R12-spot-colourant | 7 | 7 | 7 / 7 | builds only | decided by ADR 2490 for a PostScript calculator function; a sampled or exponential one is owner-blocked until its loss is named |
+| 4 | R03-photograph | 6 | 8 | 55 / 57 | builds only | built under `as-if-printed`: A694, ADRs 2516, 2618, 2638; left, a page this reader does not draw whole; `as-shown` keeps ADR 2394's gate (A694 item 1) |
+| 5 | R08-unembedded-font-photograph | 9 | 9 | 35 / 35 | builds only | built under `as-if-printed`: A694, ADR 2516; `as-shown` keeps its stop (A694 item 1) |
+| 6 | R11-truetype-route | 9 | 9 | 10 / 10 | builds only | built: A694 item 3, ADR 2520 |
+| 7 | R04-absent-resource | 6 | 6 | 6 / 6 | builds only | built: ADRs 2500, 2522, 2523; left, a Type 3 glyph procedure's resources and a font that moved |
+| 8 | R03a-notdef-named | 4 | 4 | 8 / 5 | builds only | built: ADRs 2543, 2556, 2602, 2620, 2650 |
+| 9 | R16-annotations-and-forms | 4 | 4 | 15 / 18 | builds only | named per site |
+| 10 | R17-press-statements | 4 | 4 | 0 / 0 | builds only | decided by ADR 2490, unbuilt |
+| 11 | R13-jpx-transcode | 3 | 3 | 3 / 3 | builds only | unbuilt |
+| 12 | R14-appended-page-composition | 3 | 2 | 3 / 3 | builds only | built: ADRs 2678, 2682 |
+| 13 | R01-recovered-structure | 1 | 1 | 3 / 3 | builds only | built: ADRs 2502, 2503, 2551, 2596, 2670; each left is refused by its own sentence |
+| 14 | R07-undecodable-stream | 1 | 2 | 1 / 2 | builds only | built: ADR 2689; left, an ICC profile written as its alternate, and the seven `UnknownFilter` files' `%PDF-3.x` header |
 | 15 | R05-press | 0 | 9 | 0 / 29 | builds only | A694 item 2: (a) built; (b), `as-shown`'s assumed press, waits for an ICC table writer |
 | 16 | R18-piece-info | 0 | 3 | 0 / 3 | builds only | unbuilt |
 | 17 | R15-embedded-files | 0 | 2 | 3 / 7 | builds only | built: ADR 2536 |
 | 18 | D-defect | — | — | 7 / 6 | defect | section 8: the converter's own, diagnosed rather than ranked |
-| 19 | R09-as-shown-font-losses | 0 | 0 | 121 / 121 | builds only | `as-shown` only; ADR 2490: (c) decided, (a) and (b) builds |
+| 19 | R09-as-shown-font-losses | 0 | 0 | 120 / 120 | builds only | `as-shown` only; ADR 2490: (c) decided, (a) and (b) builds |
 | 20 | X1-dynamic-xfa | — | — | 4 / 4 | exception | CLAUDE.md's exclusion; §K.1 |
 | 21 | X2-no-page-to-see | — | — | 6 / 6 | exception | the reader draws no page of it |
 
@@ -367,7 +367,14 @@ state a structure no producer wrote"): the output states the structure this read
 **R07 — a filter no reader decodes** (the seven `UnknownFilter-*` files; never alone — each also
 needs R06b or a font route). **Remedy**: the stream is what the reader treated it as, absent — an
 image or form that drew nothing is removed, a font program becomes an unembedded font (R08's routes),
-an ICC stream's alternate is stated — loss `undecodable-stream` (new).
+an ICC stream's alternate is stated — loss `undecodable-stream` (new). **Built** by ADR 2689 under
+both shipped profiles and `state-every-loss` (`no-data-loss` refuses by the loss's name): an image
+or form becomes a form drawing nothing, a content stream holds no operator, a font program is left
+out, an object or cross-reference stream is not written, each named in the report and
+`xmpMM:History`; an ICC profile and an image used as a mask stay refused by name. No R07 stream is
+a decoder defect: seven state the invented `/XXXDecode`, `poppler-742-0-fuzzed` a fuzzed
+`/DCTecode` (ADR 2679). The seven files stay refused by their `%PDF-3.x` header, which no part
+admits; with it patched to `%PDF-1.7`, every one but `UnknownFilter-ICC` converts.
 
 **R18 — a PieceInfo that keeps `ModDate` in the information dictionary at part 4** (3 documents,
 alone in 2): the converter writes the date from both sources and they disagree. Builds only.

@@ -245,40 +245,6 @@ impl GraphicsStateReach {
     }
 }
 
-/// Why a stream naming a filter that is no abbreviation is not rewritten.
-const FILTER_NOT_DECODED: &str = "a stream in this file names a filter that is neither one of \
-     the base standard's standard filters nor the abbreviation ISO 32000-2 8.9.7's Table 92 \
-     gives one, so this tree does not decode it and cannot say what the stream holds. \
-     Re-encoding it under a standard filter would need its decoded bytes, and naming a standard \
-     filter over bytes it did not encode would be a statement about them nobody has made";
-
-/// Whether every failing filter name is one [`super::rewrite::FILTER_ABBREVIATIONS`] spells out.
-///
-/// ISO 19005-2 section 6.1.7.2, ISO 19005-4 section 6.1.6.2. The findings carry the name; the
-/// rewrite finds the streams itself, structurally, so a shortened finding list costs nothing
-/// here — any stream it did not reach is still in the output's own verdict.
-pub(super) fn abbreviated_filters(input: &pdf_archive::Report) -> Result<(), Because> {
-    for judgement in input.failures() {
-        if judgement.id != "file-structure/stream-filters-are-standard" {
-            continue;
-        }
-        let Outcome::Failed { places, .. } = &judgement.outcome else {
-            continue;
-        };
-        for finding in places {
-            let abbreviation = finding.place.name.as_deref().is_some_and(|name| {
-                super::rewrite::FILTER_ABBREVIATIONS
-                    .iter()
-                    .any(|(short, _)| *short == name.as_bytes())
-            });
-            if !abbreviation {
-                return Err(Because::NotBuiltYet(FILTER_NOT_DECODED));
-            }
-        }
-    }
-    Ok(())
-}
-
 /// Why a blend mode written as a bare name the standard does not define is not resolved.
 const BARE_BLEND_MODE: &str = "this file sets a blend mode ISO 32000-2 does not define, written \
      as a bare name. §8.4.1's Table 57 says what a reader takes from an *array* of names and \

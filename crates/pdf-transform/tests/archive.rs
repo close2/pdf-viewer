@@ -624,20 +624,23 @@ fn a_filter_named_by_its_inline_image_abbreviation_is_named_in_full_and_its_byte
 }
 
 #[test]
-fn a_filter_this_tree_does_not_decode_stays_refused() {
-    // The other half: a name that is no abbreviation names nothing this reader decodes, so what
-    // the stream holds is unknown and writing a standard filter over it would be a claim nobody
-    // has made.
+fn a_filter_no_reader_decodes_is_a_loss_nothing_authorised_refuses() {
+    // The other half: a name that is no abbreviation names nothing a reader of the standard
+    // decodes, so the stream can only be written absent, which is the loss `undecodable-stream`
+    // (`doc/adr/2689`, and `archive/undecodable_streams.rs` for the profiles that take it).
     let source = Conforming {
         contents: Some(("/Filter /BrotliDecode".to_owned(), b"xyz".to_vec())),
         ..Conforming::default()
     }
     .build();
     let (report, output) = to_part_four(&source);
-    assert!(matches!(
+    assert_eq!(
         decision(&report, "file-structure/stream-filters-are-standard"),
-        Decision::Refused(Because::NotBuiltYet(_))
-    ));
+        Decision::Unauthorised {
+            losses: Losses::one(Loss::UndecodableStream),
+            rewrite: Rewrite::UndecodableStreamRemoved,
+        }
+    );
     assert!(output.is_none(), "and no file is written");
 }
 
@@ -915,6 +918,7 @@ fn image_interpolation_is_a_loss_and_needs_authorising() {
         recovered_structure_stated: false,
         layout_from_this_viewer: false,
         content_as_drawn: false,
+        undecodable_stream: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -1082,6 +1086,7 @@ fn an_annotation_stating_no_flags_is_made_printable_only_with_authorisation() {
         recovered_structure_stated: false,
         layout_from_this_viewer: false,
         content_as_drawn: false,
+        undecodable_stream: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -1176,6 +1181,7 @@ fn a_property_its_own_schema_does_not_define_is_removed_only_with_authorisation(
         recovered_structure_stated: false,
         layout_from_this_viewer: false,
         content_as_drawn: false,
+        undecodable_stream: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -4502,6 +4508,7 @@ fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_st
         recovered_structure_stated: false,
         layout_from_this_viewer: false,
         content_as_drawn: false,
+        undecodable_stream: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -5678,6 +5685,7 @@ fn a_colour_specification_the_part_ignores_is_removed_only_with_authorisation() 
         recovered_structure_stated: false,
         layout_from_this_viewer: false,
         content_as_drawn: false,
+        undecodable_stream: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -5745,6 +5753,7 @@ fn a_file_marking_no_specification_best_keeps_the_one_a_jp2_reader_uses() {
         recovered_structure_stated: false,
         layout_from_this_viewer: false,
         content_as_drawn: false,
+        undecodable_stream: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -5810,6 +5819,7 @@ fn two_specifications_marked_best_stay_refused() {
         recovered_structure_stated: false,
         layout_from_this_viewer: false,
         content_as_drawn: false,
+        undecodable_stream: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -5868,6 +5878,7 @@ fn one_specification_with_a_method_the_part_forbids_stays_refused() {
         recovered_structure_stated: false,
         layout_from_this_viewer: false,
         content_as_drawn: false,
+        undecodable_stream: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -9290,6 +9301,7 @@ fn an_annotation_of_a_forbidden_subtype_goes_only_with_authorisation() {
         recovered_structure_stated: false,
         layout_from_this_viewer: false,
         content_as_drawn: false,
+        undecodable_stream: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -9625,6 +9637,7 @@ fn an_annotation_that_drew_nothing_refuses_a_preserve_by_name() {
         recovered_structure_stated: false,
         layout_from_this_viewer: false,
         content_as_drawn: false,
+        undecodable_stream: false,
     };
     let (report, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -9676,6 +9689,7 @@ fn every_loss() -> Authorisations {
         recovered_structure_stated: false,
         layout_from_this_viewer: false,
         content_as_drawn: false,
+        undecodable_stream: false,
     }
 }
 
@@ -16016,6 +16030,9 @@ mod annotation_flags;
 
 #[path = "archive/as_drawn.rs"]
 mod as_drawn;
+
+#[path = "archive/undecodable_streams.rs"]
+mod undecodable_streams;
 
 #[path = "archive/linked_popups.rs"]
 mod linked_popups;

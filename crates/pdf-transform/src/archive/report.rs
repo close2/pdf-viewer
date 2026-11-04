@@ -1070,6 +1070,11 @@ pub struct Conversion {
     /// pages, its content stream, its bytes and the number. Empty for every conversion whose
     /// content streams named no such run (`doc/adr/2638`).
     pub runs_written_as_drawn: Vec<super::WrittenRun>,
+    /// Every stream whose filter no reader of the standard decodes, written as this reader drew
+    /// it, absent, the loss `undecodable-stream`: each by its object, its role, the filters it
+    /// states and its length. Empty for every conversion whose streams named no such filter
+    /// (`doc/adr/2689`).
+    pub undecodable_streams: Vec<super::UndecodableStream>,
     /// Every graphics state or halftone whose transfer function other than the identity this
     /// conversion removed, with what the function said (`doc/adr/1964`, `doc/adr/2007`).
     ///
@@ -1312,6 +1317,15 @@ impl Conversion {
             (
                 "runs_written_as_drawn".to_owned(),
                 Value::Array(self.runs_written_as_drawn.iter().map(run_to_json).collect()),
+            ),
+            (
+                "undecodable_streams".to_owned(),
+                Value::Array(
+                    self.undecodable_streams
+                        .iter()
+                        .map(undecodable_to_json)
+                        .collect(),
+                ),
             ),
             (
                 "removed_transfer_functions".to_owned(),
@@ -2128,6 +2142,17 @@ impl Conversion {
                 );
             }
         }
+        if !self.undecodable_streams.is_empty() {
+            let _ = writeln!(
+                out,
+                "  {} stream(s) under a filter no reader of the standard decodes are written as \
+                 this viewer drew them, absent, losing undecodable-stream:",
+                self.undecodable_streams.len()
+            );
+            for stream in &self.undecodable_streams {
+                let _ = writeln!(out, "      {}", stream.sentence());
+            }
+        }
         if !self.photographed.is_empty() {
             let _ = writeln!(
                 out,
@@ -2474,6 +2499,35 @@ fn external_to_json(stream: &super::ExternalStream) -> Value {
 /// §14.11.2.1 had already made the entry its intersection with the media box and no reader used
 /// what it said (`doc/adr/1210`).
 /// One run written as the number this reader draws, for the report's machine-readable form.
+fn undecodable_to_json(stream: &super::UndecodableStream) -> Value {
+    let integer = |value: usize| Value::Integer(i64::try_from(value).unwrap_or(i64::MAX));
+    Value::Object(vec![
+        (
+            "object".to_owned(),
+            Value::text(format!("{} {}", stream.at.number, stream.at.generation)),
+        ),
+        ("role".to_owned(), Value::text(stream.role.word())),
+        ("written".to_owned(), Value::text(stream.role.written())),
+        (
+            "filters".to_owned(),
+            Value::Array(
+                stream
+                    .filters
+                    .iter()
+                    .map(|name| Value::text(name.clone()))
+                    .collect(),
+            ),
+        ),
+        ("length".to_owned(), integer(stream.length)),
+        (
+            "stated_on".to_owned(),
+            stream
+                .stated_on
+                .map_or(Value::Null, |page| integer(page.saturating_add(1))),
+        ),
+    ])
+}
+
 fn run_to_json(written: &super::WrittenRun) -> Value {
     let integer = |value: usize| Value::Integer(i64::try_from(value).unwrap_or(i64::MAX));
     Value::Object(vec![
