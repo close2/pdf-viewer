@@ -158,8 +158,8 @@ longer in the place a PDF reader interprets.
 likes, so appending is available where attaching is not. Composing such a page is inside
 `CLAUDE.md`'s authoring exclusion by its third amendment, which `doc/questions/A58` ratified and
 ADR 1014 argues. What it costs is section 4.6.2's list — page labels, the outline, and the
-structure tree — and all three are carried out: the labels and the outline by ADR 1025, the
-structure entries by ADR 1163.
+structure tree — and all three are carried out: the labels and the outline by ADR 1025 (over a label
+tree of any depth by ADR 2671), the structure entries by ADR 1163.
 
 **The operator's own knowledge.** section 0.2's `supply`. Where the refusal is *nothing in the file
 says which*, the operator often knows, once, for their whole archive.

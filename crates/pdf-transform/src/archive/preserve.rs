@@ -32,7 +32,8 @@
 //!
 //! Everything this cannot do losslessly refuses by name rather than half-doing it — the round's
 //! rule, and `CLAUDE.md` principle 1's: *a promise nothing will keep is worse than a refusal with
-//! a sentence*. The refusals are [`NO_FACE`], [`NO_OUTPUT_INTENT`], [`LABELS_NOT_EXTENDABLE`],
+//! a sentence*. The refusals are [`NO_FACE`], [`NO_OUTPUT_INTENT`], [`LABELS_NOT_A_TREE`],
+//! [`LABELS_CYCLE`], [`LABELS_OUT_OF_ORDER`], [`LABELS_PAST_THE_PAGES`], [`LABELS_TOO_DEEP`],
 //! [`NO_PAGE_TO_MEASURE`], [`NO_MEASURE`], [`NOT_TEXT`], [`TOO_MANY_PAGES`] and
 //! [`NO_SPARE_OBJECT`], with [`super::tagged`]'s five beside them, and each says what it waits
 //! on.
@@ -152,17 +153,57 @@ pub(super) const NO_OUTPUT_INTENT: &str = "a page showing text paints in the col
      finds one in the source nor adds one, so the appended page would make the output fail a \
      requirement its source met";
 
-/// Why a page-label tree of an unexpected shape stops the remedy.
+/// Why a page-label tree this converter cannot read stops the remedy.
 ///
 /// `doc/adr/0954`: a page count that changes leaves ISO 32000-2 section 12.4.2's labels no longer
 /// describing the document, and leaving them stale is wrong even where it conforms. The label the
-/// appended pages take is a documented choice (`doc/adr/1025` section 4); a number tree this
-/// cannot extend leaves no honest way to make it, so the remedy is refused rather than the labels
-/// left to say something false.
-pub(super) const LABELS_NOT_EXTENDABLE: &str = "this document states page labels in a number tree \
-     with /Kids rather than one flat /Nums array, and extending it is not built. Appending pages \
-     without extending it would leave the producer's last label range describing pages the \
-     producer never numbered, which doc/adr/0954 rules out";
+/// appended pages take is a documented choice (`doc/adr/1025` section 4), and a tree whose shape
+/// is not §7.9.7's leaves no honest place to put it, so the remedy is refused rather than the
+/// labels left to say something false. This and the four after it are the only shapes refused
+/// (`doc/adr/2671`).
+pub(super) const LABELS_NOT_A_TREE: &str = "this document's /PageLabels is not a number tree \
+     this converter can read: a node is not a dictionary, a /Kids or /Nums is not an array, a \
+     /Nums holds a key without its value or a key that is not an integer, or the root holds both \
+     /Kids and /Nums (ISO 32000-2 7.9.6 and 7.9.7, Table 37). Appending pages without a range \
+     of their own would leave the producer's last range describing pages the producer never \
+     numbered, which doc/adr/0954 rules out";
+
+/// Why a page-label tree that reaches a node twice stops the remedy.
+pub(super) const LABELS_CYCLE: &str = "this document's /PageLabels number tree names one of its \
+     own nodes twice through /Kids, so it is not the tree ISO 32000-2 7.9.7 describes and its \
+     last key cannot be known; extending it would be guessing where the producer's numbering ends";
+
+/// Why a page-label tree whose keys are out of order stops the remedy.
+pub(super) const LABELS_OUT_OF_ORDER: &str = "this document's /PageLabels number tree does not \
+     hold its keys in ascending order, which ISO 32000-2 7.9.7 requires (\"shall be sorted in \
+     ascending numerical order\"), so which range a page falls in is not something the tree \
+     states and a range added after it would not be either";
+
+/// Why a page-label tree with `/Kids` and a range at or past the first appended page stops the
+/// remedy.
+///
+/// A root holding `/Nums` itself has such a range taken out instead (`doc/adr/2671`); in a tree
+/// with `/Kids` it sits in a producer's leaf, and taking it out there would rewrite that leaf and
+/// every `/Limits` above it, which this converter does not do.
+pub(super) const LABELS_PAST_THE_PAGES: &str = "this document's /PageLabels number tree holds, in \
+     a leaf under /Kids, a range beginning at a page index this document does not hold, at or \
+     past the first page this conversion would append. A range for the appended pages after it \
+     would break ISO 32000-2 7.9.7's ascending order, leaving it would number an appended page \
+     as though the producer had (doc/adr/1025 section 4), and taking it out of the producer's \
+     leaf, with every /Limits above it moved to match, is not built";
+
+/// Why a page-label tree deeper than [`DEEPEST_LABEL_TREE`] stops the remedy.
+pub(super) const LABELS_TOO_DEEP: &str = "this document's /PageLabels number tree is nested more \
+     than 64 nodes deep through /Kids. A tree holding one range per numbering style is a handful \
+     of nodes, so this converter reads no further rather than walk a structure built to make a \
+     reader walk";
+
+/// How many `/Kids` levels below the root [`labels_extended`] reads.
+///
+/// The bound `pdf_syntax::tree` reads every name and number tree to, for its reason: a balanced
+/// tree over any collection a file can hold is far shallower, and the visited set catches a cycle
+/// directly, so this is the second line of defence. [`LABELS_TOO_DEEP`] states the number.
+const DEEPEST_LABEL_TREE: usize = 64;
 
 /// Why a document whose first page states no usable box gets no appended page.
 pub(super) const NO_PAGE_TO_MEASURE: &str = "an appended page is given the size of the page a \
@@ -402,7 +443,7 @@ pub(super) fn compose(
     // label range at [`first`] would name a page that does not exist; the producer's numbering is
     // then untouched because nothing changed the page count.
     if !composed.pages.is_empty() {
-        composed.labels = labels_extended(document, first)?;
+        composed.labels = labels_extended(document, first, spare, &mut composed.written)?;
     }
     // §14.7.2's elements and §14.7.5.4's keys, built once over every page that was laid out — the
     // hierarchy has to know which sequences fell on which page, and that is not decided until the
@@ -1897,9 +1938,19 @@ fn page_dictionary(
 /// only thing this converter can say about them that is true. Letting the producer's last range
 /// run on would number them as though the producer had, and a prefix would be this program
 /// writing words into a document.
+///
+/// **Where the range goes** (`doc/adr/2671`). A root that holds `/Nums` itself takes the pair at
+/// the end of that array. A root that holds `/Kids` takes one new leaf as its last kid, holding the
+/// one pair and `/Limits` of that one key, because ISO 32000-2 §7.9.7's Table 37 asks a `/Limits`
+/// only of the intermediate and leaf nodes: every key the new leaf holds is greater than every key
+/// before it, so no producer node's `/Limits` stops being true, and the root is the only producer
+/// object rewritten — one reference longer — however deep the tree is. The leaf is pushed onto
+/// `written`, because Table 37 makes every kid "an array of indirect references".
 fn labels_extended(
     document: &Document,
     first: usize,
+    spare: &mut Spare,
+    written: &mut Vec<(ObjectId, Object)>,
 ) -> Result<Option<(Option<ObjectId>, Dictionary)>, Because> {
     let Ok(catalog) = document.catalog() else {
         return Ok(None);
@@ -1909,36 +1960,151 @@ fn labels_extended(
     };
     let at = stated.as_reference();
     let Some(tree) = document.resolve(stated).as_dict().cloned() else {
-        return Err(Because::NotBuiltYet(LABELS_NOT_EXTENDABLE));
+        return Err(Because::NotBuiltYet(LABELS_NOT_A_TREE));
     };
-    if tree.get("Kids").is_some() {
-        return Err(Because::NotBuiltYet(LABELS_NOT_EXTENDABLE));
+    // §7.9.6, which §7.9.7 defines number trees against: the root "shall contain a single entry:
+    // either Kids or Names but not both", and a root holding both leaves which one is the tree
+    // unstated.
+    if tree.get("Kids").is_some() && tree.get("Nums").is_some() {
+        return Err(Because::NotBuiltYet(LABELS_NOT_A_TREE));
     }
-    let Some(nums) = document
-        .get_key(&tree, "Nums")
+    let appended = i64::try_from(first).map_err(|_| Because::NotBuiltYet(LABELS_PAST_THE_PAGES))?;
+    let mut walk = LabelWalk {
+        visited: at.map(|id| id.number).into_iter().collect(),
+        last: None,
+    };
+    walk.read(document, &tree, 0)?;
+    let past_the_pages = walk.last.is_some_and(|last| last >= appended);
+    let pair = [
+        Object::Integer(appended),
+        Object::Dictionary(Dictionary::new()),
+    ];
+    let mut out = tree;
+    if let Some(kids) = document
+        .get_key(&out, "Kids")
         .as_array()
         .map(<[Object]>::to_vec)
-    else {
-        return Err(Because::NotBuiltYet(LABELS_NOT_EXTENDABLE));
-    };
-    let appended = i64::try_from(first).map_err(|_| Because::NotBuiltYet(LABELS_NOT_EXTENDABLE))?;
-    // §7.9.7's number tree keeps its keys in increasing order, so a key at or past the first
-    // appended page would leave the array unsorted — and a tree this converter cannot read is one
-    // it does not edit.
-    if nums.iter().step_by(2).any(|key| {
-        document
-            .resolve(key)
-            .as_integer()
-            .is_none_or(|at| at >= appended)
-    }) {
-        return Err(Because::NotBuiltYet(LABELS_NOT_EXTENDABLE));
+    {
+        // A key at or past the first appended page would leave the extended tree out of order.
+        if past_the_pages {
+            return Err(Because::NotBuiltYet(LABELS_PAST_THE_PAGES));
+        }
+        let leaf = spare
+            .take(document)
+            .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
+        let mut node = Dictionary::new();
+        node.insert(
+            Name::new(&b"Limits"[..]),
+            Object::Array(vec![Object::Integer(appended), Object::Integer(appended)]),
+        );
+        node.insert(Name::new(&b"Nums"[..]), Object::Array(pair.to_vec()));
+        written.push((leaf, Object::Dictionary(node)));
+        let mut extended = kids;
+        extended.push(Object::Reference(leaf));
+        out.insert(Name::new(&b"Kids"[..]), Object::Array(extended));
+        // Table 37 does not permit a `/Limits` on the root; where a producer wrote one anyway it
+        // is widened to the new greatest key rather than left saying the tree ends earlier.
+        if let Some(least) = document
+            .get_key(&out, "Limits")
+            .as_array()
+            .and_then(|limits| limits.first().cloned())
+        {
+            out.insert(
+                Name::new(&b"Limits"[..]),
+                Object::Array(vec![least, Object::Integer(appended)]),
+            );
+        }
+    } else {
+        // `walk.read` refused a root `/Nums` that is not an array, so a root without `/Kids`
+        // holds an array here or holds neither entry, and a root of neither is a tree of no keys.
+        let mut extended = document
+            .get_key(&out, "Nums")
+            .as_array()
+            .map(<[Object]>::to_vec)
+            .unwrap_or_default();
+        // **A range beginning at a page this document does not hold labels none of its pages**
+        // (`doc/adr/2671`). §12.4.2 keys a range by page index, and an index at or past `first` is
+        // one only an appended page will have — so the producer's range there is taken out rather
+        // than left to number the appended page, which `doc/adr/1025` section 4 rules out. The
+        // walk read every key as an integer in ascending order, so these are the array's tail.
+        if past_the_pages {
+            let kept = extended
+                .chunks_exact(2)
+                .take_while(|pair| {
+                    pair.first()
+                        .and_then(|key| document.resolve(key).as_integer())
+                        .is_some_and(|key| key < appended)
+                })
+                .count();
+            extended.truncate(kept.saturating_mul(2));
+        }
+        extended.extend(pair);
+        out.insert(Name::new(&b"Nums"[..]), Object::Array(extended));
     }
-    let mut extended = nums;
-    extended.push(Object::Integer(appended));
-    extended.push(Object::Dictionary(Dictionary::new()));
-    let mut out = tree;
-    out.insert(Name::new(&b"Nums"[..]), Object::Array(extended));
     Ok(Some((at, out)))
+}
+
+/// One reading of a page-label number tree, which [`labels_extended`] extends only after it.
+///
+/// Every node is read rather than the root's last path followed, because a key out of order or
+/// at the appended page can sit in any leaf, and §12.4.2's tree holds one range per numbering
+/// style — a handful of nodes, never one per page.
+struct LabelWalk {
+    /// The object numbers of the nodes reached through a reference, so a cycle is met once.
+    visited: BTreeSet<u32>,
+    /// The greatest key read so far, which every later key has to exceed.
+    last: Option<i64>,
+}
+
+impl LabelWalk {
+    /// Reads one node and everything beneath it, in the order §7.9.7 holds the keys.
+    fn read(
+        &mut self,
+        document: &Document,
+        node: &Dictionary,
+        depth: usize,
+    ) -> Result<(), Because> {
+        if depth > DEEPEST_LABEL_TREE {
+            return Err(Because::NotBuiltYet(LABELS_TOO_DEEP));
+        }
+        if let Some(nums) = node.get("Nums") {
+            let Some(nums) = document.resolve(nums).as_array().map(<[Object]>::to_vec) else {
+                return Err(Because::NotBuiltYet(LABELS_NOT_A_TREE));
+            };
+            // Table 37's `[key 1 value 1 … key n value n]`: an odd length is a key whose value
+            // the producer did not write, and a pair appended after it would pair the wrong way.
+            if nums.len() % 2 != 0 {
+                return Err(Because::NotBuiltYet(LABELS_NOT_A_TREE));
+            }
+            for key in nums.iter().step_by(2) {
+                let Some(key) = document.resolve(key).as_integer() else {
+                    return Err(Because::NotBuiltYet(LABELS_NOT_A_TREE));
+                };
+                if self.last.is_some_and(|last| key <= last) {
+                    return Err(Because::NotBuiltYet(LABELS_OUT_OF_ORDER));
+                }
+                self.last = Some(key);
+            }
+        }
+        let Some(kids) = node.get("Kids") else {
+            return Ok(());
+        };
+        let Some(kids) = document.resolve(kids).as_array().map(<[Object]>::to_vec) else {
+            return Err(Because::NotBuiltYet(LABELS_NOT_A_TREE));
+        };
+        for kid in &kids {
+            if let Object::Reference(id) = kid
+                && !self.visited.insert(id.number)
+            {
+                return Err(Because::NotBuiltYet(LABELS_CYCLE));
+            }
+            let Some(child) = document.resolve(kid).as_dict().cloned() else {
+                return Err(Because::NotBuiltYet(LABELS_NOT_A_TREE));
+            };
+            self.read(document, &child, depth.saturating_add(1))?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -1969,5 +2135,192 @@ mod tests {
     #[test]
     fn a_code_is_written_most_significant_byte_first() {
         assert_eq!(code_bytes(pdf_font::Code::single_byte(0x41)), vec![0x41]);
+    }
+
+    /// A document whose catalog states `/PageLabels` as `labels`, with `nodes` as objects 2 on.
+    ///
+    /// Nothing but the catalog is read by [`labels_extended`], so the fixture holds no page.
+    fn labelled(labels: &str, nodes: &[&str]) -> Document {
+        use std::fmt::Write as _;
+        let catalog = format!("<< /Type /Catalog /PageLabels {labels} >>");
+        let objects: Vec<&str> = std::iter::once(catalog.as_str())
+            .chain(nodes.iter().copied())
+            .collect();
+        let mut out = String::from("%PDF-1.7\n");
+        let mut offsets = Vec::new();
+        for (index, body) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", index.saturating_add(1));
+        }
+        let size = objects.len().saturating_add(1);
+        let at = out.len();
+        let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
+        for offset in offsets {
+            let _ = writeln!(out, "{offset:010} 00000 n ");
+        }
+        let _ = write!(
+            out,
+            "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{at}\n%%EOF\n"
+        );
+        Document::open(out.into_bytes()).expect("the fixture opens")
+    }
+
+    /// The extension of `document`'s labels for pages appended at index 12.
+    fn extended(document: &Document) -> Result<(Dictionary, Vec<(ObjectId, Object)>), Because> {
+        let mut spare = Spare { next: 100 };
+        let mut written = Vec::new();
+        let (_, root) = labels_extended(document, 12, &mut spare, &mut written)?
+            .expect("the document states labels");
+        Ok((root, written))
+    }
+
+    fn integers(object: &Object) -> Vec<i64> {
+        object
+            .as_array()
+            .expect("an array")
+            .iter()
+            .filter_map(Object::as_integer)
+            .collect()
+    }
+
+    #[test]
+    fn a_flat_tree_takes_the_pair_at_the_end_of_its_nums() {
+        let document = labelled("<< /Nums [0 << /S /r >> 4 << /S /D >>] >>", &[]);
+        let (root, written) = extended(&document).expect("it extends");
+        assert!(written.is_empty(), "no node is added to a flat tree");
+        let nums = root.get("Nums").and_then(Object::as_array).expect("nums");
+        assert_eq!(nums.len(), 6);
+        assert_eq!(nums.get(4).and_then(Object::as_integer), Some(12));
+        assert_eq!(
+            nums.get(5).and_then(Object::as_dict).map(Dictionary::len),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn a_flat_trees_range_at_a_page_not_held_is_taken_out() {
+        // The shape of `A Defence of the New Tenseless Theory of Time`: a range for every one of
+        // thirteen pages, of which twelve are held, so the thirteenth range labels nothing.
+        let document = labelled(
+            "<< /Nums [0 << /P (p. 26) >> 11 << /P (p. 37) >> 12 << /P (p. 38) >>] >>",
+            &[],
+        );
+        let (root, _) = extended(&document).expect("it extends");
+        let nums = root.get("Nums").and_then(Object::as_array).expect("nums");
+        let keys: Vec<i64> = nums
+            .iter()
+            .step_by(2)
+            .filter_map(Object::as_integer)
+            .collect();
+        assert_eq!(keys, [0, 11, 12]);
+        assert_eq!(
+            nums.get(5).and_then(Object::as_dict).map(Dictionary::len),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn a_tree_with_kids_takes_a_new_leaf_as_its_roots_last_kid() {
+        // Two levels: the root over an intermediate node over two leaves. No producer node's
+        // `/Limits` changes, because every key the new leaf holds is past them all.
+        let document = labelled(
+            "2 0 R",
+            &[
+                "<< /Kids [3 0 R] >>",
+                "<< /Limits [0 9] /Kids [4 0 R 5 0 R] >>",
+                "<< /Limits [0 3] /Nums [0 << /S /r >> 3 << /S /D >>] >>",
+                "<< /Limits [9 9] /Nums [9 << /S /A >>] >>",
+            ],
+        );
+        let (root, written) = extended(&document).expect("it extends");
+        let [(leaf, node)] = written.as_slice() else {
+            panic!("one leaf is added: {written:?}");
+        };
+        let kids = root.get("Kids").and_then(Object::as_array).expect("kids");
+        assert_eq!(
+            kids,
+            &[
+                Object::Reference(ObjectId::new(3, 0)),
+                Object::Reference(*leaf)
+            ]
+        );
+        let node = node.as_dict().expect("a dictionary");
+        assert_eq!(integers(node.get("Limits").expect("limits")), [12, 12]);
+        assert_eq!(integers(node.get("Nums").expect("nums")), [12]);
+        assert!(root.get("Limits").is_none(), "Table 37 gives the root none");
+    }
+
+    #[test]
+    fn a_tree_that_cannot_be_read_is_refused_by_name() {
+        let refused = |labels: &str, nodes: &[&str]| match extended(&labelled(labels, nodes)) {
+            Err(Because::NotBuiltYet(reason)) => reason,
+            other => panic!("{labels}: {other:?}"),
+        };
+        // A kid that is not a dictionary, a key without its value, a key that is not an
+        // integer, and a root of both entries.
+        for (labels, nodes) in [
+            ("<< /Kids [2 0 R] >>", &["7"][..]),
+            ("<< /Nums [0 << >> 4] >>", &[][..]),
+            (
+                "<< /Kids [2 0 R] >>",
+                &["<< /Limits [0 0] /Nums [(0) << >>] >>"][..],
+            ),
+            (
+                "<< /Kids [2 0 R] /Nums [0 << >>] >>",
+                &["<< /Limits [1 1] /Nums [1 << >>] >>"][..],
+            ),
+        ] {
+            assert_eq!(
+                refused(labels, nodes),
+                LABELS_NOT_A_TREE,
+                "{labels} {nodes:?}"
+            );
+        }
+        assert_eq!(
+            refused(
+                "<< /Kids [2 0 R] >>",
+                &["<< /Limits [0 0] /Kids [2 0 R] >>"]
+            ),
+            LABELS_CYCLE
+        );
+        assert_eq!(
+            refused(
+                "<< /Kids [2 0 R 3 0 R] >>",
+                &[
+                    "<< /Limits [0 5] /Nums [0 << >> 5 << >>] >>",
+                    "<< /Limits [3 3] /Nums [3 << >>] >>"
+                ]
+            ),
+            LABELS_OUT_OF_ORDER
+        );
+        assert_eq!(
+            refused(
+                "<< /Kids [2 0 R] >>",
+                &["<< /Limits [0 12] /Nums [0 << >> 12 << >>] >>"]
+            ),
+            LABELS_PAST_THE_PAGES
+        );
+        // A chain one node deeper than the bound.
+        let deepest = DEEPEST_LABEL_TREE.saturating_add(1);
+        let mut chain: Vec<String> = (0..deepest)
+            .map(|at| format!("<< /Limits [0 0] /Kids [{} 0 R] >>", at.saturating_add(3)))
+            .collect();
+        chain.push("<< /Limits [0 0] /Nums [0 << >>] >>".to_owned());
+        let nodes: Vec<&str> = chain.iter().map(String::as_str).collect();
+        assert_eq!(refused("2 0 R", &nodes), LABELS_TOO_DEEP);
+        // And one node shallower is read.
+        let nodes: Vec<&str> = chain.iter().skip(1).map(String::as_str).collect();
+        let renumbered: Vec<String> = nodes
+            .iter()
+            .enumerate()
+            .map(|(at, node)| {
+                node.replace(
+                    &format!("[{} 0 R]", at.saturating_add(4)),
+                    &format!("[{} 0 R]", at.saturating_add(3)),
+                )
+            })
+            .collect();
+        let nodes: Vec<&str> = renumbered.iter().map(String::as_str).collect();
+        assert!(extended(&labelled("2 0 R", &nodes)).is_ok());
     }
 }

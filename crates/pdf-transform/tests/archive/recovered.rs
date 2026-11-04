@@ -932,6 +932,17 @@ fn a_tree_with_a_page_not_held(stated: usize, held: usize) -> Vec<u8> {
 
 /// The same tree, with `more` written into the catalog.
 fn a_tree_with_a_page_not_held_and(stated: usize, held: usize, more: &str) -> Vec<u8> {
+    a_tree_with_a_page_not_held_and_objects(stated, held, more, &[])
+}
+
+/// The same tree, with `more` written into the catalog and `extra` as the objects after the
+/// page not held, numbered from `held + 5`.
+fn a_tree_with_a_page_not_held_and_objects(
+    stated: usize,
+    held: usize,
+    more: &str,
+    extra: &[&str],
+) -> Vec<u8> {
     let content = "BT ET";
     let mut objects = vec![
         format!("<< /Type /Catalog /Pages 2 0 R {more}>>"),
@@ -955,6 +966,7 @@ fn a_tree_with_a_page_not_held_and(stated: usize, held: usize, more: &str) -> Ve
         "<< /Type /Pages /Kids [{}] /Count {stated} >>",
         kids.join(" ")
     );
+    objects.extend(extra.iter().map(|object| (*object).to_owned()));
     let borrowed: Vec<&str> = objects.iter().map(String::as_str).collect();
     let mut bytes = file(&borrowed, "/Root 1 0 R");
     // The last page's cross-reference entry is moved into object 3's stream data, so the table
@@ -1117,11 +1129,12 @@ fn a_page_not_held_asked_as_append_statement_is_stated_with_both_counts_on_the_a
         );
     }
     // A page that cannot be composed refuses the source with the composition's reason: ADR
-    // 1014's appended page is not built over page labels in a number tree with /Kids.
-    let labelled = a_tree_with_a_page_not_held_and(
+    // 2671 does not take a range at the page not held out of a producer's leaf under /Kids.
+    let labelled = a_tree_with_a_page_not_held_and_objects(
         13,
         12,
-        "/PageLabels << /Kids [<< /Limits [0 0] /Nums [0 << /S /D >>] >>] >> ",
+        "/PageLabels << /Kids [17 0 R] >> ",
+        &["<< /Limits [0 12] /Nums [0 << /S /D >> 12 << /S /r >>] >>"],
     );
     let configuration =
         pdf_transform::archive::Configuration::read(profile, TARGETS[0]).expect("it reads");
@@ -1436,4 +1449,58 @@ fn the_stating_profiles_state_the_recovered_structure_and_both_counts_on_the_app
             && text.contains("Catalog:theproducer's"),
         "{text}"
     );
+}
+
+#[test]
+fn the_statement_page_extends_a_label_tree_of_any_shape_with_a_range_of_its_own() {
+    // ADR 2671 over ADR 1025 section 4: the page `append-statement` composes takes a range of its
+    // own with an empty dictionary, whose label Table 159 makes the empty string, and each of the
+    // producer's twelve pages keeps the label it had. Read back through the reader's own
+    // §12.4.2 lookup, `pdf_model::page_label::PageLabels`, over a flat tree with a range at the page not held
+    // (the Defence document's shape), a root over one leaf, and a root over an intermediate node
+    // over two leaves.
+    let profile =
+        "[profile]\nrecovered-structure = \"discard\"\npage-not-held = \"append-statement\"\n";
+    let shapes: [(&str, &[&str]); 3] = [
+        (
+            "/PageLabels << /Nums [0 << /S /D >> 10 << /P (A-) /S /D >> 12 << /S /r >>] >> ",
+            &[],
+        ),
+        (
+            "/PageLabels 17 0 R ",
+            &[
+                "<< /Kids [18 0 R] >>",
+                "<< /Limits [0 10] /Nums [0 << /S /D >> 10 << /P (A-) /S /D >>] >>",
+            ],
+        ),
+        (
+            "/PageLabels << /Kids [17 0 R] >> ",
+            &[
+                "<< /Limits [0 10] /Kids [18 0 R 19 0 R] >>",
+                "<< /Limits [0 0] /Nums [0 << /S /D >>] >>",
+                "<< /Limits [10 10] /Nums [10 << /P (A-) /S /D >>] >>",
+            ],
+        ),
+    ];
+    let mut expected: Vec<Option<String>> = (1..=10).map(|n| Some(n.to_string())).collect();
+    expected.extend(["A-1", "A-2", ""].map(|label| Some(label.to_owned())));
+    for (more, extra) in shapes {
+        let source = a_tree_with_a_page_not_held_and_objects(13, 12, more, extra);
+        for target in TARGETS {
+            let configuration =
+                pdf_transform::archive::Configuration::read(profile, target).expect("it reads");
+            let (report, output) = attempt(&source, target, configuration.authorisations(target))
+                .unwrap_or_else(|refusal| panic!("{more}{target}: {refusal}"));
+            let output = written(&report, output);
+            assert_eq!(
+                holds(&output, target).verdict(),
+                Verdict::Conforms,
+                "{more}{target}: the extended tree is held to the target again"
+            );
+            let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+            let labels = pdf_model::page_label::PageLabels::read(&document);
+            let read: Vec<Option<String>> = (0..13).map(|index| labels.label(index)).collect();
+            assert_eq!(read, expected, "{more}{target}");
+        }
+    }
 }

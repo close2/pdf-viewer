@@ -82,10 +82,10 @@ pub(super) const TREE_ROOT_NOT_REFERENCED: &str = "this document's catalog state
 
 /// Why a parent tree with intermediate nodes stops the remedy.
 ///
-/// The same shape as [`super::preserve::LABELS_NOT_EXTENDABLE`] and for the same reason: §7.9.7's
-/// number tree may spread its keys over `/Kids`, and putting a new key into the right leaf — with
-/// every `/Limits` on the way down moved to match — is a rewrite of the producer's own tree rather
-/// than an entry added to it.
+/// §7.9.7's number tree may spread its keys over `/Kids`, and putting a new key into the right
+/// leaf — with every `/Limits` on the way down moved to match — is a rewrite of the producer's own
+/// tree rather than an entry added to it. The page-label tree's construction, a new leaf as the
+/// root's last kid (`doc/adr/2671`), is the one this would take.
 pub(super) const PARENT_TREE_NOT_EXTENDABLE: &str = "this document states its structure tree's \
      ParentTree as a number tree with /Kids rather than one flat /Nums array, and putting a new \
      key into the right leaf — with every /Limits above it moved to match — is not built. \
