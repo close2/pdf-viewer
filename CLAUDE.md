@@ -47,8 +47,10 @@ section disagree about the machine, **this section is the machine**. The rules a
   And, of rounds that held the lock for an hour and more around builds, gates and suites, on the same
   day: "yes! fix this. the other process was starved and only locked the GPU when it really needed
   it!" So **the code locks the device section**: `raster_gpu`'s section hook, which the tests and
-  the clock gates install (`tools/conformance/test-support/gpu_lock_hook.rs`), takes the lock around
-  each hardware bring-up and frame, and a clock gate holds it around a child's device section and
+  the clock gates install (`tools/conformance/test-support/gpu_lock_hook.rs`), takes the lock for a
+  hardware device's life, from bring-up to drop — on this card another process's allocation while a
+  job is in flight corrupts the job and can reset the card, so a device's allocations are device work
+  too (ADR 2675) — and a clock gate holds it around a child's device section and
   starts its clock inside it (ADR 2664); the file is `PDF_VIEWER_GPU_LOCK` in `tools/places.sh`.
   **A shell never wraps a build, a gate or a suite** in `with-gpu-lock`; `with-gpu-lock <command>`
   is for a one-off command that is itself only device work and holds no lock of its own (a
