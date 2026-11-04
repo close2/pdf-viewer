@@ -1940,9 +1940,10 @@ impl Gained {
 /// string the source's document information dictionary stated under the key the local name
 /// spells ([`carried_local_name`]). It says nothing about what the key means, which no file
 /// states — that is `doc/adr/1269` section 5's objection, and a namespace of provenance does not
-/// meet it.
+/// meet it. The path is the application's repository name, ahead of the repository's rename
+/// (`doc/questions/A779`).
 pub const CARRIED_INFORMATION_NAMESPACE: &str =
-    "https://github.com/close2/pdf-viewer/ns/document-information/1.0/";
+    "https://github.com/close2/quorra/ns/document-information/1.0/";
 
 /// The prefix [`CARRIED_INFORMATION_NAMESPACE`] is spelled with.
 pub const CARRIED_INFORMATION_PREFIX: &str = "docinfo";

@@ -57,3 +57,9 @@ So the standard admits a custom key's value in the packet at part 4. It names no
 under `no-data-loss`; under `state-every-loss` it is removed and stated (ADR 2681). `as-shown`, `as-if-printed` and `only-metadata-loss` keep `discard`.
 They authorise the loss, and changing them would change outputs that already convert.
 `keep-everything` names no metadata site in its short form, and is unchanged.
+
+## The owner's answer
+
+A779 (2026-11-04) confirmed option (a) with the application's name in the path:
+`https://github.com/close2/quorra/ns/document-information/1.0/`, prefix `docinfo`, because the
+repository will move to `quorra`.
