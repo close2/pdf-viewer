@@ -124,7 +124,8 @@ pub(super) const REMEDIES: &[Remedy] = &[
     // through ISO 32000-2 Table 109: the three entries are written as the advances this reader
     // lays the glyphs by, so nothing on the page moves here; what the output states is the reading
     // a reader of the source had to choose, since a dictionary with a descriptor and no widths is
-    // one the base standard does not admit (`doc/adr/2686`).
+    // one the base standard does not admit (`doc/adr/2686`), and a font used only in mode 3 with
+    // no descriptor is given one of the face substituted for it (`doc/adr/2688`).
     Remedy {
         requirement: "fonts/simple-font-states-its-widths",
         answer: Answer::Stated(
@@ -134,7 +135,12 @@ pub(super) const REMEDIES: &[Remedy] = &[
              given the three, as the advances this viewer laid its glyphs out by: for one of the \
              standard 14 names its published metrics, otherwise the descriptor's MissingWidth. \
              The page's marks do not move here; a reader that laid the source out by its font \
-             program instead would see the glyphs move where the program's widths differ",
+             program instead would see the glyphs move where the program's widths differ. A font \
+             used only in text rendering mode 3 that stated no FontDescriptor is given the three \
+             and a descriptor of the face this viewer substitutes for it, with no program: it \
+             paints nothing, and its text and the positions of its glyphs are the ones this \
+             viewer read; a reader that laid the source out by another face would place the \
+             invisible text differently",
         ),
     },
     Remedy {

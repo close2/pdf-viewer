@@ -86,7 +86,7 @@ mod untagged;
 pub use pack::{CjkPack, Collection, PackFiles, PackGap};
 
 pub use described::Described;
-pub(super) use described::state_laid_out_widths;
+pub(super) use described::{state_laid_out_widths, undrawn};
 pub(super) use notdef_format::notdef_not_given;
 pub use photographed::{
     DOTS_PER_INCH, FixedGroup, FixedGroups, MAX_GROUP_NAME_CHARS, MAX_GROUPS_NAMED,

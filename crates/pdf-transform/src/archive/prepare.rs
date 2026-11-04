@@ -1832,15 +1832,8 @@ impl Prepared {
                 out.insert(*id, object.clone());
             }
         }
-        if let Ok(refiled) = &self.owed.font_files {
-            for (id, object) in refiled.written() {
-                out.insert(*id, object.clone());
-            }
-        }
-        if let Ok(restated) = &self.owed.cmap_restated {
-            for (id, object) in restated.written() {
-                out.insert(*id, object.clone());
-            }
+        for (id, object) in self.owed.written() {
+            out.insert(*id, object.clone());
         }
         out
     }
@@ -1936,6 +1929,24 @@ pub(super) struct Owed {
 }
 
 impl Owed {
+    /// The objects the owed preparations add, at the spare numbers they took: the descriptors of
+    /// fonts drawn only in mode 3, the refiled programs and the restated `cmap`s.
+    fn written(&self) -> impl Iterator<Item = (&ObjectId, &Object)> {
+        let widths = self
+            .font_widths
+            .iter()
+            .flat_map(|widths| widths.written.iter());
+        let refiled = self
+            .font_files
+            .iter()
+            .flat_map(super::font_files::Refiled::written);
+        let restated = self
+            .cmap_restated
+            .iter()
+            .flat_map(fonts::CmapRestated::written);
+        widths.chain(refiled).chain(restated)
+    }
+
     /// Each of them, where a failed requirement asked for it.
     #[expect(
         clippy::too_many_lines,
@@ -1969,7 +1980,7 @@ impl Owed {
         Self {
             font_widths: asked(
                 wanted(Rewrite::FontWidthArrayRestated) || wanted(Rewrite::FontWidthsStated),
-                || super::font_widths::restated(document, input),
+                || super::font_widths::restated(document, input, spare),
             ),
             rendering_intents: asked(wanted(Rewrite::RenderingIntent), || {
                 sites::rendering_intents(document, input)

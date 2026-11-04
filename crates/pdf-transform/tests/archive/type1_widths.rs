@@ -15,8 +15,8 @@ use pdf_syntax::object::ObjectId;
 use pdf_syntax::{Document, Limits};
 
 use super::{
-    Authorisations, Because, Conforming, Decision, Level, Rewrite, Target, Verdict, conversion,
-    convert, decision, holds, stream,
+    Authorisations, Conforming, Level, Rewrite, Target, Verdict, conversion, convert, decision,
+    holds, stream,
 };
 
 const WIDTHS: &str = "fonts/widths-agree-with-the-program";
@@ -278,17 +278,111 @@ fn a_standard_name_stating_a_descriptor_and_no_widths_is_given_the_widths_it_is_
     }
 }
 
+/// Every code's advance, bit for bit, and the text it reads as, in font 6 of `bytes`: what an
+/// invisible layer's extraction is made of.
+fn laid_out_and_read(bytes: &[u8]) -> Vec<(u32, String)> {
+    let held = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let dict = held
+        .get(ObjectId::new(6, 0))
+        .as_dict()
+        .cloned()
+        .expect("the font object");
+    let font = LoadedFont::load(&held, &dict, "F1").expect("the font loads");
+    (0..=u8::MAX)
+        .map(Code::single_byte)
+        .map(|code| {
+            let mut text = String::new();
+            font.text(code, &mut text);
+            (font.advance(code).to_bits(), text)
+        })
+        .collect()
+}
+
+/// Converts `source`, whose font 6 is drawn only in rendering mode 3 and states none of the four
+/// entries, to `target`, and holds the output to the descriptor `doc/adr/2688` writes: Table 120's
+/// required entries, `/FontName` the dictionary's `/BaseFont`, no program, `flags` from the face
+/// substituted for it, and every code advancing and reading as it did.
+fn described_without_a_program(source: &[u8], target: Target, base_font: &[u8], flags: i64) {
+    let before = laid_out_and_read(source);
+    let (report, output) = convert(source, target, Authorisations::default());
+    assert_eq!(
+        decision(&report, STATED).rewrite(),
+        Some(Rewrite::FontWidthsStated),
+        "{target:?}: {:?}",
+        decision(&report, STATED)
+    );
+    let output = output
+        .unwrap_or_else(|| panic!("{:?}\n{:?}", conversion(&report).achieved, report.refused));
+    let held = holds(&output, target);
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let written = Document::open_with_limits(output.clone(), Limits::DEFAULT).expect("opens");
+    let font = written
+        .get(ObjectId::new(6, 0))
+        .as_dict()
+        .cloned()
+        .expect("the font object");
+    let at = font
+        .get("FontDescriptor")
+        .and_then(pdf_syntax::Object::as_reference)
+        .expect("Table 109: an indirect reference");
+    let descriptor = written.get(at).as_dict().cloned().expect("a dictionary");
+    let entry = |key: &str| written.get_key(&descriptor, key);
+    assert_eq!(
+        entry("Type").as_name().map(|n| n.as_bytes().to_vec()),
+        Some(b"FontDescriptor".to_vec())
+    );
+    assert_eq!(
+        entry("FontName").as_name().map(|n| n.as_bytes().to_vec()),
+        Some(base_font.to_vec())
+    );
+    assert_eq!(entry("Flags").as_integer(), Some(flags), "{descriptor:?}");
+    assert_eq!(
+        entry("FontBBox").as_array().map(<[_]>::len),
+        Some(4),
+        "{descriptor:?}"
+    );
+    for key in ["ItalicAngle", "Ascent", "Descent", "CapHeight", "StemV"] {
+        assert!(
+            !entry(key).is_null(),
+            "Table 120 requires {key}: {descriptor:?}"
+        );
+    }
+    assert!(
+        entry("Descent")
+            .as_number()
+            .is_some_and(|descent| descent < 0.0),
+        "Table 120: the value shall be a negative number: {descriptor:?}"
+    );
+    for key in ["FontFile", "FontFile2", "FontFile3"] {
+        assert!(entry(key).is_null(), "nothing is embedded: {descriptor:?}");
+    }
+    for key in ["FirstChar", "LastChar", "Widths"] {
+        assert!(!written.get_key(&font, key).is_null(), "{key}: {font:?}");
+    }
+    assert_eq!(
+        laid_out_and_read(&output),
+        before,
+        "{target:?}: every code advances and reads as it did"
+    );
+}
+
 #[test]
-fn a_standard_font_drawn_only_in_mode_three_with_no_entries_passes_part_two_and_is_refused_at_four()
-{
+fn a_standard_font_drawn_only_in_mode_three_with_no_entries_is_given_a_descriptor_at_four() {
     // ISO 32000-1 Table 111 lets one of the standard 14 leave out all four entries, so part 2
     // holds nothing against it; ISO 32000-2 Table 109 requires them of every font, and part 4's
-    // file is a PDF 2.0 file. The embedding route writes all four only for a font that is drawn,
-    // so this one, shown only in rendering mode 3, is refused by name at part 4 (`doc/adr/2686`).
+    // file is a PDF 2.0 file. ISO 19005-4 section 6.2.10.4.1 does not require the program of a
+    // font used only in rendering mode 3, so the four are written with no program: Helvetica's
+    // published widths, A and B 667 each (ISO 32000-2 §9.6.2.1), and the descriptor of the face
+    // substituted for it, whose Table 121 flags are Nonsymbolic alone (`doc/adr/2688`).
     let source = a_page_drawing(
         "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
         b"BT /F1 12 Tf 3 Tr 10 100 Td (AB) Tj ET",
     );
+    let failed: Vec<&str> = holds(&source, Target::Two(Level::B))
+        .failures()
+        .map(|failed| failed.id)
+        .collect();
+    assert!(!failed.contains(&STATED), "{failed:?}");
     let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
     assert!(
         output.is_some(),
@@ -296,18 +390,47 @@ fn a_standard_font_drawn_only_in_mode_three_with_no_entries_passes_part_two_and_
         conversion(&report).achieved,
         report.refused
     );
-    let (report, output) = convert(
+    let failed: Vec<&str> = holds(&source, Target::Four(pdf_archive::Flavour::Plain))
+        .failures()
+        .map(|failed| failed.id)
+        .collect();
+    assert!(failed.contains(&STATED), "{failed:?}");
+    let before = laid_out_and_read(&source);
+    for key in *b"AB" {
+        assert!(
+            near(f32::from_bits(before[usize::from(key)].0), 0.667),
+            "the published metrics: {:?}",
+            before[usize::from(key)]
+        );
+    }
+    described_without_a_program(
         &source,
         Target::Four(pdf_archive::Flavour::Plain),
-        Authorisations::default(),
+        b"Helvetica",
+        32,
     );
-    assert!(
-        matches!(
-            decision(&report, STATED),
-            Decision::Refused(Because::NotBuiltYet(why)) if why.contains("rendering mode 3")
-        ),
-        "{:?}",
-        decision(&report, STATED)
+}
+
+#[test]
+fn a_truetype_font_drawn_only_in_mode_three_with_no_entries_is_given_a_descriptor_at_both_parts() {
+    // A `TrueType` /Arial is not one of §9.6.2.2's fourteen, so ISO 32000-1 Table 111 requires
+    // all four entries of it at part 2 as well, and an OCR layer written in it is invisible and
+    // owes no program (ISO 19005-2 section 6.2.11.4.1). It is laid out by the metrics of the face
+    // its name resembles, which the widths written state, and described by that face: a sans
+    // serif Latin face, Nonsymbolic alone (`doc/adr/2688`).
+    let source = a_page_drawing(
+        "<< /Type /Font /Subtype /TrueType /BaseFont /Arial /Encoding /WinAnsiEncoding >>",
+        b"BT /F1 12 Tf 3 Tr 10 100 Td (AB) Tj ET",
     );
-    assert!(output.is_none(), "part 4: nothing is written");
+    for target in [
+        Target::Two(Level::B),
+        Target::Four(pdf_archive::Flavour::Plain),
+    ] {
+        let failed: Vec<&str> = holds(&source, target)
+            .failures()
+            .map(|failed| failed.id)
+            .collect();
+        assert!(failed.contains(&STATED), "{target:?}: {failed:?}");
+        described_without_a_program(&source, target, b"Arial", 32);
+    }
 }

@@ -66,6 +66,9 @@ use super::{
     program_stream, subtype_dictionary,
 };
 
+mod undrawn;
+pub(in crate::archive) use undrawn::undrawn;
+
 /// What the conversion wrote for one font that stated no descriptor, for the report.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Described {
@@ -494,7 +497,7 @@ pub(super) fn describe(
         .take(document)
         .ok_or(Because::NotBuiltYet(super::NO_SPARE_OBJECT))?;
     let font_name = layout.font_name(&requested, &face);
-    let descriptor = measured.descriptor(&font_name, &face, row, program_at);
+    let descriptor = measured.descriptor(&font_name, &face, Some((row, program_at)));
 
     let restated_encoding = encoding.is_some();
     let entries = restated_entries(
@@ -1339,7 +1342,8 @@ impl Measured {
         })
     }
 
-    /// The descriptor dictionary, naming the program at `program` under `row`'s key.
+    /// The descriptor dictionary, naming the program at `program` under its row's key where one
+    /// is embedded; an unembedded font's descriptor names none (`undrawn`).
     ///
     /// `/Flags` is §9.8.2's Table 121 read from the face: `FixedPitch` where the program says
     /// so, `Serif` for the face this program ships as Times, `Italic` where the program's angle is
@@ -1350,8 +1354,7 @@ impl Measured {
         &self,
         font_name: &[u8],
         face: &ShippedFace,
-        row: Table124,
-        program: ObjectId,
+        program: Option<(Table124, ObjectId)>,
     ) -> Dictionary {
         let symbolic = matches!(face.request.family, Family::Symbol | Family::ZapfDingbats);
         let mut flags = 0_i64;
@@ -1398,7 +1401,9 @@ impl Measured {
             dict.insert(Name::new(&b"CapHeight"[..]), number(cap_height));
         }
         dict.insert(Name::new(&b"StemV"[..]), number(self.stem_v));
-        dict.insert(Name::new(row.key.as_bytes()), Object::Reference(program));
+        if let Some((row, program)) = program {
+            dict.insert(Name::new(row.key.as_bytes()), Object::Reference(program));
+        }
         dict
     }
 }

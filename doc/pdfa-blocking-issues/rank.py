@@ -139,7 +139,7 @@ STATUS = {
     "R08-unembedded-font-photograph": ("builds only", "built under `as-if-printed`: A694, ADR 2516; `as-shown` keeps its stop (A694 item 1)"),
     "R08b-cjk-pack": ("built", "ADR 2460: the census runs with the pack"),
     "R09-as-shown-font-losses": ("builds only", "`as-shown` only; ADR 2490: (c) decided, (a) and (b) builds"),
-    "R10-font-refiling": ("builds only", "built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685), a standard font's stated widths (ADR 2686)"),
+    "R10-font-refiling": ("builds only", "built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685), a standard font's stated widths (ADR 2686), a mode 3 font's descriptor (ADR 2688)"),
     "R11-truetype-route": ("builds only", "built: A694 item 3, ADR 2520"),
     "R12-spot-colourant": ("builds only", "decided by ADR 2490 for a PostScript calculator function; a sampled or exponential one is owner-blocked until its loss is named"),
     "R13-jpx-transcode": ("builds only", "unbuilt"),

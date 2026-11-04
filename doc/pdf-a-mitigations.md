@@ -1673,20 +1673,25 @@ ISO 19005-2 6.2.11.2, ISO 19005-4 6.2.10.2 · all six · **built** (ADR 2178)
   arrays and invalid byte-code ranges are not claimed checked by this requirement.
 
 #### `fonts/simple-font-states-its-widths`
-ISO 19005-2 6.2.11.2, ISO 19005-4 6.2.10.2 · all six · **built** (ADRs 2686, 2687)
+ISO 19005-2 6.2.11.2, ISO 19005-4 6.2.10.2 · all six · **built** (ADRs 2686, 2687, 2688)
 
 - **Mitigation** — a font a content stream uses that states a `/FontDescriptor` and leaves out
   any of `/FirstChar`, `/LastChar` and `/Widths` is given all three, as the advances this reader
   lays its glyphs out by: for one of the standard 14 names, the published metrics ISO 32000-2
   §9.6.2.1 makes a processor provide when the entries are absent; otherwise `/MissingWidth`. No
   mark moves. This is a `Stated` interpretation, because the source was a dictionary the base
-  standard does not admit and another reader may have read it otherwise.
+  standard does not admit and another reader may have read it otherwise. A font used only in
+  §9.3.6's rendering mode 3 that states no descriptor, which 6.2.11.4.1's NOTE 2 exempts from
+  embedding, is given the three and a descriptor with no program, every Table 120 value read off
+  the face this reader substitutes for it, and proved to advance and read every code as before
+  (ADR 2688); the same `Stated` interpretation, since nothing is painted.
 - **By target** — part 2 lets a `Type1` font under one of the fourteen names leave out all four
-  entries (ISO 32000-1 Table 111); part 4 lets none (ISO 32000-2 Table 109), and a font with no
+  entries (ISO 32000-1 Table 111); part 4 lets none (ISO 32000-2 Table 109). A drawn font with no
   descriptor is the embedding route's either way, which writes all four.
 - **From a configuration** — none: no loss is offered.
 - **Remaining refusal** — a font written directly inside another object, or one this reader
-  cannot load, is refused by name.
+  cannot load, is refused by name; so is a mode 3 font with no `/BaseFont` name, no shipped face
+  that answers it, or a descriptor that would change an advance or a code's text.
 
 #### `fonts/vertical-metrics-agree-with-the-program`
 ISO 19005-4 6.2.10.5 · PDF/A-4, 4f, 4e · **built in session 976** (`Mechanical`) · corrected in

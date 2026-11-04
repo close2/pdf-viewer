@@ -446,7 +446,9 @@ pub enum Rewrite {
     FontWidthArrayRestated,
     /// A simple font that states a descriptor and not all of `/FirstChar`, `/LastChar` and
     /// `/Widths` is given the three, as the advances this reader lays its glyphs by (ISO 32000-1
-    /// Table 111, ISO 32000-2 Table 109, `doc/adr/2686`). No mark moves.
+    /// Table 111, ISO 32000-2 Table 109, `doc/adr/2686`); one used only in rendering mode 3 that
+    /// states no descriptor is given one of the face substituted for it (`doc/adr/2688`). No mark
+    /// moves.
     FontWidthsStated,
     /// Every embedded font program whose stated advance *heights* disagree with the `/DW2` and
     /// `/W2` of the `CIDFont` dictionary that shows it vertically has the program's restated.
@@ -1400,7 +1402,9 @@ impl Rewrite {
             }
             Self::FontWidthsStated => {
                 "a font stating a FontDescriptor and not all of FirstChar, LastChar and Widths is \
-                 given the three, as the advances the viewer lays its glyphs out by"
+                 given the three, as the advances the viewer lays its glyphs out by, and one used \
+                 only in text rendering mode 3 that states no FontDescriptor is given one too, of \
+                 the face the viewer substitutes for it"
             }
             Self::RestateFontMetrics => {
                 "an embedded font program's stated advances are restated to the widths the font \

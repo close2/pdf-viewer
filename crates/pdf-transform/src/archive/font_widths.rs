@@ -24,7 +24,8 @@
 //! outside a stated range to; either way the numbers written are the ones the page is already
 //! drawn by (`doc/adr/2686`). A dictionary with no descriptor is the embedding route's where the
 //! font is drawn, which writes the four entries with the program it embeds; one drawn only in
-//! rendering mode 3, which no route embeds, is refused by name.
+//! rendering mode 3, which no route embeds, is given the three and a descriptor of the face this
+//! reader substitutes for it, with no program ([`super::fonts::undrawn`], `doc/adr/2688`).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -33,6 +34,7 @@ use pdf_font::LoadedFont;
 use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 
 use super::decision::Because;
+use super::prepare::Spare;
 use super::rewrite::Rewrite;
 
 /// The dictionary entries to replace, by the font object the validator named.
@@ -40,8 +42,12 @@ use super::rewrite::Rewrite;
 pub(super) struct WidthArrays {
     /// Only `/LastChar` or `/Widths`; every retained width is the producer's original value.
     pub(super) at: BTreeMap<ObjectId, Dictionary>,
-    /// `/FirstChar`, `/LastChar` and `/Widths`, for a font that left any of them out.
+    /// `/FirstChar`, `/LastChar` and `/Widths`, for a font that left any of them out, and
+    /// `/FontDescriptor` for one drawn only in mode 3 that stated none.
     pub(super) stated: BTreeMap<ObjectId, Dictionary>,
+    /// The descriptors written for fonts drawn only in mode 3, at the spare numbers `stated`
+    /// names them by.
+    pub(super) written: BTreeMap<ObjectId, Object>,
 }
 
 impl WidthArrays {
@@ -71,13 +77,10 @@ const NOT_LAID_OUT: &str = "a simple font states a FontDescriptor but not all of
     this reader cannot load or one written directly inside another object, so there is no such \
     advance to state or no object to state it in";
 
-/// Why a font that states no descriptor and that no route embeds is not given one.
-const NO_DESCRIPTOR_UNDRAWN: &str = "a simple font a content stream uses only in text rendering \
-    mode 3 states no FontDescriptor, nor FirstChar, LastChar and Widths, which ISO 32000-2 Table \
-    109 requires of every font in a PDF 2.0 file and ISO 32000-1 Table 111 of every font but the \
-    standard 14; the embedding route that writes all four is taken only for a font that is drawn, \
-    and writing a descriptor for a font no route embeds is a remedy this version does not carry \
-    out";
+/// Why a font drawn only in mode 3 is not given a descriptor where no number is left for one.
+const NO_SPARE_OBJECT: &str = "a simple font a content stream uses only in text rendering mode 3 \
+    is given the FontDescriptor ISO 32000-2 Table 109 requires as an indirect reference, and no \
+    object number this conversion tries is free for it";
 
 /// The requirement whose fonts are given the three entries.
 const STATES_ITS_WIDTHS: &str = "fonts/simple-font-states-its-widths";
@@ -102,7 +105,11 @@ const WIDTHS_OVER_BUDGET: &str = "the simple fonts of this file whose Widths arr
 /// not the thirty-two places [`Outcome::Failed`] keeps (`doc/adr/2616`): a font past the kept
 /// prefix keeps its array and the file fails the requirement it answered. The copies are bounded
 /// by [`MAX_READ_WIDTHS`].
-pub(super) fn restated(document: &Document, input: &Report) -> Result<WidthArrays, Because> {
+pub(super) fn restated(
+    document: &Document,
+    input: &Report,
+    spare: &mut Spare,
+) -> Result<WidthArrays, Because> {
     let mut out = WidthArrays::default();
     let mut read = 0_usize;
     // The fonts the embedding route answers, which writes all four entries with the face: by
@@ -122,7 +129,7 @@ pub(super) fn restated(document: &Document, input: &Report) -> Result<WidthArray
         }
         if judgement.id == STATES_ITS_WIDTHS {
             for place in super::sites::places_failed(judgement)? {
-                laid_out(document, place.object, &embedded, &mut out)?;
+                laid_out(document, place.object, &embedded, spare, &mut out)?;
             }
             continue;
         }
@@ -188,7 +195,8 @@ pub(super) fn restated(document: &Document, input: &Report) -> Result<WidthArray
 
 /// Gives the font at `at` the `/FirstChar`, `/LastChar` and `/Widths` it lays its glyphs out by,
 /// where it states a descriptor; a font with none is left to the embedding route where that
-/// route takes it, in `embedded`, and refused otherwise.
+/// route takes it, in `embedded`, and is otherwise one drawn only in mode 3, which is given a
+/// descriptor too ([`super::fonts::undrawn`]).
 ///
 /// A font written directly inside another object has no object here to edit, and is left to the
 /// embedding route where that route takes such a font: the route writes it out as an object with
@@ -197,6 +205,7 @@ fn laid_out(
     document: &Document,
     at: Option<ObjectId>,
     embedded: &BTreeSet<Option<ObjectId>>,
+    spare: &mut Spare,
     out: &mut WidthArrays,
 ) -> Result<(), Because> {
     let Some(id) = at else {
@@ -211,18 +220,28 @@ fn laid_out(
     }
     let object = document.get(id);
     let dict = object.as_dict().ok_or(Because::NotBuiltYet(NOT_LAID_OUT))?;
-    if document.get_key(dict, "FontDescriptor").is_null() {
-        return if embedded.contains(&Some(id)) {
-            Ok(())
-        } else {
-            Err(Because::NotBuiltYet(NO_DESCRIPTOR_UNDRAWN))
-        };
-    }
     let name = document
         .get_key(dict, "BaseFont")
         .as_name()
         .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
         .unwrap_or_default();
+    if document.get_key(dict, "FontDescriptor").is_null() {
+        if embedded.contains(&Some(id)) {
+            return Ok(());
+        }
+        // Not embedded and used, so used only in rendering mode 3: ISO 19005-2 section
+        // 6.2.11.4.1 and ISO 19005-4 section 6.2.10.4.1 exempt no other use from embedding.
+        let described = super::fonts::undrawn(document, dict, &name)?;
+        let at = spare
+            .take(document)
+            .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
+        let mut entries = described.entries;
+        entries.insert(Name::new(&b"FontDescriptor"[..]), Object::Reference(at));
+        out.stated.insert(id, entries);
+        out.written
+            .insert(at, Object::Dictionary(described.descriptor));
+        return Ok(());
+    }
     let font =
         LoadedFont::load(document, dict, &name).map_err(|_| Because::NotBuiltYet(NOT_LAID_OUT))?;
     let mut entries = Dictionary::new();
