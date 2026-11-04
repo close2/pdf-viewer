@@ -3,10 +3,8 @@
 Session 1919, a single round (pixels + instruments) on the server VM. ADR 2668, Q777, trap 318; ADR
 2669 unused. Worked in the rounds worktree and its `scratchpad/r1919/`.
 
-**Why.** The owner's A776 allowed one supervised run of
-`clip_that_cuts_nothing::a_clip_that_contains_a_mark_takes_nothing_from_it` on the RX 580 with
-`RADV_DEBUG=hang`, to capture the dump of the hang of 14:02:33 (ADR 2665), holding the shared lock until
-any reset has completed.
+**Why.** A776 allowed one supervised `RADV_DEBUG=hang` run of `clip_that_cuts_nothing::
+a_clip_that_contains_a_mark_takes_nothing_from_it` on the RX 580, for the dump of 14:02:33 (ADR 2665).
 
 **The run (ADR 2668 §1).** `tools/hang-capture.sh` writes A776's conditions as one script: the binary
 built first, outside the lock; `/run/lock/gpu.lock` held across the rest (an fd-held `flock` for the
@@ -33,10 +31,8 @@ without `RADV_DEBUG`, then (b) the three files in one parallel `nextest` inside 
 **Gates.** No crate touched, so no tier 1. `nextest` of `raster-gpu` and `render-raster` on lavapipe
 (`WGPU_BACKEND=vulkan`, lavapipe ICD): 904 passed, 8 skipped, exit 0; its lock log shows 933 bring-ups
 of `type=Cpu`, none elsewhere, and no hold. The one RADV run as above, exit 0. `cargo test -p
-conformance` after `git add -N`: exit 101 twice — `bounded` refused the script's bare `flock` (ADR
-1662; it now runs under `with-gpu-lock`), `evidence` a path outside the tree in ADR 2668 — then exit
-0. A dry run of the wrapped script with `/bin/true` for the test: lock held 0.2 s, probe exit 0. No
-amdgpu reset after any run.
+conformance` after `git add -N`: exit 101 twice (`bounded`, the bare `flock`; `evidence`, a path
+outside the tree), then exit 0. The wrapped script's dry run held the lock 0.2 s. No amdgpu reset.
 
 **Unfinished.** The hang's cause, and with it the fix, the other suspects' runs and the upstream report
 (Q777). `tools/hang-capture.sh` has no mode for a command other than one test binary, nor for a run
