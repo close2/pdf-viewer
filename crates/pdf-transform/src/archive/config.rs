@@ -1191,6 +1191,22 @@ fn preserves_a_packet(row: &Row) -> bool {
         && row.original.is_some()
 }
 
+/// Whether a row's keeping step answers one object at a time, so that an object it cannot keep is
+/// handed to the row's second step — `discard`, or `append-statement`, which removes it and lists
+/// it on the statement page — rather than refusing the site.
+///
+/// One mechanism at two families of rows (`doc/rfc/0014` section 3): the embedded-file rows'
+/// `preserve:append`, whose outcome is one per file (`doc/adr/2536`), and the packet rows'
+/// `preserve` with `original = "page"`, whose outcome is one per replaced packet
+/// (`doc/adr/2678`). `original = "attach"` and `"both"` keep every packet's bytes as a file
+/// whatever they hold, so nothing is left for a second step there.
+fn keeps_per_object(row: &Row) -> bool {
+    (row.remedy == Kind::Preserve
+        && row.placement == Some(Placement::Append)
+        && DERIVABLE.contains(&row.site.as_str()))
+        || (preserves_a_packet(row) && row.original == Some(Original::Page))
+}
+
 /// Why a `preserve` row states no mechanism.
 const PRESERVE_WITHOUT_PLACEMENT: &str = "preserve has two mechanisms and neither is a fallback \
      for the other (doc/rfc/0007 section 4.6.1): `placement = \"append\"` lays the content out on \
@@ -1923,9 +1939,7 @@ impl Configuration {
                     || (PRESERVABLE_XFA.contains(&row.site.as_str())
                         && row.keep_xfa == Some(Placement::Attach)),
                 discard_undeterminable: row.undeterminable == Kind::Discard,
-                no_page_carries: if (DERIVABLE.contains(&row.site.as_str())
-                    && row.placement == Some(Placement::Append)
-                    && row.on_failure == Kind::Discard)
+                no_page_carries: if (keeps_per_object(row) && row.on_failure == Kind::Discard)
                     || (statement_hands_on(&row.site)
                         && row.states_the_loss
                         && row.on_failure == Kind::Discard)
@@ -2140,13 +2154,15 @@ fn check_rows(
 fn check_what_moves_nothing(row: &Row) -> Result<(), ConfigError> {
     // **`doc/rfc/0014` section 4, built where the loss is reported per object**: the page lists
     // each object the step removed, so it is built at the two embedded-file rows whose outcome is
-    // already one per file (`doc/adr/2536`), at the three halftone rows, whose removal takes
+    // already one per file (`doc/adr/2536`), at the three packet rows answered by page, whose
+    // outcome is one per replaced packet (`doc/adr/2678`), at the three halftone rows, whose removal takes
     // one entry from each object it names (`doc/adr/2562`), at the font row, whose losses are
     // reported one photographed page or one embedded face at a time (`doc/adr/2600`), and at the
     // operator row, whose runs are reported one at a time (`doc/adr/2638`), and refused by name at
     // every other.
     if row.states_the_loss
         && !DERIVABLE.contains(&row.site.as_str())
+        && !keeps_per_object(row)
         && !statement_hands_on(&row.site)
     {
         return Err(ConfigError::NotBuiltThatWay {

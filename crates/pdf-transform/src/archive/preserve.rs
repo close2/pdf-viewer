@@ -269,6 +269,9 @@ pub(super) struct Composed {
     /// section 4). Its pages are among [`Self::pages`] and it has no row in [`Self::carried`],
     /// because what it carries is not the document's content.
     pub(super) statement: Option<super::report::StatementPage>,
+    /// Each replaced packet a packet row's second step removed because no page could lay it out,
+    /// listed on [`Self::statement`] where that step is `append-statement` (`doc/adr/2678`).
+    pub(super) removed_packets: Vec<super::prepare::RemovedPacket>,
 }
 
 /// The two entries a relocation writes onto the producer's own page.
@@ -390,6 +393,7 @@ pub(super) fn compose(
         structure: None,
         attachments: Vec::new(),
         linked_annotations: BTreeMap::new(),
+        removed_packets: Vec::new(),
         statement: None,
     };
     let first = tree.len();

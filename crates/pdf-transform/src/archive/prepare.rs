@@ -75,8 +75,8 @@ use font_rewrites::{PreparedFonts, metric_directions, prepare_fonts, unicode_fon
 pub(super) use metadata::{
     AMENDMENT_REQUIREMENT, Amended, DEFAULT_CMYK_ACTION, DescribedField, DescribedSchema,
     FieldsDescribed, HEADER_ACTION, Headers, Metadata, MovedEntry, RemovedIdentifier,
-    ReplacedPacket, Respelled, SUBSTITUTED_FONTS_ACTION, SchemasDescribed, field_key,
-    metadata_stream, names_a_field, undescribed_fields_in,
+    RemovedPacket, ReplacedPacket, Respelled, SUBSTITUTED_FONTS_ACTION, SchemasDescribed,
+    field_key, metadata_stream, names_a_field, undescribed_fields_in,
 };
 use metadata::{
     Edited, Information, Recording, document_packet, prepare_amendment, prepare_field_descriptions,
@@ -1051,10 +1051,16 @@ impl Prepared {
                 .statement
                 .as_ref()
                 .map(super::report::StatementPage::sentence);
-            match (kept, stated) {
-                (Some(kept), Some(stated)) => Some(format!("{kept}; {stated}")),
-                (kept, stated) => kept.or(stated),
-            }
+            // Each packet a packet row's second step removed, named for itself as an embedded
+            // file is (`doc/adr/2678`).
+            let removed = composed
+                .removed_packets
+                .iter()
+                .map(RemovedPacket::sentence)
+                .collect::<Vec<_>>();
+            let removed = (!removed.is_empty()).then(|| removed.join("; "));
+            let parts: Vec<String> = [kept, removed, stated].into_iter().flatten().collect();
+            (!parts.is_empty()).then(|| parts.join("; "))
         });
         let attachments = attachment_outcomes(
             plan,

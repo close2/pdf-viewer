@@ -6,8 +6,10 @@
 # It is no-data-loss with append-statement where no-data-loss stops: every presentation site
 # discards and states, and where an information site's keeping step leaves an object it could not
 # keep, that object is removed and stated. This version carries a second step out at the
-# embedded-file rows only (doc/rfc/0014 section 3, config/steps.rs); every other information site
-# keeps, else stops, until the executor carries the second step there.
+# embedded-file rows (doc/adr/2536) and at the three packet rows answered by page, where a packet
+# whose stream data is not UTF-8 text through the filters it states is removed and listed on the
+# statement page (doc/adr/2678); every other information site keeps, else stops, until the
+# executor carries the second step there (doc/rfc/0014 section 3, config/steps.rs).
 #
 # At a presentation site the answer is try = ["append-statement", "discard"]. This version sets
 # append-statement's page at the two embedded-file rows, the three halftone rows, the font row and
@@ -236,6 +238,7 @@ remedy = "preserve"
 remedy = "preserve"
 fresh-packet = true
 original = "page"
+on-failure = "append-statement"
 
 [site."metadata/xmp-packets-well-formed".target."4f"]
 remedy = "preserve"
@@ -251,6 +254,7 @@ original = "attach"
 remedy = "preserve"
 fresh-packet = true
 original = "page"
+on-failure = "append-statement"
 
 [site."metadata/xmp-packets-state-one-rdf-element".target."4f"]
 remedy = "preserve"
@@ -266,6 +270,7 @@ original = "attach"
 remedy = "preserve"
 fresh-packet = true
 original = "page"
+on-failure = "append-statement"
 
 [site."metadata/xmp-packets-meet-the-xmp-data-model".target."4f"]
 remedy = "preserve"

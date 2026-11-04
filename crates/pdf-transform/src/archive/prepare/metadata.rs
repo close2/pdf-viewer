@@ -22,6 +22,7 @@ use pdf_model::xmp::{self, Name as XmpName, Schema};
 use pdf_syntax::Document;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 
 // §14.3.3's Table 349, key by key, shared with the `update` and `merge` verbs so that the three
 // writers cannot name an entry's XMP counterpart two ways.
@@ -988,12 +989,16 @@ pub struct ReplacedPacket {
     pub catalogs: bool,
     /// What the producer's packet broke, in the words the requirement's own row uses.
     pub because: String,
+    /// Where no page could keep the producer's packet and its row's second step removed it, what
+    /// was removed and where that is stated (`doc/adr/2678`); `None` where the packet was kept,
+    /// or replaced under a row that keeps nothing.
+    pub removed: Option<RemovedPacket>,
 }
 
 impl ReplacedPacket {
     /// One replaced packet as JSON.
     pub(in crate::archive) fn to_json(&self) -> Value {
-        Value::Object(vec![
+        let mut fields = vec![
             (
                 "object".to_owned(),
                 Value::count(self.at.number.try_into().unwrap_or(usize::MAX)),
@@ -1004,7 +1009,90 @@ impl ReplacedPacket {
             ),
             ("catalog".to_owned(), Value::Bool(self.catalogs)),
             ("because".to_owned(), Value::text(self.because.clone())),
-        ])
+        ];
+        if let Some(removed) = &self.removed {
+            fields.push(("removed".to_owned(), removed.to_json()));
+        }
+        Value::Object(fields)
+    }
+}
+
+/// A replaced packet whose bytes no appended page could lay out, removed by its row's second step
+/// (`doc/adr/2678`).
+///
+/// The packet row's keep lays the producer's packet out as text, and ISO 16684-1 makes a packet
+/// Unicode; a stream whose data, decoded through the filters its dictionary states, is not UTF-8
+/// has no text to lay out. ISO 32000-2 §7.4 is why no other decoding is tried:
+///
+/// > The filter or filters for a stream shall be specified by the Filter entry in the stream's
+/// > dictionary (or the FFilter entry if the stream is external).
+///
+/// so bytes that would read as a packet through a filter the stream does not state are not that
+/// stream's data, and reading them so would be this converter guessing. Every field is computed
+/// from the source, which is what lets the statement page name the loss in facts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemovedPacket {
+    /// The packet row whose second step removed it.
+    pub site: &'static str,
+    /// The metadata stream, in the source's numbering.
+    pub at: ObjectId,
+    /// The bytes between `stream` and `endstream`, as the file holds them.
+    pub length: usize,
+    /// The filters the stream's dictionary states, in order; empty where it states none.
+    pub filters: Vec<String>,
+    /// Why no page kept it.
+    pub because: &'static str,
+    /// The first page of the statement that lists it, zero-based, where one does.
+    pub stated_on: Option<usize>,
+}
+
+/// Why a replaced packet's bytes were removed rather than laid out (`doc/adr/2678`).
+pub(in crate::archive) const PACKET_NOT_TEXT: &str = "its stream data, decoded through the \
+     filters its dictionary states, is not UTF-8 text, so no page can lay it out as a packet \
+     (ISO 16684-1 makes a packet Unicode), and ISO 32000-2 section 7.4 lets no filter the \
+     dictionary does not state be applied to it";
+
+impl RemovedPacket {
+    /// The packet's fate, in the words the report and `xmpMM:History` print.
+    #[must_use]
+    pub fn sentence(&self) -> String {
+        let filters = if self.filters.is_empty() {
+            "no filter".to_owned()
+        } else {
+            self.filters.join(" ")
+        };
+        let mut out = format!(
+            "the XMP metadata packet object {} {} held ({} bytes of stream data under {filters}) \
+             is removed (metadata-packet): {}",
+            self.at.number, self.at.generation, self.length, self.because
+        );
+        if let Some(page) = self.stated_on {
+            // Writing into a `String` cannot fail.
+            let _ = write!(
+                out,
+                "; its removal is stated on page {}",
+                page.saturating_add(1)
+            );
+        }
+        out
+    }
+
+    /// The removal as JSON, the page one-based as every page the report names.
+    pub(in crate::archive) fn to_json(&self) -> Value {
+        let mut fields = vec![
+            ("site".to_owned(), Value::text(self.site)),
+            ("loss".to_owned(), Value::text("metadata-packet")),
+            ("length".to_owned(), Value::count(self.length)),
+            (
+                "filters".to_owned(),
+                Value::Array(self.filters.iter().map(Value::text).collect()),
+            ),
+            ("because".to_owned(), Value::text(self.because)),
+        ];
+        if let Some(page) = self.stated_on {
+            fields.push(("stated-on".to_owned(), Value::count(page.saturating_add(1))));
+        }
+        Value::Object(fields)
     }
 }
 
@@ -1081,6 +1169,7 @@ pub(super) fn prepare_fresh_packets(
             at,
             catalogs: catalog_packet == Some(at),
             because: because.join("; "),
+            removed: None,
         });
     }
     if fresh.packets.is_empty() {

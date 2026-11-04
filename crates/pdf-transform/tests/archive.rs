@@ -16048,6 +16048,8 @@ mod parent_tree;
 
 #[path = "archive/packet_pages.rs"]
 mod packet_pages;
+#[path = "archive/packet_removed.rs"]
+mod packet_removed;
 #[path = "archive/photographed.rs"]
 mod photographed;
 #[path = "archive/reader_resources.rs"]

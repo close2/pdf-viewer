@@ -23,8 +23,10 @@
 //!
 //! **Two steps per object**, which is what the executor holds: a keeping step, then `stop`,
 //! `discard` or `append-statement` for each object it could not keep. Where a second step is
-//! carried out is the executor's own list — the embedded-file rows' `preserve:append`, the only
-//! row whose outcome is reported per object (`doc/adr/2536`) — and a second step anywhere else,
+//! carried out is the executor's own list — the keeping steps whose outcome is reported per
+//! object, [`super::keeps_per_object`]: the embedded-file rows' `preserve:append`
+//! (`doc/adr/2536`) and the packet rows' `preserve` with `original = "page"` (`doc/adr/2678`) —
+//! and a second step anywhere else,
 //! or a keeping step in second place, is refused by name rather than read and not done. A step
 //! after one that never hands an object on (`stop`, `discard`, `append-statement`, `supply`) is
 //! an error, because it would never be taken: `stop` is implicit at the end of every list.
@@ -36,16 +38,19 @@ use pdf_archive::Target;
 use crate::tool::Tool;
 
 use super::super::toml::Table;
-use super::{ConfigError, DERIVABLE, Kind, Placement, Row, check_rows};
+use super::{ConfigError, Kind, Placement, Row, check_rows};
 
 /// The step that takes a site's loss and states it on an appended page (`doc/rfc/0014` section 4).
 pub(in crate::archive) const APPEND_STATEMENT: &str = "append-statement";
 
-/// Why `append-statement` is built only at the embedded-file rows, the halftone rows and the font
+/// Why `append-statement` is built only at the embedded-file rows, the packet rows, the halftone
+/// rows, the font row and the operator
 /// row.
 pub(in crate::archive) const STATED_ONLY_PER_OBJECT: &str = "the page append-statement appends \
      lists each object the loss took, so it is built where the loss is reported one object at a \
      time: the two embedded-file rows (ISO 19005-2 section 6.8, ISO 19005-4 section 6.9), the \
+     three packet rows after preserve with original = \"page\" (ISO 19005-2 section 6.6.2.1, \
+     ISO 19005-4 section 6.7.2.1), whose packets are reported one replaced stream at a time, the \
      three halftone rows (ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5), the font row \
      (ISO 19005-2 section 6.2.11.4.1, ISO 19005-4 section 6.2.10.4.1), whose losses are reported \
      one photographed page or one embedded face at a time, and the operator row (ISO 19005-2 \
@@ -109,9 +114,10 @@ const DEPARTURE_IS_ITS_OWN_TABLE: &str = "a departure is stated in its own [depa
 /// Why a second step is refused where the executor carries none out.
 const SECOND_STEP_UNBUILT: &str = "this version carries out a second step only after \
      preserve:append at the two embedded-file rows, whose outcome is one per file \
-     (doc/adr/2536), and only where that step is stop, discard or append-statement, and after \
-     append-statement at the three halftone rows (doc/adr/2562); anywhere else the list holds \
-     one step and the implicit stop";
+     (doc/adr/2536), and after preserve with original = \"page\" at the three packet rows, \
+     whose outcome is one per replaced packet (doc/adr/2678), and only where that step is stop, \
+     discard or append-statement; and after append-statement at the three halftone rows \
+     (doc/adr/2562); anywhere else the list holds one step and the implicit stop";
 
 /// One step of a site's list this target does not admit.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -325,9 +331,7 @@ fn resolved(row: &Row, tools: &BTreeMap<String, Tool>, target: Target) -> Result
                 after: first_word.to_owned(),
             });
         }
-        let carried = (DERIVABLE.contains(&row.site.as_str())
-            && resolved.remedy == Kind::Preserve
-            && resolved.placement == Some(Placement::Append))
+        let carried = super::keeps_per_object(&resolved)
             || (first == Step::AppendStatement && statement_hands_on(&row.site));
         if second.hands_on() || (!carried && *second != Step::Stop) {
             return Err(ConfigError::NotBuiltThatWay {

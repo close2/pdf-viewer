@@ -1721,6 +1721,15 @@ impl Conversion {
         if let Some(statement) = &self.statement {
             let _ = writeln!(out, "  stated: {}", statement.sentence());
         }
+        // A replaced packet leaves nothing in the output to notice, so one that no page kept is
+        // named here (`doc/adr/2678`).
+        for removed in self
+            .replaced_packets
+            .iter()
+            .filter_map(|packet| packet.removed.as_ref())
+        {
+            let _ = writeln!(out, "  removed: {}", removed.sentence());
+        }
         for unstated in &self.unstated {
             let _ = writeln!(out, "  not stated: {}", unstated.sentence());
         }

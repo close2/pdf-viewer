@@ -88,11 +88,23 @@ pub(super) fn the_preserved_pages(
         .filter(|site| asked(site))
         .collect();
     let replaced_site = replaced_sites.first().copied();
+    // **A packet no page can lay out takes the row's second step** (`doc/adr/2678`), the
+    // embedded-file rows' mechanism (`doc/adr/2536`): with `discard` or `append-statement` it is
+    // removed and named for itself, and every other packet is still laid out.
+    let packet_row = replaced_site.and_then(|site| {
+        plan.preservations
+            .iter()
+            .find(|preservation| preservation.site == site)
+    });
+    let discard_packets = packet_row.is_some_and(|preservation| {
+        preservation.no_page_carries == super::super::RemedyKind::Discard
+    });
+    let mut removed_packets: Vec<super::RemovedPacket> = Vec::new();
     let replaced = match replaced_site {
         // The replacement is what makes the file conform and the page is what keeps what it
         // replaces, so a document whose packets cannot be replaced gets neither — the property
         // site's own construction, for its reason.
-        Some(_) => {
+        Some(site) => {
             let fresh = fresh.map_err(|because| *because)?;
             let mut packets: Vec<(ObjectId, std::sync::Arc<[u8]>)> = Vec::new();
             for at in fresh.packets.keys() {
@@ -106,12 +118,29 @@ pub(super) fn the_preserved_pages(
                 let Some(bytes) = document.decoded_stream_data(&stream) else {
                     continue;
                 };
+                // The test is the page's own: `preserve` lays a packet out as UTF-8 text and
+                // refuses `NOT_TEXT` on anything else, so exactly what it would refuse is handed on.
+                if discard_packets && std::str::from_utf8(&bytes).is_err() {
+                    removed_packets.push(super::RemovedPacket {
+                        site,
+                        at: *at,
+                        length: stream.data.len(),
+                        filters: filters_stated(document, &stream.dict),
+                        because: super::metadata::PACKET_NOT_TEXT,
+                        stated_on: None,
+                    });
+                    continue;
+                }
                 packets.push((*at, bytes));
             }
             packets
         }
         None => Vec::new(),
     };
+    let packets_stated = packet_row
+        .and_then(|preservation| preservation.statement.as_ref())
+        .filter(|_| !removed_packets.is_empty())
+        .map(|asked| (removed_packets.as_slice(), asked));
     let packets = if asked(SCHEMA_REQUIREMENT) {
         // The removal is what makes the file conform; the pages are what keep what it removes. A
         // document whose packet cannot be cut gets neither, and the reason is the cut's own.
@@ -220,6 +249,7 @@ pub(super) fn the_preserved_pages(
         plan.target,
         stated.map(|(_, asked)| (attachments.removed.as_slice(), asked)),
         &graphics,
+        packets_stated,
         fonts.as_ref(),
         runs,
         recovery,
@@ -247,6 +277,7 @@ pub(super) fn the_preserved_pages(
                 attachments: attachments.removed,
                 linked_annotations: BTreeMap::new(),
                 statement: None,
+                removed_packets,
             };
             link_the_annotations(&mut composed, embedded);
             return Ok(composed);
@@ -409,6 +440,7 @@ pub(super) fn the_preserved_pages(
     // Last, so that its row is the last `compose` writes and the pages it takes are the last.
     let statement_site = stated
         .map(|(site, _)| site)
+        .or_else(|| packets_stated.and(replaced_site))
         .or_else(|| graphics.first().map(|entry| entry.site))
         .or_else(|| fonts.as_ref().map(|_| super::super::config::STATED_FONTS))
         .or_else(|| (!runs.is_empty()).then_some(super::super::config::STATED_RUNS))
@@ -477,6 +509,7 @@ pub(super) fn the_preserved_pages(
                 plan.target,
                 stated.map(|(_, asked)| (attachments.removed.as_slice(), asked)),
                 &graphics,
+                packets_stated,
                 fonts.as_ref(),
                 runs,
                 recovery,
@@ -495,6 +528,7 @@ pub(super) fn the_preserved_pages(
                     attachments: attachments.removed,
                     linked_annotations: BTreeMap::new(),
                     statement: None,
+                    removed_packets,
                 };
                 link_the_annotations(&mut composed, embedded);
                 return Ok(composed);
@@ -513,6 +547,9 @@ pub(super) fn the_preserved_pages(
             .map(|(site, _)| site)
             .into_iter()
             .collect();
+        if let (Some(_), Some(site)) = (packets_stated, replaced_site) {
+            sites.push(site);
+        }
         for entry in &graphics {
             if !sites.contains(&entry.site) {
                 sites.push(entry.site);
@@ -539,6 +576,7 @@ pub(super) fn the_preserved_pages(
             &mut composed,
             sites,
             files
+                .saturating_add(packets_stated.map_or(0, |(removed, _)| removed.len()))
                 .saturating_add(graphics.len())
                 .saturating_add(fonts.as_ref().map_or(0, statement::FontsStated::listed))
                 .saturating_add(runs.len())
@@ -549,7 +587,13 @@ pub(super) fn the_preserved_pages(
                 outcome.stated_on = Some(page);
             }
         }
+        if packets_stated.is_some() {
+            for packet in &mut removed_packets {
+                packet.stated_on = Some(page);
+            }
+        }
     }
+    composed.removed_packets = removed_packets;
     // Each laid-out file's pages, read off the keep that carried it: `compose` writes one
     // `Preserved` row per keep and in the keeps' order.
     composed.attachments = attachments.removed;
@@ -680,11 +724,16 @@ fn link_the_annotations(
 }
 
 /// The statement's text over the files an embedded-file row removed, the entries the halftone
-/// rows took, the pages photographed and faces embedded with a loss under the font row
+/// rows took, the packets a packet row removed (`doc/adr/2678`), the pages photographed and faces embedded with a loss under the font row
 /// (`doc/adr/2600`), the runs the operator row wrote as numbers (`doc/adr/2638`), the rebuilt
 /// structure (`doc/adr/2669`) and the pages the source states and the file does not hold, or
-/// `None` where none of the six lists anything. The structure and the pages not held are
+/// `None` where none of the seven lists anything. The structure and the pages not held are
 /// the last entries.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one argument per kind of entry the page lists, each a different preparation's \
+              record; bundling them would be a struct built at exactly the two call sites"
+)]
 fn statement_of(
     document: &Document,
     target: Target,
@@ -693,12 +742,14 @@ fn statement_of(
         &super::super::config::Statement,
     )>,
     graphics: &[statement::GraphicsEntry<'_>],
+    packets: Option<(&[super::RemovedPacket], &super::super::config::Statement)>,
     fonts: Option<&statement::FontsStated<'_>>,
     runs: &[super::super::WrittenRun],
     recovery: super::super::recovered::Stated<'_>,
 ) -> Result<Option<String>, Because> {
     let files = files.filter(|(removed, _)| !removed.is_empty());
     if files.is_none()
+        && packets.is_none()
         && graphics.is_empty()
         && fonts.is_none()
         && runs.is_empty()
@@ -717,6 +768,11 @@ fn statement_of(
     )
     .map_err(Because::NotBuiltYet)?;
     let mut before = listed.len().saturating_add(graphics.len());
+    if let Some((removed, asked)) = packets {
+        statement::packet_entries(&mut text, target, before, removed, asked)
+            .map_err(Because::NotBuiltYet)?;
+        before = before.saturating_add(removed.len());
+    }
     if let Some(fonts) = fonts {
         statement::font_entries(&mut text, target, fonts, before).map_err(Because::NotBuiltYet)?;
         before = before.saturating_add(fonts.listed());
@@ -733,6 +789,23 @@ fn statement_of(
         statement::not_held_entry(&mut text, before, not_held).map_err(Because::NotBuiltYet)?;
     }
     Ok(Some(text))
+}
+
+/// The filters a stream's dictionary states, in their written form and in order (ISO 32000-2
+/// Table 5's `Filter`, a name or an array of names); an entry that is neither is written as the
+/// statement page's fixed words for it rather than read as no filter.
+fn filters_stated(document: &Document, dict: &pdf_syntax::object::Dictionary) -> Vec<String> {
+    let written = |object: &Object| {
+        document.resolve(object).as_name().map_or_else(
+            || "an entry that is not a name".to_owned(),
+            |name| format!("/{}", name.escaped()),
+        )
+    };
+    match dict.get("Filter").map(|filter| document.resolve(filter)) {
+        None => Vec::new(),
+        Some(Object::Array(filters)) => filters.iter().map(written).collect(),
+        Some(filter) => vec![written(&filter)],
+    }
 }
 
 /// Whether the font row's statement page may be composed: its row names `append-statement`, and

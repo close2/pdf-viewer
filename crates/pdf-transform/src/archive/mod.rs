@@ -1396,10 +1396,15 @@ const NOTHING_TO_PRESERVE: &str = "this configuration answers this requirement b
 ///
 /// [`NOTHING_TO_PRESERVE`], except at a packet row whose every replaced packet held no bytes to
 /// lay out: the fresh packet is then the remedy and no page is owed, since a page keeps bytes and
-/// there were none (`doc/adr/2676`). A packet that decoded is always carried, so a packet row
-/// carrying nothing beside a fresh packet prepared is exactly this case.
+/// there were none (`doc/adr/2676`). A packet that decoded is carried, or removed by the row's
+/// second step where no page could lay it out: a packet row whose second step removed one has
+/// answered the site per packet, as an embedded-file row answers per file (`doc/adr/2678`), with
+/// the fresh packet the remedy and each removal named. Otherwise a packet row carrying nothing
+/// beside a fresh packet prepared is the no-bytes case.
 fn carrying_nothing(id: &str, prepared: &Prepared, composed: &preserve::Composed) -> Decision {
-    if prepare::PACKET_REQUIREMENTS.contains(&id)
+    if prepare::PACKET_REQUIREMENTS.contains(&id) && !composed.removed_packets.is_empty() {
+        REMOVED_PACKET_ANSWERED
+    } else if prepare::PACKET_REQUIREMENTS.contains(&id)
         && prepared.fresh.is_ok()
         && !composed
             .carried
@@ -1423,6 +1428,19 @@ const REPLACED_WITHOUT_BYTES: Decision = Decision::Configured {
 const NO_BYTES_TO_PRESERVE: &str = "the packet this conversion replaces will not decode through \
      the filters its stream states, so there are no bytes for a page to keep: it is replaced with \
      a fresh packet and nothing is appended for it";
+
+/// The decision of a packet row whose second step removed a packet no page could lay out.
+const REMOVED_PACKET_ANSWERED: Decision = Decision::Configured {
+    kind: RemedyKind::Preserve,
+    rewrite: Rewrite::FreshMetadataPacket,
+    warns: PACKET_REMOVED,
+};
+
+/// What a packet row's `preserve` did where its second step took a packet (`doc/adr/2678`).
+const PACKET_REMOVED: &str = "the packet this conversion replaces is replaced with a fresh \
+     packet, every packet a page could lay out is kept on one, and each one no page could lay out \
+     is removed by the row's second step and named per stream — on the statement page as well, \
+     where that step is append-statement";
 
 /// Why a configured remedy is withdrawn even though it could have been carried out.
 const NOT_RECORDED: &str = "this configuration answers this requirement with a remedy that is \
@@ -1752,6 +1770,17 @@ fn apply_the_decisions(
         && let Ok(fresh) = &prepared.fresh
     {
         conversion.replaced_packets.clone_from(&fresh.replaced);
+        // Each packet the row's second step removed is named on the stream it came from
+        // (`doc/adr/2678`).
+        if let Ok(composed) = &prepared.preserved {
+            for packet in &mut conversion.replaced_packets {
+                packet.removed = composed
+                    .removed_packets
+                    .iter()
+                    .find(|removed| removed.at == packet.at)
+                    .cloned();
+            }
+        }
     }
     // The same again for section 6.6.4's identifier: a cut property leaves nothing in the output
     // to notice, so the report names what the file used to claim (`doc/adr/1246`).

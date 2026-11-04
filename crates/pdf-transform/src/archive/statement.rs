@@ -148,6 +148,78 @@ const RECOVERED_LOSS: &str = "the source states no page tree a writer may restat
      document's catalog and page tree are the ones this reader drew its pages from, and the pages \
      are the producer's";
 
+/// The one line the `metadata-packet` loss is described by on the page, where no page kept the
+/// packet (`doc/adr/2678`).
+const PACKET_LOSS: &str = "the metadata stream carries a packet this conversion composed, and the \
+     producer's packet is no longer in this document: its bytes went with it";
+
+/// Appends one entry per packet a packet row's second step removed to a statement's `text`,
+/// numbered from `before`, or the bound it would pass (`doc/adr/2678`).
+///
+/// Every value is computed from the source — the stream's object number, the length of its data
+/// as the file holds it, the filters its dictionary states — or is this program's fixed words for
+/// the requirement, the loss and the reason, as `CLAUDE.md`'s first authoring amendment allows.
+pub(super) fn packet_entries(
+    out: &mut String,
+    target: Target,
+    before: usize,
+    removed: &[super::prepare::RemovedPacket],
+    asked: &Statement,
+) -> Result<(), &'static str> {
+    if before.saturating_add(removed.len()) > MOST_STATED_OBJECTS {
+        return Err(TOO_MANY_STATED);
+    }
+    if out.len() > MOST_STATEMENT_BYTES {
+        return Err(STATEMENT_TOO_LONG);
+    }
+    for (offset, packet) in removed.iter().enumerate() {
+        let requirement = table::requirements().find(|requirement| requirement.id == packet.site);
+        let citation = requirement
+            .and_then(|requirement| requirement.clauses.citation(target))
+            .unwrap_or_default();
+        let asks = requirement.map_or("", |requirement| requirement.asks);
+        // Writing into a `String` cannot fail, so each `write!` result is discarded deliberately.
+        let _ = write!(
+            out,
+            "\n{}. Requirement: {} ({citation})\n   Asks: {asks}\n   Loss: metadata-packet, \
+             {PACKET_LOSS}\n   Object: metadata stream {} {}\n   Stream length: {} bytes\n",
+            before.saturating_add(offset).saturating_add(1),
+            packet.site,
+            packet.at.number,
+            packet.at.generation,
+            packet.length,
+        );
+        let _ = writeln!(
+            out,
+            "   Filters stated: {}",
+            if packet.filters.is_empty() {
+                "none".to_owned()
+            } else {
+                packet.filters.join(" ")
+            }
+        );
+        match &asked.before {
+            Some(step) => {
+                let _ = writeln!(
+                    out,
+                    "   Tried before: {step}, which did not hold: {}",
+                    packet.because
+                );
+            }
+            None => {
+                let _ = writeln!(out, "   Tried before: no step");
+            }
+        }
+        for (step, why) in &asked.skipped {
+            let _ = writeln!(out, "   Not admitted at this target: {step}, because {why}");
+        }
+    }
+    if out.len() > MOST_STATEMENT_BYTES {
+        return Err(STATEMENT_TOO_LONG);
+    }
+    Ok(())
+}
+
 /// Appends the entry for the loss [`super::Loss::RecoveredStructure`] to a statement's `text`,
 /// numbered `index` from zero, or the bound it would pass (`doc/adr/2669`).
 ///
