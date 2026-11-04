@@ -2367,11 +2367,13 @@ they differ in what the archive keeps rather than in what it conforms to:
 - **Not built** — a packet stating a character `/WinAnsiEncoding` has no code for, where the
   document's own fonts cannot set it either; a `/MarkInfo` claim of tagged conventions over a
   document with no structure tree, where the page would have nowhere to be described; and a
-  structure tree this cannot extend without rewriting the producer's own — a root the catalog
-  states inline, a `/ParentTree` with `/Kids`, a `/Nums` stated by reference. Each refuses by name
-  rather than half-doing it. **A document that carries an extendable structure tree is built**: the
-  appended page is described in it, a `Part` holding a `P` per line, with ISO 32000-2 §14.7.5.4's
-  `/StructParents`, parent-tree entry and `/ParentTreeNextKey` (ADR 1163).
+  structure tree root the catalog states inline, and a `/ParentTree` that is not a number tree this
+  can read (a node not a dictionary, a cycle, keys out of order, deeper than 64). Each refuses by
+  name rather than half-doing it. **A document that carries a readable structure tree is built**:
+  the appended page is described in it, a `Part` holding a `P` per line, with ISO 32000-2
+  §14.7.5.4's `/StructParents`, parent-tree entry and `/ParentTreeNextKey` (ADR 1163). A parent
+  tree with `/Kids`, at any depth, takes the appended pages' entries in one new leaf as its root's
+  last kid, and a root `/Nums` stated by reference is written into the root (ADR 2672).
 - **Departure** — **B**. A packet holding a property its own schema does not define still parses and
   still says what the producer meant; departing would leave a file no validator passes for the sake
   of metadata that a page now keeps anyway.

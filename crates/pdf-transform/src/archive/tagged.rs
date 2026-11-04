@@ -55,6 +55,7 @@ use pdf_syntax::object::{Dictionary, Name, Object, ObjectId};
 
 use super::decision::Because;
 use super::prepare::Spare;
+use super::preserve::{NumberTree, TreeRefusals};
 
 /// Why a document that claims tagged conventions with no structure tree gets no appended page.
 ///
@@ -80,17 +81,45 @@ pub(super) const TREE_ROOT_NOT_REFERENCED: &str = "this document's catalog state
      Table 355 requires a structure element's P entry to be an indirect reference to its parent — \
      so the element describing an appended page has no way to name the root it hangs from";
 
-/// Why a parent tree with intermediate nodes stops the remedy.
+/// Why a structural parent tree this converter cannot read stops the remedy.
 ///
-/// §7.9.7's number tree may spread its keys over `/Kids`, and putting a new key into the right
-/// leaf — with every `/Limits` on the way down moved to match — is a rewrite of the producer's own
-/// tree rather than an entry added to it. The page-label tree's construction, a new leaf as the
-/// root's last kid (`doc/adr/2671`), is the one this would take.
-pub(super) const PARENT_TREE_NOT_EXTENDABLE: &str = "this document states its structure tree's \
-     ParentTree as a number tree with /Kids rather than one flat /Nums array, and putting a new \
-     key into the right leaf — with every /Limits above it moved to match — is not built. \
-     ISO 32000-2 \u{a7}14.7.5.4 requires an appended page's marked-content sequences to be findable \
+/// §14.7.5.4 requires every appended page's marked-content sequences to be findable through the
+/// parent tree, and a tree whose shape is not §7.9.7's leaves no place a key could be put that a
+/// reader would find. The tree is extended by [`super::preserve::NumberTree`], whatever its depth
+/// (`doc/adr/2672`); this and the three after it are the only shapes refused.
+pub(super) const PARENT_TREE_NOT_A_TREE: &str = "this document's structure tree states a \
+     ParentTree that is not a number tree this converter can read: a node is not a dictionary, a \
+     /Kids or /Nums is not an array, a /Nums holds a key without its value or a key that is not an \
+     integer, or the root holds both /Kids and /Nums (ISO 32000-2 \u{a7}7.9.6 and \u{a7}7.9.7, \
+     Table 37). \u{a7}14.7.5.4 requires an appended page's marked-content sequences to be findable \
      through that tree, so the page is not written rather than written unfindable";
+
+/// Why a structural parent tree that reaches a node twice stops the remedy.
+pub(super) const PARENT_TREE_CYCLE: &str = "this document's structure tree states a ParentTree \
+     that names one of its own nodes twice through /Kids, so it is not the tree ISO 32000-2 \
+     \u{a7}7.9.7 describes and the keys it already uses cannot be known; an appended page's key \
+     could collide with one of them, and \u{a7}14.7.5.4 makes the key the only way to its entry";
+
+/// Why a structural parent tree whose keys are out of order stops the remedy.
+pub(super) const PARENT_TREE_OUT_OF_ORDER: &str = "this document's structure tree states a \
+     ParentTree that does not hold its keys in ascending order, which ISO 32000-2 \u{a7}7.9.7 \
+     requires (\"shall be sorted in ascending numerical order\"), so which entry a key finds is \
+     not something the tree states and an appended page's entry would not be either";
+
+/// Why a structural parent tree deeper than [`super::preserve::DEEPEST_NUMBER_TREE`] stops the
+/// remedy.
+pub(super) const PARENT_TREE_TOO_DEEP: &str = "this document's structure tree states a \
+     ParentTree nested more than 64 nodes deep through /Kids. A balanced tree over every page and \
+     annotation a file can hold is a few levels deep, so this converter reads no further rather \
+     than walk a structure built to make a reader walk";
+
+/// The parent tree's refusals, which [`super::preserve::NumberTree`] reads it under.
+const PARENT_TREE: TreeRefusals = TreeRefusals {
+    not_a_tree: PARENT_TREE_NOT_A_TREE,
+    cycle: PARENT_TREE_CYCLE,
+    out_of_order: PARENT_TREE_OUT_OF_ORDER,
+    too_deep: PARENT_TREE_TOO_DEEP,
+};
 
 /// Why a structure tree root of an unreadable shape stops the remedy.
 pub(super) const TREE_ROOT_NOT_A_DICTIONARY: &str = "this document's catalog names a \
@@ -133,18 +162,14 @@ pub(super) fn describes_its_content(document: &Document) -> bool {
             .is_some_and(|info| document.get_key(info, "Marked") == Object::Boolean(true))
 }
 
-/// Where the parent tree's `/Nums` array is written back.
-#[derive(Debug, Clone)]
-enum Nums {
-    /// The structure tree root states `/ParentTree` as a direct dictionary, so the array goes
-    /// back into the root's own dictionary.
-    ///
-    /// The dictionary carried here is the whole `/ParentTree` value, `/Nums` already replaced.
-    InTheRoot(Dictionary),
-    /// The parent tree is an object of its own, which is what §14.7.5.4's own example writes.
-    ///
-    /// Nothing of its dictionary is carried: the one entry that changes is `/Nums`, and the rest
-    /// of what the producer wrote there is left where it is by the rewrite.
+/// Where the parent tree's root is written back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Site {
+    /// The structure tree root states `/ParentTree` as a direct dictionary, or states none, so
+    /// the extended root goes back into the structure tree root's own dictionary.
+    InTheRoot,
+    /// The parent tree's root is an object of its own, which is what §14.7.5.4's own example
+    /// writes.
     InItsOwnObject(ObjectId),
 }
 
@@ -157,10 +182,10 @@ enum Nums {
 pub(super) struct Planned {
     /// The structure tree root, which every top-level element states as its `/P`.
     root: ObjectId,
-    /// The parent tree's `/Nums` pairs as the producer wrote them, and where they live.
-    tree: Nums,
-    /// The pairs the producer wrote, key and value alternating.
-    pairs: Vec<Object>,
+    /// The parent tree as the producer wrote it, every node read.
+    tree: NumberTree,
+    /// Where the parent tree's root lives.
+    site: Site,
     /// The next key §14.7.5.4 admits: greater than any the parent tree already uses.
     next_key: i64,
     /// Each appended page's key, in the order the pages were composed.
@@ -189,7 +214,8 @@ impl Planned {
     /// # Errors
     ///
     /// [`Because::NotBuiltYet`] with [`CLAIMS_TAGGED_WITH_NO_TREE`], [`TREE_ROOT_NOT_REFERENCED`],
-    /// [`TREE_ROOT_NOT_A_DICTIONARY`] or [`PARENT_TREE_NOT_EXTENDABLE`], each naming its shape.
+    /// [`TREE_ROOT_NOT_A_DICTIONARY`], [`PARENT_TREE_NOT_A_TREE`], [`PARENT_TREE_CYCLE`],
+    /// [`PARENT_TREE_OUT_OF_ORDER`] or [`PARENT_TREE_TOO_DEEP`], each naming its shape.
     pub(super) fn of(document: &Document) -> Result<Option<Self>, Because> {
         let Ok(catalog) = document.catalog() else {
             return Ok(None);
@@ -210,15 +236,13 @@ impl Planned {
         let Some(root) = document.resolve(stated).as_dict().cloned() else {
             return Err(Because::NotBuiltYet(TREE_ROOT_NOT_A_DICTIONARY));
         };
-        let (tree, pairs) = read_the_parent_tree(document, &root)?;
+        let (tree, site) = read_the_parent_tree(document, &root)?;
         // §14.7.5.4: "The ParentTreeNextKey entry in the structure tree root shall hold an integer
         // value greater than any that is currently in use as a key in the structural parent tree."
         // The producer's own value is honoured where it says that and corrected where it does not,
-        // because a key already in use would put this page's array where a producer's page's is.
-        let highest = pairs
-            .chunks_exact(2)
-            .filter_map(|pair| pair.first().and_then(Object::as_integer))
-            .max();
+        // because a key already in use would put this page's array where a producer's page's is —
+        // so no appended page's key can collide with one the tree holds, at any depth.
+        let highest = tree.last;
         let stated_next = document.get_key(&root, "ParentTreeNextKey").as_integer();
         let next_key = stated_next
             .unwrap_or(0)
@@ -227,7 +251,7 @@ impl Planned {
         Ok(Some(Self {
             root: at,
             tree,
-            pairs,
+            site,
             next_key,
             pages: Vec::new(),
             groups: Vec::new(),
@@ -260,7 +284,7 @@ impl Planned {
     /// # Errors
     ///
     /// [`Because::NotBuiltYet`] with [`super::preserve::NO_SPARE_OBJECT`] where the document has
-    /// no free object number left for an element.
+    /// no free object number left for an element or for the parent tree's new leaf.
     pub(super) fn finish(
         self,
         document: &Document,
@@ -294,7 +318,7 @@ impl Planned {
             written.push((group_at, grouping(self.root, kids)));
             tops.push(Object::Reference(group_at));
         }
-        let mut pairs = self.pairs;
+        let mut pairs = Vec::new();
         for (page, key) in &self.pages {
             let mut sequences: Vec<Object> = Vec::new();
             for (group, lines) in self.groups.iter().enumerate() {
@@ -305,16 +329,18 @@ impl Planned {
                     }
                 }
             }
-            pairs.push(Object::Integer(*key));
-            pairs.push(Object::Array(sequences));
+            pairs.push((*key, Object::Array(sequences)));
         }
+        // The keys were handed out from past the tree's greatest, in order, so they extend it
+        // wherever its keys are held (`doc/adr/2672`).
+        let tree = self.tree.extended(document, pairs, spare, &mut written)?;
         Ok((
             Described {
                 root: self.root,
                 tops,
                 next_key: self.next_key,
-                tree: self.tree,
-                pairs,
+                site: self.site,
+                tree,
             },
             written,
         ))
@@ -391,52 +417,31 @@ fn paragraph(parent: ObjectId, line: &[Reference]) -> Object {
     Object::Dictionary(dict)
 }
 
-/// The parent tree's pairs and where they are written back, or why they cannot be extended.
+/// The parent tree, every node read, and where its root is written back — or why it cannot be.
 fn read_the_parent_tree(
     document: &Document,
     root: &Dictionary,
-) -> Result<(Nums, Vec<Object>), Because> {
+) -> Result<(NumberTree, Site), Because> {
     let Some(stated) = root.get("ParentTree") else {
         // §14.7.5.4 makes the entry "Required if any structure element contains content items",
         // and this conversion is about to add some; a tree with no entries of its own is created
-        // as a flat one, which is the shape every entry below goes into.
-        return Ok((Nums::InTheRoot(Dictionary::new()), Vec::new()));
+        // in the structure tree root, as a root holding `/Nums`.
+        return Ok((NumberTree::empty(PARENT_TREE), Site::InTheRoot));
     };
     let Some(tree) = document.resolve(stated).as_dict().cloned() else {
-        return Err(Because::NotBuiltYet(PARENT_TREE_NOT_EXTENDABLE));
+        return Err(Because::NotBuiltYet(PARENT_TREE_NOT_A_TREE));
     };
-    if tree.get("Kids").is_some() {
-        return Err(Because::NotBuiltYet(PARENT_TREE_NOT_EXTENDABLE));
-    }
-    let pairs = match tree.get("Nums") {
-        None => Vec::new(),
-        Some(nums) => match document.resolve(nums) {
-            Object::Array(items) => items.clone(),
-            _ => return Err(Because::NotBuiltYet(PARENT_TREE_NOT_EXTENDABLE)),
-        },
-    };
-    // A `/Nums` the root states through a reference of its own is a third object to rewrite, and
-    // this one is not built: the array goes back where the dictionary holding it is.
-    if tree
-        .get("Nums")
-        .is_some_and(|nums| nums.as_reference().is_some())
-    {
-        return Err(Because::NotBuiltYet(PARENT_TREE_NOT_EXTENDABLE));
-    }
-    Ok((
-        match stated.as_reference() {
-            Some(at) => Nums::InItsOwnObject(at),
-            None => Nums::InTheRoot(tree),
-        },
-        pairs,
-    ))
+    let at = stated.as_reference();
+    let tree = NumberTree::read(document, tree, at, PARENT_TREE)?;
+    Ok((tree, at.map_or(Site::InTheRoot, Site::InItsOwnObject)))
 }
 
 /// The entries a tagged document's structure tree gains for the pages this conversion appended.
 ///
 /// Two of the producer's own dictionaries change and nothing else does: the structure tree root's
 /// `/K` gains the grouping elements and its `/ParentTreeNextKey` moves on, and the parent tree's
-/// `/Nums` gains one entry per appended page. `doc/adr/1163`.
+/// root gains one entry per appended page — in its own `/Nums`, or in a new leaf its `/Kids`
+/// gains. `doc/adr/1163`, `doc/adr/2672`.
 #[derive(Debug)]
 pub(super) struct Described {
     /// The structure tree root.
@@ -445,10 +450,10 @@ pub(super) struct Described {
     tops: Vec<Object>,
     /// §14.7.5.4's `/ParentTreeNextKey`, past every key this conversion used.
     next_key: i64,
-    /// Where the parent tree's `/Nums` is written back.
-    tree: Nums,
-    /// The `/Nums` pairs, the producer's own followed by this conversion's.
-    pairs: Vec<Object>,
+    /// Where the parent tree's root is written back.
+    site: Site,
+    /// The parent tree's root as it becomes, holding or reaching every appended page's entry.
+    tree: Dictionary,
 }
 
 impl Described {
@@ -474,19 +479,206 @@ impl Described {
                 Name::new(&b"ParentTreeNextKey"[..]),
                 Object::Integer(self.next_key),
             );
-            if let Nums::InTheRoot(tree) = &self.tree {
-                let mut tree = tree.clone();
-                tree.insert(Name::new(&b"Nums"[..]), Object::Array(self.pairs.clone()));
-                out.insert(Name::new(&b"ParentTree"[..]), Object::Dictionary(tree));
+            if self.site == Site::InTheRoot {
+                out.insert(
+                    Name::new(&b"ParentTree"[..]),
+                    Object::Dictionary(self.tree.clone()),
+                );
             }
             changed = true;
         }
-        if let Nums::InItsOwnObject(at) = &self.tree
-            && *at == id
-        {
-            out.insert(Name::new(&b"Nums"[..]), Object::Array(self.pairs.clone()));
+        if self.site == Site::InItsOwnObject(id) {
+            // Only the entries the extension writes are put back, so whatever else the producer
+            // wrote in the node — or another edit of this rewrite — stays as it is.
+            for (key, value) in self.tree.iter() {
+                if matches!(key.as_bytes(), b"Kids" | b"Nums" | b"Limits") {
+                    out.insert(key.clone(), value.clone());
+                }
+            }
             changed = true;
         }
         changed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A document whose structure tree root, object 2, states `/ParentTree` as `tree`, with
+    /// `nodes` as objects 3 on and `/ParentTreeNextKey` as `next`.
+    ///
+    /// Nothing but the catalog and the root is read by [`Planned::of`], so the fixture holds no
+    /// page; the appended pages' identifiers are numbers past every object it writes.
+    fn tagged(tree: &str, next: i64, nodes: &[&str]) -> Document {
+        use std::fmt::Write as _;
+        let catalog = "<< /Type /Catalog /StructTreeRoot 2 0 R >>".to_owned();
+        let root = format!(
+            "<< /Type /StructTreeRoot /K [] /ParentTree {tree} /ParentTreeNextKey {next} >>"
+        );
+        let objects: Vec<&str> = [catalog.as_str(), root.as_str()]
+            .into_iter()
+            .chain(nodes.iter().copied())
+            .collect();
+        let mut out = String::from("%PDF-1.7\n");
+        let mut offsets = Vec::new();
+        for (index, body) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", index.saturating_add(1));
+        }
+        let size = objects.len().saturating_add(1);
+        let at = out.len();
+        let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
+        for offset in offsets {
+            let _ = writeln!(out, "{offset:010} 00000 n ");
+        }
+        let _ = write!(
+            out,
+            "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{at}\n%%EOF\n"
+        );
+        Document::open(out.into_bytes()).expect("the fixture opens")
+    }
+
+    /// The structure entries two pages appended to `document` take, one line on each.
+    fn described(document: &Document) -> Result<(Described, Vec<(ObjectId, Object)>), Because> {
+        let mut planned = Planned::of(document)?.expect("the document is tagged");
+        let pages = [ObjectId::new(90, 0), ObjectId::new(91, 0)];
+        for page in pages {
+            let _ = planned.key_for_a_page(page);
+        }
+        planned.set(
+            pages
+                .iter()
+                .map(|&page| vec![Reference { page, mcid: 0 }])
+                .collect(),
+        );
+        planned.finish(document, &mut Spare { next: 100 })
+    }
+
+    fn integers(object: &Object) -> Vec<i64> {
+        object
+            .as_array()
+            .expect("an array")
+            .iter()
+            .filter_map(Object::as_integer)
+            .collect()
+    }
+
+    #[test]
+    fn a_parent_tree_with_kids_takes_the_pages_entries_in_one_new_leaf() {
+        // Two levels, and a `/ParentTreeNextKey` that understates the greatest key: §14.7.5.4
+        // makes it "greater than any that is currently in use", so the pages take 8 and 9.
+        let document = tagged(
+            "3 0 R",
+            2,
+            &[
+                "<< /Kids [4 0 R] >>",
+                "<< /Limits [0 7] /Kids [5 0 R 6 0 R] >>",
+                "<< /Limits [0 0] /Nums [0 []] >>",
+                "<< /Limits [7 7] /Nums [7 []] >>",
+            ],
+        );
+        let (described, written) = described(&document).expect("it extends");
+        assert_eq!(described.next_key, 10);
+        assert_eq!(described.site, Site::InItsOwnObject(ObjectId::new(3, 0)));
+        let kids = described.tree.get("Kids").expect("kids");
+        let Some([Object::Reference(producers), Object::Reference(leaf)]) = kids.as_array() else {
+            panic!("the root gains one kid: {kids:?}");
+        };
+        assert_eq!(*producers, ObjectId::new(4, 0));
+        let node = written
+            .iter()
+            .find(|(id, _)| id == leaf)
+            .and_then(|(_, node)| node.as_dict())
+            .expect("the leaf is written");
+        assert_eq!(integers(node.get("Limits").expect("limits")), [8, 9]);
+        assert_eq!(integers(node.get("Nums").expect("nums")), [8, 9]);
+        // The rewrite puts back the root's own entries, and only those, into the producer's node.
+        let mut out = Dictionary::new();
+        out.insert(Name::new(&b"Producer"[..]), Object::Boolean(true));
+        assert!(described.apply(&document, ObjectId::new(3, 0), &mut out));
+        assert_eq!(out.get("Kids"), Some(kids));
+        assert_eq!(out.get("Producer"), Some(&Object::Boolean(true)));
+    }
+
+    #[test]
+    fn a_root_nums_stated_through_a_reference_is_written_into_the_root() {
+        let document = tagged("<< /Nums 3 0 R >>", 1, &["[0 []]"]);
+        let (described, written) = described(&document).expect("it extends");
+        assert_eq!(described.site, Site::InTheRoot);
+        assert_eq!(
+            // The values are arrays, so the integers are the keys.
+            integers(described.tree.get("Nums").expect("nums")),
+            [0, 1, 2]
+        );
+        assert!(
+            written.iter().all(|(_, object)| object
+                .as_dict()
+                .is_some_and(|node| node.get("Limits").is_none())),
+            "no leaf is added to a flat tree"
+        );
+    }
+
+    #[test]
+    fn a_parent_tree_that_cannot_be_read_is_refused_by_name() {
+        let refused = |tree: &str, nodes: &[&str]| match described(&tagged(tree, 9, nodes)) {
+            Err(Because::NotBuiltYet(reason)) => reason,
+            other => panic!("{tree} {nodes:?}: {other:?}"),
+        };
+        for (tree, nodes) in [
+            ("7", &[][..]),
+            ("<< /Kids [3 0 R] >>", &["7"][..]),
+            ("<< /Nums [0 [] 4] >>", &[][..]),
+            (
+                "<< /Kids [3 0 R] >>",
+                &["<< /Limits [0 0] /Nums [(0) []] >>"][..],
+            ),
+            (
+                "<< /Kids [3 0 R] /Nums [0 []] >>",
+                &["<< /Limits [1 1] /Nums [1 []] >>"][..],
+            ),
+        ] {
+            assert_eq!(
+                refused(tree, nodes),
+                PARENT_TREE_NOT_A_TREE,
+                "{tree} {nodes:?}"
+            );
+        }
+        assert_eq!(
+            refused(
+                "<< /Kids [3 0 R] >>",
+                &["<< /Limits [0 0] /Kids [3 0 R] >>"]
+            ),
+            PARENT_TREE_CYCLE
+        );
+        assert_eq!(
+            refused(
+                "<< /Kids [3 0 R 4 0 R] >>",
+                &[
+                    "<< /Limits [0 5] /Nums [0 [] 5 []] >>",
+                    "<< /Limits [3 3] /Nums [3 []] >>"
+                ]
+            ),
+            PARENT_TREE_OUT_OF_ORDER
+        );
+        assert_eq!(
+            refused("<< /Nums [4 [] 2 []] >>", &[]),
+            PARENT_TREE_OUT_OF_ORDER
+        );
+        // A chain one node deeper than the bound, and the same chain one node shallower read.
+        let deepest = super::super::preserve::DEEPEST_NUMBER_TREE.saturating_add(1);
+        let chain = |length: usize| -> Vec<String> {
+            let mut chain: Vec<String> = (0..length)
+                .map(|at| format!("<< /Limits [0 0] /Kids [{} 0 R] >>", at.saturating_add(4)))
+                .collect();
+            chain.push("<< /Limits [0 0] /Nums [0 []] >>".to_owned());
+            chain
+        };
+        let too_deep = chain(deepest);
+        let nodes: Vec<&str> = too_deep.iter().map(String::as_str).collect();
+        assert_eq!(refused("3 0 R", &nodes), PARENT_TREE_TOO_DEEP);
+        let read = chain(deepest.saturating_sub(1));
+        let nodes: Vec<&str> = read.iter().map(String::as_str).collect();
+        assert!(described(&tagged("3 0 R", 9, &nodes)).is_ok());
     }
 }

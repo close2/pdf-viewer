@@ -352,7 +352,10 @@ forms — section 7.1). Builds only. Mitigations sections 6 and 7.
 character (the shipped faces cover WinAnsi only — the CJK pack's faces would set the rest), the page's
 text painted in the initial `DeviceGray` with no default (write its colour in the intent's family),
 a packet that is not UTF-8 (1), and one case where no requirement asked for the page (a defect).
-Builds only. ADR 1014; `crates/pdf-transform/src/archive/preserve.rs`.
+Builds only. ADR 1014; `crates/pdf-transform/src/archive/preserve.rs`. A tagged document whose
+`/ParentTree` holds `/Kids` gave its appended page no place in the structure tree; that tree now
+takes the pages' entries in a new leaf at any depth (ADR 2672), and `064034`, `316267`, `459011`
+and `UMTRI-2008-80` convert under `state-every-loss` at 2b (`064034` at part 4 too).
 
 **R15 — embedded files, the owner's example** (3 documents blocked at 2b, 5 at 4). The attachment
 census: 22 of the 1478 documents carry 64 attachments — 13 PDFs (8 documents), 11 text or HTML (7),

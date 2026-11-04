@@ -217,10 +217,27 @@ fn a_statement_past_its_page_bound_is_refused_by_name() {
 /// A tagged document holding the two files: Table 354's smallest root as object 6, the files
 /// after it (specifications 7 and 9).
 fn a_tagged_document_holding_two_files() -> Vec<u8> {
+    a_tagged_document_holding_two_files_under(
+        &["<< /Type /StructTreeRoot /K [] >>"],
+        String::new(),
+        b"1 0 0 rg 10 10 50 50 re f",
+    )
+}
+
+/// A tagged document holding the two files, its structure as `structure` (objects 6 on) and its
+/// one page stating `page` and drawing `content`; the files come after the structure.
+fn a_tagged_document_holding_two_files_under(
+    structure: &[&str],
+    page: String,
+    content: &[u8],
+) -> Vec<u8> {
     let mut binary = Vec::new();
     let mut names = String::new();
     for (index, (name, data)) in [NOTE, BLOB].into_iter().enumerate() {
-        let specification = index.saturating_mul(2).saturating_add(7);
+        let specification = index
+            .saturating_mul(2)
+            .saturating_add(6)
+            .saturating_add(structure.len());
         let _ = write!(names, "({name}) {specification} 0 R ");
         binary.push(
             format!(
@@ -242,9 +259,10 @@ fn a_tagged_document_holding_two_files() -> Vec<u8> {
             "/MarkInfo << /Marked true >> /StructTreeRoot 6 0 R \
              /Names << /EmbeddedFiles << /Names [{names}] >> >>"
         ),
-        objects: vec!["<< /Type /StructTreeRoot /K [] >>".to_owned()],
+        objects: structure.iter().map(|&body| body.to_owned()).collect(),
         binary_objects: binary,
-        contents: Some((String::new(), b"1 0 0 rg 10 10 50 50 re f".to_vec())),
+        page,
+        contents: Some((String::new(), content.to_vec())),
         ..Conforming::part_two()
     }
     .build()
@@ -281,6 +299,107 @@ fn a_level_a_target_describes_the_statement_page_in_the_structure_tree() {
         );
     }
     assert_states(&stated(&output, statement), 9, BLOB);
+}
+
+/// `doc/adr/2672`: a parent tree of any depth gains the statement page's entry in a new leaf.
+///
+/// §14.7.5.4 makes the page's `/StructParents` "the integer key under which the entry
+/// corresponding to the object shall be found in the structural parent tree", and §7.9.7's
+/// `/Limits` are what a reader descends by — so each appended page is read back through
+/// `pdf_model::structure::ParentTree`, the lookup this reader draws with, and each of its
+/// sequences has to find a `P` element. The producer's own page has to find its element still.
+#[test]
+fn a_parent_tree_with_kids_gains_the_statement_pages_entries_at_any_depth() {
+    // Object 6 the root, 7 the producer's element, 8 the parent tree's root, 9 on its nodes. The
+    // producer's key is 3 and `/ParentTreeNextKey` says 4.
+    let root = "<< /Type /StructTreeRoot /K [7 0 R] /ParentTree 8 0 R /ParentTreeNextKey 4 >>";
+    let element = "<< /Type /StructElem /S /P /P 6 0 R /Pg 3 0 R /K 0 >>";
+    let shapes: [&[&str]; 3] = [
+        // A root over one leaf.
+        &[
+            "<< /Kids [9 0 R] >>",
+            "<< /Limits [3 3] /Nums [3 [7 0 R]] >>",
+        ],
+        // A root over an intermediate node over two leaves.
+        &[
+            "<< /Kids [9 0 R] >>",
+            "<< /Limits [1 3] /Kids [10 0 R 11 0 R] >>",
+            "<< /Limits [1 1] /Nums [1 null] >>",
+            "<< /Limits [3 3] /Nums [3 [7 0 R]] >>",
+        ],
+        // A root holding `/Nums` through a reference of its own.
+        &["<< /Nums 9 0 R >>", "[3 [7 0 R]]"],
+    ];
+    for tree in shapes {
+        let structure: Vec<&str> = [root, element]
+            .into_iter()
+            .chain(tree.iter().copied())
+            .collect();
+        let source = a_tagged_document_holding_two_files_under(
+            &structure,
+            "/StructParents 3".to_owned(),
+            b"/P << /MCID 0 >> BDC 1 0 0 rg 10 10 50 50 re f EMC",
+        );
+        for target in [Target::Two(Level::A), Target::Four(Flavour::Plain)] {
+            let (report, output) = convert_with_plan(
+                &source,
+                &planned(
+                    &if target == Target::Two(Level::A) {
+                        row("remedy = \"append-statement\"")
+                    } else {
+                        format!(
+                            "[site.\"{SITE}-in-the-plain-profile\"]\nremedy = \"append-statement\"\n"
+                        )
+                    },
+                    target,
+                ),
+            );
+            let conversion = conversion(&report);
+            let output =
+                output.unwrap_or_else(|| panic!("{tree:?} {target}: {:?}", conversion.decided));
+            assert_eq!(
+                holds(&output, target).verdict(),
+                Verdict::Conforms,
+                "{tree:?} {target}: the extended tree is held to the target again"
+            );
+            let statement = conversion.statement.as_ref().expect("the page is reported");
+            let document = Document::open(output.clone()).expect("the output opens");
+            let pages = pdf_model::Pages::new(&document);
+            let found = |index: usize, mcid: i64| {
+                let page = pages.get(index).expect("the page");
+                pdf_model::structure::ParentTree::for_page(&document, &page.dict)
+                    .element(&document, mcid)
+                    .and_then(|element| {
+                        document
+                            .get_key(&element, "S")
+                            .as_name()
+                            .map(|name| name.as_bytes().to_vec())
+                    })
+            };
+            assert_eq!(
+                found(0, 0).as_deref(),
+                Some(&b"P"[..]),
+                "{tree:?} {target}: the producer's page"
+            );
+            assert!(!statement.pages.is_empty());
+            for index in &statement.pages {
+                let page = pages.get(*index).expect("the statement's page");
+                assert!(
+                    document.get_key(&page.dict, "StructParents").as_integer() >= Some(4),
+                    "{tree:?} {target}: page {index} takes a key from ParentTreeNextKey on"
+                );
+                assert_eq!(
+                    found(*index, 0).as_deref(),
+                    Some(&b"P"[..]),
+                    "{tree:?} {target}: page {index}'s first sequence finds its element"
+                );
+            }
+            if target == Target::Two(Level::A) {
+                let blob = u32::try_from(structure.len() + 8).expect("a small number");
+                assert_states(&stated(&output, statement), blob, BLOB);
+            }
+        }
+    }
 }
 
 /// The profile `append-statement` is named for at the presentation sites, as it ships.
