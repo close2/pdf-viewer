@@ -429,6 +429,8 @@ struct Empties {
     form: Option<ObjectId>,
     /// The font that stands for a name in `Font`.
     font: Option<ObjectId>,
+    /// The membership dictionary that stands for a name in `Properties`.
+    membership: Option<ObjectId>,
     /// The font written for each of §9.6.2.2's fourteen a content stream named and nothing defined.
     /// At most fourteen entries, however many streams name them.
     standards: BTreeMap<Vec<u8>, ObjectId>,
@@ -450,6 +452,24 @@ impl Empties {
             .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
         written.push((id, empty_form()));
         self.form = Some(id);
+        Ok(id)
+    }
+
+    /// The empty membership dictionary, written on first use.
+    fn membership(
+        &mut self,
+        document: &Document,
+        spare: &mut Spare,
+        written: &mut Vec<(ObjectId, Object)>,
+    ) -> Result<ObjectId, Because> {
+        if let Some(id) = self.membership {
+            return Ok(id);
+        }
+        let id = spare
+            .take(document)
+            .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
+        written.push((id, empty_membership()));
+        self.membership = Some(id);
         Ok(id)
     }
 
@@ -527,6 +547,12 @@ fn empty_resource(
             empties.standard(document, spare, name, written)?,
         )),
         "Font" => Ok(Object::Reference(empties.font(document, spare, written)?)),
+        // A `BDC` or `DP` naming a property list nothing defines: the reader read no list, so
+        // the section was optional content of no group and stayed visible, and it carried no
+        // `/MCID`, `/ActualText` or `/Lang` (`doc/adr/2684`).
+        "Properties" => Ok(Object::Reference(
+            empties.membership(document, spare, written)?,
+        )),
         _ => Err(Because::NotBuiltYet(NO_EMPTY_RESOURCE)),
     }
 }
@@ -593,6 +619,28 @@ fn empty_font(procedure: ObjectId) -> Object {
     dict.insert(
         name(b"Widths"),
         Object::Array(vec![Object::Integer(0); 256]),
+    );
+    Object::Dictionary(dict)
+}
+
+/// An optional content membership dictionary that names no group, so hides nothing.
+///
+/// ISO 32000-2 §8.11.3.2 requires the property list of an `OC` section to be an optional content
+/// group or a membership dictionary, and a group would be listed in `/OCProperties` and shown to
+/// the reader as a layer the producer never made. §8.11.2.2's Table 97 makes `/Type` a membership
+/// dictionary's only required entry, and says of `/OCGs`:
+///
+/// > If this entry is not present, is an empty array, or contains references only to null or
+/// > deleted objects, the P entry shall have no effect on the visibility of any content.
+///
+/// So the section stays visible, as the reader drew it. Under any other tag §8.11.3.2 makes the
+/// list no optional content, and a list whose only entry is `/Type` carries none of §14.9's
+/// entries or an `/MCID`, which is what the reader read from a list it could not find.
+fn empty_membership() -> Object {
+    let mut dict = Dictionary::new();
+    dict.insert(
+        Name::new(&b"Type"[..]),
+        Object::Name(Name::new(&b"OCMD"[..])),
     );
     Object::Dictionary(dict)
 }

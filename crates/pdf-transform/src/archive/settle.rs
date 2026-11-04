@@ -122,7 +122,7 @@ fn fold_statement(
         }
     }
     first.pages.extend(second.pages);
-    first.objects = first.objects.saturating_add(second.objects);
+    first.listed = first.listed.plus(second.listed);
 }
 
 /// The second pass's decisions joined to the first's, each requirement once.
@@ -179,7 +179,10 @@ mod tests {
         StatementPage {
             sites: vec!["fonts/font-programs-embedded"],
             pages,
-            objects: 1,
+            listed: super::super::report::Listed {
+                font_records: 1,
+                ..Default::default()
+            },
             face,
         }
     }
@@ -194,7 +197,10 @@ mod tests {
             first,
             Some(StatementPage {
                 pages: vec![1, 2],
-                objects: 2,
+                listed: super::super::report::Listed {
+                    font_records: 2,
+                    ..Default::default()
+                },
                 ..stated(vec![], ships)
             })
         );

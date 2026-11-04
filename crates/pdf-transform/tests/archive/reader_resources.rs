@@ -744,3 +744,79 @@ fn copies_of_a_form_stop_at_their_count_and_at_their_bytes() {
     ));
     assert!(output.is_none());
 }
+
+/// The type a membership dictionary a name stands for states, read through the reference.
+fn property_type(document: &Document, resources: &Dictionary, name: &str) -> Option<Vec<u8>> {
+    let table = document.get_key(resources, "Properties");
+    let list = document.get_key(table.as_dict()?, name);
+    let list = list.as_dict()?;
+    document
+        .get_key(list, "Type")
+        .as_name()
+        .map(|type_name| type_name.as_bytes().to_vec())
+}
+
+/// `issue14438`'s shape: an annotation appearance opens `/OC /MC0 BDC` and its resources hold no
+/// `/Properties`, and the page's own content does the same. ISO 19005-4 section 6.2.2 asks the
+/// dictionary to define the name; ISO 32000-2 §8.11.3.2 asks the list of an `OC` section to be a
+/// group or a membership dictionary, and Table 97 makes one that names no group hide nothing, which
+/// is what the reader drew. So each name is defined as `<< /Type /OCMD >>` and no content byte
+/// changes (`doc/adr/2684`).
+#[test]
+fn a_property_list_nothing_defines_is_a_membership_dictionary_naming_no_group() {
+    let appearance = b"/OC /MC0 BDC 0 0 5 5 re f EMC".to_vec();
+    let page_content = "/OC /MC1 BDC 0 0 5 5 re f EMC";
+    for target in TARGETS {
+        let source = Conforming {
+            page: "/Annots [6 0 R]".to_owned(),
+            objects: vec![
+                "<< /Type /Annot /Subtype /Square /Rect [0 0 10 10] /F 4 /AP << /N 7 0 R >> >>"
+                    .to_owned(),
+            ],
+            binary_objects: vec![stream(
+                "/Type /XObject /Subtype /Form /BBox [0 0 10 10] /Resources << >>",
+                &appearance,
+            )],
+            ..page_of(target, "", page_content)
+        }
+        .build();
+        // The fixture fails the row at both names before it is converted.
+        let before = holds(&source, target);
+        let places = before
+            .failures()
+            .find(|judgement| judgement.id == NAMED)
+            .and_then(|judgement| match &judgement.outcome {
+                pdf_archive::Outcome::Failed { total, .. } => Some(*total),
+                _ => None,
+            });
+        assert_eq!(places, Some(2), "{target:?}");
+        let (report, output) = convert(&source, target, Authorisations::default());
+        assert!(
+            matches!(
+                decision(&report, NAMED),
+                Decision::Mechanical(Rewrite::EmptyResourceDefined)
+            ),
+            "{target:?}"
+        );
+        let output = output.expect("both names are defined");
+        assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+        let (document, page) = first_page(&output);
+        let resources = document.get_key(&page, "Resources");
+        let resources = resources.as_dict().expect("resources");
+        assert_eq!(
+            property_type(&document, resources, "MC1"),
+            Some(b"OCMD".to_vec())
+        );
+        let annots = document.get_key(&page, "Annots");
+        let annotation = document.resolve(&annots.as_array().expect("annots")[0]);
+        let shown = document.get_key(annotation.as_dict().expect("annotation"), "AP");
+        let normal = document.get_key(shown.as_dict().expect("AP"), "N");
+        let form = normal.as_stream().expect("appearance");
+        let own = document.get_key(&form.dict, "Resources");
+        assert_eq!(
+            property_type(&document, own.as_dict().expect("its resources"), "MC0"),
+            Some(b"OCMD".to_vec())
+        );
+        assert_eq!(content_of(&document, &normal), appearance);
+    }
+}

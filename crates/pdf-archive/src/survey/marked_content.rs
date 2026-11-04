@@ -43,12 +43,14 @@ impl Walk<'_> {
 
     /// §14.6.2's property list, written into the operands or named through the resources.
     ///
-    /// **Not read through [`Walk::look_up`], deliberately.** That reader records a name the
-    /// resources do not define and marks the stream as having referenced a resource, and both
-    /// of those are read by ISO 19005 section 6.2.2's rows. Reaching a property list is a new
-    /// route to both facts, so taking it here would change what two other requirements say
-    /// about documents nobody has looked at; it is a change worth making on its own evidence
-    /// rather than as a side effect of this one.
+    /// **A named list is read through [`Walk::look_up`]**, so a name the `/Properties`
+    /// subdictionary does not define is recorded as a miss and the stream as having referenced a
+    /// resource — the two facts ISO 19005 section 6.2.2's rows read. ISO 32000-2 §7.8.3's
+    /// Table 34 lists `/Properties` among a resource dictionary's categories, and §14.6.2 makes
+    /// the name form of a property list "a named resource" of it, so the clause's "all named
+    /// resources referenced by this content stream" includes it. `issue14438`'s annotation
+    /// appearance, `/OC /MC0 BDC` with no `/Properties` at all, is the document this was missing
+    /// (`doc/adr/2684`).
     pub(super) fn property_list<'o>(
         &mut self,
         operands: &Operands<'o>,
@@ -64,10 +66,7 @@ impl Walk<'_> {
         let Some(name) = operands.names.last() else {
             return PropertyList::Absent;
         };
-        let found = self.peek("Properties", name, context);
-        // The ledger is told, and the two facts above are not: a ledger entry is no route to
-        // either of them.
-        self.note_selection("Properties", name, found.as_ref());
+        let found = self.look_up("Properties", name, context, context.what);
         let Some(found) = found else {
             return PropertyList::Unreadable;
         };

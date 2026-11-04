@@ -4382,6 +4382,11 @@ mod tests {
             ]
             .concat(),
         ];
+        numbered_from_one(&objects)
+    }
+
+    /// A file holding `objects` as objects 1, 2, …, with object 1 its catalog.
+    fn numbered_from_one(objects: &[Vec<u8>]) -> Document {
         let mut out = b"%PDF-1.7\n".to_vec();
         let mut offsets = Vec::new();
         for (index, object) in objects.iter().enumerate() {
@@ -4402,6 +4407,66 @@ mod tests {
         );
         out.extend_from_slice(table.as_bytes());
         Document::open(out).expect("the fixture is a valid PDF")
+    }
+
+    /// `AIAA-2005-6173-712`'s shape after conversion: two nonsymbolic TrueType fonts share one
+    /// embedded Liberation Sans, one under `/WinAnsiEncoding` and one whose `/Differences` sends
+    /// code 45 to `/minus`. ISO 32000-2 §9.6.5.4 maps each font's code through its own encoding,
+    /// the Adobe Glyph List and the (3, 1) subtable, so code 45 is `hyphen` (682 units of 2048,
+    /// 333) in the first and `minus` (1196 units, 584) in the second, and each dictionary states
+    /// its own. Both agree with the program; a dictionary stating the other font's width does not
+    /// (`doc/adr/2683`).
+    #[test]
+    fn one_program_under_two_encodings_is_judged_by_each_fonts_own_encoding() {
+        use super::widths_agree_with_the_program;
+        const LIBERATION_SANS: &[u8] =
+            include_bytes!("../../../../data/standard-fonts/LiberationSans-Regular.ttf");
+        let judged = |hyphen: u32, minus: u32| {
+            let content = b"BT /F1 12 Tf 10 100 Td (-) Tj /F2 12 Tf (-) Tj ET";
+            let font = |encoding: &str, width: u32| {
+                format!(
+                    "<< /Type /Font /Subtype /TrueType /BaseFont /Helvetica /FirstChar 45 \
+                     /LastChar 45 /Widths [{width}] /Encoding {encoding} /FontDescriptor 7 0 R >>"
+                )
+                .into_bytes()
+            };
+            let objects: Vec<Vec<u8>> = vec![
+                b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+                b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+                b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] \
+                  /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> /Contents 4 0 R >>"
+                    .to_vec(),
+                [
+                    format!("<< /Length {} >>\nstream\n", content.len()).as_bytes(),
+                    content,
+                    b"\nendstream",
+                ]
+                .concat(),
+                font("/WinAnsiEncoding", hyphen),
+                font(
+                    "<< /BaseEncoding /WinAnsiEncoding /Differences [45 /minus] >>",
+                    minus,
+                ),
+                b"<< /Type /FontDescriptor /FontName /Helvetica /Flags 32 /FontBBox [-203 -303 \
+                  1050 910] /ItalicAngle 0 /Ascent 740 /Descent -212 /CapHeight 688 /StemV 80 \
+                  /FontFile2 8 0 R >>"
+                    .to_vec(),
+                [
+                    format!("<< /Length {} >>\nstream\n", LIBERATION_SANS.len()).as_bytes(),
+                    LIBERATION_SANS,
+                    b"\nendstream",
+                ]
+                .concat(),
+            ];
+            findings(&numbered_from_one(&objects), widths_agree_with_the_program)
+        };
+        assert_eq!(
+            judged(333, 584),
+            Vec::<String>::new(),
+            "each by its own encoding"
+        );
+        let crossed = judged(584, 333);
+        assert_eq!(crossed.len(), 2, "{crossed:?}");
     }
 
     #[test]

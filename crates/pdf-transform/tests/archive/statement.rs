@@ -10,7 +10,7 @@
 use super::attachments_as_pages::{BLOB, NOTE, a_document_holding, pages_of};
 use super::*;
 use pdf_syntax::object::Object;
-use pdf_transform::archive::{AttachmentAnswer, Configuration, StatementPage};
+use pdf_transform::archive::{AttachmentAnswer, Configuration, Listed, StatementPage};
 use sha2::{Digest as _, Sha256};
 
 const SITE: &str = "embedded-files/embedded-file-is-itself-pdfa";
@@ -100,7 +100,7 @@ fn the_statement_is_its_own_page_and_states_each_removed_file_from_the_source() 
         "after the document's own page"
     );
     assert_eq!(pages_of(&output), 1 + statement.pages.len());
-    assert_eq!(statement.objects, 2);
+    assert_eq!(statement.listed.total(), 2);
     assert_eq!(
         conversion.attachments.len(),
         2,
@@ -164,7 +164,14 @@ fn a_list_lays_out_one_file_and_states_the_other() {
         pages_of(&output),
         1 + laid_out.len() + statement.pages.len()
     );
-    assert_eq!(statement.objects, 1, "only the removed file is stated");
+    assert_eq!(
+        statement.listed,
+        Listed {
+            removed_objects: 1,
+            ..Listed::default()
+        },
+        "only the removed file is stated"
+    );
     assert_eq!(
         note.stated_on, None,
         "a file laid out as pages is not stated as removed"
@@ -767,7 +774,7 @@ fn each_halftone_entry_the_profile_takes_is_stated_and_reads_back_against_the_so
     assert_eq!(pages_of(&source), 1);
     assert_eq!(statement.pages.first(), Some(&1));
     assert_eq!(pages_of(&output), 1 + statement.pages.len());
-    assert_eq!(statement.objects, 3);
+    assert_eq!(statement.listed.total(), 3);
     let page = stated_lines(&output, statement);
     assert_eq!(read_back_against(&source, &page), 3, "{page}");
     let unbroken: String = page.split_whitespace().collect();
@@ -804,7 +811,7 @@ fn a_halftone_name_is_stated_at_part_two() {
     let held = holds(&output, target);
     assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
     let statement = conversion.statement.as_ref().expect("the page is reported");
-    assert_eq!(statement.objects, 2);
+    assert_eq!(statement.listed.total(), 2);
     let page = stated_lines(&output, statement);
     assert_eq!(read_back_against(&source, &page), 2, "{page}");
     let unbroken: String = page.split_whitespace().collect();
@@ -980,7 +987,7 @@ fn each_page_the_font_row_photographs_is_stated_and_reads_back_against_the_repor
             .as_ref()
             .unwrap_or_else(|| panic!("the page is reported: {}", conversion.render()));
         assert_eq!(statement.sites, [FONT_SITE], "at {target}");
-        assert_eq!(statement.objects, 1);
+        assert_eq!(statement.listed.total(), 1);
         assert_eq!(statement.pages.first(), Some(&1));
         assert_eq!(pages_of(&output), 1 + statement.pages.len());
         assert!(

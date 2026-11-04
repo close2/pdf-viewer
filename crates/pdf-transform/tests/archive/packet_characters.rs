@@ -170,6 +170,19 @@ fn a_control_character_is_left_off_the_packet_page_and_stated() {
             assert!(unbroken.contains(fact), "{target:?}: {fact:?} in {text:?}");
         }
 
+        // The report's sentence names the entries as what they are.
+        let statement = conversion(&report)
+            .statement
+            .as_ref()
+            .expect("the page is reported");
+        assert!(
+            statement
+                .sentence()
+                .contains("listing 2 omitted character(s) under "),
+            "{target:?}: {}",
+            statement.sentence()
+        );
+
         // And `xmpMM:History` records it.
         assert!(
             the_packet_of(&output).contains("(metadata-packet-character)"),

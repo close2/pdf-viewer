@@ -229,7 +229,7 @@ pub use protection::{PERMISSIONS_NO_LONGER_ASSERTED, SourceProtection};
 pub use recovered::{NotHeld, PartlyRead, RecoveredCatalog, RecoveredStructure, StatedCount};
 pub use report::{
     Achieved, AttachmentAnswer, AttachmentOutcome, Conversion, ConvertedTo, Decided, Departed,
-    DepartureOutcome, Derived, DerivedOutcome, NotChecked, Preserved, Resolved, SetIn,
+    DepartureOutcome, Derived, DerivedOutcome, Listed, NotChecked, Preserved, Resolved, SetIn,
     SignatureDecision, StatementPage, SuppliedFact, Unstated,
 };
 pub use rewrite::Rewrite;

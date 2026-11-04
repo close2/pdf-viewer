@@ -500,10 +500,96 @@ pub struct StatementPage {
     pub sites: Vec<&'static str>,
     /// The zero-based pages of the output it sits on.
     pub pages: Vec<usize>,
-    /// How many objects it lists.
-    pub objects: usize,
+    /// How many entries it lists, of each kind.
+    pub listed: Listed,
     /// The typeface it is set in.
     pub face: SetIn,
+}
+
+/// How many entries a statement page lists, by what each entry is.
+///
+/// The page lists objects removed, characters left off a packet's page, keys removed from the
+/// document information dictionary, halftone entries removed or rewritten, and the records of the
+/// font, run and recovery steps, so the report's sentence counts each kind by its own name rather
+/// than calling every entry an object.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Listed {
+    /// Embedded files and metadata streams removed.
+    pub removed_objects: usize,
+    /// Characters left off a packet's page (`doc/adr/2682`).
+    pub omitted_characters: usize,
+    /// Document information entries removed (`doc/adr/2681`).
+    pub removed_keys: usize,
+    /// Objects whose halftone entry was removed or rewritten.
+    pub halftone_entries: usize,
+    /// Pages photographed and faces embedded with a loss.
+    pub font_records: usize,
+    /// Runs the font step drew as shapes.
+    pub run_records: usize,
+    /// A recovered structure and the pages the file does not hold.
+    pub recovery_records: usize,
+}
+
+impl Listed {
+    /// Every entry, whatever its kind.
+    #[must_use]
+    pub const fn total(&self) -> usize {
+        self.removed_objects
+            .saturating_add(self.omitted_characters)
+            .saturating_add(self.removed_keys)
+            .saturating_add(self.halftone_entries)
+            .saturating_add(self.font_records)
+            .saturating_add(self.run_records)
+            .saturating_add(self.recovery_records)
+    }
+
+    /// The two lists' entries together.
+    #[must_use]
+    pub const fn plus(self, other: Self) -> Self {
+        Self {
+            removed_objects: self.removed_objects.saturating_add(other.removed_objects),
+            omitted_characters: self
+                .omitted_characters
+                .saturating_add(other.omitted_characters),
+            removed_keys: self.removed_keys.saturating_add(other.removed_keys),
+            halftone_entries: self.halftone_entries.saturating_add(other.halftone_entries),
+            font_records: self.font_records.saturating_add(other.font_records),
+            run_records: self.run_records.saturating_add(other.run_records),
+            recovery_records: self.recovery_records.saturating_add(other.recovery_records),
+        }
+    }
+
+    /// Each kind with a count, as the words the report prints and its count.
+    fn kinds(&self) -> [(&'static str, usize); 7] {
+        [
+            ("removed object(s)", self.removed_objects),
+            ("omitted character(s)", self.omitted_characters),
+            ("removed key(s)", self.removed_keys),
+            (
+                "halftone entr(ies) removed or rewritten",
+                self.halftone_entries,
+            ),
+            ("font record(s)", self.font_records),
+            ("run record(s)", self.run_records),
+            ("recovery record(s)", self.recovery_records),
+        ]
+    }
+
+    /// The kinds with a count, as "1 removed object(s), 2 omitted character(s)".
+    #[must_use]
+    pub fn words(&self) -> String {
+        let said: Vec<String> = self
+            .kinds()
+            .into_iter()
+            .filter(|(_, count)| *count > 0)
+            .map(|(kind, count)| format!("{count} {kind}"))
+            .collect();
+        if said.is_empty() {
+            "no entry".to_owned()
+        } else {
+            said.join(", ")
+        }
+    }
 }
 
 impl StatementPage {
@@ -511,15 +597,15 @@ impl StatementPage {
     #[must_use]
     pub fn sentence(&self) -> String {
         format!(
-            "{} is on page(s) {} of this document, listing {} object(s) removed under {}, in facts \
-             computed from the source and this program's fixed labels{}",
+            "{} is on page(s) {} of this document, listing {} under {}, in facts computed from the \
+             source and this program's fixed labels{}",
             super::statement::SUBJECT,
             self.pages
                 .iter()
                 .map(|page| page.saturating_add(1).to_string())
                 .collect::<Vec<_>>()
                 .join(", "),
-            self.objects,
+            self.listed.words(),
             self.sites.join(", "),
             match &self.face {
                 SetIn::NoText => String::new(),
@@ -547,7 +633,17 @@ impl StatementPage {
                             .collect(),
                     ),
                 ),
-                ("objects".to_owned(), Value::count(self.objects)),
+                ("entries".to_owned(), Value::count(self.listed.total())),
+                (
+                    "listed".to_owned(),
+                    Value::Object(
+                        self.listed
+                            .kinds()
+                            .into_iter()
+                            .map(|(kind, count)| (kind.to_owned(), Value::count(count)))
+                            .collect(),
+                    ),
+                ),
             ]
             .into_iter()
             .collect(),

@@ -620,18 +620,17 @@ pub(super) fn the_preserved_pages(
         } else {
             0
         };
-        let page = the_statement_page(
-            &mut composed,
-            sites,
-            files
-                .saturating_add(packets_stated.map_or(0, |(removed, _)| removed.len()))
-                .saturating_add(omitted_stated.map_or(0, |(omitted, _)| omitted.len()))
-                .saturating_add(information_stated.map_or(0, |(removed, _)| removed.len()))
-                .saturating_add(graphics.len())
-                .saturating_add(fonts.as_ref().map_or(0, statement::FontsStated::listed))
-                .saturating_add(runs.len())
-                .saturating_add(recovery.entries()),
-        )?;
+        let listed = super::super::report::Listed {
+            removed_objects: files
+                .saturating_add(packets_stated.map_or(0, |(removed, _)| removed.len())),
+            omitted_characters: omitted_stated.map_or(0, |(omitted, _)| omitted.len()),
+            removed_keys: information_stated.map_or(0, |(removed, _)| removed.len()),
+            halftone_entries: graphics.len(),
+            font_records: fonts.as_ref().map_or(0, statement::FontsStated::listed),
+            run_records: runs.len(),
+            recovery_records: recovery.entries(),
+        };
+        let page = the_statement_page(&mut composed, sites, listed)?;
         if files_stated {
             for outcome in &mut attachments.removed {
                 outcome.stated_on = Some(page);
@@ -1051,7 +1050,7 @@ fn statement_keep<'a>(site: &'static str, text: &'a str) -> preserve::Keep<'a> {
 fn the_statement_page(
     composed: &mut Composed,
     sites: Vec<&'static str>,
-    objects: usize,
+    listed: super::super::report::Listed,
 ) -> Result<usize, Because> {
     let row = composed
         .carried
@@ -1069,7 +1068,7 @@ fn the_statement_page(
     composed.statement = Some(super::super::report::StatementPage {
         sites,
         pages: row.pages,
-        objects,
+        listed,
         face: row.face,
     });
     Ok(first)

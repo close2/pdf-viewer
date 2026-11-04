@@ -2330,6 +2330,32 @@ mod tests {
         assert_eq!(missing, vec!["Missing"]);
     }
 
+    /// §14.6.2's named property list is a resource of the `/Properties` category (§7.8.3's
+    /// Table 34), so a `BDC` or `DP` naming one the resources do not define is a miss, and an
+    /// inline list or a defined name is not (`doc/adr/2684`).
+    #[test]
+    fn a_property_list_name_nothing_defines_is_reported_undefined() {
+        let document = page_with(
+            "/OC /MC0 BDC EMC /OC /Here BDC EMC /Span << /MCID 0 >> BDC EMC /Pt /Gone DP",
+            "/Resources << /Properties << /Here 5 0 R >> >>",
+            &["<< /Type /OCMD >>"],
+        );
+        let survey = Survey::of(&document);
+        let missing: Vec<(&str, &str)> = survey
+            .missing_resources()
+            .iter()
+            .map(|entry| (entry.category, entry.name.as_str()))
+            .collect();
+        assert_eq!(missing, vec![("Properties", "MC0"), ("Properties", "Gone")]);
+        assert!(
+            survey
+                .opened_streams()
+                .iter()
+                .all(|opened| opened.referenced),
+            "a named property list is a resource the stream references"
+        );
+    }
+
     /// ISO 32000-2 §7.3.9 makes a reference to a nonexistent object null and a null entry the
     /// same as none, so a name whose entry is either is reported as one the resources do not
     /// define, and a name whose reference reaches an object is not (`doc/adr/2550`).

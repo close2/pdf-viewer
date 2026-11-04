@@ -168,6 +168,15 @@ const NOT_CARRIED: [(&str, &str); 4] = [
     ("/Title (A title) /Batch (a\\rb)", "string of 3 bytes"),
 ];
 
+/// The report's sentence for its statement page, empty where it reports none.
+fn stated_sentence(conversion: &pdf_transform::archive::Conversion) -> String {
+    conversion
+        .statement
+        .as_ref()
+        .map(pdf_transform::archive::StatementPage::sentence)
+        .unwrap_or_default()
+}
+
 /// The page count, and the text of every page after the source's one: the statement.
 fn pages_of(output: &[u8]) -> (usize, String) {
     let document = Document::open_with_limits(output.to_vec(), Limits::DEFAULT).expect("it opens");
@@ -267,6 +276,9 @@ fn state_every_loss_removes_and_states_a_value_that_cannot_be_carried() {
         assert!(packet.contains(&sentence), "the history names {key}");
     }
     assert!(packet.contains("is removed (document-information-entry)"));
+    // The report's sentence counts them as keys, not objects.
+    let said = stated_sentence(conversion(&report));
+    assert!(said.contains("listing 2 removed key(s) under "), "{said}");
 
     // Each value without a carried form takes the same step, named by its type and size.
     for (entries, value) in NOT_CARRIED {

@@ -1122,7 +1122,7 @@ fn a_page_not_held_asked_as_append_statement_is_stated_with_both_counts_on_the_a
         ] {
             assert!(text.contains(fact), "{target}: {fact} in {text}");
         }
-        let said = "listing 1 object(s) removed under page-not-held";
+        let said = "listing 1 recovery record(s) under page-not-held";
         assert!(
             output.windows(said.len()).any(|w| w == said.as_bytes()),
             "{target}: the file's own xmpMM:History names the page"
@@ -1408,7 +1408,7 @@ fn the_stating_profiles_state_the_recovered_structure_and_both_counts_on_the_app
                 vec!["recovered-structure", "page-not-held"],
                 "{profile} {target}"
             );
-            assert_eq!(statement.objects, 2, "{profile} {target}");
+            assert_eq!(statement.listed.total(), 2, "{profile} {target}");
             let document =
                 Document::open_with_limits(output.clone(), Limits::DEFAULT).expect("it opens");
             assert_eq!(
