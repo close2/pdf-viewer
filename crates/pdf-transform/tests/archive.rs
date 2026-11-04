@@ -16045,6 +16045,9 @@ mod media_clips;
 mod or_else_to;
 #[path = "archive/parent_tree.rs"]
 mod parent_tree;
+
+#[path = "archive/packet_pages.rs"]
+mod packet_pages;
 #[path = "archive/photographed.rs"]
 mod photographed;
 #[path = "archive/reader_resources.rs"]

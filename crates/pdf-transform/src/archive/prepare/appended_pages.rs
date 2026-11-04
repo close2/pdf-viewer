@@ -233,8 +233,10 @@ pub(super) fn the_preserved_pages(
         && statement_text.is_none()
     {
         // Every file the row was asked about fell to its `on-failure`: nothing is composed, and
-        // the outcome per file is the whole of what the preservation did.
-        if !attachments.removed.is_empty() {
+        // the outcome per file is the whole of what the preservation did. And every packet a
+        // packet row replaces held no bytes to lay out: the replacement is the remedy, reported
+        // per stream, and no page is owed (`doc/adr/2676`).
+        if !attachments.removed.is_empty() || replaced_site.is_some() {
             let mut composed = Composed {
                 written: Vec::new(),
                 pages: Vec::new(),
@@ -744,6 +746,27 @@ pub(super) fn fonts_may_be_stated(plan: &ArchivePlan, failed: &BTreeSet<&'static
             && super::super::fenced::ROWS
                 .iter()
                 .any(|row| failed.contains(row))))
+}
+
+/// Whether a `preserve` row may lay a metadata packet out on an appended page: a packet row or the
+/// property row answered by page and failed by this document, the two sites
+/// [`the_preserved_pages`] keeps a packet's bytes for as [`preserve::Kept::Text`]
+/// (`doc/adr/2676`). An embedded file's text is not asked about here: its row also derives and
+/// draws, and those pages bring their own families through `Remedies`.
+pub(super) fn packets_may_be_preserved(
+    plan: &ArchivePlan,
+    failed: &BTreeSet<&'static str>,
+) -> bool {
+    PACKET_REQUIREMENTS
+        .into_iter()
+        .chain([SCHEMA_REQUIREMENT])
+        .any(|site| {
+            failed.contains(site)
+                && plan
+                    .preservations
+                    .iter()
+                    .any(|preservation| preservation.site == site && preservation.by_page)
+        })
 }
 
 /// Whether the operator row's statement page may be composed: its row names `append-statement`,

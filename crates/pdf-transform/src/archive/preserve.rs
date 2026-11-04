@@ -132,7 +132,8 @@ pub(super) const NO_FACE: &str = "the page this remedy composes is set in a type
      file (doc/adr/1014) — and in a face this program ships where it has not (doc/questions/A47). \
      Neither answered here: no font of this document states a ToUnicode CMap, can be addressed by \
      character and has a glyph for every character to be preserved, and no shipped face has a \
-     WinAnsiEncoding code for every one of them either";
+     glyph for every one of them that WinAnsiEncoding, or a Differences array naming each by the \
+     Adobe Glyph List, can reach either";
 
 /// Why a conversion with no output intent gets no appended page.
 ///
@@ -1218,10 +1219,12 @@ fn a_face_this_program_ships(document: &Document, text: &str, spare: &mut Spare)
         Name::new(&b"BaseFont"[..]),
         Object::Name(Name::new(&b"Helvetica"[..])),
     );
-    asked.insert(
-        Name::new(&b"Encoding"[..]),
-        Object::Name(Name::new(&b"WinAnsiEncoding"[..])),
-    );
+    let wanted: BTreeSet<char> = text
+        .chars()
+        .filter(|character| is_set(*character))
+        .collect();
+    let by_character = encoded_by_name(&wanted)?;
+    asked.insert(Name::new(&b"Encoding"[..]), by_character.encoding.clone());
     let shipped = pdf_font::standard::shipped_face(document, &asked, "preserved").ok()?;
     if shipped.format != pdf_font::substitute::Format::Sfnt {
         // Table 124 admits a `glyf`-based sfnt under a `/TrueType` dictionary and nothing else,
@@ -1230,14 +1233,10 @@ fn a_face_this_program_ships(document: &Document, text: &str, spare: &mut Spare)
         return None;
     }
     let metrics = SfntMetrics::of(shipped.program)?;
-    let by_character = win_ansi_codes();
     let mut codes = BTreeMap::new();
     let mut used = BTreeMap::new();
-    for character in text.chars().filter(|character| is_set(*character)) {
-        if codes.contains_key(&character) {
-            continue;
-        }
-        let code = *by_character.get(&character)?;
+    for character in wanted {
+        let code = *by_character.codes.get(&character)?;
         let glyph = shipped.glyph(code)?;
         if glyph == 0 {
             // §9.6.5.2 sends a code with no glyph to `.notdef`, and both parts' `.notdef` clause
@@ -1262,7 +1261,13 @@ fn a_face_this_program_ships(document: &Document, text: &str, spare: &mut Spare)
         written: vec![
             (
                 at,
-                font_dictionary(&metrics, descriptor, unicode, first, last, &used),
+                font_dictionary(
+                    &metrics,
+                    (descriptor, unicode),
+                    by_character.encoding,
+                    (first, last),
+                    &used,
+                ),
             ),
             (descriptor, descriptor_dictionary(&metrics, program)),
             (program, program_stream(shipped.program)?),
@@ -1272,6 +1277,91 @@ fn a_face_this_program_ships(document: &Document, text: &str, spare: &mut Spare)
         codes,
     };
     Some(face)
+}
+
+/// The encoding the shipped face is set under, and the code it gives each character to be set.
+struct EncodedByName {
+    /// `/WinAnsiEncoding` by name, or an encoding dictionary over it with a `/Differences` array.
+    encoding: Object,
+    /// The code each character is shown with.
+    codes: BTreeMap<char, u8>,
+}
+
+/// Codes for every character of `wanted`: the one `/WinAnsiEncoding` gives it where it gives one,
+/// and otherwise a code no character of `wanted` takes, named in a `/Differences` array by the
+/// glyph name the Adobe Glyph List gives the character (`doc/adr/2677`).
+///
+/// **The route is ISO 32000-2 §9.6.5.4's own, and ISO 19005 names it.** A nonsymbolic TrueType
+/// font whose encoding is a dictionary has its codes mapped to glyph names through the
+/// `/BaseEncoding` and the `/Differences`, each name to a Unicode value through the Adobe Glyph
+/// List, and that value to a glyph through the program's (3,1) `cmap` subtable — so a character
+/// the face draws and the encoding does not name is reachable by naming it. ISO 19005-2 section
+/// 6.2.11.6 and ISO 19005-4 section 6.2.10.6 admit exactly this: `/WinAnsiEncoding` as the base,
+/// and a `/Differences` array whose every name the Adobe Glyph List lists, over a program with a
+/// (3,1) subtable. §9.6.5.4's guideline that a nonsymbolic font state no `/Differences` is a
+/// *should*, and its NOTE 2's Type 0 route is the alternative ADR 2677 weighs.
+///
+/// `None` where a character has neither a `/WinAnsiEncoding` code nor a name the list holds — a `uniXXXX`
+/// name is computed from the value rather than listed — or where the characters outnumber the
+/// codes. Code 32 is never reassigned, because §9.3.3 applies word spacing to it alone.
+fn encoded_by_name(wanted: &BTreeSet<char>) -> Option<EncodedByName> {
+    let win_ansi = win_ansi_codes();
+    let mut codes = BTreeMap::new();
+    let mut named = Vec::new();
+    for character in wanted {
+        match win_ansi.get(character) {
+            Some(code) => {
+                codes.insert(*character, *code);
+            }
+            None => named.push((*character, listed_glyph_name(*character)?)),
+        }
+    }
+    if named.is_empty() {
+        return Some(EncodedByName {
+            encoding: Object::Name(Name::new(&b"WinAnsiEncoding"[..])),
+            codes,
+        });
+    }
+    let taken: BTreeSet<u8> = codes.values().copied().collect();
+    let mut free = (1..=u8::MAX).filter(|code| *code != b' ' && !taken.contains(code));
+    let mut differences = Vec::new();
+    for (character, name) in named {
+        let code = free.next()?;
+        differences.push(Object::Integer(code.into()));
+        differences.push(Object::Name(Name::new(name.as_bytes())));
+        codes.insert(character, code);
+    }
+    let mut encoding = Dictionary::new();
+    encoding.insert(
+        Name::new(&b"Type"[..]),
+        Object::Name(Name::new(&b"Encoding"[..])),
+    );
+    encoding.insert(
+        Name::new(&b"BaseEncoding"[..]),
+        Object::Name(Name::new(&b"WinAnsiEncoding"[..])),
+    );
+    encoding.insert(Name::new(&b"Differences"[..]), Object::Array(differences));
+    Some(EncodedByName {
+        encoding: Object::Dictionary(encoding),
+        codes,
+    })
+}
+
+/// The glyph name the Adobe Glyph List itself lists for a character, where it lists one.
+///
+/// `pdf_font::encoding::glyph_name` answers a character the list does not hold with the
+/// `uniXXXX` form computed from its value, which ISO 19005-2 section 6.2.11.6 does not admit in a
+/// `/Differences` array: the name has to be one the list holds, so it is read back through the
+/// list and a computed form is refused.
+fn listed_glyph_name(character: char) -> Option<String> {
+    let name = pdf_font::encoding::glyph_name(character)?;
+    let computed = name
+        .strip_prefix("uni")
+        .or_else(|| name.strip_prefix('u'))
+        .is_some_and(|digits| {
+            !digits.is_empty() && digits.chars().all(|digit| digit.is_ascii_hexdigit())
+        });
+    (!computed && pdf_font::encoding::character_for(&name) == Some(character)).then_some(name)
 }
 
 /// The character each `/WinAnsiEncoding` code selects, inverted.
@@ -1454,10 +1544,9 @@ fn be_u32(bytes: &[u8], table: usize, at: usize) -> Option<u32> {
 /// §9.6.2's font dictionary for the face this conversion embeds.
 fn font_dictionary(
     metrics: &SfntMetrics,
-    descriptor: ObjectId,
-    unicode: ObjectId,
-    first: u8,
-    last: u8,
+    (descriptor, unicode): (ObjectId, ObjectId),
+    encoding: Object,
+    (first, last): (u8, u8),
     used: &BTreeMap<u8, (char, f32)>,
 ) -> Object {
     let mut widths = Vec::new();
@@ -1491,10 +1580,7 @@ fn font_dictionary(
         Name::new(&b"FontDescriptor"[..]),
         Object::Reference(descriptor),
     );
-    dict.insert(
-        Name::new(&b"Encoding"[..]),
-        Object::Name(Name::new(&b"WinAnsiEncoding"[..])),
-    );
+    dict.insert(Name::new(&b"Encoding"[..]), encoding);
     dict.insert(Name::new(&b"ToUnicode"[..]), Object::Reference(unicode));
     Object::Dictionary(dict)
 }
@@ -1510,7 +1596,9 @@ fn font_dictionary(
 /// written for a standard font that stated none does (`doc/adr/2146`).
 ///
 /// `/Flags` is 32, which §9.8.2's Table 123 makes bit position 6, *Nonsymbolic*: the face is set
-/// with `/WinAnsiEncoding`, whose characters are the standard Latin set that bit is about.
+/// with `/WinAnsiEncoding`, whose characters are the standard Latin set that bit is about, or with
+/// a `/Differences` array over it, whose names §9.6.5.4 reads only for a font this bit marks
+/// nonsymbolic (`doc/adr/2677`).
 fn descriptor_dictionary(metrics: &SfntMetrics, program: ObjectId) -> Object {
     let mut dict = Dictionary::new();
     dict.insert(

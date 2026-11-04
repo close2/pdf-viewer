@@ -57,8 +57,8 @@ use annotations_and_attachments::{
 };
 pub(super) use appended_pages::{MOST_ATTACHMENTS_AS_PAGES, attached_bytes};
 use appended_pages::{
-    fonts_may_be_stated, names_discarded, names_removed, runs_may_be_stated, stated_runs,
-    the_preserved_pages,
+    fonts_may_be_stated, names_discarded, names_removed, packets_may_be_preserved,
+    runs_may_be_stated, stated_runs, the_preserved_pages,
 };
 pub(super) use colour_and_graphics::{
     CMYK, DefaultCmyk, Intent, ReplacedDestination, SRGB, SuppliedDestination, intent_dictionary,
@@ -207,6 +207,17 @@ pub(super) struct Cleaned {
     pub(super) packets: BTreeMap<ObjectId, Vec<u8>>,
     /// Every property removed, for the report, in the order the packets state them.
     pub(super) removed: Vec<MisusedProperty>,
+    /// How many streams the requirement failed at carry a fresh packet instead, which states no
+    /// property and so none outside its schema.
+    pub(super) replaced: usize,
+}
+
+impl Cleaned {
+    /// Whether every stream the requirement failed at was replaced and none cut, so that the
+    /// replacement's decision is the row's (`doc/adr/2676`, as `doc/adr/2442` for the schemas).
+    pub(in crate::archive) fn only_replaced(&self) -> bool {
+        self.packets.is_empty() && self.replaced > 0
+    }
 }
 
 /// What this slice's two constructions need, worked out before any decision is taken.
@@ -576,6 +587,16 @@ impl Prepared {
         }
         // And for one the operator row may compose over the runs it writes (`doc/adr/2638`).
         if runs_may_be_stated(plan, &failed) {
+            derived_pages_need_an_intent = true;
+            failed.insert(DEVICE_GRAY_ROW);
+        }
+        // And for a page a `preserve` row sets a packet's text on, where the source states no intent of its
+        // own: that text paints in Table 51's initial `DeviceGray` as the statement's does, and
+        // ISO 19005-2 and ISO 19005-4 section 6.2.4.3 license it through an intent of any family
+        // (`doc/adr/2676`). A source stating one licenses the page already.
+        if packets_may_be_preserved(plan, &failed)
+            && !states_an_output_intent(document, document.catalog().ok().as_ref())
+        {
             derived_pages_need_an_intent = true;
             failed.insert(DEVICE_GRAY_ROW);
         }
@@ -2187,7 +2208,7 @@ impl RemovedAnnotation {
 }
 
 /// The requirement a removed property answers.
-const SCHEMA_REQUIREMENT: &str = "metadata/properties-use-known-schemas";
+pub(super) const SCHEMA_REQUIREMENT: &str = "metadata/properties-use-known-schemas";
 
 /// The requirement the container answers.
 pub(super) const SCHEMAS_REQUIREMENT: &str = "metadata/extension-schemas-embedded";

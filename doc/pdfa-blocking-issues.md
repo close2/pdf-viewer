@@ -348,11 +348,17 @@ under a Level A target ADR 1014 already places the element inside the permission
 appearance the converter could not build (1), a signature widget that does not print (2, both XFA
 forms — section 7.1). Builds only. Mitigations sections 6 and 7.
 
-**R14 — the appended page could not be composed** (6 documents, each alone): no face with every
-character (the shipped faces cover WinAnsi only — the CJK pack's faces would set the rest), the page's
-text painted in the initial `DeviceGray` with no default (write its colour in the intent's family),
-a packet that is not UTF-8 (1), and one case where no requirement asked for the page (a defect).
-Builds only. ADR 1014; `crates/pdf-transform/src/archive/preserve.rs`. A tagged document whose
+**R14 — the appended page could not be composed** (3 documents, each alone): `balloon_a1b_jp2k`'s
+packet header holds U+0000 where the byte-order mark goes, which no face draws (`doc/questions/Q778`
+asks how a page shows it); `241573_ftp`'s catalog packet is Flate data its stream states no filter
+for, so it is not text — `state-every-loss`'s second step, removing it and stating that, is owed at
+the packet rows (its header comment); and `JPXTestGrey` at 2b, whose refusal is the extension-schema
+container (a producer's container that does not describe every schema it uses), not the page.
+ADR 1014; `crates/pdf-transform/src/archive/preserve.rs`. A packet page in a file stating no intent
+is given one, a replaced packet answers the property row, and one that will not decode owes no page
+(ADR 2676); a character `/WinAnsiEncoding` does not name is set through a `/Differences` array of
+listed glyph names (ADR 2677) — so `breast+cancer+immunotherapy` and `PDFBOX-3148-2-fuzzed` convert
+under both stating profiles at 2b and 4, and `issue20453` under `state-every-loss` at both. A tagged document whose
 `/ParentTree` holds `/Kids` gave its appended page no place in the structure tree; that tree now
 takes the pages' entries in a new leaf at any depth (ADR 2672), and `064034`, `316267`, `459011`
 and `UMTRI-2008-80` convert under `state-every-loss` at 2b (`064034` at part 4 too). A source whose parent tree loses a content item
@@ -453,7 +459,7 @@ disagrees with `/Widths` the refusal's sentence is `PROGRAM_NOT_RESTATABLE`.
 - R11-truetype-route (32): corpora:032270.pdf, corpora:12884_2006_Article_120.pdf, corpora:225188.pdf, corpora:226387.pdf, corpora:427330.pdf, corpora:507676.pdf, corpora:PDFBOX-3067-negativeTf.pdf, corpora:sample_fonts_solidconvertor.pdf, corpora:source.pdf, pdf.js:SimFang-variant.pdf, pdf.js:TrueType_without_cmap.pdf, pdf.js:XiaoBiaoSong.pdf, pdf.js:bug1057544.pdf, pdf.js:bug1337429.pdf, pdf.js:bug1669099.pdf, pdf.js:bug1727053.pdf, pdf.js:bug894572.pdf, pdf.js:issue13211.pdf, pdf.js:issue13316_reduced.pdf, pdf.js:issue14117.pdf, pdf.js:issue14297.pdf, pdf.js:issue15910.pdf, pdf.js:issue17492.pdf, pdf.js:issue17808.pdf, pdf.js:issue20489.pdf, pdf.js:issue215.pdf, pdf.js:issue4800.pdf, pdf.js:issue5501.pdf, pdf.js:issue5701.pdf, pdf.js:issue6127.pdf, pdf.js:issue6961.pdf, pdf.js:issue7580.pdf
 - R12-spot-colourant (7): pdf.js:colorspace_atan.pdf, pdf.js:colorspace_cos.pdf, pdf.js:colorspace_sin.pdf, pdf.js:devicen.pdf, pdf.js:issue17065.pdf, pdf.js:issue9940.pdf, pdf.js:postscript_type4_many_outputs.pdf
 - R13-jpx-transcode (3): pdf.js:bug_jpx.pdf, pdf.js:issue5567.pdf, pdf.js:red_stamp.pdf
-- R14-appended-page-composition (6): corpora:241573_ftp.pdf, corpora:JPXTestGrey.pdf, corpora:balloon_a1b_jp2k.pdf, corpora:breast+cancer+immunotherapy.pdf, pdf.js:PDFBOX-3148-2-fuzzed.pdf, pdf.js:issue20453.pdf
+- R14-appended-page-composition (3): corpora:241573_ftp.pdf, corpora:JPXTestGrey.pdf, corpora:balloon_a1b_jp2k.pdf
 - R15-embedded-files (5): corpora:PDF-Sample-Document-Fully-Featured-Layout_Redacted.pdf, corpora:fileAttachment_fileAttachmentAnnotation.pdf, pdf.js:annotation-fileattachment.pdf, pdf.js:issue17056.pdf, pdf.js:issue18030.pdf
 - R16-annotations-and-forms (22): corpora:MOZILLA-1671648-0.pdf, corpora:Montenegro2021.pdf, corpora:PDF-Sample-Document-Fully-Featured-Layout_Redacted.pdf, corpora:PDFBOX-6018-099267-p9-OrphanPopups.pdf, corpora:embedded_video_avi.pdf, corpora:embedded_video_quicktime.pdf, corpora:fileAttachment_fileAttachmentAnnotation.pdf, corpora:sakula.pdf, pdf.js:160F-2019.pdf, pdf.js:annotation-fileattachment.pdf, pdf.js:annotation_hidden_noview.pdf, pdf.js:annotation_hidden_print.pdf, pdf.js:bug854315.pdf, pdf.js:checkbox_no_appearance.pdf, pdf.js:issue16553.pdf, pdf.js:issue17069.pdf, pdf.js:issue7446.pdf, pdf.js:multimedia_annotations.pdf, pdf.js:pr7352.pdf, pdf.js:signed_verified.pdf, pdf.js:widget_hidden_print.pdf, pdf.js:xfa_filled_imm1344e.pdf
 - R17-press-statements (4): corpora:102952.pdf, corpora:ESUjulyaugust2002.pdf, corpora:reserve3.pdf, pdf.js:endchar.pdf

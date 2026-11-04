@@ -346,10 +346,12 @@ pub(super) fn prepare_properties(
     });
     let mut packets = BTreeMap::new();
     let mut removed = Vec::new();
+    let mut replaced: usize = 0;
     for at in schema_packets(document, input, SCHEMA_REQUIREMENT) {
         // The fresh packet states no property at all, so there is nothing here to cut out of it
         // and the producer's own bytes are not what this stream will carry.
         if fresh.is_some_and(|fresh| fresh.packet(at).is_some()) {
+            replaced = replaced.saturating_add(1);
             continue;
         }
         let Object::Stream(stream) = document.get(at) else {
@@ -381,7 +383,11 @@ pub(super) fn prepare_properties(
         packets.insert(at, cut);
         removed.extend(misused);
     }
-    Ok(Cleaned { packets, removed })
+    Ok(Cleaned {
+        packets,
+        removed,
+        replaced,
+    })
 }
 
 /// Both halves of the requirement's reading, asked of one packet: the properties a predefined

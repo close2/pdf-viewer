@@ -965,7 +965,8 @@ const REPLACEMENT_NOT_DECIDED: &str = "the packet this requirement failed in is 
 ///
 /// A packet this tree cannot read is replaced by one stating no property at all, and a packet
 /// stating no property uses no extension schema (section 6.6.2.3.2), states no amendment
-/// identifier (section 6.6.4) and no structure field (section 6.6.2.3.1) — so where every stream
+/// identifier (section 6.6.4), no structure field and no property outside its schema (section
+/// 6.6.2.3.1, `doc/adr/2676`) — so where every stream
 /// one of those requirements failed at is replaced and none edited, the replacement is what meets
 /// it, and the decision is the one the packet's own requirement took: the same rewrite, the same
 /// loss under the same authorisation or `preserve`, and nothing lost twice. The editor would have
@@ -973,6 +974,13 @@ const REPLACEMENT_NOT_DECIDED: &str = "the packet this requirement failed in is 
 /// one that stops the conversion is named, since that is the one the conversion stops for.
 fn met_by_the_replacement(decided: &mut [Decided], prepared: &Prepared) {
     let met: Vec<&str> = [
+        (
+            prepare::SCHEMA_REQUIREMENT,
+            prepared
+                .properties
+                .as_ref()
+                .is_ok_and(prepare::Cleaned::only_replaced),
+        ),
         (
             prepare::SCHEMAS_REQUIREMENT,
             prepared
@@ -1167,7 +1175,7 @@ fn configured(
                     None => Decision::Refused(Because::NotBuiltYet(NO_REWRITE_TO_PRESERVE_BESIDE)),
                 }
             }
-            Ok(_) => Decision::Refused(Because::NotBuiltYet(NOTHING_TO_PRESERVE)),
+            Ok(composed) => carrying_nothing(id, prepared, composed),
             Err(because) => Decision::Refused(*because),
         });
     }
@@ -1383,6 +1391,38 @@ const NOTHING_TO_PRESERVE: &str = "this configuration answers this requirement b
      it would otherwise lose on a page appended to the document, and this conversion composed \
      pages for other content but none for this requirement — so nothing here is preserved and the \
      requirement keeps its own refusal";
+
+/// The decision of a site answered by page whose preservation carried nothing for it.
+///
+/// [`NOTHING_TO_PRESERVE`], except at a packet row whose every replaced packet held no bytes to
+/// lay out: the fresh packet is then the remedy and no page is owed, since a page keeps bytes and
+/// there were none (`doc/adr/2676`). A packet that decoded is always carried, so a packet row
+/// carrying nothing beside a fresh packet prepared is exactly this case.
+fn carrying_nothing(id: &str, prepared: &Prepared, composed: &preserve::Composed) -> Decision {
+    if prepare::PACKET_REQUIREMENTS.contains(&id)
+        && prepared.fresh.is_ok()
+        && !composed
+            .carried
+            .iter()
+            .any(|row| prepare::PACKET_REQUIREMENTS.contains(&row.site))
+    {
+        REPLACED_WITHOUT_BYTES
+    } else {
+        Decision::Refused(Because::NotBuiltYet(NOTHING_TO_PRESERVE))
+    }
+}
+
+/// The decision of a packet row whose replaced packets held no bytes ([`carrying_nothing`]).
+const REPLACED_WITHOUT_BYTES: Decision = Decision::Configured {
+    kind: RemedyKind::Preserve,
+    rewrite: Rewrite::FreshMetadataPacket,
+    warns: NO_BYTES_TO_PRESERVE,
+};
+
+/// What a packet row's `preserve` did where no replaced packet decoded to bytes a page could keep.
+const NO_BYTES_TO_PRESERVE: &str = "the packet this conversion replaces will not decode through \
+     the filters its stream states, so there are no bytes for a page to keep: it is replaced with \
+     a fresh packet and nothing is appended for it";
 
 /// Why a configured remedy is withdrawn even though it could have been carried out.
 const NOT_RECORDED: &str = "this configuration answers this requirement with a remedy that is \
