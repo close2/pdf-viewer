@@ -402,6 +402,139 @@ fn a_parent_tree_with_kids_gains_the_statement_pages_entries_at_any_depth() {
     }
 }
 
+/// The output with an incremental update (§7.5.6) writing its parent tree root back to its first
+/// kid alone, so that the leaf the conversion added for its appended pages is in no node.
+fn withholding_the_appended_pages_leaf(output: &[u8]) -> Vec<u8> {
+    let document = Document::open(output.to_vec()).expect("the output opens");
+    let catalog = document.catalog().expect("a catalog");
+    let root = document.get_key(&catalog, "StructTreeRoot");
+    let root = root.as_dict().expect("a structure tree root");
+    let tree = root
+        .get("ParentTree")
+        .and_then(Object::as_reference)
+        .expect("the parent tree root is an object of its own");
+    let kids = document.get_key(
+        &document.get(tree).as_dict().expect("a node").clone(),
+        "Kids",
+    );
+    let kids = kids.as_array().expect("a /Kids root");
+    assert_eq!(kids.len(), 2, "the producer's leaf and the new one");
+    let first = kids[0].as_reference().expect("the producer's leaf");
+    let trailer = document.trailer();
+    let size = trailer
+        .get("Size")
+        .and_then(Object::as_integer)
+        .expect("a size");
+    let catalog_id = trailer
+        .get("Root")
+        .and_then(Object::as_reference)
+        .expect("a root");
+    let previous = output
+        .windows(b"startxref".len())
+        .rposition(|window| window == b"startxref")
+        .and_then(|at| {
+            std::str::from_utf8(output.get(at.saturating_add(b"startxref".len())..)?)
+                .ok()?
+                .split_whitespace()
+                .next()?
+                .parse::<usize>()
+                .ok()
+        })
+        .expect("the last startxref");
+    let mut planted = output.to_vec();
+    planted.push(b'\n');
+    let object_at = planted.len();
+    planted.extend_from_slice(
+        format!(
+            "{} {} obj\n<< /Kids [{} {} R] >>\nendobj\n",
+            tree.number, tree.generation, first.number, first.generation
+        )
+        .as_bytes(),
+    );
+    let xref_at = planted.len();
+    planted.extend_from_slice(
+        format!(
+            "xref\n0 1\n0000000000 65535 f \n{} 1\n{object_at:010} {:05} n \n\
+             trailer\n<< /Size {size} /Root {} {} R /Prev {previous} >>\n\
+             startxref\n{xref_at}\n%%EOF\n",
+            tree.number, tree.generation, catalog_id.number, catalog_id.generation
+        )
+        .as_bytes(),
+    );
+    planted
+}
+
+/// `doc/adr/2673`: the converter's validator fails an output whose appended pages' leaf is withheld.
+///
+/// ADR 2672's withheld leaf planted on purpose: the output of the one-leaf shape above, with an
+/// incremental update (§7.5.6) writing the parent tree root back to the producer's one kid, so the
+/// statement page's `/StructParents` key is in no node. §14.7.5.4's "[t]he tree shall contain an
+/// entry for each ... content stream containing at least one marked-content sequence that is a
+/// content item" is what fails, at the row section 5.1 of both parts carries; the output itself
+/// still conforms.
+#[test]
+fn an_output_whose_appended_pages_leaf_is_withheld_fails_the_parent_tree_row() {
+    const ROW: &str = "logical-structure/content-items-find-their-elements-through-the-parent-tree";
+    let structure = [
+        "<< /Type /StructTreeRoot /K [7 0 R] /ParentTree 8 0 R /ParentTreeNextKey 4 >>",
+        "<< /Type /StructElem /S /P /P 6 0 R /Pg 3 0 R /K 0 >>",
+        "<< /Kids [9 0 R] >>",
+        "<< /Limits [3 3] /Nums [3 [7 0 R]] >>",
+    ];
+    let source = a_tagged_document_holding_two_files_under(
+        &structure,
+        "/StructParents 3".to_owned(),
+        b"/P << /MCID 0 >> BDC 1 0 0 rg 10 10 50 50 re f EMC",
+    );
+    for target in [Target::Two(Level::A), Target::Four(Flavour::Plain)] {
+        let configuration = if target == Target::Two(Level::A) {
+            row("remedy = \"append-statement\"")
+        } else {
+            format!("[site.\"{SITE}-in-the-plain-profile\"]\nremedy = \"append-statement\"\n")
+        };
+        let (report, output) = convert_with_plan(&source, &planned(&configuration, target));
+        let output =
+            output.unwrap_or_else(|| panic!("{target}: {:?}", conversion(&report).decided));
+        let failed = |bytes: &[u8]| {
+            holds(bytes, target)
+                .judgements
+                .into_iter()
+                .filter(|judgement| judgement.id == ROW)
+                .flat_map(|judgement| match judgement.outcome {
+                    Outcome::Failed { places, .. } => {
+                        places.into_iter().map(|finding| finding.what).collect()
+                    }
+                    _ => Vec::new(),
+                })
+                .collect::<Vec<String>>()
+        };
+        assert_eq!(
+            failed(&output),
+            Vec::<String>::new(),
+            "{target}: the output"
+        );
+
+        let planted = withholding_the_appended_pages_leaf(&output);
+        // One finding per appended page, each naming the key no node holds.
+        let withheld = failed(&planted);
+        let statement = conversion(&report)
+            .statement
+            .as_ref()
+            .expect("the page is reported");
+        assert_eq!(
+            withheld.len(),
+            statement.pages.len(),
+            "{target}: {withheld:?}"
+        );
+        assert!(
+            withheld
+                .iter()
+                .all(|what| what.contains("no entry under this StructParents key")),
+            "{target}: {withheld:?}"
+        );
+    }
+}
+
 /// The profile `append-statement` is named for at the presentation sites, as it ships.
 const STATE_EVERY_LOSS: &str = include_str!("../../../../doc/profiles/state-every-loss.toml");
 

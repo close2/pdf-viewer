@@ -183,6 +183,24 @@ pub static SHIFTS: &[Shift] = &[
                   PDF/A-4 alone",
     },
     Shift {
+        clause: "14.7.5.1.1",
+        earlier: Earlier::NumberedAndRetitled("14.7.4.1"),
+        subject: "content items, which ISO 32000-1 states in its structure content's *General* \
+                  rather than under a heading of their own",
+    },
+    Shift {
+        clause: "14.7.5.2",
+        earlier: Earlier::Numbered("14.7.4.2"),
+        subject: "marked-content sequences as content items; ISO 32000-1's own 14.7.5.2 is \
+                  *Attribute Classes*",
+    },
+    Shift {
+        clause: "14.7.5.3",
+        earlier: Earlier::Numbered("14.7.4.3"),
+        subject: "PDF objects as content items; ISO 32000-1's own 14.7.5.3 is *Attribute Revision \
+                  Numbers*",
+    },
+    Shift {
         clause: "14.7.5.4",
         earlier: Earlier::Numbered("14.7.4.4"),
         subject: "finding structure elements from content items; ISO 32000-1's own 14.7.5.4 \

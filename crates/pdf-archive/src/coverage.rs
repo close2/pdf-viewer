@@ -1670,6 +1670,7 @@ static READINGS: &[Reading] = &[
                     "file-structure/page-tree-kids-name-dictionaries",
                     "file-structure/page-tree-node-count-is-an-integer",
                     "file-structure/page-tree-holds-a-page-it-counts",
+                    "logical-structure/content-items-find-their-elements-through-the-parent-tree",
                 ]),
             },
             Sentence {
@@ -3879,6 +3880,7 @@ static READINGS: &[Reading] = &[
                     "file-structure/page-tree-kids-name-dictionaries",
                     "file-structure/page-tree-node-count-is-an-integer",
                     "file-structure/page-tree-holds-a-page-it-counts",
+                    "logical-structure/content-items-find-their-elements-through-the-parent-tree",
                 ]),
             },
             Sentence {

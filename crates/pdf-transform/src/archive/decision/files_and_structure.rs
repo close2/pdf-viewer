@@ -247,6 +247,14 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "file-structure/page-tree-holds-a-page-it-counts",
         Because::TheFence(NONE_OF_ITS_PAGES),
     ),
+    // Section 5.1 of both parts through ISO 32000-2 section 14.7.5.4: a content item whose holder
+    // states no key, or a key the parent tree does not hold, or an entry naming no element that
+    // claims it. The entries are the structure tree read backwards, so rebuilding them invents
+    // nothing; this verb does not rebuild them yet (`doc/adr/2673`).
+    (
+        "logical-structure/content-items-find-their-elements-through-the-parent-tree",
+        Because::NotBuiltYet(A_PARENT_TREE_THAT_LOSES_A_CONTENT_ITEM),
+    ),
     // ISO 19005-2 section 6.7.3.4 needs a judgement about what a producer's own structure type
     // *meant*, which `doc/pdf-a-conversion-limits.md` section 5.1 calls an **Ask**: the
     // operator's `role-map` answers it in advance (`doc/adr/1990` section 6).
@@ -322,6 +330,13 @@ const A_TREE_THE_WALK_DOES_NOT_REACH: &str = "this page tree has a root that sta
      at a node written inside the catalog or inside its parent's Kids; this conversion declines \
      such a tree, and rebuilds it from the pages this reader draws where recovered-structure is \
      granted, only at a node written as an object of its own";
+
+/// Why a source whose parent tree loses a content item is not converted (`doc/adr/2673`).
+const A_PARENT_TREE_THAT_LOSES_A_CONTENT_ITEM: &str = "a structure element in this document claims \
+     a content item that the parent tree does not lead back to: its page, stream or object states \
+     no StructParents or StructParent key, or one the tree holds no entry under, or the entry names \
+     no element claiming it, which ISO 32000-2 section 14.7.5.4 rules out. The entries are the \
+     structure tree read in the other direction, and this conversion does not rebuild them yet";
 
 /// Why a source holding none of the pages it states is not converted (`doc/questions/A775`).
 const NONE_OF_ITS_PAGES: &str = "the source's page tree root counts one page or more and the \

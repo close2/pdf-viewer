@@ -51,6 +51,8 @@ use crate::target::{Flavour, Part};
 use crate::finding::{Findings, Where};
 use crate::requirement::{Applies, Check, Clauses, Requirement};
 
+mod parent_tree;
+
 /// The rows this module contributes, which `super::REQUIREMENTS` concatenates.
 pub(super) static REQUIREMENTS: &[Requirement] = &[
     Requirement {
@@ -443,6 +445,19 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         clauses: Clauses::both("5.1", "5.1"),
         applies: Applies::Always,
         check: Check::Implemented(page_tree_holds_a_page_it_counts),
+    },
+    Requirement {
+        id: "logical-structure/content-items-find-their-elements-through-the-parent-tree",
+        asks: "In a document with a structure tree, every page, stream and object holding a \
+               structure element's content item shall state its key in the parent tree, and the \
+               entry under that key shall name an element claiming the item.",
+        // Neither part states this: section 5.1 binds it, through ISO 32000-2 §14.7.5.4 and Table
+        // 359 (ISO 32000-1 section 14.7.4.4 in the same words for part 2). Cited there rather than at
+        // ISO 19005-2 section 6.7.3.3, whose structure hierarchy binds Level A alone, because the
+        // base standard binds every file that has a structure tree (`doc/adr/2673`).
+        clauses: Clauses::both("5.1", "5.1"),
+        applies: Applies::Always,
+        check: Check::Implemented(parent_tree::content_items_find_their_elements),
     },
     Requirement {
         id: "file-structure/bound-names-are-valid-utf8",

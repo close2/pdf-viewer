@@ -2276,3 +2276,18 @@ nothing-in-flight-together, and a pass could not say which removed the hang. The
 reproduction under an instrument is read as a reproduction, read what the instrument switched on (the
 driver prints it), and count the variables the run changed against the one the question asked about; a
 negative under a serialising mode does not acquit what needs overlap (ADR 2668).
+
+### 319. A validator's verdict covers the rows it has, not the structure a remedy extended
+
+Round 1923 extended a document's structural parent tree for the pages an archival conversion
+appends, and withheld the new leaf to see whether its test would notice: no appended page's marked
+content could be found, and the converter's own validator still answered `Conforms` at 2a and part 4,
+because no row of the checker read `/StructParents` at all. Only the test that read each page back
+through `pdf_model::structure::ParentTree` failed. Round 1924 gave the checker the row (section 5.1
+at §14.7.5.4, ADR 2673), so that case now reads not conforming — and the rule stands, because the
+row asks whether the tree *contains* each entry and not whether a reader descending by `/Limits`
+reaches it, and the next extension will be of something no row reads yet. The rule: a remedy that
+extends a structure (the parent tree, the page-label tree, a name tree, the structure tree itself)
+is checked by reading the output back through the reader that draws or extracts with it, page by
+page, and by planting the defect it guards against; a `Conforms` from the validator is evidence about
+the validator's rows, never about the extension.
