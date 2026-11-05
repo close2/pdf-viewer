@@ -1,5 +1,5 @@
 Status: complete
-Given: 2026-11-05, in conversation — transcribed by the orchestrating session
+Given: 2026-11-05, in conversation — transcribed by the round
 Owes: a persistent setting naming the operator's CMYK press once, used by every conversion where today `--output-intent-profile` must be given per run; the shipped default stays GRACoL (an archive round)
 
 > Q784: Persistent setting (Recommended)
