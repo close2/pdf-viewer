@@ -581,6 +581,25 @@ fn on_state(document: &Document, annotation: &Dictionary) -> Option<String> {
         .map(|name| String::from_utf8_lossy(name).into_owned())
 }
 
+/// The value a toggling widget gives its field's `/V` when it is the widget turned on: Table 230's
+/// `/Opt` entry at the widget's place among `widgets`, the field's widgets in `/Kids` order, where
+/// the field states one, and otherwise the name of the widget's on appearance state (§12.7.5.2.3,
+/// §12.7.5.2.4) — what [`crate::view::ViewState::save`] writes as the field's value, and so, for a
+/// hybrid form, the on value of the XFA exclusion group's field the widget stands for (ADR 2698).
+/// `None` for a widget not among `widgets`, or one that states no on state.
+#[must_use]
+pub fn button_on_value(
+    document: &Document,
+    widgets: &[ObjectId],
+    widget: ObjectId,
+) -> Option<String> {
+    let kid = widgets.iter().position(|&each| each == widget)?;
+    let object = document.get(widget);
+    let dict = object.as_dict()?;
+    let field = Field::read(document, dict, crate::view::FieldValue::Stored);
+    export(document, &field, kid).or_else(|| on_state(document, dict))
+}
+
 /// Table 230's `/Opt` entry for the widget at this index of `/Kids`.
 ///
 /// The entry is inheritable, so it is looked for up the ancestry [`Field::read`] already walked

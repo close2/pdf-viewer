@@ -61,9 +61,9 @@ use super::{Hooks, SLICE, State, ending_of, too_deep};
 use crate::{Budget, Ending, Nobody};
 
 /// The most steps a SOM expression in a string may have, as a `FormCalc` path may (ADR 2524).
-pub const MAX_PATH_STEPS: usize = 64;
+pub const MAX_PATH_STEPS: usize = Step::MAX_STEPS;
 /// The most bytes one name of such an expression may have.
-pub const MAX_NAME_BYTES: usize = 4096;
+pub const MAX_NAME_BYTES: usize = Step::MAX_NAME_BYTES;
 /// The most containers one run may hold an object for, its own included: each is a proxy and its
 /// target in the engine's heap, about a kilobyte in all, and the worker's address space is held to
 /// tens of megabytes (ADR 1608). A list does not count until an item of it is taken.
@@ -849,72 +849,12 @@ fn list_item(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResul
     }
 }
 
-/// A SOM expression in a string, as the steps a host resolves: names joined by `.`, each with an
-/// optional `[n]`, `[*]`, `[+n]` or `[-n]`, a leading `$` for the script's own container (pages
-/// 94–96 and 114–115).
+/// A SOM expression in a string, as the steps a host resolves ([`Step::path`], which an event's
+/// `ref` is read by as well).
 ///
 /// # Errors
 ///
-/// The sentence naming the part of SOM this reader does not take in a string: the descendant
-/// separator `..` (page 104), the class separator `.#` (page 96), a predicate (page 105) and an
-/// escaped character, each refused by name, and an expression past the bounds.
+/// [`Step::path`]'s sentence naming the part of SOM this reader does not take in a string.
 pub fn som(text: &str) -> Result<Vec<Step>, String> {
-    if text.contains("..") {
-        return Err("the descendant separator `..` (page 104)".to_owned());
-    }
-    if text.contains(".#") || text.starts_with('#') {
-        return Err("the class separator `.#` (page 96)".to_owned());
-    }
-    if text.contains(".[") || text.contains(".(") {
-        return Err("a predicate (page 105)".to_owned());
-    }
-    if text.contains('\\') {
-        return Err("an escaped character (page 105)".to_owned());
-    }
-    let mut steps = Vec::new();
-    for part in text.split('.') {
-        if steps.len() >= MAX_PATH_STEPS {
-            return Err(format!("an expression of more than {MAX_PATH_STEPS} names"));
-        }
-        let (name, occurrence) = match part.split_once('[') {
-            None => (part, Occurrence::Same),
-            Some((name, index)) => {
-                let index = index
-                    .strip_suffix(']')
-                    .ok_or_else(|| format!("the index of {name} is not closed"))?;
-                (name, occurrence_of(index.trim())?)
-            }
-        };
-        let name = name.trim();
-        if name.is_empty() {
-            return Err("an empty name".to_owned());
-        }
-        if name.len() > MAX_NAME_BYTES {
-            return Err(format!("a name of more than {MAX_NAME_BYTES} bytes"));
-        }
-        steps.push(Step {
-            name: name.to_owned(),
-            occurrence,
-        });
-    }
-    Ok(steps)
-}
-
-/// An index of a SOM step (page 94).
-fn occurrence_of(index: &str) -> Result<Occurrence, String> {
-    if index == "*" {
-        return Ok(Occurrence::Every);
-    }
-    let parsed = |digits: &str| {
-        digits
-            .parse::<i64>()
-            .map_err(|_| format!("the index [{index}] is not a number"))
-    };
-    if let Some(by) = index.strip_prefix('+') {
-        return Ok(Occurrence::Relative(parsed(by)?));
-    }
-    if let Some(by) = index.strip_prefix('-') {
-        return Ok(Occurrence::Relative(parsed(by)?.saturating_neg()));
-    }
-    Ok(Occurrence::At(parsed(index)?))
+    Step::path(text)
 }

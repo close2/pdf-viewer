@@ -239,7 +239,7 @@ fn what_the_object_model_does_not_offer_is_refused_by_name() {
         ("Units.formattedValue", "formattedValue"),
         ("$form.Receipt.Units.rawValue", "$form"),
         ("Units = 4", "Units names a container"),
-        ("try { xfa.event.newText } catch (e) {} 5", "xfa.event"),
+        ("try { xfa.event.newText } catch (e) {} 5", "$event"),
         ("xfa.resolveNode('Receipt..Units')", "descendant"),
         ("Units + 1", "valueOf"),
     ] {

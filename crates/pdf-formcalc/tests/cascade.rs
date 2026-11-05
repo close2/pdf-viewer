@@ -692,6 +692,8 @@ fn focus_crossing_two_subforms_exits_the_field_then_its_subform_and_enters_the_o
         Stimulus::Exit {
             left: &left,
             reaching: Some(&reached),
+            left_button: None,
+            reaching_button: None,
         },
         Limits::DEFAULT,
     );
@@ -703,6 +705,8 @@ fn focus_crossing_two_subforms_exits_the_field_then_its_subform_and_enters_the_o
         Stimulus::Enter {
             reached: &reached,
             leaving: Some(&left),
+            reached_button: None,
+            leaving_button: None,
         },
         Limits::DEFAULT,
     );
@@ -721,6 +725,8 @@ fn focus_within_one_subform_fires_only_the_fields_events() {
         Stimulus::Exit {
             left: &left,
             reaching: Some(&reached),
+            left_button: None,
+            reaching_button: None,
         },
         Limits::DEFAULT,
     );
@@ -731,6 +737,8 @@ fn focus_within_one_subform_fires_only_the_fields_events() {
         Stimulus::Enter {
             reached: &reached,
             leaving: Some(&left),
+            reached_button: None,
+            leaving_button: None,
         },
         Limits::DEFAULT,
     );
@@ -748,6 +756,8 @@ fn focus_leaving_the_form_exits_every_container_around_the_field() {
         Stimulus::Exit {
             left: &left,
             reaching: None,
+            left_button: None,
+            reaching_button: None,
         },
         Limits::DEFAULT,
     );
@@ -773,6 +783,8 @@ fn a_value_an_enter_event_sets_wakes_the_calculations_that_read_it() {
         Stimulus::Enter {
             reached: &units,
             leaving: None,
+            reached_button: None,
+            leaving_button: None,
         },
         Limits::DEFAULT,
     );
@@ -795,6 +807,8 @@ fn focus_on_a_field_the_form_does_not_name_runs_nothing_and_says_so() {
         Stimulus::Enter {
             reached: "elsewhere[0]",
             leaving: None,
+            reached_button: None,
+            leaving_button: None,
         },
         Limits::DEFAULT,
     );
@@ -834,6 +848,8 @@ fn focus_leaving_a_deeply_nested_field_exits_every_level_once() {
         Stimulus::Exit {
             left: &left,
             reaching: None,
+            left_button: None,
+            reaching_button: None,
         },
         Limits::DEFAULT,
     );
@@ -859,6 +875,8 @@ fn more_exit_events_than_an_activation_runs_end_on_its_limit_and_keep_nothing() 
         Stimulus::Exit {
             left: &left,
             reaching: None,
+            left_button: None,
+            reaching_button: None,
         },
         Limits::DEFAULT,
     );
@@ -877,7 +895,10 @@ fn click(template: &str, values: &[(&str, &str)], short: &str) -> Activation {
     activate(
         template,
         values,
-        Stimulus::Click { clicked: &clicked },
+        Stimulus::Click {
+            clicked: &clicked,
+            button: None,
+        },
         Limits::DEFAULT,
     )
 }
@@ -993,6 +1014,7 @@ fn a_click_on_a_field_the_form_does_not_name_runs_nothing_and_says_so() {
         &[("Button", ""), ("Log", "")],
         Stimulus::Click {
             clicked: "elsewhere[0]",
+            button: None,
         },
         Limits::DEFAULT,
     );
@@ -1183,7 +1205,10 @@ fn a_click_reaches_every_listening_container_around_the_field_innermost_first() 
     let resource = Resource::read(&document).unwrap().unwrap();
     let activation = resource.activate(
         &fields(&values),
-        Stimulus::Click { clicked: &clicked },
+        Stimulus::Click {
+            clicked: &clicked,
+            button: None,
+        },
         &mut FormCalcRunner,
         Limits::DEFAULT,
     );
@@ -1249,6 +1274,8 @@ fn each_built_activity_reaches_the_listening_subform_after_the_fields_own() {
             Stimulus::Exit {
                 left: &a1,
                 reaching: Some(&a2),
+                left_button: None,
+                reaching_button: None,
             },
             "exit!A^",
         ),
@@ -1256,11 +1283,25 @@ fn each_built_activity_reaches_the_listening_subform_after_the_fields_own() {
             Stimulus::Enter {
                 reached: &a1,
                 leaving: Some(&a2),
+                reached_button: None,
+                leaving_button: None,
             },
             "enter!A^",
         ),
-        (Stimulus::MouseDown { pressed: &a1 }, "mouseDown!A^"),
-        (Stimulus::MouseUp { released: &a1 }, "mouseUp!A^"),
+        (
+            Stimulus::MouseDown {
+                pressed: &a1,
+                button: None,
+            },
+            "mouseDown!A^",
+        ),
+        (
+            Stimulus::MouseUp {
+                released: &a1,
+                button: None,
+            },
+            "mouseUp!A^",
+        ),
     ];
     for (stimulus, expected) in cases {
         let activation = activate(&template, &values, stimulus, Limits::DEFAULT);
@@ -1319,8 +1360,14 @@ fn a_press_and_a_release_run_the_fields_own_mouse_events() {
     let values = [("A.Button", ""), ("Choice", ""), ("Log", "")];
     let button = name("A.Button");
     for stimulus in [
-        Stimulus::MouseDown { pressed: &button },
-        Stimulus::MouseUp { released: &button },
+        Stimulus::MouseDown {
+            pressed: &button,
+            button: None,
+        },
+        Stimulus::MouseUp {
+            released: &button,
+            button: None,
+        },
     ] {
         let activation = activate(&template, &values, stimulus, Limits::DEFAULT);
         assert_eq!(log(&activation).as_deref(), Some("Button!"), "{stimulus:?}");
@@ -1329,7 +1376,10 @@ fn a_press_and_a_release_run_the_fields_own_mouse_events() {
     let activation = activate(
         &template,
         &values,
-        Stimulus::MouseUp { released: &choice },
+        Stimulus::MouseUp {
+            released: &choice,
+            button: None,
+        },
         Limits::DEFAULT,
     );
     assert!(activation.edits.is_empty(), "{:?}", activation.edits);
@@ -1658,8 +1708,20 @@ fn the_pointer_crossing_a_field_runs_its_mouse_enter_and_mouse_exit() {
     let values = [("A.Button", "b"), ("Log", "")];
     let button = name("A.Button");
     let cases = [
-        (Stimulus::MouseEnter { entered: &button }, "in:bA^"),
-        (Stimulus::MouseExit { exited: &button }, "out:bA^"),
+        (
+            Stimulus::MouseEnter {
+                entered: &button,
+                button: None,
+            },
+            "in:bA^",
+        ),
+        (
+            Stimulus::MouseExit {
+                exited: &button,
+                button: None,
+            },
+            "out:bA^",
+        ),
     ];
     for (stimulus, expected) in cases {
         let activation = activate(&template, &values, stimulus, Limits::DEFAULT);
@@ -1895,4 +1957,316 @@ fn a_dismissed_warning_runs_the_calculation_over_the_entry_and_what_reads_it() {
         ]
     );
     assert!(activation.overridden.is_empty());
+}
+
+/// A radio button of an exclusion group: a check button whose on value, the first of its `items`,
+/// is `on` (page 759's `checkButton`, pages 195–197), carrying `inside`.
+fn radio(name: &str, on: &str, inside: &str) -> String {
+    format!(
+        "<field name=\"{name}\"><ui><checkButton/></ui><items><text>{on}</text></items>{inside}\
+         </field>"
+    )
+}
+
+/// An exclusion group `Choice` of the buttons `Agree` (on value `y`) and `Refuse` (on value `n`),
+/// each with a `click` event appending its name, and a group event that hears a click from below
+/// (page 387).
+fn choice_group() -> (String, Vec<(&'static str, &'static str)>) {
+    let template = [
+        format!(
+            "<exclGroup name=\"Choice\"><event activity=\"click\" listen=\"refAndDescendents\">\
+             <script>Log = Concat(Log, \"Group^\")</script></event>{}{}</exclGroup>",
+            radio("Agree", "y", &clicks("Agree")),
+            radio("Refuse", "n", &clicks("Refuse"))
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    (template, vec![("Choice", ""), ("Log", "")])
+}
+
+/// Page 391: a click fires the `click` events of the field it occurs within. An exclusion group's
+/// PDF field is one for all its buttons, and the widget clicked names the button by its on value,
+/// which Annex K's consistency of the XFA values with the `/V` entries makes the first `items`
+/// value of the group's field (pages 195–197): the on value `n` is `Refuse`'s, so `Refuse`'s
+/// event runs, and not `Agree`'s, and the group, listening, hears it after (page 387).
+#[test]
+fn a_click_on_a_button_of_an_exclusion_group_runs_the_click_events_of_that_field() {
+    let (template, values) = choice_group();
+    let group = name("Choice");
+    for (on, expected) in [("n", "Refuse!Group^"), ("y", "Agree!Group^")] {
+        let activation = activate(
+            &template,
+            &values,
+            Stimulus::Click {
+                clicked: &group,
+                button: Some(on),
+            },
+            Limits::DEFAULT,
+        );
+        assert_eq!(activation.ended, Ended::Settled, "{:?}", activation.report);
+        assert_eq!(log(&activation).as_deref(), Some(expected), "{on}");
+        assert!(activation.report.is_empty(), "{:?}", activation.report);
+    }
+}
+
+/// Pages 391–392: the press, the release and the pointer crossing are a field's events as the click
+/// is, so a button of an exclusion group runs its own `mouseDown`, `mouseUp`, `mouseEnter` and
+/// `mouseExit` by the on value the widget names.
+#[test]
+fn the_pointer_on_a_button_of_an_exclusion_group_runs_that_fields_mouse_events() {
+    let mouse = |activity: &str| {
+        format!(
+            "<event activity=\"{activity}\"><script>Log = Concat(Log, \"{activity}!\")</script>\
+             </event>"
+        )
+    };
+    let events = ["mouseDown", "mouseUp", "mouseEnter", "mouseExit"]
+        .map(mouse)
+        .concat();
+    let template = [
+        format!(
+            "<exclGroup name=\"Choice\">{}{}</exclGroup>",
+            radio("Agree", "y", ""),
+            radio("Refuse", "n", &events)
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    let values = [("Choice", ""), ("Log", "")];
+    let group = name("Choice");
+    let on = Some("n");
+    for (stimulus, expected) in [
+        (
+            Stimulus::MouseDown {
+                pressed: &group,
+                button: on,
+            },
+            "mouseDown!",
+        ),
+        (
+            Stimulus::MouseUp {
+                released: &group,
+                button: on,
+            },
+            "mouseUp!",
+        ),
+        (
+            Stimulus::MouseEnter {
+                entered: &group,
+                button: on,
+            },
+            "mouseEnter!",
+        ),
+        (
+            Stimulus::MouseExit {
+                exited: &group,
+                button: on,
+            },
+            "mouseExit!",
+        ),
+    ] {
+        let activation = activate(&template, &values, stimulus, Limits::DEFAULT);
+        assert_eq!(log(&activation).as_deref(), Some(expected), "{stimulus:?}");
+    }
+}
+
+/// A widget whose on value no button of the group holds names no field the click was within, so
+/// nothing runs and the report says which value it was.
+#[test]
+fn a_click_on_a_button_whose_on_value_no_field_holds_runs_nothing_and_says_so() {
+    let (template, values) = choice_group();
+    let group = name("Choice");
+    let activation = activate(
+        &template,
+        &values,
+        Stimulus::Click {
+            clicked: &group,
+            button: Some("maybe"),
+        },
+        Limits::DEFAULT,
+    );
+    assert!(activation.edits.is_empty(), "{:?}", activation.edits);
+    assert!(
+        activation
+            .report
+            .iter()
+            .any(|sentence| sentence.contains("none of its fields has the on value \"maybe\"")),
+        "{:?}",
+        activation.report
+    );
+}
+
+/// Pages 706–707: an event's `ref` names the object that generates the event, a "come-from" (page
+/// 404), so an event placed in `Watcher` bound to `Button` runs when `Button` is clicked, as
+/// `Watcher`'s script — `$` is `Watcher` — with `$event.target` the button (page 404). A click
+/// on `Watcher` itself runs nothing, its event being bound elsewhere.
+#[test]
+fn an_event_bound_by_ref_to_another_field_runs_when_that_field_is_clicked() {
+    let template = [
+        field("Button", ""),
+        field(
+            "Watcher",
+            "<event activity=\"click\" ref=\"Button\"><script>\
+             Log = Concat(Log, $event.target, \"/\", $, \"!\")</script></event>",
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    let values = [("Button", "pressed"), ("Watcher", "w"), ("Log", "")];
+    let activation = click(&template, &values, "Button");
+    assert_eq!(activation.ended, Ended::Settled, "{:?}", activation.report);
+    assert_eq!(log(&activation).as_deref(), Some("pressed/w!"));
+    assert!(activation.report.is_empty(), "{:?}", activation.report);
+    assert_eq!(log(&click(&template, &values, "Watcher")), None);
+}
+
+/// Pages 387 and 706: an event bound by `ref` to a subform with `listen="refAndDescendents"`
+/// responds to the activity on every object the subform contains, from wherever the event is
+/// placed; a field outside the subform reaches it not at all. And a `change` bound by `ref` runs
+/// at a person's entry into the field it names (page 391).
+#[test]
+fn an_event_bound_by_ref_to_a_subform_hears_what_the_subform_contains() {
+    let template = [
+        format!("<subform name=\"Panel\">{}</subform>", field("Inner", "")),
+        field("Outside", ""),
+        field(
+            "Watcher",
+            "<event activity=\"click\" ref=\"Panel\" listen=\"refAndDescendents\"><script>\
+             Log = Concat(Log, \"heard^\")</script></event>\
+             <event activity=\"change\" ref=\"Outside\"><script>\
+             Log = Concat(Log, \"changed^\")</script></event>",
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    let values = [
+        ("Panel.Inner", ""),
+        ("Outside", "x"),
+        ("Watcher", ""),
+        ("Log", ""),
+    ];
+    assert_eq!(
+        log(&click(&template, &values, "Panel.Inner")).as_deref(),
+        Some("heard^")
+    );
+    assert_eq!(log(&click(&template, &values, "Outside")), None);
+    assert_eq!(
+        log(&entered(&template, &values, &["Outside"])).as_deref(),
+        Some("changed^")
+    );
+}
+
+/// Page 707: a `ref` that names no field, subform or exclusion group binds the event to nothing
+/// that generates it, so it never runs, and the end of the open sequence names it.
+#[test]
+fn an_event_bound_by_ref_to_nothing_is_named_and_not_run() {
+    let template = [
+        field("Button", &bound("click", "Nowhere", "lost")),
+        field("Log", ""),
+    ]
+    .concat();
+    let values = [("Button", ""), ("Log", "")];
+    assert_eq!(log(&click(&template, &values, "Button")), None);
+    let activation = ready(&template, &values);
+    assert!(
+        activation.report.iter().any(|sentence| sentence.contains(
+            "its click event is bound to Nowhere, which names no field, subform or exclusion group"
+        )),
+        "{:?}",
+        activation.report
+    );
+}
+
+/// Pages 390–391: a field's `enter` and `exit` fire as it gains and loses the focus, and an
+/// exclusion group's only for focus that comes in from outside the group or goes out of it. The
+/// focus on a radio button's widget is on the group's field its on value names, so between two
+/// buttons of one group only the buttons' events run, and leaving the group for another field runs
+/// the button's `exit` and then the group's, innermost first (ADR 2566's order).
+#[test]
+fn the_focus_on_a_button_of_an_exclusion_group_runs_that_fields_enter_and_exit() {
+    let focus = |tag: &str| {
+        format!(
+            "<event activity=\"enter\"><script>Log = Concat(Log, \"{tag}+\")</script></event>\
+             <event activity=\"exit\"><script>Log = Concat(Log, \"{tag}-\")</script></event>"
+        )
+    };
+    let template = [
+        format!(
+            "<exclGroup name=\"Choice\">{}{}{}</exclGroup>",
+            focus("Group"),
+            radio("Agree", "y", &focus("Agree")),
+            radio("Refuse", "n", &focus("Refuse"))
+        ),
+        field("Other", ""),
+        field("Log", ""),
+    ]
+    .concat();
+    let values = [("Choice", ""), ("Other", ""), ("Log", "")];
+    let (group, other) = (name("Choice"), name("Other"));
+    let exit = |reaching: Option<(&str, Option<&str>)>| {
+        activate(
+            &template,
+            &values,
+            Stimulus::Exit {
+                left: &group,
+                reaching: reaching.map(|(name, _)| name),
+                left_button: Some("y"),
+                reaching_button: reaching.and_then(|(_, on)| on),
+            },
+            Limits::DEFAULT,
+        )
+    };
+    assert_eq!(
+        log(&exit(Some((&group, Some("n"))))).as_deref(),
+        Some("Agree-")
+    );
+    assert_eq!(
+        log(&exit(Some((&other, None)))).as_deref(),
+        Some("Agree-Group-")
+    );
+    let enter = activate(
+        &template,
+        &values,
+        Stimulus::Enter {
+            reached: &group,
+            leaving: Some(&group),
+            reached_button: Some("n"),
+            leaving_button: Some("y"),
+        },
+        Limits::DEFAULT,
+    );
+    assert_eq!(log(&enter).as_deref(), Some("Refuse+"));
+}
+
+/// Principle 3: each `ref` that searches the template is charged a step for every container the
+/// template holds, so a template of many containers each naming another ends on the activation's
+/// steps limit and keeps nothing (page 380's means of ending what does not settle), rather than
+/// costing the square of its size; the same events within the limit run.
+#[test]
+fn events_bound_by_ref_are_charged_against_the_steps_limit() {
+    let watchers: String = (0..100)
+        .map(|at| {
+            field(
+                &format!("w{at}"),
+                "<event activity=\"click\" ref=\"Button\"><script>Log = \"seen\"</script></event>",
+            )
+        })
+        .collect();
+    let template = [field("Button", ""), watchers, field("Log", "")].concat();
+    let values = [("Button", ""), ("Log", "")];
+    let clicked = name("Button");
+    let stimulus = Stimulus::Click {
+        clicked: &clicked,
+        button: None,
+    };
+    let tight = Limits {
+        steps: 1_000,
+        ..Limits::DEFAULT
+    };
+    let ended = activate(&template, &values, stimulus, tight);
+    assert_eq!(ended.ended, Ended::Budget("steps"), "{:?}", ended.report);
+    assert!(ended.edits.is_empty(), "{:?}", ended.edits);
+    let settled = activate(&template, &values, stimulus, Limits::DEFAULT);
+    assert_eq!(log(&settled).as_deref(), Some("seen"));
 }

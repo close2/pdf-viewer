@@ -435,24 +435,43 @@ impl Viewer {
 /// A hybrid form's `exit` events where the focus left `left`, and its `enter` events where it
 /// reached `reached` (XFA 3.3 pages 390–391; ADR 2566): at the `/Bl` after the commit, so that an
 /// `exit` script reads the person's entry, and at the `/Fo`, each before the widget's own
-/// scripts. A document with no XFA form, and a view state with no runner, run nothing.
+/// scripts; on a radio button's widget, those of the exclusion group's field its on value names
+/// (ADR 2698). A document with no XFA form, and a view state with no runner, run nothing.
 fn form_focus(open: &mut Open, event: Trigger, left: Option<ObjectId>, reached: Option<ObjectId>) {
-    let name = |widget: Option<ObjectId>| widget.and_then(|w| field_of_widget(&open.document, w));
-    let (left, reached) = (name(left), name(reached));
-    let changed = match (event, &left, &reached) {
+    if left.is_none() && reached.is_none() {
+        return;
+    }
+    let table = pdf_model::view::widgets_by_field_name(&open.document);
+    // Each widget's field, with the on value that names an exclusion group's field (ADR 2698).
+    let named = |widget: Option<ObjectId>| {
+        let widget = widget?;
+        let (name, widgets) = table
+            .iter()
+            .find(|(_, widgets)| widgets.contains(&widget))?;
+        let on = pdf_model::form::button_on_value(&open.document, widgets, widget);
+        Some((name.clone(), on))
+    };
+    let (left, reached) = (named(left), named(reached));
+    let (left_pair, reached_pair) = (borrowed(left.as_ref()), borrowed(reached.as_ref()));
+    let changed = match (event, left_pair, reached_pair) {
         (Trigger::Blur, Some(left), reaching) => {
             open.view
-                .activate_form_on_exit(&open.document, left, reaching.as_deref())
+                .activate_form_on_exit(&open.document, left, reaching)
         }
         (Trigger::Focus, leaving, Some(reached)) => {
             open.view
-                .activate_form_on_enter(&open.document, reached, leaving.as_deref())
+                .activate_form_on_enter(&open.document, reached, leaving)
         }
         _ => false,
     };
     if changed {
         open.stale();
     }
+}
+
+/// A field's name and its widget's on value, borrowed as the view state takes them.
+fn borrowed(named: Option<&(String, Option<String>)>) -> Option<(&str, Option<&str>)> {
+    named.map(|(name, on)| (name.as_str(), on.as_deref()))
 }
 
 /// Which of a hybrid form's pointer events a widget's field is given (XFA 3.3 pages 391–392).
@@ -475,27 +494,37 @@ enum FormPointer {
 }
 
 /// A hybrid form's pointer events on the field whose widget is `widget`, each before the widget's
-/// own scripts, as the focus events run (ADRs 2584, 2627). A document with no XFA form, a view
+/// own scripts, as the focus events run (ADRs 2584, 2627); on a radio button's widget, the events
+/// of the exclusion group's field its on value names (ADR 2698). A document with no XFA form, a view
 /// state with no runner, and an annotation that is no field's widget run nothing.
 fn form_pointer(open: &mut Open, widget: ObjectId, event: FormPointer) {
     if !is_widget(&open.document, widget) {
         return;
     }
-    let Some(field) = field_of_widget(&open.document, widget) else {
+    let Some((field, widgets)) = pdf_model::view::widgets_by_field_name(&open.document)
+        .into_iter()
+        .find(|(_, widgets)| widgets.contains(&widget))
+    else {
         return;
     };
+    // A radio button's widget names its exclusion group's field by its on value (ADR 2698).
+    let on = pdf_model::form::button_on_value(&open.document, &widgets, widget);
+    let button = on.as_deref();
+    let document = &open.document;
     let changed = match event {
         FormPointer::Down => open
             .view
-            .activate_form_on_mouse_down(&open.document, &field),
-        FormPointer::Up => open.view.activate_form_on_mouse_up(&open.document, &field),
-        FormPointer::Click => open.view.activate_form_on_click(&open.document, &field),
+            .activate_form_on_mouse_down(document, &field, button),
+        FormPointer::Up => open
+            .view
+            .activate_form_on_mouse_up(document, &field, button),
+        FormPointer::Click => open.view.activate_form_on_click(document, &field, button),
         FormPointer::Enter => open
             .view
-            .activate_form_on_mouse_enter(&open.document, &field),
+            .activate_form_on_mouse_enter(document, &field, button),
         FormPointer::Exit => open
             .view
-            .activate_form_on_mouse_exit(&open.document, &field),
+            .activate_form_on_mouse_exit(document, &field, button),
     };
     if changed {
         open.stale();

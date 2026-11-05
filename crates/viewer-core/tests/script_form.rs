@@ -659,3 +659,54 @@ fn an_entry_its_validation_script_refuses_puts_the_designers_message() {
     assert_eq!(title.as_deref(), Some("Form validation"));
     assert_eq!(value(&viewer, "Units"), "5");
 }
+
+/// XFA 3.3 page 385: a script test whose `scriptTest` is `warning` puts a message with two
+/// choices, to dismiss — the person "wishes to return to the form, so that s/he may satisfy this
+/// constraint" — and to override, contravening it. The notice asks them as one question: "Yes"
+/// overrides and the entry stands where it is; "No", or a dialogue closed without a press, returns
+/// the keyboard focus to the field's widget (object 7), and the entry still stands (ADR 2698).
+#[test]
+fn a_script_test_s_warning_asks_and_its_no_returns_the_person_to_the_field() {
+    for (answer, returned) in [
+        (ScriptAnswer::Pressed(AlertButton::Yes), false),
+        (ScriptAnswer::Pressed(AlertButton::No), true),
+        (ScriptAnswer::Unanswerable, true),
+    ] {
+        let bytes = hybrid(
+            "<field name=\"Units\"><ui><textEdit/></ui><value><text/></value>\
+             <validate scriptTest=\"warning\"><script>0</script></validate></field>\
+             <field name=\"Total\"><ui><textEdit/></ui><value><text/></value></field>",
+            "<Units/><Total/>",
+        );
+        let mut viewer = opened_on(Scripting::Run(Arc::new(Calculators::default())), bytes);
+        viewer.handle(Command::Presented).for_each(drop);
+        let put = notices(&enter(&mut viewer, "Units", "5"));
+        assert_eq!(put.len(), 1, "{put:?}");
+        let ScriptQuestion::Alert {
+            message,
+            icon,
+            buttons,
+            ..
+        } = &put[0]
+        else {
+            panic!("a validation message is an alert");
+        };
+        assert!(
+            message.ends_with("Keep the value you entered anyway?"),
+            "{message}"
+        );
+        assert_eq!((*icon, *buttons), (AlertIcon::Warning, AlertButtons::YesNo));
+        viewer
+            .handle(Command::AnswerScript {
+                document: DOCUMENT,
+                answer: answer.clone(),
+            })
+            .for_each(drop);
+        let focused = match viewer.query(Query::Focus) {
+            Answer::Focus { object, .. } => Some(object.number),
+            _ => None,
+        };
+        assert_eq!(focused == Some(7), returned, "{answer:?}: {focused:?}");
+        assert_eq!(value(&viewer, "Units"), "5", "{answer:?}");
+    }
+}

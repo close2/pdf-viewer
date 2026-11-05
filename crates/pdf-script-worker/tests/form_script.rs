@@ -574,7 +574,7 @@ fn an_enter_event_runs_in_the_confined_worker_and_wakes_a_calculation() {
     let mut view = view_with(&document, &worker);
     view.activate_form_on_merge(&document);
     assert_eq!(shown(&view, &document, "Double").as_deref(), Some("2"));
-    assert!(view.activate_form_on_enter(&document, &name("Units"), None));
+    assert!(view.activate_form_on_enter(&document, (&name("Units"), None), None));
     assert_eq!(shown(&view, &document, "Units").as_deref(), Some("4"));
     assert_eq!(shown(&view, &document, "Double").as_deref(), Some("8"));
     assert!(worker.deaths().is_empty(), "{:?}", worker.deaths());
@@ -602,7 +602,11 @@ fn an_exit_event_that_never_ends_is_stopped_and_the_entry_is_kept() {
         let started = std::time::Instant::now();
         assert!(view.set_field(&document, &name("Units"), &Entered::Text("5".to_owned())) > 0);
         view.commit_field(&document, &name("Units"));
-        let changed = view.activate_form_on_exit(&document, &name("Units"), Some(&name("Other")));
+        let changed = view.activate_form_on_exit(
+            &document,
+            (&name("Units"), None),
+            Some((&name("Other"), None)),
+        );
         let took = started.elapsed();
         assert!(took < Duration::from_secs(5), "{script}: {took:?}");
         assert!(!changed, "{script}");
@@ -647,7 +651,7 @@ fn a_click_event_runs_in_the_confined_worker_and_wakes_a_calculation() {
     let worker = Arc::new(ScriptWorker::with_program(WORKER).with_deadline(OUT_OF_THE_WAY));
     let mut view = view_with(&document, &worker);
     view.activate_form_on_merge(&document);
-    assert!(view.activate_form_on_click(&document, &name("Add")));
+    assert!(view.activate_form_on_click(&document, &name("Add"), None));
     assert_eq!(shown(&view, &document, "Units").as_deref(), Some("2"));
     assert_eq!(shown(&view, &document, "Double").as_deref(), Some("4"));
     assert!(worker.deaths().is_empty(), "{:?}", worker.deaths());
@@ -686,10 +690,10 @@ fn a_listening_event_hears_a_fields_mouse_up_and_mouse_down_in_the_worker() {
     let worker = Arc::new(ScriptWorker::with_program(WORKER).with_deadline(OUT_OF_THE_WAY));
     let mut view = view_with(&document, &worker);
     view.activate_form_on_merge(&document);
-    assert!(view.activate_form_on_mouse_up(&document, &name("Button")));
+    assert!(view.activate_form_on_mouse_up(&document, &name("Button"), None));
     assert_eq!(shown(&view, &document, "Up").as_deref(), Some("7"));
     assert_eq!(shown(&view, &document, "Down").as_deref(), Some(""));
-    assert!(view.activate_form_on_mouse_down(&document, &name("Button")));
+    assert!(view.activate_form_on_mouse_down(&document, &name("Button"), None));
     assert_eq!(shown(&view, &document, "Down").as_deref(), Some("3"));
     assert!(worker.deaths().is_empty(), "{:?}", worker.deaths());
 }
@@ -718,7 +722,7 @@ fn a_listening_click_that_never_ends_is_stopped_after_the_fields_own_event_ran()
         let mut view = view_with(&document, &worker);
         view.activate_form_on_merge(&document);
         let started = std::time::Instant::now();
-        let changed = view.activate_form_on_click(&document, &name("Button"));
+        let changed = view.activate_form_on_click(&document, &name("Button"), None);
         let took = started.elapsed();
         assert!(took < Duration::from_secs(5), "{script}: {took:?}");
         assert!(!changed, "{script}");
@@ -764,7 +768,7 @@ fn a_click_event_that_never_ends_is_stopped_and_the_entry_is_kept() {
         let started = std::time::Instant::now();
         assert!(view.set_field(&document, &name("Units"), &Entered::Text("5".to_owned())) > 0);
         view.commit_field(&document, &name("Units"));
-        let changed = view.activate_form_on_click(&document, &name("Button"));
+        let changed = view.activate_form_on_click(&document, &name("Button"), None);
         let took = started.elapsed();
         assert!(took < Duration::from_secs(5), "{script}: {took:?}");
         assert!(!changed, "{script}");
@@ -896,14 +900,14 @@ fn a_listening_event_reads_the_clicked_field_from_event_target_in_the_worker() {
     let worker = Arc::new(ScriptWorker::with_program(WORKER).with_deadline(OUT_OF_THE_WAY));
     let mut view = view_with(&document, &worker);
     view.activate_form_on_merge(&document);
-    assert!(view.activate_form_on_click(&document, &name("One")));
+    assert!(view.activate_form_on_click(&document, &name("One"), None));
     assert_eq!(
         shown(&view, &document, "Seen").as_deref(),
         Some("first/click/click"),
         "{:?}",
         view.script_reports()
     );
-    assert!(view.activate_form_on_click(&document, &name("Two")));
+    assert!(view.activate_form_on_click(&document, &name("Two"), None));
     assert_eq!(
         shown(&view, &document, "Seen").as_deref(),
         Some("second/click/click")
@@ -931,7 +935,7 @@ fn a_javascript_write_to_a_read_only_event_property_is_reported() {
         let mut view = view_with(&document, &worker);
         view.activate_form_on_merge(&document);
         assert!(
-            !view.activate_form_on_click(&document, &name("Button")),
+            !view.activate_form_on_click(&document, &name("Button"), None),
             "{write}"
         );
         assert_eq!(
@@ -1001,12 +1005,12 @@ fn the_pointer_crossing_a_field_runs_its_mouse_enter_and_mouse_exit_in_the_worke
     let worker = Arc::new(ScriptWorker::with_program(WORKER).with_deadline(OUT_OF_THE_WAY));
     let mut view = view_with(&document, &worker);
     view.activate_form_on_merge(&document);
-    assert!(view.activate_form_on_mouse_enter(&document, &name("Button")));
+    assert!(view.activate_form_on_mouse_enter(&document, &name("Button"), None));
     assert_eq!(
         shown(&view, &document, "Seen").as_deref(),
         Some("in:mouseEnter")
     );
-    assert!(view.activate_form_on_mouse_exit(&document, &name("Button")));
+    assert!(view.activate_form_on_mouse_exit(&document, &name("Button"), None));
     assert_eq!(
         shown(&view, &document, "Seen").as_deref(),
         Some("out:mouseExit")
@@ -1032,7 +1036,7 @@ fn a_mouse_enter_event_that_never_ends_is_stopped() {
         let mut view = view_with(&document, &worker);
         view.activate_form_on_merge(&document);
         let started = std::time::Instant::now();
-        let changed = view.activate_form_on_mouse_enter(&document, &name("Button"));
+        let changed = view.activate_form_on_mouse_enter(&document, &name("Button"), None);
         let took = started.elapsed();
         assert!(took < Duration::from_secs(5), "{script}: {took:?}");
         assert!(!changed, "{script}");

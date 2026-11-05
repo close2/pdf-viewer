@@ -97,32 +97,67 @@ enum Raised<'a> {
         name: &'a str,
         before: Option<&'a str>,
     },
-    /// The focus left `left` for `reaching`.
+    /// The focus left `left` for `reaching`, each with the on value of the button it was on where
+    /// it is an exclusion group ([`Stimulus::Exit`]).
     Exit {
-        left: &'a str,
-        reaching: Option<&'a str>,
+        left: (&'a str, Option<&'a str>),
+        reaching: Option<(&'a str, Option<&'a str>)>,
     },
-    /// The focus reached `reached` from `leaving`.
+    /// The focus reached `reached` from `leaving`, alike ([`Stimulus::Enter`]).
     Enter {
-        reached: &'a str,
-        leaving: Option<&'a str>,
+        reached: (&'a str, Option<&'a str>),
+        leaving: Option<(&'a str, Option<&'a str>)>,
     },
-    /// A mouse click occurred within the field of this PDF name.
-    Click(&'a str),
+    /// A mouse click occurred within the field of this PDF name, on the button of this on value
+    /// where the field is an exclusion group ([`Stimulus::Click`]); the four after it alike.
+    Click(&'a str, Option<&'a str>),
     /// A mouse button was pressed within the field of this PDF name.
-    MouseDown(&'a str),
+    MouseDown(&'a str, Option<&'a str>),
     /// A mouse button was released within the field of this PDF name.
-    MouseUp(&'a str),
+    MouseUp(&'a str, Option<&'a str>),
     /// The pointer moved into the region of the field of this PDF name.
-    MouseEnter(&'a str),
+    MouseEnter(&'a str, Option<&'a str>),
     /// The pointer moved out of the region of the field of this PDF name.
-    MouseExit(&'a str),
+    MouseExit(&'a str, Option<&'a str>),
     /// A person dismissed the warning page 642 presents for an entry into the field of this PDF
     /// name.
     Dismissed(&'a str),
     /// The open sequence ended: the Form DOM's `ready` and the application's `docReady` (pages 388
     /// and 704).
     Ready,
+}
+
+impl<'a> Raised<'a> {
+    /// The stimulus this is. An entry's names and what each field showed are owned by the caller,
+    /// which builds its stimulus itself, so an entry here names no field.
+    fn stimulus(self) -> Stimulus<'a> {
+        match self {
+            Raised::Merge => Stimulus::Merge,
+            Raised::Entry { .. } => Stimulus::Entry {
+                entered: &[],
+                before: &[],
+            },
+            Raised::Exit { left, reaching } => Stimulus::Exit {
+                left: left.0,
+                reaching: reaching.map(|(name, _)| name),
+                left_button: left.1,
+                reaching_button: reaching.and_then(|(_, button)| button),
+            },
+            Raised::Enter { reached, leaving } => Stimulus::Enter {
+                reached: reached.0,
+                leaving: leaving.map(|(name, _)| name),
+                reached_button: reached.1,
+                leaving_button: leaving.and_then(|(_, button)| button),
+            },
+            Raised::Click(clicked, button) => Stimulus::Click { clicked, button },
+            Raised::MouseDown(pressed, button) => Stimulus::MouseDown { pressed, button },
+            Raised::MouseUp(released, button) => Stimulus::MouseUp { released, button },
+            Raised::MouseEnter(entered, button) => Stimulus::MouseEnter { entered, button },
+            Raised::MouseExit(exited, button) => Stimulus::MouseExit { exited, button },
+            Raised::Ready => Stimulus::Ready,
+            Raised::Dismissed(field) => Stimulus::Dismissed { field },
+        }
+    }
 }
 
 /// A runner seen as the [`Runner`] an activation runs its scripts through, counting the scripts
@@ -235,11 +270,15 @@ impl ViewState {
     /// person's entry. The events are one activation under the sequence budget of one second, and
     /// one that is stopped drops what its scripts changed and leaves the entry as the person made
     /// it.
+    ///
+    /// Each field comes with the on value of the widget the focus is on
+    /// ([`crate::form::button_on_value`]), which, for an exclusion group, names the group's field
+    /// whose `exit` and `enter` page 391 fires (ADR 2698); `None` for any other field.
     pub fn activate_form_on_exit(
         &mut self,
         document: &Document,
-        left: &str,
-        reaching: Option<&str>,
+        left: (&str, Option<&str>),
+        reaching: Option<(&str, Option<&str>)>,
     ) -> bool {
         self.activate_form(document, Raised::Exit { left, reaching }, Instant::now())
     }
@@ -247,12 +286,13 @@ impl ViewState {
     /// Runs the `enter` events of the keyboard focus reaching the field `reached` from the field
     /// `leaving`, or from no field (XFA 3.3 pages 390–391): those of each subform and exclusion
     /// group around it that the focus comes into, and the field's, followed by the calculations
-    /// that depend on what the events changed (page 379). Answers whether a value changed.
+    /// that depend on what the events changed (page 379). Answers whether a value changed. Each
+    /// field comes with its widget's on value, as [`Self::activate_form_on_exit`]'s do.
     pub fn activate_form_on_enter(
         &mut self,
         document: &Document,
-        reached: &str,
-        leaving: Option<&str>,
+        reached: (&str, Option<&str>),
+        leaving: Option<(&str, Option<&str>)>,
     ) -> bool {
         self.activate_form(document, Raised::Enter { reached, leaving }, Instant::now())
     }
@@ -263,11 +303,19 @@ impl ViewState {
     ///
     /// Page 390 gives a subform and an exclusion group no `click`, so the field is the object the
     /// click happens on, and an enclosing container's event hears it only where its `listen` is
-    /// `refAndDescendents` (page 387; ADRs 2584, 2626). The events are one activation under the
+    /// `refAndDescendents` (page 387; ADRs 2584, 2626). Where `clicked` is an exclusion group,
+    /// whose PDF field is one for all its buttons, `button` is the on value of the widget clicked
+    /// ([`crate::form::button_on_value`]) and names the group's field the click was within (ADR 2698);
+    /// the four pointer methods after this one take it alike. The events are one activation under the
     /// sequence budget of one second, and one that is stopped drops what its scripts changed and
     /// leaves every value a person entered as it was.
-    pub fn activate_form_on_click(&mut self, document: &Document, clicked: &str) -> bool {
-        self.activate_form(document, Raised::Click(clicked), Instant::now())
+    pub fn activate_form_on_click(
+        &mut self,
+        document: &Document,
+        clicked: &str,
+        button: Option<&str>,
+    ) -> bool {
+        self.activate_form(document, Raised::Click(clicked, button), Instant::now())
     }
 
     /// Carries out a person's answer to the warning XFA 3.3 page 642 presents for an entry into
@@ -291,36 +339,89 @@ impl ViewState {
         self.activate_form(document, Raised::Dismissed(field), Instant::now())
     }
 
+    /// Carries out a person's answer to the warning XFA 3.3 page 385 presents when the script tests
+    /// of `containers`, whose `scriptTest` is `warning`, fail (ADR 2698). Page 385 gives two
+    /// choices: to override, which contravenes the constraint and keeps the value, and is what
+    /// the entry already did, so `dismissed` false changes nothing; and to dismiss, by which the
+    /// person "wishes to return to the form, so that s/he may satisfy this constraint", so
+    /// `dismissed` true asks a host for the keyboard focus on the first widget of the first of
+    /// `containers` the document names as a field, as a script's `setFocus` asks for it. A
+    /// container that is no field — a subform's script test — has no widget to return to.
+    pub fn answer_form_validation(
+        &mut self,
+        document: &Document,
+        containers: &[String],
+        dismissed: bool,
+    ) {
+        if !dismissed {
+            return;
+        }
+        let table = crate::view::widgets_by_field_name(document);
+        if let Some(field) = containers
+            .iter()
+            .find(|name| table.get(*name).is_some_and(|widgets| !widgets.is_empty()))
+        {
+            self.scripting.focus = Some(super::FocusRequest {
+                field: field.clone(),
+                widget: 0,
+            });
+        }
+    }
+
     /// Runs the `mouseDown` events of the field `pressed`, within whose region a mouse button was
     /// pressed (XFA 3.3 page 392), followed by the calculations that depend on what the events
     /// changed (page 379). Answers whether a value changed, which is ink to draw again. The
     /// events reach what [`Self::activate_form_on_click`]'s reach, under the same budget.
-    pub fn activate_form_on_mouse_down(&mut self, document: &Document, pressed: &str) -> bool {
-        self.activate_form(document, Raised::MouseDown(pressed), Instant::now())
+    pub fn activate_form_on_mouse_down(
+        &mut self,
+        document: &Document,
+        pressed: &str,
+        button: Option<&str>,
+    ) -> bool {
+        self.activate_form(document, Raised::MouseDown(pressed, button), Instant::now())
     }
 
     /// Runs the `mouseUp` events of the field `released`, within whose region a mouse button was
     /// released (XFA 3.3 page 392) wherever it was pressed, followed by the calculations that
     /// depend on what the events changed (page 379). Answers whether a value changed. The events
     /// reach what [`Self::activate_form_on_click`]'s reach, under the same budget.
-    pub fn activate_form_on_mouse_up(&mut self, document: &Document, released: &str) -> bool {
-        self.activate_form(document, Raised::MouseUp(released), Instant::now())
+    pub fn activate_form_on_mouse_up(
+        &mut self,
+        document: &Document,
+        released: &str,
+        button: Option<&str>,
+    ) -> bool {
+        self.activate_form(document, Raised::MouseUp(released, button), Instant::now())
     }
 
     /// Runs the `mouseEnter` events of the field `entered`, into whose region the pointer moved
     /// with a button up or down (XFA 3.3 page 391), followed by the calculations that depend on
     /// what the events changed (page 379). Answers whether a value changed. The events reach what
     /// [`Self::activate_form_on_click`]'s reach, under the same budget (ADR 2647).
-    pub fn activate_form_on_mouse_enter(&mut self, document: &Document, entered: &str) -> bool {
-        self.activate_form(document, Raised::MouseEnter(entered), Instant::now())
+    pub fn activate_form_on_mouse_enter(
+        &mut self,
+        document: &Document,
+        entered: &str,
+        button: Option<&str>,
+    ) -> bool {
+        self.activate_form(
+            document,
+            Raised::MouseEnter(entered, button),
+            Instant::now(),
+        )
     }
 
     /// Runs the `mouseExit` events of the field `exited`, out of whose region the pointer moved
     /// with a button up or down (XFA 3.3 page 391), followed by the calculations that depend on
     /// what the events changed (page 379). Answers whether a value changed, under the budget of
     /// [`Self::activate_form_on_mouse_enter`].
-    pub fn activate_form_on_mouse_exit(&mut self, document: &Document, exited: &str) -> bool {
-        self.activate_form(document, Raised::MouseExit(exited), Instant::now())
+    pub fn activate_form_on_mouse_exit(
+        &mut self,
+        document: &Document,
+        exited: &str,
+        button: Option<&str>,
+    ) -> bool {
+        self.activate_form(document, Raised::MouseExit(exited, button), Instant::now())
     }
 
     /// The fields whose `override` asks a host to present a message since a host last took them, in
@@ -383,8 +484,8 @@ impl ViewState {
         // The pointer crosses widgets on nearly every movement, and a form with no event of the
         // crossing has nothing to run, so it is not given a whole activation of the form.
         let crossing = match raised {
-            Raised::MouseEnter(_) => Some("mouseEnter"),
-            Raised::MouseExit(_) => Some("mouseExit"),
+            Raised::MouseEnter(..) => Some("mouseEnter"),
+            Raised::MouseExit(..) => Some("mouseExit"),
             _ => None,
         };
         if crossing.is_some_and(|activity| !resource.has_activity(activity)) {
@@ -399,20 +500,11 @@ impl ViewState {
             _ => (Vec::new(), Vec::new()),
         };
         let stimulus = match raised {
-            Raised::Merge => Stimulus::Merge,
             Raised::Entry { .. } => Stimulus::Entry {
                 entered: &entered,
                 before: &shown,
             },
-            Raised::Exit { left, reaching } => Stimulus::Exit { left, reaching },
-            Raised::Enter { reached, leaving } => Stimulus::Enter { reached, leaving },
-            Raised::Click(clicked) => Stimulus::Click { clicked },
-            Raised::MouseDown(pressed) => Stimulus::MouseDown { pressed },
-            Raised::MouseUp(released) => Stimulus::MouseUp { released },
-            Raised::MouseEnter(entered) => Stimulus::MouseEnter { entered },
-            Raised::MouseExit(exited) => Stimulus::MouseExit { exited },
-            Raised::Ready => Stimulus::Ready,
-            Raised::Dismissed(field) => Stimulus::Dismissed { field },
+            other => other.stimulus(),
         };
         // What a person entered before this merge stands under it (the merge's own comment).
         let before_the_merge: Vec<String> = match raised {

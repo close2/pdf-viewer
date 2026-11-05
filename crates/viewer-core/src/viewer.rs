@@ -483,19 +483,31 @@ impl Viewer {
                 if let Some(open) = self.documents.get_mut(&document) {
                     if open.consent.form_alert_open {
                         // A notice has nothing to carry out (ADR 2525), except a `warning`'s,
-                        // whose "No" dismisses it and leaves the calculated value (ADR 2697).
+                        // whose "No" dismisses it: a calculated field's leaves the calculated
+                        // value (ADR 2697), and a script test's returns the person to the field
+                        // (ADR 2698).
                         open.consent.form_alert_open = false;
-                        if let Some(field) = open.consent.form_alert_warns.take() {
-                            let dismissed = !matches!(
-                                answer,
-                                crate::ScriptAnswer::Pressed(crate::AlertButton::Yes)
-                            );
-                            if open
-                                .view
-                                .answer_form_warning(&open.document, &field, dismissed)
-                            {
-                                open.stale();
+                        let dismissed = !matches!(
+                            answer,
+                            crate::ScriptAnswer::Pressed(crate::AlertButton::Yes)
+                        );
+                        match open.consent.form_alert_warns.take() {
+                            Some(crate::scripting::Warns::Calculated(field)) => {
+                                if open
+                                    .view
+                                    .answer_form_warning(&open.document, &field, dismissed)
+                                {
+                                    open.stale();
+                                }
                             }
+                            Some(crate::scripting::Warns::Validated(containers)) => {
+                                open.view.answer_form_validation(
+                                    &open.document,
+                                    &containers,
+                                    dismissed,
+                                );
+                            }
+                            None => {}
                         }
                     } else if let Some(asks) = open.consent.asks.clone() {
                         open.consent.runner_question_open = false;

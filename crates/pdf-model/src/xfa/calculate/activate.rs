@@ -35,7 +35,9 @@
 //!   ([`Stimulus::MouseDown`], [`Stimulus::MouseUp`], [`Stimulus::Click`]): the field's own
 //!   `mouseDown`, `mouseUp` and `click` events (pages 391–392), and then the calculations that
 //!   depend on what they changed. Page 390 gives a subform and an exclusion group none of the
-//!   three, so the field is the only object they happen on (ADRs 2584, 2627).
+//!   three, so the field is the only object they happen on (ADRs 2584, 2627); on a radio button
+//!   it is the exclusion group's field whose on value the widget's is (ADR 2698), as it is for
+//!   the focus.
 //! - The pointer moving into a field's region and out of it ([`Stimulus::MouseEnter`],
 //!   [`Stimulus::MouseExit`]), with a button up or down: the field's own `mouseEnter` and
 //!   `mouseExit` events (page 391), which page 390 also gives the field alone, and then the
@@ -46,11 +48,14 @@
 //!   puts after the Form DOM's `ready` and before rendering; after each, the calculations that
 //!   depend on what the events changed. An event whose `ref` names an object this reader raises
 //!   no event for is named in the report as not run (ADR 2606).
+//! - **What an activity on an object reaches** (pages 404 and 706–707): the events bound to the
+//!   object — its own whose `ref` is `$`, and those of any container whose `ref` names it, the
+//!   "come-from" notation — each run as its holder's script (ADR 2699).
 //! - **What an activity on an object reaches above it** (page 387): an event whose `listen` is
 //!   `refAndDescendents` responds to the activity on every object its `ref` contains as well as
 //!   on the `ref` itself, and page 706 makes `refOnly`, the `ref` alone, the default. So each time
-//!   an activity happens on a field, subform or exclusion group, its own events of that activity
-//!   run, then those of each enclosing container that listen, innermost first, and then those
+//!   an activity happens on a field, subform or exclusion group, the events bound to it run,
+//!   then those bound to each enclosing container that listen, innermost first, and then those
 //!   bound to the Form DOM that listen, which contains every object of the form; the walk goes no
 //!   further, because nothing else contains the object. Page 387 leaves the order to the
 //!   processor; the object's own first and upward from it is the direction its sentence gives the
@@ -85,7 +90,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{Calculation, Event, Form, Replaced, Scalar};
+use super::{Calculation, Event, Form, Replaced, Scalar, Step};
 use crate::xfa::datasets::Change;
 use crate::xfa::template::{Bound, Class, Language, Override, Performs, Script, ScriptTest};
 use crate::xfa::{Resource, Template, validate};
@@ -202,6 +207,11 @@ pub enum Stimulus<'a> {
         left: &'a str,
         /// The field it went to, where it went to one.
         reaching: Option<&'a str>,
+        /// The on value of the button of `left` the focus was on, where `left` is an exclusion
+        /// group, which names the group's field it leaves ([`Self::Click`]'s rule; ADR 2698).
+        left_button: Option<&'a str>,
+        /// The on value of the button of `reaching` it went to, by the same rule.
+        reaching_button: Option<&'a str>,
     },
     /// The keyboard focus reached the field `reached` from the field `leaving`, or from nothing a
     /// form holds (pages 390–391): the `enter` events of each subform and exclusion group around
@@ -211,36 +221,59 @@ pub enum Stimulus<'a> {
         reached: &'a str,
         /// The field it came from, where it came from one.
         leaving: Option<&'a str>,
+        /// The on value of the button of `reached` the focus reached, where `reached` is an
+        /// exclusion group ([`Self::Click`]'s rule; ADR 2698).
+        reached_button: Option<&'a str>,
+        /// The on value of the button of `leaving` it came from, by the same rule.
+        leaving_button: Option<&'a str>,
     },
     /// A mouse click occurred within the region of the field `clicked` (page 391): the field's own
     /// `click` events.
     Click {
         /// The field clicked, by its PDF field name.
         clicked: &'a str,
+        /// Where `clicked` is an exclusion group, whose PDF field is one for all its buttons, the
+        /// on value of the button the pointer was on: the button's export value, which the PDF
+        /// field's `/V` holds when it is on and so, by Annex K's rule that the XFA values be
+        /// consistent with the `/V` entries, the first `items` value of the group's field the
+        /// pointer was within (pages 195–197). `None` for a field that is no exclusion group.
+        button: Option<&'a str>,
     },
     /// A mouse button was pressed while the pointer was within the region of the field `pressed`
     /// (page 392): the field's own `mouseDown` events.
     MouseDown {
         /// The field pressed on, by its PDF field name.
         pressed: &'a str,
+        /// The on value of the button the pointer was on, where the field is an exclusion group
+        /// ([`Self::Click`]'s rule).
+        button: Option<&'a str>,
     },
     /// A mouse button was released while the pointer was within the region of the field
     /// `released` (page 392), wherever it was pressed: the field's own `mouseUp` events.
     MouseUp {
         /// The field released on, by its PDF field name.
         released: &'a str,
+        /// The on value of the button the pointer was on, where the field is an exclusion group
+        /// ([`Self::Click`]'s rule).
+        button: Option<&'a str>,
     },
     /// The pointer moved into the region of the field `entered` (page 391), a button up or down:
     /// the field's own `mouseEnter` events.
     MouseEnter {
         /// The field the pointer moved into, by its PDF field name.
         entered: &'a str,
+        /// The on value of the button the pointer was on, where the field is an exclusion group
+        /// ([`Self::Click`]'s rule).
+        button: Option<&'a str>,
     },
     /// The pointer moved out of the region of the field `exited` (page 391), a button up or down:
     /// the field's own `mouseExit` events.
     MouseExit {
         /// The field the pointer moved out of, by its PDF field name.
         exited: &'a str,
+        /// The on value of the button the pointer was on, where the field is an exclusion group
+        /// ([`Self::Click`]'s rule).
+        button: Option<&'a str>,
     },
     /// The open sequence has ended (pages 388 and 704): the `ready` events bound to the Form DOM
     /// (`ref="$form"`), then the `docReady` events bound to the application (`ref="$host"`).
@@ -314,10 +347,6 @@ pub struct Activation {
     pub ended: Ended,
     /// How many scripts were run.
     pub activations: usize,
-    /// The messages of the validations the form fails when they run, after the calculations have
-    /// settled and, on a merge, before the `initialize` events: one `Vec` per message the person
-    /// is shown ([`Resource::before_save`]).
-    pub validations: Vec<Vec<String>>,
     /// The containers whose script test fails once the calculations have settled, one `Vec` per
     /// message the person is shown, as page 386's `validationMessaging` groups them (ADR 2696).
     /// A merge tests every container (page 382's initialization); any other stimulus tests those
@@ -415,8 +444,11 @@ impl Resource {
     /// `/V` carries, a person's entry included.
     ///
     /// `FormCalc` and JavaScript run, the two languages page 412 names (ADR 2545); a script in
-    /// another language is refused by name. The validations of the settled form are in the result,
-    /// run as a save runs them.
+    /// another language is refused by name. The script tests of the settled form are in the
+    /// result; its null, datatype and format tests are not, because page 1340 runs them at the
+    /// occasions a form's `config` names, a save and a submit, which run them over the values they
+    /// write ([`Resource::before_save`], [`Resource::before_submit`]), and at an entry they would
+    /// name fields a person never reached (ADR 2698).
     #[must_use]
     pub fn activate(
         &self,
@@ -437,22 +469,44 @@ impl Resource {
                 session.settle(Seeds::Entered(&typed));
             }
             Stimulus::Merge => session.settle(Seeds::All),
-            Stimulus::Exit { left, reaching } => {
-                let crossed = session.crossed(left, reaching);
+            Stimulus::Exit {
+                left,
+                reaching,
+                left_button,
+                reaching_button,
+            } => {
+                let crossed =
+                    session.crossed((left, left_button), reaching.map(|r| (r, reaching_button)));
                 session.fire("exit", Some(&crossed), &Bound::Own);
                 session.settle(Seeds::Changed);
             }
-            Stimulus::Enter { reached, leaving } => {
-                let mut crossed = session.crossed(reached, leaving);
+            Stimulus::Enter {
+                reached,
+                leaving,
+                reached_button,
+                leaving_button,
+            } => {
+                let mut crossed = session.crossed(
+                    (reached, reached_button),
+                    leaving.map(|l| (l, leaving_button)),
+                );
                 crossed.reverse();
                 session.fire("enter", Some(&crossed), &Bound::Own);
                 session.settle(Seeds::Changed);
             }
-            Stimulus::Click { clicked } => session.pointed(clicked, "click"),
-            Stimulus::MouseDown { pressed } => session.pointed(pressed, "mouseDown"),
-            Stimulus::MouseUp { released } => session.pointed(released, "mouseUp"),
-            Stimulus::MouseEnter { entered } => session.pointed(entered, "mouseEnter"),
-            Stimulus::MouseExit { exited } => session.pointed(exited, "mouseExit"),
+            Stimulus::Click { clicked, button } => session.pointed(clicked, button, "click"),
+            Stimulus::MouseDown { pressed, button } => {
+                session.pointed(pressed, button, "mouseDown");
+            }
+            Stimulus::MouseUp { released, button } => {
+                session.pointed(released, button, "mouseUp");
+            }
+            Stimulus::MouseEnter { entered, button } => {
+                session.pointed(entered, button, "mouseEnter");
+            }
+            Stimulus::MouseExit { exited, button } => {
+                session.pointed(exited, button, "mouseExit");
+            }
             Stimulus::Dismissed { field } => {
                 let node: Vec<usize> = session.form.named(field).into_iter().collect();
                 session.settle(Seeds::Dismissed(&node));
@@ -465,10 +519,8 @@ impl Resource {
                 session.settle(Seeds::Changed);
             }
         }
-        let mut validations = Vec::new();
         let mut script_tests = Vec::new();
         if session.ended.is_none() {
-            validations = self.before_save(&session.after(fields, &initial));
             let tested = if matches!(stimulus, Stimulus::Merge) {
                 session.script_tests(None)
             } else {
@@ -481,75 +533,110 @@ impl Resource {
             session.fire("initialize", None, &Bound::Own);
             session.settle(Seeds::Changed);
         }
-        session.finish(&initial, validations, script_tests)
+        session.finish(&initial, script_tests)
     }
 }
 
-/// Where the events that hear an activity from above are, for one activity (XFA 3.3 page 387).
+/// One event of the template bound to the objects whose activity it responds to (XFA 3.3 pages
+/// 706–707): the container holding it, where its `ref` is `$` or absent, or each field, subform
+/// and exclusion group its `ref` names — the "come-from" notation of page 404, by which an event
+/// placed in one container hears an activity on another (ADR 2699).
+struct Hook {
+    /// The container the event belongs to, whose script it runs as.
+    holder: usize,
+    /// The event's place among the holder's events.
+    at: usize,
+    /// The objects its `ref` names.
+    sources: Vec<usize>,
+}
+
+/// Which events respond to one activity on an object (XFA 3.3 pages 387 and 706).
 struct Listeners {
-    /// For each container by position, the nearest container around it that holds an event of
-    /// the activity bound to itself whose `listen` is `refAndDescendents`.
+    /// For each object by position, the events bound to it, by holder and place, in document
+    /// order: page 404 leaves the order of an event's scripts to the processor and reports Adobe's
+    /// processor running them in document order, which is the choice made here.
+    own: BTreeMap<usize, Vec<(usize, usize)>>,
+    /// For each container by position, the nearest container around it to which an event of the
+    /// activity whose `listen` is `refAndDescendents` is bound.
     nearest: Vec<Option<usize>>,
-    /// Each such container's listening events of the activity, by their place among its events.
-    own: BTreeMap<usize, Vec<usize>>,
-    /// The containers holding events of the activity bound to the Form DOM that listen, which
-    /// contains every object of the form, each with those events by their place.
-    form: Vec<(usize, Vec<usize>)>,
+    /// Each such container's listening events, by holder and place.
+    listening: BTreeMap<usize, Vec<(usize, usize)>>,
+    /// The events of the activity bound to the Form DOM that listen, which contains every object
+    /// of the form, by holder and place.
+    form: Vec<(usize, usize)>,
 }
 
 impl Listeners {
-    /// The listeners of `activity` in `template`, or `None` where no event listens for it, so that
-    /// a form with none pays one pass over its events and nothing per activity.
+    /// The events of `activity` among `hooks`, with those bound to the Form DOM in `template`.
     ///
-    /// One pass in container order: the template numbers a container after the container around
-    /// it, so a container's parent has its answer before the container is reached, and the walk
-    /// from an object to each listener above it steps from listener to listener.
-    fn of(template: &Template, activity: &str) -> Option<Self> {
+    /// One pass in container order finds each container's nearest listener: the template numbers a
+    /// container after the container around it, so a container's parent has its answer before the
+    /// container is reached, and the walk from an object to each listener above it steps from
+    /// listener to listener.
+    fn of(template: &Template, hooks: &[Hook], activity: &str) -> Self {
         let count = template.container_count();
-        let listening = |node: usize, bound: &Bound| -> Vec<usize> {
-            template.get(node).map_or_else(Vec::new, |container| {
-                container
-                    .events
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, event)| {
-                        event.listens && event.bound == *bound && event.activity == activity
-                    })
-                    .map(|(at, _)| at)
-                    .collect()
-            })
+        let event = |holder: usize, at: usize| {
+            template
+                .get(holder)
+                .and_then(|container| container.events.get(at))
         };
-        let mut own = BTreeMap::new();
-        let mut form = Vec::new();
-        for node in 0..count {
-            let events = listening(node, &Bound::Own);
-            if !events.is_empty() {
-                own.insert(node, events);
-            }
-            let events = listening(node, &Bound::Form);
-            if !events.is_empty() {
-                form.push((node, events));
-            }
-        }
-        if own.is_empty() && form.is_empty() {
-            return None;
-        }
-        let mut nearest: Vec<Option<usize>> = vec![None; count];
-        for node in 0..count {
-            let Some(parent) = template
-                .get(node)
-                .and_then(|container| container.parent)
-                .filter(|&parent| parent < node)
-            else {
+        let mut own: BTreeMap<usize, Vec<(usize, usize)>> = BTreeMap::new();
+        let mut listening: BTreeMap<usize, Vec<(usize, usize)>> = BTreeMap::new();
+        for hook in hooks {
+            let Some(stated) = event(hook.holder, hook.at) else {
                 continue;
             };
-            nearest[node] = if own.contains_key(&parent) {
-                Some(parent)
-            } else {
-                nearest[parent]
-            };
+            if stated.activity != activity {
+                continue;
+            }
+            for &source in &hook.sources {
+                own.entry(source).or_default().push((hook.holder, hook.at));
+                if stated.listens {
+                    listening
+                        .entry(source)
+                        .or_default()
+                        .push((hook.holder, hook.at));
+                }
+            }
         }
-        Some(Self { nearest, own, form })
+        for events in own.values_mut().chain(listening.values_mut()) {
+            events.sort_unstable();
+            events.dedup();
+        }
+        let mut form = Vec::new();
+        for holder in 0..count {
+            if let Some(container) = template.get(holder) {
+                for (at, stated) in container.events.iter().enumerate() {
+                    if stated.listens && stated.bound == Bound::Form && stated.activity == activity
+                    {
+                        form.push((holder, at));
+                    }
+                }
+            }
+        }
+        let mut nearest: Vec<Option<usize>> = vec![None; count];
+        if !listening.is_empty() {
+            for node in 0..count {
+                let Some(parent) = template
+                    .get(node)
+                    .and_then(|container| container.parent)
+                    .filter(|&parent| parent < node)
+                else {
+                    continue;
+                };
+                nearest[node] = if listening.contains_key(&parent) {
+                    Some(parent)
+                } else {
+                    nearest[parent]
+                };
+            }
+        }
+        Self {
+            own,
+            nearest,
+            listening,
+            form,
+        }
     }
 }
 
@@ -599,6 +686,12 @@ struct Session<'f, 'a, 'r> {
     overridden: Vec<Overridden>,
     /// What each entered field's entry replaced, by container, for its `change` event's `$event`.
     replaced: BTreeMap<usize, Replaced>,
+    /// The template's events bound to objects, read the first time an activity on an object
+    /// fires ([`Self::hooks`]).
+    hooks: Option<Vec<Hook>>,
+    /// The sentence for each event whose `ref` names nothing this reader raises an event for,
+    /// which [`Self::unfollowed`] says.
+    unbound: Vec<String>,
 }
 
 impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
@@ -637,6 +730,8 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             ended: None,
             overridden: Vec::new(),
             replaced: BTreeMap::new(),
+            hooks: None,
+            unbound: Vec::new(),
         }
     }
 
@@ -716,13 +811,24 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
     /// from outside it or goes out of it. A field the form's field list does not name crosses
     /// nothing and says so.
     ///
+    /// Each name comes with the on value of the button the focus is on, which, where the name is an
+    /// exclusion group, makes the focus that of the group's field holding it (page 391's field
+    /// `enter` and `exit`; ADR 2698): between two buttons of one group the focus crosses the button
+    /// fields and not the group. A group whose button names none of its fields is the focus's
+    /// object itself, as it was before a button was named.
+    ///
     /// Each step goes to a container's parent, so the walk is at most as long as the template has
     /// containers, whatever a hostile template nests.
-    fn crossed(&mut self, field: &str, other: Option<&str>) -> Vec<usize> {
+    fn crossed(
+        &mut self,
+        (field, button): (&str, Option<&str>),
+        other: Option<(&str, Option<&str>)>,
+    ) -> Vec<usize> {
         let Some(node) = self.form.named(field) else {
             self.say(format!("{field}: the form's field list does not name it"));
             return Vec::new();
         };
+        let node = self.within(node, button);
         let bound = self.template.container_count();
         let around = |start: Option<usize>| {
             let mut chain = Vec::new();
@@ -736,9 +842,12 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             }
             chain
         };
-        let theirs: BTreeSet<usize> = around(other.and_then(|name| self.form.named(name)))
-            .into_iter()
-            .collect();
+        let theirs = other.and_then(|(name, button)| {
+            self.form
+                .named(name)
+                .map(|other| self.within(other, button))
+        });
+        let theirs: BTreeSet<usize> = around(theirs).into_iter().collect();
         around(Some(node))
             .into_iter()
             .filter(|here| !theirs.contains(here))
@@ -750,31 +859,81 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             .collect()
     }
 
-    /// Fires the `activity` events of a pointer on the field `field` — `click`, `mouseDown` or
-    /// `mouseUp`, which pages 391–392 give a field and page 390 gives no subform and no exclusion
-    /// group — and then the calculations that depend on what they changed. A name the form's field
-    /// list does not hold, and a name that reaches an exclusion group — whose PDF field is one for
-    /// all its buttons, so the name does not say which of its fields the pointer was within —
-    /// fire nothing and say so.
-    fn pointed(&mut self, field: &str, activity: &str) {
+    /// The field of the exclusion group `node` whose on value is `button`, or `node` itself where
+    /// it is no exclusion group or the button names none of its fields.
+    fn within(&self, node: usize, button: Option<&str>) -> usize {
+        let group = self
+            .template
+            .get(node)
+            .is_some_and(|container| container.class == Class::ExclGroup);
+        if !group {
+            return node;
+        }
+        button
+            .and_then(|on| self.button_of(node, on))
+            .unwrap_or(node)
+    }
+
+    /// Fires the `activity` events of a pointer on the field `field` — `click`, `mouseDown`,
+    /// `mouseUp`, `mouseEnter` or `mouseExit`, which pages 391–392 give a field and page 390 gives
+    /// no subform and no exclusion group — and then the calculations that depend on what they
+    /// changed. A name the form's field list does not hold fires nothing and says so.
+    ///
+    /// Where the name reaches an exclusion group, whose PDF field is one for all its buttons, the
+    /// pointer was within the group's field whose on value — its first `items` value, which the
+    /// group's value is while it is on (pages 195–197) — is `button`, and the events are that
+    /// field's; the group hears them only where its `listen` says so (page 387). A button whose
+    /// on value no field of the group holds, and a pointer that names no button, fire nothing and
+    /// say so (ADR 2698).
+    fn pointed(&mut self, field: &str, button: Option<&str>, activity: &str) {
         let Some(node) = self.form.named(field) else {
             self.say(format!("{field}: the form's field list does not name it"));
             return;
         };
-        match self.template.get(node).map(|container| container.class) {
-            Some(Class::Field) => {
-                self.fire(activity, Some(&[node]), &Bound::Own);
-                self.settle(Seeds::Changed);
+        let target = match self.template.get(node).map(|container| container.class) {
+            Some(Class::Field) => node,
+            Some(Class::ExclGroup) => {
+                if let Some(within) = button.and_then(|on| self.button_of(node, on)) {
+                    within
+                } else {
+                    let which = button.map_or_else(
+                        || "the pointer named none of its buttons".to_owned(),
+                        |on| format!("none of its fields has the on value {on:?}"),
+                    );
+                    self.say(format!(
+                        "{field}: its {activity} events are not run: it is an exclusion group, \
+                         and {which}"
+                    ));
+                    return;
+                }
             }
-            Some(Class::ExclGroup) => self.say(format!(
-                "{field}: its {activity} events are not run: it is an exclusion group, and the \
-                 pointer on one of its buttons does not name which of its fields it was within"
-            )),
-            _ => self.say(format!(
-                "{field}: its {activity} events are not run: the template container it names is \
-                 not a field"
-            )),
-        }
+            _ => {
+                self.say(format!(
+                    "{field}: its {activity} events are not run: the template container it \
+                     names is not a field"
+                ));
+                return;
+            }
+        };
+        self.fire(activity, Some(&[target]), &Bound::Own);
+        self.settle(Seeds::Changed);
+    }
+
+    /// The field of the exclusion group `group` whose on value, the first value of its first
+    /// `items` (page 759's `checkButton`), is `on`: the first in document order where the
+    /// template gives two fields one value.
+    fn button_of(&self, group: usize, on: &str) -> Option<usize> {
+        let container = self.template.get(group)?;
+        container.children.iter().copied().find(|&child| {
+            self.template.get(child).is_some_and(|button| {
+                button.class == Class::Field
+                    && button
+                        .items
+                        .first()
+                        .and_then(|(_, values)| values.first())
+                        .is_some_and(|value| value == on)
+            })
+        })
     }
 
     /// Records a sentence once.
@@ -849,18 +1008,20 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
     /// Fires the `activity` events bound to `bound` of the containers `only` names, or of every
     /// container, in document order (page 404's order for scripts the standard leaves unordered).
     ///
-    /// For an activity on an object (`bound` is [`Bound::Own`]), each field, subform and exclusion
-    /// group it happens on is followed by the events that hear it from above (page 387): those of
-    /// each enclosing container that listen, innermost first, and then those bound to the Form DOM
-    /// that listen. An activity on a DOM or the application ([`Bound::Form`], [`Bound::Host`])
-    /// happens on no container, so nothing contains it and it reaches no further.
+    /// For an activity on an object (`bound` is [`Bound::Own`]), the events that respond to it are
+    /// those bound to it: its own whose `ref` is `$`, and any other container's whose `ref` names
+    /// it (pages 706–707, the "come-from" notation of page 404; ADR 2699). Each field, subform and
+    /// exclusion group it happens on is followed by the events that hear it from above (page 387):
+    /// those bound to each enclosing container that listen, innermost first, and then those bound
+    /// to the Form DOM that listen. An activity on a DOM or the application ([`Bound::Form`],
+    /// [`Bound::Host`]) happens on no container, so nothing contains it and it reaches no further.
     fn fire(&mut self, activity: &str, only: Option<&[usize]>, bound: &Bound) {
         let nodes: Vec<usize> = match only {
             Some(only) => only.to_vec(),
             None => (0..self.template.container_count()).collect(),
         };
         let heard = match bound {
-            Bound::Own => Listeners::of(self.template, activity),
+            Bound::Own => Some(Listeners::of(self.template, self.hooks(), activity)),
             _ => None,
         };
         for node in nodes {
@@ -870,53 +1031,171 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             let Some(container) = self.template.get(node) else {
                 continue;
             };
-            let own: Vec<usize> = (0..container.events.len())
-                .filter(|&at| {
-                    container
-                        .events
-                        .get(at)
-                        .is_some_and(|event| event.bound == *bound && event.activity == activity)
-                })
-                .collect();
-            if matches!(bound, Bound::Own) {
-                let event = self.primary(activity, node);
-                self.form.set_event(event);
-            }
-            self.dispatch(node, activity, &own, false);
             let Some(heard) = &heard else {
-                self.place_new_text(node);
+                let own: Vec<(usize, usize)> = (0..container.events.len())
+                    .filter(|&at| {
+                        container.events.get(at).is_some_and(|event| {
+                            event.bound == *bound && event.activity == activity
+                        })
+                    })
+                    .map(|at| (node, at))
+                    .collect();
+                self.dispatch(activity, &own, false);
                 continue;
             };
+            let event = self.primary(activity, node);
+            self.form.set_event(event);
+            if let Some(own) = heard.own.get(&node) {
+                self.dispatch(activity, own, false);
+            }
             if !matches!(
                 container.class,
                 Class::Field | Class::Subform | Class::ExclGroup
             ) {
+                self.place_new_text(node);
                 continue;
             }
             let mut above = heard.nearest.get(node).copied().flatten();
             while let Some(listener) = above {
-                if let Some(events) = heard.own.get(&listener) {
-                    self.dispatch(listener, activity, events, true);
+                if let Some(events) = heard.listening.get(&listener) {
+                    self.dispatch(activity, events, true);
                 }
                 if self.ended.is_some() {
                     return;
                 }
                 above = heard.nearest.get(listener).copied().flatten();
             }
-            for (holder, events) in &heard.form {
-                self.dispatch(*holder, activity, events, true);
-            }
+            self.dispatch(activity, &heard.form, true);
             self.place_new_text(node);
         }
     }
 
-    /// Runs the events of the container `node` at the places `events` names, in document order.
-    /// An event that hears the activity from below (`heard`) is charged one run of
-    /// [`Limits::activations`] even where it performs nothing, so the dispatches an activity
-    /// reaches above the object are bounded by the runs an activation may make, whatever a
-    /// template nests or repeats.
-    fn dispatch(&mut self, node: usize, activity: &str, events: &[usize], heard: bool) {
-        for &at in events {
+    /// The template's events bound to objects, read once an activation: an event whose `ref` is
+    /// `$` or absent is bound to its own container, and one whose `ref` is another SOM expression
+    /// to each field, subform and exclusion group the expression names from the event's container
+    /// (page 706), resolved as a script's path is (pages 114–115). An expression that names none,
+    /// or that this reader does not resolve — `$layout`, whose `ready` this reader does not raise,
+    /// among them — binds the event to nothing, and [`Self::unfollowed`] says so.
+    ///
+    /// The objects bound in all are held to [`Limits::names`], so a template of many events each
+    /// naming every row costs at most what the cascade's dependencies may. And a resolution that
+    /// searches the template is charged as many of [`Limits::steps`] as the template has
+    /// containers, the most one level of the search can visit, so a template of a hundred thousand
+    /// containers each naming another ends on the steps limit and keeps nothing, as a cascade that
+    /// runs too long does, rather than holding the activation for the square of its size.
+    fn hooks(&mut self) -> &[Hook] {
+        if self.hooks.is_none() {
+            let mut hooks = Vec::new();
+            let mut unbound = Vec::new();
+            let mut held = 0_usize;
+            let containers = self.template.container_count();
+            for holder in 0..containers {
+                let Some(container) = self.template.get(holder) else {
+                    continue;
+                };
+                for (at, event) in container.events.iter().enumerate() {
+                    let reference = match &event.bound {
+                        Bound::Own => {
+                            hooks.push(Hook {
+                                holder,
+                                at,
+                                sources: vec![holder],
+                            });
+                            continue;
+                        }
+                        Bound::Other(reference) => reference,
+                        Bound::Form | Bound::Host => continue,
+                    };
+                    let path = Step::path(reference);
+                    // `$form`, `$layout` and the other qualified names are refused before any
+                    // search, and cost nothing.
+                    let searches = path.as_ref().is_ok_and(|path| {
+                        path.first().is_none_or(|first| {
+                            first.name == "$"
+                                || !(first.name.starts_with(['$', '!']) || first.name == "xfa")
+                        })
+                    });
+                    if searches {
+                        let cost = u64::try_from(containers).unwrap_or(u64::MAX);
+                        if self.steps_left < cost {
+                            self.ended.get_or_insert("steps");
+                            break;
+                        }
+                        self.steps_left = self.steps_left.saturating_sub(cost);
+                    }
+                    let resolved = path
+                        .and_then(|path| self.form.resolve_path(holder, &path))
+                        .map(|found| {
+                            found
+                                .into_iter()
+                                .filter(|&node| {
+                                    self.template.get(node).is_some_and(|c| {
+                                        matches!(
+                                            c.class,
+                                            Class::Field | Class::Subform | Class::ExclGroup
+                                        )
+                                    })
+                                })
+                                .collect::<Vec<_>>()
+                        });
+                    let why = match resolved {
+                        Ok(sources) if sources.is_empty() => {
+                            "which names no field, subform or exclusion group of the form"
+                                .to_owned()
+                        }
+                        Ok(sources) if held.saturating_add(sources.len()) > self.max_names => {
+                            format!(
+                                "which names more objects than an activation binds ({})",
+                                self.max_names
+                            )
+                        }
+                        Ok(sources) => {
+                            held = held.saturating_add(sources.len());
+                            hooks.push(Hook {
+                                holder,
+                                at,
+                                sources,
+                            });
+                            continue;
+                        }
+                        // `$layout`, `$data` and the other DOMs page 388 and chapter 6 name
+                        // generate events this reader does not raise, whatever they would name.
+                        Err(_)
+                            if reference.trim_start().starts_with(['$', '!'])
+                                || reference.trim_start().starts_with("xfa.") =>
+                        {
+                            "which this reader raises no event for".to_owned()
+                        }
+                        Err(why) => format!("which this reader does not resolve: {why}"),
+                    };
+                    let label = self
+                        .form
+                        .names
+                        .get(holder)
+                        .cloned()
+                        .flatten()
+                        .or_else(|| container.name.clone())
+                        .unwrap_or_else(|| format!("container {holder}"));
+                    unbound.push(format!(
+                        "{label}: its {} event is bound to {reference}, {why}, and is not run \
+                         (XFA 3.3 pages 404 and 707)",
+                        event.activity
+                    ));
+                }
+            }
+            self.hooks = Some(hooks);
+            self.unbound = unbound;
+        }
+        self.hooks.as_deref().unwrap_or_default()
+    }
+
+    /// Runs the events `events` names, each by its container and its place among that container's
+    /// events, in the order given. An event that hears the activity from below (`heard`) is
+    /// charged one run of [`Limits::activations`] even where it performs nothing, so the
+    /// dispatches an activity reaches above the object are bounded by the runs an activation may
+    /// make, whatever a template nests or repeats.
+    fn dispatch(&mut self, activity: &str, events: &[(usize, usize)], heard: bool) {
+        for &(node, at) in events {
             if self.ended.is_some() {
                 return;
             }
@@ -953,30 +1232,13 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
         }
     }
 
-    /// Names every event the form holds whose `ref` names an object other than its own container,
-    /// the Form DOM and the application, which never runs (pages 404 and 707). The walk is one pass
-    /// over the template's events, which the XML reader bounds, and [`Self::say`] keeps a sentence
+    /// Names every event the form holds whose `ref` binds it to nothing this reader raises an event
+    /// for ([`Self::hooks`]), which never runs (pages 404 and 707). [`Self::say`] keeps a sentence
     /// once and caps the report.
     fn unfollowed(&mut self) {
-        for node in 0..self.template.container_count() {
-            let Some(container) = self.template.get(node) else {
-                continue;
-            };
-            let unfollowed: Vec<(String, String)> = container
-                .events
-                .iter()
-                .filter_map(|event| match &event.bound {
-                    Bound::Other(reference) => Some((event.activity.clone(), reference.clone())),
-                    _ => None,
-                })
-                .collect();
-            for (activity, reference) in unfollowed {
-                let label = self.label(node);
-                self.say(format!(
-                    "{label}: its {activity} event is bound to {reference}, which this reader \
-                     raises no event for, and is not run (XFA 3.3 pages 404 and 707)"
-                ));
-            }
+        self.hooks();
+        for sentence in std::mem::take(&mut self.unbound) {
+            self.say(sentence);
         }
     }
 
@@ -1309,23 +1571,6 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
         woken.into_iter().collect()
     }
 
-    /// The form's fields after the edits so far, as the validations of the save read them.
-    fn after(&self, fields: &[(String, Change)], initial: &[Scalar]) -> Vec<(String, Change)> {
-        fields
-            .iter()
-            .map(|(name, change)| {
-                let node = self.form.named(name);
-                let current = node.map(|node| self.form.value(node));
-                match (node, current) {
-                    (Some(node), Some(now)) if initial.get(node) != Some(&now) => {
-                        (name.clone(), Change::Text(text(&now)))
-                    }
-                    _ => (name.clone(), change.clone()),
-                }
-            })
-            .collect()
-    }
-
     /// The containers this activation changed: those whose value differs from `initial`, and
     /// those a person `typed` into, whose entry is in `initial` already.
     fn changed_since(&self, initial: &[Scalar], typed: &[usize]) -> BTreeSet<usize> {
@@ -1458,12 +1703,7 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
     }
 
     /// The activation's answer.
-    fn finish(
-        mut self,
-        initial: &[Scalar],
-        validations: Vec<Vec<String>>,
-        script_tests: Vec<Vec<Invalid>>,
-    ) -> Activation {
+    fn finish(mut self, initial: &[Scalar], script_tests: Vec<Vec<Invalid>>) -> Activation {
         if let Some(limit) = self.ended {
             let sentence = format!(
                 "the activation ended on its {limit} limit after {} runs, and nothing it \
@@ -1504,11 +1744,6 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             report: self.report,
             ended: self.ended.map_or(Ended::Settled, Ended::Budget),
             activations: self.run,
-            validations: if self.ended.is_none() {
-                validations
-            } else {
-                Vec::new()
-            },
             script_tests: if self.ended.is_none() {
                 script_tests
             } else {

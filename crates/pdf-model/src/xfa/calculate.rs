@@ -63,6 +63,92 @@ pub struct Step {
     pub occurrence: Occurrence,
 }
 
+impl Step {
+    /// The most steps a SOM expression in a string may have, as a `FormCalc` path may (ADR 2524).
+    pub const MAX_STEPS: usize = 64;
+    /// The most bytes one name of such an expression may have.
+    pub const MAX_NAME_BYTES: usize = 4096;
+
+    /// A SOM expression in a string, as the steps [`Form::resolve`] takes: names joined by `.`,
+    /// each with an optional `[n]`, `[*]`, `[+n]` or `[-n]`, a leading `$` for the script's own
+    /// container (XFA 3.3 pages 94–96 and 114–115). A JavaScript script hands one to the host as a
+    /// string, and an event's `ref` states one (page 706).
+    ///
+    /// # Errors
+    ///
+    /// The sentence naming the part of SOM this reader does not take in a string: the descendant
+    /// separator `..` (page 104), the class separator `.#` (page 96), a predicate (page 105) and
+    /// an escaped character, each refused by name, and an expression past the bounds.
+    pub fn path(text: &str) -> Result<Vec<Self>, String> {
+        if text.contains("..") {
+            return Err("the descendant separator `..` (page 104)".to_owned());
+        }
+        if text.contains(".#") || text.starts_with('#') {
+            return Err("the class separator `.#` (page 96)".to_owned());
+        }
+        if text.contains(".[") || text.contains(".(") {
+            return Err("a predicate (page 105)".to_owned());
+        }
+        if text.contains('\\') {
+            return Err("an escaped character (page 105)".to_owned());
+        }
+        let mut steps = Vec::new();
+        for part in text.split('.') {
+            if steps.len() >= Self::MAX_STEPS {
+                return Err(format!(
+                    "an expression of more than {} names",
+                    Self::MAX_STEPS
+                ));
+            }
+            let (name, occurrence) = match part.split_once('[') {
+                None => (part, Occurrence::Same),
+                Some((name, index)) => {
+                    let index = index
+                        .strip_suffix(']')
+                        .ok_or_else(|| format!("the index of {name} is not closed"))?;
+                    (name, Occurrence::of(index.trim())?)
+                }
+            };
+            let name = name.trim();
+            if name.is_empty() {
+                return Err("an empty name".to_owned());
+            }
+            if name.len() > Self::MAX_NAME_BYTES {
+                return Err(format!(
+                    "a name of more than {} bytes",
+                    Self::MAX_NAME_BYTES
+                ));
+            }
+            steps.push(Self {
+                name: name.to_owned(),
+                occurrence,
+            });
+        }
+        Ok(steps)
+    }
+}
+
+impl Occurrence {
+    /// An index of a SOM step, the text between its brackets (page 94).
+    fn of(index: &str) -> Result<Self, String> {
+        if index == "*" {
+            return Ok(Self::Every);
+        }
+        let parsed = |digits: &str| {
+            digits
+                .parse::<i64>()
+                .map_err(|_| format!("the index [{index}] is not a number"))
+        };
+        if let Some(by) = index.strip_prefix('+') {
+            return Ok(Self::Relative(parsed(by)?));
+        }
+        if let Some(by) = index.strip_prefix('-') {
+            return Ok(Self::Relative(parsed(by)?.saturating_neg()));
+        }
+        Ok(Self::At(parsed(index)?))
+    }
+}
+
 /// One `calculate` script of the template.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Calculation {

@@ -116,22 +116,33 @@ pub(crate) struct Consent {
     pub(crate) form_alerts: std::collections::VecDeque<FormAlert>,
     /// Whether a notice from [`Self::form_alerts`] has gone out and is not yet answered.
     pub(crate) form_alert_open: bool,
-    /// The field whose `warning` the notice that has gone out asks about, where it is one: its
-    /// answer is the person's choice page 642 describes (ADR 2697).
-    pub(crate) form_alert_warns: Option<String>,
+    /// What the `warning` the notice that has gone out asks about is, where it is one: its answer
+    /// is the person's choice page 642 or page 385 describes (ADRs 2697, 2698).
+    pub(crate) form_alert_warns: Option<Warns>,
     /// Whether a question the runner's script put has gone out and is not yet answered, so that
     /// the answer a window sends is known to be the runner's and not a notice's.
     pub(crate) runner_question_open: bool,
 }
 
-/// A notice an XFA form owes the person, and the field whose `warning` it asks about where its
-/// answer is the choice page 642 gives (ADR 2697).
+/// A notice an XFA form owes the person, and the `warning` it asks about where its answer is the
+/// choice page 642 or page 385 gives (ADRs 2697, 2698).
 #[derive(Debug, Clone)]
 pub(crate) struct FormAlert {
     /// What the window is asked to show.
     pub(crate) question: ScriptQuestion,
-    /// The field whose calculated value a "No" leaves undisturbed, for a `warning`'s notice.
-    pub(crate) warns: Option<String>,
+    /// The `warning` a "No" dismisses, for a notice that asks.
+    pub(crate) warns: Option<Warns>,
+}
+
+/// The `warning` a notice asks a person to dismiss or override.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Warns {
+    /// A calculated field's, by its PDF field name: a "No" leaves the calculated value
+    /// undisturbed (page 642; ADR 2697).
+    Calculated(String),
+    /// The script tests of these containers, by the names the activation gave them: a "No"
+    /// returns the person to the form, at the first of them that is a field (page 385; ADR 2698).
+    Validated(Vec<String>),
 }
 
 /// Most notices a document holds for a window that has not yet shown the ones before them.
@@ -391,7 +402,7 @@ pub(crate) fn override_notice(over: &pdf_model::view::FormOverride) -> FormAlert
             ),
             AlertIcon::Warning,
             AlertButtons::YesNo,
-            Some(over.field.clone()),
+            Some(Warns::Calculated(over.field.clone())),
         ),
     };
     FormAlert {
@@ -413,9 +424,16 @@ pub(crate) fn override_notice(over: &pdf_model::view::FormOverride) -> FormAlert
 /// program's. An `error` makes the container invalid and a `warning` recommends another value
 /// (page 385); the alert carries the heavier of the group's levels. The entry stands either way:
 /// page 383 recommends that a person not be held in a field until it validates.
+///
+/// **A group of warnings asks page 385's choice** (ADR 2698): the page has the message inform the
+/// person that the value is recommended to conform and give two choices, to dismiss and return to
+/// the form to satisfy the constraint, and to override it. They are one question, as page 642's
+/// are (ADR 2697): "Yes" keeps the values entered, which is override, and "No", or a dialogue
+/// closed without a press, is dismiss. A group holding an `error` keeps one button, since page 385
+/// gives an error no choice.
 pub(crate) fn validation_notice(group: &[pdf_model::xfa::Invalid]) -> FormAlert {
     use pdf_model::xfa::Level;
-    let lines: Vec<String> = group
+    let mut lines: Vec<String> = group
         .iter()
         .map(|invalid| match (&invalid.message, invalid.level) {
             (Some(said), _) => format!("{}: {said}", invalid.container),
@@ -429,19 +447,30 @@ pub(crate) fn validation_notice(group: &[pdf_model::xfa::Invalid]) -> FormAlert 
             ),
         })
         .collect();
-    let icon = if group.iter().any(|invalid| invalid.level == Level::Error) {
-        AlertIcon::Error
+    let warned = !group.is_empty() && group.iter().all(|invalid| invalid.level == Level::Warning);
+    let (icon, buttons, warns) = if warned {
+        lines.push("Keep the value you entered anyway?".to_owned());
+        (
+            AlertIcon::Warning,
+            AlertButtons::YesNo,
+            Some(Warns::Validated(
+                group
+                    .iter()
+                    .map(|invalid| invalid.container.clone())
+                    .collect(),
+            )),
+        )
     } else {
-        AlertIcon::Warning
+        (AlertIcon::Error, AlertButtons::Ok, None)
     };
     FormAlert {
         question: ScriptQuestion::Alert {
             message: lines.join("\n"),
             icon,
-            buttons: AlertButtons::Ok,
+            buttons,
             title: Some("Form validation".to_owned()),
         },
-        warns: None,
+        warns,
     }
 }
 
@@ -537,8 +566,9 @@ mod tests {
     }
 
     /// Page 383: the designer's message where the form gives one, this program's words where it
-    /// does not; page 385: an `error` in the group makes the alert an error, a `warning` alone a
-    /// warning. One message per group page 386 makes.
+    /// does not; page 385: an `error` in the group makes the alert an error with one button, and
+    /// a group of warnings alone a warning asking page 385's dismiss-or-override choice as Yes/No,
+    /// naming every container a dismissal returns to. One message per group page 386 makes.
     #[test]
     fn a_validation_notice_says_the_designers_message_and_carries_the_heavier_level() {
         use super::validation_notice;
@@ -554,16 +584,30 @@ mod tests {
             level: Level::Error,
             message: None,
         };
-        for (group, icon) in [
-            (vec![warned.clone()], AlertIcon::Warning),
-            (vec![warned, refused], AlertIcon::Error),
+        for (group, icon, offered, warns) in [
+            (
+                vec![warned.clone()],
+                AlertIcon::Warning,
+                AlertButtons::YesNo,
+                Some(super::Warns::Validated(vec![
+                    "form1[0].Amount[0]".to_owned(),
+                ])),
+            ),
+            (
+                vec![warned, refused],
+                AlertIcon::Error,
+                AlertButtons::Ok,
+                None,
+            ),
         ] {
+            let notice = validation_notice(&group);
+            assert_eq!(notice.warns, warns);
             let ScriptQuestion::Alert {
                 message,
                 icon: shown,
                 buttons,
                 ..
-            } = validation_notice(&group).question
+            } = notice.question
             else {
                 panic!("a validation message is an alert");
             };
@@ -575,7 +619,8 @@ mod tests {
                 message.contains("form1[0].Total[0]: the form does not accept"),
                 group.len() == 2
             );
-            assert_eq!((shown, buttons), (icon, AlertButtons::Ok));
+            assert_eq!((shown, buttons), (icon, offered));
+            assert_eq!(message.contains("Keep the value"), group.len() == 1);
         }
     }
 
