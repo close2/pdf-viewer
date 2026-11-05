@@ -12,7 +12,9 @@ mod common;
 
 use common::hosted::FormCalcRunner;
 use pdf_model::view::{Entered, ScriptEdit, ViewState};
-use pdf_model::xfa::{Activation, Change, Ended, Level, Limits, Resource, Scalar, Stimulus};
+use pdf_model::xfa::{
+    Activation, Change, Ended, Level, Limits, Resource, Scalar, Stimulus, Validity,
+};
 use pdf_syntax::Document;
 
 /// A field with a text value, a text edit, and the automation elements `inside` states.
@@ -31,8 +33,17 @@ fn document(template: &str, values: &[(&str, &str)]) -> Document {
     configured(template, values, None)
 }
 
+/// The `template` element's start tag of an XFA 3.3 template.
+const HEAD: &str = "<template xmlns=\"http://www.xfa.org/schema/xfa-template/3.3/\">";
+
 /// [`document`], with a `config` packet of the text `config` where it is given, the last object.
 fn configured(template: &str, values: &[(&str, &str)], config: Option<&str>) -> Document {
+    headed(HEAD, template, values, config)
+}
+
+/// [`configured`], with the `template` element's start tag and what follows it before the root
+/// subform `head`.
+fn headed(head: &str, template: &str, values: &[(&str, &str)], config: Option<&str>) -> Document {
     use std::fmt::Write as _;
     let stream = |text: &str| {
         format!(
@@ -40,10 +51,7 @@ fn configured(template: &str, values: &[(&str, &str)], config: Option<&str>) -> 
             text.len().saturating_add(1)
         )
     };
-    let template = format!(
-        "<template xmlns=\"http://www.xfa.org/schema/xfa-template/3.3/\">\
-         <subform name=\"form1\">{template}</subform></template>"
-    );
+    let template = format!("{head}<subform name=\"form1\">{template}</subform></template>");
     let mut data = String::new();
     for (name, value) in values {
         let _ = write!(data, "<{name}>{value}</{name}>");
@@ -708,6 +716,7 @@ fn focus_crossing_two_subforms_exits_the_field_then_its_subform_and_enters_the_o
             reaching: Some(&reached),
             left_button: None,
             reaching_button: None,
+            exited_at_selection: false,
         },
         Limits::DEFAULT,
     );
@@ -741,6 +750,7 @@ fn focus_within_one_subform_fires_only_the_fields_events() {
             reaching: Some(&reached),
             left_button: None,
             reaching_button: None,
+            exited_at_selection: false,
         },
         Limits::DEFAULT,
     );
@@ -772,6 +782,7 @@ fn focus_leaving_the_form_exits_every_container_around_the_field() {
             reaching: None,
             left_button: None,
             reaching_button: None,
+            exited_at_selection: false,
         },
         Limits::DEFAULT,
     );
@@ -864,6 +875,7 @@ fn focus_leaving_a_deeply_nested_field_exits_every_level_once() {
             reaching: None,
             left_button: None,
             reaching_button: None,
+            exited_at_selection: false,
         },
         Limits::DEFAULT,
     );
@@ -891,6 +903,7 @@ fn more_exit_events_than_an_activation_runs_end_on_its_limit_and_keep_nothing() 
             reaching: None,
             left_button: None,
             reaching_button: None,
+            exited_at_selection: false,
         },
         Limits::DEFAULT,
     );
@@ -1290,6 +1303,7 @@ fn each_built_activity_reaches_the_listening_subform_after_the_fields_own() {
                 reaching: Some(&a2),
                 left_button: None,
                 reaching_button: None,
+                exited_at_selection: false,
             },
             "exit!A^",
         ),
@@ -2227,6 +2241,7 @@ fn the_focus_on_a_button_of_an_exclusion_group_runs_that_fields_enter_and_exit()
                 reaching: reaching.map(|(name, _)| name),
                 left_button: Some("y"),
                 reaching_button: reaching.and_then(|(_, on)| on),
+                exited_at_selection: false,
             },
             Limits::DEFAULT,
         )
@@ -2522,4 +2537,294 @@ fn the_script_tests_run_before_the_activities_the_config_lists() {
         let after = act(&template, &values, config.as_deref(), Stimulus::PostSave);
         assert!(invalid(&after).is_empty(), "no post-event validates");
     }
+}
+
+/// An event of `activity` whose script appends `tag` to `Log`.
+fn logs(activity: &str, tag: &str) -> String {
+    format!("<event activity=\"{activity}\"><script>Log = Concat(Log, \"{tag}\")</script></event>")
+}
+
+/// Activates each stimulus in turn over one form of `template`, each over its own values, with
+/// the validation state kept from one to the next as a window keeps it.
+fn in_turn(template: &str, steps: &[(&[(&str, &str)], Stimulus<'_>)]) -> Vec<Activation> {
+    let document = document(
+        template,
+        steps.first().map_or(&[][..], |(values, _)| values),
+    );
+    let resource = Resource::read(&document).unwrap().unwrap();
+    let mut kept = Validity::default();
+    steps
+        .iter()
+        .map(|(values, stimulus)| {
+            resource.activate_kept(
+                &fields(values),
+                *stimulus,
+                &mut FormCalcRunner,
+                Limits::DEFAULT,
+                &mut kept,
+            )
+        })
+        .collect()
+}
+
+/// XFA 3.3 page 396: the `validationState` event is triggered for each field, exclusion group and
+/// subform when the object is first initialized, which for a form is the merge; page 398's table
+/// has it set `name` and `target` on all three. Its place after the `initialize` events, and the
+/// document order among the objects, are ADR 2706's choices.
+#[test]
+fn every_object_announces_its_validation_state_when_the_form_is_initialized() {
+    let named = "<event activity=\"validationState\"><script>Log = Concat(Log, \"S:\", \
+                 $event.name, \";\")</script></event>";
+    let template = [
+        format!(
+            "<subform name=\"Part\">{}{named}{}</subform>",
+            logs("initialize", "i;"),
+            field("Amount", &logs("validationState", "F;"))
+        ),
+        format!(
+            "<exclGroup name=\"Choice\">{}{}</exclGroup>",
+            logs("validationState", "G;"),
+            field("Yes", "")
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    let activation = merge(&template, &[("Part.Amount", "5"), ("Log", "")]);
+    assert_eq!(activation.ended, Ended::Settled, "{:?}", activation.report);
+    assert_eq!(
+        log(&activation).as_deref(),
+        Some("i;S:validationState;F;G;")
+    );
+}
+
+/// Page 396: after the initialization the event fires only where the object changes from valid to
+/// invalid or back; page 397: a subform is invalid where any of its content fails a validation.
+/// The script test is re-evaluated at each entry (page 396), so an entry of 50 into a field whose
+/// script test is `Amount < 10` makes it and its subform invalid, a second invalid entry changes
+/// neither state, and a valid one makes both valid again.
+#[test]
+fn a_validation_state_event_fires_where_an_entry_changes_the_state_and_nowhere_else() {
+    let template = [
+        format!(
+            "<subform name=\"Part\">{}{}</subform>",
+            logs("validationState", "S;"),
+            field(
+                "Amount",
+                &[
+                    validate("Amount &lt; 10", "", None),
+                    logs("validationState", "F;"),
+                ]
+                .concat()
+            )
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    let typed = [name("Part.Amount")];
+    let entry = Stimulus::Entry {
+        entered: &typed,
+        before: &[],
+    };
+    let steps: [(&[(&str, &str)], Stimulus<'_>); 4] = [
+        (&[("Part.Amount", "5"), ("Log", "")], Stimulus::Merge),
+        (&[("Part.Amount", "50"), ("Log", "")], entry),
+        (&[("Part.Amount", "60"), ("Log", "")], entry),
+        (&[("Part.Amount", "5"), ("Log", "")], entry),
+    ];
+    let logged: Vec<Option<String>> = in_turn(&template, &steps)
+        .iter()
+        .map(|activation| {
+            assert_eq!(activation.ended, Ended::Settled, "{:?}", activation.report);
+            log(activation)
+        })
+        .collect();
+    assert_eq!(
+        logged,
+        [Some("S;F;"), Some("S;F;"), None, Some("S;F;")].map(|said| said.map(str::to_owned))
+    );
+}
+
+/// Page 396's own case: a field holding a value is valid, a person clears it, and that does not run
+/// its null test, so the field still registers a valid state; only the null test a submit's
+/// pre-event applies (page 1340's default, `preSubmit`) makes it invalid, and the event fires
+/// then. A second submit finds the same state and fires nothing.
+#[test]
+fn a_cleared_field_turns_invalid_only_at_the_pre_event_that_runs_its_null_test() {
+    let template = [
+        field(
+            "Amount",
+            &[
+                validate("Amount &lt; 10", "nullTest=\"error\"", None),
+                logs("validationState", "F;"),
+            ]
+            .concat(),
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    let typed = [name("Amount")];
+    let submit = Stimulus::PreSubmit {
+        clicked: None,
+        button: None,
+    };
+    let steps: [(&[(&str, &str)], Stimulus<'_>); 4] = [
+        (&[("Amount", "5"), ("Log", "")], Stimulus::Merge),
+        (
+            &[("Amount", ""), ("Log", "")],
+            Stimulus::Entry {
+                entered: &typed,
+                before: &[],
+            },
+        ),
+        (&[("Amount", ""), ("Log", "")], submit),
+        (&[("Amount", ""), ("Log", "")], submit),
+    ];
+    let logged: Vec<Option<String>> = in_turn(&template, &steps)
+        .iter()
+        .map(|activation| {
+            assert_eq!(activation.ended, Ended::Settled, "{:?}", activation.report);
+            log(activation)
+        })
+        .collect();
+    assert_eq!(
+        logged,
+        [Some("F;"), None, Some("F;"), None].map(|said| said.map(str::to_owned))
+    );
+}
+
+/// A choice list whose `enter` logs `p+` and `$event.reenter`, and whose `exit` logs `p-`, in a
+/// subform `Part` logging its own focus events, and the log.
+fn choice_form() -> (String, Vec<(&'static str, &'static str)>) {
+    let pick = "<field name=\"pick\"><ui><choiceList/></ui><value><text/></value>\
+                <event activity=\"enter\"><script>Log = Concat(Log, \"p+\", $event.reenter)\
+                </script></event>\
+                <event activity=\"exit\"><script>Log = Concat(Log, \"p-\")</script></event>\
+                </field>";
+    let template = [
+        format!("<subform name=\"Part\">{}{pick}</subform>", logged("P")),
+        field("Log", ""),
+    ]
+    .concat();
+    (template, vec![("Part.pick", "one"), ("Log", "")])
+}
+
+/// XFA 3.3 page 392, from XFA 2.4: a person committing a selection in a choice list fires its
+/// `exit` though the focus remains; a later selection while it keeps the focus fires its `enter`
+/// again, and then its `exit`; page 403 makes `reenter` false for the first `enter` after the list
+/// gains the focus and true for the later ones. Since the commit's `exit` paired the last `enter`,
+/// the focus then leaving fires the `exit` of the subform it goes out of and not the list's again
+/// (ADR 2707's reading of the page).
+#[test]
+fn a_choice_list_exits_at_each_selection_and_reenters_before_the_next() {
+    let (template, values) = choice_form();
+    let pick = name("Part.pick");
+    let exit = |exited_at_selection| Stimulus::Exit {
+        left: &pick,
+        reaching: None,
+        left_button: None,
+        reaching_button: None,
+        exited_at_selection,
+    };
+    for (stimulus, expected) in [
+        (
+            Stimulus::Enter {
+                reached: &pick,
+                leaving: None,
+                reached_button: None,
+                leaving_button: None,
+            },
+            "P+p+0",
+        ),
+        (Stimulus::Selected { field: &pick }, "p-"),
+        (Stimulus::Reentered { field: &pick }, "p+1"),
+        (exit(true), "P-"),
+        (exit(false), "p-P-"),
+    ] {
+        let activation = activate(&template, &values, stimulus, Limits::DEFAULT);
+        assert_eq!(activation.ended, Ended::Settled, "{:?}", activation.report);
+        assert_eq!(log(&activation).as_deref(), Some(expected), "{stimulus:?}");
+    }
+}
+
+/// Pages 392–393: a template of XFA 3.0 whose `originalXFAVersion` processing instruction names
+/// 2.1 and states `LegacyEventModel:1` follows the behaviour before XFA 2.4, which fired an `exit`
+/// at every selection and an `enter` only on the first, so no re-entry runs and the list's `exit`
+/// fires again when the focus leaves.
+#[test]
+fn a_template_that_asks_for_the_legacy_event_model_fires_no_reentry() {
+    let (template, values) = choice_form();
+    let head = "<template xmlns=\"http://www.xfa.org/schema/xfa-template/3.0/\">\
+                <?originalXFAVersion http://www.xfa.org/schema/xfa-template/2.1/ \
+                LegacyEventModel:1 ?>";
+    let document = headed(head, &template, &values, None);
+    let resource = Resource::read(&document).unwrap().unwrap();
+    let pick = name("Part.pick");
+    for (stimulus, expected) in [
+        (Stimulus::Selected { field: &pick }, Some("p-")),
+        (Stimulus::Reentered { field: &pick }, None),
+        (
+            Stimulus::Exit {
+                left: &pick,
+                reaching: None,
+                left_button: None,
+                reaching_button: None,
+                exited_at_selection: true,
+            },
+            Some("p-P-"),
+        ),
+    ] {
+        let activation = resource.activate(
+            &fields(&values),
+            stimulus,
+            &mut FormCalcRunner,
+            Limits::DEFAULT,
+        );
+        assert_eq!(activation.ended, Ended::Settled, "{:?}", activation.report);
+        assert_eq!(log(&activation).as_deref(), expected, "{stimulus:?}");
+    }
+}
+
+/// Page 403: `reenter` is false for a field that is no choice list, which page 398's table has a
+/// field's `click` set; of a choice list's `click` the definition says nothing, so reading it is
+/// refused by name rather than answered.
+#[test]
+fn reenter_is_false_on_a_text_field_and_refused_on_a_choice_list_s_click() {
+    let reads = "<event activity=\"click\"><script>Log = Concat(Log, \"c\", $event.reenter)\
+                 </script></event>";
+    let template = [
+        field("Text", reads),
+        format!("<field name=\"pick\"><ui><choiceList/></ui><value><text/></value>{reads}</field>"),
+        field("Log", ""),
+    ]
+    .concat();
+    let values = [("Text", "a"), ("pick", "one"), ("Log", "")];
+    let (text, pick) = (name("Text"), name("pick"));
+    let clicked = activate(
+        &template,
+        &values,
+        Stimulus::Click {
+            clicked: &text,
+            button: None,
+        },
+        Limits::DEFAULT,
+    );
+    assert_eq!(log(&clicked).as_deref(), Some("c0"), "{:?}", clicked.report);
+    let refused = activate(
+        &template,
+        &values,
+        Stimulus::Click {
+            clicked: &pick,
+            button: None,
+        },
+        Limits::DEFAULT,
+    );
+    assert_eq!(log(&refused), None);
+    assert!(
+        refused
+            .report
+            .iter()
+            .any(|said| said.contains("$event.reenter")),
+        "{:?}",
+        refused.report
+    );
 }

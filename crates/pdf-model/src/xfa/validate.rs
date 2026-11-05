@@ -32,6 +32,7 @@
 //! for a field the person emptied. XFA 3.3 is cited and paraphrased, never quoted (RFC 0011's
 //! preamble).
 
+use super::calculate::Test;
 use super::canonical;
 use super::config::{Config, Messaging};
 use super::datasets::{Change, Formatted, canonical_text, format_test, item};
@@ -116,6 +117,62 @@ pub(crate) fn before(
         })
         .collect();
     grouped(config, failed)
+}
+
+/// What the null, datatype and format tests found of each field and exclusion group before a save
+/// or a submit, for the validation state the `validationState` event follows (pages 396–397; ADR
+/// 2706): the container, the test and whether it failed. Empty where the form does not ask for its
+/// validations at `occasion`; a test the occasion does not run — the format test before a save,
+/// which the write carries out — is not answered, so the state it left stands.
+pub(crate) fn verdicts(
+    occasion: Occasion,
+    (template, locales, config): (&Template, &LocaleSet, &Config),
+    fields: &[(String, Change)],
+) -> Vec<(usize, Test, bool)> {
+    let asked = match occasion {
+        Occasion::Save => config.validates_on_save(),
+        Occasion::Submit => config.validates_on_submit(),
+    };
+    if !asked {
+        return Vec::new();
+    }
+    let mut found = Vec::new();
+    for (name, value) in fields {
+        let Some(target) = template.resolve(name) else {
+            continue;
+        };
+        let Some(container) = template.get(target) else {
+            continue;
+        };
+        if !matches!(container.class, Class::Field | Class::ExclGroup) {
+            continue;
+        }
+        let tested = Tested {
+            occasion,
+            template,
+            locales,
+            target,
+            container,
+        };
+        found.push((
+            target,
+            Test::Null,
+            tested.null_failure(name, value).is_some(),
+        ));
+        found.push((
+            target,
+            Test::Datatype,
+            tested.datatype_failure(name, value).is_some(),
+        ));
+        if occasion == Occasion::Submit {
+            found.push((
+                target,
+                Test::Format,
+                tested.format_failure(name, value).is_some(),
+            ));
+        }
+    }
+    found
 }
 
 /// The failures of one run of validations, one `Vec` per message the person is shown, as page

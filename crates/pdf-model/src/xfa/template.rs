@@ -298,6 +298,40 @@ pub(crate) enum Performs {
     Unperformed(&'static str),
 }
 
+/// Whether the `template` element asks for the choice-list events of the versions before XFA 2.4
+/// (pages 392–393).
+///
+/// Page 392 requires 2.4's behaviour whenever the schema the template specifies is 2.4 or above,
+/// so a template whose namespace names an earlier version has the earlier behaviour. A template of
+/// a later schema has it only through the `originalXFAVersion` processing instruction: where its
+/// first parameter, a namespace URI, names a version before 2.4 and another parameter is
+/// `LegacyEventModel:1`, page 393 follows the earlier behaviour, and otherwise 2.4's. A namespace
+/// that names no version is read as the current schema's, since nothing says it is older.
+fn legacy_event_model(template: &Element) -> bool {
+    let before_2_4 = |uri: &str| schema_version(uri).is_some_and(|version| version < (2, 4));
+    if template.attribute("xmlns").is_some_and(before_2_4) {
+        return true;
+    }
+    template
+        .instructions
+        .iter()
+        .filter(|(target, _)| target == "originalXFAVersion")
+        .any(|(_, content)| {
+            let mut parameters = content.split_whitespace();
+            parameters.next().is_some_and(before_2_4)
+                && parameters.any(|parameter| parameter == "LegacyEventModel:1")
+        })
+}
+
+/// The `(major, minor)` version an XFA template namespace URI names, as page 393's
+/// `http://www.xfa.org/schema/xfa-template/2.1/` names 2.1.
+fn schema_version(uri: &str) -> Option<(u32, u32)> {
+    let (_, tail) = uri.split_once("xfa-template/")?;
+    let version = tail.trim_end_matches('/');
+    let (major, minor) = version.split_once('.')?;
+    Some((major.parse().ok()?, minor.parse().ok()?))
+}
+
 /// One container of the template.
 #[derive(Debug, Clone)]
 pub(crate) struct Container {
@@ -375,6 +409,9 @@ impl Container {
 pub struct Template {
     containers: Vec<Container>,
     roots: Vec<usize>,
+    /// Whether a choice list follows the event model of the versions before XFA 2.4 (pages
+    /// 392–393), [`legacy_event_model`]'s answer.
+    legacy_events: bool,
 }
 
 /// Where a container's data is, by the binding chapter 4 states.
@@ -406,6 +443,7 @@ impl Template {
         let mut template = Self {
             containers: Vec::new(),
             roots: Vec::new(),
+            legacy_events: tree.get(root).is_some_and(legacy_event_model),
         };
         let mut pending: Vec<(usize, Option<usize>)> = Vec::new();
         if let Some(element) = tree.get(root) {
@@ -475,6 +513,12 @@ impl Template {
             at = container.parent;
         }
         None
+    }
+
+    /// Whether a choice list's selection commit fires the events of the versions before XFA 2.4
+    /// rather than 2.4's (pages 392–393): an `exit` at each commit and no `enter` between two.
+    pub(crate) fn legacy_events(&self) -> bool {
+        self.legacy_events
     }
 
     /// How many containers the template holds.

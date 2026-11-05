@@ -89,7 +89,7 @@ mod xml;
 
 pub use calculate::{
     Activation, Calculation, Ended, Event, Form, FormLanguage, Invalid, Level, Limits, Occurrence,
-    Overridden, Ran, Replaced, Runner, Scalar, Step, Stimulus,
+    Overridden, Ran, Replaced, Runner, Scalar, Step, Stimulus, Test, Validity,
 };
 pub use config::Config;
 pub use datasets::{Change, Datasets, Kept};

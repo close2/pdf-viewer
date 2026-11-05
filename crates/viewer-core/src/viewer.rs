@@ -47,7 +47,7 @@ mod scripts;
 mod search;
 
 pub use self::anticipation::{Anticipated, Anticipating, Foreseen, ReadOut, Reader};
-use self::editing::commit_typed;
+use self::editing::form_selection;
 use self::layout::damage;
 pub(crate) use self::layout::px;
 use self::scripts::open_sequence;
@@ -636,8 +636,9 @@ impl Viewer {
             Command::Find(find) => self.find(find, events),
             Command::Focused(move_to) => self.move_focus(move_to, events),
             Command::CommitField { field } => {
+                let runner = !matches!(self.scripting, crate::Scripting::Off);
                 if let (Some(id), Some(open)) = (self.focused, self.focused_mut()) {
-                    commit_typed(id, open, &field, events);
+                    form_selection(id, open, &field, runner, events);
                 }
             }
             Command::Presented => {

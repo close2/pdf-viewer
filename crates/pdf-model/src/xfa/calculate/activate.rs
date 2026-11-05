@@ -90,7 +90,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{Calculation, Event, Form, Replaced, Scalar, Step};
+use super::{Calculation, Event, Form, Replaced, Scalar, Step, Test, Validity};
 use crate::xfa::datasets::Change;
 use crate::xfa::template::{Bound, Class, Language, Override, Performs, Script, ScriptTest};
 use crate::xfa::{Resource, Template, validate};
@@ -212,6 +212,11 @@ pub enum Stimulus<'a> {
         left_button: Option<&'a str>,
         /// The on value of the button of `reaching` it went to, by the same rule.
         reaching_button: Option<&'a str>,
+        /// Whether `left` is a choice list whose own `exit` already fired when a person committed
+        /// a selection in it ([`Self::Selected`]), with no `enter` since: page 392's XFA 2.4
+        /// behaviour pairs each `exit` with an `enter`, so only the containers the focus goes out
+        /// of have their `exit` now (ADR 2707).
+        exited_at_selection: bool,
     },
     /// The keyboard focus reached the field `reached` from the field `leaving`, or from nothing a
     /// form holds (pages 390–391): the `enter` events of each subform and exclusion group around
@@ -274,6 +279,22 @@ pub enum Stimulus<'a> {
         /// The on value of the button the pointer was on, where the field is an exclusion group
         /// ([`Self::Click`]'s rule).
         button: Option<&'a str>,
+    },
+    /// A person committed a selection in the choice list `field`, by a click on it or Enter, and
+    /// the focus stays on it (page 392): the field's own `exit` events, which XFA 2.4 fires even
+    /// though the focus remains, and which the versions before it fired at every such commit
+    /// (ADR 2707).
+    Selected {
+        /// The choice list, by its PDF field name.
+        field: &'a str,
+    },
+    /// A person began another selection in the choice list `field` after a [`Self::Selected`],
+    /// the focus never having left it (page 392): the field's own `enter` events, with
+    /// `$event.reenter` true (page 403), which XFA 2.4 fires and the versions before it did not;
+    /// a template that asks for the earlier behaviour (pages 392–393) runs nothing (ADR 2707).
+    Reentered {
+        /// The choice list, by its PDF field name.
+        field: &'a str,
     },
     /// The open sequence has ended (pages 388 and 704): the `ready` events bound to the Form DOM
     /// (`ref="$form"`), then the `docReady` events bound to the application (`ref="$host"`).
@@ -474,6 +495,21 @@ impl Resource {
         })
     }
 
+    /// Whether the PDF field name `field` names a field whose `ui` holds a `choiceList`, the
+    /// field page 392's selection-commit events are fired on.
+    #[must_use]
+    pub fn is_choice_list(&self, field: &str) -> bool {
+        self.template.resolve(field).is_some_and(|node| {
+            self.template.get(node).is_some_and(|container| {
+                container.class == Class::Field
+                    && container
+                        .ui
+                        .as_ref()
+                        .is_some_and(|(ui, _)| ui == "choiceList")
+            })
+        })
+    }
+
     /// Activates the automation objects a `stimulus` reaches, in page 379's order, and says what
     /// they changed. `fields` are every field of the form by its PDF name with the value its
     /// `/V` carries, a person's entry included.
@@ -484,6 +520,10 @@ impl Resource {
     /// occasions a form's `config` names, a save and a submit, which run them over the values they
     /// write ([`Resource::before_save`], [`Resource::before_submit`]), and at an entry they would
     /// name fields a person never reached (ADR 2698).
+    ///
+    /// The validation state is this activation's alone, so a merge fires every container's
+    /// `validationState` event and no other stimulus fires one; [`Self::activate_kept`] keeps the
+    /// state from one activation to the next.
     #[must_use]
     pub fn activate(
         &self,
@@ -492,6 +532,27 @@ impl Resource {
         runner: &mut dyn Runner,
         limits: Limits,
     ) -> Activation {
+        self.activate_kept(fields, stimulus, runner, limits, &mut Validity::default())
+    }
+
+    /// [`Self::activate`], with the validation state of the form's containers `kept` from the
+    /// activations before it (pages 396–397; ADR 2706). The merge records the state its tests
+    /// found and fires every field's, exclusion group's and subform's `validationState` events,
+    /// after its `initialize` events, as each object is then initialized; any later activation
+    /// records the verdicts of the tests it ran — the script tests it reached, and the null,
+    /// datatype and format tests before a save or a submit where the form's `config` lists the
+    /// activity — and fires the `validationState` events of each object whose state changed. An
+    /// activation that ends on a limit changes nothing, the state included.
+    #[must_use]
+    pub fn activate_kept(
+        &self,
+        fields: &[(String, Change)],
+        stimulus: Stimulus<'_>,
+        runner: &mut dyn Runner,
+        limits: Limits,
+        kept: &mut Validity,
+    ) -> Activation {
+        let before = kept.clone();
         let mut form = self.form(fields);
         form.limit_text(limits.bytes);
         let initial = form.values.clone();
@@ -509,12 +570,19 @@ impl Resource {
                 reaching,
                 left_button,
                 reaching_button,
+                exited_at_selection,
             } => {
-                let crossed =
+                let mut crossed =
                     session.crossed((left, left_button), reaching.map(|r| (r, reaching_button)));
+                if exited_at_selection && !self.template.legacy_events() {
+                    let field = session.form.named(left);
+                    crossed.retain(|&node| Some(node) != field);
+                }
                 session.fire("exit", Some(&crossed), &Bound::Own);
                 session.settle(Seeds::Changed);
             }
+            Stimulus::Selected { field } => session.selection(field, false),
+            Stimulus::Reentered { field } => session.selection(field, true),
             Stimulus::Enter {
                 reached,
                 leaving,
@@ -562,29 +630,89 @@ impl Resource {
                 session.settle(Seeds::Changed);
             }
         }
-        let mut script_tests = Vec::new();
-        if session.ended.is_none() {
-            // Page 1340: the validations run before each activity the form's `config` lists, and
-            // page 382 makes the script test one of them; the whole form is tested, as a merge
-            // tests it, since the data a save or a submit writes is the whole form's.
-            let before_action = match stimulus {
-                Stimulus::PreSave => self.config.validates_on_save(),
-                Stimulus::PreSubmit { .. } => self.config.validates_on_submit(),
-                _ => false,
-            };
-            let tested = if matches!(stimulus, Stimulus::Merge) || before_action {
-                session.script_tests(None)
-            } else {
-                let changed = session.changed_since(&initial, &typed);
-                session.script_tests(Some(&changed))
-            };
-            script_tests = validate::grouped(&self.config, tested);
-        }
+        let script_tests = self.validated(
+            &mut session,
+            stimulus,
+            (fields, initial.as_slice(), typed.as_slice()),
+            kept,
+        );
         if matches!(stimulus, Stimulus::Merge) {
             session.fire("initialize", None, &Bound::Own);
             session.settle(Seeds::Changed);
         }
+        self.announce(&mut session, stimulus, kept);
+        if session.ended.is_some() {
+            *kept = before;
+        }
         session.finish(&initial, script_tests)
+    }
+
+    /// The validations once the stimulus's scripts have settled: the script tests — every
+    /// container's at a merge and before an activity the form's `config` lists (page 1340, the
+    /// whole form being what a save or a submit writes), else those the stimulus reached — and,
+    /// before a save or a submit, the null, datatype and format tests, each verdict recorded in
+    /// `kept` (ADR 2706). Answers the script tests' failures as page 386 groups them.
+    fn validated(
+        &self,
+        session: &mut Session<'_, '_, '_>,
+        stimulus: Stimulus<'_>,
+        (fields, initial, typed): (&[(String, Change)], &[Scalar], &[usize]),
+        kept: &mut Validity,
+    ) -> Vec<Vec<Invalid>> {
+        if session.ended.is_some() {
+            return Vec::new();
+        }
+        let (before_action, occasion) = match stimulus {
+            Stimulus::PreSave => (
+                self.config.validates_on_save(),
+                Some(validate::Occasion::Save),
+            ),
+            Stimulus::PreSubmit { .. } => (
+                self.config.validates_on_submit(),
+                Some(validate::Occasion::Submit),
+            ),
+            _ => (false, None),
+        };
+        let (tested, verdicts) = if matches!(stimulus, Stimulus::Merge) || before_action {
+            session.script_tests(None)
+        } else {
+            let changed = session.changed_since(initial, typed);
+            session.script_tests(Some(&changed))
+        };
+        for (node, failed) in verdicts {
+            kept.record(node, Test::Script, failed);
+        }
+        if let Some(occasion) = occasion {
+            let values = session.values_now(fields, initial);
+            let resource = (&self.template, &self.locales, &self.config);
+            for (node, test, failed) in validate::verdicts(occasion, resource, &values) {
+                kept.record(node, test, failed);
+            }
+        }
+        validate::grouped(&self.config, tested)
+    }
+
+    /// Fires the `validationState` events page 396 asks for: every object's when it is first
+    /// initialized, which for this form is the merge, and afterwards those of each object whose
+    /// state changed, followed by the calculations they woke (ADR 2706).
+    fn announce(
+        &self,
+        session: &mut Session<'_, '_, '_>,
+        stimulus: Stimulus<'_>,
+        kept: &mut Validity,
+    ) {
+        if session.ended.is_some() {
+            return;
+        }
+        let announced = if matches!(stimulus, Stimulus::Merge) {
+            kept.initialize(&self.template)
+        } else {
+            kept.changed(&self.template)
+        };
+        if !announced.is_empty() {
+            session.fire("validationState", Some(&announced), &Bound::Own);
+            session.settle(Seeds::Changed);
+        }
     }
 }
 
@@ -745,6 +873,9 @@ struct Session<'f, 'a, 'r> {
     unbound: Vec<String>,
     /// Whether a pre-event's script set `$event.cancelAction` ([`Activation::cancelled`]).
     cancelled: bool,
+    /// Whether the `enter` events being fired are a choice list's re-entry (page 392), whose
+    /// `$event.reenter` is true (page 403).
+    reentering: bool,
 }
 
 impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
@@ -786,7 +917,74 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             hooks: None,
             unbound: Vec::new(),
             cancelled: false,
+            reentering: false,
         }
+    }
+
+    /// The container of the choice list `field` (page 392), or `None`, said, where the form's
+    /// field list does not name it or its `ui` holds no `choiceList`.
+    fn choice_list(&mut self, field: &str) -> Option<usize> {
+        let Some(node) = self.form.named(field) else {
+            self.say(format!("{field}: the form's field list does not name it"));
+            return None;
+        };
+        if self.is_choice_list(node) {
+            return Some(node);
+        }
+        self.say(format!(
+            "{field}: a selection commit fires its events only in a choice list (XFA 3.3 page \
+             392), and its ui holds none"
+        ));
+        None
+    }
+
+    /// A choice list's selection commit (page 392; ADR 2707): its own `exit` events, or, for a
+    /// `reentry`, its own `enter` events with `$event.reenter` true, which the event model before
+    /// XFA 2.4 does not fire; each followed by the calculations they woke.
+    fn selection(&mut self, field: &str, reentry: bool) {
+        if reentry && self.template.legacy_events() {
+            return;
+        }
+        let node: Vec<usize> = self.choice_list(field).into_iter().collect();
+        self.reentering = reentry;
+        self.fire(
+            if reentry { "enter" } else { "exit" },
+            Some(&node),
+            &Bound::Own,
+        );
+        self.reentering = false;
+        self.settle(Seeds::Changed);
+    }
+
+    /// Whether the container `node` is a field whose `ui` holds a `choiceList`.
+    fn is_choice_list(&self, node: usize) -> bool {
+        self.template.get(node).is_some_and(|container| {
+            container.class == Class::Field
+                && container
+                    .ui
+                    .as_ref()
+                    .is_some_and(|(ui, _)| ui == "choiceList")
+        })
+    }
+
+    /// `fields` as the activation has left them: each field a script assigned a new value in
+    /// takes it, as a person's entry would have put it, and every other keeps what it held.
+    fn values_now(&self, fields: &[(String, Change)], initial: &[Scalar]) -> Vec<(String, Change)> {
+        fields
+            .iter()
+            .map(|(name, held)| {
+                let now = self
+                    .form
+                    .named(name)
+                    .map(|node| (self.form.value(node), initial.get(node)))
+                    .filter(|(now, before)| Some(now) != *before)
+                    .map(|(now, _)| match text(&now) {
+                        written if written.is_empty() => Change::Cleared,
+                        written => Change::Text(written),
+                    });
+                (name.clone(), now.unwrap_or_else(|| held.clone()))
+            })
+            .collect()
     }
 
     /// The containers of the PDF field names a person entered values into, each with what its
@@ -814,11 +1012,21 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
     /// of a field and for a subform's `enter` and `exit`, and nothing for an exclusion group's;
     /// a field's `change` sets what the entry replaced as well.
     fn primary(&self, activity: &str, node: usize) -> Option<Event> {
-        const PRIMARY: [&str; 8] = [
+        const PRIMARY: [&str; 9] = [
             "change",
             "click",
             "enter",
             "exit",
+            "mouseDown",
+            "mouseEnter",
+            "mouseExit",
+            "mouseUp",
+            "validationState",
+        ];
+        // The field events whose row of the table sets `reenter`.
+        const REENTERING: [&str; 6] = [
+            "click",
+            "enter",
             "mouseDown",
             "mouseEnter",
             "mouseExit",
@@ -828,12 +1036,21 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             return None;
         }
         let class = self.template.get(node)?.class;
-        let named = !matches!(class, Class::ExclGroup);
+        let named = !matches!(class, Class::ExclGroup) || activity == "validationState";
         let replaced = match (activity, class) {
             ("change", Class::Field) => self.replaced.get(&node).cloned(),
             _ => None,
         };
-        Some(Event::new(activity, node, named, replaced))
+        let event = Event::new(activity, node, named, replaced);
+        // Page 403: false on a field that is no choice list and for a choice list's first
+        // `enter` after it gains the focus, true for a later one while it keeps the focus.
+        Some(match (class, activity) {
+            (Class::Field, _) if REENTERING.contains(&activity) && !self.is_choice_list(node) => {
+                event.with_reenter(false)
+            }
+            (Class::Field, "enter") => event.with_reenter(self.reentering),
+            _ => event,
+        })
     }
 
     /// Places `$event.newText` into the field `node` once its `change` events have run (page
@@ -1690,9 +1907,12 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
     /// script test. This processor can: every script runs on one copy of the form, a value it
     /// assigns is put back before the next one runs, and the assignment is reported. The copy's
     /// assignments are charged to the activation's text budget as discovery's are (ADR 2696).
-    fn script_tests(&mut self, changed: Option<&BTreeSet<usize>>) -> Vec<Invalid> {
+    fn script_tests(
+        &mut self,
+        changed: Option<&BTreeSet<usize>>,
+    ) -> (Vec<Invalid>, Vec<(usize, bool)>) {
         if changed.is_some_and(BTreeSet::is_empty) {
-            return Vec::new();
+            return (Vec::new(), Vec::new());
         }
         let tests: Vec<(usize, Script, Level, Option<String>)> =
             (0..self.template.container_count())
@@ -1709,7 +1929,7 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
                 })
                 .collect();
         if tests.is_empty() {
-            return Vec::new();
+            return (Vec::new(), Vec::new());
         }
         let mut around = BTreeSet::new();
         for &node in changed.into_iter().flatten() {
@@ -1726,6 +1946,9 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
         scratch.set_event(None);
         let room = scratch.text_room();
         let mut invalid = Vec::new();
+        // Each answered container's verdict, for its validation state (ADR 2706): a field holding
+        // nothing is put to no script test (page 396), so it fails none.
+        let mut verdicts = Vec::new();
         for (node, script, level, message) in tests {
             if self.ended.is_some() {
                 break;
@@ -1740,6 +1963,10 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
                 .get(node)
                 .is_some_and(|c| matches!(c.class, Class::Field | Class::ExclGroup));
             if valued && !holds_a_value {
+                let answered = changed.is_none_or(|changed| changed.contains(&node));
+                if answered {
+                    verdicts.push((node, false));
+                }
                 continue;
             }
             scratch.take_resolved();
@@ -1764,6 +1991,9 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             let answered = changed.is_none_or(|changed| {
                 changed.contains(&node) || around.contains(&node) || !read.is_disjoint(changed)
             });
+            if answered && let Ok(value) = &outcome {
+                verdicts.push((node, !true_value(value)));
+            }
             match outcome {
                 Ok(value) if answered && !true_value(&value) => invalid.push(Invalid {
                     container: label,
@@ -1781,7 +2011,7 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
                 .text_room()
                 .saturating_sub(room.saturating_sub(scratch.text_room())),
         );
-        invalid
+        (invalid, verdicts)
     }
 
     /// The activation's answer.

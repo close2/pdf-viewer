@@ -778,10 +778,18 @@ fn annotation_of(edit: &crate::command::Edit) -> Option<ObjectId> {
 /// The unsaved mark first, for [`commit`]'s reason, then the refusal's sentence, which is the
 /// alert Adobe's library raises at this moment: a value a script refused goes back to what the
 /// field showed, and a person who saw it go back is told why.
-pub(super) fn commit_typed(id: DocumentId, open: &mut Open, field: &str, events: &mut Vec<Event>) {
+///
+/// Answers whether the field took the value: a commit of nothing typed, and one a script refused,
+/// answer `false`.
+pub(super) fn commit_typed(
+    id: DocumentId,
+    open: &mut Open,
+    field: &str,
+    events: &mut Vec<Event>,
+) -> bool {
     let before = open.dirty();
     let Some(committed) = open.commit_field(field) else {
-        return;
+        return false;
     };
     if open.dirty() != before {
         events.push(Event::Dirty {
@@ -795,6 +803,42 @@ pub(super) fn commit_typed(id: DocumentId, open: &mut Open, field: &str, events:
             page: None,
             notes: vec![sentence],
         });
+        return false;
+    }
+    true
+}
+
+/// Commits what was typed or chosen in `field`, with the events XFA 3.3 page 392 fires on a
+/// choice list whose selection a person commits while it keeps the keyboard focus (ADR 2707).
+///
+/// [`crate::Command::CommitField`] is what a host sends for a click on an item or Enter, and where
+/// the focus this crate holds is on one of the field's widgets the focus stays: XFA 2.4 then fires
+/// the field's own `exit` after the commit, and at the next commit while the focus stays, its
+/// `enter` again before it, with `$event.reenter` true. The view state decides whether the field
+/// is a choice list and whether a template asks for the versions before 2.4, where no `enter`
+/// fires between two commits. A focus held elsewhere is a commit at a loss of focus, and fires
+/// what the focus move does.
+pub(super) fn form_selection(
+    id: DocumentId,
+    open: &mut Open,
+    field: &str,
+    runner: bool,
+    events: &mut Vec<Event>,
+) {
+    let held = runner
+        && open.focus.is_some_and(|widget| {
+            field_of_widget(&open.document, widget).as_deref() == Some(field)
+        });
+    if held
+        && open
+            .view
+            .activate_form_before_selection(&open.document, field)
+    {
+        open.stale();
+    }
+    let committed = commit_typed(id, open, field, events);
+    if held && committed && open.view.activate_form_on_selection(&open.document, field) {
+        open.stale();
     }
 }
 

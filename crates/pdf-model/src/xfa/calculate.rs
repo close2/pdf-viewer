@@ -26,9 +26,11 @@ pub use activate::{
     Activation, Ended, FormLanguage, Invalid, Level, Limits, Overridden, Ran, Runner, Stimulus,
 };
 pub use event::{Event, Replaced};
+pub use validity::{Test, Validity};
 
 mod activate;
 mod event;
+mod validity;
 
 /// A value a script reads from a container or assigns to one.
 #[derive(Debug, Clone, PartialEq)]

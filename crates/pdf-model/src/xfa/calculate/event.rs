@@ -19,23 +19,23 @@ use super::Scalar;
 
 /// The properties of `$event` this reader carries, in the order page 402 lists them, with the
 /// number past the template's containers each one is.
-const CARRIED: [&str; 7] = [
+const CARRIED: [&str; 8] = [
     "cancelAction",
     "change",
     "name",
     "newText",
     "prevText",
+    "reenter",
     "selEnd",
     "selStart",
 ];
 
 /// The properties page 398's table has an event set that this reader is never told of: the
-/// keyboard's modifier keys, a choice list's re-entry, how an exit was committed, and what a
-/// paste held past a field's limit. Reading one is refused by name rather than answered null.
-const UNSUPPLIED: [&str; 8] = [
+/// keyboard's modifier keys, how an exit was committed, and what a paste held past a field's
+/// limit. Reading one is refused by name rather than answered null.
+const UNSUPPLIED: [&str; 7] = [
     "modifier",
     "shift",
-    "reenter",
     "commitKey",
     "keyDown",
     "fullText",
@@ -105,6 +105,12 @@ pub struct Event {
     /// processor clears at the action's beginning (page 402); `None` for an event no action
     /// raised, which does not set it.
     cancel: Option<bool>,
+    /// `$event.reenter` (page 403), where page 398's table has the event set it and page 403's
+    /// definition decides it: false on a field that is no choice list and for the first `enter`
+    /// after a choice list gains the focus, true for a later `enter` while it keeps the focus.
+    /// `None` for an event that does not set it, and for a choice list's event other than `enter`,
+    /// which the definition does not decide.
+    reenter: Option<bool>,
 }
 
 impl Event {
@@ -117,7 +123,15 @@ impl Event {
             named,
             replaced,
             cancel: None,
+            reenter: None,
         }
+    }
+
+    /// The event with `$event.reenter` set to `reenter` (page 403).
+    #[must_use]
+    pub fn with_reenter(mut self, reenter: bool) -> Self {
+        self.reenter = Some(reenter);
+        self
     }
 
     /// The event the pre- and post-events of an action run under, `activity` being the one that
@@ -198,13 +212,21 @@ pub(super) fn property(
             None => Err(unset()),
         };
     }
+    if name == "reenter" && event.reenter.is_none() {
+        return Err(format!(
+            "$event.reenter: the {} event does not set it, since page 403 defines it for a field \
+             that is no choice list and for a choice list's enter event (XFA 3.3 pages 398 and \
+             403)",
+            event.name
+        ));
+    }
     if !event.named || ELSEWHERE.contains(&name) {
         return Err(unset());
     }
     if name == "target" {
         return Ok(Named::Target(event.target));
     }
-    if name != "name" {
+    if name != "name" && name != "reenter" {
         let Some(replaced) = &event.replaced else {
             return Err(unset());
         };
@@ -234,6 +256,7 @@ pub(super) fn value(event: Option<&Event>, containers: usize, node: usize) -> Op
         "change" => Scalar::Text(replaced?.change.clone()),
         "newText" => Scalar::Text(replaced?.new_text()),
         "prevText" => Scalar::Text(replaced?.previous.clone()?),
+        "reenter" => Scalar::Number(if event.reenter? { 1.0 } else { 0.0 }),
         "selStart" => count(replaced?.start),
         _ => count(replaced?.end),
     })

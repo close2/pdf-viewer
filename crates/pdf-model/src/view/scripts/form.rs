@@ -12,7 +12,11 @@
 //! when a mouse button is pressed or released within one (ADR 2627), and
 //! [`ViewState::activate_form_before_save`], [`ViewState::activate_form_after_save`],
 //! [`ViewState::activate_form_before_submit`] and [`ViewState::activate_form_after_submit`] the
-//! pre- and post-events pages 388–389 fire around a save and a submit (ADR 2702). **The
+//! pre- and post-events pages 388–389 fire around a save and a submit (ADR 2702), and
+//! [`ViewState::activate_form_before_selection`] and [`ViewState::activate_form_on_selection`] the
+//! `enter` and `exit` page 392 fires around a choice list's selection commit (ADR 2707). Every
+//! activation is given the validation state of the form's containers the view state keeps, whose
+//! changes fire `validationState` (pages 396–397; ADR 2706). **The
 //! scripts run in the runner**, never here: this crate reads no script language and does not depend
 //! on one (ADR 2482), so [`ScriptRunner::run_form_script`] is the one call that carries a script
 //! out, and a runner that has none refuses it by name. What the scripts computed lands in the edit
@@ -112,12 +116,6 @@ enum Raised<'a> {
         name: &'a str,
         before: Option<&'a str>,
     },
-    /// The focus left `left` for `reaching`, each with the on value of the button it was on where
-    /// it is an exclusion group ([`Stimulus::Exit`]).
-    Exit {
-        left: (&'a str, Option<&'a str>),
-        reaching: Option<(&'a str, Option<&'a str>)>,
-    },
     /// The focus reached `reached` from `leaving`, alike ([`Stimulus::Enter`]).
     Enter {
         reached: (&'a str, Option<&'a str>),
@@ -140,8 +138,10 @@ enum Raised<'a> {
     /// The open sequence ended: the Form DOM's `ready` and the application's `docReady` (pages 388
     /// and 704).
     Ready,
-    /// A pre- or post-event of a save or a submit, which is its own stimulus
-    /// ([`Stimulus::PreSave`] and the three after it).
+    /// A stimulus the caller builds whole: a pre- or post-event of a save or a submit
+    /// ([`Stimulus::PreSave`] and the three after it), a focus leaving a field, whose stimulus
+    /// says whether a selection commit fired its `exit` already, and a choice list's selection
+    /// commit and re-entry ([`Stimulus::Selected`], [`Stimulus::Reentered`]).
     Action(Stimulus<'a>),
 }
 
@@ -154,12 +154,6 @@ impl<'a> Raised<'a> {
             Raised::Entry { .. } => Stimulus::Entry {
                 entered: &[],
                 before: &[],
-            },
-            Raised::Exit { left, reaching } => Stimulus::Exit {
-                left: left.0,
-                reaching: reaching.map(|(name, _)| name),
-                left_button: left.1,
-                reaching_button: reaching.and_then(|(_, button)| button),
             },
             Raised::Enter { reached, leaving } => Stimulus::Enter {
                 reached: reached.0,
@@ -293,13 +287,62 @@ impl ViewState {
     /// Each field comes with the on value of the widget the focus is on
     /// ([`crate::form::button_on_value`]), which, for an exclusion group, names the group's field
     /// whose `exit` and `enter` page 391 fires (ADR 2698); `None` for any other field.
+    ///
+    /// Where `left` is the choice list whose own `exit` fired at a selection commit with no
+    /// `enter` since ([`Self::activate_form_on_selection`]), page 392's XFA 2.4 behaviour has
+    /// paired that `exit` already, so only the containers the focus goes out of fire theirs.
     pub fn activate_form_on_exit(
         &mut self,
         document: &Document,
         left: (&str, Option<&str>),
         reaching: Option<(&str, Option<&str>)>,
     ) -> bool {
-        self.activate_form(document, Raised::Exit { left, reaching }, Instant::now())
+        let selected = self.scripting.form_selected.take();
+        let stimulus = Stimulus::Exit {
+            left: left.0,
+            reaching: reaching.map(|(name, _)| name),
+            left_button: left.1,
+            reaching_button: reaching.and_then(|(_, button)| button),
+            exited_at_selection: selected.as_deref() == Some(left.0),
+        };
+        self.activate_form(document, Raised::Action(stimulus), Instant::now())
+    }
+
+    /// Runs the `exit` events of the choice list `field`, in which a person committed a selection
+    /// by a click or Enter while it keeps the focus (XFA 3.3 page 392): XFA 2.4 fires the field's
+    /// own `exit` though the focus remains, as the versions before it did. Answers whether a value
+    /// changed. A host calls it after the commit, so that the `exit` script reads the selection,
+    /// and only for a field that holds the keyboard focus (ADR 2707).
+    /// A field that is no choice list runs nothing.
+    pub fn activate_form_on_selection(&mut self, document: &Document, field: &str) -> bool {
+        if !self.form_choice_list(document, field) {
+            return false;
+        }
+        self.scripting.form_selected = Some(field.to_owned());
+        self.activate_form(
+            document,
+            Raised::Action(Stimulus::Selected { field }),
+            Instant::now(),
+        )
+    }
+
+    /// Runs the `enter` events of the choice list `field` where a person begins another selection
+    /// in it after [`Self::activate_form_on_selection`], the focus never having left it (XFA 3.3
+    /// page 392): XFA 2.4 fires the field's own `enter` again, with `$event.reenter` true (page
+    /// 403), and a template that asks for the behaviour of the versions before it runs nothing
+    /// (pages 392–393). A host calls it before the commit of the next selection; a field whose
+    /// own `exit` has not fired since the focus reached it runs nothing, since its `enter` is
+    /// unpaired. Answers whether a value changed (ADR 2707).
+    pub fn activate_form_before_selection(&mut self, document: &Document, field: &str) -> bool {
+        if self.scripting.form_selected.as_deref() != Some(field) {
+            return false;
+        }
+        self.scripting.form_selected = None;
+        self.activate_form(
+            document,
+            Raised::Action(Stimulus::Reentered { field }),
+            Instant::now(),
+        )
     }
 
     /// Runs the `enter` events of the keyboard focus reaching the field `reached` from the field
@@ -313,6 +356,7 @@ impl ViewState {
         reached: (&str, Option<&str>),
         leaving: Option<(&str, Option<&str>)>,
     ) -> bool {
+        self.scripting.form_selected = None;
         self.activate_form(document, Raised::Enter { reached, leaving }, Instant::now())
     }
 
@@ -549,6 +593,11 @@ impl ViewState {
     }
 
     /// The form's resource, read the first time it is asked for.
+    /// Whether the document's XFA form, where it has one to activate, makes `field` a choice list.
+    fn form_choice_list(&mut self, document: &Document, field: &str) -> bool {
+        matches!(self.held_form(document), Held::Resource(resource) if resource.is_choice_list(field))
+    }
+
     fn held_form(&mut self, document: &Document) -> &Held {
         self.scripting.form.0.get_or_insert_with(|| {
             let Some(stated) = crate::xfa::stated(document).filter(|stated| stated.resource) else {
@@ -639,7 +688,13 @@ impl ViewState {
             _ => Vec::new(),
         };
         let mut through = ThroughRunner::new(runner.as_ref(), started);
-        let activation = resource.activate(&fields, stimulus, &mut through, Limits::DEFAULT);
+        let activation = resource.activate_kept(
+            &fields,
+            stimulus,
+            &mut through,
+            Limits::DEFAULT,
+            &mut self.scripting.form_validity,
+        );
         if through.ran > 0
             && let Some(note) = runner.form_runs_note()
         {

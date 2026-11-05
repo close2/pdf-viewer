@@ -2,8 +2,9 @@
 //! what `override` asks a host to present (pages 641–642) goes out as the notice a window already
 //! draws for a script's question (ADRs 2524, 2525).
 //!
-//! The runner here is the test's own: it understands one script, a decimal number, and assigns it
-//! to the container the script belongs to. Whether the viewer asks at the right moment, applies
+//! The runner here is the test's own: it understands a decimal number, which it assigns to the
+//! container the script belongs to, and `same`, which answers that container's value as a
+//! validation script's verdict. Whether the viewer asks at the right moment, applies
 //! what the runner computed, withholds what *ask* has not allowed and puts a notice once and in
 //! order is what is judged, never what a script language does.
 
@@ -49,6 +50,11 @@ fn form_in(attributes: &str, script_attributes: &str) -> Vec<u8> {
 /// A hybrid form of one subform `form1` holding `fields`, two of which are `Units` and `Total`,
 /// each with a widget in that order, and the data `data` under `form1`.
 fn hybrid(fields: &str, data: &str) -> Vec<u8> {
+    hybrid_of(fields, data, &["Units", "Total"])
+}
+
+/// [`hybrid`], with a widget for each field `named`, in that order down the page.
+fn hybrid_of(fields: &str, data: &str, named: &[&str]) -> Vec<u8> {
     let stream = |text: &str| {
         format!(
             "<< /Length {} >>\nstream\n{text}\nendstream",
@@ -70,18 +76,25 @@ fn hybrid(fields: &str, data: &str) -> Vec<u8> {
             y.saturating_add(20)
         )
     };
-    let bodies = [
+    let kids: Vec<String> = (0..named.len())
+        .map(|at| format!("{} 0 R", at.saturating_add(7)))
+        .collect();
+    let kids = kids.join(" ");
+    let mut bodies = vec![
         "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] \
          /XFA [(template) 5 0 R (datasets) 6 0 R] >> >>"
             .to_owned(),
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Annots [7 0 R 8 0 R] >>".to_owned(),
-        "<< /T (form1[0]) /Kids [7 0 R 8 0 R] >>".to_owned(),
+        format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Annots [{kids}] >>"),
+        format!("<< /T (form1[0]) /Kids [{kids}] >>"),
         stream(&template),
         stream(&datasets),
-        widget("Units", 300),
-        widget("Total", 260),
     ];
+    let mut y = 300_u32;
+    for name in named {
+        bodies.push(widget(name, y));
+        y = y.saturating_sub(40);
+    }
     let mut out = String::from("%PDF-1.7\n");
     let mut offsets = Vec::new();
     for (index, body) in bodies.iter().enumerate() {
@@ -124,6 +137,12 @@ impl ScriptRunner for Calculator {
         script: &str,
         _steps_left: u64,
     ) -> Ran {
+        if script.trim() == "same" {
+            return Ran {
+                steps: 1,
+                outcome: Ok(form.value(node)),
+            };
+        }
         let Ok(number) = script.trim().parse::<f64>() else {
             return Ran {
                 steps: 0,
@@ -750,5 +769,86 @@ fn a_save_writes_what_its_pre_save_event_set_and_not_what_its_post_save_event_se
             "the preSave value is written"
         );
         assert_eq!(value(&reopened, "Total"), "", "the postSave value is not");
+    }
+}
+
+/// XFA 3.3 page 392, from XFA 2.4: a click on an item of a choice list or Enter, which a host
+/// sends as the field's commit while the keyboard focus stays on its widget, fires the list's
+/// `exit`; the next commit while the focus stays fires its `enter` again first; and the focus then
+/// leaving fires no second `exit` of the list, since the commit's paired the last `enter` (ADR
+/// 2707). `Enters` and `Exits` hold events bound by `ref` to the list (page 706), each assigning
+/// its number to its own field, so each shows whether the list's event fired since it was cleared.
+#[test]
+fn a_selection_committed_in_a_focused_choice_list_exits_it_and_the_next_reenters_it() {
+    let fields = "<field name=\"Units\"><ui><choiceList/></ui><value><text/></value></field>\
+                  <field name=\"Enters\"><ui><textEdit/></ui><value><text/></value>\
+                  <event activity=\"enter\" ref=\"Units\"><script>4</script></event></field>\
+                  <field name=\"Exits\"><ui><textEdit/></ui><value><text/></value>\
+                  <event activity=\"exit\" ref=\"Units\"><script>9</script></event></field>";
+    let data = "<Units/><Enters/><Exits/>";
+    let mut viewer = opened_on(
+        Scripting::Run(Arc::new(Calculators::default())),
+        hybrid_of(fields, data, &["Units", "Enters", "Exits"]),
+    );
+    viewer.handle(Command::Presented).for_each(drop);
+    viewer
+        .handle(Command::Focused(viewer_core::FocusMove::Next))
+        .for_each(drop);
+    assert_eq!(value(&viewer, "Enters"), "4", "the focus reached Units");
+    let clear = |viewer: &mut Viewer| {
+        enter(viewer, "Enters", "0");
+        enter(viewer, "Exits", "0");
+    };
+    clear(&mut viewer);
+    enter(&mut viewer, "Units", "a");
+    assert_eq!(
+        (value(&viewer, "Enters"), value(&viewer, "Exits")),
+        ("0".to_owned(), "9".to_owned()),
+        "the first selection exits the list and enters nothing"
+    );
+    clear(&mut viewer);
+    enter(&mut viewer, "Units", "b");
+    assert_eq!(
+        (value(&viewer, "Enters"), value(&viewer, "Exits")),
+        ("4".to_owned(), "9".to_owned()),
+        "the second selection enters the list again and exits it"
+    );
+    clear(&mut viewer);
+    viewer
+        .handle(Command::Focused(viewer_core::FocusMove::Next))
+        .for_each(drop);
+    assert_eq!(
+        value(&viewer, "Exits"),
+        "0",
+        "the focus leaving fires no second exit"
+    );
+}
+
+/// XFA 3.3 page 396: an object's `validationState` event fires when the form is initialized and
+/// afterwards only where its validation state changed, so the window keeps each container's state
+/// from one activation to the next (ADR 2706). `Amount`'s script test is its own value, which an
+/// entry of `5` passes and of `0` fails; `Flag` holds an event bound by `ref` to `Amount`.
+#[test]
+fn the_window_fires_a_validation_state_event_only_where_an_entry_changes_the_state() {
+    let fields = "<field name=\"Amount\"><ui><textEdit/></ui><value><text/></value>\
+                  <validate><script>same</script></validate></field>\
+                  <field name=\"Flag\"><ui><textEdit/></ui><value><text/></value>\
+                  <event activity=\"validationState\" ref=\"Amount\"><script>7</script></event>\
+                  </field>";
+    let data = "<Amount/><Flag/>";
+    let mut viewer = opened_on(
+        Scripting::Run(Arc::new(Calculators::default())),
+        hybrid_of(fields, data, &["Amount", "Flag"]),
+    );
+    viewer.handle(Command::Presented).for_each(drop);
+    assert_eq!(
+        value(&viewer, "Flag"),
+        "7",
+        "the initialization announces it"
+    );
+    for (typed, flag) in [("5", "0"), ("0", "7"), ("0", "0"), ("5", "7")] {
+        enter(&mut viewer, "Flag", "0");
+        enter(&mut viewer, "Amount", typed);
+        assert_eq!(value(&viewer, "Flag"), flag, "after {typed:?}");
     }
 }

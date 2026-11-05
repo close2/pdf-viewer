@@ -19,6 +19,10 @@ pub(crate) const MAX_DEPTH: usize = 256;
 /// The most elements this module keeps of one packet; the same kind of bound as [`MAX_DEPTH`].
 pub(crate) const MAX_ELEMENTS: usize = 1 << 20;
 
+/// The most processing instructions one element keeps; the rest are dropped, so that a packet of
+/// a million of them costs a counter and not their text.
+pub(crate) const MAX_INSTRUCTIONS: usize = 16;
+
 /// Why a packet could not be read as XML.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum XmlError {
@@ -54,6 +58,9 @@ pub(crate) struct Element {
     pub(crate) start_end: Range<usize>,
     /// What lies between the start tag and the end tag; `None` for an empty-element tag.
     pub(crate) content: Option<Range<usize>>,
+    /// The processing instructions among its content, each its target and what follows it, at
+    /// most [`MAX_INSTRUCTIONS`] — XFA 3.3's `originalXFAVersion` is one (page 393).
+    pub(crate) instructions: Vec<(String, String)>,
 }
 
 impl Element {
@@ -132,6 +139,7 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<Tree, XmlError> {
                     text: String::new(),
                     start_end: span.end()..span.end(),
                     content: None,
+                    instructions: Vec::new(),
                 });
                 open.push(index);
                 content_from.push(span.end());
@@ -185,17 +193,10 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<Tree, XmlError> {
                     element.content = Some(from..span.start());
                 }
             },
-            xmlparser::Token::Text { text } => {
-                if let Some(element) = open.last().and_then(|&index| elements.get_mut(index)) {
-                    crate::xmp::unescape(text.as_str(), &mut element.text);
-                }
-            }
-            xmlparser::Token::Cdata { text, .. } => {
-                if let Some(element) = open.last().and_then(|&index| elements.get_mut(index)) {
-                    element.text.push_str(text.as_str());
-                }
-            }
-            _ => {}
+            other => content(
+                open.last().and_then(|&index| elements.get_mut(index)),
+                &other,
+            ),
         }
     }
     // `xmlparser` hands back the tokens of a truncated packet without complaint (the same
@@ -204,6 +205,26 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<Tree, XmlError> {
         return Err(XmlError::Malformed("an element is left open".to_owned()));
     }
     Ok(Tree { elements })
+}
+
+/// Adds what a token of content holds to the open `element`: character data, references
+/// expanded and CDATA taken as written, and a processing instruction, up to
+/// [`MAX_INSTRUCTIONS`]. Any other token adds nothing.
+fn content(element: Option<&mut Element>, token: &xmlparser::Token<'_>) {
+    let Some(element) = element else {
+        return;
+    };
+    match token {
+        xmlparser::Token::Text { text } => crate::xmp::unescape(text.as_str(), &mut element.text),
+        xmlparser::Token::Cdata { text, .. } => element.text.push_str(text.as_str()),
+        xmlparser::Token::ProcessingInstruction {
+            target, content, ..
+        } if element.instructions.len() < MAX_INSTRUCTIONS => element.instructions.push((
+            target.as_str().to_owned(),
+            content.map_or_else(String::new, |content| content.as_str().to_owned()),
+        )),
+        _ => {}
+    }
 }
 
 /// `text` as XML character data: the three characters markup reserves, and the carriage return,

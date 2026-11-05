@@ -345,6 +345,12 @@ pub(super) struct Scripting {
     form_invalid: Vec<Vec<crate::xfa::Invalid>>,
     /// The fields a person committed a value to, which a merge run afterwards leaves as they are.
     form_entered: BTreeSet<String>,
+    /// The validation state of the form's containers, kept from one activation to the next, whose
+    /// changes fire their `validationState` events (XFA 3.3 pages 396–397; ADR 2706).
+    form_validity: crate::xfa::Validity,
+    /// The choice list a person committed a selection in while it kept the focus, whose own
+    /// `exit` has fired with no `enter` since (XFA 3.3 page 392; ADR 2707).
+    form_selected: Option<String>,
     /// The requests scripts made of the host's console, in order, until a host takes them; at
     /// most [`MAX_CONSOLE_REQUESTS`] (ADR 1762).
     console: Vec<ConsoleRequest>,

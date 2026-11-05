@@ -350,9 +350,12 @@ pub(crate) fn what_a_print_does_not_do(document: &Document) -> Vec<String> {
 /// the form's own pictures and runs its format tests and, where the form asks for its validations
 /// before a save, its null and datatype tests (ADRs 2434, 2450, 2474); a submit runs those and the
 /// format test, naming each failure on the submission (ADR 2475). A reader whose level lets scripts
-/// run also carries out the form's calculations and its `change` and `initialize` events, in
-/// `FormCalc` and in JavaScript, when it is shown and at a commit (ADRs 2524, 2525, 2545). So what
-/// is not carried out is its other events, and its scripts where scripts do not run.
+/// run also carries out the form's calculations, its validation scripts and the events its
+/// containers raise when it is shown, at a person's entry, focus, click and pointer, at a choice
+/// list's selection, at a save and a submit and at a change of validation state, in `FormCalc` and
+/// in JavaScript (ADRs 2524, 2525, 2545, 2566, 2584, 2606, 2627, 2647, 2696, 2702, 2706, 2707), as
+/// ledger row K.2 lists them. So what is not carried out is its other events, and its scripts
+/// where scripts do not run.
 fn xfa_form(document: &Document, notes: &mut Vec<String>) {
     let Some(stated) = pdf_model::xfa::stated(document) else {
         return;
@@ -366,9 +369,11 @@ fn xfa_form(document: &Document, notes: &mut Vec<String>) {
                           was filled, in the form's own data formats, naming any field it \
                           cannot and any field the form's validations find empty or of the wrong \
                           type, and submitting it names the same — what only the XFA resource \
-                          states beyond that is not carried out, its calculations and its \
-                          change and initialize events in FormCalc and JavaScript excepted where \
-                          this reader lets scripts run, and its other events are not"
+                          states beyond that is not carried out, its calculations, its validation \
+                          scripts and the events a person's actions, the form's opening, a save, \
+                          a submit and a change of validation state raise, in FormCalc and \
+                          JavaScript, excepted where this reader lets scripts run, and its other \
+                          events are not"
             .to_owned(),
         (true, true) => format!(
             "this document is an XFA form that asks to be regenerated when it is opened \
