@@ -2282,23 +2282,6 @@ fn profile_shape(dict: &Dictionary) -> Dictionary {
     out
 }
 
-/// Why a missing `/Colorants` entry is not synthesised.
-///
-/// `doc/pdf-a-mitigations.md` section 4.2 proposed deriving the entry from the `DeviceN` space's
-/// own alternate space and tint transform, and section 13.3.1 records why the general case cannot
-/// be done exactly: §7.10 gives a PDF function no way to call another, so a one-input transform
-/// derived from an *N*-input one is a **sample** of the producer's rather than a restatement of
-/// it. What this rewrite does instead is the one case that needs no derivation at all.
-const COLORANT_NOT_DERIVABLE: &str = "a DeviceN or NChannel colour space here uses a spot \
-     colourant its Colorants dictionary does not define, and this file states no Separation \
-     array of its own for that colourant. Synthesising one means deriving a one-input tint \
-     transform from the space's N-input one, which ISO 32000-2 §7.10 gives a PDF function no way \
-     to express: the derived function can only sample the producer's, and an archive would then \
-     carry an approximation of their transform written as though it were their definition. Where \
-     the file does state a Separation array for the colourant, that array is the entry — ISO \
-     19005 section 6.2.4.4 requires every Separation of one name in a file to state the same \
-     alternate space and tint transform, so the entry is the producer's own and is written";
-
 /// Why a colourant this file does define twice, differently, is not copied.
 const COLOURANT_DEFINED_TWICE: &str = "this file states more than one Separation array for a \
      colourant whose Colorants entry is missing, and the arrays are not the same objects. ISO \
@@ -2309,9 +2292,8 @@ const COLOURANT_DEFINED_TWICE: &str = "this file states more than one Separation
 /// Why the `DeviceN` space a finding names cannot be reached.
 const COLORANTS_NOT_REACHABLE: &str = "a DeviceN colour space whose Colorants dictionary is \
      missing an entry is written in a place this rewrite cannot complete: the finding names no \
-     object, or the space's Attributes or Colorants dictionary is an indirect object of its own, \
-     which is not the object the failure was reported at. Writing into an object no finding named \
-     would be this converter reading the file a second way";
+     object, or the space's Attributes or Colorants entry is not a dictionary. Writing into an \
+     object no finding named would be this converter reading the file a second way";
 
 /// The `/Colorants` entries a `DeviceN` colour space is to gain, per object.
 ///
@@ -2320,9 +2302,16 @@ const COLORANTS_NOT_REACHABLE: &str = "a DeviceN colour space whose Colorants di
 pub(super) struct ColorantEntries {
     /// Per object the findings named, the `Separation` array each missing colourant is to get.
     pub(super) at: BTreeMap<ObjectId, BTreeMap<Vec<u8>, Object>>,
+    /// The tint transforms of the arrays [`super::spot_separation`] derived, at the spare numbers
+    /// they took.
+    pub(super) written: BTreeMap<ObjectId, Object>,
+    /// Per page that inherits a resource dictionary written directly in a node of [`Self::at`],
+    /// that node's entries, for the copy `Rewrite::PageResources` gives the page.
+    pub(super) inherited: BTreeMap<ObjectId, BTreeMap<Vec<u8>, Object>>,
 }
 
-/// Every missing `/Colorants` entry this file already states the answer to.
+/// Every missing `/Colorants` entry, from the file's own `Separation` array for the colourant
+/// where it states one and from the `DeviceN` space's own transform where it does not.
 ///
 /// # Why the file's own `Separation` array is the entry rather than a derivation
 ///
@@ -2335,12 +2324,18 @@ pub(super) struct ColorantEntries {
 /// there is no choice left to make, and the producer's own definition of the ink is written down
 /// rather than a function this converter fitted to their N-input one.
 ///
-/// Every other shape is refused, and [`COLORANT_NOT_DERIVABLE`] says why.
+/// # Where the file defines the ink nowhere else
+///
+/// The space's own definition of it is the entry: [`super::spot_separation`] restricts the
+/// producer's tint transform to that colourant alone, where the transform is a program that can be
+/// restricted exactly, and says by name why not where it is not (`doc/adr/2690`).
 pub(super) fn colorant_entries(
     document: &Document,
     input: &pdf_archive::Report,
+    spare: &mut Spare,
 ) -> Result<ColorantEntries, Because> {
     let separations = separation_arrays(document);
+    let mut derived = super::spot_separation::Derived::default();
     let mut found = ColorantEntries::default();
     for judgement in input.failures() {
         if judgement.id != "graphics/spot-colourants-appear-in-the-colorants-dictionary" {
@@ -2355,20 +2350,19 @@ pub(super) fn colorant_entries(
                 return Err(Because::NotBuiltYet(COLORANTS_NOT_REACHABLE));
             };
             let colourant = colourant.clone().into_bytes();
-            let array = separations.stated.get(&colourant).ok_or_else(|| {
-                Because::NotBuiltYet(if separations.clashed.contains(&colourant) {
-                    COLOURANT_DEFINED_TWICE
-                } else {
-                    COLORANT_NOT_DERIVABLE
-                })
-            })?;
-            found
-                .at
-                .entry(id)
-                .or_default()
-                .insert(colourant, array.clone());
+            let array = if let Some(stated) = separations.stated.get(&colourant) {
+                stated.clone()
+            } else if separations.clashed.contains(&colourant) {
+                return Err(Because::NotBuiltYet(COLOURANT_DEFINED_TWICE));
+            } else {
+                derived
+                    .separation(document, &document.get(id), &colourant, spare)
+                    .map_err(Because::NotBuiltYet)?
+            };
+            found.at.entry(id).or_default().insert(colourant, array);
         }
     }
+    found.written = derived.written;
     // **The proof that the rewrite reaches every entry it promises.** The same placement the
     // rewriter performs is made here on a copy, and a colourant it could not place refuses the
     // document rather than leaving the output still failing the clause.
@@ -2385,7 +2379,55 @@ pub(super) fn colorant_entries(
             return Err(Because::NotBuiltYet(COLORANTS_NOT_REACHABLE));
         }
     }
+    found.inherited = pages_inheriting(document, &found.at);
     Ok(found)
+}
+
+/// The pages that inherit, under §7.7.3.4, a resource dictionary written directly in a page-tree
+/// node a finding named, each with that node's entries.
+///
+/// `Rewrite::PageResources` copies such a dictionary down into the page, and the copy is the
+/// page's own, so the entries the node's dictionary gains are placed in the copy as well — the
+/// page draws with the copy, and the copy is what the output is held to.
+fn pages_inheriting(
+    document: &Document,
+    at: &BTreeMap<ObjectId, BTreeMap<Vec<u8>, Object>>,
+) -> BTreeMap<ObjectId, BTreeMap<Vec<u8>, Object>> {
+    let mut out = BTreeMap::new();
+    for number in document.xref().object_numbers() {
+        let id = ObjectId::new(number, 0);
+        let object = document.get(id);
+        let Some(page) = object.as_dict() else {
+            continue;
+        };
+        if !page
+            .get("Type")
+            .is_some_and(|kind| is_name(document, kind, b"Page"))
+            || page.get("Resources").is_some()
+        {
+            continue;
+        }
+        let mut node = page.clone();
+        for _ in 0..MAX_INHERITANCE_DEPTH {
+            let Some(parent) = node.get("Parent").and_then(Object::as_reference) else {
+                break;
+            };
+            let Some(above) = document.get(parent).as_dict().cloned() else {
+                break;
+            };
+            match above.get("Resources") {
+                Some(Object::Dictionary(_)) => {
+                    if let Some(entries) = at.get(&parent) {
+                        out.insert(id, entries.clone());
+                    }
+                    break;
+                }
+                Some(_) => break,
+                None => node = above,
+            }
+        }
+    }
+    out
 }
 
 /// Every `Separation` colour space array the file's cross-referenced objects state, by colourant.
@@ -2491,10 +2533,10 @@ fn is_name(document: &Document, value: &Object, wanted: &[u8]) -> bool {
 /// Writes each colourant's `Separation` array into every `DeviceN` space inside `dict` that uses
 /// it, and answers which colourants were placed.
 ///
-/// **References are not followed**, for the reason the rest of this file does not follow them:
-/// the rewrite reaches the object the failure was reported at, and a dictionary written as its
-/// own object is reported at that object. An `/Attributes` or `/Colorants` the space states
-/// indirectly is therefore left alone, and [`colorant_entries`]'s proof turns that into a refusal.
+/// **References are not followed into other spaces**, for the reason the rest of this file does
+/// not follow them: the rewrite reaches the object the failure was reported at. A space's own
+/// `/Attributes` or `/Colorants` written indirectly is the one reference read, and the space is
+/// given a copy of it with the entries added, so the object other spaces may share is unchanged.
 pub(super) fn place_colorants(
     document: &Document,
     dict: &mut Dictionary,
@@ -2602,11 +2644,22 @@ fn place_in_devicen(
     if items.len() == 4 {
         items.push(Object::Dictionary(Dictionary::new()));
     }
+    // An attributes or `Colorants` dictionary written as an object of its own may be shared with
+    // other spaces (§8.6.6.5 NOTE 7), so it is not written into: this space is given a copy of it,
+    // in the object the finding named.
+    if let Some(attributes) = items.get_mut(4)
+        && let Object::Reference(_) = attributes
+    {
+        *attributes = document.resolve(attributes);
+    }
     let Some(Object::Dictionary(attributes)) = items.get_mut(4) else {
         return false;
     };
-    let mut colorants = match attributes.get("Colorants") {
-        Some(Object::Dictionary(stated)) => stated.clone(),
+    let mut colorants = match attributes
+        .get("Colorants")
+        .map(|stated| document.resolve(stated))
+    {
+        Some(Object::Dictionary(stated)) => stated,
         Some(_) => return false,
         None => Dictionary::new(),
     };

@@ -5491,11 +5491,10 @@ fn a_spot_colourant_the_file_already_defines_gains_the_producers_own_entry() {
 }
 
 #[test]
-fn a_spot_colourant_the_file_never_defines_stays_refused() {
-    // The general case, and section 13.3.1's correction of this catalogue entry: deriving the
-    // entry means deriving a one-input tint transform from the space's two-input one, which
-    // §7.10 gives a PDF function no way to express — so the derived function could only sample
-    // the producer's, and an archive would carry the sample as though it were the definition.
+fn a_spot_colourant_the_file_never_defines_over_a_sampled_transform_stays_refused() {
+    // Restricting a §7.10.2 sampled transform to one colourant would resample it, an
+    // approximation an archive would carry as the producer's definition; a §7.10.5 program is
+    // restricted exactly instead (`archive/spot_separations.rs`, `doc/adr/2690`).
     let source = a_devicen_over(false);
     let (report, output) = to_part_four(&source);
     assert!(
@@ -16385,3 +16384,6 @@ mod whole_population;
 
 #[path = "archive/packet_characters.rs"]
 mod packet_characters;
+
+#[path = "archive/spot_separations.rs"]
+mod spot_separations;

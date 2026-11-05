@@ -297,7 +297,10 @@ impl Rewriter<'_> {
         if !self.wants(Rewrite::SpotColorantEntry) {
             return false;
         }
-        let Some(entries) = self.colorants.and_then(|written| written.at.get(&id)) else {
+        let Some(entries) = self
+            .colorants
+            .and_then(|written| written.at.get(&id).or_else(|| written.inherited.get(&id)))
+        else {
             return false;
         };
         let placed = sites::place_colorants(self.document, out, entries, 0);

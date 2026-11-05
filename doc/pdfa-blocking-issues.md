@@ -2,7 +2,7 @@
 
 Status: **a census record**, taken at `7d6ed87f` on 2026-10-27 by session 1828 for the owner's
 `doc/questions/A681` item 1, and re-run by the commands in section 1. Section 1's census lines and
-section 2's table are session 1935's run, section 2 being `rank.py --table`'s output; the figures in
+section 2's table are session 1936's run, section 2 being `rank.py --table`'s output; the figures in
 sections 3 to 9 are session 1828's, each entry's built parts named where a round built them, and
 none is kept current by hand. ADR 2490 is the decision that reopens the blocks; this file
 is the list it reopens them over. It does not repeat `doc/pdf-a-conversion-limits.md` or
@@ -57,13 +57,13 @@ Two disagreements found outside it, to weigh in batch 132 (ADR 2652 section 2):
 
 | census line, with the pack | converted | conforming | refused | unreadable | declined as a source |
 |---|---|---|---|---|---|
-| pdf.js `as-if-printed` 2b | 900 | 2 | 58 | 11 | 5 |
+| pdf.js `as-if-printed` 2b | 906 | 2 | 52 | 11 | 5 |
 | corpora `as-if-printed` 2b | 426 | 6 | 52 | 16 | 3 |
-| pdf.js `as-if-printed` 4 | 910 | 0 | 50 | 11 | 5 |
+| pdf.js `as-if-printed` 4 | 916 | 0 | 44 | 11 | 5 |
 | corpora `as-if-printed` 4 | 435 | 0 | 50 | 16 | 2 |
-| pdf.js `as-shown` 2b | 835 | 2 | 123 | 11 | 5 |
+| pdf.js `as-shown` 2b | 841 | 2 | 117 | 11 | 5 |
 | corpora `as-shown` 2b | 344 | 6 | 133 | 16 | 4 |
-| pdf.js `as-shown` 4 | 839 | 0 | 121 | 11 | 5 |
+| pdf.js `as-shown` 4 | 845 | 0 | 115 | 11 | 5 |
 | corpora `as-shown` 4 | 341 | 0 | 142 | 16 | 4 |
 
 In session 1828's run, without the pack, pdf.js `as-if-printed` was eleven documents worse at each
@@ -105,18 +105,18 @@ column. R02 is built (ADR 2498) and no document reaches it.
 |---|---|---|---|---|---|---|
 | 1 | R06b-the-other-part | 34 | 8 | 41 / 9 | built | ADR 2498: the two-target request; the figures are what a one-part request refuses |
 | 2 | R10-font-refiling | 10 | 10 | 13 / 13 | builds only | built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685), a standard font's stated widths (ADR 2686), a mode 3 font's descriptor (ADR 2688) |
-| 3 | R12-spot-colourant | 7 | 7 | 7 / 7 | builds only | decided by ADR 2490 for a PostScript calculator function; a sampled or exponential one is owner-blocked until its loss is named |
-| 4 | R03-photograph | 6 | 8 | 55 / 57 | builds only | built under `as-if-printed`: A694, ADRs 2516, 2618, 2638; left, a page this reader does not draw whole; `as-shown` keeps ADR 2394's gate (A694 item 1) |
-| 5 | R08-unembedded-font-photograph | 9 | 9 | 35 / 35 | builds only | built under `as-if-printed`: A694, ADR 2516; `as-shown` keeps its stop (A694 item 1) |
-| 6 | R11-truetype-route | 9 | 9 | 10 / 10 | builds only | built: A694 item 3, ADR 2520 |
-| 7 | R04-absent-resource | 6 | 6 | 6 / 6 | builds only | built: ADRs 2500, 2522, 2523; left, a Type 3 glyph procedure's resources and a font that moved |
-| 8 | R03a-notdef-named | 4 | 4 | 8 / 5 | builds only | built: ADRs 2543, 2556, 2602, 2620, 2650 |
-| 9 | R16-annotations-and-forms | 4 | 4 | 15 / 18 | builds only | named per site |
-| 10 | R17-press-statements | 4 | 4 | 0 / 0 | builds only | decided by ADR 2490, unbuilt |
-| 11 | R13-jpx-transcode | 3 | 3 | 3 / 3 | builds only | unbuilt |
-| 12 | R14-appended-page-composition | 3 | 2 | 3 / 3 | builds only | built: ADRs 2678, 2682 |
-| 13 | R01-recovered-structure | 1 | 1 | 3 / 3 | builds only | built: ADRs 2502, 2503, 2551, 2596, 2670; each left is refused by its own sentence |
-| 14 | R07-undecodable-stream | 1 | 2 | 1 / 2 | builds only | built: ADR 2689; left, an ICC profile written as its alternate, and the seven `UnknownFilter` files' `%PDF-3.x` header |
+| 3 | R03-photograph | 6 | 8 | 55 / 57 | builds only | built under `as-if-printed`: A694, ADRs 2516, 2618, 2638; left, a page this reader does not draw whole; `as-shown` keeps ADR 2394's gate (A694 item 1) |
+| 4 | R08-unembedded-font-photograph | 9 | 9 | 35 / 35 | builds only | built under `as-if-printed`: A694, ADR 2516; `as-shown` keeps its stop (A694 item 1) |
+| 5 | R11-truetype-route | 9 | 9 | 10 / 10 | builds only | built: A694 item 3, ADR 2520 |
+| 6 | R04-absent-resource | 6 | 6 | 6 / 6 | builds only | built: ADRs 2500, 2522, 2523; left, a Type 3 glyph procedure's resources and a font that moved |
+| 7 | R03a-notdef-named | 4 | 4 | 8 / 5 | builds only | built: ADRs 2543, 2556, 2602, 2620, 2650 |
+| 8 | R16-annotations-and-forms | 4 | 4 | 15 / 18 | builds only | named per site |
+| 9 | R17-press-statements | 4 | 4 | 0 / 0 | builds only | decided by ADR 2490, unbuilt |
+| 10 | R13-jpx-transcode | 3 | 3 | 3 / 3 | builds only | unbuilt |
+| 11 | R14-appended-page-composition | 3 | 2 | 3 / 3 | builds only | built: ADRs 2678, 2682 |
+| 12 | R01-recovered-structure | 1 | 1 | 3 / 3 | builds only | built: ADRs 2502, 2503, 2551, 2596, 2670; each left is refused by its own sentence |
+| 13 | R07-undecodable-stream | 1 | 2 | 1 / 2 | builds only | built: ADR 2689; left, an ICC profile written as its alternate, and the seven `UnknownFilter` files' `%PDF-3.x` header |
+| 14 | R12-spot-colourant | 1 | 1 | 1 / 1 | builds only | built for a PostScript calculator function: ADR 2690; left, a sampled transform, refused until its loss is named (ADR 2490) |
 | 15 | R05-press | 0 | 9 | 0 / 29 | builds only | A694 item 2: (a) built; (b), `as-shown`'s assumed press, waits for an ICC table writer |
 | 16 | R18-piece-info | 0 | 3 | 0 / 3 | builds only | unbuilt |
 | 17 | R15-embedded-files | 0 | 2 | 3 / 7 | builds only | built: ADR 2536 |
@@ -283,6 +283,10 @@ PostScript calculator function the restriction is exact (the program is prefixed
 for a sampled or exponential one it is a resampled function, and that loss is named. This derives,
 rather than invents, the transform: it is what the producer's space paints for that colourant alone.
 ADR 2490 decides it; mitigations `graphics/spot-colourants-appear-in-the-colorants-dictionary`.
+**Built for a PostScript calculator function** (ADR 2690, `archive/spot_separation.rs`): six of the
+seven convert under every shipped profile at both parts. `devicen.pdf`'s transform is sampled
+(FunctionType 0) and stays refused by that name; an `NChannel` space is refused too, since there
+the entry changes what the page draws.
 
 **R17 — two press statements `as-if-printed` keeps** (4 documents): `halftone-name` (3) and overprint
 mode 1 under an ICC CMYK space (1). `as-shown` already discards both (ADR 1965). *A company*

@@ -841,6 +841,10 @@ ISO 19005-2 6.2.4.4, ISO 19005-4 6.2.4.4 · all six · **partly built in session
 - **The lesson is the catalogue's rather than this row's.** Two sessions read this requirement's
   mitigation off the one sentence the row's *title* is about, and the answer was in the next
   paragraph of the same subclause. A clause is not read until its neighbours are.
+- **Where the ink is defined nowhere else and the transform is a §7.10.5 program, the restriction
+  is exact and built** (ADR 2690): the producer's program with the other inputs pushed as zero
+  before it runs, so the sampled route above is owed only for a sampled transform, and an
+  `NChannel` space stays refused because there the entry decides what is drawn.
 - **By target** — none.
 - **From a configuration** — nothing.
 - **Departure** — **B**, and unnecessary. A `/Colorants` dictionary is what lets a reader render one

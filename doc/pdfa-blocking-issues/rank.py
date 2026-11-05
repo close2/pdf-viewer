@@ -141,7 +141,7 @@ STATUS = {
     "R09-as-shown-font-losses": ("builds only", "`as-shown` only; ADR 2490: (c) decided, (a) and (b) builds"),
     "R10-font-refiling": ("builds only", "built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685), a standard font's stated widths (ADR 2686), a mode 3 font's descriptor (ADR 2688)"),
     "R11-truetype-route": ("builds only", "built: A694 item 3, ADR 2520"),
-    "R12-spot-colourant": ("builds only", "decided by ADR 2490 for a PostScript calculator function; a sampled or exponential one is owner-blocked until its loss is named"),
+    "R12-spot-colourant": ("builds only", "built for a PostScript calculator function: ADR 2690; left, a sampled transform, refused until its loss is named (ADR 2490)"),
     "R13-jpx-transcode": ("builds only", "unbuilt"),
     "R14-appended-page-composition": ("builds only", "built: ADRs 2678, 2682"),
     "R15-embedded-files": ("builds only", "built: ADR 2536"),

@@ -177,6 +177,7 @@ mod settle;
 mod signatures;
 mod sites;
 mod smoothing;
+mod spot_separation;
 mod statement;
 mod supplied_cmyk;
 mod tagged;

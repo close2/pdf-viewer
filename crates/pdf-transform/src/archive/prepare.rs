@@ -1961,7 +1961,8 @@ pub(super) struct Owed {
 
 impl Owed {
     /// The objects the owed preparations add, at the spare numbers they took: the descriptors of
-    /// fonts drawn only in mode 3, the refiled programs and the restated `cmap`s.
+    /// fonts drawn only in mode 3, the refiled programs, the restated `cmap`s and the derived
+    /// spot colourants' tint transforms.
     fn written(&self) -> impl Iterator<Item = (&ObjectId, &Object)> {
         let widths = self
             .font_widths
@@ -1975,7 +1976,11 @@ impl Owed {
             .cmap_restated
             .iter()
             .flat_map(fonts::CmapRestated::written);
-        widths.chain(refiled).chain(restated)
+        let colorants = self
+            .colorants
+            .iter()
+            .flat_map(|entries| entries.written.iter());
+        widths.chain(refiled).chain(restated).chain(colorants)
     }
 
     /// Each of them, where a failed requirement asked for it.
@@ -2097,7 +2102,7 @@ impl Owed {
                 sites::shared_destination_profile(document, &catalog)
             }),
             colorants: asked(wanted(Rewrite::SpotColorantEntry), || {
-                sites::colorant_entries(document, input)
+                sites::colorant_entries(document, input, spare)
             }),
             specifications: asked(wanted(Rewrite::Jpeg2000ColourSpecifications), || {
                 jpeg2000::reduce_specifications(document, input)

@@ -141,11 +141,11 @@ pub(super) const REMEDIES: &[Remedy] = &[
         answer: Answer::Mechanical(Rewrite::SharedDestinationProfile),
     },
     // ISO 19005-2 section 6.2.4.4, ISO 19005-4 section 6.2.4.4: a spot colourant's own entry in
-    // the `/Colorants` dictionary. Mechanical because the entry written is the `Separation` array
-    // this file already states for that colourant, which the same subclause requires every
-    // Separation of the name to agree with; a colourant the file never defines on its own is
-    // refused, in `super::super::sites`, because deriving the entry would sample the producer's
-    // transform rather than restate it.
+    // the `/Colorants` dictionary. Mechanical because the entry written is either the
+    // `Separation` array this file already states for that colourant, which the same subclause
+    // requires every Separation of the name to agree with, or the `DeviceN` space's own
+    // transform restricted exactly to that colourant alone (`super::super::spot_separation`,
+    // `doc/adr/2690`); a transform that could only be resampled is refused there by name.
     Remedy {
         requirement: "graphics/spot-colourants-appear-in-the-colorants-dictionary",
         answer: Answer::Mechanical(Rewrite::SpotColorantEntry),
