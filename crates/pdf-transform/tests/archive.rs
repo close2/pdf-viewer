@@ -16140,6 +16140,8 @@ mod drawn_attachments;
 mod empty_glyphs;
 #[path = "archive/image_smoothing.rs"]
 mod image_smoothing;
+#[path = "archive/kept_codestream.rs"]
+mod kept_codestream;
 #[path = "archive/layout_from_this_viewer.rs"]
 mod layout_from_this_viewer;
 #[path = "archive/media_clips.rs"]

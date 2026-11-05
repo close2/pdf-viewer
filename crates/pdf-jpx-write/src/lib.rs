@@ -43,6 +43,7 @@
 
 #![forbid(unsafe_code)]
 
+mod around;
 mod codestream;
 mod file;
 mod mq;
@@ -50,6 +51,8 @@ mod tier1;
 mod tier2;
 
 use std::fmt;
+
+pub use around::{around, is_bare_codestream};
 
 /// The deepest component this writer takes: the depth whose every integer the tree's decoder
 /// reads back exactly, an `f32`'s 24 significant bits.
@@ -254,6 +257,15 @@ pub enum Error {
         /// The plane's.
         found: usize,
     },
+    /// Data that does not open with a whole codestream main header: `SOC`, then `SIZ` with
+    /// every component it counts (ISO/IEC 15444-1 A.4.1, A.5.1).
+    NotACodestream,
+    /// A codestream whose `Rsiz` (the value) asks a reader for more than ISO/IEC 15444-1: bit 15
+    /// for ISO/IEC 15444-2's extensions, bit 14 for a `CAP` marker segment's capabilities.
+    BeyondPartOne(u16),
+    /// Colour channels of different depths (each listed), which ISO 19005-2 section 6.2.8.3 and
+    /// ISO 19005-4 section 6.2.7.3 do not admit in JPEG 2000 data.
+    ColourDepths(Vec<u8>),
     /// A sample at or above 2^depth.
     Sample {
         /// The component.
@@ -304,6 +316,17 @@ impl fmt::Display for Error {
                 f,
                 "component {plane} has {found} samples on a grid of {expected}"
             ),
+            Self::NotACodestream => write!(
+                f,
+                "the data does not open with a whole JPEG 2000 codestream main header, SOC and SIZ"
+            ),
+            Self::BeyondPartOne(rsiz) => write!(
+                f,
+                "the codestream's Rsiz {rsiz:#06x} asks for more than ISO/IEC 15444-1"
+            ),
+            Self::ColourDepths(depths) => {
+                write!(f, "colour channels of different depths, {depths:?}")
+            }
             Self::Sample {
                 plane,
                 index,

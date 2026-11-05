@@ -1110,7 +1110,11 @@ refused by name
   pair widened — and every sentence of the subclause is about JPEG 2000 data, so the copy is
   outside all of them. The two costs of section 4.5's universal fallback above stand and are the
   reason it is the operator's answer: the file grows, and this tree's decoder's output is kept as
-  the picture. An opacity channel in the data (`SMaskInData` non-zero) becomes the soft-mask image
+  the picture. **A bare codestream pays neither**: before any decode, `preserve` gives it the JP2
+  file structure §7.4.9 expects, its bytes kept and its header read from its own `SIZ`, where its
+  `Rsiz` asks for nothing past ISO/IEC 15444-1, its one or three colour channels share a depth and
+  it states no opacity (ADR 2695). `as-if-printed`, `as-shown` and `only-metadata-loss` answer the
+  four sites with `preserve` as the stating profiles do (ADR 2694). An opacity channel in the data (`SMaskInData` non-zero) becomes the soft-mask image
   Table 87 has a processor create, `DeviceGray` under `FlateDecode`, with a zero `Matte` for code 2
   (ADR 1412). **A component deeper than sixteen bits has no Flate field** (Table 87 stops at 16),
   so such an image is written as a JP2 file of `pdf_jpx_write` under `JPXDecode` — one tile, the

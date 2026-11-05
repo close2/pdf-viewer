@@ -1,6 +1,6 @@
-//! `preserve` for a JPEG 2000 image outside the JPX baseline: its samples, written again under
-//! `FlateDecode` in the colour space its own dictionary states, or as JPEG 2000 again where a
-//! component is deeper than any Flate field holds.
+//! `preserve` for a JPEG 2000 image outside the JPX baseline: its codestream kept in a JP2 file,
+//! or its samples written again under `FlateDecode` in the colour space its own dictionary
+//! states, or as JPEG 2000 again where a component is deeper than any Flate field holds.
 //!
 //! ISO 19005-2 section 6.2.8.3 and ISO 19005-4 section 6.2.7.3 restrict *JPEG 2000 data* to the
 //! JPX baseline set of features, which ITU-T T.801 M.9.2 defines (ADR 1383). Every other
@@ -19,6 +19,13 @@
 //! its refusal ([`super::decision::SHAPES`]). An image mask has no colour space to state and one
 //! meaning for its samples, §7.4.9's "single colour channel with 1-bit samples", so it is
 //! transcoded as well.
+//!
+//! **A bare codestream is kept, and given the file structure it lacks.** §7.4.9 has the filter
+//! "expect to read a full JPX file structure", and a codestream with no boxes around it fails the
+//! baseline for being no JPX file at all; its own `SIZ` states every field of a JP2 header, so
+//! `pdf_jpx_write::around` writes the boxes and keeps the codestream byte for byte. Nothing is
+//! decoded into the file, so this is tried first, and every shape it does not answer is
+//! transcoded as below (ADR 2695).
 //!
 //! **An opacity channel travels as the soft-mask image Table 87 names.** A non-zero `/SMaskInData`
 //! says the codestream carries one, and Table 87 has a processor "create a soft-mask image from the
@@ -84,13 +91,16 @@ pub(super) const SITES: [&str; 4] = [
 
 /// What an operator answering the site with `preserve` is agreeing to.
 pub(super) const TRANSCODED: &str = "each JPEG 2000 image outside the JPX baseline whose \
-     dictionary states its own ColorSpace is decoded to its samples, at the depth its codestream \
+     dictionary states its own ColorSpace keeps its samples. One whose data is a bare codestream \
+     is given the JP2 file structure ISO 32000-2 7.4.9 expects, its codestream kept byte for byte \
+     (doc/adr/2695); any other is decoded to its samples, at the depth its codestream \
      gives each component, and written again under FlateDecode in that same ColorSpace, or, where \
      a component is deeper than sixteen bits and no Flate field holds it, as a JP2 file of this \
      program's lossless writer. Two costs come with it: the file grows, often by a great deal, \
      and this program's JPEG 2000 decoder's output becomes the archive's copy of the picture, so \
      a fault in that decoder is kept rather than left re-decodable. The report names every image \
-     with its size before and after (doc/adr/1400, doc/adr/2484)";
+     with its size before and after and whether its codestream was kept (doc/adr/1400, \
+     doc/adr/2484)";
 
 /// How many samples the transcode decodes, every image together.
 ///
@@ -237,6 +247,9 @@ pub struct TranscodedImage {
     /// The soft-mask image created from the codestream's opacity channel, where Table 87's
     /// `/SMaskInData` said it carried one (ADR 1412).
     pub soft_mask: Option<ObjectId>,
+    /// Whether the producer's codestream was kept byte for byte and only given the JP2 file
+    /// structure §7.4.9 expects, nothing decoded into the file (ADR 2695).
+    pub codestream_kept: bool,
 }
 
 impl TranscodedImage {
@@ -268,6 +281,10 @@ impl TranscodedImage {
                 self.soft_mask.map_or(Value::Null, |mask| {
                     Value::text(format!("{} {}", mask.number, mask.generation))
                 }),
+            ),
+            (
+                "codestream_kept".to_owned(),
+                Value::Bool(self.codestream_kept),
             ),
         ])
     }
@@ -358,6 +375,9 @@ fn transcode(
         return Err(Because::NotBuiltYet(NO_IMAGE_OBJECT));
     };
     let samples = admitted_samples(document, &stream)?;
+    if let Some(kept) = given_its_file_structure(document, id, &stream, &samples) {
+        return Ok(kept);
+    }
     if samples.precision > 16 {
         return written_as_jpeg_2000(document, id, &stream, &samples);
     }
@@ -416,12 +436,83 @@ fn transcode(
         before: stream.data.len(),
         after: replacement.data.len(),
         soft_mask: soft_mask.as_ref().map(|(at, _)| *at),
+        codestream_kept: false,
     };
     Ok(Transcoded {
         stream: Object::Stream(Arc::new(replacement)),
         row,
         soft_mask,
         samples: sample_count(&samples),
+    })
+}
+
+/// A bare codestream given the JP2 file structure ISO 32000-2 §7.4.9 has the filter "expect to
+/// read a full JPX file structure", and kept byte for byte inside it, where that alone brings the
+/// data into the JPX baseline (ADR 2695).
+///
+/// A codestream with no boxes around it fails ITU-T T.801 M.9.2 for being no JPX file at all,
+/// and its own `SIZ` states every field a JP2 header needs; the colour specification box is the
+/// one it does not, and §7.4.9 has the dictionary's stated `/ColorSpace` override whatever that
+/// box enumerates, so it enumerates the space JP2 has for the channel count and decides nothing a
+/// reader draws. Only the stream's `/Length` changes. Nothing is decoded into the file, so neither
+/// of ADR 1400's two costs is paid: the file grows by its boxes alone, and the archive's picture
+/// is the producer's codestream, which any decoder may read again.
+///
+/// `None` sends the image to the transcode, which answers every shape this does not: data that is
+/// already a file, a codestream needing ISO/IEC 15444-2's extensions (`pdf_jpx_write::around`
+/// refuses it), colour channels of different depths or a count JP2 does not enumerate, an opacity
+/// channel, and a file that does not decode back to the source's samples.
+fn given_its_file_structure(
+    document: &Document,
+    id: ObjectId,
+    stream: &Stream,
+    samples: &JpxSamples,
+) -> Option<Transcoded> {
+    if !pdf_jpx_write::is_bare_codestream(&stream.data) || samples.opacity.is_some() {
+        return None;
+    }
+    let opacity_stated = document
+        .get_key(&stream.dict, "SMaskInData")
+        .as_integer()
+        .is_some_and(|code| code != 0);
+    if opacity_stated {
+        return None;
+    }
+    let colour = match samples.components {
+        1 => Colour::Greyscale,
+        3 => Colour::Srgb,
+        _ => return None,
+    };
+    let file = pdf_jpx_write::around(&stream.data, colour).ok()?;
+    let mut written = stream.dict.clone();
+    written.insert(
+        Name::new(&b"Length"[..]),
+        Object::Integer(i64::try_from(file.len()).unwrap_or(i64::MAX)),
+    );
+    let replacement = Stream {
+        dict: written,
+        data: file.into(),
+        decryption_failed: false,
+    };
+    let depth = samples.depths.first().copied().unwrap_or(1);
+    if !reads_back_as(document, &replacement, samples, depth) {
+        return None;
+    }
+    let row = TranscodedImage {
+        at: id,
+        depths: samples.depths.clone(),
+        filter: "JPXDecode",
+        bits: depth,
+        before: stream.data.len(),
+        after: replacement.data.len(),
+        soft_mask: None,
+        codestream_kept: true,
+    };
+    Some(Transcoded {
+        stream: Object::Stream(Arc::new(replacement)),
+        row,
+        soft_mask: None,
+        samples: sample_count(samples),
     })
 }
 
@@ -609,6 +700,7 @@ fn written_as_jpeg_2000(
         before: stream.data.len(),
         after: replacement.data.len(),
         soft_mask: None,
+        codestream_kept: false,
     };
     Ok(Transcoded {
         stream: Object::Stream(Arc::new(replacement)),

@@ -819,16 +819,19 @@ const JPEG2000_SAMPLES_NOT_RE_ENCODED: &str = "doc/pdf-a-conversion-limits.md se
 /// ADR 1383 reads each shape against ITU-T T.801 M.9.2 and ADR 1371's rule that a codec's output
 /// is the image's samples. Where the dictionary states a `ColorSpace`, the data's colour
 /// specifications are ones §7.4.9 has a reader ignore, and the samples are already in the
-/// dictionary's domain: `preserve` transcodes them to `FlateDecode` (ADR 1400), which an operator
-/// asks for because it costs size and keeps this tree's decoder's output. Where it states none, a
+/// dictionary's domain: `preserve` gives a bare codestream the JP2 file structure, its bytes kept
+/// (ADR 2695), and transcodes any other shape to `FlateDecode` (ADR 1400); a profile that answers
+/// nothing, `refuse-any-loss` among them, reaches this sentence (ADR 2694). Where it states none, a
 /// specification off M.9.2.4's list is what the samples mean, and any baseline space written in
 /// its place relabels them.
 const JPEG2000_BASELINE_NOT_REACHED: &str = "ITU-T T.801 M.9.2 defines the JPX baseline and \
      each way out of it is the samples' own. Where the image dictionary states a ColorSpace the \
-     samples are already in its domain, and `remedy = \"preserve\"` at this site transcodes them \
-     to FlateDecode in that space (doc/adr/1400) — at a cost in size, and with this program's \
-     decoder's output kept as the picture, which is why it is the operator's answer rather than \
-     the default. Where the dictionary states none, a colour specification off M.9.2.4's list is \
+     samples are already in its domain, and `remedy = \"preserve\"` at this site, which the \
+     as-if-printed, as-shown, only-metadata-loss, no-data-loss and state-every-loss profiles \
+     give, keeps them: a bare codestream is given the JP2 file structure with its bytes kept \
+     (doc/adr/2695), and any other shape is transcoded to FlateDecode in that space at a cost in \
+     size, with this program's decoder's output kept as the picture (doc/adr/1400, \
+     doc/adr/2694). Where the dictionary states none, a colour specification off M.9.2.4's list is \
      what the samples mean, so writing a baseline one in its place, or a ColorSpace beside a Flate \
      copy, relabels the picture";
 

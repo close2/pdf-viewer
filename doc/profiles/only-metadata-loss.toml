@@ -106,3 +106,24 @@ unreadable = "discard"     # a date §7.9.4 does not admit is dropped and named 
 remedy = "preserve"
 unmapped = "discard"
 unreadable = "discard"
+
+# ---------------------------------------------------------------------------------------------
+# JPEG 2000 images outside the JPX baseline. A codestream with no boxes around it is given the JP2
+# file structure ISO 32000-2 7.4.9 has the filter expect, its bytes kept (doc/adr/2695); any other
+# shape whose dictionary states its ColorSpace is decoded and written again losslessly in that
+# space (doc/adr/1400, doc/adr/2484). Either way the image is drawn as it was, sample for sample,
+# so nothing is lost and the answer is `preserve` (doc/adr/2694). An image whose colour comes
+# from its data keeps its refusal.
+# ---------------------------------------------------------------------------------------------
+
+[site."graphics/jpeg2000-uses-the-baseline-feature-set"]
+remedy = "preserve"
+
+[site."graphics/jpeg2000-bit-depth"]
+remedy = "preserve"
+
+[site."graphics/jpeg2000-channel-count"]
+remedy = "preserve"
+
+[site."graphics/jpeg2000-no-ciejab-colour-space"]
+remedy = "preserve"

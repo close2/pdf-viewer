@@ -1115,12 +1115,15 @@ fn in_place_preservation(requirement: &str) -> Option<&'static str> {
         ),
         "graphics/jpeg2000-uses-the-baseline-feature-set" => Some(
             "preserve — a JPEG 2000 image outside the JPX baseline whose dictionary states its \
-             own ColorSpace is decoded to its samples and written again under FlateDecode in that \
-             space, each component at its own depth, or as JPEG 2000 again where a component is \
-             deeper than sixteen bits; the file grows, often by a great deal, and this program's \
-             decoder's output becomes the archive's copy of the picture. An image whose colour \
-             comes from its data keeps the refusal, and the report names each image with its size \
-             before and after (doc/adr/1400, doc/adr/2484)",
+             own ColorSpace keeps its samples: a bare codestream is given the JP2 file structure \
+             ISO 32000-2 7.4.9 expects, its bytes kept and the file growing by the boxes alone \
+             (doc/adr/2695); any other shape is decoded to its samples and written again under \
+             FlateDecode in that space, each component at its own depth, or as JPEG 2000 again \
+             where a component is deeper than sixteen bits, and then the file grows, often by a \
+             great deal, and this program's decoder's output becomes the archive's copy of the \
+             picture. An image whose colour comes from its data keeps the refusal, and the report \
+             names each image with its size before and after and whether its codestream was kept \
+             (doc/adr/1400, doc/adr/2484)",
         ),
         "graphics/jpeg2000-bit-depth"
         | "graphics/jpeg2000-channel-count"

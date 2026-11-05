@@ -111,18 +111,17 @@ column. R02 is built (ADR 2498) and no document reaches it.
 | 6 | R04-absent-resource | 6 | 6 | 6 / 6 | builds only | built: ADRs 2500, 2522, 2523; left, a Type 3 glyph procedure's resources and a font that moved |
 | 7 | R03a-notdef-named | 4 | 4 | 8 / 5 | builds only | built: ADRs 2543, 2556, 2602, 2620, 2650 |
 | 8 | R16-annotations-and-forms | 4 | 4 | 15 / 18 | builds only | named per site |
-| 9 | R13-jpx-transcode | 3 | 3 | 3 / 3 | builds only | unbuilt |
-| 10 | R14-appended-page-composition | 3 | 2 | 3 / 3 | builds only | built: ADRs 2678, 2682 |
-| 11 | R01-recovered-structure | 1 | 1 | 3 / 3 | builds only | built: ADRs 2502, 2503, 2551, 2596, 2670; each left is refused by its own sentence |
-| 12 | R07-undecodable-stream | 1 | 2 | 1 / 2 | builds only | built: ADR 2689; the `UnknownFilter` files' `%PDF-3.x` header, ADR 2692; left, an ICC profile written as its alternate |
-| 13 | R12-spot-colourant | 1 | 1 | 1 / 1 | builds only | built for a PostScript calculator function: ADR 2690; left, a sampled transform, refused until its loss is named (ADR 2490) |
-| 14 | R05-press | 0 | 9 | 0 / 29 | builds only | A694 item 2: (a) built; (b), `as-shown`'s assumed press, waits for an ICC table writer |
-| 15 | R18-piece-info | 0 | 3 | 0 / 3 | builds only | unbuilt |
-| 16 | R15-embedded-files | 0 | 2 | 3 / 7 | builds only | built: ADR 2536 |
-| 17 | D-defect | — | — | 7 / 6 | defect | section 8: the converter's own, diagnosed rather than ranked |
-| 18 | R09-as-shown-font-losses | 0 | 0 | 120 / 120 | builds only | `as-shown` only; ADR 2490: (c) decided, (a) and (b) builds |
-| 19 | X1-dynamic-xfa | — | — | 4 / 4 | exception | CLAUDE.md's exclusion; §K.1 |
-| 20 | X2-no-page-to-see | — | — | 6 / 6 | exception | the reader draws no page of it |
+| 9 | R14-appended-page-composition | 3 | 2 | 3 / 3 | builds only | built: ADRs 2678, 2682 |
+| 10 | R01-recovered-structure | 1 | 1 | 3 / 3 | builds only | built: ADRs 2502, 2503, 2551, 2596, 2670; each left is refused by its own sentence |
+| 11 | R07-undecodable-stream | 1 | 2 | 1 / 2 | builds only | built: ADR 2689; the `UnknownFilter` files' `%PDF-3.x` header, ADR 2692; left, an ICC profile written as its alternate |
+| 12 | R12-spot-colourant | 1 | 1 | 1 / 1 | builds only | built for a PostScript calculator function: ADR 2690; left, a sampled transform, refused until its loss is named (ADR 2490) |
+| 13 | R05-press | 0 | 9 | 0 / 29 | builds only | A694 item 2: (a) built; (b), `as-shown`'s assumed press, waits for an ICC table writer |
+| 14 | R18-piece-info | 0 | 3 | 0 / 3 | builds only | unbuilt |
+| 15 | R15-embedded-files | 0 | 2 | 3 / 7 | builds only | built: ADR 2536 |
+| 16 | D-defect | — | — | 7 / 6 | defect | section 8: the converter's own, diagnosed rather than ranked |
+| 17 | R09-as-shown-font-losses | 0 | 0 | 120 / 120 | builds only | `as-shown` only; ADR 2490: (c) decided, (a) and (b) builds |
+| 18 | X1-dynamic-xfa | — | — | 4 / 4 | exception | CLAUDE.md's exclusion; §K.1 |
+| 19 | X2-no-page-to-see | — | — | 6 / 6 | exception | the reader draws no page of it |
 
 Under `as-shown` the largest row is R09 (121 documents at each part), then R03 and R08, each held by
 an answer of the owner's (A694 item 1) rather than by a build.
@@ -296,9 +295,12 @@ graphics state and the pages of the marks it governed, in the output's `xmpMM:Hi
 convert under `as-if-printed` at 2b and 4, byte for byte the `as-shown` outputs once dates are
 masked; `no-data-loss` keeps refusing `102952.pdf` by `overprint-mode`.
 
-**R13 — a JPEG 2000 image outside the baseline** (3 documents, each alone). **Remedy**: write the
-decoded samples back losslessly (Flate, or `pdf-jpx-write`'s baseline writer, slot 3 of batch 123):
-the pixels are equal; only the file grows. Mitigations `graphics/jpeg2000-uses-the-baseline-feature-set`.
+**R13 — a JPEG 2000 image outside the baseline** (3 documents, each alone). **Built** (ADRs 2694,
+2695): each of the three is a bare codestream under a stated `/ColorSpace`, which `preserve` now
+gives the JP2 file structure §7.4.9 expects, the codestream byte for byte; any other shape with a
+stated space is ADR 1400's lossless transcode. `as-if-printed`, `as-shown` and `only-metadata-loss`
+answer the four JPEG 2000 sites with it, as the stating profiles did. Mitigations
+`graphics/jpeg2000-uses-the-baseline-feature-set`.
 
 ## 5. The content-stream fences
 
