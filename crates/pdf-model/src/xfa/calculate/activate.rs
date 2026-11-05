@@ -16,6 +16,14 @@
 //!   then the `initialize` events. Page 379's general order puts events first; page 407's third
 //!   rule is the specific one for this stimulus and puts the `initialize` events last, so the
 //!   specific rule is the one followed (ADR 2506).
+//! - A person's dismissal of the warning page 642 presents for an entry into a calculated field
+//!   ([`Stimulus::Dismissed`]): the field's calculation, which replaces the entry, and the
+//!   calculations that depend on it (ADR 2697).
+//! - **The script tests** (pages 382 and 385): once the calculations of any stimulus have settled,
+//!   the `validate` scripts run on a copy of the form whose assignments are put back, and the
+//!   containers whose script returns no true value are answered as page 386's
+//!   `validationMessaging` groups them — every container at a merge, and otherwise those the
+//!   stimulus reached by the dependency tracking page 382 describes (ADR 2696).
 //! - A move of the keyboard focus ([`Stimulus::Exit`], [`Stimulus::Enter`]): the `exit` events of
 //!   the field the focus left and of each subform and exclusion group it goes out of, innermost
 //!   first, and then the `enter` events of each it comes into, outermost first, and of the field
@@ -79,8 +87,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::{Calculation, Event, Form, Replaced, Scalar};
 use crate::xfa::datasets::Change;
-use crate::xfa::template::{Bound, Class, Language, Override, Performs};
-use crate::xfa::{Resource, Template};
+use crate::xfa::template::{Bound, Class, Language, Override, Performs, Script, ScriptTest};
+use crate::xfa::{Resource, Template, validate};
 
 /// What a [`Runner`] says of one script.
 #[derive(Debug, Clone, PartialEq)]
@@ -237,6 +245,15 @@ pub enum Stimulus<'a> {
     /// The open sequence has ended (pages 388 and 704): the `ready` events bound to the Form DOM
     /// (`ref="$form"`), then the `docReady` events bound to the application (`ref="$host"`).
     Ready,
+    /// A person dismissed the warning page 642 presents for an entry into the field `field`,
+    /// whose calculation's `override` is `warning`: the calculated value is left undisturbed, so
+    /// the calculation runs again and replaces the entry, and the calculations that depend on it
+    /// follow. No event fires; the dismissal is an answer to the processor, not an activity on
+    /// the form (ADR 2697).
+    Dismissed {
+        /// The field, by its PDF field name.
+        field: &'a str,
+    },
 }
 
 /// How an activation ended.
@@ -259,6 +276,31 @@ pub struct Overridden {
     pub mode: Override,
 }
 
+/// How much a failed script test weighs (XFA 3.3 page 385, the `scriptTest` of page 881).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Level {
+    /// The container is invalid, and the processor presents an error message.
+    Error,
+    /// The container is recommended a value its script accepts, and the processor presents a
+    /// warning the person may dismiss or override.
+    Warning,
+}
+
+/// A container whose `validate` script did not return a true value for the value it holds (XFA
+/// 3.3 page 382's script test), which the host presents as page 383 says.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Invalid {
+    /// The container, by its PDF field name, or by its template name where the field list does
+    /// not name it (a subform's).
+    pub container: String,
+    /// What its `validate` element's `scriptTest` makes of the failure.
+    pub level: Level,
+    /// The form designer's message for the script test (the `message` element's `text` named
+    /// `scriptTest`, page 383), where the form gives one; where it gives none, page 383 leaves the
+    /// words to the processor.
+    pub message: Option<String>,
+}
+
 /// What an activation did: the edits the scripts made, beside a person's, and what it refused.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Activation {
@@ -276,6 +318,13 @@ pub struct Activation {
     /// settled and, on a merge, before the `initialize` events: one `Vec` per message the person
     /// is shown ([`Resource::before_save`]).
     pub validations: Vec<Vec<String>>,
+    /// The containers whose script test fails once the calculations have settled, one `Vec` per
+    /// message the person is shown, as page 386's `validationMessaging` groups them (ADR 2696).
+    /// A merge tests every container (page 382's initialization); any other stimulus tests those
+    /// it changed, those around what it changed, and those whose script read what it changed
+    /// (page 382's interactive validation, with the dependency tracking pages 382 and 396
+    /// describe). Empty where [`Self::ended`] is a budget.
+    pub script_tests: Vec<Vec<Invalid>>,
     /// The fields of a person's entry whose calculation has `override` `error` or `warning`, in
     /// the order entered: the host presents the message page 642 asks for, an error for the first
     /// and a warning for the second. Empty where [`Self::ended`] is a budget, which keeps neither
@@ -303,6 +352,19 @@ impl Activation {
                 .collect(),
             report: self.report.clone(),
         }
+    }
+}
+
+/// Whether a script's value is a true one: page 1061 promotes a value a boolean operation reads
+/// to true where it can be fully converted to a nonzero number, and null to false.
+fn true_value(value: &Scalar) -> bool {
+    match value {
+        Scalar::Null => false,
+        Scalar::Number(n) => *n != 0.0 && !n.is_nan(),
+        Scalar::Text(text) => text
+            .trim()
+            .parse::<f64>()
+            .is_ok_and(|n| n.is_finite() && n != 0.0),
     }
 }
 
@@ -367,9 +429,10 @@ impl Resource {
         form.limit_text(limits.bytes);
         let initial = form.values.clone();
         let mut session = Session::new(&mut form, runner, limits, &self.template);
+        let mut typed = Vec::new();
         match stimulus {
             Stimulus::Entry { entered, before } => {
-                let typed = session.typed(entered, before);
+                typed = session.typed(entered, before);
                 session.fire("change", Some(&typed), &Bound::Own);
                 session.settle(Seeds::Entered(&typed));
             }
@@ -390,6 +453,10 @@ impl Resource {
             Stimulus::MouseUp { released } => session.pointed(released, "mouseUp"),
             Stimulus::MouseEnter { entered } => session.pointed(entered, "mouseEnter"),
             Stimulus::MouseExit { exited } => session.pointed(exited, "mouseExit"),
+            Stimulus::Dismissed { field } => {
+                let node: Vec<usize> = session.form.named(field).into_iter().collect();
+                session.settle(Seeds::Dismissed(&node));
+            }
             Stimulus::Ready => {
                 session.unfollowed();
                 session.fire("ready", None, &Bound::Form);
@@ -399,14 +466,22 @@ impl Resource {
             }
         }
         let mut validations = Vec::new();
+        let mut script_tests = Vec::new();
         if session.ended.is_none() {
             validations = self.before_save(&session.after(fields, &initial));
+            let tested = if matches!(stimulus, Stimulus::Merge) {
+                session.script_tests(None)
+            } else {
+                let changed = session.changed_since(&initial, &typed);
+                session.script_tests(Some(&changed))
+            };
+            script_tests = validate::grouped(&self.config, tested);
         }
         if matches!(stimulus, Stimulus::Merge) {
             session.fire("initialize", None, &Bound::Own);
             session.settle(Seeds::Changed);
         }
-        session.finish(&initial, validations)
+        session.finish(&initial, validations, script_tests)
     }
 }
 
@@ -488,6 +563,9 @@ enum Seeds<'a> {
     Entered(&'a [usize]),
     /// The calculations that depend on what changed.
     Changed,
+    /// The calculations of the fields whose `warning` a person dismissed, which page 642 says
+    /// leaves the calculated value undisturbed.
+    Dismissed(&'a [usize]),
 }
 
 /// One activation in progress.
@@ -1132,6 +1210,16 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
                 }
                 wanted.extend(self.readers(&changed, None));
             }
+            Seeds::Dismissed(fields) => {
+                if !self.known {
+                    self.discover();
+                }
+                for &node in fields {
+                    if let Some(index) = self.index_of(node) {
+                        wanted.insert(index);
+                    }
+                }
+            }
         }
         wanted.retain(|&index| {
             self.calculations
@@ -1238,8 +1326,144 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             .collect()
     }
 
+    /// The containers this activation changed: those whose value differs from `initial`, and
+    /// those a person `typed` into, whose entry is in `initial` already.
+    fn changed_since(&self, initial: &[Scalar], typed: &[usize]) -> BTreeSet<usize> {
+        let mut changed: BTreeSet<usize> = typed.iter().copied().collect();
+        changed.extend(
+            self.form
+                .values
+                .iter()
+                .enumerate()
+                .filter(|&(node, value)| initial.get(node) != Some(value))
+                .map(|(node, _)| node),
+        );
+        changed
+    }
+
+    /// Runs the script test of every container whose `validate` element states a script and does
+    /// not disable the test (XFA 3.3 pages 382 and 881), and answers the containers it fails.
+    ///
+    /// `changed` is `None` for a merge, where every container is tested (page 382's
+    /// initialization). Otherwise a container's failure is answered where it is among `changed`,
+    /// is around one of them — page 382 tests a subform on exit where a value was entered into
+    /// a field it contains — or its script read one of them: the dependency tracking page 382
+    /// asks for and page 396 says the script test is re-evaluated by. What a script read is what
+    /// it resolved while it ran, as a calculation's dependencies are (page 380), so every script
+    /// is run and the ones `changed` does not reach are not answered.
+    ///
+    /// **The test is of a value.** Page 396 applies the script test to no field holding null or
+    /// empty content, which the null test answers for. A script is true where its value promotes
+    /// to a nonzero number, as chapter 25 promotes a value a boolean operation reads (page 1061),
+    /// a JavaScript `true` reaching this module as 1; a script refused or stopped decides nothing
+    /// and is reported, not failed.
+    ///
+    /// **A validation alters nothing.** Page 372 says a validate script must not alter the form
+    /// and that a processor may not be able to enforce it, and page 385 says the same of the
+    /// script test. This processor can: every script runs on one copy of the form, a value it
+    /// assigns is put back before the next one runs, and the assignment is reported. The copy's
+    /// assignments are charged to the activation's text budget as discovery's are (ADR 2696).
+    fn script_tests(&mut self, changed: Option<&BTreeSet<usize>>) -> Vec<Invalid> {
+        if changed.is_some_and(BTreeSet::is_empty) {
+            return Vec::new();
+        }
+        let tests: Vec<(usize, Script, Level, Option<String>)> =
+            (0..self.template.container_count())
+                .filter_map(|node| {
+                    let container = self.template.get(node)?;
+                    let level = match container.pictures.script_test {
+                        ScriptTest::Error => Level::Error,
+                        ScriptTest::Warning => Level::Warning,
+                        ScriptTest::Disabled => return None,
+                    };
+                    let script = container.validation.clone()?;
+                    let message = container.pictures.message("scriptTest").map(str::to_owned);
+                    Some((node, script, level, message))
+                })
+                .collect();
+        if tests.is_empty() {
+            return Vec::new();
+        }
+        let mut around = BTreeSet::new();
+        for &node in changed.into_iter().flatten() {
+            let mut at = self.template.get(node).and_then(|c| c.parent);
+            while let Some(parent) = at {
+                if !around.insert(parent) {
+                    break;
+                }
+                at = self.template.get(parent).and_then(|c| c.parent);
+            }
+        }
+        let mut scratch = self.form.clone();
+        // A validation is no person's action, so no primary event is under it (page 398).
+        scratch.set_event(None);
+        let room = scratch.text_room();
+        let mut invalid = Vec::new();
+        for (node, script, level, message) in tests {
+            if self.ended.is_some() {
+                break;
+            }
+            let holds_a_value = match scratch.value(node) {
+                Scalar::Null => false,
+                Scalar::Text(text) => !text.is_empty(),
+                Scalar::Number(_) => true,
+            };
+            let valued = self
+                .template
+                .get(node)
+                .is_some_and(|c| matches!(c.class, Class::Field | Class::ExclGroup));
+            if valued && !holds_a_value {
+                continue;
+            }
+            scratch.take_resolved();
+            let _ = scratch.take_changed();
+            let outcome = self.execute(Some(&mut scratch), node, &script.language, &script.text);
+            let read = scratch.take_resolved();
+            let altered = scratch.take_changed();
+            let label = self.label(node);
+            if !altered.is_empty() {
+                for &at in &altered {
+                    if let (Some(slot), Some(kept)) =
+                        (scratch.values.get_mut(at), self.form.values.get(at))
+                    {
+                        slot.clone_from(kept);
+                    }
+                }
+                self.say(format!(
+                    "{label}: its validation script assigned a value, which a validation may not \
+                     do (XFA 3.3 pages 372 and 385), so the assignment is not kept"
+                ));
+            }
+            let answered = changed.is_none_or(|changed| {
+                changed.contains(&node) || around.contains(&node) || !read.is_disjoint(changed)
+            });
+            match outcome {
+                Ok(value) if answered && !true_value(&value) => invalid.push(Invalid {
+                    container: label,
+                    level,
+                    message,
+                }),
+                Err(why) if answered && self.ended.is_none() => self.say(format!(
+                    "{label}: its validation script: {why}, so its script test decides nothing"
+                )),
+                Ok(_) | Err(_) => {}
+            }
+        }
+        self.form.limit_text(
+            self.form
+                .text_room()
+                .saturating_sub(room.saturating_sub(scratch.text_room())),
+        );
+        invalid
+    }
+
     /// The activation's answer.
-    fn finish(mut self, initial: &[Scalar], validations: Vec<Vec<String>>) -> Activation {
+    fn finish(
+        mut self,
+        initial: &[Scalar],
+        validations: Vec<Vec<String>>,
+        script_tests: Vec<Vec<Invalid>>,
+    ) -> Activation {
         if let Some(limit) = self.ended {
             let sentence = format!(
                 "the activation ended on its {limit} limit after {} runs, and nothing it \
@@ -1282,6 +1506,11 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             activations: self.run,
             validations: if self.ended.is_none() {
                 validations
+            } else {
+                Vec::new()
+            },
+            script_tests: if self.ended.is_none() {
+                script_tests
             } else {
                 Vec::new()
             },

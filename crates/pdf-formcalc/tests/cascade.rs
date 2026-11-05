@@ -12,7 +12,7 @@ mod common;
 
 use common::hosted::FormCalcRunner;
 use pdf_model::view::{Entered, ScriptEdit, ViewState};
-use pdf_model::xfa::{Activation, Change, Ended, Limits, Resource, Scalar, Stimulus};
+use pdf_model::xfa::{Activation, Change, Ended, Level, Limits, Resource, Scalar, Stimulus};
 use pdf_syntax::Document;
 
 /// A field with a text value, a text edit, and the automation elements `inside` states.
@@ -1666,4 +1666,233 @@ fn the_pointer_crossing_a_field_runs_its_mouse_enter_and_mouse_exit() {
         assert_eq!(activation.ended, Ended::Settled, "{:?}", activation.report);
         assert_eq!(log(&activation).as_deref(), Some(expected));
     }
+}
+
+/// A `validate` element whose script is `script`, with the attribute text `attributes` and, where
+/// `message` is given, the designer's message for the script test (XFA 3.3 page 383's example).
+fn validate(script: &str, attributes: &str, message: Option<&str>) -> String {
+    let message = message.map_or_else(String::new, |said| {
+        format!("<message><text name=\"scriptTest\">{said}</text></message>")
+    });
+    format!("<validate {attributes}>{message}<script>{script}</script></validate>")
+}
+
+/// The containers each message of an activation's script tests names, with their levels.
+fn invalid(activation: &Activation) -> Vec<Vec<(String, Level)>> {
+    activation
+        .script_tests
+        .iter()
+        .map(|group| {
+            group
+                .iter()
+                .map(|failed| (failed.container.clone(), failed.level))
+                .collect()
+        })
+        .collect()
+}
+
+/// Page 382: the script test succeeds where the script returns a true value, and a merge, the
+/// form's initialization, executes every validation test. Page 881: `scriptTest` is `error` by
+/// default, `warning` and `disabled` its other levels. Page 383: the designer's message for the
+/// test is the `message` element's `text` named `scriptTest`. Page 386's default
+/// `validationMessaging`, `allMessagesIndividually`, makes each failure its own message.
+#[test]
+fn a_script_test_fails_where_its_script_returns_no_true_value_at_its_level() {
+    for (attributes, value, expected) in [
+        ("", "150", Some(Level::Error)),
+        ("scriptTest=\"error\"", "150", Some(Level::Error)),
+        ("scriptTest=\"warning\"", "150", Some(Level::Warning)),
+        ("scriptTest=\"disabled\"", "150", None),
+        ("", "50", None),
+    ] {
+        let template = field(
+            "Amount",
+            &validate("Amount &lt;= 100", attributes, Some("At most 100.")),
+        );
+        let activation = merge(&template, &[("Amount", value)]);
+        assert_eq!(activation.ended, Ended::Settled, "{:?}", activation.report);
+        assert_eq!(
+            invalid(&activation),
+            expected
+                .map(|level| vec![(name("Amount"), level)])
+                .into_iter()
+                .collect::<Vec<_>>(),
+            "{attributes:?} holding {value}"
+        );
+        if expected.is_some() {
+            assert_eq!(
+                activation.script_tests[0][0].message.as_deref(),
+                Some("At most 100.")
+            );
+        }
+    }
+}
+
+/// Page 1061: a value is true where it can be fully converted to a nonzero value, and null is
+/// false; so a script answering a text that is no number, or zero, fails the test, and one
+/// answering a nonzero number passes it.
+#[test]
+fn a_script_test_reads_its_value_as_formcalc_promotes_a_boolean() {
+    for (script, fails) in [
+        ("1", false),
+        ("-2.5", false),
+        ("\"7\"", false),
+        ("0", true),
+        ("\"abc\"", true),
+        ("Null", true),
+    ] {
+        let template = field("Amount", &validate(script, "", None));
+        let activation = merge(&template, &[("Amount", "1")]);
+        assert_eq!(!activation.script_tests.is_empty(), fails, "{script}");
+        if fails {
+            assert_eq!(activation.script_tests[0][0].message, None);
+        }
+    }
+}
+
+/// Page 396: neither the script test nor the format test is applied to a field holding null or
+/// empty content, which the null test answers for.
+#[test]
+fn an_empty_field_is_not_put_to_its_script_test() {
+    let template = field("Amount", &validate("0", "", None));
+    assert!(merge(&template, &[("Amount", "")]).script_tests.is_empty());
+    assert_eq!(invalid(&merge(&template, &[("Amount", "x")])).len(), 1);
+}
+
+/// Page 382: on a person's entry the tests run are the field's, a subform's where a value was
+/// entered into a field it contains (`Inner`), and the others the processor infers the change may
+/// affect by dependency tracking — here `Check`, whose script reads `A`. `B`'s test and the subform
+/// `Other`'s, which the entry reaches neither way, are not answered.
+#[test]
+fn an_entry_answers_the_script_tests_it_reaches_and_no_others() {
+    let template = [
+        format!(
+            "<subform name=\"Inner\">{}{}</subform>",
+            validate("0", "", None),
+            field("A", &validate("A &lt; 10", "", None))
+        ),
+        format!(
+            "<subform name=\"Other\">{}{}</subform>",
+            validate("0", "", None),
+            field("B", &validate("B &lt; 10", "", None))
+        ),
+        field("Check", &validate("Inner.A &lt; 10", "", None)),
+    ]
+    .concat();
+    let values = [("Inner.A", "50"), ("Other.B", "50"), ("Check", "1")];
+    let activation = entered(&template, &values, &["Inner.A"]);
+    let mut answered: Vec<String> = invalid(&activation)
+        .into_iter()
+        .flatten()
+        .map(|(container, _)| container)
+        .collect();
+    answered.sort();
+    assert_eq!(
+        answered,
+        ["Inner".to_owned(), name("Check"), name("Inner.A")],
+        "{:?}",
+        activation.report
+    );
+    assert_eq!(invalid(&merge(&template, &values)).len(), 5);
+}
+
+/// Pages 372 and 385: a validation script must not alter the form. One that assigns has its
+/// assignment put back before anything reads it — `Probe`'s test, run after it, reads `Note` as
+/// the calculation left it — the activation keeps no such value, and the report says so.
+#[test]
+fn a_validation_script_that_assigns_changes_nothing_and_is_reported() {
+    let template = [
+        field("Amount", &validate("Note = \"touched\"\n1", "", None)),
+        field("Note", &calculate("Concat(\"seen \", Note)", "")),
+        field("Probe", &validate("Note &lt;&gt; \"touched\"", "", None)),
+    ]
+    .concat();
+    let values = [("Amount", "5"), ("Note", ""), ("Probe", "1")];
+    let activation = merge(&template, &values);
+    assert_eq!(
+        activation.edits,
+        vec![edit("Note", Scalar::Text("seen ".to_owned()))]
+    );
+    assert!(activation.script_tests.is_empty());
+    assert!(
+        activation
+            .report
+            .iter()
+            .any(|said| said.contains("validation script assigned a value")),
+        "{:?}",
+        activation.report
+    );
+}
+
+/// Page 407's rule 3: on a merge the validations run after the calculations and before the
+/// `initialize` events. The calculation makes `Amount` valid before its test; the `initialize`
+/// event makes `Late` valid only after its test, so `Late` alone fails.
+#[test]
+fn on_a_merge_the_script_tests_run_between_the_calculations_and_the_initialize_events() {
+    let template = [
+        field(
+            "Amount",
+            &[calculate("5", ""), validate("Amount &lt; 10", "", None)].concat(),
+        ),
+        field(
+            "Late",
+            &[
+                "<event activity=\"initialize\"><script>Late = 5</script></event>".to_owned(),
+                validate("Late &lt; 10", "", None),
+            ]
+            .concat(),
+        ),
+    ]
+    .concat();
+    let activation = merge(&template, &[("Amount", "50"), ("Late", "50")]);
+    assert_eq!(
+        invalid(&activation),
+        vec![vec![(name("Late"), Level::Error)]],
+        "{:?}",
+        activation.report
+    );
+}
+
+/// Page 642: a person who dismisses the warning an `override` of `warning` presents leaves the
+/// calculated value undisturbed, so the calculation replaces the entry (`99`) with its value
+/// (`Units * 2`), and `Double`, which reads `Total`, follows (page 379's cascade). No event fires:
+/// `Total`'s `change` is a person's entry (page 391), and a dismissal enters nothing.
+#[test]
+fn a_dismissed_warning_runs_the_calculation_over_the_entry_and_what_reads_it() {
+    let template = [
+        field("Units", ""),
+        field(
+            "Total",
+            &[
+                calculate("Units * 2", "override=\"warning\""),
+                "<event activity=\"change\"><script>Log = \"fired\"</script></event>".to_owned(),
+            ]
+            .concat(),
+        ),
+        field("Double", &calculate("Total * 2", "")),
+        field("Log", ""),
+    ]
+    .concat();
+    let values = [
+        ("Units", "3"),
+        ("Total", "99"),
+        ("Double", "198"),
+        ("Log", ""),
+    ];
+    let field = name("Total");
+    let activation = activate(
+        &template,
+        &values,
+        Stimulus::Dismissed { field: &field },
+        Limits::DEFAULT,
+    );
+    assert_eq!(activation.ended, Ended::Settled, "{:?}", activation.report);
+    assert_eq!(
+        activation.edits,
+        vec![
+            edit("Total", Scalar::Number(6.0)),
+            edit("Double", Scalar::Number(12.0)),
+        ]
+    );
+    assert!(activation.overridden.is_empty());
 }

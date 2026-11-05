@@ -339,6 +339,10 @@ pub(super) struct Scripting {
     form: form::FormResource,
     /// The fields whose `override` asks a host to present a message, until a host takes them.
     form_overrides: Vec<FormOverride>,
+    /// The messages of the script tests the form failed, each a group page 386's
+    /// `validationMessaging` makes one message of, until a host takes them; at most
+    /// [`form::MAX_HELD_VALIDATIONS`] (ADR 2696).
+    form_invalid: Vec<Vec<crate::xfa::Invalid>>,
     /// The fields a person committed a value to, which a merge run afterwards leaves as they are.
     form_entered: BTreeSet<String>,
     /// The requests scripts made of the host's console, in order, until a host takes them; at

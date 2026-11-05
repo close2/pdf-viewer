@@ -6,7 +6,7 @@
 //! module runs the first two where a save asks for them, and the first, the second and the format
 //! test where a submit does (page 447's standard submit processing runs the null test and then the
 //! format test over the whole form, whatever the submit carries). The script test is a script's,
-//! which waits on a `FormCalc` engine (RFC 0011 section 13).
+//! and runs where scripts run, in [`super::Resource::activate`] (ADR 2696).
 //!
 //! Chapter 10's `validate` element tests a field or an exclusion group for null content first
 //! (page 381's table, which marks the test not applicable to a subform). Page 396 runs the null
@@ -115,6 +115,14 @@ pub(crate) fn before(
             tested.failures(name, value)
         })
         .collect();
+    grouped(config, failed)
+}
+
+/// The failures of one run of validations, one `Vec` per message the person is shown, as page
+/// 386's `validationMessaging` groups them: `allMessagesTogether` puts every failure in one,
+/// `firstMessageOnly` keeps the first, and `noMessages` shows none. A failure the grouping drops
+/// is still invalid; only its message is suppressed.
+pub(crate) fn grouped<T>(config: &Config, failed: Vec<T>) -> Vec<Vec<T>> {
     match config.messaging() {
         Messaging::Individually => failed.into_iter().map(|said| vec![said]).collect(),
         Messaging::Together if failed.is_empty() => Vec::new(),

@@ -330,6 +330,13 @@ impl Viewer {
                         .push_back(crate::scripting::override_notice(&over));
                 }
             }
+            for group in open.view.take_form_validations() {
+                if open.consent.form_alerts.len() < crate::scripting::MAX_FORM_ALERTS {
+                    open.consent
+                        .form_alerts
+                        .push_back(crate::scripting::validation_notice(&group));
+                }
+            }
             if let Some(asks) = open.consent.asks.clone() {
                 if asks.withdrawn() {
                     open.consent.runner_question_open = false;
@@ -349,9 +356,11 @@ impl Viewer {
             }
             if !open.consent.runner_question_open
                 && !open.consent.form_alert_open
-                && let Some(question) = open.consent.form_alerts.pop_front()
+                && let Some(crate::scripting::FormAlert { question, warns }) =
+                    open.consent.form_alerts.pop_front()
             {
                 open.consent.form_alert_open = true;
+                open.consent.form_alert_warns = warns;
                 events.push(Event::ScriptAsking {
                     document: *id,
                     question,

@@ -88,8 +88,8 @@ mod validate;
 mod xml;
 
 pub use calculate::{
-    Activation, Calculation, Ended, Event, Form, FormLanguage, Limits, Occurrence, Overridden, Ran,
-    Replaced, Runner, Scalar, Step, Stimulus,
+    Activation, Calculation, Ended, Event, Form, FormLanguage, Invalid, Level, Limits, Occurrence,
+    Overridden, Ran, Replaced, Runner, Scalar, Step, Stimulus,
 };
 pub use config::Config;
 pub use datasets::{Change, Datasets, Kept};

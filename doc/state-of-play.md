@@ -496,7 +496,11 @@ unfinished cascade's edits and say so (ADRs 2506, 2507). **A window that lets sc
 it**: the view state activates a hybrid form when it is shown and at a commit, through the runner the
 reader's `Scripts` level supplied, and `pdf-script-worker` runs `pdf-formcalc` in the confined script
 worker as a conversation with the host that holds the form; `override`'s `error` and `warning` reach
-the window as a notice (ADRs 2524, 2525). **A move of the keyboard focus runs the form's `exit` and
+the window as a notice, a `warning`'s asking page 642's choice, whose dismissal runs the calculation
+over the entry (ADRs 2524, 2525, 2697). **A validation that is a script runs once the calculations
+settle** (pages 382 and 385), on a copy of the form that keeps none of its assignments: every
+container at a merge, and otherwise those the stimulus reached by dependency, the failures reaching
+the window in the designer's message, grouped as `validationMessaging` says (ADR 2696). **A move of the keyboard focus runs the form's `exit` and
 `enter` events** — of the field and of each subform and exclusion group the focus crosses (XFA 3.3
 pages 390–391) — wherever a window raises `/Bl` and `/Fo` on a widget (ADR 2566), **and a click
 within a field runs the field's own `click` events** (page 391) wherever a window raises `/U` on its

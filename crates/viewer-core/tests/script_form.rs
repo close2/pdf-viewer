@@ -293,9 +293,19 @@ fn a_javascript_calculation_is_asked_about_and_run_as_javascript() {
 /// draws for a script's question, and its answer is not mistaken for a script's.
 #[test]
 fn a_person_s_entry_into_a_calculated_field_puts_a_notice_once() {
-    for (attributes, icon, shown_after) in [
-        ("override=\"error\"", AlertIcon::Error, "6"),
-        ("override=\"warning\"", AlertIcon::Warning, "99"),
+    for (attributes, icon, offered, shown_after) in [
+        (
+            "override=\"error\"",
+            AlertIcon::Error,
+            AlertButtons::Ok,
+            "6",
+        ),
+        (
+            "override=\"warning\"",
+            AlertIcon::Warning,
+            AlertButtons::YesNo,
+            "99",
+        ),
     ] {
         let calculators = Arc::new(Calculators::default());
         let mut viewer = opened(
@@ -316,7 +326,7 @@ fn a_person_s_entry_into_a_calculated_field_puts_a_notice_once() {
             panic!("a notice is an alert");
         };
         assert!(message.contains("form1[0].Total[0]"), "{message}");
-        assert_eq!((*shown, *buttons), (icon, AlertButtons::Ok));
+        assert_eq!((*shown, *buttons), (icon, offered));
         assert_eq!(value(&viewer, "Total"), shown_after, "{attributes}");
 
         // Put once: a command that follows does not put it again, and its answer reaches no runner.
@@ -337,6 +347,33 @@ fn a_person_s_entry_into_a_calculated_field_puts_a_notice_once() {
                 .is_empty(),
             "{attributes}: a notice's answer is not a script's"
         );
+    }
+}
+
+/// XFA 3.3 page 642: a `warning` gives the person two choices. "Yes", to override, keeps the
+/// value entered (`99`); "No", to dismiss, leaves the calculated value (`6`) undisturbed, and so
+/// does a dialogue closed without a press, whose answer is "No" (ADR 2697).
+#[test]
+fn a_warning_s_no_restores_the_calculated_value_and_its_yes_keeps_the_entry() {
+    for (answer, kept) in [
+        (ScriptAnswer::Pressed(AlertButton::Yes), "99"),
+        (ScriptAnswer::Pressed(AlertButton::No), "6"),
+        (ScriptAnswer::Unanswerable, "6"),
+    ] {
+        let mut viewer = opened(
+            Scripting::Run(Arc::new(Calculators::default())),
+            "override=\"warning\"",
+        );
+        viewer.handle(Command::Presented).for_each(drop);
+        assert_eq!(notices(&enter(&mut viewer, "Total", "99")).len(), 1);
+        assert_eq!(value(&viewer, "Total"), "99");
+        viewer
+            .handle(Command::AnswerScript {
+                document: DOCUMENT,
+                answer: answer.clone(),
+            })
+            .for_each(drop);
+        assert_eq!(value(&viewer, "Total"), kept, "{answer:?}");
     }
 }
 
@@ -585,4 +622,40 @@ fn the_ready_event_runs_when_the_form_is_presented_and_an_unfollowed_one_is_repo
             "{said}"
         );
     }
+}
+
+/// XFA 3.3 page 383: a container whose script test fails is presented to the person in the
+/// designer's message for the test, as the notice a window draws for a script's question, at
+/// page 881's default level, `error`. Page 396 leaves the empty field the form is presented with
+/// to the null test, so the merge puts nothing; the entry, which the script refuses, puts one
+/// notice, and the entry stands (page 383 recommends that a person not be held in the field).
+/// The runner sets the field to the number the script is, which a validation may not keep
+/// (pages 372 and 385).
+#[test]
+fn an_entry_its_validation_script_refuses_puts_the_designers_message() {
+    let bytes = hybrid(
+        "<field name=\"Units\"><ui><textEdit/></ui><value><text/></value>\
+         <validate><message><text name=\"scriptTest\">Units must be positive.</text></message>\
+         <script>0</script></validate></field>\
+         <field name=\"Total\"><ui><textEdit/></ui><value><text/></value></field>",
+        "<Units/><Total/>",
+    );
+    let mut viewer = opened_on(Scripting::Run(Arc::new(Calculators::default())), bytes);
+    let presented: Vec<Event> = viewer.handle(Command::Presented).collect();
+    assert!(notices(&presented).is_empty());
+    let put = notices(&enter(&mut viewer, "Units", "5"));
+    assert_eq!(put.len(), 1, "{put:?}");
+    let ScriptQuestion::Alert {
+        message,
+        icon,
+        buttons,
+        title,
+    } = &put[0]
+    else {
+        panic!("a validation message is an alert");
+    };
+    assert_eq!(message, "form1[0].Units[0]: Units must be positive.");
+    assert_eq!((*icon, *buttons), (AlertIcon::Error, AlertButtons::Ok));
+    assert_eq!(title.as_deref(), Some("Form validation"));
+    assert_eq!(value(&viewer, "Units"), "5");
 }

@@ -1054,3 +1054,42 @@ fn a_mouse_enter_event_that_never_ends_is_stopped() {
         );
     }
 }
+
+/// XFA 3.3 page 382's script test in JavaScript, run in the confined worker: a merge, the form's
+/// initialization, tests every container, and the field whose script returns `false` for its
+/// value is held for the host with its level (page 881's default, `error`) and the designer's
+/// message (page 383). An entry that makes the value one the script accepts holds nothing more,
+/// and an entry the script refuses holds the message again (page 382's interactive validation).
+#[test]
+fn a_javascript_validation_script_runs_in_the_worker_and_its_failure_is_held_for_the_host() {
+    use pdf_model::xfa::Level;
+    let template = field(
+        "Amount",
+        "<validate><message><text name=\"scriptTest\">At most 100.</text></message>\
+         <script contentType=\"application/x-javascript\">this.rawValue &lt;= 100</script>\
+         </validate>",
+    );
+    let document = document(&template, &[("Amount", "150")]);
+    let worker = Arc::new(ScriptWorker::with_program(WORKER).with_deadline(OUT_OF_THE_WAY));
+    let mut view = view_with(&document, &worker);
+
+    view.activate_form_on_merge(&document);
+    let held = view.take_form_validations();
+    assert_eq!(held.len(), 1, "{:?}", view.script_reports());
+    let failed = &held[0][0];
+    assert_eq!(
+        (
+            failed.container.as_str(),
+            failed.level,
+            failed.message.as_deref()
+        ),
+        (name("Amount").as_str(), Level::Error, Some("At most 100."))
+    );
+
+    view.set_field(&document, &name("Amount"), &Entered::Text("50".to_owned()));
+    view.commit_field(&document, &name("Amount"));
+    assert!(view.take_form_validations().is_empty());
+    view.set_field(&document, &name("Amount"), &Entered::Text("500".to_owned()));
+    view.commit_field(&document, &name("Amount"));
+    assert_eq!(view.take_form_validations().len(), 1);
+}

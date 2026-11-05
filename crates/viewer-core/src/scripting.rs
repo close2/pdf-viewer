@@ -110,14 +110,28 @@ pub(crate) struct Consent {
     pub(crate) withheld: Option<Arc<Withheld>>,
     /// Where the document's runner leaves its scripts' questions to the person, where it has one.
     pub(crate) asks: Option<Arc<dyn ScriptAsks>>,
-    /// The notices a person's entry into a calculated field raised and no window has been shown
-    /// yet, oldest first, at most [`MAX_FORM_ALERTS`] (XFA 3.3 pages 641–642; ADR 2525).
-    pub(crate) form_alerts: std::collections::VecDeque<ScriptQuestion>,
+    /// The notices a person's entry into a calculated field raised, and the messages of the
+    /// script tests an XFA form failed, that no window has been shown yet, oldest first, at most
+    /// [`MAX_FORM_ALERTS`] (XFA 3.3 pages 383 and 641–642; ADRs 2525, 2696).
+    pub(crate) form_alerts: std::collections::VecDeque<FormAlert>,
     /// Whether a notice from [`Self::form_alerts`] has gone out and is not yet answered.
     pub(crate) form_alert_open: bool,
+    /// The field whose `warning` the notice that has gone out asks about, where it is one: its
+    /// answer is the person's choice page 642 describes (ADR 2697).
+    pub(crate) form_alert_warns: Option<String>,
     /// Whether a question the runner's script put has gone out and is not yet answered, so that
     /// the answer a window sends is known to be the runner's and not a notice's.
     pub(crate) runner_question_open: bool,
+}
+
+/// A notice an XFA form owes the person, and the field whose `warning` it asks about where its
+/// answer is the choice page 642 gives (ADR 2697).
+#[derive(Debug, Clone)]
+pub(crate) struct FormAlert {
+    /// What the window is asked to show.
+    pub(crate) question: ScriptQuestion,
+    /// The field whose calculated value a "No" leaves undisturbed, for a `warning`'s notice.
+    pub(crate) warns: Option<String>,
 }
 
 /// Most notices a document holds for a window that has not yet shown the ones before them.
@@ -350,12 +364,15 @@ pub(crate) fn runs(scripting: &Scripting, consent: &Consent) -> bool {
 /// calculated field whose `override` is `error` or `warning`.
 ///
 /// The words are this program's: the page describes the dialogue and states none. An `error` says
-/// the calculated value replaced the entry; a `warning` says the entry replaces the calculated
-/// value, which is what it does here — the choice the page describes, to dismiss the warning and
-/// keep the calculated value, is not offered, and the notice does not pretend to ask it (ADR 2525).
-pub(crate) fn override_notice(over: &pdf_model::view::FormOverride) -> ScriptQuestion {
+/// the calculated value replaced the entry, and has one button (ADR 2525). A `warning` informs the
+/// person that the field is recommended to have its calculated value and gives page 642's two
+/// choices as one question: "Yes" overrides, keeping the entry, which already stands; "No"
+/// dismisses, leaving the calculated value undisturbed. A dialogue closed without a press answers
+/// "No" by [`AlertButtons::dismissed`]'s rule, which is the page's own word for the choice
+/// (ADR 2697).
+pub(crate) fn override_notice(over: &pdf_model::view::FormOverride) -> FormAlert {
     use pdf_model::view::FormOverrideMode;
-    let (message, icon) = match over.mode {
+    let (message, icon, buttons, warns) = match over.mode {
         FormOverrideMode::Error => (
             format!(
                 "{} is a calculated field. The value you entered was replaced by the calculated \
@@ -363,21 +380,68 @@ pub(crate) fn override_notice(over: &pdf_model::view::FormOverride) -> ScriptQue
                 over.field
             ),
             AlertIcon::Error,
+            AlertButtons::Ok,
+            None,
         ),
         FormOverrideMode::Warning => (
             format!(
-                "{} is a calculated field. The value you entered stands in place of the \
-                 calculated value.",
+                "{} is a calculated field, and the form recommends its calculated value. Keep \
+                 the value you entered instead?",
                 over.field
             ),
             AlertIcon::Warning,
+            AlertButtons::YesNo,
+            Some(over.field.clone()),
         ),
     };
-    ScriptQuestion::Alert {
-        message,
-        icon,
-        buttons: AlertButtons::Ok,
-        title: Some("Calculated field".to_owned()),
+    FormAlert {
+        question: ScriptQuestion::Alert {
+            message,
+            icon,
+            buttons,
+            title: Some("Calculated field".to_owned()),
+        },
+        warns,
+    }
+}
+
+/// The message XFA 3.3 page 383 asks a host to present when containers fail their script tests,
+/// one for each group page 386's `validationMessaging` makes of the failures (ADR 2696).
+///
+/// Each container's line is the form designer's message for the test where the form gives one,
+/// and where it gives none page 383 leaves the words to the processor, so they are this
+/// program's. An `error` makes the container invalid and a `warning` recommends another value
+/// (page 385); the alert carries the heavier of the group's levels. The entry stands either way:
+/// page 383 recommends that a person not be held in a field until it validates.
+pub(crate) fn validation_notice(group: &[pdf_model::xfa::Invalid]) -> FormAlert {
+    use pdf_model::xfa::Level;
+    let lines: Vec<String> = group
+        .iter()
+        .map(|invalid| match (&invalid.message, invalid.level) {
+            (Some(said), _) => format!("{}: {said}", invalid.container),
+            (None, Level::Error) => format!(
+                "{}: the form does not accept this value.",
+                invalid.container
+            ),
+            (None, Level::Warning) => format!(
+                "{}: the form recommends a value its check accepts.",
+                invalid.container
+            ),
+        })
+        .collect();
+    let icon = if group.iter().any(|invalid| invalid.level == Level::Error) {
+        AlertIcon::Error
+    } else {
+        AlertIcon::Warning
+    };
+    FormAlert {
+        question: ScriptQuestion::Alert {
+            message: lines.join("\n"),
+            icon,
+            buttons: AlertButtons::Ok,
+            title: Some("Form validation".to_owned()),
+        },
+        warns: None,
     }
 }
 
@@ -430,31 +494,87 @@ mod tests {
         assert_eq!(declined.question(), None);
     }
 
-    /// An `error` says the entry was replaced, a `warning` that it stands; both name the field and
-    /// carry one button, because neither has anything for a window to carry out.
+    /// An `error` says the entry was replaced and has one button, because it has nothing for a
+    /// window to carry out; a `warning` asks page 642's choice of the field it names (ADR 2697).
     #[test]
     fn an_override_notice_names_the_field_and_says_what_became_of_the_entry() {
         use super::override_notice;
         use crate::{AlertButtons, AlertIcon, ScriptQuestion};
         use pdf_model::view::{FormOverride, FormOverrideMode};
-        for (mode, icon, words) in [
-            (FormOverrideMode::Error, AlertIcon::Error, "was replaced"),
-            (FormOverrideMode::Warning, AlertIcon::Warning, "stands"),
+        for (mode, icon, words, offered, warns) in [
+            (
+                FormOverrideMode::Error,
+                AlertIcon::Error,
+                "was replaced",
+                AlertButtons::Ok,
+                false,
+            ),
+            (
+                FormOverrideMode::Warning,
+                AlertIcon::Warning,
+                "Keep the value you entered",
+                AlertButtons::YesNo,
+                true,
+            ),
         ] {
             let notice = override_notice(&FormOverride {
                 field: "form1[0].Total[0]".to_owned(),
                 mode,
             });
+            assert_eq!(notice.warns.is_some(), warns);
             let ScriptQuestion::Alert {
                 message,
                 icon: shown,
                 buttons,
                 ..
-            } = notice
+            } = notice.question
             else {
                 panic!("a notice is an alert");
             };
             assert!(message.contains("form1[0].Total[0]") && message.contains(words));
+            assert_eq!((shown, buttons), (icon, offered));
+        }
+    }
+
+    /// Page 383: the designer's message where the form gives one, this program's words where it
+    /// does not; page 385: an `error` in the group makes the alert an error, a `warning` alone a
+    /// warning. One message per group page 386 makes.
+    #[test]
+    fn a_validation_notice_says_the_designers_message_and_carries_the_heavier_level() {
+        use super::validation_notice;
+        use crate::{AlertButtons, AlertIcon, ScriptQuestion};
+        use pdf_model::xfa::{Invalid, Level};
+        let warned = Invalid {
+            container: "form1[0].Amount[0]".to_owned(),
+            level: Level::Warning,
+            message: Some("At most 100.".to_owned()),
+        };
+        let refused = Invalid {
+            container: "form1[0].Total[0]".to_owned(),
+            level: Level::Error,
+            message: None,
+        };
+        for (group, icon) in [
+            (vec![warned.clone()], AlertIcon::Warning),
+            (vec![warned, refused], AlertIcon::Error),
+        ] {
+            let ScriptQuestion::Alert {
+                message,
+                icon: shown,
+                buttons,
+                ..
+            } = validation_notice(&group).question
+            else {
+                panic!("a validation message is an alert");
+            };
+            assert!(
+                message.contains("form1[0].Amount[0]: At most 100."),
+                "{message}"
+            );
+            assert_eq!(
+                message.contains("form1[0].Total[0]: the form does not accept"),
+                group.len() == 2
+            );
             assert_eq!((shown, buttons), (icon, AlertButtons::Ok));
         }
     }

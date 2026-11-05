@@ -91,6 +91,8 @@ pub(crate) struct Pictures {
     pub(crate) format_test: FormatTest,
     /// Its `validate`'s `nullTest` (pages 880–881).
     pub(crate) null_test: NullTest,
+    /// Its `validate`'s `scriptTest` (page 881).
+    pub(crate) script_test: ScriptTest,
     /// Its `validate`'s `message` texts, each by the test its `name` gives it — `nullTest`,
     /// `formatTest` or `scriptTest` (page 383) — and the form designer's words for that test.
     pub(crate) messages: Vec<(String, String)>,
@@ -116,6 +118,18 @@ pub(crate) enum NullTest {
     Warning,
     /// An empty value makes the container invalid (page 384).
     Error,
+}
+
+/// A `validate` element's `scriptTest` (XFA 3.3 page 881, the levels of page 385).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum ScriptTest {
+    /// A value the script reports erroneous is refused: page 881's default.
+    #[default]
+    Error,
+    /// A value the script reports erroneous is warned about, and the person may proceed.
+    Warning,
+    /// No script test.
+    Disabled,
 }
 
 /// A `validate` element's `formatTest` (XFA 3.3 page 880, the levels of pages 384–385).
@@ -317,6 +331,8 @@ pub(crate) struct Container {
     pub(crate) calculation: Option<Script>,
     /// Its `calculate`'s `override` (page 641).
     pub(crate) calc_override: Override,
+    /// Its `validate`'s script, where it holds a non-blank one: the script test of page 382.
+    pub(crate) validation: Option<Script>,
     /// Its `event` elements that hold a non-blank script, in document order.
     pub(crate) events: Vec<Event>,
     /// The container it is in; `None` for a top-level subform.
@@ -426,6 +442,7 @@ impl Template {
                 occurs_variably: false,
                 calculation: None,
                 calc_override: Override::Error,
+                validation: None,
                 events: Vec::new(),
                 parent,
                 children: Vec::new(),
@@ -759,6 +776,13 @@ fn read_properties(container: &mut Container, tree: &Tree, element: &Element) {
                     // Page 880's default, which a value it does not list falls back to as well.
                     _ => FormatTest::Warning,
                 };
+                container.pictures.script_test = match property.attribute("scriptTest") {
+                    Some("warning") => ScriptTest::Warning,
+                    Some("disabled") => ScriptTest::Disabled,
+                    // Page 881's default, which a value it does not list falls back to as well.
+                    _ => ScriptTest::Error,
+                };
+                container.validation = script_of(tree, child);
                 container.pictures.null_test = match property.attribute("nullTest") {
                     Some("warning") => NullTest::Warning,
                     Some("error") => NullTest::Error,
@@ -836,14 +860,18 @@ fn read_event(container: &mut Container, tree: &Tree, child: usize, event: &Elem
 /// pages 379 and 641).
 fn read_calculate(container: &mut Container, tree: &Tree, child: usize, calculate: &Element) {
     container.calc_override = Override::of(calculate.attribute("override"));
-    container.calculation = tree
-        .child(child, "script")
+    container.calculation = script_of(tree, child);
+}
+
+/// The `script` element under the automation element `property`, where it holds a non-blank one.
+fn script_of(tree: &Tree, property: usize) -> Option<Script> {
+    tree.child(property, "script")
         .and_then(|script| tree.get(script))
         .filter(|script| !script.text.trim().is_empty())
         .map(|script| Script {
             language: Language::of(script.attribute("contentType")),
             text: script.text.clone(),
-        });
+        })
 }
 
 /// The text of the `picture` element under `property`, where it states a non-empty one.

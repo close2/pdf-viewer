@@ -14,7 +14,8 @@
 //! on one (ADR 2482), so [`ScriptRunner::run_form_script`] is the one call that carries a script
 //! out, and a runner that has none refuses it by name. What the scripts computed lands in the edit
 //! log as a person's typing does, and what `override` asks a host to present is held for it
-//! ([`ViewState::take_form_overrides`]).
+//! ([`ViewState::take_form_overrides`]), as are the messages of the script tests the form fails
+//! ([`ViewState::take_form_validations`], ADR 2696).
 //!
 //! Only a form XFA 3.3 does not call dynamic is activated: a `NeedsRendering` document or a
 //! template whose containers occur a varying number of times is the dynamic half's (Q639), and
@@ -28,6 +29,10 @@ use crate::xfa::{Change, Form, FormLanguage, Limits, Overridden, Ran, Resource, 
 /// Most field names kept as entered by a person: a document's fields are its own, and a name past
 /// this many is not remembered for the merge (principle 3).
 const MAX_ENTERED_FIELDS: usize = 10_000;
+
+/// Most validation messages held for a host that has not taken them: a form fails as many script
+/// tests as it states, and a host that never asks is not made to hold them all (principle 3).
+pub(super) const MAX_HELD_VALIDATIONS: usize = 256;
 
 /// The form's resource as this view state has read it: not yet asked, or what the document has.
 ///
@@ -112,6 +117,9 @@ enum Raised<'a> {
     MouseEnter(&'a str),
     /// The pointer moved out of the region of the field of this PDF name.
     MouseExit(&'a str),
+    /// A person dismissed the warning page 642 presents for an entry into the field of this PDF
+    /// name.
+    Dismissed(&'a str),
     /// The open sequence ended: the Form DOM's `ready` and the application's `docReady` (pages 388
     /// and 704).
     Ready,
@@ -262,6 +270,27 @@ impl ViewState {
         self.activate_form(document, Raised::Click(clicked), Instant::now())
     }
 
+    /// Carries out a person's answer to the warning XFA 3.3 page 642 presents for an entry into
+    /// the field `field`, whose calculation's `override` is `warning` ([`FormOverrideMode::Warning`]).
+    /// Page 642 gives two choices: to override, which keeps the entry and is what the entry
+    /// already did, so `dismissed` false changes nothing; and to dismiss, which leaves the
+    /// calculated value undisturbed, so `dismissed` true runs the field's calculation again in an
+    /// activation of its own, under the sequence budget of one second, its value replacing the
+    /// entry, and the field is no longer one a person entered, which a later merge would leave as
+    /// it is (ADR 2697). Answers whether a value changed, which is ink to draw again.
+    pub fn answer_form_warning(
+        &mut self,
+        document: &Document,
+        field: &str,
+        dismissed: bool,
+    ) -> bool {
+        if !dismissed {
+            return false;
+        }
+        self.scripting.form_entered.remove(field);
+        self.activate_form(document, Raised::Dismissed(field), Instant::now())
+    }
+
     /// Runs the `mouseDown` events of the field `pressed`, within whose region a mouse button was
     /// pressed (XFA 3.3 page 392), followed by the calculations that depend on what the events
     /// changed (page 379). Answers whether a value changed, which is ink to draw again. The
@@ -298,6 +327,13 @@ impl ViewState {
     /// the order a person entered them.
     pub fn take_form_overrides(&mut self) -> Vec<FormOverride> {
         std::mem::take(&mut self.scripting.form_overrides)
+    }
+
+    /// The messages of the script tests the XFA form failed since a host last took them, in the
+    /// order the activations ran: each a group of containers page 386's `validationMessaging`
+    /// makes one message of, which page 383 asks a host to present (ADR 2696).
+    pub fn take_form_validations(&mut self) -> Vec<Vec<crate::xfa::Invalid>> {
+        std::mem::take(&mut self.scripting.form_invalid)
     }
 
     /// The form's resource, read the first time it is asked for.
@@ -376,6 +412,7 @@ impl ViewState {
             Raised::MouseEnter(entered) => Stimulus::MouseEnter { entered },
             Raised::MouseExit(exited) => Stimulus::MouseExit { exited },
             Raised::Ready => Stimulus::Ready,
+            Raised::Dismissed(field) => Stimulus::Dismissed { field },
         };
         // What a person entered before this merge stands under it (the merge's own comment).
         let before_the_merge: Vec<String> = match raised {
@@ -411,15 +448,7 @@ impl ViewState {
             _ => true,
         });
         let applied = self.apply_edits(document, &table, &result.edits);
-        for Overridden { field, mode } in activation.overridden {
-            let mode = match mode {
-                crate::xfa::Override::Warning => FormOverrideMode::Warning,
-                _ => FormOverrideMode::Error,
-            };
-            self.scripting
-                .form_overrides
-                .push(FormOverride { field, mode });
-        }
+        self.hold_for_host(activation.overridden, activation.script_tests);
         let mut changed = applied.values;
         for name in &before_the_merge {
             if started.elapsed() > MAX_SEQUENCE_TIME {
@@ -433,6 +462,28 @@ impl ViewState {
             changed |= self.activate_form(document, Raised::Entry { name, before: None }, started);
         }
         changed
+    }
+
+    /// Holds what an activation asks a host to present: the message page 642 asks for an entry
+    /// into a calculated field, and the messages of the script tests the form failed (page 383).
+    fn hold_for_host(
+        &mut self,
+        overridden: Vec<Overridden>,
+        script_tests: Vec<Vec<crate::xfa::Invalid>>,
+    ) {
+        for Overridden { field, mode } in overridden {
+            let mode = match mode {
+                crate::xfa::Override::Warning => FormOverrideMode::Warning,
+                _ => FormOverrideMode::Error,
+            };
+            self.scripting
+                .form_overrides
+                .push(FormOverride { field, mode });
+        }
+        let room = MAX_HELD_VALIDATIONS.saturating_sub(self.scripting.form_invalid.len());
+        self.scripting
+            .form_invalid
+            .extend(script_tests.into_iter().take(room));
     }
 
     /// Every field of the form by its PDF name with the text it holds now, a person's entry

@@ -482,8 +482,21 @@ impl Viewer {
             Command::AnswerScript { document, answer } => {
                 if let Some(open) = self.documents.get_mut(&document) {
                     if open.consent.form_alert_open {
-                        // A notice has one button and nothing to carry out (ADR 2525).
+                        // A notice has nothing to carry out (ADR 2525), except a `warning`'s,
+                        // whose "No" dismisses it and leaves the calculated value (ADR 2697).
                         open.consent.form_alert_open = false;
+                        if let Some(field) = open.consent.form_alert_warns.take() {
+                            let dismissed = !matches!(
+                                answer,
+                                crate::ScriptAnswer::Pressed(crate::AlertButton::Yes)
+                            );
+                            if open
+                                .view
+                                .answer_form_warning(&open.document, &field, dismissed)
+                            {
+                                open.stale();
+                            }
+                        }
                     } else if let Some(asks) = open.consent.asks.clone() {
                         open.consent.runner_question_open = false;
                         asks.answer(answer);
