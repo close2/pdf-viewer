@@ -55,6 +55,10 @@ struct Fixture {
     commitment_rules: Vec<Vec<u8>>,
     common_signer_rules: bool,
     own_hash: bool,
+    /// Clause 6.6.1's `CertificateTrustPoint`s of the signing-certificate trust condition.
+    trust_points: Vec<Vec<u8>>,
+    /// Clause 6.10's lists after `signerAlgorithmConstraints`, each already context-tagged.
+    issuer_algorithms: Vec<Vec<u8>>,
 }
 
 impl Default for Fixture {
@@ -67,6 +71,8 @@ impl Default for Fixture {
             commitment_rules: Vec::new(),
             common_signer_rules: true,
             own_hash: true,
+            trust_points: Vec::new(),
+            issuer_algorithms: Vec::new(),
         }
     }
 }
@@ -96,11 +102,25 @@ impl Fixture {
             common.push(signer_and_verifier_rules(&self.signed, &self.unsigned));
         }
         // Clause 6.3 requires both trust conditions in the common rules or in every commitment
-        // rule; their contents are not read, so an empty sequence stands for each.
-        common.push(tagged(1, &seq(&[])));
+        // rule. The signing-certificate condition is clause 6.7's two members, its revocation
+        // requirement clause 6.6.2's `noCheck` for both kinds of certificate; the time-stamp
+        // condition's contents are not read, so an empty sequence stands for it.
+        let no_check = seq(&[tlv(ENUMERATED, &[4])]);
+        common.push(tagged(
+            1,
+            &seq(&[
+                seq(&self.trust_points),
+                seq(&[no_check.clone(), tagged(0, &no_check)]),
+            ]),
+        ));
         common.push(tagged(2, &seq(&[])));
-        if let Some(algorithms) = &self.algorithms {
-            common.push(tagged(4, &seq(&[tagged(0, &seq(algorithms))])));
+        if self.algorithms.is_some() || !self.issuer_algorithms.is_empty() {
+            let mut lists = Vec::new();
+            if let Some(algorithms) = &self.algorithms {
+                lists.push(tagged(0, &seq(algorithms)));
+            }
+            lists.extend(self.issuer_algorithms.iter().cloned());
+            common.push(tagged(4, &seq(&lists)));
         }
         let validation = seq(&[seq(&period), seq(&common), seq(&self.commitment_rules)]);
         seq(&[
@@ -172,6 +192,7 @@ pub(super) fn facts(at: Option<&str>) -> SignerFacts {
         key_bits: Some(2048),
         carries_signer_certificate: true,
         certificate_signature_algorithm: Some(SHA256_RSA.to_vec()),
+        path_at: None,
     }
 }
 
@@ -253,6 +274,90 @@ fn a_mandated_attribute_the_signer_left_out_is_broken_and_one_provided_is_met() 
         )
     });
     assert_eq!(attributes, [Verdict::Met; 3]);
+}
+
+/// TR 102 272 clauses 6.7 and 6.10 over the fixture hierarchy: the trust condition's path to the
+/// policy's own root, and the issuer lists judged along that path.
+#[test]
+fn the_signing_certificate_trust_condition_and_issuer_lists_are_judged_on_the_path() {
+    use crate::policy_rules::certification_path::tests::{WITHIN, cms, hierarchy};
+    let held = hierarchy();
+    let signed = cms(&held.signer, &held.intermediate);
+    let judged = |points: Vec<Vec<u8>>, issuer_algorithms: Vec<Vec<u8>>| {
+        let octets = Fixture {
+            trust_points: points,
+            issuer_algorithms,
+            ..Fixture::default()
+        }
+        .octets();
+        let document = PolicyDocument::parse(&octets).expect("a clause 6 document");
+        findings(&document, &signed, &facts(None).validated_at(WITHIN))
+    };
+    let trust = |c: &Constraint| matches!(c, Constraint::TrustPath { .. });
+    let issuers = |c: &Constraint| matches!(c, Constraint::IssuerAlgorithm { .. });
+    let revocation = |c: &Constraint| matches!(c, Constraint::RevocationRequirement { .. });
+    // The fixture hierarchy signs with SHA-256 and RSA under 2048-bit keys (RFC 4055's
+    // sha256WithRSAEncryption); 0x0800 is 2048 bits and 0x0C00 is 3072.
+    let rsa = |bits: &[u8]| seq(&[oid(SHA256_RSA), tlv(der::INTEGER, bits)]);
+    let lists = |bits: &[u8]| vec![tagged(1, &seq(&[rsa(bits)])), tagged(2, &seq(&[rsa(bits)]))];
+    let root = seq(std::slice::from_ref(&held.root));
+    let met = judged(vec![root.clone()], lists(&[0x08, 0x00]));
+    assert_eq!(
+        verdict_of(&met, trust),
+        [Verdict::Met],
+        "clause 6.7, over clause 6.6.1's trust point"
+    );
+    assert_eq!(
+        verdict_of(&met, revocation),
+        [Verdict::Met],
+        "noCheck mandates nothing"
+    );
+    assert_eq!(
+        verdict_of(&met, issuers),
+        [Verdict::Met, Verdict::Met],
+        "clause 6.10: the signer's certificate and the intermediate, each under a listed algorithm by a 2048-bit issuer key"
+    );
+    let short = judged(vec![root.clone()], lists(&[0x0C, 0x00]));
+    assert_eq!(
+        verdict_of(&short, issuers),
+        [Verdict::Broken, Verdict::Broken],
+        "a 3072-bit minimum breaks both issuers' 2048-bit keys"
+    );
+    let unlisted = judged(
+        vec![root.clone()],
+        vec![
+            tagged(1, &seq(&[seq(&[oid(SHA256)])])),
+            tagged(2, &seq(&[seq(&[oid(SHA256)])])),
+        ],
+    );
+    assert_eq!(
+        verdict_of(&unlisted, issuers),
+        [Verdict::Broken, Verdict::Broken]
+    );
+    // Clause 6.6.1's pathLenConstraint of zero admits no intermediate.
+    let limited = judged(
+        vec![seq(&[
+            held.root.clone(),
+            tagged(0, &tlv(der::INTEGER, &[0])),
+        ])],
+        vec![],
+    );
+    assert_eq!(verdict_of(&limited, trust), [Verdict::Broken]);
+    // The signer's own certificate as the trust point: it issued nothing, so no chain ends there.
+    let none = judged(
+        vec![seq(std::slice::from_ref(&held.signer))],
+        lists(&[0x08, 0x00]),
+    );
+    assert_eq!(
+        verdict_of(&none, trust),
+        [Verdict::NotEvaluated],
+        "EN 319 102-1 clause 5.2.6.4 step 2 a)"
+    );
+    assert_eq!(
+        verdict_of(&none, issuers),
+        [Verdict::NotEvaluated, Verdict::NotEvaluated],
+        "the issuers' keys and the CA certificates are known only from a path"
+    );
 }
 
 #[test]

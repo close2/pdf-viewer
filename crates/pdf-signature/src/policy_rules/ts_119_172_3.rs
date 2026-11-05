@@ -24,8 +24,12 @@
 //! clause 4.25's delay between the claimed signing time and the signature timestamp; clause 4.26's
 //! prohibition of signer attributes; and clause 4.29's cryptographic suites for the signature and
 //! for the signing certificate, with their minimum key and hash lengths where this program
-//! measures them. Named and not evaluated: trust conditions on certificates and revocation, whose
-//! trust anchors are the host's (ADR 1076); the formats and levels of clause 4.20 and the levels
+//! measures them; clause 4.24's signing-certificate trust conditions over a path built to the
+//! policy's own trust points, with its `fullPath` information requirement, and clause 4.29's
+//! signing-certificate key length and path-certificate usage read off that path
+//! ([`super::certification_path`], ADR 2714). Named and not evaluated: a trust point's policy and
+//! name constraints, the revocation trust a condition mandates and the time-stamp trust condition;
+//! the formats and levels of clause 4.20 and the levels
 //! clause 4.27 ties its attribute rules to, identified by TS 119 172-2's URIs for a signature level
 //! this program does not determine; augmentation, which this reader never performs; the levels of
 //! assurance of clauses 4.25 and 4.28; constraints on sets of signer attributes; and every `Other`
@@ -37,16 +41,19 @@
 //! [`MAX_ENTRIES`] count every list entry is charged to before it is pushed, as the first syntax
 //! is. **There is no distinguished-encoding pre-pass here**: TS 119 172-3 clause 4.1.3.2 admits the
 //! basic encoding rules for some types, so a BER document is this syntax's own and not refused.
-//! Nesting is held at [`der::MAX_DEPTH`] by [`der::Reader`] itself as each value is opened, and the
-//! members this module does not read — trust trees, which carry whole certificates — are stepped
-//! over without being opened.
+//! Nesting is held at [`der::MAX_DEPTH`] by [`der::Reader`] itself as each value is opened, and each
+//! trust point and trust anchor of clause 4.22.5's trees is charged to the entry budget as it is
+//! read.
 
 use std::collections::BTreeSet;
 
+use std::borrow::Cow;
+
+use super::certification_path::{self, Path, Search, TrustPoint, TrustTrees};
 use super::{
     Budget, CertificateInfo, Finding, MAX_ENTRIES, MAX_POLICY_OCTETS, PolicyDocumentError,
-    SIGNING_CERT_TRUST, SignerFacts, Stated, Syntax, TIMESTAMP_TRUST, Verdict, signing_period,
-    stated_commitment_type,
+    SIGNING_CERT_TRUST, SignerFacts, SignerTrust, Stated, Syntax, TIMESTAMP_TRUST, Verdict,
+    signing_period, stated_commitment_type,
 };
 use crate::cms::{self, Digest, SignedData};
 use crate::der::{self, INTEGER, OBJECT_IDENTIFIER, OCTET_STRING, SEQUENCE, Value};
@@ -77,6 +84,11 @@ pub const SIGNING_CERT_USAGE: [&str; 2] = [
     "http://uri.etsi.org/19172/v1.1.1/Usage/#SigningCert",
     "http://uri.etsi.org/19172/v1.1.1/Usage#SigningCert",
 ];
+
+/// TS 119 172-2 clause 4.29.2's usage URI for algorithms that generate certificates in
+/// certification paths: here the CA certificates between the signing certificate and the policy's
+/// trust point, the signing certificate having a usage of its own.
+pub const PATH_CERT_USAGE: &str = "http://uri.etsi.org/19172/v1.1.1/Usage#PathCert";
 
 /// The first signer-attributes attribute, `id-aa-ets-signerAttr` (`1.2.840.113549.1.9.16.2.18`), which
 /// signer-attributes-v2 succeeded.
@@ -297,7 +309,12 @@ pub enum BasicRule<'a> {
     /// `[5]` clause 4.21.
     Augmentation,
     /// `[6]` clause 4.24: its trust conditions, always stated, and `mandatedSigningCertInfo`.
-    SigningCertificate(Option<CertificateInfo>),
+    SigningCertificate {
+        /// `signingCertTrustConditions`.
+        trust: SignerTrust<'a>,
+        /// `mandatedSigningCertInfo`.
+        info: Option<CertificateInfo>,
+    },
     /// `[7]` clause 4.25.
     TimeEvidences(Vec<TimeEvidence<'a>>),
     /// `[8]` clause 4.26.
@@ -326,7 +343,7 @@ impl BasicRule<'_> {
             Self::RelativePosition(_) => "rule on the signature's position",
             Self::FormatsAndLevels(_) => "rule on formats and levels",
             Self::Augmentation => "augmentation rule",
-            Self::SigningCertificate(_) => "signing certificate rule",
+            Self::SigningCertificate { .. } => "signing certificate rule",
             Self::TimeEvidences(_) => "time evidence rule",
             Self::SignerAttributes { .. } => "signer attribute rule",
             Self::QualifyingAttributes(_) => "qualifying attribute rule",
@@ -514,6 +531,108 @@ fn instant(value: Option<Value<'_>>, member: &'static str) -> Result<Stated, Pol
         instant,
         spelled: String::from_utf8_lossy(value.contents).into_owned(),
     })
+}
+
+/// Clause 4.24.4's `SigningCertTrustConditions`: the trust trees, and whether the revocation trust
+/// mandates anything — a check of either kind of certificate other than `noCheck`, a freshness, or
+/// clause 4.23.3's retention of expired revocation notices.
+fn read_signer_trust<'a>(
+    value: &Value<'a>,
+    budget: &mut Budget,
+) -> Result<SignerTrust<'a>, PolicyDocumentError> {
+    let mut members = value.children()?;
+    let trees = read_trust_trees(
+        &need(members.next_value()?, SEQUENCE, "signerTrustTrees")?,
+        budget,
+    )?;
+    let revocation = need(members.next_value()?, SEQUENCE, "signerRevTrust")?;
+    let mut revocation = revocation.children()?;
+    let requirement = need(revocation.next_value()?, SEQUENCE, "certificateRevReq")?;
+    let mut checks = requirement.children()?;
+    let end = enumerated(checks.next_value()?, 6, "endCertRevReq")?;
+    let authorities = enumerated(checks.next_value()?, 6, "caCerts")?;
+    let more = revocation.next_value()?.is_some();
+    Ok(SignerTrust {
+        trees,
+        revocation_mandated: more || end != NO_CHECK || authorities != NO_CHECK,
+    })
+}
+
+/// Clause 4.23.2's `noCheck`.
+const NO_CHECK: u8 = 4;
+
+/// Clause 4.22.5's `CertificateTrustTrees`: one [`TrustPoint`] per certificate trust anchor, each
+/// with its trust point's constraints, and a count of the anchors given by trusted-list reference.
+///
+/// The members [`crate::trust`] does not process are kept by name — `acceptablePolicySet`,
+/// `nameConstraints`, `policyConstraints`, and a `userCertPath` other than `asInSignature` true —
+/// so that a condition stating one is never called met. `asInSignature` true asks for the path the
+/// signature carries, which is the only one [`super::certification_path::search`] builds.
+pub(super) fn read_trust_trees<'a>(
+    value: &Value<'a>,
+    budget: &mut Budget,
+) -> Result<TrustTrees<'a>, PolicyDocumentError> {
+    let mut trees = TrustTrees::default();
+    let mut points = value.children()?;
+    while let Some(point) = points.next_value()? {
+        budget.take()?;
+        let point = need(Some(point), SEQUENCE, "CertificateTrustPoint")?;
+        let mut members = point.children()?;
+        let anchors = need(
+            members.next_value()?,
+            SEQUENCE,
+            "CertificateTrustPoint.trustAnchors",
+        )?;
+        let mut path_length = None;
+        let mut unprocessed = Vec::new();
+        while let Some(member) = members.next_value()? {
+            match context_number(&member) {
+                Some(0) => {
+                    let limit = tagged_integer(&member, "pathLenConstraint")?;
+                    if limit < 0 {
+                        return Err(malformed("pathLenConstraint"));
+                    }
+                    path_length = Some(limit);
+                }
+                Some(1) => unprocessed.push("acceptable policy set"),
+                Some(2) => unprocessed.push("name constraints"),
+                Some(3) => unprocessed.push("policy constraints"),
+                Some(4) => {
+                    let choice = explicit(&member, "userCertPath")?;
+                    let as_in_signature = context_number(&choice) == Some(0)
+                        && boolean(&explicit(&choice, "userCertPath")?, "asInSignature")?;
+                    if !as_in_signature {
+                        unprocessed.push("mandated certification path");
+                    }
+                }
+                _ => return Err(malformed("CertificateTrustPoint")),
+            }
+        }
+        let mut entries = anchors.children()?;
+        while let Some(anchor) = entries.next_value()? {
+            budget.take()?;
+            let anchor = need(Some(anchor), SEQUENCE, "TrustAnchor")?;
+            let mut parts = anchor.children()?;
+            let first = parts.next_value()?.ok_or(malformed("TrustAnchor"))?;
+            match first.identifier {
+                SEQUENCE => {
+                    let reliable_until = parts
+                        .next_value()?
+                        .map(|time| instant(Some(time), "reliableUntil"))
+                        .transpose()?;
+                    trees.points.push(TrustPoint {
+                        certificate: Cow::Borrowed(first.encoding()),
+                        path_length,
+                        reliable_until,
+                        unprocessed: unprocessed.clone(),
+                    });
+                }
+                IA5_STRING => trees.trusted_lists = trees.trusted_lists.saturating_add(1),
+                _ => return Err(malformed("TrustAnchor")),
+            }
+        }
+    }
+    Ok(trees)
 }
 
 /// An `Other`'s `otherId`.
@@ -784,10 +903,13 @@ fn read_basic_rule<'a>(
         6 => {
             let rules = need(Some(inner), SEQUENCE, "SigningCertRules")?;
             let mut members = rules.children()?;
-            need(
-                members.next_value()?,
-                SEQUENCE,
-                "SigningCertRules.signingCertTrustConditions",
+            let trust = read_signer_trust(
+                &need(
+                    members.next_value()?,
+                    SEQUENCE,
+                    "SigningCertRules.signingCertTrustConditions",
+                )?,
+                budget,
             )?;
             let info = match members.next_value()? {
                 None => None,
@@ -798,7 +920,7 @@ fn read_basic_rule<'a>(
                     },
                 ),
             };
-            BasicRule::SigningCertificate(info)
+            BasicRule::SigningCertificate { trust, info }
         }
         7 => BasicRule::TimeEvidences(read_time_evidences(&inner, budget)?),
         8 => read_signer_attributes(&inner, budget)?,
@@ -1170,6 +1292,8 @@ pub enum Usage {
     Signature,
     /// [`SIGNING_CERT_USAGE`].
     SigningCertificate,
+    /// [`PATH_CERT_USAGE`].
+    PathCertificate,
 }
 
 /// A constraint of TS 119 172-3 that TR 102 272's vocabulary has no counterpart for.
@@ -1294,6 +1418,26 @@ pub(super) fn judge_rules(
     out: &mut Vec<Finding>,
 ) {
     let stated = stated_commitment_type(cms);
+    // The signing-certificate rule that applies is searched once, and every path-dependent
+    // constraint — its own full-path requirement and clause 4.29's usages along the path — reads
+    // that one path (ADR 2714).
+    let search = rules
+        .iter()
+        .filter(|scoped| !matches!(scoped.scope, Some(Scope::Generation | Scope::Augmentation)))
+        .flat_map(|scoped| match &scoped.rule {
+            PolicyRule::Basic(rule) => vec![rule],
+            PolicyRule::Commitments(rules) => rules
+                .iter()
+                .filter(|rule| rule.applies(stated))
+                .flat_map(|rule| &rule.rules)
+                .collect(),
+        })
+        .find_map(|rule| match rule {
+            BasicRule::SigningCertificate { trust, .. } => Some(trust),
+            _ => None,
+        })
+        .map(|trust| certification_path::search(&trust.trees, cms, facts));
+    let search = search.as_ref();
     for scoped in rules {
         if let Some(scope @ (Scope::Generation | Scope::Augmentation)) = scoped.scope {
             let rule = match &scoped.rule {
@@ -1307,11 +1451,11 @@ pub(super) fn judge_rules(
             continue;
         }
         match &scoped.rule {
-            PolicyRule::Basic(rule) => judge(rule, cms, facts, out),
+            PolicyRule::Basic(rule) => judge(rule, cms, facts, search, out),
             PolicyRule::Commitments(rules) => {
                 for rule in rules.iter().filter(|rule| rule.applies(stated)) {
                     for basic in &rule.rules {
-                        judge(basic, cms, facts, out);
+                        judge(basic, cms, facts, search, out);
                     }
                 }
             }
@@ -1335,7 +1479,14 @@ fn owned(list: &[&str]) -> Vec<String> {
 }
 
 /// One rule's findings.
-fn judge(rule: &BasicRule<'_>, cms: &SignedData<'_>, facts: &SignerFacts, out: &mut Vec<Finding>) {
+fn judge(
+    rule: &BasicRule<'_>,
+    cms: &SignedData<'_>,
+    facts: &SignerFacts,
+    search: Option<&Search>,
+    out: &mut Vec<Finding>,
+) {
+    let path = search.and_then(|search| search.path.as_ref());
     match rule {
         BasicRule::DataToBeSigned(rules) => {
             // §12.8.1: the byte range a signature digests is a range of the PDF file, so the one
@@ -1376,20 +1527,8 @@ fn judge(rule: &BasicRule<'_>, cms: &SignedData<'_>, facts: &SignerFacts, out: &
         BasicRule::Augmentation => {
             out.push(component(Verdict::NotEvaluated, Constraint::Augmentation));
         }
-        BasicRule::SigningCertificate(info) => {
-            out.push(Finding {
-                verdict: Verdict::NotEvaluated,
-                constraint: super::Constraint::TrustCondition(SIGNING_CERT_TRUST),
-            });
-            if let Some(info) = info {
-                out.push(Finding {
-                    verdict: match info {
-                        CertificateInfo::FullPath => Verdict::NotEvaluated,
-                        _ => verdict(facts.carries_signer_certificate),
-                    },
-                    constraint: super::Constraint::CertificateInfo(*info),
-                });
-            }
+        BasicRule::SigningCertificate { trust, info } => {
+            judge_signing_certificate(trust, *info, cms, facts, search, out);
         }
         BasicRule::TimeEvidences(rules) => {
             for rule in rules {
@@ -1427,11 +1566,58 @@ fn judge(rule: &BasicRule<'_>, cms: &SignedData<'_>, facts: &SignerFacts, out: &
                 Constraint::CreationDevice((*level).to_owned()),
             ));
         }
-        BasicRule::CryptoSuites(list) => judge_suites(list, cms, facts, out),
+        BasicRule::CryptoSuites(list) => judge_suites(list, cms, facts, path, out),
         BasicRule::Other(other) => out.push(Finding {
             verdict: Verdict::NotEvaluated,
             constraint: super::Constraint::Extension(other.sentence()),
         }),
+    }
+}
+
+/// Clause 4.24 over the path the applicable signing-certificate rule's search found: its trust
+/// conditions, its revocation trust, and `mandatedSigningCertInfo`.
+fn judge_signing_certificate(
+    trust: &SignerTrust<'_>,
+    info: Option<CertificateInfo>,
+    cms: &SignedData<'_>,
+    facts: &SignerFacts,
+    search: Option<&Search>,
+    out: &mut Vec<Finding>,
+) {
+    // The rule that applies was searched; a second signing-certificate rule in another
+    // place is said with that one's search, the trees being clause 4.24's one condition.
+    let searched = search
+        .cloned()
+        .unwrap_or_else(|| certification_path::search(&trust.trees, cms, facts));
+    out.push(Finding {
+        verdict: searched.verdict(),
+        constraint: super::Constraint::TrustPath {
+            condition: SIGNING_CERT_TRUST,
+            found: searched.found.clone(),
+            unexamined: searched.unexamined,
+        },
+    });
+    out.push(Finding {
+        verdict: if trust.revocation_mandated {
+            Verdict::NotEvaluated
+        } else {
+            Verdict::Met
+        },
+        constraint: super::Constraint::RevocationRequirement {
+            condition: SIGNING_CERT_TRUST,
+            mandated: trust.revocation_mandated,
+        },
+    });
+    if let Some(info) = info {
+        out.push(Finding {
+            verdict: match info {
+                // A path is built over the certificates the signature carries alone.
+                CertificateInfo::FullPath if searched.path.is_some() => Verdict::Met,
+                CertificateInfo::FullPath => Verdict::NotEvaluated,
+                _ => verdict(facts.carries_signer_certificate),
+            },
+            constraint: super::Constraint::CertificateInfo(info),
+        });
     }
 }
 
@@ -1538,23 +1724,11 @@ fn judge_suites(
     list: &[AlgorithmConstraint<'_>],
     cms: &SignedData<'_>,
     facts: &SignerFacts,
+    path: Option<&Path>,
     out: &mut Vec<Finding>,
 ) {
-    let names = |entry: &AlgorithmConstraint<'_>, usage: &[&str]| {
-        entry.usages.is_empty() || entry.usages.iter().any(|named| usage.contains(named))
-    };
-    // An entry whose algorithm stays a URI may name the one used, so a used algorithm no placed
-    // entry lists is not evaluated where one does, rather than broken.
-    let unplaced = |usage: &[&str]| {
-        list.iter()
-            .any(|entry| matches!(entry.algorithm, Identifier::Uri(_)) && names(entry, usage))
-    };
-    let undecided = |mut finding: Finding, listed: bool, usage: &[&str]| {
-        if !listed && finding.verdict == Verdict::Broken && unplaced(usage) {
-            finding.verdict = Verdict::NotEvaluated;
-        }
-        finding
-    };
+    let undecided =
+        |finding: Finding, listed: bool, usage: &[&str]| undecided(list, finding, listed, usage);
     if list.iter().any(|entry| names(entry, &[SIGNATURE_USAGE])) {
         for (used, is_signature) in [
             (cms.digest_algorithm, false),
@@ -1582,12 +1756,23 @@ fn judge_suites(
             list.iter()
                 .find(|entry| entry.algorithm.is(used) && names(entry, &SIGNING_CERT_USAGE))
         });
+        // The key that made the signing certificate is its issuer's, known from the path.
+        let issuer_key_bits = path
+            .and_then(Path::end_entity)
+            .and_then(|issued| issued.issuer_key_bits);
         out.push(undecided(
-            suite_finding(Usage::SigningCertificate, used, entry, None, false),
+            suite_finding(
+                Usage::SigningCertificate,
+                used,
+                entry,
+                issuer_key_bits,
+                true,
+            ),
             entry.is_some(),
             &SIGNING_CERT_USAGE,
         ));
     }
+    judge_path_suites(list, path, out);
     for entry in list {
         if let Identifier::Uri(uri) = entry.algorithm {
             out.push(component(
@@ -1611,7 +1796,10 @@ fn judge_suites(
     let mut others = BTreeSet::new();
     for entry in list {
         for usage in &entry.usages {
-            if *usage != SIGNATURE_USAGE && !SIGNING_CERT_USAGE.contains(usage) {
+            if *usage != SIGNATURE_USAGE
+                && *usage != PATH_CERT_USAGE
+                && !SIGNING_CERT_USAGE.contains(usage)
+            {
                 others.insert(*usage);
             }
         }
@@ -1630,10 +1818,81 @@ fn judge_suites(
     }
 }
 
+/// Whether a clause 4.29 entry names one of `usage`'s URIs; an entry naming none names every usage
+/// (TS 119 172-2 clause 4.29.1).
+fn names(entry: &AlgorithmConstraint<'_>, usage: &[&str]) -> bool {
+    entry.usages.is_empty() || entry.usages.iter().any(|named| usage.contains(named))
+}
+
+/// A finding for an algorithm no placed entry lists, made not evaluated rather than broken where an
+/// entry whose algorithm stays a URI names the usage: that URI may be the algorithm used.
+fn undecided(
+    list: &[AlgorithmConstraint<'_>],
+    mut finding: Finding,
+    listed: bool,
+    usage: &[&str],
+) -> Finding {
+    let unplaced = list
+        .iter()
+        .any(|entry| matches!(entry.algorithm, Identifier::Uri(_)) && names(entry, usage));
+    if !listed && finding.verdict == Verdict::Broken && unplaced {
+        finding.verdict = Verdict::NotEvaluated;
+    }
+    finding
+}
+
+/// Clause 4.29's path-certificate usage over the CA certificates between the signing certificate and
+/// the policy's trust point, each with the key that issued it (ADR 2714).
+fn judge_path_suites(
+    list: &[AlgorithmConstraint<'_>],
+    path: Option<&Path>,
+    out: &mut Vec<Finding>,
+) {
+    if list.iter().any(|entry| names(entry, &[PATH_CERT_USAGE])) {
+        let authorities = path.map(Path::authorities).unwrap_or_default();
+        if authorities.is_empty() {
+            out.push(component(
+                if path.is_some() {
+                    Verdict::Met
+                } else {
+                    Verdict::NotEvaluated
+                },
+                Constraint::SuiteAlgorithm {
+                    usage: Usage::PathCertificate,
+                    algorithm: None,
+                    listed: false,
+                    min_key_length: None,
+                    key_bits: None,
+                    min_hash_length: None,
+                    hash_bits: None,
+                },
+            ));
+        }
+        for issued in &authorities {
+            let used = issued.algorithm.as_slice();
+            let entry = list
+                .iter()
+                .find(|entry| entry.algorithm.is(used) && names(entry, &[PATH_CERT_USAGE]));
+            out.push(undecided(
+                list,
+                suite_finding(
+                    Usage::PathCertificate,
+                    Some(used),
+                    entry,
+                    issued.issuer_key_bits,
+                    true,
+                ),
+                entry.is_some(),
+                &[PATH_CERT_USAGE],
+            ));
+        }
+    }
+}
+
 /// One used algorithm against its entry. A key length is measured only where `key_bits` is the
-/// signer's key under the signature algorithm, and a hash length only where the algorithm is a
-/// hash function this crate computes; a minimum stated where neither is measured is not
-/// evaluated rather than met.
+/// key that made the signature or the certificate — the signer's, or the issuer's along the path
+/// — and a hash length only where the algorithm is a hash function this crate computes; a minimum
+/// stated where neither is measured is not evaluated rather than met.
 fn suite_finding(
     usage: Usage,
     used: Option<&[u8]>,
@@ -1879,8 +2138,20 @@ fn suite_sentence(
     let usage = match usage {
         Usage::Signature => "the signature",
         Usage::SigningCertificate => "the signing certificate",
+        Usage::PathCertificate => "a CA certificate on the path to the policy's trust point",
     };
     let Some(algorithm) = algorithm else {
+        if usage.starts_with("a CA") {
+            return write!(
+                f,
+                "the policy's cryptographic suite rules for certificates in certification paths are {verdict}: {}",
+                if verdict == "met" {
+                    "no CA certificate stands between the signing certificate and the policy's trust point"
+                } else {
+                    "no path to the policy's own trust points validated"
+                }
+            );
+        }
         return write!(
             f,
             "the policy's cryptographic suite rules for {usage} are {verdict}: this program read no signing certificate"

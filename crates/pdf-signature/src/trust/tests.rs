@@ -76,7 +76,7 @@ pub(crate) mod fixtures {
         5cc5e674a65ee35e5e13";
 
     /// A CA issued by [`ROOT`], `pathLenConstraint` 0, `keyCertSign` asserted.
-    pub(super) const INTERMEDIATE: &str = "\
+    pub(crate) const INTERMEDIATE: &str = "\
         308203323082021aa00302010202144155d6fc8b62c46b802c029c0f9b469b10\
         49c579300d06092a864886f70d01010b0500301b3119301706035504030c1071\
         756f727261207465737420726f6f74301e170d3236303130313030303030305a\
@@ -109,7 +109,7 @@ pub(crate) mod fixtures {
     /// The narrower validity window is deliberate: it is what makes
     /// `a_path_outside_the_validity_period_is_refused` a test of RFC 5280 section 6.1.3 (a)(2)
     /// on one certificate of a path rather than on all of them.
-    pub(super) const SIGNER: &str = "\
+    pub(crate) const SIGNER: &str = "\
         3082032e30820216a00302010202142098d48ac135f5264c4317afd4dd554de2\
         d88312300d06092a864886f70d01010b050030233121301f06035504030c1871\
         756f727261207465737420696e7465726d656469617465301e170d3236303130\

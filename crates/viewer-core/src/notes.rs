@@ -1557,7 +1557,7 @@ fn about_one(
                     }
                 ));
             }
-            signature_policy(signature, &cms, asked.copies, notes, published);
+            signature_policy(signature, &cms, asked, notes, published);
             // §12.8.3.4.5 (a)'s first sentence, said whether or not the signature verifies and
             // whatever the `/SubFilter` is: RFC 5035 section 5.4.1 puts the same rule on any CMS
             // object carrying the attribute, and `Signature::authenticity` already refuses on a
@@ -1616,7 +1616,7 @@ fn about_one(
 fn signature_policy(
     signature: &pdf_signature::signature::Signature,
     cms: &pdf_signature::cms::SignedData<'_>,
-    copies: &[FetchedCopy],
+    asked: &Asked<'_>,
     notes: &mut Vec<String>,
     published: &mut Vec<pdf_signature::policy::PublishedPolicy>,
 ) {
@@ -1709,7 +1709,15 @@ fn signature_policy(
         }
         notes.push(said);
     }
-    policy_constraints(&policy, cms, copies, notes);
+    policy_constraints(&policy, cms, asked.copies, path_instant(asked), notes);
+}
+
+/// The instant a path to a policy's own trust points is validated at (ADR 2714): the one the
+/// verdict's path is asked about where a host supplied anchors and with them a clock, and none
+/// where it did not — the policy's search then falls back to a covering signature timestamp's
+/// instant, or says it had none.
+fn path_instant(asked: &Asked<'_>) -> Option<pdf_signature::x509::Instant> {
+    (!asked.anchors.is_empty()).then(|| asked.when.at())
 }
 
 /// §12.8.3.4.4's "shall enforce signature policy constraints", said one constraint at a time.
@@ -1727,11 +1735,16 @@ fn policy_constraints(
     policy: &pdf_signature::policy::SignaturePolicy<'_>,
     cms: &pdf_signature::cms::SignedData<'_>,
     copies: &[FetchedCopy],
+    path_at: Option<pdf_signature::x509::Instant>,
     notes: &mut Vec<String>,
 ) {
     use pdf_signature::policy_rules::{Enforcement, NotEnforced, SignerFacts, enforce};
 
     let facts = SignerFacts::of(cms);
+    let facts = match path_at {
+        Some(at) => facts.validated_at(at),
+        None => facts,
+    };
     let fetched = fetched_copies(policy, copies);
     let stored = enforce(policy, cms, &facts);
     if let Enforcement::Enforced { syntax, findings } = &stored {
@@ -1898,6 +1911,7 @@ fn not_enforced(why: &pdf_signature::policy_rules::NotEnforced, copy: &str) -> S
 fn policy_findings(
     signature: &pdf_signature::signature::Signature,
     copies: &[FetchedCopy],
+    at: pdf_signature::x509::Instant,
 ) -> Vec<pdf_signature::policy_rules::Finding> {
     use pdf_signature::policy_rules::{Enforcement, SignerFacts, enforce, enforce_fetched};
 
@@ -1907,7 +1921,7 @@ fn policy_findings(
     let Ok(Some(policy)) = signature.signature_policy(&cms) else {
         return Vec::new();
     };
-    let facts = SignerFacts::of(&cms);
+    let facts = SignerFacts::of(&cms).validated_at(at);
     if let Enforcement::Enforced { findings, .. } = enforce(&policy, &cms, &facts) {
         return findings;
     }
@@ -2340,7 +2354,7 @@ fn verdicts(
         asked.timestamps,
         asked.when,
     );
-    let verdict = verdict.under_policy(&policy_findings(signature, asked.copies));
+    let verdict = verdict.under_policy(&policy_findings(signature, asked.copies, asked.when.at()));
     // **Which instant the path was asked about, and on whose word** — said whichever answer it is,
     // because "valid" without it reads as *valid now* and that is the one thing this program never
     // establishes. §12.8.4.2's own reason for a document security store is that a signature

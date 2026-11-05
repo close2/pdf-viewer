@@ -221,7 +221,7 @@ fn a_position_other_than_enveloped_is_broken_and_asic_is_not_evaluated() {
 fn a_signing_certificate_the_signature_does_not_carry_is_broken() {
     let rules = [rule(
         "<SigningCertRules><MandatedSigningCertInfo>signingCertOnly</MandatedSigningCertInfo>\
-         <SigningCertTrustConditions/></SigningCertRules>",
+         <SigningCertTrustConditions><SignerTrustTrees/><SignerRevTrust><CertificateRevReq><EndRevReq>nocheck</EndRevReq><CACerts>nocheck</CACerts></CertificateRevReq></SignerRevTrust></SigningCertTrustConditions></SigningCertRules>",
         None,
     )];
     let mut without = facts(None);
@@ -372,10 +372,16 @@ fn an_algorithm_a_suite_does_not_admit_or_a_key_too_short_is_broken() {
         verdicts(&[suite(SHA256_URI, Some(SIGNATURE_USAGE), None)]),
         [Verdict::Met, Verdict::Broken]
     );
-    // An absent `Usages` is every usage, the signing certificate's included.
+    // An absent `Usages` is every usage, the signing certificate's and the path certificates'
+    // included; with no trust condition there is no path whose CA certificates it could judge.
     assert_eq!(
         verdicts(&[suite(SHA256_URI, None, None), suite(RSA_SHA256, None, None)]),
-        [Verdict::Met, Verdict::Met, Verdict::Met]
+        [
+            Verdict::Met,
+            Verdict::Met,
+            Verdict::Met,
+            Verdict::NotEvaluated
+        ]
     );
 }
 
@@ -757,4 +763,78 @@ fn a_document_bound_through_exclusive_or_1_1_canonicalisation_is_enforced() {
             );
         }
     }
+}
+
+/// RFC 4648 section 4's base64, for a certificate written into a fixture.
+fn encode(octets: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for group in octets.chunks(3) {
+        let octet = |at: usize| u32::from(group.get(at).copied().unwrap_or(0));
+        let word = octet(0) << 16 | octet(1) << 8 | octet(2);
+        for (at, shift) in [18_u32, 12, 6, 0].into_iter().enumerate() {
+            if at <= group.len() {
+                let sextet = usize::try_from((word >> shift) & 0x3F).expect("six bits");
+                out.push(char::from(ALPHABET[sextet]));
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+/// Clause 4.24.4's `SigningCertTrustConditions` in the XML syntax: clause 4.22.2's
+/// `X509CertificateBased` anchor with its `reliableUntil` attribute, and clause 4.22.5's
+/// `PathLenConstraint`, read into the same trust points the ASN.1 syntax gives.
+#[test]
+fn the_xml_signing_certificate_trust_conditions_are_judged_on_the_path() {
+    use crate::policy_rules::certification_path::tests::{WITHIN, cms, hierarchy};
+    let held = hierarchy();
+    let signed = cms(&held.signer, &held.intermediate);
+    let root = encode(&held.root);
+    assert_eq!(base64(&root).as_deref(), Some(held.root.as_slice()));
+    let conditions = |anchor: &str, extra: &str| {
+        rule(
+            &format!(
+                "<SigningCertRules><SigningCertTrustConditions><SignerTrustTrees>\
+                 <CertificateTrustPoint><TrustAnchors>{anchor}</TrustAnchors>{extra}\
+                 </CertificateTrustPoint></SignerTrustTrees><SignerRevTrust><CertificateRevReq>\
+                 <EndRevReq>nocheck</EndRevReq><CACerts>nocheck</CACerts></CertificateRevReq>\
+                 </SignerRevTrust></SigningCertTrustConditions></SigningCertRules>"
+            ),
+            None,
+        )
+    };
+    let trust =
+        |c: &policy_rules::Constraint| matches!(c, policy_rules::Constraint::TrustPath { .. });
+    let facts = facts(None).validated_at(WITHIN);
+    let verdicts = |anchor: &str, extra: &str| {
+        verdict_of(
+            &judged(&[conditions(anchor, extra)], &signed, &facts),
+            trust,
+        )
+    };
+    let certificate = format!("<X509CertificateBased>{root}</X509CertificateBased>");
+    assert_eq!(verdicts(&certificate, ""), [Verdict::Met]);
+    assert_eq!(
+        verdicts(&certificate, "<PathLenConstraint>0</PathLenConstraint>"),
+        [Verdict::Broken],
+        "clause 4.22.5.1 item 1: zero admits the trust point and an end-entity certificate only"
+    );
+    let sunset = format!(
+        r#"<X509CertificateBased reliableUntil="2026-01-01T00:00:00Z">{root}</X509CertificateBased>"#
+    );
+    assert_eq!(
+        verdicts(&sunset, ""),
+        [Verdict::NotEvaluated],
+        "clause 4.22.2.1 a): past its reliable instant the anchor is not relied on"
+    );
+    assert_eq!(
+        verdicts(
+            "<TAsInTrustedList><TLReference>https://example.invalid/tl.xml</TLReference></TAsInTrustedList>",
+            ""
+        ),
+        [Verdict::NotEvaluated]
+    );
 }

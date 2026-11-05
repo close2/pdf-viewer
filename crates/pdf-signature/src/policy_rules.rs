@@ -20,14 +20,21 @@
 //! and a constraint this program cannot evaluate is said to be one, never counted as met (ADR
 //! 2560). Enforced: the signing period of clause 6.2 against the signature timestamp's instant,
 //! the mandated signed and unsigned attributes of clause 6.5.1, its `externalSignedData`, its
-//! certificate reference and information requirements where the signer's own certificate decides
-//! them, the commitment-type selection of clause 6.4, and clause 6.10's signer algorithm
-//! constraints with their minimum key length. Named and not evaluated: the three trust conditions
-//! of clauses 6.7 to 6.9, whose trust points are a host's anchors (ADR 1076) rather than the
-//! policy's; the certificate-issuer algorithm constraints of clause 6.10; the requirements that
-//! reach the full certification path; the verifier rules of clause 6.5.2, which ask a verifier to
-//! *add* attributes and so are an augmentation this reader never performs; and every extension of
-//! clause 6.11, whose syntax is whatever its own identifier names.
+//! certificate reference and information requirements, the commitment-type selection of clause
+//! 6.4, and clause 6.10's signer algorithm constraints with their minimum key length. **The
+//! constraints on the certification path are evaluated over a path built to the policy's own trust
+//! points** ([`certification_path`], ADR 2714) — those points, not the anchors a host supplies
+//! (ADR 1076), are what clause 6.7's signing-certificate trust condition states: the condition
+//! itself with each trust point's `pathLenConstraint`, the `fullPath` certificate reference and
+//! information requirements of clause 6.5.1, and clause 6.10's `eeCertAlgorithmConstraints` and
+//! `caCertAlgorithmConstraints` against the issuers along that path. Named and not evaluated: a
+//! trust point's acceptable policy set, name constraints and policy constraints, which are RFC 5280
+//! section 6.1's policy tree and name processing that [`crate::trust`] does not perform; the
+//! revocation checks a trust condition mandates; the time-stamp and attribute trust conditions of
+//! clauses 6.8 and 6.9, which concern another certificate than the signer's; clause 6.10's lists
+//! for attribute and time-stamping authorities; the verifier rules of clause 6.5.2, which ask a
+//! verifier to *add* attributes and so are an augmentation this reader never performs; and every
+//! extension of clause 6.11, whose syntax is whatever its own identifier names.
 //!
 //! # Budgets, before the work
 //!
@@ -55,6 +62,7 @@ use crate::signature::name;
 use crate::x509::{self, Instant, PublicKey};
 
 pub mod canonical_xml;
+pub mod certification_path;
 pub mod ts_119_172_2;
 pub mod ts_119_172_3;
 
@@ -79,6 +87,10 @@ pub const SIGNING_CERT_TRUST: &str = "signing certificate trust condition";
 pub const TIMESTAMP_TRUST: &str = "time-stamp trust condition";
 /// Clause 6.9's `attributeTrustCondition`, as a sentence names it.
 pub const ATTRIBUTE_TRUST: &str = "attribute trust condition";
+/// Clause 6.10's list for the issuers of end-entity certificates.
+pub const END_ENTITY_ALGORITHMS: &str = "eeCertAlgorithmConstraints";
+/// Clause 6.10's list for the issuers of CA certificates.
+pub const AUTHORITY_ALGORITHMS: &str = "caCertAlgorithmConstraints";
 
 /// One rule of clause 6.3's placement: its name, whether a rule set states it, and whether it is
 /// one of the three that must be stated somewhere.
@@ -282,8 +294,27 @@ pub struct Rules<'a> {
     pub algorithm_constraints: bool,
     /// `signerAlgorithmConstraints`, where stated.
     pub signer_algorithms: Option<Vec<AlgorithmAndLength<'a>>>,
-    /// Which of the four certificate-issuer constraint lists are stated, by their member names.
+    /// Clause 6.7's `signingCertTrustCondition`, where stated: its trust trees, and whether its
+    /// `signerRevReq` mandates any check.
+    pub signer_trust: Option<SignerTrust<'a>>,
+    /// Clause 6.10's `eeCertAlgorithmConstraints`, where stated.
+    pub end_entity_algorithms: Option<Vec<AlgorithmAndLength<'a>>>,
+    /// Clause 6.10's `caCertAlgorithmConstraints`, where stated.
+    pub authority_algorithms: Option<Vec<AlgorithmAndLength<'a>>>,
+    /// Which of the two certificate-issuer constraint lists this program does not evaluate —
+    /// `aaCertAlgorithmConstraints` and `tsaCertAlgorithmConstraints` — are stated, by their
+    /// member names.
     pub certificate_algorithms: Vec<&'static str>,
+}
+
+/// Clause 6.7's `SigningCertTrustCondition`, as far as it is evaluated.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SignerTrust<'a> {
+    /// `signerTrustTrees`.
+    pub trees: certification_path::TrustTrees<'a>,
+    /// Whether `signerRevReq` mandates a check of either kind of certificate: false where both
+    /// `endCertRevReq` and `caCerts` are clause 6.6.2's `noCheck`.
+    pub revocation_mandated: bool,
 }
 
 /// One clause 6.4 `CommitmentRule`.
@@ -615,7 +646,15 @@ fn read_rules<'a>(
                     read_extensions(&value, extensions, budget)?;
                 }
             }
-            1 => rules.trust_conditions.push(SIGNING_CERT_TRUST),
+            1 => {
+                rules.trust_conditions.push(SIGNING_CERT_TRUST);
+                let condition = expect(
+                    Some(explicit(&member, "signingCertTrustCondition")?),
+                    SEQUENCE,
+                    "signingCertTrustCondition",
+                )?;
+                rules.signer_trust = Some(read_signer_trust(&condition, extensions, budget)?);
+            }
             2 => rules.trust_conditions.push(TIMESTAMP_TRUST),
             3 => rules.trust_conditions.push(ATTRIBUTE_TRUST),
             4 => {
@@ -635,12 +674,25 @@ fn read_rules<'a>(
                                 budget,
                             )?);
                         }
-                        (der::Class::ContextSpecific, number @ 1..=4) => {
-                            let member = match number {
-                                1 => "eeCertAlgorithmConstraints",
-                                2 => "caCertAlgorithmConstraints",
-                                3 => "aaCertAlgorithmConstraints",
-                                _ => "tsaCertAlgorithmConstraints",
+                        (der::Class::ContextSpecific, 1) => {
+                            rules.end_entity_algorithms = Some(read_algorithms(
+                                &explicit(&list, END_ENTITY_ALGORITHMS)?,
+                                extensions,
+                                budget,
+                            )?);
+                        }
+                        (der::Class::ContextSpecific, 2) => {
+                            rules.authority_algorithms = Some(read_algorithms(
+                                &explicit(&list, AUTHORITY_ALGORITHMS)?,
+                                extensions,
+                                budget,
+                            )?);
+                        }
+                        (der::Class::ContextSpecific, number @ 3..=4) => {
+                            let member = if number == 3 {
+                                "aaCertAlgorithmConstraints"
+                            } else {
+                                "tsaCertAlgorithmConstraints"
                             };
                             read_algorithms(&explicit(&list, member)?, extensions, budget)?;
                             rules.certificate_algorithms.push(member);
@@ -654,6 +706,117 @@ fn read_rules<'a>(
         }
     }
     Ok(rules)
+}
+
+/// Clause 6.7's `SigningCertTrustCondition`: its trust trees, and whether its revocation
+/// requirement mandates a check.
+fn read_signer_trust<'a>(
+    value: &Value<'a>,
+    extensions: &mut Vec<&'a [u8]>,
+    budget: &mut Budget,
+) -> Result<SignerTrust<'a>, PolicyDocumentError> {
+    let mut members = value.children()?;
+    let trees = expect(members.next_value()?, SEQUENCE, "signerTrustTrees")?;
+    let trees = read_trust_trees(&trees, budget)?;
+    let requirement = expect(members.next_value()?, SEQUENCE, "signerRevReq")?;
+    let mut requirement = requirement.children()?;
+    let end = revocation_check(
+        &expect(requirement.next_value()?, SEQUENCE, "endCertRevReq")?,
+        extensions,
+        budget,
+    )?;
+    let authorities = requirement
+        .next_value()?
+        .ok_or(PolicyDocumentError::Malformed("signerRevReq.caCerts"))?;
+    let authorities = revocation_check(
+        &expect(
+            Some(explicit(&authorities, "caCerts")?),
+            SEQUENCE,
+            "caCerts",
+        )?,
+        extensions,
+        budget,
+    )?;
+    Ok(SignerTrust {
+        trees,
+        revocation_mandated: end != NO_CHECK || authorities != NO_CHECK,
+    })
+}
+
+/// Clause 6.6.2's `noCheck`.
+const NO_CHECK: u8 = 4;
+
+/// Clause 6.6.2's `RevReq`: its `enuRevReq`, any extension charged as every other is.
+fn revocation_check<'a>(
+    value: &Value<'a>,
+    extensions: &mut Vec<&'a [u8]>,
+    budget: &mut Budget,
+) -> Result<u8, PolicyDocumentError> {
+    let mut members = value.children()?;
+    let check = enumerated(
+        &members
+            .next_value()?
+            .ok_or(PolicyDocumentError::Malformed("RevReq.enuRevReq"))?,
+    )?;
+    if let Some(extension) = members.next_value()? {
+        read_extensions(&extension, extensions, budget)?;
+    }
+    Ok(check)
+}
+
+/// Clause 6.6.1's `CertificateTrustTrees`, each trust point charged to the budget.
+///
+/// `acceptablePolicySet`, `nameConstraints` and `policyConstraints` are the initial conditions of
+/// RFC 5280 section 6.1.1's policy tree and name processing, which [`crate::trust`] does not
+/// perform; each is kept as the name of a member stated and not processed, so a condition that
+/// states one is never called met.
+fn read_trust_trees<'a>(
+    value: &Value<'a>,
+    budget: &mut Budget,
+) -> Result<certification_path::TrustTrees<'a>, PolicyDocumentError> {
+    let mut trees = certification_path::TrustTrees::default();
+    let mut points = value.children()?;
+    while let Some(point) = points.next_value()? {
+        budget.take()?;
+        let point = expect(Some(point), SEQUENCE, "CertificateTrustPoint")?;
+        let mut members = point.children()?;
+        let certificate = expect(
+            members.next_value()?,
+            SEQUENCE,
+            "CertificateTrustPoint.trustpoint",
+        )?;
+        let mut path_length = None;
+        let mut unprocessed = Vec::new();
+        while let Some(member) = members.next_value()? {
+            if member.class() != der::Class::ContextSpecific {
+                return Err(PolicyDocumentError::Malformed("CertificateTrustPoint"));
+            }
+            match member.tag_number() {
+                0 => {
+                    let limit = expect(
+                        Some(explicit(&member, "pathLenConstraint")?),
+                        der::INTEGER,
+                        "pathLenConstraint",
+                    )?;
+                    path_length =
+                        Some(i64::from(key_length(limit.contents).map_err(|_| {
+                            PolicyDocumentError::Malformed("pathLenConstraint")
+                        })?));
+                }
+                1 => unprocessed.push("acceptable policy set"),
+                2 => unprocessed.push("name constraints"),
+                3 => unprocessed.push("policy constraints"),
+                _ => return Err(PolicyDocumentError::Malformed("CertificateTrustPoint")),
+            }
+        }
+        trees.points.push(certification_path::TrustPoint {
+            certificate: std::borrow::Cow::Borrowed(certificate.encoding()),
+            path_length,
+            reliable_until: None,
+            unprocessed,
+        });
+    }
+    Ok(trees)
 }
 
 /// Clause 6.5.1's `SignerRules`.
@@ -849,6 +1012,10 @@ pub struct SignerFacts {
     pub carries_signer_certificate: bool,
     /// The signature algorithm that certificate's issuer signed it under, where it is carried.
     pub certificate_signature_algorithm: Option<Vec<u8>>,
+    /// RFC 5280 section 6.1.1's input (b) for a path to the policy's own trust points, where a
+    /// host gave one; [`certification_path`] falls back to a covering signature timestamp's
+    /// instant, and to nothing.
+    pub path_at: Option<Instant>,
 }
 
 impl SignerFacts {
@@ -858,14 +1025,7 @@ impl SignerFacts {
     pub fn of(cms: &SignedData<'_>) -> Self {
         let certificate =
             crate::signature::signer_certificate(cms).and_then(|value| x509::read(value).ok());
-        let key_bits = certificate.and_then(|certificate| match certificate.public_key {
-            PublicKey::Rsa(key) => Some(key.bits()),
-            PublicKey::Dsa(key) => Some(key.bits()),
-            PublicKey::Ec(key) => Some(key.curve.bits()),
-            PublicKey::EdDsa(_)
-            | PublicKey::EcCurveNotVerifiable { .. }
-            | PublicKey::Unverifiable { .. } => None,
-        });
+        let key_bits = certificate.and_then(|certificate| key_bits(&certificate.public_key));
         let signing_time = match crate::timestamp::signature_timestamp(cms) {
             Some(Ok(stamp)) if stamp.covers_the_signature => Some(SigningTime {
                 instant: stamp.claim.gen_time,
@@ -880,7 +1040,28 @@ impl SignerFacts {
             carries_signer_certificate: certificate.is_some(),
             certificate_signature_algorithm: certificate
                 .map(|certificate| certificate.signature_algorithm.to_vec()),
+            path_at: None,
         }
+    }
+
+    /// These facts with the instant a host validates paths at, which is the instant
+    /// [`certification_path::search`] validates a path to the policy's trust points at.
+    #[must_use]
+    pub const fn validated_at(mut self, at: Instant) -> Self {
+        self.path_at = Some(at);
+        self
+    }
+}
+
+/// A public key's length in bits, where its family has one this reader measures.
+pub(crate) fn key_bits(key: &PublicKey<'_>) -> Option<usize> {
+    match key {
+        PublicKey::Rsa(key) => Some(key.bits()),
+        PublicKey::Dsa(key) => Some(key.bits()),
+        PublicKey::Ec(key) => Some(key.curve.bits()),
+        PublicKey::EdDsa(_)
+        | PublicKey::EcCurveNotVerifiable { .. }
+        | PublicKey::Unverifiable { .. } => None,
     }
 }
 
@@ -939,8 +1120,39 @@ pub enum Constraint {
         /// The commitment type the signature states, dotted.
         stated: Option<String>,
     },
-    /// A trust condition of clauses 6.7 to 6.9, named.
+    /// A trust condition of clauses 6.7 to 6.9, named and not evaluated.
     TrustCondition(&'static str),
+    /// A trust condition's trust trees, searched for a path to the policy's own trust points.
+    TrustPath {
+        /// The condition, by [`SIGNING_CERT_TRUST`] and its siblings.
+        condition: &'static str,
+        /// What the search found.
+        found: certification_path::Found,
+        /// How many trust anchors were not searched.
+        unexamined: usize,
+    },
+    /// A trust condition's revocation requirement (clause 6.6.2, TS 119 172-2 clause 4.23).
+    RevocationRequirement {
+        /// The condition.
+        condition: &'static str,
+        /// Whether it mandates any check.
+        mandated: bool,
+    },
+    /// One certificate on the path against one of clause 6.10's certificate-issuer lists.
+    IssuerAlgorithm {
+        /// The list, by its member name.
+        member: &'static str,
+        /// The algorithm the certificate was issued under, dotted, and the issuer's key length;
+        /// `None` where no certificate is judged.
+        issued: Option<(String, Option<usize>)>,
+        /// Whether a path to the policy's trust points validated, which is where the issuers
+        /// are known from.
+        path: bool,
+        /// Whether the list names the algorithm.
+        listed: bool,
+        /// The list's minimum key length for it.
+        min_key_length: Option<u32>,
+    },
     /// One of clause 6.10's certificate-issuer constraint lists, named.
     CertificateAlgorithms(&'static str),
     /// A clause 6.11 extension, or a TS 119 172-3 `Other`, by its identifier.
@@ -1276,9 +1488,18 @@ pub fn findings(
         });
     }
     let rule = rule.ok().flatten();
-    judge(&document.common, cms, facts, &mut out);
+    // Clause 6.3 places the signing-certificate trust condition in the common rules or in every
+    // commitment rule, never both, so the one that applies is searched once and every
+    // path-dependent constraint of either rule set reads that one path.
+    let search = document
+        .common
+        .signer_trust
+        .as_ref()
+        .or_else(|| rule.and_then(|rule| rule.rules.signer_trust.as_ref()))
+        .map(|trust| certification_path::search(&trust.trees, cms, facts));
+    judge(&document.common, cms, facts, search.as_ref(), &mut out);
     if let Some(rule) = rule {
-        judge(&rule.rules, cms, facts, &mut out);
+        judge(&rule.rules, cms, facts, search.as_ref(), &mut out);
     }
     for extension in &document.extensions {
         out.push(Finding {
@@ -1290,7 +1511,14 @@ pub fn findings(
 }
 
 /// One rule set's findings.
-fn judge(rules: &Rules<'_>, cms: &SignedData<'_>, facts: &SignerFacts, out: &mut Vec<Finding>) {
+fn judge(
+    rules: &Rules<'_>,
+    cms: &SignedData<'_>,
+    facts: &SignerFacts,
+    search: Option<&certification_path::Search>,
+    out: &mut Vec<Finding>,
+) {
+    let path = search.and_then(|search| search.path.as_ref());
     let verdict = |held: bool| if held { Verdict::Met } else { Verdict::Broken };
     if let Some(signer) = &rules.signer {
         if let Some(required) = signer.external_signed_data {
@@ -1315,7 +1543,10 @@ fn judge(rules: &Rules<'_>, cms: &SignedData<'_>, facts: &SignerFacts, out: &mut
             CertificateReference::SignerOnly => {
                 verdict(cms.signing_certificate.is_some() || cms.signing_certificate_v2.is_some())
             }
-            CertificateReference::FullPath => Verdict::NotEvaluated,
+            CertificateReference::FullPath => match path.map(|path| path.referenced_by(cms)) {
+                Some(Some(held)) => verdict(held),
+                _ => Verdict::NotEvaluated,
+            },
         };
         out.push(Finding {
             verdict: reference,
@@ -1324,7 +1555,13 @@ fn judge(rules: &Rules<'_>, cms: &SignedData<'_>, facts: &SignerFacts, out: &mut
         let info = match signer.certificate_info {
             CertificateInfo::None => None,
             CertificateInfo::SignerOnly => Some(verdict(facts.carries_signer_certificate)),
-            CertificateInfo::FullPath => Some(Verdict::NotEvaluated),
+            // The path is built over the certificates the `SignedData` carries and nothing
+            // else, so a path that validated is one the signature carries whole.
+            CertificateInfo::FullPath => Some(if path.is_some() {
+                Verdict::Met
+            } else {
+                Verdict::NotEvaluated
+            }),
         };
         if let Some(info) = info {
             out.push(Finding {
@@ -1339,12 +1576,8 @@ fn judge(rules: &Rules<'_>, cms: &SignedData<'_>, facts: &SignerFacts, out: &mut
             constraint: Constraint::VerifierAdds(name(oid)),
         });
     }
-    for condition in &rules.trust_conditions {
-        out.push(Finding {
-            verdict: Verdict::NotEvaluated,
-            constraint: Constraint::TrustCondition(condition),
-        });
-    }
+    judge_trust_conditions(rules, search, out);
+    judge_issuers(rules, facts, path, out);
     if let Some(list) = &rules.signer_algorithms {
         for (used, is_signature) in [
             (cms.digest_algorithm, false),
@@ -1378,6 +1611,147 @@ fn judge(rules: &Rules<'_>, cms: &SignedData<'_>, facts: &SignerFacts, out: &mut
             verdict: Verdict::NotEvaluated,
             constraint: Constraint::CertificateAlgorithms(member),
         });
+    }
+}
+
+/// Clauses 6.7 to 6.9's trust conditions: the signing-certificate condition as the search found it,
+/// with its revocation requirement, and the other two named.
+fn judge_trust_conditions(
+    rules: &Rules<'_>,
+    search: Option<&certification_path::Search>,
+    out: &mut Vec<Finding>,
+) {
+    for condition in &rules.trust_conditions {
+        match (&rules.signer_trust, search) {
+            (Some(trust), Some(search)) if *condition == SIGNING_CERT_TRUST => {
+                out.push(Finding {
+                    verdict: search.verdict(),
+                    constraint: Constraint::TrustPath {
+                        condition,
+                        found: search.found.clone(),
+                        unexamined: search.unexamined,
+                    },
+                });
+                out.push(Finding {
+                    verdict: if trust.revocation_mandated {
+                        Verdict::NotEvaluated
+                    } else {
+                        Verdict::Met
+                    },
+                    constraint: Constraint::RevocationRequirement {
+                        condition,
+                        mandated: trust.revocation_mandated,
+                    },
+                });
+            }
+            _ => out.push(Finding {
+                verdict: Verdict::NotEvaluated,
+                constraint: Constraint::TrustCondition(condition),
+            }),
+        }
+    }
+}
+
+/// Clause 6.10's end-entity and CA certificate-issuer lists, judged along the path.
+fn judge_issuers(
+    rules: &Rules<'_>,
+    facts: &SignerFacts,
+    path: Option<&certification_path::Path>,
+    out: &mut Vec<Finding>,
+) {
+    if let Some(list) = &rules.end_entity_algorithms {
+        let issued = facts
+            .certificate_signature_algorithm
+            .as_ref()
+            .map(|algorithm| certification_path::Issued {
+                algorithm: algorithm.clone(),
+                issuer_key_bits: path
+                    .and_then(certification_path::Path::end_entity)
+                    .and_then(|issued| issued.issuer_key_bits),
+            });
+        out.push(issuer_finding(
+            END_ENTITY_ALGORITHMS,
+            list,
+            issued.as_ref(),
+            path.is_some(),
+        ));
+    }
+    if let Some(list) = &rules.authority_algorithms {
+        let authorities = path.map(certification_path::Path::authorities);
+        match authorities.as_deref() {
+            Some([]) | None => {
+                out.push(issuer_finding(
+                    AUTHORITY_ALGORITHMS,
+                    list,
+                    None,
+                    path.is_some(),
+                ));
+            }
+            Some(authorities) => {
+                for issued in authorities {
+                    out.push(issuer_finding(
+                        AUTHORITY_ALGORITHMS,
+                        list,
+                        Some(issued),
+                        true,
+                    ));
+                }
+            }
+        }
+    }
+}
+
+/// One certificate on the path against one of clause 6.10's certificate-issuer lists: its
+/// algorithm must be listed, and the issuer's key must be at least the list's minimum for it.
+/// With no certificate, the list is met where a path validated and has none to judge, and not
+/// evaluated where no path did.
+fn issuer_finding(
+    member: &'static str,
+    list: &[AlgorithmAndLength<'_>],
+    issued: Option<&certification_path::Issued>,
+    path: bool,
+) -> Finding {
+    let Some(issued) = issued else {
+        return Finding {
+            verdict: if path {
+                Verdict::Met
+            } else {
+                Verdict::NotEvaluated
+            },
+            constraint: Constraint::IssuerAlgorithm {
+                member,
+                issued: None,
+                path,
+                listed: false,
+                min_key_length: None,
+            },
+        };
+    };
+    let entry = list
+        .iter()
+        .find(|entry| entry.algorithm == issued.algorithm.as_slice());
+    let min_key_length = entry.and_then(|entry| entry.min_key_length);
+    let verdict = match (entry, min_key_length, issued.issuer_key_bits) {
+        (None, _, _) => Verdict::Broken,
+        (Some(_), None, _) => Verdict::Met,
+        (Some(_), Some(_), None) => Verdict::NotEvaluated,
+        (Some(_), Some(minimum), Some(bits)) => {
+            if usize::try_from(minimum).is_ok_and(|minimum| bits >= minimum) {
+                Verdict::Met
+            } else {
+                Verdict::Broken
+            }
+        }
+    };
+    Finding {
+        verdict,
+        constraint: Constraint::IssuerAlgorithm {
+            member,
+            issued: Some((name(&issued.algorithm), issued.issuer_key_bits)),
+            path,
+            listed: entry.is_some(),
+            min_key_length,
+        },
     }
 }
 
@@ -1418,13 +1792,15 @@ impl std::fmt::Display for Finding {
                 ),
                 CertificateReference::FullPath => write!(
                     f,
-                    "the policy's requirement that the signing-certificate attribute reference every certificate up to a trust point is {verdict}: the path is the trust anchors' question, which a host answers"
+                    "the policy's requirement that the signing-certificate attribute reference every certificate up to a trust point is {verdict}{}",
+                    path_said(self.verdict)
                 ),
             },
             Constraint::CertificateInfo(info) => match info {
                 CertificateInfo::FullPath => write!(
                     f,
-                    "the policy's requirement that the signature carry every certificate up to a trust point is {verdict}: the path is the trust anchors' question, which a host answers"
+                    "the policy's requirement that the signature carry every certificate up to a trust point is {verdict}{}",
+                    path_said(self.verdict)
                 ),
                 _ => write!(
                     f,
@@ -1468,19 +1844,115 @@ impl std::fmt::Display for Finding {
                     "the policy's commitment rules, for a signature stating no commitment type, are {verdict}"
                 ),
             },
-            Constraint::TrustCondition(condition) => write!(
-                f,
-                "the policy's {condition} is {verdict}: its trust points are not the anchors this program validates under, which a host supplies"
-            ),
-            Constraint::CertificateAlgorithms(member) => write!(
-                f,
-                "the policy's {member} is {verdict}: it constrains the issuers along the certification path"
-            ),
+            Constraint::TrustCondition(_)
+            | Constraint::TrustPath { .. }
+            | Constraint::RevocationRequirement { .. }
+            | Constraint::IssuerAlgorithm { .. }
+            | Constraint::CertificateAlgorithms(_) => self.constraint.path_sentence(f, verdict),
             Constraint::Extension(oid) => write!(
                 f,
                 "the policy's extension {oid} is {verdict}: its syntax is whatever its identifier names"
             ),
             Constraint::PolicyComponent(constraint) => constraint.sentence(f, verdict),
+        }
+    }
+}
+
+impl Constraint {
+    /// The sentences of the constraints on the certification path (ADR 2714).
+    fn path_sentence(&self, f: &mut std::fmt::Formatter<'_>, verdict: &str) -> std::fmt::Result {
+        match self {
+            Self::TrustCondition(condition) => write!(
+                f,
+                "the policy's {condition} is {verdict}: this program does not search its trust trees, which concern a certificate other than the signer's"
+            ),
+            Self::TrustPath {
+                condition,
+                found,
+                unexamined,
+            } => certification_path::sentence(f, condition, found, *unexamined, verdict),
+            Self::RevocationRequirement {
+                condition,
+                mandated,
+            } => {
+                if *mandated {
+                    write!(
+                        f,
+                        "the revocation checks the policy's {condition} mandates are {verdict}: this program answers revocation from the material the file carries and does not record which kind of check answered for each certificate"
+                    )
+                } else {
+                    write!(
+                        f,
+                        "the revocation requirement of the policy's {condition} is {verdict}: it mandates no check"
+                    )
+                }
+            }
+            Self::IssuerAlgorithm {
+                member,
+                issued,
+                path,
+                listed,
+                min_key_length,
+            } => issuer_sentence(
+                f,
+                verdict,
+                member,
+                issued.as_ref(),
+                *path,
+                *listed,
+                *min_key_length,
+            ),
+            Self::CertificateAlgorithms(member) => write!(
+                f,
+                "the policy's {member} is {verdict}: it constrains an attribute authority or a time-stamping authority, whose certificates this program does not judge against a policy"
+            ),
+            _ => Ok(()),
+        }
+    }
+}
+
+/// [`Constraint::IssuerAlgorithm`]'s sentence.
+fn issuer_sentence(
+    f: &mut std::fmt::Formatter<'_>,
+    verdict: &str,
+    member: &str,
+    issued: Option<&(String, Option<usize>)>,
+    path: bool,
+    listed: bool,
+    min_key_length: Option<u32>,
+) -> std::fmt::Result {
+    write!(f, "the policy's {member} is {verdict}")?;
+    match issued {
+                    Some((algorithm, bits)) => {
+                        write!(
+                            f,
+                            " for a certificate issued under {}",
+certification_path::issued_words(algorithm, *bits)
+                        )?;
+                        if !listed {
+                            f.write_str(", an algorithm the list does not name")?;
+                        } else if let Some(minimum) = min_key_length {
+                            write!(f, ", the list's minimum being {minimum} bits")?;
+                        }
+                        Ok(())
+                    }
+                    None if path => f.write_str(
+                        ": no CA certificate stands between the signer's certificate and the policy's trust point",
+                    ),
+                    None => f.write_str(
+                        ": it constrains the issuers along the certification path, and no path to the policy's own trust points validated",
+                    ),
+                }
+}
+
+/// The clause a full-path requirement's sentence ends with, by its verdict.
+const fn path_said(verdict: Verdict) -> &'static str {
+    match verdict {
+        Verdict::NotEvaluated => {
+            ": the path is known only once one validates to the policy's own trust points, and none did"
+        }
+        Verdict::Met | Verdict::Broken => {
+            ", over the path that validated to the policy's own trust points"
         }
     }
 }

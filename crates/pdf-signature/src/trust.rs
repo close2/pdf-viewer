@@ -543,8 +543,27 @@ pub fn validate_for<'p, 'c: 'p>(
     at: Instant,
     purpose: Purpose,
 ) -> Trust {
+    validate_path(target, others, anchors, material, at, purpose).0
+}
+
+/// [`validate_for`], with the certificates of the path that validated, target first and the
+/// anchor excluded — empty unless the answer is [`Trust::Anchored`].
+///
+/// A signature policy's constraints on the path itself — which certificates its signing-certificate
+/// attribute references, which algorithms the issuers along it used — need the path and not only
+/// its length (ETSI TR 102 272 clauses 6.5.1 and 6.10, ADR 2714), and the path is what section
+/// 6.1.5's success says was validated, so it is handed out exactly as the walk saw it.
+#[must_use]
+pub fn validate_path<'p, 'c: 'p>(
+    target: &'p Certificate<'c>,
+    others: &'p [Certificate<'c>],
+    anchors: &'p TrustAnchors<'c>,
+    material: &'p Material<'c>,
+    at: Instant,
+    purpose: Purpose,
+) -> (Trust, Vec<&'p Certificate<'c>>) {
     if anchors.is_empty() {
-        return Trust::NoAnchorSupplied;
+        return (Trust::NoAnchorSupplied, Vec::new());
     }
     let candidates = others
         .get(..others.len().min(MAX_CANDIDATES))
@@ -563,13 +582,16 @@ pub fn validate_for<'p, 'c: 'p>(
     // The path is held target-first while it is built and reversed before validation, because
     // section 6.1 numbers certificates from the anchor down and every step reads in that order.
     let mut path = vec![target];
-    if let Some(length) = search.extend(&mut path) {
-        return Trust::Anchored {
-            length,
-            revocation: search.revocation,
-        };
+    if let Some(validated) = search.extend(&mut path) {
+        return (
+            Trust::Anchored {
+                length: validated.len(),
+                revocation: search.revocation,
+            },
+            validated,
+        );
     }
-    match search.first_refusal {
+    let trust = match search.first_refusal {
         Some(refusal) => Trust::Refused {
             refusal,
             examined: search.steps,
@@ -577,7 +599,8 @@ pub fn validate_for<'p, 'c: 'p>(
         None => Trust::NoPathToAnyAnchor {
             examined: search.steps,
         },
-    }
+    };
+    (trust, Vec::new())
 }
 
 /// The depth-first walk from the target certificate up towards an anchor.
@@ -612,14 +635,14 @@ struct Search<'p, 'c: 'p> {
 }
 
 impl<'p, 'c: 'p> Search<'p, 'c> {
-    /// The length of the first extension of `path` that reaches an anchor and validates.
+    /// The first extension of `path` that reaches an anchor and validates, target first.
     ///
-    /// `path` is ordered target-first, and the length returned is the one it had at the moment it
+    /// `path` is ordered target-first, and the copy returned is the one it was at the moment it
     /// validated — the recursion unwinds on its way out, so reading `path` afterwards would give
     /// the target alone. The walk is bounded by [`MAX_PATH_LENGTH`] on the way down and by
     /// [`MAX_STEPS`] across the whole search, so a file carrying sixty-four mutually-issuing
     /// certificates cannot make this run long.
-    fn extend(&mut self, path: &mut Vec<&'p Certificate<'c>>) -> Option<usize> {
+    fn extend(&mut self, path: &mut Vec<&'p Certificate<'c>>) -> Option<Vec<&'p Certificate<'c>>> {
         if self.steps >= MAX_STEPS || path.len() > MAX_PATH_LENGTH {
             return None;
         }
@@ -631,7 +654,7 @@ impl<'p, 'c: 'p> Search<'p, 'c> {
                 continue;
             }
             match self.walk(anchor, path) {
-                Ok(()) => return Some(path.len()),
+                Ok(()) => return Some(path.clone()),
                 Err(refusal) => self.remember(refusal),
             }
         }

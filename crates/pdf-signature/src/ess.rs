@@ -218,6 +218,92 @@ pub fn signing_certificate_v2(value: Value<'_>) -> Result<CertificateHash<'_>, E
     })
 }
 
+/// How many certificate identifiers [`certificate_hashes`] reads before it refuses: one per
+/// certificate a path may hold, which is every identifier a policy's full-path requirement can ask
+/// about, and twice that for room.
+pub const MAX_IDENTIFIERS: usize = 2 * crate::trust::MAX_PATH_LENGTH;
+
+/// Every identifier of `certs`, not only the first: what a signature policy's `fullPath`
+/// certificate-reference requirement (ETSI TR 102 272 clause 6.5.1) asks the attribute to hold —
+/// one identifier per certificate of the path up to a trust point.
+///
+/// Each identifier is read as [`signing_certificate`] or [`signing_certificate_v2`] reads the
+/// first, by `version`.
+///
+/// # Errors
+///
+/// [`EssError`] for any identifier that does not read, and [`EssError::Malformed`] past
+/// [`MAX_IDENTIFIERS`]: an attribute is untrusted until its signature is checked, and a list longer
+/// than any path is not one a policy needs read.
+pub fn certificate_hashes(
+    value: Value<'_>,
+    version: Version,
+) -> Result<Vec<CertificateHash<'_>>, EssError> {
+    // The first identifier is read by the function that requires it, so an empty list is
+    // `NoCertificate` here exactly as there.
+    first_certificate_identifier(value)?;
+    let Some(certs) = value.children()?.next_value()? else {
+        return Err(EssError::Malformed);
+    };
+    let mut out = Vec::new();
+    let mut identifiers = certs.children()?;
+    while let Some(identifier) = identifiers.next_value()? {
+        if out.len() == MAX_IDENTIFIERS || identifier.identifier != SEQUENCE {
+            return Err(EssError::Malformed);
+        }
+        out.push(identifier_hash(identifier, version)?);
+    }
+    Ok(out)
+}
+
+/// One `ESSCertID` (version one) or `ESSCertIDv2` (version two) down to its hash.
+fn identifier_hash(
+    identifier: Value<'_>,
+    version: Version,
+) -> Result<CertificateHash<'_>, EssError> {
+    let mut parts = identifier.children()?;
+    let Some(first) = parts.next_value()? else {
+        return Err(EssError::Malformed);
+    };
+    if version == Version::One || first.identifier == OCTET_STRING {
+        if first.identifier != OCTET_STRING {
+            return Err(EssError::Malformed);
+        }
+        return Ok(CertificateHash {
+            digest: if version == Version::One {
+                Digest::Sha1
+            } else {
+                Digest::Sha256
+            },
+            hash: first.contents,
+        });
+    }
+    if first.identifier != SEQUENCE {
+        return Err(EssError::Malformed);
+    }
+    let Some(oid) = first.children()?.next_value()? else {
+        return Err(EssError::Malformed);
+    };
+    let Some(oid) = oid.object_identifier() else {
+        return Err(EssError::Malformed);
+    };
+    let Some(digest) = Digest::from_oid(oid) else {
+        return Err(EssError::UnknownDigest {
+            algorithm: crate::signature::name(oid),
+        });
+    };
+    let Some(hash) = parts.next_value()? else {
+        return Err(EssError::Malformed);
+    };
+    if hash.identifier != OCTET_STRING {
+        return Err(EssError::Malformed);
+    }
+    Ok(CertificateHash {
+        digest,
+        hash: hash.contents,
+    })
+}
+
 /// The first member of `certs`, which both structures put first and both require.
 fn first_certificate_identifier(value: Value<'_>) -> Result<Value<'_>, EssError> {
     if value.identifier != SEQUENCE {

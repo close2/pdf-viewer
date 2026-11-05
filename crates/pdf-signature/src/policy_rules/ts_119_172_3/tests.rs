@@ -223,7 +223,14 @@ fn a_position_other_than_enveloped_is_broken_and_asic_is_not_evaluated() {
 
 #[test]
 fn a_signing_certificate_the_signature_does_not_carry_is_broken() {
-    let rule = basic(6, &seq(&[seq(&[seq(&[]), seq(&[])]), enumeration(0)]), None);
+    let rule = basic(
+        6,
+        &seq(&[
+            seq(&[seq(&[]), seq(&[seq(&[enumeration(4), enumeration(4)])])]),
+            enumeration(0),
+        ]),
+        None,
+    );
     let mut without = facts(None);
     without.carries_signer_certificate = false;
     let found = judged(&[rule], &default_cms(), &without);
@@ -237,9 +244,13 @@ fn a_signing_certificate_the_signature_does_not_carry_is_broken() {
     assert_eq!(
         verdict_of(&found, |c| matches!(
             c,
-            policy_rules::Constraint::TrustCondition(SIGNING_CERT_TRUST)
+            policy_rules::Constraint::TrustPath {
+                condition: SIGNING_CERT_TRUST,
+                ..
+            }
         )),
-        [Verdict::NotEvaluated]
+        [Verdict::NotEvaluated],
+        "trust trees naming no trust point leave nothing to build a path to"
     );
 }
 
@@ -604,4 +615,111 @@ fn hostile_policy_documents_are_refused_within_their_budgets() {
             Err(PolicyDocumentError::TooManyEntries)
         );
     }
+}
+
+/// Clause 4.24's trust conditions over the fixture hierarchy: clause 4.22.5's trust point with
+/// clause 4.22.2's certificate anchor, a pathLenConstraint, a trusted-list anchor, and clause
+/// 4.29's path-certificate usage and signing-certificate key length read off the path.
+#[test]
+fn the_signing_certificate_trust_conditions_are_judged_on_a_path_to_the_policys_trust_point() {
+    use crate::policy_rules::certification_path::tests::{WITHIN, cms, hierarchy};
+    let held = hierarchy();
+    let signed = cms(&held.signer, &held.intermediate);
+    let no_check = seq(&[seq(&[enumeration(4), enumeration(4)])]);
+    let rule = |point: Vec<u8>| {
+        basic(
+            6,
+            &seq(&[seq(&[seq(&[point]), no_check.clone()]), enumeration(1)]),
+            None,
+        )
+    };
+    let certificate = |extra: Vec<Vec<u8>>| {
+        let mut members = vec![seq(&[seq(std::slice::from_ref(&held.root))])];
+        members.extend(extra);
+        seq(&members)
+    };
+    let suites = basic(
+        11,
+        &seq(&[
+            suite(SHA256_RSA, &[PATH_CERT_USAGE], Some(2048), None),
+            suite(SHA256_RSA, &[SIGNING_CERT_USAGE[0]], Some(3072), None),
+        ]),
+        None,
+    );
+    let facts = facts(None).validated_at(WITHIN);
+    let trust =
+        |c: &policy_rules::Constraint| matches!(c, policy_rules::Constraint::TrustPath { .. });
+    let full = |c: &policy_rules::Constraint| {
+        matches!(
+            c,
+            policy_rules::Constraint::CertificateInfo(CertificateInfo::FullPath)
+        )
+    };
+    let found = judged(
+        &[rule(certificate(vec![])), suites.clone()],
+        &signed,
+        &facts,
+    );
+    assert_eq!(verdict_of(&found, trust), [Verdict::Met]);
+    assert_eq!(
+        verdict_of(&found, full),
+        [Verdict::Met],
+        "clause 4.24.3: fullPath, carried"
+    );
+    let usage = |wanted: Usage| {
+        component_verdicts(
+            &found,
+            |c| matches!(c, Constraint::SuiteAlgorithm { usage, .. } if *usage == wanted),
+        )
+    };
+    assert_eq!(
+        usage(Usage::PathCertificate),
+        [Verdict::Met],
+        "the intermediate, issued under a listed algorithm by the root's 2048-bit key"
+    );
+    assert_eq!(
+        usage(Usage::SigningCertificate),
+        [Verdict::Broken],
+        "the signer's certificate was made by a 2048-bit key, short of 3072"
+    );
+    // pathLenConstraint [0] of zero: the intermediate is one CA certificate too many.
+    let limited = judged(
+        &[rule(certificate(vec![tagged(0, &int(0))]))],
+        &signed,
+        &facts,
+    );
+    assert_eq!(verdict_of(&limited, trust), [Verdict::Broken]);
+    // A name-constraints member [2] this program does not process: never met.
+    let named = judged(
+        &[rule(certificate(vec![tagged(2, &seq(&[]))]))],
+        &signed,
+        &facts,
+    );
+    assert_eq!(verdict_of(&named, trust), [Verdict::NotEvaluated]);
+    // userCertPath [4] asInSignature [0] TRUE asks for the path the signature carries: processed.
+    let as_in_signature = judged(
+        &[rule(certificate(vec![tagged(
+            4,
+            &tagged(0, &tlv(0x01, &[0xFF])),
+        )]))],
+        &signed,
+        &facts,
+    );
+    assert_eq!(verdict_of(&as_in_signature, trust), [Verdict::Met]);
+    // A trusted-list anchor alone is one this program does not fetch.
+    let listed = judged(
+        &[rule(seq(&[seq(&[seq(&[ia5(
+            "https://example.invalid/tl.xml",
+        )])])]))],
+        &signed,
+        &facts,
+    );
+    assert_eq!(verdict_of(&listed, trust), [Verdict::NotEvaluated]);
+    assert!(
+        listed.iter().any(|finding| matches!(
+            &finding.constraint,
+            policy_rules::Constraint::TrustPath { unexamined: 1, .. }
+        )),
+        "the trusted-list anchor is counted, not dropped"
+    );
 }

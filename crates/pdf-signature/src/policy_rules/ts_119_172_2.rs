@@ -46,6 +46,7 @@
 use const_oid::ObjectIdentifier;
 use const_oid::db::rfc5912;
 
+use super::certification_path::{TrustPoint, TrustTrees};
 use super::ts_119_172_3::{
     self, AlgorithmConstraint, BasicRule, Cardinality, CommitmentRule, Comparison, ExtensionName,
     FormatsAndLevels, Identifier, Matching, MediaTypes, PolicyRule, Position, Scope, ScopedRule,
@@ -53,7 +54,7 @@ use super::ts_119_172_3::{
 };
 use super::{
     Budget, CertificateInfo, Finding, MAX_ENTRIES, MAX_POLICY_OCTETS, PolicyDocumentError,
-    SignerFacts, Stated, Syntax, Verdict, canonical_xml, signing_period,
+    SignerFacts, SignerTrust, Stated, Syntax, Verdict, canonical_xml, signing_period,
 };
 use crate::cms::SignedData;
 use crate::der;
@@ -660,6 +661,81 @@ impl<'t> Reader<'t> {
         })
     }
 
+    /// Clause 4.24.4's `SigningCertTrustConditions`, read as
+    /// [`ts_119_172_3`]'s `read_signer_trust` reads the ASN.1 one: clause 4.22.5's trust points,
+    /// one per certificate trust anchor, and whether clause 4.23.3's revocation trust mandates
+    /// anything.
+    fn signer_trust(&mut self, conditions: usize) -> Result<SignerTrust<'t>, PolicyDocumentError> {
+        let trees = self.required(conditions, "SignerTrustTrees", "SignerTrustTrees")?;
+        let mut out = TrustTrees::default();
+        for point in self.all(trees, Space::Policy, "CertificateTrustPoint")? {
+            self.budget.take()?;
+            let path_length = self
+                .optional(point, "PathLenConstraint")?
+                .map(|limit| self.integer(limit, "PathLenConstraint"))
+                .transpose()?;
+            if path_length.is_some_and(|limit| limit < 0) {
+                return Err(malformed("PathLenConstraint"));
+            }
+            let mut unprocessed = Vec::new();
+            for (local, said) in [
+                ("AcceptablePolicySet", "acceptable policy set"),
+                ("NameConstraints", "name constraints"),
+                ("PolicyConstraints", "policy constraints"),
+            ] {
+                if self.optional(point, local)?.is_some() {
+                    unprocessed.push(said);
+                }
+            }
+            if let Some(path) = self.optional(point, "UseCertPath")?
+                && self.optional(path, "AsInSignature")?.is_none()
+            {
+                unprocessed.push("mandated certification path");
+            }
+            let anchors =
+                self.required(point, "TrustAnchors", "CertificateTrustPoint.TrustAnchors")?;
+            for anchor in self.all(anchors, Space::Policy, "X509CertificateBased")? {
+                self.budget.take()?;
+                let certificate =
+                    base64(&self.element(anchor)?.text).ok_or(malformed("X509CertificateBased"))?;
+                let reliable_until = self
+                    .element(anchor)?
+                    .attributes
+                    .iter()
+                    .find(|(name, _)| name == "reliableUntil")
+                    .map(|(_, spelled)| {
+                        date_time(spelled.trim())
+                            .map(|instant| Stated {
+                                instant,
+                                spelled: spelled.trim().to_owned(),
+                            })
+                            .ok_or(malformed("X509CertificateBased.reliableUntil"))
+                    })
+                    .transpose()?;
+                out.points.push(TrustPoint {
+                    certificate: std::borrow::Cow::Owned(certificate),
+                    path_length,
+                    reliable_until,
+                    unprocessed: unprocessed.clone(),
+                });
+            }
+            let lists = self.all(anchors, Space::Policy, "TAsInTrustedList")?.len();
+            out.trusted_lists = out.trusted_lists.saturating_add(lists);
+        }
+        let revocation = self.required(conditions, "SignerRevTrust", "SignerRevTrust")?;
+        let requirement = self.required(revocation, "CertificateRevReq", "CertificateRevReq")?;
+        let end = self.text_of(requirement, "EndRevReq", "CertificateRevReq.EndRevReq")?;
+        let authorities = self.text_of(requirement, "CACerts", "CertificateRevReq.CACerts")?;
+        let more = self.optional(revocation, "Freshness")?.is_some()
+            || self
+                .optional(revocation, "SigCertIssuedByCAKeepsExpiredRevokedCertsInfo")?
+                .is_some();
+        Ok(SignerTrust {
+            trees: out,
+            revocation_mandated: more || end != "nocheck" || authorities != "nocheck",
+        })
+    }
+
     fn integer(&self, index: usize, member: &'static str) -> Result<i64, PolicyDocumentError> {
         self.text(index)?
             .strip_prefix('+')
@@ -897,11 +973,12 @@ impl<'t> Reader<'t> {
             "SigFormatsAndLevels" => BasicRule::FormatsAndLevels(self.formats(index)?),
             "AugmentationRules" => BasicRule::Augmentation,
             "SigningCertRules" => {
-                self.required(
+                let conditions = self.required(
                     index,
                     "SigningCertTrustConditions",
                     "SigningCertRules.SigningCertTrustConditions",
                 )?;
+                let trust = self.signer_trust(conditions)?;
                 let info = match self.optional(index, "MandatedSigningCertInfo")? {
                     None => None,
                     Some(info) => Some(match self.text(info)? {
@@ -910,7 +987,7 @@ impl<'t> Reader<'t> {
                         _ => return Err(malformed("MandatedSigningCertInfo")),
                     }),
                 };
-                BasicRule::SigningCertificate(info)
+                BasicRule::SigningCertificate { trust, info }
             }
             "TimeEvidencesRules" => BasicRule::TimeEvidences(self.time_evidences(index)?),
             "SignerAttributesConstraints" => {

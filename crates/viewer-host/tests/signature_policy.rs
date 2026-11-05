@@ -361,7 +361,7 @@ const XML_POLICY: &str = r#"<!--a--><SignaturePolicy xmlns="http://uri.etsi.org/
     <NotBefore>2020-01-01T00:00:00Z</NotBefore><NotAfter>2021-01-01T00:00:00Z</NotAfter>
     </SigningPeriod></OtherDetails></GeneralDetails><PolicyRules><PolicyRule>
     <SigningCertRules><MandatedSigningCertInfo>signingCertOnly</MandatedSigningCertInfo>
-    <SigningCertTrustConditions/></SigningCertRules></PolicyRule></PolicyRules></PolicyComponents>
+    <SigningCertTrustConditions><SignerTrustTrees/><SignerRevTrust><CertificateRevReq><EndRevReq>nocheck</EndRevReq><CACerts>nocheck</CACerts></CertificateRevReq></SignerRevTrust></SigningCertTrustConditions></SigningCertRules></PolicyRule></PolicyRules></PolicyComponents>
     </SignaturePolicy>"#;
 
 /// One DER value: a tag, X.690's shortest definite length, and the contents.
@@ -593,7 +593,16 @@ fn a_policy_the_window_fetched_is_enforced_by_the_document_s_validation() {
         )),
         "{said}"
     );
-    assert!(said.contains("3 constraint(s), 1 of them broken"), "{said}");
+    assert!(said.contains("4 constraint(s), 1 of them broken"), "{said}");
+    // The signing-certificate trust condition is searched on a path to the policy's own trust
+    // points (ADR 2714), and with no host clock and no signature timestamp it says so by name.
+    assert!(
+        said.contains(
+            "the policy's signing certificate trust condition is not evaluated: no instant was \
+             given to validate the path at"
+        ),
+        "{said}"
+    );
     assert!(
         said.contains(
             "the policy's requirement that the signature carry the signer's certificate is broken"
