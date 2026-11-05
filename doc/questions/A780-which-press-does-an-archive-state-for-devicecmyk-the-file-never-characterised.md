@@ -1,6 +1,6 @@
 Status: complete
 Given: 2026-11-05, in conversation — transcribed by the round
-Owes: write a destination CMYK ICC profile sampled from pdf_colour::assumed_press (with its inverse, stating in its description that it characterises this renderer's assumed inks rather than a physical press) for as-shown, no-data-loss and state-every-loss (option c), while keeping the shipped GRACoL press as the output intent for as-if-printed (option a) (an archive / colour round)
+Owes: none
 
 > Q780: agreed
 

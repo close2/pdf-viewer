@@ -39,6 +39,7 @@ mod entries;
 mod extended_srgb;
 mod grey_route;
 mod ink_search;
+mod inks_profile;
 mod parsing;
 mod press;
 mod queries;
@@ -55,6 +56,9 @@ pub use conversion::{Conversion, ConversionContext, InkScale};
 pub use extended_srgb::{ExtendedEncoding, ExtendedSrgb};
 pub use grey_route::{GreyIdentity, GreyRoute};
 pub(crate) use ink_search::solve_three;
+pub use inks_profile::{
+    A2B_SIDE, B2A_SIDE, DESCRIPTION as INKS_PROFILE_DESCRIPTION, assumed_inks_profile,
+};
 pub use press::{
     NoPress, PRESS_BYTES, Press, PressIdentity, Presses, assumed_press, device_cmyk_blending_space,
     device_ink_press, press_for_profile, presses_cached, presses_sampled,

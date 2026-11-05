@@ -159,8 +159,9 @@ fn part_two_is_not_offered_the_assumed_press() {
 
 #[test]
 fn the_shipped_profiles_say_which_of_them_assumes_the_press() {
-    // ISO 19005-4 section 6.2.4.3's row binds part 4 alone, so a `discard` at it authorises the
-    // loss there and nowhere else; `as-shown` leaves the site at its default, `stop` (A694 item 2).
+    // ISO 19005-4 section 6.2.4.3's row binds part 4 alone, but the loss is asked at every target,
+    // because at part 2 it chooses the CMYK output intent's press (A780, `doc/adr/2701`); `as-shown`
+    // leaves the site at its default, `stop` (A694 item 2).
     let part_four = Target::Four(Flavour::Plain);
     assert!(
         shipped("as-if-printed", part_four)
@@ -168,7 +169,7 @@ fn the_shipped_profiles_say_which_of_them_assumes_the_press() {
             .grants(Loss::PressAssumed)
     );
     assert!(
-        !shipped("as-if-printed", Target::Two(Level::B))
+        shipped("as-if-printed", Target::Two(Level::B))
             .authorisations(Target::Two(Level::B))
             .grants(Loss::PressAssumed)
     );

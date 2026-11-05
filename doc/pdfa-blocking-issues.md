@@ -115,7 +115,7 @@ column. R02 is built (ADR 2498) and no document reaches it.
 | 10 | R01-recovered-structure | 1 | 1 | 3 / 3 | builds only | built: ADRs 2502, 2503, 2551, 2596, 2670; each left is refused by its own sentence |
 | 11 | R07-undecodable-stream | 1 | 2 | 1 / 2 | builds only | built: ADR 2689; the `UnknownFilter` files' `%PDF-3.x` header, ADR 2692; left, an ICC profile written as its alternate |
 | 12 | R12-spot-colourant | 1 | 1 | 1 / 1 | builds only | built for a PostScript calculator function: ADR 2690; left, a sampled transform, refused until its loss is named (ADR 2490) |
-| 13 | R05-press | 0 | 9 | 0 / 29 | builds only | A694 item 2: (a) built; (b), `as-shown`'s assumed press, waits for an ICC table writer |
+| 13 | R05-press | 0 | 9 | 0 / 29 | builds only | A694 item 2: (a) built; (b)'s profile is written (ADR 2700), its route as part 4's DefaultCMYK is not |
 | 14 | R18-piece-info | 0 | 3 | 0 / 3 | builds only | unbuilt |
 | 15 | R15-embedded-files | 0 | 2 | 3 / 7 | builds only | built: ADR 2536 |
 | 16 | D-defect | — | — | 7 / 6 | defect | section 8: the converter's own, diagnosed rather than ranked |
@@ -270,8 +270,10 @@ states. *A company* prints on its own press, whichever it is. **Remedy**: (a) `a
 the shipped press profile as the default when none is supplied, loss `press-assumed` (new), the
 profile named in the report and `xmpMM:History` — the print it describes is a print on that press;
 (b) `as-shown` writes *this reader's* assumed press as an ICC CMYK profile (a lookup table computed
-from `pdf_colour`'s own conversion), so the file states what the window showed — this needs an ICC
-table writer and the owner's word, since it states this reader's choice; (c) meanwhile, R06b's
+from `pdf_colour`'s own conversion), so the file states what the window showed. The profile is
+written (`data/icc/quorra-assumed-inks.icc`, ADR 2700) and is already the CMYK output intent of
+every profile but `as-if-printed` (A780, ADR 2701); writing it as this row's `/DefaultCMYK` beside an
+RGB intent is the route left, which revisits ADR 2114 section 4's refusal; (c) meanwhile, R06b's
 other part. Q694 asks for (a) and (b). Mitigations section 4.2; ADRs 2114, 2130.
 
 **R12 — a DeviceN colourant with no Separation to name it** (7 pdf.js documents, each alone).
@@ -499,7 +501,7 @@ row is 4 per profile and target (ADRs 2534 and 2535). The families, by cause:
 | Two fonts share one descriptor and one CFF program whose widths only one of them agrees with, and the restatement for the other was written over the shared program | `507618` | fixed: the program is restated in a copy, with a copied descriptor naming it, where another font's widths would break in place (ADR 2640 section 2) |
 | The second conversion's statement page was not in the report, which named only the first pass's | none in the corpora: no document reaches a second-pass photograph | fixed: the report's one statement names both passes' pages (ADR 2640 section 3) |
 | An output intent the conversion added, over a source drawn without one, with the shipped sRGB profile: its colorants are sRGB rounded to s15Fixed16, and a grey of 188 draws 189 in red | `colorspace_cos`, `colorspace_sin` (266 pixels, one level, every profile and part) | required, not a defect: ISO 19005-2 and ISO 19005-4 section 6.2.4.3 admit `DeviceRGB` only through a profile, and with the intent removed the output draws pixel-identically (ADR 2691) |
-| The shipped CMYK press written as the output intent (ADR 1153) where this renderer drew the source's `DeviceCMYK` through its assumed inks, which no profile states; the report said "this renderer already showed those colours that way" | `issue9940` (5 172 pixels, at most 7), `postscript_type4_many_outputs` (every pixel, at most 76, and an edge where GRACoL's cyan leaves sRGB); 52 documents' outputs carry the press under the shipped profiles and 34 under the stating ones | sentence fixed: a CMYK press the conversion adds says the drawing moves (ADR 2691). The drawing stays open, because which press to state is the owner's: `doc/questions/Q780` |
+| The shipped CMYK press written as the output intent (ADR 1153) where this renderer drew the source's `DeviceCMYK` through its assumed inks, which no profile states; the report said "this renderer already showed those colours that way" | `issue9940` (5 172 pixels, at most 7), `postscript_type4_many_outputs` (every pixel, at most 76, and an edge where GRACoL's cyan leaves sRGB); 52 documents' outputs carry the press under the shipped profiles and 34 under the stating ones | fixed: the owner chose (A780). Every profile but `as-if-printed` states this renderer's assumed inks as an ICC profile, within one level of the source (ADRs 2700, 2701); `as-if-printed` keeps the shipped press and ADR 2691's sentence that the drawing moves |
 
 `0004-637X_751_2_90` is a CFF witness (`/FontFile3 /Type1C`, a CMR10 subset whose glyph 61 is 776.89 wide against
 `/Widths` 778): the CFF width reader rounded to whole units and read 777, inside the tolerance, while veraPDF fails

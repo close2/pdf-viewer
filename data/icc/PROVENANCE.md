@@ -3,7 +3,8 @@
 Two, one per colour family a PDF/A output intent can be asked for: an RGB one and a CMYK one.
 `doc/questions/A18` decides that they are shipped at all — *ship the standard profile, with a flag
 to override it* — and `doc/adr/1153` decides which CMYK profile, on the same clause this file
-reads for the sRGB one.
+reads for the sRGB one. A third, the profile of this renderer's own assumed process inks, is
+written by this program rather than downloaded (the last section, `doc/adr/2700`).
 
 ## sRGB
 
@@ -176,3 +177,19 @@ the licence.
 | `GRACoL2013_CRPC6`, `CGATS21_CRPC1`–`CRPC7`, `SWOP2013C3_CRPC5` (IDEAlliance 2013) | licence-clean, and version **4.2.0** — which is exactly the number the sRGB section above argues is absent from section 6.2.4.2's four texts. The same argument that rejects `sRGB_v4_ICC_preference.icc` rejects these. |
 | `SWOP2006_Coated3v2`, `SWOP2006_Coated5v2` | same licence, same version, equivalent standing — they describe web offset rather than sheetfed commercial printing, and one of the set has to be chosen. GRACoL 2006 is the broader of the two conditions. |
 | `Coated_Fogra39L_VIGC`, `JapanColor2011Coated`, `SC_paper_eci` | each carries a copyright notice with **no grant** in its `cprt` tag. A notice without a grant is not a licence, which is the point `doc/questions/A51` made about a different document. |
+
+## The assumed process inks
+
+`quorra-assumed-inks.icc` is **generated, not downloaded**: `pdf_colour::colour::assumed_inks_profile`
+writes it from the ink cube every uncharacterised `DeviceCMYK` colour is drawn through (ADR 0263),
+and `cargo run -p pdf-colour --example write_assumed_inks_profile -- data/icc/quorra-assumed-inks.icc`
+regenerates it. `the_checked_in_profile_is_what_the_generator_writes_every_time` fails while the file
+and the generator disagree, so the bytes here are the generator's and no hash is copied into this
+file. It is the output intent the owner's answer A780 gives every profile that does not accept an
+assumed real press (`doc/adr/2701`); `as-if-printed` keeps GRACoL.
+
+It is an ICC.1:1998-09 output profile, version 2.2.0 — the first of ISO 19005-2 section 6.2.4.2's
+four texts, by the argument the sRGB section makes for version 2 — of class `prtr` over `CMYK`,
+with an `XYZ ` connection space and the ten tags that text's Table 29 requires. Its `desc` says what
+it is: this renderer's `DeviceCMYK`, not a physical press. Its `cprt` places it in the public
+domain; nobody else's work is in it. The construction and its measured bounds are ADR 2700.

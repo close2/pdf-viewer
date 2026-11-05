@@ -1969,6 +1969,10 @@ const SHIPPED_CMYK_PROFILE: (&str, &str) = (
      not be altered, or sold without written permission of IDEAlliance.",
 );
 
+/// The `desc` of the profile this program writes of its own assumed inks (`doc/adr/2700`).
+const ASSUMED_INKS_PROFILE: &str =
+    "quorra assumed process inks: DeviceCMYK as this renderer draws it, not a physical press";
+
 /// A page that paints in `DeviceRGB`, which is the commonest reason a document needs an output
 /// intent at all.
 ///
@@ -2089,13 +2093,16 @@ fn a_device_cmyk_page_gains_the_shipped_cmyk_intent_and_the_report_carries_its_l
     // monitor profile over grey, RGB or CMYK. `doc/questions/A18` says to ship the standard
     // profile with a flag to override it, and `doc/adr/1153` decides which one: a document whose
     // unlicensed device colour is CMYK and none of it RGB gets the CMYK profile rather than the
-    // RGB one, because one document takes one destination profile.
+    // RGB one, because one document takes one destination profile. The shipped press is the one a
+    // profile accepting an assumed press gets (A780, `doc/adr/2701`), and its licence is reported.
     let source = Conforming {
         contents: Some(paints_in_device_cmyk()),
         ..Conforming::default()
     }
     .build();
-    let (report, output) = to_part_four(&source);
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::PressAssumed);
+    let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     let decided = decision(
         &report,
         "graphics/device-cmyk-needs-a-default-a-blending-space-or-a-cmyk-output-intent",
@@ -2508,7 +2515,8 @@ fn a_cmyk_only_page_under_part_two_takes_the_shipped_profile_over_the_devicen_de
         .as_ref()
         .expect("the report names the profile");
     assert_eq!(profile.space, "CMYK");
-    assert_eq!(profile.describes.as_deref(), Some(SHIPPED_CMYK_PROFILE.0));
+    // Nothing authorised an assumed press, so the profile is this renderer's own inks (A780).
+    assert_eq!(profile.describes.as_deref(), Some(ASSUMED_INKS_PROFILE));
     let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
     let page = pdf_model::Pages::new(&document).get(0).expect("one page");
     let resources = document

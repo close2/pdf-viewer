@@ -6,8 +6,9 @@
 //! colour-manages the space through that profile. Where the file stated none, the source was drawn
 //! without one: `DeviceRGB` as this processor's own sRGB (ADR 0009), and `DeviceCMYK` through its
 //! assumed process inks (ADR 0263). The shipped sRGB profile draws the first to within a level of
-//! 255; no ICC profile states the second, so the shipped press moves it, and the report's sentence
-//! — `doc/adr/0927`'s condition on the rewrite — has to say which of the two happened.
+//! 255, and so does the profile this program writes of the second (ADR 2700); the shipped real
+//! press, which only a profile accepting an assumed press is given (ADR 2701), moves it, and the
+//! report's sentence — `doc/adr/0927`'s condition on the rewrite — has to say which happened.
 
 use super::*;
 
@@ -117,41 +118,205 @@ fn the_shipped_rgb_intent_draws_every_device_rgb_colour_within_a_level_and_says_
     assert!(largest <= 1, "a DeviceRGB colour moved by {largest} levels");
 }
 
-#[test]
-fn the_shipped_cmyk_intent_moves_this_renderers_drawing_and_the_report_says_so() {
-    // A cyan this renderer drew through its assumed inks, and the press the shipped profile
-    // describes, are different colours: the report may not claim this renderer showed it so
-    // (`postscript_type4_many_outputs`, `issue9940`, ADR 2691).
-    let source = part_two_drawing("1 0 0 0 k 0 0 200 200 re f");
-    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
-    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
-    let sentence = intent_sentence(&report, CMYK_ROW_PART_TWO);
-    assert!(
-        !sentence.contains("already showed") && sentence.contains("assumed process inks"),
-        "{sentence}"
-    );
-    assert!(
-        sentence.contains("this program ships") && sentence.contains("--output-intent-profile"),
-        "{sentence}"
-    );
-    assert!(
-        largest_difference(&source, &output) > 1,
-        "the sentence says the drawing moves, and it does"
-    );
-    // The same at part 4, whose row is answered by the same intent.
-    let source = Conforming {
-        contents: Some((String::new(), b"1 0 0 0 k 0 0 200 200 re f".to_vec())),
-        ..Conforming::default()
+/// Four ramps of 256 steps of one ink each, then a grid of every ink at five levels each.
+fn device_cmyk_patches() -> String {
+    let mut contents = String::new();
+    for (ink, bottom) in [0u8, 40, 80, 120].into_iter().enumerate() {
+        for step in 0..256u16 {
+            let mut inks = [0.0f32; 4];
+            inks[ink] = f32::from(step) / 255.0;
+            let [c, m, y, k] = inks;
+            let left = f32::from(step) * 0.75;
+            let _ = writeln!(contents, "{c} {m} {y} {k} k {left} {bottom} 0.75 40 re f");
+        }
     }
-    .build();
-    let (report, output) = convert(
-        &source,
-        Target::Four(Flavour::Plain),
-        Authorisations::default(),
-    );
-    assert!(output.is_some(), "{}", conversion(&report).render());
-    let sentence = intent_sentence(&report, CMYK_UNDER_PART_FOUR);
-    assert!(sentence.contains("assumed process inks"), "{sentence}");
+    let levels = [0.0f32, 0.25, 0.5, 0.75, 1.0];
+    // 625 patches, 25 to a row of 7.5 points, the rows 6 points apart above the ramps.
+    let mut patches =
+        (0u16..625).map(|at| (f32::from(at % 25) * 7.5, 160.0 + 6.0 * f32::from(at / 25)));
+    for c in levels {
+        for m in levels {
+            for y in levels {
+                for k in levels {
+                    let Some((left, bottom)) = patches.next() else {
+                        return contents;
+                    };
+                    let _ = writeln!(contents, "{c} {m} {y} {k} k {left} {bottom} 7.5 6 re f");
+                }
+            }
+        }
+    }
+    contents
+}
+
+/// A source stating no output intent whose content is `contents`, for `target`.
+fn drawing_for(target: Target, contents: &str) -> Vec<u8> {
+    let base = match target {
+        Target::Two(_) => Conforming::part_two(),
+        Target::Four(_) => Conforming::default(),
+    };
+    Conforming {
+        contents: Some((String::new(), contents.as_bytes().to_vec())),
+        ..base
+    }
+    .build()
+}
+
+/// The `DeviceCMYK` row of `target`'s part.
+fn cmyk_row(target: Target) -> &'static str {
+    match target {
+        Target::Two(_) => CMYK_ROW_PART_TWO,
+        Target::Four(_) => CMYK_UNDER_PART_FOUR,
+    }
+}
+
+/// The two targets the census converts to.
+const TARGETS: [Target; 2] = [Target::Two(Level::B), Target::Four(Flavour::Plain)];
+
+#[test]
+fn the_assumed_inks_intent_draws_every_device_cmyk_colour_within_a_level_and_says_so() {
+    // A file naming no press was drawn through this renderer's assumed inks (ADR 0263), and the
+    // profile this conversion writes for it is those inks sampled at the renderer's own press grid
+    // (`pdf_colour::colour::assumed_inks_profile`, ADR 2700), so the archive draws as the source did.
+    for target in TARGETS {
+        let source = drawing_for(target, &device_cmyk_patches());
+        let (report, output) = convert(&source, target, Authorisations::default());
+        let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+        let sentence = intent_sentence(&report, cmyk_row(target));
+        assert!(
+            sentence.contains("already showed those colours")
+                && sentence.contains("not a physical press"),
+            "{sentence}"
+        );
+        let largest = largest_difference(&source, &output);
+        assert!(
+            largest <= 1,
+            "a DeviceCMYK colour moved by {largest} levels"
+        );
+    }
+}
+
+#[test]
+fn where_an_assumed_press_is_authorised_the_shipped_press_moves_the_drawing_and_says_so() {
+    // A cyan this renderer drew through its assumed inks, and the press the shipped GRACoL profile
+    // describes, are different colours: the report may not claim this renderer showed it so
+    // (`postscript_type4_many_outputs`, `issue9940`, ADR 2691). Only a profile that accepts an
+    // assumed real press gets that press (A780, ADR 2701).
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::PressAssumed);
+    for target in TARGETS {
+        let source = drawing_for(target, "1 0 0 0 k 0 0 200 200 re f");
+        let (report, output) = convert(&source, target, authorised);
+        let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+        let sentence = intent_sentence(&report, cmyk_row(target));
+        assert!(
+            !sentence.contains("already showed") && sentence.contains("assumed process inks"),
+            "{sentence}"
+        );
+        assert!(
+            sentence.contains("this program ships") && sentence.contains("--output-intent-profile"),
+            "{sentence}"
+        );
+        assert!(
+            largest_difference(&source, &output) > 1,
+            "the sentence says the drawing moves, and it does"
+        );
+    }
+}
+
+/// The four shipped profiles A780 names, and whether each states the shipped real press.
+const PROFILES: [(&str, &str, bool); 4] = [
+    (
+        "as-if-printed",
+        include_str!("../../../../doc/profiles/as-if-printed.toml"),
+        true,
+    ),
+    (
+        "as-shown",
+        include_str!("../../../../doc/profiles/as-shown.toml"),
+        false,
+    ),
+    (
+        "no-data-loss",
+        include_str!("../../../../doc/profiles/no-data-loss.toml"),
+        false,
+    ),
+    (
+        "state-every-loss",
+        include_str!("../../../../doc/profiles/state-every-loss.toml"),
+        false,
+    ),
+];
+
+/// Converts `source` to `target` under the shipped profile `text`, as `--config` would.
+fn convert_under(source: &[u8], text: &str, target: Target) -> (Report, Option<Vec<u8>>) {
+    let config =
+        pdf_transform::archive::Configuration::read(text, target).expect("the profile reads");
+    let plan = ArchivePlan {
+        authorised: config.authorisations(target),
+        ..plan_from(text, target)
+    };
+    let sinks = MemorySinks::new();
+    let report = apply(
+        &Plan::Archive(plan),
+        &[Source::new(source.to_vec())],
+        &sinks,
+        &Policy::default(),
+        &Budget::default(),
+    )
+    .expect("the conversion applies");
+    let output = sinks.into_outputs().pop().map(|(_, bytes)| bytes);
+    (report, output)
+}
+
+#[test]
+fn each_shipped_profile_states_the_cmyk_intent_the_owner_chose_for_it() {
+    // A780: `as-if-printed`, whose reading is a print scanned back in, states a real press; the
+    // three others state the inks this renderer drew the source through.
+    for (name, text, real_press) in PROFILES {
+        for target in TARGETS {
+            let source = drawing_for(target, "0.2 0.4 0.6 0.1 k 0 0 200 200 re f");
+            let (report, _) = convert_under(&source, text, target);
+            let sentence = intent_sentence(&report, cmyk_row(target));
+            assert_eq!(
+                sentence.contains("this program ships"),
+                real_press,
+                "{name} at {target:?}: {sentence}"
+            );
+            assert_eq!(
+                sentence.contains("not a physical press"),
+                !real_press,
+                "{name} at {target:?}: {sentence}"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_two_pdf_js_documents_the_shipped_press_moved_draw_as_their_sources_under_as_shown() {
+    // Both paint in DeviceCMYK and state no profile; under the shipped real press the first moved
+    // by up to 76 levels in every pixel and the second by 7 (ADR 2691 section 1).
+    let (_, text, _) = PROFILES[1];
+    for path in [
+        "doc/pdf.js/test/pdfs/postscript_type4_many_outputs.pdf",
+        "doc/pdf.js/test/pdfs/issue9940.pdf",
+    ] {
+        let full = format!("{}/../../{path}", env!("CARGO_MANIFEST_DIR"));
+        let Ok(source) = std::fs::read(&full) else {
+            eprintln!("{path} is not checked out; not checked");
+            continue;
+        };
+        for target in TARGETS {
+            let (report, output) = convert_under(&source, text, target);
+            let output =
+                output.unwrap_or_else(|| panic!("{path}: {}", conversion(&report).render()));
+            let largest = largest_difference(&source, &output);
+            assert!(
+                largest <= 1,
+                "{path} at {target:?} moved by {largest} levels"
+            );
+        }
+    }
 }
 
 #[test]

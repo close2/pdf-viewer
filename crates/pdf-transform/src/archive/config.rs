@@ -3153,7 +3153,12 @@ fn string_list(tbl: &toml::Table, key: &str) -> Vec<String> {
 /// output carries no signature), so a `discard` at a row whose answer is that loss authorises it
 /// wherever the conversion asks, and a profile that wants a part 4 signature kept says so with a
 /// target-qualified `stop` at the same row (`doc/adr/2542`).
-const ASKED_AT_EVERY_TARGET: [Loss; 1] = [Loss::SignatureAssertion];
+///
+/// [`Loss::PressAssumed`] is asked at every target for another reason: its row is part 4's, but
+/// whether a profile accepts a real press assumed for colour the file never characterised also
+/// decides which CMYK output intent a part 2 conversion writes — the shipped real press, or the
+/// profile of this renderer's own inks (A780, `doc/adr/2701`).
+const ASKED_AT_EVERY_TARGET: [Loss; 2] = [Loss::SignatureAssertion, Loss::PressAssumed];
 
 /// The requirement identifier → [`Losses`] map, read off the decision table.
 ///

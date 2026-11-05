@@ -6,7 +6,7 @@
 //! pages paint in, and which profile, if any, the file already holds for them. The family's
 //! headings are `decision/colour_and_graphics`'s, section 4 of `doc/pdfa-blocking-issues.md`.
 
-use super::super::decision::Because;
+use super::super::decision::{Because, Loss};
 use super::super::{ArchivePlan, COMPRESSION_LEVEL};
 use super::{NO_SPARE_OBJECT, Spare};
 use crate::json::Value;
@@ -35,6 +35,19 @@ pub(in crate::archive) const SRGB: &[u8] = include_bytes!("../../../../../data/i
 /// out of the file's own `cprt` tag, and the alternatives declined. Also `static`.
 pub(in crate::archive) const CMYK: &[u8] =
     include_bytes!("../../../../../data/icc/GRACoL2006_Coated1v2.icc");
+
+/// The profile of this renderer's own assumed process inks: an output profile over CMYK whose
+/// `A2B` is `pdf_colour::colour::assumed_inks_profile`'s sampling of the ink cube every
+/// uncharacterised `DeviceCMYK` colour is drawn through (ADRs 0263, 2700).
+///
+/// The owner's answer A780: an archive that licenses `DeviceCMYK` its source never characterised
+/// states the inks the source was drawn with, so that it draws as the source did, here and in a
+/// reader that follows the profile; only a profile that accepts an assumed real press
+/// (`press-assumed`, which `as-if-printed` authorises) states [`CMYK`] instead (ADR 2701). Checked
+/// in, and regenerated and compared by a test of `pdf-colour`'s, so nothing computes it at run
+/// time. `static` data, like the other two.
+pub(in crate::archive) const ASSUMED_INKS: &[u8] =
+    include_bytes!("../../../../../data/icc/quorra-assumed-inks.icc");
 
 /// Why the `DeviceN` `/DefaultCMYK` could not be built for this document.
 ///
@@ -144,6 +157,9 @@ pub(in crate::archive) struct Intent {
     pub(in crate::archive) family: DeviceFamily,
     /// What the report says about the profile.
     pub(in crate::archive) reported: DestinationProfile,
+    /// Whether the profile this conversion adds is [`ASSUMED_INKS`], the press this renderer
+    /// already drew the source's `DeviceCMYK` through (ADR 2700).
+    pub(in crate::archive) assumed_inks: bool,
 }
 
 /// The `/DefaultCMYK` a conversion is in a position to write, and the objects it needs.
@@ -201,10 +217,19 @@ pub(super) const DEVICE_CMYK_ROWS: [&str; 2] = [
 ///
 /// `doc/adr/1153` is the argument, including why part 4's page-level output intents are not the
 /// answer to a document whose RGB and CMYK live on different pages.
-fn shipped_for(failed: &BTreeSet<&'static str>) -> &'static [u8] {
+///
+/// **Which CMYK profile** is the owner's answer A780 (ADR 2701): [`ASSUMED_INKS`], which states
+/// the inks this renderer drew the source through, unless the profile in force authorises the
+/// loss `press-assumed` — a real press assumed for colour the file never characterised, which
+/// `as-if-printed` accepts as what a print scanned back in would show — and then [`CMYK`].
+fn shipped_for(plan: &ArchivePlan, failed: &BTreeSet<&'static str>) -> &'static [u8] {
     let cmyk = DEVICE_CMYK_ROWS.iter().any(|id| failed.contains(id));
     let rgb = DEVICE_RGB_ROWS.iter().any(|id| failed.contains(id));
-    if cmyk && !rgb { CMYK } else { SRGB }
+    match (cmyk && !rgb, plan.authorised.grants(Loss::PressAssumed)) {
+        (false, _) => SRGB,
+        (true, true) => CMYK,
+        (true, false) => ASSUMED_INKS,
+    }
 }
 
 /// The `/OutputIntents` array the catalog states, resolved to its entries.
@@ -266,13 +291,15 @@ pub(super) fn prepare_intent(
                 describes: stated.description,
                 copyright: stated.copyright,
             },
+            assumed_inks: false,
         });
     }
 
     let (source, bytes) = match &plan.profile {
         Some(supplied) => (ProfileSource::Supplied, supplied.to_vec()),
-        None => (ProfileSource::Shipped, shipped_for(failed).to_vec()),
+        None => (ProfileSource::Shipped, shipped_for(plan, failed).to_vec()),
     };
+    let assumed_inks = bytes == ASSUMED_INKS;
     let stated = Identification::read(&bytes).ok_or(wrong)?;
     let family = family_of(&stated).ok_or(wrong)?;
     let destination = spare
@@ -288,6 +315,7 @@ pub(super) fn prepare_intent(
             describes: stated.description,
             copyright: stated.copyright,
         },
+        assumed_inks,
     })
 }
 
@@ -324,6 +352,7 @@ impl ReplacedDestination {
             written: None,
             family: DeviceFamily::Rgb,
             reported: self.reported.clone(),
+            assumed_inks: false,
         }
     }
 }

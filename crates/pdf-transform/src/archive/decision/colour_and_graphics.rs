@@ -62,8 +62,33 @@ const OUTPUT_INTENT_STATES_THE_SUPPLIED_PRESS: &str = "a PDF/A output intent is 
      its own assumed process inks, which no ICC profile states, so they now draw differently \
      here as well as in other readers";
 
+/// What adding an output intent asserts where its destination profile is the one this program
+/// writes of its own assumed process inks (`doc/adr/2700`, the owner's answer A780).
+///
+/// [`OUTPUT_INTENT_REINTERPRETS`]'s claim that this renderer already showed the colours that way
+/// is true here: the profile is a sampling of the ink cube the source's `DeviceCMYK` was drawn
+/// through, fine enough that the tests of `pdf-colour`'s `inks_profile` hold every fill and every
+/// press sample within one level of 255. What the claim does not cover is said too: an output
+/// intent is also the page's default blending space, so a page that blends transparency now
+/// composites in the profile's four components where its source did not, by up to 25 levels in
+/// the documents measured, and by the same amount with the conversion into the press taken by
+/// search instead of by the profile (`doc/adr/2700` section 3). The sentence also says what the profile is not, because its description does: a
+/// characterisation of a renderer, not of a press.
+const OUTPUT_INTENT_STATES_THE_ASSUMED_INKS: &str = "a PDF/A output intent is what a conforming \
+     reader colour-manages device colours through, so every DeviceGray, DeviceRGB and DeviceCMYK \
+     value in this file now means what the destination profile says it means, and the same \
+     profile becomes the default blending space for transparency. This file named no press, and \
+     that profile states the process inks this renderer assumed for its DeviceCMYK colours, so \
+     this renderer already showed those colours that way, and another reader following the \
+     profile shows them the same way. Where the page blends transparency, it now blends in that \
+     profile's four components, and those composites can draw differently. The profile \
+     characterises this renderer and not a physical press, so for content separated for a \
+     particular press, supply that press's profile with --output-intent-profile instead";
+
 /// The sentence a stated output intent carries: `row`'s own, unless the intent is a CMYK press
-/// this conversion adds, where this renderer's own drawing moves with it (`doc/adr/2691`).
+/// this conversion adds. Where that press is a real one this renderer did not draw the source
+/// through, the drawing moves with it (`doc/adr/2691`); where it is the assumed inks it does not
+/// (`doc/adr/2700`).
 ///
 /// A profile the file already held is the one this renderer drew the source through, so the row's
 /// sentence stays true of it whatever its family.
@@ -72,6 +97,7 @@ pub(super) fn output_intent_sentence(intent: &Intent, row: &'static str) -> &'st
         return row;
     }
     match intent.reported.source {
+        ProfileSource::Shipped if intent.assumed_inks => OUTPUT_INTENT_STATES_THE_ASSUMED_INKS,
         ProfileSource::Shipped => OUTPUT_INTENT_STATES_THE_SHIPPED_PRESS,
         ProfileSource::Supplied => OUTPUT_INTENT_STATES_THE_SUPPLIED_PRESS,
         ProfileSource::AlreadyInTheFile => row,
