@@ -26,6 +26,11 @@
 //!   press. The shipped `as-if-printed` carries it, and that profile's name means "as if printed
 //!   and scanned" — a lower bound on what may be lost, never an instruction to imitate printing
 //!   (`doc/questions/A694`, `doc/adr/2518`).
+//!   **`[profile] press = "<file.icc>"` names the operator's own CMYK press once**, a path the
+//!   caller resolves against the configuration file's directory and reads: it stands in for the
+//!   shipped press wherever `press-assumed` is taken, and a file naming a press while taking no
+//!   such loss is refused, because the key would do nothing (`doc/questions/A784`,
+//!   `doc/adr/2704`, `doc/adr/2705`).
 //! - **`derive`** at [`DERIVABLE`]'s two sites: an embedded file the target refuses becomes what a
 //!   program the configuration declares made from it. `A55` is the permission and its four terms;
 //!   [`super::remedies`] carries them out and `A54`'s request-and-executor shape is why nothing
@@ -166,6 +171,18 @@ pub enum ConfigError {
     /// The file is not the subset of TOML a configuration is written in.
     #[error("the configuration is not readable: {0}")]
     Toml(String),
+    /// `[profile] press` names a press the configuration never lets a conversion use, because no
+    /// site it answers grants the loss `press-assumed` (`doc/adr/2705`).
+    #[error(
+        "line {line}: [profile] press names the operator's CMYK press, and this configuration \
+         authorises the loss press-assumed at no site, so no conversion would use it; the press \
+         stands in only for the one this program ships where that loss is taken (base the file \
+         on as-if-printed, or answer that site with discard)"
+    )]
+    PressNeverAssumed {
+        /// The 1-based line of the `[profile]` table.
+        line: usize,
+    },
     /// A `[site."…"]` names something no requirement of ISO 19005 is called.
     #[error(
         "line {line}: the site {site:?} is no requirement this converter knows; \
@@ -1345,6 +1362,14 @@ pub struct Configuration {
     /// The profile's one sentence about itself (`[profile] sentence`), which is what a window
     /// offering the profile says beside its name (ADR 1966).
     pub sentence: Option<String>,
+    /// `[profile] press` — the operator's CMYK press, as the path the file wrote, which the caller
+    /// resolves against the file's own directory and reads (`doc/adr/2704`).
+    ///
+    /// Held as text because this crate opens no path (RFC 0002 section 5): the face converting
+    /// reads the profile and hands its bytes to [`super::configured_press`], which holds it to the
+    /// target. It stands in for the CMYK press this program ships, and only there
+    /// (`doc/adr/2705`).
+    pub press: Option<String>,
     /// Every site the file named that answers this target, with the remedy it chose and its keys.
     ///
     /// One row per site: a qualified row wins its site over the unqualified default, whichever
@@ -1540,6 +1565,7 @@ impl Configuration {
             .collect();
         let mut name = None;
         let mut sentence = None;
+        let mut press = None;
         let mut recovered_structure = StructureLoss::Refused;
         let mut page_not_held = StructureLoss::Refused;
         let mut sites: Vec<Row> = Vec::new();
@@ -1559,6 +1585,7 @@ impl Configuration {
                     recovered_structure = structure_loss_key(tbl, "recovered-structure");
                     page_not_held = structure_loss_key(tbl, "page-not-held");
                     check_profile_default(tbl)?;
+                    press = press_key(tbl)?.map(|path| (path, tbl.line));
                 }
                 Some("site") => {
                     let site = site_identifier(tbl, &requirements)?;
@@ -1627,9 +1654,10 @@ impl Configuration {
             }
             answers
         });
-        Ok(Self {
+        let read = Self {
             name,
             sentence,
+            press: press.as_ref().map(|(path, _)| path.clone()),
             sites,
             tools,
             departures,
@@ -1637,7 +1665,9 @@ impl Configuration {
             recovered_structure,
             page_not_held,
             inherited,
-        })
+        };
+        press_is_assumed(&read, press.map(|(_, line)| line), target)?;
+        Ok(read)
     }
 
     /// The shipped profile `[profile] base` names, where the file names one.
@@ -2513,6 +2543,46 @@ fn check_profile_default(tbl: &toml::Table) -> Result<(), ConfigError> {
             found: default.kind(),
         }),
         _ => Ok(()),
+    }
+}
+
+/// A configuration naming a press shall take the loss the press stands behind.
+///
+/// A key that does nothing is the silent failure section 4.6 of RFC 0007 refuses: the press is read
+/// only where `press-assumed` is taken, and that loss is asked at every target
+/// (`ASKED_AT_EVERY_TARGET`), so this target's answer is every target's (`doc/adr/2704`).
+fn press_is_assumed(
+    read: &Configuration,
+    line: Option<usize>,
+    target: Target,
+) -> Result<(), ConfigError> {
+    match line {
+        Some(line) if !read.authorisations(target).grants(Loss::PressAssumed) => {
+            Err(ConfigError::PressNeverAssumed { line })
+        }
+        _ => Ok(()),
+    }
+}
+
+/// `[profile] press`: the path of the operator's CMYK press profile, which must be a non-empty
+/// string; what it names is read and checked by the caller (`doc/adr/2704`).
+fn press_key(tbl: &toml::Table) -> Result<Option<String>, ConfigError> {
+    match tbl.get("press") {
+        None => Ok(None),
+        Some(value) => match value.as_text() {
+            Some(path) if !path.is_empty() => Ok(Some(path.to_owned())),
+            found => Err(ConfigError::WrongValue {
+                line: tbl.line,
+                site: "profile".to_owned(),
+                key: "press".to_owned(),
+                wanted: "the path of a CMYK output ICC profile, as a non-empty string",
+                found: if found.is_some() {
+                    "an empty string"
+                } else {
+                    value.kind()
+                },
+            }),
+        },
     }
 }
 

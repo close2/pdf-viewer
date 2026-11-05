@@ -440,42 +440,51 @@ pub fn convert(
     }
 }
 
-/// The plan `asked` names, with the profile's own name, after the lines that say what the profile
-/// contributes; `None` where it cannot be made, and the last line says why.
-fn planned(asked: &Archiving, lines: &mut Vec<String>) -> Option<(ArchivePlan, String)> {
-    let shipped = if let Some(shipped) = profiles::named(&asked.profile) {
-        Some((shipped.name.to_owned(), shipped.text.to_owned()))
-    } else {
-        // An operator's profile is read again as the conversion starts, and held to the check
-        // a chooser held it to, so a file edited since it was offered is converted under what it
-        // now says or refused with why (`doc/rfc/0014` section 6).
-        let (operators, refused) = operators();
-        if let Some(file) = refused.iter().find(|file| {
-            file.path
-                .file_stem()
-                .is_some_and(|stem| stem.to_string_lossy() == asked.profile)
-        }) {
-            lines.push(format!(
-                "cannot convert: the operator's profile {} is not offered: {}",
-                file.path.display(),
-                file.why
-            ));
-            return None;
-        }
-        operators
-            .into_iter()
-            .find(|profile| profile.name == asked.profile)
-            .map(|profile| (profile.name, profile.text))
-    };
-    let Some((name, text)) = shipped else {
+/// The profile `asked` names — its name, its text, and the operator's file it was read from —
+/// shipped or the operator's; `None` where it is neither or the operator's file is not offered, and
+/// the last line says why.
+fn the_profile(
+    asked: &Archiving,
+    lines: &mut Vec<String>,
+) -> Option<(String, String, Option<PathBuf>)> {
+    if let Some(shipped) = profiles::named(&asked.profile) {
+        return Some((shipped.name.to_owned(), shipped.text.to_owned(), None));
+    }
+    // An operator's profile is read again as the conversion starts, and held to the check a
+    // chooser held it to, so a file edited since it was offered is converted under what it now
+    // says or refused with why (`doc/rfc/0014` section 6).
+    let (operators, refused) = operators();
+    if let Some(file) = refused.iter().find(|file| {
+        file.path
+            .file_stem()
+            .is_some_and(|stem| stem.to_string_lossy() == asked.profile)
+    }) {
+        lines.push(format!(
+            "cannot convert: the operator's profile {} is not offered: {}",
+            file.path.display(),
+            file.why
+        ));
+        return None;
+    }
+    let found = operators
+        .into_iter()
+        .find(|profile| profile.name == asked.profile)
+        .map(|profile| (profile.name, profile.text, Some(profile.path)));
+    if found.is_none() {
         lines.push(format!(
             "cannot convert: {:?} is not a profile this program ships or the operator's directory \
              holds; the shipped ones are {}",
             asked.profile,
             profiles::names()
         ));
-        return None;
-    };
+    }
+    found
+}
+
+/// The plan `asked` names, with the profile's own name, after the lines that say what the profile
+/// contributes; `None` where it cannot be made, and the last line says why.
+fn planned(asked: &Archiving, lines: &mut Vec<String>) -> Option<(ArchivePlan, String)> {
+    let (name, text, file) = the_profile(asked, lines)?;
     let contribution = match Contribution::read(&text, asked.target) {
         Ok(contribution) => contribution,
         Err(error) => {
@@ -513,6 +522,16 @@ fn planned(asked: &Archiving, lines: &mut Vec<String>) -> Option<(ArchivePlan, S
             tool.program.display()
         ));
     }
+    let press = match contribution.press.as_deref() {
+        Some(named) => Some(configured_press(
+            &name,
+            file.as_deref(),
+            named,
+            asked.target,
+            lines,
+        )?),
+        None => None,
+    };
     let names = match "archive.pdf".parse() {
         Ok(names) => names,
         Err(error) => {
@@ -526,6 +545,7 @@ fn planned(asked: &Archiving, lines: &mut Vec<String>) -> Option<(ArchivePlan, S
         target: asked.target,
         authorised: contribution.authorised,
         profile: None,
+        press,
         substitute_fonts: true,
         supplied_fonts: BTreeMap::new(),
         cjk_pack: None,
@@ -542,6 +562,44 @@ fn planned(asked: &Archiving, lines: &mut Vec<String>) -> Option<(ArchivePlan, S
         clock: pdf_transform::archive::Clock::System,
     };
     Some((plan, name))
+}
+
+/// `[profile] press`: the operator's CMYK press, read from beside their profile's file and held to
+/// the target by the check the command line's `--config` applies (`doc/adr/2704`); `None` where it
+/// cannot be used, and the last line says why. A shipped profile names none.
+fn configured_press(
+    name: &str,
+    file: Option<&Path>,
+    named: &str,
+    target: Target,
+    lines: &mut Vec<String>,
+) -> Option<std::sync::Arc<[u8]>> {
+    let Some(file) = file else {
+        lines.push(format!(
+            "cannot convert: the profile {name:?} names the press {named:?}, and only an \
+             operator's profile, read from a file, can name one relative to that file"
+        ));
+        return None;
+    };
+    let path = file
+        .parent()
+        .map_or_else(|| PathBuf::from(named), |directory| directory.join(named));
+    let checked = std::fs::read(&path)
+        .map_err(|error| format!("it cannot be read ({error})"))
+        .and_then(|bytes| {
+            pdf_transform::archive::configured_press(&bytes, target)
+                .map_err(|refused| refused.to_string())
+        });
+    match checked {
+        Ok(press) => Some(press),
+        Err(why) => {
+            lines.push(format!(
+                "cannot convert: the profile {name:?} names the press {}, and {why}",
+                path.display()
+            ));
+            None
+        }
+    }
 }
 
 /// Applies the plan until no pass asks for a tool it has not had, running each request through
@@ -912,6 +970,26 @@ mod tests {
         )
         .expect("written");
         std::fs::write(directory.join("broken.toml"), "[profile\n").expect("written");
+        // An operator's press beside their profile, and a profile naming one that is not there
+        // (`doc/adr/2704`).
+        std::fs::write(
+            directory.join("inks.icc"),
+            include_bytes!("../../../data/icc/quorra-assumed-inks.icc"),
+        )
+        .expect("written");
+        for (file, press) in [
+            ("pressed.toml", "inks.icc"),
+            ("unpressed.toml", "missing.icc"),
+        ] {
+            std::fs::write(
+                directory.join(file),
+                format!(
+                    "[profile]\nname = \"{}\"\nbase = \"as-if-printed\"\npress = \"{press}\"\n",
+                    file.trim_end_matches(".toml")
+                ),
+            )
+            .expect("written");
+        }
         offer_profiles_from(directory.clone());
         let offered = offered();
         let shipped = profiles::SHIPPED.len();
@@ -955,6 +1033,34 @@ mod tests {
                 .any(|line| line.contains("is not offered")),
             "{:?}",
             refused.lines
+        );
+        let asked = |profile: &str| Archiving {
+            target: Target::Two(pdf_archive::Level::B),
+            profile: profile.to_owned(),
+        };
+        let pressed = convert(
+            DocumentId(1),
+            test_document().into(),
+            asked("pressed"),
+            None,
+        );
+        assert!(pressed.written.is_some(), "{:#?}", pressed.lines);
+        let unpressed = convert(
+            DocumentId(1),
+            test_document().into(),
+            asked("unpressed"),
+            None,
+        );
+        assert!(unpressed.written.is_none());
+        assert!(
+            unpressed
+                .lines
+                .last()
+                .is_some_and(|line| line.contains("names the press")
+                    && line.contains("missing.icc")
+                    && line.contains("cannot be read")),
+            "{:?}",
+            unpressed.lines
         );
         let _ = std::fs::remove_dir_all(&directory);
     }

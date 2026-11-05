@@ -77,6 +77,9 @@ pub enum ProfileSource {
     Shipped,
     /// One the caller supplied.
     Supplied,
+    /// The CMYK press the operator's configuration names once (`[profile] press`), standing in
+    /// for the shipped press where the plan authorises `press-assumed` (`doc/adr/2705`).
+    Configured,
     /// One the document already held.
     ///
     /// Not a choice this conversion made: ISO 19005 requires every entry of an `OutputIntents`
@@ -92,6 +95,7 @@ impl ProfileSource {
         match self {
             Self::Shipped => "shipped",
             Self::Supplied => "supplied",
+            Self::Configured => "configured",
             Self::AlreadyInTheFile => "already-in-the-file",
         }
     }
@@ -102,6 +106,7 @@ impl ProfileSource {
         match self {
             Self::Shipped => "a profile this program ships",
             Self::Supplied => "the profile you supplied",
+            Self::Configured => "the press your configuration names",
             Self::AlreadyInTheFile => "the destination profile this file already held",
         }
     }
@@ -221,14 +226,24 @@ pub(super) const DEVICE_CMYK_ROWS: [&str; 2] = [
 /// **Which CMYK profile** is the owner's answer A780 (ADR 2701): [`ASSUMED_INKS`], which states
 /// the inks this renderer drew the source through, unless the profile in force authorises the
 /// loss `press-assumed` — a real press assumed for colour the file never characterised, which
-/// `as-if-printed` accepts as what a print scanned back in would show — and then [`CMYK`].
-fn shipped_for(plan: &ArchivePlan, failed: &BTreeSet<&'static str>) -> &'static [u8] {
+/// `as-if-printed` accepts as what a print scanned back in would show — and then [`CMYK`], or the
+/// operator's own press where their configuration names one, which stands in for [`CMYK`] and for
+/// nothing else (`doc/questions/A784`, `doc/adr/2705`).
+fn shipped_for<'a>(
+    plan: &'a ArchivePlan,
+    failed: &BTreeSet<&'static str>,
+) -> (ProfileSource, &'a [u8]) {
     let cmyk = DEVICE_CMYK_ROWS.iter().any(|id| failed.contains(id));
     let rgb = DEVICE_RGB_ROWS.iter().any(|id| failed.contains(id));
     match (cmyk && !rgb, plan.authorised.grants(Loss::PressAssumed)) {
-        (false, _) => SRGB,
-        (true, true) => CMYK,
-        (true, false) => ASSUMED_INKS,
+        (false, _) => (ProfileSource::Shipped, SRGB),
+        (true, true) => plan
+            .press
+            .as_deref()
+            .map_or((ProfileSource::Shipped, CMYK), |press| {
+                (ProfileSource::Configured, press)
+            }),
+        (true, false) => (ProfileSource::Shipped, ASSUMED_INKS),
     }
 }
 
@@ -295,11 +310,14 @@ pub(super) fn prepare_intent(
         });
     }
 
-    let (source, bytes) = match &plan.profile {
-        Some(supplied) => (ProfileSource::Supplied, supplied.to_vec()),
-        None => (ProfileSource::Shipped, shipped_for(plan, failed).to_vec()),
-    };
-    let assumed_inks = bytes == ASSUMED_INKS;
+    let (source, bytes) = plan.profile.as_ref().map_or_else(
+        || {
+            let (source, bytes) = shipped_for(plan, failed);
+            (source, bytes.to_vec())
+        },
+        |supplied| (ProfileSource::Supplied, supplied.to_vec()),
+    );
+    let assumed_inks = source == ProfileSource::Shipped && bytes == ASSUMED_INKS;
     let stated = Identification::read(&bytes).ok_or(wrong)?;
     let family = family_of(&stated).ok_or(wrong)?;
     let destination = spare

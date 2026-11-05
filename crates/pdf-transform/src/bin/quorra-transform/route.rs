@@ -135,6 +135,7 @@ fn fences(here: &mut Here, arguments: &Arguments) -> Fences {
             .filter_map(|stated| stated.split_once('='))
             .map(|(_, path)| PathBuf::from(path)),
     );
+    named.extend(configured_press_file(here, arguments));
     if let Some(directory) = super::cjk_pack_directory(arguments) {
         named.extend(
             pdf_transform::archive::Collection::ALL
@@ -174,6 +175,23 @@ fn fences(here: &mut Here, arguments: &Arguments) -> Fences {
         tools,
         target,
     }
+}
+
+/// The press the configuration's `[profile] press` names, resolved as the worker resolves it, so
+/// that a file the person named once in their configuration is one the worker may read
+/// (`doc/adr/2704`). None where the configuration names none or cannot be read, which the worker
+/// then reports in its own words.
+#[cfg(unix)]
+fn configured_press_file(here: &mut Here, arguments: &Arguments) -> Option<PathBuf> {
+    let file = arguments.value(&["--config"])?;
+    let target = arguments
+        .value(&["--to"])
+        .and_then(pdf_archive::Target::parse)?;
+    let Ok(Some((_, text))) = configuration_text(here, arguments) else {
+        return None;
+    };
+    let named = Contribution::read(&text, target).ok()?.press?;
+    Some(super::press_path(file, &named))
 }
 
 /// The tools the configuration names, each with the site it answers: its `derive` remedies and its

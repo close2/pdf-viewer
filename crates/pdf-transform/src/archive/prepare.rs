@@ -696,10 +696,11 @@ impl Prepared {
         // conversion nobody supplied a press for walks nothing more than it did (`doc/adr/2130`).
         // The shipped press stands in for a supply only where the caller authorised the loss
         // `press-assumed` and the target is part 4, whose second licence states no press at all
-        // (`doc/adr/2518`).
+        // (`doc/adr/2518`); the operator's configured press stands in for it there
+        // (`doc/adr/2705`).
         let assumed_press = (plan.target.part() == pdf_archive::Part::Four
             && plan.authorised.grants(Loss::PressAssumed))
-        .then_some(CMYK);
+        .then(|| plan.press.as_deref().unwrap_or(CMYK));
         let cmyk_by_supply = wanted(Rewrite::SuppliedDefaultCmyk)
             && !by_intent
             && (plan.profile.is_some() || assumed_press.is_some())
@@ -788,6 +789,7 @@ impl Prepared {
                 intent,
                 plan.profile.as_deref(),
                 assumed_press,
+                plan.press.is_some(),
                 survey.as_ref(),
                 &mut spare,
             ),
@@ -1362,6 +1364,9 @@ impl Prepared {
                         super::supplied_cmyk::Press::Assumed => {
                             super::supplied_cmyk::ASSUMED_PARAMETERS
                         }
+                        super::supplied_cmyk::Press::Configured => {
+                            super::supplied_cmyk::CONFIGURED_PARAMETERS
+                        }
                     })
                 } else {
                     default_cmyk.is_ok().then_some(DEFAULT_CMYK_PARAMETERS)
@@ -1382,6 +1387,9 @@ impl Prepared {
         let cmyk_not_recorded = match &supplied_cmyk {
             Ok(supplied) if supplied.press == super::supplied_cmyk::Press::Assumed => {
                 super::supplied_cmyk::ASSUMED_NO_PLACE_TO_RECORD
+            }
+            Ok(supplied) if supplied.press == super::supplied_cmyk::Press::Configured => {
+                super::supplied_cmyk::CONFIGURED_NO_PLACE_TO_RECORD
             }
             _ => super::supplied_cmyk::NO_PLACE_TO_RECORD,
         };

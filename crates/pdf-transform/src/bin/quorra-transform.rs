@@ -1049,6 +1049,7 @@ fn archive_plan(
         target,
         authorised,
         profile: output_intent_profile(io, arguments)?,
+        press: read.press,
         substitute_fonts: !arguments.switch("--no-substitute"),
         supplied_fonts,
         cjk_pack,
@@ -1155,6 +1156,9 @@ struct FromConfig {
     annotation_flags: Option<pdf_transform::archive::AnnotationFlagAnswers>,
     /// The `preserve` remedies it names that fetch what a stream keeps outside the file.
     resolutions: Vec<pdf_transform::archive::Resolution>,
+    /// The operator's CMYK press its `[profile] press` names, read and checked
+    /// ([`configured_press`]).
+    press: Option<Arc<[u8]>>,
 }
 
 /// Reads every `--font <base-font>=<path>`, one program per `/BaseFont` the operator names.
@@ -1298,6 +1302,7 @@ fn read_config(
             preservations: Vec::new(),
             annotation_flags: None,
             resolutions: Vec::new(),
+            press: None,
         });
     };
     every_target(&label, &text)?;
@@ -1353,7 +1358,19 @@ fn read_config(
             pdf_transform::archive::UNTRUSTED_INPUT_WARNING
         );
     }
+    let press = match config.press {
+        Some(named) => Some(configured_press(
+            io,
+            arguments.value(&["--config"]),
+            &label,
+            &named,
+            target,
+            announce,
+        )?),
+        None => None,
+    };
     Ok(FromConfig {
+        press,
         departures,
         forms: config.forms,
         claim_conformance: claim,
@@ -1363,6 +1380,70 @@ fn read_config(
         annotation_flags: config.annotation_flags,
         resolutions: config.resolutions,
     })
+}
+
+/// `[profile] press = "<file>"`: the operator's CMYK press, named once in their configuration and
+/// used by every conversion that reads it (`doc/questions/A784`, `doc/adr/2704`).
+///
+/// **The file is read here, in the binary — the caller** — so `apply` opens no path (RFC 0002
+/// section 5), and a relative path is taken from the configuration file's own directory, so a
+/// company's profile and its press travel together whatever directory a run starts in. What it is
+/// held to is the library's ([`pdf_transform::archive::configured_press`]), so a window reading an
+/// operator's profile holds it to the same; a refusal names the configuration, the file and the
+/// reason. Its `desc` and `cprt` are printed before the run for the reason
+/// [`output_intent_profile`] prints a supplied profile's: whose profile is embedded is the
+/// operator's to know (`doc/pdf-a-conversion-limits.md` section 10.1).
+fn configured_press(
+    io: &mut dyn World,
+    file: Option<&str>,
+    label: &str,
+    named: &str,
+    target: pdf_archive::Target,
+    announce: bool,
+) -> Result<Arc<[u8]>, Failure> {
+    // A shipped profile names no press, which `tests/profiles.rs` holds; one that did would name
+    // a path relative to no file, so it is refused rather than read from wherever the run started.
+    let Some(file) = file else {
+        return Err(Failure::Configuration(format!(
+            "{label}: [profile] press {named:?} names a file, and only a configuration read from a \
+             file can name one, relative to that file"
+        )));
+    };
+    let path = press_path(file, named);
+    let bytes = io.read(&path, Reading::Bytes).map_err(|error| {
+        Failure::Configuration(format!(
+            "{label}: [profile] press names {}, which cannot be read ({error})",
+            path.display()
+        ))
+    })?;
+    let press = pdf_transform::archive::configured_press(&bytes, target).map_err(|refused| {
+        Failure::Configuration(format!(
+            "{label}: [profile] press names {}, which is not a press this conversion can state: \
+             {refused}",
+            path.display()
+        ))
+    })?;
+    if announce && let Some(stated) = Identification::read(&press) {
+        errln!(
+            io,
+            "note: {label} names the press {}{}, used where no --output-intent-profile is given \
+             and the profile in force assumes a press (press-assumed); its copyright tag says: {}",
+            path.display(),
+            stated
+                .description
+                .map_or_else(String::new, |name| format!(" ({name})")),
+            stated.copyright.as_deref().unwrap_or("nothing")
+        );
+    }
+    Ok(press)
+}
+
+/// Where `[profile] press = "<named>"` in the configuration `file` points: `named` taken from the
+/// configuration file's own directory, or as it is where it is absolute.
+fn press_path(file: &str, named: &str) -> PathBuf {
+    Path::new(file)
+        .parent()
+        .map_or_else(|| PathBuf::from(named), |directory| directory.join(named))
 }
 
 /// `--remedy-sites --to <target>`: every refusal site the target binds, from the decision table.
@@ -2669,7 +2750,8 @@ archive:
                            the GRACoL 2006 profile as that DefaultCMYK and names it in the report
                            and in the file's own xmpMM:History
                            The profile's own copyright tag is printed either way, because
-                           embedding somebody's profile means shipping their terms with it
+                           embedding somebody's profile means shipping their terms with it.
+                           This flag outranks a press the --config file names
   --no-substitute          a font the file renders and does not embed is refused by name instead
                            of being given one of the faces this program ships. The default is to
                            substitute, because a PDF whose font is not embedded has no appearance
@@ -2751,7 +2833,17 @@ archive:
                            A `supply` site states a fact the document does not — an attachment's
                            media type — which is recorded as the operator's in both places too.
                            doc/profiles/ ships eight configurations; derive-attachments.toml is the
-                           worked example of a tool
+                           worked example of a tool.
+                           [profile] press = \"<file.icc>\" names your CMYK press once, for every
+                           conversion that reads the file (a FOGRA profile from ECI, say): a
+                           relative path is taken from the configuration file's own directory.
+                           It stands in for the GRACoL 2006 profile this program ships, and only
+                           where that would be written - where the loss press-assumed is taken,
+                           which a file based on as-if-printed does - and a file naming a press
+                           that takes no such loss is refused. It must be an output (prtr) ICC
+                           profile over CMYK of an edition the target admits; the report and the
+                           file's own xmpMM:History name it as your press, and its copyright tag
+                           is printed before the run. --output-intent-profile outranks it
   --depart-from-the-standard
                            required before a configuration's departure is carried out: a departure
                            produces a file that does NOT conform, on purpose, and the intent to go

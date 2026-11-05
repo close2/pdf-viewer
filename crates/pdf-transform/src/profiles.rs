@@ -277,6 +277,10 @@ pub struct Contribution {
     pub unbuilt: Vec<Unbuilt>,
     /// Every external program it declares, in name order.
     pub tools: Vec<Tool>,
+    /// `[profile] press`: the path of the operator's CMYK press as the file wrote it, which the
+    /// face converting resolves against the file's directory, reads, and holds to the target with
+    /// [`crate::archive::configured_press`] (`doc/adr/2704`). A shipped profile names none.
+    pub press: Option<String>,
 }
 
 impl Contribution {
@@ -300,6 +304,7 @@ impl Contribution {
             resolutions: config.resolutions(target),
             unbuilt: config.unbuilt(target),
             tools: config.tools().cloned().collect(),
+            press: config.press,
         })
     }
 }

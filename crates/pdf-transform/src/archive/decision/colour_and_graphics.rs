@@ -51,6 +51,19 @@ const OUTPUT_INTENT_STATES_THE_SHIPPED_PRESS: &str = "a PDF/A output intent is w
      a screen shows. For content separated for a particular press, supply that press's profile \
      with --output-intent-profile instead";
 
+/// [`OUTPUT_INTENT_STATES_THE_SHIPPED_PRESS`] where the CMYK press is the one the operator's
+/// configuration names (`doc/adr/2705`): the same move of the drawing, and the press is theirs,
+/// named once for every document whose press nobody stated rather than for this one.
+const OUTPUT_INTENT_STATES_THE_CONFIGURED_PRESS: &str = "a PDF/A output intent is what a \
+     conforming reader colour-manages device colours through, so every DeviceGray, DeviceRGB and \
+     DeviceCMYK value in this file now means what the destination profile says it means, and the \
+     same profile becomes the default blending space for transparency. That profile is the CMYK \
+     press your configuration names, and this file named no press: this renderer drew its \
+     DeviceCMYK colours through its own assumed process inks, which no ICC profile states, so \
+     they now draw differently here as well as in other readers, most where the press's inks lie \
+     outside what a screen shows. For content separated for another press, supply that press's \
+     profile with --output-intent-profile instead";
+
 /// [`OUTPUT_INTENT_STATES_THE_SHIPPED_PRESS`] where the CMYK profile is the operator's
 /// (`doc/adr/2691`): the same move of the drawing, and the press is a statement the operator made.
 const OUTPUT_INTENT_STATES_THE_SUPPLIED_PRESS: &str = "a PDF/A output intent is what a \
@@ -100,6 +113,7 @@ pub(super) fn output_intent_sentence(intent: &Intent, row: &'static str) -> &'st
         ProfileSource::Shipped if intent.assumed_inks => OUTPUT_INTENT_STATES_THE_ASSUMED_INKS,
         ProfileSource::Shipped => OUTPUT_INTENT_STATES_THE_SHIPPED_PRESS,
         ProfileSource::Supplied => OUTPUT_INTENT_STATES_THE_SUPPLIED_PRESS,
+        ProfileSource::Configured => OUTPUT_INTENT_STATES_THE_CONFIGURED_PRESS,
         ProfileSource::AlreadyInTheFile => row,
     }
 }
@@ -995,13 +1009,11 @@ pub(super) fn cmyk_answer_under_part_four(
             rewrite: Rewrite::OutputIntent,
             reinterprets: output_intent_sentence(intent, OUTPUT_INTENT_REINTERPRETS),
         },
-        (Ok(_), Ok(supplied)) if supplied.press == super::super::supplied_cmyk::Press::Assumed => {
-            losing(
-                Losses::one(Loss::PressAssumed),
-                Rewrite::SuppliedDefaultCmyk,
-                authorised,
-            )
-        }
+        (Ok(_), Ok(supplied)) if supplied.press.is_assumed() => losing(
+            Losses::one(Loss::PressAssumed),
+            Rewrite::SuppliedDefaultCmyk,
+            authorised,
+        ),
         (Ok(_), Ok(_)) => Decision::Stated {
             rewrite: Rewrite::SuppliedDefaultCmyk,
             reinterprets: super::super::supplied_cmyk::REINTERPRETS,

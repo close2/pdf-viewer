@@ -1634,8 +1634,8 @@ impl Conversion {
         if let Some(press) = &self.press_assumed {
             let _ = writeln!(
                 out,
-                "  press-assumed: no press was named, so the DefaultCMYK states {}{} over {} - \
-                 the lower bound of a print scanned back in, not an imitation of printing",
+                "  press-assumed: this file names no press, so the DefaultCMYK states {}{} over \
+                 {} - the lower bound of a print scanned back in, not an imitation of printing",
                 press.source.describe(),
                 press
                     .describes
@@ -1643,6 +1643,9 @@ impl Conversion {
                     .map_or_else(String::new, |name| format!(" ({name})")),
                 press.space
             );
+            if let Some(copyright) = &press.copyright {
+                let _ = writeln!(out, "      its copyright tag says: {copyright}");
+            }
         }
         if !self.settled.is_empty() {
             let _ = writeln!(

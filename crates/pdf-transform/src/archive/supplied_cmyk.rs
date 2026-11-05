@@ -58,6 +58,18 @@ pub(super) enum Press {
     /// The CMYK profile this program ships, taken where the operator named none and the caller
     /// authorised [`Loss::PressAssumed`](super::decision::Loss::PressAssumed).
     Assumed,
+    /// The press the operator's configuration names once, taken where [`Self::Assumed`] would be
+    /// and costing the same loss: nothing in this file names its press, and this renderer drew
+    /// its colours through its own inks, so they move whoever chose the press (`doc/adr/2705`).
+    Configured,
+}
+
+impl Press {
+    /// Whether the press is assumed for this file rather than stated for it, which is
+    /// [`Loss::PressAssumed`](super::decision::Loss::PressAssumed)'s condition.
+    pub(super) const fn is_assumed(self) -> bool {
+        matches!(self, Self::Assumed | Self::Configured)
+    }
 }
 
 /// The `/DefaultCMYK` a conversion is in a position to write over the operator's profile.
@@ -98,6 +110,22 @@ pub(super) const ASSUMED_PARAMETERS: &str = "an ICCBased DefaultCMYK was added o
      which may not be the press the producer used; the file's own output intent is of another \
      colour family and was left as it was";
 
+/// [`ASSUMED_PARAMETERS`] where the press is the one the operator's configuration names: the same
+/// loss, and the press named as theirs (`doc/adr/2705`).
+pub(super) const CONFIGURED_PARAMETERS: &str = "an ICCBased DefaultCMYK was added over the CMYK \
+     press the operator of this conversion names in their configuration, as an assumed press (the \
+     loss press-assumed): nothing in the file names the press its DeviceCMYK colours were made \
+     for, so these colours are now read as the operator's press prints them, which may not be the \
+     press the producer used; the file's own output intent is of another colour family and was \
+     left as it was";
+
+/// Why the default over the operator's configured press is not written where the packet will not
+/// carry its recorded action.
+pub(super) const CONFIGURED_NO_PLACE_TO_RECORD: &str = "the DefaultCMYK over the press your \
+     configuration names is written only where this file's own xmpMM:History records that the \
+     press was assumed - this document's XMP packet will not take that entry, so the default is \
+     not written either";
+
 /// Why the default over the shipped press is not written where the packet will not carry its
 /// recorded action: the loss is named in the file or it is not taken.
 pub(super) const ASSUMED_NO_PLACE_TO_RECORD: &str = "the DefaultCMYK over the CMYK profile this \
@@ -105,11 +133,17 @@ pub(super) const ASSUMED_NO_PLACE_TO_RECORD: &str = "the DefaultCMYK over the CM
      was assumed - this document's XMP packet will not take that entry, so the default is not \
      written either";
 
-/// The shipped press as the report states it.
-pub(super) fn assumed_profile() -> Option<DestinationProfile> {
-    let stated = Identification::read(super::prepare::CMYK)?;
+/// The assumed press as the report states it: the shipped one, or the operator's configured one.
+pub(super) fn assumed_profile(plan: &super::ArchivePlan) -> Option<DestinationProfile> {
+    let (source, bytes) = plan
+        .press
+        .as_deref()
+        .map_or((ProfileSource::Shipped, super::prepare::CMYK), |press| {
+            (ProfileSource::Configured, press)
+        });
+    let stated = Identification::read(bytes)?;
     Some(DestinationProfile {
-        source: ProfileSource::Shipped,
+        source,
         space: stated.space_name(),
         describes: stated.description,
         copyright: stated.copyright,
@@ -208,14 +242,16 @@ fn zeroed_with_the_icc_marks(survey: &Survey, mark: &ProcessCmykOverprint) -> bo
 
 /// Prepares the `/DefaultCMYK`: the operator's profile as a stream, and the `ICCBased` array.
 ///
-/// `assumed` is the profile this program ships where the caller authorised the press to be
-/// assumed and the target admits it, and is read only when the operator supplied none: an
-/// operator's choice outranks it, including one that is not a CMYK profile.
+/// `assumed` is the press assumed where the caller authorised it and the target admits it — the
+/// operator's configured press where their configuration names one, and the profile this program
+/// ships otherwise, as `configured` says — and is read only when the operator supplied none: a
+/// supply outranks it, including one that is not a CMYK profile.
 pub(super) fn prepare(
     document: &Document,
     intent: &Intent,
     supplied: Option<&[u8]>,
-    assumed: Option<&'static [u8]>,
+    assumed: Option<&[u8]>,
+    configured: bool,
     survey: Option<&Survey>,
     spare: &mut Spare,
 ) -> Result<SuppliedCmyk, Because> {
@@ -227,6 +263,7 @@ pub(super) fn prepare(
     // its refusal, failed because the file draws in `DeviceCMYK`.
     let (press, profile) = match (supplied, assumed) {
         (Some(profile), _) => (Press::Supplied, profile),
+        (None, Some(profile)) if configured => (Press::Configured, profile),
         (None, Some(profile)) => (Press::Assumed, profile),
         (None, None) => return Err(Because::NotBuiltYet(NO_PRESS_SUPPLIED)),
     };

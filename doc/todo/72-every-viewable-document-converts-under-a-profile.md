@@ -205,8 +205,9 @@ groups, in the order a slot should take them:
    it, beside an RGB intent at part 4, and such a group at part 2. **Part 4's `DeviceCMYK` row is
    answered under `as-if-printed`** by the loss `press-assumed`: the CMYK profile this program ships
    is written as the `/DefaultCMYK` and named in the report and in `xmpMM:History` (A694 item 2,
-   ADR 2518); `as-shown` stops there, and a group at part 2 keeps its refusal, since part 2's other
-   licence states no press. The rows below it are refused as before — the group, base
+   ADR 2518), or the operator's own press where their configuration's `[profile] press` names one
+   (A784, ADRs 2704 and 2705); `as-shown` stops there, and a group at part 2 keeps its refusal,
+   since part 2's other licence states no press. The rows below it are refused as before — the group, base
    and alternate rows by the output's verdict; the operator's
    `--output-intent-profile` with the press's CMYK profile answers every one, as an `ICCBased`
    `/DefaultCMYK` beside the file's own intent (ADR 2130). `a_supplied_press_profile_answers_the_

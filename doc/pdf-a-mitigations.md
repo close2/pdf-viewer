@@ -736,6 +736,15 @@ ISO 19005-2 6.2.4.3, ISO 19005-4 6.2.4.3 · all six · today **built**: the outp
   instruction to imitate printing — the profile assumes a press and does not simulate one. Part 2 is
   not offered it: its `DeviceN` default states no press. **Owed**: `as-shown`'s own route, this
   reader's assumed inks written as an ICC table, needs a writer that does not exist (ADR 2519).
+- **The operator's press, named once** (A784, ADRs 2704 and 2705) — `[profile] press =
+  "<file.icc>"` in an operator's configuration, a relative path taken from that file's directory,
+  stands in for GRACoL wherever `press-assumed` is taken: the intent ADR 2701 writes and the
+  `/DefaultCMYK` above. It replaces nothing else — the assumed inks the other profiles state stay —
+  and a configuration naming a press that takes no such loss is refused. It must be an output
+  (`prtr`) profile over CMYK of an edition the target admits; the report and `xmpMM:History` name
+  it as the operator's with its own `cprt`. `--output-intent-profile` outranks it. A shipped
+  profile names none: a European company bases its file on `as-if-printed` and names the FOGRA
+  profile it downloaded from ECI, which this program cannot ship (`data/icc/PROVENANCE.md`).
 
 #### `graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires` (PDF/A-2)
 ISO 19005-2 6.2.4.2 · today **built**: `supply` for a missing text tag, `Stated` for an unreadable

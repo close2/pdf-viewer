@@ -37,6 +37,7 @@ fn convert(bytes: &[u8], target: Target, winner: &str) -> Option<Vec<u8>> {
             target,
             authorised,
             profile: None,
+            press: None,
             substitute_fonts: true,
             supplied_fonts: std::collections::BTreeMap::new(),
             cjk_pack: None,

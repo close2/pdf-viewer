@@ -354,6 +354,7 @@ fn convert(bytes: &[u8], target: Target, authorised: Authorisations) -> (Report,
             target,
             authorised,
             profile: None,
+            press: None,
             substitute_fonts: true,
             supplied_fonts: std::collections::BTreeMap::new(),
             cjk_pack: None,
@@ -2247,6 +2248,7 @@ fn a_supplied_profile_is_the_one_embedded_and_its_copyright_tag_is_reported() {
             target: Target::Four(Flavour::Plain),
             authorised: Authorisations::default(),
             profile: Some(profile),
+            press: None,
             substitute_fonts: true,
             supplied_fonts: std::collections::BTreeMap::new(),
             cjk_pack: None,
@@ -2731,6 +2733,7 @@ fn convert_with_profile(
             target,
             authorised: Authorisations::default(),
             profile: Some(std::sync::Arc::clone(profile)),
+            press: None,
             substitute_fonts: true,
             supplied_fonts: std::collections::BTreeMap::new(),
             cjk_pack: None,
@@ -3238,6 +3241,7 @@ fn no_substitute_turns_the_font_back_into_a_refusal_the_caller_can_take_back() {
             target: Target::Two(Level::B),
             authorised: Authorisations::default(),
             profile: None,
+            press: None,
             substitute_fonts: false,
             supplied_fonts: std::collections::BTreeMap::new(),
             cjk_pack: None,
@@ -6718,6 +6722,7 @@ fn convert_with_departure(
             target,
             authorised: Authorisations::default(),
             profile: None,
+            press: None,
             substitute_fonts: true,
             supplied_fonts: std::collections::BTreeMap::new(),
             cjk_pack: None,
@@ -7365,6 +7370,7 @@ fn plan_from(text: &str, target: Target) -> ArchivePlan {
         target,
         authorised: Authorisations::default(),
         profile: None,
+        press: None,
         substitute_fonts: true,
         supplied_fonts: std::collections::BTreeMap::new(),
         cjk_pack: None,
@@ -10488,6 +10494,7 @@ fn a_supplied_font(target: Target, base_font: &str, program: &[u8]) -> ArchivePl
         target,
         authorised: Authorisations::default(),
         profile: None,
+        press: None,
         substitute_fonts: true,
         supplied_fonts: supplied,
         cjk_pack: None,
@@ -16487,5 +16494,7 @@ mod packet_characters;
 #[path = "archive/spot_separations.rs"]
 mod spot_separations;
 
+#[path = "archive/configured_press.rs"]
+mod configured_press;
 #[path = "archive/drawn_through_the_intent.rs"]
 mod drawn_through_the_intent;

@@ -166,6 +166,7 @@ pub(crate) mod page_tree;
 mod parent_tree;
 mod prepare;
 mod preserve;
+mod press;
 mod protection;
 mod reader_resources;
 mod recovered;
@@ -227,6 +228,7 @@ pub use prepare::{
     CARRIED_INFORMATION_NAMESPACE, CARRIED_INFORMATION_PREFIX, DestinationProfile, ProfileSource,
     RemovedAnnotation, WrittenAppearance, carried_local_name,
 };
+pub use press::{PressRefused, configured_press};
 pub use protection::{PERMISSIONS_NO_LONGER_ASSERTED, SourceProtection};
 pub use recovered::{NotHeld, PartlyRead, RecoveredCatalog, RecoveredStructure, StatedCount};
 pub use report::{
@@ -324,6 +326,13 @@ pub struct ArchivePlan {
     /// the report, because a user embedding somebody else's profile is entitled to be told whose
     /// it is.
     pub profile: Option<std::sync::Arc<[u8]>>,
+    /// The operator's CMYK press, named once in their configuration (`[profile] press`) and
+    /// checked by [`configured_press`]: it stands in for the CMYK press this program ships, and
+    /// only there — where the plan authorises [`Loss::PressAssumed`] and an output intent or part
+    /// 4's `DefaultCMYK` would otherwise state `GRACoL2006_Coated1v2.icc` (`doc/questions/A784`,
+    /// `doc/adr/2705`). [`Self::profile`] outranks it, as it outranks the shipped press; the report
+    /// names it as the operator's, with its own `cprt` tag.
+    pub press: Option<std::sync::Arc<[u8]>>,
     /// Whether a font the file renders and does not embed may be given a face this program ships.
     ///
     /// `doc/pdf-a-conversion-limits.md` section 4.9 makes substitution the **default** and offers
@@ -1602,10 +1611,14 @@ fn apply_the_decisions(
     }
     if wanted.contains(&Rewrite::SuppliedDefaultCmyk) {
         let parameters = match &prepared.supplied_cmyk {
-            Ok(default) if default.press == supplied_cmyk::Press::Assumed => {
-                // The profile is named in the report beside the history's entry (`doc/adr/2518`).
-                conversion.press_assumed = supplied_cmyk::assumed_profile();
-                supplied_cmyk::ASSUMED_PARAMETERS
+            Ok(default) if default.press.is_assumed() => {
+                // The profile is named in the report beside the history's entry (`doc/adr/2518`),
+                // as the operator's where their configuration named it (`doc/adr/2705`).
+                conversion.press_assumed = supplied_cmyk::assumed_profile(plan);
+                match default.press {
+                    supplied_cmyk::Press::Configured => supplied_cmyk::CONFIGURED_PARAMETERS,
+                    _ => supplied_cmyk::ASSUMED_PARAMETERS,
+                }
             }
             _ => supplied_cmyk::PARAMETERS,
         };
