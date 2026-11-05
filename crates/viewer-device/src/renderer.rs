@@ -452,6 +452,22 @@ impl Done {
     fn on_the_processor(&self) -> bool {
         self.fell_back.is_some() || self.chose.is_some() || self.finished_ahead
     }
+
+    /// What this frame says the device takes to *build* the view — what the render thread
+    /// predicts the sharp pass from ([`sharp::sharp_pass_cost`]) — or `None` where it says
+    /// nothing about that. A processor's frame is an upload to the device, whose cost says
+    /// nothing about what the device would take to build the page (trap 143), and a replay says
+    /// what a replay costs and nothing about what a 4× render will (ADR 0384).
+    ///
+    /// One function, so that the thread and a test that waits for the thread's sharp pass ask
+    /// the same question of the same frame (ADR 2718).
+    fn built(&self) -> Option<Duration> {
+        let replayed = matches!(
+            self.cost.encode_source,
+            Some(raster_gpu::EncodeSource::Replayed)
+        );
+        (!self.on_the_processor() && !replayed).then_some(self.cost.total)
+    }
 }
 
 /// Whether two arrangements are the same pictures at the same placements — [`crate::stale::

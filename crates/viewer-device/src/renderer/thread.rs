@@ -200,15 +200,8 @@ fn draw_until_told_to_stop(
             if processor_frame {
                 sharpened = true;
             }
-            // A processor's frame is an upload to the device, whose cost says nothing about what
-            // the device would take to build the page (trap 143), so it predicts no pass.
-            if !processor_frame
-                && !matches!(
-                    finished.cost.encode_source,
-                    Some(raster_gpu::EncodeSource::Replayed)
-                )
-            {
-                last_built = Some(finished.cost.total);
+            if let Some(built) = finished.built() {
+                last_built = Some(built);
             }
             // A send that fails is an event thread that has gone, and there is nobody left to draw
             // for. The loop would end at the next `recv` anyway; leaving now saves a frame nobody

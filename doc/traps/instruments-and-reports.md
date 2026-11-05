@@ -2303,3 +2303,16 @@ memory in encoding, on its warm-up thread and at its drop, outside every section
 submissions left the allocations concurrent with them. The rule: before a lock is drawn around "the
 device work", list what of the device's state a neighbour can disturb — memory as well as queues —
 and take the span that covers all of it, here the device's life (ADR 2675).
+
+### 333. A test waits for an answer the code declines by its own rule
+
+`viewer-device`'s `a_zoom_step_is_drawn_before_the_sharp_pass_of_the_view_it_replaced` failed twice
+on GitHub's runner with "the render thread answers: Timeout" at line 167, and the brief that opened
+round 1952 read it as the first frame never coming back. Line 167 was the `expect` inside the test's
+`next` closure, which every one of its three waits calls, so the line named the closure and not the
+wait. The stacks of a reproduction (four copies of the suite on four processors, lavapipe) showed the
+render thread idle in `recv` and the test in its *third* wait, for the sharp pass — which the thread
+declines without a word where the frame it doubles was built in more than 100 ms, and a software
+adapter under load builds this step in 61 to 241 ms. The rule: where the code may decline to answer,
+the test asks the code's own predicate which answer is due (`Done::built`, ADR 2718), and each wait
+says in its message what it waited for.

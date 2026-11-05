@@ -136,6 +136,17 @@ fn job(pages: &[Placed], size: (u32, u32)) -> Job {
 /// back. The shape asserted is the order of what comes back, never a duration: a view change
 /// sent the instant the first frame lands must be answered by its own frame, and the
 /// sharpened picture that follows must be of the *new* view.
+///
+/// **The test waits for a sharp pass only where the thread's own rule runs one** (ADR 2718).
+/// The thread declines the pass without a word where the frame it doubles was built in more
+/// than a quarter of [`sharp::SHARP_STALL_BUDGET`], and a software adapter on a shared
+/// runner builds this page at this size on both sides of that line — lavapipe built the step in
+/// 61 to 241 ms with four suites on four processors — and a wait for a pass the thread declined
+/// is a wait for a picture that never comes. So the frame's own cost
+/// ([`Done::built`], the number the thread reads) decides which answer is the right one: the
+/// sharp pass of the new view, or nothing at all. Where the first view's own pass is declined,
+/// the step has no pass to overtake and the order holds trivially; the test says so on its output,
+/// and on lavapipe that is every run (ADR 2719).
 #[test]
 fn a_zoom_step_is_drawn_before_the_sharp_pass_of_the_view_it_replaced() {
     gpu_lock_hook::install();
@@ -160,28 +171,42 @@ fn a_zoom_step_is_drawn_before_the_sharp_pass_of_the_view_it_replaced() {
     );
 
     let link = spawn(renderer, idle(0, 2), None);
+    // Generous, because the assertion is the order of the answers and never their duration; each
+    // wait names the answer it waited for, so a timeout says which one did not come.
     let patience = Duration::from_mins(2);
-    let next = || {
+    let next = |waited_for: &str| {
         link.done
             .recv_timeout(patience)
-            .expect("the render thread answers")
+            .unwrap_or_else(|error| panic!("the render thread answers with {waited_for}: {error}"))
     };
     link.jobs
         .send(job(&first, size))
         .expect("the thread is running");
-    let Finished::Frame(landed) = next() else {
+    let Finished::Frame(landed) = next("the first frame") else {
         panic!("the first answer is the frame asked for");
     };
     assert!(landed.refused.is_none(), "{:?}", landed.refused);
+    if !sharp::sharp_pass_affordable(landed.built()) {
+        // The order is still asserted below; what this run could not show is the race itself,
+        // because there was no pass of the first view for the step to be drawn in front of.
+        println!(
+            "the first view's sharp pass was declined (built in {:?}): the step had no pass to \
+             overtake",
+            landed.built()
+        );
+    }
     // The step, sent the moment the first frame is in hand — the tightest a gesture can be.
     link.jobs
         .send(job(&second, size))
         .expect("the thread is running");
-    match next() {
-        Finished::Frame(done) => assert!(
-            same_pages(&done.pages, &second),
-            "the frame that answered is of the view asked for"
-        ),
+    let stepped = match next("the zoom step's frame") {
+        Finished::Frame(done) => {
+            assert!(
+                same_pages(&done.pages, &second),
+                "the frame that answered is of the view asked for"
+            );
+            done
+        }
         Finished::Sharp(_) => panic!(
             "the previous view's sharp pass was drawn in front of the zoom step that \
              replaced it"
@@ -192,14 +217,35 @@ fn a_zoom_step_is_drawn_before_the_sharp_pass_of_the_view_it_replaced() {
         }
         Finished::Scene(_) => panic!("no scene was asked to be built ahead"),
         Finished::Lane { said, .. } => panic!("no lane was refused here: {said}"),
-    }
-    let Finished::Sharp(sharp) = next() else {
-        panic!("a still view is sharpened");
     };
-    assert!(
-        same_pages(&sharp.pages, &second),
-        "the sharp pass is of the view that stayed"
+    // The thread predicts the pass from the last frame it built, which is the step's unless the
+    // step was a replay or the processor's.
+    let predicted_from = stepped.built().or(landed.built());
+    println!(
+        "the first frame built in {:?}, the step in {:?}",
+        landed.built(),
+        stepped.built()
     );
+    if sharp::sharp_pass_affordable(predicted_from) {
+        let Finished::Sharp(sharp) = next("the sharp pass of the view that stayed") else {
+            panic!("a still view is sharpened");
+        };
+        assert!(
+            same_pages(&sharp.pages, &second),
+            "the sharp pass is of the view that stayed"
+        );
+    } else {
+        // Declined, and silently by design (`draw_sharp`'s rule): nothing more comes for this
+        // view. The wait is the longest stillness an affordable pass is held back by, twice over.
+        match link.done.recv_timeout(sharp::SHARP_STALL_BUDGET * 2) {
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => println!(
+                "the step's sharp pass was declined (built in {predicted_from:?}), and nothing \
+                 came in its place"
+            ),
+            Ok(_) => panic!("a pass declined by the thread's own prediction was drawn anyway"),
+            Err(error) => panic!("the render thread is gone: {error}"),
+        }
+    }
 }
 
 /// **A frame the device refused before is drawn on the processor without asking it, and is not
