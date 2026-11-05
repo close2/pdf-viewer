@@ -9,7 +9,7 @@ use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 
 use crate::black_generation::BlackGeneration;
 use crate::colour::{
-    ColourSpace, Compositing, Conversion, ConversionContext, Reading, Separations,
+    ColourSpace, Compositing, Conversion, ConversionContext, GreyReading, Reading, Separations,
 };
 use crate::icc::{A2b, Rendering};
 
@@ -185,6 +185,7 @@ impl Interpreter<'_> {
             black_generation: generation,
             separations: self.separations(),
             spots: &self.spots_beside,
+            grey: self.grey,
         };
         self.solid_colours.paint(context, source, fill)
     }
@@ -217,6 +218,7 @@ impl Interpreter<'_> {
         // press beside a fill drawn through the document's own (ADR 1008).
         Conversion::new(self.compositing.clone(), rendering)
             .under_output_intent(self.output_intent.as_ref())
+            .under_grey(self.grey)
             .within_cmyk_group(self.cmyk_group.as_ref())
             .under_separations(self.separations())
             .beside(self.spots_beside.clone())
@@ -228,6 +230,7 @@ impl Interpreter<'_> {
     /// colour cannot be read under two readings.
     fn reading(&self) -> Reading<'_> {
         Reading::new(self.output_intent.as_ref())
+            .under_grey(self.grey)
             .within_cmyk_group(self.cmyk_group.as_ref())
             .under_separations(self.separations())
     }
@@ -806,6 +809,22 @@ pub(super) fn output_intent_space(
     page: Option<&Dictionary>,
 ) -> Option<ColourSpace> {
     crate::output_intent::selected(document, page).map(|selected| selected.space)
+}
+
+/// [`output_intent_space`] together with what `DeviceGray` means beside it, from one selection:
+/// the interpreter's two answers about the page's intent, which ISO 19005's section 6.2.4.3
+/// ties together in a PDF/A file (`crate::output_intent::grey_reading`, ADR 2712).
+pub(super) fn output_intent_reading(
+    document: &Document,
+    page: Option<&Dictionary>,
+) -> (Option<ColourSpace>, GreyReading) {
+    match crate::output_intent::selected(document, page) {
+        Some(selected) => {
+            let grey = crate::output_intent::grey_reading(document, &selected);
+            (Some(selected.space), grey)
+        }
+        None => (None, GreyReading::Device),
+    }
 }
 
 /// The object that identifies a colour space a resource dictionary states, where one can.

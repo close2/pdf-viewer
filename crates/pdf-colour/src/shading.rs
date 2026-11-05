@@ -20,7 +20,7 @@ use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 use rayon::iter::{IndexedParallelIterator as _, ParallelIterator as _};
 use rayon::slice::ParallelSliceMut as _;
 
-use crate::colour::{ColourSpace, Compositing, Conversion, Separations};
+use crate::colour::{ColourSpace, Compositing, Conversion, GreyReading, Separations};
 use crate::function::{Function, Value};
 
 /// The most cells a function-based shading's grid will carry, whatever the device asks for.
@@ -104,7 +104,14 @@ impl<'a> Colouring<'a> {
 /// What a [`Cache`]'s parsed colour spaces are keyed by: the space's object, the identities of
 /// the output intent's profile and of §11.7.2's redefining group's, §10.8.3's preference, and
 /// the index of the resources' `/ColorSpace` entry — [`Cache::spaces`] says why each.
-type SpaceKey = (ObjectId, Option<u128>, Option<u128>, Separations, usize);
+type SpaceKey = (
+    ObjectId,
+    Option<u128>,
+    Option<u128>,
+    Separations,
+    GreyReading,
+    usize,
+);
 
 /// Shadings already built, keyed by the object that states them.
 ///
@@ -483,7 +490,8 @@ impl Cache {
         let dict = dictionary_of(document, object)?;
         let id = dict.get("ColorSpace")?.as_reference()?;
         // §10.8.3's preference is in the key because it decides what a `DeviceN` space means:
-        // two interpretations of one page under the two answers are two spaces (ADR 1229).
+        // two interpretations of one page under the two answers are two spaces (ADR 1229), and
+        // the grey reading for the same reason about `DeviceGray` (ADR 2712).
         let key = (
             id,
             into.output_intent()
@@ -493,6 +501,7 @@ impl Cache {
                 .as_ref()
                 .and_then(ColourSpace::profile_identity),
             into.separations(),
+            into.grey(),
             colour_spaces,
         );
         if let Some(space) = self.spaces.get(&key) {

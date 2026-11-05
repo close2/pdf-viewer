@@ -101,9 +101,11 @@ const OUTPUT_INTENT_STATES_THE_ASSUMED_INKS: &str = "a PDF/A output intent is wh
      profile becomes the default blending space for transparency. This file named no press, and \
      that profile states the process inks this renderer assumed for its DeviceCMYK colours, so \
      this renderer already showed those colours that way, and another reader following the \
-     profile shows them the same way. Where a soft mask mixes grey and DeviceCMYK \
-     content, this renderer now converts between them through the profile's inks rather than \
-     through black alone, so such a mask can draw differently here. The profile characterises this \
+     profile shows them the same way. Its DeviceGray colours are another matter: a conforming \
+     reader draws them as the profile's black ink alone, and so does this renderer, so grey and \
+     black content now draws in the press's black rather than in the neutral grey this renderer \
+     showed in the source (pure black, for instance, draws as the ink's dark grey), while a soft \
+     mask built of grey masks as it did. The profile characterises this \
      renderer and not a physical press, so for content separated for a particular press, \
      supply that press's profile with --output-intent-profile instead";
 

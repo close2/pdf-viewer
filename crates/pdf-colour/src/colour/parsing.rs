@@ -352,6 +352,9 @@ impl ColourSpace {
     /// Between the two, for `DeviceCMYK` alone, §11.7.2's redefinition inside an isolated group
     /// or page whose blending space is an `ICCBased` CMYK one ([`Reading::within_cmyk_group`]),
     /// which is a `shall` about the group and so outranks the intent too (ADR 2012).
+    /// `DeviceGray` beside a four-component intent has one source more, and it is another
+    /// standard's: in a PDF/A file ISO 19005's section 6.2.4.3 makes it the intent's black ink
+    /// alone ([`super::GreyReading::IntentBlack`], `super::intent_grey`).
     /// Failing all three, the device space itself — where §8.6.4.4 states no conversion,
     /// §10.4.2.5 states one and §10.4.2.1 ranks it below §10.3's ICC route, so what happens
     /// then is this processor's own choice between two answers the standard has already
@@ -384,6 +387,15 @@ impl ColourSpace {
             && intent.components() == device.components()
         {
             return Some(intent.clone());
+        }
+        // ISO 19005-2 and -4 section 6.2.4.3, in a PDF/A file whose intent is a CMYK press and
+        // where no `/DefaultGray` answered above: the grey is the press's black ink alone, by
+        // §10.4.2.3, rendered through the intent's profile (ADR 2712).
+        if matches!(device, Self::Gray)
+            && reading.grey == super::GreyReading::IntentBlack
+            && let Some(black) = reading.intent.and_then(Self::grey_as_intent_black)
+        {
+            return Some(black);
         }
         Some(device)
     }

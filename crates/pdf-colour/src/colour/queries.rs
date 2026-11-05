@@ -6,7 +6,7 @@ use super::cie::nearest;
 use super::device_cmyk::channel;
 use super::grey_route::GreyIdentity;
 use super::rgb_route::RgbIdentity;
-use super::{ColourSpace, MAX_DEPTH, Reading};
+use super::{ColourSpace, MAX_DEPTH, Reading, Tints};
 
 impl ColourSpace {
     /// Table 88's default `/Decode` pair for one component of an image in this space.
@@ -236,8 +236,14 @@ impl ColourSpace {
             Self::Lab { .. } | Self::Icc { .. } => (0..self.components())
                 .map(|component| nearest(0.0, self.component_range(component)))
                 .collect(),
-            // "In an Indexed colour space, the initial colour value shall be 0."
-            Self::Indexed { .. } => vec![0.0],
+            // "In an Indexed colour space, the initial colour value shall be 0." And `DeviceGray`
+            // read as an intent's black is still `DeviceGray`, whose initial colour the first
+            // sentence above states: black, which is a grey of 0.0 (`intent_grey`).
+            Self::Indexed { .. }
+            | Self::Separation {
+                tints: Tints::GreyAsBlack,
+                ..
+            } => vec![0.0],
             // "In a Separation or DeviceN colour space, the initial tint value shall be 1.0
             // for all colourants." `/All` and `/None` are Separation spaces too, so they
             // start at full ink like any other — which for `/All` is black.
@@ -302,6 +308,14 @@ impl ColourSpace {
             // the group XObject's content stream specifies a Separation or DeviceN colour
             // space that uses spot colour components, the alternate colour space shall be
             // substituted", which is what evaluating the tint transform does.
+            // `DeviceGray` read as an intent's black (`intent_grey`) weighs its black ink, which
+            // is the grey's own §10.4.2.3 complement: the device branch A23 takes in every
+            // space, asked of the four components the clause made, rather than the luminance of
+            // the press's black that the profile would give (ADR 2712).
+            Self::Separation {
+                tints: tints @ Tints::GreyAsBlack,
+                ..
+            } => Self::Cmyk.ink_at(&tints.eval(values), depth.saturating_add(1)),
             Self::Separation {
                 alternate, tints, ..
             } => alternate.ink_at(&tints.eval(values), depth.saturating_add(1)),

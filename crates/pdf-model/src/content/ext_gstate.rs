@@ -502,7 +502,7 @@ impl Interpreter<'_> {
             self.document,
             dict,
             (self.presses, &self.page_resources),
-            self.output_intent.as_ref(),
+            (self.output_intent.as_ref(), self.grey),
         ) {
             crate::soft_mask::SoftMaskEntry::None => state.soft_mask = None,
             crate::soft_mask::SoftMaskEntry::Mask(request) => {

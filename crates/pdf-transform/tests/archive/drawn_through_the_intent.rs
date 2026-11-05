@@ -467,19 +467,23 @@ fn a_cmyk_ink_masks_the_same_in_the_source_and_under_the_assumed_inks_intent() {
 }
 
 #[test]
-fn a_grey_painted_into_a_cmyk_mask_masks_by_its_grey_in_the_source() {
+fn a_grey_painted_into_a_cmyk_mask_masks_by_its_grey_in_the_source_and_the_archive() {
     // A `DeviceGray` 0.5 painted into a `DeviceCMYK` mask group. In the source the group is a
     // device space, and §10.4.2.3's conversion — "black = 1.0 − gray" with the other three zero
     // — composed with EXAMPLE 2 gives the grey back: 0.5. In the archive the group is the intent's
-    // profile, and this reader separates the grey into that press by the profile's own `B2A`
-    // (ADR 0796), whose cyan, magenta and yellow EXAMPLE 2 weighs differently; ISO 19005-2 and
-    // ISO 19005-4 section 6.2.4.3 instead convert a `DeviceGray` colour under a CMYK intent to
-    // CMYK by the classic method, which gives 0.5 again. Which this reader does is `Q788`; this
-    // pins the source, and that the archive differs, so that an answer is seen to move it.
+    // profile, and ISO 19005-2 and ISO 19005-4 section 6.2.4.3 convert a `DeviceGray` colour in a
+    // PDF/A file under a CMYK intent to CMYK by that same classic method before the profile, which
+    // this reader follows (the owner's A788, ADR 2712): the grey is black ink alone, and the mask
+    // is 0.5 again. The sentence the conversion carries says so.
     for target in TARGETS {
         let source = black_through_a_cmyk_mask(target, "0.5 g", "0.5 g");
         let (report, output) = convert(&source, target, Authorisations::default());
         let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+        let sentence = intent_sentence(&report, cmyk_row(target));
+        assert!(
+            sentence.contains("black ink alone") && sentence.contains("soft mask"),
+            "{sentence}"
+        );
         let [before, _] = masks_drawn(&source);
         let [after, _] = masks_drawn(&output);
         assert!(
@@ -487,7 +491,7 @@ fn a_grey_painted_into_a_cmyk_mask_masks_by_its_grey_in_the_source() {
             "{target:?}: the source masked by {before}"
         );
         assert!(
-            (after - before).abs() > 0.02,
+            (after - before).abs() < 0.01,
             "{target:?}: the archive masked by {after}, the source by {before}"
         );
     }

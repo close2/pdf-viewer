@@ -23,7 +23,7 @@
 
 use pdf_syntax::{Dictionary, Document, Object};
 
-use crate::colour::ColourSpace;
+use crate::colour::{ColourSpace, GreyReading};
 use crate::page::Pages;
 
 /// The output intent the colour of a page is drawn through, as a person would recognise it.
@@ -107,6 +107,61 @@ pub(crate) fn selected(document: &Document, page: Option<&Dictionary>) -> Option
     }
     let catalog = document.catalog().ok()?;
     first_usable(document, &document.get_key(&catalog, "OutputIntents"))
+}
+
+/// What `DeviceGray` means on a page whose output intent in force is `selected`.
+///
+/// ISO 19005-2 and ISO 19005-4, section 6.2.4.3, make a conforming reader of a PDF/A file
+/// render a `DeviceGray` colour, where no device-independent `DefaultGray` is set, through the
+/// PDF/A output intent's destination profile — by way of ISO 32000's classic conversion to CMYK
+/// when that profile is a CMYK one. (ISO 19005 is paraphrased and cited by section, never quoted:
+/// `doc/third-party-data.md`.) The owner adopted that rule for this reader (`doc/questions/A788`,
+/// ADR 2712), and it binds only where its three conditions hold, each of which is asked here:
+///
+/// - the intent is a **PDF/A** one, Table 401's `/S /GTS_PDFA1`, which is the subtype ISO 19005
+///   names its output intent by;
+/// - its profile is **CMYK**, four components — a 'GRAY' profile already stands in for the
+///   family by its component count, and an 'RGB' one is the clause's other bullet, not taken here;
+/// - the file **identifies as PDF/A**: its document-level XMP states `pdfaid:part`, which is
+///   what makes the file one ISO 19005 speaks about at all.
+///
+/// The third is read last because it is the one that costs, and only where the first two already
+/// hold: the catalog's metadata stream is parsed for a page that draws through a PDF/A CMYK intent
+/// and for no other (principle 2). `DefaultGray` is the resources' to answer, where the device
+/// family is resolved (`ColourSpace::device_family`), so it is not asked here.
+pub(crate) fn grey_reading(document: &Document, selected: &Selected) -> GreyReading {
+    let cmyk = matches!(&selected.space, ColourSpace::Icc { profile } if profile.channels() == 4);
+    let pdfa = document
+        .get_key(&selected.dictionary, "S")
+        .as_name()
+        .is_some_and(|name| name.as_bytes() == b"GTS_PDFA1");
+    if cmyk && pdfa && identifies_as_pdfa(document) {
+        GreyReading::IntentBlack
+    } else {
+        GreyReading::Device
+    }
+}
+
+/// The two namespaces a `pdfaid:part` is found under: ISO 19005-1's own, and the `https` form
+/// some producers write, which `pdf_archive` reads as the same schema.
+const IDENTIFICATION: [&str; 2] = [
+    "http://www.aiim.org/pdfa/ns/id/",
+    "https://www.aiim.org/pdfa/ns/id/",
+];
+
+/// Whether the document-level XMP packet states a PDF/A part.
+///
+/// A packet that does not parse states nothing, and the file is then read by ISO 32000 alone:
+/// the rule is the second standard's, and it applies to a file that says it is one of its.
+fn identifies_as_pdfa(document: &Document) -> bool {
+    let Some(Ok(packet)) = crate::xmp::Xmp::document(document) else {
+        return false;
+    };
+    IDENTIFICATION.iter().any(|namespace| {
+        packet
+            .text(namespace, "part")
+            .is_some_and(|part| !part.trim().is_empty())
+    })
 }
 
 /// The first output intent of an array that names a profile this tree can parse.

@@ -52,6 +52,7 @@ impl Interpreter<'_> {
         Conversion::new(self.compositing.clone(), state.rendering_under(intent))
             .under_black_generation(state.black_generation.clone())
             .under_output_intent(self.output_intent.as_ref())
+            .under_grey(self.grey)
             .within_cmyk_group(self.cmyk_group.as_ref())
             .beside(self.spots_beside.clone())
     }

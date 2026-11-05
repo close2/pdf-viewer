@@ -331,6 +331,7 @@ struct ImportedFrame<'a> {
         std::sync::Arc<crate::structure::ParentTree>,
     >,
     output_intent: Option<super::ColourSpace>,
+    grey: crate::colour::GreyReading,
     optional_content: Option<crate::optional_content::OptionalContent>,
     page_resources: std::sync::Arc<Dictionary>,
     view: std::borrow::Cow<'a, crate::view::ViewState>,
@@ -616,6 +617,8 @@ impl<'a> Interpreter<'a> {
         // 1228, 2612) — so those four are what is carried across; everything else this state
         // holds, §12.6.4.11's overrides and the annotations a person added, is filed under an
         // `ObjectId` of the containing document and means nothing here.
+        let (imported_intent, imported_grey) =
+            super::colour::output_intent_reading(document, Some(&page.dict));
         let mut view = crate::view::ViewState::of(document);
         view.set_magnification(self.view.magnification());
         view.set_purpose(self.view.purpose());
@@ -639,10 +642,10 @@ impl<'a> Interpreter<'a> {
             stream_structures: std::mem::take(&mut self.stream_structures),
             // §14.11.5's output intent describes the document whose colours it calibrates, and
             // the imported page's colours are the target document's.
-            output_intent: std::mem::replace(
-                &mut self.output_intent,
-                super::output_intent_space(document, Some(&page.dict)),
-            ),
+            output_intent: std::mem::replace(&mut self.output_intent, imported_intent),
+            // And what its `DeviceGray` means beside that intent, which is the imported file's
+            // own PDF/A identification (ISO 19005's section 6.2.4.3, ADR 2712).
+            grey: std::mem::replace(&mut self.grey, imported_grey),
             // §8.11's configuration likewise: an optional content group is identified by *which
             // object* it is (§8.11.2.2), in one file.
             optional_content: std::mem::replace(
@@ -685,6 +688,7 @@ impl<'a> Interpreter<'a> {
             structure,
             stream_structures,
             output_intent,
+            grey,
             optional_content,
             page_resources,
             view,
@@ -705,6 +709,7 @@ impl<'a> Interpreter<'a> {
         self.structure = structure;
         self.stream_structures = stream_structures;
         self.output_intent = output_intent;
+        self.grey = grey;
         self.optional_content = optional_content;
         self.page_resources = page_resources;
         self.view = view;

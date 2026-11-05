@@ -14,7 +14,8 @@ use pdf_render::{Color, SoftMaskKind, Transfer};
 use pdf_syntax::{Dictionary, Document, Object, Stream};
 
 use crate::colour::{
-    ColourSpace, Compositing, DeviceSpots, GreyRoute, InkScale, NoPress, Plane, Presses,
+    ColourSpace, Compositing, DeviceSpots, GreyReading, GreyRoute, InkScale, NoPress, Plane,
+    Presses, Reading,
 };
 use crate::function::Function;
 use crate::icc::Rendering;
@@ -77,13 +78,16 @@ pub(crate) struct SoftMaskRequest {
 /// whose intent is a four-component profile is composited in that press, and §11.5.3's `Y`
 /// is the press's, rather than §10.4.2.3's approximation of an assumed one.
 ///
+/// `grey` is what `DeviceGray` means beside that intent (`crate::colour::GreyReading`), which
+/// reaches a group stating `/CS /DeviceGray` the same way.
+///
 /// `inherited` is the resource dictionary a group with none of its own draws from — the page's,
 /// which is where `crate::content` runs such a group.
 pub(crate) fn entry_with_output_intent(
     document: &Document,
     dict: &Dictionary,
     (presses, inherited): (&Presses, &Dictionary),
-    output_intent: Option<&ColourSpace>,
+    (output_intent, grey): (Option<&ColourSpace>, GreyReading),
 ) -> SoftMaskEntry {
     match document.get_key(dict, "SMask") {
         Object::Null => SoftMaskEntry::None,
@@ -93,7 +97,9 @@ pub(crate) fn entry_with_output_intent(
             "/SMask /{}, where Table 57 defines only /None",
             String::from_utf8_lossy(name.as_bytes())
         )),
-        Object::Dictionary(mask) => read(document, &mask, (presses, inherited), output_intent),
+        Object::Dictionary(mask) => {
+            read(document, &mask, (presses, inherited), (output_intent, grey))
+        }
         other => SoftMaskEntry::Unusable(format!("/SMask is {}", type_of(&other))),
     }
 }
@@ -103,7 +109,7 @@ fn read(
     document: &Document,
     mask: &Dictionary,
     (presses, inherited): (&Presses, &Dictionary),
-    output_intent: Option<&ColourSpace>,
+    (output_intent, grey): (Option<&ColourSpace>, GreyReading),
 ) -> SoftMaskEntry {
     // Table 142's `/G` is required, and is a stream: a form XObject with a `/Group`.
     let group = document.get_key(mask, "G");
@@ -146,7 +152,7 @@ fn read(
                 &space,
                 (presses, inherited),
                 transfer.as_ref(),
-                output_intent,
+                (output_intent, grey),
             ),
             other => {
                 return SoftMaskEntry::Unusable(format!(
@@ -220,7 +226,7 @@ fn luminosity(
     stated: &Object,
     (presses, inherited): (&Presses, &Dictionary),
     transfer: Option<&Transfer>,
-    output_intent: Option<&ColourSpace>,
+    (output_intent, grey): (Option<&ColourSpace>, GreyReading),
 ) -> (
     SoftMaskKind,
     Compositing,
@@ -234,8 +240,8 @@ fn luminosity(
     // family named here means what §8.6.5.6's default and §14.11.5's intent say it means,
     // as it does for the page's own group. No resource dictionary: a group attributes
     // dictionary is not drawn from one, so a name here can only be a family's.
-    let space =
-        ColourSpace::parse_with_output_intent(document, stated, &Dictionary::new(), output_intent);
+    let reading = Reading::new(output_intent).under_grey(grey);
+    let space = ColourSpace::parse_under(document, stated, &Dictionary::new(), reading);
     // A `DeviceCMYK` group whose content blends is composited in its four components rather than
     // in one weighted channel: §11.3.5.2 applies a separable blend function to "corresponding
     // components of the colours 𝐶𝑟 , 𝐶𝑏 , and 𝐶𝑠 , expressed in additive form", and a weighted
@@ -269,8 +275,14 @@ fn luminosity(
     // further press (§11.7.2's budget) or the press is not a profile's, both of which
     // `luminosity_departure` then names; a poisoned table of presses is kept to be said as
     // itself (ADR 2170).
-    let ink = match (&space, scale, &route, &additive) {
-        (Some(ColourSpace::Icc { profile }), None, None, None) if profile.channels() == 4 => {
+    //
+    // A `/DeviceGray` group of a PDF/A file under a CMYK intent is that press's black ink
+    // alone (ISO 19005's section 6.2.4.3, `crate::colour::GreyReading`), so it is composited in
+    // the same press: its own greys arrive as `(0, 0, 0, 1 − gray)`, a `DeviceCMYK` group
+    // painted into it keeps its inks, and EXAMPLE 2's weights give back the grey (ADR 2712).
+    let in_press = four_component_profile(space.as_ref());
+    let ink = match (in_press, scale, &route, &additive) {
+        (Some(profile), None, None, None) => {
             // §11.7.5.3's second bullet names the parameters at a group's `Do`, and a
             // mask group has none: §11.6.5.1 states it in an `/SMask` dictionary and
             // §11.5.3 reduces it to one luminosity rather than painting it. So the press
@@ -479,6 +491,18 @@ fn derivation(scale: InkScale, transfer: Option<&Transfer>) -> Option<Transfer> 
 /// as well as the special colour spaces `Pattern` , `Indexed` , `Separation` , and `DeviceN`",
 /// so the recursion here is about a malformed file rather than a valid one, and it answers
 /// with the scale of the space the file would have had to mean.
+/// The four-component profile a mask group composites in: an `ICCBased` CMYK `/CS`, or the
+/// intent's own where the `/CS` is `DeviceGray` read as that intent's black.
+fn four_component_profile(space: Option<&ColourSpace>) -> Option<&Arc<crate::icc::Profile>> {
+    match space? {
+        ColourSpace::Icc { profile } if profile.channels() == 4 => Some(profile),
+        black @ ColourSpace::Separation { alternate, .. } if black.is_grey_as_intent_black() => {
+            four_component_profile(Some(alternate))
+        }
+        _ => None,
+    }
+}
+
 fn ink_scale(space: &ColourSpace) -> Option<InkScale> {
     match space {
         ColourSpace::Cmyk => Some(InkScale::Double),
@@ -733,7 +757,7 @@ mod tests {
     use render_cpu::CpuRasterizer;
 
     use super::{SoftMaskEntry, entry_with_output_intent};
-    use crate::colour::{ColourSpace, Compositing, InkScale, Plane, Presses};
+    use crate::colour::{ColourSpace, Compositing, GreyReading, InkScale, Plane, Presses};
 
     /// A document whose object 5 is a `/Luminosity` mask group stating `/CS /DeviceCMYK`, and
     /// whose object 6 is the `gs` dictionary naming it.
@@ -929,7 +953,7 @@ mod tests {
             &document,
             &gs,
             (&presses, &pdf_syntax::Dictionary::new()),
-            Some(&intent),
+            (Some(&intent), GreyReading::Device),
         ) else {
             panic!("the mask is usable");
         };
@@ -950,7 +974,7 @@ mod tests {
             &document,
             &gs,
             (&presses, &pdf_syntax::Dictionary::new()),
-            None,
+            (None, GreyReading::Device),
         ) else {
             panic!("the mask is usable");
         };

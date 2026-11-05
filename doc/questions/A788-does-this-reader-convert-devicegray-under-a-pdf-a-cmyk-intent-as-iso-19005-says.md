@@ -1,6 +1,11 @@
 Status: complete
 Given: 2026-11-05, in conversation — transcribed by the round
-Owes: the reader follows ISO 19005-2 / -4 section 6.2.4.3: in a file identifying as PDF/A with a CMYK output intent and no DefaultGray, DeviceGray converts to the intent's black ink only; the converter writes no /DefaultGray, so archived greys draw as their sources' do (option 2); measured over the corpora before and after (an archive / colour round)
+Owes: none
+
+Built as option 2: in a file whose XMP states `pdfaid:part` and whose PDF/A intent (`/S /GTS_PDFA1`)
+is a CMYK profile, a `DeviceGray` colour with no `/DefaultGray` is the intent's black ink alone,
+by every route a colour takes, soft-mask groups included; the converter writes no `/DefaultGray`
+(ADRs 2712 and 2713).
 
 > Q788: yes convert to black ink only
 

@@ -40,6 +40,7 @@ mod extended_srgb;
 mod grey_route;
 mod ink_search;
 mod inks_profile;
+mod intent_grey;
 mod parsing;
 mod press;
 mod queries;
@@ -59,6 +60,7 @@ pub(crate) use ink_search::solve_three;
 pub use inks_profile::{
     A2B_SIDE, B2A_SIDE, DESCRIPTION as INKS_PROFILE_DESCRIPTION, assumed_inks_profile,
 };
+pub use intent_grey::GreyReading;
 pub use press::{
     NoPress, PRESS_BYTES, Press, PressIdentity, Presses, assumed_press, device_cmyk_blending_space,
     device_ink_press, press_for_profile, presses_cached, presses_sampled,
@@ -289,6 +291,13 @@ pub enum Tints {
                   quotation is not marked up"
     )]
     Process(Vec<Option<usize>>),
+    /// ISO 32000-2 §10.4.2.3's classic conversion of a grey level into `DeviceCMYK`, black
+    /// alone: the one component is a grey, and the alternate's four are `(0, 0, 0, 1 − gray)`.
+    ///
+    /// Not a tint transform a file states: the tints of `DeviceGray` read under ISO 19005's
+    /// section 6.2.4.3, which [`ColourSpace::grey_as_intent_black`] builds and which no
+    /// `Separation` or `DeviceN` array parses to.
+    GreyAsBlack,
 }
 
 impl Tints {
@@ -304,6 +313,7 @@ impl Tints {
                         .unwrap_or(0.0)
                 })
                 .collect(),
+            Self::GreyAsBlack => intent_grey::black_of(values),
         }
     }
 }
@@ -371,17 +381,34 @@ pub struct Reading<'a> {
     cmyk_group: Option<&'a ColourSpace>,
     /// Whether §10.8.3's simulation is in force.
     separations: Separations,
+    /// What `DeviceGray` means beside a four-component intent: ISO 19005's section 6.2.4.3 in
+    /// a PDF/A file, or this reader's grey otherwise ([`GreyReading`]).
+    grey: GreyReading,
 }
 
 impl<'a> Reading<'a> {
-    /// A reading under `intent`, with no separation simulation.
+    /// A reading under `intent`, with no separation simulation and `DeviceGray` the device's.
     #[must_use]
     pub fn new(intent: Option<&'a ColourSpace>) -> Self {
         Self {
             intent,
             cmyk_group: None,
             separations: Separations::Alternate,
+            grey: GreyReading::Device,
         }
+    }
+
+    /// The same reading with `grey` deciding what `DeviceGray` means beside the intent.
+    #[must_use]
+    pub fn under_grey(mut self, grey: GreyReading) -> Self {
+        self.grey = grey;
+        self
+    }
+
+    /// What `DeviceGray` means under this reading.
+    #[must_use]
+    pub fn grey(&self) -> GreyReading {
+        self.grey
     }
 
     /// The same reading inside a group whose blending colour space `DeviceCMYK` is redefined to,

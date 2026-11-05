@@ -7,7 +7,7 @@ use pdf_syntax::{Dictionary, Document, Object};
 
 use super::compositing::Compositing;
 use super::spots::DeviceSpots;
-use super::{ColourSpace, Reading, Separations};
+use super::{ColourSpace, GreyReading, Reading, Separations};
 use crate::black_generation::BlackGeneration;
 use crate::icc::Rendering;
 
@@ -88,6 +88,12 @@ pub struct Conversion {
     /// group's process components as a fill does (§11.7.3, ADR 1329). Empty on every conversion
     /// a backend draws unseparated.
     spots: DeviceSpots,
+    /// What `DeviceGray` means beside this page's output intent ([`GreyReading`]): carried for
+    /// the output intent's own reason, because an image's, a shading's and a mesh's
+    /// `/DeviceGray` are parsed after the interpreter has handed the work over, and a PDF/A
+    /// page whose fills drew through the press's black while its images did not would be two
+    /// readings of one clause (ISO 19005-2 and -4 section 6.2.4.3, ADR 2712).
+    grey: GreyReading,
 }
 
 /// What distinguishes one [`Conversion`] from another, for the caches keyed on one.
@@ -103,6 +109,7 @@ type ConversionKey<'a> = (
     Option<usize>,
     Separations,
     &'a DeviceSpots,
+    GreyReading,
 );
 
 /// A borrowed complete conversion context, for cache lookups without reference-count churn.
@@ -127,6 +134,8 @@ pub struct ConversionContext<'a> {
     pub separations: Separations,
     /// Spots carried beside the target.
     pub spots: &'a DeviceSpots,
+    /// What `DeviceGray` means beside the output intent.
+    pub grey: GreyReading,
 }
 
 impl<'a> ConversionContext<'a> {
@@ -141,6 +150,7 @@ impl<'a> ConversionContext<'a> {
             self.black_generation.map(BlackGeneration::identity),
             self.separations,
             self.spots,
+            self.grey,
         )
     }
 
@@ -164,6 +174,7 @@ impl<'a> ConversionContext<'a> {
             black_generation: self.black_generation.cloned(),
             separations: self.separations,
             spots: self.spots.clone(),
+            grey: self.grey,
         }
     }
 }
@@ -180,6 +191,7 @@ impl Conversion {
             black_generation: self.black_generation.as_ref(),
             separations: self.separations,
             spots: &self.spots,
+            grey: self.grey,
         }
     }
 
@@ -204,6 +216,7 @@ impl Conversion {
             black_generation: None,
             separations: Separations::Alternate,
             spots: DeviceSpots(None),
+            grey: GreyReading::Device,
         }
     }
 
@@ -222,6 +235,20 @@ impl Conversion {
             Some(_) | None => None,
         };
         self
+    }
+
+    /// The same conversion with `grey` deciding what `DeviceGray` means beside the output
+    /// intent.
+    #[must_use]
+    pub fn under_grey(mut self, grey: GreyReading) -> Self {
+        self.grey = grey;
+        self
+    }
+
+    /// What `DeviceGray` means beside this conversion's output intent.
+    #[must_use]
+    pub fn grey(&self) -> GreyReading {
+        self.grey
     }
 
     /// What §14.11.5's output intent says this page's device colours mean, if it says.
@@ -285,6 +312,7 @@ impl Conversion {
             black_generation: self.black_generation.clone(),
             separations: self.separations,
             spots: self.spots.clone(),
+            grey: self.grey,
         }
     }
 
@@ -352,7 +380,8 @@ impl Conversion {
             resources,
             Reading::new(intent.as_ref())
                 .within_cmyk_group(cmyk_group.as_ref())
-                .under_separations(self.separations),
+                .under_separations(self.separations)
+                .under_grey(self.grey),
         )
     }
 
@@ -536,6 +565,10 @@ mod context_tests {
             },
             ConversionContext {
                 spots: &spots,
+                ..context
+            },
+            ConversionContext {
+                grey: GreyReading::IntentBlack,
                 ..context
             },
         ];
