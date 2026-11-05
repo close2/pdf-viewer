@@ -500,11 +500,23 @@ fn only_a_bound_document_naming_the_signers_policy_is_enforced() {
         enforce(&policy(octets, &[1; 32], "1.2.3.4"), &cms, &at),
         Enforcement::NotEnforced(NotEnforced::NotBound(_))
     ));
-    // Signing the stated digest over canonicalised components is said, not enforced.
+    // Signing the stated digest over canonicalised components re-computes it, and the zero
+    // digest the fixture states is not what its components digest to.
     assert_eq!(
         enforce(&policy(octets, &[0; 32], "1.2.3.4"), &cms, &at),
-        Enforcement::NotEnforced(NotEnforced::CanonicalDigestNotComputed {
+        Enforcement::NotEnforced(NotEnforced::CanonicalDigestDiffers {
             canonicalization: "http://www.w3.org/2001/10/xml-exc-c14n#".to_owned()
+        })
+    );
+    // A method none of the three Recommendations names is said, not enforced.
+    let unnamed = String::from_utf8_lossy(octets).replace(
+        "http://www.w3.org/2001/10/xml-exc-c14n#",
+        "http://www.w3.org/TR/1999/REC-xpath-19991116",
+    );
+    assert_eq!(
+        enforce(&policy(unnamed.as_bytes(), &[0; 32], "1.2.3.4"), &cms, &at),
+        Enforcement::NotEnforced(NotEnforced::CanonicalDigestNotComputed {
+            canonicalization: "http://www.w3.org/TR/1999/REC-xpath-19991116".to_owned()
         })
     );
     assert_eq!(
@@ -657,5 +669,92 @@ fn hostile_policy_documents_are_refused_within_their_budgets() {
         assert!(Reading::parse(deep.as_bytes()).is_err());
         assert!(Reading::parse(many.as_bytes()).is_err());
         assert!(Reading::parse(declarations.as_bytes()).is_err());
+    }
+}
+
+/// TS 119 172-2 clause 4.3.2's binding under the two later Recommendations, end to end: the
+/// signer signed the value the document's `Digest` states, and the document is enforced only
+/// where its `PolicyComponents`, canonicalised by the method its `ds:CanonicalizationMethod`
+/// names, digest to it (ADR 2710).
+///
+/// **Constructed, and said so**: no TS 119 172-2 document naming either method is on this disk
+/// — the signature corpora state no machine-readable policy at all (ADR 1709) — so the document
+/// is built here and each expected form is derived by hand from the Recommendations. Every
+/// rendering rule that tells the methods apart is in it: the root declares the `ds` prefix the
+/// components never use, and carries `xml:lang` and an absolute `xml:base`, and the components
+/// carry a relative `xml:base`. Exclusive XML Canonicalization section 3 renders only the default
+/// namespace they use and copies no `xml` attribute; its section 4's `PrefixList` brings `ds` back
+/// by Canonical XML 1.0's rule; Canonical XML 1.1 section 2.4 copies `xml:lang` and joins the two
+/// `xml:base` values. Each stated digest is the SHA-256 of its form followed by [`BODY`].
+///
+/// **The plant is the matrix**: every document is also enforced under each other method's
+/// stated digest, and each of those is `CanonicalDigestDiffers` — so a canonicaliser that
+/// ignored the method, or the parameter, would bind a document to the wrong commitment and fail
+/// here.
+#[test]
+fn a_document_bound_through_exclusive_or_1_1_canonicalisation_is_enforced() {
+    const BODY: &str = concat!(
+        "<GeneralDetails><SigPolicyDetails><PolicyIdentifier>urn:oid:1.2.3.4</PolicyIdentifier>",
+        "</SigPolicyDetails></GeneralDetails><PolicyRules><PolicyRule><AugmentationRules>",
+        "<PreviousValidationRequired>true</PreviousValidationRequired><LevelId>urn:level</LevelId>",
+        "</AugmentationRules></PolicyRule></PolicyRules></PolicyComponents>",
+    );
+    const P: &str = "http://uri.etsi.org/19172/v1.1.1#";
+    const DS: &str = "http://www.w3.org/2000/09/xmldsig#";
+    let exclusive = format!(r#"<PolicyComponents xmlns="{P}" Id="c" xml:base="v1/">"#);
+    let listed = format!(r#"<PolicyComponents xmlns="{P}" xmlns:ds="{DS}" Id="c" xml:base="v1/">"#);
+    let version_11 = format!(r#"<PolicyComponents xmlns="{P}" xmlns:ds="{DS}" Id="c" "#)
+        + r#"xml:base="http://example.org/policies/v1/" xml:lang="en">"#;
+    let methods = [
+        (
+            "http://www.w3.org/2001/10/xml-exc-c14n#",
+            "",
+            exclusive,
+            "Ispncf+UbqbIvsk+tl3wLLyb9pxTuIQA47WgdMmG+rI=",
+        ),
+        (
+            "http://www.w3.org/2001/10/xml-exc-c14n#",
+            r#"<ec:InclusiveNamespaces xmlns:ec="http://www.w3.org/2001/10/xml-exc-c14n#" PrefixList="ds"/>"#,
+            listed,
+            "BDKidfatq1hOQR1ix++JVyFDe5Py4KQb+oKyOOL3u9M=",
+        ),
+        (
+            "http://www.w3.org/2006/12/xml-c14n11",
+            "",
+            version_11,
+            "x6tn5/VSijScXmKeZl0FE80IALGOkhnQeoNQ/zWNppU=",
+        ),
+    ];
+    let document = |method: &str, parameter: &str, stated: &str| {
+        format!(
+            r#"<SignaturePolicy xmlns="{P}" xmlns:ds="{DS}" xml:lang="en" xml:base="http://example.org/policies/"><Digest><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><ds:DigestValue>{stated}</ds:DigestValue><ds:CanonicalizationMethod Algorithm="{method}">{parameter}</ds:CanonicalizationMethod></Digest>
+<PolicyComponents Id='c'   xml:base="v1/">{BODY}</SignaturePolicy>"#
+        )
+    };
+    let cms = default_cms();
+    let at = facts(None);
+    for (method, parameter, form, stated) in &methods {
+        let signed = Digest::Sha256.compute(&[form.as_bytes(), BODY.as_bytes()]);
+        assert_eq!(base64(stated).as_deref(), Some(signed.as_slice()), "{form}");
+        let octets = document(method, parameter, stated);
+        let found = enforce(&policy(octets.as_bytes(), &signed, "1.2.3.4"), &cms, &at);
+        assert!(
+            matches!(found, Enforcement::Enforced { .. }),
+            "{method} {parameter}: {found:?}"
+        );
+        for (other, other_parameter, other_form, other_stated) in &methods {
+            if other_form == form {
+                continue;
+            }
+            let signed = Digest::Sha256.compute(&[other_form.as_bytes(), BODY.as_bytes()]);
+            let octets = document(method, parameter, other_stated);
+            assert_eq!(
+                enforce(&policy(octets.as_bytes(), &signed, "1.2.3.4"), &cms, &at),
+                Enforcement::NotEnforced(NotEnforced::CanonicalDigestDiffers {
+                    canonicalization: (*method).to_owned()
+                }),
+                "{method} {parameter} under {other} {other_parameter}'s digest"
+            );
+        }
     }
 }

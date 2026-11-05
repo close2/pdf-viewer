@@ -1,7 +1,11 @@
-//! W3C Canonical XML 1.0 (2001), the inclusive form, over one element of a policy document and
-//! everything inside it — the digest input ETSI TS 119 172-2 clause 4.3.2 names for a policy in
-//! its XML syntax, which is the `PolicyComponents` element of clause 4.4 under the
-//! canonicalisation method the document's own `Digest` states (ADR 2644).
+//! W3C Canonical XML over one element of a policy document and everything inside it — the
+//! digest input ETSI TS 119 172-2 clause 4.3.2 names for a policy in its XML syntax, which is the
+//! `PolicyComponents` element of clause 4.4 under the canonicalisation method the document's own
+//! `Digest` states. Three methods, each with and without comments: inclusive Canonical XML 1.0
+//! (2001, ADR 2644), Exclusive XML Canonicalization 1.0 (2002) and Canonical XML 1.1 (2008)
+//! (ADR 2710). The two later Recommendations define themselves as the first with stated changes,
+//! so one writer computes all three and differs only where they do; the rules below are 1.0's,
+//! and the two sections after them are the changes.
 //!
 //! The Recommendation is cited by section and paraphrased. Its input is the `XPath` data model a
 //! conforming XML processor builds (section 2.1), so the four normalisations it lists are made
@@ -24,6 +28,29 @@
 //!   `"`, #x9, #xA and #xD, the value always between quotation marks (section 2.3).
 //! - **Comments** are kept by the method whose URI ends `#WithComments` and dropped by the other.
 //!
+//! # Exclusive XML Canonicalization 1.0
+//!
+//! Section 3 of that Recommendation changes two things. **No `xml` attribute is copied onto the
+//! apex**: the search of the ancestors section 2.4 of 1.0 makes is omitted. **A namespace is
+//! rendered only where it is visibly utilized** (section 1.1: the element's own prefix, the
+//! prefix of one of its attributes, or the default namespace where the element has no prefix),
+//! and then only where the nearest output ancestor did not already render that prefix with that
+//! value; `xmlns=""` is rendered where an unprefixed element has no default namespace and the
+//! default last rendered above it is a namespace. The prefixes the method's optional
+//! `InclusiveNamespaces` `PrefixList` names (section 4; `#default` for the default namespace) are
+//! handled by 1.0's rules instead. The bookkeeping is section 3.1's non-normative `ns_rendered`
+//! stack, which states section 3's conditions exactly for a subset that holds each element's
+//! whole namespace axis, as this one does.
+//!
+//! # Canonical XML 1.1
+//!
+//! Section 2.4 of 1.1 replaces 1.0's copying of every `xml` attribute onto the apex: only the
+//! simple inheritable `xml:lang` and `xml:space` are copied, `xml:id` is not, every other `xml`
+//! attribute is an ordinary one, and `xml:base` is fixed up — the values the omitted ancestors
+//! carry, outermost first, and the apex's own, folded innermost first by [`base::join`] into the
+//! apex's value, which is not rendered where it comes out empty. The fix-up is made only where an
+//! ancestor carries `xml:base`.
+//!
 //! # What is refused
 //!
 //! Section 2.1's note requires a canonicaliser to fail on a relative namespace URI, so one is
@@ -39,15 +66,19 @@
 //!
 //! # Budgets, before the work
 //!
-//! The policy reader's three bounds hold here in the same places: [`MAX_POLICY_OCTETS`] before a
+//! The policy reader's three bounds hold here in the same places, for all three methods: [`MAX_POLICY_OCTETS`] before a
 //! byte is tokenized, [`der::MAX_DEPTH`] on element nesting and [`MAX_ENTRIES`] charged for every
-//! element and every namespace declaration, so the canonicaliser accepts what the reader accepts.
+//! element, every namespace declaration and every prefix of a `PrefixList`, so the canonicaliser
+//! accepts what the reader accepts.
 //! Every other cost is linear in the octets: each start tag's attributes are sorted once, a
 //! prefix is looked up in a table rather than along the stack, and the apex's inherited
-//! namespaces and `xml` attributes are gathered once. The output is not held: it is handed to
+//! namespaces and `xml` attributes are gathered once, and exclusive canonicalisation's rendered
+//! prefixes are a table of stacks like the bindings. The output is not held: it is handed to
 //! `out` a piece at a time, which is the digest's input.
 
 use std::collections::{HashMap, HashSet};
+
+pub mod base;
 
 use super::{Budget, MAX_ENTRIES, MAX_POLICY_OCTETS, PolicyDocumentError};
 use crate::der;
@@ -58,6 +89,23 @@ pub const C14N: &str = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315";
 /// Canonical XML 1.0's identifier with comments.
 pub const C14N_WITH_COMMENTS: &str = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315#WithComments";
 
+/// Canonical XML 1.1's identifier without comments, as XML Signature 1.1 section 6.5.2 names it.
+pub const C14N_11: &str = "http://www.w3.org/2006/12/xml-c14n11";
+
+/// Canonical XML 1.1's identifier with comments.
+pub const C14N_11_WITH_COMMENTS: &str = "http://www.w3.org/2006/12/xml-c14n11#WithComments";
+
+/// Exclusive XML Canonicalization 1.0's identifier without comments, as its section 4 and XML
+/// Signature 1.1 section 6.5.3 name it.
+pub const EXC_C14N: &str = "http://www.w3.org/2001/10/xml-exc-c14n#";
+
+/// Exclusive XML Canonicalization 1.0's identifier with comments.
+pub const EXC_C14N_WITH_COMMENTS: &str = "http://www.w3.org/2001/10/xml-exc-c14n#WithComments";
+
+/// The namespace of exclusive canonicalisation's `InclusiveNamespaces` parameter element, which
+/// is the method's own identifier (its section 4).
+pub const EXC_C14N_NAMESPACE: &str = EXC_C14N;
+
 /// The namespace the `xml` prefix is bound to by definition (XML Namespaces 1.0 section 3).
 const XML_NAMESPACE: &str = "http://www.w3.org/XML/1998/namespace";
 
@@ -65,22 +113,65 @@ const XML_NAMESPACE: &str = "http://www.w3.org/XML/1998/namespace";
 /// algorithm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Comments {
-    /// [`C14N`].
+    /// The method's identifier without `#WithComments`.
     Omitted,
-    /// [`C14N_WITH_COMMENTS`].
+    /// The method's identifier with `#WithComments`.
     Kept,
 }
 
-impl Comments {
-    /// The form a `CanonicalizationMethod`'s algorithm URI names, where it names inclusive
-    /// Canonical XML 1.0; `None` for any other method, Exclusive Canonical XML and Canonical XML
-    /// 1.1 among them.
+/// Which of the three Recommendations the form is computed by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Algorithm {
+    /// Inclusive Canonical XML 1.0: [`C14N`] and [`C14N_WITH_COMMENTS`].
+    Canonical10,
+    /// Exclusive XML Canonicalization 1.0: [`EXC_C14N`] and [`EXC_C14N_WITH_COMMENTS`].
+    Exclusive10,
+    /// Canonical XML 1.1: [`C14N_11`] and [`C14N_11_WITH_COMMENTS`].
+    Canonical11,
+}
+
+/// A canonicalisation method with its parameters, as a `CanonicalizationMethod` element states it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Method<'a> {
+    /// The Recommendation.
+    pub algorithm: Algorithm,
+    /// Whether comments are rendered.
+    pub comments: Comments,
+    /// Exclusive canonicalisation's `InclusiveNamespaces` `PrefixList`, white-space separated,
+    /// `#default` naming the default namespace; ignored by the other two, which take no such
+    /// parameter.
+    pub prefix_list: Option<&'a str>,
+}
+
+impl<'a> Method<'a> {
+    /// The method a `CanonicalizationMethod`'s algorithm URI names, with the `PrefixList` its
+    /// `InclusiveNamespaces` child states, if any; `None` for a URI none of the three
+    /// Recommendations names.
     #[must_use]
-    pub fn of(method: &str) -> Option<Self> {
-        match method {
-            C14N => Some(Self::Omitted),
-            C14N_WITH_COMMENTS => Some(Self::Kept),
-            _ => None,
+    pub fn of(uri: &str, prefix_list: Option<&'a str>) -> Option<Self> {
+        let (algorithm, comments) = match uri {
+            C14N => (Algorithm::Canonical10, Comments::Omitted),
+            C14N_WITH_COMMENTS => (Algorithm::Canonical10, Comments::Kept),
+            EXC_C14N => (Algorithm::Exclusive10, Comments::Omitted),
+            EXC_C14N_WITH_COMMENTS => (Algorithm::Exclusive10, Comments::Kept),
+            C14N_11 => (Algorithm::Canonical11, Comments::Omitted),
+            C14N_11_WITH_COMMENTS => (Algorithm::Canonical11, Comments::Kept),
+            _ => return None,
+        };
+        Some(Self {
+            algorithm,
+            comments,
+            prefix_list,
+        })
+    }
+
+    /// The method with no parameter beyond its comments.
+    #[must_use]
+    pub const fn plain(algorithm: Algorithm, comments: Comments) -> Self {
+        Self {
+            algorithm,
+            comments,
+            prefix_list: None,
         }
     }
 }
@@ -104,6 +195,9 @@ struct Open {
     declared: Vec<String>,
     /// Its attributes in the `xml` namespace, by local name, kept only outside the subset.
     xml_attributes: Vec<(String, String)>,
+    /// The prefixes exclusive canonicalisation rendered on it under its own rules, to unrender
+    /// as it closes.
+    rendered: Vec<String>,
 }
 
 /// An attribute of the start tag being read, its value normalised.
@@ -124,7 +218,7 @@ struct Attribute {
 pub fn canonicalize(
     octets: &[u8],
     apex: &Apex<'_>,
-    comments: Comments,
+    method: &Method<'_>,
     out: &mut dyn FnMut(&[u8]),
 ) -> Result<(), PolicyDocumentError> {
     if octets.len() > MAX_POLICY_OCTETS {
@@ -134,15 +228,30 @@ pub fn canonicalize(
     }
     let body = octets.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(octets);
     let text = std::str::from_utf8(body).map_err(|_| refused("the document is not UTF-8"))?;
+    let mut budget = Budget(MAX_ENTRIES);
+    let mut inclusive = HashSet::new();
+    if method.algorithm == Algorithm::Exclusive10 {
+        for prefix in method
+            .prefix_list
+            .unwrap_or_default()
+            .split_ascii_whitespace()
+        {
+            budget.take()?;
+            inclusive.insert(if prefix == "#default" { "" } else { prefix }.to_owned());
+        }
+    }
     let mut writer = Writer {
-        budget: Budget(MAX_ENTRIES),
+        budget,
         open: Vec::new(),
         bindings: HashMap::new(),
         pending: Vec::new(),
         declarations: Vec::new(),
         subset: None,
         found: false,
-        comments,
+        algorithm: method.algorithm,
+        comments: method.comments,
+        inclusive,
+        rendered: HashMap::new(),
         out,
     };
     for token in xmlparser::Tokenizer::from(text) {
@@ -178,7 +287,14 @@ struct Writer<'o> {
     /// How many elements were open when the apex's start tag was, while it is open.
     subset: Option<usize>,
     found: bool,
+    algorithm: Algorithm,
     comments: Comments,
+    /// The prefixes exclusive canonicalisation handles by Canonical XML 1.0's rules: its
+    /// `PrefixList`, the default namespace as the empty prefix.
+    inclusive: HashSet<String>,
+    /// Exclusive canonicalisation's section 3.1 `ns_rendered`: per prefix, the URIs output
+    /// ancestors rendered, innermost last, an empty URI being `xmlns=""`.
+    rendered: HashMap<String, Vec<String>>,
     out: &'o mut dyn FnMut(&[u8]),
 }
 
@@ -224,6 +340,7 @@ impl Writer<'_> {
                     qname,
                     declared: Vec::new(),
                     xml_attributes: Vec::new(),
+                    rendered: Vec::new(),
                 });
                 self.pending.clear();
                 self.declarations.clear();
@@ -420,8 +537,73 @@ impl Writer<'_> {
                 })
                 .collect()
         };
+        let namespaces = if self.algorithm == Algorithm::Exclusive10 {
+            self.exclusive(prefix, &resolved, namespaces)
+        } else {
+            namespaces
+        };
         self.render(&qname, namespaces, resolved, entering);
         Ok(())
+    }
+
+    /// Exclusive XML Canonicalization 1.0 section 3's namespace axis: of `inclusive`, the
+    /// declarations Canonical XML 1.0 would render, those the `PrefixList` names; and every other
+    /// prefix the element visibly utilizes, where the nearest output ancestor that rendered it
+    /// rendered another value or none. Each of the second kind is pushed onto section 3.1's
+    /// `ns_rendered`, to be popped as the element closes.
+    fn exclusive(
+        &mut self,
+        prefix: &str,
+        resolved: &[(String, Attribute)],
+        inclusive: Vec<(String, String)>,
+    ) -> Vec<(String, String)> {
+        let mut namespaces: Vec<(String, String)> = inclusive
+            .into_iter()
+            .filter(|(listed, _)| self.inclusive.contains(listed))
+            .collect();
+        // Section 1.1: the element's own prefix, the default namespace where it has none, and
+        // the prefix of each attribute; an unprefixed attribute utilizes no namespace.
+        let mut utilized: Vec<&str> = resolved
+            .iter()
+            .map(|(_, attribute)| attribute.prefix.as_str())
+            .filter(|used| !used.is_empty())
+            .collect();
+        utilized.push(prefix);
+        utilized.sort_unstable();
+        utilized.dedup();
+        let mut rendered = Vec::new();
+        for used in utilized {
+            if used == "xml" || self.inclusive.contains(used) {
+                continue;
+            }
+            let value = self.bound(used).unwrap_or_default();
+            let last = self
+                .rendered
+                .get(used)
+                .and_then(|uris| uris.last())
+                .map(String::as_str);
+            // `xmlns=""` only below a rendered default namespace; any other value where the
+            // nearest rendering of the prefix differs from it.
+            let render = if value.is_empty() {
+                last.is_some_and(|uri| !uri.is_empty())
+            } else {
+                last != Some(value)
+            };
+            if render {
+                rendered.push((used.to_owned(), value.to_owned()));
+            }
+        }
+        for (used, value) in &rendered {
+            self.rendered
+                .entry(used.clone())
+                .or_default()
+                .push(value.clone());
+        }
+        if let Some(element) = self.open.last_mut() {
+            element.rendered = rendered.iter().map(|(used, _)| used.clone()).collect();
+        }
+        namespaces.extend(rendered);
+        namespaces
     }
 
     /// A start tag's attributes with their namespace URIs, in section 2.2's order; one expanded
@@ -462,6 +644,10 @@ impl Writer<'_> {
         apex: bool,
     ) {
         namespaces.sort();
+        let mut resolved = resolved;
+        if apex && self.algorithm == Algorithm::Canonical11 {
+            self.fix_up_base(&mut resolved);
+        }
         let mut attributes: Vec<(String, String, String)> = resolved
             .into_iter()
             .map(|(uri, attribute)| {
@@ -481,7 +667,12 @@ impl Writer<'_> {
                 .map(|(_, local, _)| local.clone())
                 .collect();
             for (local, value) in self.inherited_xml_attributes() {
-                if !own.contains(&local) {
+                let inherited = match self.algorithm {
+                    Algorithm::Canonical10 => true,
+                    Algorithm::Exclusive10 => false,
+                    Algorithm::Canonical11 => matches!(local.as_str(), "lang" | "space"),
+                };
+                if inherited && !own.contains(&local) {
                     let rendered = format!("xml:{local}=\"{}\"", escaped_attribute(&value));
                     attributes.push((XML_NAMESPACE.to_owned(), local, rendered));
                 }
@@ -521,6 +712,56 @@ impl Writer<'_> {
             .collect()
     }
 
+    /// Canonical XML 1.1 section 2.4's `xml:base` fix-up on the apex: where an ancestor carries
+    /// `xml:base`, every ancestor's value outermost first and the apex's own last are folded
+    /// innermost first by [`base::join`], and the result replaces the apex's own, or is left out
+    /// where it is empty, which the section says is not rendered.
+    fn fix_up_base(&self, resolved: &mut Vec<(String, Attribute)>) {
+        let ancestors = self.open.len().saturating_sub(1);
+        let omitted: Vec<&str> = self
+            .open
+            .iter()
+            .take(ancestors)
+            .filter_map(|element| {
+                element
+                    .xml_attributes
+                    .iter()
+                    .find(|(local, _)| local == "base")
+                    .map(|(_, value)| value.as_str())
+            })
+            .collect();
+        if omitted.is_empty() {
+            return;
+        }
+        let own = resolved
+            .iter()
+            .position(|(uri, attribute)| uri == XML_NAMESPACE && attribute.local == "base");
+        let mut values = omitted.into_iter().rev();
+        let mut value = match own {
+            Some(at) => resolved
+                .get(at)
+                .map(|(_, a)| a.value.clone())
+                .unwrap_or_default(),
+            None => values.next().unwrap_or_default().to_owned(),
+        };
+        for outer in values {
+            value = base::join(outer, &value);
+        }
+        if let Some(at) = own {
+            resolved.remove(at);
+        }
+        if !value.is_empty() {
+            resolved.push((
+                XML_NAMESPACE.to_owned(),
+                Attribute {
+                    prefix: "xml".to_owned(),
+                    local: "base".to_owned(),
+                    value,
+                },
+            ));
+        }
+    }
+
     /// Section 2.4's attributes for the apex: the nearest of each `xml` attribute an ancestor
     /// carries, the innermost first.
     fn inherited_xml_attributes(&self) -> Vec<(String, String)> {
@@ -551,6 +792,11 @@ impl Writer<'_> {
         }
         for prefix in &element.declared {
             if let Some(uris) = self.bindings.get_mut(prefix) {
+                uris.pop();
+            }
+        }
+        for prefix in &element.rendered {
+            if let Some(uris) = self.rendered.get_mut(prefix) {
                 uris.pop();
             }
         }

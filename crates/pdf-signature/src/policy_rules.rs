@@ -971,9 +971,9 @@ pub enum NotEnforced {
     /// The stored copy is bound but its constraints could not be read.
     Unreadable(PolicyDocumentError),
     /// The signer signed the digest a TS 119 172-2 document states over its canonicalised
-    /// components, under a canonicalisation method other than the inclusive Canonical XML 1.0
-    /// [`canonical_xml`] computes, so the binding is unchecked rather than refused (ADRs 2604,
-    /// 2644).
+    /// components, under a canonicalisation method none of the three Recommendations
+    /// [`canonical_xml`] computes names, so the binding is unchecked rather than refused (ADRs
+    /// 2604, 2644, 2710).
     CanonicalDigestNotComputed {
         /// The canonicalisation method the document names.
         canonicalization: String,
@@ -1160,7 +1160,7 @@ fn enforce_xml(
         if document.digest_value != *value {
             return Enforcement::NotEnforced(why);
         }
-        if let Err(refusal) = canonical_binding(octets, document.canonicalization, *digest, value) {
+        if let Err(refusal) = canonical_binding(octets, document, *digest, value) {
             return Enforcement::NotEnforced(refusal);
         }
     }
@@ -1188,11 +1188,12 @@ fn enforce_xml(
 /// the document states can choose what it is checked under (ADR 2644).
 fn canonical_binding(
     octets: &[u8],
-    canonicalization: &str,
+    document: &ts_119_172_2::PolicyDocument<'_>,
     digest: Digest,
     signed: &[u8],
 ) -> Result<(), NotEnforced> {
-    let Some(comments) = canonical_xml::Comments::of(canonicalization) else {
+    let canonicalization = document.canonicalization;
+    let Some(method) = canonical_xml::Method::of(canonicalization, document.prefix_list) else {
         return Err(NotEnforced::CanonicalDigestNotComputed {
             canonicalization: canonicalization.to_owned(),
         });
@@ -1203,7 +1204,7 @@ fn canonical_binding(
         local: "PolicyComponents",
     };
     let mut hasher = digest.hasher();
-    canonical_xml::canonicalize(octets, &apex, comments, &mut |piece| hasher.update(piece))
+    canonical_xml::canonicalize(octets, &apex, &method, &mut |piece| hasher.update(piece))
         .map_err(NotEnforced::Unreadable)?;
     if hasher.finish() == signed {
         Ok(())

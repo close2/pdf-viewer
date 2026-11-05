@@ -44,8 +44,12 @@ reading in one line per row, and the note is where it is argued. The membership 
   and title a centre they cannot give. The deliberate menu and placement departures remain (ADRs
   1145, 1429).
 - **§12.8.3.4.4** — a stored policy in ETSI TR 102 272's or TS 119 172-3's ASN.1 syntax, or in TS
-  119 172-2's XML, is enforced once bound (ADRs 2560, 2580, 2604); human-readable policies, a copy
-  fetched at the URL, and an XML policy bound only through its canonicalised `Digest` are not. The network is not what is missing (ADR 1291).
+  119 172-2's XML, is enforced once bound (ADRs 2560, 2580, 2604), through its own canonicalised
+  `Digest` under any of the three W3C methods (ADRs 2644, 2710), and a window's fetched copy as a
+  stored one is (ADR 2624); human-readable policies are a limit, and a C caller's fetched copy and
+  the constraints resting on the certification path — trust conditions against the
+  policy's own trust points, certificate-issuer algorithms, full-path requirements — are owed
+  (ADR 2711). The network is not what is missing (ADR 1291).
 
 §12.1 states no requirement and is `implemented` (ADR 1573).
 

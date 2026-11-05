@@ -252,7 +252,7 @@ fn a_fetched_policy_copy_is_enforced_as_a_stored_one_is_and_a_changed_one_is_not
 fn an_xml_policy_bound_by_its_canonical_digest_is_enforced_and_a_changed_one_is_not() {
     use crate::cms::Digest;
     use crate::policy::{PolicyHash, SignaturePolicy, Specification, Store};
-    use crate::policy_rules::canonical_xml::{Apex, Comments, canonicalize};
+    use crate::policy_rules::canonical_xml::{Algorithm, Apex, Comments, Method, canonicalize};
     use crate::policy_rules::ts_119_172_2::NAMESPACE;
     use crate::policy_rules::{
         Enforcement, NotEnforced, SignerFacts, SigningTime, Syntax, TimeSource, enforce,
@@ -310,7 +310,8 @@ fn an_xml_policy_bound_by_its_canonical_digest_is_enforced_and_a_changed_one_is_
         namespaces: &NAMESPACE,
         local: "PolicyComponents",
     };
-    canonicalize(stored.as_bytes(), &apex, Comments::Omitted, &mut |piece| {
+    let method = Method::plain(Algorithm::Canonical10, Comments::Omitted);
+    canonicalize(stored.as_bytes(), &apex, &method, &mut |piece| {
         canonical.extend_from_slice(piece);
     })
     .expect("the stored document canonicalises");

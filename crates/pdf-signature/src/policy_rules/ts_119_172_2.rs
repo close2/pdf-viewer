@@ -25,12 +25,12 @@
 //! Clause 4.3's `Digest` is computed over the *canonicalised* `PolicyComponents` element, under
 //! the canonicalisation method it names. A document is enforced where its octets digest to the
 //! value the signer signed, or where the signer signed the stated `Digest` and the components,
-//! canonicalised by [`super::canonical_xml`] under inclusive Canonical XML 1.0 with or without
-//! comments, digest to it; components that do not are
-//! [`super::NotEnforced::CanonicalDigestDiffers`], and a method other than those two — Exclusive
-//! Canonical XML and Canonical XML 1.1 among them — is said by name
-//! ([`super::NotEnforced::CanonicalDigestNotComputed`]) rather than enforced on an unchecked
-//! commitment (ADRs 2604, 2644).
+//! canonicalised by [`super::canonical_xml`] under the method named — inclusive Canonical XML 1.0,
+//! Exclusive XML Canonicalization 1.0 with the `PrefixList` its `InclusiveNamespaces` element
+//! states, or Canonical XML 1.1, each with or without comments — digest to it; components that do
+//! not are [`super::NotEnforced::CanonicalDigestDiffers`], and a method none of those three
+//! Recommendations names is said by name ([`super::NotEnforced::CanonicalDigestNotComputed`])
+//! rather than enforced on an unchecked commitment (ADRs 2604, 2644, 2710).
 //!
 //! # Budgets, before the work
 //!
@@ -53,7 +53,7 @@ use super::ts_119_172_3::{
 };
 use super::{
     Budget, CertificateInfo, Finding, MAX_ENTRIES, MAX_POLICY_OCTETS, PolicyDocumentError,
-    SignerFacts, Stated, Syntax, Verdict, signing_period,
+    SignerFacts, Stated, Syntax, Verdict, canonical_xml, signing_period,
 };
 use crate::cms::SignedData;
 use crate::der;
@@ -206,6 +206,10 @@ pub struct PolicyDocument<'a> {
     pub digest_value: Vec<u8>,
     /// Clause 4.3's `ds:CanonicalizationMethod` algorithm URI.
     pub canonicalization: &'a str,
+    /// The `PrefixList` of an `ec:InclusiveNamespaces` element inside that
+    /// `ds:CanonicalizationMethod`: Exclusive XML Canonicalization 1.0 section 4's one parameter,
+    /// which the XML Signature schema's open content admits there.
+    pub prefix_list: Option<&'a str>,
     /// Clause 4.6's `PolicyIdentifier`.
     pub identifier: &'a str,
     /// Clause 4.13's `SigningPeriod`: `NotBefore` and `NotAfter`.
@@ -697,6 +701,7 @@ impl<'t> Reader<'t> {
                 .ok_or(malformed(member))
         };
         let digest_method = algorithm(self, method, "Digest.DigestMethod")?;
+        let prefix_list = self.prefix_list(canonicalization)?;
         let canonicalization = algorithm(self, canonicalization, "Digest.CanonicalizationMethod")?;
         let digest_value =
             base64(&self.element(value)?.text).ok_or(malformed("Digest.DigestValue"))?;
@@ -736,6 +741,7 @@ impl<'t> Reader<'t> {
             digest_method,
             digest_value,
             canonicalization,
+            prefix_list,
             identifier,
             signing_period,
             other_details,
@@ -744,6 +750,29 @@ impl<'t> Reader<'t> {
     }
 
     /// Clause 4.14.2's `PolicyRule`: one rule of the choice, and its recommended scopes.
+    /// The `PrefixList` of the first `InclusiveNamespaces` child of `method` in Exclusive XML
+    /// Canonicalization 1.0's namespace, which its section 4 makes the parameter's element.
+    fn prefix_list(&self, method: usize) -> Result<Option<&'t str>, PolicyDocumentError> {
+        let tree = self.tree;
+        let expanded = format!(
+            "{{{}}}InclusiveNamespaces",
+            canonical_xml::EXC_C14N_NAMESPACE
+        );
+        Ok(self
+            .element(method)?
+            .children
+            .iter()
+            .filter_map(|&child| tree.elements.get(child))
+            .find(|element| element.expanded == expanded)
+            .and_then(|element| {
+                element
+                    .attributes
+                    .iter()
+                    .find(|(name, _)| name == "PrefixList")
+                    .map(|(_, list)| list.as_str())
+            }))
+    }
+
     fn scoped_rule(&mut self, index: usize) -> Result<ScopedRule<'t>, PolicyDocumentError> {
         let element = self.element(index)?;
         let scope = match element
