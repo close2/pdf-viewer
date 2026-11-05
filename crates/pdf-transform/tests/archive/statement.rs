@@ -795,7 +795,7 @@ fn each_halftone_entry_the_profile_takes_is_stated_and_reads_back_against_the_so
         );
     }
     let written = String::from_utf8_lossy(&output);
-    assert!(!written.contains("HalftoneName") && !written.contains("/HTO"));
+    assert!(!outside_the_packet(&output).contains("HalftoneName") && !written.contains("/HTO"));
 }
 
 #[test]

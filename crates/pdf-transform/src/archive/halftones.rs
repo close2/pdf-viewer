@@ -51,6 +51,7 @@
 //! [`super::Loss::Halftone`] again.
 
 use std::collections::BTreeSet;
+use std::fmt::Write as _;
 
 use pdf_archive::Outcome;
 use pdf_syntax::Document;
@@ -107,6 +108,89 @@ pub(super) fn removal(document: &Document, input: &pdf_archive::Report) -> Resul
         at,
         ..Sites::default()
     })
+}
+
+/// How many halftones the history entry names before it counts the rest.
+const MOST_NAMED: usize = 20;
+
+/// The longest name the history entry writes out; a longer one is cut and says so.
+const LONGEST_NAME: usize = 64;
+
+/// The `xmpMM:History` parameters recording each halftone whose `HalftoneName` [`removal`] takes
+/// out, with the name it stated: `None` where it takes out none.
+///
+/// The name is the producer's instruction to a press holding a halftone of that name (§10.6.5.1),
+/// so the file keeps what it said after the key goes (`doc/adr/2693`), as `doc/adr/2498` keeps the
+/// images whose smoothing was turned off.
+pub(super) fn name_history(document: &Document, input: &pdf_archive::Report) -> Option<String> {
+    let sites = removal(document, input).ok()?;
+    let citation = input
+        .failures()
+        .find(|judgement| judgement.id == SITE)
+        .map_or("", |judgement| judgement.citation.as_str());
+    let mut out = format!(
+        "{citation}: {} halftone(s) had /HalftoneName removed, every parameter they define kept; \
+         loss {}",
+        sites.at.len(),
+        super::Loss::HalftoneName.word()
+    );
+    for (index, id) in sites.at.iter().take(MOST_NAMED).enumerate() {
+        let lead = if index == 0 {
+            ": halftone"
+        } else {
+            ", halftone"
+        };
+        let object = document.get(*id);
+        let halftone = match &object {
+            Object::Dictionary(dict) => Some(dict),
+            Object::Stream(stream) => Some(&stream.dict),
+            _ => None,
+        };
+        let named = halftone
+            .and_then(|halftone| halftone.get("HalftoneName"))
+            .map(written_name)
+            .unwrap_or_default();
+        let _ = write!(
+            out,
+            "{lead} {} {} R named {named}",
+            id.number, id.generation
+        );
+    }
+    if sites.at.len() > MOST_NAMED {
+        let _ = write!(
+            out,
+            ", and {} more",
+            sites.at.len().saturating_sub(MOST_NAMED)
+        );
+    }
+    Some(out)
+}
+
+/// A halftone's name as the history writes it: a string of printable ASCII in parentheses, a name
+/// object as a name, anything else as hexadecimal — the packet is XML, which admits no control
+/// character, and the bytes are the producer's.
+fn written_name(name: &Object) -> String {
+    if let Some(name) = name.as_name() {
+        return name.to_string();
+    }
+    let Some(bytes) = name.as_string() else {
+        return "(a value that is neither a string nor a name)".to_owned();
+    };
+    let shown = &bytes[..bytes.len().min(LONGEST_NAME)];
+    let mut out = if shown.iter().all(|byte| (0x20..0x7f).contains(byte)) {
+        format!("({})", String::from_utf8_lossy(shown))
+    } else {
+        let mut hex = String::from("<");
+        for byte in shown {
+            let _ = write!(hex, "{byte:02X}");
+        }
+        hex.push('>');
+        hex
+    };
+    if bytes.len() > LONGEST_NAME {
+        out.push_str(" (cut)");
+    }
+    out
 }
 
 /// The requirement [`defaults`] answers.

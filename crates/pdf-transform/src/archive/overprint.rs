@@ -43,6 +43,7 @@
 //! dictionary rather than as an object, since this conversion rewrites objects.
 
 use std::collections::BTreeSet;
+use std::fmt::Write as _;
 
 use pdf_archive::survey::Survey;
 use pdf_syntax::Document;
@@ -122,4 +123,68 @@ pub(super) fn zeroing(document: &Document, survey: &Survey) -> Result<OverprintM
         out.process_pages.insert(mark.page);
     }
     Ok(out)
+}
+
+/// The requirement [`zeroing`] answers, by the identifier the validator reports it under.
+const SITE: &str = "graphics/no-overprint-mode-one-under-icc-cmyk";
+
+/// How many graphics states and pages the history entry names before it counts the rest.
+const MOST_NAMED: usize = 20;
+
+/// The `xmpMM:History` parameters recording the loss [`super::Loss::OverprintMode`]: the graphics
+/// states whose mode 1 is written 0 and the pages on which a `DeviceCMYK` mark they governed was
+/// painted with overprinting on. `None` where the zeroing costs nothing, or is not taken.
+///
+/// The mode is the producer's instruction to a CMYK device (§8.6.7), so the file keeps where it
+/// was stated after it goes (`doc/adr/2693`), as `doc/adr/2498` keeps the images whose smoothing
+/// was turned off. A restatement that moves nothing records nothing.
+pub(super) fn zeroed_history(
+    document: &Document,
+    survey: &Survey,
+    input: &pdf_archive::Report,
+) -> Option<String> {
+    let modes = zeroing(document, survey).ok()?;
+    if modes.costs_nothing() {
+        return None;
+    }
+    let citation = input
+        .failures()
+        .find(|judgement| judgement.id == SITE)
+        .map_or("", |judgement| judgement.citation.as_str());
+    let mut out = format!(
+        "{citation}: {} graphics state(s) had /OPM 1 written 0, and the DeviceCMYK marks they \
+         governed with overprinting on paint their zero components; loss {}",
+        modes.at.len(),
+        super::Loss::OverprintMode.word()
+    );
+    for (index, id) in modes.at.iter().take(MOST_NAMED).enumerate() {
+        let lead = if index == 0 {
+            ": graphics state"
+        } else {
+            ", graphics state"
+        };
+        let _ = write!(out, "{lead} {} {} R", id.number, id.generation);
+    }
+    if modes.at.len() > MOST_NAMED {
+        let _ = write!(
+            out,
+            ", and {} more",
+            modes.at.len().saturating_sub(MOST_NAMED)
+        );
+    }
+    let pages: Vec<String> = modes
+        .process_pages
+        .iter()
+        .take(MOST_NAMED)
+        .map(|page| page.saturating_add(1).to_string())
+        .collect();
+    let _ = write!(out, "; on page(s) {}", pages.join(", "));
+    if modes.process_pages.len() > MOST_NAMED {
+        let _ = write!(
+            out,
+            ", and {} more",
+            modes.process_pages.len().saturating_sub(MOST_NAMED)
+        );
+    }
+    Some(out)
 }

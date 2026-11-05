@@ -135,6 +135,12 @@ const NO_PLACE_TO_RECORD_SMOOTHING: &str = "turning an image's smoothing off wri
      it reached into this file's own xmpMM:History, and this document's XMP packet will not take \
      that entry — so the images stay as they are and no file is written (doc/adr/2498)";
 
+/// Why a press statement was not taken out even though its loss was authorised.
+const NO_PLACE_TO_RECORD_A_PRESS: &str = "taking a halftone's name, or an overprint mode a \
+     DeviceCMYK mark was painted under, out of the file writes where each was stated into this \
+     file's own xmpMM:History, and this document's XMP packet will not take that entry - so the \
+     statement stays and no file is written (doc/adr/2693)";
+
 /// Why a run was not written as the number this reader draws even though the loss was authorised.
 const NO_PLACE_TO_RECORD_A_RUN: &str = "writing a run as the number this reader draws names \
      each run in this file's own xmpMM:History, and this document's XMP packet will not take that \
@@ -357,6 +363,12 @@ pub(super) struct Prepared {
     /// Whether the file's history can say that images were set to `/Interpolate false`
     /// (`doc/adr/2498`).
     pub(super) smoothing_recorded: Result<(), Because>,
+    /// Whether the file's history can name each halftone whose `HalftoneName` goes
+    /// (`doc/adr/2693`).
+    pub(super) halftone_names_recorded: Result<(), Because>,
+    /// Whether the file's history can name each graphics state whose overprint mode 1 goes where
+    /// that is the loss `overprint-mode` (`doc/adr/2693`).
+    pub(super) overprint_modes_recorded: Result<(), Because>,
     /// Whether the file's history can name each run written as the number this reader draws
     /// (`doc/adr/2638`).
     pub(super) as_drawn_recorded: Result<(), Because>,
@@ -1186,6 +1198,19 @@ impl Prepared {
         let smoothing_history = wanted(Rewrite::InterpolationOff)
             .then(|| super::smoothing::history(input))
             .flatten();
+        // The two press statements the archive cannot carry, a halftone's name and overprint mode
+        // 1 over the DeviceCMYK marks it governed, are named in the same history with where each
+        // was stated, a condition of the rewrite as smoothing's entry is of its own
+        // (`doc/adr/2693`).
+        let halftone_name_history = wanted(Rewrite::HalftoneNameRemoved)
+            .then(|| super::halftones::name_history(document, input))
+            .flatten();
+        // The table answers the overprint site with the restatement and the decision turns it into
+        // the loss where a DeviceCMYK mark was governed, so the site is asked for by the first.
+        let overprint_mode_history = survey
+            .as_ref()
+            .filter(|_| wanted(Rewrite::OverprintModeRestated))
+            .and_then(|survey| super::overprint::zeroed_history(document, survey, input));
         // Each run written as a number is named in the same history, a condition of the rewrite
         // as smoothing's entry is of its own (`doc/adr/2638`).
         let as_drawn_history = as_drawn.as_ref().ok().map(|drawn| {
@@ -1322,6 +1347,8 @@ impl Prepared {
                 attached: attached_history.as_deref(),
                 transfers: transfer_history.as_deref(),
                 smoothing: smoothing_history.as_deref(),
+                halftone_names: halftone_name_history.as_deref(),
+                overprint_modes: overprint_mode_history.as_deref(),
                 as_drawn: as_drawn_history.as_deref(),
                 undecodable: undecodable_history.as_deref(),
                 header: header_history.as_deref(),
@@ -1435,6 +1462,12 @@ impl Prepared {
             Some(_) if !recorded_it => Err(Because::NotBuiltYet(NO_PLACE_TO_RECORD_SMOOTHING)),
             _ => Ok(()),
         };
+        let press_recorded = |history: Option<&String>| match history {
+            Some(_) if !recorded_it => Err(Because::NotBuiltYet(NO_PLACE_TO_RECORD_A_PRESS)),
+            _ => Ok(()),
+        };
+        let halftone_names_recorded = press_recorded(halftone_name_history.as_ref());
+        let overprint_modes_recorded = press_recorded(overprint_mode_history.as_ref());
         let as_drawn_recorded = match as_drawn_history {
             Some(_) if !recorded_it => Err(Because::NotBuiltYet(NO_PLACE_TO_RECORD_A_RUN)),
             _ => Ok(()),
@@ -1560,6 +1593,8 @@ impl Prepared {
             signatures: signatures_if_rewritten(document, source, input),
             owed: Owed::of(plan, document, input, &mut spare, &failed, already),
             smoothing_recorded,
+            halftone_names_recorded,
+            overprint_modes_recorded,
             as_drawn_recorded,
             header_recorded,
             hexadecimal,
@@ -1655,16 +1690,27 @@ impl Prepared {
             Rewrite::FilterNamesSpelledOut | Rewrite::UndecodableStreamRemoved => {
                 self.owed.filter_names.as_ref().err().copied()
             }
-            Rewrite::HalftoneNameRemoved => self.owed.halftone_names.as_ref().err().copied(),
+            Rewrite::HalftoneNameRemoved => self
+                .owed
+                .halftone_names
+                .as_ref()
+                .err()
+                .copied()
+                .or_else(|| self.halftone_names_recorded.as_ref().err().copied()),
             Rewrite::HalftoneWrittenDefault => self.owed.halftone_defaults.as_ref().err().copied(),
             Rewrite::HalftonePhaseRemoved => self.owed.halftone_phases.as_ref().err().copied(),
             Rewrite::HalftoneOriginRemoved => self.owed.halftone_origins.as_ref().err().copied(),
             Rewrite::DestinationProfileReferenceRemoved => {
                 self.owed.profile_references.as_ref().err().copied()
             }
-            Rewrite::OverprintModeRestated | Rewrite::OverprintModeZeroed => {
-                self.owed.overprint_modes.as_ref().err().copied()
-            }
+            Rewrite::OverprintModeRestated => self.owed.overprint_modes.as_ref().err().copied(),
+            Rewrite::OverprintModeZeroed => self
+                .owed
+                .overprint_modes
+                .as_ref()
+                .err()
+                .copied()
+                .or_else(|| self.overprint_modes_recorded.as_ref().err().copied()),
             Rewrite::IdentityTransferFunctionRemoved | Rewrite::TransferFunctionRemoved => {
                 self.owed.transfers.as_ref().err().copied()
             }

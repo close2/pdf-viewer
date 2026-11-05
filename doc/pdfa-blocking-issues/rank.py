@@ -146,7 +146,7 @@ STATUS = {
     "R14-appended-page-composition": ("builds only", "built: ADRs 2678, 2682"),
     "R15-embedded-files": ("builds only", "built: ADR 2536"),
     "R16-annotations-and-forms": ("builds only", "named per site"),
-    "R17-press-statements": ("builds only", "decided by ADR 2490, unbuilt"),
+    "R17-press-statements": ("built", "ADR 2693: `as-if-printed` takes both discards `as-shown` takes, each named in the file's history"),
     "R18-piece-info": ("builds only", "unbuilt"),
     "X1-dynamic-xfa": ("exception", "CLAUDE.md's exclusion; §K.1"),
     "X2-no-page-to-see": ("exception", "the reader draws no page of it"),

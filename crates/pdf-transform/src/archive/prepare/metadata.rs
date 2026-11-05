@@ -1596,6 +1596,11 @@ pub(super) struct Recording<'a> {
     pub(super) transfers: Option<&'a str>,
     /// Which images had `/Interpolate` written false, where any did (`doc/adr/2498`).
     pub(super) smoothing: Option<&'a str>,
+    /// Which halftones had their `HalftoneName` taken out, and what each was (`doc/adr/2693`).
+    pub(super) halftone_names: Option<&'a str>,
+    /// Which graphics states had overprint mode 1 written 0 where a `DeviceCMYK` mark was painted
+    /// under it (`doc/adr/2693`).
+    pub(super) overprint_modes: Option<&'a str>,
     /// Which runs were written as the number this reader draws, where any were (`doc/adr/2638`).
     pub(super) as_drawn: Option<&'a str>,
     /// Which streams no reader decodes were written absent, where any were (`doc/adr/2689`).
@@ -1723,7 +1728,7 @@ fn recorded_events<'a>(recording: &Recording<'a>) -> Vec<xmp::Event<'a>> {
         return Vec::new();
     };
     let non_empty = |text: &'a str| (!text.is_empty()).then_some(text);
-    let actions: [(&'a str, Option<&'a str>); 20] = [
+    let actions: [(&'a str, Option<&'a str>); 22] = [
         (DEFAULT_CMYK_ACTION, recording.default_cmyk),
         (REMOVED_PROPERTIES_ACTION, non_empty(recording.removals)),
         (REMOVED_PROPERTIES_ACTION, non_empty(recording.discards)),
@@ -1739,6 +1744,8 @@ fn recorded_events<'a>(recording: &Recording<'a>) -> Vec<xmp::Event<'a>> {
         (PRESERVED_ACTION, recording.attachments),
         (TRANSFER_REMOVED_ACTION, recording.transfers),
         (SMOOTHING_OFF_ACTION, recording.smoothing),
+        (SMOOTHING_OFF_ACTION, recording.halftone_names),
+        (SMOOTHING_OFF_ACTION, recording.overprint_modes),
         (SMOOTHING_OFF_ACTION, recording.as_drawn),
         (SMOOTHING_OFF_ACTION, recording.undecodable),
         (HEADER_ACTION, recording.header),

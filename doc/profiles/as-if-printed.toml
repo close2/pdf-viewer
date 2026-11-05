@@ -326,6 +326,24 @@ remedy = "discard"
 remedy = "stop"
 
 # ---------------------------------------------------------------------------------------------
+# Two press statements (R17, doc/adr/2490). A print scanned back in was screened by the printer
+# that made it, and its colours were mixed on that printer: neither is the producer's press.
+# A halftone's HalftoneName is a pointer into a press's own halftones (ISO 32000-2 10.6.5.1): it
+# goes, and the screen the dictionary defines stays (doc/adr/1965). Overprint mode 1 over
+# DeviceCMYK marks painted with overprinting on decides what a CMYK device leaves of the backdrop
+# (8.6.7), which a device whose colourants are not CMYK ignores; it is written 0 (doc/adr/1978),
+# and a mark this reader composites by the mode, inside a group blending in four components, stays
+# refused under every profile. Each is the loss as-shown takes - halftone-name, overprint-mode -
+# and the file's own xmpMM:History names where each was stated (doc/adr/2693).
+# ---------------------------------------------------------------------------------------------
+
+[site."graphics/no-halftone-name"]
+remedy = "discard"
+
+[site."graphics/no-overprint-mode-one-under-icc-cmyk"]
+remedy = "discard"
+
+# ---------------------------------------------------------------------------------------------
 # A font this viewer draws from a face of this machine's. ADR 0270 takes a machine's face of the
 # same family where the document's encoding names characters the shipped face lacks; the file
 # carries no face, ISO 32000-2 9.5's NOTE 5 leaves the face of such a font to the processor, and a
@@ -361,12 +379,11 @@ remedy = "discard"
 # What this profile deliberately leaves at `stop`, because printing WOULD have carried it:
 #
 #   graphics/no-transfer-function-in-a-graphics-state, second-transfer-function-is-default,
-#   halftone-*                     a press applies these; an archived print master is kept for it
+#   halftone-type-is-one-or-five, no-halftone-origin-in-a-graphics-state
+#                                  a press applies these; an archived print master is kept for it
 #                                  (TR above). A halftone phase HTP converts as a statement under
-#                                  every profile: no base standard defines it (doc/adr/2035)
-#   graphics/no-overprint-mode-one-under-icc-cmyk  a press composites DeviceCMYK marks by the
-#                                  mode; one whose marks are all ICCBased converts as a statement
-#                                  (doc/adr/1978)
+#                                  every profile: no base standard defines it (doc/adr/2035). A
+#                                  halftone's name is answered above (doc/adr/2693)
 #   graphics/rendering-intent-*    decides printed colour
 #   graphics/destination-profile-* the output intent is the statement of what was printed to
 #   fonts/*                        a printed page carried glyphs; every font refusal stays but

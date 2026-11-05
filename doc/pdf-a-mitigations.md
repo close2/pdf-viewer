@@ -886,7 +886,9 @@ of them also governs a `DeviceCMYK` mark painted with overprinting on it is a st
 32000-2 §8.6.7 applies a non-zero mode to an `ICCBased` mark only where §8.6.5.7's implicit
 conversion is done, a processor's choice the file cannot state, and this reader does it only on a
 page compositing in a press. Where one does, it is the loss `overprint-mode`: such a mark's zero components stop leaving
-the backdrop on a press. `as-shown` answers it `discard`, `as-if-printed` leaves it at `stop`. A
+the backdrop on a press. Both shipped profiles answer it `discard` (`as-if-printed` since ADR
+2693: a print scanned back in was mixed by the printer that made it), and the output's own
+`xmpMM:History` names each graphics state and the pages of the marks it governed. A
 CMYK mark of either kind under the mode inside a page or group blending in four components — where
 this reader's window composites by the mode — is refused by name, as is a mode set by a dictionary that is not an
 object of its own, or a content walk a bound stopped. The witness `102952.pdf` draws its 77 pages
@@ -961,7 +963,10 @@ is refused. A dictionary an `ExtGState` table names is a graphics state, and is 
 only where an `HT` or a type 5 names it too. **Part 4's `HTO`** is the same loss, removed. **Part
 2's `HTP`** is a statement (ADR 2035): neither ISO 32000-1 nor ISO 32000-2 defines it, and Annex I.3
 makes an entry the specification does not describe change nothing a processor does. `as-shown`
-answers both losses `discard` (the window does not halftone); `as-if-printed` leaves them at `stop`
+answers both losses `discard` (the window does not halftone); `as-if-printed` leaves `halftone` at
+`stop` and answers `halftone-name` `discard` (ADR 2693: a print scanned back in was screened by the
+printer that made it), and the output's own `xmpMM:History` names each halftone and the name it
+stated.
 
 - **Mitigation** — `discard`: remove the key or the halftone. Nothing this renderer draws changes,
   which is what makes the loss narrow and nameable — what changes is what a **press** does with the

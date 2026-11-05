@@ -2,7 +2,7 @@
 
 Status: **a census record**, taken at `7d6ed87f` on 2026-10-27 by session 1828 for the owner's
 `doc/questions/A681` item 1, and re-run by the commands in section 1. Section 1's census lines and
-section 2's table are session 1938's run, section 2 being `rank.py --table`'s output; the figures in
+section 2's table are session 1939's run, section 2 being `rank.py --table`'s output; the figures in
 sections 3 to 9 are session 1828's, each entry's built parts named where a round built them, and
 none is kept current by hand. ADR 2490 is the decision that reopens the blocks; this file
 is the list it reopens them over. It does not repeat `doc/pdf-a-conversion-limits.md` or
@@ -57,10 +57,10 @@ Two disagreements found outside it, to weigh in batch 132 (ADR 2652 section 2):
 
 | census line, with the pack | converted | conforming | refused | unreadable | declined as a source |
 |---|---|---|---|---|---|
-| pdf.js `as-if-printed` 2b | 906 | 2 | 52 | 11 | 5 |
-| corpora `as-if-printed` 2b | 426 | 6 | 52 | 16 | 3 |
-| pdf.js `as-if-printed` 4 | 916 | 0 | 44 | 11 | 5 |
-| corpora `as-if-printed` 4 | 443 | 0 | 42 | 16 | 2 |
+| pdf.js `as-if-printed` 2b | 907 | 2 | 51 | 11 | 5 |
+| corpora `as-if-printed` 2b | 429 | 6 | 49 | 16 | 3 |
+| pdf.js `as-if-printed` 4 | 917 | 0 | 43 | 11 | 5 |
+| corpora `as-if-printed` 4 | 446 | 0 | 39 | 16 | 2 |
 | pdf.js `as-shown` 2b | 841 | 2 | 117 | 11 | 5 |
 | corpora `as-shown` 2b | 344 | 6 | 133 | 16 | 4 |
 | pdf.js `as-shown` 4 | 845 | 0 | 115 | 11 | 5 |
@@ -111,19 +111,18 @@ column. R02 is built (ADR 2498) and no document reaches it.
 | 6 | R04-absent-resource | 6 | 6 | 6 / 6 | builds only | built: ADRs 2500, 2522, 2523; left, a Type 3 glyph procedure's resources and a font that moved |
 | 7 | R03a-notdef-named | 4 | 4 | 8 / 5 | builds only | built: ADRs 2543, 2556, 2602, 2620, 2650 |
 | 8 | R16-annotations-and-forms | 4 | 4 | 15 / 18 | builds only | named per site |
-| 9 | R17-press-statements | 4 | 4 | 0 / 0 | builds only | decided by ADR 2490, unbuilt |
-| 10 | R13-jpx-transcode | 3 | 3 | 3 / 3 | builds only | unbuilt |
-| 11 | R14-appended-page-composition | 3 | 2 | 3 / 3 | builds only | built: ADRs 2678, 2682 |
-| 12 | R01-recovered-structure | 1 | 1 | 3 / 3 | builds only | built: ADRs 2502, 2503, 2551, 2596, 2670; each left is refused by its own sentence |
-| 13 | R07-undecodable-stream | 1 | 2 | 1 / 2 | builds only | built: ADR 2689; the `UnknownFilter` files' `%PDF-3.x` header, ADR 2692; left, an ICC profile written as its alternate |
-| 14 | R12-spot-colourant | 1 | 1 | 1 / 1 | builds only | built for a PostScript calculator function: ADR 2690; left, a sampled transform, refused until its loss is named (ADR 2490) |
-| 15 | R05-press | 0 | 9 | 0 / 29 | builds only | A694 item 2: (a) built; (b), `as-shown`'s assumed press, waits for an ICC table writer |
-| 16 | R18-piece-info | 0 | 3 | 0 / 3 | builds only | unbuilt |
-| 17 | R15-embedded-files | 0 | 2 | 3 / 7 | builds only | built: ADR 2536 |
-| 18 | D-defect | — | — | 7 / 6 | defect | section 8: the converter's own, diagnosed rather than ranked |
-| 19 | R09-as-shown-font-losses | 0 | 0 | 120 / 120 | builds only | `as-shown` only; ADR 2490: (c) decided, (a) and (b) builds |
-| 20 | X1-dynamic-xfa | — | — | 4 / 4 | exception | CLAUDE.md's exclusion; §K.1 |
-| 21 | X2-no-page-to-see | — | — | 6 / 6 | exception | the reader draws no page of it |
+| 9 | R13-jpx-transcode | 3 | 3 | 3 / 3 | builds only | unbuilt |
+| 10 | R14-appended-page-composition | 3 | 2 | 3 / 3 | builds only | built: ADRs 2678, 2682 |
+| 11 | R01-recovered-structure | 1 | 1 | 3 / 3 | builds only | built: ADRs 2502, 2503, 2551, 2596, 2670; each left is refused by its own sentence |
+| 12 | R07-undecodable-stream | 1 | 2 | 1 / 2 | builds only | built: ADR 2689; the `UnknownFilter` files' `%PDF-3.x` header, ADR 2692; left, an ICC profile written as its alternate |
+| 13 | R12-spot-colourant | 1 | 1 | 1 / 1 | builds only | built for a PostScript calculator function: ADR 2690; left, a sampled transform, refused until its loss is named (ADR 2490) |
+| 14 | R05-press | 0 | 9 | 0 / 29 | builds only | A694 item 2: (a) built; (b), `as-shown`'s assumed press, waits for an ICC table writer |
+| 15 | R18-piece-info | 0 | 3 | 0 / 3 | builds only | unbuilt |
+| 16 | R15-embedded-files | 0 | 2 | 3 / 7 | builds only | built: ADR 2536 |
+| 17 | D-defect | — | — | 7 / 6 | defect | section 8: the converter's own, diagnosed rather than ranked |
+| 18 | R09-as-shown-font-losses | 0 | 0 | 120 / 120 | builds only | `as-shown` only; ADR 2490: (c) decided, (a) and (b) builds |
+| 19 | X1-dynamic-xfa | — | — | 4 / 4 | exception | CLAUDE.md's exclusion; §K.1 |
+| 20 | X2-no-page-to-see | — | — | 6 / 6 | exception | the reader draws no page of it |
 
 Under `as-shown` the largest row is R09 (121 documents at each part), then R03 and R08, each held by
 an answer of the owner's (A694 item 1) rather than by a build.
@@ -291,7 +290,11 @@ the entry changes what the page draws.
 **R17 — two press statements `as-if-printed` keeps** (4 documents): `halftone-name` (3) and overprint
 mode 1 under an ICC CMYK space (1). `as-shown` already discards both (ADR 1965). *A company*
 printing on its office printer uses that printer's screens. **Remedy**: `as-if-printed` takes the
-same discards, each loss named. Mitigations sections 4.2, 4.3.
+same discards, each loss named. Mitigations sections 4.2, 4.3. **Built** (ADR 2693): both entries,
+and every profile that takes either loss names each halftone and the name it stated, or each
+graphics state and the pages of the marks it governed, in the output's `xmpMM:History`. All four
+convert under `as-if-printed` at 2b and 4, byte for byte the `as-shown` outputs once dates are
+masked; `no-data-loss` keeps refusing `102952.pdf` by `overprint-mode`.
 
 **R13 — a JPEG 2000 image outside the baseline** (3 documents, each alone). **Remedy**: write the
 decoded samples back losslessly (Flate, or `pdf-jpx-write`'s baseline writer, slot 3 of batch 123):

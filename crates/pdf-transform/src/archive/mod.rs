@@ -2007,9 +2007,13 @@ fn rewrites_wanted(
     // A transfer function other than the identity is written into `xmpMM:History` before it
     // goes, and that record is a condition of the removal, so the packet is written whenever the
     // removal is (`doc/adr/1964`). A rebuilt parent tree says in the same history how many
-    // entries it wrote, a condition of the rebuild (`doc/adr/2674`).
+    // entries it wrote, a condition of the rebuild (`doc/adr/2674`). A halftone's name, and an
+    // overprint mode a DeviceCMYK mark was painted under, are named there before they go
+    // (`doc/adr/2693`).
     let recorded_removal = wanted.contains(&Rewrite::TransferFunctionRemoved)
-        || wanted.contains(&Rewrite::ParentTreeRebuilt);
+        || wanted.contains(&Rewrite::ParentTreeRebuilt)
+        || wanted.contains(&Rewrite::HalftoneNameRemoved)
+        || wanted.contains(&Rewrite::OverprintModeZeroed);
     if omit_identification || departed || configured || recorded_removal {
         wanted.insert(Rewrite::IdentificationSchema);
     }

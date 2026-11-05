@@ -2446,6 +2446,13 @@ fn document_packet(bytes: &[u8]) -> Vec<u8> {
         .to_vec()
 }
 
+/// A converted file's bytes as text with its metadata packet taken out, so that a key a test expects
+/// gone from the file's dictionaries is not found in the history that names it (`doc/adr/2693`).
+fn outside_the_packet(bytes: &[u8]) -> String {
+    let packet = String::from_utf8_lossy(&document_packet(bytes)).into_owned();
+    String::from_utf8_lossy(bytes).replace(&packet, "")
+}
+
 /// The `/DefaultCMYK` a converted part-2 document states, resolved to its array.
 fn default_cmyk(document: &Document) -> Vec<pdf_syntax::Object> {
     let page = pdf_model::Pages::new(document).get(0).expect("one page");
@@ -12309,7 +12316,7 @@ fn a_halftone_name_is_a_loss_and_once_authorised_goes_with_its_screen_kept() {
     let held = holds(&output, Target::Four(Flavour::Plain));
     assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
     let text = String::from_utf8_lossy(&output);
-    assert!(!text.contains("HalftoneName"));
+    assert!(!outside_the_packet(&output).contains("HalftoneName"));
     assert!(
         text.contains("/SpotFunction /Round"),
         "the screen it defines stays"
@@ -15070,7 +15077,7 @@ fn a_supplied_press_is_written_where_the_mode_its_marks_keep_is_set_to_zero_for_
     let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
     let held = holds(&output, target);
     assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
-    let text = String::from_utf8_lossy(&output);
+    let text = outside_the_packet(&output);
     assert!(text.contains("/OPM 0") && !text.contains("/OPM 1"));
     let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
     assert_eq!(default_cmyk(&document).len(), 2, "an ICCBased DefaultCMYK");
@@ -16163,6 +16170,8 @@ mod statement;
 mod carried_information;
 #[path = "archive/press_assumed.rs"]
 mod press_assumed;
+#[path = "archive/press_statements.rs"]
+mod press_statements;
 #[path = "archive/removed_annotation_actions.rs"]
 mod removed_annotation_actions;
 #[path = "archive/truetype_cmap.rs"]
