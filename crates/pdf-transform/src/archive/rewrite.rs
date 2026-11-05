@@ -1119,6 +1119,15 @@ pub enum Rewrite {
     /// Table 125 makes a `/FontFile3` name it. The bytes are carried, and this reader chose its
     /// reader by them already (ADR 2307).
     FontProgramRefiled,
+    /// A `CIDFont`'s `/CIDSystemInfo` restated as its `CMap`'s, where nothing this reader draws or
+    /// extracts reads the `CIDFont`'s.
+    ///
+    /// ISO 19005-2 section 6.2.11.3.1, ISO 19005-4 section 6.2.10.3.1: the two name the same
+    /// registry and ordering, the `CIDFont`'s supplement at least the `CMap`'s. An embedded
+    /// program's glyphs are selected without the entry (ISO 32000-2 §9.7.4.2), so the `CIDFont`'s
+    /// statement is the one restated, and only where this reader reads it for nothing
+    /// (`super::collections`, ADR 2717).
+    CollectionRestated,
     /// Every optional content configuration that states no `/Name` is given the one the
     /// operator's `name-template` makes, numbered past every name the file already uses.
     ///
@@ -1646,7 +1655,12 @@ impl Rewrite {
                 "a font program filed under a key or Subtype its bytes contradict is filed under \
                  the ones its format is given, every byte of the program the producer's, and a \
                  CIDFontType2 whose Identity map selects a name-keyed CFF program's glyphs by \
-                 their CIDs is the CIDFontType0 that selects the same ones"
+                 their CIDs is the CIDFontType0 that selects the same ones, as a CIDFontType0 \
+                 over a glyf program is the CIDFontType2 that does"
+            }
+            Self::CollectionRestated => {
+                "an embedded CIDFont whose character collection disagreed with its CMap's names \
+                 the CMap's, a statement nothing selecting or reading its glyphs consulted"
             }
             Self::FilterNamesSpelledOut => {
                 "a stream naming a filter by the abbreviation ISO 32000-2 \u{a7}8.9.7's Table 92 \
@@ -1851,6 +1865,7 @@ impl Rewrite {
             Self::FilterNamesSpelledOut => "filter-names-spelled-out",
             Self::UndecodableStreamRemoved => "undecodable-stream-removed",
             Self::FontProgramRefiled => "font-program-refiled",
+            Self::CollectionRestated => "collection-restated",
             Self::ConfigurationNamed => "configuration-named",
             Self::IdentityTransferFunctionRemoved => "identity-transfer-function-removed",
             Self::TransferFunctionRemoved => "transfer-function-removed",
@@ -2038,6 +2053,7 @@ impl<'a> Rewriter<'a> {
             cid_to_gid: prepared.owed.cid_to_gid.as_ref().ok(),
             font_types: prepared.owed.font_types.as_ref().ok(),
             font_files: prepared.owed.font_files.as_ref().ok(),
+            collections: prepared.owed.collections.as_ref().ok(),
             packet_headers: prepared.owed.packet_headers.as_ref().ok(),
             symbolic_encodings: prepared.owed.symbolic_encodings.as_ref().ok(),
             standard_encodings: prepared.owed.standard_encodings.as_ref().ok(),
@@ -2990,6 +3006,8 @@ struct Rewriter<'a> {
     font_types: Option<&'a sites::FontTypeSites>,
     /// The key and name each misfiled font program is filed under instead.
     font_files: Option<&'a super::font_files::Refiled>,
+    /// The `/CIDSystemInfo` each `CIDFont` whose collection is restated states instead (ADR 2717).
+    collections: Option<&'a super::collections::Restated>,
     /// The packets whose header loses a deprecated attribute, where any do.
     packet_headers: Option<&'a Headers>,
     /// The symbolic TrueType fonts whose `/Encoding` goes.
@@ -3226,6 +3244,7 @@ impl Rewriter<'_> {
         changed |= self.interactive_edits(id, &mut out, applied);
         changed |= self.substitute_font_program(id, &mut out, applied);
         changed |= self.refile_font_program(id, &mut out);
+        changed |= self.restate_collection(id, &mut out, applied);
         changed |= self.name_the_copied_descriptor(id, &mut out, applied);
         if self.wants(Rewrite::SuppliedMediaType)
             && let Some(media_type) = self.remedies.supplied.get(&id)

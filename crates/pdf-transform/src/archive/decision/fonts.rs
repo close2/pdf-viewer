@@ -66,6 +66,14 @@ const TRUETYPE_CMAP_REINTERPRETS: &str = "a rendered TrueType font is now the sy
      it has one";
 
 /// What writing `/CIDToGIDMap` `/Identity` asserts, which is `doc/adr/0948`'s condition on it.
+const COLLECTION_RESTATED: &str = "an embedded CIDFont in this file named a character collection \
+     its CMap did not, and now names the CMap's. ISO 32000-2 \u{a7}9.7.4.2 selects an embedded \
+     program's glyphs through its CIDToGIDMap or its own charset, not through the collection, and \
+     the font is restated only where this reader consults the collection for nothing - no CID to \
+     Unicode table, vertical forms or glyph classes of either collection - so no glyph and no \
+     character extracted changes. What changes is the CIDFont's statement of which collection \
+     its CIDs are numbered in";
+
 const CID_TO_GID_REINTERPRETS: &str = "an embedded Type 2 CIDFont in this file stated no \
      CIDToGIDMap, and now states Identity. ISO 32000-1's table gives Identity as that entry's own \
      default, and that edition is the one describing this file: ISO 19005-2 section 5.1 makes a \
@@ -167,6 +175,13 @@ pub(super) const REMEDIES: &[Remedy] = &[
     Remedy {
         requirement: "fonts/cidset-lists-every-cid-in-the-program",
         answer: Answer::Mechanical(Rewrite::DescriptorSetRemoved),
+    },
+    // ISO 19005-2 section 6.2.11.3.1, ISO 19005-4 section 6.2.10.3.1: the CIDFont's collection
+    // restated as its CMap's where this reader reads it for nothing, and refused by
+    // `super::super::collections`'s sentence elsewhere (ADR 2717).
+    Remedy {
+        requirement: "fonts/cid-system-info-agrees-with-the-cmap",
+        answer: Answer::Stated(None, Rewrite::CollectionRestated, COLLECTION_RESTATED),
     },
     // ISO 19005-2 section 6.2.11.3.2, ISO 19005-4 section 6.2.10.3.2 — written where ISO
     // 32000-1 describes the file, and `super::super::sites` refuses it elsewhere and says why (ADR 2246).
@@ -319,11 +334,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "fonts/cmap-uses-only-predefined-cmaps",
         Because::TheFence(A_CMAP_IS_THE_ENCODING),
     ),
-    // ISO 19005-2 section 6.2.11.3.1, ISO 19005-4 section 6.2.10.3.1.
-    (
-        "fonts/cid-system-info-agrees-with-the-cmap",
-        Because::TheFence(A_CHARACTER_COLLECTION_IS_A_CLAIM),
-    ),
     // ISO 19005-2 section 6.2.11.3.3, ISO 19005-4 section 6.2.10.3.3.
     (
         "fonts/embedded-cmap-states-its-own-write-mode",
@@ -375,13 +385,6 @@ const A_CMAP_IS_THE_ENCODING: &str = "a CMap is what maps a composite font's cha
      program chose, which is doc/questions/A48's forbidden half. The same holds of an embedded \
      CMap that builds on one the base standard does not predefine: what it builds on is not here \
      to be carried, and inventing it invents the mapping";
-
-/// Why a `CIDSystemInfo` and a `CMap` that disagree are not reconciled.
-const A_CHARACTER_COLLECTION_IS_A_CLAIM: &str = "the CIDFont's registry, ordering and supplement \
-     say which character collection its CIDs are numbered in, and the CMap's say the same of the \
-     codes it produces. Making them agree means restating one of the two, which relabels what \
-     every CID in this font means — the file states two collections and nothing in it says which \
-     its producer meant";
 
 /// Why a `CMap` stream and its program disagreeing about `/WMode` is not settled.
 const WRITE_MODE_DISAGREEMENT: &str = "this CMap stream's WMode entry and the write mode the \

@@ -577,11 +577,15 @@ pub(super) fn restate_metrics(
     spare: &mut Spare,
 ) -> Result<Metrics, Because> {
     let mut metrics = Metrics::default();
+    // A rendered font whose descriptor is written inside it is one this route does not reach,
+    // and the refusal says so rather than that no font needed restating.
+    let mut unreached = false;
     for used in survey.fonts() {
         if !used.rendered {
             continue;
         }
         let Some((font, embedded)) = own_program(document, used) else {
+            unreached |= descriptor_written_inside(document, used);
             continue;
         };
         // **Only the glyphs that actually disagree**, which is `doc/adr/0947`'s first rule read
@@ -675,9 +679,32 @@ pub(super) fn restate_metrics(
         });
     }
     if metrics.at.is_empty() && metrics.descriptors.is_empty() {
-        return Err(Because::NotBuiltYet(NO_PROGRAM_TO_RESTATE));
+        return Err(Because::NotBuiltYet(if unreached {
+            PROGRAM_BEHIND_A_DIRECT_DESCRIPTOR
+        } else {
+            NO_PROGRAM_TO_RESTATE
+        }));
     }
     Ok(metrics)
+}
+
+/// Whether a rendered font that is not Type 3 writes its descriptor, naming an embedded program,
+/// directly inside its dictionary — or its `Type0`'s descendant's — where [`descriptor_of`] reads
+/// only a descriptor that is an object of its own.
+fn descriptor_written_inside(document: &Document, used: &SelectedFont) -> bool {
+    let holder = match name_of(document, &used.dict, "Subtype").as_deref() {
+        Some("Type3") | None => return false,
+        Some("Type0") => descendant(document, &used.dict),
+        Some(_) => Some(used.dict.clone()),
+    };
+    let Some(Object::Dictionary(descriptor)) =
+        holder.and_then(|holder| holder.get("FontDescriptor").cloned())
+    else {
+        return false;
+    };
+    ["FontFile", "FontFile2", "FontFile3"]
+        .iter()
+        .any(|key| descriptor.get(key).is_some())
 }
 
 /// Whether a font other than `used` draws from the same program and states, for a glyph it shows,
@@ -1780,6 +1807,13 @@ fn base_font(document: &Document, dict: &Dictionary) -> String {
 /// Why nothing was restated: no failed requirement asked for it, or none of the fonts needed it.
 const NO_PROGRAM_TO_RESTATE: &str = "no font in this document has an embedded program whose \
      stated advances this conversion had to restate";
+
+/// Why nothing was restated where a font's program is reached only through a descriptor written
+/// inside it.
+const PROGRAM_BEHIND_A_DIRECT_DESCRIPTOR: &str = "a rendered font here writes its FontDescriptor \
+     directly inside its font dictionary rather than as an object of its own, and this conversion \
+     reaches an embedded program to compare and restate its advances only through a descriptor \
+     that is an object, so its stated widths are not restated";
 
 /// Why no face was embedded.
 const NO_FONT_TO_EMBED: &str = "no font a content stream renders in this document lacks an \

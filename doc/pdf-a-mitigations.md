@@ -1576,8 +1576,17 @@ ISO 19005-2 6.2.11.2, ISO 19005-4 6.2.10.2 · all six · `not-built-yet`, refuse
   promise.
 
 #### `fonts/cid-system-info-agrees-with-the-cmap`
-ISO 19005-2 6.2.11.3.1, ISO 19005-4 6.2.10.3.1 · all six · today `the-fence`
+ISO 19005-2 6.2.11.3.1, ISO 19005-4 6.2.10.3.1 · all six · **built where this reader reads the
+`CIDFont`'s collection for nothing** (ADR 2717, `collection-restated`, a stated interpretation);
+`not-built-yet` elsewhere, by the sentence naming the condition that failed
 
+- **Built** — the `CIDFont`'s `/CIDSystemInfo` is restated as its `CMap`'s where the program is
+  embedded, the descriptor states no `/FD`, and the two collections are one, or neither is one this
+  reader holds a CID to Unicode table (or, set vertically, vertical forms) for. ISO 32000-2
+  §9.7.4.2 selects an embedded program's glyphs without the entry and this reader never reads the
+  supplement, so no glyph and no extracted character moves; what the paragraphs below call a
+  relabelling is a relabelling of a statement nothing consults there. Where the collection *is*
+  read, they stand.
 - **Mitigation** — **none**, and session 1175 read the clauses against that verdict rather than
   taking it. It holds, and one sentence of it was too strong.
   - **The clause is symmetric where it is about Registry and Ordering** — both parts say "the

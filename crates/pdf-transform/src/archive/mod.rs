@@ -139,6 +139,7 @@ mod base;
 mod boundaries;
 mod census;
 mod cmaps;
+mod collections;
 mod component_counts;
 mod config;
 mod decision;

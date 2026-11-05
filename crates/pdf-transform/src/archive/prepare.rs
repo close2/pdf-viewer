@@ -1695,6 +1695,7 @@ impl Prepared {
             Rewrite::CidToGidIdentity => self.owed.cid_to_gid.as_ref().err().copied(),
             Rewrite::FontTypeStated => self.owed.font_types.as_ref().err().copied(),
             Rewrite::FontProgramRefiled => self.owed.font_files.as_ref().err().copied(),
+            Rewrite::CollectionRestated => self.owed.collections.as_ref().err().copied(),
             Rewrite::FilterNamesSpelledOut | Rewrite::UndecodableStreamRemoved => {
                 self.owed.filter_names.as_ref().err().copied()
             }
@@ -1959,6 +1960,9 @@ pub(super) struct Owed {
     pub(super) font_types: Result<sites::FontTypeSites, Because>,
     /// The font programs filed under the key and name of their format, or why none are (ADR 2307).
     pub(super) font_files: Result<super::font_files::Refiled, Because>,
+    /// The `CIDFont`s whose `/CIDSystemInfo` is restated as their `CMap`'s, or why none is
+    /// (ADR 2717).
+    pub(super) collections: Result<super::collections::Restated, Because>,
     /// The packets whose header loses a deprecated attribute, or why none do.
     ///
     /// **Prepared by [`Prepared::of`] rather than here**, and the reason is the one the field
@@ -2105,6 +2109,9 @@ impl Owed {
             }),
             font_files: asked(wanted(Rewrite::FontProgramRefiled), || {
                 super::font_files::refiled(document, input, spare)
+            }),
+            collections: asked(wanted(Rewrite::CollectionRestated), || {
+                super::collections::restated(document, input)
             }),
             filter_names: undecodable,
             halftone_names: asked(wanted(Rewrite::HalftoneNameRemoved), || {

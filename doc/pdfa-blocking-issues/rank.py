@@ -139,7 +139,7 @@ STATUS = {
     "R08-unembedded-font-photograph": ("builds only", "built under `as-if-printed`: A694, ADR 2516; `as-shown` keeps its stop (A694 item 1)"),
     "R08b-cjk-pack": ("built", "ADR 2460: the census runs with the pack"),
     "R09-as-shown-font-losses": ("builds only", "`as-shown` only; ADR 2490: (c) decided, (a) and (b) builds"),
-    "R10-font-refiling": ("builds only", "built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685), a standard font's stated widths (ADR 2686), a mode 3 font's descriptor (ADR 2688)"),
+    "R10-font-refiling": ("builds only", "built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685), a standard font's stated widths (ADR 2686), a mode 3 font's descriptor (ADR 2688), a glyf program under a CIDFontType0 (ADR 2716), a collection nothing reads (ADR 2717)"),
     "R11-truetype-route": ("builds only", "built: A694 item 3, ADR 2520"),
     "R12-spot-colourant": ("builds only", "built for a PostScript calculator function: ADR 2690; left, a sampled transform, refused until its loss is named (ADR 2490)"),
     "R13-jpx-transcode": ("built", "ADR 2694: the shipped profiles take ADR 1400's transcode; a bare codestream is kept in a JP2 file (ADR 2695); a space only the data states keeps its refusal"),

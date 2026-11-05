@@ -28,6 +28,22 @@ enum Held {
     Elsewhere,
 }
 
+/// Writes a `CIDFontType0` dictionary over a `glyf` program as the `CIDFontType2` that selects the
+/// same glyphs: the map it states kept, an absent one written as the `Identity` this reader read
+/// it as, which Table 115 gives a Type 2 `CIDFont` with an embedded program (ADR 2716).
+fn as_cid_font_type2(out: &mut Dictionary) {
+    out.insert(
+        Name::new(&b"Subtype"[..]),
+        Object::Name(Name::new(&b"CIDFontType2"[..])),
+    );
+    if out.get("CIDToGIDMap").is_none() {
+        out.insert(
+            Name::new(&b"CIDToGIDMap"[..]),
+            Object::Name(Name::new(&b"Identity"[..])),
+        );
+    }
+}
+
 impl Rewriter<'_> {
     /// Moves a descriptor's program to `/FontFile3`, the same stream under the key §9.9's Table
     /// 124 files its format under (ADR 2307), writes a `CIDFont` the move retypes as the subtype
@@ -53,6 +69,58 @@ impl Rewriter<'_> {
         true
     }
 
+    /// Writes the `CMap`'s `/CIDSystemInfo` into a `CIDFont` whose collection is restated, in the
+    /// font itself or in the first element of a `Type0` font's `/DescendantFonts` that writes it
+    /// directly (ADR 2717).
+    pub(super) fn restate_collection(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let Some(restated) = self
+            .collections
+            .filter(|_| self.wants(Rewrite::CollectionRestated))
+        else {
+            return false;
+        };
+        let info = |dict: &mut Dictionary, info: &Dictionary| {
+            dict.insert(
+                Name::new(&b"CIDSystemInfo"[..]),
+                Object::Dictionary(info.clone()),
+            );
+        };
+        if let Some(written) = restated.at.get(&id) {
+            info(out, written);
+            count(applied, Rewrite::CollectionRestated);
+            return true;
+        }
+        let Some(written) = restated.within.get(&id) else {
+            return false;
+        };
+        if !matches!(out.get("DescendantFonts"), Some(Object::Array(_))) {
+            return false;
+        }
+        let Some(Object::Array(mut descendants)) = out.remove("DescendantFonts") else {
+            return false;
+        };
+        let done = match descendants.first_mut() {
+            Some(Object::Dictionary(descendant)) => {
+                info(descendant, written);
+                true
+            }
+            _ => false,
+        };
+        out.insert(
+            Name::new(&b"DescendantFonts"[..]),
+            Object::Array(descendants),
+        );
+        if done {
+            count(applied, Rewrite::CollectionRestated);
+        }
+        done
+    }
+
     /// Writes a `CIDFontType2` dictionary whose `Identity` map makes each CID its glyph's index
     /// over a name-keyed CFF program as the `CIDFontType0` that selects the same glyphs, and
     /// removes the `/CIDToGIDMap` Table 115 gives a Type 2 `CIDFont` alone (ADR 2326).
@@ -60,6 +128,32 @@ impl Rewriter<'_> {
     /// A font dictionary is never a descriptor, so an object is one or the other of the two
     /// edits [`Self::refile_font_program`] makes.
     fn retype_cid_font(&self, id: ObjectId, out: &mut Dictionary) -> bool {
+        if let Some(refiled) = self
+            .font_files
+            .filter(|_| self.wants(Rewrite::FontProgramRefiled))
+        {
+            if refiled.to_type2.contains(&id) {
+                as_cid_font_type2(out);
+                return true;
+            }
+            if refiled.to_type2_within.contains(&id)
+                && matches!(out.get("DescendantFonts"), Some(Object::Array(_)))
+                && let Some(Object::Array(mut descendants)) = out.remove("DescendantFonts")
+            {
+                let retyped = match descendants.first_mut() {
+                    Some(Object::Dictionary(descendant)) => {
+                        as_cid_font_type2(descendant);
+                        true
+                    }
+                    _ => false,
+                };
+                out.insert(
+                    Name::new(&b"DescendantFonts"[..]),
+                    Object::Array(descendants),
+                );
+                return retyped;
+            }
+        }
         if !self.wants(Rewrite::FontProgramRefiled)
             || !self
                 .font_files
@@ -934,5 +1028,54 @@ fn referenced_in(value: &mut Object, direct: &[(Dictionary, ObjectId)], depth: u
             .map(|item| referenced_in(item, direct, depth.saturating_add(1)))
             .fold(0, usize::saturating_add),
         _ => 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pdf_syntax::object::{Dictionary, Name, Object, ObjectId};
+
+    use super::as_cid_font_type2;
+
+    /// A `CIDFontType0` descendant, with `map` as its `/CIDToGIDMap` where there is one.
+    fn a_type0_descendant(map: Option<Object>) -> Dictionary {
+        let mut dict = Dictionary::new();
+        dict.insert(
+            Name::new(&b"Subtype"[..]),
+            Object::Name(Name::new(&b"CIDFontType0"[..])),
+        );
+        if let Some(map) = map {
+            dict.insert(Name::new(&b"CIDToGIDMap"[..]), map);
+        }
+        dict
+    }
+
+    #[test]
+    fn an_absent_map_is_written_as_the_identity_the_reader_read() {
+        // Table 115's Identity is what this reader selected a glyf program's glyphs by under
+        // CIDFontType0 with no entry, and what ISO 19005 asks a Type 2 CIDFont to state (ADR 2716).
+        let mut dict = a_type0_descendant(None);
+        as_cid_font_type2(&mut dict);
+        assert_eq!(
+            dict.get("Subtype")
+                .and_then(Object::as_name)
+                .map(Name::as_bytes),
+            Some(&b"CIDFontType2"[..])
+        );
+        assert_eq!(
+            dict.get("CIDToGIDMap")
+                .and_then(Object::as_name)
+                .map(Name::as_bytes),
+            Some(&b"Identity"[..])
+        );
+    }
+
+    #[test]
+    fn a_stated_map_is_kept() {
+        // A stream map is the one the reader already selected through, so it stands.
+        let map = Object::Reference(ObjectId::new(9, 0));
+        let mut dict = a_type0_descendant(Some(map.clone()));
+        as_cid_font_type2(&mut dict);
+        assert_eq!(dict.get("CIDToGIDMap"), Some(&map));
     }
 }
