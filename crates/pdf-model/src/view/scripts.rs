@@ -530,7 +530,7 @@ mod keystroke;
 mod queries;
 mod state;
 
-pub use form::{FormOverride, FormOverrideMode};
+pub use form::{FormAction, FormOverride, FormOverrideMode};
 
 /// Whether a script's text spells `getPageNumWords` or `getPageNthWord`, the two members that read
 /// the pages' words (ADR 1762).

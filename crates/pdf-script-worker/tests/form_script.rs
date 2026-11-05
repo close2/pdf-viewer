@@ -1097,3 +1097,55 @@ fn a_javascript_validation_script_runs_in_the_worker_and_its_failure_is_held_for
     view.commit_field(&document, &name("Amount"));
     assert_eq!(view.take_form_validations().len(), 1);
 }
+
+/// XFA 3.3 pages 389, 398 and 402, in JavaScript through the confined worker: a click on a field
+/// raises the submit, so the `preSubmit` bound to the Form DOM reads the click's `$event.target`
+/// (page 389's example 10.7), and a script that sets `xfa.event.cancelAction` aborts the submit;
+/// `postSubmit` then runs under the same click, as page 389 has it after a cancelled submit.
+#[test]
+fn a_javascript_pre_submit_reads_the_click_and_cancels_the_submit_in_the_worker() {
+    let bound = |activity: &str, script: &str| {
+        format!(
+            "<event activity=\"{activity}\" ref=\"$form\"><script \
+             contentType=\"application/x-javascript\">{script}</script></event>"
+        )
+    };
+    let template = [
+        field(
+            "One",
+            &bound(
+                "preSubmit",
+                "Seen.rawValue = $event.target.rawValue + '/' + xfa.event.cancelAction; \
+                 if ($event.target.rawValue == 'stop') xfa.event.cancelAction = true;",
+            ),
+        ),
+        field(
+            "Two",
+            &bound("postSubmit", "After.rawValue = $event.target.rawValue;"),
+        ),
+        field("Seen", ""),
+        field("After", ""),
+    ]
+    .concat();
+    for (one, cancelled) in [("go", false), ("stop", true)] {
+        let values = [("One", one), ("Two", ""), ("Seen", ""), ("After", "")];
+        let document = document(&template, &values);
+        let worker = Arc::new(ScriptWorker::with_program(WORKER).with_deadline(OUT_OF_THE_WAY));
+        let mut view = view_with(&document, &worker);
+        view.activate_form_on_merge(&document);
+        // The fixture's widgets follow the six objects before them, One's first.
+        let widget = Some(pdf_syntax::ObjectId {
+            number: 7,
+            generation: 0,
+        });
+        let pre = view.activate_form_before_submit(&document, widget);
+        assert_eq!(pre.cancelled, cancelled, "{:?}", view.script_reports());
+        assert_eq!(
+            shown(&view, &document, "Seen").as_deref(),
+            Some(format!("{one}/0").as_str())
+        );
+        assert!(view.activate_form_after_submit(&document, widget));
+        assert_eq!(shown(&view, &document, "After").as_deref(), Some(one));
+        assert!(worker.deaths().is_empty(), "{:?}", worker.deaths());
+    }
+}

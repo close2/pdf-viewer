@@ -19,8 +19,14 @@ use super::Scalar;
 
 /// The properties of `$event` this reader carries, in the order page 402 lists them, with the
 /// number past the template's containers each one is.
-const CARRIED: [&str; 6] = [
-    "change", "name", "newText", "prevText", "selEnd", "selStart",
+const CARRIED: [&str; 7] = [
+    "cancelAction",
+    "change",
+    "name",
+    "newText",
+    "prevText",
+    "selEnd",
+    "selStart",
 ];
 
 /// The properties page 398's table has an event set that this reader is never told of: the
@@ -37,9 +43,9 @@ const UNSUPPLIED: [&str; 8] = [
     "prevContentType",
 ];
 
-/// The other properties page 402–404 lists: an action's cancellation and a connection's fault,
+/// The other properties page 402–404 lists: a connection's fault and the start of a selection,
 /// which no event this reader raises sets.
-const ELSEWHERE: [&str; 4] = ["cancelAction", "soapFaultCode", "soapFaultString", "start"];
+const ELSEWHERE: [&str; 3] = ["soapFaultCode", "soapFaultString", "start"];
 
 /// What a person's entry replaced (page 400): the field's text before it, and the span of that
 /// text the entry replaced, by characters.
@@ -95,6 +101,10 @@ pub struct Event {
     named: bool,
     /// What a `change` replaced.
     replaced: Option<Replaced>,
+    /// `$event.cancelAction` while an action such as a save or a submit is under way, which the
+    /// processor clears at the action's beginning (page 402); `None` for an event no action
+    /// raised, which does not set it.
+    cancel: Option<bool>,
 }
 
 impl Event {
@@ -106,7 +116,27 @@ impl Event {
             target,
             named,
             replaced,
+            cancel: None,
         }
+    }
+
+    /// The event the pre- and post-events of an action run under, `activity` being the one that
+    /// fires first (pages 387–389 and 402): the action clears `cancelAction` at its beginning,
+    /// and where a person's action raised it — a click on a field whose event submits — the
+    /// primary properties are that action's, since page 398 has a secondary event leave the
+    /// primary properties as the primary event set them. An action no person's action raised —
+    /// a save — sets no primary property.
+    #[must_use]
+    pub fn for_action(primary: Option<Self>, activity: &str) -> Self {
+        let mut event = primary.unwrap_or_else(|| Self::new(activity, 0, false, None));
+        event.cancel = Some(false);
+        event
+    }
+
+    /// Whether a script set `cancelAction` (page 402), which aborts the action it is under.
+    #[must_use]
+    pub fn cancelled(&self) -> bool {
+        self.cancel == Some(true)
     }
 
     /// What the entry replaced, as the event's scripts have left it.
@@ -162,6 +192,12 @@ pub(super) fn property(
             "$event.{name}: this reader is not told it by the window, so it is not offered"
         ));
     }
+    if name == "cancelAction" {
+        return match event.cancel {
+            Some(_) => Ok(Named::Property(containers)),
+            None => Err(unset()),
+        };
+    }
     if !event.named || ELSEWHERE.contains(&name) {
         return Err(unset());
     }
@@ -193,6 +229,7 @@ pub(super) fn value(event: Option<&Event>, containers: usize, node: usize) -> Op
     let replaced = event.replaced.as_ref();
     let count = |n: usize| Scalar::Number(f64::from(u32::try_from(n).unwrap_or(u32::MAX)));
     Some(match *name {
+        "cancelAction" => Scalar::Number(if event.cancel? { 1.0 } else { 0.0 }),
         "name" => Scalar::Text(event.name.clone()),
         "change" => Scalar::Text(replaced?.change.clone()),
         "newText" => Scalar::Text(replaced?.new_text()),
@@ -226,6 +263,24 @@ pub(super) fn assign(
         .and_then(|at| CARRIED.get(at))
         .copied()
         .unwrap_or("?");
+    if name == "cancelAction" {
+        let Some(flag) = event.and_then(|event| event.cancel.as_mut()) else {
+            return Err(
+                "$event.cancelAction: no action such as a save or a submit is under way, so the \
+                 current event did not set it (XFA 3.3 pages 398 and 402)"
+                    .to_owned(),
+            );
+        };
+        if !super::activate::true_value(&value) {
+            return Err(
+                "$event.cancelAction: a script may set it and must not attempt to clear it (XFA \
+                 3.3 page 402)"
+                    .to_owned(),
+            );
+        }
+        *flag = true;
+        return Ok(0);
+    }
     let Some(replaced) = event.and_then(|event| event.replaced.as_mut()) else {
         return Err(format!(
             "$event.{name}: read-only, since a script may write only change, selStart, selEnd and \

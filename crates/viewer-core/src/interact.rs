@@ -580,28 +580,14 @@ fn perform(
             // document and of this view, and transmitted by nobody in this process. A host
             // with a network sends it under its own policy; a host without one says what the
             // document asked for and declines (ADR 1062).
-            Request::Submit(submit) => {
-                match pdf_model::submission::compose(
-                    &open.document,
-                    &open.view,
-                    submit,
-                    click.as_ref(),
-                ) {
-                    Ok(submission) => {
-                        // Trap 5: every flag the action set that this composition does not
-                        // carry out arrives as a sentence, because a submission quietly
-                        // missing one is a submission that reports nothing.
-                        outcome.notes.extend(
-                            submission
-                                .owed
-                                .iter()
-                                .map(|owed| format!("{subject} submits — {owed}")),
-                        );
-                        outcome.submissions.push(submission);
-                    }
-                    Err(why) => outcome.notes.push(format!("{subject} declines — {why}")),
-                }
-            }
+            Request::Submit(submit) => submitted(
+                &open.document,
+                &mut open.view,
+                submit,
+                click.as_ref(),
+                subject,
+                &mut outcome,
+            ),
             Request::Import(request) => import = Some(request.clone()),
             Request::Embedded(request) => embedded = Some(request.clone()),
             Request::Remote(request) => remote = Some(request.clone()),
@@ -676,6 +662,48 @@ fn perform(
         open_threaded(open, &threaded, &mut outcome);
     }
     outcome
+}
+
+/// §12.7.6.2's submit-form action, composed here and transmitted by nobody in this process, with a
+/// hybrid form's XFA 3.3 page 389 events around it: `preSubmit` before the data is validated and
+/// submitted, which may change it or, by `$event.cancelAction`, abort the submit (page 402), and
+/// `postSubmit` at once after a cancelled or failed submit, or when the answer to a transmitted one
+/// arrives (ADR 2702).
+fn submitted(
+    document: &Document,
+    view: &mut pdf_model::view::ViewState,
+    submit: &pdf_model::action::SubmitForm,
+    click: Option<&Click>,
+    subject: &str,
+    outcome: &mut Outcome,
+) {
+    let widget = click.and_then(|click| click.widget);
+    if view.activate_form_before_submit(document, widget).cancelled {
+        outcome.notes.push(format!(
+            "{subject} declines — the XFA form's preSubmit script set $event.cancelAction, which \
+             aborts the submit (XFA 3.3 page 402)"
+        ));
+        view.activate_form_after_submit(document, widget);
+        return;
+    }
+    match pdf_model::submission::compose(document, view, submit, click) {
+        Ok(submission) => {
+            // Trap 5: every flag the action set that this composition does not carry out arrives
+            // as a sentence, because a submission quietly missing one is a submission that
+            // reports nothing.
+            outcome.notes.extend(
+                submission
+                    .owed
+                    .iter()
+                    .map(|owed| format!("{subject} submits — {owed}")),
+            );
+            outcome.submissions.push(submission);
+        }
+        Err(why) => {
+            outcome.notes.push(format!("{subject} declines — {why}"));
+            view.activate_form_after_submit(document, widget);
+        }
+    }
 }
 
 /// §12.7.6.4's import-data action, as far as a crate with no filesystem can take it.

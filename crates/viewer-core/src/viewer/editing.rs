@@ -23,22 +23,7 @@ impl Viewer {
         let Some(open) = self.focused_mut() else {
             return;
         };
-        // Table 200's `/WS`, "before saving a document", so that what the script writes into a
-        // field is in the update; `/DS` follows a save that was written (ADR 1614).
-        let page = open.page_index;
-        open.view.run_document_scripts(
-            &open.document,
-            pdf_model::view::DocumentTrigger::WillSave,
-            page,
-        );
-        let saved = open.view.save(&open.document);
-        if saved.is_ok() {
-            open.view.run_document_scripts(
-                &open.document,
-                pdf_model::view::DocumentTrigger::DidSave,
-                page,
-            );
-        }
+        let saved = written_with_scripts(open);
         match saved {
             Ok(written) => {
                 // Table 231 bit 14's NOTE, said out loud. `pdf_model::view::ViewState::save`
@@ -920,4 +905,34 @@ pub(super) fn commit(
     if committed.attachments {
         events.push(Event::AttachmentsChanged { document: id });
     }
+}
+
+/// The §7.5.6 update `open`'s view writes, with the scripts around it: Table 200's `/WS`, "before
+/// saving a document", so that what the script writes into a field is in the update, and `/DS`
+/// after a save that was written (ADR 1614); and XFA 3.3 page 388's `preSave`, "just before the
+/// form data is written out", after `/WS`, and `postSave`, "just after", beside `/DS` (ADR 2702).
+fn written_with_scripts(
+    open: &mut Open,
+) -> Result<pdf_model::view::Written, pdf_syntax::write::UpdateError> {
+    let page = open.page_index;
+    open.view.run_document_scripts(
+        &open.document,
+        pdf_model::view::DocumentTrigger::WillSave,
+        page,
+    );
+    let calculated = open.view.activate_form_before_save(&open.document);
+    let saved = open.view.save(&open.document);
+    let mut recalculated = false;
+    if saved.is_ok() {
+        open.view.run_document_scripts(
+            &open.document,
+            pdf_model::view::DocumentTrigger::DidSave,
+            page,
+        );
+        recalculated = open.view.activate_form_after_save(&open.document);
+    }
+    if calculated || recalculated {
+        open.stale();
+    }
+    saved
 }

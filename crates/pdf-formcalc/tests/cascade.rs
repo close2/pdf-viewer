@@ -28,6 +28,11 @@ fn calculate(script: &str, attributes: &str) -> String {
 /// A hybrid form: one subform `form1` of `template`, a widget and a data value for every field
 /// of `values`, each at `form1[0].<name>[0]`.
 fn document(template: &str, values: &[(&str, &str)]) -> Document {
+    configured(template, values, None)
+}
+
+/// [`document`], with a `config` packet of the text `config` where it is given, the last object.
+fn configured(template: &str, values: &[(&str, &str)], config: Option<&str>) -> Document {
     use std::fmt::Write as _;
     let stream = |text: &str| {
         format!(
@@ -52,10 +57,14 @@ fn document(template: &str, values: &[(&str, &str)]) -> Document {
         .map(|i| format!("{} 0 R", i.saturating_add(7)))
         .collect();
     let widgets = widgets.join(" ");
+    let config_packet = config.map_or_else(String::new, |_| {
+        format!(" (config) {} 0 R", values.len().saturating_add(7))
+    });
     let mut objects = vec![
-        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] \
-         /XFA [(template) 5 0 R (datasets) 6 0 R] >> >>"
-            .to_owned(),
+        format!(
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] \
+             /XFA [(template) 5 0 R (datasets) 6 0 R{config_packet}] >> >>"
+        ),
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
         format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [{widgets}] >>"),
         format!("<< /T (form1[0]) /Kids [{widgets}] >>"),
@@ -69,6 +78,11 @@ fn document(template: &str, values: &[(&str, &str)]) -> Document {
              /V ({value}) /Rect [72 {y} 300 {}] /DA (/Helv 10 Tf 0 g) >>",
             y.saturating_add(20)
         ));
+    }
+    if let Some(config) = config {
+        objects.push(stream(&format!(
+            "<config xmlns=\"http://www.xfa.org/schema/xci/3.1/\">{config}</config>"
+        )));
     }
     let mut out = String::from("%PDF-1.7\n");
     let mut offsets = Vec::new();
@@ -2269,4 +2283,243 @@ fn events_bound_by_ref_are_charged_against_the_steps_limit() {
     assert!(ended.edits.is_empty(), "{:?}", ended.edits);
     let settled = activate(&template, &values, stimulus, Limits::DEFAULT);
     assert_eq!(log(&settled).as_deref(), Some("seen"));
+}
+
+/// Activates `stimulus` over a form of `template` holding `values`, whose `config` packet is
+/// `config` where it is given.
+fn act(
+    template: &str,
+    values: &[(&str, &str)],
+    config: Option<&str>,
+    stimulus: Stimulus<'_>,
+) -> Activation {
+    let document = configured(template, values, config);
+    let resource = Resource::read(&document).unwrap().unwrap();
+    resource.activate(
+        &fields(values),
+        stimulus,
+        &mut FormCalcRunner,
+        Limits::DEFAULT,
+    )
+}
+
+/// A submit a click on the field `short` raised (XFA 3.3 page 389), its `preSubmit` half.
+fn pre_submit(
+    template: &str,
+    values: &[(&str, &str)],
+    config: Option<&str>,
+    short: &str,
+) -> Activation {
+    let clicked = name(short);
+    act(
+        template,
+        values,
+        config,
+        Stimulus::PreSubmit {
+            clicked: Some(&clicked),
+            button: None,
+        },
+    )
+}
+
+/// XFA 3.3 page 388: `preSave` and `postSave` are application events, which a script binds to by
+/// the `ref` `$host` (page 387), fired "just before" and "just after" the form is written out. So
+/// a save's first half runs the `preSave` bound to `$host` and nothing else, and its second half
+/// the `postSave`; one bound to the Form DOM or to its own field names an object that generates no
+/// save, and does not run.
+#[test]
+fn a_save_runs_the_applications_pre_save_and_then_its_post_save_events() {
+    let template = [
+        field("Pre", &bound("preSave", "$host", "pre")),
+        field("Alias", &bound("preSave", "xfa.host", "alias")),
+        field("Post", &bound("postSave", "$host", "post")),
+        field("OnForm", &bound("preSave", "$form", "form")),
+        field("Own", &bound("preSave", "", "own")),
+        field("Log", ""),
+    ]
+    .concat();
+    let values = [
+        ("Pre", ""),
+        ("Alias", ""),
+        ("Post", ""),
+        ("OnForm", ""),
+        ("Own", ""),
+        ("Log", ""),
+    ];
+    let before = act(&template, &values, None, Stimulus::PreSave);
+    assert_eq!(before.ended, Ended::Settled, "{:?}", before.report);
+    assert_eq!(log(&before).as_deref(), Some("pre!alias!"));
+    assert!(!before.cancelled);
+    let after = act(&template, &values, None, Stimulus::PostSave);
+    assert_eq!(log(&after).as_deref(), Some("post!"));
+}
+
+/// XFA 3.3 page 389: "The preSubmit event applies only to the Form DOM ($form)", and its example
+/// 10.7 tells two submit buttons apart by `$event.target`: page 398 has a secondary event leave the
+/// primary properties as the primary event set them, so the script reads the click's `name` and
+/// `target`. A `preSubmit` bound to `$host` is not run; `postSubmit` follows under the same click.
+#[test]
+fn a_submit_runs_the_form_doms_pre_submit_under_the_click_that_raised_it() {
+    let reads = |activity: &str, reference: &str, tag: &str| {
+        format!(
+            "<event activity=\"{activity}\" ref=\"{reference}\"><script>Log = Concat(Log, \
+             \"{tag}:\", $event.name, \"=\", $event.target, \"!\")</script></event>"
+        )
+    };
+    let template = [
+        field("One", &reads("preSubmit", "$form", "pre")),
+        field("Two", &reads("postSubmit", "$form", "post")),
+        field("Host", &reads("preSubmit", "$host", "host")),
+        field("Log", ""),
+    ]
+    .concat();
+    let values = [("One", "a"), ("Two", "b"), ("Host", ""), ("Log", "")];
+    for (clicked, shown) in [("One", "a"), ("Two", "b")] {
+        let before = pre_submit(&template, &values, None, clicked);
+        assert_eq!(before.ended, Ended::Settled, "{:?}", before.report);
+        assert_eq!(
+            log(&before).as_deref(),
+            Some(format!("pre:click={shown}!").as_str()),
+            "{:?}",
+            before.report
+        );
+        let named = name(clicked);
+        let after = act(
+            &template,
+            &values,
+            None,
+            Stimulus::PostSubmit {
+                clicked: Some(&named),
+                button: None,
+            },
+        );
+        assert_eq!(
+            log(&after).as_deref(),
+            Some(format!("post:click={shown}!").as_str())
+        );
+    }
+}
+
+/// XFA 3.3 page 402: `cancelAction` "is cleared by the XFA processor at the beginning of an action
+/// such as submitting data", "[s]etting this flag at any time before the action is consumated
+/// causes the action to abort", and "[s]cripts must not attempt to clear this flag". So the first
+/// `preSubmit` reads it clear and sets it, the second reads it set, and the activation says the
+/// submit is cancelled; a script that writes a false value is stopped, and cancels nothing.
+#[test]
+fn a_pre_submit_script_that_sets_cancel_action_cancels_the_submit() {
+    let template = [
+        field(
+            "First",
+            "<event activity=\"preSubmit\" ref=\"$form\"><script>Log = Concat(Log, \
+             $event.cancelAction, \"!\")\n$event.cancelAction = 1</script></event>",
+        ),
+        field(
+            "Second",
+            "<event activity=\"preSubmit\" ref=\"$form\"><script>Log = Concat(Log, \
+             $event.cancelAction, \"!\")</script></event>",
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    let values = [("First", ""), ("Second", ""), ("Log", "")];
+    let cancelled = pre_submit(&template, &values, None, "First");
+    assert_eq!(
+        log(&cancelled).as_deref(),
+        Some("0!1!"),
+        "{:?}",
+        cancelled.report
+    );
+    assert!(cancelled.cancelled);
+
+    let clears = [
+        field(
+            "First",
+            "<event activity=\"preSubmit\" ref=\"$form\"><script>$event.cancelAction = 0\n\
+             Log = \"ran\"</script></event>",
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    let refused = pre_submit(&clears, &[("First", ""), ("Log", "")], None, "First");
+    assert!(!refused.cancelled);
+    assert_eq!(log(&refused), None);
+    assert!(
+        refused
+            .report
+            .iter()
+            .any(|sentence| sentence.contains("must not attempt to clear it")
+                && sentence.contains("page 402")),
+        "{:?}",
+        refused.report
+    );
+}
+
+/// XFA 3.3 page 398: using a property the current event did not set is an error, and a click is no
+/// action such as a save or a submit, so it sets no `cancelAction` to read or to write.
+#[test]
+fn a_click_sets_no_cancel_action() {
+    for script in [
+        "Log = $event.cancelAction",
+        "$event.cancelAction = 1\nLog = \"ran\"",
+    ] {
+        let template = [
+            field(
+                "Button",
+                &format!("<event activity=\"click\"><script>{script}</script></event>"),
+            ),
+            field("Log", ""),
+        ]
+        .concat();
+        let activation = click(&template, &[("Button", ""), ("Log", "")], "Button");
+        assert_eq!(log(&activation), None, "{script}");
+        assert!(!activation.cancelled);
+        assert!(
+            activation.report.iter().any(
+                |sentence| sentence.contains("$event.cancelAction") && sentence.contains("398")
+            ),
+            "{script}: {:?}",
+            activation.report
+        );
+    }
+}
+
+/// XFA 3.3 page 1340: validations run "automatically ... before specified activities", `preSubmit`
+/// alone by default and an empty element preventing even that, and page 382 makes the script test
+/// one of them. So a submit tests every container's script — a field nobody entered into among
+/// them — where the `config` lists `preSubmit` or states nothing, and a save only where it lists
+/// `preSave`. Page 1340 has an error cancel a submit; the tree names the failure and leaves the
+/// cancelling to the host's submit policy (ADR 2475), so the activation is not cancelled.
+#[test]
+fn the_script_tests_run_before_the_activities_the_config_lists() {
+    let template = [
+        field(
+            "Amount",
+            &validate("Amount &lt;= 100", "", Some("At most 100.")),
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    let values = [("Amount", "150"), ("Log", "")];
+    let listed = |activities: &str| format!("<acrobat><validate>{activities}</validate></acrobat>");
+    let failing = vec![vec![(name("Amount"), Level::Error)]];
+    for (config, at_save, at_submit) in [
+        (None, false, true),
+        (Some(listed("preSubmit")), false, true),
+        (Some(listed("preSave")), true, false),
+        (Some(listed("preSave preSubmit")), true, true),
+        (Some(listed("")), false, false),
+    ] {
+        let saving = act(&template, &values, config.as_deref(), Stimulus::PreSave);
+        let submitting = pre_submit(&template, &values, config.as_deref(), "Log");
+        let expect = |tested: bool| if tested { failing.clone() } else { Vec::new() };
+        assert_eq!(invalid(&saving), expect(at_save), "{config:?} at a save");
+        assert_eq!(
+            invalid(&submitting),
+            expect(at_submit),
+            "{config:?} at a submit"
+        );
+        assert!(!submitting.cancelled);
+        let after = act(&template, &values, config.as_deref(), Stimulus::PostSave);
+        assert!(invalid(&after).is_empty(), "no post-event validates");
+    }
 }

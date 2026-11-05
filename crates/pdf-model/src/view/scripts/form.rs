@@ -9,7 +9,10 @@
 //! [`ViewState::activate_form_on_click`] the `click` events page 391 fires when a mouse click
 //! occurs within a field (ADR 2584), and [`ViewState::activate_form_on_mouse_down`] and
 //! [`ViewState::activate_form_on_mouse_up`] the `mouseDown` and `mouseUp` events page 392 fires
-//! when a mouse button is pressed or released within one (ADR 2627). **The
+//! when a mouse button is pressed or released within one (ADR 2627), and
+//! [`ViewState::activate_form_before_save`], [`ViewState::activate_form_after_save`],
+//! [`ViewState::activate_form_before_submit`] and [`ViewState::activate_form_after_submit`] the
+//! pre- and post-events pages 388–389 fire around a save and a submit (ADR 2702). **The
 //! scripts run in the runner**, never here: this crate reads no script language and does not depend
 //! on one (ADR 2482), so [`ScriptRunner::run_form_script`] is the one call that carries a script
 //! out, and a runner that has none refuses it by name. What the scripts computed lands in the edit
@@ -85,6 +88,18 @@ pub enum FormOverrideMode {
     Warning,
 }
 
+/// What the pre-event of an action — a save or a submit — did (XFA 3.3 pages 387–389 and 402).
+///
+/// Closed, and not `#[non_exhaustive]`, for `doc/ui-boundary.md`'s reason.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FormAction {
+    /// Whether a value changed, which is ink to draw again.
+    pub changed: bool,
+    /// Whether a script set `$event.cancelAction`, which page 402 says "causes the action to
+    /// abort".
+    pub cancelled: bool,
+}
+
 /// What raised an activation: page 379's two stimuli, a move of the keyboard focus (pages
 /// 390–391), each half of which is [`Stimulus`]'s own, a click, and the open sequence's end.
 #[derive(Debug, Clone, Copy)]
@@ -125,6 +140,9 @@ enum Raised<'a> {
     /// The open sequence ended: the Form DOM's `ready` and the application's `docReady` (pages 388
     /// and 704).
     Ready,
+    /// A pre- or post-event of a save or a submit, which is its own stimulus
+    /// ([`Stimulus::PreSave`] and the three after it).
+    Action(Stimulus<'a>),
 }
 
 impl<'a> Raised<'a> {
@@ -156,6 +174,7 @@ impl<'a> Raised<'a> {
             Raised::MouseExit(exited, button) => Stimulus::MouseExit { exited, button },
             Raised::Ready => Stimulus::Ready,
             Raised::Dismissed(field) => Stimulus::Dismissed { field },
+            Raised::Action(stimulus) => stimulus,
         }
     }
 }
@@ -424,6 +443,98 @@ impl ViewState {
         self.activate_form(document, Raised::MouseExit(exited, button), Instant::now())
     }
 
+    /// Runs the `preSave` events bound to the application, which page 388 fires "just before the
+    /// form data is written out in PDF", followed by the calculations that depend on what they
+    /// changed (page 379), and then, where the form's `config` lists `preSave` (page 1340), the
+    /// script test of every container, whose failures are held for a host as an entry's are
+    /// ([`Self::take_form_validations`]). A host calls it before [`Self::save`], so that what
+    /// the scripts wrote is in the update. Answers whether a value changed, which is ink to draw
+    /// again.
+    ///
+    /// **The save is not cancelled.** Page 1340 has a save written "regardless" of its
+    /// validations, and a script's `$event.cancelAction` would be a document's restriction on its
+    /// reader's save, which `CLAUDE.md` makes the reader's to set; it is reported by name and the
+    /// file is written (ADR 2702).
+    pub fn activate_form_before_save(&mut self, document: &Document) -> bool {
+        let done = self.run_form(document, Raised::Action(Stimulus::PreSave), Instant::now());
+        if done.cancelled {
+            self.report(
+                "the XFA form: a preSave script set $event.cancelAction, which would abort the \
+                 save (XFA 3.3 page 402); a save is the reader's own, and the file is written \
+                 (ADR 2702)"
+                    .to_owned(),
+            );
+        }
+        done.changed
+    }
+
+    /// Runs the `postSave` events bound to the application, which page 388 fires "just after the
+    /// form has been written out in PDF", followed by the calculations that depend on what they
+    /// changed. A host calls it once [`Self::save`] has written the update; a value a script
+    /// changes is an edit the next save writes. Answers whether a value changed.
+    pub fn activate_form_after_save(&mut self, document: &Document) -> bool {
+        self.run_form(document, Raised::Action(Stimulus::PostSave), Instant::now())
+            .changed
+    }
+
+    /// Runs the `preSubmit` events bound to the Form DOM, which page 389 fires before the data is
+    /// validated and submitted so that a script "has the chance to examine and alter the data
+    /// before it is submitted", followed by the calculations that depend on what they changed,
+    /// and then, where the form's `config` lists `preSubmit` (page 1340's default), the script
+    /// test of every container, held for a host as an entry's are. `widget` is the widget a click
+    /// on which raised the submit, where one did: its field's click gives the events their
+    /// primary properties (page 398). A host calls it before composing the submission, so that
+    /// what the scripts wrote is in it.
+    ///
+    /// [`FormAction::cancelled`] is page 402's abort: a script set `$event.cancelAction`, and
+    /// the caller does not submit and then calls [`Self::activate_form_after_submit`], which page
+    /// 389 fires "\[a]fter a cancelled or failed submit operation" too (ADR 2702). A failed script
+    /// test does not cancel it: the null, datatype and format tests a submit runs are named and
+    /// not enforced (ADR 2475), and the script test is one of the same validations (ADR 2703).
+    pub fn activate_form_before_submit(
+        &mut self,
+        document: &Document,
+        widget: Option<ObjectId>,
+    ) -> FormAction {
+        let clicked = clicked_field(document, widget);
+        let (field, button) = match &clicked {
+            Some((field, button)) => (Some(field.as_str()), button.as_deref()),
+            None => (None, None),
+        };
+        self.run_form(
+            document,
+            Raised::Action(Stimulus::PreSubmit {
+                clicked: field,
+                button,
+            }),
+            Instant::now(),
+        )
+    }
+
+    /// Runs the `postSubmit` events bound to the Form DOM, which page 389 fires once a submit has
+    /// ended: answered, cancelled or failed. `widget` is as [`Self::activate_form_before_submit`]'s.
+    /// Answers whether a value changed.
+    pub fn activate_form_after_submit(
+        &mut self,
+        document: &Document,
+        widget: Option<ObjectId>,
+    ) -> bool {
+        let clicked = clicked_field(document, widget);
+        let (field, button) = match &clicked {
+            Some((field, button)) => (Some(field.as_str()), button.as_deref()),
+            None => (None, None),
+        };
+        self.run_form(
+            document,
+            Raised::Action(Stimulus::PostSubmit {
+                clicked: field,
+                button,
+            }),
+            Instant::now(),
+        )
+        .changed
+    }
+
     /// The fields whose `override` asks a host to present a message since a host last took them, in
     /// the order a person entered them.
     pub fn take_form_overrides(&mut self) -> Vec<FormOverride> {
@@ -468,8 +579,18 @@ impl ViewState {
     /// `started` is when the sequence began: a merge and the entries it re-raises are one sequence
     /// and share one budget.
     fn activate_form(&mut self, document: &Document, raised: Raised<'_>, started: Instant) -> bool {
+        self.run_form(document, raised, started).changed
+    }
+
+    /// [`Self::activate_form`], answering whether a pre-event's script cancelled its action too.
+    fn run_form(
+        &mut self,
+        document: &Document,
+        raised: Raised<'_>,
+        started: Instant,
+    ) -> FormAction {
         let Some(runner) = self.runner.0.clone() else {
-            return false;
+            return FormAction::default();
         };
         let resource = match self.held_form(document).clone() {
             Held::Resource(resource) => resource,
@@ -477,9 +598,9 @@ impl ViewState {
                 if matches!(raised, Raised::Merge) {
                     self.report(format!("the XFA form's calculations are not run: {why}"));
                 }
-                return false;
+                return FormAction::default();
             }
-            Held::Nothing => return false,
+            Held::Nothing => return FormAction::default(),
         };
         // The pointer crosses widgets on nearly every movement, and a form with no event of the
         // crossing has nothing to run, so it is not given a whole activation of the form.
@@ -489,7 +610,7 @@ impl ViewState {
             _ => None,
         };
         if crossing.is_some_and(|activity| !resource.has_activity(activity)) {
-            return false;
+            return FormAction::default();
         }
         let table = crate::view::field_table(document, crate::view::Omitted::Calculation);
         let fields = self.form_fields(document, &table);
@@ -553,7 +674,10 @@ impl ViewState {
             }
             changed |= self.activate_form(document, Raised::Entry { name, before: None }, started);
         }
-        changed
+        FormAction {
+            changed,
+            cancelled: activation.cancelled,
+        }
     }
 
     /// Holds what an activation asks a host to present: the message page 642 asks for an entry
@@ -600,4 +724,21 @@ impl ViewState {
             })
             .collect()
     }
+}
+
+/// The PDF field name of `widget`'s field, with the widget's on value where it is a button
+/// ([`crate::form::button_on_value`], which names an exclusion group's field, ADR 2698); `None`
+/// where no widget was named or the document's field tree does not hold it.
+fn clicked_field(
+    document: &Document,
+    widget: Option<ObjectId>,
+) -> Option<(String, Option<String>)> {
+    let widget = widget?;
+    let table = crate::view::widgets_by_field_name(document);
+    table.into_iter().find_map(|(name, widgets)| {
+        widgets.contains(&widget).then(|| {
+            let on = crate::form::button_on_value(document, &widgets, widget);
+            (name, on)
+        })
+    })
 }

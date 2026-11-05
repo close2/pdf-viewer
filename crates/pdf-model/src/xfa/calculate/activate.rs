@@ -287,6 +287,36 @@ pub enum Stimulus<'a> {
         /// The field, by its PDF field name.
         field: &'a str,
     },
+    /// The form data is about to be written out in PDF (page 388's `preSave`): the `preSave`
+    /// events bound to the application (`ref="$host"`), the calculations that depend on what they
+    /// changed, and then, where the form's `config` lists `preSave` (page 1340), every
+    /// container's script test (ADR 2703).
+    PreSave,
+    /// The form has just been written out in PDF (page 388's `postSave`): the `postSave` events
+    /// bound to the application.
+    PostSave,
+    /// Form data is about to be submitted (page 389's `preSubmit`): the `preSubmit` events bound
+    /// to the Form DOM (`ref="$form"`), which page 389 says is the one object the event applies
+    /// to, the calculations that depend on what they changed, and then, where the form's `config`
+    /// lists `preSubmit`, its default (page 1340), every container's script test (ADR 2703). A
+    /// script that sets `$event.cancelAction` aborts the submit ([`Activation::cancelled`]).
+    PreSubmit {
+        /// The field a click on which raised the submit, by its PDF field name, whose click
+        /// gives the event its primary properties (page 398); `None` for a submit no click on a
+        /// field raised.
+        clicked: Option<&'a str>,
+        /// The on value of the button clicked, where `clicked` is an exclusion group
+        /// ([`Self::Click`]'s rule).
+        button: Option<&'a str>,
+    },
+    /// A submit has ended, answered, cancelled or failed (page 389's `postSubmit`): the
+    /// `postSubmit` events bound to the Form DOM.
+    PostSubmit {
+        /// The field a click on which raised the submit, as [`Self::PreSubmit`]'s.
+        clicked: Option<&'a str>,
+        /// Its button's on value, as [`Self::PreSubmit`]'s.
+        button: Option<&'a str>,
+    },
 }
 
 /// How an activation ended.
@@ -359,6 +389,11 @@ pub struct Activation {
     /// and a warning for the second. Empty where [`Self::ended`] is a budget, which keeps neither
     /// the calculated values nor the replacement of the entry.
     pub overridden: Vec<Overridden>,
+    /// Whether a script of [`Stimulus::PreSave`] or [`Stimulus::PreSubmit`] set
+    /// `$event.cancelAction`, which page 402 says "causes the action to abort". Kept where
+    /// [`Self::ended`] is a budget: the flag was set before the action was consummated, and the
+    /// limit that dropped the scripts' values does not clear it.
+    pub cancelled: bool,
 }
 
 impl Activation {
@@ -386,7 +421,7 @@ impl Activation {
 
 /// Whether a script's value is a true one: page 1061 promotes a value a boolean operation reads
 /// to true where it can be fully converted to a nonzero number, and null to false.
-fn true_value(value: &Scalar) -> bool {
+pub(super) fn true_value(value: &Scalar) -> bool {
     match value {
         Scalar::Null => false,
         Scalar::Number(n) => *n != 0.0 && !n.is_nan(),
@@ -511,6 +546,14 @@ impl Resource {
                 let node: Vec<usize> = session.form.named(field).into_iter().collect();
                 session.settle(Seeds::Dismissed(&node));
             }
+            Stimulus::PreSave => session.action("preSave", None, &Bound::Host),
+            Stimulus::PostSave => session.action("postSave", None, &Bound::Host),
+            Stimulus::PreSubmit { clicked, button } => {
+                session.action("preSubmit", clicked.map(|c| (c, button)), &Bound::Form);
+            }
+            Stimulus::PostSubmit { clicked, button } => {
+                session.action("postSubmit", clicked.map(|c| (c, button)), &Bound::Form);
+            }
             Stimulus::Ready => {
                 session.unfollowed();
                 session.fire("ready", None, &Bound::Form);
@@ -521,7 +564,15 @@ impl Resource {
         }
         let mut script_tests = Vec::new();
         if session.ended.is_none() {
-            let tested = if matches!(stimulus, Stimulus::Merge) {
+            // Page 1340: the validations run before each activity the form's `config` lists, and
+            // page 382 makes the script test one of them; the whole form is tested, as a merge
+            // tests it, since the data a save or a submit writes is the whole form's.
+            let before_action = match stimulus {
+                Stimulus::PreSave => self.config.validates_on_save(),
+                Stimulus::PreSubmit { .. } => self.config.validates_on_submit(),
+                _ => false,
+            };
+            let tested = if matches!(stimulus, Stimulus::Merge) || before_action {
                 session.script_tests(None)
             } else {
                 let changed = session.changed_since(&initial, &typed);
@@ -692,6 +743,8 @@ struct Session<'f, 'a, 'r> {
     /// The sentence for each event whose `ref` names nothing this reader raises an event for,
     /// which [`Self::unfollowed`] says.
     unbound: Vec<String>,
+    /// Whether a pre-event's script set `$event.cancelAction` ([`Activation::cancelled`]).
+    cancelled: bool,
 }
 
 impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
@@ -732,6 +785,7 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             replaced: BTreeMap::new(),
             hooks: None,
             unbound: Vec::new(),
+            cancelled: false,
         }
     }
 
@@ -886,37 +940,65 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
     /// on value no field of the group holds, and a pointer that names no button, fire nothing and
     /// say so (ADR 2698).
     fn pointed(&mut self, field: &str, button: Option<&str>, activity: &str) {
+        match self.pointed_field(field, button) {
+            Ok(target) => {
+                self.fire(activity, Some(&[target]), &Bound::Own);
+                self.settle(Seeds::Changed);
+            }
+            Err(why) => self.say(format!("{field}: its {activity} events are not run: {why}")),
+        }
+    }
+
+    /// The field the pointer was within, by [`Self::pointed`]'s rule, or the reason there is none.
+    fn pointed_field(&self, field: &str, button: Option<&str>) -> Result<usize, String> {
         let Some(node) = self.form.named(field) else {
-            self.say(format!("{field}: the form's field list does not name it"));
-            return;
+            return Err("the form's field list does not name it".to_owned());
         };
-        let target = match self.template.get(node).map(|container| container.class) {
-            Some(Class::Field) => node,
+        match self.template.get(node).map(|container| container.class) {
+            Some(Class::Field) => Ok(node),
             Some(Class::ExclGroup) => {
-                if let Some(within) = button.and_then(|on| self.button_of(node, on)) {
-                    within
-                } else {
-                    let which = button.map_or_else(
-                        || "the pointer named none of its buttons".to_owned(),
-                        |on| format!("none of its fields has the on value {on:?}"),
-                    );
-                    self.say(format!(
-                        "{field}: its {activity} events are not run: it is an exclusion group, \
-                         and {which}"
-                    ));
-                    return;
-                }
+                button
+                    .and_then(|on| self.button_of(node, on))
+                    .ok_or_else(|| {
+                        let which = button.map_or_else(
+                            || "the pointer named none of its buttons".to_owned(),
+                            |on| format!("none of its fields has the on value {on:?}"),
+                        );
+                        format!("it is an exclusion group, and {which}")
+                    })
             }
-            _ => {
+            _ => Err("the template container it names is not a field".to_owned()),
+        }
+    }
+
+    /// Fires the pre- or post-event `activity` of an action — a save or a submit — on the object
+    /// `bound` names (pages 388–389), followed by the calculations that depend on what its
+    /// scripts changed (page 379), and keeps whether a script cancelled the action (page 402).
+    ///
+    /// `from` is the field a click on which raised the action, with its button's on value: page
+    /// 398 has a secondary event leave the primary properties as the primary event set them, so
+    /// the scripts read the click's `name` and `target` (page 389's example 10.7 tells two
+    /// submit buttons apart by `$event.target`). A field this form does not hold, or an exclusion
+    /// group's button it does not name, leaves the event with no primary property, and says so.
+    /// The action clears `cancelAction` at its beginning (page 402) for either half; page 400's
+    /// skipping of an action whose flag was already set before its pre-event is the caller's,
+    /// which does not start the action.
+    fn action(&mut self, activity: &str, from: Option<(&str, Option<&str>)>, bound: &Bound) {
+        let primary = from.and_then(|(field, button)| match self.pointed_field(field, button) {
+            Ok(target) => self.primary("click", target),
+            Err(why) => {
                 self.say(format!(
-                    "{field}: its {activity} events are not run: the template container it \
-                     names is not a field"
+                    "{field}: the {activity} events run with no primary property of $event, \
+                     since the click that raised them was on no field: {why} (XFA 3.3 page 398)"
                 ));
-                return;
+                None
             }
-        };
-        self.fire(activity, Some(&[target]), &Bound::Own);
+        });
+        self.form
+            .set_event(Some(Event::for_action(primary, activity)));
+        self.fire(activity, None, bound);
         self.settle(Seeds::Changed);
+        self.cancelled = self.form.event().is_some_and(Event::cancelled);
     }
 
     /// The field of the exclusion group `group` whose on value, the first value of its first
@@ -1754,6 +1836,7 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             } else {
                 Vec::new()
             },
+            cancelled: self.cancelled,
         }
     }
 }

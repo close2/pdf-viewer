@@ -710,3 +710,45 @@ fn a_script_test_s_warning_asks_and_its_no_returns_the_person_to_the_field() {
         assert_eq!(value(&viewer, "Units"), "5", "{answer:?}");
     }
 }
+
+/// The file a save writes, from the events the save put.
+fn saved(events: &[Event]) -> Vec<u8> {
+    events
+        .iter()
+        .find_map(|event| match event {
+            Event::Saved { bytes, .. } => Some(bytes.clone()),
+            _ => None,
+        })
+        .expect("a hybrid form saves")
+}
+
+/// XFA 3.3 page 388: `preSave` fires "just before the form data is written out in PDF", and
+/// `postSave` "just after the form has been written out". So what a `preSave` script writes is in
+/// the file the save writes, and what a `postSave` script writes is on the screen and not in that
+/// file; at `off` neither runs (ADR 1616).
+#[test]
+fn a_save_writes_what_its_pre_save_event_set_and_not_what_its_post_save_event_set() {
+    let fields = "<field name=\"Units\"><ui><textEdit/></ui><value><text/></value>\
+                  <event activity=\"preSave\" ref=\"$host\"><script>4</script></event></field>\
+                  <field name=\"Total\"><ui><textEdit/></ui><value><text/></value>\
+                  <event activity=\"postSave\" ref=\"$host\"><script>9</script></event></field>";
+    let data = "<Units/><Total/>";
+    for (scripting, units, total) in [
+        (Scripting::Run(Arc::new(Calculators::default())), "4", "9"),
+        (Scripting::Off, "", ""),
+    ] {
+        let mut viewer = opened_on(scripting, hybrid(fields, data));
+        viewer.handle(Command::Presented).for_each(drop);
+        assert_eq!(value(&viewer, "Units"), "", "nothing runs before the save");
+        let events: Vec<Event> = viewer.handle(Command::Save).collect();
+        assert_eq!(value(&viewer, "Units"), units);
+        assert_eq!(value(&viewer, "Total"), total);
+        let reopened = opened_on(Scripting::Off, saved(&events));
+        assert_eq!(
+            value(&reopened, "Units"),
+            units,
+            "the preSave value is written"
+        );
+        assert_eq!(value(&reopened, "Total"), "", "the postSave value is not");
+    }
+}

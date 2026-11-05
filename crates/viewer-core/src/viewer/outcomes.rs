@@ -101,7 +101,12 @@ impl Viewer {
         // same parameter says the same sentence whether its file was beside the document or on a
         // server (ADR 1527).
         let arrival = match answers {
-            crate::Answered::Submission => interact::Arrival::Answer,
+            crate::Answered::Submission => {
+                // XFA 3.3 page 389: `postSubmit` fires once the returned data is marshalled and
+                // before it is merged back, so that a script may examine it first (ADR 2702).
+                open.view.activate_form_after_submit(&open.document, None);
+                interact::Arrival::Answer
+            }
             crate::Answered::Import => interact::Arrival::Action,
         };
         let outcome = interact::import(open, bytes, arrival);
