@@ -379,3 +379,161 @@ fn a_cmyk_profile_the_file_already_held_keeps_the_sentence_it_was_drawn_through(
         "a DeviceCMYK colour moved by {largest} levels"
     );
 }
+
+/// The red, green and blue of the pixel at `x`, `y` points from the top left of a page drawn at
+/// 72 dots to the inch, so one point is one pixel.
+fn pixel(raster: &pdf_render::Raster, x: u32, y: u32) -> [f64; 3] {
+    assert_eq!(raster.format, pdf_render::RasterFormat::Rgba8);
+    let width = usize::try_from(raster.width).expect("a width that fits in memory");
+    let pixels: Vec<&[u8]> = raster.data.chunks_exact(4).collect();
+    let row = pixels
+        .chunks_exact(width)
+        .nth(usize::try_from(y).expect("a row index"))
+        .expect("a row inside the raster");
+    let rgba = row[usize::try_from(x).expect("a column index")];
+    [0, 1, 2].map(|channel| f64::from(rgba[channel]))
+}
+
+/// A 200-point page: across the top, an unmasked patch of `0 0 0 1 k`; across the bottom,
+/// `0 0 0 1 k` painted through a `/Luminosity` soft mask whose group states `/CS /DeviceCMYK` and
+/// paints `left` over its left half and `right` over its right.
+fn black_through_a_cmyk_mask(target: Target, left: &str, right: &str) -> Vec<u8> {
+    let base = match target {
+        Target::Two(_) => Conforming::part_two(),
+        Target::Four(_) => Conforming::default(),
+    };
+    Conforming {
+        resources: "/ExtGState << /M << /Type /ExtGState /SMask << /Type /Mask /S /Luminosity \
+                    /G 6 0 R >> >> >>"
+            .to_owned(),
+        binary_objects: vec![stream(
+            "/Type /XObject /Subtype /Form /BBox [0 0 200 100] /Group << /S /Transparency \
+             /CS /DeviceCMYK >> /Resources << >>",
+            format!("{left} 0 0 100 100 re f\n{right} 100 0 100 100 re f\n").as_bytes(),
+        )],
+        contents: Some((
+            String::new(),
+            b"0 0 0 1 k 0 100 200 100 re f\nq /M gs 0 0 0 1 k 0 0 200 100 re f Q\n".to_vec(),
+        )),
+        ..base
+    }
+    .build()
+}
+
+/// The mask value a masked pixel `masked` implies, over the page's white, for the unmasked
+/// black `black` of the same page: §11.3.7.2's `Normal` with the mask as the source's alpha,
+/// solved for the alpha, in the channel the two differ most.
+fn mask_of(masked: [f64; 3], black: [f64; 3]) -> f64 {
+    let (spread, channel) = (0..3)
+        .map(|channel| (255.0 - black[channel], channel))
+        .fold(
+            (0.0, 0),
+            |most, next| if next.0 > most.0 { next } else { most },
+        );
+    (255.0 - masked[channel]) / spread
+}
+
+/// The mask values `bytes` draws under its left and right halves.
+fn masks_drawn(bytes: &[u8]) -> [f64; 2] {
+    let page = drawn(bytes);
+    let black = pixel(&page, 100, 50);
+    [50, 150].map(|x| mask_of(pixel(&page, x, 150), black))
+}
+
+#[test]
+fn a_cmyk_ink_masks_the_same_in_the_source_and_under_the_assumed_inks_intent() {
+    // §11.5.3 takes a mask group's luminosity "depending on the group's colour space", and this
+    // reader takes its device branch in every space (the owner's A23, ADR 2552): EXAMPLE 2's
+    // `1 − min(1, 0.3 C + 0.59 M + 0.11 Y + K)` of the four components composited. Half black,
+    // and a mixed ink whose sum is 0.25, mask by 0.5 and 0.75 in the source, where the group is
+    // `DeviceCMYK` itself, and in the archive, where section 6.2.4.3 of both parts makes it the
+    // intent's profile — a CMYK colour is the same four numbers in either.
+    for target in TARGETS {
+        let source = black_through_a_cmyk_mask(target, "0 0 0 0.5 k", "0.25 0.25 0.25 0 k");
+        let (report, output) = convert(&source, target, Authorisations::default());
+        let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+        let sentence = intent_sentence(&report, cmyk_row(target));
+        assert!(sentence.contains("soft mask"), "{sentence}");
+        for bytes in [&source, &output] {
+            let drew = masks_drawn(bytes);
+            for (mask, wanted) in drew.iter().zip([0.5, 0.75]) {
+                assert!(
+                    (mask - wanted).abs() < 0.01,
+                    "{target:?}: the mask drew {drew:?} where §11.5.3's device branch is 0.5 and 0.75"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_grey_painted_into_a_cmyk_mask_masks_by_its_grey_in_the_source() {
+    // A `DeviceGray` 0.5 painted into a `DeviceCMYK` mask group. In the source the group is a
+    // device space, and §10.4.2.3's conversion — "black = 1.0 − gray" with the other three zero
+    // — composed with EXAMPLE 2 gives the grey back: 0.5. In the archive the group is the intent's
+    // profile, and this reader separates the grey into that press by the profile's own `B2A`
+    // (ADR 0796), whose cyan, magenta and yellow EXAMPLE 2 weighs differently; ISO 19005-2 and
+    // ISO 19005-4 section 6.2.4.3 instead convert a `DeviceGray` colour under a CMYK intent to
+    // CMYK by the classic method, which gives 0.5 again. Which this reader does is `Q788`; this
+    // pins the source, and that the archive differs, so that an answer is seen to move it.
+    for target in TARGETS {
+        let source = black_through_a_cmyk_mask(target, "0.5 g", "0.5 g");
+        let (report, output) = convert(&source, target, Authorisations::default());
+        let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+        let [before, _] = masks_drawn(&source);
+        let [after, _] = masks_drawn(&output);
+        assert!(
+            (before - 0.5).abs() < 0.01,
+            "{target:?}: the source masked by {before}"
+        );
+        assert!(
+            (after - before).abs() > 0.02,
+            "{target:?}: the archive masked by {after}, the source by {before}"
+        );
+    }
+}
+
+#[test]
+fn a_page_blending_in_device_cmyk_draws_as_its_source_under_the_assumed_inks() {
+    // §11.4.7's page group stating `/CS /DeviceCMYK` composites the page in four components with
+    // and without the intent: the assumed inks as this renderer's own press in the source, and the
+    // profile written of them in the archive (§11.7.2's redefinition of `DeviceCMYK`). Multiply
+    // and a constant alpha over five inks put each overlap through §11.3's arithmetic, and the two
+    // presses agree to the level the profile was sampled to (`doc/adr/2700`), so the blending space
+    // is not what moves a transparent page (`doc/adr/2708`).
+    let inks = [
+        "0 0 0 0",
+        "1 0 0 0",
+        "0 1 0 0",
+        "0 0 1 0",
+        "0.2 0.4 0.6 0.3",
+    ];
+    let mut contents = String::new();
+    for (at, ink) in inks.iter().enumerate() {
+        let _ = writeln!(contents, "{ink} k 0 {} 200 40 re f", at * 40);
+    }
+    for (at, ink) in inks.iter().enumerate() {
+        let _ = writeln!(contents, "q /B gs {ink} k {} 0 40 200 re f Q", at * 40);
+    }
+    for target in TARGETS {
+        let base = match target {
+            Target::Two(_) => Conforming::part_two(),
+            Target::Four(_) => Conforming::default(),
+        };
+        let source = Conforming {
+            page: "/Group << /S /Transparency /CS /DeviceCMYK >>".to_owned(),
+            resources: "/ExtGState << /B << /Type /ExtGState /BM /Multiply /ca 0.7 >> >>"
+                .to_owned(),
+            contents: Some((String::new(), contents.clone().into_bytes())),
+            ..base
+        }
+        .build();
+        let (report, output) = convert(&source, target, Authorisations::default());
+        let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+        let largest = largest_difference(&source, &output);
+        assert!(
+            largest <= 1,
+            "{target:?}: a composite moved by {largest} levels"
+        );
+    }
+}

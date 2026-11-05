@@ -81,22 +81,31 @@ const OUTPUT_INTENT_STATES_THE_SUPPLIED_PRESS: &str = "a PDF/A output intent is 
 /// [`OUTPUT_INTENT_REINTERPRETS`]'s claim that this renderer already showed the colours that way
 /// is true here: the profile is a sampling of the ink cube the source's `DeviceCMYK` was drawn
 /// through, fine enough that the tests of `pdf-colour`'s `inks_profile` hold every fill and every
-/// press sample within one level of 255. What the claim does not cover is said too: an output
-/// intent is also the page's default blending space, so a page that blends transparency now
-/// composites in the profile's four components where its source did not, by up to 25 levels in
-/// the documents measured, and by the same amount with the conversion into the press taken by
-/// search instead of by the profile (`doc/adr/2700` section 3). The sentence also says what the profile is not, because its description does: a
-/// characterisation of a renderer, not of a press.
+/// press sample within one level of 255.
+///
+/// What the claim does not cover is a grey inside a soft mask (`doc/adr/2708`). A `/Luminosity`
+/// group stating `/CS /DeviceCMYK` composites in the profile's four components once the profile
+/// is the intent, and a `DeviceGray` colour painted into it is separated into them by the
+/// profile's own `B2A` (ADR 0796) where the source took ISO 32000-2 §10.4.2.3's black alone; the
+/// other direction, an isolated `/DeviceCMYK` group drawn into a `/DeviceGray` mask group, leaves
+/// the profile colorimetrically where the source took §10.4.2.3's grey. §11.5.3's device branch, which this reader takes in every space (ADR 2552), weighs the two
+/// separations differently, and in the six documents measured the masks moved by up to 25
+/// levels while the pages' own blending moved by at most one. ISO 19005-2 and ISO 19005-4
+/// section 6.2.4.3 have a conforming reader convert a grey under a CMYK intent by the classic
+/// method, which would draw those masks as the source did; whether this reader does is `Q788`. The sentence
+/// also says what the profile is not, because its description does: a characterisation of a
+/// renderer, not of a press.
 const OUTPUT_INTENT_STATES_THE_ASSUMED_INKS: &str = "a PDF/A output intent is what a conforming \
      reader colour-manages device colours through, so every DeviceGray, DeviceRGB and DeviceCMYK \
      value in this file now means what the destination profile says it means, and the same \
      profile becomes the default blending space for transparency. This file named no press, and \
      that profile states the process inks this renderer assumed for its DeviceCMYK colours, so \
      this renderer already showed those colours that way, and another reader following the \
-     profile shows them the same way. Where the page blends transparency, it now blends in that \
-     profile's four components, and those composites can draw differently. The profile \
-     characterises this renderer and not a physical press, so for content separated for a \
-     particular press, supply that press's profile with --output-intent-profile instead";
+     profile shows them the same way. Where a soft mask mixes grey and DeviceCMYK \
+     content, this renderer now converts between them through the profile's inks rather than \
+     through black alone, so such a mask can draw differently here. The profile characterises this \
+     renderer and not a physical press, so for content separated for a particular press, \
+     supply that press's profile with --output-intent-profile instead";
 
 /// The sentence a stated output intent carries: `row`'s own, unless the intent is a CMYK press
 /// this conversion adds. Where that press is a real one this renderer did not draw the source
