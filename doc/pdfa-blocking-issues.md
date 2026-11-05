@@ -2,7 +2,7 @@
 
 Status: **a census record**, taken at `7d6ed87f` on 2026-10-27 by session 1828 for the owner's
 `doc/questions/A681` item 1, and re-run by the commands in section 1. Section 1's census lines and
-section 2's table are session 1936's run, section 2 being `rank.py --table`'s output; the figures in
+section 2's table are session 1938's run, section 2 being `rank.py --table`'s output; the figures in
 sections 3 to 9 are session 1828's, each entry's built parts named where a round built them, and
 none is kept current by hand. ADR 2490 is the decision that reopens the blocks; this file
 is the list it reopens them over. It does not repeat `doc/pdf-a-conversion-limits.md` or
@@ -60,11 +60,11 @@ Two disagreements found outside it, to weigh in batch 132 (ADR 2652 section 2):
 | pdf.js `as-if-printed` 2b | 906 | 2 | 52 | 11 | 5 |
 | corpora `as-if-printed` 2b | 426 | 6 | 52 | 16 | 3 |
 | pdf.js `as-if-printed` 4 | 916 | 0 | 44 | 11 | 5 |
-| corpora `as-if-printed` 4 | 435 | 0 | 50 | 16 | 2 |
+| corpora `as-if-printed` 4 | 443 | 0 | 42 | 16 | 2 |
 | pdf.js `as-shown` 2b | 841 | 2 | 117 | 11 | 5 |
 | corpora `as-shown` 2b | 344 | 6 | 133 | 16 | 4 |
 | pdf.js `as-shown` 4 | 845 | 0 | 115 | 11 | 5 |
-| corpora `as-shown` 4 | 341 | 0 | 142 | 16 | 4 |
+| corpora `as-shown` 4 | 348 | 0 | 135 | 16 | 4 |
 
 In session 1828's run, without the pack, pdf.js `as-if-printed` was eleven documents worse at each
 part, which is why the pack is taken as installed. `as-shown` is the same
@@ -103,7 +103,7 @@ column. R02 is built (ADR 2498) and no document reaches it.
 
 | order | remedy | frees at 2b | frees at 4 | stops under `as-shown`, 2b / 4 | what is left needs | built by, and what is left |
 |---|---|---|---|---|---|---|
-| 1 | R06b-the-other-part | 34 | 8 | 41 / 9 | built | ADR 2498: the two-target request; the figures are what a one-part request refuses |
+| 1 | R06b-the-other-part | 34 | 0 | 41 / 0 | built | ADR 2498: the two-target request; the figures are what a one-part request refuses; a `%PDF-3.x` source is written at 4 (ADR 2692) |
 | 2 | R10-font-refiling | 10 | 10 | 13 / 13 | builds only | built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685), a standard font's stated widths (ADR 2686), a mode 3 font's descriptor (ADR 2688) |
 | 3 | R03-photograph | 6 | 8 | 55 / 57 | builds only | built under `as-if-printed`: A694, ADRs 2516, 2618, 2638; left, a page this reader does not draw whole; `as-shown` keeps ADR 2394's gate (A694 item 1) |
 | 4 | R08-unembedded-font-photograph | 9 | 9 | 35 / 35 | builds only | built under `as-if-printed`: A694, ADR 2516; `as-shown` keeps its stop (A694 item 1) |
@@ -115,7 +115,7 @@ column. R02 is built (ADR 2498) and no document reaches it.
 | 10 | R13-jpx-transcode | 3 | 3 | 3 / 3 | builds only | unbuilt |
 | 11 | R14-appended-page-composition | 3 | 2 | 3 / 3 | builds only | built: ADRs 2678, 2682 |
 | 12 | R01-recovered-structure | 1 | 1 | 3 / 3 | builds only | built: ADRs 2502, 2503, 2551, 2596, 2670; each left is refused by its own sentence |
-| 13 | R07-undecodable-stream | 1 | 2 | 1 / 2 | builds only | built: ADR 2689; left, an ICC profile written as its alternate, and the seven `UnknownFilter` files' `%PDF-3.x` header |
+| 13 | R07-undecodable-stream | 1 | 2 | 1 / 2 | builds only | built: ADR 2689; the `UnknownFilter` files' `%PDF-3.x` header, ADR 2692; left, an ICC profile written as its alternate |
 | 14 | R12-spot-colourant | 1 | 1 | 1 / 1 | builds only | built for a PostScript calculator function: ADR 2690; left, a sampled transform, refused until its loss is named (ADR 2490) |
 | 15 | R05-press | 0 | 9 | 0 / 29 | builds only | A694 item 2: (a) built; (b), `as-shown`'s assumed press, waits for an ICC table writer |
 | 16 | R18-piece-info | 0 | 3 | 0 / 3 | builds only | unbuilt |
@@ -347,9 +347,9 @@ otherwise R03. ADR 2490; mitigations `graphics/named-resources-are-defined`. **B
 
 **R06b — the other part** (39 documents at 2b, 8 at 4; alone in 21 and 1): a PDF 2.0 document asked
 for at 2b (22, plus one declined as a source), an implementation limit part 4 does not set (18), and
-the eight `UnknownFilter-*` files at part 4. PDF/A-2 is built on ISO 32000-1, so a PDF 2.0 file is
-not a 2b file by design. *A company* whose rule does not pin the part takes PDF/A-4. **Remedy**: the
-verb takes "2b, or 4 where 2b refuses" as one request and says which part it wrote. No loss.
+the eight `UnknownFilter-*` files at part 4, whose `%PDF-3.x` header ADR 2692 writes there as 2.0
+(R06a). PDF/A-2 is built on ISO 32000-1, so a PDF 2.0 file is not a 2b file by design. *A company*
+whose rule does not pin the part takes PDF/A-4. **Remedy**: the verb takes "2b, or 4 where 2b refuses" as one request and says which part it wrote. No loss.
 
 **R06a — a header that states no version this tree reads** (7 documents, each alone; five are
 `T01_*` test files). The output is a new file this program writes; its header states the version of
@@ -359,7 +359,10 @@ header is the target's (1.7 for part 2, 2.0 for part 4), the source's first line
 `xmpMM:History` and the report, and a rebuilt structure states the target's version and `/Type /Page`.
 A page tree root that states `/Parent`, or a kid that names no dictionary, declines the source to
 `recovered-structure`. Five `T01_*` files and `bug1606566` convert, and `issue9105_other` and
-`PDFBOX-6040-nodeloop` under `recovered-structure`; all pass veraPDF at both targets.
+`PDFBOX-6040-nodeloop` under `recovered-structure`; all pass veraPDF at both targets. A header
+stating a version later than any §7.5.2 defines (`%PDF-3.n`, the `UnknownFilter-*` files) is ADR
+2692's: written as 2.0 at part 4, the source's first line and version in `xmpMM:History`, and
+refused at part 2 as a 2.0 source is, by a sentence that names part 2.
 
 **R01 — a document only this reader's recovery reads** (the standard defines none: its Annex C.4 advises on a damaged cross-reference table only, ADR 2502; 23 declined as a source; the reader draws a page of
 18 of them, 4 of those blank; five draw no page, section 7.2). *A company* would open it, see it,

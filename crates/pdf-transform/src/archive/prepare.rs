@@ -140,11 +140,12 @@ const NO_PLACE_TO_RECORD_A_RUN: &str = "writing a run as the number this reader 
      each run in this file's own xmpMM:History, and this document's XMP packet will not take that \
      entry, so the runs stay as they are and no file is written (doc/adr/2638)";
 
-/// Why the target's header was not written over a header that stated no version.
-const NO_PLACE_TO_RECORD_HEADER: &str = "this document's header states no version this tree \
-     reads, so the output's header states the target's and the source's header line is written \
-     into this file's own xmpMM:History, and this document's XMP packet will not take that entry \
-     — so no file is written (doc/adr/2558)";
+/// Why the target's header was not written over one stating no version ISO 32000-2 defines.
+const NO_PLACE_TO_RECORD_HEADER: &str = "this document states no version ISO 32000-2 defines \
+     (none this tree reads, or one later than 2.0's major version), so the output's header states \
+     the target's and the source's header line is written into this file's own xmpMM:History, and \
+     this document's XMP packet will not take that entry — so no file is written (doc/adr/2558, \
+     doc/adr/2692)";
 
 /// Why a substitution was withdrawn even though it could have been carried out.
 const NO_PLACE_TO_RECORD_A_SUBSTITUTION: &str = "embedding a face for a font this file never \
@@ -1203,9 +1204,9 @@ impl Prepared {
             .as_ref()
             .ok()
             .and_then(super::undecodable::Undecodable::history);
-        // The source's header, where it named no version: the output's header states the target's,
-        // and the record of what the producer wrote there is a condition of writing it
-        // (`doc/adr/2558`). Read off the source, not a structure this program rebuilt from it.
+        // The source's header, where it named no version ISO 32000-2 defines: the output's header
+        // states the target's, and the record of what the producer wrote there is a condition of
+        // writing it (`doc/adr/2558`, `doc/adr/2692`). Read off the source, not a structure this program rebuilt from it.
         let header_history = super::header::history(source, plan.target);
         let parent_tree_history = parent_tree
             .as_ref()

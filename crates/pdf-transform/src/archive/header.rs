@@ -1,13 +1,20 @@
-//! The header an output states where its source stated no version, and the source's header kept.
+//! The header an output states where its source stated no version ISO 32000-2 defines, and the
+//! source's header kept.
 //!
-//! ISO 32000-2 §7.5.2 makes the header one line naming a version, `%PDF-` followed by a single
-//! digit, a point and a single digit, and asks a processor that writes a file conforming to the
-//! document to identify that file's version as 2.0. A converted output is a file this program
-//! writes, so its header states the version of the file written, as every output's does
-//! (`doc/adr/2558`). A source whose header names no version this tree reads (`%PDF1.4`, `%PDF-1.`,
-//! no header at all) still converts: the output's header is the target's, and the bytes the source
-//! put where its header belonged are kept in the output's own `xmpMM:History` and in the report,
-//! so the archive says what the producer wrote and does not pretend it named a version.
+//! ISO 32000-2 §7.5.2 makes the header one line naming a version, `%PDF-1.n` or `%PDF-2.n`, and
+//! asks a processor that writes a file conforming to the document to identify that file's version
+//! as 2.0. A converted output is a file this program writes, so its header states the version of
+//! the file written, as every output's does (`doc/adr/2558`). Two kinds of source state no version
+//! the standard defines, and both still convert with the target's header, the bytes the source put
+//! where its header belonged kept in the output's own `xmpMM:History` and in the report:
+//!
+//! - a header that names no version this tree reads (`%PDF1.4`, `%PDF-1.`, no header at all), so
+//!   the archive says what the producer wrote and does not pretend it named a version;
+//! - a version later than any §7.5.2 defines (`%PDF-3.1`), converted to PDF/A-4 only: ISO 19005-4
+//!   section 6.1.2 admits `%PDF-2.n` alone, the output holds only what this reader of ISO 32000-2
+//!   read, and Annex I's *should* that a file's version never be changed to an older one is
+//!   answered by the record rather than by a refusal (`doc/adr/2692`). PDF/A-2 refuses the source
+//!   as it refuses a PDF 2.0 one ([`super::version_for`]).
 
 use std::fmt::Write as _;
 
@@ -36,22 +43,44 @@ pub(super) fn target_version(target: Target) -> Version {
     }
 }
 
-/// The `xmpMM:History` parameters recording the source's header, where it stated no version.
+/// Whether a version is later than every version ISO 32000-2 §7.5.2's header can state.
 ///
-/// `None` where the source's header or a catalog of any revision states a version
-/// ([`Document::version`]), since then the output's header follows what the producer said and
-/// nothing was chosen for it.
+/// The clause's header is `%PDF-1.n` or `%PDF-2.n`, so a major version past 2 names a standard
+/// this tree was not written against ([`Version::SUPPORTED`]); a `2.n` past 2.0 still has the
+/// clause's shape and ISO 19005-4 section 6.1.2 admits it, so it is not counted here.
+#[must_use]
+pub(super) fn later_than_the_standard(stated: Version) -> bool {
+    stated.major > Version::SUPPORTED.major
+}
+
+/// The `xmpMM:History` parameters recording the source's header, where the output's header states
+/// a version the source did not.
+///
+/// `Some` where the source's header and catalogs state no version ([`Document::version`]), and
+/// where they state one later than ISO 32000-2's and the target is PDF/A-4, the only target such a
+/// source converts to. `None` otherwise, since then the output's header follows what the producer
+/// said and nothing was chosen for it.
 #[must_use]
 pub(super) fn history(source: &Document, target: Target) -> Option<String> {
-    if source.version().is_some() {
-        return None;
-    }
+    let because = match source.version() {
+        None => "the source's header states no version ISO 32000-2 \u{a7}7.5.2 defines".to_owned(),
+        Some(stated)
+            if later_than_the_standard(stated)
+                && matches!(target.part(), pdf_archive::Part::Four) =>
+        {
+            format!(
+                "the source states PDF {stated}, a version later than any ISO 32000-2 \u{a7}7.5.2 \
+                 defines, and ISO 19005-4 section 6.1.2 admits only %PDF-2.n"
+            )
+        }
+        Some(_) => return None,
+    };
     let written = target_version(target);
     let bytes = source.bytes();
     let window = bytes.read(0..MOST_HEADER_BYTES.saturating_add(1));
     Some(format!(
-        "the header %PDF-{written} written for {target}, because the source's header states no \
-         version ISO 32000-2 \u{a7}7.5.2 defines; the source's first line was {}",
+        "the header %PDF-{written} written for {target}, because {because}; the source's first \
+         line was {}",
         first_line(&window)
     ))
 }
@@ -92,7 +121,7 @@ fn first_line(window: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{MOST_HEADER_BYTES, first_line, history, target_version};
+    use super::{MOST_HEADER_BYTES, first_line, history, later_than_the_standard, target_version};
     use pdf_archive::{Flavour, Level, Target};
     use pdf_syntax::{Document, Version};
 
@@ -136,6 +165,32 @@ mod tests {
     fn a_source_that_states_a_version_records_nothing() {
         let document = with_header(b"%PDF-1.4\n");
         assert_eq!(history(&document, Target::Four(Flavour::Plain)), None);
+    }
+
+    #[test]
+    fn a_version_later_than_the_standard_is_recorded_at_part_four_only() {
+        // §7.5.2's header is `%PDF-1.n` or `%PDF-2.n`; a `2.n` past 2.0 keeps the clause's shape
+        // and is not counted, a `3.n` is (`doc/adr/2692`).
+        assert!(!later_than_the_standard(Version { major: 2, minor: 9 }));
+        assert!(later_than_the_standard(Version { major: 3, minor: 0 }));
+        let document = with_header(b"%PDF-3.4\n");
+        let recorded =
+            history(&document, Target::Four(Flavour::Plain)).expect("3.4 is later than 2.0");
+        assert!(
+            recorded.starts_with(
+                "the header %PDF-2.0 written for PDF/A-4, because the source states PDF 3.4,"
+            ),
+            "{recorded}"
+        );
+        assert!(
+            recorded.ends_with(r#"the source's first line was "%PDF-3.4""#),
+            "{recorded}"
+        );
+        assert_eq!(history(&document, Target::Two(Level::B)), None);
+        assert_eq!(
+            history(&with_header(b"%PDF-2.4\n"), Target::Four(Flavour::Plain)),
+            None
+        );
     }
 
     #[test]

@@ -1548,9 +1548,9 @@ fn apply_the_decisions(
         .as_ref()
         .is_ok_and(|composed| !composed.relocations.is_empty());
     let mut wanted = rewrites_wanted(conversion, omit_identification, has_relocations);
-    // The target's header over one that named no version is written only with its record, so the
-    // packet is written whenever the record is, and a packet that will not take it writes no file
-    // (`doc/adr/2558`). Asked here and not only of the `FileHeader` decision, because a structure
+    // The target's header over one that named no version ISO 32000-2 defines is written only with
+    // its record, so the packet is written whenever the record is, and a packet that will not take
+    // it writes no file (`doc/adr/2558`, `doc/adr/2692`). Asked here and not only of the `FileHeader` decision, because a structure
     // this program rebuilt states the target's version already and fails no header requirement.
     let header_recorded = prepared.header_recorded.as_ref().map_err(|because| {
         Refusal::Assembly(format!(
@@ -2276,6 +2276,10 @@ fn hold_the_output_to_the_target(
 ///   §7.5.2 has a writer state the version of the file it wrote; what the producer put where its
 ///   header belonged is kept in the output's `xmpMM:History` and the report rather than restated
 ///   as a version it never named (`doc/adr/2558`).
+/// - A source stating a version later than any §7.5.2 defines (`%PDF-3.1`): 2.0 at part 4, its
+///   header kept the same way, because the output holds only what this reader of ISO 32000-2 read
+///   and ISO 19005-4 section 6.1.2 admits no other header; refused at part 2 as a 2.0 source is,
+///   since it states at least what 2.0 added (`doc/adr/2692`).
 fn version_for(document: &Document, target: Target) -> Result<Version, Because> {
     // ISO 19005-2 section 6.1.2 admits 1.0 to 1.7; ISO 19005-4 section 6.1.2 admits 2.0 to 2.9.
     let (major, top) = match target.part() {
@@ -2294,12 +2298,22 @@ fn version_for(document: &Document, target: Target) -> Result<Version, Because> 
     if stated.major < major {
         return Ok(Version { major, minor: 0 });
     }
-    Err(Because::NotThisTarget(
-        "this document is PDF 2.0 or later and the target's part requires a %PDF-1.n header, so \
-         every construct PDF 2.0 added would have to be translated or refused one at a time — \
-         doc/pdf-a-conversion-limits.md section 6 — and this converter translates none of them",
-    ))
+    match target.part() {
+        pdf_archive::Part::Four if header::later_than_the_standard(stated) => {
+            Ok(header::target_version(target))
+        }
+        _ => Err(Because::NotThisTarget(LOWERED_TO_PART_TWO)),
+    }
 }
+
+/// Why a source stating PDF 2.0 or later is not written as PDF/A-2.
+///
+/// Reached only at part 2: at part 4 a 2.n source keeps its version and a later one is written
+/// as 2.0 with its own header recorded, so the sentence names the part it is true of.
+const LOWERED_TO_PART_TWO: &str = "this document states PDF 2.0 or a later version and PDF/A-2 \
+     requires a %PDF-1.n header (ISO 19005-2 section 6.1.2), so every construct PDF 2.0 added would \
+     have to be translated or refused one at a time — doc/pdf-a-conversion-limits.md section 6 — \
+     and this converter translates none of them; PDF/A-4 admits its header";
 
 /// Prepared attachments and shape answers precede unrelated blanket authorisations.
 fn configured_prepared(

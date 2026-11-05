@@ -824,6 +824,86 @@ fn a_pdf_two_source_cannot_be_lowered_to_part_two() {
 }
 
 #[test]
+fn a_source_later_than_the_standard_is_written_as_part_four_with_its_header_kept() {
+    // ISO 32000-2 §7.5.2's header is `%PDF-1.n` or `%PDF-2.n`, and a 3.1 names a version later
+    // than any it defines; ISO 19005-4 section 6.1.2 admits only `%PDF-2.n`. The output holds only
+    // what this reader of ISO 32000-2 read, so its header is 2.0, and Annex I's "a PDF file's
+    // version should never be changed to an older version" is answered by keeping the source's
+    // header line in the output's own `xmpMM:History` and the report (`doc/adr/2692`).
+    let source = Conforming {
+        header: Some("%PDF-3.1"),
+        ..Conforming::default()
+    }
+    .build();
+    assert_eq!(
+        Document::open(source.clone())
+            .expect("the source opens")
+            .version(),
+        Some(pdf_syntax::Version { major: 3, minor: 1 }),
+        "the reader reads the version the header states"
+    );
+    let target = Target::Four(Flavour::Plain);
+    let (report, output) = convert(&source, target, Authorisations::default());
+    assert_eq!(
+        decision(&report, "file-structure/file-header"),
+        Decision::Mechanical(Rewrite::FileHeader)
+    );
+    let output = output.expect("the document converts to PDF/A-4");
+    assert!(output.starts_with(b"%PDF-2.0\n"));
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let recorded = "the header %PDF-2.0 written for PDF/A-4, because the source states PDF 3.1, a \
+                    version later than any ISO 32000-2 \u{a7}7.5.2 defines, and ISO 19005-4 \
+                    section 6.1.2 admits only %PDF-2.n; the source's first line was \"%PDF-3.1\"";
+    let held = Document::open(output).expect("the output opens");
+    assert!(
+        the_packet_of(&held).contains(recorded),
+        "{}",
+        the_packet_of(&held)
+    );
+    assert!(
+        conversion(&report)
+            .recorded
+            .as_deref()
+            .is_some_and(|said| said.contains(recorded)),
+        "{:?}",
+        conversion(&report).recorded
+    );
+}
+
+#[test]
+fn a_source_later_than_the_standard_is_refused_at_part_two_by_a_sentence_true_of_part_two() {
+    // ISO 19005-2 section 6.1.2 requires `%PDF-1.n`, and a source stating 3.1 states at least what
+    // PDF 2.0 added, so it is refused as a 2.0 source is; the sentence names the part it is true
+    // of and the part that admits the header (`doc/adr/2692`).
+    for header in ["%PDF-3.1", "%PDF-2.0"] {
+        let source = Conforming {
+            header: Some(header),
+            ..Conforming::part_two()
+        }
+        .build();
+        let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+        assert!(output.is_none(), "{header}: no file is written");
+        let Decision::Refused(Because::NotThisTarget(sentence)) =
+            decision(&report, "file-structure/file-header")
+        else {
+            panic!("{header}: the header is refused as not this target's");
+        };
+        assert!(
+            sentence.starts_with(
+                "this document states PDF 2.0 or a later version and PDF/A-2 requires a \
+                 %PDF-1.n header (ISO 19005-2 section 6.1.2)"
+            ),
+            "{sentence}"
+        );
+        assert!(
+            sentence.ends_with("PDF/A-4 admits its header"),
+            "{sentence}"
+        );
+        assert!(conversion(&report).recorded.is_none(), "{header}");
+    }
+}
+
+#[test]
 fn an_images_alternates_and_opi_are_removed() {
     // ISO 19005-4 section 6.2.7.1 forbids both keys on an image XObject.
     let source = Conforming {
