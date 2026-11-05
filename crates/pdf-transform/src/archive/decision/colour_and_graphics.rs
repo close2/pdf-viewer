@@ -9,7 +9,7 @@
 
 use pdf_archive::survey::DeviceFamily;
 
-use super::super::prepare::Prepared;
+use super::super::prepare::{Intent, Prepared, ProfileSource};
 use super::super::rewrite::Rewrite;
 use super::{
     Answer, Authorisations, Because, Conditional, Decision, Loss, Losses, Remedy, Shape, answer_of,
@@ -30,6 +30,53 @@ const OUTPUT_INTENT_REINTERPRETS: &str = "a PDF/A output intent is what a confor
      transparency. This renderer already showed those colours that way; another reader may not \
      have, and for content separated for a particular press the difference is real rather than \
      imperceptible — supply that press's profile with --output-intent-profile instead";
+
+/// What adding an output intent asserts where its destination profile is the CMYK press this
+/// program ships, which the file did not already state (`doc/adr/2691`).
+///
+/// [`OUTPUT_INTENT_REINTERPRETS`]'s second sentence is true of an RGB or a grey profile, which
+/// draw a device colour where this renderer drew it to within a level of 255, and false of a
+/// CMYK one: ISO 32000-2 §8.6.4.1 has device colours "map directly (or by simple conversions)"
+/// to a device's colourants, and with no profile in the file this renderer drew `DeviceCMYK`
+/// through its own assumed process inks (`pdf_colour::assumed_press`, ADR 0263), which no ICC
+/// profile states. So the output draws those colours through a different press than the source
+/// did, and the sentence that is the condition of the rewrite (`doc/adr/0927`) says so.
+const OUTPUT_INTENT_STATES_THE_SHIPPED_PRESS: &str = "a PDF/A output intent is what a \
+     conforming reader colour-manages device colours through, so every DeviceGray, DeviceRGB and \
+     DeviceCMYK value in this file now means what the destination profile says it means, and the \
+     same profile becomes the default blending space for transparency. That profile is the CMYK \
+     press this program ships, and this file named no press: this renderer drew its DeviceCMYK \
+     colours through its own assumed process inks, which no ICC profile states, so they now draw \
+     differently here as well as in other readers, most where the press's inks lie outside what \
+     a screen shows. For content separated for a particular press, supply that press's profile \
+     with --output-intent-profile instead";
+
+/// [`OUTPUT_INTENT_STATES_THE_SHIPPED_PRESS`] where the CMYK profile is the operator's
+/// (`doc/adr/2691`): the same move of the drawing, and the press is a statement the operator made.
+const OUTPUT_INTENT_STATES_THE_SUPPLIED_PRESS: &str = "a PDF/A output intent is what a \
+     conforming reader colour-manages device colours through, so every DeviceGray, DeviceRGB and \
+     DeviceCMYK value in this file now means what the destination profile says it means, and the \
+     same profile becomes the default blending space for transparency. That profile is the CMYK \
+     one you supplied with --output-intent-profile, your statement of the press this document \
+     was made for; this file named none, and this renderer drew its DeviceCMYK colours through \
+     its own assumed process inks, which no ICC profile states, so they now draw differently \
+     here as well as in other readers";
+
+/// The sentence a stated output intent carries: `row`'s own, unless the intent is a CMYK press
+/// this conversion adds, where this renderer's own drawing moves with it (`doc/adr/2691`).
+///
+/// A profile the file already held is the one this renderer drew the source through, so the row's
+/// sentence stays true of it whatever its family.
+pub(super) fn output_intent_sentence(intent: &Intent, row: &'static str) -> &'static str {
+    if row != OUTPUT_INTENT_REINTERPRETS || intent.family != DeviceFamily::Cmyk {
+        return row;
+    }
+    match intent.reported.source {
+        ProfileSource::Shipped => OUTPUT_INTENT_STATES_THE_SHIPPED_PRESS,
+        ProfileSource::Supplied => OUTPUT_INTENT_STATES_THE_SUPPLIED_PRESS,
+        ProfileSource::AlreadyInTheFile => row,
+    }
+}
 
 /// What the `DeviceN` `/DefaultCMYK` asserts, which is `doc/questions/A48`'s condition on it.
 ///
@@ -888,7 +935,7 @@ pub(super) fn cmyk_answer_under_part_two(prepared: &Prepared) -> Decision {
     match (&prepared.intent, &prepared.default_cmyk) {
         (Ok(intent), _) if intent.family == DeviceFamily::Cmyk => Decision::Stated {
             rewrite: Rewrite::OutputIntent,
-            reinterprets: OUTPUT_INTENT_REINTERPRETS,
+            reinterprets: output_intent_sentence(intent, OUTPUT_INTENT_REINTERPRETS),
         },
         _ if prepared.supplied_cmyk.is_ok() => Decision::Stated {
             rewrite: Rewrite::SuppliedDefaultCmyk,
@@ -917,7 +964,7 @@ pub(super) fn cmyk_answer_under_part_four(
     match (&prepared.intent, &prepared.supplied_cmyk) {
         (Ok(intent), _) if intent.family == DeviceFamily::Cmyk => Decision::Stated {
             rewrite: Rewrite::OutputIntent,
-            reinterprets: OUTPUT_INTENT_REINTERPRETS,
+            reinterprets: output_intent_sentence(intent, OUTPUT_INTENT_REINTERPRETS),
         },
         (Ok(_), Ok(supplied)) if supplied.press == super::super::supplied_cmyk::Press::Assumed => {
             losing(

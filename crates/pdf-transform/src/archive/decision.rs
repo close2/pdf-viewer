@@ -2140,7 +2140,7 @@ fn answer_of(answer: Answer, authorised: Authorisations, prepared: &Prepared) ->
             // requirement's names none — the output's own verdict is what settles those.
             Ok(intent) if family.is_none_or(|wanted| wanted == intent.family) => Decision::Stated {
                 rewrite: Rewrite::OutputIntent,
-                reinterprets,
+                reinterprets: colour_and_graphics::output_intent_sentence(intent, reinterprets),
             },
             Ok(_) => Decision::Refused(Because::NotBuiltYet(WRONG_FAMILY)),
         },

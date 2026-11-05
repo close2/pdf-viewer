@@ -16387,3 +16387,6 @@ mod packet_characters;
 
 #[path = "archive/spot_separations.rs"]
 mod spot_separations;
+
+#[path = "archive/drawn_through_the_intent.rs"]
+mod drawn_through_the_intent;
