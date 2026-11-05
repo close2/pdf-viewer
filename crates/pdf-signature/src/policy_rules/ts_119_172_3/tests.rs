@@ -67,7 +67,7 @@ fn document(rules: &[Vec<u8>]) -> Vec<u8> {
 }
 
 /// The findings of `rules` against the default signature, signed at `at` by its timestamp.
-fn judged(rules: &[Vec<u8>], cms: &SignedData<'_>, facts: &SignerFacts) -> Vec<Finding> {
+fn judged(rules: &[Vec<u8>], cms: &SignedData<'_>, facts: &SignerFacts<'_>) -> Vec<Finding> {
     let octets = document(rules);
     let parsed = PolicyDocument::parse(&octets).expect("a clause 4 document");
     findings(&parsed, cms, facts)
@@ -721,5 +721,75 @@ fn the_signing_certificate_trust_conditions_are_judged_on_a_path_to_the_policys_
             policy_rules::Constraint::TrustPath { unexamined: 1, .. }
         )),
         "the trusted-list anchor is counted, not dropped"
+    );
+}
+
+/// Clause 4.25's time-stamp trust condition — TS 119 172-2 clause 4.25.1 item 3: trust trees
+/// for the authority that issued the signature's time-stamp token, clause 4.23.2's checks for its
+/// path, and its name constraints — judged on the authority's own path (ADR 2720), over the
+/// hierarchy `revocation_checks` minted. Each member is tagged as Annex A's
+/// `TimestampTrustCondition` tags it: `[0]` trees, `[1]` revocation requirement, `[2]` names.
+#[test]
+fn the_time_stamp_trust_condition_is_judged_on_the_authoritys_own_path() {
+    use crate::policy_rules::certification_path::tests::hex;
+    use crate::policy_rules::revocation_checks::tests::fixtures as minted;
+    let token = hex(minted::TOKEN);
+    let bytes = cms::fixtures::detached_with_signature_timestamp(&[0x00; 32], &token);
+    let signed = cms::signed_data(&bytes).expect("a SignedData");
+    let (root_crl, intermediate_crl) = (hex(minted::ROOT_CRL), hex(minted::INTERMEDIATE_CRL));
+    let material = crate::revocation::Material::read(&[&root_crl, &intermediate_crl], &[]);
+    // 2027-01-01T00:00:00Z, after every piece of the minted material was issued.
+    let facts = facts(None)
+        .validated_at(x509::Instant::from_unix_seconds(1_798_761_600))
+        .with_material(&material);
+    let point = seq(&[seq(&[seq(&[hex(minted::ROOT)])])]);
+    let rule = |members: Vec<Vec<u8>>| {
+        basic(
+            7,
+            &seq(&[seq(&[seq(&[ia5("urn:tst")]), ia5("high"), seq(&members)])]),
+            None,
+        )
+    };
+    let stamp = |c: &policy_rules::Constraint| {
+        matches!(
+            c,
+            policy_rules::Constraint::TrustPath { condition, .. }
+                | policy_rules::Constraint::RevocationCheck { condition, .. }
+                | policy_rules::Constraint::TrustCondition(condition)
+                | policy_rules::Constraint::ConditionMember { condition, .. }
+                if *condition == TIMESTAMP_TRUST
+        )
+    };
+    // clrCheck (0) on the authority, ocspCheck (1) on the intermediate.
+    let requirement = tagged(1, &seq(&[enumeration(0), enumeration(1)]));
+    let found = judged(
+        &[rule(vec![
+            tagged(0, &seq(std::slice::from_ref(&point))),
+            requirement.clone(),
+        ])],
+        &signed,
+        &facts,
+    );
+    assert_eq!(
+        verdict_of(&found, stamp),
+        [Verdict::Met, Verdict::Met, Verdict::NotEvaluated],
+        "the authority's path, its CRL check, and the intermediate's OCSP check, which no response in the material answers"
+    );
+    // Name constraints [2] are named and not evaluated; trees absent, no rule of clause 4.25
+    // supplies another condition's, so the condition is named and its checks have no path.
+    let unprocessed = judged(
+        &[rule(vec![requirement, tagged(2, &seq(&[]))])],
+        &signed,
+        &facts,
+    );
+    assert_eq!(
+        verdict_of(&unprocessed, stamp),
+        [
+            Verdict::NotEvaluated,
+            Verdict::NotEvaluated,
+            Verdict::NotEvaluated,
+            Verdict::NotEvaluated
+        ],
+        "{unprocessed:?}"
     );
 }

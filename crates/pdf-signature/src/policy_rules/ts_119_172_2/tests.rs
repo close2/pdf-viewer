@@ -50,7 +50,7 @@ fn rule(inner: &str, scope: Option<&str>) -> String {
 const AUGMENTATION: &str = "<AugmentationRules><PreviousValidationRequired>true\
     </PreviousValidationRequired><LevelId>urn:level</LevelId></AugmentationRules>";
 
-fn judged(rules: &[String], cms: &SignedData<'_>, facts: &SignerFacts) -> Vec<Finding> {
+fn judged(rules: &[String], cms: &SignedData<'_>, facts: &SignerFacts<'_>) -> Vec<Finding> {
     let octets = document_of(&rules.concat(), None);
     let reading = Reading::parse(octets.as_bytes()).expect("a clause 4 document");
     let document = reading.document().expect("a clause 4 document");
@@ -836,5 +836,79 @@ fn the_xml_signing_certificate_trust_conditions_are_judged_on_the_path() {
             ""
         ),
         [Verdict::NotEvaluated]
+    );
+}
+
+/// Clause 4.25.2's `TimeStampTrustCondition` in the XML syntax: `TstCertificateTrustTrees` read
+/// into the same trust points, and `TstRevocationTrust`'s clause 4.23.2 checks and clause 4.23.3
+/// freshness, judged on the path of the authority that issued the signature's time-stamp token
+/// (ADR 2720), over the hierarchy `revocation_checks` minted.
+#[test]
+fn the_xml_time_stamp_trust_condition_is_judged_on_the_authoritys_own_path() {
+    use crate::policy_rules::TIMESTAMP_TRUST;
+    use crate::policy_rules::certification_path::tests::hex;
+    use crate::policy_rules::revocation_checks::tests::fixtures as minted;
+    let token = hex(minted::TOKEN);
+    let bytes = cms::fixtures::detached_with_signature_timestamp(&[0x00; 32], &token);
+    let signed = cms::signed_data(&bytes).expect("a SignedData");
+    let (root_crl, intermediate_crl, ocsp) = (
+        hex(minted::ROOT_CRL),
+        hex(minted::INTERMEDIATE_CRL),
+        hex(minted::OCSP_GOOD),
+    );
+    let material = crate::revocation::Material::read(&[&root_crl, &intermediate_crl], &[&ocsp]);
+    // 2027-01-01T00:00:00Z, after every piece of the minted material was issued.
+    let facts = facts(None)
+        .validated_at(x509::Instant::from_unix_seconds(1_798_761_600))
+        .with_material(&material);
+    let root = encode(&hex(minted::ROOT));
+    let condition = |end: &str, freshness: &str| {
+        rule(
+            &format!(
+                "<TimeEvidencesRules><RulesForSetOfEvidences>\
+                 <EvidenceIdentifiers><Identifier>urn:tst</Identifier></EvidenceIdentifiers>\
+                 <LevelOfAssurance>urn:high</LevelOfAssurance><TimeStampTrustCondition>\
+                 <TstCertificateTrustTrees><CertificateTrustPoint><TrustAnchors>\
+                 <X509CertificateBased>{root}</X509CertificateBased></TrustAnchors>\
+                 </CertificateTrustPoint></TstCertificateTrustTrees><TstRevocationTrust>\
+                 <CertificateRevReq><EndRevReq>{end}</EndRevReq><CACerts>clrcheck</CACerts>\
+                 </CertificateRevReq>{freshness}</TstRevocationTrust></TimeStampTrustCondition>\
+                 </RulesForSetOfEvidences></TimeEvidencesRules>"
+            ),
+            None,
+        )
+    };
+    let stamp = |c: &policy_rules::Constraint| {
+        matches!(
+            c,
+            policy_rules::Constraint::TrustPath { condition, .. }
+                | policy_rules::Constraint::RevocationCheck { condition, .. }
+                | policy_rules::Constraint::ConditionMember { condition, .. }
+                if *condition == TIMESTAMP_TRUST
+        )
+    };
+    let verdicts = |end: &str, freshness: &str| {
+        verdict_of(
+            &judged(&[condition(end, freshness)], &signed, &facts),
+            stamp,
+        )
+    };
+    assert_eq!(
+        verdicts("bothcheck", ""),
+        [Verdict::Met, Verdict::Met, Verdict::Met],
+        "the authority's path; its CRL and its OCSP response; the intermediate's CRL"
+    );
+    assert_eq!(
+        verdicts(
+            "ocspcheck",
+            "<Freshness><MaxDifferenceRevocationAndValidation>P1D</MaxDifferenceRevocationAndValidation></Freshness>"
+        ),
+        [
+            Verdict::Met,
+            Verdict::Met,
+            Verdict::Met,
+            Verdict::NotEvaluated
+        ],
+        "clause 4.23.3's freshness is named and not evaluated, never met"
     );
 }

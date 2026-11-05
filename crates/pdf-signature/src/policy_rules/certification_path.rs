@@ -28,19 +28,25 @@
 //! tree and no name constraints, or where an anchor the policy names by trusted-list reference is
 //! one this program cannot read, because a trusted list is fetched from a network it does not use.
 //!
+//! A time-stamp trust condition asks the same question of the authority that issued the
+//! signature's time-stamp token, so [`search_authority`] is the same search from that authority's
+//! certificate over the certificates the token carries (ADR 2720).
+//!
 //! # Bounds
 //!
 //! The policy document is hostile until it is bound, and so are its trust points: at most
 //! [`MAX_TRUST_POINTS`] are searched for one condition, and each search is
 //! [`crate::trust::MAX_STEPS`] certificates at most. A trust point past the bound is counted as
-//! unexamined, which keeps a condition it might have met from being called broken.
+//! unexamined, which keeps a condition it might have met from being called broken. At most
+//! [`MAX_AUTHORITY_SEARCHES`] time-stamp conditions are searched for one signature.
 
 use std::borrow::Cow;
 
-use super::{SignerFacts, Stated, TimeSource, Verdict, key_bits};
+use super::{SignerFacts, Stated, TIMESTAMP_TRUST, TimeSource, Verdict, key_bits};
 use crate::cms::SignedData;
 use crate::ess::{self, CertificateHash, Version};
 use crate::revocation::Material;
+use crate::timestamp::Unestablished;
 use crate::trust::{self, PathRefusal, Purpose, Trust, TrustAnchors};
 use crate::x509::{self, Certificate, Instant};
 
@@ -50,6 +56,42 @@ use crate::x509::{self, Certificate, Instant};
 /// sixteen is room for a national policy naming every qualified issuer's root, and the product
 /// with [`crate::trust::MAX_STEPS`] is what keeps a document stuffed with trust points finite.
 pub const MAX_TRUST_POINTS: usize = 16;
+
+/// The most time-stamp trust conditions searched for one signature.
+///
+/// TS 119 172-2 clause 4.25 lets a policy state one condition per set of time evidences, and every
+/// one asks about the same token; four is room for a policy distinguishing its evidences, and the
+/// bound keeps a document stating thousands of conditions from asking for thousands of searches.
+pub const MAX_AUTHORITY_SEARCHES: usize = 4;
+
+/// The searches made for one signature's time-stamp trust conditions, bounded at
+/// [`MAX_AUTHORITY_SEARCHES`].
+#[derive(Debug, Default)]
+pub struct Authorities {
+    searched: std::cell::Cell<usize>,
+}
+
+impl Authorities {
+    /// [`search_authority`], or [`Found::PastSearchBound`] once the bound is reached.
+    #[must_use]
+    pub fn search(
+        &self,
+        trees: &TrustTrees<'_>,
+        cms: &SignedData<'_>,
+        facts: &SignerFacts<'_>,
+    ) -> Search {
+        let searched = self.searched.get();
+        if searched >= MAX_AUTHORITY_SEARCHES {
+            return Search {
+                found: Found::PastSearchBound,
+                unexamined: trees.points.len().saturating_add(trees.trusted_lists),
+                path: None,
+            };
+        }
+        self.searched.set(searched.saturating_add(1));
+        search_authority(trees, cms, facts)
+    }
+}
 
 /// One of TR 102 272 clause 6.6.1's `CertificateTrustPoint`s, or TS 119 172-2 clause 4.22.5's,
 /// with one certificate trust anchor.
@@ -108,6 +150,18 @@ pub enum Found {
     },
     /// No chain from the signer's certificate reaches any trust point.
     NoChain,
+    /// The signature states no `signature-time-stamp` attribute, so there is no time-stamping
+    /// authority whose path a time-stamp trust condition could judge.
+    NoTimestamp,
+    /// The signature's time-stamp token did not get past steps 1 to 3 of
+    /// [`crate::timestamp::signature_timestamp_established`]: it would not read, its `TSTInfo` is
+    /// not bound, or its signature does not verify — so no authority is authenticated by it.
+    TimestampNotVerified(Unestablished),
+    /// The token's imprint is not the digest of this signature (ETSI EN 319 122-1 clause 5.3),
+    /// so its authority is not this signature's.
+    TimestampAboutAnotherSignature,
+    /// The condition was not searched: [`MAX_AUTHORITY_SEARCHES`] conditions already were.
+    PastSearchBound,
 }
 
 /// One certificate of a validated path, as far as a policy's constraints read it.
@@ -250,7 +304,7 @@ const fn is_limit(refusal: &PathRefusal) -> bool {
 
 /// The instant a policy's path is validated at: the one a host gave, else the instant a covering
 /// signature timestamp states, which is the instant the signing period is judged at too.
-fn instant(facts: &SignerFacts) -> Option<Instant> {
+pub(super) fn instant(facts: &SignerFacts<'_>) -> Option<Instant> {
     facts.path_at.or_else(|| {
         facts
             .signing_time
@@ -262,16 +316,63 @@ fn instant(facts: &SignerFacts) -> Option<Instant> {
 
 /// Searches for a path from the signer's certificate to one of `trees`' trust points.
 #[must_use]
-pub fn search(trees: &TrustTrees<'_>, cms: &SignedData<'_>, facts: &SignerFacts) -> Search {
-    let mut unexamined = trees
+pub fn search(trees: &TrustTrees<'_>, cms: &SignedData<'_>, facts: &SignerFacts<'_>) -> Search {
+    search_from(trees, cms, instant(facts), Purpose::Unstated)
+}
+
+/// Searches for a path from the certificate of the authority that issued the signature's
+/// time-stamp token to one of `trees`' trust points — TR 102 272 clause 6.8's
+/// `ttsCertificateTrustTrees`, TS 119 172-2 clause 4.25.1 item 3 b)'s (ADR 2720).
+///
+/// The token is the `signature-time-stamp` attribute's, which clause 6.8 says the condition applies
+/// to, and only where its imprint is this signature's digest; it must get past steps 1 to 3 of
+/// [`crate::timestamp::signature_timestamp_established`] before its signer is anybody's authority,
+/// and the path is asked with RFC 3161 section 2.3's purpose, `id-kp-timeStamping`, at the instant
+/// the signer's own path is.
+#[must_use]
+pub fn search_authority(
+    trees: &TrustTrees<'_>,
+    cms: &SignedData<'_>,
+    facts: &SignerFacts<'_>,
+) -> Search {
+    let unexamined = unsearched(trees);
+    let outcome = |found| Search {
+        found,
+        unexamined,
+        path: None,
+    };
+    let (token, info) = match crate::timestamp::signature_timestamp_token(cms) {
+        None => return outcome(Found::NoTimestamp),
+        Some(Err(refused)) => return outcome(Found::TimestampNotVerified(refused)),
+        Some(Ok(read)) => read,
+    };
+    if info.imprint_digest.compute(&[cms.signature]) != info.imprint {
+        return outcome(Found::TimestampAboutAnotherSignature);
+    }
+    search_from(trees, &token, instant(facts), Purpose::TimeStamping)
+}
+
+/// Trust anchors a search will not reach: trusted-list references and points past the bound.
+fn unsearched(trees: &TrustTrees<'_>) -> usize {
+    trees
         .trusted_lists
-        .saturating_add(trees.points.len().saturating_sub(MAX_TRUST_POINTS));
+        .saturating_add(trees.points.len().saturating_sub(MAX_TRUST_POINTS))
+}
+
+/// The search, from the certificate `cms`'s signer names over the certificates `cms` carries.
+fn search_from(
+    trees: &TrustTrees<'_>,
+    cms: &SignedData<'_>,
+    at: Option<Instant>,
+    purpose: Purpose,
+) -> Search {
+    let mut unexamined = unsearched(trees);
     let outcome = |found, unexamined| Search {
         found,
         unexamined,
         path: None,
     };
-    let Some(at) = instant(facts) else {
+    let Some(at) = at else {
         return outcome(Found::NoInstant, unexamined);
     };
     let Some(signer) = crate::signature::signer_certificate(cms) else {
@@ -304,7 +405,7 @@ pub fn search(trees: &TrustTrees<'_>, cms: &SignedData<'_>, facts: &SignerFacts)
         let held = [anchor];
         let anchors = TrustAnchors::of(&held);
         let (trust, validated) =
-            trust::validate_path(&target, &others, &anchors, &material, at, Purpose::Unstated);
+            trust::validate_path(&target, &others, &anchors, &material, at, purpose);
         match trust {
             Trust::Anchored { length, .. } => {
                 // EN 319 102-1 clause 5.2.6.4 steps 1 a) and 3): a trust anchor past its sunset
@@ -406,13 +507,36 @@ pub(super) fn sentence(
     verdict: &str,
 ) -> std::fmt::Result {
     write!(f, "the policy's {condition} is {verdict}: ")?;
+    let (whose, holder) = if condition == TIMESTAMP_TRUST {
+        (
+            "the time-stamping authority's",
+            "the signature's time-stamp token",
+        )
+    } else {
+        ("the signer's", "the signature")
+    };
     match found {
         Found::NoInstant => f.write_str(
             "no instant was given to validate the path at, neither by a host's clock nor by a signature timestamp",
         )?,
         Found::NoSignerCertificate => {
-            f.write_str("the signature does not carry the certificate its signer names")?;
+            write!(f, "{holder} does not carry the certificate its signer names")?;
         }
+        Found::NoTimestamp => f.write_str(
+            "the signature states no signature-time-stamp attribute, which is the time-stamp TR 102 272 clause 6.8 applies the condition to, so no authority's path was asked",
+        )?,
+        Found::TimestampNotVerified(why) => write!(
+            f,
+            "the signature's time-stamp token authenticates no authority, because {}",
+            unestablished_words(why)
+        )?,
+        Found::PastSearchBound => write!(
+            f,
+            "the policy states more time-stamp trust conditions than the {MAX_AUTHORITY_SEARCHES} this program searches for one signature, and this one is past them"
+        )?,
+        Found::TimestampAboutAnotherSignature => f.write_str(
+            "the imprint of the signature's time-stamp token is not the digest of this signature (ETSI EN 319 122-1 clause 5.3), so its authority is not this signature's",
+        )?,
         Found::NoTrustPoint => f.write_str(
             "none of the trust points the policy states is a certificate this program reads",
         )?,
@@ -422,7 +546,7 @@ pub(super) fn sentence(
         } => {
             write!(
                 f,
-                "a path of {length} certificate(s) from the signer's validates to one of the policy's own trust points under RFC 5280 section 6.1"
+                "a path of {length} certificate(s) from {whose} validates to one of the policy's own trust points under RFC 5280 section 6.1"
             )?;
             if !unprocessed.is_empty() {
                 write!(
@@ -447,8 +571,9 @@ pub(super) fn sentence(
             f,
             "the only trust point a path reached was reliable until {until}, which is before the instant validated at, so the path is indeterminate (ETSI EN 319 102-1 clause 5.2.6.4)"
         )?,
-        Found::NoChain => f.write_str(
-            "no chain from the signer's certificate over the certificates the signature carries reaches any of the policy's own trust points, which ETSI EN 319 102-1 clause 5.2.6.4 calls indeterminate",
+        Found::NoChain => write!(
+            f,
+            "no chain from {whose} certificate over the certificates {holder} carries reaches any of the policy's own trust points, which ETSI EN 319 102-1 clause 5.2.6.4 calls indeterminate"
         )?,
     }
     if unexamined > 0
@@ -460,6 +585,27 @@ pub(super) fn sentence(
         )?;
     }
     Ok(())
+}
+
+/// Why a time-stamp token authenticates nobody, in a sentence's words.
+fn unestablished_words(why: &Unestablished) -> String {
+    match why {
+        Unestablished::TokenUnreadable(refusal) => format!("it would not read: {refusal}"),
+        Unestablished::ContentNotBoundToTheSignature => {
+            "its signed attributes do not commit to its TSTInfo (RFC 5652 section 5.6)".to_owned()
+        }
+        Unestablished::NoMessageDigestAttribute => {
+            "it states signed attributes and no message-digest among them (RFC 5652 section 11.2)"
+                .to_owned()
+        }
+        Unestablished::SignatureNotVerified(_) => "its own signature does not verify".to_owned(),
+        // Neither is reached by steps 1 to 3 over a signature-time-stamp attribute; each is
+        // worded for completeness rather than left to a catch-all.
+        Unestablished::NotADocumentTimestamp => "it is not a time-stamp token".to_owned(),
+        Unestablished::AuthorityNotEstablished(_) => {
+            "its authority's path was not established".to_owned()
+        }
+    }
 }
 
 /// The sentence for one issued certificate's algorithm against a list, used by both syntaxes.

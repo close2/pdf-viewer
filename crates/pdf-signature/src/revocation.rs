@@ -1313,6 +1313,33 @@ pub struct Subject<'a, 'c> {
 /// function was asked. The answer for a path is the worst of these, which [`worst`] composes.
 #[must_use]
 pub fn status(subject: &Subject<'_, '_>, material: &Material<'_>, at: Instant) -> Revocation {
+    answer(subject, material, at, None)
+}
+
+/// [`status`] from one kind of material alone.
+///
+/// A signature policy can mandate the *kind* of check made on a certificate — ETSI TR 102 272
+/// clause 6.6.2 and TS 119 172-2 clause 4.23.2 name a CRL check, an OCSP check, both, or either —
+/// and [`status`] stops at the first answer of whichever kind, so it cannot say whether the other
+/// kind would have answered too. This asks one kind and ignores the other.
+#[must_use]
+pub fn status_by(
+    subject: &Subject<'_, '_>,
+    material: &Material<'_>,
+    at: Instant,
+    evidence: Evidence,
+) -> Revocation {
+    answer(subject, material, at, Some(evidence))
+}
+
+/// [`status`], or [`status_by`] where `only` names the kind of material asked.
+fn answer(
+    subject: &Subject<'_, '_>,
+    material: &Material<'_>,
+    at: Instant,
+    only: Option<Evidence>,
+) -> Revocation {
+    let asks = |kind: Evidence| only.is_none_or(|only| only == kind);
     if material.is_empty() {
         return Revocation::Unknown {
             why: Undetermined::NoMaterial,
@@ -1327,14 +1354,24 @@ pub fn status(subject: &Subject<'_, '_>, material: &Material<'_>, at: Instant) -
             best = Some(why);
         }
     };
-    for response in &material.responses {
+    let responses = if asks(Evidence::OcspResponse) {
+        material.responses.as_slice()
+    } else {
+        &[]
+    };
+    let lists = if asks(Evidence::CertificateRevocationList) {
+        material.lists.as_slice()
+    } else {
+        &[]
+    };
+    for response in responses {
         match from_response(subject, response, material, at) {
             Ok(Some(answer)) => return answer,
             Ok(None) => {}
             Err(why) => note(why),
         }
     }
-    for list in &material.lists {
+    for list in lists {
         match from_list(subject, list, at) {
             Ok(Some(answer)) => return answer,
             Ok(None) => {}

@@ -1709,7 +1709,14 @@ fn signature_policy(
         }
         notes.push(said);
     }
-    policy_constraints(&policy, cms, asked.copies, path_instant(asked), notes);
+    policy_constraints(
+        &policy,
+        cms,
+        asked.copies,
+        path_instant(asked),
+        asked.material,
+        notes,
+    );
 }
 
 /// The instant a path to a policy's own trust points is validated at (ADR 2714): the one the
@@ -1736,11 +1743,14 @@ fn policy_constraints(
     cms: &pdf_signature::cms::SignedData<'_>,
     copies: &[FetchedCopy],
     path_at: Option<pdf_signature::x509::Instant>,
+    material: &pdf_signature::revocation::Material<'_>,
     notes: &mut Vec<String>,
 ) {
     use pdf_signature::policy_rules::{Enforcement, NotEnforced, SignerFacts, enforce};
 
-    let facts = SignerFacts::of(cms);
+    // A trust condition's mandated revocation checks are answered from §12.8.4's store as well as
+    // from the signer's own archival attribute (ADR 2720).
+    let facts = SignerFacts::of(cms).with_material(material);
     let facts = match path_at {
         Some(at) => facts.validated_at(at),
         None => facts,
@@ -1912,6 +1922,7 @@ fn policy_findings(
     signature: &pdf_signature::signature::Signature,
     copies: &[FetchedCopy],
     at: pdf_signature::x509::Instant,
+    material: &pdf_signature::revocation::Material<'_>,
 ) -> Vec<pdf_signature::policy_rules::Finding> {
     use pdf_signature::policy_rules::{Enforcement, SignerFacts, enforce, enforce_fetched};
 
@@ -1921,7 +1932,9 @@ fn policy_findings(
     let Ok(Some(policy)) = signature.signature_policy(&cms) else {
         return Vec::new();
     };
-    let facts = SignerFacts::of(&cms).validated_at(at);
+    let facts = SignerFacts::of(&cms)
+        .validated_at(at)
+        .with_material(material);
     if let Enforcement::Enforced { findings, .. } = enforce(&policy, &cms, &facts) {
         return findings;
     }
@@ -2354,7 +2367,12 @@ fn verdicts(
         asked.timestamps,
         asked.when,
     );
-    let verdict = verdict.under_policy(&policy_findings(signature, asked.copies, asked.when.at()));
+    let verdict = verdict.under_policy(&policy_findings(
+        signature,
+        asked.copies,
+        asked.when.at(),
+        asked.material,
+    ));
     // **Which instant the path was asked about, and on whose word** — said whichever answer it is,
     // because "valid" without it reads as *valid now* and that is the one thing this program never
     // establishes. §12.8.4.2's own reason for a document security store is that a signature

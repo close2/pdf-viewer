@@ -27,9 +27,11 @@
 //! measures them; clause 4.24's signing-certificate trust conditions over a path built to the
 //! policy's own trust points, with its `fullPath` information requirement, and clause 4.29's
 //! signing-certificate key length and path-certificate usage read off that path
-//! ([`super::certification_path`], ADR 2714). Named and not evaluated: a trust point's policy and
-//! name constraints, the revocation trust a condition mandates and the time-stamp trust condition;
-//! the formats and levels of clause 4.20 and the levels
+//! ([`super::certification_path`], ADR 2714); clause 4.25's time-stamp trust trees over the path of
+//! the authority that issued the signature's time-stamp token, and clause 4.23.2's revocation checks
+//! of either condition per kind of certificate ([`super::revocation_checks`], ADR 2720). Named and
+//! not evaluated: a trust point's and the authority's policy and name constraints, clause 4.23.3's
+//! freshness and retention; the formats and levels of clause 4.20 and the levels
 //! clause 4.27 ties its attribute rules to, identified by TS 119 172-2's URIs for a signature level
 //! this program does not determine; augmentation, which this reader never performs; the levels of
 //! assurance of clauses 4.25 and 4.28; constraints on sets of signer attributes; and every `Other`
@@ -50,10 +52,11 @@ use std::collections::BTreeSet;
 use std::borrow::Cow;
 
 use super::certification_path::{self, Path, Search, TrustPoint, TrustTrees};
+use super::revocation_checks::{self, FRESHNESS, RETENTION};
 use super::{
     Budget, CertificateInfo, Finding, MAX_ENTRIES, MAX_POLICY_OCTETS, PolicyDocumentError,
-    SIGNING_CERT_TRUST, SignerFacts, SignerTrust, Stated, Syntax, TIMESTAMP_TRUST, Verdict,
-    signing_period, stated_commitment_type,
+    SIGNING_CERT_TRUST, SignerFacts, SignerTrust, Stated, Syntax, TIMESTAMP_TRUST, TimestampTrust,
+    Verdict, signing_period, stated_commitment_type,
 };
 use crate::cms::{self, Digest, SignedData};
 use crate::der::{self, INTEGER, OBJECT_IDENTIFIER, OCTET_STRING, SEQUENCE, Value};
@@ -214,9 +217,9 @@ pub struct TimeEvidence<'a> {
     pub evidences: Vec<&'a str>,
     /// `levelOfAssurance`.
     pub level_of_assurance: &'a str,
-    /// Whether `timeStampTrustCondition` states a trust tree, a revocation requirement or name
-    /// constraints for the time-stamping authority.
-    pub trust_stated: bool,
+    /// `timeStampTrustCondition`'s trust trees, revocation requirement and name constraints for
+    /// the time-stamping authority, where it states any of them.
+    pub trust: Option<TimestampTrust<'a>>,
     /// `signatureTimestampDelay`, in seconds.
     pub delay_seconds: Option<i64>,
 }
@@ -547,19 +550,39 @@ fn read_signer_trust<'a>(
     )?;
     let revocation = need(members.next_value()?, SEQUENCE, "signerRevTrust")?;
     let mut revocation = revocation.children()?;
-    let requirement = need(revocation.next_value()?, SEQUENCE, "certificateRevReq")?;
-    let mut checks = requirement.children()?;
-    let end = enumerated(checks.next_value()?, 6, "endCertRevReq")?;
-    let authorities = enumerated(checks.next_value()?, 6, "caCerts")?;
-    let more = revocation.next_value()?.is_some();
+    let mut requirement = read_revocation_requirement(&need(
+        revocation.next_value()?,
+        SEQUENCE,
+        "certificateRevReq",
+    )?)?;
+    while let Some(member) = revocation.next_value()? {
+        requirement.unprocessed.push(match context_number(&member) {
+            Some(0) => FRESHNESS,
+            Some(1) => RETENTION,
+            _ => return Err(malformed("CertificateRevTrust")),
+        });
+    }
     Ok(SignerTrust {
         trees,
-        revocation_mandated: more || end != NO_CHECK || authorities != NO_CHECK,
+        revocation: requirement,
     })
 }
 
-/// Clause 4.23.2's `noCheck`.
-const NO_CHECK: u8 = 4;
+/// Clause 4.23.2's `CertificateRevReq`: the end certificate's check and the CA certificates'.
+fn read_revocation_requirement(
+    value: &Value<'_>,
+) -> Result<revocation_checks::Requirement, PolicyDocumentError> {
+    let mut checks = value.children()?;
+    let mut check = |member| {
+        let number = enumerated(checks.next_value()?, 6, member)?;
+        revocation_checks::Check::of_number(number).ok_or(malformed(member))
+    };
+    Ok(revocation_checks::Requirement {
+        end_entity: check("endCertRevReq")?,
+        authorities: check("caCerts")?,
+        unprocessed: Vec::new(),
+    })
+}
 
 /// Clause 4.22.5's `CertificateTrustTrees`: one [`TrustPoint`] per certificate trust anchor, each
 /// with its trust point's constraints, and a count of the anchors given by trusted-list reference.
@@ -1177,14 +1200,40 @@ fn read_time_evidences<'a>(
             IA5_STRING,
             "RulesForSetOfEvidences.levelOfAssurance",
         )?;
-        let mut trust_stated = false;
+        let mut trust: Option<TimestampTrust<'a>> = None;
         let mut delay_seconds = None;
         if let Some(condition) = members.next_value()? {
             let condition = need(Some(condition), SEQUENCE, "TimestampTrustCondition")?;
             let mut fields = condition.children()?;
             while let Some(field) = fields.next_value()? {
+                let stated = || TimestampTrust {
+                    trees: None,
+                    revocation: None,
+                    unprocessed: Vec::new(),
+                };
                 match context_number(&field) {
-                    Some(0..=2) => trust_stated = true,
+                    Some(0) => {
+                        trust.get_or_insert_with(stated).trees = Some(read_trust_trees(
+                            &need(
+                                Some(explicit(&field, "ttsCertificateTrustTrees")?),
+                                SEQUENCE,
+                                "ttsCertificateTrustTrees",
+                            )?,
+                            budget,
+                        )?);
+                    }
+                    Some(1) => {
+                        trust.get_or_insert_with(stated).revocation =
+                            Some(read_revocation_requirement(&need(
+                                Some(explicit(&field, "ttsRevReq")?),
+                                SEQUENCE,
+                                "ttsRevReq",
+                            )?)?);
+                    }
+                    Some(2) => trust
+                        .get_or_insert_with(stated)
+                        .unprocessed
+                        .push("name constraints"),
                     Some(3) => {
                         delay_seconds = Some(read_delta_time(&explicit(
                             &field,
@@ -1198,7 +1247,7 @@ fn read_time_evidences<'a>(
         out.push(TimeEvidence {
             evidences,
             level_of_assurance,
-            trust_stated,
+            trust,
             delay_seconds,
         });
     }
@@ -1392,7 +1441,7 @@ pub enum Constraint {
 pub fn findings(
     document: &PolicyDocument<'_>,
     cms: &SignedData<'_>,
-    facts: &SignerFacts,
+    facts: &SignerFacts<'_>,
 ) -> Vec<Finding> {
     let mut out = Vec::new();
     if let Some((not_before, not_after)) = &document.signing_period {
@@ -1414,7 +1463,7 @@ pub fn findings(
 pub(super) fn judge_rules(
     rules: &[ScopedRule<'_>],
     cms: &SignedData<'_>,
-    facts: &SignerFacts,
+    facts: &SignerFacts<'_>,
     out: &mut Vec<Finding>,
 ) {
     let stated = stated_commitment_type(cms);
@@ -1438,6 +1487,11 @@ pub(super) fn judge_rules(
         })
         .map(|trust| certification_path::search(&trust.trees, cms, facts));
     let search = search.as_ref();
+    let authorities = certification_path::Authorities::default();
+    let paths = Paths {
+        signer: search,
+        authorities: &authorities,
+    };
     for scoped in rules {
         if let Some(scope @ (Scope::Generation | Scope::Augmentation)) = scoped.scope {
             let rule = match &scoped.rule {
@@ -1451,11 +1505,11 @@ pub(super) fn judge_rules(
             continue;
         }
         match &scoped.rule {
-            PolicyRule::Basic(rule) => judge(rule, cms, facts, search, out),
+            PolicyRule::Basic(rule) => judge(rule, cms, facts, paths, out),
             PolicyRule::Commitments(rules) => {
                 for rule in rules.iter().filter(|rule| rule.applies(stated)) {
                     for basic in &rule.rules {
-                        judge(basic, cms, facts, search, out);
+                        judge(basic, cms, facts, paths, out);
                     }
                 }
             }
@@ -1478,14 +1532,22 @@ fn owned(list: &[&str]) -> Vec<String> {
     list.iter().map(|entry| (*entry).to_owned()).collect()
 }
 
+/// The signer's path, searched once, and the bounded searches for time-stamping authorities' paths.
+#[derive(Debug, Clone, Copy)]
+struct Paths<'s> {
+    signer: Option<&'s Search>,
+    authorities: &'s certification_path::Authorities,
+}
+
 /// One rule's findings.
 fn judge(
     rule: &BasicRule<'_>,
     cms: &SignedData<'_>,
-    facts: &SignerFacts,
-    search: Option<&Search>,
+    facts: &SignerFacts<'_>,
+    paths: Paths<'_>,
     out: &mut Vec<Finding>,
 ) {
+    let search = paths.signer;
     let path = search.and_then(|search| search.path.as_ref());
     match rule {
         BasicRule::DataToBeSigned(rules) => {
@@ -1532,7 +1594,7 @@ fn judge(
         }
         BasicRule::TimeEvidences(rules) => {
             for rule in rules {
-                judge_time_evidence(rule, cms, facts, out);
+                judge_time_evidence(rule, cms, facts, paths.authorities, out);
             }
         }
         BasicRule::SignerAttributes {
@@ -1580,7 +1642,7 @@ fn judge_signing_certificate(
     trust: &SignerTrust<'_>,
     info: Option<CertificateInfo>,
     cms: &SignedData<'_>,
-    facts: &SignerFacts,
+    facts: &SignerFacts<'_>,
     search: Option<&Search>,
     out: &mut Vec<Finding>,
 ) {
@@ -1589,25 +1651,13 @@ fn judge_signing_certificate(
     let searched = search
         .cloned()
         .unwrap_or_else(|| certification_path::search(&trust.trees, cms, facts));
-    out.push(Finding {
-        verdict: searched.verdict(),
-        constraint: super::Constraint::TrustPath {
-            condition: SIGNING_CERT_TRUST,
-            found: searched.found.clone(),
-            unexamined: searched.unexamined,
-        },
-    });
-    out.push(Finding {
-        verdict: if trust.revocation_mandated {
-            Verdict::NotEvaluated
-        } else {
-            Verdict::Met
-        },
-        constraint: super::Constraint::RevocationRequirement {
-            condition: SIGNING_CERT_TRUST,
-            mandated: trust.revocation_mandated,
-        },
-    });
+    super::trust_path_findings(
+        SIGNING_CERT_TRUST,
+        Some(&searched),
+        Some(&trust.revocation),
+        facts,
+        out,
+    );
     if let Some(info) = info {
         out.push(Finding {
             verdict: match info {
@@ -1664,7 +1714,8 @@ fn judge_formats(formats: &FormatsAndLevels<'_>, out: &mut Vec<Finding>) {
 fn judge_time_evidence(
     rule: &TimeEvidence<'_>,
     cms: &SignedData<'_>,
-    facts: &SignerFacts,
+    facts: &SignerFacts<'_>,
+    authorities: &certification_path::Authorities,
     out: &mut Vec<Finding>,
 ) {
     out.push(component(
@@ -1674,11 +1725,31 @@ fn judge_time_evidence(
             level_of_assurance: rule.level_of_assurance.to_owned(),
         },
     ));
-    if rule.trust_stated {
-        out.push(Finding {
-            verdict: Verdict::NotEvaluated,
-            constraint: super::Constraint::TrustCondition(TIMESTAMP_TRUST),
-        });
+    // Clause 4.25.1 item 3: the trust trees, revocation trust and name constraints for the
+    // authority that issued the signature's time-stamp token, over that authority's own path
+    // (ADR 2720). Unlike TR 102 272 clause 6.8, no rule applies the signing-certificate trees
+    // where the condition states none.
+    if let Some(trust) = &rule.trust {
+        let search = trust
+            .trees
+            .as_ref()
+            .map(|trees| authorities.search(trees, cms, facts));
+        super::trust_path_findings(
+            TIMESTAMP_TRUST,
+            search.as_ref(),
+            trust.revocation.as_ref(),
+            facts,
+            out,
+        );
+        for member in &trust.unprocessed {
+            out.push(Finding {
+                verdict: Verdict::NotEvaluated,
+                constraint: super::Constraint::ConditionMember {
+                    condition: TIMESTAMP_TRUST,
+                    member,
+                },
+            });
+        }
     }
     let Some(limit_seconds) = rule.delay_seconds else {
         return;
@@ -1723,7 +1794,7 @@ fn judge_time_evidence(
 fn judge_suites(
     list: &[AlgorithmConstraint<'_>],
     cms: &SignedData<'_>,
-    facts: &SignerFacts,
+    facts: &SignerFacts<'_>,
     path: Option<&Path>,
     out: &mut Vec<Finding>,
 ) {

@@ -48,7 +48,7 @@ pub(crate) fn cms<'a>(signer: &'a [u8], intermediate: &'a [u8]) -> SignedData<'a
     cms
 }
 
-fn at(instant: Instant) -> SignerFacts {
+fn at(instant: Instant) -> SignerFacts<'static> {
     facts(None).validated_at(instant)
 }
 
@@ -82,7 +82,7 @@ pub(crate) fn hierarchy() -> Hierarchy {
     }
 }
 
-fn searched(trees: &TrustTrees<'_>, held: &Hierarchy, facts: &SignerFacts) -> Search {
+fn searched(trees: &TrustTrees<'_>, held: &Hierarchy, facts: &SignerFacts<'_>) -> Search {
     search(trees, &cms(&held.signer, &held.intermediate), facts)
 }
 

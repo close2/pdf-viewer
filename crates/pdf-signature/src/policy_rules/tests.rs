@@ -59,6 +59,8 @@ struct Fixture {
     trust_points: Vec<Vec<u8>>,
     /// Clause 6.10's lists after `signerAlgorithmConstraints`, each already context-tagged.
     issuer_algorithms: Vec<Vec<u8>>,
+    /// Clause 6.8's `TimestampTrustCondition` members, each already context-tagged.
+    timestamp_condition: Vec<Vec<u8>>,
 }
 
 impl Default for Fixture {
@@ -73,6 +75,7 @@ impl Default for Fixture {
             own_hash: true,
             trust_points: Vec::new(),
             issuer_algorithms: Vec::new(),
+            timestamp_condition: Vec::new(),
         }
     }
 }
@@ -104,7 +107,7 @@ impl Fixture {
         // Clause 6.3 requires both trust conditions in the common rules or in every commitment
         // rule. The signing-certificate condition is clause 6.7's two members, its revocation
         // requirement clause 6.6.2's `noCheck` for both kinds of certificate; the time-stamp
-        // condition's contents are not read, so an empty sequence stands for it.
+        // condition's members are all optional, and a fixture states none unless it asks.
         let no_check = seq(&[tlv(ENUMERATED, &[4])]);
         common.push(tagged(
             1,
@@ -113,7 +116,7 @@ impl Fixture {
                 seq(&[no_check.clone(), tagged(0, &no_check)]),
             ]),
         ));
-        common.push(tagged(2, &seq(&[])));
+        common.push(tagged(2, &seq(&self.timestamp_condition)));
         if self.algorithms.is_some() || !self.issuer_algorithms.is_empty() {
             let mut lists = Vec::new();
             if let Some(algorithms) = &self.algorithms {
@@ -182,7 +185,7 @@ pub(super) fn signed_data<'a>(
     }
 }
 
-pub(super) fn facts(at: Option<&str>) -> SignerFacts {
+pub(super) fn facts(at: Option<&str>) -> SignerFacts<'static> {
     SignerFacts {
         signing_time: at.map(|spelled| SigningTime {
             instant: x509::read_time_digits(spelled.as_bytes(), true).expect("a time"),
@@ -193,6 +196,7 @@ pub(super) fn facts(at: Option<&str>) -> SignerFacts {
         carries_signer_certificate: true,
         certificate_signature_algorithm: Some(SHA256_RSA.to_vec()),
         path_at: None,
+        material: Material::none(),
     }
 }
 
@@ -293,9 +297,14 @@ fn the_signing_certificate_trust_condition_and_issuer_lists_are_judged_on_the_pa
         let document = PolicyDocument::parse(&octets).expect("a clause 6 document");
         findings(&document, &signed, &facts(None).validated_at(WITHIN))
     };
-    let trust = |c: &Constraint| matches!(c, Constraint::TrustPath { .. });
+    // The fixture's time-stamp condition states no trees, so clause 6.8 searches the authority's
+    // path to these same points; the signature carries no time-stamp token, and that condition is
+    // the time-stamp test's subject rather than this one's.
+    let signing = |condition: &str| condition == SIGNING_CERT_TRUST;
+    let trust =
+        |c: &Constraint| matches!(c, Constraint::TrustPath { condition, .. } if signing(condition));
     let issuers = |c: &Constraint| matches!(c, Constraint::IssuerAlgorithm { .. });
-    let revocation = |c: &Constraint| matches!(c, Constraint::RevocationRequirement { .. });
+    let revocation = |c: &Constraint| matches!(c, Constraint::RevocationCheck { condition, .. } if signing(condition));
     // The fixture hierarchy signs with SHA-256 and RSA under 2048-bit keys (RFC 4055's
     // sha256WithRSAEncryption); 0x0800 is 2048 bits and 0x0C00 is 3072.
     let rsa = |bits: &[u8]| seq(&[oid(SHA256_RSA), tlv(der::INTEGER, bits)]);
@@ -309,8 +318,8 @@ fn the_signing_certificate_trust_condition_and_issuer_lists_are_judged_on_the_pa
     );
     assert_eq!(
         verdict_of(&met, revocation),
-        [Verdict::Met],
-        "noCheck mandates nothing"
+        [Verdict::Met, Verdict::Met],
+        "clause 6.6.2's noCheck, for the end certificate and for the CA certificates, mandates nothing"
     );
     assert_eq!(
         verdict_of(&met, issuers),
@@ -605,4 +614,87 @@ fn hostile_policy_documents_are_refused_within_their_budgets() {
             Err(PolicyDocumentError::TooManyEntries)
         );
     }
+}
+
+/// TR 102 272 clause 6.8 over the authority that issued the signature's time-stamp token: its own
+/// trust trees, its `ttsRevReq` answered per kind of certificate from the material beside the
+/// signature (clause 6.6.2), and clause 6.10's `tsaCertAlgorithmConstraints` on the authority's
+/// certificate (ADR 2720). The hierarchy is `revocation_checks`' minted one.
+#[test]
+fn the_time_stamp_trust_condition_is_judged_on_the_authoritys_own_path() {
+    use crate::policy_rules::certification_path::tests::hex;
+    use crate::policy_rules::revocation_checks::tests::fixtures as minted;
+
+    let token = hex(minted::TOKEN);
+    let bytes = cms::fixtures::detached_with_signature_timestamp(&[0x00; 32], &token);
+    let signed = cms::signed_data(&bytes).expect("a SignedData");
+    let (root_crl, intermediate_crl, revoked) = (
+        hex(minted::ROOT_CRL),
+        hex(minted::INTERMEDIATE_CRL),
+        hex(minted::INTERMEDIATE_CRL_REVOKED),
+    );
+    // 2027-01-01T00:00:00Z, after every piece of the minted material was issued.
+    let at = Instant::from_unix_seconds(1_798_761_600);
+    let crl_check = || seq(&[tlv(ENUMERATED, &[0])]);
+    let rsa = |bits: &[u8]| seq(&[oid(SHA256_RSA), tlv(der::INTEGER, bits)]);
+    let judged = |material: &Material<'_>, minimum: &[u8]| {
+        let octets = Fixture {
+            timestamp_condition: vec![
+                tagged(0, &seq(&[seq(&[hex(minted::ROOT)])])),
+                tagged(1, &seq(&[crl_check(), tagged(0, &crl_check())])),
+            ],
+            issuer_algorithms: vec![tagged(4, &seq(&[rsa(minimum)]))],
+            ..Fixture::default()
+        }
+        .octets();
+        let document = PolicyDocument::parse(&octets).expect("a clause 6 document");
+        findings(
+            &document,
+            &signed,
+            &facts(None).validated_at(at).with_material(material),
+        )
+    };
+    let stamp = |c: &Constraint| matches!(c, Constraint::TrustPath { condition, .. } | Constraint::RevocationCheck { condition, .. } if *condition == TIMESTAMP_TRUST);
+    let tsa = |c: &Constraint| matches!(c, Constraint::IssuerAlgorithm { member, .. } if *member == TSA_ALGORITHMS);
+
+    let good = Material::read(&[&root_crl, &intermediate_crl], &[]);
+    let met = judged(&good, &[0x08, 0x00]);
+    assert_eq!(
+        verdict_of(&met, stamp),
+        [Verdict::Met, Verdict::Met, Verdict::Met],
+        "the authority's path to the condition's trust point, then clrCheck on the authority and on the intermediate"
+    );
+    assert_eq!(
+        verdict_of(&met, tsa),
+        [Verdict::Met],
+        "the authority's certificate, issued under SHA-256 with RSA by a 2048-bit key"
+    );
+    assert_eq!(
+        verdict_of(&judged(&good, &[0x0C, 0x00]), tsa),
+        [Verdict::Broken],
+        "a 3072-bit minimum the 2048-bit issuer key is under"
+    );
+
+    let listed = Material::read(&[&root_crl, &revoked], &[]);
+    assert_eq!(
+        verdict_of(&judged(&listed, &[0x08, 0x00]), stamp),
+        [Verdict::Met, Verdict::Broken, Verdict::Met],
+        "the intermediate's CRL lists the authority, revoked before the instant"
+    );
+    assert_eq!(
+        verdict_of(&judged(&Material::none(), &[0x08, 0x00]), stamp),
+        [Verdict::Met, Verdict::NotEvaluated, Verdict::NotEvaluated],
+        "no material answers either check, which is indeterminate rather than broken"
+    );
+
+    // No ttsCertificateTrustTrees: clause 6.8 applies the signing-certificate condition's trees to
+    // the authority, so the root stated there is the authority's trust point too.
+    let octets = Fixture {
+        trust_points: vec![seq(&[hex(minted::ROOT)])],
+        ..Fixture::default()
+    }
+    .octets();
+    let document = PolicyDocument::parse(&octets).expect("a clause 6 document");
+    let inherited = findings(&document, &signed, &facts(None).validated_at(at));
+    assert_eq!(verdict_of(&inherited, stamp), [Verdict::Met]);
 }

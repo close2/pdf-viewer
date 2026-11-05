@@ -593,7 +593,9 @@ fn a_policy_the_window_fetched_is_enforced_by_the_document_s_validation() {
         )),
         "{said}"
     );
-    assert!(said.contains("4 constraint(s), 1 of them broken"), "{said}");
+    // Clause 4.23.2's revocation requirement is one check per kind of certificate, each its own
+    // constraint (ADR 2720): nocheck for both is two constraints met.
+    assert!(said.contains("5 constraint(s), 1 of them broken"), "{said}");
     // The signing-certificate trust condition is searched on a path to the policy's own trust
     // points (ADR 2714), and with no host clock and no signature timestamp it says so by name.
     assert!(

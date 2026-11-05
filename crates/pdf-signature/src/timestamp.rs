@@ -429,38 +429,10 @@ pub fn signature_timestamp_established(
     material: &Material<'_>,
     asked_at: AskedAt,
 ) -> Option<Time> {
-    let attribute = cms.signature_timestamp?;
-    // Step 1.
-    let Ok(token) = crate::cms::signed_data(attribute.encoding()) else {
-        return Some(Time::Unknown(Unestablished::TokenUnreadable(
-            TokenRefusal::NoEncapsulatedContent,
-        )));
+    let (token, info) = match signature_timestamp_token(cms)? {
+        Ok(read) => read,
+        Err(refused) => return Some(Time::Unknown(refused)),
     };
-    let info = match token_of(&token) {
-        Ok(info) => info,
-        Err(refusal) => return Some(Time::Unknown(Unestablished::TokenUnreadable(refusal))),
-    };
-    // Step 2, on [`established`]'s rule and for its reason.
-    if token.signed_attributes.is_some() {
-        let Some(recorded) = token.message_digest else {
-            return Some(Time::Unknown(Unestablished::NoMessageDigestAttribute));
-        };
-        let Some(algorithm) = token.digest else {
-            return Some(Time::Unknown(Unestablished::TokenUnreadable(
-                TokenRefusal::ImprintDigestUnknown,
-            )));
-        };
-        if algorithm.compute(&[token.encapsulated.unwrap_or_default()]) != recorded {
-            return Some(Time::Unknown(Unestablished::ContentNotBoundToTheSignature));
-        }
-    }
-    // Step 3.
-    let authenticity = signature::authenticity_of(&token, signature::Detached::Nothing);
-    if !matches!(authenticity, Authenticity::Verified { .. }) {
-        return Some(Time::Unknown(Unestablished::SignatureNotVerified(
-            Box::new(authenticity),
-        )));
-    }
     // Step 4, with RFC 3161 section 2.3's purpose for the reason `established` states.
     if anchors.is_empty() {
         return Some(Time::Unknown(Unestablished::AuthorityNotEstablished(
@@ -484,6 +456,51 @@ pub fn signature_timestamp_established(
             other => Time::Unknown(Unestablished::AuthorityNotEstablished(other)),
         },
     )
+}
+
+/// Steps 1 to 3 of [`signature_timestamp_established`] over a signature's `signature-time-stamp`
+/// attribute: the token read, its `TSTInfo` bound by its own `message-digest`, and its signature
+/// verified. `None` where the signature states no such attribute.
+///
+/// Step 4 — whose path the authority's certificate is on — is the caller's: a host's anchors for
+/// §12.8.3.4.8's instant, or a signature policy's own trust points for ETSI TR 102 272 clause
+/// 6.8's time-stamp trust condition (ADR 2720).
+pub(crate) fn signature_timestamp_token<'a>(
+    cms: &SignedData<'a>,
+) -> Option<Result<(SignedData<'a>, TstInfo<'a>), Unestablished>> {
+    let attribute = cms.signature_timestamp?;
+    // Step 1.
+    let Ok(token) = crate::cms::signed_data(attribute.encoding()) else {
+        return Some(Err(Unestablished::TokenUnreadable(
+            TokenRefusal::NoEncapsulatedContent,
+        )));
+    };
+    let info = match token_of(&token) {
+        Ok(info) => info,
+        Err(refusal) => return Some(Err(Unestablished::TokenUnreadable(refusal))),
+    };
+    // Step 2, on [`established`]'s rule and for its reason.
+    if token.signed_attributes.is_some() {
+        let Some(recorded) = token.message_digest else {
+            return Some(Err(Unestablished::NoMessageDigestAttribute));
+        };
+        let Some(algorithm) = token.digest else {
+            return Some(Err(Unestablished::TokenUnreadable(
+                TokenRefusal::ImprintDigestUnknown,
+            )));
+        };
+        if algorithm.compute(&[token.encapsulated.unwrap_or_default()]) != recorded {
+            return Some(Err(Unestablished::ContentNotBoundToTheSignature));
+        }
+    }
+    // Step 3.
+    let authenticity = signature::authenticity_of(&token, signature::Detached::Nothing);
+    if !matches!(authenticity, Authenticity::Verified { .. }) {
+        return Some(Err(Unestablished::SignatureNotVerified(Box::new(
+            authenticity,
+        ))));
+    }
+    Some(Ok((token, info)))
 }
 
 /// [`signature_timestamp`]'s body, with the `?` on a `Result` rather than on an `Option`.

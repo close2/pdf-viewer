@@ -27,12 +27,16 @@
 //! (ADR 1076), are what clause 6.7's signing-certificate trust condition states: the condition
 //! itself with each trust point's `pathLenConstraint`, the `fullPath` certificate reference and
 //! information requirements of clause 6.5.1, and clause 6.10's `eeCertAlgorithmConstraints` and
-//! `caCertAlgorithmConstraints` against the issuers along that path. Named and not evaluated: a
-//! trust point's acceptable policy set, name constraints and policy constraints, which are RFC 5280
-//! section 6.1's policy tree and name processing that [`crate::trust`] does not perform; the
-//! revocation checks a trust condition mandates; the time-stamp and attribute trust conditions of
-//! clauses 6.8 and 6.9, which concern another certificate than the signer's; clause 6.10's lists
-//! for attribute and time-stamping authorities; the verifier rules of clause 6.5.2, which ask a
+//! `caCertAlgorithmConstraints` against the issuers along that path. Clause 6.8's time-stamp trust
+//! condition is evaluated the same way on a path from the certificate of the authority that issued
+//! the signature's time-stamp token, with clause 6.10's `tsaCertAlgorithmConstraints` on that
+//! certificate, and clause 6.6.2's revocation checks of both conditions are answered per kind of
+//! certificate from the material beside the signature ([`revocation_checks`], ADR 2720). Named and
+//! not evaluated: a trust point's acceptable policy set, name constraints and policy constraints,
+//! which are RFC 5280 section 6.1's policy tree and name processing that [`crate::trust`] does not
+//! perform, and the authority's name constraints, caution period and delay; the attribute trust
+//! condition of clause 6.9 and clause 6.10's attribute-authority list, which concern attribute
+//! certificates this program does not read; the verifier rules of clause 6.5.2, which ask a
 //! verifier to *add* attributes and so are an augmentation this reader never performs; and every
 //! extension of clause 6.11, whose syntax is whatever its own identifier names.
 //!
@@ -58,11 +62,13 @@
 use crate::cms::{self, Digest, SignedData};
 use crate::der::{self, DerError, NotCanonical, OBJECT_IDENTIFIER, OCTET_STRING, SEQUENCE, Value};
 use crate::policy::{Binding, PolicyHash, Published, SignaturePolicy, Store};
+use crate::revocation::Material;
 use crate::signature::name;
 use crate::x509::{self, Instant, PublicKey};
 
 pub mod canonical_xml;
 pub mod certification_path;
+pub mod revocation_checks;
 pub mod ts_119_172_2;
 pub mod ts_119_172_3;
 
@@ -91,6 +97,8 @@ pub const ATTRIBUTE_TRUST: &str = "attribute trust condition";
 pub const END_ENTITY_ALGORITHMS: &str = "eeCertAlgorithmConstraints";
 /// Clause 6.10's list for the issuers of CA certificates.
 pub const AUTHORITY_ALGORITHMS: &str = "caCertAlgorithmConstraints";
+/// Clause 6.10's list for the certificates of time-stamping authorities.
+pub const TSA_ALGORITHMS: &str = "tsaCertAlgorithmConstraints";
 
 /// One rule of clause 6.3's placement: its name, whether a rule set states it, and whether it is
 /// one of the three that must be stated somewhere.
@@ -301,20 +309,36 @@ pub struct Rules<'a> {
     pub end_entity_algorithms: Option<Vec<AlgorithmAndLength<'a>>>,
     /// Clause 6.10's `caCertAlgorithmConstraints`, where stated.
     pub authority_algorithms: Option<Vec<AlgorithmAndLength<'a>>>,
-    /// Which of the two certificate-issuer constraint lists this program does not evaluate —
-    /// `aaCertAlgorithmConstraints` and `tsaCertAlgorithmConstraints` — are stated, by their
-    /// member names.
-    pub certificate_algorithms: Vec<&'static str>,
+    /// Clause 6.8's `timeStampTrustCondition`, where stated.
+    pub timestamp_trust: Option<TimestampTrust<'a>>,
+    /// Clause 6.10's `tsaCertAlgorithmConstraints`, where stated.
+    pub authority_certificate_algorithms: Option<Vec<AlgorithmAndLength<'a>>>,
+    /// Whether clause 6.10's `aaCertAlgorithmConstraints` is stated: it constrains attribute
+    /// certificates, which this program does not read.
+    pub attribute_algorithms: bool,
 }
 
 /// Clause 6.7's `SigningCertTrustCondition`, as far as it is evaluated.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignerTrust<'a> {
     /// `signerTrustTrees`.
     pub trees: certification_path::TrustTrees<'a>,
-    /// Whether `signerRevReq` mandates a check of either kind of certificate: false where both
-    /// `endCertRevReq` and `caCerts` are clause 6.6.2's `noCheck`.
-    pub revocation_mandated: bool,
+    /// `signerRevReq`: the check each kind of certificate on the path is to have.
+    pub revocation: revocation_checks::Requirement,
+}
+
+/// Clause 6.8's `TimestampTrustCondition`, or the trust condition of TS 119 172-2 clause 4.25.1
+/// item 3, as far as it is evaluated (ADR 2720).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TimestampTrust<'a> {
+    /// `ttsCertificateTrustTrees`, where stated. Where it is not, clause 6.8 applies the
+    /// signing-certificate condition's trees to the authority; TS 119 172-2 states no such rule.
+    pub trees: Option<certification_path::TrustTrees<'a>>,
+    /// `ttsRevReq`, where stated.
+    pub revocation: Option<revocation_checks::Requirement>,
+    /// The members this program does not evaluate, by name: the authority's name constraints, and
+    /// clause 6.8's caution period and signature time-stamp delay.
+    pub unprocessed: Vec<&'static str>,
 }
 
 /// One clause 6.4 `CommitmentRule`.
@@ -655,7 +679,10 @@ fn read_rules<'a>(
                 )?;
                 rules.signer_trust = Some(read_signer_trust(&condition, extensions, budget)?);
             }
-            2 => rules.trust_conditions.push(TIMESTAMP_TRUST),
+            2 => {
+                rules.trust_conditions.push(TIMESTAMP_TRUST);
+                rules.timestamp_trust = Some(read_timestamp_trust(&member, extensions, budget)?);
+            }
             3 => rules.trust_conditions.push(ATTRIBUTE_TRUST),
             4 => {
                 rules.algorithm_constraints = true;
@@ -688,14 +715,17 @@ fn read_rules<'a>(
                                 budget,
                             )?);
                         }
-                        (der::Class::ContextSpecific, number @ 3..=4) => {
-                            let member = if number == 3 {
-                                "aaCertAlgorithmConstraints"
-                            } else {
-                                "tsaCertAlgorithmConstraints"
-                            };
+                        (der::Class::ContextSpecific, 3) => {
+                            let member = "aaCertAlgorithmConstraints";
                             read_algorithms(&explicit(&list, member)?, extensions, budget)?;
-                            rules.certificate_algorithms.push(member);
+                            rules.attribute_algorithms = true;
+                        }
+                        (der::Class::ContextSpecific, 4) => {
+                            rules.authority_certificate_algorithms = Some(read_algorithms(
+                                &explicit(&list, TSA_ALGORITHMS)?,
+                                extensions,
+                                budget,
+                            )?);
                         }
                         _ => return Err(PolicyDocumentError::Malformed("algorithmConstraintSet")),
                     }
@@ -718,16 +748,78 @@ fn read_signer_trust<'a>(
     let mut members = value.children()?;
     let trees = expect(members.next_value()?, SEQUENCE, "signerTrustTrees")?;
     let trees = read_trust_trees(&trees, budget)?;
-    let requirement = expect(members.next_value()?, SEQUENCE, "signerRevReq")?;
-    let mut requirement = requirement.children()?;
-    let end = revocation_check(
+    let revocation = read_revocation_requirement(
+        &expect(members.next_value()?, SEQUENCE, "signerRevReq")?,
+        extensions,
+        budget,
+    )?;
+    Ok(SignerTrust { trees, revocation })
+}
+
+/// Clause 6.8's `TimestampTrustCondition`, under its rule's context tag: its trust trees and
+/// revocation requirement, and the members this program does not evaluate by name.
+fn read_timestamp_trust<'a>(
+    tagged: &Value<'a>,
+    extensions: &mut Vec<&'a [u8]>,
+    budget: &mut Budget,
+) -> Result<TimestampTrust<'a>, PolicyDocumentError> {
+    let value = expect(
+        Some(explicit(tagged, "timeStampTrustCondition")?),
+        SEQUENCE,
+        "timeStampTrustCondition",
+    )?;
+    let mut condition = TimestampTrust {
+        trees: None,
+        revocation: None,
+        unprocessed: Vec::new(),
+    };
+    let mut members = value.children()?;
+    while let Some(member) = members.next_value()? {
+        if member.class() != der::Class::ContextSpecific {
+            return Err(PolicyDocumentError::Malformed("TimestampTrustCondition"));
+        }
+        match member.tag_number() {
+            0 => {
+                let trees = expect(
+                    Some(explicit(&member, "ttsCertificateTrustTrees")?),
+                    SEQUENCE,
+                    "ttsCertificateTrustTrees",
+                )?;
+                condition.trees = Some(read_trust_trees(&trees, budget)?);
+            }
+            1 => {
+                let requirement =
+                    expect(Some(explicit(&member, "ttsRevReq")?), SEQUENCE, "ttsRevReq")?;
+                condition.revocation = Some(read_revocation_requirement(
+                    &requirement,
+                    extensions,
+                    budget,
+                )?);
+            }
+            2 => condition.unprocessed.push("name constraints"),
+            3 => condition.unprocessed.push("caution period"),
+            4 => condition.unprocessed.push("signature time-stamp delay"),
+            _ => return Err(PolicyDocumentError::Malformed("TimestampTrustCondition")),
+        }
+    }
+    Ok(condition)
+}
+
+/// Clause 6.6.2's `CertRevReq`: the end certificate's check and the CA certificates'.
+fn read_revocation_requirement<'a>(
+    value: &Value<'a>,
+    extensions: &mut Vec<&'a [u8]>,
+    budget: &mut Budget,
+) -> Result<revocation_checks::Requirement, PolicyDocumentError> {
+    let mut requirement = value.children()?;
+    let end_entity = revocation_check(
         &expect(requirement.next_value()?, SEQUENCE, "endCertRevReq")?,
         extensions,
         budget,
     )?;
     let authorities = requirement
         .next_value()?
-        .ok_or(PolicyDocumentError::Malformed("signerRevReq.caCerts"))?;
+        .ok_or(PolicyDocumentError::Malformed("CertRevReq.caCerts"))?;
     let authorities = revocation_check(
         &expect(
             Some(explicit(&authorities, "caCerts")?),
@@ -737,27 +829,27 @@ fn read_signer_trust<'a>(
         extensions,
         budget,
     )?;
-    Ok(SignerTrust {
-        trees,
-        revocation_mandated: end != NO_CHECK || authorities != NO_CHECK,
+    Ok(revocation_checks::Requirement {
+        end_entity,
+        authorities,
+        unprocessed: Vec::new(),
     })
 }
-
-/// Clause 6.6.2's `noCheck`.
-const NO_CHECK: u8 = 4;
 
 /// Clause 6.6.2's `RevReq`: its `enuRevReq`, any extension charged as every other is.
 fn revocation_check<'a>(
     value: &Value<'a>,
     extensions: &mut Vec<&'a [u8]>,
     budget: &mut Budget,
-) -> Result<u8, PolicyDocumentError> {
+) -> Result<revocation_checks::Check, PolicyDocumentError> {
     let mut members = value.children()?;
     let check = enumerated(
         &members
             .next_value()?
             .ok_or(PolicyDocumentError::Malformed("RevReq.enuRevReq"))?,
     )?;
+    let check = revocation_checks::Check::of_number(check)
+        .ok_or(PolicyDocumentError::Malformed("RevReq.enuRevReq"))?;
     if let Some(extension) = members.next_value()? {
         read_extensions(&extension, extensions, budget)?;
     }
@@ -1003,7 +1095,7 @@ pub enum TimeSource {
 
 /// What enforcement needs to know about a signature that the `SignedData` alone does not say.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SignerFacts {
+pub struct SignerFacts<'m> {
     /// When the signature was made, as far as anything establishes it.
     pub signing_time: Option<SigningTime>,
     /// The signer's public key length in bits, where its family has one this reader measures.
@@ -1016,13 +1108,18 @@ pub struct SignerFacts {
     /// host gave one; [`certification_path`] falls back to a covering signature timestamp's
     /// instant, and to nothing.
     pub path_at: Option<Instant>,
+    /// The revocation material a trust condition's mandated checks are answered from (ADR 2720):
+    /// §12.8.3.3.2's attribute the signer signed, and §12.8.4's store where a caller adds it with
+    /// [`Self::with_material`].
+    pub material: Material<'m>,
 }
 
-impl SignerFacts {
+impl<'m> SignerFacts<'m> {
     /// The facts a `SignedData` states, with the signing time its signature timestamp claims
-    /// where that timestamp's imprint covers this signature.
+    /// where that timestamp's imprint covers this signature, and the revocation material its
+    /// signer's `adbe-revocationInfoArchival` attribute carries.
     #[must_use]
-    pub fn of(cms: &SignedData<'_>) -> Self {
+    pub fn of(cms: &SignedData<'m>) -> Self {
         let certificate =
             crate::signature::signer_certificate(cms).and_then(|value| x509::read(value).ok());
         let key_bits = certificate.and_then(|certificate| key_bits(&certificate.public_key));
@@ -1041,7 +1138,16 @@ impl SignerFacts {
             certificate_signature_algorithm: certificate
                 .map(|certificate| certificate.signature_algorithm.to_vec()),
             path_at: None,
+            material: crate::revocation::archived(cms),
         }
+    }
+
+    /// These facts with `material` added to the revocation material — §12.8.4's document security
+    /// store, which the document holds and the `SignedData` does not.
+    #[must_use]
+    pub fn with_material(mut self, material: &Material<'m>) -> Self {
+        self.material.absorb(material.clone());
+        self
     }
 
     /// These facts with the instant a host validates paths at, which is the instant
@@ -1131,12 +1237,20 @@ pub enum Constraint {
         /// How many trust anchors were not searched.
         unexamined: usize,
     },
-    /// A trust condition's revocation requirement (clause 6.6.2, TS 119 172-2 clause 4.23).
-    RevocationRequirement {
+    /// One kind of certificate's revocation check a trust condition mandates (clause 6.6.2, TS
+    /// 119 172-2 clause 4.23.2), answered over that condition's path (ADR 2720).
+    RevocationCheck {
         /// The condition.
         condition: &'static str,
-        /// Whether it mandates any check.
-        mandated: bool,
+        /// What was mandated and what the material answered.
+        check: revocation_checks::KindCheck,
+    },
+    /// A member of a trust condition this program does not evaluate, by name.
+    ConditionMember {
+        /// The condition.
+        condition: &'static str,
+        /// The member.
+        member: &'static str,
     },
     /// One certificate on the path against one of clause 6.10's certificate-issuer lists.
     IssuerAlgorithm {
@@ -1233,7 +1347,7 @@ pub enum Enforcement {
 pub fn enforce(
     policy: &SignaturePolicy<'_>,
     cms: &SignedData<'_>,
-    facts: &SignerFacts,
+    facts: &SignerFacts<'_>,
 ) -> Enforcement {
     let Some(Store::Document { octets, .. }) = &policy.store else {
         return Enforcement::NotEnforced(NotEnforced::NoStoredDocument);
@@ -1261,7 +1375,7 @@ pub fn enforce_fetched(
     policy: &SignaturePolicy<'_>,
     copy: &[u8],
     cms: &SignedData<'_>,
-    facts: &SignerFacts,
+    facts: &SignerFacts<'_>,
 ) -> Enforcement {
     let by_octets = match policy.fetched_binding(copy) {
         Published::Matches { .. } => Ok(()),
@@ -1277,7 +1391,7 @@ fn enforce_copy(
     octets: &[u8],
     by_octets: Result<(), NotEnforced>,
     cms: &SignedData<'_>,
-    facts: &SignerFacts,
+    facts: &SignerFacts<'_>,
 ) -> Enforcement {
     match Syntax::of(octets) {
         Some(Syntax::Ts1191723) => {
@@ -1321,7 +1435,7 @@ fn enforce_components(
     octets: &[u8],
     by_octets: Result<(), NotEnforced>,
     cms: &SignedData<'_>,
-    facts: &SignerFacts,
+    facts: &SignerFacts<'_>,
 ) -> Enforcement {
     let parsed = ts_119_172_3::PolicyDocument::parse(octets);
     let bound_by_its_digest = match (&policy.hash, &parsed) {
@@ -1358,7 +1472,7 @@ fn enforce_xml(
     octets: &[u8],
     by_octets: Result<(), NotEnforced>,
     cms: &SignedData<'_>,
-    facts: &SignerFacts,
+    facts: &SignerFacts<'_>,
 ) -> Enforcement {
     let reading = ts_119_172_2::Reading::parse(octets);
     let parsed = reading
@@ -1429,7 +1543,11 @@ fn canonical_binding(
 
 /// Clause 6.2's signing period, and TS 119 172-2 clause 4.13.1's, against when the signature was
 /// made.
-fn signing_period(facts: &SignerFacts, not_before: &Stated, not_after: Option<&Stated>) -> Finding {
+fn signing_period(
+    facts: &SignerFacts<'_>,
+    not_before: &Stated,
+    not_after: Option<&Stated>,
+) -> Finding {
     let verdict = match &facts.signing_time {
         None => Verdict::NotEvaluated,
         Some(at) => {
@@ -1466,7 +1584,7 @@ fn stated_commitment_type<'a>(cms: &SignedData<'a>) -> Option<&'a [u8]> {
 pub fn findings(
     document: &PolicyDocument<'_>,
     cms: &SignedData<'_>,
-    facts: &SignerFacts,
+    facts: &SignerFacts<'_>,
 ) -> Vec<Finding> {
     let mut out = vec![signing_period(
         facts,
@@ -1488,18 +1606,36 @@ pub fn findings(
         });
     }
     let rule = rule.ok().flatten();
-    // Clause 6.3 places the signing-certificate trust condition in the common rules or in every
-    // commitment rule, never both, so the one that applies is searched once and every
-    // path-dependent constraint of either rule set reads that one path.
-    let search = document
+    // Clause 6.3 places the signing-certificate and time-stamp trust conditions each in the common
+    // rules or in every commitment rule, never both, so the one that applies is searched once and
+    // every path-dependent constraint of either rule set reads that one path.
+    let signer_trust = document
         .common
         .signer_trust
         .as_ref()
-        .or_else(|| rule.and_then(|rule| rule.rules.signer_trust.as_ref()))
-        .map(|trust| certification_path::search(&trust.trees, cms, facts));
-    judge(&document.common, cms, facts, search.as_ref(), &mut out);
+        .or_else(|| rule.and_then(|rule| rule.rules.signer_trust.as_ref()));
+    let search = signer_trust.map(|trust| certification_path::search(&trust.trees, cms, facts));
+    // Clause 6.8: where the time-stamp condition states no trees of its own, the signing-certificate
+    // condition's apply to the authority's certificate.
+    let authority = document
+        .common
+        .timestamp_trust
+        .as_ref()
+        .or_else(|| rule.and_then(|rule| rule.rules.timestamp_trust.as_ref()))
+        .and_then(|stamp| {
+            stamp
+                .trees
+                .as_ref()
+                .or_else(|| signer_trust.map(|trust| &trust.trees))
+        })
+        .map(|trees| certification_path::search_authority(trees, cms, facts));
+    let paths = Paths {
+        signer: search.as_ref(),
+        authority: authority.as_ref(),
+    };
+    judge(&document.common, cms, facts, paths, &mut out);
     if let Some(rule) = rule {
-        judge(&rule.rules, cms, facts, search.as_ref(), &mut out);
+        judge(&rule.rules, cms, facts, paths, &mut out);
     }
     for extension in &document.extensions {
         out.push(Finding {
@@ -1510,15 +1646,23 @@ pub fn findings(
     out
 }
 
+/// The searches one document's trust conditions are judged on: the signer's, and the
+/// time-stamping authority's (ADRs 2714, 2720).
+#[derive(Debug, Clone, Copy)]
+struct Paths<'s> {
+    signer: Option<&'s certification_path::Search>,
+    authority: Option<&'s certification_path::Search>,
+}
+
 /// One rule set's findings.
 fn judge(
     rules: &Rules<'_>,
     cms: &SignedData<'_>,
-    facts: &SignerFacts,
-    search: Option<&certification_path::Search>,
+    facts: &SignerFacts<'_>,
+    paths: Paths<'_>,
     out: &mut Vec<Finding>,
 ) {
-    let path = search.and_then(|search| search.path.as_ref());
+    let path = paths.signer.and_then(|search| search.path.as_ref());
     let verdict = |held: bool| if held { Verdict::Met } else { Verdict::Broken };
     if let Some(signer) = &rules.signer {
         if let Some(required) = signer.external_signed_data {
@@ -1576,8 +1720,8 @@ fn judge(
             constraint: Constraint::VerifierAdds(name(oid)),
         });
     }
-    judge_trust_conditions(rules, search, out);
-    judge_issuers(rules, facts, path, out);
+    judge_trust_conditions(rules, facts, paths, out);
+    judge_issuers(rules, facts, paths, out);
     if let Some(list) = &rules.signer_algorithms {
         for (used, is_signature) in [
             (cms.digest_algorithm, false),
@@ -1606,43 +1750,42 @@ fn judge(
             });
         }
     }
-    for member in &rules.certificate_algorithms {
+    if rules.attribute_algorithms {
         out.push(Finding {
             verdict: Verdict::NotEvaluated,
-            constraint: Constraint::CertificateAlgorithms(member),
+            constraint: Constraint::CertificateAlgorithms("aaCertAlgorithmConstraints"),
         });
     }
 }
 
-/// Clauses 6.7 to 6.9's trust conditions: the signing-certificate condition as the search found it,
-/// with its revocation requirement, and the other two named.
+/// Clauses 6.7 to 6.9's trust conditions: the signing-certificate and time-stamp conditions as
+/// their searches found them, each with its revocation requirement, and the attribute condition
+/// named.
 fn judge_trust_conditions(
     rules: &Rules<'_>,
-    search: Option<&certification_path::Search>,
+    facts: &SignerFacts<'_>,
+    paths: Paths<'_>,
     out: &mut Vec<Finding>,
 ) {
     for condition in &rules.trust_conditions {
-        match (&rules.signer_trust, search) {
-            (Some(trust), Some(search)) if *condition == SIGNING_CERT_TRUST => {
-                out.push(Finding {
-                    verdict: search.verdict(),
-                    constraint: Constraint::TrustPath {
-                        condition,
-                        found: search.found.clone(),
-                        unexamined: search.unexamined,
-                    },
-                });
-                out.push(Finding {
-                    verdict: if trust.revocation_mandated {
-                        Verdict::NotEvaluated
-                    } else {
-                        Verdict::Met
-                    },
-                    constraint: Constraint::RevocationRequirement {
-                        condition,
-                        mandated: trust.revocation_mandated,
-                    },
-                });
+        match (*condition, &rules.signer_trust, &rules.timestamp_trust) {
+            (SIGNING_CERT_TRUST, Some(trust), _) => {
+                trust_path_findings(condition, paths.signer, Some(&trust.revocation), facts, out);
+            }
+            (TIMESTAMP_TRUST, _, Some(stamp)) => {
+                trust_path_findings(
+                    condition,
+                    paths.authority,
+                    stamp.revocation.as_ref(),
+                    facts,
+                    out,
+                );
+                for member in &stamp.unprocessed {
+                    out.push(Finding {
+                        verdict: Verdict::NotEvaluated,
+                        constraint: Constraint::ConditionMember { condition, member },
+                    });
+                }
             }
             _ => out.push(Finding {
                 verdict: Verdict::NotEvaluated,
@@ -1652,13 +1795,70 @@ fn judge_trust_conditions(
     }
 }
 
-/// Clause 6.10's end-entity and CA certificate-issuer lists, judged along the path.
-fn judge_issuers(
-    rules: &Rules<'_>,
-    facts: &SignerFacts,
-    path: Option<&certification_path::Path>,
+/// One trust condition's findings over the search for its path: the path itself, and each kind
+/// of certificate's mandated revocation check answered over it (ADRs 2714, 2720). With no search —
+/// a condition stating no trees of its own and inheriting none — the condition is named, and its
+/// revocation checks are answered as having no path.
+pub(super) fn trust_path_findings(
+    condition: &'static str,
+    search: Option<&certification_path::Search>,
+    revocation: Option<&revocation_checks::Requirement>,
+    facts: &SignerFacts<'_>,
     out: &mut Vec<Finding>,
 ) {
+    out.push(match search {
+        Some(search) => Finding {
+            verdict: search.verdict(),
+            constraint: Constraint::TrustPath {
+                condition,
+                found: search.found.clone(),
+                unexamined: search.unexamined,
+            },
+        },
+        None => Finding {
+            verdict: Verdict::NotEvaluated,
+            constraint: Constraint::TrustCondition(condition),
+        },
+    });
+    let Some(requirement) = revocation else {
+        return;
+    };
+    let path = search.and_then(|search| search.path.as_ref());
+    let at = certification_path::instant(facts);
+    for check in revocation_checks::checks(requirement, path, &facts.material, at) {
+        out.push(Finding {
+            verdict: check.verdict(),
+            constraint: Constraint::RevocationCheck { condition, check },
+        });
+    }
+    for member in &requirement.unprocessed {
+        out.push(Finding {
+            verdict: Verdict::NotEvaluated,
+            constraint: Constraint::ConditionMember { condition, member },
+        });
+    }
+}
+
+/// Clause 6.10's end-entity and CA certificate-issuer lists, judged along the signer's path, and
+/// its time-stamping-authority list, judged on the authority's certificate along the authority's
+/// (ADR 2720).
+fn judge_issuers(
+    rules: &Rules<'_>,
+    facts: &SignerFacts<'_>,
+    paths: Paths<'_>,
+    out: &mut Vec<Finding>,
+) {
+    if let Some(list) = &rules.authority_certificate_algorithms {
+        let authority = paths.authority.and_then(|search| search.path.as_ref());
+        let issued = authority.and_then(certification_path::Path::end_entity);
+        out.push(issuer_finding(
+            TSA_ALGORITHMS,
+            list,
+            issued.as_ref(),
+            authority.is_some(),
+        ));
+    }
+    let path = paths.signer.and_then(|search| search.path.as_ref());
     if let Some(list) = &rules.end_entity_algorithms {
         let issued = facts
             .certificate_signature_algorithm
@@ -1846,7 +2046,8 @@ impl std::fmt::Display for Finding {
             },
             Constraint::TrustCondition(_)
             | Constraint::TrustPath { .. }
-            | Constraint::RevocationRequirement { .. }
+            | Constraint::RevocationCheck { .. }
+            | Constraint::ConditionMember { .. }
             | Constraint::IssuerAlgorithm { .. }
             | Constraint::CertificateAlgorithms(_) => self.constraint.path_sentence(f, verdict),
             Constraint::Extension(oid) => write!(
@@ -1862,31 +2063,26 @@ impl Constraint {
     /// The sentences of the constraints on the certification path (ADR 2714).
     fn path_sentence(&self, f: &mut std::fmt::Formatter<'_>, verdict: &str) -> std::fmt::Result {
         match self {
+            Self::TrustCondition(condition) if *condition == ATTRIBUTE_TRUST => write!(
+                f,
+                "the policy's {condition} is {verdict}: it concerns attribute certificates, which this program does not read"
+            ),
             Self::TrustCondition(condition) => write!(
                 f,
-                "the policy's {condition} is {verdict}: this program does not search its trust trees, which concern a certificate other than the signer's"
+                "the policy's {condition} is {verdict}: it states no trust trees of its own and no rule applies another condition's, so no path was searched for it"
             ),
             Self::TrustPath {
                 condition,
                 found,
                 unexamined,
             } => certification_path::sentence(f, condition, found, *unexamined, verdict),
-            Self::RevocationRequirement {
-                condition,
-                mandated,
-            } => {
-                if *mandated {
-                    write!(
-                        f,
-                        "the revocation checks the policy's {condition} mandates are {verdict}: this program answers revocation from the material the file carries and does not record which kind of check answered for each certificate"
-                    )
-                } else {
-                    write!(
-                        f,
-                        "the revocation requirement of the policy's {condition} is {verdict}: it mandates no check"
-                    )
-                }
+            Self::RevocationCheck { condition, check } => {
+                revocation_checks::sentence(f, condition, check, verdict)
             }
+            Self::ConditionMember { condition, member } => write!(
+                f,
+                "the {member} the policy's {condition} states is {verdict}: this program does not evaluate it"
+            ),
             Self::IssuerAlgorithm {
                 member,
                 issued,
@@ -1904,7 +2100,7 @@ impl Constraint {
             ),
             Self::CertificateAlgorithms(member) => write!(
                 f,
-                "the policy's {member} is {verdict}: it constrains an attribute authority or a time-stamping authority, whose certificates this program does not judge against a policy"
+                "the policy's {member} is {verdict}: it constrains attribute certificates, which this program does not read"
             ),
             _ => Ok(()),
         }

@@ -47,6 +47,7 @@ use const_oid::ObjectIdentifier;
 use const_oid::db::rfc5912;
 
 use super::certification_path::{TrustPoint, TrustTrees};
+use super::revocation_checks::{self, FRESHNESS, RETENTION};
 use super::ts_119_172_3::{
     self, AlgorithmConstraint, BasicRule, Cardinality, CommitmentRule, Comparison, ExtensionName,
     FormatsAndLevels, Identifier, Matching, MediaTypes, PolicyRule, Position, Scope, ScopedRule,
@@ -54,7 +55,8 @@ use super::ts_119_172_3::{
 };
 use super::{
     Budget, CertificateInfo, Finding, MAX_ENTRIES, MAX_POLICY_OCTETS, PolicyDocumentError,
-    SignerFacts, SignerTrust, Stated, Syntax, Verdict, canonical_xml, signing_period,
+    SignerFacts, SignerTrust, Stated, Syntax, TimestampTrust, Verdict, canonical_xml,
+    signing_period,
 };
 use crate::cms::SignedData;
 use crate::der;
@@ -663,10 +665,20 @@ impl<'t> Reader<'t> {
 
     /// Clause 4.24.4's `SigningCertTrustConditions`, read as
     /// [`ts_119_172_3`]'s `read_signer_trust` reads the ASN.1 one: clause 4.22.5's trust points,
-    /// one per certificate trust anchor, and whether clause 4.23.3's revocation trust mandates
-    /// anything.
+    /// one per certificate trust anchor, and clause 4.23.3's revocation trust.
     fn signer_trust(&mut self, conditions: usize) -> Result<SignerTrust<'t>, PolicyDocumentError> {
         let trees = self.required(conditions, "SignerTrustTrees", "SignerTrustTrees")?;
+        let trees = self.trust_trees(trees)?;
+        let revocation = self.required(conditions, "SignerRevTrust", "SignerRevTrust")?;
+        Ok(SignerTrust {
+            trees,
+            revocation: self.revocation_trust(revocation)?,
+        })
+    }
+
+    /// Clause 4.22.5's `CertificateTrustTreesType`: one trust point per certificate trust anchor,
+    /// and a count of the anchors given by trusted-list reference.
+    fn trust_trees(&mut self, trees: usize) -> Result<TrustTrees<'t>, PolicyDocumentError> {
         let mut out = TrustTrees::default();
         for point in self.all(trees, Space::Policy, "CertificateTrustPoint")? {
             self.budget.take()?;
@@ -722,17 +734,34 @@ impl<'t> Reader<'t> {
             let lists = self.all(anchors, Space::Policy, "TAsInTrustedList")?.len();
             out.trusted_lists = out.trusted_lists.saturating_add(lists);
         }
-        let revocation = self.required(conditions, "SignerRevTrust", "SignerRevTrust")?;
+        Ok(out)
+    }
+
+    /// Clause 4.23.3's `CertificateRevTrustType`: clause 4.23.2's check for each kind of
+    /// certificate, and the members this program does not evaluate by name.
+    fn revocation_trust(
+        &self,
+        revocation: usize,
+    ) -> Result<revocation_checks::Requirement, PolicyDocumentError> {
         let requirement = self.required(revocation, "CertificateRevReq", "CertificateRevReq")?;
-        let end = self.text_of(requirement, "EndRevReq", "CertificateRevReq.EndRevReq")?;
-        let authorities = self.text_of(requirement, "CACerts", "CertificateRevReq.CACerts")?;
-        let more = self.optional(revocation, "Freshness")?.is_some()
-            || self
-                .optional(revocation, "SigCertIssuedByCAKeepsExpiredRevokedCertsInfo")?
-                .is_some();
-        Ok(SignerTrust {
-            trees: out,
-            revocation_mandated: more || end != "nocheck" || authorities != "nocheck",
+        let check = |local, member| {
+            self.text_of(requirement, local, member).and_then(|text| {
+                revocation_checks::Check::of_name(text.trim()).ok_or(malformed(member))
+            })
+        };
+        let mut unprocessed = Vec::new();
+        for (local, said) in [
+            ("Freshness", FRESHNESS),
+            ("SigCertIssuedByCAKeepsExpiredRevokedCertsInfo", RETENTION),
+        ] {
+            if self.optional(revocation, local)?.is_some() {
+                unprocessed.push(said);
+            }
+        }
+        Ok(revocation_checks::Requirement {
+            end_entity: check("EndRevReq", "CertificateRevReq.EndRevReq")?,
+            authorities: check("CACerts", "CertificateRevReq.CACerts")?,
+            unprocessed,
         })
     }
 
@@ -1142,15 +1171,28 @@ impl<'t> Reader<'t> {
                 "LevelOfAssurance",
                 "RulesForSetOfEvidences.LevelOfAssurance",
             )?;
-            let mut trust_stated = false;
+            let mut trust = None;
             let mut delay_seconds = None;
             if let Some(condition) = self.optional(set, "TimeStampTrustCondition")? {
-                for trust in [
-                    "TstCertificateTrustTrees",
-                    "TstRevocationTrust",
-                    "TstNameConstraints",
-                ] {
-                    trust_stated |= self.optional(condition, trust)?.is_some();
+                let trees = self
+                    .optional(condition, "TstCertificateTrustTrees")?
+                    .map(|trees| self.trust_trees(trees))
+                    .transpose()?;
+                let revocation = self
+                    .optional(condition, "TstRevocationTrust")?
+                    .map(|revocation| self.revocation_trust(revocation))
+                    .transpose()?;
+                let names = self.optional(condition, "TstNameConstraints")?.is_some();
+                if trees.is_some() || revocation.is_some() || names {
+                    trust = Some(TimestampTrust {
+                        trees,
+                        revocation,
+                        unprocessed: if names {
+                            vec!["name constraints"]
+                        } else {
+                            Vec::new()
+                        },
+                    });
                 }
                 if let Some(delay) = self.optional(condition, "SignatureTimeStampDelay")? {
                     delay_seconds = Some(self.delay(delay)?);
@@ -1159,7 +1201,7 @@ impl<'t> Reader<'t> {
             out.push(TimeEvidence {
                 evidences,
                 level_of_assurance,
-                trust_stated,
+                trust,
                 delay_seconds,
             });
         }
@@ -1339,7 +1381,7 @@ fn base64(text: &str) -> Option<Vec<u8>> {
 pub fn findings(
     document: &PolicyDocument<'_>,
     cms: &SignedData<'_>,
-    facts: &SignerFacts,
+    facts: &SignerFacts<'_>,
 ) -> Vec<Finding> {
     let mut out = Vec::new();
     if let Some((not_before, not_after)) = &document.signing_period {
