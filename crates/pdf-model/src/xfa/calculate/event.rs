@@ -16,14 +16,18 @@
 //! worker changes.
 
 use super::Scalar;
+use crate::view::CommitKey;
 
 /// The properties of `$event` this reader carries, in the order page 402 lists them, with the
 /// number past the template's containers each one is.
-const CARRIED: [&str; 8] = [
+const CARRIED: [&str; 11] = [
     "cancelAction",
     "change",
+    "commitKey",
     "name",
+    "newContentType",
     "newText",
+    "prevContentType",
     "prevText",
     "reenter",
     "selEnd",
@@ -31,17 +35,24 @@ const CARRIED: [&str; 8] = [
 ];
 
 /// The properties page 398's table has an event set that this reader is never told of: the
-/// keyboard's modifier keys, how an exit was committed, and what a paste held past a field's
-/// limit. Reading one is refused by name rather than answered null.
-const UNSUPPLIED: [&str; 7] = [
-    "modifier",
-    "shift",
-    "commitKey",
-    "keyDown",
-    "fullText",
-    "newContentType",
-    "prevContentType",
-];
+/// keyboard's modifier keys, whether an arrow key made a selection, and what a paste held past a
+/// field's limit. Reading one is refused by name rather than answered null.
+const UNSUPPLIED: [&str; 4] = ["modifier", "shift", "keyDown", "fullText"];
+
+/// What an event says of `commitKey`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Commit {
+    /// The event is no field's `exit`, which is the one row of page 398's table that sets it.
+    NotSet,
+    /// A field's `exit` whose window did not say how the focus left the field: a selection
+    /// committed in a choice list, which a click on an item or Enter commits alike, and a focus a
+    /// script or a page turn moved, which none of page 402's four values describes.
+    Untold,
+    /// A field's `exit`, committed as the window said: page 402's 1, 2 or 3, the numbers an
+    /// interactive form field's script reads for the same three ways of committing (ADR 1626).
+    /// Page 402's 0, a value not committed, is no way a window this reader serves leaves a field.
+    Told(CommitKey),
+}
 
 /// The other properties page 402–404 lists: a connection's fault and the start of a selection,
 /// which no event this reader raises sets.
@@ -111,6 +122,12 @@ pub struct Event {
     /// `None` for an event that does not set it, and for a choice list's event other than `enter`,
     /// which the definition does not decide.
     reenter: Option<bool>,
+    /// `$event.commitKey` (page 402).
+    commit: Commit,
+    /// `$event.newContentType` and `$event.prevContentType`, which page 403 says are always the
+    /// same in this version of XFA: `allowRichText` or `plainTextOnly`. `None` for an event that
+    /// is no field's `change`, the one row of page 398's table this reader raises that sets them.
+    content: Option<&'static str>,
 }
 
 impl Event {
@@ -124,7 +141,26 @@ impl Event {
             replaced,
             cancel: None,
             reenter: None,
+            commit: Commit::NotSet,
+            content: None,
         }
+    }
+
+    /// The field's `exit` event, with `$event.commitKey` as the window said the value was
+    /// committed (pages 398 and 402); `None` where it did not say.
+    #[must_use]
+    pub fn with_commit_key(mut self, committed: Option<CommitKey>) -> Self {
+        self.commit = committed.map_or(Commit::Untold, Commit::Told);
+        self
+    }
+
+    /// The field's `change` event, with `$event.newContentType` and `$event.prevContentType` as
+    /// page 403 defines them: `allowRichText` where the field supports rich text, `plainTextOnly`
+    /// where it does not.
+    #[must_use]
+    pub(crate) fn with_content_type(mut self, entry: crate::xfa::template::Entry) -> Self {
+        self.content = Some(entry.word());
+        self
     }
 
     /// The event with `$event.reenter` set to `reenter` (page 403).
@@ -220,6 +256,27 @@ pub(super) fn property(
             event.name
         ));
     }
+    let at = CARRIED
+        .iter()
+        .position(|carried| *carried == name)
+        .unwrap_or(0);
+    if name == "commitKey" {
+        return match event.commit {
+            Commit::Told(_) => Ok(Named::Property(containers.saturating_add(at))),
+            Commit::Untold => Err(
+                "$event.commitKey: the window did not say how the value was committed as the \
+                 focus left the field, so it is not offered (XFA 3.3 page 402)"
+                    .to_owned(),
+            ),
+            Commit::NotSet => Err(unset()),
+        };
+    }
+    if matches!(name, "newContentType" | "prevContentType") {
+        return match event.content {
+            Some(_) => Ok(Named::Property(containers.saturating_add(at))),
+            None => Err(unset()),
+        };
+    }
     if !event.named || ELSEWHERE.contains(&name) {
         return Err(unset());
     }
@@ -237,10 +294,6 @@ pub(super) fn property(
             ));
         }
     }
-    let at = CARRIED
-        .iter()
-        .position(|carried| *carried == name)
-        .unwrap_or(0);
     Ok(Named::Property(containers.saturating_add(at)))
 }
 
@@ -252,13 +305,19 @@ pub(super) fn value(event: Option<&Event>, containers: usize, node: usize) -> Op
     let count = |n: usize| Scalar::Number(f64::from(u32::try_from(n).unwrap_or(u32::MAX)));
     Some(match *name {
         "cancelAction" => Scalar::Number(if event.cancel? { 1.0 } else { 0.0 }),
+        "commitKey" => match event.commit {
+            Commit::Told(key) => Scalar::Number(f64::from(key.number())),
+            Commit::Untold | Commit::NotSet => return None,
+        },
+        "newContentType" | "prevContentType" => Scalar::Text(event.content?.to_owned()),
         "name" => Scalar::Text(event.name.clone()),
         "change" => Scalar::Text(replaced?.change.clone()),
         "newText" => Scalar::Text(replaced?.new_text()),
         "prevText" => Scalar::Text(replaced?.previous.clone()?),
         "reenter" => Scalar::Number(if event.reenter? { 1.0 } else { 0.0 }),
         "selStart" => count(replaced?.start),
-        _ => count(replaced?.end),
+        "selEnd" => count(replaced?.end),
+        _ => return None,
     })
 }
 

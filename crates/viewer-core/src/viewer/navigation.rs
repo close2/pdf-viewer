@@ -474,7 +474,7 @@ impl Viewer {
             }
             opened = pages.get(open.page_index).map(|page| page.dict.clone());
         }
-        self.raise(id, raised, None, events);
+        self.raise(id, raised, None, None, events);
         let runner = !matches!(self.scripting, crate::Scripting::Off);
         let turned =
             left.filter(|index| Some(*index) != self.focused().map(|open| open.page_index));
@@ -504,7 +504,7 @@ impl Viewer {
                 raised.push((annotation, Trigger::PageVisible));
             }
         }
-        self.raise(id, raised, None, events);
+        self.raise(id, raised, None, None, events);
         // The open's own page is the open sequence's, run once page one is presented; a turn's is
         // run here, `/O` and then each annotation's `/PO` and `/PV`, in Table 197's order.
         if turned.is_some()

@@ -11,9 +11,10 @@
 mod common;
 
 use common::hosted::FormCalcRunner;
+use pdf_model::view::CommitKey;
 use pdf_model::view::{Entered, ScriptEdit, ViewState};
 use pdf_model::xfa::{
-    Activation, Change, Ended, Level, Limits, Resource, Scalar, Stimulus, Validity,
+    Activation, Change, Ended, Level, Limits, Resource, Scalar, Stimulus, Test, Validity,
 };
 use pdf_syntax::Document;
 
@@ -717,6 +718,7 @@ fn focus_crossing_two_subforms_exits_the_field_then_its_subform_and_enters_the_o
             left_button: None,
             reaching_button: None,
             exited_at_selection: false,
+            committed: None,
         },
         Limits::DEFAULT,
     );
@@ -751,6 +753,7 @@ fn focus_within_one_subform_fires_only_the_fields_events() {
             left_button: None,
             reaching_button: None,
             exited_at_selection: false,
+            committed: None,
         },
         Limits::DEFAULT,
     );
@@ -783,6 +786,7 @@ fn focus_leaving_the_form_exits_every_container_around_the_field() {
             left_button: None,
             reaching_button: None,
             exited_at_selection: false,
+            committed: None,
         },
         Limits::DEFAULT,
     );
@@ -876,6 +880,7 @@ fn focus_leaving_a_deeply_nested_field_exits_every_level_once() {
             left_button: None,
             reaching_button: None,
             exited_at_selection: false,
+            committed: None,
         },
         Limits::DEFAULT,
     );
@@ -904,6 +909,7 @@ fn more_exit_events_than_an_activation_runs_end_on_its_limit_and_keep_nothing() 
             left_button: None,
             reaching_button: None,
             exited_at_selection: false,
+            committed: None,
         },
         Limits::DEFAULT,
     );
@@ -1304,6 +1310,7 @@ fn each_built_activity_reaches_the_listening_subform_after_the_fields_own() {
                 left_button: None,
                 reaching_button: None,
                 exited_at_selection: false,
+                committed: None,
             },
             "exit!A^",
         ),
@@ -2242,6 +2249,7 @@ fn the_focus_on_a_button_of_an_exclusion_group_runs_that_fields_enter_and_exit()
                 left_button: Some("y"),
                 reaching_button: reaching.and_then(|(_, on)| on),
                 exited_at_selection: false,
+                committed: None,
             },
             Limits::DEFAULT,
         )
@@ -2724,6 +2732,7 @@ fn a_choice_list_exits_at_each_selection_and_reenters_before_the_next() {
         left_button: None,
         reaching_button: None,
         exited_at_selection,
+        committed: None,
     };
     for (stimulus, expected) in [
         (
@@ -2769,6 +2778,7 @@ fn a_template_that_asks_for_the_legacy_event_model_fires_no_reentry() {
                 left_button: None,
                 reaching_button: None,
                 exited_at_selection: true,
+                committed: None,
             },
             Some("p-P-"),
         ),
@@ -2826,5 +2836,274 @@ fn reenter_is_false_on_a_text_field_and_refused_on_a_choice_list_s_click() {
             .any(|said| said.contains("$event.reenter")),
         "{:?}",
         refused.report
+    );
+}
+
+/// XFA 3.3 pages 398 and 402: a field's `exit` sets `$event.commitKey`, how the value was
+/// committed as the focus left the field — 3 for a tab to a new field, 1 for a click of the mouse
+/// outside it. Where the window does not say, the property is refused by name rather than
+/// answered; a subform's `exit` and a field's `enter` are rows of page 398's table that do not set
+/// it at all (ADR 2726).
+#[test]
+fn a_fields_exit_reads_how_its_value_was_committed() {
+    let template = [
+        format!(
+            "<subform name=\"Part\">{}{}</subform>",
+            "<event activity=\"exit\"><script>Log = Concat(Log, \"P\", $event.commitKey)\
+             </script></event>",
+            field(
+                "Amount",
+                "<event activity=\"exit\"><script>Log = Concat(Log, \"k\", $event.commitKey, \
+                 \";\")</script></event><event activity=\"enter\"><script>Log = Concat(Log, \
+                 \"e\", $event.commitKey)</script></event>"
+            )
+        ),
+        field("Other", ""),
+        field("Log", ""),
+    ]
+    .concat();
+    let values = [("Part.Amount", "5"), ("Other", ""), ("Log", "")];
+    let (left, reached) = (name("Part.Amount"), name("Other"));
+    let exit = |committed| {
+        activate(
+            &template,
+            &values,
+            Stimulus::Exit {
+                left: &left,
+                reaching: Some(&reached),
+                left_button: None,
+                reaching_button: None,
+                exited_at_selection: false,
+                committed,
+            },
+            Limits::DEFAULT,
+        )
+    };
+    for (committed, expected) in [
+        (Some(CommitKey::Tab), "k3;"),
+        (Some(CommitKey::Click), "k1;"),
+        (Some(CommitKey::Enter), "k2;"),
+    ] {
+        let activation = exit(committed);
+        assert_eq!(
+            log(&activation).as_deref(),
+            Some(expected),
+            "{:?}",
+            activation.report
+        );
+        assert!(
+            activation
+                .report
+                .iter()
+                .any(|said| said.contains("$event.commitKey: the exit event does not set it")),
+            "the subform's exit: {:?}",
+            activation.report
+        );
+    }
+    let untold = exit(None);
+    assert_eq!(log(&untold), None, "{:?}", untold.report);
+    assert!(
+        untold.report.iter().any(|said| said
+            .contains("$event.commitKey: the window did not say how the value was committed")),
+        "{:?}",
+        untold.report
+    );
+    let enter = activate(
+        &template,
+        &values,
+        Stimulus::Enter {
+            reached: &left,
+            leaving: Some(&reached),
+            reached_button: None,
+            leaving_button: None,
+        },
+        Limits::DEFAULT,
+    );
+    assert_eq!(log(&enter), None);
+    assert!(
+        enter
+            .report
+            .iter()
+            .any(|said| said.contains("$event.commitKey: the enter event does not set it")),
+        "{:?}",
+        enter.report
+    );
+}
+
+/// XFA 3.3 pages 398 and 403: a field's `change` sets `$event.newContentType` and
+/// `$event.prevContentType`, which are always the same in this version: `allowRichText` where the
+/// field supports rich text and `plainTextOnly` where it does not. Page 865: a `textEdit`'s
+/// `allowRichText` is 1 or 0 as stated, and 0 where it is not stated; a field whose `ui` is no
+/// `textEdit` takes no styled text. A click sets neither.
+#[test]
+fn a_change_reads_whether_the_field_takes_rich_text() {
+    let reads = "<event activity=\"change\"><script>Log = Concat($event.newContentType, \"|\", \
+                 $event.prevContentType)</script></event>";
+    for (ui, expected) in [
+        (
+            "<textEdit allowRichText=\"1\"/>",
+            "allowRichText|allowRichText",
+        ),
+        (
+            "<textEdit allowRichText=\"0\"/>",
+            "plainTextOnly|plainTextOnly",
+        ),
+        ("<textEdit/>", "plainTextOnly|plainTextOnly"),
+        ("<numericEdit/>", "plainTextOnly|plainTextOnly"),
+    ] {
+        let template = [
+            format!("<field name=\"Note\"><ui>{ui}</ui><value><text/></value>{reads}</field>"),
+            field("Log", ""),
+        ]
+        .concat();
+        let activation = entry(&template, &[("Note", "7"), ("Log", "")], "Note", None);
+        assert_eq!(
+            log(&activation).as_deref(),
+            Some(expected),
+            "{ui}: {:?}",
+            activation.report
+        );
+    }
+    let template = [
+        field(
+            "Button",
+            "<event activity=\"click\"><script>Log = $event.newContentType</script></event>",
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    let activation = click(&template, &[("Button", ""), ("Log", "")], "Button");
+    assert_eq!(log(&activation), None);
+    assert!(
+        activation
+            .report
+            .iter()
+            .any(|said| said.contains("$event.newContentType: the click event does not set it")),
+        "{:?}",
+        activation.report
+    );
+}
+
+/// A text field `Code` whose `validate` picture is `AAA-999` — three letters, a hyphen, three
+/// digits — at the `formatTest` level `attributes` states, with the designer's message for the
+/// format test (XFA 3.3 page 383).
+fn coded(attributes: &str) -> String {
+    format!(
+        "<field name=\"Code\"><ui><textEdit/></ui><validate {attributes}><message><text \
+         name=\"formatTest\">Three letters and three digits.</text></message><picture>AAA-999\
+         </picture></validate><value><text/></value>\
+         <event activity=\"validationState\"><script>Log = Concat(Log, \"S;\")</script></event>\
+         </field>"
+    )
+}
+
+/// The format test failures of an activation: each container, its test and its level.
+fn format_failures(activation: &Activation) -> Vec<(String, Level, Option<String>)> {
+    activation
+        .script_tests
+        .iter()
+        .flatten()
+        .filter(|failed| failed.test == Test::Format)
+        .map(|failed| {
+            (
+                failed.container.clone(),
+                failed.level,
+                failed.message.clone(),
+            )
+        })
+        .collect()
+}
+
+/// XFA 3.3 page 396: the format test is re-evaluated when content changes, and is applied to no
+/// field holding null or empty content; page 382: the `validate` picture must format the
+/// canonical value; pages 384–385: `formatTest` is `warning` unless it says `error` or
+/// `disabled`; page 383: the designer's message is the `message` element's `text` named
+/// `formatTest`. The picture formats the canonical value, so `ABC123` passes and the text it
+/// would display, `ABC-123`, typed with no edit picture to parse it, is canonical as typed and
+/// fails. An entry tests the field entered and no field it did not change (ADR 2727).
+#[test]
+fn an_entry_puts_the_field_to_its_format_test() {
+    let said = Some("Three letters and three digits.".to_owned());
+    for (attributes, value, expected) in [
+        ("", "12", Some(Level::Warning)),
+        ("formatTest=\"warning\"", "12", Some(Level::Warning)),
+        ("formatTest=\"error\"", "12", Some(Level::Error)),
+        ("formatTest=\"disabled\"", "12", None),
+        ("formatTest=\"error\"", "ABC123", None),
+        ("formatTest=\"error\"", "ABC-123", Some(Level::Error)),
+        ("formatTest=\"error\"", "", None),
+    ] {
+        let template = [coded(attributes), field("Log", "")].concat();
+        let activation = entry(&template, &[("Code", value), ("Log", "")], "Code", None);
+        assert_eq!(activation.ended, Ended::Settled, "{:?}", activation.report);
+        assert_eq!(
+            format_failures(&activation),
+            expected
+                .map(|level| (name("Code"), level, said.clone()))
+                .into_iter()
+                .collect::<Vec<_>>(),
+            "{attributes:?} holding {value:?}"
+        );
+    }
+    // An entry into another field leaves the code's failing value untested.
+    let template = [
+        coded("formatTest=\"error\""),
+        field("Other", ""),
+        field("Log", ""),
+    ]
+    .concat();
+    let activation = entry(
+        &template,
+        &[("Code", "12"), ("Other", "x"), ("Log", "")],
+        "Other",
+        None,
+    );
+    assert!(
+        format_failures(&activation).is_empty(),
+        "{:?}",
+        activation.script_tests
+    );
+}
+
+/// XFA 3.3 pages 382 and 396: a merge initializes the form and runs its format tests, and the
+/// format test's verdict is the validation state the `validationState` event follows: a code
+/// that conforms at the merge and fails after an entry changes state once, and an entry that
+/// leaves it failing changes nothing.
+#[test]
+fn a_format_test_that_fails_after_an_entry_announces_the_change_of_state() {
+    let template = [coded("formatTest=\"error\""), field("Log", "")].concat();
+    let code = name("Code");
+    let typed = [code.clone()];
+    let entry = Stimulus::Entry {
+        entered: &typed,
+        before: &[],
+    };
+    let ran = in_turn(
+        &template,
+        &[
+            (&[("Code", "ABC123"), ("Log", "")], Stimulus::Merge),
+            (&[("Code", "12"), ("Log", "")], entry),
+            (&[("Code", "34"), ("Log", "")], entry),
+        ],
+    );
+    assert!(format_failures(&ran[0]).is_empty(), "{:?}", ran[0].report);
+    assert_eq!(
+        log(&ran[0]).as_deref(),
+        Some("S;"),
+        "the merge announces every state"
+    );
+    assert_eq!(format_failures(&ran[1]).len(), 1, "{:?}", ran[1].report);
+    assert_eq!(log(&ran[1]).as_deref(), Some("S;"), "valid to invalid");
+    assert_eq!(format_failures(&ran[2]).len(), 1);
+    assert_eq!(log(&ran[2]), None, "invalid for the same reason");
+
+    let failing = merge(&template, &[("Code", "12"), ("Log", "")]);
+    assert_eq!(
+        format_failures(&failing),
+        vec![(
+            code,
+            Level::Error,
+            Some("Three letters and three digits.".to_owned())
+        )]
     );
 }

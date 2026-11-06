@@ -349,11 +349,13 @@ pub(crate) fn what_a_print_does_not_do(document: &Document) -> Vec<String> {
 /// names each field it cannot keep where it saves (ADRs 2396, 2414); it writes the data through
 /// the form's own pictures and runs its format tests and, where the form asks for its validations
 /// before a save, its null and datatype tests (ADRs 2434, 2450, 2474); a submit runs those and the
-/// format test, naming each failure on the submission (ADR 2475). A reader whose level lets scripts
-/// run also carries out the form's calculations, its validation scripts and the events its
+/// format test, naming each failure on the submission (ADR 2475); an entry is put to its field's
+/// format test as it is made, at every level, since the test is no script (ADR 2727). A reader
+/// whose level lets scripts run also carries out the form's calculations, its validation scripts and the events its
 /// containers raise when it is shown, at a person's entry, focus, click and pointer, at a choice
 /// list's selection, at a save and a submit and at a change of validation state, in `FormCalc` and
-/// in JavaScript (ADRs 2524, 2525, 2545, 2566, 2584, 2606, 2627, 2647, 2696, 2702, 2706, 2707), as
+/// in JavaScript (ADRs 2524, 2525, 2545, 2566, 2584, 2606, 2627, 2647, 2696, 2702, 2706, 2707,
+/// 2726), as
 /// ledger row K.2 lists them. So what is not carried out is its other events, and its scripts
 /// where scripts do not run.
 fn xfa_form(document: &Document, notes: &mut Vec<String>) {
@@ -368,7 +370,8 @@ fn xfa_form(document: &Document, notes: &mut Vec<String>) {
                           resource, and saving it keeps the form's XFA data consistent with what \
                           was filled, in the form's own data formats, naming any field it \
                           cannot and any field the form's validations find empty or of the wrong \
-                          type, and submitting it names the same — what only the XFA resource \
+                          type, and submitting it names the same; an entry the form's format \
+                          test refuses is said as it is made — what only the XFA resource \
                           states beyond that is not carried out, its calculations, its validation \
                           scripts and the events a person's actions, the form's opening, a save, \
                           a submit and a change of validation state raise, in FormCalc and \
@@ -3860,6 +3863,7 @@ mod tests {
             hybrid.contains("carries an XFA form (Annex K)")
                 && hybrid.contains("its AcroForm")
                 && hybrid.contains("keeps the form's XFA data consistent")
+                && hybrid.contains("an entry the form's format test refuses is said")
                 && !hybrid.contains("§K.1"),
             "{hybrid}"
         );

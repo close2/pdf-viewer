@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use pdf_model::action::Trigger;
+use pdf_model::view::CommitKey;
 use pdf_model::view::Pointer;
 use pdf_syntax::ObjectId;
 
@@ -318,7 +319,13 @@ impl Viewer {
                 // playing a sound or a movie", whose file is handed over after `/U` is raised —
                 // the order a link's activation below keeps (ADR 2382).
                 let played = activated.and_then(|annotation| interact::exhibited(open, annotation));
-                self.raise(id, raised, point.map(|(_, at)| at), events);
+                self.raise(
+                    id,
+                    raised,
+                    point.map(|(_, at)| at),
+                    Some(CommitKey::Click),
+                    events,
+                );
                 if let Some(outcome) = played {
                     self.apply(id, outcome, events);
                 }
@@ -336,7 +343,13 @@ impl Viewer {
                 return;
             }
         }
-        self.raise(id, raised, point.map(|(_, at)| at), events);
+        self.raise(
+            id,
+            raised,
+            point.map(|(_, at)| at),
+            Some(CommitKey::Click),
+            events,
+        );
     }
 
     /// Performs §12.6.3's events the pointer just raised, in the order they were raised.
@@ -352,11 +365,16 @@ impl Viewer {
     /// same chain's other actions — ADR 1602 keeps no order between the two. Table 197's four
     /// page events are not run here: their scripts are [`Self::page_events`]'s, page and
     /// annotations together, and the open sequence's at the first present (RFC 0008 section 6.5).
+    ///
+    /// `blurred_by` is how a `/Bl` among `raised` came about, where the caller knows: a press,
+    /// which a pointer makes outside the widget that held the focus, or a tab. A hybrid form's
+    /// field reads it in its `exit` events as `$event.commitKey` (XFA 3.3 page 402; ADR 2726).
     pub(super) fn raise(
         &mut self,
         id: DocumentId,
         raised: Vec<(ObjectId, Trigger)>,
         at: Option<(f32, f32)>,
+        blurred_by: Option<CommitKey>,
         events: &mut Vec<Event>,
     ) {
         let runner = !matches!(self.scripting, crate::Scripting::Off);
@@ -384,7 +402,7 @@ impl Viewer {
                 commit_typed(id, open, &field, events);
             }
             if runner && matches!(event, Trigger::Blur | Trigger::Focus) {
-                form_focus(open, event, left, reached);
+                form_focus(open, event, (left, reached), blurred_by);
             }
             if runner && event == Trigger::Down {
                 form_pointer(open, annotation, FormPointer::Down);
@@ -436,8 +454,15 @@ impl Viewer {
 /// reached `reached` (XFA 3.3 pages 390–391; ADR 2566): at the `/Bl` after the commit, so that an
 /// `exit` script reads the person's entry, and at the `/Fo`, each before the widget's own
 /// scripts; on a radio button's widget, those of the exclusion group's field its on value names
-/// (ADR 2698). A document with no XFA form, and a view state with no runner, run nothing.
-fn form_focus(open: &mut Open, event: Trigger, left: Option<ObjectId>, reached: Option<ObjectId>) {
+/// (ADR 2698). `blurred_by` is how the focus left, which the `exit` events read as
+/// `$event.commitKey` (page 402; ADR 2726). A document with no XFA form, and a view state with no
+/// runner, run nothing.
+fn form_focus(
+    open: &mut Open,
+    event: Trigger,
+    (left, reached): (Option<ObjectId>, Option<ObjectId>),
+    blurred_by: Option<CommitKey>,
+) {
     if left.is_none() && reached.is_none() {
         return;
     }
@@ -456,7 +481,7 @@ fn form_focus(open: &mut Open, event: Trigger, left: Option<ObjectId>, reached: 
     let changed = match (event, left_pair, reached_pair) {
         (Trigger::Blur, Some(left), reaching) => {
             open.view
-                .activate_form_on_exit(&open.document, left, reaching)
+                .activate_form_on_exit(&open.document, left, reaching, blurred_by)
         }
         (Trigger::Focus, leaving, Some(reached)) => {
             open.view

@@ -91,8 +91,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{Calculation, Event, Form, Replaced, Scalar, Step, Test, Validity};
+use crate::view::CommitKey;
 use crate::xfa::datasets::Change;
-use crate::xfa::template::{Bound, Class, Language, Override, Performs, Script, ScriptTest};
+use crate::xfa::template::{Bound, Class, Entry, Language, Override, Performs, Script, ScriptTest};
 use crate::xfa::{Resource, Template, validate};
 
 /// What a [`Runner`] says of one script.
@@ -217,6 +218,11 @@ pub enum Stimulus<'a> {
         /// behaviour pairs each `exit` with an `enter`, so only the containers the focus goes out
         /// of have their `exit` now (ADR 2707).
         exited_at_selection: bool,
+        /// How the value of `left` was committed as the focus left it, which its `exit` events read
+        /// as `$event.commitKey` (page 402): by a tab to a new field or by a click of the mouse
+        /// outside it. `None` where the window does not say, which leaves the property unoffered
+        /// (ADR 2726).
+        committed: Option<CommitKey>,
     },
     /// The keyboard focus reached the field `reached` from the field `leaving`, or from nothing a
     /// form holds (pages 390–391): the `enter` events of each subform and exclusion group around
@@ -371,17 +377,20 @@ pub enum Level {
 }
 
 /// A container whose `validate` script did not return a true value for the value it holds (XFA
-/// 3.3 page 382's script test), which the host presents as page 383 says.
+/// 3.3 page 382's script test), or a field whose `validate` picture cannot format what it holds
+/// (page 382's format test), which the host presents as page 383 says.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Invalid {
     /// The container, by its PDF field name, or by its template name where the field list does
     /// not name it (a subform's).
     pub container: String,
-    /// What its `validate` element's `scriptTest` makes of the failure.
+    /// The test it failed: [`Test::Script`] or [`Test::Format`].
+    pub test: Test,
+    /// What its `validate` element's `scriptTest`, or `formatTest`, makes of the failure.
     pub level: Level,
-    /// The form designer's message for the script test (the `message` element's `text` named
-    /// `scriptTest`, page 383), where the form gives one; where it gives none, page 383 leaves the
-    /// words to the processor.
+    /// The form designer's message for the test (the `message` element's `text` named
+    /// `scriptTest` or `formatTest`, page 383), where the form gives one; where it gives none,
+    /// page 383 leaves the words to the processor.
     pub message: Option<String>,
 }
 
@@ -438,6 +447,57 @@ impl Activation {
             report: self.report.clone(),
         }
     }
+}
+
+/// Runs page 382's format test of each field among `values` whose content `changed`, or of every
+/// field where `changed` is `None` (a merge), as page 396 re-evaluates it when content changes
+/// (ADR 2727): the field's `validate` picture must format the canonical value of what it holds.
+/// Answers the fields it fails, each tested field's verdict for its validation state, and a
+/// sentence for each test this reader cannot run, which decides nothing. A field holding nothing
+/// is put to no format test (page 396), so it fails none.
+fn format_tests(
+    (template, locales): (&Template, &crate::xfa::LocaleSet),
+    values: &[(String, Change)],
+    changed: Option<&BTreeSet<usize>>,
+) -> (Vec<Invalid>, Vec<(usize, bool)>, Vec<String>) {
+    let mut invalid = Vec::new();
+    let mut verdicts = Vec::new();
+    let mut sentences = Vec::new();
+    for (name, value) in values {
+        let Some(target) = template.resolve(name) else {
+            continue;
+        };
+        if changed.is_some_and(|changed| !changed.contains(&target)) {
+            continue;
+        }
+        let text = match value {
+            Change::Text(text) => text.as_str(),
+            Change::Cleared => "",
+            Change::Choices(_) | Change::On(_) | Change::Off => continue,
+        };
+        match validate::conforms(template, locales, target, text) {
+            validate::Conformance::Untested => {
+                if text.is_empty() {
+                    verdicts.push((target, false));
+                }
+            }
+            validate::Conformance::Passes => verdicts.push((target, false)),
+            validate::Conformance::Fails(level, message) => {
+                verdicts.push((target, true));
+                invalid.push(Invalid {
+                    container: name.clone(),
+                    test: Test::Format,
+                    level,
+                    message,
+                });
+            }
+            validate::Conformance::Unrun(reason) => sentences.push(format!(
+                "{name}: its format test (XFA 3.3 page 382) cannot be run: {reason}, so it decides \
+                 nothing"
+            )),
+        }
+    }
+    (invalid, verdicts, sentences)
 }
 
 /// Whether a script's value is a true one: page 1061 promotes a value a boolean operation reads
@@ -535,6 +595,31 @@ impl Resource {
         self.activate_kept(fields, stimulus, runner, limits, &mut Validity::default())
     }
 
+    /// Page 382's format test of the fields `entered`, by their PDF field names, as `fields` now
+    /// hold them, where no script runs: the test is no script, and page 396 re-evaluates it when
+    /// content changes whatever runs the form's scripts (ADR 2727). Each verdict is recorded in
+    /// `kept`, and no `validationState` event fires, since an event is a script. Answers the
+    /// failures as page 386's `validationMessaging` groups them, and a sentence for each test this
+    /// reader cannot run.
+    #[must_use]
+    pub fn format_tests(
+        &self,
+        fields: &[(String, Change)],
+        entered: &[String],
+        kept: &mut Validity,
+    ) -> (Vec<Vec<Invalid>>, Vec<String>) {
+        let changed: BTreeSet<usize> = entered
+            .iter()
+            .filter_map(|name| self.template.resolve(name))
+            .collect();
+        let (invalid, verdicts, sentences) =
+            format_tests((&self.template, &self.locales), fields, Some(&changed));
+        for (node, failed) in verdicts {
+            kept.record(node, Test::Format, failed);
+        }
+        (validate::grouped(&self.config, invalid), sentences)
+    }
+
     /// [`Self::activate`], with the validation state of the form's containers `kept` from the
     /// activations before it (pages 396–397; ADR 2706). The merge records the state its tests
     /// found and fires every field's, exclusion group's and subform's `validationState` events,
@@ -571,7 +656,9 @@ impl Resource {
                 left_button,
                 reaching_button,
                 exited_at_selection,
+                committed,
             } => {
+                session.committed = committed;
                 let mut crossed =
                     session.crossed((left, left_button), reaching.map(|r| (r, reaching_button)));
                 if exited_at_selection && !self.template.legacy_events() {
@@ -673,15 +760,34 @@ impl Resource {
             ),
             _ => (false, None),
         };
-        let (tested, verdicts) = if matches!(stimulus, Stimulus::Merge) || before_action {
+        let changed = session.changed_since(initial, typed);
+        let everything = matches!(stimulus, Stimulus::Merge);
+        // Page 396 re-evaluates the format test when content changes, and a merge initializes
+        // the form, which runs every test page 396 does not keep for a pre-event (page 382). A
+        // pre-event's own run is the submit's (below), and a save's is its write's.
+        let mut failed = Vec::new();
+        if occasion.is_none() {
+            let values = session.values_now(fields, initial);
+            let (formats, verdicts) = session.format_tests(
+                (&self.template, &self.locales),
+                &values,
+                (!everything).then_some(&changed),
+            );
+            for (node, failure) in verdicts {
+                kept.record(node, Test::Format, failure);
+            }
+            failed = formats;
+        }
+        let (tested, verdicts) = if everything || before_action {
             session.script_tests(None)
         } else {
-            let changed = session.changed_since(initial, typed);
             session.script_tests(Some(&changed))
         };
-        for (node, failed) in verdicts {
-            kept.record(node, Test::Script, failed);
+        for (node, failure) in verdicts {
+            kept.record(node, Test::Script, failure);
         }
+        // Page 381's table runs the format test before the script test.
+        failed.extend(tested);
         if let Some(occasion) = occasion {
             let values = session.values_now(fields, initial);
             let resource = (&self.template, &self.locales, &self.config);
@@ -689,7 +795,7 @@ impl Resource {
                 kept.record(node, test, failed);
             }
         }
-        validate::grouped(&self.config, tested)
+        validate::grouped(&self.config, failed)
     }
 
     /// Fires the `validationState` events page 396 asks for: every object's when it is first
@@ -876,6 +982,9 @@ struct Session<'f, 'a, 'r> {
     /// Whether the `enter` events being fired are a choice list's re-entry (page 392), whose
     /// `$event.reenter` is true (page 403).
     reentering: bool,
+    /// How the value of the field the focus is leaving was committed, which a field's `exit`
+    /// gives as `$event.commitKey` (page 402); `None` where the window did not say.
+    committed: Option<CommitKey>,
 }
 
 impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
@@ -918,6 +1027,7 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             unbound: Vec::new(),
             cancelled: false,
             reentering: false,
+            committed: None,
         }
     }
 
@@ -954,6 +1064,16 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
         );
         self.reentering = false;
         self.settle(Seeds::Changed);
+    }
+
+    /// Whether the field `node` supports rich text, the definition page 403 gives
+    /// `$event.newContentType`'s `allowRichText`: its `ui` holds a `textEdit` whose
+    /// `allowRichText` is 1 (page 865). Every other `ui` takes a value of its own kind and no
+    /// styled text.
+    fn entry(&self, node: usize) -> Entry {
+        self.template
+            .get(node)
+            .map_or(Entry::PlainTextOnly, |container| container.entry)
     }
 
     /// Whether the container `node` is a field whose `ui` holds a `choiceList`.
@@ -1041,7 +1161,16 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             ("change", Class::Field) => self.replaced.get(&node).cloned(),
             _ => None,
         };
-        let event = Event::new(activity, node, named, replaced);
+        let mut event = Event::new(activity, node, named, replaced);
+        // Page 398's table has a field's `exit` set `commitKey` and its `change` the two content
+        // types, which page 403 says are always the same in this version of XFA.
+        if class == Class::Field {
+            match activity {
+                "exit" => event = event.with_commit_key(self.committed),
+                "change" => event = event.with_content_type(self.entry(node)),
+                _ => {}
+            }
+        }
         // Page 403: false on a field that is no choice list and for a choice list's first
         // `enter` after it gains the focus, true for a later one while it keeps the focus.
         Some(match (class, activity) {
@@ -1885,6 +2014,20 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
         changed
     }
 
+    /// [`format_tests`] of `values`, each sentence said.
+    fn format_tests(
+        &mut self,
+        resource: (&Template, &crate::xfa::LocaleSet),
+        values: &[(String, Change)],
+        changed: Option<&BTreeSet<usize>>,
+    ) -> (Vec<Invalid>, Vec<(usize, bool)>) {
+        let (invalid, verdicts, sentences) = format_tests(resource, values, changed);
+        for sentence in sentences {
+            self.say(sentence);
+        }
+        (invalid, verdicts)
+    }
+
     /// Runs the script test of every container whose `validate` element states a script and does
     /// not disable the test (XFA 3.3 pages 382 and 881), and answers the containers it fails.
     ///
@@ -1997,6 +2140,7 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             match outcome {
                 Ok(value) if answered && !true_value(&value) => invalid.push(Invalid {
                     container: label,
+                    test: Test::Script,
                     level,
                     message,
                 }),

@@ -19,7 +19,7 @@ use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 
 use pdf_model::view::{ScriptEvent, ScriptResult, ScriptRunner};
-use pdf_model::xfa::{Form, FormLanguage, Ran, Scalar};
+use pdf_model::xfa::{Form, FormLanguage, Ran, Scalar, Step};
 use viewer_core::{
     AlertButton, AlertButtons, AlertIcon, Answer, Command, DocumentId, Edit, Entered, Event,
     PointerAction, Query, ScriptAnswer, ScriptAsks, ScriptQuestion, ScriptRunners, Scripting,
@@ -141,6 +141,23 @@ impl ScriptRunner for Calculator {
             return Ran {
                 steps: 1,
                 outcome: Ok(form.value(node)),
+            };
+        }
+        // A script that is a path into `$event` sets its field to what the path reads.
+        if script.trim().starts_with("$event.") {
+            let read = Step::path(script.trim())
+                .and_then(|path| form.resolve(node, &path))
+                .and_then(|nodes| {
+                    let value = nodes
+                        .first()
+                        .map(|&at| form.value(at))
+                        .ok_or_else(|| format!("{script} resolves to nothing"))?;
+                    form.set(node, value.clone())?;
+                    Ok(value)
+                });
+            return Ran {
+                steps: 1,
+                outcome: read,
             };
         }
         let Ok(number) = script.trim().parse::<f64>() else {
@@ -476,6 +493,37 @@ fn a_tab_runs_the_exit_event_of_the_field_left_and_the_enter_event_of_the_field_
     }
 }
 
+/// XFA 3.3 pages 398 and 402: a field's `exit` reads `$event.commitKey`, how its value was
+/// committed as the focus left it — 3 where a tab moved the focus to a new field, 1 where a press
+/// of the mouse outside the field took it (ADR 2726). The runner sets the field to what its script
+/// reads.
+#[test]
+fn a_fields_exit_reads_whether_a_tab_or_a_click_committed_it() {
+    let fields = "<field name=\"Units\"><ui><textEdit/></ui><value><text/></value>\
+                  <event activity=\"exit\"><script>$event.commitKey</script></event></field>\
+                  <field name=\"Total\"><ui><textEdit/></ui><value><text/></value>\
+                  <event activity=\"exit\"><script>$event.commitKey</script></event></field>";
+    let mut viewer = opened_on(
+        Scripting::Run(Arc::new(Calculators::default())),
+        hybrid(fields, "<Units/><Total/>"),
+    );
+    viewer.handle(Command::Presented).for_each(drop);
+    for _ in 0..2 {
+        viewer
+            .handle(Command::Focused(viewer_core::FocusMove::Next))
+            .for_each(drop);
+    }
+    assert_eq!(value(&viewer, "Units"), "3", "a tab left Units");
+    assert_eq!(value(&viewer, "Total"), "", "Total holds the focus");
+    // `hybrid` puts no widget at (320, 100).
+    press_and_release(&mut viewer, (320.0, 100.0), (320.0, 100.0));
+    assert_eq!(
+        value(&viewer, "Total"),
+        "1",
+        "a click outside Total left it"
+    );
+}
+
 /// The point of page one at `(x, y)` in its own space, in the window's pixels.
 fn on_page(viewer: &Viewer, (x, y): (f32, f32)) -> (f32, f32) {
     /// The height of `hybrid`'s `/MediaBox`.
@@ -677,6 +725,49 @@ fn an_entry_its_validation_script_refuses_puts_the_designers_message() {
     assert_eq!((*icon, *buttons), (AlertIcon::Error, AlertButtons::Ok));
     assert_eq!(title.as_deref(), Some("Form validation"));
     assert_eq!(value(&viewer, "Units"), "5");
+}
+
+/// XFA 3.3 page 396: the format test is re-evaluated when content changes, and page 382 has the
+/// `validate` picture format the canonical value; page 385: at `error`, the message says the value
+/// is required to conform to the input mask. The format test is no script, so it runs at `off` as
+/// at a level that runs scripts, and an entry that conforms puts nothing (ADR 2727).
+#[test]
+fn an_entry_its_format_test_refuses_puts_a_message_at_every_level() {
+    let bytes = || {
+        hybrid_of(
+            "<field name=\"Code\"><ui><textEdit/></ui><value><text/></value>\
+             <validate formatTest=\"error\"><picture>AAA-999</picture></validate></field>",
+            "<Code/>",
+            &["Code"],
+        )
+    };
+    for (level, scripting) in [
+        ("off", Scripting::Off),
+        ("run", Scripting::Run(Arc::new(Calculators::default()))),
+    ] {
+        let mut viewer = opened_on(scripting, bytes());
+        viewer.handle(Command::Presented).for_each(drop);
+        assert!(notices(&enter(&mut viewer, "Code", "ABC123")).is_empty());
+        let events = enter(&mut viewer, "Code", "12");
+        let put = notices(&events);
+        assert_eq!(put.len(), 1, "{level}: {events:?}");
+        let ScriptQuestion::Alert {
+            message,
+            icon,
+            buttons,
+            ..
+        } = &put[0]
+        else {
+            panic!("a validation message is an alert");
+        };
+        assert_eq!(
+            message,
+            "form1[0].Code[0]: the form does not accept this value, which does not conform to \
+             its input mask."
+        );
+        assert_eq!((*icon, *buttons), (AlertIcon::Error, AlertButtons::Ok));
+        assert_eq!(value(&viewer, "Code"), "12", "the entry stands (page 383)");
+    }
 }
 
 /// XFA 3.3 page 385: a script test whose `scriptTest` is `warning` puts a message with two

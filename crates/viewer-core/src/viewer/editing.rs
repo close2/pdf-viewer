@@ -517,6 +517,12 @@ impl Viewer {
         let (Some(id), Some(open)) = (self.focused, self.focused_mut()) else {
             return;
         };
+        // Tabbing to a new field is how a tab commits what the field it leaves holds (XFA 3.3
+        // page 402's `commitKey`); a move to nothing is a host's gesture this crate is not told.
+        let by = match move_to {
+            crate::command::FocusMove::None => None,
+            _ => Some(pdf_model::view::CommitKey::Tab),
+        };
         let wants = match move_to {
             crate::command::FocusMove::None => None,
             direction => {
@@ -537,16 +543,18 @@ impl Viewer {
                 }
             }
         };
-        self.focus_on(id, wants, events);
+        self.focus_on(id, wants, by, events);
     }
 
     /// Moves the keyboard focus of document `id` to `wants`, raising Table 197's `/Bl` on the
     /// widget it leaves and `/Fo` on the one it reaches — a tab's half of [`Self::move_focus`], and
-    /// what a script's `setFocus` comes to.
+    /// what a script's `setFocus` comes to. `by` is how the move commits the value the focus
+    /// leaves, where the caller knows ([`Self::raise`]).
     pub(super) fn focus_on(
         &mut self,
         id: DocumentId,
         wants: Option<ObjectId>,
+        by: Option<pdf_model::view::CommitKey>,
         events: &mut Vec<Event>,
     ) {
         let Some(open) = self.documents.get_mut(&id) else {
@@ -568,7 +576,7 @@ impl Viewer {
         );
         open.focus = wants;
         let viewport = self.viewport;
-        self.raise(id, raised, None, events);
+        self.raise(id, raised, None, by, events);
         // A focus ring is chrome the host draws, so what changed is the viewport rather than the
         // page — the same statement a selection makes, and for the same reason.
         events.push(damage(viewport));

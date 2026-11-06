@@ -431,21 +431,35 @@ pub(crate) fn override_notice(over: &pdf_model::view::FormOverride) -> FormAlert
 /// are (ADR 2697): "Yes" keeps the values entered, which is override, and "No", or a dialogue
 /// closed without a press, is dismiss. A group holding an `error` keeps one button, since page 385
 /// gives an error no choice.
+///
+/// A format test's own words say what page 385 has its message inform the person of: that the
+/// value is required, or recommended, to conform to the field's input mask (ADR 2727).
 pub(crate) fn validation_notice(group: &[pdf_model::xfa::Invalid]) -> FormAlert {
-    use pdf_model::xfa::Level;
+    use pdf_model::xfa::{Level, Test};
     let mut lines: Vec<String> = group
         .iter()
-        .map(|invalid| match (&invalid.message, invalid.level) {
-            (Some(said), _) => format!("{}: {said}", invalid.container),
-            (None, Level::Error) => format!(
-                "{}: the form does not accept this value.",
-                invalid.container
-            ),
-            (None, Level::Warning) => format!(
-                "{}: the form recommends a value its check accepts.",
-                invalid.container
-            ),
-        })
+        .map(
+            |invalid| match (&invalid.message, invalid.level, invalid.test) {
+                (Some(said), _, _) => format!("{}: {said}", invalid.container),
+                (None, Level::Error, Test::Format) => format!(
+                    "{}: the form does not accept this value, which does not conform to its input \
+                 mask.",
+                    invalid.container
+                ),
+                (None, Level::Warning, Test::Format) => format!(
+                    "{}: the form recommends a value that conforms to its input mask.",
+                    invalid.container
+                ),
+                (None, Level::Error, _) => format!(
+                    "{}: the form does not accept this value.",
+                    invalid.container
+                ),
+                (None, Level::Warning, _) => format!(
+                    "{}: the form recommends a value its check accepts.",
+                    invalid.container
+                ),
+            },
+        )
         .collect();
     let warned = !group.is_empty() && group.iter().all(|invalid| invalid.level == Level::Warning);
     let (icon, buttons, warns) = if warned {
@@ -573,14 +587,16 @@ mod tests {
     fn a_validation_notice_says_the_designers_message_and_carries_the_heavier_level() {
         use super::validation_notice;
         use crate::{AlertButtons, AlertIcon, ScriptQuestion};
-        use pdf_model::xfa::{Invalid, Level};
+        use pdf_model::xfa::{Invalid, Level, Test};
         let warned = Invalid {
             container: "form1[0].Amount[0]".to_owned(),
+            test: Test::Script,
             level: Level::Warning,
             message: Some("At most 100.".to_owned()),
         };
         let refused = Invalid {
             container: "form1[0].Total[0]".to_owned(),
+            test: Test::Script,
             level: Level::Error,
             message: None,
         };
@@ -621,6 +637,46 @@ mod tests {
             );
             assert_eq!((shown, buttons), (icon, offered));
             assert_eq!(message.contains("Keep the value"), group.len() == 1);
+        }
+    }
+
+    /// XFA 3.3 page 385: where a format test fails and the form gives no message, the message
+    /// informs the person that the value is recommended (a `warning`) or required (an `error`) to
+    /// conform to the input mask; a warning asks dismiss-or-override as a script test's does.
+    #[test]
+    fn a_failed_format_test_says_the_value_does_not_conform_to_the_input_mask() {
+        use super::validation_notice;
+        use crate::{AlertButtons, ScriptQuestion};
+        use pdf_model::xfa::{Invalid, Level, Test};
+        for (level, said, buttons) in [
+            (
+                Level::Warning,
+                "Phone: the form recommends a value that conforms to its input mask.",
+                AlertButtons::YesNo,
+            ),
+            (
+                Level::Error,
+                "Phone: the form does not accept this value, which does not conform to its \
+                 input mask.",
+                AlertButtons::Ok,
+            ),
+        ] {
+            let notice = validation_notice(&[Invalid {
+                container: "Phone".to_owned(),
+                test: Test::Format,
+                level,
+                message: None,
+            }]);
+            let ScriptQuestion::Alert {
+                message,
+                buttons: offered,
+                ..
+            } = notice.question
+            else {
+                panic!("a validation message is an alert");
+            };
+            assert!(message.starts_with(said), "{message}");
+            assert_eq!(offered, buttons);
         }
     }
 

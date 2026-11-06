@@ -332,6 +332,25 @@ fn schema_version(uri: &str) -> Option<(u32, u32)> {
     Some((major.parse().ok()?, minor.parse().ok()?))
 }
 
+/// Whether a field supports rich text, in the two words page 403 gives `$event`'s content types.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Entry {
+    /// The field supports rich text.
+    AllowRichText,
+    /// It does not, and markup in its data is passed through rather than interpreted.
+    PlainTextOnly,
+}
+
+impl Entry {
+    /// The word page 403 gives it.
+    pub(crate) fn word(self) -> &'static str {
+        match self {
+            Self::AllowRichText => "allowRichText",
+            Self::PlainTextOnly => "plainTextOnly",
+        }
+    }
+}
+
 /// One container of the template.
 #[derive(Debug, Clone)]
 pub(crate) struct Container {
@@ -350,6 +369,11 @@ pub(crate) struct Container {
     pub(crate) items: Vec<(bool, Vec<String>)>,
     /// Whether its `value` holds `exData`, rich text whose data is markup.
     pub(crate) rich: bool,
+    /// Whether a person may enter rich text into it: its `ui`'s `textEdit`'s `allowRichText`
+    /// (page 865), which is 0 where it is not stated and the `textEdit` holds no `exData`, and 1
+    /// where it holds one. The schema gives `textEdit` no `exData` child, so a template that does
+    /// not state the attribute allows none (ADR 2726). Plain for every other `ui`.
+    pub(crate) entry: Entry,
     /// The element its `value` holds — `text`, `integer`, `decimal`, `float`, `date`, `time`,
     /// `dateTime`, … — the content type chapter 4's Rules 2A and 4 (pages 164–165) read.
     pub(crate) value_type: Option<String>,
@@ -470,6 +494,7 @@ impl Template {
                 ui: None,
                 items: Vec::new(),
                 rich: false,
+                entry: Entry::PlainTextOnly,
                 value_type: None,
                 digits: Digits::default(),
                 locale: element
@@ -764,6 +789,37 @@ impl Template {
 
 /// The properties of one container element — its `bind`, `ui`, `items`, `value`, `validate` and
 /// `occur` — read into `container`.
+/// The `ui` element `ui` of `container`: the element it holds, with a `choiceList`'s `open`, and
+/// whether a `textEdit` allows rich text (page 865).
+fn read_ui(container: &mut Container, tree: &Tree, ui: &Element) {
+    let Some(kind) = ui
+        .children
+        .iter()
+        .filter_map(|&kind| tree.get(kind))
+        .find(|kind| kind.local != "extras" && kind.local != "picture")
+    else {
+        return;
+    };
+    container.ui = Some((
+        kind.local.clone(),
+        kind.attribute("open").map(str::to_owned),
+    ));
+    let rich = kind.local == "textEdit"
+        && match kind.attribute("allowRichText") {
+            Some(stated) => stated == "1",
+            None => kind
+                .children
+                .iter()
+                .filter_map(|&child| tree.get(child))
+                .any(|child| child.local == "exData"),
+        };
+    container.entry = if rich {
+        Entry::AllowRichText
+    } else {
+        Entry::PlainTextOnly
+    };
+}
+
 fn read_properties(container: &mut Container, tree: &Tree, element: &Element) {
     for &child in &element.children {
         let Some(property) = tree.get(child) else {
@@ -783,17 +839,7 @@ fn read_properties(container: &mut Container, tree: &Tree, element: &Element) {
             }
             "ui" => {
                 container.pictures.edit = picture(tree, child);
-                container.ui = property
-                    .children
-                    .iter()
-                    .filter_map(|&kind| tree.get(kind))
-                    .find(|kind| kind.local != "extras" && kind.local != "picture")
-                    .map(|kind| {
-                        (
-                            kind.local.clone(),
-                            kind.attribute("open").map(str::to_owned),
-                        )
-                    });
+                read_ui(container, tree, property);
             }
             "items" => {
                 let values = property

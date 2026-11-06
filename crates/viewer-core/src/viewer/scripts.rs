@@ -126,7 +126,7 @@ impl Viewer {
             {
                 self.go_to(PageTarget::Index(page), Turn::Requested, events);
             }
-            self.focus_on(id, Some(widget), events);
+            self.focus_on(id, Some(widget), None, events);
         }
     }
 

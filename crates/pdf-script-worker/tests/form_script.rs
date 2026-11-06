@@ -606,6 +606,7 @@ fn an_exit_event_that_never_ends_is_stopped_and_the_entry_is_kept() {
             &document,
             (&name("Units"), None),
             Some((&name("Other"), None)),
+            None,
         );
         let took = started.elapsed();
         assert!(took < Duration::from_secs(5), "{script}: {took:?}");

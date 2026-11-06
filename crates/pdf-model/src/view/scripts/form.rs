@@ -261,6 +261,9 @@ impl ViewState {
     /// value to, in page 379's order (XFA 3.3 pages 379 and 641–642). `before` is what the field
     /// showed before the typing began, where the caller knows it, which the field's `change`
     /// event reads as `$event.prevText` (page 400).
+    ///
+    /// The entered field is put to its format test (pages 382 and 396) whether or not a runner
+    /// is supplied, since the test is no script (ADR 2727).
     pub fn activate_form_on_entry(
         &mut self,
         document: &Document,
@@ -291,11 +294,16 @@ impl ViewState {
     /// Where `left` is the choice list whose own `exit` fired at a selection commit with no
     /// `enter` since ([`Self::activate_form_on_selection`]), page 392's XFA 2.4 behaviour has
     /// paired that `exit` already, so only the containers the focus goes out of fire theirs.
+    ///
+    /// `committed` is how the value of `left` was committed as the focus left it, which the
+    /// field's `exit` scripts read as `$event.commitKey` (page 402); `None` where the host cannot
+    /// say, which leaves the property unoffered (ADR 2726).
     pub fn activate_form_on_exit(
         &mut self,
         document: &Document,
         left: (&str, Option<&str>),
         reaching: Option<(&str, Option<&str>)>,
+        committed: Option<crate::view::CommitKey>,
     ) -> bool {
         let selected = self.scripting.form_selected.take();
         let stimulus = Stimulus::Exit {
@@ -304,6 +312,7 @@ impl ViewState {
             left_button: left.1,
             reaching_button: reaching.and_then(|(_, button)| button),
             exited_at_selection: selected.as_deref() == Some(left.0),
+            committed,
         };
         self.activate_form(document, Raised::Action(stimulus), Instant::now())
     }
@@ -639,6 +648,9 @@ impl ViewState {
         started: Instant,
     ) -> FormAction {
         let Some(runner) = self.runner.0.clone() else {
+            if let Raised::Entry { name, .. } = raised {
+                self.format_test_unscripted(document, name);
+            }
             return FormAction::default();
         };
         let resource = match self.held_form(document).clone() {
@@ -733,6 +745,27 @@ impl ViewState {
             changed,
             cancelled: activation.cancelled,
         }
+    }
+
+    /// Page 382's format test of the field `name`, which a person just committed a value to, where
+    /// no runner runs the form's scripts: the test is no script, and page 396 re-evaluates it when
+    /// content changes (ADR 2727). Its failure is held for the host as a script test's is, and its
+    /// verdict kept for the validation state the next activation compares against.
+    fn format_test_unscripted(&mut self, document: &Document, name: &str) {
+        let Held::Resource(resource) = self.held_form(document).clone() else {
+            return;
+        };
+        let table = crate::view::field_table(document, crate::view::Omitted::Calculation);
+        let fields = self.form_fields(document, &table);
+        let (failed, sentences) = resource.format_tests(
+            &fields,
+            &[name.to_owned()],
+            &mut self.scripting.form_validity,
+        );
+        for sentence in sentences {
+            self.report(format!("the XFA form: {sentence}"));
+        }
+        self.hold_for_host(Vec::new(), failed);
     }
 
     /// Holds what an activation asks a host to present: the message page 642 asks for an entry

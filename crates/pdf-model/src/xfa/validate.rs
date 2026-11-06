@@ -32,7 +32,7 @@
 //! for a field the person emptied. XFA 3.3 is cited and paraphrased, never quoted (RFC 0011's
 //! preamble).
 
-use super::calculate::Test;
+use super::calculate::{Level, Test};
 use super::canonical;
 use super::config::{Config, Messaging};
 use super::datasets::{Change, Formatted, canonical_text, format_test, item};
@@ -173,6 +173,64 @@ pub(crate) fn verdicts(
         }
     }
     found
+}
+
+/// What page 382's format test makes of a field's content once it changed (page 396; ADR 2727).
+pub(crate) enum Conformance {
+    /// The field states no `validate` picture, turns the test off, or holds nothing, which page
+    /// 396 puts to no format test; or its text is one its datatype cannot hold, which the
+    /// datatype test answers before a save or a submit.
+    Untested,
+    /// The picture formats the canonical value.
+    Passes,
+    /// The picture cannot, at the level the `validate` element's `formatTest` gives (pages
+    /// 384–385), with the form designer's message for the test where it gives one (page 383).
+    Fails(Level, Option<String>),
+    /// The test cannot be run: the picture is one this reader does not read, or the text has no
+    /// canonical value this reader can find. The sentence says which.
+    Unrun(String),
+}
+
+/// Page 382's format test of the field `target`, which holds `text`, as the interactive tests
+/// page 396 re-evaluates when content changes: the field's `validate` picture must format the
+/// canonical value of what it holds.
+pub(crate) fn conforms(
+    template: &Template,
+    locales: &LocaleSet,
+    target: usize,
+    text: &str,
+) -> Conformance {
+    let Some(container) = template.get(target) else {
+        return Conformance::Untested;
+    };
+    if container.class != Class::Field || text.is_empty() || container.pictures.validate.is_none() {
+        return Conformance::Untested;
+    }
+    let ui = container.ui.as_ref().map_or("", |(ui, _)| ui.as_str());
+    let canonical = match canonical_text(template, locales, target, container, ui, text) {
+        Ok(canonical) => canonical,
+        Err(cannot) => {
+            let datatype_says = container.value_type.as_deref().is_some_and(restrictive);
+            return if datatype_says || cannot.not_a_number {
+                Conformance::Untested
+            } else {
+                Conformance::Unrun(cannot.reason)
+            };
+        }
+    };
+    match format_test(container, locales, &canonical) {
+        Formatted::Untested => Conformance::Untested,
+        Formatted::Passes => Conformance::Passes,
+        Formatted::Fails { level } => Conformance::Fails(
+            if level == "error" {
+                Level::Error
+            } else {
+                Level::Warning
+            },
+            container.pictures.message("formatTest").map(str::to_owned),
+        ),
+        Formatted::Unrun(reason) => Conformance::Unrun(reason),
+    }
 }
 
 /// The failures of one run of validations, one `Vec` per message the person is shown, as page
