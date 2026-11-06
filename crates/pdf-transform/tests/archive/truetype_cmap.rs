@@ -15,7 +15,7 @@ use pdf_syntax::object::{Dictionary, Object};
 use pdf_syntax::{Document, Limits};
 
 use super::{
-    Authorisations, Conforming, Decision, LIBERATION_SANS, Level, Rewrite, Target, Verdict,
+    Authorisations, Conforming, Decision, LIBERATION_SANS, Level, Loss, Rewrite, Target, Verdict,
     conversion, convert, decision, holds, stream,
 };
 
@@ -481,4 +481,139 @@ fn a_code_the_file_names_no_character_for_is_restated_where_the_names_cannot_be_
         &source,
         "fonts/truetype-codes-reach-glyphs-by-the-standard-route",
     );
+}
+
+/// A page showing `text` in one TrueType font the file does not embed: `/BaseFont` `base`,
+/// descriptor flags `flags`, `encoding`, and the one width `width` for every code from `first`.
+fn a_page_in_an_unembedded_truetype_font(
+    (base, flags, encoding): (&str, &str, &str),
+    (first, last, width): (u8, u8, &str),
+    text: &str,
+) -> Vec<u8> {
+    let widths = vec![width; usize::from(last.saturating_sub(first)).saturating_add(1)].join(" ");
+    Conforming {
+        resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            format!("/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td ({text}) Tj ET").into_bytes(),
+        )),
+        objects: vec![
+            format!(
+                "<< /Type /Font /Subtype /TrueType /BaseFont /{base} /FirstChar {first} \
+                 /LastChar {last} /Widths [{widths}] /FontDescriptor 7 0 R {encoding} >>"
+            ),
+            format!(
+                "<< /Type /FontDescriptor /FontName /{base} /Flags {flags} /FontBBox \
+                 [-543 -303 1300 980] /ItalicAngle 0 /Ascent 905 /Descent -212 /CapHeight 716 \
+                 /StemV 80 >>"
+            ),
+        ],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+/// The losses embedding a face this program ships may incur, authorised as `as-if-printed`
+/// authorises them.
+fn faces_authorised() -> Authorisations {
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::MachineFace);
+    authorised.authorise(Loss::SubstituteStretch);
+    authorised
+}
+
+#[test]
+fn a_font_the_file_did_not_embed_is_restated_over_the_face_the_conversion_embeds() {
+    // ISO 32000-2 §9.6.5.4: a font whose Nonsymbolic flag is set reads a code through a table of
+    // glyph names, and with no `/Encoding` entry code 0o361 is the base encoding's `ae`. The
+    // conversion embeds the face this program ships for `Arial`, and ISO 19005-2 section
+    // 6.2.11.6 then holds that program to the encoding rows the source failed: a non-symbolic
+    // TrueType font states `MacRomanEncoding` or `WinAnsiEncoding`, and neither names `ae` at
+    // 0o361. The restatement makes the font symbolic, its program's (1, 0) and (3, 0) subtables
+    // sending the code to the glyph the shipped face's own code table gives it
+    // (`doc/adr/2744`).
+    let source =
+        a_page_in_an_unembedded_truetype_font(("Arial", "32", ""), (241, 241, "889"), "\\361");
+    let held = Document::open_with_limits(source.clone(), Limits::DEFAULT).expect("it opens");
+    let shipped = pdf_font::standard::shipped_face(&held, &font_of(&held), "")
+        .expect("this program ships a face for Arial");
+    let drawn = shipped.glyph(241).expect("the face has the code's glyph");
+    let row = "fonts/non-symbolic-truetype-uses-a-standard-encoding";
+    let (report, output) = convert(&source, Target::Two(Level::B), faces_authorised());
+    let decided = decision(&report, row);
+    assert!(
+        matches!(
+            decided,
+            Decision::Stated {
+                rewrite: Rewrite::TrueTypeCmapRestated,
+                ..
+            }
+        ),
+        "{decided:?}"
+    );
+    let output = output.unwrap_or_else(|| panic!("{:?}\n{:?}", report.refused, report.warnings));
+    let checked = holds(&output, Target::Two(Level::B));
+    assert_eq!(checked.verdict(), Verdict::Conforms, "{}", checked.render());
+    assert!(conversion(&report).photographed.is_empty());
+    let (flags, encoding) = flags_and_encoding(&output);
+    assert_eq!(flags & (SYMBOLIC | NONSYMBOLIC), SYMBOLIC);
+    assert!(!encoding);
+    assert_eq!(cmap_records(&output), vec![(1, 0), (3, 0)]);
+    let glyphs = glyphs_of(&output);
+    assert_eq!(
+        glyphs[241],
+        Some(drawn),
+        "the code reaches the face's glyph"
+    );
+}
+
+#[test]
+fn a_font_the_substitution_makes_a_type1_one_has_no_truetype_route_left_to_state() {
+    // The face this program ships for `TimesNewRoman` is a CFF one, so the substitution writes
+    // the dictionary as a `Type1` one (ISO 32000-2 §9.9's Table 124 files the program under
+    // `/FontFile3`), and §9.6.5.4's TrueType route is no longer how any code is read. The
+    // encoding row the source failed is answered with no program copied for the font
+    // (`doc/adr/2744`); the control is that the source's font is a TrueType one.
+    let source =
+        a_page_in_an_unembedded_truetype_font(("TimesNewRoman", "32", ""), (65, 66, "667"), "AB");
+    let held = Document::open_with_limits(source.clone(), Limits::DEFAULT).expect("it opens");
+    assert_eq!(
+        held.get_key(&font_of(&held), "Subtype")
+            .as_name()
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"TrueType".to_vec())
+    );
+    let row = "fonts/non-symbolic-truetype-uses-a-standard-encoding";
+    let (report, output) = convert(&source, Target::Two(Level::B), faces_authorised());
+    let decided = decision(&report, row);
+    assert!(
+        matches!(
+            decided,
+            Decision::Stated {
+                rewrite: Rewrite::TrueTypeCmapRestated,
+                ..
+            }
+        ),
+        "{decided:?}"
+    );
+    let output = output.unwrap_or_else(|| panic!("{:?}\n{:?}", report.refused, report.warnings));
+    let checked = holds(&output, Target::Two(Level::B));
+    assert_eq!(checked.verdict(), Verdict::Conforms, "{}", checked.render());
+    let written = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let font = font_of(&written);
+    assert_eq!(
+        written
+            .get_key(&font, "Subtype")
+            .as_name()
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"Type1".to_vec())
+    );
+    let descriptor = written
+        .get_key(&font, "FontDescriptor")
+        .as_dict()
+        .cloned()
+        .expect("the descriptor");
+    assert!(descriptor.get("FontFile3").is_some() && descriptor.get("FontFile2").is_none());
 }

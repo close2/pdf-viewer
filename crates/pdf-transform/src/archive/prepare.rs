@@ -1302,6 +1302,7 @@ impl Prepared {
                         &restated_programs,
                         (encoding_row_refused, notdef_too),
                         survey,
+                        substitutes.as_ref().ok(),
                     )
                 })
             };

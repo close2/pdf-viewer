@@ -40,6 +40,7 @@ use pdf_archive::survey::Survey;
 use super::super::decision::Because;
 use super::super::prepare::Spare;
 use super::super::sites::{dictionary_of, loaded_as_stated, objects_named};
+use super::Substitutes;
 use super::{cff_notdef_glyph, cid_cff_notdef_glyph, cid_notdef_glyph, notdef_glyph};
 
 /// The requirements a font's restated `cmap` answers.
@@ -379,6 +380,7 @@ pub(in crate::archive) fn restated(
     programs: &BTreeMap<ObjectId, Object>,
     (standard_route_too, notdef_too): (bool, bool),
     survey: Option<&Survey>,
+    substitutes: Option<&Substitutes>,
 ) -> Result<CmapRestated, Because> {
     let refused = Because::NotBuiltYet(NOT_RESTATED);
     let rows: Vec<&str> = ANSWERED
@@ -467,6 +469,7 @@ pub(in crate::archive) fn restated(
             (id, notdef.contains(&id)),
             dict,
             (spare, programs, &mut copied),
+            substitutes,
             &mut found,
         )
         .is_none()
@@ -653,33 +656,27 @@ fn restate_one(
     (id, notdef): (ObjectId, bool),
     dict: &Dictionary,
     (spare, programs, copied): (&mut Spare, &BTreeMap<ObjectId, Object>, &mut usize),
+    substitutes: Option<&Substitutes>,
     found: &mut CmapRestated,
 ) -> Option<()> {
     if document.get_key(dict, "Subtype").as_name()?.as_bytes() != b"TrueType" {
         return None;
     }
-    let before = loaded_as_stated(document, dict)?;
-    let reached = codes_reached(&before);
-    let on_notdef = if notdef {
-        codes_on_notdef(&before)
-    } else {
-        Vec::new()
-    };
-    // A descriptor written inside the font dictionary is read where it is; the restated one is
-    // written as an object of its own either way, which ISO 32000-2 §9.6.3 and Table 109 require.
-    let resolved = document.resolve(dict.get("FontDescriptor")?);
-    let descriptor = dictionary_of(&resolved)?;
-    let program_at = descriptor.get("FontFile2")?.as_reference()?;
-    // The program the conversion writes for this font is the one it writes for the original, so
-    // a restatement of its advances comes along into the copy.
-    let Object::Stream(stream) = programs
-        .get(&program_at)
-        .cloned()
-        .unwrap_or_else(|| document.get(program_at))
-    else {
-        return None;
-    };
-    let program = document.decoded_stream_data(&stream)?;
+    // A font the substitution makes a `Type1` one over a CFF face is no longer a TrueType font in
+    // the output, and §9.6.5.4's route is not the one it is read by (`doc/adr/2744`).
+    if substitutes
+        .and_then(|substitutes| substitutes.described.get(&id))
+        .and_then(|entries| entries.get("Subtype"))
+        .and_then(Object::as_name)
+        .is_some_and(|subtype| subtype.as_bytes() != b"TrueType")
+    {
+        return Some(());
+    }
+    let source = dict;
+    let written = as_written(document, (id, dict), programs, substitutes)?;
+    let (dict, descriptor, stream) = (&written.dict, &written.descriptor, &written.program);
+    let (before, reached, on_notdef) = codes_drawn(document, source, &written, notdef)?;
+    let program = document.decoded_stream_data(stream)?;
     *copied = copied.saturating_add(program.len());
     if *copied > MAX_COPIED_BYTES {
         return None;
@@ -764,6 +761,150 @@ fn restate_one(
         found.notdef_given.insert(id);
     }
     Some(())
+}
+
+/// One font as this conversion writes it before its `cmap` is restated: the dictionary with the
+/// entries the substitution adds, its descriptor with the program the substitution embeds, and
+/// that program's stream.
+struct AsWritten {
+    /// The font dictionary, with the entries [`Substitutes`] adds to it.
+    dict: Dictionary,
+    /// The descriptor the dictionary names, with the program entry the substitution writes.
+    descriptor: Dictionary,
+    /// The `/FontFile2` stream the descriptor names in the output.
+    program: std::sync::Arc<pdf_syntax::Stream>,
+    /// The face the substitution embeds as that program, as it writes it, where the program is
+    /// one this conversion embeds rather than the file's own.
+    embedded_face: Option<std::sync::Arc<pdf_syntax::Stream>>,
+}
+
+/// The font the conversion writes for `dict`, where it carries a `/FontFile2` program.
+///
+/// **A font the file did not embed is restated over the face the conversion embeds for it**
+/// (`doc/adr/2744`). [`Substitutes`] writes a program into the font's descriptor, and the output is
+/// then a TrueType font with a program whose `cmap` is held to ISO 19005-2 section 6.2.11.6 like
+/// any other, so the restatement is made over that program. The descriptor is read where the file or the substitution writes it; the restated one is written
+/// as an object of its own either way, which ISO 32000-2 §9.6.3 and Table 109 require.
+fn as_written(
+    document: &Document,
+    (id, dict): (ObjectId, &Dictionary),
+    programs: &BTreeMap<ObjectId, Object>,
+    substitutes: Option<&Substitutes>,
+) -> Option<AsWritten> {
+    let mut dict = dict.clone();
+    if let Some(entries) = substitutes.and_then(|substitutes| substitutes.described.get(&id)) {
+        for (key, value) in entries.iter() {
+            dict.insert(key.clone(), value.clone());
+        }
+    }
+    let named = dict.get("FontDescriptor")?;
+    let added = named
+        .as_reference()
+        .and_then(|at| substitutes?.written.get(&at));
+    let resolved = document.resolve(named);
+    let mut descriptor = dictionary_of(added.unwrap_or(&resolved))?.clone();
+    if let Some(embedding) = named.as_reference().and_then(|at| substitutes?.at.get(&at)) {
+        embedding.write_into(&mut descriptor);
+    }
+    let program_at = descriptor.get("FontFile2")?.as_reference()?;
+    let embedded_face =
+        match substitutes.and_then(|substitutes| substitutes.written.get(&program_at)) {
+            Some(Object::Stream(face)) => Some(std::sync::Arc::clone(face)),
+            Some(_) => return None,
+            None => None,
+        };
+    // The program the conversion writes for this font is the one it writes for the original, so
+    // a restatement of its advances comes along into the copy.
+    let Object::Stream(program) = programs
+        .get(&program_at)
+        .or_else(|| substitutes?.written.get(&program_at))
+        .cloned()
+        .unwrap_or_else(|| document.get(program_at))
+    else {
+        return None;
+    };
+    Some(AsWritten {
+        dict,
+        descriptor,
+        program,
+        embedded_face,
+    })
+}
+
+/// The font a reader of the output loads before its `cmap` is restated, the glyph each code is
+/// restated to, and the codes on glyph 0 that a `.notdef` row asks a glyph for.
+///
+/// A font the file did not embed is drawn from a face this program chose, and the output
+/// draws the face this program ships for it, which the substitution embeds. The codes are
+/// restated from that face's own code table, the one this reader draws the face by and the
+/// substitution proves its embedding with, each glyph held to having the same outline in the
+/// program embedded, which may be the face with its advances restated or glyphs added; a code
+/// the table leaves without a glyph keeps the one the embedded program gives it, which is the
+/// substitution's own (`doc/adr/2744`).
+fn codes_drawn(
+    document: &Document,
+    source: &Dictionary,
+    written: &AsWritten,
+    notdef: bool,
+) -> Option<(LoadedFont, BTreeMap<u8, u16>, Vec<u8>)> {
+    let Some(embedded) = &written.embedded_face else {
+        let before = loaded_as_stated(document, source)?;
+        let reached = codes_reached(&before);
+        let on_notdef = if notdef {
+            codes_on_notdef(&before)
+        } else {
+            Vec::new()
+        };
+        return Some((before, reached, on_notdef));
+    };
+    let drawn = LoadedFont::load(document, source, "").ok()?;
+    if !drawn.is_substituted() {
+        return None;
+    }
+    let face = document.decoded_stream_data(embedded)?;
+    let shipped = pdf_font::standard::shipped_face(document, source, "").ok()?;
+    let as_embedded = embedded_as_written(document, written, embedded)?;
+    let mut reached = codes_reached(&as_embedded);
+    for byte in 0..=u8::MAX {
+        if let Some(glyph) = shipped.glyph(byte).filter(|glyph| *glyph != NOTDEF) {
+            let outline = notdef_glyph::outline(shipped.program, glyph);
+            if outline.is_none() || notdef_glyph::outline(&face, glyph) != outline {
+                return None;
+            }
+            reached.insert(byte, glyph);
+        }
+    }
+    let on_notdef = if notdef {
+        codes_on_notdef(&as_embedded)
+            .into_iter()
+            .filter(|byte| !reached.contains_key(byte))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    Some((as_embedded, reached, on_notdef))
+}
+
+/// The font as the substitution writes it, its program held in memory, as a reader of the
+/// output would load it before the `cmap` is restated.
+fn embedded_as_written(
+    document: &Document,
+    written: &AsWritten,
+    embedded: &std::sync::Arc<pdf_syntax::Stream>,
+) -> Option<LoadedFont> {
+    let mut descriptor = written.descriptor.clone();
+    descriptor.insert(
+        Name::new(&b"FontFile2"[..]),
+        Object::Stream(std::sync::Arc::clone(embedded)),
+    );
+    let mut dict = written.dict.clone();
+    dict.insert(
+        Name::new(&b"FontDescriptor"[..]),
+        Object::Dictionary(descriptor),
+    );
+    LoadedFont::load(document, &dict, "")
+        .ok()
+        .filter(|font| !font.is_substituted())
 }
 
 /// The glyph each of a simple font's 256 codes reached, for the codes that reached one.
