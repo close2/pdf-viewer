@@ -298,6 +298,7 @@ fn trees(point: &[u8]) -> TrustTrees<'_> {
             certificate: Cow::Borrowed(point),
             path_length: None,
             reliable_until: None,
+            inputs: crate::trust::PathInputs::default(),
             unprocessed: Vec::new(),
         }],
         trusted_lists: 0,
@@ -356,7 +357,9 @@ fn the_time_stamping_authoritys_own_path_reaches_the_policys_trust_point() {
         found.found,
         Found::Reached {
             length: 2,
-            unprocessed: Vec::new()
+            unprocessed: Vec::new(),
+            evaluated: Vec::new(),
+            policies: None,
         },
         "the authority and the intermediate, validated under the root"
     );

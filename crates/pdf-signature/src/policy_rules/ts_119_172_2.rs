@@ -690,15 +690,7 @@ impl<'t> Reader<'t> {
                 return Err(malformed("PathLenConstraint"));
             }
             let mut unprocessed = Vec::new();
-            for (local, said) in [
-                ("AcceptablePolicySet", "acceptable policy set"),
-                ("NameConstraints", "name constraints"),
-                ("PolicyConstraints", "policy constraints"),
-            ] {
-                if self.optional(point, local)?.is_some() {
-                    unprocessed.push(said);
-                }
-            }
+            let inputs = self.path_inputs(point, &mut unprocessed)?;
             if let Some(path) = self.optional(point, "UseCertPath")?
                 && self.optional(path, "AsInSignature")?.is_none()
             {
@@ -728,6 +720,7 @@ impl<'t> Reader<'t> {
                     certificate: std::borrow::Cow::Owned(certificate),
                     path_length,
                     reliable_until,
+                    inputs: inputs.clone(),
                     unprocessed: unprocessed.clone(),
                 });
             }
@@ -735,6 +728,116 @@ impl<'t> Reader<'t> {
             out.trusted_lists = out.trusted_lists.saturating_add(lists);
         }
         Ok(out)
+    }
+
+    /// Clause 4.22.3's `NameConstraintsType`: each `GeneralSubTree`'s base is the DER of a
+    /// `GeneralName` (clause 4.22.3.2). Where a subtree states a distance, which RFC 5280 section
+    /// 4.2.1.10 leaves unused and this program does not process, the whole constraint is kept by
+    /// name in `unprocessed` and `None` returned, so that no subset of it is evaluated as though it
+    /// were all of it.
+    fn name_constraints(
+        &mut self,
+        constraints: usize,
+        unprocessed: &mut Vec<&'static str>,
+    ) -> Result<Option<crate::trust::names::NameConstraints>, PolicyDocumentError> {
+        use crate::trust::names;
+        let mut read = names::NameConstraints::default();
+        for (local, permitted) in [("PermittedSubtrees", true), ("ExcludedSubtrees", false)] {
+            let Some(list) = self.optional(constraints, local)? else {
+                continue;
+            };
+            let mut subtrees = Vec::new();
+            for subtree in self.all(list, Space::Policy, "GeneralSubTree")? {
+                self.budget.take()?;
+                let base = base64(self.text_of(subtree, "Base", "GeneralSubTree.Base")?)
+                    .ok_or(malformed("GeneralSubTree.Base"))?;
+                let minimum = self
+                    .optional(subtree, "Minimum")?
+                    .map(|minimum| self.integer(minimum, "GeneralSubTree.Minimum"))
+                    .transpose()?
+                    .unwrap_or(0);
+                let maximum = self
+                    .optional(subtree, "Maximum")?
+                    .map(|maximum| self.integer(maximum, "GeneralSubTree.Maximum"))
+                    .transpose()?;
+                match names::subtree_of(&base, minimum, maximum) {
+                    Ok(read) if subtrees.len() < names::MAX_SUBTREES => subtrees.push(read),
+                    Err(names::Unreadable::DistanceStated) => {
+                        unprocessed.push("name constraints");
+                        return Ok(None);
+                    }
+                    _ => return Err(malformed("GeneralSubTree")),
+                }
+            }
+            if subtrees.is_empty() {
+                continue;
+            }
+            if permitted {
+                read.permitted = Some(subtrees);
+            } else {
+                read.excluded = subtrees;
+            }
+        }
+        if read.permitted.is_none() && read.excluded.is_empty() {
+            return Err(malformed("NameConstraints"));
+        }
+        Ok(Some(read))
+    }
+
+    /// Clause 4.22.5's `AcceptablePolicySet`, `NameConstraints` and `PolicyConstraints` of one
+    /// trust point, as RFC 5280 section 6.1.1's inputs for the path to it (ADR 2724).
+    ///
+    /// An acceptable policy that is a URI and not an object identifier names nothing a
+    /// certificate's `certificatePolicies` can state, so the set is then kept by name in
+    /// `unprocessed` rather than evaluated. Clause 4.22.4.2's schema names the mapping member
+    /// `InhibitExplicitPolicy`; clause 4.22.4.1's semantics make its second component the one that
+    /// restricts policy mapping, and that is how it is read.
+    fn path_inputs(
+        &mut self,
+        point: usize,
+        unprocessed: &mut Vec<&'static str>,
+    ) -> Result<crate::trust::PathInputs, PolicyDocumentError> {
+        use crate::trust::policies;
+        let mut inputs = crate::trust::PathInputs::default();
+        if let Some(set) = self.optional(point, "AcceptablePolicySet")? {
+            let mut oids = Vec::new();
+            let mut comparable = true;
+            for policy in self.all(set, Space::Policy, "AcceptablePolicy")? {
+                self.budget.take()?;
+                match self.identifier(policy, false, "AcceptablePolicy")? {
+                    Identifier::Oid(oid) if oids.len() < policies::MAX_POLICIES => {
+                        oids.push(oid.to_vec());
+                    }
+                    Identifier::Oid(_) => return Err(malformed("AcceptablePolicySet")),
+                    Identifier::Uri(_) => comparable = false,
+                }
+            }
+            if comparable {
+                inputs.policy_set = Some(oids);
+            } else {
+                unprocessed.push("acceptable policy set");
+            }
+        }
+        if let Some(constraints) = self.optional(point, "NameConstraints")? {
+            inputs.name_constraints = self.name_constraints(constraints, unprocessed)?;
+        }
+        if let Some(constraints) = self.optional(point, "PolicyConstraints")? {
+            let count =
+                |this: &Self, local: &'static str| -> Result<Option<usize>, PolicyDocumentError> {
+                    this.optional(constraints, local)?
+                        .map(|value| {
+                            let value = this.integer(value, local)?;
+                            usize::try_from(value).map_err(|_| malformed(local))
+                        })
+                        .transpose()
+                };
+            inputs.require_explicit_policy = count(self, "RequireExplicitPolicy")?;
+            inputs.inhibit_policy_mapping = count(self, "InhibitExplicitPolicy")?;
+            if inputs.require_explicit_policy.is_none() && inputs.inhibit_policy_mapping.is_none() {
+                return Err(malformed("PolicyConstraints"));
+            }
+        }
+        Ok(inputs)
     }
 
     /// Clause 4.23.3's `CertificateRevTrustType`: clause 4.23.2's check for each kind of
@@ -1182,16 +1285,21 @@ impl<'t> Reader<'t> {
                     .optional(condition, "TstRevocationTrust")?
                     .map(|revocation| self.revocation_trust(revocation))
                     .transpose()?;
-                let names = self.optional(condition, "TstNameConstraints")?.is_some();
-                if trees.is_some() || revocation.is_some() || names {
+                let mut unprocessed = Vec::new();
+                let names = match self.optional(condition, "TstNameConstraints")? {
+                    Some(names) => self.name_constraints(names, &mut unprocessed)?,
+                    None => None,
+                };
+                if trees.is_some()
+                    || revocation.is_some()
+                    || names.is_some()
+                    || !unprocessed.is_empty()
+                {
                     trust = Some(TimestampTrust {
                         trees,
                         revocation,
-                        unprocessed: if names {
-                            vec!["name constraints"]
-                        } else {
-                            Vec::new()
-                        },
+                        names,
+                        unprocessed,
                     });
                 }
                 if let Some(delay) = self.optional(condition, "SignatureTimeStampDelay")? {

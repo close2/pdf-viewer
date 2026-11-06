@@ -839,6 +839,77 @@ fn the_xml_signing_certificate_trust_conditions_are_judged_on_the_path() {
     );
 }
 
+/// Clause 4.22.5's `AcceptablePolicySet`, clause 4.22.3's `NameConstraints` and clause 4.22.4's
+/// `PolicyConstraints` in the XML syntax, read as RFC 5280 section 6.1.1's inputs for the path to
+/// the trust point (ADR 2724): each `GeneralSubTree`'s `Base` is a base-64 DER `GeneralName`.
+#[test]
+fn the_xml_trust_points_policy_and_name_constraints_are_section_6_1_inputs() {
+    use crate::policy_rules::certification_path::tests::{WITHIN, cms, hierarchy};
+    let held = hierarchy();
+    let signed = cms(&held.signer, &held.intermediate);
+    let root = encode(&held.root);
+    let extra_rule = |extra: &str| {
+        rule(
+            &format!(
+                "<SigningCertRules><SigningCertTrustConditions><SignerTrustTrees>\
+                 <CertificateTrustPoint><TrustAnchors><X509CertificateBased>{root}\
+                 </X509CertificateBased></TrustAnchors>{extra}</CertificateTrustPoint>\
+                 </SignerTrustTrees><SignerRevTrust><CertificateRevReq><EndRevReq>nocheck\
+                 </EndRevReq><CACerts>nocheck</CACerts></CertificateRevReq></SignerRevTrust>\
+                 </SigningCertTrustConditions></SigningCertRules>"
+            ),
+            None,
+        )
+    };
+    let trust =
+        |c: &policy_rules::Constraint| matches!(c, policy_rules::Constraint::TrustPath { .. });
+    let facts = facts(None).validated_at(WITHIN);
+    let verdicts = |extra: &str| verdict_of(&judged(&[extra_rule(extra)], &signed, &facts), trust);
+    let signer_subject = x509::parse(&held.signer)
+        .expect("the fixture signer reads")
+        .subject_encoding
+        .to_vec();
+    let subtree = |which: &str, base: &[u8]| {
+        format!(
+            "<NameConstraints><{which}><GeneralSubTree><Base>{}</Base></GeneralSubTree></{which}></NameConstraints>",
+            encode(base)
+        )
+    };
+    assert_eq!(
+        verdicts(&subtree(
+            "PermittedSubtrees",
+            &tlv(0x82, b"example.invalid")
+        )),
+        [Verdict::Met],
+        "RFC 5280 section 4.2.1.10: a dNSName constraint binds no certificate that states none"
+    );
+    assert_eq!(
+        verdicts(&subtree("ExcludedSubtrees", &tlv(0xA4, &signer_subject))),
+        [Verdict::Broken],
+        "section 6.1.3 (c): the signer's subject lies in the excluded subtree"
+    );
+    let explicit =
+        "<PolicyConstraints><RequireExplicitPolicy>0</RequireExplicitPolicy></PolicyConstraints>";
+    assert_eq!(
+        verdicts(explicit),
+        [Verdict::Broken],
+        "section 6.1.3 (f): an explicit policy is required and the fixture certificates assert none"
+    );
+    assert_eq!(
+        verdicts(&format!(
+            "<AcceptablePolicySet><AcceptablePolicy>urn:oid:1.2.3.4</AcceptablePolicy></AcceptablePolicySet>{explicit}"
+        )),
+        [Verdict::Broken]
+    );
+    assert_eq!(
+        verdicts(
+            "<AcceptablePolicySet><AcceptablePolicy>https://example.invalid/policy</AcceptablePolicy></AcceptablePolicySet>"
+        ),
+        [Verdict::NotEvaluated],
+        "a policy named by a URI that is no object identifier is nothing a certificate can assert"
+    );
+}
+
 /// Clause 4.25.2's `TimeStampTrustCondition` in the XML syntax: `TstCertificateTrustTrees` read
 /// into the same trust points, and `TstRevocationTrust`'s clause 4.23.2 checks and clause 4.23.3
 /// freshness, judged on the path of the authority that issued the signature's time-stamp token

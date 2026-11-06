@@ -57,6 +57,7 @@ fn point(certificate: &[u8]) -> TrustPoint<'_> {
         certificate: Cow::Borrowed(certificate),
         path_length: None,
         reliable_until: None,
+        inputs: crate::trust::PathInputs::default(),
         unprocessed: Vec::new(),
     }
 }
@@ -94,7 +95,9 @@ fn a_path_to_the_policys_own_trust_point_meets_the_condition() {
         found.found,
         Found::Reached {
             length: 2,
-            unprocessed: Vec::new()
+            unprocessed: Vec::new(),
+            evaluated: Vec::new(),
+            policies: None,
         },
         "TR 102 272 clause 6.6.1: the trust point starts path processing, and RFC 5280 section 6.1 validates the signer and its intermediate under it"
     );
@@ -154,7 +157,10 @@ fn a_chain_rfc_5280_refuses_is_broken_unless_another_anchor_was_not_searched() {
     let held = hierarchy();
     let one = trees(vec![point(&held.root)]);
     let found = searched(&one, &held, &at(AFTER_THE_SIGNER_EXPIRED));
-    assert_eq!(found.found, Found::Refused(PathRefusal::NotCurrent));
+    assert_eq!(
+        found.found,
+        Found::Refused(PathRefusal::NotCurrent, Vec::new())
+    );
     assert_eq!(
         found.verdict(),
         Verdict::Broken,

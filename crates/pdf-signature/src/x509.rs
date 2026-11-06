@@ -24,10 +24,11 @@
 //! validation over a certificate that could have been made up five minutes ago by whoever wrote
 //! the file.
 //!
-//! **Not read**: the extensions behind the steps a reduced path validation omits — name
-//! constraints and the policy tree — which RFC 5280 requires a conforming CA to mark critical, so
-//! a certificate carrying one is refused through [`Extensions::unrecognised_critical`] rather than
-//! read.
+//! **Carried for the policy tree and the name constraints**: `certificatePolicies`,
+//! `policyMappings`, `policyConstraints`, `inhibitAnyPolicy`, `nameConstraints` and
+//! `subjectAltName`, each as the encoding inside its `extnValue`. This module recognises them and
+//! [`crate::trust`]'s `policies` and `names` decode them, because a malformed one is a refusal of
+//! the path rather than of the certificate's reading (ADR 2724).
 //!
 //! # A name is compared, never decoded
 //!
@@ -71,6 +72,24 @@ const EXTENDED_KEY_USAGE: const_oid::ObjectIdentifier = const_oid::db::rfc5280::
 /// [`crate::trust`] is that caller: whether a critical `extKeyUsage` is *unrecognised* depends on
 /// whether the use was stated, which is a question this module cannot answer.
 pub const EXTENDED_KEY_USAGE_OID: &[u8] = EXTENDED_KEY_USAGE.as_bytes();
+
+/// RFC 5280 section 4.2.1.4's `id-ce-certificatePolicies`, `2.5.29.32`.
+const CERTIFICATE_POLICIES: &[u8] = &[0x55, 0x1D, 0x20];
+
+/// RFC 5280 section 4.2.1.5's `id-ce-policyMappings`, `2.5.29.33`.
+const POLICY_MAPPINGS: &[u8] = &[0x55, 0x1D, 0x21];
+
+/// RFC 5280 section 4.2.1.6's `id-ce-subjectAltName`, `2.5.29.17`.
+const SUBJECT_ALT_NAME: &[u8] = &[0x55, 0x1D, 0x11];
+
+/// RFC 5280 section 4.2.1.10's `id-ce-nameConstraints`, `2.5.29.30`.
+const NAME_CONSTRAINTS: &[u8] = &[0x55, 0x1D, 0x1E];
+
+/// RFC 5280 section 4.2.1.11's `id-ce-policyConstraints`, `2.5.29.36`.
+const POLICY_CONSTRAINTS: &[u8] = &[0x55, 0x1D, 0x24];
+
+/// RFC 5280 section 4.2.1.14's `id-ce-inhibitAnyPolicy`, `2.5.29.54`.
+const INHIBIT_ANY_POLICY: &[u8] = &[0x55, 0x1D, 0x36];
 
 /// RFC 5280's `id-ce-basicConstraints`, `2.5.29.19`.
 const BASIC_CONSTRAINTS: const_oid::ObjectIdentifier =
@@ -257,19 +276,17 @@ impl KeyUsage {
 
 /// What a certificate's extensions say, as far as a certification path reads them.
 ///
-/// **Four are recognised and every other critical one is a refusal**, which is RFC 5280
+/// **Ten are recognised and every other critical one is a refusal**, which is RFC 5280
 /// section 4.2's own rule rather than a budget:
 ///
 /// "A certificate-using system MUST reject the certificate if it encounters a critical extension
 /// it does not recognize or a critical extension that contains information that it cannot
 /// process."
 ///
-/// [`Self::unrecognised_critical`] is how that rejection reaches [`crate::trust`]. It is the
-/// single thing that makes a *reduced* path validation safe: the steps this program omits —
-/// name constraints, the policy tree — are each reached through an extension RFC 5280 requires
-/// a conforming CA to mark critical (sections 4.2.1.10, 4.2.1.11 and 4.2.1.14 each say
-/// "Conforming CAs MUST mark this extension as critical"), so a certificate that would have
-/// needed them is refused rather than waved through.
+/// [`Self::unrecognised_critical`] is how that rejection reaches [`crate::trust`]. The six
+/// extensions of the policy tree and the name constraints are carried undecoded, and
+/// [`crate::trust`] decodes each where section 6.1 processes it, refusing the path where one does
+/// not read (ADR 2724).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Extensions<'a> {
     /// `subjectKeyIdentifier`'s octets, which name this certificate to the one below it.
@@ -297,6 +314,18 @@ pub struct Extensions<'a> {
     /// caller with a use can check a purpose against it: [`crate::trust`] lifts the refusal where
     /// the caller stated a [`crate::trust::Purpose`] and keeps it where the caller did not.
     pub extended_key_usage: Option<&'a [u8]>,
+    /// `certificatePolicies`' encoded `CertificatePolicies` — RFC 5280 section 4.2.1.4.
+    pub certificate_policies: Option<&'a [u8]>,
+    /// `policyMappings`' encoded `PolicyMappings` — section 4.2.1.5.
+    pub policy_mappings: Option<&'a [u8]>,
+    /// `subjectAltName`'s encoded `GeneralNames` — section 4.2.1.6, read for the name constraints.
+    pub subject_alt_name: Option<&'a [u8]>,
+    /// `nameConstraints`' encoded `NameConstraints` — section 4.2.1.10.
+    pub name_constraints: Option<&'a [u8]>,
+    /// `policyConstraints`' encoded `PolicyConstraints` — section 4.2.1.11.
+    pub policy_constraints: Option<&'a [u8]>,
+    /// `inhibitAnyPolicy`'s encoded `SkipCerts` — section 4.2.1.14.
+    pub inhibit_any_policy: Option<&'a [u8]>,
     /// The first critical extension this reader does not recognise, as its encoded identifier.
     pub unrecognised_critical: Option<&'a [u8]>,
     /// Whether the walk stopped at [`MAX_EXTENSIONS`] with extensions left unread.
@@ -906,7 +935,7 @@ fn read_dsa_key<'a>(
     }))
 }
 
-/// Every extension, read for the four a certification path uses and refused for the rest.
+/// Every extension, read for the ten a certification path uses and refused for the rest.
 ///
 /// `Extension ::= SEQUENCE { extnID OBJECT IDENTIFIER, critical BOOLEAN DEFAULT FALSE, extnValue
 /// OCTET STRING }`, and each recognised extension's value is a further DER encoding *inside* that
@@ -969,6 +998,18 @@ fn read_extensions(extensions: Value<'_>) -> Result<Extensions<'_>, X509Error> {
             read.basic_constraints = inner.and_then(|value| basic_constraints(&value));
         } else if oid == KEY_USAGE.as_bytes() {
             read.key_usage = inner.and_then(|value| key_usage(&value));
+        } else if let Some(slot) = match oid {
+            CERTIFICATE_POLICIES => Some(&mut read.certificate_policies),
+            POLICY_MAPPINGS => Some(&mut read.policy_mappings),
+            SUBJECT_ALT_NAME => Some(&mut read.subject_alt_name),
+            NAME_CONSTRAINTS => Some(&mut read.name_constraints),
+            POLICY_CONSTRAINTS => Some(&mut read.policy_constraints),
+            INHIBIT_ANY_POLICY => Some(&mut read.inhibit_any_policy),
+            _ => None,
+        } {
+            // Carried as written; an absent `extnValue` is carried as empty, which no decoder in
+            // `crate::trust` reads, so it is refused there rather than taken as an absence.
+            *slot = Some(value.unwrap_or(&[]));
         } else if critical && read.unrecognised_critical.is_none() {
             // RFC 5280 section 4.2: "A certificate-using system MUST reject the certificate if it
             // encounters a critical extension it does not recognize". The first one is kept so a

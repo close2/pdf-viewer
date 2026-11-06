@@ -689,13 +689,6 @@ fn the_signing_certificate_trust_conditions_are_judged_on_a_path_to_the_policys_
         &facts,
     );
     assert_eq!(verdict_of(&limited, trust), [Verdict::Broken]);
-    // A name-constraints member [2] this program does not process: never met.
-    let named = judged(
-        &[rule(certificate(vec![tagged(2, &seq(&[]))]))],
-        &signed,
-        &facts,
-    );
-    assert_eq!(verdict_of(&named, trust), [Verdict::NotEvaluated]);
     // userCertPath [4] asInSignature [0] TRUE asks for the path the signature carries: processed.
     let as_in_signature = judged(
         &[rule(certificate(vec![tagged(
@@ -722,6 +715,71 @@ fn the_signing_certificate_trust_conditions_are_judged_on_a_path_to_the_policys_
         )),
         "the trusted-list anchor is counted, not dropped"
     );
+}
+
+/// Clause 4.22.3's name constraints and 4.22.4's policy constraints of a trust point, and clause
+/// 4.22.5's acceptable policy set, evaluated as RFC 5280 section 6.1.1's inputs for the path to it
+/// (ADR 2724), each met and unmet over the fixture hierarchy, whose certificates assert no policy.
+#[test]
+fn a_trust_points_policy_and_name_constraints_are_section_6_1_inputs() {
+    use crate::policy_rules::certification_path::tests::{WITHIN, cms, hierarchy};
+    let held = hierarchy();
+    let signed = cms(&held.signer, &held.intermediate);
+    let no_check = seq(&[seq(&[enumeration(4), enumeration(4)])]);
+    let rule = |point: Vec<u8>| {
+        basic(
+            6,
+            &seq(&[seq(&[seq(&[point]), no_check.clone()]), enumeration(1)]),
+            None,
+        )
+    };
+    let certificate = |extra: Vec<Vec<u8>>| {
+        let mut members = vec![seq(&[seq(std::slice::from_ref(&held.root))])];
+        members.extend(extra);
+        seq(&members)
+    };
+    let facts = facts(None).validated_at(WITHIN);
+    let trust =
+        |c: &policy_rules::Constraint| matches!(c, policy_rules::Constraint::TrustPath { .. });
+    // Clause 4.22.3's name constraints [2] and 4.22.4's policy constraints [3] are RFC 5280
+    // section 6.1.1's inputs for the path to the trust point (ADR 2724), each in Annex A's
+    // EXPLICIT TAGS: a GeneralSubtrees inside [0] or [1], a SkipCerts inside [0].
+    let signer_subject = x509::parse(&held.signer)
+        .expect("the fixture signer reads")
+        .subject_encoding
+        .to_vec();
+    let subtrees =
+        |which: u8, base: Vec<u8>| tagged(2, &seq(&[tagged(which, &seq(&[seq(&[base])]))]));
+    let judge = |members: Vec<Vec<u8>>| {
+        verdict_of(
+            &judged(&[rule(certificate(members))], &signed, &facts),
+            trust,
+        )
+    };
+    assert_eq!(
+        judge(vec![subtrees(0, tlv(0x82, b"example.invalid"))]),
+        [Verdict::Met],
+        "RFC 5280 section 4.2.1.10: a constraint on dNSName binds no certificate that states none"
+    );
+    assert_eq!(
+        judge(vec![subtrees(1, tlv(0xA4, &signer_subject))]),
+        [Verdict::Broken],
+        "section 6.1.3 (c): the signer's subject lies in the subtree the trust point excludes"
+    );
+    assert_eq!(
+        judge(vec![subtrees(0, tlv(0xA4, &signer_subject))]),
+        [Verdict::Broken],
+        "section 6.1.3 (b): the intermediate's subject is outside the one subtree permitted"
+    );
+    // requireExplicitPolicy 0 is section 6.1.1 (f)'s flag set: the fixture certificates assert no
+    // policy, so section 6.1.3 (f) finds explicit_policy zero and the tree NULL.
+    let explicit = tagged(3, &seq(&[tagged(0, &int(0))]));
+    assert_eq!(judge(vec![explicit.clone()]), [Verdict::Broken]);
+    // An acceptable policy set [1] alone is section 6.1.1 (c)'s initial set, which section 6.1.5
+    // does not require the path to meet unless an explicit policy is required.
+    let acceptable = tagged(1, &seq(&[oid(&[0x2A, 0x03, 0x04])]));
+    assert_eq!(judge(vec![acceptable.clone()]), [Verdict::Met]);
+    assert_eq!(judge(vec![acceptable, explicit]), [Verdict::Broken]);
 }
 
 /// Clause 4.25's time-stamp trust condition — TS 119 172-2 clause 4.25.1 item 3: trust trees
@@ -757,6 +815,7 @@ fn the_time_stamp_trust_condition_is_judged_on_the_authoritys_own_path() {
                 | policy_rules::Constraint::RevocationCheck { condition, .. }
                 | policy_rules::Constraint::TrustCondition(condition)
                 | policy_rules::Constraint::ConditionMember { condition, .. }
+                | policy_rules::Constraint::AuthorityName { condition, .. }
                 if *condition == TIMESTAMP_TRUST
         )
     };
@@ -775,10 +834,40 @@ fn the_time_stamp_trust_condition_is_judged_on_the_authoritys_own_path() {
         [Verdict::Met, Verdict::Met, Verdict::NotEvaluated],
         "the authority's path, its CRL check, and the intermediate's OCSP check, which no response in the material answers"
     );
-    // Name constraints [2] are named and not evaluated; trees absent, no rule of clause 4.25
-    // supplies another condition's, so the condition is named and its checks have no path.
+    // Name constraints [2] on the authority's own name (RFC 3125 section 6.8): its subject inside
+    // an excluded subtree is broken, and a dNSName constraint binds a certificate stating none.
+    let (authority, _) = crate::timestamp::signature_timestamp_token(&signed)
+        .and_then(Result::ok)
+        .expect("the fixture's token reads");
+    let authority = crate::signature::signer_certificate(&authority)
+        .and_then(|value| x509::read(value).ok())
+        .expect("the token carries its authority's certificate")
+        .subject_encoding
+        .to_vec();
+    let names = |which: u8, base: Vec<u8>| tagged(2, &seq(&[tagged(which, &seq(&[seq(&[base])]))]));
+    let trees = tagged(0, &seq(std::slice::from_ref(&point)));
+    let excluded = judged(
+        &[rule(vec![trees.clone(), names(1, tlv(0xA4, &authority))])],
+        &signed,
+        &facts,
+    );
+    assert_eq!(
+        verdict_of(&excluded, stamp),
+        [Verdict::Met, Verdict::Broken]
+    );
+    let permitted = judged(
+        &[rule(vec![trees, names(0, tlv(0x82, b"example.invalid"))])],
+        &signed,
+        &facts,
+    );
+    assert_eq!(verdict_of(&permitted, stamp), [Verdict::Met, Verdict::Met]);
+    // Trees absent, no rule of clause 4.25 supplies another condition's, so the condition is named,
+    // its checks have no path, and no certificate is the authority's to judge the names on.
     let unprocessed = judged(
-        &[rule(vec![requirement, tagged(2, &seq(&[]))])],
+        &[rule(vec![
+            requirement,
+            names(0, tlv(0x82, b"example.invalid")),
+        ])],
         &signed,
         &facts,
     );

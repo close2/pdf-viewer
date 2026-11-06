@@ -587,9 +587,9 @@ fn read_revocation_requirement(
 /// Clause 4.22.5's `CertificateTrustTrees`: one [`TrustPoint`] per certificate trust anchor, each
 /// with its trust point's constraints, and a count of the anchors given by trusted-list reference.
 ///
-/// The members [`crate::trust`] does not process are kept by name — `acceptablePolicySet`,
-/// `nameConstraints`, `policyConstraints`, and a `userCertPath` other than `asInSignature` true —
-/// so that a condition stating one is never called met. `asInSignature` true asks for the path the
+/// `acceptablePolicySet`, `nameConstraints` and `policyConstraints` are RFC 5280 section 6.1.1's
+/// inputs, read as TR 102 272's are (ADR 2724). A `userCertPath` other than `asInSignature` true is
+/// kept by name, so that a condition stating one is never called met. `asInSignature` true asks for the path the
 /// signature carries, which is the only one [`super::certification_path::search`] builds.
 pub(super) fn read_trust_trees<'a>(
     value: &Value<'a>,
@@ -608,6 +608,7 @@ pub(super) fn read_trust_trees<'a>(
         )?;
         let mut path_length = None;
         let mut unprocessed = Vec::new();
+        let mut inputs = crate::trust::PathInputs::default();
         while let Some(member) = members.next_value()? {
             match context_number(&member) {
                 Some(0) => {
@@ -617,9 +618,12 @@ pub(super) fn read_trust_trees<'a>(
                     }
                     path_length = Some(limit);
                 }
-                Some(1) => unprocessed.push("acceptable policy set"),
-                Some(2) => unprocessed.push("name constraints"),
-                Some(3) => unprocessed.push("policy constraints"),
+                Some(number @ 1..=3) => super::trust_point_input(
+                    &mut inputs,
+                    &mut unprocessed,
+                    number,
+                    &explicit(&member, "CertificateTrustPoint")?,
+                )?,
                 Some(4) => {
                     let choice = explicit(&member, "userCertPath")?;
                     let as_in_signature = context_number(&choice) == Some(0)
@@ -647,6 +651,7 @@ pub(super) fn read_trust_trees<'a>(
                         certificate: Cow::Borrowed(first.encoding()),
                         path_length,
                         reliable_until,
+                        inputs: inputs.clone(),
                         unprocessed: unprocessed.clone(),
                     });
                 }
@@ -1209,6 +1214,7 @@ fn read_time_evidences<'a>(
                 let stated = || TimestampTrust {
                     trees: None,
                     revocation: None,
+                    names: None,
                     unprocessed: Vec::new(),
                 };
                 match context_number(&field) {
@@ -1230,10 +1236,13 @@ fn read_time_evidences<'a>(
                                 "ttsRevReq",
                             )?)?);
                     }
-                    Some(2) => trust
-                        .get_or_insert_with(stated)
-                        .unprocessed
-                        .push("name constraints"),
+                    Some(2) => {
+                        let condition = trust.get_or_insert_with(stated);
+                        condition.names = super::authority_names(
+                            &explicit(&field, "ttsNameConstraints")?,
+                            &mut condition.unprocessed,
+                        )?;
+                    }
                     Some(3) => {
                         delay_seconds = Some(read_delta_time(&explicit(
                             &field,
@@ -1741,6 +1750,7 @@ fn judge_time_evidence(
             facts,
             out,
         );
+        super::authority_name_finding(TIMESTAMP_TRUST, search.as_ref(), trust.names.as_ref(), out);
         for member in &trust.unprocessed {
             out.push(Finding {
                 verdict: Verdict::NotEvaluated,

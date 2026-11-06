@@ -40,7 +40,18 @@
 //!   version 1 and version 2 intermediates rejected, which the step permits in as many words;
 //! - **(l)** and **(m)** `max_path_length`, decremented and lowered by `pathLenConstraint`;
 //! - **(n)** `keyUsage`, where present, asserting `keyCertSign`;
-//! - **(o)** every critical extension this reader does not recognise, as a refusal.
+//! - **(o)** every critical extension this reader does not recognise, as a refusal;
+//! - **the policy tree** — section 6.1.2 (a), 6.1.3 (d) to (f), 6.1.4 (a), (b) and (h) to (j) and
+//!   6.1.5 (a), (b) and (g) — in [`policies`] and `constrained`, under the inputs
+//!   [`PathInputs`] carries: `user-initial-policy-set`, `initial-explicit-policy`,
+//!   `initial-policy-mapping-inhibit` and `initial-any-policy-inhibit`;
+//! - **the name constraints** — section 6.1.2 (b) and (c), 6.1.3 (b) and (c) and 6.1.4 (g) — in
+//!   [`names`], for directory names, `rfc822Name`, `dNSName`, URIs and IP addresses, with
+//!   `initial-permitted-subtrees` and `initial-excluded-subtrees` from [`PathInputs`] too.
+//!
+//! [`validate`] and its siblings pass section 6.1.1's defaults — `any-policy` and every flag
+//! clear, no initial subtrees — under which a path no certificate on it constrains validates as it
+//! always did; a signature policy's trust point supplies its own inputs (ADR 2724).
 //!
 //! **(a)(3), revocation, is done from the material the document carries** — §12.8.4's document
 //! security store, whose whole purpose is that a verifier needs no network to reach it.
@@ -48,19 +59,9 @@
 //! answered, and [`Revocation::Unknown`] rather than [`Revocation::Good`] is what a certificate no
 //! material covers gets. ADR 1067.
 //!
-//! **Not done, and named at every level rather than assumed:**
+//! **Not done, and named rather than assumed:**
 //!
-//! - **The policy tree** — section 6.1.2 (a), 6.1.3 (d) to (f), 6.1.4 (h) to (j) and 6.1.5 (g).
-//!   This module fixes `user-initial-policy-set` to `any-policy` and `initial-explicit-policy`,
-//!   `initial-policy-mapping-inhibit` and `initial-any-policy-inhibit` all to false, under which
-//!   section 6.1.5's success condition — "the value of `explicit_policy` variable is greater than
-//!   zero" — holds for every path, because the only thing that can drive `explicit_policy` to zero
-//!   is `requireExplicitPolicy` in a policy constraints extension, and section 4.2.1.11 says
-//!   "Conforming CAs MUST mark this extension as critical". The same argument covers name
-//!   constraints (section 4.2.1.10) and inhibit anyPolicy (section 4.2.1.14): each is a critical
-//!   extension this reader does not recognise, so a certificate that needs the omitted step is
-//!   refused by (o) instead of passing without it.
-//! - **Name matching is byte comparison**, not section 7.1's. Two encodings of one name that
+//! - **Name *chaining* is byte comparison**, not section 7.1's. Two encodings of one name that
 //!   section 7.1 would call equal compare unequal here, so a path that should chain may fail to —
 //!   never the other way round. The cost is a false [`Trust::NoPathToAnyAnchor`] on a producer
 //!   that re-encoded a name between certificates; the alternative is a comparison that could join
@@ -73,6 +74,13 @@
 //! how many of the file's certificates are considered as issuers at all, [`MAX_STEPS`] the whole
 //! search, and no certificate appears twice in one path — which is also RFC 5280 section 6.1's own
 //! rule: "A certificate MUST NOT appear more than once in a prospective certification path."
+
+pub mod names;
+pub mod policies;
+
+mod constrained;
+
+pub use constrained::Policies;
 
 use crate::revocation::{self, Material, Subject};
 use crate::x509::{self, Certificate, Instant, KeyUsage, PublicKey};
@@ -457,6 +465,83 @@ pub enum PathRefusal {
     /// asserting the thing it is for.
     #[error("a certificate's issuer is not the name of the certificate that signed it")]
     IssuerNameDoesNotChain,
+    /// `explicit_policy` reached zero with the `valid_policy_tree` NULL — section 6.1.3 (f), or
+    /// section 6.1.5 (g)'s success condition after the intersection with the caller's set.
+    #[error(
+        "the path requires an explicit policy and no policy the caller accepts is valid for it"
+    )]
+    NoAcceptablePolicy,
+    /// A `policyMappings` maps to or from `anyPolicy` — section 6.1.4 (a).
+    #[error("a certificate maps a policy to or from anyPolicy, which section 6.1.4 (a) forbids")]
+    PolicyMappingOfAnyPolicy,
+    /// The `valid_policy_tree` grew past [`policies::MAX_POLICY_NODES`] — this program's bound.
+    #[error(
+        "the path's policy tree grows past the {} nodes this program builds",
+        policies::MAX_POLICY_NODES
+    )]
+    PolicyTreeTooLarge,
+    /// A policy or name extension, named, does not read as its type.
+    #[error("a certificate's {0} extension is malformed")]
+    ExtensionUnreadable(&'static str),
+    /// A policy or name extension, named, states more entries than this program reads.
+    #[error("a certificate's {0} states more entries than this program reads")]
+    ExtensionPastBound(&'static str),
+    /// A name constraint states a `minimum` or `maximum` distance — section 4.2.1.10 forbids both,
+    /// and this program does not process them.
+    #[error(
+        "a name constraint states a minimum or maximum distance, which this program does not process"
+    )]
+    SubtreeDistanceStated,
+    /// A name lies outside the permitted subtrees for its form — section 6.1.3 (b).
+    #[error("a certificate's {0} is outside the subtrees the path permits")]
+    NameNotPermitted(&'static str),
+    /// A name lies inside an excluded subtree — section 6.1.3 (c).
+    #[error("a certificate's {0} is inside a subtree the path excludes")]
+    NameExcluded(&'static str),
+    /// A URI under a URI constraint has no domain host — section 4.2.1.10's rejection.
+    #[error("a certificate states a URI with no domain host under a URI name constraint")]
+    UriWithoutDomainHost,
+    /// A name of a form this program does not compare stands under a constraint on that form.
+    #[error(
+        "a certificate states a {0} under a constraint on that form, which this program does not compare"
+    )]
+    NameFormNotProcessed(&'static str),
+    /// A section 7.1 comparison this program cannot decide: text outside ASCII that RFC 4518's
+    /// tables would prepare, or a string type it does not decode.
+    #[error("a certificate's {0} compares with a constraint in a way this program cannot decide")]
+    NameComparisonUndecided(&'static str),
+}
+
+/// RFC 5280 section 6.1.1's inputs (c) and (e) to (i), which a signature policy's trust point
+/// states and a host's path does not.
+///
+/// The three flags are held as section 4.2.1.11's `SkipCerts` counts, so that a trust point's
+/// `PolicyConstraints` (ETSI TS 119 172-2 clause 4.22.4) applies as the trust point's own
+/// certificate would: `Some(0)` is the section's flag set, `Some(k)` lets `k` certificates pass
+/// first, and `None` is the flag clear. The default is section 6.1.1's default for every input.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PathInputs {
+    /// (c) `user-initial-policy-set`; `None` is `any-policy`.
+    pub policy_set: Option<Vec<policies::Oid>>,
+    /// (f) `initial-explicit-policy`, as a count.
+    pub require_explicit_policy: Option<usize>,
+    /// (e) `initial-policy-mapping-inhibit`, as a count.
+    pub inhibit_policy_mapping: Option<usize>,
+    /// (g) `initial-any-policy-inhibit`, as a count.
+    pub inhibit_any_policy: Option<usize>,
+    /// (h) and (i), `initial-permitted-subtrees` and `initial-excluded-subtrees`.
+    pub name_constraints: Option<names::NameConstraints>,
+}
+
+/// What [`validate_constrained`] answers: the verdict, the path, and section 6.1.6's policy output.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Validation<'p, 'c> {
+    /// The verdict.
+    pub trust: Trust,
+    /// The path that validated, target first and the anchor excluded; empty unless anchored.
+    pub path: Vec<&'p Certificate<'c>>,
+    /// The policy output of the path that validated; empty unless anchored.
+    pub policies: Policies,
 }
 
 /// What this program can say about whose certificate signed a document.
@@ -562,8 +647,39 @@ pub fn validate_path<'p, 'c: 'p>(
     at: Instant,
     purpose: Purpose,
 ) -> (Trust, Vec<&'p Certificate<'c>>) {
+    let validation = validate_constrained(
+        target,
+        others,
+        anchors,
+        material,
+        at,
+        purpose,
+        &PathInputs::default(),
+    );
+    (validation.trust, validation.path)
+}
+
+/// [`validate_path`] under section 6.1.1's policy and name inputs, with section 6.1.6's policy
+/// output beside the path.
+///
+/// A signature policy's trust point is the caller that states inputs (ETSI TR 102 272 clause
+/// 6.6.1, TS 119 172-2 clause 4.22.5); every other caller passes [`PathInputs::default`].
+#[must_use]
+pub fn validate_constrained<'p, 'c: 'p>(
+    target: &'p Certificate<'c>,
+    others: &'p [Certificate<'c>],
+    anchors: &'p TrustAnchors<'c>,
+    material: &'p Material<'c>,
+    at: Instant,
+    purpose: Purpose,
+    inputs: &PathInputs,
+) -> Validation<'p, 'c> {
     if anchors.is_empty() {
-        return (Trust::NoAnchorSupplied, Vec::new());
+        return Validation {
+            trust: Trust::NoAnchorSupplied,
+            path: Vec::new(),
+            policies: Policies::default(),
+        };
     }
     let candidates = others
         .get(..others.len().min(MAX_CANDIDATES))
@@ -574,22 +690,25 @@ pub fn validate_path<'p, 'c: 'p>(
         material,
         at,
         purpose,
+        inputs: inputs.clone(),
         target: target.tbs,
         steps: 0,
         first_refusal: None,
         revocation: Revocation::NotChecked,
+        policies: Policies::default(),
     };
     // The path is held target-first while it is built and reversed before validation, because
     // section 6.1 numbers certificates from the anchor down and every step reads in that order.
     let mut path = vec![target];
     if let Some(validated) = search.extend(&mut path) {
-        return (
-            Trust::Anchored {
+        return Validation {
+            trust: Trust::Anchored {
                 length: validated.len(),
                 revocation: search.revocation,
             },
-            validated,
-        );
+            path: validated,
+            policies: search.policies,
+        };
     }
     let trust = match search.first_refusal {
         Some(refusal) => Trust::Refused {
@@ -600,7 +719,11 @@ pub fn validate_path<'p, 'c: 'p>(
             examined: search.steps,
         },
     };
-    (trust, Vec::new())
+    Validation {
+        trust,
+        path: Vec::new(),
+        policies: Policies::default(),
+    }
 }
 
 /// The depth-first walk from the target certificate up towards an anchor.
@@ -615,6 +738,8 @@ struct Search<'p, 'c: 'p> {
     at: Instant,
     /// What the caller will use the target's key for — RFC 5280 section 4.2.1.12's question.
     purpose: Purpose,
+    /// Section 6.1.1's policy and name inputs.
+    inputs: PathInputs,
     /// The target certificate's `tbsCertificate`, which is how the walk tells it from the rest.
     ///
     /// Compared by the bytes each certificate occupies, the same identity the path's own
@@ -632,6 +757,9 @@ struct Search<'p, 'c: 'p> {
     /// Written by [`Self::walk`] on the one path that passes, so a prospective path that was
     /// refused for some other reason leaves nothing behind here.
     revocation: Revocation,
+    /// Section 6.1.6's policy output over the path that validated, written as [`Self::revocation`]
+    /// is.
+    policies: Policies,
 }
 
 impl<'p, 'c: 'p> Search<'p, 'c> {
@@ -710,6 +838,7 @@ impl<'p, 'c: 'p> Search<'p, 'c> {
         let mut working_issuer_key_usage = anchor.key_usage;
         let mut max_path_length = MAX_PATH_LENGTH;
         let last = path.len().saturating_sub(1);
+        let mut constraints = constrained::State::new(&self.inputs, path.len())?;
         let mut revocation = if self.material.is_empty() {
             Revocation::NotChecked
         } else {
@@ -733,6 +862,8 @@ impl<'p, 'c: 'p> Search<'p, 'c> {
                     Purpose::Unstated
                 },
             )?;
+            // (b) to (f): the names against the subtrees above, then the policy tree.
+            constraints.certificate(certificate, index.saturating_add(1), path.len())?;
             // (a)(3). Asked of every certificate on the path rather than of the target alone,
             // which is what the step's position inside section 6.1.3's per-certificate loop makes
             // it: an intermediate whose own certificate was revoked invalidates everything under
@@ -752,6 +883,8 @@ impl<'p, 'c: 'p> Search<'p, 'c> {
                 );
             }
             if index < last {
+                // Section 6.1.4 (a), (b) and (g) to (j), then (k) to (n).
+                constraints.prepare(certificate, index.saturating_add(1))?;
                 prepare_for_next(certificate, &mut max_path_length)?;
                 working_issuer_name = certificate.subject;
                 working_public_key = certificate.public_key;
@@ -769,11 +902,11 @@ impl<'p, 'c: 'p> Search<'p, 'c> {
                 covered: path.len(),
             };
         }
+        // Section 6.1.5 (a), (b) and (g), and its success condition. (c) to (e) assign the target's
+        // key to the working key, which nothing after this reads.
+        let target = path.first().ok_or(PathRefusal::IssuerNameDoesNotChain)?;
+        self.policies = constraints.wrap_up(target, path.len(), &self.inputs)?;
         self.revocation = revocation;
-        // Section 6.1.5's wrap-up is (c) to (e) — assigning the target's key to the working key,
-        // which nothing after this reads — and (a), (b) and (g), which are the policy tree's and
-        // which this module's own documentation argues are satisfied for every path under
-        // `any-policy` with no explicit policy required.
         Ok(())
     }
 }
@@ -913,3 +1046,6 @@ fn verify_certificate(
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+#[cfg(test)]
+mod pkits;

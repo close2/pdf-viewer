@@ -336,8 +336,11 @@ pub struct TimestampTrust<'a> {
     pub trees: Option<certification_path::TrustTrees<'a>>,
     /// `ttsRevReq`, where stated.
     pub revocation: Option<revocation_checks::Requirement>,
-    /// The members this program does not evaluate, by name: the authority's name constraints, and
-    /// clause 6.8's caution period and signature time-stamp delay.
+    /// `ttsNameConstraints`, where stated: constraints on the authority's own name (RFC 3125
+    /// section 6.8), judged on the certificate of the authority whose path the condition searched.
+    pub names: Option<crate::trust::names::NameConstraints>,
+    /// The members this program does not evaluate, by name: clause 6.8's caution period and
+    /// signature time-stamp delay.
     pub unprocessed: Vec<&'static str>,
 }
 
@@ -771,6 +774,7 @@ fn read_timestamp_trust<'a>(
     let mut condition = TimestampTrust {
         trees: None,
         revocation: None,
+        names: None,
         unprocessed: Vec::new(),
     };
     let mut members = value.children()?;
@@ -796,7 +800,12 @@ fn read_timestamp_trust<'a>(
                     budget,
                 )?);
             }
-            2 => condition.unprocessed.push("name constraints"),
+            2 => {
+                condition.names = authority_names(
+                    &explicit(&member, "ttsNameConstraints")?,
+                    &mut condition.unprocessed,
+                )?;
+            }
             3 => condition.unprocessed.push("caution period"),
             4 => condition.unprocessed.push("signature time-stamp delay"),
             _ => return Err(PolicyDocumentError::Malformed("TimestampTrustCondition")),
@@ -859,9 +868,8 @@ fn revocation_check<'a>(
 /// Clause 6.6.1's `CertificateTrustTrees`, each trust point charged to the budget.
 ///
 /// `acceptablePolicySet`, `nameConstraints` and `policyConstraints` are the initial conditions of
-/// RFC 5280 section 6.1.1's policy tree and name processing, which [`crate::trust`] does not
-/// perform; each is kept as the name of a member stated and not processed, so a condition that
-/// states one is never called met.
+/// RFC 5280 section 6.1.1's policy tree and name processing (RFC 3125 section 6.6.1), read into
+/// [`certification_path::TrustPoint::inputs`] under the module's `EXPLICIT TAGS` (ADR 2724).
 fn read_trust_trees<'a>(
     value: &Value<'a>,
     budget: &mut Budget,
@@ -878,6 +886,7 @@ fn read_trust_trees<'a>(
             "CertificateTrustPoint.trustpoint",
         )?;
         let mut path_length = None;
+        let mut inputs = crate::trust::PathInputs::default();
         let mut unprocessed = Vec::new();
         while let Some(member) = members.next_value()? {
             if member.class() != der::Class::ContextSpecific {
@@ -895,9 +904,14 @@ fn read_trust_trees<'a>(
                             PolicyDocumentError::Malformed("pathLenConstraint")
                         })?));
                 }
-                1 => unprocessed.push("acceptable policy set"),
-                2 => unprocessed.push("name constraints"),
-                3 => unprocessed.push("policy constraints"),
+                number @ 1..=3 => {
+                    trust_point_input(
+                        &mut inputs,
+                        &mut unprocessed,
+                        number,
+                        &explicit(&member, "CertificateTrustPoint")?,
+                    )?;
+                }
                 _ => return Err(PolicyDocumentError::Malformed("CertificateTrustPoint")),
             }
         }
@@ -905,10 +919,66 @@ fn read_trust_trees<'a>(
             certificate: std::borrow::Cow::Borrowed(certificate.encoding()),
             path_length,
             reliable_until: None,
+            inputs,
             unprocessed,
         });
     }
     Ok(trees)
+}
+
+/// A time-stamp trust condition's `ttsNameConstraints`, in the module's `EXPLICIT TAGS`; a subtree
+/// stating a distance keeps the constraint named instead, as a trust point's does. Shared with ETSI
+/// TS 119 172-3.
+pub(super) fn authority_names(
+    value: &Value<'_>,
+    unprocessed: &mut Vec<&'static str>,
+) -> Result<Option<crate::trust::names::NameConstraints>, PolicyDocumentError> {
+    use crate::trust::names;
+    match names::read_constraints(value.encoding(), names::Tagging::Explicit) {
+        Ok(read) => Ok(Some(read)),
+        Err(names::Unreadable::DistanceStated) => {
+            unprocessed.push("name constraints");
+            Ok(None)
+        }
+        Err(_) => Err(PolicyDocumentError::Malformed("ttsNameConstraints")),
+    }
+}
+
+/// One of a `CertificateTrustPoint`'s members `[1]` to `[3]`, the value inside its `EXPLICIT` tag,
+/// as RFC 5280 section 6.1.1's inputs: `acceptablePolicySet` is `user-initial-policy-set`,
+/// `nameConstraints` the initial subtrees, and `policyConstraints` the two `SkipCerts` counts,
+/// applied as though the trust point were certificate zero (RFC 3125 section 6.6.1). Shared with
+/// ETSI TS 119 172-3, whose Annex A states the same members in the same `EXPLICIT TAGS`.
+pub(super) fn trust_point_input(
+    inputs: &mut crate::trust::PathInputs,
+    unprocessed: &mut Vec<&'static str>,
+    number: u8,
+    value: &Value<'_>,
+) -> Result<(), PolicyDocumentError> {
+    use crate::trust::{names, policies};
+    match number {
+        1 => {
+            inputs.policy_set = Some(
+                policies::read_policy_set(value)
+                    .map_err(|_| PolicyDocumentError::Malformed("acceptablePolicySet"))?,
+            );
+        }
+        // A subtree stating a distance, which RFC 5280 section 4.2.1.10 leaves unused, keeps the
+        // whole constraint by name rather than evaluating the rest of it as though it were all.
+        2 => match names::read_constraints(value.encoding(), names::Tagging::Explicit) {
+            Ok(read) => inputs.name_constraints = Some(read),
+            Err(names::Unreadable::DistanceStated) => unprocessed.push("name constraints"),
+            Err(_) => return Err(PolicyDocumentError::Malformed("nameConstraints")),
+        },
+        _ => {
+            let stated =
+                policies::read_policy_constraints(value.encoding(), names::Tagging::Explicit)
+                    .map_err(|_| PolicyDocumentError::Malformed("policyConstraints"))?;
+            inputs.require_explicit_policy = stated.require_explicit_policy;
+            inputs.inhibit_policy_mapping = stated.inhibit_policy_mapping;
+        }
+    }
+    Ok(())
 }
 
 /// Clause 6.5.1's `SignerRules`.
@@ -1244,6 +1314,14 @@ pub enum Constraint {
         condition: &'static str,
         /// What was mandated and what the material answered.
         check: revocation_checks::KindCheck,
+    },
+    /// A time-stamp trust condition's name constraints, judged on the authority's own certificate
+    /// (RFC 3125 section 6.8, TS 119 172-2 clause 4.25.1 item 3 d), ADR 2724).
+    AuthorityName {
+        /// The condition.
+        condition: &'static str,
+        /// What the authority's names were found to be.
+        outcome: certification_path::AuthorityName,
     },
     /// A member of a trust condition this program does not evaluate, by name.
     ConditionMember {
@@ -1780,6 +1858,7 @@ fn judge_trust_conditions(
                     facts,
                     out,
                 );
+                authority_name_finding(condition, paths.authority, stamp.names.as_ref(), out);
                 for member in &stamp.unprocessed {
                     out.push(Finding {
                         verdict: Verdict::NotEvaluated,
@@ -1792,6 +1871,23 @@ fn judge_trust_conditions(
                 constraint: Constraint::TrustCondition(condition),
             }),
         }
+    }
+}
+
+/// A time-stamp trust condition's name constraints, where it states them, judged on the
+/// authority's certificate the condition's search found (ADR 2724).
+pub(super) fn authority_name_finding(
+    condition: &'static str,
+    search: Option<&certification_path::Search>,
+    names: Option<&crate::trust::names::NameConstraints>,
+    out: &mut Vec<Finding>,
+) {
+    if let Some(names) = names {
+        let outcome = certification_path::authority_name(search, names);
+        out.push(Finding {
+            verdict: outcome.verdict(),
+            constraint: Constraint::AuthorityName { condition, outcome },
+        });
     }
 }
 
@@ -2048,6 +2144,7 @@ impl std::fmt::Display for Finding {
             | Constraint::TrustPath { .. }
             | Constraint::RevocationCheck { .. }
             | Constraint::ConditionMember { .. }
+            | Constraint::AuthorityName { .. }
             | Constraint::IssuerAlgorithm { .. }
             | Constraint::CertificateAlgorithms(_) => self.constraint.path_sentence(f, verdict),
             Constraint::Extension(oid) => write!(
@@ -2078,6 +2175,9 @@ impl Constraint {
             } => certification_path::sentence(f, condition, found, *unexamined, verdict),
             Self::RevocationCheck { condition, check } => {
                 revocation_checks::sentence(f, condition, check, verdict)
+            }
+            Self::AuthorityName { condition, outcome } => {
+                certification_path::authority_name_sentence(f, condition, outcome, verdict)
             }
             Self::ConditionMember { condition, member } => write!(
                 f,

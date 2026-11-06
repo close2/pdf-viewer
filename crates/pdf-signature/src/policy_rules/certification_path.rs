@@ -23,10 +23,17 @@
 //! indeterminate (step 2 a), a trust point past the instant it was reliable until is indeterminate
 //! (steps 1 a and 3), and a chain that RFC 5280 section 6.1 refuses is a failure of the path. A
 //! condition is met only where a path validated to a trust point within its length, and it is
-//! *not evaluated* — never met — where the trust point also states an acceptable policy set, name
-//! constraints, policy constraints or a mandated path, because [`crate::trust`] processes no policy
-//! tree and no name constraints, or where an anchor the policy names by trusted-list reference is
-//! one this program cannot read, because a trusted list is fetched from a network it does not use.
+//! *not evaluated* — never met — where the trust point also states a mandated path, or where an
+//! anchor the policy names by trusted-list reference is one this program cannot read, because a
+//! trusted list is fetched from a network it does not use.
+//!
+//! A trust point's acceptable policy set, name constraints and policy constraints are RFC 5280
+//! section 6.1.1's inputs (c) and (e) to (i) for the path built to it (RFC 3125 section 6.6.1, TR
+//! 102 272 clause 6.6.1, TS 119 172-2 clauses 4.22.3 to 4.22.5), so each is [`TrustPoint::inputs`]
+//! and [`crate::trust::validate_constrained`] evaluates it with the policy tree and the name
+//! constraints of every certificate on the path (ADR 2724). The host's own anchors are validated
+//! under section 6.1.1's defaults, which is why a path can be the host's and fail a policy's trust
+//! point, and each sentence says which of the two it is about.
 //!
 //! A time-stamp trust condition asks the same question of the authority that issued the
 //! signature's time-stamp token, so [`search_authority`] is the same search from that authority's
@@ -47,7 +54,7 @@ use crate::cms::SignedData;
 use crate::ess::{self, CertificateHash, Version};
 use crate::revocation::Material;
 use crate::timestamp::Unestablished;
-use crate::trust::{self, PathRefusal, Purpose, Trust, TrustAnchors};
+use crate::trust::{self, PathInputs, PathRefusal, Purpose, Trust, TrustAnchors, names};
 use crate::x509::{self, Certificate, Instant};
 
 /// The most trust points searched for one condition.
@@ -103,6 +110,9 @@ pub struct TrustPoint<'a> {
     pub path_length: Option<i64>,
     /// TS 119 172-2 clause 4.22.2.1 a)'s instant until which the trust anchor is reliable.
     pub reliable_until: Option<Stated>,
+    /// `acceptablePolicySet`, `nameConstraints` and `policyConstraints`, as RFC 5280 section
+    /// 6.1.1's inputs for a path to this trust point.
+    pub inputs: PathInputs,
     /// The members the trust point states that this program does not process, by name.
     pub unprocessed: Vec<&'static str>,
 }
@@ -132,6 +142,11 @@ pub enum Found {
         length: usize,
         /// Members of that trust point this program does not process.
         unprocessed: Vec<&'static str>,
+        /// The members of that trust point section 6.1 evaluated as its inputs, by name.
+        evaluated: Vec<&'static str>,
+        /// The policies the path is valid for under the trust point's acceptable policy set, in its
+        /// domain — RFC 5280 section 6.1.6's output; `None` where the trust point states no set.
+        policies: Option<Vec<Vec<u8>>>,
     },
     /// A path validated, but it holds more CA certificates below the trust point than its
     /// `pathLenConstraint` admits.
@@ -141,8 +156,9 @@ pub enum Found {
         /// The constraint.
         limit: i64,
     },
-    /// Every chain built to a trust point was refused by RFC 5280 section 6.1, first refusal.
-    Refused(PathRefusal),
+    /// Every chain built to a trust point was refused by RFC 5280 section 6.1, first refusal, with
+    /// the members of that trust point section 6.1 evaluated as its inputs.
+    Refused(PathRefusal, Vec<&'static str>),
     /// The only trust points a chain reached are past the instant they were reliable until.
     PastReliable {
         /// The instant as the policy spells it.
@@ -285,13 +301,14 @@ pub(super) fn verdict(found: &Found, unexamined: usize) -> Verdict {
     match found {
         Found::Reached { unprocessed, .. } if unprocessed.is_empty() => Verdict::Met,
         Found::Longer { .. } if unexamined == 0 => Verdict::Broken,
-        Found::Refused(refusal) if unexamined == 0 && !is_limit(refusal) => Verdict::Broken,
+        Found::Refused(refusal, _) if unexamined == 0 && !is_limit(refusal) => Verdict::Broken,
         _ => Verdict::NotEvaluated,
     }
 }
 
 /// Whether a refusal is this program's limit rather than a defect of the path: an algorithm it
-/// does not verify, an extension it does not process, or its own search and walk disagreeing.
+/// does not verify, an extension it does not process, one of its bounds, a name it cannot compare,
+/// or its own search and walk disagreeing.
 const fn is_limit(refusal: &PathRefusal) -> bool {
     matches!(
         refusal,
@@ -299,7 +316,27 @@ const fn is_limit(refusal: &PathRefusal) -> bool {
             | PathRefusal::ExtensionsUnread
             | PathRefusal::AlgorithmNotVerifiable(_)
             | PathRefusal::IssuerNameDoesNotChain
+            | PathRefusal::PolicyTreeTooLarge
+            | PathRefusal::ExtensionPastBound(_)
+            | PathRefusal::SubtreeDistanceStated
+            | PathRefusal::NameFormNotProcessed(_)
+            | PathRefusal::NameComparisonUndecided(_)
     )
+}
+
+/// The members of a trust point that are section 6.1.1's inputs, by name, where stated.
+fn evaluated(inputs: &PathInputs) -> Vec<&'static str> {
+    let mut named = Vec::new();
+    if inputs.policy_set.is_some() {
+        named.push("acceptable policy set");
+    }
+    if inputs.name_constraints.is_some() {
+        named.push("name constraints");
+    }
+    if inputs.require_explicit_policy.is_some() || inputs.inhibit_policy_mapping.is_some() {
+        named.push("policy constraints");
+    }
+    named
 }
 
 /// The instant a policy's path is validated at: the one a host gave, else the instant a covering
@@ -404,9 +441,17 @@ fn search_from(
         readable = readable.saturating_add(1);
         let held = [anchor];
         let anchors = TrustAnchors::of(&held);
-        let (trust, validated) =
-            trust::validate_path(&target, &others, &anchors, &material, at, purpose);
-        match trust {
+        let validation = trust::validate_constrained(
+            &target,
+            &others,
+            &anchors,
+            &material,
+            at,
+            purpose,
+            &point.inputs,
+        );
+        let validated = validation.path;
+        match validation.trust {
             Trust::Anchored { length, .. } => {
                 // EN 319 102-1 clause 5.2.6.4 steps 1 a) and 3): a trust anchor past its sunset
                 // date makes the chain indeterminate rather than validated.
@@ -431,16 +476,13 @@ fn search_from(
                     continue;
                 }
                 return Search {
-                    found: Found::Reached {
-                        length,
-                        unprocessed: point.unprocessed.clone(),
-                    },
+                    found: reached(point, length, validation.policies),
                     unexamined,
                     path: Some(path),
                 };
             }
             Trust::Refused { refusal, .. } => {
-                refused.get_or_insert(refusal);
+                refused.get_or_insert((refusal, evaluated(&point.inputs)));
             }
             Trust::NoPathToAnyAnchor { .. } | Trust::NoAnchorSupplied => {}
         }
@@ -453,13 +495,28 @@ fn search_from(
         };
     }
     let found = match (refused, past) {
-        (Some(refusal), _) if !is_limit(&refusal) => Found::Refused(refusal),
+        (Some((refusal, named)), _) if !is_limit(&refusal) => Found::Refused(refusal, named),
         (_, Some(until)) => Found::PastReliable { until },
-        (Some(refusal), None) => Found::Refused(refusal),
+        (Some((refusal, named)), None) => Found::Refused(refusal, named),
         (None, None) if readable == 0 => Found::NoTrustPoint,
         (None, None) => Found::NoChain,
     };
     outcome(found, unexamined)
+}
+
+/// [`Found::Reached`] for a path validated to `point`, with the members section 6.1 evaluated and,
+/// where the trust point states an acceptable policy set, the policies the path is valid for.
+fn reached(point: &TrustPoint<'_>, length: usize, policies: trust::Policies) -> Found {
+    Found::Reached {
+        length,
+        unprocessed: point.unprocessed.clone(),
+        evaluated: evaluated(&point.inputs),
+        policies: point
+            .inputs
+            .policy_set
+            .is_some()
+            .then_some(policies.user_constrained),
+    }
 }
 
 /// The validated path, owned, with the trust point's certificate appended.
@@ -496,6 +553,103 @@ fn owned_path(
         });
     }
     Path { certificates }
+}
+
+/// A time-stamp trust condition's name constraints, judged on the authority's certificate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AuthorityName {
+    /// Every name of the authority's certificate lies within the constraints.
+    Within,
+    /// A name lies outside them — RFC 5280 section 6.1.3 (b) or (c)'s test, applied to the one
+    /// certificate the condition constrains.
+    Outside(PathRefusal),
+    /// The test could not be decided by this program.
+    Undecided(PathRefusal),
+    /// No path to the condition's trust points was found, so no authority's certificate is the one
+    /// the condition constrains.
+    NoAuthorityPath,
+}
+
+impl AuthorityName {
+    /// The finding's verdict.
+    #[must_use]
+    pub const fn verdict(&self) -> Verdict {
+        match self {
+            Self::Within => Verdict::Met,
+            Self::Outside(_) => Verdict::Broken,
+            Self::Undecided(_) | Self::NoAuthorityPath => Verdict::NotEvaluated,
+        }
+    }
+}
+
+/// RFC 3125 section 6.8's `ttsNameConstraints` — "naming constraints on the trusted time-stamping
+/// authority" — over the certificate of the authority whose path `search` found: its subject and
+/// subject alternative names against the constraints, as RFC 5280 section 6.1.3 (b) and (c) test a
+/// certificate against the subtrees above it (ADR 2724).
+#[must_use]
+pub fn authority_name(
+    search: Option<&Search>,
+    constraints: &names::NameConstraints,
+) -> AuthorityName {
+    use names::{NameRefusal, NameState};
+    let Some(certificate) = search
+        .and_then(|search| search.path.as_ref())
+        .and_then(|path| path.certificates().first())
+    else {
+        return AuthorityName::NoAuthorityPath;
+    };
+    let Ok(read) = x509::parse(&certificate.encoding) else {
+        return AuthorityName::NoAuthorityPath;
+    };
+    let mut state = NameState::default();
+    if state.admit(constraints.clone()).is_err() {
+        return AuthorityName::Undecided(PathRefusal::ExtensionPastBound("ttsNameConstraints"));
+    }
+    let Ok(held) = names::names_of(read.subject_encoding, read.extensions.subject_alt_name) else {
+        return AuthorityName::Outside(PathRefusal::ExtensionUnreadable("subjectAltName"));
+    };
+    match state.check(&held) {
+        Ok(()) => AuthorityName::Within,
+        Err(NameRefusal::NotPermitted(form)) => {
+            AuthorityName::Outside(PathRefusal::NameNotPermitted(names::form_word(form)))
+        }
+        Err(NameRefusal::Excluded(form)) => {
+            AuthorityName::Outside(PathRefusal::NameExcluded(names::form_word(form)))
+        }
+        Err(NameRefusal::UriWithoutDomainHost) => {
+            AuthorityName::Outside(PathRefusal::UriWithoutDomainHost)
+        }
+        Err(NameRefusal::FormNotProcessed(form)) => {
+            AuthorityName::Undecided(PathRefusal::NameFormNotProcessed(names::form_word(form)))
+        }
+        Err(NameRefusal::Undecided(form)) => {
+            AuthorityName::Undecided(PathRefusal::NameComparisonUndecided(names::form_word(form)))
+        }
+    }
+}
+
+/// The sentence for a time-stamp trust condition's name constraints.
+pub(super) fn authority_name_sentence(
+    f: &mut std::fmt::Formatter<'_>,
+    condition: &str,
+    outcome: &AuthorityName,
+    verdict: &str,
+) -> std::fmt::Result {
+    write!(
+        f,
+        "the name constraints the policy's {condition} states on the time-stamping authority are {verdict}: "
+    )?;
+    match outcome {
+        AuthorityName::Within => f.write_str(
+            "every name of the authority's certificate lies within them, tested as RFC 5280 section 6.1.3 (b) and (c) test a certificate",
+        ),
+        AuthorityName::Outside(refusal) | AuthorityName::Undecided(refusal) => {
+            write!(f, "{refusal}")
+        }
+        AuthorityName::NoAuthorityPath => f.write_str(
+            "no path from the authority's certificate to the condition's trust points was found, so no certificate is the authority's",
+        ),
+    }
 }
 
 /// The sentence for one condition's search, with the verdict in its place.
@@ -543,19 +697,16 @@ pub(super) fn sentence(
         Found::Reached {
             length,
             unprocessed,
-        } => {
-            write!(
-                f,
-                "a path of {length} certificate(s) from {whose} validates to one of the policy's own trust points under RFC 5280 section 6.1"
-            )?;
-            if !unprocessed.is_empty() {
-                write!(
-                    f,
-                    ", but that trust point also states its {}, which this program's path validation does not process",
-                    unprocessed.join(", ")
-                )?;
-            }
-        }
+            evaluated,
+            policies,
+        } => reached_words(
+            f,
+            *length,
+            whose,
+            unprocessed,
+            evaluated,
+            policies.as_deref(),
+        )?,
         Found::Longer {
             intermediates,
             limit,
@@ -563,10 +714,19 @@ pub(super) fn sentence(
             f,
             "the path to the policy's trust point holds {intermediates} CA certificate(s) below it, and its pathLenConstraint admits {limit}"
         )?,
-        Found::Refused(refusal) => write!(
-            f,
-            "a chain to one of the policy's own trust points was refused by RFC 5280 section 6.1: {refusal}"
-        )?,
+        Found::Refused(refusal, named) => {
+            write!(
+                f,
+                "a chain to one of the policy's own trust points was refused by RFC 5280 section 6.1: {refusal}"
+            )?;
+            if !named.is_empty() {
+                write!(
+                    f,
+                    " (that trust point states its {}, which section 6.1 evaluates as its inputs)",
+                    named.join(", ")
+                )?;
+            }
+        }
         Found::PastReliable { until } => write!(
             f,
             "the only trust point a path reached was reliable until {until}, which is before the instant validated at, so the path is indeterminate (ETSI EN 319 102-1 clause 5.2.6.4)"
@@ -582,6 +742,51 @@ pub(super) fn sentence(
         write!(
             f,
             "; {unexamined} of its trust anchors were not searched — a trusted-list reference this program does not fetch, a certificate it does not read, or one past the {MAX_TRUST_POINTS} it searches"
+        )?;
+    }
+    Ok(())
+}
+
+/// The sentence's middle for [`Found::Reached`].
+fn reached_words(
+    f: &mut std::fmt::Formatter<'_>,
+    length: usize,
+    whose: &str,
+    unprocessed: &[&'static str],
+    evaluated: &[&'static str],
+    policies: Option<&[Vec<u8>]>,
+) -> std::fmt::Result {
+    write!(
+        f,
+        "a path of {length} certificate(s) from {whose} validates to one of the policy's own trust points under RFC 5280 section 6.1"
+    )?;
+    if !evaluated.is_empty() {
+        write!(
+            f,
+            ", with that trust point's {} evaluated as section 6.1.1's inputs",
+            evaluated.join(", ")
+        )?;
+    }
+    match policies {
+        Some([]) => f.write_str(
+            ", for none of the policies of its acceptable set — no certificate on the path asserts one, and RFC 5280 section 6.1.5 asks for one only where an explicit policy is required",
+        )?,
+        Some(policies) => {
+            let dotted: Vec<String> = policies
+                .iter()
+                .map(|oid| {
+                    x509::dotted(oid).unwrap_or_else(|| "an unreadable identifier".to_owned())
+                })
+                .collect();
+            write!(f, ", for the policies {} of its acceptable set", dotted.join(", "))?;
+        }
+        None => {}
+    }
+    if !unprocessed.is_empty() {
+        write!(
+            f,
+            ", but that trust point also states its {}, which this program's path validation does not process",
+            unprocessed.join(", ")
         )?;
     }
     Ok(())
