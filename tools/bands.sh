@@ -88,6 +88,34 @@ gate_args() {
     esac
 }
 
+# The variables that choose the driver stack a launch loads rather than leaving it to the loader.
+pinning_vars=(WGPU_BACKEND VK_ICD_FILENAMES VK_DRIVER_FILES VK_ADD_DRIVER_FILES
+              VK_LOADER_DRIVERS_SELECT VK_LOADER_DRIVERS_DISABLE)
+
+# **A device an unpinned launch takes is banded unpinned** (ADR 2730). The launch gate measures the
+# unfiltered launch, so that its band is a claim about the binary and not about a launcher
+# (`doc/questions/A270`), and every driver the loader finds is in its bring-up. So a retake under
+# any pinning variable asks the fingerprint again without them, and refuses where the device is
+# the same one: the pinning chose nothing and only took drivers out of the bring-up. A device the
+# loader does not pick by itself — lavapipe, or the card through OpenGL — is reached only pinned,
+# and is taken so.
+unpinned_takes_it() {
+    local print=$1 var set=() unset=() bare
+    for var in "${pinning_vars[@]}"; do
+        if [ -n "${!var+x}" ]; then
+            set+=("$var=${!var}")
+            unset+=(-u "$var")
+        fi
+    done
+    [ ${#set[@]} -gt 0 ] || return 0
+    bare=$(env "${unset[@]}" "$here/tools/bands.sh" fingerprint) || return 1
+    if [ "$bare" = "$print" ]; then
+        echo "bands: ${set[*]} pins the device an unpinned launch takes anyway ($print);" \
+            "its bands are taken unpinned, as the gate runs (ADR 2730)" >&2
+        return 1
+    fi
+}
+
 retake() {
     local runs=3 gates="launch turn toolkit" again=0 round=bands
     while [ $# -gt 0 ]; do
@@ -101,6 +129,7 @@ retake() {
     done
     local print existing logs
     print=$(fingerprint) || return 1
+    unpinned_takes_it "$print" || return 1
     if existing=$(which_dir "$print" 2>/dev/null) && [ "$again" = 0 ]; then
         echo "bands: $existing holds this machine's bands already ($print); --again takes them over"
         return 0

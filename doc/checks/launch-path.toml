@@ -356,9 +356,13 @@ calibration_document = "doc/PDF20_AN001-BPC.pdf"
 # pipeline is in this figure: raster returns the device before its warm set, and the first frame's
 # own compiles are the first page's. `quorra-qt` and `quorra-gtk` print the same steps on their
 # `graphics device up in` line, and ADR 2283 prices the levers.
-# **This machine's band** (ADR 2660): every run of the gate under its load ceiling on 2026-11-03,
-# each under its own `with-gpu-lock` on the RX 580 with the busy share at 0 %, read 69.225, 67.888,
-# 71.529, 66.599, 65.732 and 71.032 ms; this file's rule over the six.
+#
+# **Every driver the loader finds is in it, because the gate measures the unfiltered launch**
+# (`doc/questions/A270`, ADR 2730). With no `WGPU_BACKEND` the launch instance reads every ICD the
+# machine has and the adapter check enumerates them; naming the set skips the check and loads one.
+# On the server VM's seven ICDs that is the difference between 53 and 32 ms on one adapter, which
+# the fingerprint cannot tell apart, so a machine's bands are taken in the gate's own environment
+# and `tools/bands.sh retake` refuses a pinning that selects the device an unpinned launch takes.
 
 # What the device costs in *allocated* memory, in the same process that has done nothing else.
 #
@@ -370,7 +374,9 @@ calibration_document = "doc/PDF20_AN001-BPC.pdf"
 # other libraries of the driver's chain; the notebook's read 5.3 under Arch's Mesa 26.2.4 and 6.4
 # under 26.2.3 the week before, with the tree still. Each row's first page less this figure read on
 # the server VM where the notebook's had less its own: 12.2 against 12.1 to 12.8 MiB on the five-page
-# row, 5.5 against 5.2 to 6.0 on the smallest.
+# row, 5.5 against 5.2 to 6.0 on the smallest. Those were read with only RADV loaded; as the gate
+# runs, every ICD found, it reads 12.6 to 13.5 MiB while each row's first page moves by half a
+# mebibyte, so the rows' bands are taken that way too (ADR 2730).
 #
 # **What the gate no longer claims**: an allocation this program makes while bringing the device
 # up — `raster`'s pipeline store, its device's own buffers — is in this figure and in every row's
@@ -417,9 +423,9 @@ clock_bands = machine
 # 145.026 ms (ADR 2660).
 # In small pages (ADR 1902, see the header): 17.38 to 18.14 MiB over twelve children, the machine's
 # huge pages beside them 19.37 to 20.79.
-# Beyond the device's own allocation (ADR 2667): the band 15.5 .. 20.0 less the notebook's bring-up,
-# 5.309 MiB (mesa 26.2.4, the same week), rounded outwards to half a mebibyte.
-peak_anon_mib = 10.0 .. 15.0
+# Beyond the device's own allocation (ADR 2667), the device's taken unpinned as the gate runs (ADR
+# 2730): 8.03 to 9.67 MiB over five runs on 2026-11-06, this file's allocation rule.
+peak_anon_mib = 7.0 .. 11.0
 # **What an open allocates, and no longer the open's whole `VmHWM`** (ADR 2244). That figure was
 # seven parts in eight the test binary's and the C library's resident text, so it moved with the
 # page cache: one binary at one path read 8.51 and then 9.89 MiB here in one hold on 2026-10-22,
@@ -446,9 +452,9 @@ clock_bands = machine
 # 161.022, 167.275 ms (ADR 2660).
 # In small pages (ADR 1902, see the header): 20.65 to 21.60 MiB over twelve children, the machine's
 # huge pages beside them 22.76 to 24.11.
-# Beyond the device's own allocation (ADR 2667): the band 18.5 .. 24.0 less the notebook's bring-up,
-# 5.309 MiB (mesa 26.2.4, the same week), rounded outwards to half a mebibyte.
-peak_anon_mib = 13.0 .. 19.0
+# Beyond the device's own allocation (ADR 2667), the device's taken unpinned as the gate runs (ADR
+# 2730): 11.68 to 12.68 MiB over five runs on 2026-11-06, this file's allocation rule.
+peak_anon_mib = 10.5 .. 14.0
 # ADR 2244 (see the first row): 1.273 MiB in all twelve children.
 open_anon_mib = 1.0 .. 1.5
 read_kib = 115 .. 121
@@ -470,9 +476,9 @@ clock_bands = machine
 # 132.922 ms (ADR 2660).
 # In small pages (ADR 1902, see the header): 25.9 to 26.73 MiB over twelve children, the machine's
 # huge pages beside them 27.69 to 28.32.
-# Beyond the device's own allocation (ADR 2667): the band 23.0 .. 29.5 less the notebook's bring-up,
-# 5.309 MiB (mesa 26.2.4, the same week), rounded outwards to half a mebibyte.
-peak_anon_mib = 17.5 .. 24.5
+# Beyond the device's own allocation (ADR 2667), the device's taken unpinned as the gate runs (ADR
+# 2730): 17.44 to 18.32 MiB over five runs on 2026-11-06, this file's allocation rule.
+peak_anon_mib = 15.5 .. 20.5
 # ADR 2244 (see the first row): 3.637 to 4.047 MiB over twelve children, varying from child to
 # child as `5ded4916`'s did, 3.637 to 4.051.
 open_anon_mib = 3.0 .. 4.5
@@ -526,9 +532,9 @@ clock_bands = machine
 # page read 24.5 to 26.7 ms in the same runs and stays unbanded for the reason above.
 # In small pages (ADR 1902, see the header): 10.52 to 11.33 MiB over twelve children, the machine's
 # huge pages beside them 12.57 to 13.19.
-# Beyond the device's own allocation (ADR 2667): the band 9.0 .. 12.5 less the notebook's bring-up,
-# 5.309 MiB (mesa 26.2.4, the same week), rounded outwards to half a mebibyte.
-peak_anon_mib = 3.5 .. 7.5
+# Beyond the device's own allocation (ADR 2667), the device's taken unpinned as the gate runs (ADR
+# 2730): 1.45 to 2.50 MiB over five runs on 2026-11-06, this file's allocation rule.
+peak_anon_mib = 1.0 .. 3.0
 # ADR 2244 (see the first row): 0.590 to 0.594 MiB over twelve children.
 open_anon_mib = 0.5 .. 1.0
 # Moved for ADR 1543 (see the first row): 99 → 87 KiB in 26 → 24 calls, and 1821.4 → 1160.3
@@ -557,9 +563,9 @@ clock_bands = machine
 # 129.054 ms (ADR 2660).
 # In small pages (ADR 1902, see the header): 13.96 to 14.60 MiB over twelve children, the machine's
 # huge pages beside them 15.35 to 16.16.
-# Beyond the device's own allocation (ADR 2667): the band 12.5 .. 16.5 less the notebook's bring-up,
-# 5.309 MiB (mesa 26.2.4, the same week), rounded outwards to half a mebibyte.
-peak_anon_mib = 7.0 .. 11.5
+# Beyond the device's own allocation (ADR 2667), the device's taken unpinned as the gate runs (ADR
+# 2730): 3.89 to 5.29 MiB over five runs on 2026-11-06, this file's allocation rule.
+peak_anon_mib = 3.5 .. 6.0
 # ADR 2244 (see the first row): 0.582 MiB in all twelve children.
 open_anon_mib = 0.5 .. 1.0
 read_kib = 40 .. 44
