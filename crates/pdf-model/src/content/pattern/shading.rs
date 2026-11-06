@@ -5,9 +5,10 @@ use std::sync::Arc;
 
 use pdf_render::display_list::Clip;
 use pdf_render::{
-    ClipId, Command, FillRule, Paint, Path, PathCommand, Point, Shading, ShadingKind, Transform,
+    BlendMode, ClipId, Command, FillRule, Paint, Path, PathCommand, Point, Shading, ShadingKind,
+    Transform,
 };
-use pdf_syntax::{Dictionary, Name};
+use pdf_syntax::{Dictionary, Name, Object};
 
 use crate::content::report::Unsupported;
 use crate::content::transparency::Painted;
@@ -206,6 +207,14 @@ impl Interpreter<'_> {
                 // §8.7.4.5.2's domain, which for a type 1 shading is where it marks at all.
                 let clip = self.domain_clip(&shading, clip);
                 let (path, transform) = self.shading_surface(&shading);
+                // §8.6.7 asks which colourants a shading marks of its own `/ColorSpace` (ADR 2737).
+                let entry = match self.document.resolve(&object) {
+                    Object::Dictionary(dict) => self.document.get_key(&dict, "ColorSpace"),
+                    Object::Stream(stream) => self.document.get_key(&stream.dict, "ColorSpace"),
+                    _ => Object::Null,
+                };
+                let blend = self.overprint_blend_of(state, &entry, resources);
+                let mark = self.list.command_count();
 
                 // §11.7.5.2's channel carries the function, and the shape it records is
                 // §11.6.4.2's — where the shading paints rather than the whole region the `sh`
@@ -223,10 +232,14 @@ impl Interpreter<'_> {
                         )),
                         clip,
                         mask: state.soft_mask,
-                        blend: state.blend,
+                        blend,
                     },
                     transfer,
                 );
+                if crate::content::overprint::implicit_group_owed(state, [blend, BlendMode::Normal])
+                {
+                    self.implicit_overprint_group(state, mark);
+                }
             }
             Err(error) => self.note(Unsupported::Shading {
                 name: format!("/{label}: {error}"),

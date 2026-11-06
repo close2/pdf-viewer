@@ -19,12 +19,12 @@ one is a failure. GWG's expected result is evidence about the standard, never th
 
 | patch | category | screen | press | reason (press unless said) | clause |
 |---|---|---|---|---|---|
-| 1.0 CMYK overprint (010) | CMYK | n/a | **fail** | font, vector and DeviceN-shading overprint not simulated; image and mask rows right | §8.6.7, §10.8.3 |
-| 1.1 overprint mode (011) | CMYK | n/a | **fail** | OPM 1 square shows the `X` | §8.6.7 |
+| 1.0 CMYK overprint (010) | CMYK | n/a | pass | all ten squares; font and vector before ADR 2736, the DeviceN shadings before ADR 2737 | §8.6.7, §10.8.3 |
+| 1.1 overprint mode (011) | CMYK | n/a | pass | both squares; OPM 1 showed the `X` before ADR 2736 | §8.6.7 |
 | 5.0 font substitution (050) | CMYK | pass | pass | the embedded program's check mark | §9.6.2 |
 | 5.1, 5.2 font subsets (051, 052) | CMYK | pass | pass | both subsets draw their own glyphs | §9.9.2 |
 | 6.0, 6.1 shadings (060, 061) | CMYK | pass | pass | all eight match their reference images | §8.7.4.5 |
-| 8.2 DeviceN 4c (082) | CMYK | n/a | **fail** | no check mark in either image | §8.6.6.5, §8.6.7 |
+| 8.2 DeviceN 4c (082) | CMYK | n/a | pass | check mark in both images (ADRs 2736, 2737) | §8.6.6.5, §8.6.7 |
 | 9.0 font types (090) | CMYK | pass | pass | seven lines match their bitmaps | §9.6, §9.7 |
 | 9.1 OpenType (091) | CMYK | pass | pass | both lines match | §9.9 |
 | 15.0–15.2 optional content (150–152) | CMYK | pass | pass | default view, no crossed marks | §8.11.4 |
@@ -36,32 +36,32 @@ one is a failure. GWG's expected result is evidence about the standard, never th
 | 17.0 JPEG 2000 DeviceCMYK (170) | CMYK | pass | pass | no `X` (checked) | §7.4.9 |
 | 17.3 JBIG2 (173) | CMYK | pass | pass | faint `X` only; needs the sandbox worker | §7.4.7 |
 | 18.1 16-bit DeviceCMYK (181) | CMYK | pass | pass | photograph (checked); noise before ADR 2729 | §7.4.4.4 |
-| 19.0–19.2 DeviceN overprint (190–192) | CMYK | n/a | **fail** | squares a and b show the `X`; c and d right | §8.6.7, §10.8.3 |
-| 2.0 CMYK and spot overprint (020) | SPOT | n/a | **fail** | font and vector right; image and shading rows show the `X` | §8.6.7 |
+| 19.0–19.2 DeviceN overprint (190–192) | CMYK | n/a | pass | all four squares; a before ADR 2736, b (image) before ADR 2737 | §8.6.7, §10.8.3 |
+| 2.0 CMYK and spot overprint (020) | SPOT | n/a | pass | all ten; image, mask and shading squares before ADR 2737 | §8.6.7 |
 | 3.0 grey overprint (030) | SPOT | n/a | **fail** | b and h (DeviceGray over spot) show a dark `X` | §8.6.7, §10.4.2.3 |
-| 3.1 grey image overprint (031) | SPOT | n/a | **fail** | the white rectangle of "Wrong" | §8.6.7 |
+| 3.1 grey image overprint (031) | SPOT | n/a | pass | matches "Correct"; "Wrong"'s white rectangle before ADR 2737 | §8.6.7 |
 | 4.0.1, 4.1 white overprint (040, 041) | SPOT | n/a | pass | no clear `X` | §8.6.7 |
-| 8.01, 8.1 DeviceN with spots (080, 081) | SPOT | n/a | **fail** | no check marks in images or gradient | §8.6.6.5, §8.6.7 |
+| 8.01, 8.1 DeviceN with spots (080, 081) | SPOT | n/a | pass | check marks in both images and along the gradient (ADR 2737) | §8.6.6.5, §8.6.7 |
 | 12.0 white overprint and knockout (120) | SPOT | n/a | pass | knockout half also passes on screen | §8.6.7 |
-| 13.0 ICC source profile (130) | ICC-CMS | n/a | **fail** | green `X` on the RGB vector and image: "Perceptual" not honoured | §8.6.5.8 |
+| 13.0 ICC source profile (130) | ICC-CMS | n/a | **fail** | a green `X`, about 20 levels, in all four squares: "Perceptual" not honoured into the press (deficit 4) | §8.6.5.8 |
 | 13.2, 13.3 ICC overprint (132, 133) | ICC-CMS | pass | pass | no check mark | §8.6.7 |
 | 16.1 blend modes, ICCBased RGB (161) | ICC-CMS | **fail** | **fail** | clear `X` in about twelve of sixteen | §11.3.4, §8.6.5.8 |
 | 16.4 blend modes, ICCBased CMYK (164) | ICC-CMS | **fail** | **fail** | Luminosity alone shows an `X` | §11.3.5.3 |
 | 16.7 image soft mask, ICC RGB (167) | ICC-CMS | pass | pass | soft edge | §11.6.5.2 |
-| 17.2 JPEG 2000, ICCBased RGB (172) | ICC-CMS | n/a | **fail** | drawn in the dictionary's Adobe RGB, beyond the press's gamut on screen (ADR 2735); no simulation on a process-only page | §7.4.9, §10.8.3 |
+| 17.2 JPEG 2000, ICCBased RGB (172) | ICC-CMS | n/a | pass | the image converted into the press (ADR 2736); on screen the dictionary's Adobe RGB is beyond the press's gamut (ADR 2735) | §7.4.9, §10.8.3 |
 | 18.0, 18.2, 18.3, 18.4 16-bit images (180, 182–184) | ICC-CMS | pass | pass | photograph (checked); noise before ADR 2729 | §7.4.4.4 |
 | 20.5, 20.6 ICC v4 images (205, 206) | ICC-CMS | pass | pass | images, not crosses | §8.6.5.5 |
 | 22.0 conversion indicator (220) | ICC-CMS | pass | pass | no `X` | §11.3.5.2 |
 | 22.1 output intent indicator (221) | ICC-CMS | **fail** | **fail** | a light `X`; the README calls this indicator unreliable | §11.3.5.2 |
-| 23.0 four greys (230) | ICC-CMS | **fail** | **fail** | DeviceGray, Separation Black and DeviceN's image half differ from DeviceCMYK (checked) | §10.4.2, §8.6.6.4, §14.11.5 |
+| 23.0 four greys (230) | ICC-CMS | **fail** | **fail** | DeviceGray differs from DeviceCMYK in both views; Separation Black and DeviceN's image half on screen only (checked) | §10.4.2, §8.6.6.4, §14.11.5 |
 
-Counts by patch file (51): **CMYK** (27) screen 21 pass, 6 n/a; press 21 pass, 6 fail. **SPOT** (8) screen 8 n/a;
-press 3 pass, 5 fail. **ICC-CMS** (16) screen 10 pass, 4 fail, 2 n/a; press 10 pass, 6 fail. In all: screen 31 pass,
-4 fail, 16 n/a; press 34 pass, 17 fail.
+Counts by patch file (51): **CMYK** (27) screen 21 pass, 6 n/a; press 27 pass. **SPOT** (8) screen 8 n/a; press 7
+pass, 1 fail. **ICC-CMS** (16) screen 10 pass, 4 fail, 2 n/a; press 11 pass, 5 fail. In all: screen 31 pass, 4 fail,
+16 n/a; press 45 pass, 6 fail.
 
 **The test pages** (`*_CMYK_X4`, `*_SPOT_X4`, `*_ICC-CMS_X4`, `*_ALL_X4`, `*_ALL_REFERENCE`) draw without error in both
-views. They place each patch in an isolated transparency group, and there the press view behaves differently: 1.1
-passes, 1.0 shows only a faint `X`, and 19.0–19.2 show the `X` on squares b and c as well — deficit 8 below.
+views. They place each patch in an isolated transparency group; in the CMYK page's press view 1.0 and 1.1 show only a
+faint `X` and 19.0–19.2 none (deficit 8 below).
 
 ## Deficits, ranked by what a reader sees and by clause
 
@@ -75,24 +75,29 @@ passes, 1.0 shows only a faint `X`, and 19.0–19.2 show the `X` on squares b an
 3. **Not a defect — 17.2's JPEG 2000 image is drawn in its dictionary's space.** The `X` is (0, 247, 0), the stated
    Adobe RGB entry on an sRGB screen, not the codestream's sRGB palette; the screen shows a green the press cannot
    print, so the screen view is n/a. The press view draws no simulation, which is deficit 5. ADR 2735.
-4. **`ICCBased` RGB into a `DeviceCMYK` blending space** (16.1 ICC, 13.0, 16.4's Luminosity). The clear `X` even
-   under Darken says the converted source colour differs, before any blending; 13.0's README names the rendering
-   intent. First check: whether §8.6.5.8's `/RI` (Perceptual, Saturation) reaches the RGB→press conversion. Two
-   readings so far, neither yet planted. 13.0's press view draws exactly its screen view: a page with no spot colourant
-   gets no simulation, so it is deficit 5 before it is this one. In 16.1 an object's colour enters the page group's
-   press through `to_cmyk`'s `to_press`. The object's own intent reaches its source profile there, but the press's
-   `B2A` table is the one sampled under the group's rendering (`transparency::press`).
-5. **Press view: overprint on a page with no spot colourant is not simulated** (1.0, 1.1, 8.2, 19.0–19.2 a and b).
-   `content::separate` answers `NotSeparated::Nothing` when `spot_colourants` is empty, so a process-only page is
-   drawn composite and §8.6.7's "erasing actions shall not be performed" never applies to the process plates. The same
-   answer leaves 17.2's Adobe RGB image unconverted into the press in the press view (ADR 2735).
-6. **Press view: images and shadings do not overprint spot plates** (2.0 c, e, h, j; 3.1; 8.01 and 8.1's images).
-   §8.6.7 applies to "any painting operation"; the separation path honours it for fills and text only.
+4. **`ICCBased` RGB into a `DeviceCMYK` blending space, and a source profile's intent into the press** (16.1 ICC,
+   13.0, 16.4's Luminosity). The clear `X` even under Darken says the converted source colour differs, before any
+   blending; 13.0's README names the rendering intent. First check: whether §8.6.5.8's `/RI` (Perceptual, Saturation)
+   reaches the RGB→press conversion. Two readings so far, neither yet planted. 13.0's press view, drawn in the press
+   since ADR 2736, shows a green `X` of about 20 levels in all four squares, the two CMYK ones included, where the
+   screen view shows it only on the RGB pair: the CMYK source profile's conversion into the press is the second
+   place to look. In 16.1 an object's colour enters the page group's press through `to_cmyk`'s `to_press`. The
+   object's own intent reaches its source profile there, but the press's `B2A` table is the one sampled under the
+   group's rendering (`transparency::press`).
+5. **Fixed — the press view did not simulate a page with no spot colourant** (1.0, 1.1, 8.2, 19.0–19.2 a, 17.2).
+   `content::separate` answered `NotSeparated::Nothing` without a spot colourant, but §10.8.3's simulated device
+   "supports subtractive process colourants and possibly spot colours": a process-only page is now separated into the
+   press's process pair, where §8.6.7 and §8.6.6.4's process colourant names act. ADR 2736.
+6. **Fixed — images, stencil masks and `sh` shadings did not overprint** (2.0 c–e, h–j; 3.1; 8.01, 8.1, 8.2's
+   images; 19.0–19.2 b; 1.0 e, j). §8.6.7's colourants are named by the space "in which the painting takes place",
+   the object's own; the nonzero mode does not apply to them. A shading *pattern* fill still paints under the state's
+   blend mode, which no patch exercises under `op`. ADR 2737.
 7. **Grey and black in other families do not render as DeviceCMYK's black** (23.0 both views; 3.0 b and h). Whether
    `DeviceGray` beside a CMYK output intent means the intent's black channel (§10.4.2.3 and §14.11.5, the
-   `GreyReading` the code names) and whether a `Separation` named `Black` is the press's process colourant under
-   §10.8.3 (§8.6.6.4) are the two readings to take back to the text.
-8. **Press view: in an isolated group, a `DeviceN` zero tint is treated as overprint mode 1** (test pages' 19.x c).
-   §8.6.7 confines OPM to `DeviceCMYK`; a `DeviceN` colour paints every colourant it names, zero included.
+   `GreyReading` the code names) is the reading to take back to the text. In the press view a `Separation` or
+   `DeviceN` named `Black` already paints the press's black plate (§8.6.6.4, ADR 2736); on screen it does not.
+8. **Not seen since ADR 2736 — in an isolated group, a `DeviceN` zero tint read as overprint mode 1** (test pages'
+   19.x c). The CMYK test page's press view shows no `X` on 19.0–19.2: a `DeviceN` naming process colourants now
+   paints them directly on the simulated press, and §8.6.7 confines OPM to `DeviceCMYK`. Kept until a check pins it.
 9. **22.1's Color Burn indicator** shows a light `X` (both views). §11.3.5.2's Color Burn in a CMYK blending space,
    read on additive complements; low rank because the README itself calls the indicator unreliable.

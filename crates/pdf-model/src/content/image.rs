@@ -403,6 +403,8 @@ impl Interpreter<'_> {
                 // what makes the image's own antialiased edge take the clause's value rather than
                 // the composite of an already-transferred colour.
                 let image = picture.source(|image| image);
+                let blend = self.image_blend(stencil, &stream.dict, resources, state);
+                let mark = self.list.command_count();
                 self.draw_mark(
                     Command::Image {
                         image,
@@ -419,14 +421,34 @@ impl Interpreter<'_> {
                         ))
                         .then_some(state.soft_mask)
                         .flatten(),
-                        blend: state.blend,
+                        blend,
                     },
                     transfer,
                 );
+                if super::overprint::implicit_group_owed(state, [blend, BlendMode::Normal]) {
+                    self.implicit_overprint_group(state, mark);
+                }
             }
             Err(error) => self.note(Unsupported::Image {
                 name: format!("{name}: {error}"),
             }),
+        }
+    }
+
+    /// The blend mode an image paints under: §8.6.7 asks which colourants it marks of its own
+    /// `/ColorSpace`, and a stencil's are the current colour's (ADR 2737).
+    fn image_blend(
+        &mut self,
+        stencil: bool,
+        dict: &Dictionary,
+        resources: &Dictionary,
+        state: &GraphicsState,
+    ) -> BlendMode {
+        if stencil {
+            self.stencil_overprint_blend(state)
+        } else {
+            let entry = self.document.get_key(dict, "ColorSpace");
+            self.overprint_blend_of(state, &entry, resources)
         }
     }
 

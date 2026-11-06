@@ -85,6 +85,11 @@ const JPX_RGB: &str = "3-ICC-CMS/Patches/GWG172_JPEG2000_compression_ICCBasedRGB
 const MASKS_1: &str = "1-CMYK/Patches/GWG168_Softmasks_Vector_part1_X4.pdf";
 const MASKS_2: &str = "1-CMYK/Patches/GWG169_Softmasks_Vector_part2_X4.pdf";
 const TEXT_2: &str = "1-CMYK/Patches/GWG1611_Softmasks_Text_part2_X4.pdf";
+const OVERPRINT: &str = "1-CMYK/Patches/GWG010_CMYK_OP_x3.pdf";
+const SPOT_OVERPRINT: &str = "2-SPOT/Patches/GWG020_CMYKSpot_OP_x1a.pdf";
+const DEVICEN_BLACK: &str = "1-CMYK/Patches/GWG190_DeviceN_Overprint_Black_X1a.pdf";
+const DEVICEN_YELLOW: &str = "1-CMYK/Patches/GWG191_DeviceN_Overprint_Yellow_X1a.pdf";
+const DEVICEN_WHITE: &str = "1-CMYK/Patches/GWG192_DeviceN_Overprint_White_X1a.pdf";
 
 /// The checks. The four squares of patch 23.0 are centred at x = 103, 245, 386 and 528, y = 138;
 /// an arm's window sits 35 pixels up and to one side of a centre and its neighbour 45 to the
@@ -100,8 +105,10 @@ const CHECKS: &[Check] = &[
     grey_check(View::Screen, "DeviceN Black, image", 528, 1, false),
     grey_check(View::Press, "DeviceGray, line art", 103, -1, false),
     grey_check(View::Press, "DeviceCMYK, line art", 245, -1, true),
-    grey_check(View::Press, "Separation Black, line art", 386, -1, false),
-    grey_check(View::Press, "DeviceN Black, image", 528, 1, false),
+    // In the press view `Black` is the simulated press's own colourant, which a `Separation` or
+    // `DeviceN` naming it paints directly (§8.6.6.4, ADR 2736).
+    grey_check(View::Press, "Separation Black, line art", 386, -1, true),
+    grey_check(View::Press, "DeviceN Black, image", 528, 1, true),
     // 1.1: overprint mode 0 knocks a zero component out, and mode 1 leaves it (§8.6.7). The
     // squares are centred at x = 155 and 474, y = 135.
     Check {
@@ -116,8 +123,35 @@ const CHECKS: &[Check] = &[
         what: "OPM 1 square",
         view: View::Press,
         probe: Probe::Equal((437, 98), (427, 133)),
-        passes: false,
+        passes: true,
     },
+    // 1.0: a pink `X` overprinted on a brown square must vanish into it under §8.6.7. Squares a
+    // and b are centred at x = 108 and 212, y = 106; the window on the arm sits on the centre and
+    // its neighbour 20 pixels left of it, between two arms (ADR 2736).
+    overprint_check(OVERPRINT, "font, OPM 0", (108, 106), true),
+    overprint_check(OVERPRINT, "vector, OPM 0", (212, 106), true),
+    // Square e is a radial DeviceN gradient over a yellow `X`, centred at (530, 106): the arm's
+    // window and its neighbour sit at the same radius, on the diagonal and on the centre line
+    // (ADR 2737).
+    Check {
+        patch: OVERPRINT,
+        what: "DeviceN shading, OPM 0",
+        view: View::Press,
+        probe: Probe::Equal((542, 118), (548, 104)),
+        passes: true,
+    },
+    // 2.0: a CMYK image over a spot square must leave the spot ink (§8.6.7, §11.7.4.3); squares c
+    // and h are centred at x = 328, y = 106 and 208 (ADR 2737).
+    overprint_check(SPOT_OVERPRINT, "CMYK image over spot, c", (328, 106), true),
+    overprint_check(SPOT_OVERPRINT, "spot image over CMYK, h", (328, 208), true),
+    // 19.0–19.2: a DeviceN cross overprinted with `OP` true must leave square a (vector) and b
+    // (image) one solid colour (ADRs 2736, 2737). The squares are centred at x = 119 and 247.
+    overprint_check(DEVICEN_BLACK, "vector a", (119, 121), true),
+    overprint_check(DEVICEN_BLACK, "image b", (247, 121), true),
+    overprint_check(DEVICEN_YELLOW, "vector a", (119, 90), true),
+    overprint_check(DEVICEN_YELLOW, "image b", (247, 90), true),
+    overprint_check(DEVICEN_WHITE, "vector a", (119, 121), true),
+    overprint_check(DEVICEN_WHITE, "image b", (247, 121), true),
     // 18.x: sixteen-bit images, TIFF-predicted, must draw as the photograph (§7.4.4.4, §8.9.5).
     sixteen(
         "3-ICC-CMS/Patches/GWG180_16Bit_Images_ICCbasedRGB_x4.pdf",
@@ -151,7 +185,7 @@ const CHECKS: &[Check] = &[
     },
     // 17.2's image is drawn in the dictionary's Adobe RGB, which the screen shows beyond the
     // press's gamut: the screen's `X` is not a decoding defect (deficit 3), and the press view
-    // draws no simulation on a page with no spot colourant (deficit 5).
+    // converts it into the press (ADR 2736).
     Check {
         patch: JPX_RGB,
         what: "JPX ICCBased RGB image, beyond the press's gamut on screen",
@@ -161,10 +195,10 @@ const CHECKS: &[Check] = &[
     },
     Check {
         patch: JPX_RGB,
-        what: "JPX ICCBased RGB image, no simulation on a process-only page",
+        what: "JPX ICCBased RGB image, in the press's gamut",
         view: View::Press,
         probe: Probe::Equal((278, 104), (268, 139)),
-        passes: false,
+        passes: true,
     },
     // 16.8, 16.9, 16.11: a vector or text soft mask must match the reference image drawn
     // `below` pixels under it (§11.5.3); each window sits in a glow's or a feather's ramp, where
@@ -196,6 +230,23 @@ const fn mask_check(
         view,
         probe: Probe::Equal((x, y), (x, y + below)),
         passes: true,
+    }
+}
+
+/// An overprinted `X` in the press view, by its centre: the window on the centre against the one
+/// 20 pixels to its left, between the arms (§8.6.7, §10.8.3).
+const fn overprint_check(
+    patch: &'static str,
+    what: &'static str,
+    (x, y): (u32, u32),
+    passes: bool,
+) -> Check {
+    Check {
+        patch,
+        what,
+        view: View::Press,
+        probe: Probe::Equal((x - 2, y - 2), (x - 22, y - 2)),
+        passes,
     }
 }
 

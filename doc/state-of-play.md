@@ -660,7 +660,10 @@ yellow comes out the product of the two inks rather than whichever was painted l
 composites under Normal where §11.7.4.2 forbids the mode, the GPU backend refuses the page by name,
 and an ink past the sixteen planes is named on the page's report (ADR 1317). A page whose group composites in one
 or three components is separated the same way, its spot inks passing through the group untouched and
-its process colours composited in the group's own space (ADR 1329). §10.3.2's one sentence that
+its process colours composited in the group's own space (ADR 1329). A page naming no spot colourant
+is separated on the press too, into the process pair alone, so a `Separation` named `Cyan` paints its
+plate and §8.6.7's overprint acts on the process plates (ADR 2736); an image, a stencil mask or an `sh`
+overprints by the colourants its own colour space names (ADR 2737). §10.3.2's one sentence that
 sends an ICC enabled processor back to a classic method — grey into a *native* CMYK space by
 §10.4.2.3 — is inapplicable on its own condition, because no output of this program is a CMYK
 device: the screen is RGB, print hands over an RGB raster, and `archive` writes CIE definitions

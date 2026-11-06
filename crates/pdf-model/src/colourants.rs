@@ -321,8 +321,9 @@ impl SpotColourants {
 /// and a backend draws all of them and puts them together by steps b) to d)
 /// (`pdf_render::separation`). This is what the model says *about* them — which colourants have a
 /// plane and which a mark painted without one — and [`plane`] reads a plane off the list. It is
-/// here only where a reader asked for the simulation and the page names a spot colourant, so no
-/// other page carries or pays for it. ADRs 1311, 1317.
+/// here only where a reader asked for the simulation, so no other page carries or pays for it;
+/// a page on a press that names no spot colourant carries it with the process pair alone and
+/// [`Separation::colourants`] empty (ADR 2736). ADRs 1311, 1317.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Separation {
     /// The colourants with a spot plane, in plane order.
@@ -373,13 +374,14 @@ impl Separation {
 ///
 /// The chromatic plane is `list` itself — its own commands are that plane's — the black plane is
 /// its companion, and spot plane `n` is the `n`th of its [`pdf_render::SpotSeparation::planes`].
+/// A list is separated where it carries spot planes or is drawn in a press, whose process pair
+/// alone is the separation of a page naming no spot colourant (ADR 2736).
 #[must_use]
 pub fn plane(list: &pdf_render::DisplayList, plane: Plane) -> Option<&pdf_render::DisplayList> {
-    let separation = list.separation()?;
     match plane {
-        Plane::Chromatic => Some(list),
+        Plane::Chromatic => (list.separation().is_some() || list.black().is_some()).then_some(list),
         Plane::Black => list.black(),
-        Plane::Spot(index) => separation.planes().get(index),
+        Plane::Spot(index) => list.separation()?.planes().get(index),
     }
 }
 

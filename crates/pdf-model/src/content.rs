@@ -1086,8 +1086,8 @@ impl ProcessPlanes {
 
 /// Why a page's §10.8.3 separation was not made.
 enum NotSeparated {
-    /// There is nothing to make: the reader did not ask for the simulation, or the page names no
-    /// spot colourant.
+    /// There is nothing to make: the reader did not ask for the simulation, or the page composites
+    /// in one or three components and names no spot colourant.
     Nothing,
     /// The planes could not be made, with the sentence the page's report carries.
     GivenUp(String),
@@ -1187,8 +1187,9 @@ fn separate_drawn(
     }
 }
 
-/// ISO 32000-2 §10.8.3 step a)'s separations of `page`, where the reader asked for the simulation
-/// and the page names a spot colourant: one interpretation per plane of the simulated device.
+/// ISO 32000-2 §10.8.3 step a)'s separations of `page`, where the reader asked for the simulation:
+/// one interpretation per plane of the simulated device, whose process plates are there whether
+/// or not the page names a spot colourant (ADR 2736).
 ///
 /// > Process the PDF as if separations were to be created for a simulated device that supports
 /// > subtractive process colourants and possibly spot colours. The PDF processor determines what
@@ -1237,22 +1238,20 @@ fn separate(
         return Err(NotSeparated::Nothing);
     }
     let named = crate::colourants::spot_colourants(document, page);
-    if named.is_empty() {
-        return Err(NotSeparated::Nothing);
-    }
     let (intent, grey) = colour::output_intent_reading(document, Some(&page.dict));
     let named = named.readable(
         document,
         &page.resources,
         crate::colour::Reading::new(intent.as_ref()).under_grey(grey),
     );
-    // A page whose every spot colourant states no appearance paints none of them: each mark in
-    // such a space is the substitute `set_colour_space` reported, and the page is its own press.
-    if named.is_empty() {
-        return Err(NotSeparated::Nothing);
-    }
+    // Step a)'s device "supports subtractive process colourants and possibly spot colours": a
+    // page naming no spot colourant is still separated on a press, into its process plates alone,
+    // because those plates are where §8.6.7's overprint and a press's own conversion happen
+    // (ADR 2736). A page compositing in one or three components has no process plate to separate
+    // into, and with no spot plane beside it the simulation is the page it already drew.
     let spots = match process {
         ProcessPlanes::Press(press) => named.device(Some(press)),
+        ProcessPlanes::Own { .. } if named.is_empty() => return Err(NotSeparated::Nothing),
         ProcessPlanes::Own { .. } => named.device(None),
     };
     let (runs, process_count) = process.runs(&spots);
@@ -1274,6 +1273,25 @@ fn separate(
     })?;
     let plane_count = lists.len();
     let mut spot_planes = lists.split_off(process_count.min(lists.len()));
+    let record = |spots: &crate::colour::DeviceSpots| {
+        crate::colourants::Separation::new(
+            spots.names().to_vec(),
+            plane_count,
+            without_a_plane.iter().cloned().collect(),
+        )
+    };
+    // A press with no spot plane is §11.4.7's pair and nothing beside it: steps b) and c) have
+    // one separation to multiply, which is the pair converted out of the press.
+    if spot_planes.is_empty() {
+        let mut lists = lists.into_iter();
+        let (ProcessPlanes::Press(press), Some(mut chromatic), Some(black)) =
+            (process, lists.next(), lists.next())
+        else {
+            return Err(NotSeparated::Nothing);
+        };
+        chromatic.set_blending(press.blending_space(), black);
+        return Ok((record(&spots), chromatic));
+    }
     for plane in &mut spot_planes {
         plane.substitute_blend_modes(BlendMode::on_spot_colourants);
     }
@@ -1322,12 +1340,7 @@ fn separate(
             own
         }
     };
-    let record = crate::colourants::Separation::new(
-        spots.names().to_vec(),
-        plane_count,
-        without_a_plane.into_iter().collect(),
-    );
-    Ok((record, separated))
+    Ok((record(&spots), separated))
 }
 
 /// [`separate`]'s runs, one per plane, each `interpret`ed and checked against the first: the

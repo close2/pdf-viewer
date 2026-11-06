@@ -310,6 +310,77 @@ impl Interpreter<'_> {
         }))
     }
 
+    /// The blend mode an image or a shading paints under, where `entry` is its own
+    /// `/ColorSpace`: §8.6.7 marks "some specific set of device colourants, depending on the
+    /// colour space in which the painting takes place", and for a sampled image or a shading that
+    /// space is the object's, not the graphics state's current colour space.
+    ///
+    /// The overprint parameter is the non-stroking one, and the mode is never the nonzero one —
+    /// "It shall not, however, apply to the painting of images or shadings" — so an object in a
+    /// process space specifies every process colourant, and one in a `Separation` or `DeviceN`
+    /// space only those it names, the rest left to the backdrop on a simulated device (Table
+    /// 146's second bullet; ADR 2737). On every run no reader asked the simulation of the answer
+    /// is `state.blend`, after the same two tests [`Interpreter::overprint_blend`] makes, so the
+    /// space is parsed only where overprinting can change a pixel.
+    pub(super) fn overprint_blend_of(
+        &mut self,
+        state: &GraphicsState,
+        entry: &pdf_syntax::Object,
+        resources: &pdf_syntax::Dictionary,
+    ) -> BlendMode {
+        if !state.overprint_filling
+            || (!matches!(&self.compositing, Compositing::Subtractive(_, _, spots) if !spots.is_empty())
+                && self.spots_beside.is_empty())
+        {
+            return state.blend;
+        }
+        let Some(space) = crate::colour::ColourSpace::parse_under(
+            self.document,
+            entry,
+            resources,
+            self.reading(),
+        ) else {
+            return state.blend;
+        };
+        self.object_overprint(state, &space)
+    }
+
+    /// [`Interpreter::overprint_blend_of`] for a stencil mask, whose colourants are the current
+    /// non-stroking colour's (§8.9.6.2) and which is an image all the same, so that the nonzero
+    /// overprint mode does not apply to it either (§8.6.7, ADR 2737).
+    pub(super) fn stencil_overprint_blend(&mut self, state: &GraphicsState) -> BlendMode {
+        if !state.overprint_filling
+            || state.fill_pattern.is_some()
+            || (!matches!(&self.compositing, Compositing::Subtractive(_, _, spots) if !spots.is_empty())
+                && self.spots_beside.is_empty())
+        {
+            return state.blend;
+        }
+        let space = state.fill_space.clone();
+        self.object_overprint(state, &space)
+    }
+
+    /// The cold half of [`Interpreter::overprint_blend_of`] and
+    /// [`Interpreter::stencil_overprint_blend`], once the object's colour space is known.
+    #[inline(never)]
+    fn object_overprint(
+        &mut self,
+        state: &GraphicsState,
+        space: &crate::colour::ColourSpace,
+    ) -> BlendMode {
+        let kept = match &self.compositing {
+            Compositing::Subtractive(plane, press, spots) if !spots.is_empty() => {
+                spots.overprint(*plane, press, space, None, false)
+            }
+            _ => self.spots_beside.overprint_beside(space),
+        };
+        let Some(kept) = kept else {
+            return state.blend;
+        };
+        self.list.note_overprinting();
+        BlendMode::Overprint(Overprint::new(kept))
+    }
+
     /// [`Interpreter::special_overprint`] on a run carrying §10.8.3's spot planes, where the mark's
     /// current colour space decides which components it specifies on every plane —
     /// `pdf_colour::colour::DeviceSpots::overprint` states the two bullets.

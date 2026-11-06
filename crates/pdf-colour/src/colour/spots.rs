@@ -51,14 +51,20 @@ pub(super) struct SpotSet {
 
 impl DeviceSpots {
     /// The spot colourants `names` given planes on a device whose process colourants are
-    /// `device`'s, with `beyond` the ones past the bound. No names at all is no spot plane.
+    /// `device`'s, with `beyond` the ones past the bound.
     ///
     /// `device` is `None` where what is being composited is not the device's native space — a
     /// page whose group states a `/CS` of one or three components — so that no process name is
     /// available to a `Separation` or `DeviceN` anywhere on it (§11.7.3, ADR 1329).
+    ///
+    /// No names on a press is still a simulated device: step a)'s device "supports subtractive
+    /// process colourants and possibly spot colours", so the process colourants are its own
+    /// whether or not a spot colourant joins them, and a `Separation` named `Cyan` paints that
+    /// plate alone and overprints the other three (§8.6.7, ADR 2736). No names beside no press is
+    /// no device at all, which is every run no reader asked the simulation of.
     #[must_use]
     pub fn new(names: Vec<Name>, beyond: Vec<Name>, device: Option<&Press>) -> Self {
-        if names.is_empty() && beyond.is_empty() {
+        if names.is_empty() && beyond.is_empty() && device.is_none() {
             return Self(None);
         }
         Self(Some(Arc::new(SpotSet {
@@ -93,7 +99,8 @@ impl DeviceSpots {
         }
     }
 
-    /// Whether the device has no spot colourant at all, which is every run but a simulation's.
+    /// Whether there is no simulated device at all, which is every run but a simulation's — a
+    /// simulated press with no spot colourant is not empty ([`DeviceSpots::new`]).
     #[inline]
     #[must_use]
     pub fn is_empty(&self) -> bool {

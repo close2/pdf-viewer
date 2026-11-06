@@ -228,7 +228,7 @@ impl Interpreter<'_> {
     /// redefinition of `DeviceCMYK` in the group being painted, and §10.8.3's simulation. One
     /// construction for `cs` and for `g`, `rg` and `k`, so that the two routes ADR 1001 makes one
     /// colour cannot be read under two readings.
-    fn reading(&self) -> Reading<'_> {
+    pub(super) fn reading(&self) -> Reading<'_> {
         Reading::new(self.output_intent.as_ref())
             .under_grey(self.grey)
             .within_cmyk_group(self.cmyk_group.as_ref())

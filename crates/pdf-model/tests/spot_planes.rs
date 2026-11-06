@@ -112,7 +112,7 @@ fn separated(bytes: Vec<u8>) -> Separated {
     Separated {
         record: interpretation
             .separation
-            .expect("a page naming a spot colourant is separated under the simulation"),
+            .expect("a page naming a spot colourant is separated under the simulation, and so is a page of process colours"),
         list: interpretation.display_list,
     }
 }
@@ -297,11 +297,121 @@ fn a_spot_plane_substitutes_normal_for_a_mode_the_clause_names() {
     }
 }
 
-/// A page naming no spot colourant has nothing to separate, simulation or not.
+/// §10.8.3 step a)'s device "supports subtractive process colourants and possibly spot colours":
+/// the process plates are the device's whether or not a spot colourant joins them, so a page
+/// naming none is still separated under the simulation — into the process pair alone — and is
+/// not separated without it (ADR 2736).
 #[test]
-fn a_page_of_process_colours_is_not_separated() {
-    let page = interpreted(file("", "", "0 0 1 0 k 0 0 20 20 re f", &[]), true);
-    assert!(page.separation.is_none());
+fn a_page_of_process_colours_is_separated_into_its_process_plates() {
+    let content = "0 0 1 0 k 0 0 20 20 re f";
+    assert!(
+        interpreted(file("", "", content, &[]), false)
+            .separation
+            .is_none()
+    );
+    let separation = separated(file("", "", content, &[]));
+    assert!(separation.colourants().is_empty(), "no spot colourant");
+    assert_eq!(separation.plane_count(), 2, "the process pair");
+    assert!(separation.list.separation().is_none(), "no spot plane");
+    assert_colour(
+        plane(&separation, Plane::Chromatic)[0],
+        [1.0, 1.0, 0.0],
+        "yellow alone",
+    );
+    assert_colour(plane(&separation, Plane::Black)[0], WHITE, "no black");
+}
+
+/// Which channels of `plane` each top-level fill leaves to the backdrop: all of them under a
+/// blend mode other than §11.7.4.3's special one is no channel kept.
+fn kept(separation: &Separated, plane: Plane) -> Vec<[bool; 3]> {
+    blends(separation, plane)
+        .into_iter()
+        .map(|blend| match blend {
+            BlendMode::Overprint(overprint) => overprint.kept(),
+            _ => [false; 3],
+        })
+        .collect()
+}
+
+/// §10.8.2's own example, on a page naming no spot colourant: "if two separate painting
+/// operations are performed on the same area of the page with the overprinting controls turned
+/// on, one using a Cyan Separation colour space and the second using a Yellow Separation colour
+/// space, then that area will appear green when produced using separations". §8.6.7: "If the
+/// overprint parameter is true and the output device supports overprinting, erasing actions shall
+/// not be performed", and a `Separation`
+/// named `Yellow` specifies the yellow plate alone, so the second mark keeps the cyan and
+/// magenta channels and the black plate. Without the simulation the overprint parameter is
+/// ignored and nothing is kept.
+#[test]
+fn a_yellow_separation_overprints_cyan_on_a_process_only_press() {
+    let bytes = || {
+        file(
+            "",
+            &format!(
+                "/ColorSpace << /C [/Separation /Cyan /DeviceCMYK {TINT}] \
+                 /Y [/Separation /Yellow /DeviceCMYK {TINT}] >> \
+                 /ExtGState << /O << /OP true /op true >> >>"
+            ),
+            "/O gs /C cs 1 scn 0 0 20 20 re f /Y cs 1 scn 0 0 20 20 re f",
+            &[],
+        )
+    };
+    let separation = separated(bytes());
+    assert_colour(
+        plane(&separation, Plane::Chromatic)[0],
+        [0.0, 1.0, 1.0],
+        "cyan",
+    );
+    assert_colour(
+        plane(&separation, Plane::Chromatic)[1],
+        [1.0, 1.0, 0.0],
+        "yellow",
+    );
+    assert_eq!(
+        kept(&separation, Plane::Chromatic)[1],
+        [true, true, false],
+        "the yellow mark leaves the cyan beneath it"
+    );
+    assert_eq!(
+        kept(&separation, Plane::Black)[1],
+        [true; 3],
+        "and the black plate"
+    );
+    let screen = interpreted(bytes(), false);
+    assert!(
+        screen
+            .display_list
+            .commands()
+            .iter()
+            .all(|command| !matches!(
+                command,
+                Command::Fill {
+                    blend: BlendMode::Overprint(_),
+                    ..
+                }
+            )),
+        "§8.6.7 NOTE 1 ignores the parameter on a device that does not overprint"
+    );
+}
+
+/// §8.6.7's nonzero overprint mode on a page drawn on the device and naming no spot colourant,
+/// which the simulated press composites in its native `DeviceCMYK`: "a tint value of 0.0 for a
+/// source colour component shall leave the corresponding component of the previously painted
+/// colour unchanged". The cyan mark
+/// keeps magenta, yellow and black; the yellow mark over it keeps cyan, magenta and black.
+#[test]
+fn overprint_mode_one_keeps_zero_components_on_a_process_only_press() {
+    let separation = separated(file(
+        "",
+        "/ExtGState << /O << /OP true /op true /OPM 1 >> >>",
+        "/O gs 1 0 0 0 k 0 0 20 20 re f 0 0 1 0 k 0 0 20 20 re f",
+        &[],
+    ));
+    assert_eq!(
+        kept(&separation, Plane::Chromatic),
+        [[false, true, true], [true, true, false]]
+    );
+    assert_eq!(kept(&separation, Plane::Black), [[true; 3], [true; 3]]);
 }
 
 /// §8.6.6.5's `DeviceN` "may contain an arbitrary number of colour components", and five spot
@@ -634,5 +744,145 @@ fn a_devicen_naming_cyan_reverts_on_every_plane_of_an_rgb_page() {
     assert!(
         !close(process, WHITE),
         "the process plane carries the alternate's colour: {process:?}"
+    );
+}
+
+/// The blend modes of one plane's top-level images, in drawing order.
+fn image_blends(separation: &Separated, plane: Plane) -> Vec<BlendMode> {
+    separation
+        .plane(plane)
+        .expect("the device has this plane")
+        .commands()
+        .iter()
+        .filter_map(|command| match command {
+            Command::Image { blend, .. } => Some(*blend),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A one-sample image in `space`, as object 5.
+fn image_in(space: &str) -> String {
+    format!(
+        "<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /BitsPerComponent 8 \
+         /ColorSpace {space} /Length 1 >>\nstream\nz\nendstream"
+    )
+}
+
+/// §8.6.7's overprint parameter governs "any painting operation", and an image marks the
+/// colourants of its own colour space — "In a Separation or DeviceN colour space, the colourants
+/// to be marked shall be specified explicitly" — so a `Separation` `Yellow` image under `op`
+/// leaves the cyan beneath it, on a page naming no spot colourant, and a `DeviceCMYK` image under
+/// the same state replaces every process colourant, because the nonzero overprint mode "shall
+/// not, however, apply to the painting of images or shadings" (ADR 2737).
+#[test]
+fn an_image_overprints_by_its_own_colour_space() {
+    let page = |space: &str| {
+        separated(file(
+            "",
+            &format!(
+                "/ColorSpace << /C [/Separation /Cyan /DeviceCMYK {TINT}] >> \
+                 /XObject << /Im 5 0 R >> \
+                 /ExtGState << /O << /OP true /op true /OPM 1 >> >>"
+            ),
+            "/O gs /C cs 1 scn 0 0 20 20 re f q 20 0 0 20 0 0 cm /Im Do Q",
+            &[&image_in(space)],
+        ))
+    };
+    let yellow = page(&format!("[/Separation /Yellow /DeviceCMYK {TINT}]"));
+    let kept = |separation: &Separated, plane| -> Vec<[bool; 3]> {
+        image_blends(separation, plane)
+            .into_iter()
+            .map(|blend| match blend {
+                BlendMode::Overprint(overprint) => overprint.kept(),
+                _ => [false; 3],
+            })
+            .collect()
+    };
+    assert_eq!(kept(&yellow, Plane::Chromatic), [[true, true, false]]);
+    assert_eq!(kept(&yellow, Plane::Black), [[true; 3]]);
+    let process = page("/DeviceCMYK");
+    assert_eq!(
+        image_blends(&process, Plane::Chromatic),
+        [BlendMode::Normal],
+        "a process image specifies every process colourant, zero or not"
+    );
+}
+
+/// The same reading for `sh` (§8.7.4.2): an axial shading in a `Separation` `Yellow` space under
+/// `op` marks the yellow colourant alone and leaves the cyan beneath it (ADR 2737).
+#[test]
+fn a_shading_overprints_by_its_own_colour_space() {
+    let separation = separated(file(
+        "",
+        &format!(
+            "/ColorSpace << /C [/Separation /Cyan /DeviceCMYK {TINT}] >> \
+             /Shading << /Sh 5 0 R >> /ExtGState << /O << /OP true /op true >> >>"
+        ),
+        "/O gs /C cs 1 scn 0 0 20 20 re f /Sh sh",
+        &[&format!(
+            "<< /ShadingType 2 /ColorSpace [/Separation /Yellow /DeviceCMYK {TINT}] \
+             /Coords [0 0 20 0] /Function << /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [1] \
+             /N 1 >> >>"
+        )],
+    ));
+    assert_eq!(
+        kept(&separation, Plane::Chromatic),
+        [[false, true, true], [true, true, false]],
+        "each mark replaces its own colourant and keeps the others"
+    );
+    assert_eq!(kept(&separation, Plane::Black), [[true; 3], [true; 3]]);
+}
+
+/// §11.7.4.3's second bullet on a page with a spot plane: "𝐶𝑠 for all colour components specified
+/// in the current colour space, otherwise 𝐶𝑏" — a `DeviceCMYK` image specifies the process
+/// colourants and not LogoGreen, so under `op` the LogoGreen beneath it is kept (ADR 2737).
+#[test]
+fn a_process_image_leaves_the_spot_plane_beneath_it() {
+    let separation = separated(file(
+        "",
+        &format!(
+            "/ColorSpace << /LG {LOGO_GREEN} >> /XObject << /Im 6 0 R >> \
+             /ExtGState << /O << /OP true /op true >> >>"
+        ),
+        "/O gs /LG cs 1 scn 0 0 20 20 re f q 20 0 0 20 0 0 cm /Im Do Q",
+        &[LOGO_GREEN_TINT, &image_in("/DeviceCMYK")],
+    ));
+    let blends = image_blends(&separation, Plane::Spot(0));
+    assert!(
+        matches!(blends.as_slice(), [BlendMode::Overprint(overprint)] if overprint.kept() == [true; 3]),
+        "LogoGreen kept under the image: {blends:?}"
+    );
+    assert!(
+        matches!(
+            image_blends(&separation, Plane::Chromatic).as_slice(),
+            [BlendMode::Overprint(overprint)] if overprint.kept() == [false; 3]
+        ),
+        "the process colourants replaced"
+    );
+}
+
+/// A stencil mask marks the current non-stroking colour's colourants (§8.9.6.2) and is an image,
+/// so §8.6.7's reading for images holds of it: a `DeviceCMYK` stencil under `op` specifies the
+/// process colourants and keeps the LogoGreen beneath it (ADR 2737).
+#[test]
+fn a_stencil_mask_leaves_the_spot_plane_beneath_it() {
+    let separation = separated(file(
+        "",
+        &format!(
+            "/ColorSpace << /LG {LOGO_GREEN} >> /XObject << /Im 6 0 R >> \
+             /ExtGState << /O << /OP true /op true >> >>"
+        ),
+        "/O gs /LG cs 1 scn 0 0 20 20 re f 0 0 1 0 k q 20 0 0 20 0 0 cm /Im Do Q",
+        &[
+            LOGO_GREEN_TINT,
+            "<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ImageMask true \
+             /BitsPerComponent 1 /Length 1 >>\nstream\n\u{0}\nendstream",
+        ],
+    ));
+    let blends = image_blends(&separation, Plane::Spot(0));
+    assert!(
+        matches!(blends.as_slice(), [BlendMode::Overprint(overprint)] if overprint.kept() == [true; 3]),
+        "LogoGreen kept under the stencil: {blends:?}"
     );
 }
