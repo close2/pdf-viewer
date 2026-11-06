@@ -52,6 +52,12 @@
 # (`crates/pdf-sandbox/tests/t88_conformance.rs`, `doc/third-party-data.md`).
 : "${T88_CONFORMANCE_DATA:=$PDF_VIEWER_AGENT/specs/T.88/Software/conf/JBIG2_ConformanceData-A20180829}"
 
+# The Ghent PDF Output Suite 5.0, which its licence keeps out of the tree: `tools/fetch-gwg.sh`
+# unpacks it here, pinned by hash, the way the other corpora under doc/corpora/ are submodules
+# (`doc/gwg-output-suite-provenance.md`, ADR 2728). The default is the tree's own doc/corpora/,
+# git-ignored, so it is derived from this file's place rather than from `$HOME`.
+: "${PDF_VIEWER_GWG:=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/doc/corpora/gwg-output-suite}"
+
 # The lock the shared hardware graphics adapter is serialised on, taken by the code around each
 # device section and never by a shell around a build, a gate or a suite
 # (`tools/conformance/test-support/gpu_lock.rs`, ADR 2664). The default is the system's own file

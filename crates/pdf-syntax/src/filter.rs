@@ -282,7 +282,7 @@ pub fn apply_predictor(
     // 2 is the TIFF predictor; 10..=15 are the PNG filters, which are selected per row by
     // a leading byte, so the declared value only says "PNG" and is otherwise unused.
     if predictor == 2 {
-        return Some(tiff_predictor(data, colors, bits, row_len));
+        return tiff_predictor(data, (colors, columns), bits, row_len);
     }
     if !(10..=15).contains(&predictor) {
         return None;
@@ -428,24 +428,95 @@ fn paeth(left: u8, up: u8, up_left: u8) -> u8 {
 }
 
 /// Reverses the TIFF predictor, which adds the preceding pixel with no per-row tag.
-fn tiff_predictor(data: &[u8], colors: usize, bits: usize, row_len: usize) -> Arc<[u8]> {
-    // Only 8 bits per component is handled; other depths need bit-level work and do not
-    // occur in the streams this reader meets. Returned unchanged rather than refused,
-    // because for TIFF prediction the data is at least still image samples.
-    if bits != 8 {
-        return Arc::from(data);
-    }
-
+///
+/// ISO 32000-2 §7.4.4.4 states the unit the addition is done in:
+///
+/// > The TIFF function group shall predict each colour component from the prior instance of
+/// > that component, taking into account the number of bits per component and components per
+/// > sample.
+///
+/// So the sum is of *components*, modulo `2^bits`, and not of bytes: a sixteen-bit component's
+/// low byte carries into its high byte, and a sub-byte component wraps inside its own bits
+/// without disturbing its neighbours in the byte. The first component of each colour in a row
+/// is its own prediction, because "\[a\]ll colour components of samples outside the image ... shall
+/// be 0". Components are packed "from high-order to low-order bits", so a sixteen-bit one is
+/// read most significant byte first.
+///
+/// `None` for a depth Table 8 does not list — "1, 2, 4, 8, and (PDF 1.5) 16" — because data
+/// predicted at a depth nobody can state cannot be un-predicted at a guessed one, and passing it
+/// through unchanged draws plausible noise without a word (trap 5). ADR 2729.
+fn tiff_predictor(
+    data: &[u8],
+    (colors, columns): (usize, usize),
+    bits: usize,
+    row_len: usize,
+) -> Option<Arc<[u8]>> {
     let mut out = data.to_vec();
-    for row in out.chunks_mut(row_len) {
-        for index in colors..row.len() {
-            let previous = row.get(index.saturating_sub(colors)).copied().unwrap_or(0);
-            if let Some(slot) = row.get_mut(index) {
-                *slot = slot.wrapping_add(previous);
+    match bits {
+        8 => {
+            for row in out.chunks_mut(row_len) {
+                for index in colors..row.len() {
+                    let previous = row.get(index.saturating_sub(colors)).copied().unwrap_or(0);
+                    if let Some(slot) = row.get_mut(index) {
+                        *slot = slot.wrapping_add(previous);
+                    }
+                }
             }
         }
+        16 => {
+            for row in out.chunks_mut(row_len) {
+                // Whole components only: a row whose stated length leaves half of one is
+                // malformed, and its odd trailing byte is left as the stream gave it.
+                let (components, _) = row.as_chunks_mut::<2>();
+                for index in colors..components.len() {
+                    let previous = components
+                        .get(index.saturating_sub(colors))
+                        .map_or(0, |pair| u16::from_be_bytes(*pair));
+                    if let Some(slot) = components.get_mut(index) {
+                        *slot = u16::from_be_bytes(*slot)
+                            .wrapping_add(previous)
+                            .to_be_bytes();
+                    }
+                }
+            }
+        }
+        1 | 2 | 4 => {
+            let per_byte = 8 / bits;
+            let mask = (1u8 << bits).wrapping_sub(1);
+            for row in out.chunks_mut(row_len) {
+                // The row's padding bits are no component's, and are left as they came.
+                let components = row
+                    .len()
+                    .saturating_mul(per_byte)
+                    .min(colors.saturating_mul(columns));
+                for index in colors..components {
+                    let previous = sub_byte_component(row, index.saturating_sub(colors), bits);
+                    let current = sub_byte_component(row, index, bits);
+                    set_sub_byte_component(row, index, bits, current.wrapping_add(previous) & mask);
+                }
+            }
+        }
+        _ => return None,
     }
-    Arc::from(out.as_slice())
+    Some(Arc::from(out.as_slice()))
+}
+
+/// The `index`th `bits`-wide component of a row, packed high-order bits first (§7.4.4.4).
+fn sub_byte_component(row: &[u8], index: usize, bits: usize) -> u8 {
+    let per_byte = 8 / bits;
+    let byte = row.get(index / per_byte).copied().unwrap_or(0);
+    let shift = 8 - bits * (index % per_byte + 1);
+    (byte >> shift) & (1u8 << bits).wrapping_sub(1)
+}
+
+/// Writes the `index`th `bits`-wide component of a row, leaving the byte's other components.
+fn set_sub_byte_component(row: &mut [u8], index: usize, bits: usize, value: u8) {
+    let per_byte = 8 / bits;
+    let shift = 8 - bits * (index % per_byte + 1);
+    let mask = (1u8 << bits).wrapping_sub(1) << shift;
+    if let Some(byte) = row.get_mut(index / per_byte) {
+        *byte = (*byte & !mask) | ((value << shift) & mask);
+    }
 }
 
 /// Whether a filter produces image samples rather than bytes.

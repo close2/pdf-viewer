@@ -166,6 +166,50 @@ fn the_tiff_predictor_is_a_horizontal_difference_with_no_type_byte() {
     assert_eq!(&*undone, &[10, 15, 20, 100, 101, 102]);
 }
 
+/// ISO 32000-2 §7.4.4.4: at sixteen bits the TIFF predictor adds *components*, not bytes.
+///
+/// > The TIFF function group shall predict each colour component from the prior instance of
+/// > that component, taking into account the number of bits per component and components per
+/// > sample.
+///
+/// Two colours, two columns, each component two bytes most significant first ("packed into bytes
+/// from high-order to low-order bits"). The second pixel's differences are chosen so that the
+/// first colour's low byte carries into its high byte (`0x01FF + 0x0001 = 0x0200`) and the
+/// second's wraps modulo 2^16 (`0xFFFF + 0x0002 = 0x0001`): a byte-wise sum gives `0x0100` and
+/// `0xFF01`, and a decoder that leaves the data alone gives the differences back.
+#[test]
+fn the_tiff_predictor_adds_sixteen_bit_components_with_their_carry() {
+    let data: Vec<u8> = vec![0x01, 0xFF, 0xFF, 0xFF, 0x00, 0x01, 0x00, 0x02];
+    let undone = pdf_syntax::filter::apply_predictor(&data, 2, 2, 16, 2)
+        .expect("TIFF Predictor 2 at sixteen bits over two colours");
+    assert_eq!(&*undone, &[0x01, 0xFF, 0xFF, 0xFF, 0x02, 0x00, 0x00, 0x01]);
+}
+
+/// ISO 32000-2 §7.4.4.4: below a byte, each component wraps inside its own bits.
+///
+/// One colour at two bits, five columns, so the row is two bytes and the second holds one
+/// component and six bits of padding. Each difference is 1 after a first component of 3, so the
+/// sums are 3, 0, 1, 2, 3 modulo 4 — the wrap at the second component is the case a byte-wise sum
+/// gets wrong, carrying into the neighbour on its left.
+#[test]
+fn the_tiff_predictor_wraps_a_sub_byte_component_in_its_own_bits() {
+    // 3,1,1,1 | 1 then padding: 0b11_01_01_01, 0b01_000000.
+    let data: Vec<u8> = vec![0b1101_0101, 0b0100_0000];
+    let undone = pdf_syntax::filter::apply_predictor(&data, 2, 1, 2, 5)
+        .expect("TIFF Predictor 2 at two bits");
+    // 3,0,1,2 | 3: 0b11_00_01_10, 0b11_000000.
+    assert_eq!(&*undone, &[0b1100_0110, 0b1100_0000]);
+}
+
+/// A depth Table 8 does not list is refused rather than passed through as though predicted.
+///
+/// Table 8 gives `/BitsPerComponent` "1, 2, 4, 8, and (PDF 1.5) 16", so a TIFF-predicted stream
+/// stating 3 cannot be un-predicted, and the data handed back unchanged would be drawn as samples.
+#[test]
+fn the_tiff_predictor_refuses_a_depth_the_table_does_not_list() {
+    assert!(pdf_syntax::filter::apply_predictor(&[0, 1, 2, 3], 2, 1, 3, 8).is_none());
+}
+
 /// A predictor code the clause does not define is refused rather than passed through.
 ///
 /// Table 10 lists 1, 2 and 10 to 15 and nothing else. Passing unknown data through reads as

@@ -16,6 +16,11 @@
 //! Table 74 lattice, whose constant-spacing codes need a device pixel grid before they can snap
 //! to one (ADR 1080). It is the flag that draws what a *viewer* at this scale would show, and the
 //! two pages side by side are again what a person reads.
+//!
+//! `--simulate` draws the page as a reader who asked for §10.8.3's simulation of the separation
+//! process sees it — the press view, with overprint and spot colourants combined on their planes
+//! (`pdf_model::view::ViewState::set_separation_simulation`, ADR 1228). The Ghent PDF Output
+//! Suite is judged in both views (`doc/gwg-output-suite.md`, ADR 2728).
 
 #![expect(
     clippy::print_stdout,
@@ -36,6 +41,7 @@ fn main() {
     let flags: Vec<String> = args.collect();
     let delegate = flags.iter().any(|word| word == "--delegate");
     let magnified = flags.iter().any(|word| word == "--magnified");
+    let simulate = flags.iter().any(|word| word == "--simulate");
 
     let document =
         pdf_syntax::Document::open(std::fs::read(&path).expect("readable")).expect("a PDF");
@@ -47,6 +53,9 @@ fn main() {
     }
     if magnified {
         view.set_magnification(Some(scale));
+    }
+    if simulate {
+        view.set_separation_simulation(true);
     }
     let interpretation = pdf_model::content::interpret_with(&document, &page, &view);
     let list = interpretation.display_list;
