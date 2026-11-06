@@ -793,3 +793,77 @@ fn a_stated_colour_space_sets_the_data_s_specifications_aside() {
         );
     }
 }
+
+/// A palette in the data is one of the specifications a stated `/ColorSpace` sets aside: under
+/// an `/Indexed` space the samples are indices into the dictionary's lookup table, not into the
+/// JPX file's own `pclr` box.
+///
+/// §7.4.9 names the palette among the data's colour statements — "the image's colour space may
+/// serve as the foundation for a palette of colours that are selected using samples coming from
+/// the image's data channels: the equivalent of an Indexed colour space in PDF syntax" — and
+/// then, of `/ColorSpace`:
+///
+/// > If present, it shall determine how the image samples are interpreted, and the colour space
+/// > specifications in the JPEG 2000 data shall be ignored.
+///
+/// The fixture is [`ONE`], every sample 100, in a JPX file whose `pclr` box maps index 100 to
+/// (200, 100, 50) through a `cmap` box (ISO/IEC 15444-1 I.5.3.4 and I.5.3.5), under an `/Indexed`
+/// `/DeviceRGB` space whose entry 100 is (10, 20, 200). The image draws the dictionary's colour,
+/// which is what the same index draws through `sc` in the same space.
+#[test]
+fn a_stated_indexed_space_sets_the_data_s_palette_aside() {
+    sandbox();
+    let entries = 101_u16;
+    let mut palette = entries.to_be_bytes().to_vec();
+    // NPC three columns, each of eight bits (`B` is the depth minus one).
+    palette.extend_from_slice(&[3, 7, 7, 7]);
+    let mut lookup = String::new();
+    for index in 0..entries {
+        let (ours, theirs) = if index == 100 {
+            ([10_u8, 20, 200], [200_u8, 100, 50])
+        } else {
+            ([0, 0, 0], [255, 255, 255])
+        };
+        palette.extend_from_slice(&theirs);
+        for byte in ours {
+            let _ = write!(lookup, "{byte:02X}");
+        }
+    }
+    // One `cmap` entry a palette column: component 0, mapped through the palette (`MTYP` 1).
+    let mut mapping = Vec::new();
+    for column in 0..3_u8 {
+        mapping.extend_from_slice(&[0, 0, 1, column]);
+    }
+    let mut image_header = 1u32.to_be_bytes().to_vec();
+    image_header.extend_from_slice(&4u32.to_be_bytes());
+    image_header.extend_from_slice(&1u16.to_be_bytes());
+    image_header.extend_from_slice(&[7, 7, 0, 0]);
+    let mut header = boxed(*b"ihdr", &image_header);
+    header.extend(boxed(*b"colr", &enumerated(0, 16, &[])));
+    header.extend(boxed(*b"pclr", &palette));
+    header.extend(boxed(*b"cmap", &mapping));
+    let mut file = boxed(*b"jP  ", &[0x0d, 0x0a, 0x87, 0x0a]);
+    file.extend(boxed(*b"ftyp", b"jpx \0\0\0\0jpx jpxbjp2 "));
+    file.extend(boxed(*b"jp2h", &header));
+    file.extend(boxed(*b"jp2c", ONE));
+
+    let space = format!("[/Indexed /DeviceRGB {} <{lookup}>]", entries - 1);
+    let (pixels, unsupported) = render(image_page(4, &file, &format!("/ColorSpace {space}")));
+    assert!(unsupported.is_empty(), "{unsupported:?}");
+    let indexed = painted(
+        4,
+        &format!("/ColorSpace << /P {space} >>"),
+        &vec!["/P cs 100 sc".to_owned(); 4],
+        &[],
+    );
+    assert_eq!(
+        indexed,
+        vec![[10, 20, 200]; 4],
+        "the lookup's own entry 100"
+    );
+    assert_near(
+        &pixels,
+        &indexed,
+        "the image's index 100 through the dictionary's lookup",
+    );
+}

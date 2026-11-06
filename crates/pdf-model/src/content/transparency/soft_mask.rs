@@ -24,8 +24,14 @@ use super::readings::unseal;
 
 /// What [`Interpreter::enter_mask_compositing`] replaces for a soft mask's group and
 /// [`Interpreter::leave_mask_compositing`] puts back: the compositing, the spot colourants beside
-/// it, and §11.7.2's redefinition of `DeviceCMYK`.
-type MaskScope = (Compositing, crate::colour::DeviceSpots, Option<ColourSpace>);
+/// it, §11.7.2's redefinition of `DeviceCMYK`, and what `DeviceGray` means inside the group
+/// (`crate::soft_mask::SoftMaskRequest::grey`).
+type MaskScope = (
+    Compositing,
+    crate::colour::DeviceSpots,
+    Option<ColourSpace>,
+    crate::colour::GreyReading,
+);
 
 impl Interpreter<'_> {
     /// Reports a blend mode inside a mask group whose channel is more than one component.
@@ -189,7 +195,9 @@ impl Interpreter<'_> {
     ///
     /// And §11.7.2's redefinition of `DeviceCMYK`, which the same `/CS` decides and only it: the
     /// group is one "that has no parent group or page from which to inherit" (Table 145), so
-    /// nothing outside it redefines anything inside ([`stated_cmyk_group`], ADR 2012).
+    /// nothing outside it redefines anything inside ([`stated_cmyk_group`], ADR 2012). And the
+    /// grey reading the request settled for the group's content, which is the page's except in
+    /// a `/DeviceCMYK` luminosity group under a CMYK intent (ADR 2734).
     /// `resources` is the dictionary the group's content is read against.
     #[expect(
         clippy::doc_markdown,
@@ -213,14 +221,16 @@ impl Interpreter<'_> {
             std::mem::replace(&mut self.compositing, request.compositing.clone()),
             std::mem::take(&mut self.spots_beside),
             std::mem::replace(&mut self.cmyk_group, stated),
+            std::mem::replace(&mut self.grey, request.grey),
         )
     }
 
     /// Restores what [`Interpreter::enter_mask_compositing`] handed back.
-    fn leave_mask_compositing(&mut self, (compositing, spots, cmyk_group): MaskScope) {
+    fn leave_mask_compositing(&mut self, (compositing, spots, cmyk_group, grey): MaskScope) {
         self.compositing = compositing;
         self.spots_beside = spots;
         self.cmyk_group = cmyk_group;
+        self.grey = grey;
     }
 
     /// Evaluates a soft mask's transparency group and registers it (§11.5, §11.6.5.1).

@@ -18,6 +18,10 @@
 //! The intent is the assumed inks (`pdf_colour::colour::assumed_inks_profile`, ADR 2700), whose
 //! black ink draws a visibly warm dark grey rather than `(0, 0, 0)`, so a grey routed through it
 //! and one drawn as this reader's own grey are far apart.
+//!
+//! One construction here is ISO 32000's alone and binds in any file: a grey inside a
+//! `/DeviceCMYK` luminosity group under a CMYK intent, which §11.5.3's device branch reads the
+//! same way (ADR 2734), so its test sits beside the PDF/A one it mirrors.
 
 #![expect(
     clippy::expect_used,
@@ -273,23 +277,7 @@ fn a_default_grey_outranks_the_rule() {
 /// and a `/DeviceGray` luminosity group holding an isolated `/DeviceCMYK` group of black.
 #[test]
 fn a_grey_inside_a_soft_mask_masks_by_its_grey() {
-    // A mask group of space `cs` painting `mask`, over a page painted in the press's black.
-    let masked = |cs: &str, mask: &str, extra: &str| {
-        let objects = format!(
-            "8 0 obj\n<< /Type /ExtGState /SMask << /Type /Mask /S /Luminosity /G 9 0 R >> >>\n\
-             endobj\n\
-             9 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 20 20] \
-             /Group << /S /Transparency /CS /{cs} >> /Resources << /XObject << /B 10 0 R >> >> \
-             /Length {} >>\nstream\n{mask}\nendstream\nendobj\n{extra}",
-            mask.len().saturating_add(1)
-        );
-        pdf(
-            PDFA,
-            &objects,
-            "/ExtGState << /M 8 0 R >>",
-            "/M gs 0 0 0 1 k 0 0 20 20 re f",
-        )
-    };
+    let masked = |cs: &str, mask: &str, extra: &str| masked(PDFA, cs, mask, extra);
     let grey = centre(masked(
         "DeviceCMYK",
         &format!("{GREY} g 0 0 20 20 re f"),
@@ -315,4 +303,67 @@ fn a_grey_inside_a_soft_mask_masks_by_its_grey() {
         within_a_level(paper, (255, 255, 255)),
         "a /DeviceGray mask of black ink masks everything, got {paper:?}"
     );
+}
+
+/// A page painted in the press's black through a `/Luminosity` mask whose group, of space `cs`,
+/// paints `mask`; `extra` holds objects from 10 on, which the group names as `/B`.
+fn masked(file: File, cs: &str, mask: &str, extra: &str) -> Vec<u8> {
+    let objects = format!(
+        "8 0 obj\n<< /Type /ExtGState /SMask << /Type /Mask /S /Luminosity /G 9 0 R >> >>\n\
+         endobj\n\
+         9 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 20 20] \
+         /Group << /S /Transparency /CS /{cs} >> /Resources << /XObject << /B 10 0 R >> >> \
+         /Length {} >>\nstream\n{mask}\nendstream\nendobj\n{extra}",
+        mask.len().saturating_add(1)
+    );
+    pdf(
+        file,
+        &objects,
+        "/ExtGState << /M 8 0 R >>",
+        "/M gs 0 0 0 1 k 0 0 20 20 re f",
+    )
+}
+
+/// Outside PDF/A as well, under any CMYK output intent, a grey painted into a `/Luminosity`
+/// group stating `/CS /DeviceCMYK` masks by its grey.
+///
+/// ISO 32000-2 §11.5.3's device branch, which this reader takes for every mask group (A23):
+///
+/// > For device colour spaces, convert the colour to DeviceGray by implementation-defined
+/// > means and use the resulting gray value as the luminosity, with no compensation for gamma
+/// > or other colour calibration.
+///
+/// So the grey meets the group's `DeviceCMYK` as two device spaces meet, by §10.4.2.3 — black
+/// `1 − g` alone — and is not separated colorimetrically by the intent's profile into four inks
+/// that EXAMPLE 2 then weighs darker (ADR 2734). The expectation is the same mask painted in that
+/// black ink, by a fill and by an image, which is how a layout program's feather draws its ramp.
+/// The page's own greys outside a mask stay this reader's
+/// (`a_grey_is_unchanged_where_the_file_is_not_pdfa_or_the_intent_is_not_its_pdfa_intent`).
+#[test]
+fn a_grey_inside_a_cmyk_mask_group_masks_by_its_grey_under_any_cmyk_intent() {
+    let pdfx = File {
+        identifies: false,
+        intent: Some("GTS_PDFX"),
+    };
+    let image_black = 1.0 - 64.0 / 255.0;
+    for (route, grey, ink) in [
+        (
+            "a fill",
+            format!("{GREY} g 0 0 20 20 re f"),
+            format!("0 0 0 {BLACK} k 0 0 20 20 re f"),
+        ),
+        (
+            "an image",
+            "q 20 0 0 20 0 0 cm BI /W 1 /H 1 /CS /G /BPC 8 /F /AHx ID 40> EI Q".to_owned(),
+            format!("0 0 0 {image_black} k 0 0 20 20 re f"),
+        ),
+    ] {
+        let grey = centre(masked(pdfx, "DeviceCMYK", &grey, ""));
+        let ink = centre(masked(pdfx, "DeviceCMYK", &ink, ""));
+        assert!(
+            within_a_level(grey, ink),
+            "{route}: a grey in a /DeviceCMYK mask group under a PDF/X intent masks as its black \
+             ink, got {grey:?} against {ink:?}"
+        );
+    }
 }

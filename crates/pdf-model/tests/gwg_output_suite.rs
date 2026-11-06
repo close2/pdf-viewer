@@ -81,6 +81,10 @@ struct Check {
 
 const GREYS: &str = "3-ICC-CMS/Patches/GWG230_Four_different Grays_x1a.pdf";
 const OPM: &str = "1-CMYK/Patches/GWG011_Overprint-Mode_x3.pdf";
+const JPX_RGB: &str = "3-ICC-CMS/Patches/GWG172_JPEG2000_compression_ICCBasedRGB_x4.pdf";
+const MASKS_1: &str = "1-CMYK/Patches/GWG168_Softmasks_Vector_part1_X4.pdf";
+const MASKS_2: &str = "1-CMYK/Patches/GWG169_Softmasks_Vector_part2_X4.pdf";
+const TEXT_2: &str = "1-CMYK/Patches/GWG1611_Softmasks_Text_part2_X4.pdf";
 
 /// The checks. The four squares of patch 23.0 are centred at x = 103, 245, 386 and 528, y = 138;
 /// an arm's window sits 35 pixels up and to one side of a centre and its neighbour 45 to the
@@ -145,14 +149,55 @@ const CHECKS: &[Check] = &[
         probe: Probe::Equal((278, 104), (268, 139)),
         passes: true,
     },
+    // 17.2's image is drawn in the dictionary's Adobe RGB, which the screen shows beyond the
+    // press's gamut: the screen's `X` is not a decoding defect (deficit 3), and the press view
+    // draws no simulation on a page with no spot colourant (deficit 5).
     Check {
-        patch: "3-ICC-CMS/Patches/GWG172_JPEG2000_compression_ICCBasedRGB_x4.pdf",
-        what: "JPX ICCBased RGB image",
+        patch: JPX_RGB,
+        what: "JPX ICCBased RGB image, beyond the press's gamut on screen",
         view: View::Screen,
         probe: Probe::Equal((278, 104), (268, 139)),
         passes: false,
     },
+    Check {
+        patch: JPX_RGB,
+        what: "JPX ICCBased RGB image, no simulation on a process-only page",
+        view: View::Press,
+        probe: Probe::Equal((278, 104), (268, 139)),
+        passes: false,
+    },
+    // 16.8, 16.9, 16.11: a vector or text soft mask must match the reference image drawn
+    // `below` pixels under it (§11.5.3); each window sits in a glow's or a feather's ramp, where
+    // a grey separated colorimetrically into four inks masked darker (ADR 2734).
+    mask_check(MASKS_1, "Outer Glow", View::Screen, (334, 90), 94),
+    mask_check(MASKS_1, "Inner Glow", View::Screen, (457, 108), 94),
+    mask_check(MASKS_1, "Inner Glow", View::Press, (457, 108), 94),
+    mask_check(MASKS_2, "Basic Feather", View::Screen, (271, 81), 96),
+    mask_check(MASKS_2, "Directional Feather", View::Screen, (358, 78), 96),
+    mask_check(MASKS_2, "Gradient Feather", View::Screen, (514, 114), 96),
+    mask_check(MASKS_2, "Gradient Feather", View::Press, (514, 114), 96),
+    mask_check(TEXT_2, "Basic Feather", View::Screen, (259, 116), 110),
+    mask_check(TEXT_2, "Directional Feather", View::Screen, (358, 71), 110),
+    mask_check(TEXT_2, "Gradient Feather", View::Screen, (496, 119), 110),
+    mask_check(TEXT_2, "Gradient Feather", View::Press, (496, 119), 110),
 ];
+
+/// A soft-mask effect's window and the same window of its reference image, `below` pixels down.
+const fn mask_check(
+    patch: &'static str,
+    what: &'static str,
+    view: View,
+    (x, y): (u32, u32),
+    below: u32,
+) -> Check {
+    Check {
+        patch,
+        what,
+        view,
+        probe: Probe::Equal((x, y), (x, y + below)),
+        passes: true,
+    }
+}
 
 /// One half of one square of patch 23.0: `side` is -1 for the left half and 1 for the right.
 const fn grey_check(view: View, what: &'static str, centre: u32, side: i32, passes: bool) -> Check {

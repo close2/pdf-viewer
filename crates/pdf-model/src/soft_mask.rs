@@ -67,6 +67,10 @@ pub(crate) struct SoftMaskRequest {
     pub black_backdrop: Option<Color>,
     /// Everything about this mask §11.5.3 asks for and does not get, for the caller to report.
     pub departures: Vec<String>,
+    /// What `DeviceGray` means inside the group: the page's reading, except in a `/Luminosity`
+    /// group stating `/CS /DeviceCMYK` that composites in the output intent's press, where it is
+    /// that press's black ink alone ([`content_grey`], ADR 2734).
+    pub grey: GreyReading,
 }
 
 /// Reads `/SMask` from a graphics state parameter dictionary on a page whose §14.11.5 output
@@ -162,6 +166,12 @@ fn read(
             }
         };
 
+    let grey = content_grey(
+        &space,
+        &compositing,
+        (output_intent, grey),
+        subtype.as_slice() == b"Luminosity",
+    );
     SoftMaskEntry::Mask(Box::new(SoftMaskRequest {
         group,
         kind,
@@ -170,7 +180,51 @@ fn read(
         luminance,
         black_backdrop,
         departures,
+        grey,
     }))
+}
+
+/// What `DeviceGray` means while a mask's group is interpreted.
+///
+/// A `/Luminosity` group stating `/CS /DeviceCMYK` on a page whose output intent is a CMYK
+/// profile is composited in that intent's press (§11.6.6 and §14.11.5, ADR 1008), and a grey
+/// painted into it is a device colour of another component count, which §11.7.2 leaves to be
+///
+/// > converted or mapped to a CIE-based colour space in an implementationdependent fashion.
+///
+/// The press's `B2A` table would separate the grey colorimetrically, into cyan, magenta and
+/// yellow as well as black, and §11.5.3 weighs those four by its device branch (A23, ADR 2552)
+/// — so a mid grey would mask as a darker one, and a feather drawn in grey would come out
+/// sharper and smaller than the same mask drawn with no intent. The clause's device branch asks
+/// for the opposite:
+///
+/// > For device colour spaces, convert the colour to DeviceGray by implementation-defined
+/// > means and use the resulting gray value as the luminosity, with no compensation for gamma
+/// > or other colour calibration.
+///
+/// So the group's `/DeviceCMYK` and the grey painted into it meet the way two device spaces do,
+/// by §10.4.2.3's conversion — black `1 − gray` and no other ink — which is the construction
+/// `GreyReading::IntentBlack` already is: the press's own black, composited without a second
+/// separation. A grey's mask value is then the grey again, exactly as it is on a page with no
+/// intent (ADR 2734). The page's reading stands everywhere else: an `/Alpha` mask reads no
+/// colour, a group stating any other `/CS` composites in that space, and a PDF/A file under a
+/// CMYK intent already reads every grey this way (ADR 2712).
+fn content_grey(
+    stated: &Object,
+    compositing: &Compositing,
+    (output_intent, grey): (Option<&ColourSpace>, GreyReading),
+    luminosity: bool,
+) -> GreyReading {
+    let names_device_cmyk = stated
+        .as_name()
+        .is_some_and(|name| name.as_bytes() == b"DeviceCMYK");
+    let in_the_intents_press = matches!(compositing, Compositing::Subtractive(..))
+        && output_intent.is_some_and(|intent| ColourSpace::grey_as_intent_black(intent).is_some());
+    if luminosity && names_device_cmyk && in_the_intents_press {
+        GreyReading::IntentBlack
+    } else {
+        grey
+    }
 }
 
 /// Reads everything §11.5.3's derivation needs of a `/Luminosity` mask, once its `/CS` and
