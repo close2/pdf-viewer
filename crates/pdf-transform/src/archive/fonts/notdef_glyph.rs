@@ -83,6 +83,22 @@ pub(in crate::archive) fn with_notdef_copied(
     program: &[u8],
     advances: &[u16],
 ) -> Option<GivenGlyphs> {
+    with_glyph_copied(program, 0, advances, NAME_STEM)
+}
+
+/// The program with glyph `source` copied once for each of `advances`, in font units, as the
+/// tables that change; in a `post` table that names glyphs, the copies are named from `stem`.
+///
+/// The same copy as [`with_notdef_copied`]'s, of another glyph: a code Annex D encodes twice is
+/// given its own copy of the glyph its twin reaches, so that each holds the advance the
+/// dictionary states for its own code (`super::twin_codes`, `doc/adr/2723`). `None` where
+/// [`with_notdef_copied`] answers `None`, or where `source` is not a glyph of the program.
+pub(in crate::archive) fn with_glyph_copied(
+    program: &[u8],
+    source: u16,
+    advances: &[u16],
+    stem: &str,
+) -> Option<GivenGlyphs> {
     if advances.is_empty() || advances.len() > MOST_GIVEN {
         return None;
     }
@@ -109,8 +125,11 @@ pub(in crate::archive) fn with_notdef_copied(
     };
     let offsets = loca_offsets(tables.get(b"loca")?, count, long_offsets)?;
     let glyf = *tables.get(b"glyf")?;
-    let first = *offsets.first()?;
-    let second = *offsets.get(1)?;
+    if source >= count {
+        return None;
+    }
+    let first = *offsets.get(usize::from(source))?;
+    let second = *offsets.get(usize::from(source).checked_add(1)?)?;
     let end = *offsets.last()?;
     let outline = glyf.get(first..second)?;
     if outline.len().checked_add(1)?.checked_mul(advances.len())? > MOST_COPIED_OUTLINE_BYTES {
@@ -143,13 +162,13 @@ pub(in crate::archive) fn with_notdef_copied(
         out.push((*b"head", new_head));
     }
 
-    let (_, bearing) = metric(&tables, *b"hhea", *b"hmtx", 0)?;
+    let (_, bearing) = metric(&tables, *b"hhea", *b"hmtx", source)?;
     let horizontal: Vec<(u16, i16)> = advances.iter().map(|advance| (*advance, bearing)).collect();
     let (hhea, hmtx) = metrics_grown(&tables, (*b"hhea", *b"hmtx"), count, &horizontal)?;
     out.push((*b"hhea", hhea));
     out.push((*b"hmtx", hmtx));
     if tables.contains_key(b"vmtx") || tables.contains_key(b"vhea") {
-        let vertical = vec![metric(&tables, *b"vhea", *b"vmtx", 0)?; advances.len()];
+        let vertical = vec![metric(&tables, *b"vhea", *b"vmtx", source)?; advances.len()];
         let (vhea, vmtx) = metrics_grown(&tables, (*b"vhea", *b"vmtx"), count, &vertical)?;
         out.push((*b"vhea", vhea));
         out.push((*b"vmtx", vmtx));
@@ -162,7 +181,7 @@ pub(in crate::archive) fn with_notdef_copied(
         out.push((*b"LTSH", ltsh_grown(ltsh, count, added)?));
     }
     if let Some(post) = tables.get(b"post")
-        && let PostGrown::Replaced(grown_post) = post_grown(post, count, added)?
+        && let PostGrown::Replaced(grown_post) = post_grown(post, count, added, stem)?
     {
         out.push((*b"post", grown_post));
     }
@@ -379,10 +398,10 @@ enum PostGrown {
 ///
 /// Format 3 names none. Format 2 lists a name index per glyph, then the names past the Macintosh
 /// set as Pascal strings; each new glyph gets a new name (index 258 and up), the first of
-/// [`NAME_STEM`], `notdef.1`, … the table does not already hold. Format 1 is the Macintosh set
+/// `stem`, `stem.1`, … the table does not already hold ([`NAME_STEM`] for `.notdef`'s copies). Format 1 is the Macintosh set
 /// alone, so it is restated as format 2 with the same 258 indices and the new ones. Any other
 /// format is refused.
-fn post_grown(post: &[u8], count: u16, added: u16) -> Option<PostGrown> {
+fn post_grown(post: &[u8], count: u16, added: u16, stem: &str) -> Option<PostGrown> {
     const MACINTOSH_NAMES: u16 = 258;
     let (indices, strings, names): (Vec<u8>, &[u8], Vec<&[u8]>) = match u32_at(post, 0)? {
         0x0003_0000 => return Some(PostGrown::Unchanged),
@@ -428,9 +447,9 @@ fn post_grown(post: &[u8], count: u16, added: u16) -> Option<PostGrown> {
                 return None;
             }
             let candidate = if tried == 0 {
-                NAME_STEM.to_owned()
+                stem.to_owned()
             } else {
-                format!("{NAME_STEM}.{tried}")
+                format!("{stem}.{tried}")
             };
             tried = tried.checked_add(1)?;
             if !held.contains(candidate.as_bytes()) {

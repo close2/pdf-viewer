@@ -81,6 +81,7 @@ mod pack;
 mod photographed;
 mod rekeyed;
 mod truetype_cmap;
+mod twin_codes;
 mod untagged;
 
 pub use pack::{CjkPack, Collection, PackFiles, PackGap};
@@ -192,6 +193,9 @@ pub struct SubstitutedFont {
     /// embedded program, which `doc/questions/A48` allows on condition that each is reported and
     /// recorded (`doc/adr/2458`).
     pub empty_glyphs: Vec<u8>,
+    /// The codes Annex D encodes twice that the font's encoding now names for the character ISO
+    /// 32000-1 says each means, so that each reaches a glyph of its own (`doc/adr/2723`).
+    pub twin_codes: Vec<u8>,
     /// The program the file held only the front of, which this substitution dropped, where the
     /// font had one (`doc/adr/2636`).
     pub cut_program: Option<CutProgram>,
@@ -248,6 +252,13 @@ pub(super) fn empty_glyphs_given(codes: &[u8]) -> String {
          named outside the Adobe Glyph List so that no character is stated for them",
         empty::listed(codes)
     )
+}
+
+/// What naming a font's twin codes restated, for the report and the file's own `xmpMM:History`
+/// alike (`doc/adr/2723`).
+#[must_use]
+pub(super) fn twin_codes_named(codes: &[u8]) -> String {
+    twin_codes::described(codes)
 }
 
 /// Whose font program a substitution embedded.
@@ -577,15 +588,11 @@ pub(super) fn restate_metrics(
     spare: &mut Spare,
 ) -> Result<Metrics, Because> {
     let mut metrics = Metrics::default();
-    // A rendered font whose descriptor is written inside it is one this route does not reach,
-    // and the refusal says so rather than that no font needed restating.
-    let mut unreached = false;
     for used in survey.fonts() {
         if !used.rendered {
             continue;
         }
         let Some((font, embedded)) = own_program(document, used) else {
-            unreached |= descriptor_written_inside(document, used);
             continue;
         };
         // **Only the glyphs that actually disagree**, which is `doc/adr/0947`'s first rule read
@@ -679,32 +686,9 @@ pub(super) fn restate_metrics(
         });
     }
     if metrics.at.is_empty() && metrics.descriptors.is_empty() {
-        return Err(Because::NotBuiltYet(if unreached {
-            PROGRAM_BEHIND_A_DIRECT_DESCRIPTOR
-        } else {
-            NO_PROGRAM_TO_RESTATE
-        }));
+        return Err(Because::NotBuiltYet(NO_PROGRAM_TO_RESTATE));
     }
     Ok(metrics)
-}
-
-/// Whether a rendered font that is not Type 3 writes its descriptor, naming an embedded program,
-/// directly inside its dictionary — or its `Type0`'s descendant's — where [`descriptor_of`] reads
-/// only a descriptor that is an object of its own.
-fn descriptor_written_inside(document: &Document, used: &SelectedFont) -> bool {
-    let holder = match name_of(document, &used.dict, "Subtype").as_deref() {
-        Some("Type3") | None => return false,
-        Some("Type0") => descendant(document, &used.dict),
-        Some(_) => Some(used.dict.clone()),
-    };
-    let Some(Object::Dictionary(descriptor)) =
-        holder.and_then(|holder| holder.get("FontDescriptor").cloned())
-    else {
-        return false;
-    };
-    ["FontFile", "FontFile2", "FontFile3"]
-        .iter()
-        .any(|key| descriptor.get(key).is_some())
 }
 
 /// Whether a font other than `used` draws from the same program and states, for a glyph it shows,
@@ -729,8 +713,8 @@ fn another_font_differs(
         };
         let redirected = holder_of(document, other)
             .is_some_and(|holder| metrics.descriptors.contains_key(&holder));
-        let draws_from_it = descriptor_of(document, other)
-            .and_then(|descriptor| embedded_program(document, descriptor))
+        let draws_from_it = descriptor_dict(document, other)
+            .and_then(|descriptor| embedded_program(document, &descriptor))
             .is_some_and(|program| program.at == embedded.at);
         if same || redirected || !draws_from_it {
             return false;
@@ -1161,30 +1145,57 @@ fn embed_pass(
         // the operator's to state and never this program's to find. `--font` is the statement,
         // and it is never a default: a font nobody named takes the shipped route exactly as
         // before (`doc/adr/1209`, `doc/questions/A47`).
-        let face = match named_program(supplied, &requested) {
-            Some((named, program)) => Face::Supplied(
-                pdf_font::standard::supplied_face(
-                    document,
-                    &reading.dict,
-                    &reading.name,
-                    std::sync::Arc::clone(program),
-                )
-                .map_err(|_| Because::NotBuiltYet(SUPPLIED_FACE_NOT_READ))?,
-                named,
-            ),
-            None => Face::Shipped(
-                pdf_font::standard::shipped_face(document, &reading.dict, &reading.name)
-                    .map_err(|_| Because::NotBuiltYet(NO_SHIPPED_FACE_COVERS_IT))?,
-            ),
-        };
+        let face = face_for(document, supplied, &requested, reading)?;
         let (row, restated) = row_for(document, reading, &subtype, &face)?;
         let font = LoadedFont::load(document, &reading.dict, &reading.name)
             .map_err(|_| Because::NotBuiltYet(FONT_NOT_READ))?;
-        let (widths, route) = face_widths(&font, &face, reading)?;
+        // **A code Annex D encodes twice, at a width of its own**: named for the character ISO
+        // 32000-1 says it means, it reaches the face's glyph for that character, and the face
+        // is read again under the restated encoding (`twin_codes`, `doc/adr/2723`). Not beside a
+        // restatement of the dictionary's kind, which writes an encoding of its own.
+        let (face, font, found, twins) = match face_widths(&font, &face, reading, &[]) {
+            Ok(found) => (face, font, found, None),
+            Err(refusal @ Because::TheFence(TWO_WIDTHS_FOR_ONE_GLYPH)) if restated.is_none() => {
+                let twins = twin_codes::renamed(
+                    document,
+                    &reading.dict,
+                    &shown_bytes(&font, reading),
+                    |code| font.advance(Code::single_byte(code)),
+                    target,
+                )
+                .ok_or(refusal)?;
+                let renamed = SelectedFont {
+                    dict: twins.dict.clone(),
+                    ..reading.clone()
+                };
+                let face = face_for(document, supplied, &requested, &renamed)?;
+                let font = LoadedFont::load(document, &renamed.dict, &renamed.name)
+                    .map_err(|_| Because::NotBuiltYet(FONT_NOT_READ))?;
+                let found =
+                    face_widths(&font, &face, &renamed, &twins.codes).map_err(|_| refusal)?;
+                (face, font, found, Some(twins))
+            }
+            Err(refusal) => return Err(refusal),
+        };
+        let FaceWidths {
+            mut widths,
+            route,
+            splits,
+        } = found;
+        // A renamed code that still reaches its twin's glyph is given a copy of it (`twin_codes`).
+        let copied = if splits.is_empty() {
+            None
+        } else {
+            Some(
+                split_twins(&face, &splits, &mut widths)
+                    .ok_or(Because::TheFence(TWO_WIDTHS_FOR_ONE_GLYPH))?,
+            )
+        };
         let program = if route == MetricRoute::FaceMetrics {
             face.program().to_vec()
         } else {
-            let modified = pdf_font::restate::with_widths(face.program(), face.format(), &widths)
+            let base = copied.as_deref().unwrap_or(face.program());
+            let modified = pdf_font::restate::with_widths(base, face.format(), &widths)
                 .map_err(|_| Because::NotBuiltYet(FACE_NOT_RESTATABLE))?;
             renamed_modified(&modified, face.format())?
         };
@@ -1226,6 +1237,9 @@ fn embed_pass(
             .as_ref()
             .map_or_else(Dictionary::new, |restatement| restatement.entries.clone());
         entries.insert(Name::new(&b"FontDescriptor"[..]), Object::Reference(own));
+        if let Some(twins) = &twins {
+            entries.insert(Name::new(&b"Encoding"[..]), twins.encoding.clone());
+        }
         // Table 109 makes a font's `/FirstChar`, `/LastChar`, `/Widths` and `/FontDescriptor` all
         // present or all absent for the fourteen, and a font that states a descriptor and no widths
         // has its glyphs positioned by the viewer's own: the output states those numbers.
@@ -1257,6 +1271,7 @@ fn embed_pass(
             losses,
             fitting,
             empty_glyphs: Vec::new(),
+            twin_codes: twins.map(|twins| twins.codes).unwrap_or_default(),
             cut_program: cut,
             font: selected(used),
         });
@@ -1393,6 +1408,67 @@ fn row_for(
     Ok((restatement.row, Some(restatement)))
 }
 
+/// The face a substitution embeds for `reading`: the operator's where they named one for
+/// `requested`, this program's otherwise.
+fn face_for(
+    document: &Document,
+    supplied: &BTreeMap<String, std::sync::Arc<[u8]>>,
+    requested: &str,
+    reading: &SelectedFont,
+) -> Result<Face, Because> {
+    Ok(match named_program(supplied, requested) {
+        Some((named, program)) => Face::Supplied(
+            pdf_font::standard::supplied_face(
+                document,
+                &reading.dict,
+                &reading.name,
+                std::sync::Arc::clone(program),
+            )
+            .map_err(|_| Because::NotBuiltYet(SUPPLIED_FACE_NOT_READ))?,
+            named,
+        ),
+        None => Face::Shipped(
+            pdf_font::standard::shipped_face(document, &reading.dict, &reading.name)
+                .map_err(|_| Because::NotBuiltYet(NO_SHIPPED_FACE_COVERS_IT))?,
+        ),
+    })
+}
+
+/// The face's program with each split code reaching a copy of its glyph, and each copy's advance
+/// added to `widths`; `None` where the face is not a `glyf` program [`twin_codes::split`] rewrites.
+fn split_twins(
+    face: &Face,
+    splits: &[(u8, u16, f32)],
+    widths: &mut BTreeMap<u16, f32>,
+) -> Option<Vec<u8>> {
+    if face.format() != Format::Sfnt {
+        return None;
+    }
+    // Each copy starts at advance 0 and is given the dictionary's width by the restatement every
+    // split takes (`MetricRoute::RestatedProgram`), whose read-back `proves` checks.
+    let asked: Vec<(u8, u16, u16)> = splits
+        .iter()
+        .map(|(code, glyph, _)| (*code, *glyph, 0))
+        .collect();
+    let twin_codes::Split { program, reached } = twin_codes::split(face.program(), &asked)?;
+    for (code, copy) in reached {
+        let (_, _, width) = splits.iter().find(|(split, ..)| *split == code)?;
+        widths.insert(copy, *width);
+    }
+    Some(program)
+}
+
+/// The single-byte codes a simple font's shown text holds.
+fn shown_bytes(font: &LoadedFont, used: &SelectedFont) -> Vec<u8> {
+    let codes: BTreeSet<u8> = used
+        .shown
+        .keys()
+        .flat_map(|text| font.decode(text))
+        .filter_map(single_byte)
+        .collect();
+    codes.into_iter().collect()
+}
+
 /// The widths the face has to state for the codes this document shows, and which route that is.
 ///
 /// Route 1 where every one of them already agrees with the dictionary to within [`CONSISTENT`] —
@@ -1400,15 +1476,28 @@ fn row_for(
 /// §9.6.2.2's fourteen — and route 2 otherwise. A code the face has no glyph for is a refusal
 /// rather than a width: showing it would reference `.notdef`, which ISO 19005-2 section 6.2.11.8
 /// and ISO 19005-4 section 6.2.10.9 forbid.
+///
+/// A code of `splittable` that reaches a glyph another code already holds at another width is
+/// returned as a split — the code, the glyph and its own width — rather than refused, and is
+/// asked after every other code so that the glyph's own advance is the other code's
+/// (`twin_codes`, `doc/adr/2723`).
 fn face_widths(
     font: &LoadedFont,
     face: &Face,
     used: &SelectedFont,
-) -> Result<(BTreeMap<u16, f32>, MetricRoute), Because> {
+    splittable: &[u8],
+) -> Result<FaceWidths, Because> {
     let mut widths: BTreeMap<u16, f32> = BTreeMap::new();
     let mut route = MetricRoute::FaceMetrics;
-    for text in used.shown.keys() {
-        for code in font.decode(text) {
+    let mut splits: Vec<(u8, u16, f32)> = Vec::new();
+    let mut codes: Vec<Code> = used
+        .shown
+        .keys()
+        .flat_map(|text| font.decode(text))
+        .collect();
+    codes.sort_by_key(|code| single_byte(*code).is_some_and(|byte| splittable.contains(&byte)));
+    {
+        for code in codes {
             let byte = single_byte(code).ok_or(Because::NotBuiltYet(NOT_A_SIMPLE_CODE))?;
             // A code the file's own encoding sends to `.notdef` reaches it in any program, so no
             // face resolves it; the empty glyph `doc/questions/A48` allows is written on the route
@@ -1431,7 +1520,14 @@ fn face_widths(
                     slot.insert(stated);
                 }
                 Entry::Occupied(held) if disagrees(*held.get(), stated) => {
-                    return Err(Because::TheFence(TWO_WIDTHS_FOR_ONE_GLYPH));
+                    if !splittable.contains(&byte) {
+                        return Err(Because::TheFence(TWO_WIDTHS_FOR_ONE_GLYPH));
+                    }
+                    if !splits.iter().any(|(split, ..)| *split == byte) {
+                        splits.push((byte, glyph, stated));
+                    }
+                    route = MetricRoute::RestatedProgram;
+                    continue;
                 }
                 Entry::Occupied(_) => {}
             }
@@ -1442,7 +1538,19 @@ fn face_widths(
             }
         }
     }
-    Ok((widths, route))
+    Ok(FaceWidths {
+        widths,
+        route,
+        splits,
+    })
+}
+
+/// What [`face_widths`] finds: the advance each glyph is to state, the route, and each code that
+/// is to reach a copy of its glyph — the code, the glyph, its own width.
+struct FaceWidths {
+    widths: BTreeMap<u16, f32>,
+    route: MetricRoute,
+    splits: Vec<(u8, u16, f32)>,
 }
 
 /// The program an operator named for one `/BaseFont`, where they named one.
@@ -1493,13 +1601,34 @@ fn single_byte(code: Code) -> Option<u8> {
 /// program has nothing to restate, and a font whose program this tree could not read is one
 /// whose bytes it must not rewrite.
 fn own_program(document: &Document, used: &SelectedFont) -> Option<(LoadedFont, Embedded)> {
-    let embedded = embedded_program(document, descriptor_of(document, used)?)?;
+    let embedded = embedded_program(document, &descriptor_dict(document, used)?)?;
     let font = LoadedFont::load(document, &used.dict, &used.name).ok()?;
     (!font.is_substituted()).then_some((font, embedded))
 }
 
-/// The descriptor of a rendered font that is not Type 3, read through a `Type0`'s descendant.
+/// The descriptor of a rendered font that is not Type 3, read through a `Type0`'s descendant,
+/// where the descriptor is an object of its own.
 fn descriptor_of(document: &Document, used: &SelectedFont) -> Option<ObjectId> {
+    descriptor_entry(document, used)?.as_reference()
+}
+
+/// The descriptor of a rendered font that is not Type 3, read through a `Type0`'s descendant,
+/// whether it is an object of its own or written directly inside the font.
+///
+/// **What the descriptor says does not depend on where it is written**: ISO 32000-2 §7.3.10
+/// makes a direct value and a reference to it one value except where a clause documents the
+/// contrary, so a descriptor written inside its font still names the program the font draws
+/// from, and that program — a stream, and so always an object of its own (§7.3.8.1) — is what
+/// the restatement rewrites (`doc/adr/2722`).
+fn descriptor_dict(document: &Document, used: &SelectedFont) -> Option<Dictionary> {
+    document
+        .resolve(&descriptor_entry(document, used)?)
+        .as_dict()
+        .cloned()
+}
+
+/// The `/FontDescriptor` entry of a rendered font that is not Type 3, as written.
+fn descriptor_entry(document: &Document, used: &SelectedFont) -> Option<Object> {
     let subtype = name_of(document, &used.dict, "Subtype")?;
     if subtype == "Type3" {
         return None;
@@ -1509,7 +1638,7 @@ fn descriptor_of(document: &Document, used: &SelectedFont) -> Option<ObjectId> {
     } else {
         used.dict.clone()
     };
-    holder.get("FontDescriptor").and_then(Object::as_reference)
+    holder.get("FontDescriptor").cloned()
 }
 
 /// The `/FontFile` entry a descriptor states, and which reader its bytes belong to.
@@ -1517,8 +1646,7 @@ fn descriptor_of(document: &Document, used: &SelectedFont) -> Option<ObjectId> {
 /// §9.9's Table 124 is the mapping from key and `/Subtype` to format: `/FontFile` a Type 1
 /// program in its own encrypted form, whose three lengths a rewrite states again, `/FontFile2`
 /// an sfnt, and `/FontFile3` what its `/Subtype` names.
-fn embedded_program(document: &Document, descriptor: ObjectId) -> Option<Embedded> {
-    let dict = document.get(descriptor).as_dict().cloned()?;
+fn embedded_program(document: &Document, dict: &Dictionary) -> Option<Embedded> {
     if let Some(at) = dict.get("FontFile").and_then(Object::as_reference) {
         return Some(Embedded {
             at,
@@ -1807,13 +1935,6 @@ fn base_font(document: &Document, dict: &Dictionary) -> String {
 /// Why nothing was restated: no failed requirement asked for it, or none of the fonts needed it.
 const NO_PROGRAM_TO_RESTATE: &str = "no font in this document has an embedded program whose \
      stated advances this conversion had to restate";
-
-/// Why nothing was restated where a font's program is reached only through a descriptor written
-/// inside it.
-const PROGRAM_BEHIND_A_DIRECT_DESCRIPTOR: &str = "a rendered font here writes its FontDescriptor \
-     directly inside its font dictionary rather than as an object of its own, and this conversion \
-     reaches an embedded program to compare and restate its advances only through a descriptor \
-     that is an object, so its stated widths are not restated";
 
 /// Why no face was embedded.
 const NO_FONT_TO_EMBED: &str = "no font a content stream renders in this document lacks an \

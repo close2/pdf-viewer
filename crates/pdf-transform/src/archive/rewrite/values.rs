@@ -784,8 +784,8 @@ impl Rewriter<'_> {
     /// ISO 32000-1's default for `/CIDToGIDMap`, written where `sites::cid_to_gid_maps` found
     /// the entry absent and that edition describing the file.
     ///
-    /// Into the `CIDFont` where it is an object of its own, and into the first element of the
-    /// Type 0 font's `/DescendantFonts` array where the `CIDFont` is written there (ADR 2432).
+    /// Into the `CIDFont` where it is an object of its own, and into each `CIDFont` written
+    /// directly inside an object `sites::cid_to_gid_maps` named a holder (ADRs 2432, 2722).
     pub(super) fn write_cid_to_gid_map(
         &self,
         id: ObjectId,
@@ -804,27 +804,19 @@ impl Rewriter<'_> {
                 return false;
             }
             out.insert(Name::new(&b"CIDToGIDMap"[..]), identity());
-        } else if sites.descendant_in.contains(&id) {
-            let Some(Object::Array(items)) = out.get("DescendantFonts") else {
-                return false;
-            };
-            let Some(Object::Dictionary(held)) = items.first() else {
-                return false;
-            };
-            if !self.document.get_key(held, "CIDToGIDMap").is_null() {
-                return false;
-            }
-            let mut held = held.clone();
-            held.insert(Name::new(&b"CIDToGIDMap"[..]), identity());
-            let mut items = items.clone();
-            if let Some(first) = items.first_mut() {
-                *first = Object::Dictionary(held);
-            }
-            out.insert(Name::new(&b"DescendantFonts"[..]), Object::Array(items));
-        } else {
+            count(applied, Rewrite::CidToGidIdentity);
+            return true;
+        }
+        if !sites.holders.contains(&id) {
             return false;
         }
-        count(applied, Rewrite::CidToGidIdentity);
+        let Some((mapped, fonts)) = sites::mapped_cid_fonts(self.document, out) else {
+            return false;
+        };
+        *out = mapped;
+        for _ in 0..fonts {
+            count(applied, Rewrite::CidToGidIdentity);
+        }
         true
     }
 

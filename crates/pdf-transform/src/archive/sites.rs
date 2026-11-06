@@ -891,18 +891,17 @@ fn descriptor_object(document: &Document, font: ObjectId, descendant: bool) -> O
     dict.get("FontDescriptor").and_then(Object::as_reference)
 }
 
-/// Why a `/CIDToGIDMap` is not written, and why a stated one is not replaced.
 /// Why a `CIDFont` written directly inside another object is not given the entry.
 ///
 /// `pdf_archive` reports a font with no object of its own at no object (ADR 2413), and lists
-/// where each such font stating no entry is written; this rewrite writes into the one place that
-/// list names, the `/DescendantFonts` array of a Type 0 font object (ADR 2432).
+/// where each such font stating no entry is written; this rewrite writes into each holder that
+/// list names (ADRs 2432, 2722), and refuses where the two do not account for the same fonts.
 const CID_TO_GID_MAP_IN_ANOTHER_OBJECT: &str = "an embedded Type 2 CIDFont here is written \
      directly inside another object rather than as an object of its own, and either it states a \
-     CIDToGIDMap that is neither a stream nor the name Identity, or what holds it is not the \
-     DescendantFonts array written in a Type 0 font that is an object of its own - the one place \
-     ISO 32000-2 \u{a7}9.7.6.1 allows that this rewrite writes the entry into";
+     CIDToGIDMap that is neither a stream nor the name Identity, or what it is written in is not \
+     a dictionary this rewrite finds it in by the positions a font is written at";
 
+/// Why a `/CIDToGIDMap` is not written, and why a stated one is not replaced.
 const CID_TO_GID_MAP_NOT_DERIVED: &str = "an embedded Type 2 CIDFont here states no \
      CIDToGIDMap, or states one that is neither a stream nor the name Identity, and which of \
      those two it is decides the answer together with the file's own version. ISO 32000-1's table \
@@ -924,8 +923,9 @@ const FIRST_VERSION_WITHOUT_THE_DEFAULT: Version = Version { major: 2, minor: 0 
 pub(super) struct CidToGidSites {
     /// The `CIDFont`s that are objects of their own, in the source's numbering.
     pub(super) at: BTreeSet<ObjectId>,
-    /// The Type 0 font objects whose `/DescendantFonts` array writes the `CIDFont` directly.
-    pub(super) descendant_in: BTreeSet<ObjectId>,
+    /// The objects a `CIDFont` is written directly inside: a Type 0 font object whose
+    /// `/DescendantFonts` array writes it, or the object a Type 0 font written directly is in.
+    pub(super) holders: BTreeSet<ObjectId>,
 }
 
 /// Every embedded Type 2 `CIDFont` that is to be given `/CIDToGIDMap` `/Identity`.
@@ -944,7 +944,8 @@ pub(super) struct CidToGidSites {
 ///
 /// **Where the dictionary is written does not change what its absent entry said**, so a `CIDFont`
 /// written directly in its Type 0 font's `/DescendantFonts` array, as §9.7.6.1 allows, is given
-/// the entry there under the same two conditions (ADR 2432). The row reports such a font at no
+/// the entry there under the same two conditions (ADR 2432), and so is one inside a Type 0 font
+/// that is itself written directly inside another object (ADR 2722). The row reports such a font at no
 /// object (ADR 2413); `pdf_archive` lists where each one is, and every finding at no object has to
 /// be one the list places, or the whole requirement is refused rather than half answered.
 pub(super) fn cid_to_gid_maps(
@@ -962,15 +963,21 @@ pub(super) fn cid_to_gid_maps(
         return Err(Because::NotBuiltYet(CID_TO_GID_MAP_NOT_DERIVED));
     }
     let (named, elsewhere) = objects_named(input, &[CID_TO_GID_MAP_PRESENT])?;
-    let mut descendant_in = BTreeSet::new();
+    let mut holders = BTreeSet::new();
     if elsewhere {
         let placed = pdf_archive::direct_cid_fonts_stating_no_cid_to_gid_map(document, target);
-        if placed.len() != findings_at_no_object(input, CID_TO_GID_MAP_PRESENT) {
-            return Err(Because::NotBuiltYet(CID_TO_GID_MAP_IN_ANOTHER_OBJECT));
+        let reported = findings_at_no_object(input, CID_TO_GID_MAP_PRESENT);
+        holders = placed.iter().copied().collect();
+        let mut mapped = 0_usize;
+        for holder in &holders {
+            let resolved = document.get(*holder);
+            let dict = dictionary_of(&resolved)
+                .ok_or(Because::NotBuiltYet(CID_TO_GID_MAP_IN_ANOTHER_OBJECT))?;
+            mapped = mapped
+                .saturating_add(mapped_cid_fonts(document, dict).map_or(0, |(_, count)| count));
         }
-        for holder in placed {
-            descendant_in
-                .insert(holder.ok_or(Because::NotBuiltYet(CID_TO_GID_MAP_IN_ANOTHER_OBJECT))?);
+        if placed.len() != reported || mapped != reported {
+            return Err(Because::NotBuiltYet(CID_TO_GID_MAP_IN_ANOTHER_OBJECT));
         }
     }
     let mut at = BTreeSet::new();
@@ -983,7 +990,7 @@ pub(super) fn cid_to_gid_maps(
         }
         at.insert(id);
     }
-    Ok(CidToGidSites { at, descendant_in })
+    Ok(CidToGidSites { at, holders })
 }
 
 /// Where `/Type /Font` is written: the fonts that are objects of their own, and the objects that
@@ -1039,18 +1046,67 @@ pub(super) fn font_types(
 /// `dict` with `/Type /Font` written into every font dictionary written directly inside it that
 /// states another `/Type` or none, and how many that was; `None` where there were none.
 ///
+/// The fonts are the ones [`direct_fonts_edited`] finds. A font equal to one of `written_out`'s
+/// source dictionaries is counted and left as it stands: the substitution writes it out as an
+/// object of its own, stating the entry there, and finds where it stood by its value
+/// (`doc/adr/2162`), which a `/Type` written here first would change.
+pub(super) fn typed_fonts(
+    document: &Document,
+    dict: &Dictionary,
+    written_out: &[(Dictionary, ObjectId)],
+    depth: usize,
+) -> Option<(Dictionary, usize)> {
+    let typed = |font: &Dictionary| {
+        if document.get_key(font, "Type").as_name().map(Name::as_bytes) == Some(&b"Font"[..]) {
+            return None;
+        }
+        let mut font = font.clone();
+        font.insert(
+            Name::new(&b"Type"[..]),
+            Object::Name(Name::new(&b"Font"[..])),
+        );
+        Some(font)
+    };
+    direct_fonts_edited(dict, &typed, written_out, depth)
+}
+
+/// `dict` with `/CIDToGIDMap /Identity` written into every embedded Type 2 `CIDFont` written
+/// directly inside it that states no entry, and how many that was; `None` where there were none.
+///
+/// The fonts are the ones [`direct_fonts_edited`] finds, and the ones edited are the ones
+/// `pdf_archive`'s `fonts/cid-to-gid-map-present` asks the entry of (`doc/adr/2722`).
+pub(super) fn mapped_cid_fonts(
+    document: &Document,
+    dict: &Dictionary,
+) -> Option<(Dictionary, usize)> {
+    let mapped = |font: &Dictionary| {
+        if !pdf_archive::owes_a_cid_to_gid_map(document, font)
+            || !document.get_key(font, "CIDToGIDMap").is_null()
+        {
+            return None;
+        }
+        let mut font = font.clone();
+        font.insert(
+            Name::new(&b"CIDToGIDMap"[..]),
+            Object::Name(Name::new(&b"Identity"[..])),
+        );
+        Some(font)
+    };
+    direct_fonts_edited(dict, &mapped, &[], 0)
+}
+
+/// `dict` with `edit` applied to every font dictionary written directly inside it, and how many
+/// fonts `edit` changed; `None` where it changed none.
+///
 /// A font is found where `pdf_archive`'s font population finds one by its position: an element
 /// of a `/Font` resource dictionary or of a `/DescendantFonts` array, and inward through every
 /// direct dictionary and array, a font's own included, since a direct Type 0 font may hold a
 /// direct descendant. A reference is not followed, because what it names is an object of its own
-/// and is rewritten on its own turn. The walk stops at [`MAX_FONT_WALK_DEPTH`].
-///
-/// A font equal to one of `written_out`'s source dictionaries is counted and left as it stands:
-/// the substitution writes it out as an object of its own, stating the entry there, and finds
-/// where it stood by its value (`doc/adr/2162`), which a `/Type` written here first would change.
-pub(super) fn typed_fonts(
-    document: &Document,
+/// and is rewritten on its own turn. The walk stops at [`MAX_FONT_WALK_DEPTH`]. A font equal to
+/// one of `written_out`'s source dictionaries is counted as edited and left as it stands.
+fn direct_fonts_edited(
     dict: &Dictionary,
+    edit: &dyn Fn(&Dictionary) -> Option<Dictionary>,
     written_out: &[(Dictionary, ObjectId)],
     depth: usize,
 ) -> Option<(Dictionary, usize)> {
@@ -1059,14 +1115,14 @@ pub(super) fn typed_fonts(
     }
     let deeper = depth.saturating_add(1);
     let mut out: Option<Dictionary> = None;
-    let mut typed = 0_usize;
+    let mut edited = 0_usize;
     for (key, value) in dict.iter() {
         let changed = match (key.as_bytes(), value) {
             (b"Font", Object::Dictionary(map)) => {
                 let names: Vec<Name> = map.iter().map(|(name, _)| name.clone()).collect();
-                typed_elements(
-                    document,
+                elements_edited(
                     map.iter().map(|(_, element)| element),
+                    edit,
                     written_out,
                     deeper,
                 )
@@ -1079,29 +1135,29 @@ pub(super) fn typed_fonts(
                 })
             }
             (b"DescendantFonts", Object::Array(items)) => {
-                typed_elements(document, items.iter(), written_out, deeper)
+                elements_edited(items.iter(), edit, written_out, deeper)
                     .map(|(items, count)| (Object::Array(items), count))
             }
-            _ => typed_inside(document, value, written_out, deeper),
+            _ => edited_inside(value, edit, written_out, deeper),
         };
         if let Some((value, count)) = changed {
             out.get_or_insert_with(|| dict.clone())
                 .insert(key.clone(), value);
-            typed = typed.saturating_add(count);
+            edited = edited.saturating_add(count);
         }
     }
-    out.map(|dict| (dict, typed))
+    out.map(|dict| (dict, edited))
 }
 
-/// Each element of a font-holding entry, typed where it is a direct font, and how many were;
+/// Each element of a font-holding entry, edited where it is a direct font, and how many were;
 /// `None` where none changed.
-fn typed_elements<'a>(
-    document: &Document,
+fn elements_edited<'a>(
     elements: impl Iterator<Item = &'a Object>,
+    edit: &dyn Fn(&Dictionary) -> Option<Dictionary>,
     written_out: &[(Dictionary, ObjectId)],
     depth: usize,
 ) -> Option<(Vec<Object>, usize)> {
-    let mut typed = 0_usize;
+    let mut edited = 0_usize;
     let mut changed = false;
     let mut out = Vec::new();
     for element in elements {
@@ -1111,66 +1167,58 @@ fn typed_elements<'a>(
         };
         if written_out.iter().any(|(source, _)| source == font) {
             out.push(element.clone());
-            typed = typed.saturating_add(1);
+            edited = edited.saturating_add(1);
             continue;
         }
-        let mut font = match typed_fonts(document, font, written_out, depth) {
+        let mut font = match direct_fonts_edited(font, edit, written_out, depth) {
             Some((inner, count)) => {
-                typed = typed.saturating_add(count);
+                edited = edited.saturating_add(count);
                 changed = true;
                 inner
             }
             None => font.clone(),
         };
-        if document
-            .get_key(&font, "Type")
-            .as_name()
-            .map(Name::as_bytes)
-            != Some(&b"Font"[..])
-        {
-            font.insert(
-                Name::new(&b"Type"[..]),
-                Object::Name(Name::new(&b"Font"[..])),
-            );
-            typed = typed.saturating_add(1);
+        if let Some(own) = edit(&font) {
+            font = own;
+            edited = edited.saturating_add(1);
             changed = true;
         }
         out.push(Object::Dictionary(font));
     }
-    (changed || typed > 0).then_some((out, typed))
+    (changed || edited > 0).then_some((out, edited))
 }
 
-/// A value that is no font-holding entry, walked for the ones inside it.
-fn typed_inside(
-    document: &Document,
+/// A value that is no font-holding entry, walked for the fonts inside it.
+fn edited_inside(
     value: &Object,
+    edit: &dyn Fn(&Dictionary) -> Option<Dictionary>,
     written_out: &[(Dictionary, ObjectId)],
     depth: usize,
 ) -> Option<(Object, usize)> {
     match value {
-        Object::Dictionary(dict) => typed_fonts(document, dict, written_out, depth)
+        Object::Dictionary(dict) => direct_fonts_edited(dict, edit, written_out, depth)
             .map(|(dict, count)| (Object::Dictionary(dict), count)),
         Object::Array(items) => {
-            let mut typed = 0_usize;
+            let mut edited = 0_usize;
             let mut changed = false;
             let mut out = Vec::with_capacity(items.len());
             for item in items {
-                match typed_inside(document, item, written_out, depth.saturating_add(1)) {
+                match edited_inside(item, edit, written_out, depth.saturating_add(1)) {
                     Some((item, count)) => {
-                        typed = typed.saturating_add(count);
+                        edited = edited.saturating_add(count);
                         changed = true;
                         out.push(item);
                     }
                     None => out.push(item.clone()),
                 }
             }
-            changed.then_some((Object::Array(out), typed))
+            changed.then_some((Object::Array(out), edited))
         }
         _ => None,
     }
 }
 
-/// The deepest [`typed_fonts`] walks: one more than `pdf_syntax::Limits::DEFAULT`'s `max_depth`,
+/// The deepest [`direct_fonts_edited`] walks: one more than `pdf_syntax::Limits::DEFAULT`'s `max_depth`,
 /// so that every direct object the parser admitted is reached, as `super::rewrite` walks.
 const MAX_FONT_WALK_DEPTH: usize = 257;
 

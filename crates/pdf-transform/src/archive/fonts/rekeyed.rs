@@ -210,7 +210,7 @@ pub(super) fn embed(
             .take(document)
             .ok_or(Because::NotBuiltYet(super::NO_SPARE_OBJECT))?,
     };
-    let (row, mut stream, gains, map, route) = match &face {
+    let (row, mut stream, mut gains, map, route) = match &face {
         Face::Shipped(program, Format::Sfnt) if has_glyf(program) => {
             let (bytes, map, route) = whole_true_type(program, &shown)?;
             let stream = program_stream(subtype_dictionary(TRUE_TYPE).as_ref(), &bytes, true)
@@ -235,7 +235,6 @@ pub(super) fn embed(
     substitutes
         .at
         .insert(descriptor, Embedding { key: row.key, at });
-    let mut gains = gains;
     let held = earlier.as_ref().and_then(|earlier| earlier.map_at);
     let map_at = placed_map(document, map, held, &mut gains, spare, substitutes)?;
     if let Some(name) = gains.get("BaseFont").cloned() {
@@ -269,6 +268,7 @@ pub(super) fn embed(
         losses: Losses::one(Loss::MachineFace).with(Loss::GlyphsFromToUnicode),
         fitting: None,
         empty_glyphs: Vec::new(),
+        twin_codes: Vec::new(),
         cut_program: None,
         font: super::selected(used),
     });

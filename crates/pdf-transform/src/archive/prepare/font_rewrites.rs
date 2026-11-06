@@ -208,6 +208,13 @@ pub(in crate::archive) fn substituted_fonts_recorded(fonts: &[fonts::Substituted
             } else {
                 format!("; {}", fonts::empty_glyphs_given(&font.empty_glyphs))
             };
+            // A code named for the character it means is a restated encoding, and the file's
+            // history says which (`doc/adr/2723`).
+            let twins = if font.twin_codes.is_empty() {
+                String::new()
+            } else {
+                format!("; {}", fonts::twin_codes_named(&font.twin_codes))
+            };
             // A cut program's front is removed from the file, and the file's history says so
             // (`doc/adr/2636`).
             let cut = font
@@ -216,7 +223,7 @@ pub(in crate::archive) fn substituted_fonts_recorded(fonts: &[fonts::Substituted
                 .unwrap_or_default();
             format!(
                 "{} (resource {}) was not embedded and {} was embedded in its place, {}, taking \
-                 the {} route{described}{lost}{fitting}{layout}{empty}{cut}",
+                 the {} route{described}{lost}{fitting}{layout}{empty}{twins}{cut}",
                 font.requested,
                 font.resource,
                 font.face,

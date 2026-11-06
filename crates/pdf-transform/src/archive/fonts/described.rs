@@ -551,6 +551,7 @@ pub(super) fn describe(
         losses,
         fitting,
         empty_glyphs: empty.keys().copied().collect(),
+        twin_codes: Vec::new(),
         cut_program: None,
         font: super::selected(used),
     });

@@ -350,6 +350,7 @@ pub(super) fn embed(
         losses: Losses::default().with(Loss::MachineFace),
         fitting: None,
         empty_glyphs: Vec::new(),
+        twin_codes: Vec::new(),
         cut_program: None,
         font: super::selected(used),
     });

@@ -878,7 +878,7 @@ fn format_6(reached: &BTreeMap<u8, u16>) -> Vec<u8> {
 /// Format 4, segment mapping to delta values, with one segment for each run of consecutive
 /// characters, whose glyph indices are listed in the glyph index array, and the closing segment
 /// 0xFFFF the format requires.
-fn format_4(entries: &BTreeMap<u16, u16>) -> Option<Vec<u8>> {
+pub(in crate::archive) fn format_4(entries: &BTreeMap<u16, u16>) -> Option<Vec<u8>> {
     let mut runs: Vec<(u16, u16, usize)> = Vec::new();
     let mut glyphs: Vec<u16> = Vec::new();
     for (&character, &glyph) in entries {

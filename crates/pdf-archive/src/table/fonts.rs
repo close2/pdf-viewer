@@ -1172,53 +1172,39 @@ fn cid_to_gid_map_present(exam: &Examination<'_>, findings: &mut Findings) {
     });
 }
 
-/// Whether a font is the one [`cid_to_gid_map_present`] asks the entry of: a Type 2 `CIDFont`
-/// whose descriptor carries a program.
-fn owes_a_cid_to_gid_map(document: &Document, font: &Dictionary) -> bool {
+/// Whether a font is the one `fonts/cid-to-gid-map-present` asks the entry of: a Type 2
+/// `CIDFont` whose descriptor carries a program.
+#[must_use]
+pub fn owes_a_cid_to_gid_map(document: &Document, font: &Dictionary) -> bool {
     subtype(document, font).as_deref() == Some("CIDFontType2")
         && descriptor(document, font)
             .is_some_and(|descriptor| carries_a_program(document, &descriptor))
 }
 
-/// Every embedded Type 2 `CIDFont` written directly inside another object and stating no
-/// `/CIDToGIDMap`, as `fonts/cid-to-gid-map-present` reports it, each with the Type 0 font
-/// object whose `/DescendantFonts` array holds it where that is where it is written.
+/// The object each embedded Type 2 `CIDFont` is written in, for every one written directly inside
+/// another object and stating no `/CIDToGIDMap`: one entry a font, in the order
+/// `fonts/cid-to-gid-map-present` reports them.
 ///
 /// The row reports such a font at no object (`doc/adr/2413`), so a converter answering it needs
-/// the place in another form. **`Some(font)` is the one place a converter can write the entry
-/// into**: the font is the element of a `/DescendantFonts` array written directly in a Type 0
-/// font that is an object of its own, which ISO 32000-2 §9.7.6.1 allows. `None` is any other
-/// holder — a Type 0 font itself written inside another object, an array that is an object of
-/// its own — which the caller refuses rather than guesses at (`doc/adr/2432`). An entry that is
+/// the holder in another form, and the number of entries is the number of findings it has to
+/// answer. The holder is wherever the font is written — the Type 0 font object whose
+/// `/DescendantFonts` holds it, which ISO 32000-2 §9.7.6.1 allows (`doc/adr/2432`), or the object
+/// a Type 0 font that is itself written directly is written in (`doc/adr/2722`). An entry that is
 /// present and of the wrong type is not listed: the row reports it, and no write answers it.
 #[must_use]
 pub fn direct_cid_fonts_stating_no_cid_to_gid_map(
     document: &Document,
     target: crate::Target,
-) -> Vec<Option<ObjectId>> {
+) -> Vec<ObjectId> {
     let exam = Examination::new(document, target);
     let mut out = Vec::new();
     for_each_font(&exam, |site, font| {
-        if site.own_object().is_some()
-            || !owes_a_cid_to_gid_map(document, font)
-            || !document.get_key(font, "CIDToGIDMap").is_null()
+        if site.own_object().is_none()
+            && owes_a_cid_to_gid_map(document, font)
+            && document.get_key(font, "CIDToGIDMap").is_null()
         {
-            return;
+            out.push(site.object);
         }
-        let holder = site.object;
-        let in_its_type0_font = match document.get(holder) {
-            Object::Dictionary(type0) => {
-                is_a_font(document, &type0)
-                    && subtype(document, &type0).as_deref() == Some("Type0")
-                    && matches!(
-                        type0.get("DescendantFonts"),
-                        Some(Object::Array(items))
-                            if matches!(items.first(), Some(Object::Dictionary(held)) if held == font)
-                    )
-            }
-            _ => false,
-        };
-        out.push(in_its_type0_font.then_some(holder));
     });
     out
 }
