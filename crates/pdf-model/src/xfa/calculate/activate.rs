@@ -350,6 +350,33 @@ pub enum Stimulus<'a> {
     },
 }
 
+impl Stimulus<'_> {
+    /// What the stimulus is to a `submit` an event performs under it.
+    fn origin(&self) -> Origin {
+        match *self {
+            Self::Click { clicked, button } => {
+                Origin::Click((clicked.to_owned(), button.map(str::to_owned)))
+            }
+            Self::PreSubmit { .. } | Self::PostSubmit { .. } => Origin::Submitting,
+            _ => Origin::Other,
+        }
+    }
+}
+
+/// What a stimulus is to a `submit` an event performs under it (ADR 2738).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Origin {
+    /// A click within this field, with its button's on value: the one stimulus whose field the
+    /// `preSubmit` events of the submit read as their primary event, as they read a submit-form
+    /// action's click (page 398).
+    Click((String, Option<String>)),
+    /// A submit's own `preSubmit` or `postSubmit`, under which a `submit` is not performed.
+    Submitting,
+    /// Any other, which gives the `preSubmit` events no primary event, as page 398 leaves to a
+    /// secondary one.
+    Other,
+}
+
 /// How an activation ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ended {
@@ -428,6 +455,32 @@ pub struct Activation {
     /// [`Self::ended`] is a budget: the flag was set before the action was consummated, and the
     /// limit that dropped the scripts' values does not clear it.
     pub cancelled: bool,
+    /// The `submit`s the events performed, in the order they fired, each for a host to carry out
+    /// as a submit-form action (ADR 2738), at most [`MAX_SUBMITS`]. Empty where [`Self::ended`] is
+    /// a budget, which keeps nothing the activation did.
+    pub submits: Vec<FormSubmit>,
+}
+
+/// The most `submit`s one activation hands a host; the rest are said and not sent. A click a
+/// person makes is one submit in any form a producer meant, and the bound keeps a template that
+/// repeats one from turning a click into a burst of requests.
+pub const MAX_SUBMITS: usize = 4;
+
+/// A `submit` an event performed (XFA 3.3 pages 450–453 and 858–861; ADR 2738): the submit-form
+/// action whose composition is the body the `submit` asks for, which a host carries out between
+/// the form's `preSubmit` and `postSubmit` events as page 446's standard submit processing has it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormSubmit {
+    /// The submit-form action, `/F` the `submit`'s `target`.
+    pub action: crate::action::SubmitForm,
+    /// The container whose event performed it and the event's activity, for a sentence.
+    pub label: String,
+    /// The field the person's action that raised it was on, by PDF field name, and its button's on
+    /// value where it is an exclusion group: what the `preSubmit` events read their primary
+    /// properties of `$event` from (page 398), as they do for a submit-form action's click.
+    pub clicked: Option<(String, Option<String>)>,
+    /// What the `submit` asked for that the composition does not do, one sentence each.
+    pub owed: Vec<String>,
 }
 
 impl Activation {
@@ -663,7 +716,7 @@ impl Resource {
         form.limit_text(limits.bytes);
         let initial = form.values.clone();
         let mut session = Session::new(&mut form, runner, limits, &self.template);
-        session.keys = keys;
+        (session.keys, session.origin) = (keys, stimulus.origin());
         let mut typed = Vec::new();
         match stimulus {
             Stimulus::Entry {
@@ -1014,6 +1067,10 @@ struct Session<'f, 'a, 'r> {
     /// The keys the window held during the person's action, which a field's events give as
     /// `$event.modifier` and `$event.shift` (page 403); `None` where the window did not say.
     keys: Option<Keys>,
+    /// What the stimulus is to a `submit` an event performs.
+    origin: Origin,
+    /// The `submit`s performed ([`Activation::submits`]).
+    submits: Vec<FormSubmit>,
 }
 
 impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
@@ -1058,6 +1115,8 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             reentering: false,
             committed: None,
             keys: None,
+            origin: Origin::Other,
+            submits: Vec::new(),
         }
     }
 
@@ -1679,7 +1738,7 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             };
             let script = match performs {
                 Performs::Script(script) => script,
-                Performs::Unperformed(property) => {
+                other => {
                     if heard {
                         if self.activations_left == 0 {
                             self.ended.get_or_insert("activations");
@@ -1687,11 +1746,7 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
                         }
                         self.activations_left = self.activations_left.saturating_sub(1);
                     }
-                    let label = self.label(node);
-                    self.say(format!(
-                        "{label}: its {activity} event's {property} is not performed (XFA 3.3 \
-                         page 703)"
-                    ));
+                    self.perform(activity, node, &other);
                     continue;
                 }
             };
@@ -1699,6 +1754,52 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
                 let label = self.label(node);
                 self.say(format!("{label}: its {activity} event: {why}"));
             }
+        }
+    }
+
+    /// Carries out an event's property other than its `script` (page 703): a `submit` is held for
+    /// the host as a [`FormSubmit`] where it composes, and every other outcome is said (ADR 2738).
+    ///
+    /// A `submit` under a submit's own `preSubmit` or `postSubmit` is not performed: page 446
+    /// pairs each pre-event with its post-event around one transaction and says nothing of a
+    /// transaction begun inside another, and one begun there would start the next submit at every
+    /// answer a server sends, so it is said instead — a choice where the pages are silent.
+    fn perform(&mut self, activity: &str, node: usize, performs: &Performs) {
+        let label = self.label(node);
+        match performs {
+            Performs::Script(_) => {}
+            Performs::Submit(submit) => match submit.action() {
+                Err(why) => self.say(format!(
+                    "{label}: its {activity} event's submit {why} (XFA 3.3 page 858)"
+                )),
+                Ok(_) if self.origin == Origin::Submitting => self.say(format!(
+                    "{label}: its {activity} event's submit is not performed: it would begin a \
+                     submit inside the one under way (XFA 3.3 page 446)"
+                )),
+                Ok(_) if self.submits.len() >= MAX_SUBMITS => self.say(format!(
+                    "{label}: its {activity} event's submit is not performed: the activation \
+                     has already performed {MAX_SUBMITS}, the most it sends"
+                )),
+                Ok((action, owed)) => self.submits.push(FormSubmit {
+                    action,
+                    label: format!("{label}'s {activity} event"),
+                    clicked: match &self.origin {
+                        Origin::Click(clicked) => Some(clicked.clone()),
+                        _ => None,
+                    },
+                    owed,
+                }),
+            },
+            Performs::Execute(execute) => {
+                if let Some(why) = execute.unperformed() {
+                    self.say(format!(
+                        "{label}: its {activity} event's execute {why} (XFA 3.3 page 722)"
+                    ));
+                }
+            }
+            Performs::Unperformed(property) => self.say(format!(
+                "{label}: its {activity} event's {property} is not performed (XFA 3.3 page 703)"
+            )),
         }
     }
 
@@ -2253,6 +2354,11 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
                 Vec::new()
             },
             cancelled: self.cancelled,
+            submits: if self.ended.is_none() {
+                self.submits
+            } else {
+                Vec::new()
+            },
         }
     }
 }

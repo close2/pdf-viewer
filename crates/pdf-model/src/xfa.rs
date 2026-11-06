@@ -83,13 +83,15 @@ mod config;
 mod datasets;
 mod locale;
 mod picture;
+mod submit;
 mod template;
 mod validate;
 mod xml;
 
 pub use calculate::{
-    Activation, Calculation, Ended, Event, Form, FormLanguage, Invalid, Level, Limits, Occurrence,
-    Overridden, Ran, Replaced, Runner, Scalar, Step, Stimulus, Test, Typing, Validity,
+    Activation, Calculation, Ended, Event, Form, FormLanguage, FormSubmit, Invalid, Level, Limits,
+    MAX_SUBMITS, Occurrence, Overridden, Ran, Replaced, Runner, Scalar, Step, Stimulus, Test,
+    Typing, Validity,
 };
 pub use config::Config;
 pub use datasets::{Change, Datasets, Kept};

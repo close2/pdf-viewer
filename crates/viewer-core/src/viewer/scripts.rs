@@ -316,6 +316,46 @@ impl Viewer {
         }
     }
 
+    /// Every `submit` a document's XFA form performed during the command, each carried out as the
+    /// submit-form action it states between the form's `preSubmit` and `postSubmit` events (XFA
+    /// 3.3 pages 446 and 453; ADR 2738), and handed to the host as a submit-form action's
+    /// submission is, under the same submit policy. Every document's, as the questions are: a
+    /// form's events run in the document they belong to.
+    pub(super) fn send_form_submits(&mut self, events: &mut Vec<Event>) {
+        for (id, open) in &mut self.documents {
+            let submits = open.view.take_form_submits();
+            if submits.is_empty() {
+                continue;
+            }
+            let before = open.view.clone();
+            let mut outcome = crate::interact::Outcome::default();
+            for submit in &submits {
+                crate::interact::form_submitted(
+                    &open.document,
+                    &mut open.view,
+                    submit,
+                    &mut outcome,
+                );
+            }
+            if open.view != before {
+                open.stale();
+            }
+            if !outcome.notes.is_empty() {
+                events.push(Event::Reported {
+                    document: *id,
+                    page: Some(open.page_index),
+                    notes: outcome.notes,
+                });
+            }
+            for submission in outcome.submissions {
+                events.push(Event::Submit {
+                    document: *id,
+                    submission: Box::new(submission),
+                });
+            }
+        }
+    }
+
     /// Every question a document's script is waiting on, put after the command that raised it
     /// (ADR 1628).
     ///

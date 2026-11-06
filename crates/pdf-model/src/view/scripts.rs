@@ -343,6 +343,9 @@ pub(super) struct Scripting {
     /// `validationMessaging` makes one message of, until a host takes them; at most
     /// [`form::MAX_HELD_VALIDATIONS`] (ADR 2696).
     form_invalid: Vec<Vec<crate::xfa::Invalid>>,
+    /// The `submit`s the form's events performed, until a host takes them; at most
+    /// [`crate::xfa::MAX_SUBMITS`] (ADR 2738).
+    form_submits: Vec<crate::xfa::FormSubmit>,
     /// The fields a person committed a value to, which a merge run afterwards leaves as they are.
     form_entered: BTreeSet<String>,
     /// The validation state of the form's containers, kept from one activation to the next, whose

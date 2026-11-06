@@ -362,6 +362,7 @@ impl Viewer {
         self.carry_out_bookmark_requests(&mut events);
         self.say_what_scripts_said(&mut events);
         self.ask_about_scripts(&mut events);
+        self.send_form_submits(&mut events);
         self.put_script_questions(&mut events);
         self.ask_for_sounds(&mut events);
         self.settle(&mut events);

@@ -647,6 +647,72 @@ fn a_press_and_release_on_a_widget_runs_the_click_event_of_its_field() {
     }
 }
 
+/// [`press_and_release`], answering every event the four commands caused.
+fn clicked(viewer: &mut Viewer, at: (f32, f32)) -> Vec<Event> {
+    let at = on_page(viewer, at);
+    [
+        PointerAction::Moved,
+        PointerAction::Pressed,
+        PointerAction::Released,
+    ]
+    .into_iter()
+    .flat_map(|action| {
+        viewer
+            .handle(Command::Pointer { at, action })
+            .collect::<Vec<_>>()
+    })
+    .collect()
+}
+
+/// XFA 3.3 pages 450–453 and 858–859: a click on a field whose `click` event holds a `submit` hands
+/// the host the submission the `submit`'s `format` names — `pdf`, Table 240 bit 9's whole document
+/// — to its `target`, by POST, after the form's `preSubmit` events have run (page 446's step 2), so
+/// that what they set is in it (ADR 2738). It is a submit-form action's `Event::Submit`, under the
+/// host's submit level. At `off` the window activates nothing of the form (ADR 1616), and nothing
+/// is sent.
+#[test]
+fn a_click_on_a_field_whose_event_submits_hands_the_host_the_submission_it_names() {
+    let fields = "<field name=\"Units\"><ui><button/></ui><value><text/></value>\
+                  <event activity=\"click\"><submit format=\"pdf\" \
+                  target=\"https://example.invalid/form\"/></event></field>\
+                  <field name=\"Total\"><ui><textEdit/></ui><value><text/></value>\
+                  <event activity=\"preSubmit\" ref=\"$form\"><script>7</script></event></field>";
+    let data = "<Units/><Total/>";
+    let units = (120.0, 310.0);
+    for (scripting, sent) in [
+        (Scripting::Run(Arc::new(Calculators::default())), true),
+        (Scripting::Off, false),
+    ] {
+        let mut viewer = opened_on(scripting, hybrid(fields, data));
+        viewer.handle(Command::Presented).for_each(drop);
+        let events = clicked(&mut viewer, units);
+        let submissions: Vec<_> = events
+            .iter()
+            .filter_map(|event| match event {
+                Event::Submit { submission, .. } => Some(submission),
+                _ => None,
+            })
+            .collect();
+        if !sent {
+            assert!(submissions.is_empty(), "{submissions:?}");
+            assert_eq!(value(&viewer, "Total"), "");
+            continue;
+        }
+        let [submission] = submissions.as_slice() else {
+            panic!("one submission: {events:?}");
+        };
+        assert_eq!(submission.url, "https://example.invalid/form");
+        assert_eq!(submission.format, pdf_model::submission::Format::Pdf);
+        assert_eq!(submission.method, pdf_model::submission::Method::Post);
+        assert!(submission.body.starts_with(b"%PDF-"));
+        assert_eq!(
+            value(&viewer, "Total"),
+            "7",
+            "the preSubmit event ran first"
+        );
+    }
+}
+
 /// XFA 3.3 page 392: a `mouseDown` fires when the button is pressed within the field's region and a
 /// `mouseUp` when it is released within it, wherever it was pressed (ADR 2627). A press on `Units`
 /// dragged to `Total` and released there runs the one's `mouseDown` and the other's `mouseUp`,

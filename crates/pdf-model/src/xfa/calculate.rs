@@ -23,7 +23,8 @@ use super::datasets::Change;
 use super::template::{Class, Container, Language, Override, Template};
 
 pub use activate::{
-    Activation, Ended, FormLanguage, Invalid, Level, Limits, Overridden, Ran, Runner, Stimulus,
+    Activation, Ended, FormLanguage, FormSubmit, Invalid, Level, Limits, MAX_SUBMITS, Overridden,
+    Ran, Runner, Stimulus,
 };
 pub use event::{Event, Replaced, Typing};
 pub use validity::{Test, Validity};

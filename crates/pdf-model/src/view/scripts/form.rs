@@ -572,7 +572,18 @@ impl ViewState {
         widget: Option<ObjectId>,
     ) -> FormAction {
         let clicked = clicked_field(document, widget);
-        let (field, button) = match &clicked {
+        self.activate_form_before_form_submit(document, clicked.as_ref())
+    }
+
+    /// [`Self::activate_form_before_submit`] for a `submit` the form's own event performed
+    /// ([`Self::take_form_submits`]), whose click the [`crate::xfa::FormSubmit`] names by field
+    /// rather than by widget (ADR 2738).
+    pub fn activate_form_before_form_submit(
+        &mut self,
+        document: &Document,
+        clicked: Option<&(String, Option<String>)>,
+    ) -> FormAction {
+        let (field, button) = match clicked {
             Some((field, button)) => (Some(field.as_str()), button.as_deref()),
             None => (None, None),
         };
@@ -595,7 +606,17 @@ impl ViewState {
         widget: Option<ObjectId>,
     ) -> bool {
         let clicked = clicked_field(document, widget);
-        let (field, button) = match &clicked {
+        self.activate_form_after_form_submit(document, clicked.as_ref())
+    }
+
+    /// [`Self::activate_form_after_submit`] for a `submit` the form's own event performed, as
+    /// [`Self::activate_form_before_form_submit`] is (ADR 2738).
+    pub fn activate_form_after_form_submit(
+        &mut self,
+        document: &Document,
+        clicked: Option<&(String, Option<String>)>,
+    ) -> bool {
+        let (field, button) = match clicked {
             Some((field, button)) => (Some(field.as_str()), button.as_deref()),
             None => (None, None),
         };
@@ -614,6 +635,16 @@ impl ViewState {
     /// the order a person entered them.
     pub fn take_form_overrides(&mut self) -> Vec<FormOverride> {
         std::mem::take(&mut self.scripting.form_overrides)
+    }
+
+    /// The `submit`s the XFA form's events performed since a host last took them, in the order
+    /// they fired (XFA 3.3 pages 450–453 and 858; ADR 2738). A host carries out each as the
+    /// submit-form action it holds: [`Self::activate_form_before_form_submit`], then
+    /// [`crate::submission::compose`] and the host's submit policy, then
+    /// [`Self::activate_form_after_form_submit`] where nothing was sent, as page 446's standard
+    /// submit processing orders them.
+    pub fn take_form_submits(&mut self) -> Vec<crate::xfa::FormSubmit> {
+        std::mem::take(&mut self.scripting.form_submits)
     }
 
     /// The messages of the script tests the XFA form failed since a host last took them, in the
@@ -755,6 +786,7 @@ impl ViewState {
         });
         let applied = self.apply_edits(document, &table, &result.edits);
         self.hold_for_host(activation.overridden, activation.script_tests);
+        self.hold_submits(activation.submits);
         let mut changed = applied.values;
         for name in &before_the_merge {
             if started.elapsed() > MAX_SEQUENCE_TIME {
@@ -792,6 +824,24 @@ impl ViewState {
             self.report(format!("the XFA form: {sentence}"));
         }
         self.hold_for_host(Vec::new(), failed);
+    }
+
+    /// Holds the `submit`s an activation performed for the host, at most
+    /// [`crate::xfa::MAX_SUBMITS`], saying each past the bound (ADR 2738).
+    fn hold_submits(&mut self, submits: Vec<crate::xfa::FormSubmit>) {
+        let room = crate::xfa::MAX_SUBMITS.saturating_sub(self.scripting.form_submits.len());
+        for (at, submit) in submits.into_iter().enumerate() {
+            if at < room {
+                self.scripting.form_submits.push(submit);
+            } else {
+                self.report(format!(
+                    "the XFA form: {}'s submit is not performed: {} submits wait for the \
+                     window already, the most held (ADR 2738)",
+                    submit.label,
+                    crate::xfa::MAX_SUBMITS
+                ));
+            }
+        }
     }
 
     /// Holds what an activation asks a host to present: the message page 642 asks for an entry

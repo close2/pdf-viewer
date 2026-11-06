@@ -6,8 +6,8 @@
 //! with each one's name, its `scope`, its `bind`, its `ui`, its `items`, its `occur`, its
 //! `value`'s type, its `locale`, the pictures of its `ui`, `bind` and `validate` and its
 //! `validate`'s tests and messages, the script and `override` of its `calculate` and its `event`
-//! elements' activity and script, and nothing of its layout: that is RFC 0011 section 5's later
-//! step (ADRs 2396, 2414, 2450, 2506).
+//! elements' activity and script, `submit` or `execute`, and nothing of its layout: that is RFC
+//! 0011 section 5's later step (ADRs 2396, 2414, 2450, 2506, 2738).
 //!
 //! Two questions are answered from it. **Which container an `AcroForm` field is**: XFA 3.3 chapter
 //! 2, *Field Names* (pages 72–73), makes an XFAF form's PDF field name a SOM expression pointing
@@ -17,6 +17,7 @@
 //! match by name and by index among same-named siblings, through the transparent nodes page 193
 //! lists. XFA 3.3 is cited and paraphrased, never quoted (RFC 0011's preamble).
 
+use super::submit::{Execute, Submit};
 use super::xml::{Element, Tree};
 
 /// The container classes this module reads, by their element names in XFA 3.3's template grammar.
@@ -292,9 +293,13 @@ impl Bound {
 pub(crate) enum Performs {
     /// A non-blank `script`, which a runner runs.
     Script(Script),
-    /// `encryptData`, `execute`, `signData` or `submit`, by its element name: a property this
-    /// reader does not perform, kept so that an event stating one is reported where it fires
-    /// rather than passing as an event that does nothing.
+    /// A `submit`, which a host carries out as a submit-form action (ADR 2738).
+    Submit(Submit),
+    /// An `execute`, which calls a web service this reader does not call (ADR 2738).
+    Execute(Execute),
+    /// `encryptData` or `signData`, by its element name: a property this reader does not
+    /// perform, kept so that an event stating one is reported where it fires rather than passing
+    /// as an event that does nothing.
     Unperformed(&'static str),
 }
 
@@ -917,24 +922,35 @@ fn read_properties(container: &mut Container, tree: &Tree, element: &Element) {
 /// other one-of properties (XFA 3.3 pages 390–391 and 703), with the object its `ref` binds it to
 /// and its `listen` (pages 387 and 706). An event stating none does nothing and is not kept.
 fn read_event(container: &mut Container, tree: &Tree, child: usize, event: &Element) {
-    /// Page 703's one-of properties other than `script`.
-    const UNPERFORMED: [&str; 4] = ["encryptData", "execute", "signData", "submit"];
+    /// Page 703's one-of properties this reader does not perform at all.
+    const UNPERFORMED: [&str; 2] = ["encryptData", "signData"];
     let script = tree
         .child(child, "script")
         .and_then(|script| tree.get(script))
         .filter(|script| !script.text.trim().is_empty());
-    let performs = match script {
-        Some(script) => Performs::Script(Script {
+    let performs = if let Some(script) = script {
+        Performs::Script(Script {
             language: Language::of(script.attribute("contentType")),
             text: script.text.clone(),
-        }),
-        None => match UNPERFORMED
-            .into_iter()
-            .find(|name| tree.child(child, name).is_some())
-        {
-            Some(name) => Performs::Unperformed(name),
-            None => return,
-        },
+        })
+    } else {
+        let element = |name: &str| {
+            tree.child(child, name)
+                .and_then(|at| Some((at, tree.get(at)?)))
+        };
+        if let Some((at, submit)) = element("submit") {
+            Performs::Submit(Submit::read(tree, at, submit))
+        } else if let Some((_, execute)) = element("execute") {
+            Performs::Execute(Execute::read(execute))
+        } else {
+            match UNPERFORMED
+                .into_iter()
+                .find(|name| tree.child(child, name).is_some())
+            {
+                Some(name) => Performs::Unperformed(name),
+                None => return,
+            }
+        }
     };
     container.events.push(Event {
         activity: event.attribute("activity").unwrap_or_default().to_owned(),

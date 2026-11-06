@@ -14,7 +14,8 @@ use common::hosted::FormCalcRunner;
 use pdf_model::view::CommitKey;
 use pdf_model::view::{Entered, ScriptEdit, ViewState};
 use pdf_model::xfa::{
-    Activation, Change, Ended, Level, Limits, Resource, Scalar, Stimulus, Test, Typing, Validity,
+    Activation, Change, Ended, Level, Limits, MAX_SUBMITS, Resource, Scalar, Stimulus, Test,
+    Typing, Validity,
 };
 use pdf_syntax::Document;
 
@@ -987,29 +988,227 @@ fn a_value_a_click_event_sets_wakes_the_calculations_that_read_it() {
     );
 }
 
-/// Page 703's `submit`, one of an event's one-of properties this reader does not perform, is said
-/// where the click fires it rather than passing as an event that did nothing; a `script` beside it
-/// on another event still runs.
+/// A field whose `click` event holds `property` in place of a script, beside a second `click`
+/// event appending `Send` to `Log`.
+fn sends(property: &str) -> String {
+    field(
+        "Send",
+        &format!(
+            "<event activity=\"click\">{property}</event>{}",
+            clicks("Send")
+        ),
+    )
+}
+
+/// Clicks `Send` in a form of [`sends`]`(property)` and a `Log`.
+fn click_send(property: &str) -> Activation {
+    let template = [sends(property), field("Log", "")].concat();
+    click(&template, &[("Send", ""), ("Log", "")], "Send")
+}
+
+/// Whether the activation's report holds a sentence containing `words`.
+fn says(activation: &Activation, words: &str) -> bool {
+    activation
+        .report
+        .iter()
+        .any(|sentence| sentence.contains(words))
+}
+
+/// Table 240's bits, numbered from 1 as the table numbers them.
+fn bits(numbers: &[u32]) -> u32 {
+    numbers.iter().fold(0, |all, bit| {
+        all | 1u32.checked_shl(bit.saturating_sub(1)).unwrap_or(0)
+    })
+}
+
+/// Page 703's `submit` is held for the host as the submit-form action composing the body page 859's
+/// `format` asks for: `pdf` is Table 240 bit 9's whole document, `xfd` bit 6's XFDF and
+/// `urlencoded` bit 3's HTML Form format; each by POST (page 858), so bit 4 is clear, and each with
+/// bit 2, since page 445 sends the form's variable data, an empty field's included. `/F` is the
+/// `target`, and the field clicked is what the `preSubmit` events read (page 398). A `script` on
+/// another event of the same click still runs.
 #[test]
-fn a_click_event_that_submits_is_reported_as_not_performed() {
+fn a_click_event_that_submits_holds_the_submit_for_the_host_in_the_format_it_names() {
+    for (format, bit) in [("pdf", 9), ("xfd", 6), ("urlencoded", 3)] {
+        let activation = click_send(&format!(
+            "<submit format=\"{format}\" target=\"https://example.invalid/form\"/>"
+        ));
+        assert_eq!(log(&activation).as_deref(), Some("Send!"), "{format}");
+        assert!(
+            activation.report.is_empty(),
+            "{format}: {:?}",
+            activation.report
+        );
+        let [submit] = activation.submits.as_slice() else {
+            panic!("{format}: one submit is held: {:?}", activation.submits);
+        };
+        assert_eq!(submit.action.url, "https://example.invalid/form");
+        assert_eq!(submit.action.flags.0, bits(&[bit, 2]), "{format}");
+        assert!(submit.action.fields.is_empty());
+        assert_eq!(submit.clicked, Some((name("Send"), None)));
+        assert!(submit.owed.is_empty(), "{format}: {:?}", submit.owed);
+    }
+}
+
+/// Page 597 makes the underlined value the one an omitted attribute takes, and page 858 underlines
+/// `xdp`: a `submit` stating no `format` asks for chapter 23's XDP packaging, which this reader does
+/// not write, as it does not write `xml`'s; page 859 describes `formdata` only as emulating legacy
+/// software it does not name. Each is said, and nothing is held.
+#[test]
+fn a_submit_in_a_packaging_this_reader_does_not_write_is_said_and_not_held() {
+    for (attribute, words) in [
+        ("", "the xdp packaging"),
+        ("format=\"xml\"", "the xml packaging"),
+        ("format=\"formdata\"", "formdata packaging"),
+        (
+            "format=\"html\"",
+            "a format html that page 858 does not list",
+        ),
+    ] {
+        let activation = click_send(&format!(
+            "<submit {attribute} target=\"https://example.invalid/\"/>"
+        ));
+        assert!(activation.submits.is_empty(), "{attribute}");
+        assert!(
+            says(&activation, words),
+            "{attribute}: {:?}",
+            activation.report
+        );
+        assert_eq!(log(&activation).as_deref(), Some("Send!"));
+    }
+}
+
+/// Page 453's client signs the content (step 3) and encrypts it (step 4) before posting it, and
+/// this reader does neither, so a `submit` holding `signData`, `encrypt` or `encryptData` is said
+/// and not held rather than sent unsigned or in the clear; one with no `target` has nowhere to go,
+/// since page 860 leaves the URI to a product's own technique.
+#[test]
+fn a_submit_that_asks_to_be_signed_or_encrypted_or_names_no_target_is_not_held() {
+    for (property, words) in [
+        (
+            "<submit format=\"pdf\" target=\"https://example.invalid/\"><signData operation=\"sign\"/></submit>",
+            "holds a signData",
+        ),
+        (
+            "<submit format=\"pdf\" target=\"https://example.invalid/\"><encrypt/></submit>",
+            "holds an encrypt or an encryptData",
+        ),
+        (
+            "<submit format=\"xfd\" target=\"https://example.invalid/\"><encryptData/></submit>",
+            "holds an encrypt or an encryptData",
+        ),
+        ("<submit format=\"pdf\"/>", "states no target"),
+    ] {
+        let activation = click_send(property);
+        assert!(activation.submits.is_empty(), "{property}");
+        assert!(
+            says(&activation, words),
+            "{property}: {:?}",
+            activation.report
+        );
+    }
+}
+
+/// Page 860's `textEncoding` decides the encoding of the text of a URL-encoded body, and the body is
+/// written in UTF-8: another encoding is named on what the submit owes, and the submit is held.
+#[test]
+fn a_text_encoding_other_than_utf_8_is_named_on_what_the_submit_owes() {
+    let activation = click_send(
+        "<submit format=\"urlencoded\" textEncoding=\"ISO-8859-1\" \
+         target=\"https://example.invalid/\"/>",
+    );
+    let [submit] = activation.submits.as_slice() else {
+        panic!("one submit is held: {:?}", activation.report);
+    };
+    assert!(
+        submit.owed.iter().any(|owed| owed.contains("ISO-8859-1")),
+        "{:?}",
+        submit.owed
+    );
+    let utf8 = click_send(
+        "<submit format=\"urlencoded\" textEncoding=\"utf-8\" target=\"https://example.invalid/\"/>",
+    );
+    assert!(
+        utf8.submits
+            .first()
+            .is_some_and(|submit| submit.owed.is_empty())
+    );
+}
+
+/// Page 722: an `execute` whose `runAt` is `server` is one a client ignores, so it runs nothing and
+/// says nothing; one the client is to run calls a WSDL web service, which this reader does not,
+/// and says so; and one naming no connection is the error page 722 names.
+#[test]
+fn an_execute_is_ignored_where_the_server_runs_it_and_said_where_the_client_would() {
+    let server = click_send("<execute connection=\"Lookup\" runAt=\"server\"/>");
+    assert!(server.report.is_empty(), "{:?}", server.report);
+    assert!(server.submits.is_empty());
+    let client = click_send("<execute connection=\"Lookup\"/>");
+    assert!(
+        says(&client, "web service of the connection Lookup"),
+        "{:?}",
+        client.report
+    );
+    let unnamed = click_send("<execute runAt=\"both\"/>");
+    assert!(
+        says(&unnamed, "names no connection"),
+        "{:?}",
+        unnamed.report
+    );
+}
+
+/// Page 446 pairs each pre-event with its post-event around one transaction: a `submit` a `preSubmit`
+/// or `postSubmit` event performs would begin a submit inside the one under way, so it is said and
+/// not held — a choice where the pages are silent (ADR 2738).
+#[test]
+fn a_submit_under_a_submits_own_events_is_said_and_not_held() {
+    let submit = "<submit format=\"pdf\" target=\"https://example.invalid/\"/>";
     let template = [
         field(
             "Send",
             &format!(
-                "<event activity=\"click\"><submit target=\"https://example.invalid/\"/></event>{}",
-                clicks("Send")
+                "<event activity=\"preSubmit\" ref=\"$form\">{submit}</event>\
+                 <event activity=\"postSubmit\" ref=\"$form\">{submit}</event>"
             ),
         ),
         field("Log", ""),
     ]
     .concat();
-    let activation = click(&template, &[("Send", ""), ("Log", "")], "Send");
-    assert_eq!(log(&activation).as_deref(), Some("Send!"));
+    for stimulus in [
+        Stimulus::PreSubmit {
+            clicked: None,
+            button: None,
+        },
+        Stimulus::PostSubmit {
+            clicked: None,
+            button: None,
+        },
+    ] {
+        let activation = activate(
+            &template,
+            &[("Send", ""), ("Log", "")],
+            stimulus,
+            Limits::DEFAULT,
+        );
+        assert!(activation.submits.is_empty(), "{stimulus:?}");
+        assert!(
+            says(&activation, "would begin a submit inside the one under way"),
+            "{:?}",
+            activation.report
+        );
+    }
+}
+
+/// One activation hands the host at most `MAX_SUBMITS`, and says that the rest are not performed.
+#[test]
+fn an_activation_holds_at_most_its_bound_of_submits() {
+    let events = "<event activity=\"click\"><submit format=\"pdf\" target=\"https://example.invalid/\"/></event>"
+        .repeat(MAX_SUBMITS.saturating_add(3));
+    let template = [field("f", &events), field("Log", "")].concat();
+    let activation = click(&template, &[("f", ""), ("Log", "")], "f");
+    assert_eq!(activation.submits.len(), MAX_SUBMITS);
     assert!(
-        activation
-            .report
-            .iter()
-            .any(|sentence| sentence.contains("click event's submit is not performed")),
+        says(&activation, "the most it sends"),
         "{:?}",
         activation.report
     );
@@ -1076,9 +1275,9 @@ fn more_click_events_than_an_activation_runs_end_on_its_limit_and_keep_nothing()
     assert!(activation.edits.is_empty(), "{:?}", activation.edits);
 }
 
-/// A field carrying a hundred thousand `click` events that each `submit` runs no script and
-/// performs none of them; the report keeps one sentence for them, since they say the same thing,
-/// and the walk over them is held to the template's elements, which the XML reader bounds.
+/// A field carrying a hundred thousand `click` events that each `submit` in the default `xdp`
+/// packaging runs no script and holds none of them; the report keeps one sentence for them, since they say the same
+/// thing, and the walk over them is held to the template's elements, which the XML reader bounds.
 #[test]
 fn a_hundred_thousand_click_events_that_submit_are_reported_once() {
     let events = "<event activity=\"click\"><submit/></event>".repeat(100_000);
@@ -1088,11 +1287,12 @@ fn a_hundred_thousand_click_events_that_submit_are_reported_once() {
     assert!(started.elapsed() < std::time::Duration::from_secs(30));
     assert_eq!(activation.ended, Ended::Settled);
     assert_eq!(activation.activations, 0);
+    assert!(activation.submits.is_empty());
     assert_eq!(
         activation
             .report
             .iter()
-            .filter(|sentence| sentence.contains("submit is not performed"))
+            .filter(|sentence| sentence.contains("submit asks for the xdp packaging"))
             .count(),
         1,
         "{:?}",

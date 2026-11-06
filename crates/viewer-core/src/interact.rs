@@ -677,13 +677,86 @@ fn submitted(
     subject: &str,
     outcome: &mut Outcome,
 ) {
-    let widget = click.and_then(|click| click.widget);
-    if view.activate_form_before_submit(document, widget).cancelled {
+    let origin = Raiser::Widget(click.and_then(|click| click.widget));
+    carry_out(document, view, submit, click, origin, subject, outcome);
+}
+
+/// A `submit` a hybrid form's own event performed (XFA 3.3 pages 450–453 and 858; ADR 2738), carried
+/// out as the submit-form action it states, between the form's `preSubmit` and `postSubmit` events
+/// as for one a widget's action states: page 446's standard submit processing is the same for
+/// both. What the `submit` asked for that the composition does not do is said first.
+pub(crate) fn form_submitted(
+    document: &Document,
+    view: &mut pdf_model::view::ViewState,
+    submit: &pdf_model::xfa::FormSubmit,
+    outcome: &mut Outcome,
+) {
+    let subject = format!("the XFA form: {}", submit.label);
+    outcome.notes.extend(
+        submit
+            .owed
+            .iter()
+            .map(|owed| format!("{subject} submits — {owed}")),
+    );
+    let origin = Raiser::Form(submit.clicked.as_ref());
+    carry_out(
+        document,
+        view,
+        &submit.action,
+        None,
+        origin,
+        &subject,
+        outcome,
+    );
+}
+
+/// What raised a submit, which the form's `preSubmit` and `postSubmit` events read their primary
+/// `$event` from (XFA 3.3 page 398): a widget's action, by the widget clicked, or the form's own
+/// event, by the field its click was within.
+#[derive(Clone, Copy)]
+enum Raiser<'a> {
+    /// A submit-form action, raised by a click on this widget where one was.
+    Widget(Option<ObjectId>),
+    /// A `submit` of the form's own, raised by a click within this field where one was.
+    Form(Option<&'a (String, Option<String>)>),
+}
+
+impl Raiser<'_> {
+    /// Runs the `preSubmit` events.
+    fn before(self, document: &Document, view: &mut pdf_model::view::ViewState) -> bool {
+        match self {
+            Self::Widget(widget) => view.activate_form_before_submit(document, widget),
+            Self::Form(clicked) => view.activate_form_before_form_submit(document, clicked),
+        }
+        .cancelled
+    }
+
+    /// Runs the `postSubmit` events.
+    fn after(self, document: &Document, view: &mut pdf_model::view::ViewState) {
+        match self {
+            Self::Widget(widget) => view.activate_form_after_submit(document, widget),
+            Self::Form(clicked) => view.activate_form_after_form_submit(document, clicked),
+        };
+    }
+}
+
+/// The submit itself, whoever raised it: `preSubmit`, the composition or the reason it was not
+/// made, and `postSubmit` where nothing goes to the host.
+fn carry_out(
+    document: &Document,
+    view: &mut pdf_model::view::ViewState,
+    submit: &pdf_model::action::SubmitForm,
+    click: Option<&Click>,
+    origin: Raiser<'_>,
+    subject: &str,
+    outcome: &mut Outcome,
+) {
+    if origin.before(document, view) {
         outcome.notes.push(format!(
             "{subject} declines — the XFA form's preSubmit script set $event.cancelAction, which \
              aborts the submit (XFA 3.3 page 402)"
         ));
-        view.activate_form_after_submit(document, widget);
+        origin.after(document, view);
         return;
     }
     match pdf_model::submission::compose(document, view, submit, click) {
@@ -701,7 +774,7 @@ fn submitted(
         }
         Err(why) => {
             outcome.notes.push(format!("{subject} declines — {why}"));
-            view.activate_form_after_submit(document, widget);
+            origin.after(document, view);
         }
     }
 }
