@@ -219,10 +219,13 @@ impl ViewState {
         // would be the wrong file submitted under the right name.
         self.chosen.remove(name);
         // Characters are typed and later committed; a choice or a clear is whole when it is made.
-        if matches!(value, Entered::Text(_)) {
+        // The whole text, before `accepted` cuts it to the field's room, is XFA's `fullText`.
+        if let Entered::Text(whole) = value {
             self.begin_typing(document, name, &taking);
+            self.hold_typing(name, Some(whole));
         } else {
             self.uncommitted.remove(name);
+            self.hold_typing(name, None);
         }
         let mut applied = 0_usize;
         for widget in &taking {

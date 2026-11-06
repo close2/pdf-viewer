@@ -608,6 +608,8 @@ public sealed partial class MainWindow : Window
         e.Handled = true;
         Guard("the pointer", () =>
         {
+            // A script reads the keys held at the pointer's event (ADRs 1762, 2732).
+            open.Keys(Held(VirtualKey.Shift), Held(VirtualKey.Control));
             Area.ShowLinkCursor(open.Pointer((float)(at.X * scale), (float)(at.Y * scale), action));
             Settle();
         });

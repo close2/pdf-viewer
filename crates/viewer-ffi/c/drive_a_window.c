@@ -746,8 +746,11 @@ static int the_traced_path(quorra_window *window, struct seen *seen)
         return 0;
     }
     seen->repainted = 0;
-    if (!check("quorra_window_pointer",
-               quorra_window_pointer(window, 100.0f, 100.0f, QUORRA_POINTER_PRESSED, &over))
+    /* The keys held go before the pointer, as the header's loop says. */
+    if (!check("quorra_window_keys", quorra_window_keys(window, true, false, false))
+        || quorra_window_keys(NULL, false, false, false) != QUORRA_NULL_ARGUMENT
+        || !check("quorra_window_pointer",
+                  quorra_window_pointer(window, 100.0f, 100.0f, QUORRA_POINTER_PRESSED, &over))
         || !check("quorra_window_pointer",
                   quorra_window_pointer(window, 100.0f, 100.0f, QUORRA_POINTER_RELEASED, &over))
         || !check("quorra_window_pointer",

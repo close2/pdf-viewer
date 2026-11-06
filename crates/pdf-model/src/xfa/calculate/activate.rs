@@ -91,7 +91,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{Calculation, Event, Form, Replaced, Scalar, Step, Test, Validity};
-use crate::view::CommitKey;
+use crate::view::{CommitKey, Keys};
 use crate::xfa::datasets::Change;
 use crate::xfa::template::{Bound, Class, Entry, Language, Override, Performs, Script, ScriptTest};
 use crate::xfa::{Resource, Template, validate};
@@ -199,6 +199,10 @@ pub enum Stimulus<'a> {
         /// window said; a place past its end, or `None`, leaves `prevText`, `selStart` and
         /// `selEnd` unsupplied.
         before: &'a [Option<String>],
+        /// What the window said of the typing into each field of `entered`, at the same place,
+        /// for its `change` event's `$event.fullText` and `$event.keyDown` (page 402); a place
+        /// past its end, or `None`, leaves both unsupplied.
+        typing: &'a [Option<super::Typing>],
     },
     /// The keyboard focus left the field `left` for the field `reaching`, or for nothing a form
     /// holds (pages 390–391): the `exit` events of the field and of each subform and exclusion
@@ -637,15 +641,37 @@ impl Resource {
         limits: Limits,
         kept: &mut Validity,
     ) -> Activation {
+        self.activate_held(fields, stimulus, None, runner, limits, kept)
+    }
+
+    /// [`Self::activate_kept`], with the keys the window held during the person's action: a
+    /// field's `click`, `enter`, `exit`, `mouseDown`, `mouseEnter`, `mouseExit`, `mouseUp` and
+    /// `change` events set `$event.modifier` and `$event.shift` from them (pages 398 and 403).
+    /// `None` where the window did not say, which leaves both unoffered (ADR 2732).
+    #[must_use]
+    pub fn activate_held(
+        &self,
+        fields: &[(String, Change)],
+        stimulus: Stimulus<'_>,
+        keys: Option<Keys>,
+        runner: &mut dyn Runner,
+        limits: Limits,
+        kept: &mut Validity,
+    ) -> Activation {
         let before = kept.clone();
         let mut form = self.form(fields);
         form.limit_text(limits.bytes);
         let initial = form.values.clone();
         let mut session = Session::new(&mut form, runner, limits, &self.template);
+        session.keys = keys;
         let mut typed = Vec::new();
         match stimulus {
-            Stimulus::Entry { entered, before } => {
-                typed = session.typed(entered, before);
+            Stimulus::Entry {
+                entered,
+                before,
+                typing,
+            } => {
+                typed = session.typed(entered, before, typing);
                 session.fire("change", Some(&typed), &Bound::Own);
                 session.settle(Seeds::Entered(&typed));
             }
@@ -985,6 +1011,9 @@ struct Session<'f, 'a, 'r> {
     /// How the value of the field the focus is leaving was committed, which a field's `exit`
     /// gives as `$event.commitKey` (page 402); `None` where the window did not say.
     committed: Option<CommitKey>,
+    /// The keys the window held during the person's action, which a field's events give as
+    /// `$event.modifier` and `$event.shift` (page 403); `None` where the window did not say.
+    keys: Option<Keys>,
 }
 
 impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
@@ -1028,6 +1057,7 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             cancelled: false,
             reentering: false,
             committed: None,
+            keys: None,
         }
     }
 
@@ -1110,15 +1140,23 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
     /// The containers of the PDF field names a person entered values into, each with what its
     /// entry replaced: a commit replaces the whole of what the field showed, `before` at the
     /// same place.
-    fn typed(&mut self, names: &[String], before: &[Option<String>]) -> Vec<usize> {
+    fn typed(
+        &mut self,
+        names: &[String],
+        before: &[Option<String>],
+        typing: &[Option<super::Typing>],
+    ) -> Vec<usize> {
         let mut typed = Vec::new();
         for (at, name) in names.iter().enumerate() {
             match self.form.named(name) {
                 Some(node) => {
                     let previous = before.get(at).and_then(Option::as_deref);
                     let entered = text(&self.form.value(node));
-                    self.replaced
-                        .insert(node, Replaced::commit(previous, &entered));
+                    let typing = typing.get(at).cloned().flatten();
+                    self.replaced.insert(
+                        node,
+                        Replaced::commit(previous, &entered).with_typing(typing),
+                    );
                     typed.push(node);
                 }
                 None => self.say(format!("{name}: the form's field list does not name it")),
@@ -1162,8 +1200,12 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             _ => None,
         };
         let mut event = Event::new(activity, node, named, replaced);
-        // Page 398's table has a field's `exit` set `commitKey` and its `change` the two content
-        // types, which page 403 says are always the same in this version of XFA.
+        // Page 398's table has every one of these events of a field set `modifier` and `shift`,
+        // a field's `exit` set `commitKey` and its `change` the two content types, which page
+        // 403 says are always the same in this version of XFA.
+        if class == Class::Field && activity != "validationState" {
+            event = event.with_keys(self.keys);
+        }
         if class == Class::Field {
             match activity {
                 "exit" => event = event.with_commit_key(self.committed),

@@ -25,7 +25,7 @@ use super::template::{Class, Container, Language, Override, Template};
 pub use activate::{
     Activation, Ended, FormLanguage, Invalid, Level, Limits, Overridden, Ran, Runner, Stimulus,
 };
-pub use event::{Event, Replaced};
+pub use event::{Event, Replaced, Typing};
 pub use validity::{Test, Validity};
 
 mod activate;

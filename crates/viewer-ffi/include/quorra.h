@@ -1933,7 +1933,8 @@ int32_t quorra_collection_folder_of(const char *key, uint32_t *id, char *out, si
  *   on every resize:   quorra_window_resize(window, width, height, scale);
  *   on every key:      quorra_window_press(window, QUORRA_KEY_*, shift, command, &act, &by);
  *                      and do `act` where it is not QUORRA_ACT_NOTHING;
- *   on the pointer:    quorra_window_pointer(window, x, y, QUORRA_POINTER_*, &over_link);
+ *   on the pointer:    quorra_window_keys(window, shift, command, false), then
+ *                      quorra_window_pointer(window, x, y, QUORRA_POINTER_*, &over_link);
  *   on the wheel:      quorra_window_scroll(window, dx, dy), and with Control held
  *                      quorra_window_zoom_wheel(window, travel, QUORRA_WHEEL_*, x, y, &steps);
  *   on the timer:      quorra_window_tick(window);
@@ -2122,6 +2123,11 @@ int32_t quorra_window_scroll(quorra_window *window, float dx, float dy);
 #define QUORRA_WHEEL_PIXELS 1u  /* a touchpad's drag, in device pixels */
 int32_t quorra_window_zoom_wheel(quorra_window *window, float travel, uint32_t unit, float x,
                                  float y, int32_t *steps);
+/* What the keyboard holds: Shift, the platform's command modifier (Control here, Command on
+ * macOS) and whether an arrow key is making a choice field's selection, which a script reads at
+ * its event. Send it before every pointer action and key; the window tells the core only what
+ * changed. */
+int32_t quorra_window_keys(quorra_window *window, bool shift, bool modifier, bool arrows);
 /* The pointer at (x, y) in device pixels of the viewport, as a QUORRA_POINTER_*. `*over_link`,
  * where not null, is whether it is now over §12.5.6.5's activation region — the cursor to show.
  * §12.9's measuring takes a press, where it is on. */

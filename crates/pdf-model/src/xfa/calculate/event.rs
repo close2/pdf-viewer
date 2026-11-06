@@ -20,10 +20,13 @@ use crate::view::CommitKey;
 
 /// The properties of `$event` this reader carries, in the order page 402 lists them, with the
 /// number past the template's containers each one is.
-const CARRIED: [&str; 11] = [
+const CARRIED: [&str; 15] = [
     "cancelAction",
     "change",
     "commitKey",
+    "fullText",
+    "keyDown",
+    "modifier",
     "name",
     "newContentType",
     "newText",
@@ -32,12 +35,13 @@ const CARRIED: [&str; 11] = [
     "reenter",
     "selEnd",
     "selStart",
+    "shift",
 ];
 
-/// The properties page 398's table has an event set that this reader is never told of: the
-/// keyboard's modifier keys, whether an arrow key made a selection, and what a paste held past a
-/// field's limit. Reading one is refused by name rather than answered null.
-const UNSUPPLIED: [&str; 4] = ["modifier", "shift", "keyDown", "fullText"];
+/// The properties page 398's table has a field's `click`, `enter`, `exit`, `mouseDown`,
+/// `mouseEnter`, `mouseExit`, `mouseUp` and `change` set, read from the keys the window held
+/// (page 403).
+const HELD: [&str; 2] = ["modifier", "shift"];
 
 /// What an event says of `commitKey`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,6 +75,21 @@ pub struct Replaced {
     start: usize,
     /// `selEnd`.
     end: usize,
+    /// What the window said of the typing before the commit, for `fullText` and `keyDown`;
+    /// `None` leaves both unsupplied.
+    typing: Option<Typing>,
+}
+
+/// What the window said of a person's typing into a field before its commit (pages 402–403): the
+/// whole text it handed the field, before the field's limits cut it, and whether an arrow key made
+/// the selection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Typing {
+    /// `fullText`: the whole text the window handed, which page 402 calls the full (untruncated)
+    /// value where the field truncated it.
+    pub whole: String,
+    /// `keyDown`: whether an arrow key was used to make the selection (page 402).
+    pub arrows: bool,
 }
 
 impl Replaced {
@@ -83,7 +102,16 @@ impl Replaced {
             change: entered.to_owned(),
             start: 0,
             end: previous.map_or(0, |text| text.chars().count()),
+            typing: None,
         }
+    }
+
+    /// The commit with what the window said of the typing before it, `fullText` and `keyDown`
+    /// (pages 398 and 402).
+    #[must_use]
+    pub fn with_typing(mut self, typing: Option<Typing>) -> Self {
+        self.typing = typing;
+        self
     }
 
     /// `newText` (page 400): `change` between `selStart` and `selEnd` of `prevText`.
@@ -128,6 +156,19 @@ pub struct Event {
     /// same in this version of XFA: `allowRichText` or `plainTextOnly`. `None` for an event that
     /// is no field's `change`, the one row of page 398's table this reader raises that sets them.
     content: Option<&'static str>,
+    /// What the event says of `modifier` and `shift` (page 403).
+    held: Held,
+}
+
+/// What an event says of the keys held.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Held {
+    /// Page 398's table has the event set neither `modifier` nor `shift`.
+    NotSet,
+    /// The event sets them, and the window did not say which keys it held.
+    Untold,
+    /// The event sets them: Shift, and the modifier key, Control on Microsoft Windows (page 403).
+    Told { shift: bool, modifier: bool },
 }
 
 impl Event {
@@ -143,7 +184,19 @@ impl Event {
             reenter: None,
             commit: Commit::NotSet,
             content: None,
+            held: Held::NotSet,
         }
+    }
+
+    /// The event with `$event.modifier` and `$event.shift` as the window held the keys during it
+    /// (pages 398 and 403); `None` where the window did not say, which leaves both unoffered.
+    #[must_use]
+    pub fn with_keys(mut self, keys: Option<crate::view::Keys>) -> Self {
+        self.held = keys.map_or(Held::Untold, |keys| Held::Told {
+            shift: keys.shift,
+            modifier: keys.modifier,
+        });
+        self
     }
 
     /// The field's `exit` event, with `$event.commitKey` as the window said the value was
@@ -215,10 +268,7 @@ pub(super) fn property(
     containers: usize,
     name: &str,
 ) -> Result<Named, String> {
-    let known = CARRIED.contains(&name)
-        || name == "target"
-        || UNSUPPLIED.contains(&name)
-        || ELSEWHERE.contains(&name);
+    let known = CARRIED.contains(&name) || name == "target" || ELSEWHERE.contains(&name);
     if !known {
         return Err(format!(
             "$event.{name}: not a property of $event (XFA 3.3 pages 402–404)"
@@ -237,11 +287,6 @@ pub(super) fn property(
             event.name
         )
     };
-    if UNSUPPLIED.contains(&name) {
-        return Err(format!(
-            "$event.{name}: this reader is not told it by the window, so it is not offered"
-        ));
-    }
     if name == "cancelAction" {
         return match event.cancel {
             Some(_) => Ok(Named::Property(containers)),
@@ -270,6 +315,29 @@ pub(super) fn property(
             ),
             Commit::NotSet => Err(unset()),
         };
+    }
+    if HELD.contains(&name) {
+        return match event.held {
+            Held::Told { .. } => Ok(Named::Property(containers.saturating_add(at))),
+            Held::Untold => Err(format!(
+                "$event.{name}: the window did not say which keys it held during the {} event, \
+                 so it is not offered (XFA 3.3 page 403)",
+                event.name
+            )),
+            Held::NotSet => Err(unset()),
+        };
+    }
+    if matches!(name, "fullText" | "keyDown") {
+        let Some(replaced) = &event.replaced else {
+            return Err(unset());
+        };
+        if replaced.typing.is_none() {
+            return Err(format!(
+                "$event.{name}: the window did not say what the person typed before the commit, \
+                 so it is not offered (XFA 3.3 page 402)"
+            ));
+        }
+        return Ok(Named::Property(containers.saturating_add(at)));
     }
     if matches!(name, "newContentType" | "prevContentType") {
         return match event.content {
@@ -303,6 +371,8 @@ pub(super) fn value(event: Option<&Event>, containers: usize, node: usize) -> Op
     let event = event?;
     let replaced = event.replaced.as_ref();
     let count = |n: usize| Scalar::Number(f64::from(u32::try_from(n).unwrap_or(u32::MAX)));
+    // A boolean property is 1 or 0, as `reenter` and `cancelAction` are.
+    let flag = |on: bool| Scalar::Number(if on { 1.0 } else { 0.0 });
     Some(match *name {
         "cancelAction" => Scalar::Number(if event.cancel? { 1.0 } else { 0.0 }),
         "commitKey" => match event.commit {
@@ -310,6 +380,12 @@ pub(super) fn value(event: Option<&Event>, containers: usize, node: usize) -> Op
             Commit::Untold | Commit::NotSet => return None,
         },
         "newContentType" | "prevContentType" => Scalar::Text(event.content?.to_owned()),
+        "fullText" => Scalar::Text(replaced?.typing.as_ref()?.whole.clone()),
+        "keyDown" => flag(replaced?.typing.as_ref()?.arrows),
+        "modifier" | "shift" => match event.held {
+            Held::Told { shift, modifier } => flag(if *name == "shift" { shift } else { modifier }),
+            Held::Untold | Held::NotSet => return None,
+        },
         "name" => Scalar::Text(event.name.clone()),
         "change" => Scalar::Text(replaced?.change.clone()),
         "newText" => Scalar::Text(replaced?.new_text()),

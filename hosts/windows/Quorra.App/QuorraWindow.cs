@@ -262,6 +262,10 @@ internal sealed unsafe partial class QuorraWindow : IDisposable
         return steps;
     }
 
+    /// <summary>Shift and Control as the keyboard holds them, which a script reads at its event; the window tells the core only what changed.</summary>
+    internal void Keys(bool shift, bool modifier) =>
+        Library.Check("quorra_window_keys", Native.quorra_window_keys(handle, shift, modifier, false));
+
     /// <summary>The pointer in device pixels of the viewport; whether it is now over a link.</summary>
     internal bool Pointer(float x, float y, uint action)
     {

@@ -351,6 +351,11 @@ pub(super) struct Scripting {
     /// The choice list a person committed a selection in while it kept the focus, whose own
     /// `exit` has fired with no `enter` since (XFA 3.3 page 392; ADR 2707).
     form_selected: Option<String>,
+    /// What the window last handed each field a person is typing into, before the field's limits
+    /// cut it, and whether an arrow key made it, for the field's `change` event's
+    /// `$event.fullText` and `$event.keyDown` at the commit (XFA 3.3 page 402; ADR 2732); at most
+    /// [`form::MAX_ENTERED_FIELDS`] fields.
+    form_typing: BTreeMap<String, crate::xfa::Typing>,
     /// The requests scripts made of the host's console, in order, until a host takes them; at
     /// most [`MAX_CONSOLE_REQUESTS`] (ADR 1762).
     console: Vec<ConsoleRequest>,

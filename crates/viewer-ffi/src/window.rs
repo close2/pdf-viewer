@@ -126,6 +126,9 @@ pub struct Window {
     refused: std::sync::mpsc::Receiver<String>,
     /// What Control and the wheel have travelled and not yet spent on a step (ADR 2152).
     zoom_wheel: viewer_host::ZoomWheel,
+    /// The keys the core was last told the window holds, so that a pointer moving with none
+    /// changed tells it nothing (ADR 2732).
+    keys_told: pdf_model::view::Keys,
     /// While set, the window takes in nothing its threads have finished, so a turn's read stays out
     /// however soon it ends: a test holds the read open here, at something it owns, rather than
     /// racing it (ADR 2437).
@@ -170,6 +173,7 @@ impl Window {
             status: String::new(),
             question: None,
             prompting: None,
+            keys_told: pdf_model::view::Keys::default(),
             arrival_due: false,
             presentation_at: None,
             playing: None,
@@ -339,6 +343,12 @@ impl Window {
     /// acts [`NativeWindow`] carries out
     /// alike for every window are carried out here, and the rest are handed back.
     pub fn press(&mut self, key: viewer_host::Key, held: viewer_host::Modifiers) -> (ActKind, f32) {
+        // A tab's `exit` and `enter` read the keys held, which the press itself carries.
+        self.keys(pdf_model::view::Keys {
+            shift: held.shift,
+            modifier: held.ctrl,
+            arrows: false,
+        });
         let mode = if self.state.presenting.full_screen() {
             viewer_host::Mode::Presenting
         } else {
@@ -416,6 +426,20 @@ impl Window {
         );
         self.settle();
         over
+    }
+
+    /// What the keyboard holds, told to the core where it changed since it was last told: a
+    /// script reads Shift and the modifier at its event, an interactive form field's
+    /// `event.shift` and `event.modifier` and an XFA field's `$event.shift` and `$event.modifier`,
+    /// and whether an arrow key made a choice field's selection (ADRs 1762, 2732). The caller
+    /// sends it before the pointer or key that raises an event, as every other window does.
+    pub fn keys(&mut self, keys: pdf_model::view::Keys) {
+        if keys == self.keys_told {
+            return;
+        }
+        self.keys_told = keys;
+        self.dispatch(Command::Keys(keys));
+        self.settle();
     }
 
     /// Annex O's document-wide search for what the find bar holds, forwards or backwards; the

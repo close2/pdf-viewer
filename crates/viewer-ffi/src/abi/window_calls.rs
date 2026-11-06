@@ -525,6 +525,31 @@ pub unsafe extern "C" fn quorra_window_zoom_wheel(
     Status::Ok.code()
 }
 
+/// What the keyboard holds — Shift, the platform's command modifier, and whether an arrow key is
+/// making a choice field's selection — which a script reads at its event (ADRs 1762, 2732). Sent
+/// before every pointer action and key; the window tells the core only what changed.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_keys(
+    window: *mut Window,
+    shift: bool,
+    modifier: bool,
+    arrows: bool,
+) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    window.keys(pdf_model::view::Keys {
+        shift,
+        modifier,
+        arrows,
+    });
+    Status::Ok.code()
+}
+
 /// The pointer at (`x`, `y`) in device pixels of the viewport, as a `QUORRA_POINTER_*`: moved,
 /// pressed, dragged or released. `*over_link`, where not null, is whether it is now over §12.5.6.5's
 /// activation region, which is the cursor every window changes. `QUORRA_WRONG_KIND` for an action

@@ -14,7 +14,7 @@ use common::hosted::FormCalcRunner;
 use pdf_model::view::CommitKey;
 use pdf_model::view::{Entered, ScriptEdit, ViewState};
 use pdf_model::xfa::{
-    Activation, Change, Ended, Level, Limits, Resource, Scalar, Stimulus, Test, Validity,
+    Activation, Change, Ended, Level, Limits, Resource, Scalar, Stimulus, Test, Typing, Validity,
 };
 use pdf_syntax::Document;
 
@@ -153,6 +153,7 @@ fn entered(template: &str, values: &[(&str, &str)], typed: &[&str]) -> Activatio
         Stimulus::Entry {
             entered: &typed,
             before: &[],
+            typing: &[],
         },
         Limits::DEFAULT,
     )
@@ -605,6 +606,7 @@ fn a_calculated_value_reaches_the_value_and_the_datasets_packet_through_the_save
         Stimulus::Entry {
             entered: &typed,
             before: &[],
+            typing: &[],
         },
         &mut FormCalcRunner,
         Limits::DEFAULT,
@@ -1300,6 +1302,7 @@ fn each_built_activity_reaches_the_listening_subform_after_the_fields_own() {
             Stimulus::Entry {
                 entered: &entered,
                 before: &[],
+                typing: &[],
             },
             "change!A^",
         ),
@@ -1548,6 +1551,7 @@ fn entry(template: &str, values: &[(&str, &str)], short: &str, before: Option<&s
         Stimulus::Entry {
             entered: &typed,
             before: &before,
+            typing: &[],
         },
         Limits::DEFAULT,
     )
@@ -2632,6 +2636,7 @@ fn a_validation_state_event_fires_where_an_entry_changes_the_state_and_nowhere_e
     let entry = Stimulus::Entry {
         entered: &typed,
         before: &[],
+        typing: &[],
     };
     let steps: [(&[(&str, &str)], Stimulus<'_>); 4] = [
         (&[("Part.Amount", "5"), ("Log", "")], Stimulus::Merge),
@@ -2682,6 +2687,7 @@ fn a_cleared_field_turns_invalid_only_at_the_pre_event_that_runs_its_null_test()
             Stimulus::Entry {
                 entered: &typed,
                 before: &[],
+                typing: &[],
             },
         ),
         (&[("Amount", ""), ("Log", "")], submit),
@@ -3077,6 +3083,7 @@ fn a_format_test_that_fails_after_an_entry_announces_the_change_of_state() {
     let entry = Stimulus::Entry {
         entered: &typed,
         before: &[],
+        typing: &[],
     };
     let ran = in_turn(
         &template,
@@ -3105,5 +3112,251 @@ fn a_format_test_that_fails_after_an_entry_announces_the_change_of_state() {
             Level::Error,
             Some("Three letters and three digits.".to_owned())
         )]
+    );
+}
+
+/// Activates `stimulus` over a form of `template` holding `values`, the window having held `keys`
+/// during the person's action.
+fn held(
+    template: &str,
+    values: &[(&str, &str)],
+    stimulus: Stimulus<'_>,
+    keys: Option<pdf_model::view::Keys>,
+) -> Activation {
+    let document = document(template, values);
+    let resource = Resource::read(&document).unwrap().unwrap();
+    resource.activate_held(
+        &fields(values),
+        stimulus,
+        keys,
+        &mut FormCalcRunner,
+        Limits::DEFAULT,
+        &mut Validity::default(),
+    )
+}
+
+/// A subform `Part` whose `enter` reads `$event.shift`, around a field `Amount` whose `click`,
+/// `enter`, `exit`, `mouseDown` and `change` log both keys; a field `Other` whose `click` writes
+/// `$event.shift`; and the log.
+fn keys_form() -> (String, [(&'static str, &'static str); 3]) {
+    let reads = |activity: &str| {
+        format!(
+            "<event activity=\"{activity}\"><script>Log = Concat(Log, \"{activity}:s\", \
+             $event.shift, \"m\", $event.modifier, \";\")</script></event>"
+        )
+    };
+    let template = [
+        format!(
+            "<subform name=\"Part\"><event activity=\"enter\"><script>Log = Concat(Log, \
+             $event.shift)</script></event>{}</subform>",
+            field(
+                "Amount",
+                &["click", "enter", "exit", "mouseDown", "change"]
+                    .map(reads)
+                    .concat()
+            )
+        ),
+        field(
+            "Other",
+            "<event activity=\"click\"><script>$event.shift = 1</script></event>",
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    let values = [("Part.Amount", "5"), ("Other", ""), ("Log", "")];
+    (template, values)
+}
+
+/// XFA 3.3 pages 398 and 403: a field's `click`, `enter`, `exit`, `mouseDown`, `mouseEnter`,
+/// `mouseExit`, `mouseUp` and `change` set `$event.shift`, true if and only if the shift key was
+/// held down during the event, and `$event.modifier`, the same of the modifier key, Control on
+/// Microsoft Windows; a script reads a boolean as 1 or 0. Where the window did not say which keys
+/// it held both are refused by name (ADR 2732).
+#[test]
+fn a_fields_events_read_the_keys_the_window_held() {
+    let (template, values) = keys_form();
+    let (amount, other) = (name("Part.Amount"), name("Other"));
+    let shift = pdf_model::view::Keys {
+        shift: true,
+        modifier: false,
+        arrows: false,
+    };
+    let control = pdf_model::view::Keys {
+        shift: false,
+        modifier: true,
+        arrows: false,
+    };
+    let typed = [amount.clone()];
+    for (stimulus, activity) in [
+        (
+            Stimulus::Click {
+                clicked: &amount,
+                button: None,
+            },
+            "click",
+        ),
+        (
+            Stimulus::MouseDown {
+                pressed: &amount,
+                button: None,
+            },
+            "mouseDown",
+        ),
+        (
+            Stimulus::Exit {
+                left: &amount,
+                reaching: Some(&other),
+                left_button: None,
+                reaching_button: None,
+                exited_at_selection: false,
+                committed: None,
+            },
+            "exit",
+        ),
+        (
+            Stimulus::Entry {
+                entered: &typed,
+                before: &[],
+                typing: &[],
+            },
+            "change",
+        ),
+    ] {
+        for (keys, expected) in [
+            (shift, format!("{activity}:s1m0;")),
+            (control, format!("{activity}:s0m1;")),
+        ] {
+            let activation = held(&template, &values, stimulus, Some(keys));
+            assert_eq!(
+                log(&activation),
+                Some(expected),
+                "{activity}: {:?}",
+                activation.report
+            );
+        }
+        let untold = held(&template, &values, stimulus, None);
+        assert_eq!(log(&untold), None, "{activity}: {:?}", untold.report);
+        assert!(
+            untold.report.iter().any(|said| said.contains(&format!(
+                "$event.shift: the window did not say which keys it held during the {activity} \
+                 event"
+            ))),
+            "{activity}: {:?}",
+            untold.report
+        );
+    }
+}
+
+/// XFA 3.3 pages 398 and 399: a subform's `enter` is a row of page 398's table that sets neither
+/// `shift` nor `modifier`, so its script is refused while the field's `enter` reads them, and a
+/// script may write neither (ADR 2732).
+#[test]
+fn a_subforms_enter_reads_no_keys_and_no_script_writes_them() {
+    let (template, values) = keys_form();
+    let (amount, other) = (name("Part.Amount"), name("Other"));
+    let shift = pdf_model::view::Keys {
+        shift: true,
+        modifier: false,
+        arrows: false,
+    };
+    let entering = held(
+        &template,
+        &values,
+        Stimulus::Enter {
+            reached: &amount,
+            leaving: Some(&other),
+            reached_button: None,
+            leaving_button: None,
+        },
+        Some(shift),
+    );
+    assert_eq!(log(&entering).as_deref(), Some("enter:s1m0;"));
+    assert!(
+        entering
+            .report
+            .iter()
+            .any(|said| said.contains("$event.shift: the enter event does not set it")),
+        "the subform's enter: {:?}",
+        entering.report
+    );
+    let written = held(
+        &template,
+        &values,
+        Stimulus::Click {
+            clicked: &other,
+            button: None,
+        },
+        Some(shift),
+    );
+    assert!(
+        written
+            .report
+            .iter()
+            .any(|said| said.contains("$event.shift: read-only")),
+        "{:?}",
+        written.report
+    );
+}
+
+/// XFA 3.3 pages 398 and 402: a field's `change` sets `$event.fullText`, the full (untruncated)
+/// value where the field truncated what the person entered, and `$event.keyDown`, true if the
+/// arrow key was used to make a selection and otherwise false. The window handed `123456` to a
+/// field that kept `1234`, so `change` is `1234` and `fullText` `123456`. A `click` sets neither,
+/// and a commit whose typing the window did not describe offers neither (ADR 2732).
+#[test]
+fn a_change_reads_the_whole_text_and_whether_an_arrow_made_it() {
+    let template = [
+        field(
+            "Amount",
+            "<event activity=\"change\"><script>Log = Concat($event.fullText, \"|\", \
+             $event.change, \"|\", $event.keyDown)</script></event>\
+             <event activity=\"click\"><script>Log = $event.fullText</script></event>",
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    let values = [("Amount", "1234"), ("Log", "")];
+    let typed = [name("Amount")];
+    for (arrows, expected) in [(false, "123456|1234|0"), (true, "123456|1234|1")] {
+        let typing = [Some(Typing {
+            whole: "123456".to_owned(),
+            arrows,
+        })];
+        let activation = held(
+            &template,
+            &values,
+            Stimulus::Entry {
+                entered: &typed,
+                before: &[],
+                typing: &typing,
+            },
+            None,
+        );
+        assert_eq!(
+            log(&activation).as_deref(),
+            Some(expected),
+            "{:?}",
+            activation.report
+        );
+    }
+    let untold = entered(&template, &values, &["Amount"]);
+    assert_eq!(log(&untold), None, "{:?}", untold.report);
+    assert!(
+        untold
+            .report
+            .iter()
+            .any(|said| said
+                .contains("$event.fullText: the window did not say what the person typed")),
+        "{:?}",
+        untold.report
+    );
+    let clicked = click(&template, &values, "Amount");
+    assert!(
+        clicked
+            .report
+            .iter()
+            .any(|said| said.contains("$event.fullText: the click event does not set it")),
+        "{:?}",
+        clicked.report
     );
 }

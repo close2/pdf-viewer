@@ -524,6 +524,67 @@ fn a_fields_exit_reads_whether_a_tab_or_a_click_committed_it() {
     );
 }
 
+/// XFA 3.3 pages 398, 402 and 403: a field's `click` reads `$event.shift` and `$event.modifier`
+/// as the keys a host said it held, `Command::Keys` before the pointer, 1 or 0; and a field's
+/// `change` reads `$event.keyDown`, whether an arrow key made the selection, as the host said it
+/// at the edit rather than at the commit, since the arrow made the edit (ADR 2732).
+#[test]
+fn a_fields_events_read_the_keys_a_host_said_it_held() {
+    let fields = "<field name=\"Units\"><ui><textEdit/></ui><value><text/></value>\
+                  <event activity=\"click\"><script>$event.shift</script></event></field>\
+                  <field name=\"Total\"><ui><textEdit/></ui><value><text/></value>\
+                  <event activity=\"click\"><script>$event.modifier</script></event>\
+                  <event activity=\"change\" ref=\"Units\"><script>$event.keyDown</script>\
+                  </event></field>";
+    let mut viewer = opened_on(
+        Scripting::Run(Arc::new(Calculators::default())),
+        hybrid(fields, "<Units/><Total/>"),
+    );
+    viewer.handle(Command::Presented).for_each(drop);
+    let keys = |shift, modifier, arrows| {
+        Command::Keys(pdf_model::view::Keys {
+            shift,
+            modifier,
+            arrows,
+        })
+    };
+    // `hybrid` puts `Units` at [20 300 220 320] and `Total` at [20 260 220 280].
+    let (units, total) = ((120.0, 310.0), (120.0, 270.0));
+    viewer.handle(keys(true, false, false)).for_each(drop);
+    press_and_release(&mut viewer, units, units);
+    assert_eq!(value(&viewer, "Units"), "1", "Shift held at the click");
+    press_and_release(&mut viewer, total, total);
+    assert_eq!(value(&viewer, "Total"), "0", "Control not held");
+    viewer.handle(keys(false, true, false)).for_each(drop);
+    press_and_release(&mut viewer, total, total);
+    assert_eq!(value(&viewer, "Total"), "1", "Control held at the click");
+    let field = "form1[0].Units[0]".to_owned();
+    for (at_the_edit, expected) in [(true, "1"), (false, "0")] {
+        viewer
+            .handle(keys(false, false, at_the_edit))
+            .for_each(drop);
+        viewer
+            .handle(Command::Edit(Edit::SetField {
+                field: field.clone(),
+                value: Entered::Text("7".to_owned()),
+            }))
+            .for_each(drop);
+        viewer
+            .handle(keys(false, false, !at_the_edit))
+            .for_each(drop);
+        viewer
+            .handle(Command::CommitField {
+                field: field.clone(),
+            })
+            .for_each(drop);
+        assert_eq!(
+            value(&viewer, "Total"),
+            expected,
+            "an arrow key at the edit: {at_the_edit}"
+        );
+    }
+}
+
 /// The point of page one at `(x, y)` in its own space, in the window's pixels.
 fn on_page(viewer: &Viewer, (x, y): (f32, f32)) -> (f32, f32) {
     /// The height of `hybrid`'s `/MediaBox`.

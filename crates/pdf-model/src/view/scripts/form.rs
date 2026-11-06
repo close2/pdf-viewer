@@ -35,7 +35,7 @@ use crate::xfa::{Change, Form, FormLanguage, Limits, Overridden, Ran, Resource, 
 
 /// Most field names kept as entered by a person: a document's fields are its own, and a name past
 /// this many is not remembered for the merge (principle 3).
-const MAX_ENTERED_FIELDS: usize = 10_000;
+pub(super) const MAX_ENTERED_FIELDS: usize = 10_000;
 
 /// Most validation messages held for a host that has not taken them: a form fails as many script
 /// tests as it states, and a host that never asks is not made to hold them all (principle 3).
@@ -154,6 +154,7 @@ impl<'a> Raised<'a> {
             Raised::Entry { .. } => Stimulus::Entry {
                 entered: &[],
                 before: &[],
+                typing: &[],
             },
             Raised::Enter { reached, leaving } => Stimulus::Enter {
                 reached: reached.0,
@@ -274,6 +275,27 @@ impl ViewState {
             self.scripting.form_entered.insert(name.to_owned());
         }
         self.activate_form(document, Raised::Entry { name, before }, Instant::now())
+    }
+
+    /// Holds what the window handed the field `name` a person is typing into, `whole` before the
+    /// field's limits cut it, with whether an arrow key made it as the window last said
+    /// ([`Self::set_keys`]), until the commit's `change` event reads them as `$event.fullText`
+    /// and `$event.keyDown` (XFA 3.3 page 402; ADR 2732). `None` forgets the field: a choice or a
+    /// clear is whole when it is made and no typing is under way.
+    pub(in crate::view) fn hold_typing(&mut self, name: &str, whole: Option<&str>) {
+        let Some(whole) = whole else {
+            self.scripting.form_typing.remove(name);
+            return;
+        };
+        let typing = crate::xfa::Typing {
+            whole: whole.to_owned(),
+            arrows: self.scripting.keys.arrows,
+        };
+        if let Some(held) = self.scripting.form_typing.get_mut(name) {
+            *held = typing;
+        } else if self.scripting.form_typing.len() < MAX_ENTERED_FIELDS {
+            self.scripting.form_typing.insert(name.to_owned(), typing);
+        }
     }
 
     /// Runs the `exit` events of the keyboard focus leaving the field `left` for the field
@@ -675,16 +697,19 @@ impl ViewState {
         }
         let table = crate::view::field_table(document, crate::view::Omitted::Calculation);
         let fields = self.form_fields(document, &table);
-        let (entered, shown) = match raised {
-            Raised::Entry { name, before } => {
-                (vec![name.to_owned()], vec![before.map(str::to_owned)])
-            }
-            _ => (Vec::new(), Vec::new()),
+        let (entered, shown, typing) = match raised {
+            Raised::Entry { name, before } => (
+                vec![name.to_owned()],
+                vec![before.map(str::to_owned)],
+                vec![self.scripting.form_typing.remove(name)],
+            ),
+            _ => (Vec::new(), Vec::new(), Vec::new()),
         };
         let stimulus = match raised {
             Raised::Entry { .. } => Stimulus::Entry {
                 entered: &entered,
                 before: &shown,
+                typing: &typing,
             },
             other => other.stimulus(),
         };
@@ -700,9 +725,10 @@ impl ViewState {
             _ => Vec::new(),
         };
         let mut through = ThroughRunner::new(runner.as_ref(), started);
-        let activation = resource.activate_kept(
+        let activation = resource.activate_held(
             &fields,
             stimulus,
+            Some(self.scripting.keys),
             &mut through,
             Limits::DEFAULT,
             &mut self.scripting.form_validity,

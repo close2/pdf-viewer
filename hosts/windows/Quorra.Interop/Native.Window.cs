@@ -122,6 +122,14 @@ internal static unsafe partial class Native
 
     [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static partial int quorra_window_keys(
+        nint window,
+        [MarshalAs(UnmanagedType.U1)] bool shift,
+        [MarshalAs(UnmanagedType.U1)] bool modifier,
+        [MarshalAs(UnmanagedType.U1)] bool arrows);
+
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static partial int quorra_window_pointer(
         nint window,
         float x,
