@@ -9,7 +9,9 @@ machine's directory: it says which rows and which keys a machine file states, in
 band files ask for them (`tools/conformance/test-support/machine_bands.rs`). Every band is ADR
 1969's rule over every kept run — the smallest x 0.85 to the largest x 1.20, rounded outward — save
 the disk probes, which are ADR 2660's shape over every cold sample, and a cold first page, which
-takes its row's warm band (ADR 2158). A figure no run kept is refused by name rather than written.
+takes its row's warm band (ADR 2158). A kept reading is one the gate would judge: a figure its
+run printed as "not judged", for whatever reason, keeps nothing (ADR 2741). A figure no run kept is
+refused by name rather than written.
 """
 import argparse
 import glob
@@ -39,7 +41,10 @@ def launch(logs):
                 continue
             name, field, value = m.groups()
             probe = lines[i + 1] if i + 1 < len(lines) else ""
-            if "above one task per physical core" in probe or "not on the machine's own clock" in probe:
+            # A reading the gate declines to judge is not this machine's clock — load, a
+            # probe off its clock, a thread that waited for a processor, a busy disk — so it
+            # sets no band that will judge the next run's (ADR 2741).
+            if " not judged: " in probe:
                 continue
             row = name.split(":")[0] if name.startswith("doc/") else ""
             values[(row, field)].append(float(value))

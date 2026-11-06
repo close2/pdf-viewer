@@ -5,7 +5,8 @@
 //! that holds the lock for [`PLANTED`], and a *section* that asks for it once the holder has it.
 //! The section reports how long it waited, through the lock's own log line, and the parent judges
 //! that figure: about [`PLANTED`] where the section is the hardware's, nothing where it is not.
-//! A hold past the hang bound leaves a marker that stops every later hardware section (ADR 2665).
+//! A hold past the hang bound across a hang the kernel recorded leaves a marker that stops every
+//! later hardware section (ADR 2665); one the kernel recorded nothing of leaves a warning (ADR 2740).
 
 #![allow(
     clippy::expect_used,
@@ -26,6 +27,8 @@ use std::time::{Duration, Instant};
 const ROLE: &str = "GPU_LOCK_TEST_ROLE";
 /// How long the planted holder holds the lock.
 const PLANTED: Duration = Duration::from_millis(1500);
+/// The hang bound the kernel-log tests shorten to: a third of [`PLANTED`], so the holder passes it.
+const SHORTENED_BOUND: Duration = Duration::from_millis(500);
 /// The holder's line once it holds the lock, so that the section is started after it.
 const HOLDING: &str = "planted holder: holding";
 
@@ -93,7 +96,12 @@ impl Planted {
 
 /// Starts the planted holder and returns once it holds the lock.
 fn plant(lock: &Path, log: &Path) -> Planted {
-    let mut child = child("holder", lock, log, &[])
+    plant_with(lock, log, &[])
+}
+
+/// [`plant`], with variables of the holder's own.
+fn plant_with(lock: &Path, log: &Path, environment: &[(&str, &str)]) -> Planted {
+    let mut child = child("holder", lock, log, environment)
         .stdout(Stdio::piped())
         .spawn()
         .expect("the planted holder starts");
@@ -191,25 +199,69 @@ fn a_processor_s_adapter_never_waits() {
     );
 }
 
-/// The hang guard: a section held past the hang bound leaves the marker, and the next hardware
-/// section of any process refuses rather than feed a card that may still be recovering (ADR
-/// 2665). The bound is shortened below the planted hold, so the planted holder is the hang.
+/// Seconds since the epoch now, as `journalctl -o short-unix` prints a line's time.
+fn unix_now() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("a clock after 1970")
+        .as_secs_f64()
+}
+
+/// amdgpu's line for the shared card's ring timeout of 2026-11-05 08:51:22, verbatim after its
+/// time: the one hang this machine's kernel recorded while a section held past the bound.
+const SOFT_RECOVERED: &str =
+    "agents kernel: amdgpu 0000:01:00.0: amdgpu: ring gfx timeout, but soft recovered";
+
+/// A kernel log holding a line at `at` that is no hang, and the timeout an hour before it.
+fn quiet_log_at(at: f64) -> String {
+    format!(
+        "{:.6} {SOFT_RECOVERED}\n{at:.6} agents kernel: audit: type=1400 apparmor=\"STATUS\"\n",
+        at - 3600.0
+    )
+}
+
+/// The planted holder held past a bound shortened under its hold, with `kernel` read as the
+/// kernel's log, which the parent rewrites through `write` once the holder holds the lock — the
+/// time a hang's line would be written. Returns the marker and the slow-section record.
+fn held_past_the_bound(
+    name: &str,
+    kernel: impl FnOnce(&Path),
+) -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
+    let (lock, log) = scratch(name);
+    let marker = lock.with_file_name("gpu.lock.pdf-viewer-hung");
+    let slow = lock.with_file_name("gpu.lock.pdf-viewer-slow");
+    drop(std::fs::remove_file(&marker));
+    drop(std::fs::remove_file(&slow));
+    let stub = lock.with_file_name("kernel.log");
+    drop(std::fs::remove_file(&stub));
+    let bound = SHORTENED_BOUND.as_millis().to_string();
+    let stub_name = stub.to_string_lossy().into_owned();
+    let environment = [
+        (gpu_lock::HUNG_AFTER_MS, bound.as_str()),
+        (gpu_lock::KERNEL_LOG, stub_name.as_str()),
+    ];
+    let holder = plant_with(&lock, &log, &environment);
+    kernel(&stub);
+    holder.finish();
+    (lock, marker, slow)
+}
+
+/// The hang guard: a section held past the hang bound while the kernel records a ring timeout
+/// leaves the marker, and the next hardware section of any process refuses rather than feed a card
+/// that may still be recovering (ADRs 2665, 2740) — the shape of 2026-11-05 08:51, whose frame held
+/// 12.6 s across amdgpu's "soft recovered" line. The bound is shortened below the planted hold.
 #[test]
 fn a_section_held_past_the_hang_bound_stops_every_later_section() {
-    let (lock, log) = scratch("hung");
-    let marker = lock.with_file_name("gpu.lock.pdf-viewer-hung");
-    drop(std::fs::remove_file(&marker));
-    let bound = (PLANTED / 3).as_millis().to_string();
-    let shortened = [(gpu_lock::HUNG_AFTER_MS, bound.as_str())];
-    let status = child("holder", &lock, &log, &shortened)
-        .stdout(Stdio::null())
-        .status()
-        .expect("the holder runs");
-    assert!(status.success(), "the planted holder failed");
-    let said = std::fs::read_to_string(&marker).expect("a hold past the bound leaves the marker");
+    let (lock, marker, _) = held_past_the_bound("hung", |stub| {
+        let line = format!("{:.6} {SOFT_RECOVERED}\n", unix_now());
+        std::fs::write(stub, line).expect("the kernel's line");
+    });
+    let log = lock.with_file_name("holds.log");
+    let said = std::fs::read_to_string(&marker)
+        .expect("a hold past the bound across a ring timeout leaves the marker");
     assert!(
-        said.contains("section=planted-holder"),
-        "the marker names the section that hung: {said}"
+        said.contains("section=planted-holder") && said.contains("ring gfx timeout"),
+        "the marker names the section that hung and the kernel's line: {said}"
     );
     let output = child("declared", &lock, &log, &[])
         .output()
@@ -233,6 +285,68 @@ fn a_section_held_past_the_hang_bound_stops_every_later_section() {
         status.success(),
         "the section refused after the marker was removed"
     );
+}
+
+/// A section held past the bound while the kernel recorded nothing of the card is slow, not hung:
+/// it leaves a warning line and no marker, and the next section runs (ADR 2740) — the shape of
+/// 2026-11-06 07:40, a 9.4 s turn round at a load near 30 with no amdgpu line in the kernel's log.
+/// The log the holder reads holds a ring timeout an hour old, which is no line of this section's.
+#[test]
+fn a_slow_section_the_kernel_says_nothing_of_leaves_a_warning_and_no_marker() {
+    let (lock, marker, slow) = held_past_the_bound("slow", |stub| {
+        std::fs::write(stub, quiet_log_at(unix_now())).expect("the kernel's log");
+    });
+    assert!(
+        !marker.exists(),
+        "a slow section with no kernel line left the marker: {:?}",
+        std::fs::read_to_string(&marker)
+    );
+    let warned = std::fs::read_to_string(&slow).expect("the slow section is recorded");
+    assert!(
+        warned.contains("section=planted-holder") && warned.contains("kernel=quiet"),
+        "the warning names the section: {warned}"
+    );
+    let log = lock.with_file_name("holds.log");
+    let status = child("declared", &lock, &log, &[])
+        .stdout(Stdio::null())
+        .status()
+        .expect("the section runs");
+    assert!(status.success(), "a section refused after a slow one");
+}
+
+/// A kernel log the process cannot read leaves the marker on the bound alone, because an
+/// unmarked hang lets the next suite reset the card under the other user (ADRs 2665, 2740).
+#[test]
+fn a_section_past_the_bound_whose_kernel_log_is_unread_leaves_the_marker() {
+    let (_, marker, _) = held_past_the_bound("unread", |_| {});
+    let said = std::fs::read_to_string(&marker).expect("an unread kernel log leaves the marker");
+    assert!(
+        said.contains("kernel=unread"),
+        "the marker says the log was unread: {said}"
+    );
+}
+
+/// The kernel's lines that count as a hang, read against 2026-11-03's and 2026-11-05's own
+/// (ADR 2665's table): each in its window, none before it, and no line that is not amdgpu's.
+#[test]
+fn the_kernel_lines_a_hang_is_read_from() {
+    let at = 1_793_868_682.831_733;
+    let log = quiet_log_at(at);
+    assert_eq!(gpu_lock::hang_line(&log, at - 10.0), None, "{log}");
+    let timeout = format!("{at:.6} {SOFT_RECOVERED}");
+    assert!(gpu_lock::hang_line(&timeout, at - 12.0).is_some());
+    assert_eq!(gpu_lock::hang_line(&timeout, at + 1.0), None);
+    for line in [
+        "amdgpu 0000:01:00.0: amdgpu: GPU reset(9) succeeded!",
+        "amdgpu 0000:01:00.0: amdgpu: GPU fault detected: 147 0x05c00402",
+        "amdgpu 0000:01:00.0: amdgpu: gfx_v8_0_priv_reg_irq: Illegal register access in command stream",
+        "amdgpu 0000:01:00.0: amdgpu: ring gfx timeout, signaled seq=1, emitted seq=2",
+    ] {
+        let line = format!("{at:.6} agents kernel: {line}");
+        assert!(gpu_lock::hang_line(&line, at).is_some(), "{line}");
+    }
+    let other = format!("{at:.6} agents kernel: nvme nvme0: I/O 12 QID 3 timeout, aborting");
+    assert_eq!(gpu_lock::hang_line(&other, at), None);
 }
 
 /// The seam on the hardware adapter: the bring-up waits for the planted holder. `#[ignore]`d

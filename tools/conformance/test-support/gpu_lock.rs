@@ -26,14 +26,18 @@
 //! - **Bounded.** A wait longer than `GPU_LOCK_TIMEOUT` seconds — `with-gpu-lock`'s own variable,
 //!   600 by default as there — panics naming the file, because a test that waits forever reports
 //!   nothing.
-//! - **Stopped by a hang.** A hardware section that runs past [`HUNG_AFTER`] — the kernel's ring timeout
-//!   is ten seconds, and no frame this program draws on the card comes near one — is taken for a
-//!   hung device, and leaves a marker beside the lock file ([`hung_marker`]). Every later hardware
-//!   section, in any process, refuses while the marker is there, until a person has read the
-//!   kernel's log and removed it: the next process's first frame after a recovery is where the
-//!   kernel has reported a privileged register written by the command stream, so a suite that goes
-//!   on after a hang feeds a card that is still recovering, and every reset cancels the other
-//!   user's work too (ADR 2665).
+//! - **Stopped by a hang, as the kernel records one.** A hardware section that runs past
+//!   [`HUNG_AFTER`] — the kernel's ring timeout is ten seconds, so a job the kernel times out holds
+//!   its section at least that long — asks the kernel's log ([`hang_line`]) whether amdgpu timed a
+//!   ring out, reset the card or reported a fault inside the section's window. Where it did, or
+//!   where the log cannot be read, the section leaves a marker beside the lock file
+//!   ([`hung_marker`]), and every later hardware section, in any process, refuses while it stands,
+//!   until a person has read the kernel's log and removed it: the next process's first frame after
+//!   a recovery is where the kernel has reported a privileged register written by the command
+//!   stream, so a suite that goes on after a hang feeds a card that is still recovering, and every
+//!   reset cancels the other user's work too (ADR 2665). Where the log was read and says nothing,
+//!   the section was slow and not hung: it appends a warning line beside the lock file
+//!   ([`slow_record`]) and stops nothing (ADR 2740).
 //! - **Measured.** Where `PDF_VIEWER_GPU_LOCK_LOG` names a file, every hold appends one line to it —
 //!   the process, what the outermost section was, how long it waited and how long it held — so a
 //!   run's longest hold and total locked time are an `awk` over the file (`tools/gpu-holds.sh`).
@@ -70,6 +74,19 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_mins(10);
 pub(crate) const HUNG_AFTER: Duration = Duration::from_secs(9);
 /// The variable that shortens [`HUNG_AFTER`], in milliseconds, for the marker's own test.
 pub(crate) const HUNG_AFTER_MS: &str = "PDF_VIEWER_GPU_HUNG_AFTER_MS";
+/// The variable naming a file read in place of the kernel's log, for the marker's own tests. Its
+/// lines are `journalctl -k -o short-unix`'s: seconds since the epoch, then the message.
+pub(crate) const KERNEL_LOG: &str = "PDF_VIEWER_GPU_KERNEL_LOG";
+/// How long a section past the bound waits for the kernel's line: amdgpu prints "soft recovered"
+/// once the wave is killed, which is when the job's fence lets the section end, so the line can
+/// follow the section's end — on 2026-11-05 the marker was written in second 1793868682 and the
+/// line is stamped 1793868682.83. The wait is spent only by a section that has already run nine
+/// seconds and found nothing, and five seconds leave the journal room on a machine whose load
+/// has reached 677 (ADR 2740).
+const KERNEL_GRACE: Duration = Duration::from_secs(5);
+/// How far before a section's start a kernel line still counts as its, in seconds: one second of
+/// rounding between this process's wall clock and the journal's.
+const KERNEL_SLACK: f64 = 1.0;
 /// How often a waiting section asks again: short beside a frame, long beside a system call.
 const POLL: Duration = Duration::from_millis(5);
 
@@ -122,14 +139,32 @@ fn refuse_after_a_hang() {
     if let Ok(said) = std::fs::read_to_string(&marker) {
         panic!(
             "a device section on the shared card hung ({}); no hardware section runs until a \
-             person has read `journalctl -k` and removed {} (ADR 2665)",
+             person has read `journalctl -k` and removed {} (ADRs 2665, 2740)",
             said.trim(),
             marker.display()
         );
     }
 }
 
-/// Leaves the marker when a hardware section was held past the hang bound.
+/// What the kernel's log says of the window a slow section ran in.
+enum Kernel {
+    /// amdgpu timed a ring out, reset the card or reported a fault in the window: its line.
+    Hang(String),
+    /// The log was read and says nothing of the card in the window.
+    Quiet,
+    /// The log could not be read, and why.
+    Unread(String),
+}
+
+/// Leaves the marker when a hardware section held past the hang bound ran while the kernel
+/// recorded the card hanging, or when the kernel's log cannot say (ADR 2740).
+///
+/// The bound is the kernel's own figure read backwards — a job amdgpu times out holds its section
+/// at least ten seconds — so a section past it *may* have hung, and the kernel's log is what says
+/// whether it did. A section of many jobs, or one starved of processors, passes the bound with no
+/// job anywhere near the ring timeout; it leaves a warning and stops nothing. A log this process
+/// cannot read leaves the marker on the bound alone, because an unmarked hang lets the next suite
+/// reset the card under the other user (ADR 2665).
 fn mark_if_hung(label: &str, holding: Duration) {
     let bound = std::env::var(HUNG_AFTER_MS)
         .ok()
@@ -139,21 +174,134 @@ fn mark_if_hung(label: &str, holding: Duration) {
         return;
     }
     let Some(marker) = hung_marker() else { return };
-    let at = std::time::SystemTime::now()
+    let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |since| since.as_secs());
-    let line = format!(
-        "pid={} section={label} held_ms={:.0} unix_time={at}\n",
+        .unwrap_or_default();
+    let began = now.as_secs_f64() - holding.as_secs_f64();
+    let said = format!(
+        "pid={} section={label} held_ms={:.0} unix_time={}",
         std::process::id(),
-        holding.as_secs_f64() * 1e3
+        holding.as_secs_f64() * 1e3,
+        now.as_secs()
     );
+    let kernel = match kernel_since(began - KERNEL_SLACK) {
+        Kernel::Quiet => {
+            let note = format!("{said} kernel=quiet");
+            eprintln!(
+                "a device section on the shared card was held past the hang bound, and the \
+                 kernel recorded no ring timeout, reset or fault: slow, not hung ({note})"
+            );
+            if let Some(record) = slow_record()
+                && let Ok(mut file) = OpenOptions::new().create(true).append(true).open(record)
+            {
+                // A warning's line: a failed append loses the line and stops nothing.
+                drop(file.write_all(format!("{note}\n").as_bytes()));
+            }
+            return;
+        }
+        Kernel::Hang(line) => format!("kernel=\"{line}\""),
+        Kernel::Unread(why) => format!("kernel=unread ({why})"),
+    };
     // The marker is the guard: a failed write is said, because without it the suite goes on.
-    if let Err(error) = std::fs::write(&marker, line) {
+    if let Err(error) = std::fs::write(&marker, format!("{said} {kernel}\n")) {
         eprintln!(
             "the hung-section marker {} was not written: {error}",
             marker.display()
         );
     }
+}
+
+/// The file a slow section's warning is appended to, beside the lock file.
+pub(crate) fn slow_record() -> Option<PathBuf> {
+    let lock = lock_file()?;
+    let name = lock.file_name()?.to_string_lossy().into_owned();
+    Some(lock.with_file_name(format!("{name}.pdf-viewer-slow")))
+}
+
+/// Asks the kernel's log about the card from `since` (seconds since the epoch), waiting
+/// [`KERNEL_GRACE`] for a line the journal has not yet stored.
+fn kernel_since(since: f64) -> Kernel {
+    let asked = Instant::now();
+    loop {
+        match kernel_lines(since) {
+            Err(why) => return Kernel::Unread(why),
+            Ok(text) => {
+                if let Some(line) = hang_line(&text, since) {
+                    return Kernel::Hang(line);
+                }
+            }
+        }
+        if asked.elapsed() >= KERNEL_GRACE {
+            return Kernel::Quiet;
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+}
+
+/// The kernel's log from `since` in `journalctl -k -o short-unix`'s shape, or why it is unread.
+///
+/// `journalctl` answers a user outside the `systemd-journal` group with that user's own journal,
+/// which holds no kernel line, and exits well; so an empty window is believed only where the log
+/// holds some kernel line at all. [`KERNEL_LOG`] names a file read instead, whole.
+fn kernel_lines(since: f64) -> Result<String, String> {
+    if let Some(stub) = std::env::var_os(KERNEL_LOG) {
+        let text = std::fs::read_to_string(&stub)
+            .map_err(|error| format!("{}: {error}", Path::new(&stub).display()))?;
+        return if text.trim().is_empty() {
+            Err(format!("{} holds no line", Path::new(&stub).display()))
+        } else {
+            Ok(text)
+        };
+    }
+    let journal = |extra: &[String]| -> Result<String, String> {
+        let said = std::process::Command::new("journalctl")
+            .args(["-k", "-q", "--no-pager", "-o", "short-unix"])
+            .args(extra)
+            .output()
+            .map_err(|error| format!("journalctl: {error}"))?;
+        if said.status.success() {
+            Ok(String::from_utf8_lossy(&said.stdout).into_owned())
+        } else {
+            Err(format!(
+                "journalctl -k: {}",
+                String::from_utf8_lossy(&said.stderr).trim()
+            ))
+        }
+    };
+    // Whole seconds, floored: the window's edge is filtered again by `hang_line`.
+    let window = journal(&[format!("--since=@{}", since.max(0.0).floor())])?;
+    if window.trim().is_empty()
+        && journal(&["-n".to_owned(), "1".to_owned()])?
+            .trim()
+            .is_empty()
+    {
+        return Err("journalctl -k returns no kernel line to this user".to_owned());
+    }
+    Ok(window)
+}
+
+/// The first line of `log` at or after `since` in which amdgpu records a hang: a ring timeout, a
+/// reset, a fault, or a command stream's illegal register access (ADR 2665's table).
+///
+/// Any process's line counts, not only this one's: a recovery the other user's job caused leaves
+/// the same card recovering under the next suite, and amdgpu's "soft recovered" line names no
+/// process at all.
+pub(crate) fn hang_line(log: &str, since: f64) -> Option<String> {
+    log.lines()
+        .filter(|line| {
+            line.split_whitespace()
+                .next()
+                .and_then(|time| time.parse::<f64>().ok())
+                .is_some_and(|time| time >= since)
+        })
+        .find(|line| {
+            let line = line.to_ascii_lowercase();
+            line.contains("amdgpu")
+                && ["timeout", "gpu reset", "fault", "illegal register"]
+                    .iter()
+                    .any(|word| line.contains(word))
+        })
+        .map(|line| line.trim().replace('"', "'"))
 }
 
 /// The place as `tools/places.sh` answers it, from the workspace that built this test.
