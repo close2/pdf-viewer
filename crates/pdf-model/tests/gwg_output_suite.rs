@@ -92,6 +92,8 @@ const DEVICEN_YELLOW: &str = "1-CMYK/Patches/GWG191_DeviceN_Overprint_Yellow_X1a
 const DEVICEN_WHITE: &str = "1-CMYK/Patches/GWG192_DeviceN_Overprint_White_X1a.pdf";
 const SOURCE_PROFILE: &str = "3-ICC-CMS/Patches/GWG130_ICC_Source_Profile_x4.pdf";
 const BLEND_RGB: &str = "3-ICC-CMS/Patches/GWG161_Transp_Basic_BM_ICCBasedRGB_x4.pdf";
+const BLEND_CMYK: &str = "3-ICC-CMS/Patches/GWG164_Transp_Basic_BM_ICCbasedCMYK_x4.pdf";
+const CMYK_TEST_PAGE: &str = "1-CMYK/Test pages/Ghent_PDF-Output-Test-V50_CMYK_X4.pdf";
 const INTENT_INDICATOR: &str = "3-ICC-CMS/Patches/GWG221_OutputIntentChangeIndicator_x4.pdf";
 const GREY_OVERPRINT: &str = "2-SPOT/Patches/GWG030_Gray_K_black_OP_X1.pdf";
 
@@ -187,6 +189,37 @@ const CHECKS: &[Check] = &[
     blend_check(View::Press, "Multiply", (121, 70)),
     blend_check(View::Press, "Color Dodge", (436, 70)),
     blend_check(View::Press, "Color", (436, 156)),
+    // 16.4: Luminosity's `X` is an `ICCBased` CMYK colour over a `DeviceCMYK` one of nearly the
+    // same luminosity, and §11.3.5.3's CMYK rule takes K from the source. What is left is the
+    // conversion between two profiles (§10.3.1) under the `Default` black point compensation
+    // §8.6.5.9 leaves to the processor: ten levels, the README's own faint example's eleven (ADR
+    // 2761). Centred at (515, 156); the window 20 pixels left is between the arms.
+    Check {
+        patch: BLEND_CMYK,
+        what: "Luminosity",
+        view: View::Screen,
+        probe: Probe::Equal((513, 154), (493, 154)),
+        passes: true,
+    },
+    Check {
+        patch: BLEND_CMYK,
+        what: "Luminosity",
+        view: View::Press,
+        probe: Probe::Equal((513, 154), (493, 154)),
+        passes: true,
+    },
+    // The CMYK test page's 19.0, 19.1 and 19.2 c: a `DeviceN` naming process colourants paints
+    // them on the simulated press, its zero tints included, because §8.6.7 confines the nonzero
+    // overprint mode to `DeviceCMYK` (ADR 2736). An `X` here is the space read as converted to
+    // `DeviceCMYK` before painting, under the nonzero mode (deficit 8).
+    overprint_check(CMYK_TEST_PAGE, "19.0 c on the test page", (454, 1242), true),
+    overprint_check(
+        CMYK_TEST_PAGE,
+        "19.1 c on the test page",
+        (1149, 1207),
+        true,
+    ),
+    overprint_check(CMYK_TEST_PAGE, "19.2 c on the test page", (454, 1653), true),
     // 22.1: the grey Color Burn indicator shows no `X` when the intent is the file's own; its
     // `X` is drawn `Perceptual` (ADR 2757). Centred at (319, 150), beside the arm at the top.
     Check {
