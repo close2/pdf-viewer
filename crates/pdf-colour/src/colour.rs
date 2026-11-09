@@ -593,6 +593,56 @@ mod tests {
         );
     }
 
+    /// ISO 32000-2 §11.7.5.3: "the rendering intent to use for converting an object's colour
+    /// (whether that of an elementary object or of a transparency group) is determined by the
+    /// rendering intent parameter associated with the object". A CIE-based colour painted
+    /// `Perceptual` into a press sampled under the group's `RelativeColorimetric` enters through
+    /// the press's `B2A0`, and the same colour painted `Saturation` through its `B2A2`; the
+    /// press's own rendering governs only the conversion out (ADR 2757).
+    #[test]
+    fn a_cie_colour_enters_the_press_by_its_own_intent_not_the_groups() {
+        use crate::icc::A2b;
+        let profile =
+            crate::icc::Profile::parse(&crate::icc::fixtures::intent_tables_cmyk_profile())
+                .expect("the fixture parses");
+        let press = super::press_for_profile(&profile, Rendering::new(A2b::Colorimetric, true))
+            .expect("a press");
+        let lab = ColourSpace::Lab {
+            white: super::D50,
+            black: [0.0; 3],
+            range: [-100.0, 100.0, -100.0, 100.0],
+        };
+        let painted =
+            |transform| lab.to_cmyk(&[50.0, 0.0, 0.0], Rendering::new(transform, true), &press);
+        let fifth = |inks: [f32; 4], ink: usize| (inks[ink] - 0.2).abs() < 1e-3;
+        let perceptual = painted(A2b::Perceptual);
+        assert!(
+            fifth(perceptual, 0),
+            "Perceptual comes in by B2A0's cyan: {perceptual:?}"
+        );
+        let saturation = painted(A2b::Saturation);
+        assert!(
+            fifth(saturation, 2),
+            "Saturation comes in by B2A2's yellow: {saturation:?}"
+        );
+        let colorimetric = painted(A2b::Colorimetric);
+        assert!(
+            fifth(colorimetric, 1),
+            "RelativeColorimetric comes in by B2A1's magenta: {colorimetric:?}"
+        );
+        // A device colour is not CIE-based, so no object's intent reaches it: `DeviceRGB` enters
+        // under the press's own parameters, whatever the graphics state's intent.
+        let device = ColourSpace::Rgb.to_cmyk(
+            &[0.5, 0.5, 0.5],
+            Rendering::new(A2b::Perceptual, true),
+            &press,
+        );
+        assert!(
+            fifth(device, 1),
+            "DeviceRGB comes in by the press's B2A1: {device:?}"
+        );
+    }
+
     /// A space's initial colour is the one ISO 32000-2 §8.6.8 gives it, which is often not
     /// black.
     ///

@@ -40,9 +40,12 @@
 //! **Which of those three a colour goes through is the rendering intent's**, since ADR 1032:
 //! [`A2b`] is the choice and [`Rendering`] is what carries it beside §8.6.5.9's black point
 //! compensation, which is [`Profile::to_rgb_with`]'s and which [`Profile::to_device`] undoes.
-//! The `B2A` direction still takes `B2A1` over `B2A0` whatever the intent says — §11.7.5.3's
-//! ledger row is where that stands — except in one place, `Profile::perceptual_from_pcs`,
-//! where a clause asks for `B2A0` by name.
+//! **The `B2A` direction is the intent's as well**, since ADR 2757: §11.7.5.3's intent
+//! "influences the conversion from a CIE-based colour space to a target colour space, taking
+//! into account the target space's colour gamut", and the gamut mapping of an ICC conversion
+//! is in its destination's table, so `Perceptual` goes in through `B2A0`, `Saturation` through
+//! `B2A2` and the two colorimetric intents through `B2A1` — `Profile::inverse_for` is the choice,
+//! with the fallback `Profile::route` takes for an intent the profile tabulates nothing for.
 //!
 //! **And the compensation is ISO 18619's own, since ADR 1253.** §8.6.5.9 states the `ON` case
 //! by reference — "colour conversion shall be carried out according to the provisions in
@@ -244,11 +247,13 @@ pub struct Profile {
     /// *source* space and forbids of one used as a blending space; a press without one keeps
     /// the right inverse of its own `A2B` that every press took before ADR 0796.
     ///
-    /// An `Arc` rather than a `Box` so that [`Profile::perceptual_from_pcs`] can hand the
-    /// same table back where `B2A0` is the tag this one took.
+    /// This is the colorimetric intents' table, and the one the other two fall back to.
     inverse: Option<Arc<Lut>>,
-    /// Where ISO/CD 18619 (2013) section 4.2.3's perceptual "from CIE" transform comes from.
-    perceptual_inverse: PerceptualInverse,
+    /// Where the perceptual "from CIE" transform comes from: §11.7.5.3's `Perceptual` into
+    /// this profile, and ISO/CD 18619 (2013) section 4.2.3's route for an output-capable source.
+    perceptual_inverse: IntentInverse,
+    /// Where the saturation "from CIE" transform, `B2A2`, comes from.
+    saturation_inverse: IntentInverse,
     /// The medium's white in connection-space XYZ, which [`A2b::Absolute`] reproduces.
     ///
     /// ICC.1:2022 clause 9.2.36's `wtpt` tag: the media white point as chromatically adapted
@@ -306,19 +311,20 @@ struct Alternate {
     route: OnceLock<Option<Route>>,
 }
 
-/// Where a profile's perceptual "from CIE" transform comes from.
+/// Where a profile's perceptual (`B2A0`) or saturation (`B2A2`) "from CIE" transform comes from.
 ///
-/// ISO/CD 18619 (2013) section 4.2.3 asks for `B2A0` by name, and it is the only caller in
-/// this crate that does; every other reads [`Profile::inverse`]. This says which of the two
-/// answers a given profile has, without a second copy of a table both would share.
+/// §11.7.5.3's intent selects the table a colour enters a press by (ADR 2757), and ISO/CD
+/// 18619 (2013) section 4.2.3 asks for `B2A0` by name. This says which of two answers a given
+/// profile has for one intent, without a second copy of a table both would share.
 #[derive(Debug, Clone)]
-enum PerceptualInverse {
-    /// [`Profile::inverse`] is the answer: it is the `B2A0` tag itself, or the profile states
-    /// no `B2A0` and section 3.5 leaves whichever table it does state.
+enum IntentInverse {
+    /// [`Profile::inverse`] is the answer: it is this intent's tag itself, or the profile states
+    /// no such tag and the colorimetric table stands in — §8.6.5.8's own disposal of an intent a
+    /// processor cannot honour, and section 3.5's for the perceptual route.
     Inverse,
-    /// `B2A0` is a tag of its own, kept as bytes and parsed on first use for [`Alternate`]'s
-    /// reason. `Some(None)` in the cell is a tag that failed to parse, which falls back the
-    /// way an absent one does.
+    /// The intent's tag is one of its own, kept as bytes and parsed on first use for
+    /// [`Alternate`]'s reason. `Some(None)` in the cell is a tag that failed to parse, which
+    /// falls back the way an absent one does.
     Own {
         /// The tag's bytes.
         tag: Arc<[u8]>,
@@ -999,21 +1005,8 @@ impl Profile {
             return None;
         };
 
-        // The "from CIE" table, by the same ranking as the "to CIE" one: `B2A1` is relative
-        // colorimetric, which is PDF's default rendering intent, and `B2A0` is the fallback.
-        // A table this cannot read costs the profile nothing it had — the conversion out is
-        // the profile's whatever the conversion in is — so a refusal here is a `None` and
-        // not a failed parse.
-        let inverse_at = locate(b"B2A1").or_else(|| locate(b"B2A0"));
-        let (inverse, perceptual_inverse) = from_pcs_tables(
-            inverse_at.and_then(slice),
-            locate(b"B2A0")
-                .filter(|at| Some(*at) != inverse_at)
-                .and_then(slice),
-            lab_pcs,
-            version_4,
-            channels,
-        );
+        let (inverse, perceptual_inverse, saturation_inverse) =
+            from_pcs_tables(locate, slice, lab_pcs, version_4, channels);
 
         // The other two intents' tables, kept as bytes and parsed on first use. A tag that is
         // the one already taken is not kept: it would be a second parse of one table, and the
@@ -1041,6 +1034,7 @@ impl Profile {
             saturation: alternate(b"A2B2"),
             inverse,
             perceptual_inverse,
+            saturation_inverse,
             media_white,
             identity: identity_of(data),
         };
@@ -1180,9 +1174,35 @@ impl Profile {
     /// connection space to its own, so a profile stating only `B2A1` is output-capable and the
     /// table it states is the one it offers. `None` for a profile carrying neither, which
     /// sends [`Profile::local_black`] to the vertex walk.
-    fn perceptual_from_pcs(&self) -> Option<Arc<Lut>> {
-        let PerceptualInverse::Own { tag, table } = &self.perceptual_inverse else {
-            return self.inverse.clone();
+    fn perceptual_from_pcs(&self) -> Option<&Lut> {
+        self.own_or_inverse(&self.perceptual_inverse)
+    }
+
+    /// The "from CIE" table the rendering intent selects, which is §11.7.5.3's to choose.
+    ///
+    /// > The rendering intent influences the conversion from a CIE-based colour space to a
+    /// > target colour space, taking into account the target space's colour gamut (the range
+    /// > of colours it can reproduce).
+    ///
+    /// An ICC conversion's gamut mapping is its destination's `B2A` table, and ICC.1:2022 gives
+    /// one table per intent: `B2A0` perceptual, `B2A1` colorimetric (relative, and absolute
+    /// once the media white is applied, which [`Self::to_device`] does), `B2A2` saturation —
+    /// the correspondence §8.6.5.8 states when it says its intents "have been chosen to
+    /// correspond to those defined by the International Color Consortium". An intent whose
+    /// table the profile does not state falls back to the colorimetric one, as [`Self::route`]
+    /// does for the other direction. ADR 2757.
+    fn inverse_for(&self, transform: A2b) -> Option<&Lut> {
+        match transform {
+            A2b::Colorimetric | A2b::Absolute => self.inverse.as_deref(),
+            A2b::Perceptual => self.perceptual_from_pcs(),
+            A2b::Saturation => self.own_or_inverse(&self.saturation_inverse),
+        }
+    }
+
+    /// An intent's own "from CIE" table, parsed on first use, or [`Profile::inverse`].
+    fn own_or_inverse<'a>(&'a self, own: &'a IntentInverse) -> Option<&'a Lut> {
+        let IntentInverse::Own { tag, table } = own else {
+            return self.inverse.as_deref();
         };
         table
             .get_or_init(|| {
@@ -1190,8 +1210,8 @@ impl Profile {
                     .filter(|parsed| parsed.grid.len() == 3 && parsed.outputs >= self.channels)
                     .map(Arc::new)
             })
-            .clone()
-            .or_else(|| self.inverse.clone())
+            .as_deref()
+            .or(self.inverse.as_deref())
     }
 
     /// This route's black point, computed on first use.
@@ -1424,10 +1444,13 @@ impl Profile {
             Transform::Grey(curve) => curve.owned_bytes(),
         };
         let inverse = self.inverse.as_ref().map_or(0, |lut| lut.owned_bytes());
-        let own_inverse = match &self.perceptual_inverse {
-            PerceptualInverse::Inverse => 0,
-            PerceptualInverse::Own { tag, .. } => tag_and_parse_bytes(tag),
-        };
+        let own_inverse = [&self.perceptual_inverse, &self.saturation_inverse]
+            .into_iter()
+            .map(|own| match own {
+                IntentInverse::Inverse => 0,
+                IntentInverse::Own { tag, .. } => tag_and_parse_bytes(tag),
+            })
+            .fold(0usize, usize::saturating_add);
         transform
             .saturating_add(inverse)
             .saturating_add(own_inverse)
@@ -1532,7 +1555,9 @@ impl Profile {
     /// Equations (1) to (3), the reciprocal ratio, applied to *this* profile's white since a
     /// colour entering a press is relative to the press's paper — so that a colour taken out
     /// of the press and brought back in lands on the device colour it came from, to the
-    /// profile's own round-trip precision.
+    /// profile's own round-trip precision. Its intent also selects the table, which is
+    /// `Profile::inverse_for`'s: the intent of the *object* being converted, which §11.7.5.3 makes
+    /// "the rendering intent parameter associated with the object" (ADR 2757).
     ///
     /// The result has the profile's channel count and zeros beyond it. `None` where the
     /// profile carries no table this crate reads, which [`Self::is_bidirectional`] says in
@@ -1561,7 +1586,7 @@ impl Profile {
             }
             return Some(out);
         }
-        let inverse = self.inverse.as_ref()?;
+        let inverse = self.inverse_for(rendering.transform())?;
         // Section 4.2.7's map run backwards, on the route the colour was produced *under*
         // rather than on the colorimetric one: this is a round trip and not a second
         // compensation, so what it has to undo is whatever [`Self::to_xyz_with`] applied.
@@ -1850,29 +1875,37 @@ impl Lut {
 /// The D50 white point, which is the connection space's own.
 const WHITE: [f32; 3] = crate::colour::D50;
 
-/// The two "from CIE" tables [`Profile::parse`] keeps apart.
+/// The three "from CIE" tables [`Profile::parse`] keeps apart, by the tags `locate` finds and
+/// `slice` cuts out of the profile.
 ///
-/// `inverse_tag` is `B2A1` or, where the profile states none, `B2A0`; `perceptual_tag` is
-/// `B2A0` where that is a tag the first did not take. A table this cannot read costs the
-/// profile nothing it had — the conversion out is the profile's whatever the conversion in is
-/// — so a refusal here is a `None` and not a failed parse.
-fn from_pcs_tables(
-    inverse_tag: Option<&[u8]>,
-    perceptual_tag: Option<&[u8]>,
+/// The first is ranked as the "to CIE" one is: `B2A1` is relative colorimetric, which is PDF's
+/// default rendering intent, and `B2A0` is the fallback. The other two are `B2A0` and `B2A2`, each
+/// kept as bytes where it is a tag the first did not take, for `Profile::inverse_for` (ADR 2757).
+/// A table this cannot read costs the profile nothing it had — the conversion out is the
+/// profile's whatever the conversion in is — so a refusal here is a `None` and not a failed parse.
+fn from_pcs_tables<'a>(
+    locate: impl Fn(&[u8]) -> Option<(usize, usize)>,
+    slice: impl Fn((usize, usize)) -> Option<&'a [u8]>,
     lab_pcs: bool,
     version_4: bool,
     channels: usize,
-) -> (Option<Arc<Lut>>, PerceptualInverse) {
-    let inverse = inverse_tag
+) -> (Option<Arc<Lut>>, IntentInverse, IntentInverse) {
+    let inverse_at = locate(b"B2A1").or_else(|| locate(b"B2A0"));
+    let inverse = inverse_at
+        .and_then(&slice)
         .and_then(|table| parse_lut(table, lab_pcs, version_4, true))
         .filter(|table| table.grid.len() == 3 && table.outputs >= channels)
         .map(Arc::new);
-    let perceptual =
-        perceptual_tag.map_or(PerceptualInverse::Inverse, |tag| PerceptualInverse::Own {
-            tag: Arc::from(tag),
-            table: OnceLock::new(),
-        });
-    (inverse, perceptual)
+    let [perceptual, saturation] = [b"B2A0", b"B2A2"].map(|name| {
+        locate(name)
+            .filter(|at| Some(*at) != inverse_at)
+            .and_then(&slice)
+            .map_or(IntentInverse::Inverse, |tag| IntentInverse::Own {
+                tag: Arc::from(tag),
+                table: OnceLock::new(),
+            })
+    });
+    (inverse, perceptual, saturation)
 }
 
 /// The lightness ISO/CD 18619 (2013) section 4.2.3 clamps a black point's L\* to.
@@ -2600,6 +2633,33 @@ pub(crate) mod fixtures {
         )
     }
 
+    /// A v2 CMYK profile whose three "from CIE" tables each answer one ink, whatever the colour:
+    /// `B2A0` (perceptual) a fifth of cyan, `B2A1` (colorimetric) a fifth of magenta, `B2A2`
+    /// (saturation) a fifth of yellow — so which table converted a colour is read off the ink it
+    /// came back in. Its "to CIE" side is [`black_only_clut`]'s.
+    pub(crate) fn intent_tables_cmyk_profile() -> Vec<u8> {
+        let constant = |ink: usize| {
+            let mut clut = Vec::with_capacity(32);
+            for _ in 0..8 {
+                for axis in 0..4usize {
+                    clut.push(if axis == ink { 0x3333 } else { 0 });
+                }
+            }
+            clut
+        };
+        profile_of(
+            *b"CMYK",
+            *b"XYZ ",
+            2,
+            &[
+                (*b"A2B1", mft2_tag(4, 3, &black_only_clut())),
+                (*b"B2A0", mft2_tag(3, 4, &constant(0))),
+                (*b"B2A1", mft2_tag(3, 4, &constant(1))),
+                (*b"B2A2", mft2_tag(3, 4, &constant(2))),
+            ],
+        )
+    }
+
     /// A press whose darkest colour is its black ink alone, not its four inks together.
     ///
     /// Ink limiting is why a real press behaves this way and why ISO/CD 18619 (2013) section
@@ -2657,8 +2717,9 @@ pub(crate) mod fixtures {
 #[cfg(test)]
 mod tests {
     use super::fixtures::{
-        black_only_clut, complement_clut, ink_limited_cmyk_profile, mba_tag, mft2_grid_tag,
-        mft2_tag, one_way_cmyk_profile, profile_of, two_way_cmyk_profile, xyz_tag,
+        black_only_clut, complement_clut, ink_limited_cmyk_profile, intent_tables_cmyk_profile,
+        mba_tag, mft2_grid_tag, mft2_tag, one_way_cmyk_profile, profile_of, two_way_cmyk_profile,
+        xyz_tag,
     };
     use super::{A2b, Encoding, Identification, Profile, Rendering, Transform, WHITE};
 
@@ -3359,6 +3420,62 @@ mod tests {
         // The "to CIE" half is untouched: black point compensation still finds the press's
         // black at a tenth of white and stretches it to the display's.
         assert_eq!(bytes(profile.to_rgb(&[0.0, 0.0, 0.0, 1.0])), (0, 0, 0));
+    }
+
+    /// ISO 32000-2 §11.7.5.3: "The rendering intent influences the conversion from a CIE-based
+    /// colour space to a target colour space, taking into account the target space's colour
+    /// gamut". An ICC conversion's gamut mapping is the destination's `B2A` table, one per intent
+    /// (§8.6.5.8's intents "have been chosen to correspond to those defined by the International
+    /// Color Consortium"), so each intent comes back in its own table's ink, and an intent whose
+    /// table the profile does not state takes the colorimetric one (ADR 2757).
+    #[test]
+    fn the_intent_selects_the_from_cie_table_a_colour_enters_by() {
+        let profile = Profile::parse(&intent_tables_cmyk_profile()).expect("parses");
+        let grey = [0.4f32, 0.4, 0.4];
+        let ink_of = |transform| {
+            let device = profile
+                .to_device(grey, Rendering::new(transform, false))
+                .expect("a from-CIE table");
+            let inks = [device[0], device[1], device[2], device[3]];
+            inks.iter()
+                .position(|&ink| (ink - 0.2).abs() < 1e-3)
+                .unwrap_or_else(|| panic!("one ink at a fifth: {inks:?}"))
+        };
+        assert_eq!(ink_of(A2b::Perceptual), 0, "Perceptual is B2A0's cyan");
+        assert_eq!(
+            ink_of(A2b::Colorimetric),
+            1,
+            "RelativeColorimetric is B2A1's magenta"
+        );
+        assert_eq!(
+            ink_of(A2b::Absolute),
+            1,
+            "AbsoluteColorimetric is B2A1's too"
+        );
+        assert_eq!(ink_of(A2b::Saturation), 2, "Saturation is B2A2's yellow");
+
+        // A profile that states only `B2A1` answers every intent with it, as §8.6.5.8 disposes
+        // of an intent a processor cannot honour.
+        let colorimetric_only = Profile::parse(&profile_of(
+            *b"CMYK",
+            *b"XYZ ",
+            2,
+            &[
+                (*b"A2B1", mft2_tag(4, 3, &black_only_clut())),
+                (*b"B2A1", mft2_tag(3, 4, &complement_clut())),
+            ],
+        ))
+        .expect("parses");
+        let colorimetric = colorimetric_only
+            .to_device(grey, Rendering::new(A2b::Colorimetric, false))
+            .expect("a from-CIE table");
+        for transform in [A2b::Perceptual, A2b::Saturation] {
+            assert_eq!(
+                colorimetric_only.to_device(grey, Rendering::new(transform, false)),
+                Some(colorimetric),
+                "{transform:?} falls back to B2A1"
+            );
+        }
     }
 
     /// The conversion in undoes the black point compensation the conversion out applied, so

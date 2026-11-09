@@ -747,6 +747,11 @@ fn cmyk_tints(space: &ColourSpace, values: &[f32]) -> Option<ProcessTints> {
         ColourSpace::Icc { profile } if profile.channels() == 4 => <[f32; 4]>::try_from(values)
             .ok()
             .map(|tints| ProcessTints::in_profile(tints, profile.identity())),
+        // `DeviceGray` read as the intent's black ink is still `DeviceGray` to §8.6.7, whose
+        // nonzero mode applies "only ... when the current colour space is DeviceCMYK (or is
+        // implicitly converted to DeviceCMYK", and §8.6.5.7's implicit conversion is of
+        // CIE-based spaces: the four inks it becomes all take the mark (ADR 2758).
+        space if space.is_grey_as_intent_black() => None,
         // [`reverts_to_cmyk`] is asked first so that the tint transform is evaluated only
         // where its answer is the one the first bullet needs. This runs beside every `sc`,
         // `scn` and `cs`, and the transform is a function the operator has already evaluated
@@ -813,14 +818,17 @@ pub(super) fn output_intent_space(
 
 /// [`output_intent_space`] together with what `DeviceGray` means beside it, from one selection:
 /// the interpreter's two answers about the page's intent, which ISO 19005's section 6.2.4.3
-/// ties together in a PDF/A file (`crate::output_intent::grey_reading`, ADR 2712).
+/// ties together in a PDF/A file (ADR 2712) and §10.3.2 on §10.8.3's simulated press (ADR 2758)
+/// — which `view` says the reader asked for (`crate::output_intent::grey_reading`).
 pub(super) fn output_intent_reading(
     document: &Document,
     page: Option<&Dictionary>,
+    view: &crate::view::ViewState,
 ) -> (Option<ColourSpace>, GreyReading) {
     match crate::output_intent::selected(document, page) {
         Some(selected) => {
-            let grey = crate::output_intent::grey_reading(document, &selected);
+            let simulated = view.separation_simulation();
+            let grey = crate::output_intent::grey_reading(document, &selected, simulated);
             (Some(selected.space), grey)
         }
         None => (None, GreyReading::Device),

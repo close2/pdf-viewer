@@ -618,7 +618,7 @@ impl<'a> Interpreter<'a> {
         // holds, §12.6.4.11's overrides and the annotations a person added, is filed under an
         // `ObjectId` of the containing document and means nothing here.
         let (imported_intent, imported_grey) =
-            super::colour::output_intent_reading(document, Some(&page.dict));
+            super::colour::output_intent_reading(document, Some(&page.dict), &self.view);
         let mut view = crate::view::ViewState::of(document);
         view.set_magnification(self.view.magnification());
         view.set_purpose(self.view.purpose());

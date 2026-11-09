@@ -191,7 +191,7 @@ impl ColourSpace {
         press: &Press,
     ) -> [f32; 4] {
         match self.cie_xyz_at(values, depth, rendering) {
-            Some(xyz) if press.converts_in_by_profile() => xyz_to_ink(press, xyz),
+            Some(xyz) if press.converts_in_by_profile() => xyz_to_ink(press, xyz, rendering),
             _ => rgb_to_ink(press, self.to_rgb_at(values, depth, rendering)),
         }
     }

@@ -1927,3 +1927,85 @@ fn a_process_component_and_a_spot_colourant_multiply() {
         "with the preference off the same space is its tint transform's red"
     );
 }
+
+/// The centre pixel of a page drawn with §10.8.3's simulation asked for, or without it.
+fn centre_colour_in(bytes: Vec<u8>, simulate: bool) -> (u8, u8, u8) {
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let mut state = pdf_model::view::ViewState::of(&document);
+    state.set_separation_simulation(simulate);
+    let interpretation = pdf_model::content::interpret_with(&document, &page, &state);
+    assert!(
+        interpretation.is_complete(),
+        "the fixture should draw completely: {:?}",
+        interpretation.unsupported
+    );
+    let list = interpretation.display_list;
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+    let raster = CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("supported");
+    let at = ((10 * raster.width) + 10) as usize * 4;
+    (raster.data[at], raster.data[at + 1], raster.data[at + 2])
+}
+
+/// On §10.8.3's simulated press a `DeviceGray` colour is the press's black ink alone.
+///
+/// Step a) of §10.8.3 processes the page "as if separations were to be created for a simulated
+/// device that supports subtractive process colourants", whose process colours the output
+/// intent's `DestOutputProfile` determines, and §10.3.2 says what a grey becomes on a device
+/// whose native colour space is CMYK:
+///
+/// > If the native device colour space is CMYK, then converting colours in the DeviceGray colour
+/// > space to that CMYK should follow the method described in 10.4.2.3
+///
+/// whose formula is cyan, magenta and yellow `0.0` and black `1.0 − gray`. So `0.5 g` draws
+/// exactly as `0 0 0 0.5 k` does on the press, in a file that is not PDF/A. On screen the
+/// sentence's condition does not hold, and the grey stays this reader's neutral grey (ADR 2758).
+#[test]
+fn a_grey_is_the_presss_black_ink_on_the_simulated_press() {
+    let mut hex = String::new();
+    for byte in paper_profile() {
+        let _ = write!(hex, "{byte:02X}");
+    }
+    let intent = format!(
+        "5 0 obj\n<< /Type /OutputIntent /S /GTS_PDFX /OutputConditionIdentifier (test) \
+         /DestOutputProfile 6 0 R >>\nendobj\n\
+         6 0 obj\n<< /N 4 /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}>\nendstream\n\
+         endobj\n",
+        hex.len().saturating_add(1)
+    );
+    let page = |content: &str| pdf_with_catalog(&intent, "/OutputIntents [5 0 R]", "", content);
+    let grey = "0.5 g 0 0 20 20 re f";
+    let black_ink = "0 0 0 0.5 k 0 0 20 20 re f";
+    let on_press = centre_colour_in(page(grey), true);
+    assert_eq!(
+        on_press,
+        centre_colour_in(page(black_ink), true),
+        "§10.4.2.3's black 1 − gray on the simulated press"
+    );
+    // The fixture discriminates: the press's half-black ink is not this reader's neutral grey.
+    let on_screen = centre_colour_in(page(grey), false);
+    assert_eq!(on_screen, (128, 128, 128), "on screen the grey is its own");
+    assert!(
+        on_press.0.abs_diff(on_screen.0) > 20,
+        "half the black ink, {on_press:?}, is not the neutral grey {on_screen:?}"
+    );
+
+    // And it is still `DeviceGray` to §8.6.7: the nonzero overprint mode applies "only to
+    // painting operations that use the current colour in the graphics state when the current
+    // colour space is DeviceCMYK (or is implicitly converted to DeviceCMYK", and §8.6.5.7's
+    // implicit conversion is of CIE-based spaces. So under `op true` and `OPM 1` the grey's three
+    // zero inks still take the mark, and the cyan beneath it is knocked out.
+    let overprinted = pdf_with_catalog(
+        &intent,
+        "/OutputIntents [5 0 R]",
+        "/ExtGState << /GS0 << /OP true /op true /OPM 1 >> >>",
+        "1 0 0 0 k 0 0 20 20 re f /GS0 gs 0.5 g 0 0 20 20 re f",
+    );
+    assert_eq!(
+        centre_colour_in(overprinted, true),
+        on_press,
+        "a grey under OPM 1 knocks out the process inks beneath it"
+    );
+}

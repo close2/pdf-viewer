@@ -1238,7 +1238,7 @@ fn separate(
         return Err(NotSeparated::Nothing);
     }
     let named = crate::colourants::spot_colourants(document, page);
-    let (intent, grey) = colour::output_intent_reading(document, Some(&page.dict));
+    let (intent, grey) = colour::output_intent_reading(document, Some(&page.dict), state);
     let named = named.readable(
         document,
         &page.resources,
@@ -1484,7 +1484,8 @@ impl<'a> Interpreter<'a> {
             PagePress::Beyond(beyond) => Some(beyond),
             PagePress::Device | PagePress::In(_) => None,
         };
-        let (output_intent, grey) = colour::output_intent_reading(document, Some(&page.dict));
+        let (output_intent, grey) =
+            colour::output_intent_reading(document, Some(&page.dict), state);
         let delegated = match state.widget_appearances() {
             crate::view::WidgetAppearances::Drawn => BTreeSet::new(),
             crate::view::WidgetAppearances::Delegated => {

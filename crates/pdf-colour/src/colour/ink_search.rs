@@ -6,6 +6,7 @@ use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
 use super::cie::{srgb_to_xyz_d50, xyz_d50_to_srgb};
 use super::device_cmyk::channel;
 use super::press::{Press, PressIdentity};
+use crate::icc::Rendering;
 
 /// ISO 32000-2 §10.4.2.4's conversion from `DeviceRGB` to `DeviceCMYK`.
 ///
@@ -187,7 +188,10 @@ pub(super) fn rgb_to_ink(press: &Press, colour: Color) -> [f32; 4] {
         return rgb_to_cmyk(colour);
     }
     if press.profile.is_some() {
-        return xyz_to_ink(press, srgb_to_xyz_d50(colour));
+        // A device colour is not CIE-based, so no object's intent reaches it (§11.7.5.3's
+        // first paragraph names the conversion "from a CIE-based colour space"); it enters
+        // under the parameters the press was sampled with.
+        return xyz_to_ink(press, srgb_to_xyz_d50(colour), press.rendering);
     }
     let target = [channel(colour.r), channel(colour.g), channel(colour.b)];
     polish_four_inks(&press.space, target, ink_lookup(press, target))
@@ -199,15 +203,19 @@ pub(super) fn rgb_to_ink(press: &Press, colour: Color) -> [f32; 4] {
 /// The direct route is what a colour already stated in CIE terms wants — a `Lab`, a `CalRGB`,
 /// another profile's colour — because §10.3.1 makes the conversion between two CIE-based
 /// spaces the ICC specification's, from connection space to connection space, and sRGB's
-/// gamut has no business standing between them. Black point compensation is undone by the
-/// profile's own reading of it: `super::press::sample_press` takes the conversion out under
-/// [`Press::rendering`], so the conversion in is asked under the same black point, and the two
-/// stay inverses whichever way it is set.
-pub(super) fn xyz_to_ink(press: &Press, xyz: [f32; 3]) -> [f32; 4] {
+/// gamut has no business standing between them.
+///
+/// `rendering` is the one the colour is converted *under*, and §11.7.5.3 says whose it is: "the
+/// rendering intent to use for converting an object's colour (whether that of an elementary
+/// object or of a transparency group) is determined by the rendering intent parameter
+/// associated with the object". So it selects the press's `B2A` table and the black point the
+/// profile undoes, beside the source's `A2B` that produced `xyz` under the same parameters
+/// (ADR 2757). [`Press::rendering`] is the group's own, and it governs the conversion *out*.
+pub(super) fn xyz_to_ink(press: &Press, xyz: [f32; 3], rendering: Rendering) -> [f32; 4] {
     if let Some(inks) = press
         .profile
         .as_deref()
-        .and_then(|profile| profile.to_device(xyz, press.rendering))
+        .and_then(|profile| profile.to_device(xyz, rendering))
     {
         return [
             channel(inks[0]),

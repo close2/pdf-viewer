@@ -90,6 +90,10 @@ const SPOT_OVERPRINT: &str = "2-SPOT/Patches/GWG020_CMYKSpot_OP_x1a.pdf";
 const DEVICEN_BLACK: &str = "1-CMYK/Patches/GWG190_DeviceN_Overprint_Black_X1a.pdf";
 const DEVICEN_YELLOW: &str = "1-CMYK/Patches/GWG191_DeviceN_Overprint_Yellow_X1a.pdf";
 const DEVICEN_WHITE: &str = "1-CMYK/Patches/GWG192_DeviceN_Overprint_White_X1a.pdf";
+const SOURCE_PROFILE: &str = "3-ICC-CMS/Patches/GWG130_ICC_Source_Profile_x4.pdf";
+const BLEND_RGB: &str = "3-ICC-CMS/Patches/GWG161_Transp_Basic_BM_ICCBasedRGB_x4.pdf";
+const INTENT_INDICATOR: &str = "3-ICC-CMS/Patches/GWG221_OutputIntentChangeIndicator_x4.pdf";
+const GREY_OVERPRINT: &str = "2-SPOT/Patches/GWG030_Gray_K_black_OP_X1.pdf";
 
 /// The checks. The four squares of patch 23.0 are centred at x = 103, 245, 386 and 528, y = 138;
 /// an arm's window sits 35 pixels up and to one side of a centre and its neighbour 45 to the
@@ -103,7 +107,10 @@ const CHECKS: &[Check] = &[
     grey_check(View::Screen, "Separation Black, line art", 386, -1, false),
     grey_check(View::Screen, "DeviceN Black, line art", 528, -1, true),
     grey_check(View::Screen, "DeviceN Black, image", 528, 1, false),
-    grey_check(View::Press, "DeviceGray, line art", 103, -1, false),
+    // On the simulated press a grey is the press's black ink alone, §10.3.2's "should follow the
+    // method described in 10.4.2.3" on a device whose native colour space is CMYK (ADR 2758).
+    grey_check(View::Press, "DeviceGray, line art", 103, -1, true),
+    grey_check(View::Press, "DeviceGray, image", 103, 1, true),
     grey_check(View::Press, "DeviceCMYK, line art", 245, -1, true),
     // In the press view `Black` is the simulated press's own colourant, which a `Separation` or
     // `DeviceN` naming it paints directly (§8.6.6.4, ADR 2736).
@@ -152,6 +159,50 @@ const CHECKS: &[Check] = &[
     overprint_check(DEVICEN_YELLOW, "image b", (247, 90), true),
     overprint_check(DEVICEN_WHITE, "vector a", (119, 121), true),
     overprint_check(DEVICEN_WHITE, "image b", (247, 121), true),
+    // 3.0: a 50 % grey overprinting spot inks, b under OPM 0 and h under OPM 1, must leave them
+    // as a 50 % K does: the grey is the press's black ink and still `DeviceGray` to §8.6.7, so
+    // neither mode keeps a process ink it states as zero (ADR 2758). Centred at y = 200.
+    overprint_check(GREY_OVERPRINT, "grey over spot, OPM 0, b", (65, 200), true),
+    overprint_check(GREY_OVERPRINT, "grey over spot, OPM 1, h", (495, 200), true),
+    // 13.0: an `ICCBased` colour stated `Perceptual` must reach the press as the green the `X`
+    // stands on, which it does through the press's own `B2A0` (§11.7.5.3, ADR 2757). The squares
+    // are centred at x = 106 + 142 n, y = 142; the window beside the arm is at the top's middle.
+    source_check(View::Press, "RGB vector, a", 106, true),
+    source_check(View::Press, "RGB image, b", 248, true),
+    source_check(View::Press, "CMYK vector, c", 390, true),
+    source_check(View::Press, "CMYK image, d", 532, true),
+    // On screen the RGB pair is shown by its own profile, wider than the press (as 17.2 is).
+    source_check(
+        View::Screen,
+        "RGB vector, a, beyond the press's gamut",
+        106,
+        false,
+    ),
+    source_check(View::Screen, "CMYK vector, c", 390, true),
+    // 16.1 (ICCBased RGB): `Saturation` objects blended in the page's `DeviceCMYK` must leave
+    // no clear `X`, which they do through the press's `B2A2` (ADR 2757). Squares by centre.
+    blend_check(View::Screen, "Multiply", (121, 70)),
+    blend_check(View::Screen, "Color Dodge", (436, 70)),
+    blend_check(View::Screen, "Color", (436, 156)),
+    blend_check(View::Press, "Multiply", (121, 70)),
+    blend_check(View::Press, "Color Dodge", (436, 70)),
+    blend_check(View::Press, "Color", (436, 156)),
+    // 22.1: the grey Color Burn indicator shows no `X` when the intent is the file's own; its
+    // `X` is drawn `Perceptual` (ADR 2757). Centred at (319, 150), beside the arm at the top.
+    Check {
+        patch: INTENT_INDICATOR,
+        what: "Color Burn indicator",
+        view: View::Screen,
+        probe: Probe::Equal((317, 148), (317, 78)),
+        passes: true,
+    },
+    Check {
+        patch: INTENT_INDICATOR,
+        what: "Color Burn indicator",
+        view: View::Press,
+        probe: Probe::Equal((317, 148), (317, 78)),
+        passes: true,
+    },
     // 18.x: sixteen-bit images, TIFF-predicted, must draw as the photograph (§7.4.4.4, §8.9.5).
     sixteen(
         "3-ICC-CMS/Patches/GWG180_16Bit_Images_ICCbasedRGB_x4.pdf",
@@ -229,6 +280,28 @@ const fn mask_check(
         what,
         view,
         probe: Probe::Equal((x, y), (x, y + below)),
+        passes: true,
+    }
+}
+
+/// One square of patch 13.0, by its centre's `x`: the arm at the centre against the top's middle.
+const fn source_check(view: View, what: &'static str, x: u32, passes: bool) -> Check {
+    Check {
+        patch: SOURCE_PROFILE,
+        what,
+        view,
+        probe: Probe::Equal((x - 2, 140), (x - 2, 78)),
+        passes,
+    }
+}
+
+/// One square of patch 16.1 (`ICCBased` RGB), by its centre: the centre against 20 pixels left.
+const fn blend_check(view: View, what: &'static str, (x, y): (u32, u32)) -> Check {
+    Check {
+        patch: BLEND_RGB,
+        what,
+        view,
+        probe: Probe::Equal((x - 2, y - 2), (x - 22, y - 2)),
         passes: true,
     }
 }

@@ -129,8 +129,29 @@ pub(crate) fn selected(document: &Document, page: Option<&Dictionary>) -> Option
 /// hold: the catalog's metadata stream is parsed for a page that draws through a PDF/A CMYK intent
 /// and for no other (principle 2). `DefaultGray` is the resources' to answer, where the device
 /// family is resolved (`ColourSpace::device_family`), so it is not asked here.
-pub(crate) fn grey_reading(document: &Document, selected: &Selected) -> GreyReading {
+///
+/// **And on §10.8.3's simulated press, in any file** (ADR 2758). Where a reader asked for the
+/// simulation, step a) processes the page "as if separations were to be created for a simulated
+/// device that supports subtractive process colourants", whose process colours the
+/// `DestOutputProfile` determines — a device whose native colour space is CMYK. §10.3.2 states
+/// what a grey becomes on such a device:
+///
+/// > If the native device colour space is CMYK, then converting colours in the DeviceGray colour
+/// > space to that CMYK should follow the method described in 10.4.2.3 , ' Conversion between
+/// > DeviceGray and DeviceCMYK".
+///
+/// §10.4.2.3's method is black `1 − gray` and no other ink, which is `GreyReading::IntentBlack`.
+/// `simulated` is the reader's request, so the screen view of the same file is unchanged: there
+/// the native colour space is the screen's and the sentence's condition does not hold.
+pub(crate) fn grey_reading(
+    document: &Document,
+    selected: &Selected,
+    simulated: bool,
+) -> GreyReading {
     let cmyk = matches!(&selected.space, ColourSpace::Icc { profile } if profile.channels() == 4);
+    if cmyk && simulated {
+        return GreyReading::IntentBlack;
+    }
     let pdfa = document
         .get_key(&selected.dictionary, "S")
         .as_name()
