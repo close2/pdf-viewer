@@ -2179,14 +2179,14 @@ fn a_device_cmyk_page_gains_the_shipped_cmyk_intent_and_the_report_carries_its_l
 }
 
 #[test]
-fn a_page_in_both_device_spaces_takes_the_rgb_profile_and_part_four_refuses_the_cmyk_row() {
+fn a_page_in_both_device_spaces_takes_the_rgb_profile_and_the_assumed_inks_as_its_default_cmyk() {
     // The decision `doc/adr/1153` takes, at the one fixture that forces it. ISO 19005-4 section
     // 6.2.3 makes every entry of one OutputIntents array name the same destination profile
     // object, so this page's two device spaces cannot both be licensed by output intents; section
-    // 6.2.4.3 states no second licence for either family under part 4 — its DefaultCMYK sentence
-    // asks for a *device independent* space where ISO 19005-2's admits a DeviceN-based one. So one
-    // row is answered and one is refused, and what the refusal has to be is a true sentence
-    // naming the flag that would answer it.
+    // 6.2.4.3's other licence for DeviceCMYK is a *device independent* DefaultCMYK, where ISO
+    // 19005-2's also admits a DeviceN-based one. So the RGB row takes the intent, and the CMYK row
+    // takes a DefaultCMYK over the profile of the inks this renderer drew it through, a statement
+    // and no loss (`doc/adr/2747`).
     let source = Conforming {
         contents: Some(paints_in_both_device_spaces()),
         ..Conforming::default()
@@ -2200,26 +2200,21 @@ fn a_page_in_both_device_spaces_takes_the_rgb_profile_and_part_four_refuses_the_
     assert_eq!(
         rgb.rewrite(),
         Some(Rewrite::OutputIntent),
-        "the RGB row is the one answered: {rgb:?}"
+        "the RGB row is the intent's: {rgb:?}"
     );
     let cmyk = decision(
         &report,
         "graphics/device-cmyk-needs-a-default-a-blending-space-or-a-cmyk-output-intent",
     );
-    let Decision::Refused(because) = cmyk else {
-        panic!("one profile cannot license both families: {cmyk:?}");
+    let Decision::Stated { rewrite, .. } = cmyk else {
+        panic!("the CMYK row is the default's: {cmyk:?}");
     };
-    assert!(
-        because.sentence().contains("--output-intent-profile"),
-        "the refusal says what would answer it: {}",
-        because.sentence()
+    assert_eq!(rewrite, Rewrite::SuppliedDefaultCmyk);
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    assert_eq!(
+        holds(&output, Target::Four(Flavour::Plain)).verdict(),
+        Verdict::Conforms
     );
-    assert!(
-        because.sentence().contains("colour family"),
-        "and why this profile does not: {}",
-        because.sentence()
-    );
-    assert!(output.is_none(), "no file is written");
 }
 
 #[test]
@@ -14946,29 +14941,6 @@ fn with_its_own_rgb_intent(fixture: Conforming, page: &str, content: &str) -> Ve
 }
 
 #[test]
-fn device_cmyk_beside_the_files_own_rgb_intent_asks_the_operator_for_the_press() {
-    // ISO 19005-4 section 6.2.4.3 licenses DeviceCMYK through a CMYK destination profile or a
-    // device independent DefaultCMYK, and section 6.2.3 lets the file state one profile — here
-    // its own RGB one. The licence left states a press nothing in the file names, so with nothing
-    // supplied the row is refused, and the sentence says what the operator can do (ADR 2130).
-    let source = with_its_own_rgb_intent(Conforming::default(), "", "0 0 0 1 k 0 0 10 10 re f");
-    let (report, output) = convert(
-        &source,
-        Target::Four(Flavour::Plain),
-        Authorisations::default(),
-    );
-    assert!(output.is_none(), "nothing is written");
-    let sentence = not_built_sentence(
-        &report,
-        "graphics/device-cmyk-needs-a-default-a-blending-space-or-a-cmyk-output-intent",
-    );
-    assert!(
-        sentence.contains("--output-intent-profile") && sentence.contains("DefaultCMYK"),
-        "the refusal names the remedy the operator holds: {sentence}"
-    );
-}
-
-#[test]
 fn a_supplied_press_profile_beside_the_files_own_rgb_intent_becomes_its_default_cmyk() {
     // The same document with the press's profile supplied: it is written as an ICCBased
     // DefaultCMYK, the producer's own RGB intent stays the only intent, and the statement is the
@@ -16183,6 +16155,8 @@ mod replaced_schemas;
 #[path = "archive/statement.rs"]
 mod statement;
 
+#[path = "archive/assumed_inks_default.rs"]
+mod assumed_inks_default;
 #[path = "archive/carried_information.rs"]
 mod carried_information;
 #[path = "archive/press_assumed.rs"]

@@ -150,10 +150,13 @@ pub enum Rewrite {
     /// the entry says how its three numbers are read — as sRGB, which this reader drew them as.
     DefaultRgb,
     /// `/DefaultCMYK`, written as an `ICCBased` space over the CMYK profile the operator
-    /// supplied, where the file's own destination profile is of another family (`doc/adr/2130`).
+    /// supplied, where the file's own destination profile is of another family (`doc/adr/2130`);
+    /// at part 4 with none supplied, over the shipped press under `press-assumed`
+    /// (`doc/adr/2518`) or the profile of this renderer's assumed inks (`doc/adr/2747`).
     ///
-    /// A `Decision::Stated` for `DefaultCmyk`'s reason, and the statement is the operator's: the
-    /// profile names the press the document was made for, which nothing in the file says.
+    /// A `Decision::Stated` for `DefaultCmyk`'s reason where the statement is the operator's —
+    /// the profile names the press the document was made for, which nothing in the file says —
+    /// or this renderer's, whose inks drew the page; an authorised loss for the shipped press.
     SuppliedDefaultCmyk,
     /// The catalog states `/MarkInfo` with `/Marked true`, where the file already carries a
     /// structure tree.
@@ -1306,10 +1309,11 @@ impl Rewrite {
             }
             Self::SuppliedDefaultCmyk => {
                 "every resource dictionary explicitly associated with a content stream states a \
-                 DefaultCMYK: an ICCBased space over a CMYK press profile - the operator's \
-                 where one was supplied, and otherwise, under an authorised press-assumed, the \
-                 one this program ships - beside a destination profile of another colour \
-                 family"
+                 DefaultCMYK: an ICCBased space over a CMYK profile - the operator's press \
+                 where one was supplied; otherwise, under an authorised press-assumed, the \
+                 press this program ships; and otherwise the profile of the inks this renderer \
+                 drew the file's DeviceCMYK through - beside a destination profile of another \
+                 colour family"
             }
             Self::MarkInfo => {
                 "the catalog states MarkInfo with Marked true, which the structure tree this \

@@ -99,22 +99,6 @@ fn an_authorised_assumed_press_is_written_as_the_default_cmyk_and_named() {
 }
 
 #[test]
-fn nothing_authorised_keeps_the_refusal_and_it_names_the_loss() {
-    let (report, output) = convert(
-        &source(),
-        Target::Four(Flavour::Plain),
-        Authorisations::default(),
-    );
-    assert!(output.is_none(), "nothing is written");
-    let sentence = not_built_sentence(&report, ROW);
-    assert!(
-        sentence.contains("press-assumed") && sentence.contains("--output-intent-profile"),
-        "{sentence}"
-    );
-    assert!(conversion(&report).press_assumed.is_none());
-}
-
-#[test]
 fn a_press_the_operator_supplied_outranks_the_assumed_one_and_costs_no_loss() {
     let target = Target::Four(Flavour::Plain);
     let sinks = MemorySinks::new();

@@ -62,8 +62,9 @@ use appended_pages::{
     runs_may_be_stated, stated_runs, the_preserved_pages,
 };
 pub(super) use colour_and_graphics::{
-    CMYK, DefaultCmyk, Intent, ReplacedDestination, SRGB, SuppliedDestination, intent_dictionary,
-    needs_a_profile, output_intent_entries, profile_stream, the_destination_object,
+    ASSUMED_INKS, CMYK, DefaultCmyk, Intent, ReplacedDestination, SRGB, SuppliedDestination,
+    intent_dictionary, needs_a_profile, output_intent_entries, profile_stream,
+    the_destination_object,
 };
 use colour_and_graphics::{
     DEVICE_CMYK_ROWS, DEVICE_RGB_ROWS, prepare_default_cmyk, prepare_intent, replaced_destination,
@@ -694,13 +695,21 @@ impl Prepared {
         // The `/DefaultCMYK` over the operator's press profile asks the survey only where a
         // profile was supplied beside a file whose own intent is of another family, so a
         // conversion nobody supplied a press for walks nothing more than it did (`doc/adr/2130`).
-        // The shipped press stands in for a supply only where the caller authorised the loss
-        // `press-assumed` and the target is part 4, whose second licence states no press at all
-        // (`doc/adr/2518`); the operator's configured press stands in for it there
-        // (`doc/adr/2705`).
-        let assumed_press = (plan.target.part() == pdf_archive::Part::Four
-            && plan.authorised.grants(Loss::PressAssumed))
-        .then(|| plan.press.as_deref().unwrap_or(CMYK));
+        // At part 4, whose second licence states no press at all, something stands in for a
+        // supply: the shipped press where the caller authorised the loss `press-assumed`
+        // (`doc/adr/2518`), or the operator's configured press there (`doc/adr/2705`); and
+        // otherwise the profile of this renderer's own assumed inks, which states what the
+        // window drew and is no loss (`doc/adr/2747`). Part 2 has the `DeviceN` default.
+        let assumed_press = (plan.target.part() == pdf_archive::Part::Four).then(|| {
+            match (
+                plan.authorised.grants(Loss::PressAssumed),
+                plan.press.as_deref(),
+            ) {
+                (true, Some(configured)) => (super::supplied_cmyk::Press::Configured, configured),
+                (true, None) => (super::supplied_cmyk::Press::Assumed, CMYK),
+                (false, _) => (super::supplied_cmyk::Press::Inks, ASSUMED_INKS),
+            }
+        });
         let cmyk_by_supply = wanted(Rewrite::SuppliedDefaultCmyk)
             && !by_intent
             && (plan.profile.is_some() || assumed_press.is_some())
@@ -789,7 +798,6 @@ impl Prepared {
                 intent,
                 plan.profile.as_deref(),
                 assumed_press,
-                plan.press.is_some(),
                 survey.as_ref(),
                 &mut spare,
             ),
@@ -1368,6 +1376,7 @@ impl Prepared {
                         super::supplied_cmyk::Press::Configured => {
                             super::supplied_cmyk::CONFIGURED_PARAMETERS
                         }
+                        super::supplied_cmyk::Press::Inks => super::supplied_cmyk::INKS_PARAMETERS,
                     })
                 } else {
                     default_cmyk.is_ok().then_some(DEFAULT_CMYK_PARAMETERS)
@@ -1391,6 +1400,9 @@ impl Prepared {
             }
             Ok(supplied) if supplied.press == super::supplied_cmyk::Press::Configured => {
                 super::supplied_cmyk::CONFIGURED_NO_PLACE_TO_RECORD
+            }
+            Ok(supplied) if supplied.press == super::supplied_cmyk::Press::Inks => {
+                super::supplied_cmyk::INKS_NO_PLACE_TO_RECORD
             }
             _ => super::supplied_cmyk::NO_PLACE_TO_RECORD,
         };

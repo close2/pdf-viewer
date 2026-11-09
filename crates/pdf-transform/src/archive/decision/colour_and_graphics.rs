@@ -1009,8 +1009,9 @@ pub(super) fn cmyk_answer_under_part_two(prepared: &Prepared) -> Decision {
 ///
 /// **The press this program ships is a loss and not a statement** (`doc/adr/2518`): where the
 /// operator supplied none and the caller authorised [`Loss::PressAssumed`], the default over the
-/// shipped profile is an authorised loss, and without that authorisation the preparation built
-/// nothing and the refusal above stands.
+/// shipped profile is an authorised loss. Without that authorisation the default is the profile
+/// of this renderer's own assumed inks, which states what the window drew and is a statement
+/// (`doc/adr/2747`).
 pub(super) fn cmyk_answer_under_part_four(
     prepared: &Prepared,
     authorised: Authorisations,
@@ -1025,9 +1026,14 @@ pub(super) fn cmyk_answer_under_part_four(
             Rewrite::SuppliedDefaultCmyk,
             authorised,
         ),
-        (Ok(_), Ok(_)) => Decision::Stated {
+        (Ok(_), Ok(supplied)) => Decision::Stated {
             rewrite: Rewrite::SuppliedDefaultCmyk,
-            reinterprets: super::super::supplied_cmyk::REINTERPRETS,
+            reinterprets: match supplied.press {
+                super::super::supplied_cmyk::Press::Inks => {
+                    super::super::supplied_cmyk::INKS_REINTERPRETS
+                }
+                _ => super::super::supplied_cmyk::REINTERPRETS,
+            },
         },
         (Err(because), _) | (Ok(_), Err(because)) => Decision::Refused(*because),
     }

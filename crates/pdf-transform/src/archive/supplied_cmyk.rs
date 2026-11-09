@@ -35,6 +35,17 @@
 //! `xmpMM:History`. Part 2 is not offered it: its other licence, the `DeviceN` default, states no
 //! press at all (`doc/adr/2518`).
 //!
+//! # And where nobody accepts an assumed press
+//!
+//! Every other profile at part 4 — `as-shown`, `no-data-loss`, `state-every-loss`, and a run with
+//! none — takes the profile of this renderer's own assumed inks (`doc/adr/2700`) as the default.
+//! With no CMYK intent this reader draws an uncharacterised `DeviceCMYK` value through those inks,
+//! and the profile's `A2B` is that drawing sampled, so the default states what the window already
+//! showed rather than a press the file never named: a `Decision::Stated` carrying
+//! [`INKS_REINTERPRETS`], as the same profile is when it is the file's CMYK intent
+//! (`doc/adr/2701`). It revisits `doc/adr/2114` section 4, whose refusal rested on no ICC profile
+//! stating those inks (`doc/adr/2747`).
+//!
 //! # Where it goes
 //!
 //! Wherever the other two defaults go: every resource dictionary explicitly associated with a
@@ -62,6 +73,11 @@ pub(super) enum Press {
     /// and costing the same loss: nothing in this file names its press, and this renderer drew
     /// its colours through its own inks, so they move whoever chose the press (`doc/adr/2705`).
     Configured,
+    /// The profile of this renderer's own assumed inks (`doc/adr/2700`), taken at part 4 where
+    /// nothing was supplied and the caller did not authorise
+    /// [`Loss::PressAssumed`](super::decision::Loss::PressAssumed): it states the colours this
+    /// reader drew, so it is a statement and no loss (`doc/adr/2747`).
+    Inks,
 }
 
 impl Press {
@@ -119,6 +135,29 @@ pub(super) const CONFIGURED_PARAMETERS: &str = "an ICCBased DefaultCMYK was adde
      press the producer used; the file's own output intent is of another colour family and was \
      left as it was";
 
+/// What writing the default over the assumed inks asserts (`doc/adr/2747`).
+pub(super) const INKS_REINTERPRETS: &str = "every DeviceCMYK value in this file, and every \
+     transparency group blending in DeviceCMYK, is now read through an ICC profile of the \
+     process inks this renderer assumes for colour no profile characterises, because this \
+     file's own destination profile is of another colour family and ISO 19005 section 6.2.4.3's \
+     other licence for DeviceCMYK is a device independent DefaultCMYK. This renderer already \
+     drew those colours through those inks, so they look as they did here; the profile \
+     characterises this renderer and not a physical press, and another reader that follows it \
+     shows them as this one does";
+
+/// The `parameters` field of the action recorded when the default is the assumed inks' profile.
+pub(super) const INKS_PARAMETERS: &str = "an ICCBased DefaultCMYK was added over the profile of \
+     the process inks this renderer assumes for DeviceCMYK colour no profile characterises, the \
+     inks it drew this file's DeviceCMYK colours through; the profile characterises this \
+     renderer and not a physical press, and the file's own output intent is of another colour \
+     family and was left as it was";
+
+/// Why the default over the assumed inks is not written where the packet will not carry its
+/// recorded action.
+pub(super) const INKS_NO_PLACE_TO_RECORD: &str = "the DefaultCMYK over the profile of this \
+     renderer's assumed inks is written only where this file's own xmpMM:History records it - \
+     this document's XMP packet will not take that entry, so the default is not written either";
+
 /// Why the default over the operator's configured press is not written where the packet will not
 /// carry its recorded action.
 pub(super) const CONFIGURED_NO_PLACE_TO_RECORD: &str = "the DefaultCMYK over the press your \
@@ -164,18 +203,16 @@ pub(super) const NO_PLACE_TO_RECORD: &str = "the DefaultCMYK over the profile yo
 const BY_THE_INTENT: &str = "the destination profile in hand is a CMYK one, which licenses \
      DeviceCMYK itself, so no DefaultCMYK is written";
 
-/// Why a `DeviceCMYK` beside a profile of another family is refused when nothing was supplied.
+/// Why no ICC `DefaultCMYK` is prepared at part 2 when nothing was supplied.
 ///
-/// The sentence the operator reads, so it says what they can do: the only licence this file has
-/// left needs a press, and the press is theirs to name.
+/// Part 4 always has a profile in hand (`assumed`), so this is part 2's, whose `DeviceCMYK` row
+/// reads the `DeviceN` default's answer instead; the sentence says what the operator can do.
 const NO_PRESS_SUPPLIED: &str = "this file draws in DeviceCMYK and its destination profile is of \
-     another colour family. ISO 19005 section 6.2.3 lets a \
-     file state one destination profile, so the licence left is a device independent \
-     DefaultCMYK (ISO 19005 section 6.2.4.3) - an ICC CMYK profile, which states a press, and \
-     nothing in this file says which press its colours were separated for. Supply that press's \
-     profile with --output-intent-profile and it is written as the DefaultCMYK, recorded as \
-     your statement. A profile that authorises the loss press-assumed (as-if-printed does) has \
-     the CMYK profile this program ships written as the press instead, at part 4";
+     another colour family. ISO 19005 section 6.2.3 lets a file state one destination profile, \
+     so the licences left are a device independent DefaultCMYK (ISO 19005 section 6.2.4.3) - \
+     an ICC CMYK profile, which states a press - and, at part 2, the DeviceN-based default. \
+     Supply a press's profile with --output-intent-profile and it is written as the \
+     DefaultCMYK, recorded as your statement";
 
 /// Why a supplied profile of another family does not answer the clause.
 const SUPPLIED_NOT_CMYK: &str = "this file draws in DeviceCMYK, or blends a transparency group in \
@@ -242,16 +279,16 @@ fn zeroed_with_the_icc_marks(survey: &Survey, mark: &ProcessCmykOverprint) -> bo
 
 /// Prepares the `/DefaultCMYK`: the operator's profile as a stream, and the `ICCBased` array.
 ///
-/// `assumed` is the press assumed where the caller authorised it and the target admits it — the
-/// operator's configured press where their configuration names one, and the profile this program
-/// ships otherwise, as `configured` says — and is read only when the operator supplied none: a
-/// supply outranks it, including one that is not a CMYK profile.
+/// `assumed` is what stands in for a supply where the target is part 4, and whose statement it
+/// is: the operator's configured press or the profile this program ships where the caller
+/// authorised [`Loss::PressAssumed`](super::decision::Loss::PressAssumed), and the assumed inks'
+/// profile otherwise. It is read only when the operator supplied none: a supply outranks it,
+/// including one that is not a CMYK profile.
 pub(super) fn prepare(
     document: &Document,
     intent: &Intent,
     supplied: Option<&[u8]>,
-    assumed: Option<&[u8]>,
-    configured: bool,
+    assumed: Option<(Press, &[u8])>,
     survey: Option<&Survey>,
     spare: &mut Spare,
 ) -> Result<SuppliedCmyk, Because> {
@@ -263,8 +300,7 @@ pub(super) fn prepare(
     // its refusal, failed because the file draws in `DeviceCMYK`.
     let (press, profile) = match (supplied, assumed) {
         (Some(profile), _) => (Press::Supplied, profile),
-        (None, Some(profile)) if configured => (Press::Configured, profile),
-        (None, Some(profile)) => (Press::Assumed, profile),
+        (None, Some(assumed)) => assumed,
         (None, None) => return Err(Because::NotBuiltYet(NO_PRESS_SUPPLIED)),
     };
     let cmyk = Identification::read(profile).is_some_and(|stated| stated.space == *b"CMYK");

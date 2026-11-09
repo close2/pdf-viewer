@@ -1621,6 +1621,9 @@ fn apply_the_decisions(
                     _ => supplied_cmyk::ASSUMED_PARAMETERS,
                 }
             }
+            Ok(default) if default.press == supplied_cmyk::Press::Inks => {
+                supplied_cmyk::INKS_PARAMETERS
+            }
             _ => supplied_cmyk::PARAMETERS,
         };
         recorded.push(format!("{DEFAULT_CMYK_ACTION} — {parameters}"));

@@ -721,12 +721,12 @@ ISO 19005-2 6.2.4.3, ISO 19005-4 6.2.4.3 · all six · today **built**: the outp
 - **The mirror, `supply`** — `DeviceCMYK` beside an RGB profile, under part 4 and for a group
   under part 2: a `DeviceN` default cannot be a blending space (Table 145), and an ICC
   `DefaultCMYK` over the shipped press profile would state a press this reader does not draw
-  `DeviceCMYK` through. So the press is the operator's to name: a CMYK profile supplied with
+  `DeviceCMYK` through. So a press is the operator's to name: a CMYK profile supplied with
   `--output-intent-profile` becomes the intent where the file states none, and an `ICCBased`
   `/DefaultCMYK` beside a file's own intent of another family — the same rows, the group, base
   and alternate rows included, reported and recorded in `xmpMM:History` as the operator's
   statement (ADR 2130, `crates/pdf-transform/src/archive/supplied_cmyk.rs`). With nothing
-  supplied the row is refused with the sentence that says so.
+  supplied, part 4 takes one of the two routes below; part 2 keeps its `DeviceN` default.
 - **The assumed press, the loss `press-assumed`** (A694 item 2, ADR 2518) — at part 4, with
   nothing supplied and the loss authorised, the CMYK profile this program ships (GRACoL 2006) is
   written as that `/DefaultCMYK`, named in the report and in `xmpMM:History`; an operator's profile
@@ -734,8 +734,14 @@ ISO 19005-2 6.2.4.3, ISO 19005-4 6.2.4.3 · all six · today **built**: the outp
   `stop`. **`as-if-printed` means "as if printed and scanned"** (the owner's words, A694): a lower
   bound on what may be lost if a company printed the document and scanned the print, never an
   instruction to imitate printing — the profile assumes a press and does not simulate one. Part 2 is
-  not offered it: its `DeviceN` default states no press. **Owed**: `as-shown`'s own route, this
-  reader's assumed inks written as an ICC table, needs a writer that does not exist (ADR 2519).
+  not offered it: its `DeviceN` default states no press.
+- **The assumed inks** (A694 item 2 (b), A780, ADRs 2700 and 2747) — at part 4, with nothing
+  supplied and `press-assumed` not authorised (`as-shown`, `no-data-loss`, `state-every-loss`, and
+  every other profile), the profile of this reader's own assumed inks
+  (`data/icc/quorra-assumed-inks.icc`) is written as that `/DefaultCMYK`: a statement and no loss,
+  because §8.6.5.6 hands the values to a profile whose `A2B` samples the inks the window drew them
+  through, within one level of 255 on a fill. A configured press does not replace it. Both routes
+  keep ADR 2518's refusal where a `DeviceCMYK` mark overprints under mode 1 (section 6.2.4.2).
 - **The operator's press, named once** (A784, ADRs 2704 and 2705) — `[profile] press =
   "<file.icc>"` in an operator's configuration, a relative path taken from that file's directory,
   stands in for GRACoL wherever `press-assumed` is taken: the intent ADR 2701 writes and the
