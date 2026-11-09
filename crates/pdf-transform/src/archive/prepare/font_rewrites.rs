@@ -140,6 +140,7 @@ pub(super) fn prepare_fonts(
                     &fenced,
                 ),
                 defined,
+                write_fitting: !plan.authorised.grants(Loss::SubstituteStretch),
             },
         ),
         _ => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
@@ -187,12 +188,18 @@ pub(in crate::archive) fn substituted_fonts_recorded(fonts: &[fonts::Substituted
             } else {
                 format!(", losing {}", font.losses.words())
             };
-            let fitting = font
-                .fitting
-                .map(|fitting| {
+            let fitting = match font.fitting {
+                Some(fonts::Fitting::Removed(fitting)) => {
                     format!(" (the face had been drawn at the horizontal scale {fitting})")
-                })
-                .unwrap_or_default();
+                }
+                // A modified program is said to be one in the file's own history, with the scale
+                // its outlines were given (`doc/adr/2769`).
+                Some(fonts::Fitting::Written(written)) => format!(
+                    " (its outlines given the horizontal scale {written} this viewer draws the \
+                     face at)"
+                ),
+                None => String::new(),
+            };
             // The widths of a font the file described by nothing are this viewer's layout of
             // the name, which the file's own history says in as many words (`doc/adr/2504`).
             let layout = if font.losses.contains(Loss::LayoutFromThisViewer) {

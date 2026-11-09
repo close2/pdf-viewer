@@ -949,10 +949,19 @@ fn codes_drawn(
     let shipped = pdf_font::standard::shipped_face(document, source, "").ok()?;
     let as_embedded = embedded_as_written(document, written, embedded)?;
     let mut reached = codes_reached(&as_embedded);
+    // The face with the viewer's fitting written into it, where the substitution embedded that
+    // (`doc/adr/2769`): its glyphs are the shipped ones scaled, by the same writer.
+    let fitted = (drawn.stretch().to_bits() != 1.0_f32.to_bits())
+        .then(|| pdf_font::stretch::sfnt_outlines(shipped.program, drawn.stretch()).ok())
+        .flatten();
     for byte in 0..=u8::MAX {
         if let Some(glyph) = shipped.glyph(byte).filter(|glyph| *glyph != NOTDEF) {
             let outline = notdef_glyph::outline(shipped.program, glyph);
-            if outline.is_none() || notdef_glyph::outline(&face, glyph) != outline {
+            let embedded = notdef_glyph::outline(&face, glyph);
+            let as_fitted = fitted
+                .as_deref()
+                .is_some_and(|fitted| notdef_glyph::outline(fitted, glyph) == embedded);
+            if outline.is_none() || (embedded != outline && !as_fitted) {
                 return None;
             }
             reached.insert(byte, glyph);

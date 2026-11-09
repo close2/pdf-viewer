@@ -51,6 +51,7 @@ mod sfnt;
 pub mod shaping;
 pub mod standard;
 pub mod standard_metrics;
+pub mod stretch;
 pub mod substitute;
 mod substituted;
 pub mod tounicode;

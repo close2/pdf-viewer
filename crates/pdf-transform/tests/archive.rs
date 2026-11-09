@@ -33,7 +33,7 @@ use pdf_archive::{Flavour, Level, Outcome, Target, Verdict};
 use pdf_syntax::object::ObjectId;
 use pdf_syntax::{Document, Limits};
 use pdf_transform::archive::{
-    ArchivePlan, Authorisations, Because, Decision, FormAnswers, Loss, Losses, Rewrite,
+    ArchivePlan, Authorisations, Because, Decision, Fitting, FormAnswers, Loss, Losses, Rewrite,
 };
 use pdf_transform::tool::ToolOutputs;
 use pdf_transform::{Budget, Exit, MemorySinks, Plan, Policy, Report, Source, apply};
@@ -15597,14 +15597,23 @@ fn a_truetype_dictionary_given_a_cff_face_is_restated_as_the_type1_font_its_face
 /// A Helvetica stated by name alone whose one width, 721.9, is narrower than the shipped face's
 /// own 722 for `H`: ADR 0358 has the viewer draw that face at the scale fitting it to the width.
 fn a_fitted_helvetica(descriptor: bool) -> Vec<u8> {
+    a_helvetica_fitted_to("721.9", descriptor)
+}
+
+/// [`a_fitted_helvetica`] with `H` stated at `width`.
+fn a_helvetica_fitted_to(width: &str, descriptor: bool) -> Vec<u8> {
     let font = if descriptor {
-        "<< /Type /Font /Subtype /TrueType /BaseFont /Helvetica /Encoding /WinAnsiEncoding \
-         /FirstChar 72 /LastChar 72 /Widths [721.9] /FontDescriptor 7 0 R >>"
+        format!(
+            "<< /Type /Font /Subtype /TrueType /BaseFont /Helvetica /Encoding /WinAnsiEncoding \
+             /FirstChar 72 /LastChar 72 /Widths [{width}] /FontDescriptor 7 0 R >>"
+        )
     } else {
-        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding \
-         /FirstChar 72 /LastChar 72 /Widths [721.9] >>"
+        format!(
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding \
+             /FirstChar 72 /LastChar 72 /Widths [{width}] >>"
+        )
     };
-    let mut objects = vec![font.to_owned()];
+    let mut objects = vec![font];
     if descriptor {
         objects.push(
             "<< /Type /FontDescriptor /FontName /Helvetica /Flags 32 \
@@ -15640,57 +15649,148 @@ fn drawn_fitted(source: &[u8]) -> f32 {
     stretch
 }
 
-/// `doc/questions/A566`: embedding the shipped face unmodified removes the viewer's horizontal
-/// fitting, which is the loss `substitute-stretch` — withheld, the font row stops on it by name;
-/// authorised, the output embeds the face and the report names the font with the scale it lost.
-#[test]
-fn a_shipped_face_fitted_horizontally_is_the_loss_substitute_stretch() {
-    let source = a_fitted_helvetica(false);
-    let stretch = drawn_fitted(&source);
-    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
-    assert!(output.is_none());
-    assert_eq!(
-        decision(&report, "fonts/font-programs-embedded"),
-        Decision::Unauthorised {
-            losses: Losses::one(Loss::SubstituteStretch),
-            rewrite: Rewrite::SubstituteFontProgram,
-        }
-    );
-    // `machine-face` alone is not this loss: authorising it leaves the font row stopped.
-    let only_the_machine = Authorisations {
-        machine_face: true,
-        ..Authorisations::default()
-    };
-    let (_, output) = convert(&source, Target::Two(Level::B), only_the_machine);
-    assert!(output.is_none());
-
-    let authorised = Authorisations {
-        substitute_stretch: true,
-        glyphs_from_to_unicode: true,
-        press_assumed: false,
-        recovered_structure: false,
-        text_as_image: true,
-        ..Authorisations::default()
-    };
-    let (report, output) = convert(&source, Target::Two(Level::B), authorised);
-    let output = written(&report, output);
-    assert_eq!(
-        holds(&output, Target::Two(Level::B)).verdict(),
-        Verdict::Conforms
-    );
-    let font = conversion(&report)
-        .substituted
-        .first()
+/// `H` as the font in object 6 draws it, wound one way, in ems.
+fn h_outline(bytes: &[u8]) -> pdf_render::Path {
+    let document = Document::open(bytes.to_vec()).expect("it opens");
+    let dict = document
+        .get(ObjectId::new(6, 0))
+        .as_dict()
         .cloned()
-        .expect("the font was substituted");
-    assert_eq!(font.losses, Losses::one(Loss::SubstituteStretch));
-    assert_eq!(font.fitting.map(f32::to_bits), Some(stretch.to_bits()));
-    assert_eq!(stated_widths(&output), vec![721.9]);
+        .expect("object 6 is the font");
+    let path = pdf_font::LoadedFont::load(&document, &dict, "F1")
+        .expect("the font loads")
+        .outline(pdf_font::Code::single_byte(b'H'))
+        .expect("H draws");
+    let path = pdf_render::Path::clone(&path);
+    if path.signed_area() < 0.0 {
+        path.reversed()
+    } else {
+        path
+    }
+}
+
+/// Whether two outlines are the same commands with every point within `within` ems.
+fn drawn_alike(before: &pdf_render::Path, after: &pdf_render::Path, within: f32) -> bool {
+    use pdf_render::PathCommand;
+    let near = |a: pdf_render::Point, b: pdf_render::Point| {
+        (a.x - b.x).abs() <= within && (a.y - b.y).abs() <= within
+    };
+    before.commands().len() == after.commands().len()
+        && before
+            .commands()
+            .iter()
+            .zip(after.commands())
+            .all(|pair| match pair {
+                (PathCommand::MoveTo(a), PathCommand::MoveTo(b))
+                | (PathCommand::LineTo(a), PathCommand::LineTo(b)) => near(*a, *b),
+                (PathCommand::CurveTo(a1, a2, a), PathCommand::CurveTo(b1, b2, b)) => {
+                    near(*a1, *b1) && near(*a2, *b2) && near(*a, *b)
+                }
+                (PathCommand::Close, PathCommand::Close) => true,
+                _ => false,
+            })
+}
+
+/// ADR 2769, R09 (b): where the profile withholds `substitute-stretch`, the shipped face goes in
+/// with the viewer's fitting written into its outlines, so the output draws what the window drew
+/// and nothing is lost. ISO 19005-2 section 6.2.11.4.1 is met by the embedding; section 6.2.11.5
+/// by the advances, which the scale does not touch, so the file's width stands. The expected
+/// outline is the source's as this viewer draws it — ADR 0358's `x × stretch` — to within one
+/// unit of Liberation Sans' 2048-unit em, the rounding of a scaled coordinate to the program's
+/// integer grid. At 721.9 against the face's 722.17 the fitting is itself smaller than that unit;
+/// at 650, through the file's own descriptor where the advance is restated too, the face's own
+/// outline (ADR 2262's unmodified embedding) is wider than the window's by more than the unit,
+/// and the written one is not.
+#[test]
+fn a_shipped_face_fitted_horizontally_is_embedded_with_its_fitting() {
+    let within = 1.0 / 2048.0 + f32::EPSILON;
+    for (width, descriptor) in [("721.9", false), ("721.9", true), ("650", true)] {
+        let source = a_helvetica_fitted_to(width, descriptor);
+        let stretch = drawn_fitted(&source);
+        let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+        let output = written(&report, output);
+        assert_eq!(
+            holds(&output, Target::Two(Level::B)).verdict(),
+            Verdict::Conforms
+        );
+        assert!(
+            matches!(
+                decision(&report, "fonts/font-programs-embedded"),
+                Decision::Stated {
+                    rewrite: Rewrite::SubstituteFontProgram,
+                    ..
+                }
+            ),
+            "{width}, descriptor {descriptor}"
+        );
+        let conversion = conversion(&report);
+        assert!(conversion.settled.is_empty(), "a first-pass construction");
+        let font = conversion
+            .substituted
+            .first()
+            .cloned()
+            .expect("the font was substituted");
+        assert!(font.losses.is_empty());
+        assert_eq!(font.fitting, Some(Fitting::Written(stretch)));
+        let stated: f64 = width.parse().expect("a number");
+        assert_eq!(stated_widths(&output), vec![stated]);
+        assert!(
+            drawn_alike(&h_outline(&source), &h_outline(&output), within),
+            "{width}, descriptor {descriptor}: the output does not draw the window's H"
+        );
+    }
+    let source = a_helvetica_fitted_to("650", true);
+    let unfitted = Authorisations {
+        substitute_stretch: true,
+        ..Authorisations::default()
+    };
+    let (report, output) = convert(&source, Target::Two(Level::B), unfitted);
+    assert!(!drawn_alike(
+        &h_outline(&source),
+        &h_outline(&written(&report, output)),
+        within
+    ));
+}
+
+/// `doc/questions/A566`: where the profile authorises `substitute-stretch`, the shipped face goes
+/// in unmodified, without the fitting, and the loss is named with the scale it removed; withheld,
+/// ADR 2769's construction loses nothing, so `machine-face` alone authorises nothing it needs.
+#[test]
+fn a_shipped_face_fitted_horizontally_is_the_loss_substitute_stretch_where_authorised() {
+    for descriptor in [false, true] {
+        let source = a_fitted_helvetica(descriptor);
+        let stretch = drawn_fitted(&source);
+        let authorised = Authorisations {
+            substitute_stretch: true,
+            ..Authorisations::default()
+        };
+        let (report, output) = convert(&source, Target::Two(Level::B), authorised);
+        let output = written(&report, output);
+        assert_eq!(
+            holds(&output, Target::Two(Level::B)).verdict(),
+            Verdict::Conforms
+        );
+        assert_eq!(
+            decision(&report, "fonts/font-programs-embedded"),
+            Decision::Authorised {
+                losses: Losses::one(Loss::SubstituteStretch),
+                rewrite: Rewrite::SubstituteFontProgram,
+            }
+        );
+        let font = conversion(&report)
+            .substituted
+            .first()
+            .cloned()
+            .expect("the font was substituted");
+        assert_eq!(font.losses, Losses::one(Loss::SubstituteStretch));
+        assert_eq!(font.fitting, Some(Fitting::Removed(stretch)));
+        assert_eq!(stated_widths(&output), vec![721.9]);
+    }
 }
 
 /// `doc/questions/A566`'s precondition: one embedding decision carries every loss it incurs. A page
-/// with a Times drawn from a machine's face and a fitted Helvetica needs both `machine-face` and
-/// `substitute-stretch`, names both, and converts only once both are authorised.
+/// with a Times drawn from a machine's face and a fitted Helvetica embedded unmodified needs both
+/// `machine-face` and `substitute-stretch`, names both, and converts only once both are authorised.
 #[test]
 fn one_embedding_decision_names_every_loss_it_incurs() {
     let source = Conforming {
@@ -15728,9 +15828,11 @@ fn one_embedding_decision_names_every_loss_it_incurs() {
         return;
     }
     let both = Losses::one(Loss::MachineFace).with(Loss::SubstituteStretch);
-    for (machine_face, substitute_stretch) in [(false, false), (true, false), (false, true)] {
+    // Withheld, the fitting is written into the face (ADR 2769) and `machine-face` is the one loss
+    // left; authorised, the face goes in unmodified and the decision names both.
+    for (substitute_stretch, losses) in [(false, Losses::one(Loss::MachineFace)), (true, both)] {
         let partial = Authorisations {
-            machine_face,
+            machine_face: false,
             substitute_stretch,
             glyphs_from_to_unicode: false,
             press_assumed: false,
@@ -15739,14 +15841,11 @@ fn one_embedding_decision_names_every_loss_it_incurs() {
             ..Authorisations::default()
         };
         let (report, output) = convert(&source, Target::Two(Level::B), partial);
-        assert!(
-            output.is_none(),
-            "{partial:?} authorises half of what is lost"
-        );
+        assert!(output.is_none(), "{partial:?} withholds machine-face");
         assert_eq!(
             decision(&report, "fonts/font-programs-embedded"),
             Decision::Unauthorised {
-                losses: both,
+                losses,
                 rewrite: Rewrite::SubstituteFontProgram,
             }
         );
@@ -15793,23 +15892,6 @@ fn one_embedding_decision_names_every_loss_it_incurs() {
         "and the fitting: {recorded}"
     );
     assert!(!output.is_empty());
-}
-
-/// The route into a file's own descriptor embeds the same face the viewer fits, so it owes the
-/// same answer; before `doc/adr/2262` it embedded the face as a statement and named nothing.
-#[test]
-fn a_described_font_fitted_horizontally_names_the_fitting_it_loses() {
-    let source = a_fitted_helvetica(true);
-    drawn_fitted(&source);
-    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
-    assert!(output.is_none());
-    assert_eq!(
-        decision(&report, "fonts/font-programs-embedded"),
-        Decision::Unauthorised {
-            losses: Losses::one(Loss::SubstituteStretch),
-            rewrite: Rewrite::SubstituteFontProgram,
-        }
-    );
 }
 
 /// §9.6.5.1 gives an absent Encoding the program's built-in table, which changes when a

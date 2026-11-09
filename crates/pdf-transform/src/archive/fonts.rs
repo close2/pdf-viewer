@@ -186,9 +186,9 @@ pub struct SubstitutedFont {
     /// machine's (`doc/adr/2162`), `substitute-stretch` where it drew the shipped face narrowed to
     /// the file's widths (`doc/adr/2262`), and nothing where the output draws what the viewer did.
     pub losses: Losses,
-    /// The horizontal scale the viewer drew the shipped face at, where embedding the face
-    /// unmodified removed it: the figure the loss `substitute-stretch` is about.
-    pub fitting: Option<f32>,
+    /// The horizontal scale the viewer drew the shipped face at, where it drew one, and what
+    /// embedding did with it.
+    pub fitting: Option<Fitting>,
     /// The codes the file's own encoding sent to `.notdef` that were given an empty glyph in the
     /// embedded program, which `doc/questions/A48` allows on condition that each is reported and
     /// recorded (`doc/adr/2458`).
@@ -303,6 +303,18 @@ impl FaceAuthority {
             }
         }
     }
+}
+
+/// What a substitution did with the horizontal scale the viewer drew the shipped face at
+/// (ADR 0358).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Fitting {
+    /// Embedding the face unmodified removed it: the figure the loss `substitute-stretch` is
+    /// about (`doc/adr/2262`).
+    Removed(f32),
+    /// It was written into the embedded program's outlines, so that the output draws what the
+    /// viewer did and nothing is lost (`doc/adr/2769`).
+    Written(f32),
 }
 
 /// One face a substitution may embed: this program's, or the one an operator named.
@@ -1025,6 +1037,10 @@ pub(super) struct Routes<'a> {
     pub(super) gate: Gate<'a>,
     /// The standard-fourteen definitions the conversion itself added, by name.
     pub(super) defined: &'a BTreeMap<Vec<u8>, ObjectId>,
+    /// Whether the viewer's fitting of a shipped face is written into the program embedded
+    /// (`doc/adr/2769`): so where the profile withholds the loss `substitute-stretch`, and not
+    /// where it authorises it, which keeps the unmodified face `doc/questions/A566` chose.
+    pub(super) write_fitting: bool,
 }
 
 /// How many fonts one conversion photographs around ([`embed_faces`]).
@@ -1061,6 +1077,7 @@ fn embed_pass(
         target,
         gate,
         defined,
+        write_fitting,
     } = *routes;
     let mut substitutes = Substitutes::default();
     let mut drawn_whole = false;
@@ -1076,7 +1093,13 @@ fn embed_pass(
             ..drawn.clone()
         };
         substitutes.added_fonts.insert(*id);
-        described::describe(document, &used, spare, &mut substitutes, target)?;
+        described::describe(
+            document,
+            &used,
+            spare,
+            &mut substitutes,
+            (target, write_fitting),
+        )?;
     }
     for (index, used) in survey.fonts().enumerate() {
         if !used.rendered {
@@ -1123,7 +1146,13 @@ fn embed_pass(
             if named_program(supplied, &requested).is_some() {
                 return Err(Because::NotBuiltYet(NO_DESCRIPTOR_FOR_A_SUPPLIED_PROGRAM));
             }
-            described::describe(document, used, spare, &mut substitutes, target)?;
+            described::describe(
+                document,
+                used,
+                spare,
+                &mut substitutes,
+                (target, write_fitting),
+            )?;
             continue;
         }
         // The *raw* entry rather than the resolved one: a program is embedded by writing a key
@@ -1191,13 +1220,37 @@ fn embed_pass(
                     .ok_or(Because::TheFence(TWO_WIDTHS_FOR_ONE_GLYPH))?,
             )
         };
-        let program = if route == MetricRoute::FaceMetrics {
-            face.program().to_vec()
-        } else {
-            let base = copied.as_deref().unwrap_or(face.program());
-            let modified = pdf_font::restate::with_widths(base, face.format(), &widths)
-                .map_err(|_| Because::NotBuiltYet(FACE_NOT_RESTATABLE))?;
-            renamed_modified(&modified, face.format())?
+        // Which face the viewer drew the font from decides what embedding the shipped one loses:
+        // the restatement's proof has already held the font to it (`doc/adr/2162`). The unrestated
+        // route, whose own comparison is of advances, reads the same answer off the font as
+        // loaded: the fitting it removes from the shipped face (`doc/adr/2262`), or a machine's
+        // face it embeds over, which is the loss `machine-face` there exactly as on the other two
+        // routes (`doc/adr/2279`). An operator's face is the operator's statement and costs
+        // neither.
+        let drawn = match (&face, &restated) {
+            (Face::Supplied(..), _) => None,
+            (Face::Shipped(_), Some(restatement)) => Some(restatement.drawn),
+            (Face::Shipped(shipped), None) => described::drawn_by_the_viewer(&font, shipped),
+        };
+        // The fitting written into the face where the profile keeps it (`doc/adr/2769`), before
+        // the advances are restated: the scale moves outlines only, and the advances are then
+        // made the file's widths exactly as for a face embedded unscaled.
+        let base = copied.as_deref().unwrap_or(face.program());
+        let fitting_written =
+            described::with_the_fitting(base, face.format(), drawn, &font, write_fitting);
+        let program = match (route, &fitting_written) {
+            (MetricRoute::FaceMetrics, None) => face.program().to_vec(),
+            (MetricRoute::FaceMetrics, Some((scaled, _))) => {
+                renamed_modified(scaled, face.format())?
+            }
+            (_, scaled) => {
+                let base = scaled
+                    .as_ref()
+                    .map_or(base, |(scaled, _)| scaled.as_slice());
+                let modified = pdf_font::restate::with_widths(base, face.format(), &widths)
+                    .map_err(|_| Because::NotBuiltYet(FACE_NOT_RESTATABLE))?;
+                renamed_modified(&modified, face.format())?
+            }
         };
         // **The invariant the whole supply rests on, proved rather than trusted.** Section 4.9
         // ranks restating the program above restating `/Widths` because `/Widths` is what
@@ -1206,7 +1259,15 @@ fn embed_pass(
         // readers a caller holding nothing but bytes has.
         proves(&program, face.format(), &widths, &BTreeMap::new())?;
         if let Some(restatement) = &restated {
-            described::restatement_proved(document, reading, restatement, &program)?;
+            described::restatement_proved(
+                document,
+                reading,
+                restatement,
+                (
+                    &program,
+                    fitting_written.as_ref().map(|(_, stretch)| *stretch),
+                ),
+            )?;
         }
         let at = spare
             .take(document)
@@ -1246,21 +1307,11 @@ fn embed_pass(
         if document.get_key(&used.dict, "Widths").is_null() {
             state_laid_out_widths(&mut entries, &font);
         }
-        // Which face the viewer drew the font from decides what embedding the shipped one loses:
-        // the restatement's proof has already held the font to it (`doc/adr/2162`). The unrestated
-        // route, whose own comparison is of advances, reads the same answer off the font as
-        // loaded: the fitting it removes from the shipped face (`doc/adr/2262`), or a machine's
-        // face it embeds over, which is the loss `machine-face` there exactly as on the other two
-        // routes (`doc/adr/2279`). An operator's face is the operator's statement and costs
-        // neither.
-        let drawn = match (&face, &restated) {
-            (Face::Supplied(..), _) => None,
-            (Face::Shipped(_), Some(restatement)) => Some(restatement.drawn),
-            (Face::Shipped(shipped), None) => described::drawn_by_the_viewer(&font, shipped),
+        let (losses, fitting) = match (drawn, &fitting_written) {
+            (_, Some((_, stretch))) => (Losses::default(), Some(Fitting::Written(*stretch))),
+            (None, None) => (Losses::default(), None),
+            (Some(drawn), None) => described::losses_of(drawn, &font),
         };
-        let (losses, fitting) = drawn.map_or((Losses::default(), None), |drawn| {
-            described::losses_of(drawn, &font)
-        });
         substitutes.done.push(SubstitutedFont {
             resource: used.name.clone(),
             requested,

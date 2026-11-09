@@ -103,7 +103,7 @@ column. R02 is built (ADR 2498) and no document reaches it.
 
 | order | remedy | frees at 2b | frees at 4 | stops under `as-shown`, 2b / 4 | what is left needs | built by, and what is left |
 |---|---|---|---|---|---|---|
-| 1 | R06b-the-other-part | 37 | 0 | 41 / 0 | built | ADR 2498: the two-target request; the figures are what a one-part request refuses; a `%PDF-3.x` source is written at 4 (ADR 2692) |
+| 1 | R06b-the-other-part | 37 | 0 | 42 / 0 | built | ADR 2498: the two-target request; the figures are what a one-part request refuses; a `%PDF-3.x` source is written at 4 (ADR 2692) |
 | 2 | R03-photograph | 6 | 9 | 55 / 57 | builds only | built under `as-if-printed`: A694, ADRs 2516, 2618, 2638, 2760; left, a page this reader does not draw whole, by its cause (ADR 2760); `as-shown` keeps ADR 2394's gate (A694 item 1) |
 | 3 | R08-unembedded-font-photograph | 8 | 8 | 35 / 35 | builds only | built under `as-if-printed`: A694, ADR 2516; `as-shown` keeps its stop (A694 item 1) |
 | 4 | R10-font-refiling | 5 | 5 | 7 / 7 | builds only | built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685), a standard font's stated widths (ADR 2686), a mode 3 font's descriptor (ADR 2688), a glyf program under a CIDFontType0 (ADR 2716), a collection nothing reads (ADR 2717), a font written inside another object (ADR 2722), a code Annex D encodes twice in a glyf face (ADR 2723) |
@@ -117,12 +117,13 @@ column. R02 is built (ADR 2498) and no document reaches it.
 | 12 | R05-press | 0 | 2 | 0 / 2 | builds only | A694 item 2: (a) built, ADR 2518; (b) built, ADR 2747; (c) built, ADR 2750: overprint mode 1 on a DeviceCMYK mark is ADR 1978's loss under the two shipped profiles; left, a mark blended in four components, ADR 1978's refusal |
 | 13 | R15-embedded-files | 0 | 2 | 3 / 7 | builds only | built: ADR 2536 |
 | 14 | D-defect | — | — | 7 / 7 | defect | section 8: the converter's own, diagnosed rather than ranked |
-| 15 | R09-as-shown-font-losses | 0 | 0 | 121 / 121 | builds only | `as-shown` only; ADR 2490: (c) decided, (a) and (b) builds |
+| 15 | R09-as-shown-font-losses | 0 | 0 | 80 / 80 | builds only | `as-shown` only; ADR 2490: (c) decided; (b) built for a `glyf` face, ADR 2769; left, (a) and a fitted CFF face |
 | 16 | X1-dynamic-xfa | — | — | 4 / 4 | exception | CLAUDE.md's exclusion; §K.1 |
 | 17 | X2-no-page-to-see | — | — | 6 / 6 | exception | the reader draws no page of it |
 
-Under `as-shown` the largest row is R09 (121 documents at each part), then R03 and R08, each held by
-an answer of the owner's (A694 item 1) rather than by a build.
+Under `as-shown` the largest row is R09 (80 documents at each part, none of them on
+`substitute-stretch` any more), then R03 and R08, each held by an answer of the owner's (A694 item 1)
+rather than by a build.
 
 ## 3. Fonts
 
@@ -140,17 +141,18 @@ named in the report so a reader knows what was lost. `as-shown` keeps its stop. 
 stays open: a photograph states no widths as the producer's, so it is the route that does not
 depend on Q687's answer. Mitigations section 5, `fonts/font-programs-embedded`; limits 2.1, 4.9.
 
-**R09 — the `as-shown` font losses** (107 documents under `as-shown` only; alone in 81 at 2b, 79
-at 4): `machine-face` 41, `substitute-stretch` 40, both 23, `machine-face` with
-`glyphs-from-to-unicode` 3. `as-if-printed` converts every one. *A company* that must keep what it
+**R09 — the `as-shown` font losses** (80 documents at each part;
+per part, `machine-face` 68, with `glyphs-from-to-unicode` 4, with `layout-from-this-viewer` 2, and
+`layout-from-this-viewer` alone 3; `substitute-stretch` none, ADR 2769). `as-if-printed` converts every one. *A company* that must keep what it
 saw keeps what its screen showed. **Remedy**: (a) for `machine-face`, embed *the machine's face the
 window drew* — a subset, where the face's own embedding permission allows; then `as-shown` loses
 nothing on the machine that converted it, and a face that forbids embedding keeps the stop by name;
-(b) for `substitute-stretch`, embed the shipped face with each glyph's outline scaled to the width
-the file states, which is what the window draws (ADR 0358) — a font-program rewrite like
-`pdf-font`'s width restatement, no content stream touched; (c) until (a) and (b) are built,
-`as-shown` may authorise both losses by name, which is what reopening its stop means (ADR 2490).
-Mitigations section 5; ADRs 0270, 0358, 2162.
+(b) for `substitute-stretch`, **built** (ADR 2769): the shipped `glyf` face goes in with the
+window's horizontal fitting (ADR 0358) written into its outlines, advances and content streams
+untouched, wherever the profile withholds the loss; a profile that authorises it keeps A566's
+unmodified face (ADR 2770). A fitted CFF face, which would take a `FontMatrix`, has no witness
+and keeps the loss; (c) until (a) is built, `as-shown` may authorise `machine-face` by name,
+which is what reopening its stop means (ADR 2490). Mitigations section 5; ADRs 0270, 0358, 2162.
 
 **R03a — a code that reaches `.notdef` in the program the file embeds** (30 documents, the fence
 rows `fonts/embedded-programs-define-every-glyph-shown` 29 and `fonts/no-notdef-glyph-shown` 23;

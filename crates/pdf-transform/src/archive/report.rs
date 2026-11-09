@@ -17,7 +17,7 @@ use crate::json::Value;
 
 use super::actions::RemovedAction;
 use super::decision::Decision;
-use super::fonts::{RestatedFont, SubstitutedFont};
+use super::fonts::{Fitting, RestatedFont, SubstitutedFont};
 use super::prepare::{DestinationProfile, RemovedAnnotation, WrittenAppearance};
 use super::signatures::SourceSignature;
 
@@ -2106,10 +2106,17 @@ impl Conversion {
                 if !font.losses.is_empty() {
                     let _ = write!(out, "; it loses {}", font.losses.words());
                 }
-                if let Some(fitting) = font.fitting {
+                if let Some(Fitting::Removed(fitting)) = font.fitting {
                     let _ = write!(
                         out,
                         ", the horizontal scale {fitting} this viewer drew the face at"
+                    );
+                }
+                if let Some(Fitting::Written(written)) = font.fitting {
+                    let _ = write!(
+                        out,
+                        "; its outlines were given the horizontal scale {written} this viewer \
+                         draws the face at, so it draws what the window drew"
                     );
                 }
                 if !font.empty_glyphs.is_empty() {
@@ -2431,8 +2438,14 @@ fn substituted_to_json(font: &SubstitutedFont) -> Value {
             ),
         ));
     }
-    if let Some(fitting) = font.fitting {
+    if let Some(Fitting::Removed(fitting)) = font.fitting {
         fields.push(("fitting".to_owned(), Value::text(fitting.to_string())));
+    }
+    if let Some(Fitting::Written(written)) = font.fitting {
+        fields.push((
+            "fitting_written".to_owned(),
+            Value::text(written.to_string()),
+        ));
     }
     if !font.empty_glyphs.is_empty() {
         fields.push((

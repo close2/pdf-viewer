@@ -392,8 +392,11 @@ remedy = "preserve"
 #                                  the shipped face would show other shapes; --font names the
 #                                  machine's face as the operator's statement (doc/adr/2162);
 #                                  where it drew the shipped face narrowed to the file's widths,
-#                                  embedding the face unmodified draws each glyph wider than the
-#                                  window did, the loss substitute-stretch (A566, doc/adr/2262);
+#                                  the face goes in with that narrowing written into its
+#                                  outlines and nothing is lost (doc/adr/2769, 2770); where it
+#                                  cannot be written, the unmodified face draws each glyph wider
+#                                  than the window did, the loss substitute-stretch (A566,
+#                                  doc/adr/2262), and the stop stays;
 #                                  where it set a font the file describes by nothing at the metrics
 #                                  its name resembles, the widths written are the viewer's, the loss
 #                                  layout-from-this-viewer (A687, doc/adr/2504);

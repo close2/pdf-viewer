@@ -279,9 +279,17 @@ pub(super) fn restatement_proved(
     document: &Document,
     used: &SelectedFont,
     restatement: &Restatement,
-    program: &[u8],
+    (program, written): (&[u8], Option<f32>),
 ) -> Result<(), Because> {
     let descriptor = document.get_key(&used.dict, "FontDescriptor");
+    let written = match written {
+        Some(stretch) => Some((
+            stretch,
+            pdf_font::stretch::within_in_ems(program)
+                .ok_or(Because::NotBuiltYet(PROGRAM_NOT_MEASURED))?,
+        )),
+        None => None,
+    };
     let Object::Dictionary(mut descriptor) = resolved(
         document,
         &Object::Dictionary(descriptor.as_dict().cloned().unwrap_or_default()),
@@ -304,6 +312,7 @@ pub(super) fn restatement_proved(
             source: &restatement.source,
             drawn: restatement.drawn,
             face: &restatement.face,
+            written,
         },
         &restatement.entries,
         &descriptor,
@@ -333,6 +342,9 @@ struct HeldTo<'a> {
     source: &'a LoadedFont,
     drawn: Drawn,
     face: &'a ShippedFace,
+    /// The scale written into the program's outlines, where [`with_the_fitting`] wrote one, and
+    /// how far a written point may stand from the viewer's, in ems.
+    written: Option<(f32, f32)>,
 }
 
 /// Which face the viewer draws `source` from, refused where it is a machine's and the shipped face
@@ -456,7 +468,7 @@ pub(super) fn describe(
     used: &SelectedFont,
     spare: &mut Spare,
     substitutes: &mut Substitutes,
-    target: pdf_archive::Target,
+    (target, write_fitting): (pdf_archive::Target, bool),
 ) -> Result<(), Because> {
     let requested = base_font(document, &used.dict);
     let stated_subtype = name_of(document, &used.dict, "Subtype").unwrap_or_default();
@@ -467,6 +479,7 @@ pub(super) fn describe(
         .map_err(|_| Because::NotBuiltYet(super::FONT_NOT_READ))?;
     let drawn = drawn_from(&source, used, &face)?;
     let (program, empty) = with_empty_glyphs(&face, &source, used, target)?;
+    let (program, within) = fitting_kept(program, &face, drawn, &source, write_fitting)?;
     let symbolic = matches!(face.request.family, Family::Symbol | Family::ZapfDingbats);
     // A dictionary that is not the `Type1` one a Compact Font Format program goes under, given such
     // a face with no encoding of its own, would lose the names its source drew by, because a
@@ -488,7 +501,7 @@ pub(super) fn describe(
         .ok_or_else(|| Because::NotBuiltYet(no_row(subtype, face.format, face.program)))?;
     let measured = Measured::of(&face).ok_or(Because::NotBuiltYet(PROGRAM_NOT_MEASURED))?;
 
-    let program_at = if empty.is_empty() {
+    let program_at = if empty.is_empty() && within.is_none() {
         shared_program(document, &face, row, spare, substitutes)?
     } else {
         own_program(document, &face, &program, row, spare, substitutes)?
@@ -521,6 +534,7 @@ pub(super) fn describe(
             source: &source,
             drawn,
             face: &face,
+            written: within,
         },
         &entries,
         &descriptor,
@@ -532,7 +546,10 @@ pub(super) fn describe(
         .written
         .insert(descriptor_at, Object::Dictionary(descriptor));
     super::gains(document, used, entries, spare, substitutes)?;
-    let (mut losses, fitting) = losses_of(drawn, &source);
+    let (mut losses, fitting) = match within {
+        Some((stretch, _)) => (Losses::default(), Some(super::Fitting::Written(stretch))),
+        None => losses_of(drawn, &source),
+    };
     if layout.is_this_viewers() {
         losses = losses.with(Loss::LayoutFromThisViewer);
     }
@@ -683,14 +700,69 @@ fn layout_of(
 /// output draws are another face's altogether (`doc/adr/2162`). The shipped face, fitted to the
 /// file's widths, is the loss `substitute-stretch`: the output draws the same glyph of the same
 /// face at the same position, at the face's own width (`doc/questions/A566`, `doc/adr/2262`).
-pub(super) fn losses_of(drawn: Drawn, source: &LoadedFont) -> (Losses, Option<f32>) {
+pub(super) fn losses_of(drawn: Drawn, source: &LoadedFont) -> (Losses, Option<super::Fitting>) {
     match drawn {
         Drawn::FromAMachineFace => (Losses::one(Loss::MachineFace), None),
-        Drawn::FromTheShippedFace if fitted(source) => {
-            (Losses::one(Loss::SubstituteStretch), Some(source.stretch()))
-        }
+        Drawn::FromTheShippedFace if fitted(source) => (
+            Losses::one(Loss::SubstituteStretch),
+            Some(super::Fitting::Removed(source.stretch())),
+        ),
         Drawn::FromTheShippedFace => (Losses::default(), None),
     }
+}
+
+/// The shipped face's program with the viewer's fitting written into its outlines, and the scale
+/// written, where the conversion is to keep the fitting (`doc/adr/2769`).
+///
+/// **What the window drew, written into the face.** ADR 0358 draws a shipped face fitted to the
+/// file's widths by scaling each outline's x about the glyph's origin; [`pdf_font::stretch`]
+/// writes the same scale into a `glyf` program, so the output draws that shape and the loss
+/// `substitute-stretch` is not incurred. Asked only where `wanted`: a profile that authorises the
+/// loss embeds the face unmodified, the construction `doc/questions/A566` chose for it. `None`
+/// where the viewer drew no fitting, where the face is not a `glyf` program, or where the writer
+/// refuses the program — and then the face goes in unmodified and the loss is named as before.
+pub(super) fn with_the_fitting(
+    program: &[u8],
+    format: Format,
+    drawn: Option<Drawn>,
+    source: &LoadedFont,
+    wanted: bool,
+) -> Option<(Vec<u8>, f32)> {
+    if !wanted || drawn != Some(Drawn::FromTheShippedFace) || !fitted(source) {
+        return None;
+    }
+    if format != Format::Sfnt {
+        return None;
+    }
+    let stretch = source.stretch();
+    pdf_font::stretch::sfnt_outlines(program, stretch)
+        .ok()
+        .map(|scaled| (scaled, stretch))
+}
+
+/// A program, and the scale written into it with the distance a point may stand from the viewer's.
+type FittingKept<'face> = (std::borrow::Cow<'face, [u8]>, Option<(f32, f32)>);
+
+/// The program [`describe`] writes, with the viewer's fitting written into it where the profile
+/// keeps it (`doc/adr/2769`), and the scale written with the distance [`proved`] holds a point to.
+///
+/// A modified program, renamed as A550 asks of a modified Liberation face, and this font's own.
+fn fitting_kept<'face>(
+    program: std::borrow::Cow<'face, [u8]>,
+    face: &ShippedFace,
+    drawn: Drawn,
+    source: &LoadedFont,
+    wanted: bool,
+) -> Result<FittingKept<'face>, Because> {
+    let Some((scaled, stretch)) =
+        with_the_fitting(&program, face.format, Some(drawn), source, wanted)
+    else {
+        return Ok((program, None));
+    };
+    let renamed = super::renamed_modified(&scaled, face.format)?;
+    let within = pdf_font::stretch::within_in_ems(&renamed)
+        .ok_or(Because::NotBuiltYet(PROGRAM_NOT_MEASURED))?;
+    Ok((std::borrow::Cow::Owned(renamed), Some((stretch, within))))
 }
 
 /// Whether the viewer draws this substitute's outlines at a horizontal scale (ADR 0358).
@@ -1063,46 +1135,59 @@ fn proved(
     // its producer shipped it. Whatever scale the viewer fitted the source at — a machine's face
     // or the shipped one — is what embedding removes, and `losses_of` names it as the loss it is
     // rather than this proof refusing it (`doc/adr/2262`).
-    let HeldTo {
-        source,
-        drawn,
-        face,
-    } = held_to;
-    same_metrics(source, &converted)?;
+    same_metrics(held_to.source, &converted)?;
     for text in used.shown.keys() {
-        for code in source.decode(text) {
-            let same = match drawn {
-                Drawn::FromTheShippedFace if fitted(source) => {
-                    match (&source.outline(code), &converted.outline(code)) {
-                        (Some(before), Some(after)) => {
-                            same_once_fitted(before, after, source.stretch())
-                        }
-                        (None, None) => true,
-                        _ => false,
-                    }
-                }
-                Drawn::FromTheShippedFace => {
-                    match (&source.outline(code), &converted.outline(code)) {
-                        (Some(before), Some(after)) => same_once_wound(before, after),
-                        (None, None) => true,
-                        // An empty glyph given where the encoding reached `.notdef` draws what no
-                        // glyph drew (`super::empty`).
-                        (None, Some(after)) => after.commands().is_empty(),
-                        _ => false,
-                    }
-                }
-                // The same program on both sides, so the same glyph is the same outline.
-                Drawn::FromAMachineFace => {
-                    let glyph = shipped_glyph(face, code);
-                    glyph.is_some() && converted.glyph_index(code) == glyph
-                }
-            };
+        for code in held_to.source.decode(text) {
+            let same = same_glyph(&held_to, &converted, code);
             if !same {
                 return Err(Because::NotBuiltYet(DRAWN_DIFFERENTLY));
             }
         }
     }
     Ok(())
+}
+
+/// Whether the converted font draws `code` as the viewer draws it from `source`: the shipped
+/// face's glyph wound one way, fitted, or carrying the fitting written into it; or for a machine's
+/// face, the shipped glyph that face stands for.
+fn same_glyph(held_to: &HeldTo<'_>, converted: &LoadedFont, code: Code) -> bool {
+    let HeldTo {
+        source,
+        drawn,
+        face,
+        written,
+    } = *held_to;
+    match (drawn, written) {
+        (Drawn::FromTheShippedFace, Some((_, within))) => {
+            match (&source.outline(code), &converted.outline(code)) {
+                (Some(before), Some(after)) => same_once_written(before, after, within),
+                (None, None) => true,
+                _ => false,
+            }
+        }
+        (Drawn::FromTheShippedFace, None) if fitted(source) => {
+            match (&source.outline(code), &converted.outline(code)) {
+                (Some(before), Some(after)) => same_once_fitted(before, after, source.stretch()),
+                (None, None) => true,
+                _ => false,
+            }
+        }
+        (Drawn::FromTheShippedFace, None) => {
+            match (&source.outline(code), &converted.outline(code)) {
+                (Some(before), Some(after)) => same_once_wound(before, after),
+                (None, None) => true,
+                // An empty glyph given where the encoding reached `.notdef` draws what no
+                // glyph drew (`super::empty`).
+                (None, Some(after)) => after.commands().is_empty(),
+                _ => false,
+            }
+        }
+        // The same program on both sides, so the same glyph is the same outline.
+        (Drawn::FromAMachineFace, _) => {
+            let glyph = shipped_glyph(face, code);
+            glyph.is_some() && converted.glyph_index(code) == glyph
+        }
+    }
 }
 
 /// Holds every code's advance to the selected source, and the converted font to no stretch.
@@ -1135,6 +1220,41 @@ fn same_once_wound(substituted: &pdf_render::Path, embedded: &pdf_render::Path) 
     } else {
         substituted.commands() == embedded.commands()
     }
+}
+
+/// Whether an embedded program whose outlines carry the viewer's fitting draws the substitute's
+/// outline: the same commands, every y the same and every x within `within` ems.
+///
+/// The program states each scaled x as the integer nearest it, so a point stands up to half a unit
+/// of the program's em from the viewer's, and a component's point up to one (its offset is rounded
+/// too); [`pdf_font::stretch::sfnt_outlines`] has already held every glyph of the program to
+/// that, and this holds the glyphs the page shows to it as the converted font draws them. Winding
+/// is undone as [`same_once_wound`] does.
+fn same_once_written(
+    substituted: &pdf_render::Path,
+    embedded: &pdf_render::Path,
+    within: f32,
+) -> bool {
+    use pdf_render::PathCommand;
+    let embedded = if embedded.signed_area() < 0.0 {
+        embedded.reversed()
+    } else {
+        embedded.clone()
+    };
+    let near = |source: pdf_render::Point, point: pdf_render::Point| {
+        (source.x - point.x).abs() <= within && (source.y - point.y).abs() <= ELEVATION_ROUNDING
+    };
+    let (before, after) = (substituted.commands(), embedded.commands());
+    before.len() == after.len()
+        && before.iter().zip(after).all(|pair| match pair {
+            (PathCommand::MoveTo(a), PathCommand::MoveTo(b))
+            | (PathCommand::LineTo(a), PathCommand::LineTo(b)) => near(*a, *b),
+            (PathCommand::CurveTo(a1, a2, a), PathCommand::CurveTo(b1, b2, b)) => {
+                near(*a1, *b1) && near(*a2, *b2) && near(*a, *b)
+            }
+            (PathCommand::Close, PathCommand::Close) => true,
+            _ => false,
+        })
 }
 
 /// Whether an embedded program's outline, drawn at the horizontal scale the viewer fitted the

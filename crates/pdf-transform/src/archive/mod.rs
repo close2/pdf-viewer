@@ -219,7 +219,7 @@ pub use decision::{
 };
 pub use fallback::Fallback;
 pub use fonts::{
-    CjkPack, Collection, DOTS_PER_INCH, Described, FaceAuthority, FixedGroup, FixedGroups,
+    CjkPack, Collection, DOTS_PER_INCH, Described, FaceAuthority, Fitting, FixedGroup, FixedGroups,
     MAX_GROUP_NAME_CHARS, MAX_GROUPS_NAMED, MAX_PHOTOGRAPHED_PAGES, MAX_TEXT_CHARS, MetricRoute,
     PackFiles, PackGap, PhotographedPage, RestatedFont, SubstitutedFont,
 };

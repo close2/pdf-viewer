@@ -569,6 +569,42 @@ fn a_font_the_file_did_not_embed_is_restated_over_the_face_the_conversion_embeds
     );
 }
 
+/// The same restatement over the face with the viewer's fitting written into it, which is what
+/// a profile withholding `substitute-stretch` embeds (`doc/adr/2769`): the proof holds each glyph
+/// of the embedded program to the shipped face's glyph scaled by the same writer, and the code
+/// still reaches the face's glyph.
+#[test]
+fn a_font_the_file_did_not_embed_is_restated_over_the_face_carrying_its_fitting() {
+    let source =
+        a_page_in_an_unembedded_truetype_font(("Arial", "32", ""), (241, 241, "889"), "\\361");
+    let held = Document::open_with_limits(source.clone(), Limits::DEFAULT).expect("it opens");
+    let shipped = pdf_font::standard::shipped_face(&held, &font_of(&held), "")
+        .expect("this program ships a face for Arial");
+    let drawn = shipped.glyph(241).expect("the face has the code's glyph");
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::MachineFace);
+    let (report, output) = convert(&source, Target::Two(Level::B), authorised);
+    let decided = decision(&report, "fonts/non-symbolic-truetype-uses-a-standard-encoding");
+    assert!(
+        matches!(
+            decided,
+            Decision::Stated {
+                rewrite: Rewrite::TrueTypeCmapRestated,
+                ..
+            }
+        ),
+        "{decided:?}"
+    );
+    let output = output.unwrap_or_else(|| panic!("{:?}\n{:?}", report.refused, report.warnings));
+    let checked = holds(&output, Target::Two(Level::B));
+    assert_eq!(checked.verdict(), Verdict::Conforms, "{}", checked.render());
+    assert!(matches!(
+        conversion(&report).substituted.first().and_then(|font| font.fitting),
+        Some(pdf_transform::archive::Fitting::Written(_))
+    ));
+    assert_eq!(glyphs_of(&output)[241], Some(drawn));
+}
+
 #[test]
 fn a_font_the_substitution_makes_a_type1_one_has_no_truetype_route_left_to_state() {
     // The face this program ships for `TimesNewRoman` is a CFF one, so the substitution writes
