@@ -881,6 +881,28 @@ pub unsafe extern "C" fn quorra_respond(
     Status::Ok.code()
 }
 
+/// A `QUORRA_EVENT_SUBMIT`'s submission that ended with no form data to hand to `quorra_respond`:
+/// the caller or its reader declined to send it, it could not be sent, it was not answered, the
+/// server refused it, or it answered with something other than §12.7.8's form data. XFA 3.3 page 447 has a form's `postSubmit`
+/// events run "\[w]hether or not the submit succeeded", and only the caller sees how the
+/// transmission ended (ADR 2764). A document no longer open takes nothing.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_unanswered(
+    viewer: *mut Session,
+    document: u64,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    *events = Box::into_raw(Box::new(viewer.unanswered(document)));
+    Status::Ok.code()
+}
+
 /// What this caller does with a page past `MAX_PIXELS`, or one whose window keeps few of its
 /// commands: `QUORRA_OVERSIZE_*`.
 ///

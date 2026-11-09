@@ -144,6 +144,10 @@ pub(super) mod command_kind {
     // crosses for `COMMIT_FIELD`'s reason: the confined worker holds the view, the typed value and
     // what the field showed before the typing began (ADR 2756).
     pub(in crate::protocol) const CANCEL_FIELD: u8 = 48;
+    // A submission that ended with no form data to import. It crosses for `RESPOND`'s reason:
+    // the host holds the network and the confined worker holds the form whose `postSubmit` events
+    // it fires (ADR 2764).
+    pub(in crate::protocol) const UNANSWERED: u8 = 49;
 }
 
 /// How [`Command::Open`]'s document is held, on the wire.
@@ -655,6 +659,9 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
             super::published_policy::write_published(&mut writer, policy);
             writer.bytes(copy);
         }
+        Command::Unanswered { document } => {
+            writer.u8(k::UNANSWERED).document(*document);
+        }
         Command::Declined {
             document,
             page,
@@ -1073,6 +1080,9 @@ pub(crate) fn decode_command_holding(
             document: reader.document(what)?,
             policy: super::published_policy::read_published(&mut reader)?,
             copy: reader.owned_bytes("a signature policy's copy")?,
+        },
+        k::UNANSWERED => Command::Unanswered {
+            document: reader.document(what)?,
         },
         k::DECLINED => Command::Declined {
             document: reader.document(what)?,

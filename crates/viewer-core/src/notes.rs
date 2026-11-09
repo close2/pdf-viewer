@@ -377,8 +377,9 @@ fn xfa_form(document: &Document, notes: &mut Vec<String>) {
                           scripts and the events a person's actions, the form's opening, a save, \
                           a submit and a change of validation state raise, in FormCalc and \
                           JavaScript, and the submits those events state as a PDF, XFDF or \
-                          URL-encoded body, excepted where this reader lets scripts run, and its \
-                          other events and packagings are not"
+                          URL-encoded body, excepted where this reader lets scripts run, a save \
+                          those scripts decline being written or not at the level set for it, \
+                          and its other events and packagings are not"
             .to_owned(),
         (true, true) => format!(
             "this document is an XFA form that asks to be regenerated when it is opened \
@@ -671,6 +672,12 @@ pub(crate) fn restricted(
                 "this document's media permissions say ({}) for the temporary file a player \
                  would be handed (ISO 32000-2 Table 286's /TF) — {tail}",
                 value.as_str()
+            ),
+            // XFA 3.3 page 402's flag, named as the form's own script so that a person can tell
+            // it from every statement the file makes in ISO 32000-2's own terms (ADR 2763).
+            Restriction::SaveCancelled => format!(
+                "this document's XFA form has a preSave script that set $event.cancelAction, \
+                 which XFA 3.3 page 402 says causes the save to abort — {tail}"
             ),
         })
         .collect()

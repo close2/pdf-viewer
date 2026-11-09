@@ -779,7 +779,8 @@ impl Restrictions {
 /// §12.11.6's processing is not one of the table's positions at all and every window performs it,
 /// because opening a document is the first thing any of them does (ADR 1167). Table 286's media
 /// hand-off is asked wherever a rendition action is activated, which every window does through
-/// `viewer_core` (ADR 1961).
+/// `viewer_core` (ADR 1961), and an XFA form's declined save wherever a window saves, which is
+/// `viewer_core`'s save in every window (ADR 2763).
 #[must_use]
 pub const fn inert(operation: Operation) -> &'static str {
     match operation {
@@ -790,7 +791,8 @@ pub const fn inert(operation: Operation) -> &'static str {
         | Operation::Print
         | Operation::PrintFaithfully
         | Operation::Process
-        | Operation::HandOverMedia => "",
+        | Operation::HandOverMedia
+        | Operation::Save => "",
         Operation::Assemble => INERT,
     }
 }

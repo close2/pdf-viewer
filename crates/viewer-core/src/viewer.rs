@@ -667,6 +667,7 @@ impl Viewer {
                 format,
                 bytes,
             } => self.respond(document, answers, source, format, &bytes, events),
+            Command::Unanswered { document } => self.unanswered(document),
             Command::PolicyCopy {
                 document,
                 policy,

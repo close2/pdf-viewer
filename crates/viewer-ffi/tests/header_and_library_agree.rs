@@ -151,7 +151,7 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
     let exported = exported_names();
     assert_eq!(
         exported.len(),
-        366,
+        367,
         "the count `unsafe_position.rs` also states"
     );
     let missing: Vec<&String> = exported.difference(&declared).collect();
@@ -467,6 +467,8 @@ fn the_argument_enumerations(expected: &mut BTreeMap<String, i64>) {
         ),
         // Table 286's /TF (ADR 1961).
         ("QUORRA_RESTRICTED_MEDIA", viewer_ffi::RestrictedKind::Media),
+        // XFA 3.3 page 402's `cancelAction` under `preSave` (ADR 2763).
+        ("QUORRA_RESTRICTED_SAVE", viewer_ffi::RestrictedKind::Save),
     ] {
         expected.insert(name.to_owned(), kind as i64);
     }

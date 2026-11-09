@@ -304,6 +304,9 @@ fn reason(restriction: Restriction) -> String {
         Restriction::MediaTemporaryFile { value } => {
             format!("a media clip's /TF ({}) (Table 286)", value.as_str())
         }
+        Restriction::SaveCancelled => {
+            "a preSave script's cancelAction (XFA 3.3 page 402)".to_owned()
+        }
     }
 }
 

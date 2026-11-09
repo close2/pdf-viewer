@@ -1726,6 +1726,12 @@ fn describe_restriction(operation: Operation, restriction: Restriction) -> Strin
             "its media permissions say ({}) for a player's temporary file (Table 286's /TF)",
             value.as_str()
         ),
+        // XFA 3.3 page 402's `cancelAction` under `preSave`, asked by the window that saves and
+        // by no verb of this suite, which runs no form's scripts; worded here for the same reason
+        // (ADR 2763).
+        Restriction::SaveCancelled => {
+            "its XFA form's preSave script set $event.cancelAction (XFA 3.3 page 402)".to_owned()
+        }
     }
 }
 

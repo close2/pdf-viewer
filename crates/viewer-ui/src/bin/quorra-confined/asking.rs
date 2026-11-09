@@ -166,10 +166,18 @@ impl Host {
                     bytes: None,
                 });
             }
-            Asked::Submit { submission, .. } => eprintln!(
-                "{}",
-                viewer_host::policy::submission_note(&submission, Some(why))
-            ),
+            // A submit not sent is a cancelled one, whose `postSubmit` the form still runs
+            // (XFA 3.3 page 389, ADR 2764).
+            Asked::Submit {
+                document,
+                submission,
+            } => {
+                eprintln!(
+                    "{}",
+                    viewer_host::policy::submission_note(&submission, Some(why))
+                );
+                self.dispatch(Command::Unanswered { document });
+            }
             Asked::Fetch { url, .. } => {
                 eprintln!("{}", viewer_host::fetch_note(&url, Some(why)));
                 self.dispatch(Command::Supply {
@@ -222,10 +230,16 @@ impl Host {
                 document,
                 submission,
             } if proceed => self.send_form(document, *submission, None),
-            Asked::Submit { submission, .. } => eprintln!(
-                "{}",
-                viewer_host::policy::submission_note(&submission, Some(&you_did_not()))
-            ),
+            Asked::Submit {
+                document,
+                submission,
+            } => {
+                eprintln!(
+                    "{}",
+                    viewer_host::policy::submission_note(&submission, Some(&you_did_not()))
+                );
+                self.dispatch(Command::Unanswered { document });
+            }
             Asked::Fetch { document, url } if proceed => self.start_fetch(document, url, None),
             Asked::Fetch { url, .. } => {
                 eprintln!("{}", viewer_host::fetch_note(&url, Some(&you_did_not())));

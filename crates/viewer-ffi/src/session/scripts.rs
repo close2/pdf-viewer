@@ -50,6 +50,15 @@ impl Session {
         })
     }
 
+    /// A submission that ended with no form data to import, whose `postSubmit` events XFA 3.3
+    /// page 447 runs whether or not the submit succeeded (ADR 2764).
+    #[must_use]
+    pub fn unanswered(&mut self, document: u64) -> Events {
+        self.handle(Command::Unanswered {
+            document: DocumentId(document),
+        })
+    }
+
     /// What the keyboard holds, for a script's `event.shift` and `event.modifier`.
     #[must_use]
     pub fn keys(&mut self, keys: pdf_model::view::Keys) -> Events {

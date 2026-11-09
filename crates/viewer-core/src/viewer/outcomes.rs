@@ -117,6 +117,21 @@ impl Viewer {
         Self::apply_behind(document, open, outcome, events);
     }
 
+    /// [`Command::Unanswered`]: a submission that ended with no form data to import fires the
+    /// `postSubmit` events XFA 3.3 page 447 runs "\[w]hether or not the submit succeeded" (ADR
+    /// 2764).
+    ///
+    /// The document need not be the one in front, for [`Self::respond`]'s reason; what a script
+    /// changed is drawn when it next is, and nothing else follows from it.
+    pub(super) fn unanswered(&mut self, document: DocumentId) {
+        let Some(open) = self.documents.get_mut(&document) else {
+            return;
+        };
+        if open.view.activate_form_after_submit(&open.document, None) {
+            open.stale();
+        }
+    }
+
     /// What an outcome about a document behind the one in front can still do: its values, its
     /// sentences, and a redraw when it next comes to the front.
     ///

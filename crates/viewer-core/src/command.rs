@@ -803,6 +803,21 @@ pub enum Command {
         /// The answer's body.
         bytes: Vec<u8>,
     },
+    /// A submission [`crate::Event::Submit`] asked for that ended with no form data to import:
+    /// the host or the reader declined to send it, it could not be sent, it was not answered, the
+    /// server refused it, or it answered with something other than §12.7.8's form data.
+    ///
+    /// **What it carries out is XFA 3.3's**, whose page 447 has the client, "after any attempted
+    /// submit operation", run step 1 "\[w]hether or not the submit succeeded": the `postSubmit`
+    /// events, which page 389 also fires "\[a]fter a cancelled or failed submit operation".
+    /// [`Self::Respond`] fires them where an answer arrives, before it is imported; this is the
+    /// end of every other submission, which only the host can see. Named by document
+    /// for [`Self::Respond`]'s reason, and a document no longer open takes nothing. The events
+    /// have lost the click that raised the submit, as [`Self::Respond`]'s have (ADR 2764).
+    Unanswered {
+        /// The document whose submission ended.
+        document: DocumentId,
+    },
     /// A copy of a signature policy's document, fetched from the URL a signature names and handed
     /// back, so that §12.8.3.4.4's "shall enforce signature policy constraints" is carried out over
     /// it as over a copy the file stores.
@@ -1274,6 +1289,7 @@ pub struct RestrictionPolicy {
     assemble: RestrictionLevel,
     process: RestrictionLevel,
     hand_over_media: RestrictionLevel,
+    save: RestrictionLevel,
 }
 
 impl RestrictionPolicy {
@@ -1282,7 +1298,7 @@ impl RestrictionPolicy {
     /// The order is this type's own and is what the wire, the C ABI and a command line all
     /// enumerate in, so that the three cannot drift: a policy is six levels and this says which
     /// six and in what sequence.
-    pub const OPERATIONS: [pdf_model::restriction::Operation; 9] = {
+    pub const OPERATIONS: [pdf_model::restriction::Operation; 10] = {
         use pdf_model::restriction::Operation as O;
         [
             O::Extract,
@@ -1294,6 +1310,7 @@ impl RestrictionPolicy {
             O::Assemble,
             O::Process,
             O::HandOverMedia,
+            O::Save,
         ]
     };
 
@@ -1310,6 +1327,7 @@ impl RestrictionPolicy {
             assemble: level,
             process: level,
             hand_over_media: level,
+            save: level,
         }
     }
 
@@ -1327,6 +1345,7 @@ impl RestrictionPolicy {
             O::Assemble => self.assemble,
             O::Process => self.process,
             O::HandOverMedia => self.hand_over_media,
+            O::Save => self.save,
         }
     }
 
@@ -1348,6 +1367,7 @@ impl RestrictionPolicy {
             O::Assemble => self.assemble = level,
             O::Process => self.process = level,
             O::HandOverMedia => self.hand_over_media = level,
+            O::Save => self.save = level,
         }
         self
     }
@@ -1379,6 +1399,9 @@ impl RestrictionPolicy {
             // Table 286's subject is the media clip's data, and what this level decides is whether
             // a clip goes to a player at all (ADR 1961).
             O::HandOverMedia => "media",
+            // The reader's own verb: what this level decides is whether a document's script may
+            // stop the person saving (ADR 2763).
+            O::Save => "save",
         }
     }
 
@@ -1458,6 +1481,7 @@ pub struct RestrictionOverride {
     assemble: Option<RestrictionLevel>,
     process: Option<RestrictionLevel>,
     hand_over_media: Option<RestrictionLevel>,
+    save: Option<RestrictionLevel>,
 }
 
 impl RestrictionOverride {
@@ -1475,6 +1499,7 @@ impl RestrictionOverride {
         assemble: None,
         process: None,
         hand_over_media: None,
+        save: None,
     };
 
     /// The level this document departs to for one operation, if it departs at all.
@@ -1494,6 +1519,7 @@ impl RestrictionOverride {
             O::Assemble => self.assemble,
             O::Process => self.process,
             O::HandOverMedia => self.hand_over_media,
+            O::Save => self.save,
         }
     }
 
@@ -1516,6 +1542,7 @@ impl RestrictionOverride {
             O::Assemble => self.assemble = level,
             O::Process => self.process = level,
             O::HandOverMedia => self.hand_over_media = level,
+            O::Save => self.save = level,
         }
         self
     }

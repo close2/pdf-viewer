@@ -49,6 +49,10 @@ internal static unsafe partial class Native
 
     [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static partial int quorra_unanswered(nint viewer, ulong document, nint* events);
+
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static partial int quorra_oversize(nint viewer, uint how, nint* events);
 
     [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]

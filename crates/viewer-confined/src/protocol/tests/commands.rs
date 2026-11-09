@@ -319,6 +319,10 @@ fn every_carried_command_round_trips() {
             format: DataFormat::Other,
             bytes: b"<p>thanks</p>".to_vec(),
         },
+        // A submission's end with no form data to import (ADR 2764).
+        Command::Unanswered {
+            document: DocumentId(5),
+        },
         // §12.8.3.4.4's fetched policy copy, under a stated digest with a named specification
         // and under no particular copy with an empty body (ADR 2624).
         Command::PolicyCopy {

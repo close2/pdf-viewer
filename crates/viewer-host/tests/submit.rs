@@ -488,3 +488,94 @@ fn a_plain_host_still_reaches_the_listener() {
     let _ = server.join().expect("the server thread returns");
     assert_eq!(answer.status, 200);
 }
+
+/// One way a transmitted submission can end, and whether its answer carried §12.7.8's form data.
+fn endings() -> Vec<(
+    &'static str,
+    Result<viewer_host::submit::Response, TransmitError>,
+    bool,
+)> {
+    let answered = |status: u16, media: Option<&str>, body: &[u8]| {
+        Ok(viewer_host::submit::Response {
+            status,
+            media_type: media.map(str::to_owned),
+            location: None,
+            body: body.to_vec(),
+        })
+    };
+    vec![
+        (
+            "FDF",
+            answered(200, Some("application/vnd.fdf"), b"%FDF-1.2"),
+            true,
+        ),
+        (
+            "XFDF",
+            answered(200, Some("application/xfdf"), b"<xfdf/>"),
+            true,
+        ),
+        (
+            "a PDF",
+            answered(200, Some("application/pdf"), b"%PDF-1.7"),
+            false,
+        ),
+        (
+            "a page",
+            answered(200, Some("text/html"), b"<p>thanks</p>"),
+            false,
+        ),
+        ("no content", answered(204, None, b""), false),
+        (
+            "a refusal",
+            answered(500, Some("application/vnd.fdf"), b"%FDF-1.2"),
+            false,
+        ),
+        (
+            "no answer",
+            Err(TransmitError::Scheme("ftp://example.org".to_owned())),
+            false,
+        ),
+    ]
+}
+
+/// XFA 3.3 page 447: "after any attempted submit operation", the client's first step runs the
+/// form's `postSubmit` events "[w]hether or not the submit succeeded", and only where "the submit
+/// succeeded and data was returned" does the second merge it. So a submission whose answer is
+/// imported ends with `Command::Respond`, which fires them before the import, and every other end
+/// — no answer, a refusal, an answer that is not §12.7.8's form data — ends with
+/// `Command::Unanswered` naming the document that sent it (ADR 2764). An import fetched by URI
+/// and a refused one end with neither, because no submission was attempted.
+#[test]
+fn a_submission_that_brought_no_form_data_ends_unanswered() {
+    use viewer_host::submit::{Asked, Returned};
+    let returned = |asked: Asked, answer| Returned {
+        document: DocumentId(3),
+        asked,
+        url: "https://example.org/form".to_owned(),
+        warned: None,
+        answer,
+    };
+    for (said, answer, imported) in endings() {
+        let follow_up = returned(Asked::Submission, answer).follow_up();
+        assert_eq!(
+            matches!(
+                follow_up,
+                Some(Command::Unanswered {
+                    document: DocumentId(3)
+                })
+            ),
+            !imported,
+            "{said}: {follow_up:?}"
+        );
+    }
+    // The window's reading of the same answers agrees: what ends unanswered is what is not
+    // handed to `Command::Respond`.
+    for (said, answer, imported) in endings() {
+        let reply = returned(Asked::Submission, answer).reply();
+        assert_eq!(matches!(reply, Reply::Import { .. }), imported, "{said}");
+    }
+    for (said, answer, _) in endings() {
+        let follow_up = returned(Asked::Import(DataFormat::Fdf), answer).follow_up();
+        assert!(follow_up.is_none(), "an import's {said}: {follow_up:?}");
+    }
+}

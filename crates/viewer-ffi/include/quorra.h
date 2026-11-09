@@ -196,6 +196,9 @@ extern "C" {
 /* ISO 32000-2 §13.2.4.2's Table 286 /TF: handing an embedded media clip to a player, which needs the
  * temporary file the entry governs. Asked where a rendition action is activated (ADR 1961). */
 #define QUORRA_RESTRICTED_MEDIA 8u
+/* XFA 3.3 page 402's $event.cancelAction under a hybrid form's preSave event: the document's script
+ * declining its reader's save. Asked where the save is (ADR 2763). */
+#define QUORRA_RESTRICTED_SAVE  9u
 
 /* §12.8.1's third question: what a reader does where the document's own §12.8.4 material settles
  * nothing about revocation. Nothing computes a clean answer out of an absent one either way — RFC
@@ -1239,6 +1242,11 @@ int32_t quorra_clock(quorra_viewer *viewer, bool known, int32_t year, uint8_t mo
 int32_t quorra_respond(quorra_viewer *viewer, uint64_t document, uint32_t answers,
                        const char *source, uint32_t format, const uint8_t *bytes, size_t len,
                        quorra_events **events);
+/* A QUORRA_EVENT_SUBMIT's submission that ended with no form data for quorra_respond: declined,
+ * not sent, not answered, refused, or answered with something else. It runs the XFA form's
+ * postSubmit events, which XFA 3.3 page 447 runs whether or not the submit succeeded (ADR 2764).
+ * A document no longer open takes nothing. */
+int32_t quorra_unanswered(quorra_viewer *viewer, uint64_t document, quorra_events **events);
 /* What this caller does with a page past MAX_PIXELS: QUORRA_OVERSIZE_*. Under LISTED a
  * request quorra_render_request_oversized names is answered with quorra_render_ready_listed and
  * drawn a window at a time with quorra_render_request_rasterise_window. */

@@ -18,11 +18,66 @@ use crate::open::Open;
 
 impl Viewer {
     /// Writes §7.5.6's incremental update, or says why it could not be written.
+    ///
+    /// **An XFA form's `preSave` script may decline it**, by setting `$event.cancelAction`, which
+    /// XFA 3.3 page 402 says "causes the action to abort and a cleanup process to take place". A
+    /// save is the reader's own, so that is a document's restriction on its reader and is asked
+    /// at the reader's level for `pdf_model::restriction::Operation::Save`, once, here: `off`
+    /// writes, `warn` writes and says so, `ask` holds the save for [`Command::Answer`], and `on`
+    /// writes nothing and says why. A save not written still fires `postSave`, page 400's cleanup
+    /// of the pre-event that fired (ADR 2763).
     pub(super) fn save(&mut self, events: &mut Vec<Event>) {
+        use crate::notes::{Standing as Worded, restricted};
+        use pdf_model::restriction::{Operation, Restriction, Verdict};
         let Some(id) = self.focused else { return };
+        let Some(policy) = self
+            .focused()
+            .map(|open| self.restrictions.under(open.restrictions))
+        else {
+            return;
+        };
         let Some(open) = self.focused_mut() else {
             return;
         };
+        let operation = Operation::Save;
+        let asserted = if before_save(open) {
+            vec![Restriction::SaveCancelled]
+        } else {
+            Vec::new()
+        };
+        match policy.level(operation).level().verdict(asserted) {
+            Verdict::Proceed => Self::write(id, open, events),
+            Verdict::Warn(restrictions) => {
+                Self::write(id, open, events);
+                events.push(Event::Warned {
+                    document: id,
+                    operation,
+                    notes: restricted(operation, &restrictions, Worded::Warned),
+                });
+            }
+            Verdict::Refuse(restrictions) => {
+                events.push(Event::Refused {
+                    document: id,
+                    operation,
+                    notes: restricted(operation, &restrictions, Worded::Refused),
+                });
+                not_written(open);
+            }
+            Verdict::Ask(restrictions) => {
+                open.asking = Some(crate::open::Held::Save);
+                events.push(Event::Asking {
+                    document: id,
+                    operation,
+                    notes: restricted(operation, &restrictions, Worded::Asked),
+                });
+            }
+        }
+    }
+
+    /// The update written, with Table 200's `/DS` and XFA's `postSave` after it, and what it
+    /// carried said — the save's whole second half, which a `yes` to [`Self::save`]'s question
+    /// begins as well.
+    pub(super) fn write(id: DocumentId, open: &mut Open, events: &mut Vec<Event>) {
         let saved = written_with_scripts(open);
         match saved {
             Ok(written) => {
@@ -271,6 +326,11 @@ impl Viewer {
         // faithfully, so declining there asks for the degraded job the cell describes rather than
         // for no job at all (ADR 1203). Every other `no` forgets what was held.
         let answered_either_way = matches!(held, crate::open::Held::PrintFaithfully(_));
+        if !proceed && matches!(held, crate::open::Held::Save) {
+            // A save declined fires the `postSave` its `preSave` pushed (XFA 3.3 page 400).
+            not_written(open);
+            return;
+        }
         if !proceed && !answered_either_way {
             // §12.11.6's question is the one whose `no` has something to undo: a document held
             // before it was processed was never opened, no `Event::Opened` named it, and leaving
@@ -285,6 +345,9 @@ impl Viewer {
                 self.process(document, fragment.as_deref(), events);
             }
             crate::open::Held::Edit(done) => commit(document, open, done, events),
+            // The save the person was asked about, whose `preSave` already ran: what the `yes`
+            // releases is the writing and what follows it (ADR 2763).
+            crate::open::Held::Save => Self::write(document, open, events),
             // Nothing to commit: a copy changes no document. What the `yes` releases is the text
             // itself, taken at the moment the question was asked.
             crate::open::Held::Copy {
@@ -1006,32 +1069,51 @@ pub(super) fn commit(
     }
 }
 
-/// The §7.5.6 update `open`'s view writes, with the scripts around it: Table 200's `/WS`, "before
-/// saving a document", so that what the script writes into a field is in the update, and `/DS`
-/// after a save that was written (ADR 1614); and XFA 3.3 page 388's `preSave`, "just before the
-/// form data is written out", after `/WS`, and `postSave`, "just after", beside `/DS` (ADR 2702).
-fn written_with_scripts(
-    open: &mut Open,
-) -> Result<pdf_model::view::Written, pdf_syntax::write::UpdateError> {
+/// The scripts that run before a save: Table 200's `/WS`, "before saving a document", and then XFA
+/// 3.3 page 388's `preSave`, "just before the form data is written out", so that what a script
+/// writes into a field is in the update (ADRs 1614, 2702). Answers whether a `preSave` script set
+/// `$event.cancelAction` (page 402), which [`Viewer::save`] asks the reader's level about.
+fn before_save(open: &mut Open) -> bool {
     let page = open.page_index;
     open.view.run_document_scripts(
         &open.document,
         pdf_model::view::DocumentTrigger::WillSave,
         page,
     );
-    let calculated = open.view.activate_form_before_save(&open.document);
+    let done = open.view.activate_form_before_save(&open.document);
+    if done.changed {
+        open.stale();
+    }
+    done.cancelled
+}
+
+/// The §7.5.6 update `open`'s view writes, with the scripts after it: Table 200's `/DS` after a
+/// save that was written (ADR 1614), and XFA 3.3 page 388's `postSave`, "just after", beside it
+/// (ADR 2702).
+fn written_with_scripts(
+    open: &mut Open,
+) -> Result<pdf_model::view::Written, pdf_syntax::write::UpdateError> {
+    let page = open.page_index;
     let saved = open.view.save(&open.document);
-    let mut recalculated = false;
     if saved.is_ok() {
         open.view.run_document_scripts(
             &open.document,
             pdf_model::view::DocumentTrigger::DidSave,
             page,
         );
-        recalculated = open.view.activate_form_after_save(&open.document);
-    }
-    if calculated || recalculated {
-        open.stale();
+        if open.view.activate_form_after_save(&open.document) {
+            open.stale();
+        }
     }
     saved
+}
+
+/// A save the reader's level did not write: XFA 3.3 page 400's cleanup fires the `postSave` its
+/// `preSave` pushed — "pre-events push their matching post-events onto a last-in first-out stack.
+/// The cleanup process pops stacked post-events and fires them" — while Table 200's `/DS`, "after
+/// saving a document", does not run, since nothing was saved (ADR 2763).
+pub(super) fn not_written(open: &mut Open) {
+    if open.view.activate_form_after_save(&open.document) {
+        open.stale();
+    }
 }

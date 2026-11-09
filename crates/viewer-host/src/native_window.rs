@@ -1302,6 +1302,7 @@ pub trait NativeWindow {
             .send(document, submission, warned, None)
         {
             self.say(&sentence);
+            self.dispatch(Command::Unanswered { document });
             return;
         }
         if first {
@@ -2084,8 +2085,9 @@ pub trait NativeWindow {
         for returned in self.state_mut().submitter.collect() {
             let (document, url) = (returned.document, returned.url.clone());
             // A signature policy's copy goes on to the document's validation after the sentence
-            // saying what was fetched (ADR 2624).
-            let policy_copy = returned.policy_copy();
+            // saying what was fetched (ADR 2624), and a submission that brought no form data ends
+            // with the `postSubmit` events after the sentence saying how (ADR 2764).
+            let follow_up = returned.follow_up();
             match returned.reply() {
                 crate::submit::Reply::Import {
                     answers,
@@ -2116,7 +2118,7 @@ pub trait NativeWindow {
                 }
                 crate::submit::Reply::Say(note) => self.say(&note),
             }
-            if let Some(command) = policy_copy {
+            if let Some(command) = follow_up {
                 self.dispatch(command);
             }
         }

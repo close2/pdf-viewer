@@ -533,7 +533,7 @@ fn enforced_from(
     returned: &viewer_host::submit::Returned,
 ) -> Vec<String> {
     let command = returned
-        .policy_copy()
+        .follow_up()
         .expect("a 2xx answer to a policy fetch is handed on");
     viewer
         .handle(command)

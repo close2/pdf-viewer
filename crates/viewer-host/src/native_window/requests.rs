@@ -171,6 +171,7 @@ pub(super) fn answer<W: NativeWindow + ?Sized>(window: &mut W, about: Asked, pro
                     &submission,
                     Some(&refused()),
                 ));
+                window.dispatch(Command::Unanswered { document });
             }
         }
         // Table Annex O.4's `fdf` from a server: a `no` fetches nothing, and the core is told so
@@ -248,8 +249,11 @@ pub(super) fn submit<W: NativeWindow + ?Sized>(
             },
             &words,
         ),
+        // A submit not sent is a cancelled one, whose `postSubmit` the form still runs (XFA 3.3
+        // page 389, ADR 2764).
         crate::Sending::Refuse(why) => {
             window.say(&crate::policy::submission_note(&submission, Some(&why)));
+            window.dispatch(Command::Unanswered { document });
         }
     }
 }

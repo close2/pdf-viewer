@@ -533,30 +533,28 @@ impl ViewState {
     /// changed (page 379), and then, where the form's `config` lists `preSave` (page 1340), the
     /// script test of every container, whose failures are held for a host as an entry's are
     /// ([`Self::take_form_validations`]). A host calls it before [`Self::save`], so that what
-    /// the scripts wrote is in the update. Answers whether a value changed, which is ink to draw
-    /// again.
+    /// the scripts wrote is in the update. [`FormAction::changed`] is whether a value changed,
+    /// which is ink to draw again.
     ///
-    /// **The save is not cancelled.** Page 1340 has a save written "regardless" of its
-    /// validations, and a script's `$event.cancelAction` would be a document's restriction on its
-    /// reader's save, which `CLAUDE.md` makes the reader's to set; it is reported by name and the
-    /// file is written (ADR 2702).
-    pub fn activate_form_before_save(&mut self, document: &Document) -> bool {
-        let done = self.run_form(document, Raised::Action(Stimulus::PreSave), Instant::now());
-        if done.cancelled {
-            self.report(
-                "the XFA form: a preSave script set $event.cancelAction, which would abort the \
-                 save (XFA 3.3 page 402); a save is the reader's own, and the file is written \
-                 (ADR 2702)"
-                    .to_owned(),
-            );
-        }
-        done.changed
+    /// **[`FormAction::cancelled`] does not cancel the save here.** Page 402 has a script's
+    /// `$event.cancelAction` abort the action, and a save is the reader's own: the document
+    /// declining it is a document's restriction on its reader, which `CLAUDE.md` makes the
+    /// reader's to set, so the caller asks its level with
+    /// `crate::restriction::Restriction::SaveCancelled` against
+    /// `crate::restriction::Operation::Save` and writes, asks, warns or refuses as the verdict
+    /// says. Page 1340 has the validations a save runs leave it written "regardless", and they
+    /// do here (ADR 2763).
+    pub fn activate_form_before_save(&mut self, document: &Document) -> FormAction {
+        self.run_form(document, Raised::Action(Stimulus::PreSave), Instant::now())
     }
 
     /// Runs the `postSave` events bound to the application, which page 388 fires "just after the
     /// form has been written out in PDF", followed by the calculations that depend on what they
-    /// changed. A host calls it once [`Self::save`] has written the update; a value a script
-    /// changes is an edit the next save writes. Answers whether a value changed.
+    /// changed. A host calls it once [`Self::save`] has written the update, and after a save the
+    /// reader's level declined, because page 400's cleanup fires the post-event of every
+    /// pre-event that fired ("pre-events push their matching post-events onto a last-in first-out
+    /// stack"); a value a script changes is an edit the next save writes. Answers whether a value
+    /// changed.
     pub fn activate_form_after_save(&mut self, document: &Document) -> bool {
         self.run_form(document, Raised::Action(Stimulus::PostSave), Instant::now())
             .changed

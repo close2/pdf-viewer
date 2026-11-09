@@ -18,12 +18,13 @@
 use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 
+use pdf_model::restriction::Operation;
 use pdf_model::view::{ScriptEvent, ScriptResult, ScriptRunner};
 use pdf_model::xfa::{Form, FormLanguage, Ran, Scalar, Step};
 use viewer_core::{
     AlertButton, AlertButtons, AlertIcon, Answer, Command, Committing, DocumentId, Edit, Entered,
-    Event, PointerAction, Query, ScriptAnswer, ScriptAsks, ScriptQuestion, ScriptRunners,
-    Scripting, Viewer,
+    Event, PointerAction, Query, RestrictionLevel, RestrictionPolicy, RestrictionScope,
+    ScriptAnswer, ScriptAsks, ScriptQuestion, ScriptRunners, Scripting, Viewer,
 };
 
 const DOCUMENT: DocumentId = DocumentId(1);
@@ -141,6 +142,20 @@ impl ScriptRunner for Calculator {
             return Ran {
                 steps: 1,
                 outcome: Ok(form.value(node)),
+            };
+        }
+        // `cancel` is FormCalc's `$event.cancelAction = 1`: it sets page 402's flag and nothing
+        // else.
+        if script.trim() == "cancel" {
+            let set = Step::path("$event.cancelAction")
+                .and_then(|path| form.resolve(node, &path))
+                .and_then(|nodes| {
+                    let flag = *nodes.first().ok_or("no action is under way")?;
+                    form.set(flag, Scalar::Number(1.0))
+                });
+            return Ran {
+                steps: 1,
+                outcome: set.map(|()| Scalar::Number(1.0)),
             };
         }
         // A script that is a path into `$event` sets its field to what the path reads.
@@ -991,6 +1006,129 @@ fn a_save_writes_what_its_pre_save_event_set_and_not_what_its_post_save_event_se
             "the preSave value is written"
         );
         assert_eq!(value(&reopened, "Total"), "", "the postSave value is not");
+    }
+}
+
+/// Opens a hybrid form whose `preSave` script declines the save, under one level for the reader's
+/// `save`, and saves it.
+fn saved_under(level: RestrictionLevel) -> (Viewer, Vec<Event>) {
+    let fields = "<field name=\"Units\"><ui><textEdit/></ui><value><text/></value>\
+                  <event activity=\"preSave\" ref=\"$host\"><script>cancel</script></event>\
+                  </field>\
+                  <field name=\"Total\"><ui><textEdit/></ui><value><text/></value>\
+                  <event activity=\"postSave\" ref=\"$host\"><script>9</script></event></field>";
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Restrict(RestrictionScope::Window(
+            RestrictionPolicy::default().with(Operation::Save, level),
+        )))
+        .for_each(drop);
+    viewer
+        .handle(Command::Scripts(Scripting::Run(Arc::new(
+            Calculators::default(),
+        ))))
+        .for_each(drop);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: hybrid(fields, "<Units/><Total/>").into(),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    viewer.handle(Command::Presented).for_each(drop);
+    let events = viewer.handle(Command::Save).collect();
+    (viewer, events)
+}
+
+/// Whether the events hold a written file.
+fn wrote(events: &[Event]) -> bool {
+    events
+        .iter()
+        .any(|event| matches!(event, Event::Saved { .. }))
+}
+
+/// XFA 3.3 page 402: a `preSave` script that sets `$event.cancelAction` "causes the action to abort
+/// and a cleanup process to take place". A save is the reader's own, so the document declining it
+/// is asked at the reader's level for `save` (`CLAUDE.md`, ADR 2763): `off` writes and says
+/// nothing, `warn` writes and says why, `on` writes nothing and says why, and `ask` writes on a
+/// `yes` and not on a `no`. Wherever the file is not written, page 400's cleanup still fires the
+/// `postSave` its `preSave` pushed — "[t]he cleanup process pops stacked post-events and fires
+/// them" — so `Total`, which `postSave` sets to 9, reads 9 at every level and every answer.
+#[test]
+fn a_pre_save_cancel_action_is_asked_at_the_reader_s_level_for_save() {
+    let said = |events: &[Event]| {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                Event::Warned { operation, .. } => Some(("warned", *operation)),
+                Event::Refused { operation, .. } => Some(("refused", *operation)),
+                Event::Asking { operation, .. } => Some(("asking", *operation)),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let (viewer, events) = saved_under(RestrictionLevel::Off);
+    assert!(wrote(&events), "off writes");
+    assert_eq!(said(&events), [], "off says nothing");
+    assert_eq!(value(&viewer, "Total"), "9");
+
+    let (viewer, events) = saved_under(RestrictionLevel::Warn);
+    assert!(wrote(&events), "warn writes");
+    assert_eq!(said(&events), [("warned", Operation::Save)]);
+    assert_eq!(value(&viewer, "Total"), "9");
+
+    let (viewer, events) = saved_under(RestrictionLevel::On);
+    assert!(!wrote(&events), "on writes nothing");
+    assert_eq!(said(&events), [("refused", Operation::Save)]);
+    assert_eq!(value(&viewer, "Total"), "9", "the cleanup fires postSave");
+
+    for (proceed, written) in [(true, true), (false, false)] {
+        let (mut viewer, events) = saved_under(RestrictionLevel::Ask);
+        assert!(!wrote(&events), "ask writes nothing before the answer");
+        assert_eq!(said(&events), [("asking", Operation::Save)]);
+        assert_eq!(value(&viewer, "Total"), "", "postSave waits on the answer");
+        let answered: Vec<Event> = viewer
+            .handle(Command::Answer {
+                document: DOCUMENT,
+                proceed,
+            })
+            .collect();
+        assert_eq!(wrote(&answered), written, "answered {proceed}");
+        assert_eq!(value(&viewer, "Total"), "9", "answered {proceed}");
+    }
+}
+
+/// XFA 3.3 page 447: "after any attempted submit operation", the client runs the form's
+/// `postSubmit` events "\[w]hether or not the submit succeeded". A host whose submission ended
+/// with no form data to hand back — declined, unsent, unanswered or answered with something else —
+/// says so with `Command::Unanswered`, and the events run: `Total`,
+/// which a `postSubmit` bound to `$form` (page 389: "applies only to the Form DOM") sets to 9,
+/// reads 9 afterwards. At `off` no script runs (ADR 1616), and a document no longer open takes
+/// nothing (ADR 2764).
+#[test]
+fn a_submission_that_ended_unanswered_runs_the_post_submit_events() {
+    let fields = "<field name=\"Units\"><ui><textEdit/></ui><value><text/></value></field>\
+                  <field name=\"Total\"><ui><textEdit/></ui><value><text/></value>\
+                  <event activity=\"postSubmit\" ref=\"$form\"><script>9</script></event>\
+                  </field>";
+    for (scripting, total) in [
+        (Scripting::Run(Arc::new(Calculators::default())), "9"),
+        (Scripting::Off, ""),
+    ] {
+        let mut viewer = opened_on(scripting, hybrid(fields, "<Units/><Total/>"));
+        viewer.handle(Command::Presented).for_each(drop);
+        assert_eq!(value(&viewer, "Total"), "", "nothing was submitted yet");
+        viewer
+            .handle(Command::Unanswered {
+                document: DocumentId(9),
+            })
+            .for_each(drop);
+        assert_eq!(value(&viewer, "Total"), "", "another document's submission");
+        viewer
+            .handle(Command::Unanswered { document: DOCUMENT })
+            .for_each(drop);
+        assert_eq!(value(&viewer, "Total"), total);
     }
 }
 

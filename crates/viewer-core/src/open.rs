@@ -804,6 +804,13 @@ pub(crate) enum Held {
         /// The clip's data, decoded when the question was asked.
         media: crate::Media,
     },
+    /// A save an XFA form's `preSave` script declined — `crate::Command::Save`, asked as
+    /// `pdf_model::restriction::Operation::Save` (ADR 2763).
+    ///
+    /// Nothing is carried: the update is the log's, and the scripts that run before a save have
+    /// run, so a `yes` writes the log as it stands and a `no` fires only the `postSave` XFA 3.3
+    /// page 400's cleanup owes.
+    Save,
     /// A copy, with the text already taken in both of §14.8.2.5's orders — `crate::Command::Copy`.
     Copy {
         /// §14.8.2.5's logical content order, where the structure tree reached the whole

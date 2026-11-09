@@ -714,6 +714,13 @@ static int exercise_the_eight_commands(quorra_viewer *viewer)
     }
     printf("respond: %zu event(s)\n", quorra_events_len(said));
     quorra_events_free(said);
+    /* A submission that ended with no form data: the form's postSubmit events, of which this
+     * document has none (ADR 2764). */
+    if (!check("quorra_unanswered", quorra_unanswered(viewer, 2, &said))) {
+        return 0;
+    }
+    printf("unanswered: %zu event(s)\n", quorra_events_len(said));
+    quorra_events_free(said);
     quorra_fields *fields = NULL;
     int answered = 0;
     if (check("quorra_fields_read", quorra_fields_read(viewer, &fields))) {

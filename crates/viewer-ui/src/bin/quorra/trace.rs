@@ -418,6 +418,7 @@ pub(crate) fn describe_command(command: &Command) -> String {
         Command::Save => "save".to_owned(),
         Command::Report => "report on the document".to_owned(),
         Command::Respond { source, bytes, .. } => format!("respond from {source}, {}", bytes.len()),
+        Command::Unanswered { document } => format!("unanswered submission of {}", document.0),
         Command::PolicyCopy { policy, copy, .. } => {
             format!("policy copy from {}, {}", policy.url, copy.len())
         }

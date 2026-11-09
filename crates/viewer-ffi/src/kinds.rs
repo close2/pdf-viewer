@@ -606,6 +606,9 @@ pub enum RestrictedKind {
     /// §13.2.4.2's Table 286 `/TF`: handing an embedded media clip to a player, which needs the
     /// temporary file the entry governs. Asked where a rendition action is activated (ADR 1961).
     Media = 8,
+    /// XFA 3.3 page 402's `$event.cancelAction` under a hybrid form's `preSave` event: the
+    /// document's script declining its reader's save. Asked where the save is (ADR 2763).
+    Save = 9,
 }
 
 impl RestrictedKind {
@@ -622,6 +625,7 @@ impl RestrictedKind {
             6 => Self::Process,
             7 => Self::PrintFaithfully,
             8 => Self::Media,
+            9 => Self::Save,
             _ => return None,
         })
     }
@@ -640,6 +644,7 @@ impl RestrictedKind {
             Self::Process => O::Process,
             Self::PrintFaithfully => O::PrintFaithfully,
             Self::Media => O::HandOverMedia,
+            Self::Save => O::Save,
         }
     }
 }

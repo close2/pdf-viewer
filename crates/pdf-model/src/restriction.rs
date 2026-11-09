@@ -31,6 +31,12 @@
 //! `CLAUDE.md` says to avoid, and this one could not become one until it reached this vocabulary.
 //! ADR 1167.
 //!
+//! **And one more that no clause of ISO 32000-2 states**: an XFA form's `preSave` script that sets
+//! `$event.cancelAction`, the document declining its reader's save (XFA 3.3 page 402). It is not
+//! read from the file but from what the form's scripts did, so [`asserted`] never returns it; the
+//! caller that ran them hands [`Restriction::SaveCancelled`] to [`Level::verdict`] itself, as
+//! [`media`]'s caller does (ADR 2763).
+//!
 //! # Why a reason and not a boolean
 //!
 //! The verdict is not this crate's to give. `CLAUDE.md`'s "A document's restrictions are the
@@ -207,7 +213,8 @@ impl Bit {
 /// - **Saving** is not in §7.6.4.1's list of operations user access can be controlled over, and
 ///   §12.8.2.3's usage rights are a *grant* rather than a restriction — what a save owes them is
 ///   the withdrawal in `crate::view::ViewState::save`, which is correctness rather than policy
-///   and is not asked here.
+///   and is not asked here. The one restriction a document can put on a save is a script's, XFA
+///   3.3's `$event.cancelAction` under a `preSave` event, and [`Operation::Save`] is that one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Operation {
     /// Putting a value into a field the document already holds —
@@ -311,6 +318,19 @@ pub enum Operation {
     /// Table 22 states no position for it — `/TF`'s own values name bit 5 where they need one —
     /// so [`Operation::bit`] answers `None`, as it does for [`Operation::Process`].
     HandOverMedia,
+    /// Writing the reader's update to the file — `viewer_core`'s save — where the document's own
+    /// script has declined it.
+    ///
+    /// **No clause of ISO 32000-2 restricts a save**; the one statement that can is XFA 3.3's, in
+    /// a hybrid form whose `preSave` event sets `$event.cancelAction`, which page 402 describes
+    /// as a flag whose setting "at any time before the action is consumated causes the action to
+    /// abort and a cleanup process to take place". A save is the reader's own operation, so a
+    /// document's script stopping it is a document's restriction on its reader, and `CLAUDE.md`
+    /// makes obeying it the reader's to set at four levels with `off` the default — here, as for
+    /// every other arm, rather than a refusal taken where the file is written. ADR 2763.
+    ///
+    /// Table 22 states no position for it, so [`Operation::bit`] answers `None`.
+    Save,
 }
 
 impl Operation {
@@ -331,6 +351,7 @@ impl Operation {
             // done", "… is waiting on your answer" — say what the clause says.
             Self::Process => "continuing to process this document",
             Self::HandOverMedia => "handing a media clip to a player",
+            Self::Save => "saving the document",
         }
     }
 
@@ -366,7 +387,7 @@ impl Operation {
             Self::Extract => Bit::Extract,
             Self::Assemble if revision >= 3 => Bit::Assemble,
             Self::Modify | Self::Assemble => Bit::Modify,
-            Self::Process | Self::HandOverMedia => return None,
+            Self::Process | Self::HandOverMedia | Self::Save => return None,
         })
     }
 }
@@ -493,6 +514,15 @@ pub enum Restriction {
         /// The value Table 286 states, its default and unrecognised values read as `TEMPNEVER`.
         value: crate::media::TemporaryFile,
     },
+    /// An XFA form's `preSave` script that set `$event.cancelAction`, a flag whose setting "at any
+    /// time before the action is consumated causes the action to abort and a cleanup process to
+    /// take place" (XFA 3.3 page 402).
+    ///
+    /// The document's own script, then, stating that the save it was told of should not happen —
+    /// asserted only against [`Operation::Save`], and only by the activation that ran the
+    /// `preSave` events of the save being asked about, which is why nothing in [`asserted`]
+    /// produces it: the caller that ran them is the only one that knows (ADR 2763).
+    SaveCancelled,
 }
 
 /// What §13.2.4.2's Table 286 `/TF` asserts against [`Operation::HandOverMedia`] in this document.
@@ -642,7 +672,8 @@ const fn certification_binds(operation: Operation) -> bool {
         | Operation::Extract
         | Operation::Assemble
         | Operation::Process
-        | Operation::HandOverMedia => false,
+        | Operation::HandOverMedia
+        | Operation::Save => false,
         Operation::Modify | Operation::FillInForm | Operation::Annotate => true,
     }
 }
@@ -680,13 +711,16 @@ const fn certification_binds(operation: Operation) -> bool {
 fn certification_permits(level: Modification, operation: Operation) -> bool {
     match operation {
         // And neither is *processing* one: §12.11.6 decides whether the document is opened at
-        // all, which is not a change to it, so no level of Table 257 speaks to it.
+        // all, which is not a change to it, so no level of Table 257 speaks to it. Nor does
+        // a save: what it writes are the edits each of which was asked about as its own
+        // operation, and writing them is no further change (ADR 2763).
         Operation::Print
         | Operation::PrintFaithfully
         | Operation::Extract
         | Operation::Assemble
         | Operation::Process
-        | Operation::HandOverMedia => true,
+        | Operation::HandOverMedia
+        | Operation::Save => true,
         Operation::Modify => matches!(level, Modification::Unknown(_)),
         Operation::FillInForm | Operation::Annotate => match level {
             Modification::None => false,

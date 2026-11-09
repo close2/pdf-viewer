@@ -214,6 +214,7 @@ pub(super) fn operation_code(operation: Operation) -> u8 {
         Operation::Process => 6,
         Operation::PrintFaithfully => 7,
         Operation::HandOverMedia => 8,
+        Operation::Save => 9,
     }
 }
 
@@ -229,6 +230,7 @@ pub(super) fn operation_of(reader: &mut Reader<'_>) -> Result<Operation, Protoco
         6 => Operation::Process,
         7 => Operation::PrintFaithfully,
         8 => Operation::HandOverMedia,
+        9 => Operation::Save,
         value => {
             return Err(ProtocolError::Unrecognised {
                 what: "an operation",

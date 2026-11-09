@@ -293,10 +293,15 @@ impl App {
                 },
                 &words,
             ),
-            viewer_host::Sending::Refuse(why) => println!(
-                "{}",
-                viewer_host::policy::submission_note(&submission, Some(&why))
-            ),
+            // A submit not sent is a cancelled one, whose `postSubmit` the form still runs
+            // (XFA 3.3 page 389, ADR 2764).
+            viewer_host::Sending::Refuse(why) => {
+                println!(
+                    "{}",
+                    viewer_host::policy::submission_note(&submission, Some(&why))
+                );
+                self.dispatch(Command::Unanswered { document });
+            }
         }
     }
 
@@ -348,6 +353,7 @@ impl App {
         });
         if let Err(sentence) = self.submitter.send(document, submission, warned, wake) {
             println!("note: {sentence}");
+            self.dispatch(Command::Unanswered { document });
         }
     }
 
@@ -495,8 +501,9 @@ impl App {
         for returned in self.submitter.collect() {
             let (document, url) = (returned.document, returned.url.clone());
             // A signature policy's copy goes on to the document's validation after the sentence
-            // saying what was fetched (ADR 2624).
-            let policy_copy = returned.policy_copy();
+            // saying what was fetched (ADR 2624), and a submission that brought no form data ends
+            // with the `postSubmit` events after the sentence saying how (ADR 2764).
+            let follow_up = returned.follow_up();
             match returned.reply() {
                 viewer_host::submit::Reply::Import {
                     answers,
@@ -525,7 +532,7 @@ impl App {
                 }
                 viewer_host::submit::Reply::Say(note) => println!("{note}"),
             }
-            if let Some(command) = policy_copy {
+            if let Some(command) = follow_up {
                 self.dispatch(command);
             }
         }
@@ -1069,6 +1076,7 @@ impl App {
                             )),
                         )
                     );
+                    self.dispatch(Command::Unanswered { document });
                 }
             }
             crate::app::Pending::Policy { document, policy } => {

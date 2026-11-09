@@ -1006,7 +1006,7 @@ pub fn fetch_signature_policy(
 /// **And every outcome says where the constraints are enforced.** §12.8.3.4.4's validator "shall
 /// enforce signature policy constraints", and the constraints are in the policy document. A copy
 /// the server answered with is handed on as `viewer_core::Command::PolicyCopy` by
-/// [`crate::submit::Returned::policy_copy`], whatever this comparison found, because the document's
+/// [`crate::submit::Returned::follow_up`], whatever this comparison found, because the document's
 /// validation binds it from the signature itself and may bind it by the digest its own rules state
 /// (ADR 2624); so the sentence says the outcome is said there, and where no copy came back it says
 /// none was enforced from the URL, rather than letting a fetched policy read as an enforced one.

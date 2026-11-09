@@ -501,12 +501,7 @@ pub fn reply(url: &str, response: Response, warned: Option<&str>) -> Reply {
         }
         return Reply::Say(note);
     }
-    let format = match response.media_type.as_deref() {
-        Some(media) if FDF_TYPES.contains(&media) => Some(DataFormat::Fdf),
-        Some(media) if XFDF_TYPES.contains(&media) => Some(DataFormat::Xfdf),
-        _ => None,
-    };
-    if let Some(format) = format {
+    if let Some(format) = form_data(&response) {
         return Reply::Import {
             answers: viewer_core::Answered::Submission,
             format,
@@ -530,6 +525,20 @@ pub fn reply(url: &str, response: Response, warned: Option<&str>) -> Reply {
          neither"
     );
     Reply::Say(note)
+}
+
+/// The format of §12.7.8's form data a submission's answer carries, where it carries any: a 2xx
+/// under one of [`FDF_TYPES`] or [`XFDF_TYPES`]. The one reading [`reply`] imports by and
+/// [`Returned::follow_up`] tells an unanswered submission by, so the two cannot disagree.
+fn form_data(response: &Response) -> Option<DataFormat> {
+    if !(200..300).contains(&response.status) {
+        return None;
+    }
+    match response.media_type.as_deref() {
+        Some(media) if FDF_TYPES.contains(&media) => Some(DataFormat::Fdf),
+        Some(media) if XFDF_TYPES.contains(&media) => Some(DataFormat::Xfdf),
+        _ => None,
+    }
 }
 
 /// What a fetched import's answer comes to: the bytes to import, or a sentence.
@@ -608,27 +617,42 @@ pub struct Returned {
 }
 
 impl Returned {
-    /// The command that hands a signature policy's copy to the document's validation, where this
-    /// answers [`Asked::Policy`] with a 2xx body; `None` for every other answer.
+    /// The command that follows [`Self::reply`]'s sentence, where one does: dispatched after it
+    /// is said.
     ///
-    /// Asked before [`Self::reply`] and dispatched after its sentence is said, so the reader is told
-    /// what was fetched before what its constraints come to. **Every 2xx body goes**, whatever
-    /// [`crate::policy::signature_policy_fetched`]'s comparison found: the core binds the copy from
-    /// the signature's own identifier, and a document stating a digest over its own rules can be
-    /// bound by that digest where its octets are not (ADR 2624). Only a 2xx is read, for [`reply`]'s
-    /// reason.
+    /// **A signature policy's copy** goes to the document's validation, so the reader is told
+    /// what was fetched before what its constraints come to. Every 2xx body goes, whatever
+    /// [`crate::policy::signature_policy_fetched`]'s comparison found: the core binds the copy
+    /// from the signature's own identifier, and a document stating a digest over its own rules can
+    /// be bound by that digest where its octets are not (ADR 2624). Only a 2xx is read, for
+    /// [`reply`]'s reason.
+    ///
+    /// **A submission that brought no form data** ends with `viewer_core::Command::Unanswered`: it
+    /// was not answered, the server refused it, or it answered with a document or with nothing
+    /// [`reply`] imports. XFA 3.3 page 447 has the client run a form's `postSubmit` events
+    /// "\[w]hether or not the submit succeeded", and only the window sees how the transmission
+    /// ended (ADR 2764). A submission whose answer is imported ends with
+    /// `viewer_core::Command::Respond` instead, which fires them before the import.
+    ///
+    /// `None` for every other request.
     #[must_use]
-    pub fn policy_copy(&self) -> Option<viewer_core::Command> {
-        let (Asked::Policy(policy), Ok(response)) = (&self.asked, &self.answer) else {
-            return None;
-        };
-        (200..300)
-            .contains(&response.status)
-            .then(|| viewer_core::Command::PolicyCopy {
+    pub fn follow_up(&self) -> Option<viewer_core::Command> {
+        match (&self.asked, &self.answer) {
+            (Asked::Policy(policy), Ok(response)) => {
+                (200..300)
+                    .contains(&response.status)
+                    .then(|| viewer_core::Command::PolicyCopy {
+                        document: self.document,
+                        policy: (**policy).clone(),
+                        copy: response.body.clone(),
+                    })
+            }
+            (Asked::Submission, Ok(response)) if form_data(response).is_some() => None,
+            (Asked::Submission, _) => Some(viewer_core::Command::Unanswered {
                 document: self.document,
-                policy: (**policy).clone(),
-                copy: response.body.clone(),
-            })
+            }),
+            (Asked::Policy(_), Err(_)) | (Asked::Import(_), _) => None,
+        }
     }
 
     /// What the window does about it — [`reply`] for an answer, a sentence for none.
