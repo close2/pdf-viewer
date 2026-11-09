@@ -692,6 +692,23 @@ pub enum Command {
     CommitField {
         /// §12.7.4.2's fully qualified name.
         field: String,
+        /// Whether the host knows Enter committed the value, which a hybrid form's choice list
+        /// reads in the `exit` events its selection commit fires as `$event.commitKey` 2 (XFA 3.3
+        /// pages 392 and 402; ADR 2755).
+        by: Committing,
+    },
+    /// A person abandoned what they typed into a field: Escape while the field has the
+    /// keyboard, which XFA 3.3 page 402 names as its example of a value "not committed".
+    ///
+    /// The field shows again what it showed before the typing began, with no commit: neither
+    /// Table 199's `/K` in its commit form nor `/V` runs, because nothing was committed. Where the
+    /// keyboard focus this crate holds is on one of the field's widgets, it leaves it, raising
+    /// Table 197's `/Bl` and, in a hybrid form, the field's `exit` events with `$event.commitKey`
+    /// 0; a focus held elsewhere, a toolkit's own control, stays where the host put it. A field
+    /// nobody is typing into is put back to nothing, and the focus still leaves (ADR 2756).
+    CancelField {
+        /// §12.7.4.2's fully qualified name.
+        field: String,
     },
     /// The host has put the focused document's first frame on its screen, so the document's open
     /// sequence runs now: RFC 0008 section 6.5 step 1, Table 32's `/JavaScript` name tree, the
@@ -1593,6 +1610,22 @@ pub enum FindDirection {
     Forward,
     /// Up it.
     Backward,
+}
+
+/// How a host saw a field's value committed, for [`Command::CommitField`].
+///
+/// XFA 3.3 page 402 numbers four things that happen to a field's value as the field loses the
+/// focus, and two of them a host's commit message can say: Enter, the 2, and nothing this crate
+/// can number — a click on a list's item, which is within the field and so not page 402's click
+/// outside it, or a toolkit's control losing the keyboard to a cause the toolkit does not report.
+/// A tab and a press outside the field are this crate's own focus moves and are numbered where
+/// they happen (ADR 2726).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Committing {
+    /// The person pressed Enter.
+    Enter,
+    /// The host does not know which of page 402's ways it was.
+    Unstated,
 }
 
 /// Which way [`Command::Focused`] moves through §12.5.1's order.

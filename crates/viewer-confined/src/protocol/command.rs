@@ -5,8 +5,8 @@
 use pdf_model::action::DataFormat;
 use pdf_model::view::WidgetAppearances;
 use viewer_core::{
-    Answered, Command, Find, FindDirection, FocusMove, PointerAction, PresentationMode, Purpose,
-    RestrictionLevel, RestrictionOverride, RestrictionPolicy, RestrictionScope, Selection,
+    Answered, Command, Committing, Find, FindDirection, FocusMove, PointerAction, PresentationMode,
+    Purpose, RestrictionLevel, RestrictionOverride, RestrictionPolicy, RestrictionScope, Selection,
     TrustPolicy,
 };
 
@@ -140,6 +140,10 @@ pub(super) mod command_kind {
     // host holds the network and the confined worker holds the signature the copy is enforced
     // for, and only the worker reads it (ADR 2624).
     pub(in crate::protocol) const POLICY_COPY: u8 = 47;
+    // A person abandoning what they typed into a field: Escape while it has the keyboard. It
+    // crosses for `COMMIT_FIELD`'s reason: the confined worker holds the view, the typed value and
+    // what the field showed before the typing began (ADR 2756).
+    pub(in crate::protocol) const CANCEL_FIELD: u8 = 48;
 }
 
 /// How [`Command::Open`]'s document is held, on the wire.
@@ -503,8 +507,16 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
                 FocusMove::None => 2,
             });
         }
-        Command::CommitField { field } => {
-            writer.u8(k::COMMIT_FIELD).str(field);
+        // How the host saw the commit crosses with it, since the worker's view state fires the
+        // `exit` a choice list's commit reads it in (XFA 3.3 page 402; ADR 2755).
+        Command::CommitField { field, by } => {
+            writer.u8(k::COMMIT_FIELD).str(field).u8(match by {
+                Committing::Unstated => 0,
+                Committing::Enter => 1,
+            });
+        }
+        Command::CancelField { field } => {
+            writer.u8(k::CANCEL_FIELD).str(field);
         }
         Command::Presented => {
             writer.u8(k::PRESENTED);
@@ -1073,6 +1085,19 @@ pub(crate) fn decode_command_holding(
             })?,
         },
         k::COMMIT_FIELD => Command::CommitField {
+            field: reader.string("a field's qualified name")?,
+            by: match reader.u8("how a field was committed")? {
+                0 => Committing::Unstated,
+                1 => Committing::Enter,
+                value => {
+                    return Err(ProtocolError::Unrecognised {
+                        what: "how a field was committed",
+                        value: u32::from(value),
+                    });
+                }
+            },
+        },
+        k::CANCEL_FIELD => Command::CancelField {
             field: reader.string("a field's qualified name")?,
         },
         k::PRESENTED => Command::Presented,

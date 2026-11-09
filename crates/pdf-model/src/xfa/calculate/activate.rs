@@ -90,7 +90,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{Calculation, Event, Form, Replaced, Scalar, Step, Test, Validity};
+use super::{Calculation, Event, Exited, Form, Replaced, Scalar, Step, Test, Validity};
 use crate::view::{CommitKey, Keys};
 use crate::xfa::datasets::Change;
 use crate::xfa::template::{Bound, Class, Entry, Language, Override, Performs, Script, ScriptTest};
@@ -222,11 +222,11 @@ pub enum Stimulus<'a> {
         /// behaviour pairs each `exit` with an `enter`, so only the containers the focus goes out
         /// of have their `exit` now (ADR 2707).
         exited_at_selection: bool,
-        /// How the value of `left` was committed as the focus left it, which its `exit` events read
-        /// as `$event.commitKey` (page 402): by a tab to a new field or by a click of the mouse
-        /// outside it. `None` where the window does not say, which leaves the property unoffered
-        /// (ADR 2726).
-        committed: Option<CommitKey>,
+        /// What happened to the value of `left` as the focus left it, which its `exit` events
+        /// read as `$event.commitKey` (page 402): committed by a tab to a new field or by a click
+        /// of the mouse outside it, or not committed, a person having pressed Escape (ADR 2756).
+        /// `None` where the window does not say, which leaves the property unoffered (ADR 2726).
+        committed: Option<Exited>,
     },
     /// The keyboard focus reached the field `reached` from the field `leaving`, or from nothing a
     /// form holds (pages 390–391): the `enter` events of each subform and exclusion group around
@@ -297,6 +297,11 @@ pub enum Stimulus<'a> {
     Selected {
         /// The choice list, by its PDF field name.
         field: &'a str,
+        /// How the selection was committed, which the `exit` events read as `$event.commitKey`
+        /// (page 402): [`CommitKey::Enter`] where the window says Enter committed it, page 402's
+        /// 2; `None` for a click on an item, which is within the field and none of page 402's
+        /// clicks outside it, and so leaves the property unoffered (ADR 2755).
+        committed: Option<CommitKey>,
     },
     /// A person began another selection in the choice list `field` after a [`Self::Selected`],
     /// the focus never having left it (page 392): the field's own `enter` events, with
@@ -747,8 +752,8 @@ impl Resource {
                 session.fire("exit", Some(&crossed), &Bound::Own);
                 session.settle(Seeds::Changed);
             }
-            Stimulus::Selected { field } => session.selection(field, false),
-            Stimulus::Reentered { field } => session.selection(field, true),
+            Stimulus::Selected { field, committed } => session.selection(field, false, committed),
+            Stimulus::Reentered { field } => session.selection(field, true, None),
             Stimulus::Enter {
                 reached,
                 leaving,
@@ -1061,9 +1066,10 @@ struct Session<'f, 'a, 'r> {
     /// Whether the `enter` events being fired are a choice list's re-entry (page 392), whose
     /// `$event.reenter` is true (page 403).
     reentering: bool,
-    /// How the value of the field the focus is leaving was committed, which a field's `exit`
-    /// gives as `$event.commitKey` (page 402); `None` where the window did not say.
-    committed: Option<CommitKey>,
+    /// What happened to the value of the field the focus is leaving, or of the choice list whose
+    /// selection was committed, which a field's `exit` gives as `$event.commitKey` (page 402);
+    /// `None` where the window did not say.
+    committed: Option<Exited>,
     /// The keys the window held during the person's action, which a field's events give as
     /// `$event.modifier` and `$event.shift` (page 403); `None` where the window did not say.
     keys: Option<Keys>,
@@ -1139,11 +1145,13 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
 
     /// A choice list's selection commit (page 392; ADR 2707): its own `exit` events, or, for a
     /// `reentry`, its own `enter` events with `$event.reenter` true, which the event model before
-    /// XFA 2.4 does not fire; each followed by the calculations they woke.
-    fn selection(&mut self, field: &str, reentry: bool) {
+    /// XFA 2.4 does not fire; each followed by the calculations they woke. `committed` is how the
+    /// selection was committed, which the `exit` reads as `$event.commitKey` (page 402; ADR 2755).
+    fn selection(&mut self, field: &str, reentry: bool, committed: Option<CommitKey>) {
         if reentry && self.template.legacy_events() {
             return;
         }
+        self.committed = committed.map(Exited::Committed);
         let node: Vec<usize> = self.choice_list(field).into_iter().collect();
         self.reentering = reentry;
         self.fire(

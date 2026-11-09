@@ -18,8 +18,8 @@ use std::sync::{Arc, Mutex};
 
 use pdf_model::view::{ScriptEvent, ScriptResult, ScriptRunner};
 use viewer_core::{
-    AlertButton, AlertButtons, AlertIcon, Command, DocumentId, Edit, Entered, Event, ScriptAnswer,
-    ScriptAsks, ScriptQuestion, ScriptRunners, Scripting, Viewer,
+    AlertButton, AlertButtons, AlertIcon, Command, Committing, DocumentId, Edit, Entered, Event,
+    ScriptAnswer, ScriptAsks, ScriptQuestion, ScriptRunners, Scripting, Viewer,
 };
 
 const DOCUMENT: DocumentId = DocumentId(1);
@@ -193,6 +193,7 @@ fn a_question_a_script_waits_on_is_put_once_after_its_command() {
         .collect();
     events.extend(viewer.handle(Command::CommitField {
         field: "Price1".to_owned(),
+        by: Committing::Unstated,
     }));
     assert_eq!(
         questions(&events),

@@ -48,12 +48,29 @@ impl Host {
     /// character and commits, and a control losing the keyboard is Table 197's `/Bl` for a focus
     /// Qt moved rather than the page. A field the page's own focus move already committed commits
     /// nothing (ADR 1592).
-    pub(crate) fn commit_control(&mut self, index: usize) {
+    ///
+    /// `enter` is whether Enter made the commit, which XFA 3.3 page 402 numbers (ADR 2755).
+    pub(crate) fn commit_control(&mut self, index: usize, enter: bool) {
         let Some(placed) = self.placed.get(index) else {
             return;
         };
         let field = placed.name.qualified.clone();
-        self.dispatch(Command::CommitField { field });
+        let by = if enter {
+            viewer_core::Committing::Enter
+        } else {
+            viewer_core::Committing::Unstated
+        };
+        self.dispatch(Command::CommitField { field, by });
+    }
+
+    /// Escape in a line edit: what was typed into its field is abandoned, XFA 3.3 page 402's
+    /// example of a value "not committed", and the field shows what it showed before (ADR 2756).
+    pub(crate) fn cancel_control(&mut self, index: usize) {
+        let Some(placed) = self.placed.get(index) else {
+            return;
+        };
+        let field = placed.name.qualified.clone();
+        self.dispatch(Command::CancelField { field });
     }
 
     /// A control's value was typed into.

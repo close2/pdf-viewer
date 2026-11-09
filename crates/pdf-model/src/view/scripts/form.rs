@@ -317,15 +317,16 @@ impl ViewState {
     /// `enter` since ([`Self::activate_form_on_selection`]), page 392's XFA 2.4 behaviour has
     /// paired that `exit` already, so only the containers the focus goes out of fire theirs.
     ///
-    /// `committed` is how the value of `left` was committed as the focus left it, which the
+    /// `committed` is what happened to the value of `left` as the focus left it — committed by
+    /// a click, Enter or a tab, or not committed where a person pressed Escape — which the
     /// field's `exit` scripts read as `$event.commitKey` (page 402); `None` where the host cannot
-    /// say, which leaves the property unoffered (ADR 2726).
+    /// say, which leaves the property unoffered (ADRs 2726, 2756).
     pub fn activate_form_on_exit(
         &mut self,
         document: &Document,
         left: (&str, Option<&str>),
         reaching: Option<(&str, Option<&str>)>,
-        committed: Option<crate::view::CommitKey>,
+        committed: Option<crate::xfa::Exited>,
     ) -> bool {
         let selected = self.scripting.form_selected.take();
         let stimulus = Stimulus::Exit {
@@ -345,14 +346,23 @@ impl ViewState {
     /// changed. A host calls it after the commit, so that the `exit` script reads the selection,
     /// and only for a field that holds the keyboard focus (ADR 2707).
     /// A field that is no choice list runs nothing.
-    pub fn activate_form_on_selection(&mut self, document: &Document, field: &str) -> bool {
+    ///
+    /// `committed` is [`crate::view::CommitKey::Enter`] where the host says Enter committed the
+    /// selection, which the `exit` scripts read as page 402's `$event.commitKey` 2; `None` for a
+    /// click on an item, which page 402's four values do not describe (ADR 2755).
+    pub fn activate_form_on_selection(
+        &mut self,
+        document: &Document,
+        field: &str,
+        committed: Option<crate::view::CommitKey>,
+    ) -> bool {
         if !self.form_choice_list(document, field) {
             return false;
         }
         self.scripting.form_selected = Some(field.to_owned());
         self.activate_form(
             document,
-            Raised::Action(Stimulus::Selected { field }),
+            Raised::Action(Stimulus::Selected { field, committed }),
             Instant::now(),
         )
     }

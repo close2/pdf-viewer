@@ -43,19 +43,52 @@ const CARRIED: [&str; 15] = [
 /// (page 403).
 const HELD: [&str; 2] = ["modifier", "shift"];
 
+/// What happened to the value of a field as a person left it, which the field's `exit` events
+/// read as `$event.commitKey` (XFA 3.3 page 402), whose four values this states.
+///
+/// Page 402 describes "what happened to the value in the field when the form field lost focus";
+/// a choice list's selection commit fires the field's `exit` while it keeps the focus (page 392),
+/// and the same description is read for it (ADR 2755).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Exited {
+    /// Page 402's 1, 2 or 3: the value was committed by a click of the mouse outside the field,
+    /// by pressing the Enter key, or by tabbing to a new field — the numbers an interactive form
+    /// field's script reads for the same three ways of committing (ADR 1626).
+    Committed(CommitKey),
+    /// Page 402's 0: "The value was not committed (for example, the escape key was pressed)".
+    /// A window raises it where a person abandons what they typed in a field (ADR 2756).
+    NotCommitted,
+}
+
+impl Exited {
+    /// Page 402's number for what happened to the value.
+    #[must_use]
+    pub fn number(self) -> u8 {
+        match self {
+            Self::Committed(key) => key.number(),
+            Self::NotCommitted => 0,
+        }
+    }
+}
+
+impl From<CommitKey> for Exited {
+    fn from(key: CommitKey) -> Self {
+        Self::Committed(key)
+    }
+}
+
 /// What an event says of `commitKey`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Commit {
     /// The event is no field's `exit`, which is the one row of page 398's table that sets it.
     NotSet,
-    /// A field's `exit` whose window did not say how the focus left the field: a selection
-    /// committed in a choice list, which a click on an item or Enter commits alike, and a focus a
-    /// script or a page turn moved, which none of page 402's four values describes.
+    /// A field's `exit` whose window did not say how the focus left the field: a click on a
+    /// choice list's item, which is within the field and so none of page 402's clicks outside
+    /// it, and a focus a script or a page turn moved, which none of page 402's four values
+    /// describes.
     Untold,
-    /// A field's `exit`, committed as the window said: page 402's 1, 2 or 3, the numbers an
-    /// interactive form field's script reads for the same three ways of committing (ADR 1626).
-    /// Page 402's 0, a value not committed, is no way a window this reader serves leaves a field.
-    Told(CommitKey),
+    /// A field's `exit`, as the window said: page 402's 0, 1, 2 or 3.
+    Told(Exited),
 }
 
 /// The other properties page 402–404 lists: a connection's fault and the start of a selection,
@@ -199,10 +232,10 @@ impl Event {
         self
     }
 
-    /// The field's `exit` event, with `$event.commitKey` as the window said the value was
-    /// committed (pages 398 and 402); `None` where it did not say.
+    /// The field's `exit` event, with `$event.commitKey` as the window said what happened to the
+    /// value (pages 398 and 402); `None` where it did not say.
     #[must_use]
-    pub fn with_commit_key(mut self, committed: Option<CommitKey>) -> Self {
+    pub fn with_commit_key(mut self, committed: Option<Exited>) -> Self {
         self.commit = committed.map_or(Commit::Untold, Commit::Told);
         self
     }
@@ -376,7 +409,7 @@ pub(super) fn value(event: Option<&Event>, containers: usize, node: usize) -> Op
     Some(match *name {
         "cancelAction" => Scalar::Number(if event.cancel? { 1.0 } else { 0.0 }),
         "commitKey" => match event.commit {
-            Commit::Told(key) => Scalar::Number(f64::from(key.number())),
+            Commit::Told(exited) => Scalar::Number(f64::from(exited.number())),
             Commit::Untold | Commit::NotSet => return None,
         },
         "newContentType" | "prevContentType" => Scalar::Text(event.content?.to_owned()),

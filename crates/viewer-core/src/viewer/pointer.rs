@@ -323,7 +323,7 @@ impl Viewer {
                     id,
                     raised,
                     point.map(|(_, at)| at),
-                    Some(CommitKey::Click),
+                    Some(CommitKey::Click.into()),
                     events,
                 );
                 if let Some(outcome) = played {
@@ -347,7 +347,7 @@ impl Viewer {
             id,
             raised,
             point.map(|(_, at)| at),
-            Some(CommitKey::Click),
+            Some(CommitKey::Click.into()),
             events,
         );
     }
@@ -374,7 +374,7 @@ impl Viewer {
         id: DocumentId,
         raised: Vec<(ObjectId, Trigger)>,
         at: Option<(f32, f32)>,
-        blurred_by: Option<CommitKey>,
+        blurred_by: Option<pdf_model::xfa::Exited>,
         events: &mut Vec<Event>,
     ) {
         let runner = !matches!(self.scripting, crate::Scripting::Off);
@@ -461,7 +461,7 @@ fn form_focus(
     open: &mut Open,
     event: Trigger,
     (left, reached): (Option<ObjectId>, Option<ObjectId>),
-    blurred_by: Option<CommitKey>,
+    blurred_by: Option<pdf_model::xfa::Exited>,
 ) {
     if left.is_none() && reached.is_none() {
         return;

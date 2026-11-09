@@ -1842,6 +1842,54 @@ pub unsafe extern "C" fn quorra_window_commit_field(
     }
 }
 
+/// [`quorra_window_commit_field`] where the caller knows Enter made the commit, which XFA 3.3 page
+/// 402 numbers as `$event.commitKey` 2 (ADR 2755).
+///
+/// # Safety
+///
+/// See the module documentation. `field` is NUL-terminated UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_commit_field_on_enter(
+    window: *mut Window,
+    field: *const c_char,
+) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    match owned_text(field) {
+        Ok(Some(field)) => match window.commit_field_on_enter(&field) {
+            Ok(()) => Status::Ok.code(),
+            Err(status) => status.code(),
+        },
+        Ok(None) => Status::NullArgument.code(),
+        Err(()) => Status::NotUtf8.code(),
+    }
+}
+
+/// Escape in a placed control: what was typed into the field is abandoned, XFA 3.3 page 402's
+/// example of a value "not committed", and the field shows what it showed before (ADR 2756).
+///
+/// # Safety
+///
+/// See the module documentation. `field` is NUL-terminated UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_cancel_field(
+    window: *mut Window,
+    field: *const c_char,
+) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    match owned_text(field) {
+        Ok(Some(field)) => match window.cancel_field(&field) {
+            Ok(()) => Status::Ok.code(),
+            Err(status) => status.code(),
+        },
+        Ok(None) => Status::NullArgument.code(),
+        Err(()) => Status::NotUtf8.code(),
+    }
+}
+
 /// A placed check box or radio button, by its widget annotation, clicked to `on`; a refusal the
 /// field's flags state is said. `QUORRA_NO_ANSWER` where no widget on the page is that annotation,
 /// `QUORRA_WRONG_KIND` where it toggles nothing.

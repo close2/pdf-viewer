@@ -20,7 +20,9 @@
 use std::fmt::Write as _;
 
 use pdf_syntax::{Document, ObjectId};
-use viewer_core::{Answer, Command, DocumentId, Edit, Entered, Event, FocusMove, Query, Viewer};
+use viewer_core::{
+    Answer, Command, Committing, DocumentId, Edit, Entered, Event, FocusMove, Query, Viewer,
+};
 
 const DOCUMENT: DocumentId = DocumentId(1);
 
@@ -187,6 +189,7 @@ fn a_commit_survives_the_next_edit_and_an_undo_takes_it_back() {
     viewer
         .handle(Command::CommitField {
             field: "Price1".to_owned(),
+            by: Committing::Unstated,
         })
         .for_each(drop);
     typed(&mut viewer, "Price2", "4");
@@ -206,10 +209,57 @@ fn a_commit_survives_the_next_edit_and_an_undo_takes_it_back() {
         viewer
             .handle(Command::CommitField {
                 field: "Price3".to_owned(),
+                by: Committing::Unstated,
             })
             .count(),
         0,
         "a field nobody typed into commits nothing and says nothing"
+    );
+}
+
+/// XFA 3.3 page 402's `commitKey` 0: "The value was not committed (for example, the escape key
+/// was pressed)". `Command::CancelField`, a host's Escape, puts back what the field showed before
+/// the typing began, with no commit; it is an entry of the log, so the replay an undo makes does
+/// not type the abandoned characters again; and a field nobody typed into abandons nothing (ADR 2756).
+#[test]
+fn an_abandoned_typing_puts_the_field_back_and_survives_the_next_edit() {
+    let mut viewer = opened();
+    typed(&mut viewer, "Price1", "5");
+    viewer
+        .handle(Command::CommitField {
+            field: "Price1".to_owned(),
+            by: Committing::Enter,
+        })
+        .for_each(drop);
+    let committed = value(&viewer, "Price1");
+    typed(&mut viewer, "Price1", "9");
+    assert_ne!(value(&viewer, "Price1"), committed, "the typing shows");
+    let events: Vec<Event> = viewer
+        .handle(Command::CancelField {
+            field: "Price1".to_owned(),
+        })
+        .collect();
+    assert!(sentences(&events).is_empty(), "{events:?}");
+    assert_eq!(
+        value(&viewer, "Price1"),
+        committed,
+        "the typing is abandoned"
+    );
+    typed(&mut viewer, "Price2", "4");
+    viewer.handle(Command::Undo).for_each(drop);
+    assert_eq!(
+        value(&viewer, "Price1"),
+        committed,
+        "the replay an undo makes abandons the typing again"
+    );
+    assert_eq!(
+        viewer
+            .handle(Command::CancelField {
+                field: "Price3".to_owned(),
+            })
+            .count(),
+        0,
+        "a field nobody typed into abandons nothing and says nothing"
     );
 }
 
@@ -221,6 +271,7 @@ fn a_refused_commit_is_said_and_the_field_goes_back() {
     let events: Vec<Event> = viewer
         .handle(Command::CommitField {
             field: "Price2".to_owned(),
+            by: Committing::Unstated,
         })
         .collect();
     let said = sentences(&events);
@@ -294,6 +345,7 @@ fn a_committed_value_is_answered_as_the_field_displays_it() {
     viewer
         .handle(Command::CommitField {
             field: "Price1".to_owned(),
+            by: Committing::Unstated,
         })
         .for_each(drop);
     assert_eq!(
@@ -333,6 +385,7 @@ fn an_accessible_value_is_the_displayed_one() {
     viewer
         .handle(Command::CommitField {
             field: "Price1".to_owned(),
+            by: Committing::Unstated,
         })
         .for_each(drop);
     assert_eq!(accessible(&viewer, "Price1").as_deref(), Some("$12.50"));

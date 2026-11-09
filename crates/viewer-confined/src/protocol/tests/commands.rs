@@ -259,6 +259,14 @@ fn every_carried_command_round_trips() {
         Command::Focused(FocusMove::None),
         Command::CommitField {
             field: "Lines.Price".to_owned(),
+            by: viewer_core::Committing::Unstated,
+        },
+        Command::CommitField {
+            field: "Lines.Price".to_owned(),
+            by: viewer_core::Committing::Enter,
+        },
+        Command::CancelField {
+            field: "Lines.Price".to_owned(),
         },
         Command::Presented,
         // RFC 0008 section 6.3's level at the one value that crosses, and the ask's answer

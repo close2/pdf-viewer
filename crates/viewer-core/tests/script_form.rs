@@ -21,9 +21,9 @@ use std::sync::{Arc, Mutex};
 use pdf_model::view::{ScriptEvent, ScriptResult, ScriptRunner};
 use pdf_model::xfa::{Form, FormLanguage, Ran, Scalar, Step};
 use viewer_core::{
-    AlertButton, AlertButtons, AlertIcon, Answer, Command, DocumentId, Edit, Entered, Event,
-    PointerAction, Query, ScriptAnswer, ScriptAsks, ScriptQuestion, ScriptRunners, Scripting,
-    Viewer,
+    AlertButton, AlertButtons, AlertIcon, Answer, Command, Committing, DocumentId, Edit, Entered,
+    Event, PointerAction, Query, ScriptAnswer, ScriptAsks, ScriptQuestion, ScriptRunners,
+    Scripting, Viewer,
 };
 
 const DOCUMENT: DocumentId = DocumentId(1);
@@ -249,7 +249,10 @@ fn enter(viewer: &mut Viewer, short: &str, text: &str) -> Vec<Event> {
             value: Entered::Text(text.to_owned()),
         }))
         .collect();
-    events.extend(viewer.handle(Command::CommitField { field }));
+    events.extend(viewer.handle(Command::CommitField {
+        field,
+        by: Committing::Unstated,
+    }));
     events
 }
 
@@ -575,6 +578,7 @@ fn a_fields_events_read_the_keys_a_host_said_it_held() {
         viewer
             .handle(Command::CommitField {
                 field: field.clone(),
+                by: Committing::Unstated,
             })
             .for_each(drop);
         assert_eq!(
@@ -1039,6 +1043,108 @@ fn a_selection_committed_in_a_focused_choice_list_exits_it_and_the_next_reenters
         value(&viewer, "Exits"),
         "0",
         "the focus leaving fires no second exit"
+    );
+}
+
+/// XFA 3.3 pages 392 and 402: a host that says Enter committed a focused choice list's selection
+/// gives the list's `exit` `$event.commitKey` 2, "[t]he value was committed by pressing the enter
+/// key"; a commit the host cannot place — a click on an item, within the field and so none of page
+/// 402's clicks outside it — leaves the property unoffered, and the event's script is refused by
+/// name and assigns nothing (ADR 2755). `Exits` holds an event bound by `ref` to the list (page
+/// 706), which assigns what it reads to its own field.
+#[test]
+fn enter_in_a_focused_choice_list_is_commit_key_2_to_its_exit() {
+    let fields = "<field name=\"Units\"><ui><choiceList/></ui><value><text/></value></field>\
+                  <field name=\"Exits\"><ui><textEdit/></ui><value><text/></value>\
+                  <event activity=\"exit\" ref=\"Units\"><script>$event.commitKey</script>\
+                  </event></field>";
+    let mut viewer = opened_on(
+        Scripting::Run(Arc::new(Calculators::default())),
+        hybrid_of(fields, "<Units/><Exits/>", &["Units", "Exits"]),
+    );
+    viewer.handle(Command::Presented).for_each(drop);
+    viewer
+        .handle(Command::Focused(viewer_core::FocusMove::Next))
+        .for_each(drop);
+    let units = "form1[0].Units[0]".to_owned();
+    let commit = |viewer: &mut Viewer, text: &str, by| {
+        viewer
+            .handle(Command::Edit(Edit::SetField {
+                field: units.clone(),
+                value: Entered::Text(text.to_owned()),
+            }))
+            .for_each(drop);
+        viewer
+            .handle(Command::CommitField {
+                field: units.clone(),
+                by,
+            })
+            .for_each(drop);
+    };
+    commit(&mut viewer, "a", Committing::Enter);
+    assert_eq!(
+        value(&viewer, "Exits"),
+        "2",
+        "Enter committed the selection"
+    );
+    enter(&mut viewer, "Exits", "x");
+    commit(&mut viewer, "b", Committing::Unstated);
+    assert_eq!(
+        value(&viewer, "Exits"),
+        "x",
+        "a commit the host cannot place offers no commitKey"
+    );
+}
+
+/// XFA 3.3 page 402: `$event.commitKey` describes "what happened to the value in the field when the
+/// form field lost focus", and its 0 is "[t]he value was not committed (for example, the escape key
+/// was pressed)". `Command::CancelField`, a host's Escape, puts back what `Units` showed before the
+/// typing began and takes the keyboard focus off its widget, so its `exit` reads 0; a field that
+/// does not hold the focus fires nothing (ADR 2756).
+#[test]
+fn escape_in_a_focused_field_abandons_the_typing_and_its_exit_reads_commit_key_0() {
+    let fields = "<field name=\"Units\"><ui><textEdit/></ui><value><text/></value></field>\
+                  <field name=\"Exits\"><ui><textEdit/></ui><value><text/></value>\
+                  <event activity=\"exit\" ref=\"Units\"><script>$event.commitKey</script>\
+                  </event></field>";
+    let mut viewer = opened_on(
+        Scripting::Run(Arc::new(Calculators::default())),
+        hybrid_of(fields, "<Units/><Exits/>", &["Units", "Exits"]),
+    );
+    viewer.handle(Command::Presented).for_each(drop);
+    let units = "form1[0].Units[0]".to_owned();
+    // Not focused: the typing goes, and no `exit` fires.
+    let typed = |viewer: &mut Viewer| {
+        viewer
+            .handle(Command::Edit(Edit::SetField {
+                field: units.clone(),
+                value: Entered::Text("7".to_owned()),
+            }))
+            .for_each(drop);
+        assert_eq!(value(viewer, "Units"), "7", "the typing shows");
+    };
+    typed(&mut viewer);
+    viewer
+        .handle(Command::CancelField {
+            field: units.clone(),
+        })
+        .for_each(drop);
+    assert_eq!(value(&viewer, "Units"), "", "the typing is abandoned");
+    assert_eq!(value(&viewer, "Exits"), "", "Units never held the focus");
+    viewer
+        .handle(Command::Focused(viewer_core::FocusMove::Next))
+        .for_each(drop);
+    typed(&mut viewer);
+    viewer
+        .handle(Command::CancelField {
+            field: units.clone(),
+        })
+        .for_each(drop);
+    assert_eq!(value(&viewer, "Units"), "", "the typing is abandoned");
+    assert_eq!(
+        value(&viewer, "Exits"),
+        "0",
+        "Escape left Units uncommitted"
     );
 }
 

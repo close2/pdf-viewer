@@ -648,6 +648,15 @@ pub(crate) enum Done {
         /// §12.7.4.2's name.
         field: String,
     },
+    /// What was typed into a field since its last commit, abandoned: a person pressed Escape,
+    /// XFA 3.3 page 402's example of a value "not committed" (ADR 2756).
+    ///
+    /// An entry of its own for [`Done::CommitField`]'s reason: the typing is in the log as
+    /// [`Done::SetField`] entries, and a replay without this one would put it back.
+    AbandonField {
+        /// §12.7.4.2's name.
+        field: String,
+    },
     /// §12.7.5.3's file-select control, filled with the file a person chose.
     ///
     /// The bytes are shared rather than copied, for [`Done::Attach`]'s reason: the log, an undo

@@ -68,18 +68,23 @@ impl Host {
         }
         let current = self.value_of(&field).unwrap_or_default();
         let next = match key {
-            // Escape gives the keyboard back to the page; the page's own Escape is the abort, and
-            // a person leaving a field has not asked to end the worker.
+            // Escape abandons what was typed, XFA 3.3 page 402's example of a value "not
+            // committed", and gives the keyboard back to the page; the page's own Escape is the
+            // abort, and a person leaving a field has not asked to end the worker (ADR 2756).
             Key::Named(NamedKey::Escape) => {
                 self.typing = None;
-                eprintln!("note: the keyboard is back on the page");
+                self.dispatch(Command::CancelField { field });
+                eprintln!("note: the typing is abandoned and the keyboard is back on the page");
                 return Typed::Taken;
             }
             // Table 231 bit 13 clear restricts the text "to a single line", so Enter is no
             // character and commits what was typed (ADR 1592).
             Key::Named(NamedKey::Enter) => {
                 self.typing = None;
-                self.dispatch(Command::CommitField { field });
+                self.dispatch(Command::CommitField {
+                    field,
+                    by: viewer_core::Committing::Enter,
+                });
                 eprintln!("note: the keyboard is back on the page");
                 return Typed::Taken;
             }

@@ -81,6 +81,8 @@ public sealed partial class MainWindow : Window
             new Commits(
                 (field, text) => Commit("a field typed into", open => open.SetFieldText(field.Field, text)),
                 field => Commit("a field finished with", open => open.CommitField(field.Field)),
+                field => Commit("a field committed by Enter", open => open.CommitFieldOnEnter(field.Field)),
+                field => Commit("a field's typing abandoned", open => open.CancelField(field.Field)),
                 field => Commit("a button clicked", open => open.ToggleField(field.Number, field.Generation, !field.On)),
                 (field, chosen) => Commit("an option chosen", open => open.SetFieldOptions(field.Field, chosen))),
             () => Area.Focus(FocusState.Programmatic));

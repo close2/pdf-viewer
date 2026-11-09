@@ -14,8 +14,8 @@ use common::hosted::FormCalcRunner;
 use pdf_model::view::CommitKey;
 use pdf_model::view::{Entered, ScriptEdit, ViewState};
 use pdf_model::xfa::{
-    Activation, Change, Ended, Level, Limits, MAX_SUBMITS, Resource, Scalar, Stimulus, Test,
-    Typing, Validity,
+    Activation, Change, Ended, Exited, Level, Limits, MAX_SUBMITS, Resource, Scalar, Stimulus,
+    Test, Typing, Validity,
 };
 use pdf_syntax::Document;
 
@@ -2950,7 +2950,13 @@ fn a_choice_list_exits_at_each_selection_and_reenters_before_the_next() {
             },
             "P+p+0",
         ),
-        (Stimulus::Selected { field: &pick }, "p-"),
+        (
+            Stimulus::Selected {
+                field: &pick,
+                committed: None,
+            },
+            "p-",
+        ),
         (Stimulus::Reentered { field: &pick }, "p+1"),
         (exit(true), "P-"),
         (exit(false), "p-P-"),
@@ -2959,6 +2965,46 @@ fn a_choice_list_exits_at_each_selection_and_reenters_before_the_next() {
         assert_eq!(activation.ended, Ended::Settled, "{:?}", activation.report);
         assert_eq!(log(&activation).as_deref(), Some(expected), "{stimulus:?}");
     }
+}
+
+/// XFA 3.3 pages 392 and 402: a choice list's selection commit fires its `exit`, which reads
+/// `$event.commitKey` as what happened to the value — 2 where the window says Enter committed the
+/// selection. A click on an item is within the field, none of page 402's "click of the mouse
+/// outside the field", so a window that cannot say more leaves the property unoffered and the
+/// script's read is refused by name (ADR 2755).
+#[test]
+fn a_choice_lists_selection_exit_reads_enter_as_commit_key_2() {
+    let pick = "<field name=\"pick\"><ui><choiceList/></ui><value><text/></value>\
+                <event activity=\"exit\"><script>Log = Concat(Log, \"k\", $event.commitKey)\
+                </script></event></field>";
+    let template = [
+        format!("<subform name=\"Part\">{pick}</subform>"),
+        field("Log", ""),
+    ]
+    .concat();
+    let values = [("Part.pick", "one"), ("Log", "")];
+    let field_name = name("Part.pick");
+    let selected = |committed| {
+        activate(
+            &template,
+            &values,
+            Stimulus::Selected {
+                field: &field_name,
+                committed,
+            },
+            Limits::DEFAULT,
+        )
+    };
+    let enter = selected(Some(CommitKey::Enter));
+    assert_eq!(log(&enter).as_deref(), Some("k2"), "{:?}", enter.report);
+    let clicked = selected(None);
+    assert_eq!(log(&clicked), None, "{:?}", clicked.report);
+    assert!(
+        clicked.report.iter().any(|said| said
+            .contains("$event.commitKey: the window did not say how the value was committed")),
+        "{:?}",
+        clicked.report
+    );
 }
 
 /// Pages 392–393: a template of XFA 3.0 whose `originalXFAVersion` processing instruction names
@@ -2975,7 +3021,13 @@ fn a_template_that_asks_for_the_legacy_event_model_fires_no_reentry() {
     let resource = Resource::read(&document).unwrap().unwrap();
     let pick = name("Part.pick");
     for (stimulus, expected) in [
-        (Stimulus::Selected { field: &pick }, Some("p-")),
+        (
+            Stimulus::Selected {
+                field: &pick,
+                committed: None,
+            },
+            Some("p-"),
+        ),
         (Stimulus::Reentered { field: &pick }, None),
         (
             Stimulus::Exit {
@@ -3085,10 +3137,13 @@ fn a_fields_exit_reads_how_its_value_was_committed() {
             Limits::DEFAULT,
         )
     };
+    // Page 402's 0, "[t]he value was not committed (for example, the escape key was pressed)",
+    // is what a window says of a field a person left with Escape (ADR 2756).
     for (committed, expected) in [
-        (Some(CommitKey::Tab), "k3;"),
-        (Some(CommitKey::Click), "k1;"),
-        (Some(CommitKey::Enter), "k2;"),
+        (Some(Exited::Committed(CommitKey::Tab)), "k3;"),
+        (Some(Exited::Committed(CommitKey::Click)), "k1;"),
+        (Some(Exited::Committed(CommitKey::Enter)), "k2;"),
+        (Some(Exited::NotCommitted), "k0;"),
     ] {
         let activation = exit(committed);
         assert_eq!(

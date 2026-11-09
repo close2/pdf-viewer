@@ -188,6 +188,9 @@ impl Open {
             Done::CommitField { field } => {
                 let _ = self.view.commit_field(&self.document, field);
             }
+            Done::AbandonField { field } => {
+                self.view.abandon_typing(&self.document, field);
+            }
             Done::ChooseFile {
                 field,
                 pathname,
@@ -287,6 +290,22 @@ impl Open {
         // The formatted value, a value put back and a recalculated total are all ink.
         self.stale();
         Some(committed)
+    }
+
+    /// Abandons what was typed into one field since its last commit, and logs it where there was
+    /// anything to abandon, answering whether there was (ADR 2756).
+    pub(crate) fn abandon_field(&mut self, field: &str) -> bool {
+        if !self.view.abandon_typing(&self.document, field) {
+            return false;
+        }
+        self.log.truncate(self.cursor);
+        self.log.push(Done::AbandonField {
+            field: field.to_owned(),
+        });
+        self.cursor = self.log.len();
+        // The value put back is ink.
+        self.stale();
+        true
     }
 
     /// The activation §12.5.1 describes, for an annotation that has one of §12.5.6.14's windows.

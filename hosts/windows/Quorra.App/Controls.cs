@@ -21,12 +21,17 @@ namespace Quorra.App;
 
 /// <summary>What a person did to a control, which MainWindow carries to quorra_window.</summary>
 /// <param name="Typed">Characters typed into a text control, the whole text as it now stands.</param>
-/// <param name="Finished">A text control finished with: Enter, or the keyboard taken elsewhere.</param>
+/// <param name="Finished">A text control finished with: the keyboard taken elsewhere.</param>
+/// <param name="Entered">A text control finished with by Enter, which XFA 3.3 page 402 numbers (ADR 2755).</param>
+/// <param name="Abandoned">Escape in a text control: what was typed is abandoned, XFA 3.3 page 402's
+/// example of a value "not committed" (ADR 2756).</param>
 /// <param name="Toggled">A check box or radio button clicked.</param>
 /// <param name="Chose">A choice control's options chosen, by their index in /Opt.</param>
 internal sealed record Commits(
     Action<Placed, string> Typed,
     Action<Placed> Finished,
+    Action<Placed> Entered,
+    Action<Placed> Abandoned,
     Action<Placed> Toggled,
     Action<Placed, IReadOnlyList<nuint>> Chose);
 
@@ -329,7 +334,7 @@ internal sealed class PageControls
         if (!multiline)
         {
             box.LostFocus += (_, _) => commits.Finished(Current(field));
-            box.KeyDown += (_, pressed) => ToPageOnEnter(pressed);
+            box.KeyDown += (_, pressed) => ToPageOnEnter(field, pressed);
         }
         return Fitted(box);
     }
@@ -345,7 +350,7 @@ internal sealed class PageControls
         };
         box.PasswordChanged += (_, _) => commits.Typed(Current(field), box.Password);
         box.LostFocus += (_, _) => commits.Finished(Current(field));
-        box.KeyDown += (_, pressed) => ToPageOnEnter(pressed);
+        box.KeyDown += (_, pressed) => ToPageOnEnter(field, pressed);
         return Fitted(box);
     }
 
@@ -382,7 +387,7 @@ internal sealed class PageControls
         {
             submitted.Handled = true;
             commits.Typed(Current(field), submitted.Text);
-            commits.Finished(Current(field));
+            commits.Entered(Current(field));
         };
         return Fitted(combo);
     }
@@ -429,11 +434,21 @@ internal sealed class PageControls
         return Fitted(list);
     }
 
-    private void ToPageOnEnter(KeyRoutedEventArgs pressed)
+    // Enter commits and Escape abandons what was typed, XFA 3.3 page 402's example of a value
+    // "not committed"; either gives the keyboard back to the page, and the commit the control's
+    // LostFocus then makes finds nothing typed (ADRs 2755, 2756).
+    private void ToPageOnEnter(Placed field, KeyRoutedEventArgs pressed)
     {
         if (pressed.Key == VirtualKey.Enter)
         {
             pressed.Handled = true;
+            commits.Entered(Current(field));
+            toPage();
+        }
+        else if (pressed.Key == VirtualKey.Escape)
+        {
+            pressed.Handled = true;
+            commits.Abandoned(Current(field));
             toPage();
         }
     }

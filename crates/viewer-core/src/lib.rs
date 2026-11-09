@@ -108,9 +108,9 @@ pub mod transition;
 
 pub use accessibility::{AccessibilityNode, Character, TableCell, TextLine, places};
 pub use command::{
-    Answered, Archiving, AttachHome, Command, Declined, Edit, Fidelity, Find, FindDirection,
-    FocusMove, Oversize, PageTarget, PointerAction, PresentationMode, Printing, Purpose,
-    ReferenceFiles, Rendered, RestrictionLevel, RestrictionOverride, RestrictionPolicy,
+    Answered, Archiving, AttachHome, Command, Committing, Declined, Edit, Fidelity, Find,
+    FindDirection, FocusMove, Oversize, PageTarget, PointerAction, PresentationMode, Printing,
+    Purpose, ReferenceFiles, Rendered, RestrictionLevel, RestrictionOverride, RestrictionPolicy,
     RestrictionScope, Selection, Sheet, TrustPolicy, Viewing, Zoom,
 };
 pub use event::{Event, Extraction, Found, Media, RenderRequest};

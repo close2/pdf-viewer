@@ -227,9 +227,29 @@ impl Session {
         self.handle(Command::Copy)
     }
 
-    /// §12.7.4.3: the caller's own control lost the keyboard, or Enter in a single-line field.
+    /// §12.7.4.3: the caller's own control lost the keyboard, or Enter in a single-line field
+    /// where the caller does not say which.
     #[must_use]
     pub fn commit_field(&mut self, field: String) -> Events {
-        self.handle(Command::CommitField { field })
+        self.handle(Command::CommitField {
+            field,
+            by: viewer_core::Committing::Unstated,
+        })
+    }
+
+    /// §12.7.4.3's commit, made by Enter, which XFA 3.3 page 402 numbers (ADR 2755).
+    #[must_use]
+    pub fn commit_field_on_enter(&mut self, field: String) -> Events {
+        self.handle(Command::CommitField {
+            field,
+            by: viewer_core::Committing::Enter,
+        })
+    }
+
+    /// Escape in the caller's own control: what was typed into the field is abandoned, XFA 3.3
+    /// page 402's example of a value "not committed" (ADR 2756).
+    #[must_use]
+    pub fn cancel_field(&mut self, field: String) -> Events {
+        self.handle(Command::CancelField { field })
     }
 }

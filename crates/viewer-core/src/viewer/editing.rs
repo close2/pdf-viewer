@@ -521,7 +521,7 @@ impl Viewer {
         // page 402's `commitKey`); a move to nothing is a host's gesture this crate is not told.
         let by = match move_to {
             crate::command::FocusMove::None => None,
-            _ => Some(pdf_model::view::CommitKey::Tab),
+            _ => Some(pdf_model::view::CommitKey::Tab.into()),
         };
         let wants = match move_to {
             crate::command::FocusMove::None => None,
@@ -554,7 +554,7 @@ impl Viewer {
         &mut self,
         id: DocumentId,
         wants: Option<ObjectId>,
-        by: Option<pdf_model::view::CommitKey>,
+        by: Option<pdf_model::xfa::Exited>,
         events: &mut Vec<Event>,
     ) {
         let Some(open) = self.documents.get_mut(&id) else {
@@ -580,6 +580,39 @@ impl Viewer {
         // A focus ring is chrome the host draws, so what changed is the viewport rather than the
         // page — the same statement a selection makes, and for the same reason.
         events.push(damage(viewport));
+    }
+
+    /// [`crate::Command::CancelField`]: what was typed into `field` is abandoned, and a focus this
+    /// crate holds on one of its widgets leaves it.
+    ///
+    /// XFA 3.3 page 402 describes `$event.commitKey` as "what happened to the value in the field
+    /// when the form field lost focus" and gives its 0 as "\[t]he value was not committed (for
+    /// example, the escape key was pressed)": the escape key is a way of losing the focus with the
+    /// value not committed, so the focus leaves and the field's `exit` events read 0. The typing
+    /// is put back first, so the commit a `/Bl` makes finds nothing to commit (ADR 2756).
+    pub(super) fn cancel_field(&mut self, field: &str, events: &mut Vec<Event>) {
+        let (Some(id), Some(open)) = (self.focused, self.focused_mut()) else {
+            return;
+        };
+        let before = open.dirty();
+        if open.abandon_field(field) {
+            if open.dirty() != before {
+                events.push(Event::Dirty {
+                    document: id,
+                    dirty: open.dirty(),
+                });
+            }
+            events.push(damage(self.viewport));
+        }
+        let Some(open) = self.focused_mut() else {
+            return;
+        };
+        let held = open.focus.is_some_and(|widget| {
+            field_of_widget(&open.document, widget).as_deref() == Some(field)
+        });
+        if held {
+            self.focus_on(id, None, Some(pdf_model::xfa::Exited::NotCommitted), events);
+        }
     }
 
     /// The selection in §14.8.2.5's logical content order, where the page states one: the
@@ -826,10 +859,15 @@ pub(super) fn commit_typed(
 /// is a choice list and whether a template asks for the versions before 2.4, where no `enter`
 /// fires between two commits. A focus held elsewhere is a commit at a loss of focus, and fires
 /// what the focus move does.
+///
+/// `by` is how the host saw the commit: the `exit` reads Enter as page 402's `$event.commitKey`
+/// 2, and a click on an item, which page 402's four values do not describe, leaves it unoffered
+/// (ADR 2755).
 pub(super) fn form_selection(
     id: DocumentId,
     open: &mut Open,
     field: &str,
+    by: crate::command::Committing,
     runner: bool,
     events: &mut Vec<Event>,
 ) {
@@ -845,7 +883,16 @@ pub(super) fn form_selection(
         open.stale();
     }
     let committed = commit_typed(id, open, field, events);
-    if held && committed && open.view.activate_form_on_selection(&open.document, field) {
+    let key = match by {
+        crate::command::Committing::Enter => Some(pdf_model::view::CommitKey::Enter),
+        crate::command::Committing::Unstated => None,
+    };
+    if held
+        && committed
+        && open
+            .view
+            .activate_form_on_selection(&open.document, field, key)
+    {
         open.stale();
     }
 }

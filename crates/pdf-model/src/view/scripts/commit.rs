@@ -28,6 +28,25 @@ impl ViewState {
         self.commit_field_by(document, name, CommitKey::Enter)
     }
 
+    /// Abandons what a person typed into the field `name` since its last commit, putting back
+    /// what each of its widgets showed before the typing began, and answers whether there was
+    /// anything to put back.
+    ///
+    /// A host calls it where a person presses Escape in a field, which XFA 3.3 page 402 names as
+    /// the example of a value "not committed" (ADR 2756). Nothing is committed, so neither the
+    /// keystroke's commit form nor the field's validation runs; the one-call calculations a
+    /// keystroke ran are run again over the value put back, as a refused commit's are.
+    pub fn abandon_typing(&mut self, document: &Document, name: &str) -> bool {
+        let Some(before) = self.uncommitted.remove(name) else {
+            return false;
+        };
+        let table = crate::view::widgets_by_field_name(document);
+        self.revert(before);
+        self.recalculate(document, &table);
+        self.refresh_formatted(document, &table);
+        true
+    }
+
     /// [`Self::commit_field`], with the way the person committed stated: Adobe's
     /// `event.commitKey`, which the commit's keystroke, its validation and its field's format are
     /// handed (ADR 1626).

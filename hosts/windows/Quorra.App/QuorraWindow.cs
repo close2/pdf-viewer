@@ -660,6 +660,14 @@ internal sealed unsafe partial class QuorraWindow : IDisposable
     internal void CommitField(string field) =>
         Library.Check("quorra_window_commit_field", Native.quorra_window_commit_field(handle, field));
 
+    /// <summary>A placed control's field committed by Enter, which XFA 3.3 page 402 numbers (ADR 2755).</summary>
+    internal void CommitFieldOnEnter(string field) =>
+        Library.Check("quorra_window_commit_field_on_enter", Native.quorra_window_commit_field_on_enter(handle, field));
+
+    /// <summary>Escape in a placed control: what was typed into the field is abandoned (ADR 2756).</summary>
+    internal void CancelField(string field) =>
+        Library.Check("quorra_window_cancel_field", Native.quorra_window_cancel_field(handle, field));
+
     /// <summary>A check box's or radio button's widget clicked towards <paramref name="on"/>.</summary>
     internal void ToggleField(uint number, ushort generation, bool on) =>
         Library.Check("quorra_window_toggle_field", Native.quorra_window_toggle_field(handle, number, generation, on));

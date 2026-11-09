@@ -25,7 +25,8 @@ use pdf_model::view::{
     DocumentTrigger, ScriptEdit, ScriptEvent, ScriptResult, ScriptRunner, ScriptSite,
 };
 use viewer_core::{
-    Answer, Command, DocumentId, Edit, Entered, Event, Query, ScriptRunners, Scripting, Viewer,
+    Answer, Command, Committing, DocumentId, Edit, Entered, Event, Query, ScriptRunners, Scripting,
+    Viewer,
 };
 
 const DOCUMENT: DocumentId = DocumentId(1);
@@ -153,6 +154,7 @@ fn entered(viewer: &mut Viewer, field: &str, text: &str) -> Vec<Event> {
         .collect();
     events.extend(viewer.handle(Command::CommitField {
         field: field.to_owned(),
+        by: Committing::Unstated,
     }));
     events
 }

@@ -2514,6 +2514,29 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
         }
         return true;
     }
+    // A placed line edit takes Escape as a note's editor does, and abandons what was typed into
+    // its field; the keyboard then goes back to the page, and the commit the line edit makes as
+    // it loses it finds nothing typed (ADR 2756).
+    if (auto* line = qobject_cast<QLineEdit*>(watched);
+        line != nullptr && line->property("quorraControl").isValid()
+        && (event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress)
+        && static_cast<QKeyEvent*>(event)->key() == Qt::Key_Escape) {
+        event->accept();
+        if (event->type() == QEvent::KeyPress && !busy_) {
+            const auto index = static_cast<std::size_t>(line->property("quorraControl").toULongLong());
+            {
+                Busy guard(busy_);
+                host_->cancel_control(index);
+                applyUpdates();
+            }
+            QTimer::singleShot(0, this, [this] {
+                if (page_ != nullptr) {
+                    page_->setFocus(Qt::OtherFocusReason);
+                }
+            });
+        }
+        return true;
+    }
     pointerThroughControl(watched, event);
     // A list box or a combo box moves its selection inside its own handling of an arrow, so the
     // press is marked before the control sees it and let go once Qt has finished with it; the
@@ -3070,26 +3093,33 @@ void MainWindow::commitsWhenFinished(QLineEdit* entry, std::size_t index)
     // while this window is busy whenever a tab hands the keyboard to the next control, so the
     // commit then waits for the event loop rather than being lost.
     connect(entry, &QLineEdit::editingFinished, this, [this, index] {
+        const bool enter = enterPressed_;
+        enterPressed_ = false;
         if (busy_) {
-            QTimer::singleShot(0, this, [this, index] {
+            QTimer::singleShot(0, this, [this, index, enter] {
                 if (busy_) {
                     return;
                 }
                 Busy guard(busy_);
-                host_->commit_control(index);
+                host_->commit_control(index, enter);
                 applyUpdates();
             });
             return;
         }
         Busy guard(busy_);
-        host_->commit_control(index);
+        host_->commit_control(index, enter);
         applyUpdates();
     });
+    // Escape in the line edit abandons what was typed — XFA 3.3 page 402's example of a value
+    // "not committed" — which `eventFilter` takes before the window's own binding of the key, by
+    // the index this names (ADR 2756).
+    entry->setProperty("quorraControl", QVariant::fromValue(static_cast<qulonglong>(index)));
     // Enter also gives the keyboard back to the page — Adobe's event model counts it among the
     // ways a field loses the focus — so that the control shows what the field displays rather
     // than the characters it was typed as (ADR 1604). After `editingFinished`, which Qt emits
     // for the same key once this returns.
     connect(entry, &QLineEdit::returnPressed, this, [this] {
+        enterPressed_ = true;
         QTimer::singleShot(0, this, [this] {
             if (page_ != nullptr) {
                 page_->setFocus(Qt::OtherFocusReason);

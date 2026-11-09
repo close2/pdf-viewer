@@ -169,7 +169,12 @@ impl Host {
                     }
                 }
                 FieldChange::Commit { field, enter } => {
-                    host.dispatch(Command::CommitField { field });
+                    let by = if enter {
+                        viewer_core::Committing::Enter
+                    } else {
+                        viewer_core::Committing::Unstated
+                    };
+                    host.dispatch(Command::CommitField { field, by });
                     if enter {
                         // From an idle, as every focus move here is: GTK finishes its own handling
                         // of the key after this returns. The control losing the keyboard commits
@@ -180,6 +185,16 @@ impl Host {
                             page.grab_focus();
                         });
                     }
+                }
+                // The field shows what it showed before the typing began, and the keyboard goes
+                // back to the page as Enter's does; the control losing it then commits nothing,
+                // since nothing typed is left (ADR 2756).
+                FieldChange::Cancel { field } => {
+                    host.dispatch(Command::CancelField { field });
+                    let page = host.ui.page_area.clone();
+                    glib::idle_add_local_once(move || {
+                        page.grab_focus();
+                    });
                 }
                 FieldChange::Arrows { held } => {
                     if held {

@@ -354,9 +354,10 @@ pub(crate) fn what_a_print_does_not_do(document: &Document) -> Vec<String> {
 /// whose level lets scripts run also carries out the form's calculations, its validation scripts
 /// and the events its containers raise when it is shown, at a person's entry, focus, click and
 /// pointer, at a choice list's selection, at a save and a submit and at a change of validation
-/// state, in `FormCalc` and in JavaScript, and the `submit` an event states where it asks for a
-/// body a submit-form action composes (ADRs 2524, 2525, 2545, 2566, 2584, 2606, 2627, 2647, 2696,
-/// 2702, 2706, 2707, 2726, 2738), as ledger row K.2 lists them. So what is not carried out is its
+/// state, with how a person committed or abandoned a field's value, in `FormCalc` and in
+/// JavaScript, and the `submit` an event states where it asks for a body a submit-form action
+/// composes (ADRs 2524, 2525, 2545, 2566, 2584, 2606, 2627, 2647, 2696, 2702, 2706, 2707, 2726,
+/// 2738, 2755, 2756), as ledger row K.2 lists them. So what is not carried out is its
 /// other events and packagings, and its scripts where scripts do not run.
 fn xfa_form(document: &Document, notes: &mut Vec<String>) {
     let Some(stated) = pdf_model::xfa::stated(document) else {

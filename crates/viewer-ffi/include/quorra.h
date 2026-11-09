@@ -1218,6 +1218,13 @@ int32_t quorra_beside(quorra_viewer *viewer, bool reserved, uint64_t name, quorr
 /* §12.7.4.3: a caller's own control lost the keyboard, or Enter in a single-line field — the moment
  * Table 199's /K in its commit form and /V wait for. A field nobody is typing into does nothing. */
 int32_t quorra_commit_field(quorra_viewer *viewer, const char *field, quorra_events **events);
+/* quorra_commit_field where the caller knows Enter made the commit, which XFA 3.3 page 402 numbers
+ * as $event.commitKey 2 (ADR 2755). */
+int32_t quorra_commit_field_on_enter(quorra_viewer *viewer, const char *field,
+                                     quorra_events **events);
+/* Escape in a caller's own control: what was typed into the field is abandoned, XFA 3.3 page 402's
+ * example of a value "not committed" (ADR 2756). */
+int32_t quorra_cancel_field(quorra_viewer *viewer, const char *field, quorra_events **events);
 /* §7.9.4's instant, from the caller's clock: what Table 166's /M is written as on every annotation a
  * save writes. Read the clock just before quorra_save. `known` false withdraws it (no /M at all,
  * the default). `zoned` false is a date that states no zone; `offset_minutes` is minutes east of
@@ -2314,6 +2321,8 @@ int32_t quorra_window_set_field_options(quorra_window *window, const char *field
                                         const size_t *options, size_t count);
 int32_t quorra_window_clear_field(quorra_window *window, const char *field);
 int32_t quorra_window_commit_field(quorra_window *window, const char *field);
+int32_t quorra_window_commit_field_on_enter(quorra_window *window, const char *field);
+int32_t quorra_window_cancel_field(quorra_window *window, const char *field);
 int32_t quorra_window_toggle_field(quorra_window *window, uint32_t number, uint16_t generation,
                                    bool on);
 int32_t quorra_window_set_group(quorra_window *window, uint32_t number, uint16_t generation,

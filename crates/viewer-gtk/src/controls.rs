@@ -38,6 +38,13 @@ pub(crate) enum FieldChange {
         /// the field displays rather than the characters it was typed as (ADR 1604).
         enter: bool,
     },
+    /// [`viewer_core::Command::CancelField`]: a person pressed Escape in a control, abandoning
+    /// what they typed — XFA 3.3 page 402's example of a value "not committed" — and the keyboard
+    /// goes back to the page (ADR 2756).
+    Cancel {
+        /// The qualified name.
+        field: String,
+    },
     /// A control took the keyboard, so it is to show the field's characters rather than what
     /// Table 199's `/F` displays: typing starts from the value the format was made of (ADR 1604).
     Holds {
@@ -203,6 +210,7 @@ fn entry(
         let view = gtk4::TextView::new();
         view.buffer().set_text(&value);
         commits_on_leaving(&view, &name, change);
+        abandons_on_escape(&view, &name, change);
         holds_on_entering(&view, &name, change);
         let suppress = Rc::clone(suppress);
         let change = Rc::clone(change);
@@ -238,6 +246,7 @@ fn entry(
         let name = field.name.qualified.clone();
         commits_on_enter(&secure, &name, change);
         commits_on_leaving(&secure, &name, change);
+        abandons_on_escape(&secure, &name, change);
         let suppress = Rc::clone(suppress);
         let typed = Rc::clone(change);
         secure.connect_changed(move |secure| {
@@ -274,6 +283,7 @@ fn entry(
     });
     commits_on_enter(&entry, &commits, change);
     commits_on_leaving(&entry, &commits, change);
+    abandons_on_escape(&entry, &commits, change);
     holds_on_entering(&entry, &commits, change);
     if choose_a_file {
         offer_a_chooser(&entry);
@@ -323,6 +333,32 @@ fn commits_on_leaving(
         });
     });
     control.add_controller(focus);
+}
+
+/// Escape in a text control abandons what was typed into its field: XFA 3.3 page 402 names the
+/// key as its example of a value "not committed", and it is the key every program uses to mean
+/// *not that* (`viewer_host::keys`). The control has the keyboard, so the key is the field's
+/// before it is the page's (ADR 2756).
+///
+/// From an idle for [`commits_on_leaving`]'s reason.
+fn abandons_on_escape(
+    control: &impl IsA<gtk4::Widget>,
+    field: &str,
+    change: &Rc<dyn Fn(FieldChange)>,
+) {
+    let keys = gtk4::EventControllerKey::new();
+    let field = field.to_owned();
+    let change = Rc::clone(change);
+    keys.connect_key_pressed(move |_, key, _, _| {
+        if key != gtk4::gdk::Key::Escape {
+            return gtk4::glib::Propagation::Proceed;
+        }
+        let field = field.clone();
+        let change = Rc::clone(&change);
+        gtk4::glib::idle_add_local_once(move || change(FieldChange::Cancel { field }));
+        gtk4::glib::Propagation::Stop
+    });
+    control.add_controller(keys);
 }
 
 /// A text control taking the keyboard asks for the field's characters in place of what it
@@ -682,6 +718,7 @@ fn editable_combo(
     // field's Table 199 `/K` in its commit form and `/V` wait for that moment (ADRs 1592, 1617).
     commits_on_enter(&entry, &field.name.qualified, change);
     commits_on_leaving(&entry, &field.name.qualified, change);
+    abandons_on_escape(&entry, &field.name.qualified, change);
     holds_on_entering(&entry, &field.name.qualified, change);
     let composed = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
     // GTK's own style class for "these are one control", which is what makes the pair read as a

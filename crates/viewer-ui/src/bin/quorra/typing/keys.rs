@@ -43,21 +43,11 @@ impl App {
         // below says where *both* ends go.
         let held = |to: usize| if self.shift { (to, anchor) } else { (to, to) };
         let (next, moved, anchored) = match *key {
-            Key::Named(NamedKey::Escape) => {
-                self.typing = None;
-                // §12.7.5.3's file-select control: "the field's text represents the pathname of a
-                // file whose contents shall be submitted as the field's value". Escape is where
-                // this window finishes with a field, so the pathname becomes a file *here* rather
-                // than on every keystroke — a filesystem read per character would be this host
-                // opening a file sixty times a second (ADR 1216).
-                self.commit_chosen_file(&aim, &current);
-                println!("note: the keyboard is back on the page");
-                // The caret goes with the keyboard, and the window is what has to be told: this
-                // press changes nothing about the *document*, so no command is sent and nothing
-                // else would ask for the frame that takes the caret off the screen.
-                self.redraw();
-                return true;
-            }
+            // Escape abandons what was typed: XFA 3.3 page 402 names it as the example of a value
+            // "not committed", and it is the key every program uses to mean *not that*
+            // (`viewer_host::keys`). The field shows what it showed before the typing began, and
+            // a file-select control's pathname chooses no file (ADR 2756).
+            Key::Named(NamedKey::Escape) => return self.abandon_on_escape(&aim),
             // Ctrl + C, X and V, which needed no message at all — see `clipped`.
             Key::Character(text) if self.control => match self.clipped(text, &current, (low, high))
             {
@@ -111,7 +101,7 @@ impl App {
             // the keyboard goes back to the page because the page now shows the field's format,
             // where a caret placed in the value would stand between the wrong characters (ADR 1592).
             Key::Named(NamedKey::Enter) if self.single_line(typing.at) => {
-                return self.commit_on_enter(aim);
+                return self.commit_on_enter(aim, &current);
             }
             Key::Named(NamedKey::Enter) => {
                 // §12.7.5.3's Multiline decides whether a return is a character or the end of

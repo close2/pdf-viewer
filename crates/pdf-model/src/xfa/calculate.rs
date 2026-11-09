@@ -26,7 +26,7 @@ pub use activate::{
     Activation, Ended, FormLanguage, FormSubmit, Invalid, Level, Limits, MAX_SUBMITS, Overridden,
     Ran, Runner, Stimulus,
 };
-pub use event::{Event, Replaced, Typing};
+pub use event::{Event, Exited, Replaced, Typing};
 pub use validity::{Test, Validity};
 
 mod activate;

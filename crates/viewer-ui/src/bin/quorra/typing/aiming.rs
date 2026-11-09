@@ -123,13 +123,41 @@ impl App {
     }
 
     /// Enter in a single-line field: the commit, and the keyboard back on the page.
-    pub(super) fn commit_on_enter(&mut self, aim: Aim) -> bool {
+    ///
+    /// §12.7.5.3's file-select control: "the field's text represents the pathname of a file whose
+    /// contents shall be submitted as the field's value". Enter is where this window commits a
+    /// field, so the pathname `current` becomes a file *here* rather than on every keystroke — a
+    /// filesystem read per character would be this host opening a file sixty times a second (ADR
+    /// 1216) — and Escape, which abandons the typing, chooses none (ADR 2756).
+    pub(super) fn commit_on_enter(&mut self, aim: Aim, current: &str) -> bool {
+        self.commit_chosen_file(&aim, current);
         let Aim::Field(field) = aim else {
             return false;
         };
         self.typing = None;
-        self.dispatch(Command::CommitField { field });
+        self.dispatch(Command::CommitField {
+            field,
+            by: viewer_core::Committing::Enter,
+        });
         println!("note: the keyboard is back on the page");
+        self.redraw();
+        true
+    }
+
+    /// Escape while a field or an annotation has the keyboard: the keyboard back on the page, and
+    /// for a field what was typed abandoned (ADR 2756).
+    pub(super) fn abandon_on_escape(&mut self, aim: &Aim) -> bool {
+        self.typing = None;
+        if let Aim::Field(field) = aim {
+            self.dispatch(Command::CancelField {
+                field: field.clone(),
+            });
+            println!("note: the typing is abandoned");
+        }
+        println!("note: the keyboard is back on the page");
+        // The caret goes with the keyboard, and the window is what has to be told: an annotation's
+        // Escape changes nothing about the *document*, so no command is sent and nothing else
+        // would ask for the frame that takes the caret off the screen.
         self.redraw();
         true
     }

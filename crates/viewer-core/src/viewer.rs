@@ -636,12 +636,13 @@ impl Viewer {
             Command::Report => self.report_the_document(events),
             Command::Find(find) => self.find(find, events),
             Command::Focused(move_to) => self.move_focus(move_to, events),
-            Command::CommitField { field } => {
+            Command::CommitField { field, by } => {
                 let runner = !matches!(self.scripting, crate::Scripting::Off);
                 if let (Some(id), Some(open)) = (self.focused, self.focused_mut()) {
-                    form_selection(id, open, &field, runner, events);
+                    form_selection(id, open, &field, by, runner, events);
                 }
             }
+            Command::CancelField { field } => self.cancel_field(&field, events),
             Command::Presented => {
                 if let Some(open) = self.focused_mut() {
                     open_sequence(open);

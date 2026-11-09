@@ -780,6 +780,9 @@ private:
     /// Set while a list box or a combo box handles an up or down arrow, which is when Qt moves
     /// its selection: the field's Table 199 `/K` reads it as Adobe's `event.keyDown` (ADR 1786).
     bool arrowKey_ = false;
+    /// Whether the `editingFinished` a line edit is about to emit is Enter's: `returnPressed`
+    /// comes first for the same key, and XFA 3.3 page 402 numbers a commit by Enter (ADR 2755).
+    bool enterPressed_ = false;
     /// Set while a call into the host is running, and refused rather than nested.
     ///
     /// **This is the one thing the C++ side has to promise that Rust's compiler used to check.**

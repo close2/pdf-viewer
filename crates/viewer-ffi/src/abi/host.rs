@@ -742,6 +742,53 @@ pub unsafe extern "C" fn quorra_commit_field(
     Status::Ok.code()
 }
 
+/// [`quorra_commit_field`] where the caller knows Enter made the commit, which XFA 3.3 page 402
+/// numbers as `$event.commitKey` 2 (ADR 2755).
+///
+/// # Safety
+///
+/// See the module documentation. `field` is NUL-terminated UTF-8, §12.7.4.2's fully qualified name.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_commit_field_on_enter(
+    viewer: *mut Session,
+    field: *const c_char,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events), false) = (viewer.as_mut(), events.as_mut(), field.is_null())
+    else {
+        return Status::NullArgument.code();
+    };
+    let Ok(Some(field)) = owned_text(field) else {
+        return Status::NotUtf8.code();
+    };
+    *events = Box::into_raw(Box::new(viewer.commit_field_on_enter(field)));
+    Status::Ok.code()
+}
+
+/// Escape in a caller's own control: what was typed into the field is abandoned, XFA 3.3 page
+/// 402's example of a value "not committed", and the field shows what it showed before the typing
+/// began, with no commit (ADR 2756). A field nobody is typing into is put back to nothing.
+///
+/// # Safety
+///
+/// See the module documentation. `field` is NUL-terminated UTF-8, §12.7.4.2's fully qualified name.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_cancel_field(
+    viewer: *mut Session,
+    field: *const c_char,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events), false) = (viewer.as_mut(), events.as_mut(), field.is_null())
+    else {
+        return Status::NullArgument.code();
+    };
+    let Ok(Some(field)) = owned_text(field) else {
+        return Status::NotUtf8.code();
+    };
+    *events = Box::into_raw(Box::new(viewer.cancel_field(field)));
+    Status::Ok.code()
+}
+
 /// §7.9.4's instant from the caller's clock, which Table 166's `/M` is written as on every
 /// annotation a save writes; `known` false withdraws it.
 ///

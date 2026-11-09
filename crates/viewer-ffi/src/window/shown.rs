@@ -130,8 +130,35 @@ impl Window {
     ///
     /// [`Status::NoAnswer`] where no field of that name has a widget on the page shown.
     pub fn commit_field(&mut self, field: &str) -> Result<(), Status> {
+        self.commit_field_by(field, viewer_core::Committing::Unstated)
+    }
+
+    /// [`Self::commit_field`] where the caller knows Enter made the commit, which XFA 3.3 page
+    /// 402 numbers (ADR 2755).
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no field of that name has a widget on the page shown.
+    pub fn commit_field_on_enter(&mut self, field: &str) -> Result<(), Status> {
+        self.commit_field_by(field, viewer_core::Committing::Enter)
+    }
+
+    fn commit_field_by(&mut self, field: &str, by: viewer_core::Committing) -> Result<(), Status> {
         let field = self.field(field)?.name.qualified.clone();
-        self.dispatch(Command::CommitField { field });
+        self.dispatch(Command::CommitField { field, by });
+        self.settle();
+        Ok(())
+    }
+
+    /// Escape in a placed control: what was typed into the field is abandoned, XFA 3.3 page 402's
+    /// example of a value "not committed", and the field shows what it showed before (ADR 2756).
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no field of that name has a widget on the page shown.
+    pub fn cancel_field(&mut self, field: &str) -> Result<(), Status> {
+        let field = self.field(field)?.name.qualified.clone();
+        self.dispatch(Command::CancelField { field });
         self.settle();
         Ok(())
     }
