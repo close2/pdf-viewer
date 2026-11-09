@@ -1063,7 +1063,7 @@ fn empty_and_invalid_icc_operands_keep_the_previous_source_and_report() {
         );
         if bad != "scn" {
             assert!(
-                reports.contains("2 colour components (expected 1)"),
+                reports.contains("ColourOperands { stroking: false, given: 2, takes: 1 }"),
                 "{reports}"
             );
         }

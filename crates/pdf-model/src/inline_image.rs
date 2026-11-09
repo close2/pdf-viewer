@@ -97,6 +97,15 @@ pub enum InlineImageError {
         /// What was met instead.
         detail: String,
     },
+    /// The pairs between `BI` and `ID` passed a bound this reader sets on any object it parses.
+    ///
+    /// Kept apart from [`Self::Malformed`] for the reason [`Self::Unbuffered`] is kept apart from
+    /// [`Self::NoTerminator`]: that one is a statement about the file, this one about this reader.
+    #[error("{detail}")]
+    PastABound {
+        /// Which bound, and where.
+        detail: String,
+    },
     /// Where the data ends could not be established.
     #[error("no EI ends the image data")]
     NoTerminator,
@@ -246,15 +255,18 @@ fn read_dictionary(
         };
 
         let mut parser = Parser::at(content, lexer.position(), limits);
-        let value = parser
-            .parse_object()
-            .map_err(|error| InlineImageError::Malformed {
-                detail: format!("/{}: {error}", String::from_utf8_lossy(&key)),
-            })?;
+        let value = parser.parse_object().map_err(|error| {
+            let detail = format!("/{}: {error}", String::from_utf8_lossy(&key));
+            if matches!(error, pdf_syntax::SyntaxError::LimitExceeded { .. }) {
+                InlineImageError::PastABound { detail }
+            } else {
+                InlineImageError::Malformed { detail }
+            }
+        })?;
         lexer.seek(parser.position());
 
         if dict.len() >= limits.max_dict_len {
-            return Err(InlineImageError::Malformed {
+            return Err(InlineImageError::PastABound {
                 detail: "more entries than max_dict_len allows".to_owned(),
             });
         }

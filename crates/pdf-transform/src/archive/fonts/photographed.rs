@@ -727,12 +727,12 @@ fn admitted(
             .find(|font| font.mapped);
         return Err(keyed.map_or(Because::NotBuiltYet(TEXT_IS_READABLE), |font| font.refusal));
     }
-    if interpretation
+    if let Some(report) = interpretation
         .unsupported
         .iter()
-        .any(|report| leaves_the_page_undrawn(report, gate))
+        .find(|report| leaves_the_page_undrawn(report, gate))
     {
-        return Err(Because::NotBuiltYet(NOT_DRAWN_WHOLE));
+        return Err(Because::NotBuiltYet(not_drawn_whole(report)));
     }
     Ok(())
 }
@@ -756,11 +756,14 @@ fn leaves_the_page_undrawn(report: &Unsupported, gate: Gate<'_>) -> bool {
 /// as the window shows it (A694 item 3: "we will just bake something into the pdf representing the
 /// state we currently show the pdf").
 ///
-/// The faults are an operator short of its operands (§7.8.2), a name no resource dictionary defines
-/// (§7.8.3), a stream damaged part-way (§7.8.2), the page's own `/Contents` among them, a path
-/// painted with no current point (§8.5), a matrix that cannot be inverted, and a soft mask
-/// dictionary §11.6.5.1 does not describe: the document asked for nothing the window could draw
-/// there. A stream that ends inside a text object and a keyword inside an array (§7.3.6) are the
+/// The faults are an operator short of its operands (§7.8.2), a colour operator given operands its
+/// space does not take (§8.6.8), a name no resource dictionary defines (§7.8.3), an inline image
+/// not bracketed as §8.9.7 writes one, a stream damaged part-way (§7.8.2), the page's own
+/// `/Contents` among them, a path painted with no current point (§8.5), a matrix that cannot be
+/// inverted, and a soft mask dictionary §11.6.5.1 does not describe: the document asked for nothing
+/// the window could draw there. The second and fourth, with `sh`'s undefined name and a `Do` with no
+/// name, are how a stream whose bytes fail their own check value reaches the window most often, and
+/// the interpreter names them as the stream's own (ADR 2759). A stream that ends inside a text object and a keyword inside an array (§7.3.6) are the
 /// same kind of fault: the window acts on the stream's objects in order as §7.8.2 has it, so a
 /// glyph shown before the end is painted and the clip §9.3.6 makes at `ET` is never made, and a
 /// keyword that is no object of the array draws nothing while the objects around it are the
@@ -783,6 +786,8 @@ fn is_a_fault_of_the_documents_own_stream(report: &Unsupported) -> bool {
             Unsupported::SoftMask { .. }
                 | Unsupported::UndefinedCurrentPoint { .. }
                 | Unsupported::OperandShortfall { .. }
+                | Unsupported::ColourOperands { .. }
+                | Unsupported::MalformedInlineImage { .. }
                 | Unsupported::NoninvertibleMatrix { .. }
                 | Unsupported::MissingResource { .. }
                 | Unsupported::DamagedContentStream { .. }
@@ -1124,10 +1129,49 @@ const TEXT_IS_READABLE: &str = "this document renders an Adobe-Identity composit
      extract; a photograph of the page would turn that text into pixels, so the page is not \
      photographed. Name the producer's font program with --font to keep the page as text";
 
-/// The gate: a page the window does not draw whole.
+/// The gate: a page the window does not draw whole, by what it did not draw (ADR 2759), so that a
+/// census line counts one cause.
+fn not_drawn_whole(report: &Unsupported) -> &'static str {
+    match report {
+        Unsupported::LimitReached { .. }
+        | Unsupported::ListBytes { .. }
+        | Unsupported::Content {
+            issue: ContentIssue::TooLarge { .. } | ContentIssue::TokenTooLong { .. },
+        } => NOT_DRAWN_PAST_A_BOUND,
+        Unsupported::Image { .. }
+        | Unsupported::Shading { .. }
+        | Unsupported::ShadingBackground { .. } => NOT_DRAWN_AN_IMAGE_OR_SHADING,
+        Unsupported::Content {
+            issue:
+                ContentIssue::Undecodable { .. }
+                | ContentIssue::NotAStream { .. }
+                | ContentIssue::Unreachable { .. },
+        } => NOT_DRAWN_A_PART_OF_CONTENTS,
+        _ => NOT_DRAWN_WHOLE,
+    }
+}
+
+/// [`not_drawn_whole`] for any other report.
 const NOT_DRAWN_WHOLE: &str = "a page that would be photographed has content this reader does not \
      draw whole; a photograph would fix what the window could not draw into the file, so the page \
      is not photographed";
+
+/// [`not_drawn_whole`] for a bound this reader sets.
+const NOT_DRAWN_PAST_A_BOUND: &str = "a page that would be photographed has content this reader \
+     does not draw whole: a bound this reader sets stopped its drawing, and a photograph would fix \
+     what the bound left out into the file, so the page is not photographed";
+
+/// [`not_drawn_whole`] for an image or a shading.
+const NOT_DRAWN_AN_IMAGE_OR_SHADING: &str = "a page that would be photographed has content this \
+     reader does not draw whole: an image or a shading this reader could not build from the \
+     file's bytes, and a photograph would fix its absence into the file, so the page is not \
+     photographed";
+
+/// [`not_drawn_whole`] for a part of `/Contents` drawn of nothing.
+const NOT_DRAWN_A_PART_OF_CONTENTS: &str = "a page that would be photographed has content this \
+     reader does not draw whole: a part of its /Contents the window drew nothing of, and a \
+     photograph would carry content the producer named with no loss to name it, so the page is not \
+     photographed";
 
 /// The gate: a structure tree a photograph would leave pointing at nothing, where the profile did
 /// not authorise taking the page's leaves out of it.
@@ -1259,6 +1303,24 @@ mod tests {
             damaged(pdf_syntax::Damage::ForeignCharacter),
             operator("BT without ET"),
             operator("Tj inside an array, which §7.3.6 admits only objects into"),
+            // ISO 32000-2 Table 73 gives `sc` as many operands as the space has components,
+            // §8.9.7 brackets an inline image's key-value pairs between `BI` and `ID`, §7.8.3
+            // has `sh` name a resource and Table 86 gives `Do` a name (ADR 2759).
+            Unsupported::ColourOperands {
+                stroking: false,
+                given: 27,
+                takes: 3,
+            },
+            Unsupported::MalformedInlineImage {
+                detail: String::from("Integer(1) where a key was expected"),
+            },
+            Unsupported::MissingResource {
+                category: "Shading",
+                detail: String::from("/ is not in /Shading"),
+            },
+            operator("Do with no name operand"),
+            operator("W without a path-painting operator after it"),
+            operator("EI outside an inline image, which §8.9.7 admits it only inside"),
         ] {
             assert!(!leaves_the_page_undrawn(&fault, wide), "{fault:?}");
             assert!(leaves_the_page_undrawn(&fault, narrow), "{fault:?}");
@@ -1292,10 +1354,32 @@ mod tests {
             },
             operator("Frobnicate"),
             operator("BT without ET and more"),
+            operator("q outside an inline image, which §8.9.7 admits it only inside"),
+            Unsupported::Image {
+                name: String::from("<inline>: no EI ends the image data"),
+            },
         ] {
             assert!(leaves_the_page_undrawn(&kept, wide), "{kept:?}");
             assert!(leaves_the_page_undrawn(&kept, narrow), "{kept:?}");
         }
+    }
+
+    #[test]
+    fn a_page_not_drawn_whole_is_refused_by_what_the_window_did_not_draw() {
+        let bound = Unsupported::LimitReached {
+            limit: "MAX_OPERANDS",
+        };
+        let image = Unsupported::Image {
+            name: String::from("R73: malformed image: stream did not decode"),
+        };
+        let part = Unsupported::Content {
+            issue: ContentIssue::NotAStream { index: 1 },
+        };
+        let knockout = Unsupported::TextKnockout { glyphs: 2 };
+        assert_eq!(not_drawn_whole(&bound), NOT_DRAWN_PAST_A_BOUND);
+        assert_eq!(not_drawn_whole(&image), NOT_DRAWN_AN_IMAGE_OR_SHADING);
+        assert_eq!(not_drawn_whole(&part), NOT_DRAWN_A_PART_OF_CONTENTS);
+        assert_eq!(not_drawn_whole(&knockout), NOT_DRAWN_WHOLE);
     }
 
     #[test]

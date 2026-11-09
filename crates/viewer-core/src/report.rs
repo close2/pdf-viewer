@@ -36,6 +36,10 @@ fn damaged_content_stream(stream: &pdf_model::content::DamagedStream) -> String 
 ///
 /// Deliberately says what is *missing from the page* rather than what the interpreter did,
 /// because the question a person has is whether what they are looking at is the document.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one arm per report kind, each a sentence: split, the kinds would be read in two places"
+)]
 pub(crate) fn describe(item: &Unsupported) -> String {
     match item {
         Unsupported::Text { operations } => {
@@ -60,6 +64,14 @@ pub(crate) fn describe(item: &Unsupported) -> String {
             "the operator {operator} was given {given} operand(s) where it takes {takes}, so it \
              was not carried out as written (§7.8.2)"
         ),
+        Unsupported::ColourOperands {
+            stroking,
+            given,
+            takes,
+        } => colour_operands(*stroking, *given, *takes),
+        Unsupported::MalformedInlineImage { detail } => {
+            format!("an inline image was not drawn: {detail} (§8.9.7)")
+        }
         Unsupported::Font { detail } => format!("a font was not drawn: {detail}"),
         // §8.10.4: what is on the page is the proxy the producer put there for exactly this
         // case, so the sentence says which page is missing and why rather than calling it a
@@ -172,4 +184,14 @@ pub(crate) fn describe(item: &Unsupported) -> String {
              makes an error, so they were left off the page rather than drawn from a corner of it"
         ),
     }
+}
+
+/// [`describe`]'s sentence for a colour operator given operands its space does not take (§8.6.8,
+/// ADR 2759).
+fn colour_operands(stroking: bool, given: usize, takes: usize) -> String {
+    let which = if stroking { "stroking" } else { "non-stroking" };
+    format!(
+        "a {which} colour was given {given} operand(s) where its colour space takes {takes}, so \
+         the colour in force was kept (§8.6.8)"
+    )
 }

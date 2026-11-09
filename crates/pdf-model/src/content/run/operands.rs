@@ -195,7 +195,12 @@ pub(in crate::content) fn number_at(operands: &[Object], index: usize) -> Option
         reason = "content-stream coordinates are page-scale; a value outside f32's range \
                   cannot describe a position on a page"
     )]
-    Some(value as f32)
+    let narrowed = value as f32;
+    // A number past f32's range narrows to an infinity, which is no more a position than the
+    // infinity refused above; Annex C's Table C.1 bounds a conforming real inside it. Read as no
+    // number, it is declined where its operator reads it, rather than reaching the display list
+    // as a coordinate on which the backend refuses the whole page (ADR 2759).
+    narrowed.is_finite().then_some(narrowed)
 }
 
 /// Reads the first `N` operands as numbers, requiring all of them.

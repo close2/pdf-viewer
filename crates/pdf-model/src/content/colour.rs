@@ -591,9 +591,11 @@ impl Interpreter<'_> {
                 let space = self.device_space("DeviceCMYK", resources);
                 (self.colour(&space, &values, state), space, false)
             }
-            (given, expected) => {
-                self.note(Unsupported::Shading {
-                    name: format!("{given} colour components (expected {expected})"),
+            (given, takes) => {
+                self.note(Unsupported::ColourOperands {
+                    stroking: !fill,
+                    given,
+                    takes,
                 });
                 return;
             }

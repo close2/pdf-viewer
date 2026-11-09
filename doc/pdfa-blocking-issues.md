@@ -103,9 +103,9 @@ column. R02 is built (ADR 2498) and no document reaches it.
 
 | order | remedy | frees at 2b | frees at 4 | stops under `as-shown`, 2b / 4 | what is left needs | built by, and what is left |
 |---|---|---|---|---|---|---|
-| 1 | R06b-the-other-part | 35 | 0 | 41 / 0 | built | ADR 2498: the two-target request; the figures are what a one-part request refuses; a `%PDF-3.x` source is written at 4 (ADR 2692) |
-| 2 | R03-photograph | 7 | 10 | 55 / 57 | builds only | built under `as-if-printed`: A694, ADRs 2516, 2618, 2638; left, a page this reader does not draw whole; `as-shown` keeps ADR 2394's gate (A694 item 1) |
-| 3 | R08-unembedded-font-photograph | 11 | 11 | 35 / 35 | builds only | built under `as-if-printed`: A694, ADR 2516; `as-shown` keeps its stop (A694 item 1) |
+| 1 | R06b-the-other-part | 37 | 0 | 41 / 0 | built | ADR 2498: the two-target request; the figures are what a one-part request refuses; a `%PDF-3.x` source is written at 4 (ADR 2692) |
+| 2 | R03-photograph | 6 | 9 | 55 / 57 | builds only | built under `as-if-printed`: A694, ADRs 2516, 2618, 2638, 2760; left, a page this reader does not draw whole, by its cause (ADR 2760); `as-shown` keeps ADR 2394's gate (A694 item 1) |
+| 3 | R08-unembedded-font-photograph | 8 | 8 | 35 / 35 | builds only | built under `as-if-printed`: A694, ADR 2516; `as-shown` keeps its stop (A694 item 1) |
 | 4 | R10-font-refiling | 5 | 5 | 7 / 7 | builds only | built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685), a standard font's stated widths (ADR 2686), a mode 3 font's descriptor (ADR 2688), a glyf program under a CIDFontType0 (ADR 2716), a collection nothing reads (ADR 2717), a font written inside another object (ADR 2722), a code Annex D encodes twice in a glyf face (ADR 2723) |
 | 5 | R11-truetype-route | 5 | 5 | 7 / 7 | builds only | built: A694 item 3, ADR 2520 |
 | 6 | R14-appended-page-composition | 3 | 2 | 3 / 3 | builds only | built: ADRs 2678, 2682 |
@@ -354,8 +354,15 @@ producer's operators); part 4 has none of part 2's limits (R06b). Q694 asks for 
 A photographed page is one the window drew whole, its own bytes' faults apart (ADR 2516 decision
 5); ADR 2618 adds the page's own damaged `/Contents`, a text object the stream ends inside and a
 keyword inside an array, and names what stays refused: a part of `/Contents` drawn of nothing, an
-image or shading this reader cannot build, a drawing stopped at a bound (the census's "does not
-draw whole" line names the documents).
+image or shading this reader cannot build, a drawing stopped at a bound. ADR 2759 has the reader name
+the faults a stream that fails its own check value most often decodes to as the stream's own (a
+colour given a count no space takes, an undefined `sh` name, an inline image not bracketed as §8.9.7
+writes one, a stray `EI`, a nameless `Do`, a clip the stream ends on, a bare `true`), and ADR 2760 has
+the refusal say which of the three kept causes holds a page. Of the census's seven, `504076` and
+`492484` are freed, `150277` and `219789` now wait on the pixels one conversion photographs,
+`poppler-90-0-fuzzed` on the output check, and `427669` (a bound) and `507676` (images whose data does
+not decode) stay refused by name: every stream they name fails `zlib` too, and neither a bound nor an
+undecodable stream tells the file's fault from this reader's.
 A page photographed in a document that states optional content is drawn in the configuration this
 viewer shows and carries `optional-content-of-photographed-pages`, the groups it fixed named with
 the state drawn, under `as-if-printed` and `state-every-loss` at 2b and part 4; Level A and Level U

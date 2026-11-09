@@ -24,6 +24,22 @@ pub(super) fn next_step(
 ) -> Step {
     reader.with_operand(strings, |token| match token {
         None => Step::End,
+        // §7.3.2's booleans and §7.3.9's null are objects, which the lexer hands over as keywords:
+        // an operand wherever they stand, as `pdf-archive`'s survey already reads them, rather
+        // than an operator nobody lists that empties the operands before it (ADR 2759).
+        Some(pdf_syntax::Token::Keyword(word @ (b"true" | b"false" | b"null"))) => {
+            if pending.len() < MAX_OPERANDS {
+                pending.push(match word {
+                    b"true" => Object::Boolean(true),
+                    b"false" => Object::Boolean(false),
+                    _ => Object::Null,
+                });
+                Step::Operand
+            } else {
+                *array_depth = 0;
+                Step::TooManyOperands
+            }
+        }
         Some(pdf_syntax::Token::Keyword(word)) if *array_depth == 0 => {
             Operator::of(word).map_or_else(|| Step::Unknown(Word::new(word)), Step::Operator)
         }

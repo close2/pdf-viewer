@@ -197,10 +197,10 @@ pub enum Unsupported {
     MissingResource {
         /// Table 34's resource category the name was looked up in.
         ///
-        /// `XObject`, `Pattern` or `ExtGState` — the three of Table 34's eight that reach the
-        /// page through `Interpreter::resource`. The other five already say it in their own
-        /// words: `Font` reports "no /Font resource named /F1", `Shading` reports "/Sh0 is not
-        /// in /Shading", `ColorSpace` reports the space by name, `ProcSet` is deprecated in
+        /// `XObject`, `Pattern`, `ExtGState` or `Shading` — the four of Table 34's eight a
+        /// painting or state operator selects by name alone (ADR 2759). The other four already
+        /// say it in their own words: `Font` reports "no /Font resource named /F1",
+        /// `ColorSpace` reports the space by name, `ProcSet` is deprecated in
         /// PDF 2.0 and names nothing that can be drawn, and a `Properties` list that is missing
         /// costs no mark at all — ISO 32000-2 §8.11.3.2 makes a section optional content "only if
         /// the tag is OC and the dictionary operand is a valid optional content group", so a name
@@ -405,6 +405,44 @@ pub enum Unsupported {
         /// How many its table states.
         takes: usize,
     },
+    /// A colour operator given a number of operands the current colour space does not take, which
+    /// left the colour in force.
+    ///
+    /// ISO 32000-2 §8.6.8, Table 73, of `SC`:
+    ///
+    /// > The number of operands required and their interpretation depends on the current stroking
+    /// > colour space
+    ///
+    /// and `sc`, `SCN` and `scn` say the same of theirs. Where the count matches a device family
+    /// the interpreter reads the operands in that family (`Interpreter::set_colour`); this is the
+    /// count that matches none, so no colour can be read from it. The operands are the stream's
+    /// own and the space is the one its `CS` or `cs` selected, so the fault is the file's, the
+    /// same class as [`Self::OperandShortfall`] — a colour space this reader could not build is
+    /// reported where it was selected, not here. ADR 2759.
+    ColourOperands {
+        /// Whether the operator was `SC` or `SCN` rather than `sc` or `scn`.
+        stroking: bool,
+        /// How many numeric operands preceded it.
+        given: usize,
+        /// How many the current colour space takes.
+        takes: usize,
+    },
+    /// An inline image the content stream does not write in ISO 32000-2 §8.9.7's shape, so
+    /// nothing was drawn for it.
+    ///
+    /// > BI and ID shall bracket a series of key-value pairs specifying the characteristics of the
+    /// > image, such as its dimensions and colour space; the image data shall follow between the
+    /// > ID and EI operators.
+    ///
+    /// Raised where a token between `BI` and `ID` is not a key, a value does not parse as an
+    /// object, the stream ends before `ID` or `EI`, or the pairs state no `/W` or `/H`, which
+    /// Table 91 marks required: a fault of the content stream's own syntax, like the sentences
+    /// [`StreamSyntaxFault`] names. An image whose pairs read and whose data this reader cannot
+    /// decode, or whose end it cannot find, is [`Self::Image`]. ADR 2759.
+    MalformedInlineImage {
+        /// What was met instead of the bracketed pairs.
+        detail: String,
+    },
     /// ISO 32000-2 §8.10.4's reference `XObject` drew something other than the page it names.
     ///
     /// **Never raised for a reader that was given no target documents**, which is every reader
@@ -465,6 +503,18 @@ pub enum Unsupported {
 /// The sentence an [`Unsupported::Operator`] carries for a text object its stream ended inside.
 pub(super) const TEXT_OBJECT_LEFT_OPEN: &str = "BT without ET";
 
+/// The sentence an [`Unsupported::Operator`] carries for a `Do` whose operand is not a name.
+pub(super) const DO_WITHOUT_A_NAME: &str = "Do with no name operand";
+
+/// What follows `W` or `W*` in the sentence an [`Unsupported::Operator`] carries for a clip the
+/// stream ended before painting.
+pub(super) const CLIP_LEFT_PENDING: &str = " without a path-painting operator after it";
+
+/// What follows `ID` or `EI` in the sentence an [`Unsupported::Operator`] carries for one met
+/// outside an inline image.
+pub(super) const OUTSIDE_AN_INLINE_IMAGE: &str =
+    " outside an inline image, which §8.9.7 admits it only inside";
+
 /// What follows the keyword in the sentence an [`Unsupported::Operator`] carries for a keyword
 /// inside an array.
 pub(super) const INSIDE_AN_ARRAY: &str = " inside an array, which §7.3.6 admits only objects into";
@@ -474,7 +524,7 @@ pub(super) const INSIDE_AN_ARRAY: &str = " inside an array, which §7.3.6 admits
 ///
 /// Each is a sentence about a keyword, which is why it shares the variant with an operator this
 /// interpreter does not run; ISO 32000-2 §7.2.3 makes white space separate syntactic constructs,
-/// so a keyword holds none and neither sentence can be the spelling of an operator a stream wrote.
+/// so a keyword holds none and no such sentence can be the spelling of an operator a stream wrote.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StreamSyntaxFault {
     /// The stream ended inside a text object: a `BT` that no `ET` followed (ISO 32000-2 §9.4.1,
@@ -483,6 +533,15 @@ pub enum StreamSyntaxFault {
     /// A keyword between two elements of an array, which ISO 32000-2 §7.3.6 admits only objects
     /// into; the interpreter steps over it and keeps the array.
     KeywordInsideAnArray,
+    /// A stream that ended after `W` or `W*` and before the path-painting operator ISO 32000-2
+    /// §8.5.4 has the clip "modify the effect of": the clip is never made (ADR 2759).
+    ClipLeftPending,
+    /// `ID` or `EI` with no `BI` open: ISO 32000-2 §8.9.7 has "an ID operator shall only appear
+    /// between a BI and its balancing EI", and the keyword draws nothing (ADR 2759).
+    ImageOperatorOutsideAnImage,
+    /// A `Do` with no name before it: ISO 32000-2 §8.8's Table 86 gives `Do` one operand, `name`,
+    /// so there is no `XObject` it can be said to name and nothing is drawn (ADR 2759).
+    DoWithoutAName,
 }
 
 impl Unsupported {
@@ -497,6 +556,15 @@ impl Unsupported {
             Some(StreamSyntaxFault::TextObjectLeftOpen)
         } else if operator.ends_with(INSIDE_AN_ARRAY) {
             Some(StreamSyntaxFault::KeywordInsideAnArray)
+        } else if operator == DO_WITHOUT_A_NAME {
+            Some(StreamSyntaxFault::DoWithoutAName)
+        } else if matches!(operator.strip_suffix(CLIP_LEFT_PENDING), Some("W" | "W*")) {
+            Some(StreamSyntaxFault::ClipLeftPending)
+        } else if matches!(
+            operator.strip_suffix(OUTSIDE_AN_INLINE_IMAGE),
+            Some("ID" | "EI")
+        ) {
+            Some(StreamSyntaxFault::ImageOperatorOutsideAnImage)
         } else {
             None
         }

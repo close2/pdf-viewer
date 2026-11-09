@@ -130,7 +130,7 @@ def remedy(kind, site, why):
 STATUS = {
     "R01-recovered-structure": ("builds only", "built: ADRs 2502, 2503, 2551, 2596, 2670; each left is refused by its own sentence"),
     "R02-image-smoothing": ("built", "ADR 2498"),
-    "R03-photograph": ("builds only", "built under `as-if-printed`: A694, ADRs 2516, 2618, 2638; left, a page this reader does not draw whole; `as-shown` keeps ADR 2394's gate (A694 item 1)"),
+    "R03-photograph": ("builds only", "built under `as-if-printed`: A694, ADRs 2516, 2618, 2638, 2760; left, a page this reader does not draw whole, by its cause (ADR 2760); `as-shown` keeps ADR 2394's gate (A694 item 1)"),
     "R03a-notdef-named": ("builds only", "built: ADRs 2543, 2556, 2602, 2620, 2650, 2753; left, a code an embedded CMap reads as invalid in a CJK collection without ToUnicode"),
     "R04-absent-resource": ("builds only", "built: ADRs 2500, 2522, 2523, 2746; left, a Type 3 font read differently per page and a spacing a later glyph stands on"),
     "R05-press": ("builds only", "A694 item 2: (a) built, ADR 2518; (b) built, ADR 2747; (c) built, ADR 2750: overprint mode 1 on a DeviceCMYK mark is ADR 1978's loss under the two shipped profiles; left, a mark blended in four components, ADR 1978's refusal"),

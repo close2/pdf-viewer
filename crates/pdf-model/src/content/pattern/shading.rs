@@ -139,10 +139,10 @@ impl Interpreter<'_> {
             return;
         }
         let label = String::from_utf8_lossy(name.as_bytes()).into_owned();
+        // A name §7.8.3's resource dictionary does not define is the file's fault, reported as
+        // the `Do`, `scn` and `gs` that miss theirs are (ADR 2759).
         let Some(object) = entry else {
-            self.note(Unsupported::Shading {
-                name: format!("/{label} is not in /Shading"),
-            });
+            self.note_missing_resource("Shading", name, "is not in /Shading");
             return;
         };
 

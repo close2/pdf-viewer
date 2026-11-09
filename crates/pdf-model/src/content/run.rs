@@ -496,8 +496,9 @@ impl Interpreter<'_> {
         if let Some(rule) = pending_clip {
             self.note(Unsupported::Operator {
                 operator: format!(
-                    "{} without a path-painting operator after it",
-                    clip_operator(rule)
+                    "{}{}",
+                    clip_operator(rule),
+                    super::report::CLIP_LEFT_PENDING
                 ),
             });
         }

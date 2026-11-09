@@ -10,6 +10,7 @@ use pdf_syntax::{Dictionary, Name, Object};
 
 use crate::content::reader::{ContentReader, Operator};
 use crate::content::report::Unsupported;
+use crate::inline_image::InlineImageError;
 
 use crate::content::Interpreter;
 
@@ -66,19 +67,38 @@ impl Interpreter<'_> {
                 // the document turns off is not one we failed to draw (§8.11.3.1).
                 if !self.is_hidden() {
                     match scanned.image {
+                        // Table 91 marks `/W` and `/H` required, and the pairs that state them are
+                        // the stream's own bytes: an inline image without one is not written as
+                        // §8.9.7 writes one, where an image `XObject` without one is an object the
+                        // file holds and stays `Unsupported::Image` (ADR 2759).
                         Ok(stream) => {
-                            // The stream is new at every `BI`, so `image::RasterCache` is
-                            // told to name it by its content: a hatching states the same
-                            // few samples once per tiling cell, and an entry named by this
-                            // allocation's address could answer none of them (ADR 0399).
-                            let stream = Arc::new(stream);
-                            self.draw_image(
-                                crate::image::NamedStream::inline(&stream),
-                                "<inline>",
-                                resources,
-                                state,
-                            );
+                            if let Some(key) = missing_extent(&stream.dict) {
+                                self.note(Unsupported::MalformedInlineImage {
+                                    detail: format!("no /{key}, which Table 91 requires"),
+                                });
+                            } else {
+                                // The stream is new at every `BI`, so `image::RasterCache` is
+                                // told to name it by its content: a hatching states the same
+                                // few samples once per tiling cell, and an entry named by this
+                                // allocation's address could answer none of them (ADR 0399).
+                                let stream = Arc::new(stream);
+                                self.draw_image(
+                                    crate::image::NamedStream::inline(&stream),
+                                    "<inline>",
+                                    resources,
+                                    state,
+                                );
+                            }
                         }
+                        // A pair §8.9.7 does not admit, or a stream that ends inside the
+                        // image, is the stream's own syntax; the rest are an image this reader
+                        // could not read (ADR 2759).
+                        Err(
+                            error @ (InlineImageError::Malformed { .. }
+                            | InlineImageError::Truncated),
+                        ) => self.note(Unsupported::MalformedInlineImage {
+                            detail: error.to_string(),
+                        }),
                         Err(error) => self.note(Unsupported::Image {
                             name: format!("<inline>: {error}"),
                         }),
@@ -86,12 +106,28 @@ impl Interpreter<'_> {
                 }
             }
             // Table 90's other two are read by `BI`'s arm, as the inline image's own syntax;
-            // met here, outside one, they are reported exactly as a keyword nobody lists.
+            // met here, outside one, they are a fault of the stream's syntax §8.9.7 names, and
+            // the report says so rather than calling a defined operator unknown (ADR 2759).
             Operator::ImageData | Operator::EndImage if *compatibility == 0 => {
-                self.note_unknown_operator(operator.name());
+                self.note(Unsupported::Operator {
+                    operator: format!(
+                        "{}{}",
+                        String::from_utf8_lossy(operator.name()),
+                        crate::content::report::OUTSIDE_AN_INLINE_IMAGE
+                    ),
+                });
             }
             // Only this family's operators are sent here, by `run_operator`.
             _ => {}
         }
     }
+}
+
+/// The first of an inline image's two required extents its pairs did not state, by Table 91's
+/// abbreviation.
+fn missing_extent(dict: &Dictionary) -> Option<&'static str> {
+    [("Width", "W"), ("Height", "H")]
+        .into_iter()
+        .find(|(full, _)| dict.get(full).is_none())
+        .map(|(_, abbreviated)| abbreviated)
 }

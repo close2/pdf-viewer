@@ -41,7 +41,7 @@ impl Interpreter<'_> {
             // nothing — is not a `Do` at all. Reported by operator rather than by resource,
             // because there is no name to say was undefined.
             self.note(Unsupported::Operator {
-                operator: "Do with no name operand".to_owned(),
+                operator: super::report::DO_WITHOUT_A_NAME.to_owned(),
             });
             return;
         };

@@ -761,6 +761,14 @@ fn whose_defect(report: &Unsupported) -> Option<(Whose, &'static str)> {
             Whose::TheFile,
             "an operator given fewer operands than its table states (§7.8.2)",
         ),
+        Unsupported::ColourOperands { .. } => (
+            Whose::TheFile,
+            "a colour operator given operands its colour space does not take (§8.6.8)",
+        ),
+        Unsupported::MalformedInlineImage { .. } => (
+            Whose::TheFile,
+            "an inline image not written as §8.9.7's bracketed key-value pairs",
+        ),
         // The file's, in all four of its shapes. Three of them are a `/Ref` that names a target
         // document or page the host's files do not hold — §8.10.4.1's own "unavailable", said out
         // loud because the reader *was* given files — and the fourth is §14.4's "a different
