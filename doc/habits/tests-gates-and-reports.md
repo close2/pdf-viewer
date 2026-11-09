@@ -1097,3 +1097,13 @@ and did not add is not read at all, and a check that every ignored test file is 
 fails on a tree that is not the one the round will hand over. Commit 02d4bc15 is the incident — round
 1915's new hardware test carried its excuse only once it was tracked. Before `cargo test -p conformance`,
 `git add -N` every new file; `git status --short | grep '^??'` lists what is still outside.
+
+## A device suite on the card is run unpinned
+
+Round 1964 ran the nextest of `render-raster`, `raster-gpu` and `viewer-device` under
+`WGPU_BACKEND=vulkan` and the radeon ICD to put it on the RX 580, and 416 of 1002 tests failed in
+60 s. 410 of the failures asked for llvmpipe by name, `NoAdapter { requested: Some("llvmpipe") }`,
+and found only the card, because the pin had taken lavapipe out of the loader. Unpinned, the same suite
+passed 1002 of 1002, with 283 bring-ups on the card and 709 on the processor. wgpu takes the hardware
+adapter where a test names none. A hardware run of a suite is therefore run with no pinning variable
+set, and `tools/gpu-holds.sh` over its `PDF_VIEWER_GPU_LOCK_LOG` counts which device each bring-up took.

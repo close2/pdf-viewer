@@ -1,34 +1,36 @@
 # This machine's clock bands, written by tools/bands.sh retake (ADR 2662).
+# Re-taken in the gate's own environment, no driver pinned, over three quiet runs of 2026-11-09
+# (one-minute loads 5.9 to 6.3): the device's bring-up carries every driver the loader finds (ADR 2742).
 [[window]]
 name = "quorra-gtk"
-# ADR 1969's rule over 3 kept reading(s): 173, 164, 156
-device_window_ms = 132.6 .. 207.6
-# ADR 1969's rule over 3 kept reading(s): 60.3, 55.3, 49.1
-device_up_ms = 41.7 .. 72.4
-# ADR 1969's rule over 3 kept reading(s): 33.8, 29, 30.5
-device_page_one_ms = 24.6 .. 40.6
-# ADR 1969's rule over 3 kept reading(s): 350.1, 316.7, 312.5
-device_first_frame_ms = 265.6 .. 420.2
-# ADR 1969's rule over 3 kept reading(s): 189, 180, 203
-processor_window_ms = 153.0 .. 243.6
-# ADR 1969's rule over 3 kept reading(s): 25.8, 18.6, 19
-processor_page_one_ms = 15.8 .. 31.0
-# ADR 1969's rule over 3 kept reading(s): 370.1, 343.2, 370.5
-processor_first_frame_ms = 291.7 .. 444.6
+# ADR 1969's rule over 3 kept reading(s): 172, 172, 162
+device_window_ms = 137.7 .. 206.4
+# ADR 1969's rule over 3 kept reading(s): 77.9, 75.2, 74.9
+device_up_ms = 63.6 .. 93.5
+# ADR 1969's rule over 3 kept reading(s): 29.2, 28.4, 28.5
+device_page_one_ms = 24.1 .. 35.1
+# ADR 1969's rule over 3 kept reading(s): 327.6, 326.2, 321.7
+device_first_frame_ms = 273.4 .. 393.2
+# ADR 1969's rule over 3 kept reading(s): 207, 193, 192
+processor_window_ms = 163.2 .. 248.4
+# ADR 1969's rule over 3 kept reading(s): 17, 17.8, 17.9
+processor_page_one_ms = 14.4 .. 21.5
+# ADR 1969's rule over 3 kept reading(s): 366.4, 355.6, 352.1
+processor_first_frame_ms = 299.2 .. 439.7
 
 [[window]]
 name = "quorra-qt"
-# ADR 1969's rule over 3 kept reading(s): 95, 103, 77
-device_window_ms = 65.4 .. 123.6
-# ADR 1969's rule over 3 kept reading(s): 51.1, 64.2, 44
-device_up_ms = 37.4 .. 77.1
-# ADR 1969's rule over 3 kept reading(s): 28.3, 27.7, 28.8
-device_page_one_ms = 23.5 .. 34.6
-# ADR 1969's rule over 3 kept reading(s): 166.9, 158.7, 129.1
-device_first_frame_ms = 109.7 .. 200.3
-# ADR 1969's rule over 3 kept reading(s): 58, 109, 87
-processor_window_ms = 49.3 .. 130.8
-# ADR 1969's rule over 3 kept reading(s): 22, 18, 18.9
-processor_page_one_ms = 15.3 .. 26.4
-# ADR 1969's rule over 3 kept reading(s): 127.9, 145.7, 129.2
-processor_first_frame_ms = 108.7 .. 174.9
+# ADR 1969's rule over 3 kept reading(s): 89, 91, 99
+device_window_ms = 75.6 .. 118.8
+# ADR 1969's rule over 3 kept reading(s): 66.2, 64, 69.4
+device_up_ms = 54.4 .. 83.3
+# ADR 1969's rule over 3 kept reading(s): 27.4, 28, 30.7
+device_page_one_ms = 23.2 .. 36.9
+# ADR 1969's rule over 3 kept reading(s): 142.3, 140.2, 152.9
+device_first_frame_ms = 119.1 .. 183.5
+# ADR 1969's rule over 3 kept reading(s): 91, 85, 93
+processor_window_ms = 72.2 .. 111.6
+# ADR 1969's rule over 3 kept reading(s): 18.5, 17.4, 18.8
+processor_page_one_ms = 14.7 .. 22.6
+# ADR 1969's rule over 3 kept reading(s): 128.5, 123, 131.4
+processor_first_frame_ms = 104.5 .. 157.7
