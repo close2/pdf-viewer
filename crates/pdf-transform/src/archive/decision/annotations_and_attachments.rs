@@ -56,7 +56,9 @@ const APPEARANCE_STATE_REINTERPRETS: &str = "an annotation's normal appearance i
      — and the other states go with the subdictionary, so an annotation a reader could have \
      switched (a check box, a trap network) is fixed in the state the file was saved in. Where \
      it was a push button's single stream it is the one entry of a subdictionary its new AS \
-     entry selects, and the state's name decides nothing a reader draws. The report names every \
+     entry selects, and the state's name decides nothing a reader draws. Where the appearance \
+     dictionary stated no entry, or only entries whose value is null, it is gone: it described no \
+     appearance, as an absent one does (ISO 32000-2 §7.3.7, Table 170). The report names every \
      one";
 
 /// This family's rows of [`super::REMEDIES`].

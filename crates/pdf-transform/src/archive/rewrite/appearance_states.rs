@@ -10,7 +10,8 @@ use super::{Rewrite, Rewriter, count};
 impl Rewriter<'_> {
     /// The one appearance stream an annotation's `/AS` selects, written as its `/N` — or a push
     /// button's single stream written as a subdictionary holding it alone, with the `/AS` that
-    /// selects it (`doc/adr/2319`).
+    /// selects it (`doc/adr/2319`), or an `/AP` stating no entry at all taken away
+    /// (`doc/adr/2752`).
     ///
     /// The `/AP` dictionary is written **direct** whatever the source stated it as, for the
     /// reason [`Rewrite::OutputIntent`]'s array is: the value is the annotation's own and this
@@ -29,6 +30,12 @@ impl Rewriter<'_> {
         else {
             return false;
         };
+        // An `/AP` stating no entry describes no appearance, as an absent one does (`doc/adr/2752`).
+        if states.emptied.contains(&id) {
+            out.remove("AP");
+            count(applied, Rewrite::NormalAppearanceFromState);
+            return true;
+        }
         let normal = if let Some(stream) = states.at.get(&id) {
             Object::Reference(*stream)
         } else if let Some(stream) = states.wrapped.get(&id) {

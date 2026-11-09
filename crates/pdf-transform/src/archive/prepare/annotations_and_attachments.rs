@@ -39,12 +39,15 @@ const APPEARANCE_INCOMPLETE: &str = "this document holds an annotation whose app
      rendering written into an archive is not the appearance the clauses state, and a conforming \
      reader would then have nothing else to draw from, so it is refused rather than frozen";
 
-/// Why a button field's widget is not given a constructed appearance.
-const BUTTON_APPEARANCE_STATES: &str = "this document holds a widget of a button field with no \
-     appearance dictionary, and §12.7.5.2.3 makes such a widget's N entry a subdictionary of one \
-     appearance per state rather than a single stream. Which states the button has is what an \
-     absent appearance dictionary does not say, and naming them would be inventing the control's \
-     own vocabulary";
+/// Why a check box's or a radio button's widget is not given a constructed appearance.
+///
+/// A push button's is (`doc/adr/2751`): §12.7.5.2.2 gives it no value, so the one state its
+/// subdictionary holds names nothing the field says.
+const BUTTON_APPEARANCE_STATES: &str = "this document holds a widget of a check box or radio \
+     button field with no appearance dictionary, and §12.7.5.2.3 makes such a widget's N entry a \
+     subdictionary of one appearance per state, each state's name being a value of the field. \
+     Which states the button has, and what each looks like, is what an absent appearance \
+     dictionary does not say, and naming them would be inventing the control's own vocabulary";
 
 /// Why an annotation the page states inline is not given one.
 const APPEARANCE_ON_A_DIRECT_ANNOTATION: &str = "this document writes an annotation directly into \
@@ -71,6 +74,15 @@ pub(in crate::archive) struct Appearances {
     pub(in crate::archive) at: BTreeMap<ObjectId, ObjectId>,
     /// The form `XObject`s this conversion adds.
     pub(in crate::archive) written: Vec<(ObjectId, Object)>,
+    /// The push buttons among [`Self::at`], whose constructed stream is written as the one entry
+    /// of a subdictionary under `sites::PUSH_BUTTON_STATE`, with the `/AS` that
+    /// selects it.
+    ///
+    /// ISO 19005-2 section 6.3.3 and ISO 19005-4 section 6.3.3 make a button widget's `/N` a
+    /// subdictionary, `TechNote 0010`'s A012 a push button's included; §12.7.5.2.2 gives a push
+    /// button no value, so the state's name is the one `doc/adr/2319` already writes for a push
+    /// button's single stream, and it decides nothing a reader draws (`doc/adr/2751`).
+    pub(in crate::archive) push_buttons: BTreeSet<ObjectId>,
     /// Every appearance written, for the report.
     pub(in crate::archive) constructed: Vec<WrittenAppearance>,
     /// How many places the requirement failed at that section 6.3.1's removal takes off the page.
@@ -134,6 +146,7 @@ pub(super) fn prepare_appearances(
     let mut at = BTreeMap::new();
     let mut written = Vec::new();
     let mut constructed = Vec::new();
+    let mut push_buttons = BTreeSet::new();
     let mut removed = 0_usize;
     for missing in pdf_archive::annotations_without_an_appearance(document, target) {
         let annotation = missing
@@ -148,7 +161,9 @@ pub(super) fn prepare_appearances(
             .as_dict()
             .cloned()
             .ok_or(Because::TheFence(APPEARANCE_NOT_DERIVABLE))?;
-        if button_widget(document, &dict) {
+        // Every button that passes this is a push button, the one kind whose state names no value.
+        let button = button_widget(document, &dict);
+        if button && !sites::push_button(document, &dict) {
             return Err(Because::NotBuiltYet(BUTTON_APPEARANCE_STATES));
         }
         let built = pdf_model::appearance::for_annotation(document, &dict)
@@ -168,6 +183,9 @@ pub(super) fn prepare_appearances(
             .take(document)
             .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
         at.insert(annotation, stream);
+        if button {
+            push_buttons.insert(annotation);
+        }
         let form = streams_numbered(document, spare, &mut written, built.stream)?;
         written.push((stream, form));
         constructed.push(WrittenAppearance {
@@ -180,6 +198,7 @@ pub(super) fn prepare_appearances(
     Ok(Appearances {
         at,
         written,
+        push_buttons,
         constructed,
         removed,
     })

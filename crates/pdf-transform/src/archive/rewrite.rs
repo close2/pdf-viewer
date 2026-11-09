@@ -1402,7 +1402,8 @@ impl Rewrite {
             }
             Self::AppearanceDictionary => {
                 "an annotation stating no appearance dictionary is given an /AP whose /N names a \
-                 form XObject constructed from the entries its own subtype clause states"
+                 form XObject constructed from the entries its own subtype clause states; a push \
+                 button's /N is a subdictionary holding that form alone, with the AS selecting it"
             }
             Self::SubstituteFontProgram => {
                 "a font the file renders and does not embed gains one of the faces this program \
@@ -1446,7 +1447,7 @@ impl Rewrite {
                 "an annotation whose normal appearance is a subdictionary of states is given the \
                  one stream its own AS entry selects, and a push button whose normal appearance \
                  is a single stream is given a subdictionary holding that stream alone, with the \
-                 AS selecting it"
+                 AS selecting it; an appearance dictionary stating no entry at all is taken away"
             }
             Self::OptionalContentOrder => {
                 "an optional content configuration's Order array gains the groups it left out, \
@@ -3232,15 +3233,25 @@ impl Rewriter<'_> {
         changed |= self.annotation_edits(id, &mut out, applied);
         changed |= self.write_entries_in_place(id, &mut out, applied);
         if self.wants(Rewrite::AppearanceDictionary)
-            && let Some(stream) = self
-                .appearances
-                .and_then(|appearances| appearances.at.get(&id))
+            && let Some(appearances) = self.appearances
+            && let Some(stream) = appearances.at.get(&id)
         {
             // Both parts' section 6.3.3 make `/N` the only key an appearance dictionary holds,
             // and this annotation states no `/AP` at all — that is the population the preparation
-            // was built over — so the dictionary is written whole rather than added to.
+            // was built over — so the dictionary is written whole rather than added to. A push
+            // button's `/N` is the subdictionary the same section requires of a button widget,
+            // holding the one stream under the state its new `/AS` selects (`doc/adr/2751`).
+            let normal = if appearances.push_buttons.contains(&id) {
+                let state = Name::new(sites::PUSH_BUTTON_STATE);
+                let mut subdictionary = Dictionary::new();
+                subdictionary.insert(state.clone(), Object::Reference(*stream));
+                out.insert(Name::new(&b"AS"[..]), Object::Name(state));
+                Object::Dictionary(subdictionary)
+            } else {
+                Object::Reference(*stream)
+            };
             let mut appearance = Dictionary::new();
-            appearance.insert(Name::new(&b"N"[..]), Object::Reference(*stream));
+            appearance.insert(Name::new(&b"N"[..]), normal);
             out.insert(Name::new(&b"AP"[..]), Object::Dictionary(appearance));
             count(applied, Rewrite::AppearanceDictionary);
             changed = true;

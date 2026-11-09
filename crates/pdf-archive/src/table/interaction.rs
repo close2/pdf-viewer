@@ -1465,12 +1465,30 @@ fn rect_is_degenerate(document: &Document, annotation: &Dictionary) -> bool {
     degenerate
 }
 
-/// Whether the annotation states an appearance dictionary at all.
+/// Whether the annotation states an appearance dictionary with any entry in it.
+///
+/// ISO 32000-2 §7.3.7:
+///
+/// > A dictionary entry whose value is null (see 7.3.9, "Null object") shall be treated the same
+/// > as if the entry does not exist.
+///
+/// So an `/AP` every entry of which is null — `/N 0 0 R` is one, by §7.3.10's reference to an
+/// undefined object — states no entry, as an empty one does, and describes no appearance.
+pub fn states_an_appearance(document: &Document, annotation: &Dictionary) -> bool {
+    document
+        .get_key(annotation, "AP")
+        .as_dict()
+        .is_some_and(|appearance| {
+            appearance
+                .iter()
+                .any(|(_, entry)| !document.resolve(entry).is_null())
+        })
+}
+
+/// Whether the annotation states an appearance dictionary at all, on [`states_an_appearance`]'s
+/// reading.
 fn has_appearance(document: &Document, annotation: &Dictionary) -> bool {
-    matches!(
-        document.get_key(annotation, "AP"),
-        Object::Dictionary(ref dictionary) if !dictionary.is_empty()
-    )
+    states_an_appearance(document, annotation)
 }
 
 /// The body ISO 19005-2 section 6.3.3 and ISO 32000-2 §12.5.2 share, with the exempt subtypes

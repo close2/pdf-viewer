@@ -452,6 +452,17 @@ pub(super) const PUSH_BUTTON_STATE: &[u8] = b"Normal";
 /// §12.7.4.1's field flags, the push-button bit: Table 229's bit position 17.
 const PUSH_BUTTON_FLAG: i64 = 1 << 16;
 
+/// Whether this widget's field is a push button: Table 229's bit 17, read through §12.7.4.1's
+/// inheritable `/Ff` exactly as [`appearance_states`] reads it.
+///
+/// The caller has already found the field type to be `Btn`; this answers which of §12.7.5.2.1's
+/// three kinds it is, and only a push button retains no value for a state name to stand for.
+pub(super) fn push_button(document: &Document, widget: &Dictionary) -> bool {
+    inherited_field_entry(document, widget, "Ff")
+        .as_integer()
+        .is_some_and(|flags| flags & PUSH_BUTTON_FLAG != 0)
+}
+
 /// A field entry on this dictionary or inherited up its `/Parent` chain (§12.7.4.1), or `Null`.
 fn inherited_field_entry(document: &Document, dict: &Dictionary, key: &str) -> Object {
     let mut current = dict.clone();
@@ -482,6 +493,17 @@ pub(super) struct AppearanceStates {
     /// holding it alone under [`PUSH_BUTTON_STATE`], each with that stream, in the source's
     /// numbering.
     pub(super) wrapped: BTreeMap<ObjectId, ObjectId>,
+    /// The annotations whose `/AP` is a dictionary stating no entry, which loses the key.
+    ///
+    /// §12.5.5's Table 170 names the three entries an appearance dictionary holds and requires
+    /// `/N`; one holding none of them — no key at all, or only keys §7.3.7 reads as absent
+    /// because their value is null ([`pdf_archive::states_an_appearance`]) — describes no
+    /// appearance, which is what an annotation with no `/AP` describes too, so taking the key
+    /// away restates what the file holds rather than choosing a picture (`doc/adr/2752`). What the annotation then owes is the other row's:
+    /// Table 166 and both parts' section 6.3.3 exempt a `Link`, a `Popup` and, at part 4, a
+    /// `Projection`, and every other subtype is in the population
+    /// `pdf_archive::annotations_without_an_appearance` already reads it into.
+    pub(super) emptied: BTreeSet<ObjectId>,
 }
 
 /// Every annotation whose normal appearance is to be collapsed to the state it selects.
@@ -499,6 +521,10 @@ pub(super) fn appearance_states(
         let resolved = document.get(id);
         let annotation = dictionary_of(&resolved).ok_or(Because::NotBuiltYet(NOT_AN_APPEARANCE))?;
         let states = document.get_key(annotation, "AP");
+        if states.as_dict().is_some() && !pdf_archive::states_an_appearance(document, annotation) {
+            found.emptied.insert(id);
+            continue;
+        }
         let normal = states
             .as_dict()
             .and_then(|appearance| appearance.get("N"))
@@ -515,10 +541,7 @@ pub(super) fn appearance_states(
                 .as_name()
                 .is_some_and(|kind| kind.as_bytes() == b"Btn");
         if button && matches!(document.resolve(&normal), Object::Stream(_)) {
-            let flags = inherited_field_entry(document, annotation, "Ff")
-                .as_integer()
-                .unwrap_or(0);
-            if flags & PUSH_BUTTON_FLAG == 0 {
+            if !push_button(document, annotation) {
                 return Err(Because::NotBuiltYet(A_STATE_WOULD_BE_A_VALUE));
             }
             let stream = match &normal {

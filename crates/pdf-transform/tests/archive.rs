@@ -4381,12 +4381,14 @@ fn an_appearance_subdictionary_with_no_state_stays_refused() {
 fn each_shape_the_appearance_requirement_fails_in_is_refused_by_its_own_sentence() {
     // One sentence per shape, so a census counts what the files hold (trap 252). An `N` naming
     // object 0 states no normal appearance: §7.3.10 reads a reference to an undefined object as
-    // one to null, and §7.3.7 an entry whose value is null as no entry. An `/AS` naming a state
+    // one to null, and §7.3.7 an entry whose value is null as no entry. The `/D` beside it is
+    // what keeps the dictionary from stating nothing at all, which `doc/adr/2752` takes away
+    // (`button_appearances`). An `/AS` naming a state
     // the subdictionary does not hold selects nothing, which is not the subdictionary with no
     // `/AS` at all.
     for (annotation, says) in [
         (
-            "<< /Type /Annot /Subtype /Stamp /Rect [10 10 90 90] /F 4 /AP << /N 0 0 R >> >>",
+            "<< /Type /Annot /Subtype /Stamp /Rect [10 10 90 90] /F 4 /AP << /N 0 0 R /D 7 0 R >> >>",
             "states no N entry",
         ),
         (
@@ -16470,6 +16472,8 @@ mod packet_characters;
 #[path = "archive/spot_separations.rs"]
 mod spot_separations;
 
+#[path = "archive/button_appearances.rs"]
+mod button_appearances;
 #[path = "archive/configured_press.rs"]
 mod configured_press;
 #[path = "archive/drawn_through_the_intent.rs"]

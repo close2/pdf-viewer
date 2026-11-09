@@ -81,7 +81,7 @@ pub use crate::table::interaction::{
     annotations_of_a_forbidden_subtype, annotations_outside_the_engineering_flavour,
     annotations_the_flags_forbid, annotations_with_extra_appearance_states,
     annotations_without_an_appearance, file_attachments_outside_their_flavour, flags_permitted,
-    flags_permitting, visible_widgets,
+    flags_permitting, states_an_appearance, visible_widgets,
 };
 pub use crate::table::metadata::{
     ContainerField, MisusedProperty, PacketFault, REQUIRED_PREFIXES, UndescribedField,

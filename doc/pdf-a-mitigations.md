@@ -2115,8 +2115,9 @@ ISO 19005-2 6.3.3, ISO 19005-4 6.3.3 · all six · **the `discard` built** (ADR 
 
 #### `annotations/normal-appearance-shape`
 ISO 19005-2 6.3.3, ISO 19005-4 6.3.3 · all six · **`/AS` half built in session 957** (`Stated`);
-**a push button's single stream built** (`Stated`, ADR 2319); the half with no `/AS`, and a check
-box's or a radio button's single stream, stay `not-built-yet`
+**a push button's single stream built** (`Stated`, ADR 2319); **an appearance dictionary stating
+no entry taken away** (`Stated`, ADR 2752); the half with no `/AS`, and a check box's or a radio
+button's single stream, stay `not-built-yet`
 
 - **Mitigation** — split, as ADR 0955 found. Where the annotation states an `/AS` entry, §12.5.5
   already says which stream a reader draws, so collapsing the subdictionary to that one is `Stated`
@@ -2127,9 +2128,15 @@ box's or a radio button's single stream, stay `not-built-yet`
   selects, which §12.5.5 draws as it drew the stream, under a state name nothing else reads
   (`Normal`, ADR 2319). A check box's or a radio button's single stream is not, because
   §12.7.5.2.3 makes the state's name the field's value.
+- **An appearance dictionary stating no entry** — none at all, or only entries whose value is
+  null, which §7.3.7 treats as absent — describes no appearance, as an absent `/AP` does, so the key
+  is taken away (ADR 2752). `pdf_archive::states_an_appearance` is the one reading both appearance
+  rows use, so a subtype that is not exempt is then constructed for, or refused, by
+  `appearance-dictionary-present`; a push button with no `/AP` is constructed there under ADR
+  2319's state (ADR 2751), a check box or a radio button is not.
 - **Refused, one sentence per shape** (trap 252): a subdictionary with no `/AS`; an `/AS` naming a
-  state the subdictionary does not hold; an appearance dictionary with no `N` (Table 170 requires
-  it, and the file states no appearance to move there); a check box's or a radio button's single
+  state the subdictionary does not hold; an appearance dictionary with other entries and no `N`
+  (Table 170 requires it, and the file states no appearance to move there); a check box's or a radio button's single
   stream; and, apart from all four, the structural failures — a finding at no object, an object that
   is no dictionary, an `N` or selected entry that is neither stream nor subdictionary, no unused
   object number for a stream written in place — so the census counts what the files hold.

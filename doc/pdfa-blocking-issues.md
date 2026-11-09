@@ -104,13 +104,13 @@ column. R02 is built (ADR 2498) and no document reaches it.
 | order | remedy | frees at 2b | frees at 4 | stops under `as-shown`, 2b / 4 | what is left needs | built by, and what is left |
 |---|---|---|---|---|---|---|
 | 1 | R06b-the-other-part | 35 | 0 | 41 / 0 | built | ADR 2498: the two-target request; the figures are what a one-part request refuses; a `%PDF-3.x` source is written at 4 (ADR 2692) |
-| 2 | R03-photograph | 7 | 9 | 55 / 57 | builds only | built under `as-if-printed`: A694, ADRs 2516, 2618, 2638; left, a page this reader does not draw whole; `as-shown` keeps ADR 2394's gate (A694 item 1) |
+| 2 | R03-photograph | 7 | 10 | 55 / 57 | builds only | built under `as-if-printed`: A694, ADRs 2516, 2618, 2638; left, a page this reader does not draw whole; `as-shown` keeps ADR 2394's gate (A694 item 1) |
 | 3 | R08-unembedded-font-photograph | 11 | 11 | 35 / 35 | builds only | built under `as-if-printed`: A694, ADR 2516; `as-shown` keeps its stop (A694 item 1) |
 | 4 | R10-font-refiling | 5 | 5 | 7 / 7 | builds only | built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685), a standard font's stated widths (ADR 2686), a mode 3 font's descriptor (ADR 2688), a glyf program under a CIDFontType0 (ADR 2716), a collection nothing reads (ADR 2717), a font written inside another object (ADR 2722), a code Annex D encodes twice in a glyf face (ADR 2723) |
 | 5 | R11-truetype-route | 5 | 5 | 7 / 7 | builds only | built: A694 item 3, ADR 2520 |
 | 6 | R03a-notdef-named | 4 | 4 | 8 / 5 | builds only | built: ADRs 2543, 2556, 2602, 2620, 2650 |
-| 7 | R16-annotations-and-forms | 4 | 4 | 15 / 18 | builds only | named per site |
-| 8 | R14-appended-page-composition | 3 | 2 | 3 / 3 | builds only | built: ADRs 2678, 2682 |
+| 7 | R14-appended-page-composition | 3 | 2 | 3 / 3 | builds only | built: ADRs 2678, 2682 |
+| 8 | R16-annotations-and-forms | 2 | 2 | 14 / 17 | builds only | built: a push button with no appearance dictionary (ADR 2751), an appearance dictionary stating no entry (ADR 2752); left, named per site |
 | 9 | R01-recovered-structure | 1 | 1 | 3 / 3 | builds only | built: ADRs 2502, 2503, 2551, 2596, 2670; each left is refused by its own sentence |
 | 10 | R07-undecodable-stream | 1 | 2 | 1 / 2 | builds only | built: ADR 2689; the `UnknownFilter` files' `%PDF-3.x` header, ADR 2692; left, an ICC profile written as its alternate |
 | 11 | R12-spot-colourant | 1 | 1 | 1 / 1 | builds only | built for a PostScript calculator function: ADR 2690; left, a sampled transform, refused until its loss is named (ADR 2490) |
@@ -426,10 +426,13 @@ in `xmpMM:History` (`modification-date`), under `as-shown`, `as-if-printed` and 
 (`disagreeing = "discard"`). Left: the stating profiles, whose page would have to state a packet
 property.
 
-**R16 — annotations and forms** (5 documents under `as-if-printed`, 14 at 2b and 17 at 4 under
-`as-shown`): a button widget with no appearance dictionary (2 — §12.7.5.2.3; where the reader draws
-nothing for it, its removal loses no mark), a hidden widget whose removal could break its field
-(4), a Popup pair the linked removal cannot take (2), an appearance kept on an appended page of a
+**R16 — annotations and forms** (4 documents under `as-if-printed`, 14 at 2b and 17 at 4 under
+`as-shown`). Built: a push button with no appearance dictionary is given the constructed one under
+ADR 2319's state (ADR 2751, `160F-2019`), and an appearance dictionary stating no entry, or only null
+ones, is taken away (ADR 2752, `sakula`). Left: a check box with no appearance dictionary (1,
+`checkbox_no_appearance` — §12.7.5.2.3 makes its state names its values, and the reader draws
+nothing for it, so the remedy left is its removal, which touches its field), a hidden widget whose
+removal could break its field (3), a Popup pair the linked removal cannot take (2), an appearance kept on an appended page of a
 document with a structure tree (10 over four sites, `as-shown` — at 2b and 4 no structure element is required, and
 under a Level A target ADR 1014 already places the element inside the permission), a field whose
 appearance the converter could not build (1), a signature widget that does not print (2, both XFA
@@ -563,6 +566,6 @@ disagrees with `/Widths` the refusal's sentence is `PROGRAM_NOT_RESTATABLE`.
 - R12-spot-colourant (1): pdf.js:devicen.pdf
 - R14-appended-page-composition (4): corpora:241573_ftp.pdf, corpora:JPXTestGrey.pdf, corpora:balloon_a1b_jp2k.pdf, pdf.js:poppler-742-0-fuzzed.pdf
 - R15-embedded-files (7): corpora:PDF-Sample-Document-Fully-Featured-Layout_Redacted.pdf, corpora:embedded_video_avi.pdf, corpora:embedded_video_quicktime.pdf, corpora:fileAttachment_fileAttachmentAnnotation.pdf, pdf.js:annotation-fileattachment.pdf, pdf.js:issue17056.pdf, pdf.js:issue18030.pdf
-- R16-annotations-and-forms (18): corpora:MOZILLA-1671648-0.pdf, corpora:PDF-Sample-Document-Fully-Featured-Layout_Redacted.pdf, corpora:PDFBOX-6018-099267-p9-OrphanPopups.pdf, corpora:embedded_video_avi.pdf, corpora:embedded_video_quicktime.pdf, corpora:fileAttachment_fileAttachmentAnnotation.pdf, corpora:sakula.pdf, pdf.js:160F-2019.pdf, pdf.js:annotation-fileattachment.pdf, pdf.js:annotation_hidden_noview.pdf, pdf.js:annotation_hidden_print.pdf, pdf.js:checkbox_no_appearance.pdf, pdf.js:issue7446.pdf, pdf.js:multimedia_annotations.pdf, pdf.js:poppler-395-0-fuzzed.pdf, pdf.js:pr7352.pdf, pdf.js:widget_hidden_print.pdf, pdf.js:xfa_filled_imm1344e.pdf
+- R16-annotations-and-forms (17): corpora:MOZILLA-1671648-0.pdf, corpora:PDF-Sample-Document-Fully-Featured-Layout_Redacted.pdf, corpora:PDFBOX-6018-099267-p9-OrphanPopups.pdf, corpora:embedded_video_avi.pdf, corpora:embedded_video_quicktime.pdf, corpora:fileAttachment_fileAttachmentAnnotation.pdf, pdf.js:160F-2019.pdf, pdf.js:annotation-fileattachment.pdf, pdf.js:annotation_hidden_noview.pdf, pdf.js:annotation_hidden_print.pdf, pdf.js:checkbox_no_appearance.pdf, pdf.js:issue7446.pdf, pdf.js:multimedia_annotations.pdf, pdf.js:poppler-395-0-fuzzed.pdf, pdf.js:pr7352.pdf, pdf.js:widget_hidden_print.pdf, pdf.js:xfa_filled_imm1344e.pdf
 - X1-dynamic-xfa (4): corpora:MOZILLA-1671648-0.pdf, pdf.js:issue14130.pdf, pdf.js:xfa_filled_imm1344e.pdf, pdf.js:xfa_issue14315.pdf
 - X2-no-page-to-see (6): corpora:PDFBOX-6041-example.pdf, pdf.js:Brotli-Prototype-FileA.pdf, pdf.js:REDHAT-1531897-0.pdf, pdf.js:bug1020226.pdf, pdf.js:poppler-85140-0.pdf, pdf.js:poppler-937-0-fuzzed.pdf

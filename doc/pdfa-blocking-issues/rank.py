@@ -145,7 +145,7 @@ STATUS = {
     "R13-jpx-transcode": ("built", "ADR 2694: the shipped profiles take ADR 1400's transcode; a bare codestream is kept in a JP2 file (ADR 2695); a space only the data states keeps its refusal"),
     "R14-appended-page-composition": ("builds only", "built: ADRs 2678, 2682"),
     "R15-embedded-files": ("builds only", "built: ADR 2536"),
-    "R16-annotations-and-forms": ("builds only", "named per site"),
+    "R16-annotations-and-forms": ("builds only", "built: a push button with no appearance dictionary (ADR 2751), an appearance dictionary stating no entry (ADR 2752); left, named per site"),
     "R17-press-statements": ("built", "ADR 2693: `as-if-printed` takes both discards `as-shown` takes, each named in the file's history"),
     "R18-piece-info": ("builds only", "built for one instant and under the three profiles taking the packet's date, ADR 2748; left, the stating profiles"),
     "X1-dynamic-xfa": ("exception", "CLAUDE.md's exclusion; §K.1"),
