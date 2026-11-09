@@ -1635,6 +1635,9 @@ pub(super) struct Recording<'a> {
     /// Additive by construction: `pdf_model::xmp::supplement` writes only a property the packet
     /// does not already state, which is the one addition §14.3.4 permits.
     pub(super) supplements: &'a [xmp::Supplement<'a>],
+    /// The packet's former `xmp:ModifyDate`, recorded, where the supplements restate it from the
+    /// kept `/ModDate` (`doc/adr/2748`): the property is cut before they are written.
+    pub(super) modification: Option<&'a str>,
     /// What the writers before this one left in each packet, one of which may be the catalog's.
     pub(super) edited: Edited<'a>,
 }
@@ -1728,7 +1731,7 @@ fn recorded_events<'a>(recording: &Recording<'a>) -> Vec<xmp::Event<'a>> {
         return Vec::new();
     };
     let non_empty = |text: &'a str| (!text.is_empty()).then_some(text);
-    let actions: [(&'a str, Option<&'a str>); 22] = [
+    let actions: [(&'a str, Option<&'a str>); 23] = [
         (DEFAULT_CMYK_ACTION, recording.default_cmyk),
         (REMOVED_PROPERTIES_ACTION, non_empty(recording.removals)),
         (REMOVED_PROPERTIES_ACTION, non_empty(recording.discards)),
@@ -1751,6 +1754,7 @@ fn recorded_events<'a>(recording: &Recording<'a>) -> Vec<xmp::Event<'a>> {
         (HEADER_ACTION, recording.header),
         (CMAP_RESTATED_ACTION, recording.cmap),
         (PARENT_TREE_REBUILT_ACTION, recording.parent_tree),
+        (REMOVED_PROPERTIES_ACTION, recording.modification),
     ];
     actions
         .into_iter()
@@ -1795,7 +1799,7 @@ pub(super) fn the_packet(
         recording.schema,
         recording.omit_identification,
         &events,
-        recording.supplements,
+        (recording.supplements, recording.modification.is_some()),
         recording.edited,
     )
 }
@@ -1823,7 +1827,7 @@ fn prepare_metadata(
     schema_wanted: bool,
     omit_identification: bool,
     recorded: &[xmp::Event<'_>],
-    supplements: &[xmp::Supplement<'_>],
+    (supplements, restates_modification): (&[xmp::Supplement<'_>], bool),
     edited: Edited<'_>,
 ) -> Result<Metadata, Because> {
     // `A59`: a departed conversion that does not claim conformance writes no `pdfaid:*` at all, so
@@ -1842,6 +1846,20 @@ fn prepare_metadata(
     // A recorded action is *appended*, so a packet may need editing for that alone — a document
     // whose identification schema is already right and whose `DeviceCMYK` is not.
     let record = |packet: Vec<u8>| {
+        // A supplement writes only into a silence, so the one property restated rather than
+        // added is cut first (`doc/adr/2748`).
+        let packet = if restates_modification {
+            xmp::remove(
+                &packet,
+                &[xmp::Name {
+                    namespace: xmp::XMP.to_owned(),
+                    local: "ModifyDate".to_owned(),
+                }],
+            )
+            .map_err(|_| Because::NotBuiltYet(PACKET_NOT_EDITABLE))?
+        } else {
+            packet
+        };
         let packet = xmp::supplement(&packet, supplements)
             .map_err(|_| Because::NotBuiltYet(PACKET_NOT_EDITABLE))?;
         recorded.iter().try_fold(packet, |packet, event| {
@@ -1908,6 +1926,26 @@ pub(in crate::archive) struct Information {
     /// keeps the entry, because §14.5 makes it what a page-piece dictionary's `LastModified` is
     /// compared against.
     pub(in crate::archive) kept_modification_date: Option<Object>,
+    /// The packet's `xmp:ModifyDate`, where it named another instant than the kept `/ModDate` and
+    /// the row's `disagreeing = "discard"` restated it from the dictionary's (`doc/adr/2748`).
+    ///
+    /// The packet's former value, as it spelled it: the output's `xmpMM:History` records it, and
+    /// the record is a condition of the restatement.
+    pub(in crate::archive) restated_modification: Option<String>,
+}
+
+impl Information {
+    /// The `xmpMM:History` parameters the restated `xmp:ModifyDate` is recorded under, where one
+    /// was restated: the value that went and the clauses that decided which one stays.
+    pub(in crate::archive) fn restated_history(&self) -> Option<String> {
+        let former = self.restated_modification.as_ref()?;
+        Some(format!(
+            "xmp:ModifyDate {former} restated as the document information dictionary's ModDate, \
+             which ISO 19005-4 section 6.1.3 keeps beside the catalog's PieceInfo and ISO 32000-2 \
+             14.5 compares its LastModified against; 14.3.4 requires the two to be equivalent \
+             where both are written (modification-date)"
+        ))
+    }
 }
 
 /// One property the packet gains from the dictionary.
@@ -2254,8 +2292,23 @@ const MODIFICATION_DATES_DISAGREE: &str = "the catalog states a PieceInfo, so IS
      section 6.1.3 keeps this document's ModDate in the dictionary and the conversion writes both \
      sources — and §14.3.4 requires that \"the data in the document information dictionary and \
      the document level metadata stream -if both are written -are fully equivalent\". The \
-     packet's xmp:ModifyDate names another instant than the dictionary's ModDate, and choosing \
-     between them is deciding which of the producer's two statements was true";
+     packet's xmp:ModifyDate names another instant than the dictionary's ModDate. §14.5 compares \
+     the PieceInfo's LastModified against the dictionary's, so that one stays, and the \
+     configuration's `disagreeing` answer decides the packet's: `discard` restates it from the \
+     dictionary's and records the value that went in the file's history, and `stop`, which is \
+     what a row saying nothing states, keeps this refusal";
+
+/// The packet's modification date named another instant, and the operator answered
+/// `disagreeing = "discard"`.
+const RESTATED: &str = "kept in the dictionary, which ISO 19005-4 section 6.1.3 admits beside the \
+     catalog's PieceInfo and ISO 32000-2 §14.5 compares its LastModified against; the packet's \
+     xmp:ModifyDate named another instant, and the configuration answers `disagreeing = \
+     \"discard\"`, so it is restated from this entry and the file's history records the value \
+     that went";
+
+/// The information rows' answers: `unmapped`, whether `unreadable` and `disagreeing` say
+/// `discard`, and what becomes of a value `carry` cannot carry.
+type Answers = (Unmapped, bool, NotCarried, bool);
 
 /// Moves §14.3.3's document information dictionary into the XMP packet.
 ///
@@ -2269,7 +2322,7 @@ pub(super) fn prepare_information(
     document: &Document,
     catalog: Option<&Dictionary>,
     packet: Option<&[u8]>,
-    (unmapped, discard_unreadable, not_carried): (Unmapped, bool, NotCarried),
+    (unmapped, discard_unreadable, not_carried, restate_disagreeing): Answers,
 ) -> Result<Information, Because> {
     let Some(catalog) = catalog else {
         return Err(Because::NotBuiltYet(NO_CATALOG));
@@ -2293,6 +2346,7 @@ pub(super) fn prepare_information(
     let mut supplements = Vec::new();
     let mut entries = Vec::new();
     let mut kept_modification_date = None;
+    let mut restated_modification = None;
     let keys: Vec<Vec<u8>> = info
         .iter()
         .map(|(name, _)| name.as_bytes().to_vec())
@@ -2316,23 +2370,20 @@ pub(super) fn prepare_information(
         };
         let property = format!("{prefix}:{local}");
         if key == "ModDate" && keeps {
-            // Both sources are written, so §14.3.4's fourth rule binds where the packet states
-            // the date too: they have to name the same instant, and this converter will not
-            // choose between two the producer stated. Where it does not, the entry stays as its
-            // producer wrote it and is never read, so its form decides nothing (`doc/adr/2358`).
-            if let Some(already) = stated.as_ref().and_then(|xmp| xmp.text(namespace, local)) {
-                match information_value(&value, &key) {
-                    Ok(text) if text == already => {}
-                    Ok(_) => return Err(Because::NotBuiltYet(MODIFICATION_DATES_DISAGREE)),
-                    Err(_) => return Err(Because::NotBuiltYet(KEPT_DATE_NOT_READABLE)),
-                }
-            }
+            // §14.3.4's fourth rule binds where the packet states the date too (`doc/adr/2748`);
+            // where it states none, the entry stays as written and is never read (`doc/adr/2358`).
+            let already = stated.as_ref().and_then(|xmp| xmp.text(namespace, local));
+            let fate = kept_modification(
+                (&value, already, restate_disagreeing),
+                (namespace, prefix, local, form),
+                (&mut supplements, &mut restated_modification),
+            )?;
             kept_modification_date = Some(value.clone());
             entries.push(MovedEntry {
                 removed: None,
                 key,
                 property: Some(property),
-                fate: KEPT,
+                fate,
             });
             continue;
         }
@@ -2383,6 +2434,7 @@ pub(super) fn prepare_information(
         supplements,
         entries,
         kept_modification_date,
+        restated_modification,
     })
 }
 
@@ -2505,16 +2557,165 @@ fn carried(
 /// lead bytes is the same date as the one written in `PDFDocEncoding` (`doc/adr/2358`).
 fn information_value(value: &Object, key: &str) -> Result<String, Unreadable> {
     if DATE_KEYS.contains(&key) {
-        let text = value.as_string().ok_or(Unreadable::NotText)?;
-        let spelled = pdf_syntax::Date::parse(&pdf_syntax::text_string::text_string(text))
-            .ok_or(Unreadable::Date)?;
-        return Ok(xmp::spelled_date(&spelled));
+        return information_date(value).map(|date| xmp::spelled_date(&date));
     }
     if let Some(name) = value.as_name() {
         return Ok(String::from_utf8_lossy(name.as_bytes()).into_owned());
     }
     let text = value.as_string().ok_or(Unreadable::NotText)?;
     Ok(pdf_syntax::text_string::text_string(text))
+}
+
+/// What becomes of the kept `/ModDate` beside the packet's `xmp:ModifyDate` (`already`): its
+/// fate, and where the two name different instants and the operator answered `disagreeing =
+/// "discard"`, the packet's former value into `restated` and the property restating it onto
+/// `supplements`.
+///
+/// §14.5 compares a data dictionary's `LastModified` with the dictionary's entry and with nothing
+/// in the packet, so the dictionary's stays and the packet's is the one restated (`doc/adr/2748`).
+fn kept_modification(
+    (value, already, restate_disagreeing): (&Object, Option<&str>, bool),
+    (namespace, prefix, local, form): (&'static str, &'static str, &str, xmp::Form),
+    (supplements, restated): (&mut Vec<Gained>, &mut Option<String>),
+) -> Result<&'static str, Because> {
+    let Some(already) = already else {
+        return Ok(KEPT);
+    };
+    let kept = information_date(value).map_err(|_| Because::NotBuiltYet(KEPT_DATE_NOT_READABLE))?;
+    if names_the_same_instant(kept, already) {
+        return Ok(KEPT);
+    }
+    if !restate_disagreeing {
+        return Err(Because::NotBuiltYet(MODIFICATION_DATES_DISAGREE));
+    }
+    supplements.push(Gained {
+        namespace,
+        prefix,
+        local: local.to_owned(),
+        value: xmp::spelled_date(&kept),
+        form,
+    });
+    *restated = Some(already.to_owned());
+    Ok(RESTATED)
+}
+
+/// A `/CreationDate` or `/ModDate` read as §7.9.4's date, after §7.9.2.2's text string decoding.
+fn information_date(value: &Object) -> Result<pdf_syntax::Date, Unreadable> {
+    let text = value.as_string().ok_or(Unreadable::NotText)?;
+    pdf_syntax::Date::parse(&pdf_syntax::text_string::text_string(text)).ok_or(Unreadable::Date)
+}
+
+/// Whether an XMP date names the instant a §7.9.4 date names, to the second.
+///
+/// §14.3.4 asks for the two sources to be "fully equivalent", which is a statement about the
+/// date and not about its spelling: `2006-09-22T09:41-07:00` and `D:20060922094100-07'00'` are one
+/// instant. ISO 16684-1's Date is the W3C note on date and time formats it references (year, then
+/// optionally month, day, hours and minutes, seconds, and a decimal fraction, a zone designator
+/// following any time), and a field it leaves out is read with §7.9.4's own default for it — month
+/// and day 1, every other field zero — which is the default the dictionary's date was read with.
+/// A fraction that is not zero names no whole second, so no §7.9.4 date is equivalent to it.
+///
+/// **A zone stated on one side only is not equivalence.** §7.9.4 reads an absent offset as GMT
+/// for comparing two dates, but an absent zone is a producer saying nothing, and equating it with
+/// a stated one would be choosing what the producer meant (`doc/adr/2748`).
+fn names_the_same_instant(kept: pdf_syntax::Date, packet: &str) -> bool {
+    xmp_date(packet).is_some_and(|stated| {
+        stated.offset.is_some() == kept.offset.is_some()
+            && stated.instant() == kept.instant()
+            && stated.second == kept.second
+    })
+}
+
+/// An XMP Date (ISO 16684-1, the W3C note's forms) in §7.9.4's fields, or `None` for text that is
+/// not one or that names a fraction of a second.
+fn xmp_date(text: &str) -> Option<pdf_syntax::Date> {
+    /// `width` ASCII digits at the front of `text`, and what follows them.
+    fn digits(text: &str, width: usize) -> Option<(u32, &str)> {
+        let (head, rest) = (text.get(..width)?, text.get(width..)?);
+        head.bytes()
+            .all(|byte| byte.is_ascii_digit())
+            .then(|| head.parse().ok())
+            .flatten()
+            .map(|value| (value, rest))
+    }
+    /// One `-` or `:` separated field after the first, where the text continues with one.
+    fn field(text: &str, separator: char, width: usize) -> Option<(Option<u32>, &str)> {
+        match text.strip_prefix(separator) {
+            Some(rest) => digits(rest, width).map(|(value, rest)| (Some(value), rest)),
+            None => Some((None, text)),
+        }
+    }
+    let narrow = |value: Option<u32>, default: u8| -> Option<u8> {
+        value.map_or(Some(default), |value| u8::try_from(value).ok())
+    };
+    let (year, rest) = digits(text, 4)?;
+    let (month, rest) = field(rest, '-', 2)?;
+    let (day, rest) = if month.is_some() {
+        field(rest, '-', 2)?
+    } else {
+        (None, rest)
+    };
+    let (mut hour, mut minute, mut second, mut offset) = (None, None, None, None);
+    let mut rest = rest;
+    if let Some(time) = rest.strip_prefix('T') {
+        day?;
+        let (h, after) = digits(time, 2)?;
+        let (m, after) = digits(after.strip_prefix(':')?, 2)?;
+        let (s, after) = field(after, ':', 2)?;
+        let after = match after.strip_prefix('.') {
+            Some(fraction) => {
+                let end = fraction
+                    .find(|c: char| !c.is_ascii_digit())
+                    .unwrap_or(fraction.len());
+                let (places, after) = fraction.split_at(end);
+                if places.is_empty() || places.bytes().any(|byte| byte != b'0') || s.is_none() {
+                    return None;
+                }
+                after
+            }
+            None => after,
+        };
+        (hour, minute, second) = (Some(h), Some(m), s);
+        rest = after;
+        offset = match rest {
+            "" => None,
+            "Z" => Some(0),
+            zone => {
+                let (sign, zone) = match zone.split_at_checked(1)? {
+                    ("+", zone) => (1, zone),
+                    ("-", zone) => (-1, zone),
+                    _ => return None,
+                };
+                let (h, zone) = digits(zone, 2)?;
+                let (m, zone) = digits(zone.strip_prefix(':')?, 2)?;
+                if !zone.is_empty() || h > 23 || m > 59 {
+                    return None;
+                }
+                i16::try_from(h.checked_mul(60)?.checked_add(m)?)
+                    .ok()?
+                    .checked_mul(sign)
+            }
+        };
+        rest = "";
+    }
+    if !rest.is_empty() {
+        return None;
+    }
+    let date = pdf_syntax::Date {
+        year: i32::try_from(year).ok()?,
+        month: narrow(month, 1)?,
+        day: narrow(day, 1)?,
+        hour: narrow(hour, 0)?,
+        minute: narrow(minute, 0)?,
+        second: narrow(second, 0)?,
+        offset,
+    };
+    let valid = (1..=12).contains(&date.month)
+        && (1..=31).contains(&date.day)
+        && date.hour < 24
+        && date.minute < 60
+        && date.second < 60;
+    valid.then_some(date)
 }
 
 /// One metadata stream, with the two entries §14.3.2's Table 347 requires of it.

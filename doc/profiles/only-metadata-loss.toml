@@ -101,11 +101,14 @@ remedy = "stop"
 remedy = "preserve"        # the values move into the XMP packet, which loses nothing
 unmapped = "discard"       # a custom key XMP has no home for is dropped and named in the report
 unreadable = "discard"     # a date §7.9.4 does not admit is dropped and named in the report
+disagreeing = "discard"    # a packet ModifyDate naming another instant than the kept ModDate is
+                           # restated from it, the value that went in the history (doc/adr/2748)
 
 [site."file-structure/document-information-dictionary-needs-piece-info"]
 remedy = "preserve"
 unmapped = "discard"
 unreadable = "discard"
+disagreeing = "discard"
 
 # ---------------------------------------------------------------------------------------------
 # JPEG 2000 images outside the JPX baseline. A codestream with no boxes around it is given the JP2

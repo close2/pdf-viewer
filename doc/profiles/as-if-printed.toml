@@ -281,15 +281,21 @@ remedy = "discard"
 [site."metadata/xmp-packet-header-attributes"]
 remedy = "discard"
 
+# The packet's xmp:ModifyDate where it names another instant than the ModDate ISO 19005-4
+# section 6.1.3 keeps beside a PieceInfo: restated from the dictionary's, which ISO 32000-2 14.5
+# compares LastModified against, the value that went in the file's history. Paper carries no
+# packet (doc/adr/2748).
 [site."file-structure/document-information-dictionary-holds-only-a-modification-date"]
 remedy = "preserve"
 unmapped = "discard"
 unreadable = "discard"
+disagreeing = "discard"
 
 [site."file-structure/document-information-dictionary-needs-piece-info"]
 remedy = "preserve"
 unmapped = "discard"
 unreadable = "discard"
+disagreeing = "discard"
 
 # ---------------------------------------------------------------------------------------------
 # Language. A Lang entry is read by a screen reader and an indexer, never drawn. One that is not a

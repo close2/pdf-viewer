@@ -1398,6 +1398,7 @@ fn preserve_sweep(root: &Path, part: &str, target: Target) -> Preserved {
                         unmapped: pdf_transform::archive::Unmapped::Stop,
                         statement: None,
                         unreadable: pdf_transform::archive::RemedyKind::Stop,
+                        disagreeing: pdf_transform::archive::RemedyKind::Stop,
                     })
                     .collect(),
                 resolutions: Vec::new(),

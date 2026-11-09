@@ -990,6 +990,14 @@ pub struct Preservation {
     /// [`Kind::Discard`] drops it and the report names the key; every other word is `stop`,
     /// which is also what a row saying nothing states (`doc/adr/2358`).
     pub unreadable: Kind,
+    /// `disagreeing` at the two ISO 19005-4 section 6.1.3 sites.
+    ///
+    /// What becomes of the packet's `xmp:ModifyDate` where it names another instant than the
+    /// `/ModDate` the clause keeps beside a `/PieceInfo`. [`Kind::Discard`] restates it from the
+    /// dictionary's, which §14.5 compares the data dictionaries' `LastModified` against, and
+    /// records the value that went in the file's history; every other word is `stop`, which is
+    /// also what a row saying nothing states (`doc/adr/2748`).
+    pub disagreeing: Kind,
     /// Where the row's loss is `append-statement`'s: what the page stating it says was tried.
     ///
     /// `Some` at an embedded-file row whose `discard` step is `append-statement`, whether it is the
@@ -1469,6 +1477,9 @@ struct Row {
     unmapped: Unmapped,
     /// `unreadable` — what happens to a `/Info` value not of the form its key's row states.
     unreadable: Kind,
+    /// `disagreeing` — what happens to a packet's `xmp:ModifyDate` naming another instant than
+    /// the kept `/ModDate`.
+    disagreeing: Kind,
     /// `keep-xfa` — whether the `/XFA` resource stays in the archive as an embedded file.
     keep_xfa: Option<Placement>,
     /// `keep-media` — whether a removed Screen or Movie annotation's clip stays as an embedded
@@ -2007,6 +2018,7 @@ impl Configuration {
                 statement: steps::statement(row),
                 unmapped: row.unmapped,
                 unreadable: row.unreadable,
+                disagreeing: row.disagreeing,
             })
             .collect()
     }
@@ -2363,6 +2375,7 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
     let text_as_image = kind_or_stop(tbl, "text-as-image");
     let undeterminable = kind_or_stop(tbl, "undeterminable");
     let unreadable = kind_or_stop(tbl, "unreadable");
+    let disagreeing = kind_or_stop(tbl, "disagreeing");
     let unlisted = kind_or_stop(tbl, "unlisted");
     let keep_xfa = keeps_the_xfa(tbl, &site)?;
     let keep_media = keeps_the_media(tbl, &site)?;
@@ -2405,6 +2418,7 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         unlisted,
         unmapped,
         unreadable,
+        disagreeing,
         keep_xfa,
         keep_media,
         winner,

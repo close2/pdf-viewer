@@ -114,13 +114,12 @@ column. R02 is built (ADR 2498) and no document reaches it.
 | 9 | R01-recovered-structure | 1 | 1 | 3 / 3 | builds only | built: ADRs 2502, 2503, 2551, 2596, 2670; each left is refused by its own sentence |
 | 10 | R07-undecodable-stream | 1 | 2 | 1 / 2 | builds only | built: ADR 2689; the `UnknownFilter` files' `%PDF-3.x` header, ADR 2692; left, an ICC profile written as its alternate |
 | 11 | R12-spot-colourant | 1 | 1 | 1 / 1 | builds only | built for a PostScript calculator function: ADR 2690; left, a sampled transform, refused until its loss is named (ADR 2490) |
-| 12 | R05-press | 0 | 9 | 0 / 9 | builds only | A694 item 2: (a) built, ADR 2518; (b) built, ADR 2747; left, overprint mode 1 on a DeviceCMYK mark (ADR 1978's loss, not offered there) |
-| 13 | R18-piece-info | 0 | 3 | 0 / 3 | builds only | unbuilt |
-| 14 | R15-embedded-files | 0 | 2 | 3 / 7 | builds only | built: ADR 2536 |
-| 15 | D-defect | — | — | 7 / 6 | defect | section 8: the converter's own, diagnosed rather than ranked |
-| 16 | R09-as-shown-font-losses | 0 | 0 | 121 / 121 | builds only | `as-shown` only; ADR 2490: (c) decided, (a) and (b) builds |
-| 17 | X1-dynamic-xfa | — | — | 4 / 4 | exception | CLAUDE.md's exclusion; §K.1 |
-| 18 | X2-no-page-to-see | — | — | 6 / 6 | exception | the reader draws no page of it |
+| 12 | R05-press | 0 | 9 | 0 / 9 | builds only | A694 item 2: (a) built, ADR 2518; (b) built, ADR 2747; left, overprint mode 1 on a DeviceCMYK mark, decided as ADR 1978's loss under the two shipped profiles (ADR 2749), not built |
+| 13 | R15-embedded-files | 0 | 2 | 3 / 7 | builds only | built: ADR 2536 |
+| 14 | D-defect | — | — | 7 / 6 | defect | section 8: the converter's own, diagnosed rather than ranked |
+| 15 | R09-as-shown-font-losses | 0 | 0 | 121 / 121 | builds only | `as-shown` only; ADR 2490: (c) decided, (a) and (b) builds |
+| 16 | X1-dynamic-xfa | — | — | 4 / 4 | exception | CLAUDE.md's exclusion; §K.1 |
+| 17 | X2-no-page-to-see | — | — | 6 / 6 | exception | the reader draws no page of it |
 
 Under `as-shown` the largest row is R09 (121 documents at each part), then R03 and R08, each held by
 an answer of the owner's (A694 item 1) rather than by a build.
@@ -297,7 +296,9 @@ none is supplied, loss `press-assumed`, the profile named in the report and `xmp
 because the window drew those colours through those inks. What is left is the overprint guard:
 a file whose `DeviceCMYK` marks overprint under mode 1 keeps its refusal under either press, since
 the default makes them `ICCBased` CMYK marks (section 6.2.4.2), and setting a mode that governs only
-`DeviceCMYK` marks to 0 is ADR 1978's `overprint-mode` loss, not yet offered there. Mitigations
+`DeviceCMYK` marks to 0 is ADR 1978's `overprint-mode` loss, not yet offered there. ADR 2749 decides it (not built): the window draws the
+nine's 773 pages identically with every `/OPM 1` written 0, but the mode is a press's instruction, so
+it is the named loss both shipped profiles already accept, not a statement. Mitigations
 section 4.2; ADRs 2114, 2130, 2518, 2747.
 
 **R12 — a DeviceN colourant with no Separation to name it** (7 pdf.js documents, each alone).
@@ -415,7 +416,14 @@ a decoder defect: seven state the invented `/XXXDecode`, `poppler-742-0-fuzzed` 
 admits; with it patched to `%PDF-1.7`, every one but `UnknownFilter-ICC` converts.
 
 **R18 — a PieceInfo that keeps `ModDate` in the information dictionary at part 4** (3 documents,
-alone in 2): the converter writes the date from both sources and they disagree. Builds only.
+each alone under `as-if-printed`): section 6.1.3 keeps `/ModDate` beside the catalog's PieceInfo, and
+§14.3.4 asks it to be equivalent to the packet's `xmp:ModifyDate`. **Built** (ADR 2748): the two are
+compared as instants, which frees `225188` (one instant, the packet stopping at the minutes) under
+every profile; where they differ (`20789_ftp`, `UMTRI-2008-80`), §14.5 compares `LastModified` with
+the dictionary's entry, so it stays and the packet's is restated from it, the former value recorded
+in `xmpMM:History` (`modification-date`), under `as-shown`, `as-if-printed` and `only-metadata-loss`
+(`disagreeing = "discard"`). Left: the stating profiles, whose page would have to state a packet
+property.
 
 **R16 — annotations and forms** (5 documents under `as-if-printed`, 14 at 2b and 17 at 4 under
 `as-shown`): a button widget with no appearance dictionary (2 — §12.7.5.2.3; where the reader draws
@@ -554,6 +562,5 @@ disagrees with `/Widths` the refusal's sentence is `PROGRAM_NOT_RESTATABLE`.
 - R14-appended-page-composition (4): corpora:241573_ftp.pdf, corpora:JPXTestGrey.pdf, corpora:balloon_a1b_jp2k.pdf, pdf.js:poppler-742-0-fuzzed.pdf
 - R15-embedded-files (7): corpora:PDF-Sample-Document-Fully-Featured-Layout_Redacted.pdf, corpora:embedded_video_avi.pdf, corpora:embedded_video_quicktime.pdf, corpora:fileAttachment_fileAttachmentAnnotation.pdf, pdf.js:annotation-fileattachment.pdf, pdf.js:issue17056.pdf, pdf.js:issue18030.pdf
 - R16-annotations-and-forms (18): corpora:MOZILLA-1671648-0.pdf, corpora:PDF-Sample-Document-Fully-Featured-Layout_Redacted.pdf, corpora:PDFBOX-6018-099267-p9-OrphanPopups.pdf, corpora:embedded_video_avi.pdf, corpora:embedded_video_quicktime.pdf, corpora:fileAttachment_fileAttachmentAnnotation.pdf, corpora:sakula.pdf, pdf.js:160F-2019.pdf, pdf.js:annotation-fileattachment.pdf, pdf.js:annotation_hidden_noview.pdf, pdf.js:annotation_hidden_print.pdf, pdf.js:checkbox_no_appearance.pdf, pdf.js:issue7446.pdf, pdf.js:multimedia_annotations.pdf, pdf.js:poppler-395-0-fuzzed.pdf, pdf.js:pr7352.pdf, pdf.js:widget_hidden_print.pdf, pdf.js:xfa_filled_imm1344e.pdf
-- R18-piece-info (3): corpora:20789_ftp.pdf, corpora:225188.pdf, corpora:UMTRI-2008-80.pdf
 - X1-dynamic-xfa (4): corpora:MOZILLA-1671648-0.pdf, pdf.js:issue14130.pdf, pdf.js:xfa_filled_imm1344e.pdf, pdf.js:xfa_issue14315.pdf
 - X2-no-page-to-see (6): corpora:PDFBOX-6041-example.pdf, pdf.js:Brotli-Prototype-FileA.pdf, pdf.js:REDHAT-1531897-0.pdf, pdf.js:bug1020226.pdf, pdf.js:poppler-85140-0.pdf, pdf.js:poppler-937-0-fuzzed.pdf

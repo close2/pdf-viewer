@@ -148,6 +148,14 @@ const NO_PLACE_TO_RECORD_A_RUN: &str = "writing a run as the number this reader 
      entry, so the runs stay as they are and no file is written (doc/adr/2638)";
 
 /// Why the target's header was not written over one stating no version ISO 32000-2 defines.
+/// Why a restated modification date was withdrawn even though it could have been carried out.
+const NO_PLACE_TO_RECORD_A_DATE: &str = "the catalog states a PieceInfo, so ISO 19005-4 section \
+     6.1.3 keeps this document's ModDate in the dictionary, and the packet's xmp:ModifyDate names \
+     another instant; the configuration answers `disagreeing = \"discard\"`, which restates the \
+     packet's from the dictionary's and writes the value that went into this file's own \
+     xmpMM:History, and this document's XMP packet will not take that entry — so no file is \
+     written (doc/adr/2748)";
+
 const NO_PLACE_TO_RECORD_HEADER: &str = "this document states no version ISO 32000-2 defines \
      (none this tree reads, or one later than 2.0's major version), so the output's header states \
      the target's and the source's header line is written into this file's own xmpMM:History, and \
@@ -1082,12 +1090,18 @@ impl Prepared {
                         INFORMATION_REQUIREMENTS.contains(&preservation.site.as_str())
                     })
                     .map_or(
-                        (super::config::Unmapped::Stop, false, NotCarried::Refused),
+                        (
+                            super::config::Unmapped::Stop,
+                            false,
+                            NotCarried::Refused,
+                            false,
+                        ),
                         |preservation| {
                             (
                                 preservation.unmapped,
                                 preservation.unreadable == super::config::Kind::Discard,
                                 not_carried(plan, &failed),
+                                preservation.disagreeing == super::config::Kind::Discard,
                             )
                         },
                     ),
@@ -1192,6 +1206,10 @@ impl Prepared {
             .map(|moved| moved.supplements.clone())
             .unwrap_or_default();
         let supplements: Vec<xmp::Supplement<'_>> = gained.iter().map(Gained::supplement).collect();
+        let modification_history = information
+            .as_ref()
+            .ok()
+            .and_then(Information::restated_history);
         // ISO 19005-2 section 6.2.5's transfer functions, prepared before the packet: a function
         // other than the identity is written into its `xmpMM:History` before it goes, and the
         // record is a condition of the removal (`doc/adr/1964`).
@@ -1385,6 +1403,7 @@ impl Prepared {
                 discards: &discards,
                 substituted: &font_history,
                 supplements: &supplements,
+                modification: modification_history.as_deref(),
                 edited,
             },
         );
@@ -1489,6 +1508,15 @@ impl Prepared {
         };
         let halftone_names_recorded = press_recorded(halftone_name_history.as_ref());
         let overprint_modes_recorded = press_recorded(overprint_mode_history.as_ref());
+        // And for the restated `xmp:ModifyDate`: the entry is where the packet's own former value
+        // stays in the file, so a packet that will not take it withdraws the restatement
+        // (`doc/adr/2748`).
+        let information = match information {
+            Ok(_) if modification_history.is_some() && !recorded_it => {
+                Err(Because::NotBuiltYet(NO_PLACE_TO_RECORD_A_DATE))
+            }
+            information => information,
+        };
         let as_drawn_recorded = match as_drawn_history {
             Some(_) if !recorded_it => Err(Because::NotBuiltYet(NO_PLACE_TO_RECORD_A_RUN)),
             _ => Ok(()),
