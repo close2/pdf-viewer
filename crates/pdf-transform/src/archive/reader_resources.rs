@@ -12,6 +12,10 @@
 //!   dictionary: the reference where the page's is an object, a copy where it is direct. A form
 //!   reached from pages whose dictionaries differ is written again for each such dictionary, and
 //!   the dictionary's `XObject` table names the copy (`doc/adr/2523`).
+//! - **A Type 3 font that states no `/Resources`.** ISO 32000-2 §9.6.4 reads its glyph procedures
+//!   against the resources of the page that shows it; [`assign`] writes into the font the object
+//!   every such page states, or one dictionary holding the bindings of all of them where that
+//!   reproduces what each page drew (`doc/adr/2746`).
 //! - **A name no dictionary defines.** The reader draws nothing for it and says so, except that a
 //!   name of one of §9.6.2.2's fourteen standard fonts is drawn with that font. [`supply`] defines
 //!   the name as an empty resource of its category — a form with no marks, a graphics state with
@@ -25,7 +29,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use pdf_archive::survey::{MissingInStream, OpenedStream, Survey, standard_font_definition};
+use pdf_archive::survey::{
+    GlyphsShown, MissingInStream, OpenedStream, Survey, standard_font_definition,
+};
 use pdf_model::Pages;
 use pdf_syntax::Document;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
@@ -37,11 +43,18 @@ use super::sites::inherited_resources;
 /// What the survey calls the walk of a page's own `/Contents`.
 const PAGE_CONTENT: &str = "the page content";
 
-/// Why a Type 3 glyph procedure's resources are not written.
+/// Why a Type 3 font's glyph procedures are not given resources: the font is not one object.
 const GLYPH_PROCEDURE: &str = "a Type 3 glyph procedure states no Resources of its own, and \
-     ISO 32000-2 \u{a7}7.8.3 hands it the Type 3 font dictionary's before the page's. The \
-     dictionary that would receive the entry is the font's, which several pages and several \
-     glyph procedures share, and this conversion does not yet follow a glyph procedure to its font";
+     ISO 32000-2 \u{a7}9.6.4 hands it the resources of the page that shows its font; the \
+     dictionary that would receive them is the font's, and this font is written directly inside \
+     another dictionary, or the procedure belongs to more than one font, so there is no one \
+     object to give them to";
+
+/// Why a Type 3 font shown on pages whose resources differ is not given one dictionary.
+const GLYPH_PAGES_DIFFER: &str = "a Type 3 font that states no Resources is shown on pages whose \
+     resource dictionaries bind a name to different objects, or define a name on one page that \
+     a glyph shown on another page looks up and finds missing there; no one dictionary in the \
+     font reproduces what each page drew, and the remedy would be a copy of the font per page";
 
 /// Why a form reached from pages with different resources is not given a copy for each.
 const PAGES_DIFFER: &str = "a form XObject, tiling pattern or appearance that states no \
@@ -74,11 +87,11 @@ const INHERITED_DIRECT: &str = "a page names a resource its resources do not def
 
 /// Why a font name is not defined where the text shown under it was more than glyphs.
 const FONT_MOVES: &str = "a text-showing operator ran with a font name no resource dictionary \
-     defines, and moved the text position by more than a width (a character or word spacing, a \
-     TJ adjustment, the line a ' or \" starts) or added its glyphs to the clipping path. This \
-     reader drew none of that text and moved by its own amounts, which a font that draws nothing \
-     and has every width zero would not reproduce; the refusal is conservative, and the loss can \
-     be stated on an appended page under the profile";
+     defines under a character or word spacing, and a glyph of a defined font was then placed \
+     from the position it left before the text matrix was set again, or it added its glyphs to \
+     the clipping path. This reader drew none of that text and did not advance past it, which a \
+     font that draws nothing would not reproduce, since ISO 32000-2 \u{a7}9.4.4 advances each of \
+     its glyphs by the spacing; the loss can be stated on an appended page under the profile";
 
 /// Why a font was not defined: the survey stopped before it had read every text-showing operator.
 const SURVEY_STOPPED: &str = "the content walk stopped at one of its bounds, so the names it \
@@ -178,6 +191,19 @@ pub(super) struct ReaderResources {
     shared_by_content: BTreeMap<String, ObjectId>,
     /// The object a page's direct dictionary was written as, by page index.
     shared_by_page: BTreeMap<usize, ObjectId>,
+    /// Where each glyph procedure of a Type 3 font that was given resources now reads its names,
+    /// by the procedure's object (`doc/adr/2746`).
+    pub(super) glyph_resources: BTreeMap<ObjectId, GlyphResources>,
+}
+
+/// The dictionary a Type 3 font stating no `/Resources` is given.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) enum GlyphResources {
+    /// The resources object every page showing the font states.
+    Object(ObjectId),
+    /// A dictionary written for the font, the union of the pages' bindings, with its category
+    /// tables written directly in it.
+    Written(ObjectId, Dictionary),
 }
 
 impl ReaderResources {
@@ -373,6 +399,7 @@ pub(super) fn assign(
             _ => None,
         })
         .collect();
+    let mut glyphs: BTreeMap<ObjectId, BTreeSet<usize>> = BTreeMap::new();
     for opened in survey.opened_streams() {
         if !opened.referenced || opened.own_resources {
             continue;
@@ -381,8 +408,9 @@ pub(super) fn assign(
             // A page's own contents are the page rewrite's; a soft mask's group is held resolved.
             continue;
         };
-        if opened.what == "a Type 3 glyph procedure" {
-            return Err(Because::NotBuiltYet(GLYPH_PROCEDURE));
+        if opened.what == GLYPH {
+            glyphs.entry(object).or_default().insert(opened.page);
+            continue;
         }
         let value = if let Some(id) = found.shared_by_page.get(&opened.page) {
             Object::Reference(*id)
@@ -419,7 +447,220 @@ pub(super) fn assign(
             }
         }
     }
+    if !glyphs.is_empty() {
+        give_type3_fonts(document, survey, spare, &glyphs, &mut found)?;
+    }
     Ok(found)
+}
+
+/// What the survey calls a Type 3 glyph procedure.
+const GLYPH: &str = "a Type 3 glyph procedure";
+
+/// Gives each Type 3 font stating no `/Resources` the dictionary its glyph procedures were read
+/// against (`doc/adr/2746`).
+///
+/// ISO 32000-2 §9.6.4 (Table 110, `Resources`) reads such a font's glyph procedures against the
+/// resources of the page that shows the font, and §7.8.3 ends the search there, so the reader drew
+/// each glyph against its page's dictionary. Where every page showing the font states one
+/// resources object, the font is given that object. Otherwise it is given one dictionary written
+/// for it, the union of the pages' bindings, which reproduces each page only where no two pages
+/// bind a name differently and no name a glyph looked up and missed on one page is defined by
+/// another while that page showed the glyph; anything else is refused by name.
+fn give_type3_fonts(
+    document: &Document,
+    survey: &Survey,
+    spare: &mut Spare,
+    glyphs: &BTreeMap<ObjectId, BTreeSet<usize>>,
+    found: &mut ReaderResources,
+) -> Result<(), Because> {
+    // Each procedure's one font: a procedure two fonts share is read against whichever page
+    // shows either, and the two fonts' dictionaries could not both be its.
+    let mut owner: BTreeMap<ObjectId, ObjectId> = BTreeMap::new();
+    let mut fonts: BTreeMap<ObjectId, BTreeSet<ObjectId>> = BTreeMap::new();
+    for font in survey.fonts() {
+        let Some(id) = font.id else { continue };
+        if !is_type3_without_resources(document, &font.dict) {
+            continue;
+        }
+        let procedures = document.get_key(&font.dict, "CharProcs");
+        let Some(procedures) = procedures.as_dict() else {
+            continue;
+        };
+        for (_, procedure) in procedures.iter() {
+            let Some(procedure) = procedure.as_reference() else {
+                continue;
+            };
+            if !glyphs.contains_key(&procedure) {
+                continue;
+            }
+            if owner.insert(procedure, id).is_some_and(|other| other != id) {
+                return Err(Because::NotBuiltYet(GLYPH_PROCEDURE));
+            }
+            fonts.entry(id).or_default().insert(procedure);
+        }
+    }
+    if glyphs
+        .keys()
+        .any(|procedure| !owner.contains_key(procedure))
+    {
+        return Err(Because::NotBuiltYet(GLYPH_PROCEDURE));
+    }
+    let pages = Pages::new(document);
+    for (font, procedures) in &fonts {
+        let shown_on: BTreeSet<usize> = procedures
+            .iter()
+            .filter_map(|procedure| glyphs.get(procedure))
+            .flatten()
+            .copied()
+            .collect();
+        let mut locations = Vec::new();
+        for page in &shown_on {
+            locations.push(
+                location_of(document, &pages, *page)
+                    .ok_or(Because::NotBuiltYet(INHERITED_DIRECT))?,
+            );
+        }
+        let one_object = match locations.first() {
+            Some(Location::Object(first)) => locations
+                .iter()
+                .all(|location| matches!(location, Location::Object(id) if id == first))
+                .then_some(*first),
+            _ => None,
+        };
+        let resources = if let Some(object) = one_object {
+            found.file(*font, Edit::Assign(Object::Reference(object)));
+            GlyphResources::Object(object)
+        } else {
+            let union = union_of(document, &locations)?;
+            reproduces_each_page(document, survey, *font, procedures, &union)?;
+            let id = spare
+                .take(document)
+                .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
+            found.written.push((id, Object::Dictionary(union.clone())));
+            found.file(*font, Edit::Assign(Object::Reference(id)));
+            GlyphResources::Written(id, union)
+        };
+        for procedure in procedures {
+            found.glyph_resources.insert(*procedure, resources.clone());
+        }
+    }
+    Ok(())
+}
+
+/// Whether a font is a Type 3 font stating no `/Resources` (ISO 32000-2 §9.6.4, Table 110).
+fn is_type3_without_resources(document: &Document, font: &Dictionary) -> bool {
+    document
+        .get_key(font, "Subtype")
+        .as_name()
+        .is_some_and(|name| name.as_bytes() == b"Type3")
+        && document.get_key(font, "Resources").as_dict().is_none()
+}
+
+/// The resource categories of ISO 32000-2 §7.8.3's Table 34 whose values are tables of names.
+const CATEGORIES: [&str; 7] = [
+    "ExtGState",
+    "ColorSpace",
+    "Pattern",
+    "Shading",
+    "XObject",
+    "Font",
+    "Properties",
+];
+
+/// One dictionary holding every page's bindings, each category's table written directly in it.
+///
+/// A name two pages bind to different objects has no one value, and is refused. A value is
+/// compared as the file writes it: two references to one object are one binding.
+fn union_of(document: &Document, locations: &[Location]) -> Result<Dictionary, Because> {
+    let mut tables: BTreeMap<&str, Dictionary> = BTreeMap::new();
+    let mut proc_set: Option<Object> = None;
+    for location in locations {
+        let dict = match location {
+            Location::Object(id) | Location::Shared(id, _) => document
+                .get(*id)
+                .as_dict()
+                .cloned()
+                .ok_or(Because::NotBuiltYet(INHERITED_DIRECT))?,
+            Location::InPage(_, dict) | Location::Inherited(dict) => dict.clone(),
+        };
+        for category in CATEGORIES {
+            let table = document.get_key(&dict, category);
+            if table.is_null() {
+                continue;
+            }
+            let Some(table) = table.as_dict() else {
+                return Err(Because::NotBuiltYet(GLYPH_PAGES_DIFFER));
+            };
+            let union = tables.entry(category).or_default();
+            for (name, value) in table.iter() {
+                if document.resolve(value).is_null() {
+                    continue;
+                }
+                match union.get_by_name(name) {
+                    Some(earlier) if earlier != value => {
+                        return Err(Because::NotBuiltYet(GLYPH_PAGES_DIFFER));
+                    }
+                    Some(_) => {}
+                    None => {
+                        union.insert(name.clone(), value.clone());
+                    }
+                }
+            }
+        }
+        // §14.2's procedure sets are obsolete and read by no PDF processor; the first page's is
+        // kept so the dictionary says what the producer wrote for it.
+        if proc_set.is_none() {
+            proc_set = dict.get("ProcSet").cloned();
+        }
+    }
+    let mut union = Dictionary::new();
+    for (category, table) in tables {
+        union.insert(
+            Name::new(category.as_bytes().to_vec()),
+            Object::Dictionary(table),
+        );
+    }
+    if let Some(proc_set) = proc_set {
+        union.insert(Name::new(&b"ProcSet"[..]), proc_set);
+    }
+    Ok(union)
+}
+
+/// Whether the union draws on each page what the reader drew there.
+///
+/// A glyph procedure looked a name up on a page and found it missing, so the reader drew nothing
+/// for it there. Where the union defines the name, the same procedure would draw it on that page,
+/// unless that page never showed the glyph: the survey walks every procedure of a font it shows,
+/// and the reader runs only the ones its codes select (§9.6.4).
+fn reproduces_each_page(
+    document: &Document,
+    survey: &Survey,
+    font: ObjectId,
+    procedures: &BTreeSet<ObjectId>,
+    union: &Dictionary,
+) -> Result<(), Because> {
+    for miss in survey.missing_in_streams() {
+        let Some(procedure) = miss.object.filter(|object| procedures.contains(object)) else {
+            continue;
+        };
+        if miss.own_resources || !defines(document, union, miss.category, &miss.name) {
+            continue;
+        }
+        match survey.type3_glyphs_shown(miss.page, font) {
+            None => {}
+            Some(GlyphsShown::These(shown)) if !shown.contains(&procedure) => {}
+            Some(_) => return Err(Because::NotBuiltYet(GLYPH_PAGES_DIFFER)),
+        }
+    }
+    Ok(())
+}
+
+/// Whether a dictionary written with direct category tables defines a name in a category.
+fn defines(document: &Document, dict: &Dictionary, category: &str, name: &[u8]) -> bool {
+    dict.get(category)
+        .and_then(Object::as_dict)
+        .and_then(|table| table.get_by_name(&Name::new(name.to_vec())))
+        .is_some_and(|value| !document.resolve(value).is_null())
 }
 
 /// The shared empty objects a run has written so far.
@@ -707,6 +948,27 @@ pub(super) fn supply(
         {
             return Err(Because::NotBuiltYet(FONT_MOVES));
         }
+        // A glyph procedure's name goes into the dictionary `assign` gave its font, and a name
+        // that dictionary defines is not missing once it is the font's (`doc/adr/2746`).
+        let glyph_target = if miss.what == GLYPH {
+            let given = miss
+                .object
+                .and_then(|object| assigned?.glyph_resources.get(&object))
+                .ok_or(Because::NotBuiltYet(GLYPH_PROCEDURE))?;
+            match given {
+                GlyphResources::Written(_, dict)
+                    if defines(document, dict, miss.category, &miss.name) =>
+                {
+                    continue;
+                }
+                GlyphResources::Written(id, _) => Some((*id, Place::Itself)),
+                GlyphResources::Object(id) => {
+                    Some(place_in(document, &Location::Object(*id), miss.category)?)
+                }
+            }
+        } else {
+            None
+        };
         let value = empty_resource(
             document,
             miss.category,
@@ -715,6 +977,15 @@ pub(super) fn supply(
             &mut empties,
             &mut found.written,
         )?;
+        if let Some((holder, place)) = glyph_target {
+            let addition = Addition {
+                category: miss.category,
+                name: miss.name.clone(),
+                value,
+            };
+            found.file(holder, Edit::Define(place, addition));
+            continue;
+        }
         let key = (miss.page, miss.object, miss.own_resources, miss.category);
         let (holder, place) = if let Some(target) = targets.get(&key) {
             target.clone()
@@ -750,9 +1021,6 @@ fn target_of(
     let page_content = miss.object.is_none() && miss.what == PAGE_CONTENT;
     if miss.object.is_none() && !page_content {
         return Err(Because::NotBuiltYet(UNFOLLOWED_STREAM));
-    }
-    if miss.what == "a Type 3 glyph procedure" {
-        return Err(Because::NotBuiltYet(GLYPH_PROCEDURE));
     }
     let location = if miss.own_resources {
         own_location(document, pages, miss.object, miss.page)?

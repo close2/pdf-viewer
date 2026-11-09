@@ -132,7 +132,7 @@ STATUS = {
     "R02-image-smoothing": ("built", "ADR 2498"),
     "R03-photograph": ("builds only", "built under `as-if-printed`: A694, ADRs 2516, 2618, 2638; left, a page this reader does not draw whole; `as-shown` keeps ADR 2394's gate (A694 item 1)"),
     "R03a-notdef-named": ("builds only", "built: ADRs 2543, 2556, 2602, 2620, 2650"),
-    "R04-absent-resource": ("builds only", "built: ADRs 2500, 2522, 2523; left, a Type 3 glyph procedure's resources and a font that moved"),
+    "R04-absent-resource": ("builds only", "built: ADRs 2500, 2522, 2523, 2746; left, a Type 3 font read differently per page and a spacing a later glyph stands on"),
     "R05-press": ("builds only", "A694 item 2: (a) built; (b)'s profile is written (ADR 2700), its route as part 4's DefaultCMYK is not"),
     "R06b-the-other-part": ("built", "ADR 2498: the two-target request; the figures are what a one-part request refuses; a `%PDF-3.x` source is written at 4 (ADR 2692)"),
     "R07-undecodable-stream": ("builds only", "built: ADR 2689; the `UnknownFilter` files' `%PDF-3.x` header, ADR 2692; left, an ICC profile written as its alternate"),

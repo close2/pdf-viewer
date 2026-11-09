@@ -492,12 +492,17 @@ pub struct MissingInStream {
 
 /// A text-showing operator that ran under a font name nothing defined and was more than its glyphs.
 ///
-/// This reader draws no glyph for such a name (`doc/adr/0255`). A font that draws no glyph and has
-/// every width zero reproduces that for a plain show; it does not where the operator moves the
-/// position by more than the widths (a nonzero character or word spacing, a `TJ` adjustment, the
-/// line a `'` or `"` starts) or adds the glyphs to the clipping path. The reader moves the position
-/// for a `TJ` adjustment and for the line of a `'` with no font in force, which the empty font
-/// would not reproduce at width zero, so each is recorded and none is lifted (`doc/adr/2500`).
+/// This reader draws no glyph for such a name and does not advance past its string (`doc/adr/0255`).
+/// A font that draws no glyph and has every width zero reproduces that wherever its own advance is
+/// zero. ISO 32000-2 §9.4.4 makes a glyph's displacement `tx = ((w0 - Tj/1000) × Tfs + Tc + Tw) ×
+/// Th`: a `TJ` adjustment and the line a `'` or `"` starts move the position by amounts that do not
+/// depend on the font, so the reader and the empty font move alike, and a character or word spacing
+/// other than zero moves the empty font where the reader stood still. That difference is a mark
+/// only where a later glyph is placed from the text matrix it left: a show under a font that is
+/// defined, before `BT`, `ET`, `Td`, `TD`, `Tm`, `T*`, `'` or `"` set the matrix again from the
+/// line matrix or a new text object began (§9.4.2, Table 106). So such a show is recorded here
+/// only when a defined font shows after it in that span, and a show that adds its glyphs to the
+/// clipping path (§9.3.6) always is (`doc/adr/2500`, `doc/adr/2746`).
 #[derive(Debug, Clone)]
 pub struct MovingShow {
     /// The zero-based index of the page whose rendering reached the stream.
@@ -506,6 +511,17 @@ pub struct MovingShow {
     pub name: Vec<u8>,
     /// The stream object whose content ran it, as [`MissingInStream::object`] states.
     pub object: Option<ObjectId>,
+}
+
+/// The glyph procedures of one Type 3 font that one page's text-showing operators selected.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GlyphsShown {
+    /// Exactly these procedures, by object.
+    These(BTreeSet<ObjectId>),
+    /// A code shown could not be followed to a procedure: ISO 32000-2 §9.6.4's `Encoding` stated
+    /// no `Differences` entry for it, the procedure was not an object of its own, or the walk kept
+    /// no more of the strings shown. Every procedure counts as shown.
+    Unknown,
 }
 
 /// One `/Lang` a marked-content property list stated, with the page that stated it.
@@ -845,6 +861,9 @@ pub struct Survey {
     /// The text-showing operators that ran under a font name nothing defined and moved more than
     /// the glyphs' widths.
     moving_shows: Vec<MovingShow>,
+    /// For each page and each Type 3 font stating no `/Resources`, the glyph procedures that
+    /// page's text-showing operators selected (`doc/adr/2746`).
+    type3_glyphs: BTreeMap<(usize, ObjectId), GlyphsShown>,
     /// Every inline image the walk read, with the page that draws it.
     inline_images: Vec<(usize, Dictionary)>,
     /// Every operand the rendering intent operator was given, with the page it ran on.
@@ -912,6 +931,8 @@ impl Survey {
             marks: Vec::new(),
             seen: BTreeSet::new(),
             page_resources: Arc::default(),
+            displacing: None,
+            type3_codes: BTreeMap::new(),
             ledger,
             survey: Self::default(),
         };
@@ -968,6 +989,18 @@ impl Survey {
     #[must_use]
     pub fn moving_shows(&self) -> &[MovingShow] {
         &self.moving_shows
+    }
+
+    /// The glyph procedures of Type 3 font `font`, an object stating no `/Resources`, that the
+    /// text-showing operators of page `page` selected; `None` where the page showed no text in it.
+    ///
+    /// ISO 32000-2 §9.6.4 reads such a font's glyph procedures against the resources of the page
+    /// that shows them, so a name one procedure looks up can be defined on one page and not on
+    /// another, and what the reader drew for it on a page turns on whether the page showed that
+    /// glyph at all (`doc/adr/2746`).
+    #[must_use]
+    pub fn type3_glyphs_shown(&self, page: usize, font: ObjectId) -> Option<&GlyphsShown> {
+        self.type3_glyphs.get(&(page, font))
     }
 
     /// Every inline image the walk read, as the image dictionary an `XObject` would have had.
@@ -1259,12 +1292,15 @@ enum Operator {
     Restore,
     /// `Tf`
     SetFont,
+    /// `BT`, `ET`, `Td`, `TD`, `Tm` or `T*`: each begins or ends a text object or sets the text
+    /// matrix from the line matrix, so no later glyph is placed from where a show left it.
+    Position,
     /// `Tr`
     SetRenderMode,
     /// `Tj`, `TJ`, `'` or `"`.
     Show {
-        /// Whether the operator moves the text position by more than the string's own advance:
-        /// `'` and `"` start a line first.
+        /// Whether the operator starts a line first, as `'` and `"` do, setting the text
+        /// matrix from the line matrix (ISO 32000-2 §9.4.3, Table 107).
         starts_line: bool,
         /// Whether the operator sets the word and character spacing from its operands, which
         /// `"` does (ISO 32000-2 §9.4.3, Table 107).
@@ -1345,7 +1381,9 @@ impl Operator {
             Self::MarkedPoint => "DP",
             // `Tc` and `Tw` share the word the ledger's twin spells for the operators a walk does
             // not select a resource through.
-            Self::SetSpacing { .. } | Self::Other => "an operator this walk ignores",
+            Self::SetSpacing { .. } | Self::Position | Self::Other => {
+                "an operator this walk ignores"
+            }
         }
     }
 }
@@ -1432,6 +1470,7 @@ fn keyword(word: &[u8]) -> Option<Operator> {
         b"Q" => Operator::Restore,
         b"Tf" => Operator::SetFont,
         b"Tr" => Operator::SetRenderMode,
+        b"BT" | b"ET" | b"Td" | b"TD" | b"Tm" | b"T*" => Operator::Position,
         b"Tj" | b"TJ" => Operator::Show {
             starts_line: false,
             sets_spacing: false,
@@ -1478,11 +1517,9 @@ fn keyword(word: &[u8]) -> Option<Operator> {
         b"DP" => Operator::MarkedPoint,
         // The rest of Table A.1, in the order the table prints them. Nothing here changes the
         // state this walk carries; they are listed so that the fall-through means what it says.
-        b"BT" | b"BX" | b"c" | b"cm" | b"d" | b"d0" | b"d1" | b"EI" | b"ET" | b"EX" | b"h"
-        | b"i" | b"ID" | b"j" | b"J" | b"l" | b"m" | b"M" | b"MP" | b"n" | b"re" | b"T*"
-        | b"Td" | b"TD" | b"TL" | b"Tm" | b"Ts" | b"Tz" | b"v" | b"w" | b"W" | b"W*" | b"y" => {
-            Operator::Other
-        }
+        b"BX" | b"c" | b"cm" | b"d" | b"d0" | b"d1" | b"EI" | b"EX" | b"h" | b"i" | b"ID"
+        | b"j" | b"J" | b"l" | b"m" | b"M" | b"MP" | b"n" | b"re" | b"TL" | b"Ts" | b"Tz"
+        | b"v" | b"w" | b"W" | b"W*" | b"y" => Operator::Other,
         _ => return None,
     };
     Some(operator)
@@ -1516,6 +1553,18 @@ struct Mark {
     /// makes everything under the bound silent rather than reported against a sequence this
     /// walk stopped following.
     suppressed: u32,
+}
+
+/// What one code of a Type 3 font selects, as §9.6.4's `Encoding` and `CharProcs` state it.
+#[derive(Clone, Copy)]
+enum Glyph {
+    /// The glyph procedure, an object of its own.
+    Procedure(ObjectId),
+    /// No procedure: the name the code maps to is not in `CharProcs`, so nothing runs.
+    Absent,
+    /// The code cannot be followed: no `Differences` entry names it, or the procedure is
+    /// written directly in `CharProcs`.
+    Unknown,
 }
 
 /// The state one document's walk carries across its content streams.
@@ -1559,6 +1608,13 @@ struct Walk<'a> {
     /// [`Walk::form`] and [`Walk::type3`]; a tiling pattern gets neither (ADR 1059). Shared with
     /// the page that holds it rather than copied from it (ADR 2588).
     page_resources: Arc<Dictionary>,
+    /// A show the last operator ran under an undefined font with a spacing in force, which moved
+    /// the position where the reader did not; the stream's loop takes it and records it only if a
+    /// later glyph is placed from that position ([`MovingShow`]).
+    displacing: Option<MovingShow>,
+    /// For each Type 3 font stating no `/Resources`, the glyph procedure each of its 256 codes
+    /// selects, worked out once per font ([`Survey::type3_glyphs_shown`]).
+    type3_codes: BTreeMap<ObjectId, Vec<Glyph>>,
     /// Every named resource looked up, where [`Survey::ledgered`] asked for them.
     ///
     /// `None` for every other caller, and then the cost is one test per lookup. The ledger is
@@ -1669,9 +1725,12 @@ struct Operands<'a> {
     strings: &'a [Vec<u8>],
     /// The last integer.
     integer: Option<i64>,
-    /// Whether any numeric operand was other than zero: what `Tc` and `Tw` set, and what a `TJ`
-    /// array's adjustments move the text position by.
+    /// Whether any numeric operand was other than zero: what `Tc` and `Tw` set, and what `"`
+    /// sets them to.
     nonzero: bool,
+    /// Whether [`Self::strings`] holds every string operand, which it does not once the walk's
+    /// budget for kept strings ran out.
+    strings_complete: bool,
     /// §14.6.2's property list, where one was written into the operands rather than named.
     property: Option<&'a Dictionary>,
 }

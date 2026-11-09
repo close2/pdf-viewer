@@ -103,25 +103,24 @@ column. R02 is built (ADR 2498) and no document reaches it.
 
 | order | remedy | frees at 2b | frees at 4 | stops under `as-shown`, 2b / 4 | what is left needs | built by, and what is left |
 |---|---|---|---|---|---|---|
-| 1 | R06b-the-other-part | 34 | 0 | 41 / 0 | built | ADR 2498: the two-target request; the figures are what a one-part request refuses; a `%PDF-3.x` source is written at 4 (ADR 2692) |
-| 2 | R03-photograph | 6 | 8 | 55 / 57 | builds only | built under `as-if-printed`: A694, ADRs 2516, 2618, 2638; left, a page this reader does not draw whole; `as-shown` keeps ADR 2394's gate (A694 item 1) |
-| 3 | R08-unembedded-font-photograph | 9 | 9 | 35 / 35 | builds only | built under `as-if-printed`: A694, ADR 2516; `as-shown` keeps its stop (A694 item 1) |
-| 4 | R04-absent-resource | 6 | 6 | 6 / 6 | builds only | built: ADRs 2500, 2522, 2523; left, a Type 3 glyph procedure's resources and a font that moved |
-| 5 | R10-font-refiling | 5 | 5 | 7 / 7 | builds only | built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685), a standard font's stated widths (ADR 2686), a mode 3 font's descriptor (ADR 2688), a glyf program under a CIDFontType0 (ADR 2716), a collection nothing reads (ADR 2717), a font written inside another object (ADR 2722), a code Annex D encodes twice in a glyf face (ADR 2723) |
-| 6 | R11-truetype-route | 5 | 5 | 7 / 7 | builds only | built: A694 item 3, ADR 2520 |
-| 7 | R03a-notdef-named | 4 | 4 | 8 / 5 | builds only | built: ADRs 2543, 2556, 2602, 2620, 2650 |
-| 8 | R16-annotations-and-forms | 4 | 4 | 15 / 18 | builds only | named per site |
-| 9 | R14-appended-page-composition | 3 | 2 | 3 / 3 | builds only | built: ADRs 2678, 2682 |
-| 10 | R01-recovered-structure | 1 | 1 | 3 / 3 | builds only | built: ADRs 2502, 2503, 2551, 2596, 2670; each left is refused by its own sentence |
-| 11 | R07-undecodable-stream | 1 | 2 | 1 / 2 | builds only | built: ADR 2689; the `UnknownFilter` files' `%PDF-3.x` header, ADR 2692; left, an ICC profile written as its alternate |
-| 12 | R12-spot-colourant | 1 | 1 | 1 / 1 | builds only | built for a PostScript calculator function: ADR 2690; left, a sampled transform, refused until its loss is named (ADR 2490) |
-| 13 | R05-press | 0 | 9 | 0 / 29 | builds only | A694 item 2: (a) built; (b)'s profile is written (ADR 2700), its route as part 4's DefaultCMYK is not |
-| 14 | R18-piece-info | 0 | 3 | 0 / 3 | builds only | unbuilt |
-| 15 | R15-embedded-files | 0 | 2 | 3 / 7 | builds only | built: ADR 2536 |
-| 16 | D-defect | — | — | 7 / 6 | defect | section 8: the converter's own, diagnosed rather than ranked |
-| 17 | R09-as-shown-font-losses | 0 | 0 | 121 / 121 | builds only | `as-shown` only; ADR 2490: (c) decided, (a) and (b) builds |
-| 18 | X1-dynamic-xfa | — | — | 4 / 4 | exception | CLAUDE.md's exclusion; §K.1 |
-| 19 | X2-no-page-to-see | — | — | 6 / 6 | exception | the reader draws no page of it |
+| 1 | R06b-the-other-part | 35 | 0 | 41 / 0 | built | ADR 2498: the two-target request; the figures are what a one-part request refuses; a `%PDF-3.x` source is written at 4 (ADR 2692) |
+| 2 | R03-photograph | 7 | 9 | 55 / 57 | builds only | built under `as-if-printed`: A694, ADRs 2516, 2618, 2638; left, a page this reader does not draw whole; `as-shown` keeps ADR 2394's gate (A694 item 1) |
+| 3 | R08-unembedded-font-photograph | 11 | 11 | 35 / 35 | builds only | built under `as-if-printed`: A694, ADR 2516; `as-shown` keeps its stop (A694 item 1) |
+| 4 | R10-font-refiling | 5 | 5 | 7 / 7 | builds only | built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685), a standard font's stated widths (ADR 2686), a mode 3 font's descriptor (ADR 2688), a glyf program under a CIDFontType0 (ADR 2716), a collection nothing reads (ADR 2717), a font written inside another object (ADR 2722), a code Annex D encodes twice in a glyf face (ADR 2723) |
+| 5 | R11-truetype-route | 5 | 5 | 7 / 7 | builds only | built: A694 item 3, ADR 2520 |
+| 6 | R03a-notdef-named | 4 | 4 | 8 / 5 | builds only | built: ADRs 2543, 2556, 2602, 2620, 2650 |
+| 7 | R16-annotations-and-forms | 4 | 4 | 15 / 18 | builds only | named per site |
+| 8 | R14-appended-page-composition | 3 | 2 | 3 / 3 | builds only | built: ADRs 2678, 2682 |
+| 9 | R01-recovered-structure | 1 | 1 | 3 / 3 | builds only | built: ADRs 2502, 2503, 2551, 2596, 2670; each left is refused by its own sentence |
+| 10 | R07-undecodable-stream | 1 | 2 | 1 / 2 | builds only | built: ADR 2689; the `UnknownFilter` files' `%PDF-3.x` header, ADR 2692; left, an ICC profile written as its alternate |
+| 11 | R12-spot-colourant | 1 | 1 | 1 / 1 | builds only | built for a PostScript calculator function: ADR 2690; left, a sampled transform, refused until its loss is named (ADR 2490) |
+| 12 | R05-press | 0 | 9 | 0 / 29 | builds only | A694 item 2: (a) built; (b)'s profile is written (ADR 2700), its route as part 4's DefaultCMYK is not |
+| 13 | R18-piece-info | 0 | 3 | 0 / 3 | builds only | unbuilt |
+| 14 | R15-embedded-files | 0 | 2 | 3 / 7 | builds only | built: ADR 2536 |
+| 15 | D-defect | — | — | 7 / 6 | defect | section 8: the converter's own, diagnosed rather than ranked |
+| 16 | R09-as-shown-font-losses | 0 | 0 | 121 / 121 | builds only | `as-shown` only; ADR 2490: (c) decided, (a) and (b) builds |
+| 17 | X1-dynamic-xfa | — | — | 4 / 4 | exception | CLAUDE.md's exclusion; §K.1 |
+| 18 | X2-no-page-to-see | — | — | 6 / 6 | exception | the reader draws no page of it |
 
 Under `as-shown` the largest row is R09 (121 documents at each part), then R03 and R08, each held by
 an answer of the owner's (A694 item 1) rather than by a build.
@@ -373,7 +372,7 @@ dictionary the resources the reader used — a copy of the form per page where t
 for a name nothing defines, an empty resource of its category (an empty form, an empty graphics
 state), which draws the nothing the reader drew. No byte of a content stream changes and no mark is
 added. A font name nothing defines is answered only where the reader advanced nothing for it, and is
-otherwise R03. ADR 2490; mitigations `graphics/named-resources-are-defined`. **Built** by ADR 2500; the standard-fourteen name's embedding is ADR 2522's, and the copy of the form per differing page, bounded at 256 copies and 32 MiB, is ADR 2523's. No census document is refused for the differing-pages shape, so that item moves tests and no count. Still refused by name: a Type 3 glyph procedure's resources, and a font that moved.
+otherwise R03. ADR 2490; mitigations `graphics/named-resources-are-defined`. **Built** by ADR 2500; the standard-fourteen name's embedding is ADR 2522's, and the copy of the form per differing page, bounded at 256 copies and 32 MiB, is ADR 2523's. No census document is refused for the differing-pages shape, so that item moves tests and no count. ADR 2746 built the last two: a Type 3 font stating no `/Resources` is given the object its pages state, or the union of their bindings where that draws each page as the reader did (`pr4922`); and a font that moved is the empty font wherever no glyph of a defined font is placed from the position its spacing left before the text matrix is set again (the five govdocs files, which `TD` after each such show). Still refused by name: a Type 3 font whose pages bind a glyph's name differently (a copy per page, owed; no census document), and a show whose spacing a later glyph stands on, or that clips.
 
 ## 6. Files, structure, annotations and attachments
 
@@ -544,7 +543,6 @@ disagrees with `/Widths` the refusal's sentence is `PROGRAM_NOT_RESTATABLE`.
 - R01-recovered-structure (3): corpora:143424271191706722106594310729442158189.pdf, corpora:A Defence of the New Tenseless Theory of Time.pdf, corpora:T02-03_006_page-object-missing.pdf
 - R03-photograph (59): corpora:020747.pdf, corpora:020806.pdf, corpora:027613.pdf, corpora:033689.pdf, corpora:040669.pdf, corpora:050734.pdf, corpora:064034.pdf, corpora:073439.pdf, corpora:150277.pdf, corpora:178360.pdf, corpora:189478.pdf, corpora:210260.pdf, corpora:219789.pdf, corpora:226387.pdf, corpora:268346.pdf, corpora:303226.pdf, corpora:367594.pdf, corpora:379049.pdf, corpora:392154.pdf, corpora:427669.pdf, corpora:435321.pdf, corpora:455746.pdf, corpora:477139.pdf, corpora:492484.pdf, corpora:498264.pdf, corpora:504076.pdf, corpora:507618.pdf, corpora:507676.pdf, corpora:509284.pdf, corpora:T02-05-01_006_font-size-operator-missing.pdf, corpora:T02-05-01_009_Missing_open_paranthesis.pdf, corpora:T02-05-01_011_paranthesis-substituted-with-brackets.pdf, corpora:T02-05-01_014_endstream-keyword-missing.pdf, corpora:hesr13613-sup-0001-Authormatrix.pdf, corpora:sakula.pdf, pdf.js:SimFang-variant.pdf, pdf.js:TAMReview.pdf, pdf.js:XiaoBiaoSong.pdf, pdf.js:boundingBox_invalid.pdf, pdf.js:bug1065245.pdf, pdf.js:bug1953099.pdf, pdf.js:issue17554.pdf, pdf.js:issue19484_1.pdf, pdf.js:issue19484_2.pdf, pdf.js:issue19517.pdf, pdf.js:issue19634.pdf, pdf.js:issue19971.pdf, pdf.js:issue20489.pdf, pdf.js:issue2128r.pdf, pdf.js:issue2391-1.pdf, pdf.js:issue3521.pdf, pdf.js:issue5010.pdf, pdf.js:issue5039.pdf, pdf.js:issue6342.pdf, pdf.js:issue6931_reduced.pdf, pdf.js:issue9252.pdf, pdf.js:poppler-90-0-fuzzed.pdf, pdf.js:sci-notation.pdf, pdf.js:smaskdim.pdf
 - R03a-notdef-named (8): corpora:027613.pdf, corpora:268346.pdf, corpora:477139.pdf, corpora:504076.pdf, corpora:507676.pdf, pdf.js:issue11768_reduced.pdf, pdf.js:issue14821.pdf, pdf.js:issue17333.pdf
-- R04-absent-resource (6): corpora:020747.pdf, corpora:027613.pdf, corpora:189478.pdf, corpora:219789.pdf, corpora:492484.pdf, pdf.js:pr4922.pdf
 - R05-press (29): corpora:0004-637X_751_2_90.pdf, corpora:0004-637X_752_1_11.pdf, corpora:1742-6596_375_00_001001.pdf, corpora:210260.pdf, corpora:219789.pdf, corpora:363_Risk-Based Management of Groundwater Contamination _Paper.pdf, corpora:382252277877c00a92f3bb54daef1413bafe5557e2f5f7c32c23e800cd9bdcd4.pdf, corpora:4387ba480c6f935b8e97749d40b3c001ad584b7bda66ca2c040be67337669497.pdf, corpora:443752.pdf, corpora:504076.pdf, corpora:E3_Mayhew_et_al_2009.pdf, corpora:LLMImplicationsforScience.pdf, corpora:NeilJairath_3.pdf, corpora:Orellana2022.pdf, corpora:PDF-Sample-Document-Fully-Featured-Layout_Redacted.pdf, corpora:carp2010-2.pdf, corpora:digitally_signed_3D_Portfolio.pdf, corpora:hae14831.pdf, corpora:jne5_4_l03.pdf, corpora:mattgib_1.pdf, corpora:me450f12project10_report.pdf, corpora:response-to-fiber-concerns[1].pdf, pdf.js:freeculture.pdf, pdf.js:issue10640.pdf, pdf.js:issue14627.pdf, pdf.js:issue269_2.pdf, pdf.js:issue6413.pdf, pdf.js:prefilled_f1040.pdf, pdf.js:stamps.pdf
 - R06b-the-other-part (42): corpora:020747.pdf, corpora:020806.pdf, corpora:027613.pdf, corpora:033689.pdf, corpora:040669.pdf, corpora:150277.pdf, corpora:219789.pdf, corpora:268346.pdf, corpora:427669.pdf, corpora:477139.pdf, corpora:492484.pdf, corpora:507676.pdf, corpora:PDF 2.0 UTF-8 string and annotation.pdf, corpora:PDF 2.0 image with BPC.pdf, corpora:PDF 2.0 via incremental save.pdf, corpora:PDF 2.0 with offset start.pdf, corpora:PDF 2.0 with page level output intent.pdf, corpora:Simple PDF 2.0 file.pdf, corpora:T01_001_header-invalid-major-version.pdf, corpora:UnknownFilter-Font.pdf, corpora:UnknownFilter-FormXObject.pdf, corpora:UnknownFilter-ICC.pdf, corpora:UnknownFilter-ImageXObject.pdf, corpora:UnknownFilter-Linearized.pdf, corpora:UnknownFilter-OutlineObjStm.pdf, corpora:UnknownFilter-PageContentStream.pdf, corpora:UnknownFilter-objstm.pdf, corpora:UnknownFilter-xrefstm.pdf, corpora:pdf20-utf8-test.pdf, pdf.js:auth-event-ef-open.pdf, pdf.js:bug1937438_af_from_latex.pdf, pdf.js:bug1937438_mml_from_latex.pdf, pdf.js:bug1997343.pdf, pdf.js:bug2009627.pdf, pdf.js:bug2025674.pdf, pdf.js:bug854315.pdf, pdf.js:issue14755.pdf, pdf.js:issue17069.pdf, pdf.js:issue19176.pdf, pdf.js:issue3928.pdf, pdf.js:issue6151.pdf, pdf.js:poppler-67295-0.pdf
 - R07-undecodable-stream (2): corpora:UnknownFilter-ICC.pdf, pdf.js:poppler-742-0-fuzzed.pdf

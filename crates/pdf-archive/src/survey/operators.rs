@@ -13,6 +13,11 @@ impl Walk<'_> {
     ///
     /// ISO 32000-2 §8.10.1 starts a form `XObject` in the graphics state in force at `Do`, so
     /// the inherited state is a copy and what the form does to it does not return.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one match over the walk's steps whose arms share the operands being gathered; \
+                  splitting it would pass those six locals to every piece"
+    )]
     pub(super) fn run(
         &mut self,
         reader: &mut ContentReader<'_>,
@@ -40,6 +45,9 @@ impl Walk<'_> {
         // the operator decide is what makes those three the same case here.
         let mut strings: Vec<Vec<u8>> = Vec::new();
         let mut numbers = Numbers::default();
+        let mut strings_complete = true;
+        // A show that moved where the reader did not: [`Self::place_from`], ISO 32000-2 §9.4.4.
+        let mut displaced: Option<super::MovingShow> = None;
         // §14.6.2's property list, where the operator being assembled was given one written
         // into its operands rather than named through the resources.
         let mut property: Option<Dictionary> = None;
@@ -91,11 +99,7 @@ impl Walk<'_> {
                 }
                 Step::Text(text) => {
                     self.note_length(text.len(), page, Extent::String);
-                    // Bounded by the same budget the kept strings are, so a stream of literals
-                    // between two operators cannot grow this vector without one.
-                    if text.len() <= self.shown_budget {
-                        strings.push(text);
-                    }
+                    strings_complete &= self.keep_string(text, &mut strings);
                 }
                 Step::Unlisted(word) => {
                     if let Some(ledger) = &mut self.ledger {
@@ -104,6 +108,7 @@ impl Walk<'_> {
                     self.note_unlisted_operator(&word, page, origin);
                     names.clear();
                     strings.clear();
+                    strings_complete = true;
                     numbers = Numbers::default();
                     property = None;
                 }
@@ -120,6 +125,7 @@ impl Walk<'_> {
                         record: origin.record,
                         marks_base: base,
                     };
+                    self.place_from(&operator, &state, &context, &mut displaced);
                     self.apply(
                         &operator,
                         &mut state,
@@ -129,17 +135,65 @@ impl Walk<'_> {
                             strings: &strings,
                             integer: numbers.last_integer,
                             nonzero: numbers.nonzero,
+                            strings_complete,
                             property: property.as_ref(),
                         },
                         &context,
                         reader,
                     );
+                    displaced = displaced.or(self.displacing.take());
                     names.clear();
                     strings.clear();
+                    strings_complete = true;
                     numbers = Numbers::default();
                     property = None;
                 }
             }
+        }
+    }
+
+    /// Keeps a string operand where the budget allows, and says whether it did.
+    ///
+    /// Bounded by the same budget the kept strings are, so a stream of literals between two
+    /// operators cannot grow the vector without one.
+    fn keep_string(&self, text: Vec<u8>, strings: &mut Vec<Vec<u8>>) -> bool {
+        let kept = text.len() <= self.shown_budget;
+        if kept {
+            strings.push(text);
+        }
+        kept
+    }
+
+    /// Settles the pending show a spacing moved, for the operator about to run (`doc/adr/2746`).
+    ///
+    /// An operator that sets the text matrix again from the line matrix, or begins or ends a text
+    /// object, drops it. A text-showing operator under a defined font places a glyph from the
+    /// moved position, which makes the move a mark, so the show is recorded; under an undefined
+    /// font both the reader and the empty font draw nothing and the span goes on.
+    fn place_from(
+        &mut self,
+        operator: &Operator,
+        state: &State,
+        context: &Context<'_>,
+        displaced: &mut Option<super::MovingShow>,
+    ) {
+        match operator {
+            Operator::Position
+            | Operator::Show {
+                starts_line: true, ..
+            } => *displaced = None,
+            Operator::Show { .. } => {
+                if displaced.is_some()
+                    && state
+                        .font
+                        .as_ref()
+                        .is_some_and(|font| self.peek("Font", font, context).is_some())
+                    && let Some(show) = displaced.take()
+                {
+                    self.record_moving_show(show);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -184,17 +238,14 @@ impl Walk<'_> {
                 }
             }
             Operator::SetSpacing { word } => state.set_spacing(word, operands.nonzero),
-            Operator::Show {
-                starts_line,
-                sets_spacing,
-            } => {
+            Operator::Show { sets_spacing, .. } => {
                 if sets_spacing {
                     // `aw ac string "` sets both before it shows; one flag for both operands can
                     // only over-report a spacing, which keeps the font refused.
                     state.set_spacing(true, operands.nonzero);
                     state.set_spacing(false, operands.nonzero);
                 }
-                self.show(state, operands, starts_line, context);
+                self.show(state, operands, context);
             }
             Operator::Invoke => {
                 if let Some(name) = operands.first().cloned() {
@@ -255,7 +306,7 @@ impl Walk<'_> {
                     self.note_language(&list, context.page);
                 }
             }
-            Operator::Other => {}
+            Operator::Position | Operator::Other => {}
         }
     }
 }

@@ -163,22 +163,31 @@ impl Walk<'_> {
         found
     }
 
-    /// Records that a text-showing operator ran under a font name nothing defines, and did more
-    /// than show glyphs (`doc/adr/2500`).
-    pub(super) fn note_moving_show(&mut self, name: &[u8], context: &Context<'_>) {
+    /// The record of a text-showing operator that ran under a font name nothing defines and did
+    /// more than show glyphs, `None` where the name is defined (`doc/adr/2500`).
+    pub(super) fn moving_show(&self, name: &[u8], context: &Context<'_>) -> Option<MovingShow> {
         if self.peek("Font", name, context).is_some() {
-            return;
+            return None;
         }
         let object = context
             .record
             .and_then(|record| self.survey.streams.get(record))
             .and_then(|opened| opened.object);
-        if self.first_time(Observation::MovingShow(context.page, name.to_vec(), object)) {
-            self.survey.moving_shows.push(MovingShow {
-                page: context.page,
-                name: name.to_vec(),
-                object,
-            });
+        Some(MovingShow {
+            page: context.page,
+            name: name.to_vec(),
+            object,
+        })
+    }
+
+    /// Records a show [`Self::moving_show`] described, once for each page, name and stream.
+    pub(super) fn record_moving_show(&mut self, show: MovingShow) {
+        if self.first_time(Observation::MovingShow(
+            show.page,
+            show.name.clone(),
+            show.object,
+        )) {
+            self.survey.moving_shows.push(show);
         }
     }
 

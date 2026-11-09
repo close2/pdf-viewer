@@ -273,20 +273,104 @@ fn a_font_nothing_defines_is_an_empty_type_3_font_where_only_glyphs_were_shown()
     }
 }
 
+/// A Type 3 font, object 6, whose glyph `a` (code 97) fills a square of its width (§9.6.4).
+const SQUARE_FONT: &str = "<< /Type /Font /Subtype /Type3 /FontBBox [0 0 750 750] \
+     /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs << /a 7 0 R >> \
+     /Encoding << /Type /Encoding /Differences [97 /a] >> /FirstChar 97 /LastChar 97 \
+     /Widths [1000] /Resources << >> >>";
+
+/// The square glyph of [`SQUARE_FONT`], object 7.
+fn square_glyph() -> Vec<u8> {
+    stream("", b"1000 0 0 0 750 750 d1 0 0 750 750 re f")
+}
+
+/// A page that draws `content` with [`SQUARE_FONT`] as `/F1`, and no definition of `/Nope`.
+fn page_with_square_font(target: Target, content: &str) -> Vec<u8> {
+    Conforming {
+        objects: vec![SQUARE_FONT.to_owned()],
+        binary_objects: vec![square_glyph()],
+        ..page_of(target, "/Font << /F1 6 0 R >>", content)
+    }
+    .build()
+}
+
+/// Where the first page of a file is dark, drawn on the processor at twice 72 dpi.
+///
+/// The mask and not the pixels, because the output's intent manages the device colours the
+/// source left unmanaged (`doc/adr/2691`), and the question is where the marks stand.
+fn dark_pixels(bytes: &[u8]) -> Vec<bool> {
+    use pdf_render::Rasterizer as _;
+    let document = Document::open(bytes.to_vec()).expect("document");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page");
+    let drawn = pdf_model::interpret(&document, &page);
+    let target =
+        pdf_render::TargetSpec::for_page(&drawn.display_list, 2.0, 32 << 20).expect("target");
+    let raster = render_cpu::CpuRasterizer::new()
+        .rasterize(&drawn.display_list, target)
+        .expect("raster");
+    raster.data.chunks(4).map(|pixel| pixel[0] < 128).collect()
+}
+
 #[test]
-fn a_font_nothing_defines_stays_refused_where_text_moved_more_than_its_widths() {
-    // A plant for the survey's record of what a show did: each of these would move the text
-    // position, or the clip, by something an empty font would do and the reader did not.
+fn a_font_nothing_defines_is_empty_where_no_later_glyph_is_placed_from_where_it_moved() {
+    // ISO 32000-2 §9.4.4: a glyph moves the position by `((w0 - Tj/1000) × Tfs + Tc + Tw) × Th`.
+    // A `TJ` adjustment and the line a `'` or `"` starts move it by amounts no font enters, so
+    // the reader with no font and the empty font move alike; a spacing moves only the empty
+    // font, and only a later glyph placed from that text matrix could show it. `Td`, `Tm`, `T*`
+    // and a new `BT` set the matrix again from the line matrix (§9.4.2, Table 106), and a show
+    // under the same undefined name places nothing.
     for content in [
         "BT /Nope 12 Tf 2 Tc (abc) Tj ET",
-        "BT /Nope 12 Tf 5 Tw (abc) Tj ET",
-        "BT /Nope 12 Tf [(a) 120 (b)] TJ ET",
+        "BT /Nope 12 Tf 5 Tw (a c) Tj ET",
         "BT /Nope 12 Tf 14 TL (abc) ' ET",
         "BT /Nope 12 Tf 1 2 (abc) \" ET",
+        "BT /Nope 24 Tf 10 50 Td [(aa) -500 (a)] TJ /F1 24 Tf (a) Tj ET",
+        "BT /Nope 24 Tf 10 50 Td 3 Tc (aaa) Tj 0 30 Td /F1 24 Tf 0 Tc (a) Tj ET",
+        "BT /Nope 24 Tf 10 50 Td 3 Tc (aaa) Tj 1 0 0 1 40 40 Tm /F1 24 Tf (a) Tj ET",
+        "BT /Nope 24 Tf 30 TL 10 50 Td 3 Tc (aaa) Tj T* /F1 24 Tf (a) Tj ET",
+        "BT /Nope 24 Tf 10 50 Td 3 Tc (aaa) Tj (a) Tj ET BT 10 50 Td /F1 24 Tf (a) Tj ET",
+        "BT /Nope 24 Tf 10 50 Td 3 Tc (aaa) Tj 30 TL /F1 24 Tf (a) ' ET",
+    ] {
+        for target in TARGETS {
+            let source = page_with_square_font(target, content);
+            let (report, output) = convert(&source, target, Authorisations::default());
+            assert!(
+                matches!(
+                    decision(&report, NAMED),
+                    Decision::Mechanical(Rewrite::EmptyResourceDefined)
+                ),
+                "{content}"
+            );
+            let output = output.expect("the font is defined");
+            assert_eq!(
+                holds(&output, target).verdict(),
+                Verdict::Conforms,
+                "{content}"
+            );
+            assert_eq!(
+                dark_pixels(&output),
+                dark_pixels(&source),
+                "{content}: the output places its marks where the source did"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_font_nothing_defines_stays_refused_where_a_later_glyph_is_placed_from_where_it_moved() {
+    // The plant for the span above: each is a shape it accepts with the operator that set the
+    // matrix again taken out, so a glyph drawn by `/F1` stands where the empty font's spacing
+    // left the position and the reader's did not. A clipping mode adds the glyphs to the clip
+    // whatever follows.
+    for content in [
+        "BT /Nope 24 Tf 10 50 Td 3 Tc (aaa) Tj /F1 24 Tf 0 Tc (a) Tj ET",
+        "BT /Nope 24 Tf 10 50 Td 5 Tw (a a) Tj /F1 24 Tf 0 Tw [(a)] TJ ET",
+        "BT /Nope 24 Tf 10 50 Td 3 Tc (aaa) Tj (a) Tj /F1 24 Tf (a) Tj ET",
+        "BT /Nope 24 Tf 10 50 Td 0 3 (aaa) \" /F1 24 Tf (a) Tj ET",
         "BT /Nope 12 Tf 7 Tr (abc) Tj ET",
     ] {
         let target = Target::Two(Level::B);
-        let source = page_of(target, "", content).build();
+        let source = page_with_square_font(target, content);
         let (report, output) = convert(&source, target, Authorisations::default());
         assert!(
             matches!(
@@ -818,5 +902,138 @@ fn a_property_list_nothing_defines_is_a_membership_dictionary_naming_no_group() 
             Some(b"OCMD".to_vec())
         );
         assert_eq!(content_of(&document, &normal), appearance);
+    }
+}
+
+/// A Type 3 font stating no `/Resources`, object 6, whose glyph `a` (code 97) selects `/G1` and
+/// glyph `b` (code 98) selects `/G2` before filling a square (§9.6.4). Code 99 is in no
+/// `Differences` entry.
+const PAGE_READ_FONT: &str = "<< /Type /Font /Subtype /Type3 /FontBBox [0 0 750 750] \
+     /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs << /a 7 0 R /b 8 0 R >> \
+     /Encoding << /Type /Encoding /Differences [97 /a /b] >> /FirstChar 97 /LastChar 99 \
+     /Widths [1000 1000 1000] >>";
+
+/// Two pages that show `text` in [`PAGE_READ_FONT`]: the first states its resources directly,
+/// with `/G1`; the second names object 11, with `/G1` and `second` as its other graphics states.
+///
+/// Objects: 6 the font, 7 and 8 its glyph procedures, 9 and 10 two graphics states, 11 the
+/// second page's resources, 12 the second page.
+fn pages_showing_a_page_read_font(target: Target, text: &str, second: &str) -> Vec<u8> {
+    Conforming {
+        objects: vec![
+            PAGE_READ_FONT.to_owned(),
+            glyph_selecting("/G1"),
+            glyph_selecting("/G2"),
+            "<< /Type /ExtGState /LW 1 >>".to_owned(),
+            "<< /Type /ExtGState /LW 2 >>".to_owned(),
+            format!("<< /Font << /T3 6 0 R >> /ExtGState << {second} >> >>"),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources 11 0 R \
+             /Contents 4 0 R >>"
+                .to_owned(),
+        ],
+        more_pages: vec![12],
+        ..page_of(
+            target,
+            "/Font << /T3 6 0 R >> /ExtGState << /G1 9 0 R >>",
+            &format!("BT /T3 24 Tf 10 50 Td ({text}) Tj ET"),
+        )
+    }
+    .build()
+}
+
+/// A glyph procedure that selects graphics state `state` and fills a square of its width.
+fn glyph_selecting(state: &str) -> String {
+    let body = stream(
+        "",
+        format!("1000 0 0 0 750 750 d1 {state} gs 0 0 750 750 re f").as_bytes(),
+    );
+    String::from_utf8(body).expect("the procedure is text")
+}
+
+/// The font `/T3` of a converted file's page `index`, and its `/Resources`.
+fn page_read_font(document: &Document, index: usize) -> Dictionary {
+    let page = pdf_model::Pages::new(document)
+        .get(index)
+        .expect("page")
+        .dict;
+    let resources = document.get_key(&page, "Resources");
+    let fonts = document.get_key(resources.as_dict().expect("resources"), "Font");
+    let font = document.get_key(fonts.as_dict().expect("fonts"), "T3");
+    let own = document.get_key(font.as_dict().expect("the font"), "Resources");
+    own.as_dict().expect("the font's resources").clone()
+}
+
+#[test]
+fn a_type_3_font_stating_no_resources_is_given_the_bindings_its_pages_read_it_against() {
+    // ISO 32000-2 §9.6.4 reads the glyph procedures of a Type 3 font stating no Resources against
+    // the page's, and ISO 19005 section 6.2.2 asks them for an explicit dictionary that defines
+    // each name (`pr4922`'s shape). `/G2` is defined on the second page only, and the procedure
+    // naming it, `b`, is shown on neither, so on each page every glyph shown resolves its names to
+    // what that page's dictionary says, and the union of the two says the same.
+    for target in TARGETS {
+        let source = pages_showing_a_page_read_font(target, "a", "/G1 9 0 R /G2 10 0 R");
+        let (report, output) = convert(&source, target, Authorisations::default());
+        assert!(matches!(
+            decision(&report, EXPLICIT),
+            Decision::Mechanical(Rewrite::PageResources)
+        ));
+        let output = output.unwrap_or_else(|| panic!("{}", super::conversion(&report).render()));
+        assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+        let document = Document::open_with_limits(output.clone(), Limits::DEFAULT).expect("output");
+        for index in 0..2 {
+            let own = page_read_font(&document, index);
+            assert_eq!(names_in(&document, &own, "ExtGState"), ["G1", "G2"]);
+            assert_eq!(names_in(&document, &own, "Font"), ["T3"]);
+        }
+        assert_eq!(dark_pixels(&output), dark_pixels(&source));
+    }
+}
+
+#[test]
+fn a_type_3_font_whose_pages_read_a_glyph_differently_stays_refused() {
+    // Each is the shape above with one thing changed so that no one dictionary in the font draws
+    // what both pages drew: the first page shows `b`, whose `/G2` it does not define and the
+    // second page does; the second page binds `/G1` to another object; the first page shows a
+    // code no `Differences` entry names, so which procedures it ran is not known.
+    for (text, second) in [
+        ("ab", "/G1 9 0 R /G2 10 0 R"),
+        ("a", "/G1 10 0 R"),
+        ("ac", "/G1 9 0 R /G2 10 0 R"),
+    ] {
+        let target = Target::Two(Level::B);
+        let source = pages_showing_a_page_read_font(target, text, second);
+        let (report, output) = convert(&source, target, Authorisations::default());
+        assert!(
+            matches!(
+                decision(&report, EXPLICIT),
+                Decision::Refused(Because::NotBuiltYet(_))
+            ),
+            "{text} {second}"
+        );
+        assert!(output.is_none(), "{text} {second}");
+    }
+}
+
+#[test]
+fn a_name_a_type_3_glyph_looks_up_and_no_page_defines_is_defined_empty_in_the_font() {
+    // `b` names `/G2`, which neither page defines: the reader drew `b` with no graphics state
+    // change, and an empty graphics state (§8.4.5, Table 57: every entry optional) draws the same.
+    // It is written into the font's dictionary, where the glyph now reads its names.
+    for target in TARGETS {
+        let source = pages_showing_a_page_read_font(target, "ab", "/G1 9 0 R");
+        let (report, output) = convert(&source, target, Authorisations::default());
+        assert!(matches!(
+            decision(&report, NAMED),
+            Decision::Mechanical(Rewrite::EmptyResourceDefined)
+        ));
+        let output = output.unwrap_or_else(|| panic!("{}", super::conversion(&report).render()));
+        assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+        let document = Document::open_with_limits(output.clone(), Limits::DEFAULT).expect("output");
+        let own = page_read_font(&document, 0);
+        assert_eq!(names_in(&document, &own, "ExtGState"), ["G1", "G2"]);
+        let states = document.get_key(&own, "ExtGState");
+        let empty = document.get_key(states.as_dict().expect("states"), "G2");
+        assert_eq!(empty.as_dict().map(Dictionary::len), Some(0));
+        assert_eq!(dark_pixels(&output), dark_pixels(&source));
     }
 }

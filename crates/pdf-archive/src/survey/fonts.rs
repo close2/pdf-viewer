@@ -6,17 +6,18 @@ use pdf_syntax::Object;
 use pdf_syntax::object::Name;
 use std::collections::BTreeMap;
 
-use super::{Context, FontKey, Mark, Operands, Replacement, SelectedFont, State, Walk, widen};
+use std::collections::BTreeSet;
+
+use pdf_syntax::object::ObjectId;
+
+use super::{
+    Context, FontKey, Glyph, GlyphsShown, Mark, Operands, Replacement, SelectedFont, State, Walk,
+    widen,
+};
 
 impl Walk<'_> {
     /// A text-showing operator: the font it ran with, and the marks it made.
-    pub(super) fn show(
-        &mut self,
-        state: &State,
-        operands: &Operands<'_>,
-        starts_line: bool,
-        context: &Context<'_>,
-    ) {
+    pub(super) fn show(&mut self, state: &State, operands: &Operands<'_>, context: &Context<'_>) {
         let Some(name) = state.font.clone() else {
             return;
         };
@@ -25,26 +26,28 @@ impl Walk<'_> {
         let font = self.select(&name, context, state.mode != 3, operands.strings);
         if font.is_none() {
             self.select_undefined(&name, context, state.mode != 3, operands.strings);
-        }
-        // Whether an empty font would have done more than the reader did without one, which drew
-        // nothing and moved nothing (ISO 32000-2 §9.4.4's glyph displacement `tx` is the width
-        // plus the character and word spacing, and a `TJ` adjustment moves the position by its
-        // own amount): see [`MovingShow`]. A clipping mode adds the glyphs to the clip, and an
-        // empty set of glyphs is not the clip the reader kept.
-        let moves = starts_line
-            || operands.nonzero
-            || state.char_spaced
-            || state.word_spaced
-            || !(0..=3).contains(&state.mode);
-        if font.is_none() && moves {
-            self.note_moving_show(&name, context);
+            // Whether an empty font would have done more than the reader did without one: see
+            // [`MovingShow`]. A clipping mode adds the glyphs to the clip, and an empty set of
+            // glyphs is not the clip the reader kept, so it is recorded at once; a spacing moves
+            // the position, which is a mark only if a later glyph is placed from it, and the
+            // stream's loop decides that.
+            if !(0..=3).contains(&state.mode) {
+                if let Some(show) = self.moving_show(&name, context) {
+                    self.record_moving_show(show);
+                }
+            } else if state.char_spaced || state.word_spaced {
+                self.displacing = self.moving_show(&name, context);
+            }
         }
         // ISO 32000-2 §9.3.6: modes 0, 2, 4 and 6 fill and modes 1, 2, 5 and 6 stroke, so the
         // colour space in force is used exactly as a path-painting operator would use it.
         let fills = matches!(state.mode, 0 | 2 | 4 | 6);
         let strokes = matches!(state.mode, 1 | 2 | 5 | 6);
         self.paint(fills, strokes, state, context);
-        if let Some(font) = font {
+        if let Some((font, id)) = font {
+            if let Some(id) = id {
+                self.note_type3_glyphs(&font, id, operands, context.page);
+            }
             self.type3(&font, state, context);
         }
     }
@@ -56,7 +59,7 @@ impl Walk<'_> {
         context: &Context<'_>,
         rendered: bool,
         strings: &[Vec<u8>],
-    ) -> Option<Dictionary> {
+    ) -> Option<(Dictionary, Option<ObjectId>)> {
         let entry = self.look_up("Font", name, context, context.what)?;
         let id = entry.as_reference();
         let Object::Dictionary(dict) = self.document.resolve(&entry) else {
@@ -87,7 +90,7 @@ impl Walk<'_> {
             context.page,
             &mut self.shown_budget,
         );
-        Some(dict)
+        Some((dict, id))
     }
 
     /// Records the text shown under a font name nothing defines, where the name is one of
@@ -132,6 +135,53 @@ impl Walk<'_> {
             context.page,
             &mut self.shown_budget,
         );
+    }
+
+    /// Records which glyph procedures of a Type 3 font stating no `/Resources` this show
+    /// selected on this page (`doc/adr/2746`).
+    ///
+    /// ISO 32000-2 §9.6.4's Table 110: a Type 3 font is simple, so each byte is a code, and its
+    /// `Encoding` "shall" be a dictionary whose `Differences` array specifies the complete
+    /// character encoding, mapping each code to a name that `CharProcs` maps to its procedure.
+    /// Anything that does not follow that path is [`GlyphsShown::Unknown`], which counts every
+    /// procedure as shown.
+    fn note_type3_glyphs(
+        &mut self,
+        font: &Dictionary,
+        id: ObjectId,
+        operands: &Operands<'_>,
+        page: usize,
+    ) {
+        if !is_type3_without_resources(self.document, font) {
+            return;
+        }
+        let document = self.document;
+        let codes = self
+            .type3_codes
+            .entry(id)
+            .or_insert_with(|| type3_codes(document, font));
+        let mut shown = BTreeSet::new();
+        let mut unknown = !operands.strings_complete;
+        for code in operands.strings.iter().flatten() {
+            // A code is a byte and the table has 256 entries, so the index is always in it.
+            match codes[usize::from(*code)] {
+                Glyph::Procedure(procedure) => {
+                    shown.insert(procedure);
+                }
+                Glyph::Absent => {}
+                Glyph::Unknown => unknown = true,
+            }
+        }
+        let entry = self
+            .survey
+            .type3_glyphs
+            .entry((page, id))
+            .or_insert_with(|| GlyphsShown::These(BTreeSet::new()));
+        match entry {
+            GlyphsShown::These(_) if unknown => *entry = GlyphsShown::Unknown,
+            GlyphsShown::These(set) => set.extend(shown),
+            GlyphsShown::Unknown => {}
+        }
     }
 
     /// ISO 32000-2 §9.6.4: a Type 3 font's glyphs are content streams of their own.
@@ -189,6 +239,50 @@ impl Walk<'_> {
             );
         }
     }
+}
+
+/// Whether a font is a Type 3 font that states no `/Resources`, whose glyph procedures ISO 32000-2
+/// §9.6.4 reads against the resources of the page showing them.
+fn is_type3_without_resources(document: &pdf_syntax::Document, font: &Dictionary) -> bool {
+    document
+        .get_key(font, "Subtype")
+        .as_name()
+        .is_some_and(|name| name.as_bytes() == b"Type3")
+        && document.get_key(font, "Resources").as_dict().is_none()
+}
+
+/// What each of a Type 3 font's 256 codes selects, from its `Encoding`'s `Differences` and its
+/// `CharProcs` (ISO 32000-2 §9.6.4, Table 110; §9.6.5.1, Table 112's `Differences`).
+fn type3_codes(document: &pdf_syntax::Document, font: &Dictionary) -> Vec<Glyph> {
+    let mut codes = vec![Glyph::Unknown; 256];
+    let encoding = document.get_key(font, "Encoding");
+    let Some(encoding) = encoding.as_dict() else {
+        return codes;
+    };
+    let procedures = document.get_key(font, "CharProcs");
+    let procedures = procedures.as_dict();
+    let differences = document.get_key(encoding, "Differences");
+    let Some(differences) = differences.as_array() else {
+        return codes;
+    };
+    let mut next: Option<usize> = None;
+    for item in differences {
+        match document.resolve(item) {
+            Object::Integer(code) => next = usize::try_from(code).ok(),
+            Object::Name(name) => {
+                if let Some(slot) = next.and_then(|code| codes.get_mut(code)) {
+                    *slot = match procedures.and_then(|table| table.get_by_name(&name)) {
+                        None => Glyph::Absent,
+                        Some(Object::Reference(procedure)) => Glyph::Procedure(*procedure),
+                        Some(_) => Glyph::Unknown,
+                    };
+                }
+                next = next.map(|code| code.saturating_add(1));
+            }
+            _ => next = None,
+        }
+    }
+    codes
 }
 
 /// The font dictionary a conversion writes for a resource name that is one of §9.6.2.2's fourteen
