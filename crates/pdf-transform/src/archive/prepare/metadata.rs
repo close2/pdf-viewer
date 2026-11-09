@@ -1601,6 +1601,9 @@ pub(super) struct Recording<'a> {
     /// Which graphics states had overprint mode 1 written 0 where a `DeviceCMYK` mark was painted
     /// under it (`doc/adr/2693`).
     pub(super) overprint_modes: Option<&'a str>,
+    /// Which graphics states had overprint mode 1 written 0 beside the `/DefaultCMYK` that made
+    /// the `DeviceCMYK` marks they governed `ICCBased` ones (`doc/adr/2749`).
+    pub(super) default_overprint_modes: Option<&'a str>,
     /// Which runs were written as the number this reader draws, where any were (`doc/adr/2638`).
     pub(super) as_drawn: Option<&'a str>,
     /// Which streams no reader decodes were written absent, where any were (`doc/adr/2689`).
@@ -1731,7 +1734,7 @@ fn recorded_events<'a>(recording: &Recording<'a>) -> Vec<xmp::Event<'a>> {
         return Vec::new();
     };
     let non_empty = |text: &'a str| (!text.is_empty()).then_some(text);
-    let actions: [(&'a str, Option<&'a str>); 23] = [
+    let actions: [(&'a str, Option<&'a str>); 24] = [
         (DEFAULT_CMYK_ACTION, recording.default_cmyk),
         (REMOVED_PROPERTIES_ACTION, non_empty(recording.removals)),
         (REMOVED_PROPERTIES_ACTION, non_empty(recording.discards)),
@@ -1749,6 +1752,7 @@ fn recorded_events<'a>(recording: &Recording<'a>) -> Vec<xmp::Event<'a>> {
         (SMOOTHING_OFF_ACTION, recording.smoothing),
         (SMOOTHING_OFF_ACTION, recording.halftone_names),
         (SMOOTHING_OFF_ACTION, recording.overprint_modes),
+        (SMOOTHING_OFF_ACTION, recording.default_overprint_modes),
         (SMOOTHING_OFF_ACTION, recording.as_drawn),
         (SMOOTHING_OFF_ACTION, recording.undecodable),
         (HEADER_ACTION, recording.header),

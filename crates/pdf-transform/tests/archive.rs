@@ -16159,6 +16159,8 @@ mod statement;
 mod assumed_inks_default;
 #[path = "archive/carried_information.rs"]
 mod carried_information;
+#[path = "archive/overprint_beside_a_default.rs"]
+mod overprint_beside_a_default;
 #[path = "archive/press_assumed.rs"]
 mod press_assumed;
 #[path = "archive/press_statements.rs"]

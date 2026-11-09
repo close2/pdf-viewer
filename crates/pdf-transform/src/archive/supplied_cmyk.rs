@@ -97,6 +97,10 @@ pub(super) struct SuppliedCmyk {
     pub(super) space: ObjectId,
     /// The two objects this conversion adds for it: the profile stream and the array naming it.
     pub(super) written: [(ObjectId, Object); 2],
+    /// The graphics states whose overprint mode 1 is written 0 beside the default, because the
+    /// `DeviceCMYK` marks they govern become `ICCBased` ones under it: empty unless the caller
+    /// authorised [`Loss::OverprintMode`](super::decision::Loss::OverprintMode) (`doc/adr/2749`).
+    pub(super) modes: super::overprint::OverprintModes,
 }
 
 /// What writing the `/DefaultCMYK` asserts, which `doc/adr/0927` makes travel with the decision.
@@ -229,14 +233,17 @@ const SUPPLIED_NOT_CMYK: &str = "this file draws in DeviceCMYK, or blends a tran
 /// for an `ICCBased` CMYK mark with overprinting on. Writing the default would leave the file
 /// failing that clause, for the operator's press as for the assumed one, so neither is written
 /// and the refusal is this one rather than the output's own verdict (`doc/adr/2518`,
-/// `doc/adr/2541`).
+/// `doc/adr/2541`). Where the caller authorised the loss and every state can be reached, the
+/// states are written 0 instead (`doc/adr/2749`).
 const OVERPRINT_MODE_ONE: &str = "this file paints in DeviceCMYK with overprinting on and overprint \
      mode 1, or its content could not be read to the end to say that it does not, and a \
      DefaultCMYK over an ICC profile makes those marks ICCBased CMYK marks, for which ISO 19005 \
      section 6.2.4.2 forbids overprint mode 1. No DefaultCMYK is written for it, whatever press \
-     is named: the mode is set by a graphics state this conversion does not set to 0, because \
-     no ICCBased CMYK mark of the file's own is painted under it, and a file left with the mode \
-     would not conform";
+     is named: the mode is set by a graphics state this conversion does not set to 0. No \
+     ICCBased CMYK mark of the file's own asks for it, and setting it to 0 beside the default, \
+     the loss overprint-mode, is either not authorised or not possible - the state is written \
+     inside a resource dictionary, or the mark is blended in four components, where this \
+     reader's window would move (doc/adr/2749). A file left with the mode would not conform";
 
 /// Why no default is written for a document whose content selects no `DeviceCMYK`.
 const NOTHING_IN_CMYK: &str = "nothing this document draws selects DeviceCMYK, so a DefaultCMYK \
@@ -284,12 +291,19 @@ fn zeroed_with_the_icc_marks(survey: &Survey, mark: &ProcessCmykOverprint) -> bo
 /// authorised [`Loss::PressAssumed`](super::decision::Loss::PressAssumed), and the assumed inks'
 /// profile otherwise. It is read only when the operator supplied none: a supply outranks it,
 /// including one that is not a CMYK profile.
+///
+/// `zero_modes` is whether the caller authorised [`Loss::OverprintMode`](super::decision::Loss::OverprintMode)
+/// at part 4, where the default is the only licence for `DeviceCMYK` left: a `DeviceCMYK` mark
+/// overprinting under mode 1 then has its graphics state's mode written 0 beside the default
+/// rather than keeping the default from being written (`doc/adr/2749`). Part 2 passes `false`,
+/// because its `DeviceN` default leaves the marks `DeviceCMYK` and costs nothing.
 pub(super) fn prepare(
     document: &Document,
     intent: &Intent,
     supplied: Option<&[u8]>,
     assumed: Option<(Press, &[u8])>,
     survey: Option<&Survey>,
+    zero_modes: bool,
     spare: &mut Spare,
 ) -> Result<SuppliedCmyk, Because> {
     if intent.family == DeviceFamily::Cmyk {
@@ -311,19 +325,26 @@ pub(super) fn prepare(
         return Err(Because::NotBuiltYet(NOTHING_IN_CMYK));
     }
     // A `DefaultCMYK` turns every `DeviceCMYK` mark under the mode into an `ICCBased` one, which
-    // section 6.2.4.2 forbids the mode for. The default is written only where each such mark's
-    // mode is set by a graphics state `overprint::zeroing` sets to 0 for the file's own
-    // `ICCBased` marks, and never past a walk a bound stopped before it could say there is no
-    // other (`doc/adr/2518`, `doc/adr/2541`).
-    if survey.is_some_and(|s| {
-        s.stopped_short()
-            || !s
+    // section 6.2.4.2 forbids the mode for. The default is written where each such mark's mode is
+    // set by a graphics state `overprint::zeroing` sets to 0 for the file's own `ICCBased` marks,
+    // or, where the caller authorised the loss `overprint-mode`, by one `overprint::under_a_default`
+    // sets to 0 beside it; never past a walk a bound stopped before it could say there is no
+    // other (`doc/adr/2518`, `doc/adr/2541`, `doc/adr/2749`).
+    let modes = match survey {
+        Some(s) if s.stopped_short() => return Err(Because::NotBuiltYet(OVERPRINT_MODE_ONE)),
+        Some(s)
+            if !s
                 .process_cmyk_overprints()
                 .iter()
-                .all(|mark| zeroed_with_the_icc_marks(s, mark))
-    }) {
-        return Err(Because::NotBuiltYet(OVERPRINT_MODE_ONE));
-    }
+                .all(|mark| zeroed_with_the_icc_marks(s, mark)) =>
+        {
+            zero_modes
+                .then(|| super::overprint::under_a_default(document, s))
+                .flatten()
+                .ok_or(Because::NotBuiltYet(OVERPRINT_MODE_ONE))?
+        }
+        _ => super::overprint::OverprintModes::default(),
+    };
     let missing = Because::NotBuiltYet(NO_SPARE_OBJECT);
     let stream = spare.take(document).ok_or(missing)?;
     let at = spare.take(document).ok_or(missing)?;
@@ -341,5 +362,6 @@ pub(super) fn prepare(
             ),
             (at, icc_based),
         ],
+        modes,
     })
 }

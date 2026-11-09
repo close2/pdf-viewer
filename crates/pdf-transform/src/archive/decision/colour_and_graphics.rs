@@ -575,7 +575,9 @@ pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[
         Conditional::PerDocument(Losses::one(Loss::OverprintMode)),
     ),
     // ISO 19005-4 section 6.2.4.3's `DeviceCMYK` row: a conversion states the press the operator
-    // supplied at no cost, and the one this program ships as the loss `press-assumed`.
+    // supplied at no cost, and the one this program ships as the loss `press-assumed`. The
+    // `overprint-mode` this row can carry beside it is not listed: a `discard` here would then
+    // authorise it, and the loss is the overprint row's to authorise (`doc/adr/2749`).
     (
         CMYK_UNDER_PART_FOUR,
         Conditional::PerDocument(Losses::one(Loss::PressAssumed)),
@@ -1012,6 +1014,11 @@ pub(super) fn cmyk_answer_under_part_two(prepared: &Prepared) -> Decision {
 /// shipped profile is an authorised loss. Without that authorisation the default is the profile
 /// of this renderer's own assumed inks, which states what the window drew and is a statement
 /// (`doc/adr/2747`).
+///
+/// **Overprint mode 1 written 0 beside the default is [`Loss::OverprintMode`]** whichever press
+/// it is (`doc/adr/2749`): the mode is the producer's instruction to a CMYK device (ISO 32000-2
+/// §8.6.7), so the decision carries that loss beside the press's own, the inks' restatement
+/// becoming a decision that loses it.
 pub(super) fn cmyk_answer_under_part_four(
     prepared: &Prepared,
     authorised: Authorisations,
@@ -1021,11 +1028,19 @@ pub(super) fn cmyk_answer_under_part_four(
             rewrite: Rewrite::OutputIntent,
             reinterprets: output_intent_sentence(intent, OUTPUT_INTENT_REINTERPRETS),
         },
-        (Ok(_), Ok(supplied)) if supplied.press.is_assumed() => losing(
-            Losses::one(Loss::PressAssumed),
-            Rewrite::SuppliedDefaultCmyk,
-            authorised,
-        ),
+        (Ok(_), Ok(supplied)) if supplied.press.is_assumed() || !supplied.modes.costs_nothing() => {
+            let assumed = if supplied.press.is_assumed() {
+                Losses::one(Loss::PressAssumed)
+            } else {
+                Losses::default()
+            };
+            let losses = if supplied.modes.costs_nothing() {
+                assumed
+            } else {
+                assumed.with(Loss::OverprintMode)
+            };
+            losing(losses, Rewrite::SuppliedDefaultCmyk, authorised)
+        }
         (Ok(_), Ok(supplied)) => Decision::Stated {
             rewrite: Rewrite::SuppliedDefaultCmyk,
             reinterprets: match supplied.press {

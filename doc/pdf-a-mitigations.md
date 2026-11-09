@@ -740,8 +740,12 @@ ISO 19005-2 6.2.4.3, ISO 19005-4 6.2.4.3 · all six · today **built**: the outp
   every other profile), the profile of this reader's own assumed inks
   (`data/icc/quorra-assumed-inks.icc`) is written as that `/DefaultCMYK`: a statement and no loss,
   because §8.6.5.6 hands the values to a profile whose `A2B` samples the inks the window drew them
-  through, within one level of 255 on a fill. A configured press does not replace it. Both routes
-  keep ADR 2518's refusal where a `DeviceCMYK` mark overprints under mode 1 (section 6.2.4.2).
+  through, within one level of 255 on a fill. A configured press does not replace it. Where a
+  `DeviceCMYK` mark overprints under mode 1, which the default would make an `ICCBased` mark the
+  mode is forbidden for (section 6.2.4.2), both routes write the governing states `/OPM 0` under a
+  profile that accepts ADR 1978's `overprint-mode` (both shipped ones), the loss named in the
+  report and the file's history, and keep ADR 2518's refusal elsewhere and where the mark is
+  blended in four components (ADR 2750).
 - **The operator's press, named once** (A784, ADRs 2704 and 2705) — `[profile] press =
   "<file.icc>"` in an operator's configuration, a relative path taken from that file's directory,
   stands in for GRACoL wherever `press-assumed` is taken: the intent ADR 2701 writes and the

@@ -1,8 +1,8 @@
 # 2749 — Overprint mode 1 under a `DeviceCMYK` mark is ADR 1978's named loss where a `/DefaultCMYK` is written, and not a restatement
 
 Session 1968, a single archive round.
-Status: **accepted, not built**. It decides the construction for R05's last nine documents of
-`doc/pdfa-blocking-issues.md`; the next round on R05 builds it.
+Status: **accepted, built by ADR 2750**. It decides the construction for R05's last nine documents
+of `doc/pdfa-blocking-issues.md`.
 Context: ADRs 1978, 2518, 2541, 2693, 2747.
 Clauses: ISO 32000-2 §8.6.5.6, §8.6.5.7, §8.6.7, §11.7.4.3; ISO 19005-4 sections 6.2.4.2, 6.2.4.3.
 

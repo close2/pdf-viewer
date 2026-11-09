@@ -3357,6 +3357,44 @@ impl Rewriter<'_> {
     /// `doc/pdf-a-mitigations.md` section 13.3's rewrites, each at the objects its own
     /// preparation found.
     ///
+    /// Overprint mode 1 written 0 at a graphics state, for the overprint row's two rewrites and for
+    /// the `/DefaultCMYK` that would otherwise make its `DeviceCMYK` marks `ICCBased` ones under
+    /// the mode (`doc/adr/1978`, `doc/adr/2750`).
+    fn zero_overprint_modes(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let mut changed = false;
+        // One change under either of its two rewrites, as for the transfer functions: the decision
+        // says what it costs, and the states it reaches are the same (`doc/adr/1978`).
+        for rewrite in [Rewrite::OverprintModeRestated, Rewrite::OverprintModeZeroed] {
+            if self.wants(rewrite)
+                && self
+                    .overprint_modes
+                    .is_some_and(|modes| modes.at.contains(&id))
+            {
+                out.insert(Name::new(&b"OPM"[..]), Object::Integer(0));
+                count(applied, rewrite);
+                changed = true;
+            }
+        }
+        // The states the `/DefaultCMYK` would leave under mode 1 once it makes their `DeviceCMYK`
+        // marks `ICCBased` ones, part of the same decision as the default; a state the overprint
+        // row reaches is not among them, so each is written and counted once (`doc/adr/2750`).
+        if self.wants(Rewrite::SuppliedDefaultCmyk)
+            && self
+                .supplied_cmyk
+                .is_some_and(|supplied| supplied.modes.at.contains(&id))
+        {
+            out.insert(Name::new(&b"OPM"[..]), Object::Integer(0));
+            count(applied, Rewrite::SuppliedDefaultCmyk);
+            changed = true;
+        }
+        changed
+    }
+
     /// One function rather than seven branches in [`Self::rewrite_dictionary`] because they share
     /// exactly one property and it is the one worth naming: every one of them writes a value the
     /// standard states, at objects `super::sites` chose from the validator's findings, and
@@ -3420,19 +3458,7 @@ impl Rewriter<'_> {
             changed = true;
         }
         changed |= self.halftone_and_intent_entries(id, out, applied);
-        // One change under either of its two rewrites, as for the transfer functions above: the
-        // decision says what it costs, and the states it reaches are the same (`doc/adr/1978`).
-        for rewrite in [Rewrite::OverprintModeRestated, Rewrite::OverprintModeZeroed] {
-            if self.wants(rewrite)
-                && self
-                    .overprint_modes
-                    .is_some_and(|modes| modes.at.contains(&id))
-            {
-                out.insert(Name::new(&b"OPM"[..]), Object::Integer(0));
-                count(applied, rewrite);
-                changed = true;
-            }
-        }
+        changed |= self.zero_overprint_modes(id, out, applied);
         changed |= self.collapse_appearance_states(id, out, applied);
         changed |= self.reduce_appearance_dictionary(id, out, applied);
         changed |= self.complete_order(id, out, applied);

@@ -807,6 +807,7 @@ impl Prepared {
                 plan.profile.as_deref(),
                 assumed_press,
                 survey.as_ref(),
+                assumed_press.is_some() && plan.authorised.grants(Loss::OverprintMode),
                 &mut spare,
             ),
             (true, Err(because)) => Err(*because),
@@ -1239,6 +1240,13 @@ impl Prepared {
             .as_ref()
             .filter(|_| wanted(Rewrite::OverprintModeRestated))
             .and_then(|survey| super::overprint::zeroed_history(document, survey, input));
+        // The states the `/DefaultCMYK` needs set to 0 are named the same way, in an entry of their
+        // own; the default is already a condition of the record, so the entry goes with it
+        // (`doc/adr/2749`).
+        let default_overprint_history = supplied_cmyk
+            .as_ref()
+            .ok()
+            .and_then(|supplied| super::overprint::default_history(&supplied.modes));
         // Each run written as a number is named in the same history, a condition of the rewrite
         // as smoothing's entry is of its own (`doc/adr/2638`).
         let as_drawn_history = as_drawn.as_ref().ok().map(|drawn| {
@@ -1378,6 +1386,7 @@ impl Prepared {
                 smoothing: smoothing_history.as_deref(),
                 halftone_names: halftone_name_history.as_deref(),
                 overprint_modes: overprint_mode_history.as_deref(),
+                default_overprint_modes: default_overprint_history.as_deref(),
                 as_drawn: as_drawn_history.as_deref(),
                 undecodable: undecodable_history.as_deref(),
                 header: header_history.as_deref(),

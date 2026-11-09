@@ -151,6 +151,59 @@ pub(super) fn zeroed_history(
         .failures()
         .find(|judgement| judgement.id == SITE)
         .map_or("", |judgement| judgement.citation.as_str());
+    Some(history(&modes, citation))
+}
+
+/// The graphics states a `/DefaultCMYK` over an ICC profile would leave setting overprint mode 1
+/// for a mark it makes `ICCBased`, apart from those [`zeroing`] already sets to 0 for the file's
+/// own `ICCBased` marks, and the pages of the `DeviceCMYK` marks they govern.
+///
+/// ISO 32000-2 §8.6.5.6 makes every `DeviceCMYK` mark an `ICCBased` one once the default is in
+/// force, and ISO 19005-4 section 6.2.4.2 forbids overprint mode 1 for such a mark painted with
+/// overprinting on; every mark of [`Survey::process_cmyk_overprints`] is one, so each needs the
+/// state that set its mode written 0. The conditions are [`zeroing`]'s for the same reasons: a
+/// state that is an object stating `/OPM`, a content walk no bound stopped, and no governed mark
+/// inside a page or group blending in four components, where this reader composites by the mode
+/// and the window would move (`doc/adr/1978`, `doc/adr/2749`). Every state found governs a
+/// `DeviceCMYK` mark, so the result always costs [`super::Loss::OverprintMode`].
+///
+/// `None` where a state cannot be reached or the window would move, and the mode is kept.
+pub(super) fn under_a_default(document: &Document, survey: &Survey) -> Option<OverprintModes> {
+    if survey.stopped_short() {
+        return None;
+    }
+    let zeroed_for_icc = survey.icc_overprint_mode_sources();
+    let mut out = OverprintModes::default();
+    for mark in survey.process_cmyk_overprints() {
+        if mark.in_four_components {
+            return None;
+        }
+        let id = mark.mode_set_by?;
+        if zeroed_for_icc.contains(&Some(id)) {
+            continue;
+        }
+        let Object::Dictionary(state) = document.get(id) else {
+            return None;
+        };
+        state.get("OPM")?;
+        out.at.insert(id);
+        out.process_pages.insert(mark.page);
+    }
+    Some(out)
+}
+
+/// The citation of the requirement [`under_a_default`] answers: the `/DefaultCMYK` is written at
+/// part 4 only, so the requirement the output would otherwise fail is that part's.
+const DEFAULT_CITATION: &str = "ISO 19005-4 section 6.2.4.2";
+
+/// The `xmpMM:History` parameters recording [`under_a_default`]'s states, in the form
+/// [`zeroed_history`] records the file's own `ICCBased` marks' states; `None` where it found none.
+pub(super) fn default_history(modes: &OverprintModes) -> Option<String> {
+    (!modes.costs_nothing()).then(|| history(modes, DEFAULT_CITATION))
+}
+
+/// The one sentence both histories write: how many states, which, and on which pages.
+fn history(modes: &OverprintModes, citation: &str) -> String {
     let mut out = format!(
         "{citation}: {} graphics state(s) had /OPM 1 written 0, and the DeviceCMYK marks they \
          governed with overprinting on paint their zero components; loss {}",
@@ -186,5 +239,5 @@ pub(super) fn zeroed_history(
             modes.process_pages.len().saturating_sub(MOST_NAMED)
         );
     }
-    Some(out)
+    out
 }

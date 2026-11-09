@@ -133,7 +133,7 @@ STATUS = {
     "R03-photograph": ("builds only", "built under `as-if-printed`: A694, ADRs 2516, 2618, 2638; left, a page this reader does not draw whole; `as-shown` keeps ADR 2394's gate (A694 item 1)"),
     "R03a-notdef-named": ("builds only", "built: ADRs 2543, 2556, 2602, 2620, 2650"),
     "R04-absent-resource": ("builds only", "built: ADRs 2500, 2522, 2523, 2746; left, a Type 3 font read differently per page and a spacing a later glyph stands on"),
-    "R05-press": ("builds only", "A694 item 2: (a) built, ADR 2518; (b) built, ADR 2747; left, overprint mode 1 on a DeviceCMYK mark, decided as ADR 1978's loss under the two shipped profiles (ADR 2749), not built"),
+    "R05-press": ("builds only", "A694 item 2: (a) built, ADR 2518; (b) built, ADR 2747; (c) built, ADR 2750: overprint mode 1 on a DeviceCMYK mark is ADR 1978's loss under the two shipped profiles; left, a mark blended in four components, ADR 1978's refusal"),
     "R06b-the-other-part": ("built", "ADR 2498: the two-target request; the figures are what a one-part request refuses; a `%PDF-3.x` source is written at 4 (ADR 2692)"),
     "R07-undecodable-stream": ("builds only", "built: ADR 2689; the `UnknownFilter` files' `%PDF-3.x` header, ADR 2692; left, an ICC profile written as its alternate"),
     "R08-unembedded-font-photograph": ("builds only", "built under `as-if-printed`: A694, ADR 2516; `as-shown` keeps its stop (A694 item 1)"),
