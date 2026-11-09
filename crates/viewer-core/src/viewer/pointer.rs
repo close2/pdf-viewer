@@ -78,7 +78,6 @@ impl Viewer {
         // 0424. Asked once here for both arms below, which is also what a drag over a widget
         // costs least.
         let position = on_page.and_then(|(page, point)| self.focused()?.position_at(page, point));
-        let runner = !matches!(self.scripting, crate::Scripting::Off);
         let Some(open) = self.focused_mut() else {
             return;
         };
@@ -291,8 +290,9 @@ impl Viewer {
                 // (XFA 3.3 page 392), wherever the press went down and whether or not the press
                 // selected, so it is not `/U`'s, which §12.6.3 ties to a press within the same
                 // annotation. It runs before the `/U` it may precede, as the release comes before
-                // the click it completes (ADR 2627).
-                if runner && let Some(widget) = over {
+                // the click it completes (ADR 2627). It is raised at every level, since an event
+                // may state a `submit` in a script's place (ADR 2767).
+                if let Some(widget) = over {
                     form_pointer(open, widget, FormPointer::Up);
                 }
                 let entered = open.inside;
@@ -401,13 +401,15 @@ impl Viewer {
             {
                 commit_typed(id, open, &field, events);
             }
-            if runner && matches!(event, Trigger::Blur | Trigger::Focus) {
+            // A hybrid form's events are raised at every level: where no script runs, what of
+            // them is not a script is still carried out (ADR 2767).
+            if matches!(event, Trigger::Blur | Trigger::Focus) {
                 form_focus(open, event, (left, reached), blurred_by);
             }
-            if runner && event == Trigger::Down {
+            if event == Trigger::Down {
                 form_pointer(open, annotation, FormPointer::Down);
             }
-            if runner && event == Trigger::Up {
+            if event == Trigger::Up {
                 form_pointer(open, annotation, FormPointer::Click);
             }
             let scripted = match event {
@@ -455,8 +457,8 @@ impl Viewer {
 /// `exit` script reads the person's entry, and at the `/Fo`, each before the widget's own
 /// scripts; on a radio button's widget, those of the exclusion group's field its on value names
 /// (ADR 2698). `blurred_by` is how the focus left, which the `exit` events read as
-/// `$event.commitKey` (page 402; ADR 2726). A document with no XFA form, and a view state with no
-/// runner, run nothing.
+/// `$event.commitKey` (page 402; ADR 2726). A document with no XFA form runs nothing, and a view
+/// state with no runner runs no script and carries out what of the events is not one (ADR 2767).
 fn form_focus(
     open: &mut Open,
     event: Trigger,
@@ -520,8 +522,9 @@ enum FormPointer {
 
 /// A hybrid form's pointer events on the field whose widget is `widget`, each before the widget's
 /// own scripts, as the focus events run (ADRs 2584, 2627); on a radio button's widget, the events
-/// of the exclusion group's field its on value names (ADR 2698). A document with no XFA form, a view
-/// state with no runner, and an annotation that is no field's widget run nothing.
+/// of the exclusion group's field its on value names (ADR 2698). A document with no XFA form and an
+/// annotation that is no field's widget run nothing; a view state with no runner runs no script and
+/// holds the `submit` an event states in a script's place (ADR 2767).
 fn form_pointer(open: &mut Open, widget: ObjectId, event: FormPointer) {
     if !is_widget(&open.document, widget) {
         return;

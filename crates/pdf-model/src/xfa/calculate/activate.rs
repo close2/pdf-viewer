@@ -82,6 +82,12 @@
 //! ended by [`Limits`], the means of terminating a seemingly infinite loop that page 380
 //! recommends a processor have.
 //!
+//! **Where no script runs** ([`Resource::activate_unscripted`]; ADR 2767): an event, a
+//! calculation and a `validate` script are scripts, and a window whose reader has turned scripts
+//! off runs none of them; a `submit` in an event's place (page 703) and the format test (page
+//! 382) are not, so the same stimuli raise the same events and the same tests, and what is not a
+//! script is carried out.
+//!
 //! **The end.** An activation that exhausts a limit changes nothing: every value it calculated
 //! is dropped and the report says so, as a script run that did not finish changes nothing in
 //! `pdf-script` (ADR 1603 section 3; ADR 2507 decides the limits). The work list is a set taken smallest first and the loop is
@@ -716,6 +722,45 @@ impl Resource {
         limits: Limits,
         kept: &mut Validity,
     ) -> Activation {
+        self.activate_with(fields, stimulus, keys, Some(runner), limits, kept)
+    }
+
+    /// [`Self::activate_held`] where no script runs — a window whose reader has turned scripts
+    /// off (ADR 1616) — carrying out what of the form is not a script (ADR 2767).
+    ///
+    /// Page 703 gives an `event` a `submit` in place of a `script`, and a `submit` is the
+    /// submit-form action the template states (pages 445 and 858; ADR 2738), so the stimulus
+    /// raises the events it raises where scripts run, and each `submit` among them is held for
+    /// the host as a [`FormSubmit`] while each script is passed over unrun and unsaid: the
+    /// window's level has said already that the form's scripts do not run. The calculations and
+    /// the script tests are scripts and do not run either. The format test is a picture clause
+    /// (page 382), so it runs where it runs with scripts: at an entry over what changed, and at
+    /// the merge over every field, page 382's "\[w]hen an XFA-processing application initializes
+    /// a form, it executes all validation tests specified for the form"; each verdict is kept,
+    /// and a change of state raises the `validationState` events as anywhere else, of which only
+    /// what is not a script is carried out.
+    #[must_use]
+    pub fn activate_unscripted(
+        &self,
+        fields: &[(String, Change)],
+        stimulus: Stimulus<'_>,
+        keys: Option<Keys>,
+        limits: Limits,
+        kept: &mut Validity,
+    ) -> Activation {
+        self.activate_with(fields, stimulus, keys, None, limits, kept)
+    }
+
+    /// [`Self::activate_held`] through `runner`, or with no script run where it is `None`.
+    fn activate_with(
+        &self,
+        fields: &[(String, Change)],
+        stimulus: Stimulus<'_>,
+        keys: Option<Keys>,
+        runner: Option<&mut dyn Runner>,
+        limits: Limits,
+        kept: &mut Validity,
+    ) -> Activation {
         let before = kept.clone();
         let mut form = self.form(fields);
         form.limit_text(limits.bytes);
@@ -1028,7 +1073,9 @@ enum Seeds<'a> {
 struct Session<'f, 'a, 'r> {
     form: &'f mut Form<'a>,
     template: &'a Template,
-    runner: &'r mut dyn Runner,
+    /// What runs the form's scripts; `None` where none runs ([`Resource::activate_unscripted`]),
+    /// which passes every script over unrun.
+    runner: Option<&'r mut dyn Runner>,
     calculations: Vec<Calculation>,
     /// What each calculation (by position) named at its last run.
     named: Vec<BTreeSet<usize>>,
@@ -1082,7 +1129,7 @@ struct Session<'f, 'a, 'r> {
 impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
     fn new(
         form: &'f mut Form<'a>,
-        runner: &'r mut dyn Runner,
+        runner: Option<&'r mut dyn Runner>,
         limits: Limits,
         template: &'a Template,
     ) -> Self {
@@ -1124,6 +1171,11 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             origin: Origin::Other,
             submits: Vec::new(),
         }
+    }
+
+    /// Whether the form's scripts run: not where no runner was supplied.
+    fn scripted(&self) -> bool {
+        self.runner.is_some()
     }
 
     /// The container of the choice list `field` (page 392), or `None`, said, where the form's
@@ -1531,7 +1583,10 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             Some(form) => form,
             None => &mut *self.form,
         };
-        let ran = self.runner.run(form, node, language, script, handed);
+        let Some(runner) = self.runner.as_deref_mut() else {
+            return Err("no script runs where the reader has turned scripts off".to_owned());
+        };
+        let ran = runner.run(form, node, language, script, handed);
         if form.take_text_exhausted() {
             self.ended.get_or_insert("bytes");
         }
@@ -1745,6 +1800,7 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
                 continue;
             };
             let script = match performs {
+                Performs::Script(_) if !self.scripted() => continue,
                 Performs::Script(script) => script,
                 other => {
                     if heard {
@@ -1815,6 +1871,10 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
     /// for ([`Self::hooks`]), which never runs (pages 404 and 707). [`Self::say`] keeps a sentence
     /// once and caps the report.
     fn unfollowed(&mut self) {
+        // Where no script runs, the level has said already that the events do not run.
+        if !self.scripted() {
+            return;
+        }
         self.hooks();
         for sentence in std::mem::take(&mut self.unbound) {
             self.say(sentence);
@@ -2026,7 +2086,8 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
 
     /// Runs the work list from `seeds` until nothing is left to run or a limit ends it.
     fn settle(&mut self, seeds: Seeds<'_>) {
-        if self.ended.is_some() {
+        // A calculation is a script (page 379), and none runs where no runner was supplied.
+        if self.ended.is_some() || !self.scripted() {
             return;
         }
         let mut wanted: BTreeSet<usize> = BTreeSet::new();
@@ -2205,7 +2266,7 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
         &mut self,
         changed: Option<&BTreeSet<usize>>,
     ) -> (Vec<Invalid>, Vec<(usize, bool)>) {
-        if changed.is_some_and(BTreeSet::is_empty) {
+        if !self.scripted() || changed.is_some_and(BTreeSet::is_empty) {
             return (Vec::new(), Vec::new());
         }
         let tests: Vec<(usize, Script, Level, Option<String>)> =

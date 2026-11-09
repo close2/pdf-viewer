@@ -637,9 +637,8 @@ impl Viewer {
             Command::Find(find) => self.find(find, events),
             Command::Focused(move_to) => self.move_focus(move_to, events),
             Command::CommitField { field, by } => {
-                let runner = !matches!(self.scripting, crate::Scripting::Off);
                 if let (Some(id), Some(open)) = (self.focused, self.focused_mut()) {
-                    form_selection(id, open, &field, by, runner, events);
+                    form_selection(id, open, &field, by, events);
                 }
             }
             Command::CancelField { field } => self.cancel_field(&field, events),

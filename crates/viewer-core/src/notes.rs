@@ -349,8 +349,10 @@ pub(crate) fn what_a_print_does_not_do(document: &Document) -> Vec<String> {
 /// names each field it cannot keep where it saves (ADRs 2396, 2414); it writes the data through
 /// the form's own pictures and runs its format tests and, where the form asks for its validations
 /// before a save, its null and datatype tests (ADRs 2434, 2450, 2474); a submit runs those and the
-/// format test, naming each failure on the submission (ADR 2475); an entry is put to its field's
-/// format test as it is made, at every level, since the test is no script (ADR 2727). A reader
+/// format test, naming each failure on the submission (ADR 2475); the form is put to its format
+/// tests when it is shown and an entry to its field's as it is made, and the `submit` an event
+/// states in a script's place is made, at every level, since neither is a script (ADRs 2727,
+/// 2767). A reader
 /// whose level lets scripts run also carries out the form's calculations, its validation scripts
 /// and the events its containers raise when it is shown, at a person's entry, focus, click and
 /// pointer, at a choice list's selection, at a save and a submit and at a change of validation
@@ -371,15 +373,17 @@ fn xfa_form(document: &Document, notes: &mut Vec<String>) {
                           resource, and saving it keeps the form's XFA data consistent with what \
                           was filled, in the form's own data formats, naming any field it \
                           cannot and any field the form's validations find empty or of the wrong \
-                          type, and submitting it names the same; an entry the form's format \
-                          test refuses is said as it is made — what only the XFA resource \
-                          states beyond that is not carried out, its calculations, its validation \
-                          scripts and the events a person's actions, the form's opening, a save, \
-                          a submit and a change of validation state raise, in FormCalc and \
-                          JavaScript, and the submits those events state as a PDF, XFDF or \
-                          URL-encoded body, excepted where this reader lets scripts run, a save \
-                          those scripts decline being written or not at the level set for it, \
-                          and its other events and packagings are not"
+                          type, and submitting it names the same; a value the form's format \
+                          test refuses is said when the form is shown and an entry it refuses \
+                          as it is made, and a submit the form's events state as a PDF, XFDF or \
+                          URL-encoded body is made at every level, since neither is a script — \
+                          what only the XFA resource states beyond that is not carried out, its \
+                          calculations, its validation scripts and the scripts of the events a \
+                          person's actions, the form's opening, a save, a submit and a change of \
+                          validation state raise, in FormCalc and JavaScript, excepted where \
+                          this reader lets scripts run, a save those scripts decline being \
+                          written or not at the level set for it, and its other events and \
+                          packagings are not"
             .to_owned(),
         (true, true) => format!(
             "this document is an XFA form that asks to be regenerated when it is opened \
@@ -3872,7 +3876,8 @@ mod tests {
             hybrid.contains("carries an XFA form (Annex K)")
                 && hybrid.contains("its AcroForm")
                 && hybrid.contains("keeps the form's XFA data consistent")
-                && hybrid.contains("an entry the form's format test refuses is said")
+                && hybrid.contains("an entry it refuses")
+                && hybrid.contains("is made at every level")
                 && !hybrid.contains("§K.1"),
             "{hybrid}"
         );

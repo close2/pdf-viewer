@@ -56,6 +56,12 @@ fn hybrid(fields: &str, data: &str) -> Vec<u8> {
 
 /// [`hybrid`], with a widget for each field `named`, in that order down the page.
 fn hybrid_of(fields: &str, data: &str, named: &[&str]) -> Vec<u8> {
+    let empty: Vec<(&str, &str)> = named.iter().map(|name| (*name, "")).collect();
+    hybrid_valued(fields, data, &empty)
+}
+
+/// [`hybrid_of`], each widget's field holding the `/V` given beside its name.
+fn hybrid_valued(fields: &str, data: &str, named: &[(&str, &str)]) -> Vec<u8> {
     let stream = |text: &str| {
         format!(
             "<< /Length {} >>\nstream\n{text}\nendstream",
@@ -70,10 +76,10 @@ fn hybrid_of(fields: &str, data: &str, named: &[&str]) -> Vec<u8> {
         "<xfa:datasets xmlns:xfa=\"http://www.xfa.org/schema/xfa-data/1.0/\">\
          <xfa:data><form1>{data}</form1></xfa:data></xfa:datasets>"
     );
-    let widget = |name: &str, y: u32| {
+    let widget = |(name, v): (&str, &str), y: u32| {
         format!(
             "<< /Type /Annot /Subtype /Widget /FT /Tx /Parent 4 0 R /T ({name}[0]) /P 3 0 R \
-             /V () /Rect [20 {y} 220 {}] /F 4 /DA (/Helv 12 Tf 0 g) >>",
+             /V ({v}) /Rect [20 {y} 220 {}] /F 4 /DA (/Helv 12 Tf 0 g) >>",
             y.saturating_add(20)
         )
     };
@@ -92,8 +98,8 @@ fn hybrid_of(fields: &str, data: &str, named: &[&str]) -> Vec<u8> {
         stream(&datasets),
     ];
     let mut y = 300_u32;
-    for name in named {
-        bodies.push(widget(name, y));
+    for &field in named {
+        bodies.push(widget(field, y));
         y = y.saturating_sub(40);
     }
     let mut out = String::from("%PDF-1.7\n");
@@ -687,8 +693,9 @@ fn clicked(viewer: &mut Viewer, at: (f32, f32)) -> Vec<Event> {
 /// the host the submission the `submit`'s `format` names — `pdf`, Table 240 bit 9's whole document
 /// — to its `target`, by POST, after the form's `preSubmit` events have run (page 446's step 2), so
 /// that what they set is in it (ADR 2738). It is a submit-form action's `Event::Submit`, under the
-/// host's submit level. At `off` the window activates nothing of the form (ADR 1616), and nothing
-/// is sent.
+/// host's submit level. Page 703 gives the event the `submit` in place of a `script`, so it is no
+/// script, and at `off`, where no script runs (ADR 1616), the click still hands the host the same
+/// submission, while the `preSubmit` script, which is one, leaves `Total` empty (ADR 2767).
 #[test]
 fn a_click_on_a_field_whose_event_submits_hands_the_host_the_submission_it_names() {
     let fields = "<field name=\"Units\"><ui><button/></ui><value><text/></value>\
@@ -698,9 +705,9 @@ fn a_click_on_a_field_whose_event_submits_hands_the_host_the_submission_it_names
                   <event activity=\"preSubmit\" ref=\"$form\"><script>7</script></event></field>";
     let data = "<Units/><Total/>";
     let units = (120.0, 310.0);
-    for (scripting, sent) in [
-        (Scripting::Run(Arc::new(Calculators::default())), true),
-        (Scripting::Off, false),
+    for (scripting, pre_submit) in [
+        (Scripting::Run(Arc::new(Calculators::default())), "7"),
+        (Scripting::Off, ""),
     ] {
         let mut viewer = opened_on(scripting, hybrid(fields, data));
         viewer.handle(Command::Presented).for_each(drop);
@@ -712,11 +719,6 @@ fn a_click_on_a_field_whose_event_submits_hands_the_host_the_submission_it_names
                 _ => None,
             })
             .collect();
-        if !sent {
-            assert!(submissions.is_empty(), "{submissions:?}");
-            assert_eq!(value(&viewer, "Total"), "");
-            continue;
-        }
         let [submission] = submissions.as_slice() else {
             panic!("one submission: {events:?}");
         };
@@ -726,10 +728,76 @@ fn a_click_on_a_field_whose_event_submits_hands_the_host_the_submission_it_names
         assert!(submission.body.starts_with(b"%PDF-"));
         assert_eq!(
             value(&viewer, "Total"),
-            "7",
-            "the preSubmit event ran first"
+            pre_submit,
+            "the preSubmit script ran first where scripts run, and not at off"
         );
     }
+}
+
+/// XFA 3.3 page 382: "\[w]hen an XFA-processing application initializes a form, it executes all
+/// validation tests specified for the form", and the format test is a picture clause, no script, so
+/// a form whose `Code` holds `12` against the picture `AAA-999` is refused when it is presented, at
+/// `off` as at a level that runs scripts, with page 385's `error` message (ADR 2767). Page 396
+/// applies the test to no field holding empty content, so the empty `Note` puts nothing.
+#[test]
+fn the_merge_puts_every_field_to_its_format_test_at_every_level() {
+    let bytes = || {
+        hybrid_valued(
+            "<field name=\"Code\"><ui><textEdit/></ui><value><text/></value>\
+             <validate formatTest=\"error\"><picture>AAA-999</picture></validate></field>\
+             <field name=\"Note\"><ui><textEdit/></ui><value><text/></value>\
+             <validate formatTest=\"error\"><picture>AAA-999</picture></validate></field>",
+            "<Code>12</Code><Note/>",
+            &[("Code", "12"), ("Note", "")],
+        )
+    };
+    for (level, scripting) in [
+        ("off", Scripting::Off),
+        ("run", Scripting::Run(Arc::new(Calculators::default()))),
+    ] {
+        let mut viewer = opened_on(scripting, bytes());
+        let events: Vec<Event> = viewer.handle(Command::Presented).collect();
+        let put = notices(&events);
+        assert_eq!(put.len(), 1, "{level}: {events:?}");
+        let ScriptQuestion::Alert { message, icon, .. } = &put[0] else {
+            panic!("a validation message is an alert");
+        };
+        assert_eq!(
+            message,
+            "form1[0].Code[0]: the form does not accept this value, which does not conform to \
+             its input mask."
+        );
+        assert_eq!(*icon, AlertIcon::Error);
+        assert_eq!(value(&viewer, "Code"), "12", "the value stands (page 383)");
+    }
+}
+
+/// XFA 3.3 page 703: an `event` holds a `script` or a `submit`, and at `off` only the second is
+/// carried out. A field's `mouseUp` that submits in page 858's `urlencoded` packaging hands the host
+/// its submission where no script runs, and the click script beside it changes nothing (ADR 2767).
+#[test]
+fn at_off_an_event_s_submit_is_carried_out_and_its_neighbour_s_script_is_not() {
+    let fields = "<field name=\"Units\"><ui><button/></ui><value><text/></value>\
+                  <event activity=\"mouseUp\"><submit format=\"urlencoded\" \
+                  target=\"https://example.invalid/form\"/></event>\
+                  <event activity=\"click\"><script>Total = 3</script></event></field>\
+                  <field name=\"Total\"><ui><textEdit/></ui><value><text/></value></field>";
+    let mut viewer = opened_on(Scripting::Off, hybrid(fields, "<Units/><Total/>"));
+    viewer.handle(Command::Presented).for_each(drop);
+    let events = clicked(&mut viewer, (120.0, 310.0));
+    let submissions: Vec<_> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Submit { submission, .. } => Some(submission),
+            _ => None,
+        })
+        .collect();
+    let [submission] = submissions.as_slice() else {
+        panic!("one submission: {events:?}");
+    };
+    assert_eq!(submission.url, "https://example.invalid/form");
+    assert_eq!(submission.format, pdf_model::submission::Format::HtmlForm);
+    assert_eq!(value(&viewer, "Total"), "", "the click script did not run");
 }
 
 /// XFA 3.3 page 392: a `mouseDown` fires when the button is pressed within the field's region and a

@@ -230,9 +230,11 @@ impl ViewState {
     /// Activates the calculations of the document's XFA form for the completion of its merge, in
     /// page 379's order, through the runner a host supplied (XFA 3.3 pages 379 and 407).
     ///
-    /// A document with no XFA form, a view state with no runner, and a form that is a dynamic one
-    /// run nothing; the last says so in [`Self::script_reports`]. Answers whether a value changed,
-    /// which is ink to draw again.
+    /// A document with no XFA form and a form that is a dynamic one run nothing; the last says so
+    /// in [`Self::script_reports`] where a runner is supplied. A view state with no runner runs no
+    /// script, and carries out what of the merge is not one: every field's format test, page
+    /// 382's initialization, and the `submit` of any event it raises (ADR 2767). Answers whether a
+    /// value changed, which is ink to draw again.
     ///
     /// **A person's entry made before the merge stands.** A runner that arrives late — a reader at
     /// `ask` who answers after typing — finds values a person entered, and a merge that wrote the
@@ -264,7 +266,7 @@ impl ViewState {
     /// event reads as `$event.prevText` (page 400).
     ///
     /// The entered field is put to its format test (pages 382 and 396) whether or not a runner
-    /// is supplied, since the test is no script (ADR 2727).
+    /// is supplied, since the test is no script (ADRs 2727, 2767).
     pub fn activate_form_on_entry(
         &mut self,
         document: &Document,
@@ -412,7 +414,9 @@ impl ViewState {
     /// ([`crate::form::button_on_value`]) and names the group's field the click was within (ADR 2698);
     /// the four pointer methods after this one take it alike. The events are one activation under the
     /// sequence budget of one second, and one that is stopped drops what its scripts changed and
-    /// leaves every value a person entered as it was.
+    /// leaves every value a person entered as it was. With no runner supplied no script runs, and a
+    /// `submit` in an event's place (page 703) is still held for the host ([`Self::take_form_submits`],
+    /// ADR 2767): it is the submit-form action the template states, under the host's submit level.
     pub fn activate_form_on_click(
         &mut self,
         document: &Document,
@@ -708,21 +712,17 @@ impl ViewState {
         raised: Raised<'_>,
         started: Instant,
     ) -> FormAction {
-        let Some(runner) = self.runner.0.clone() else {
-            if let Raised::Entry { name, .. } = raised {
-                self.format_test_unscripted(document, name);
-            }
-            return FormAction::default();
-        };
+        let runner = self.runner.0.clone();
         let resource = match self.held_form(document).clone() {
             Held::Resource(resource) => resource,
-            Held::Refused(why) => {
+            // Where no script runs, the level has said what of the form does not run.
+            Held::Refused(why) if runner.is_some() => {
                 if matches!(raised, Raised::Merge) {
                     self.report(format!("the XFA form's calculations are not run: {why}"));
                 }
                 return FormAction::default();
             }
-            Held::Nothing => return FormAction::default(),
+            Held::Refused(_) | Held::Nothing => return FormAction::default(),
         };
         // The pointer crosses widgets on nearly every movement, and a form with no event of the
         // crossing has nothing to run, so it is not given a whole activation of the form.
@@ -763,24 +763,12 @@ impl ViewState {
                 .collect(),
             _ => Vec::new(),
         };
-        let mut through = ThroughRunner::new(runner.as_ref(), started);
-        let activation = resource.activate_held(
-            &fields,
-            stimulus,
-            Some(self.scripting.keys),
-            &mut through,
-            Limits::DEFAULT,
-            &mut self.scripting.form_validity,
-        );
-        if through.ran > 0
-            && let Some(note) = runner.form_runs_note()
-        {
-            self.report(format!("the XFA form: {note}"));
-        }
+        let (activation, timed_out) =
+            self.activation(&resource, &fields, stimulus, runner.as_ref(), started);
         for sentence in &activation.report {
             self.report(format!("the XFA form: {sentence}"));
         }
-        if through.timed_out {
+        if timed_out {
             self.report(format!(
                 "the XFA form's scripts were stopped: they ran longer than their budget of \
                  {} ms, and the values they had calculated were dropped (ADR 2525)",
@@ -813,25 +801,40 @@ impl ViewState {
         }
     }
 
-    /// Page 382's format test of the field `name`, which a person just committed a value to, where
-    /// no runner runs the form's scripts: the test is no script, and page 396 re-evaluates it when
-    /// content changes (ADR 2727). Its failure is held for the host as a script test's is, and its
-    /// verdict kept for the validation state the next activation compares against.
-    fn format_test_unscripted(&mut self, document: &Document, name: &str) {
-        let Held::Resource(resource) = self.held_form(document).clone() else {
-            return;
+    /// Activates `stimulus` over `resource` through `runner`, or, where none is supplied, raising
+    /// the same events and carrying out what of them is not a script — a `submit` (page 703) — with
+    /// the format test (ADR 2767). Answers the activation and whether the sequence clock stopped it,
+    /// and says the runner's own note where a script ran.
+    fn activation(
+        &mut self,
+        resource: &Resource,
+        fields: &[(String, Change)],
+        stimulus: Stimulus<'_>,
+        runner: Option<&Arc<dyn ScriptRunner>>,
+        started: Instant,
+    ) -> (crate::xfa::Activation, bool) {
+        let keys = Some(self.scripting.keys);
+        let validity = &mut self.scripting.form_validity;
+        let Some(runner) = runner else {
+            let activation =
+                resource.activate_unscripted(fields, stimulus, keys, Limits::DEFAULT, validity);
+            return (activation, false);
         };
-        let table = crate::view::field_table(document, crate::view::Omitted::Calculation);
-        let fields = self.form_fields(document, &table);
-        let (failed, sentences) = resource.format_tests(
-            &fields,
-            &[name.to_owned()],
-            &mut self.scripting.form_validity,
+        let mut through = ThroughRunner::new(runner.as_ref(), started);
+        let activation = resource.activate_held(
+            fields,
+            stimulus,
+            keys,
+            &mut through,
+            Limits::DEFAULT,
+            validity,
         );
-        for sentence in sentences {
-            self.report(format!("the XFA form: {sentence}"));
+        if through.ran > 0
+            && let Some(note) = runner.form_runs_note()
+        {
+            self.report(format!("the XFA form: {note}"));
         }
-        self.hold_for_host(Vec::new(), failed);
+        (activation, through.timed_out)
     }
 
     /// Holds the `submit`s an activation performed for the host, at most

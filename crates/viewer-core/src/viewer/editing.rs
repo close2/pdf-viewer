@@ -931,13 +931,11 @@ pub(super) fn form_selection(
     open: &mut Open,
     field: &str,
     by: crate::command::Committing,
-    runner: bool,
     events: &mut Vec<Event>,
 ) {
-    let held = runner
-        && open.focus.is_some_and(|widget| {
-            field_of_widget(&open.document, widget).as_deref() == Some(field)
-        });
+    let held = open
+        .focus
+        .is_some_and(|widget| field_of_widget(&open.document, widget).as_deref() == Some(field));
     if held
         && open
             .view

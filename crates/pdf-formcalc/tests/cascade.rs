@@ -3615,3 +3615,110 @@ fn a_change_reads_the_whole_text_and_whether_an_arrow_made_it() {
         clicked.report
     );
 }
+
+/// Activates `stimulus` over a form of `template` holding `values` where no script runs, as a
+/// window whose reader has turned scripts off activates it (ADR 2767).
+fn unscripted(template: &str, values: &[(&str, &str)], stimulus: Stimulus<'_>) -> Activation {
+    let document = document(template, values);
+    let resource = Resource::read(&document).unwrap().unwrap();
+    resource.activate_unscripted(
+        &fields(values),
+        stimulus,
+        None,
+        Limits::DEFAULT,
+        &mut Validity::default(),
+    )
+}
+
+/// XFA 3.3 page 703: an `event` holds one of `script`, `submit`, `execute`, `signData` and
+/// `encryptData`, so a `submit` is no script, and pages 858–859 make it the POST of the body its
+/// `format` names. Where no script runs the click still holds the submit for the host, as the same
+/// submit-form action it is where scripts run, and the click script beside it neither runs nor is
+/// said: the window's level has said that the form's scripts do not run (ADR 2767).
+#[test]
+fn where_no_script_runs_a_click_still_holds_its_events_submit() {
+    let template = [
+        sends("<submit format=\"pdf\" target=\"https://example.invalid/form\"/>"),
+        field("Log", ""),
+    ]
+    .concat();
+    let clicked = name("Send");
+    let activation = unscripted(
+        &template,
+        &[("Send", ""), ("Log", "")],
+        Stimulus::Click {
+            clicked: &clicked,
+            button: None,
+        },
+    );
+    assert_eq!(log(&activation), None, "the click script did not run");
+    assert!(activation.report.is_empty(), "{:?}", activation.report);
+    let [submit] = activation.submits.as_slice() else {
+        panic!("one submit is held: {:?}", activation.submits);
+    };
+    assert_eq!(submit.action.url, "https://example.invalid/form");
+    assert_eq!(submit.action.flags.0, bits(&[9, 2]));
+    assert_eq!(submit.clicked, Some((name("Send"), None)));
+    // A submit's own preSubmit still begins no submit inside it (page 446), with or without
+    // scripts.
+    let template = [
+        field(
+            "Send",
+            "<event activity=\"preSubmit\" ref=\"$form\"><submit format=\"pdf\" \
+             target=\"https://example.invalid/\"/></event>",
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    let activation = unscripted(
+        &template,
+        &[("Send", ""), ("Log", "")],
+        Stimulus::PreSubmit {
+            clicked: Some(&clicked),
+            button: None,
+        },
+    );
+    assert!(activation.submits.is_empty());
+    assert!(
+        says(&activation, "would begin a submit inside the one under way"),
+        "{:?}",
+        activation.report
+    );
+}
+
+/// XFA 3.3 page 382: "\[w]hen an XFA-processing application initializes a form, it executes all
+/// validation tests specified for the form", and the format test is the `validate` picture's (page
+/// 382's test 3), no script; page 396 applies it to no field holding null or empty content. So where
+/// no script runs the merge still fails the `Code` holding `12` against `AAA-999`, at the `error`
+/// its `formatTest` names (page 384), leaves the empty `Spare` untested, and runs neither the
+/// calculation nor the `validationState` script beside them (ADR 2767).
+#[test]
+fn where_no_script_runs_the_merge_still_puts_every_field_to_its_format_test() {
+    let spare = coded("formatTest=\"error\"").replace("\"Code\"", "\"Spare\"");
+    let template = [
+        coded("formatTest=\"error\""),
+        spare,
+        field("Log", &calculate("\"calculated\"", "")),
+    ]
+    .concat();
+    let activation = unscripted(
+        &template,
+        &[("Code", "12"), ("Spare", ""), ("Log", "")],
+        Stimulus::Merge,
+    );
+    assert_eq!(activation.ended, Ended::Settled, "{:?}", activation.report);
+    assert_eq!(
+        format_failures(&activation),
+        vec![(
+            name("Code"),
+            Level::Error,
+            Some("Three letters and three digits.".to_owned())
+        )]
+    );
+    assert_eq!(
+        log(&activation),
+        None,
+        "no calculation and no event script ran"
+    );
+    assert!(activation.edits.is_empty(), "{:?}", activation.edits);
+}
